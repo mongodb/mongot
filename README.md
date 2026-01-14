@@ -20,7 +20,7 @@ Welcome to MongoDB Search!
 ## Learn MongoDB
 
 - Getting
-  Started - https://www.mongodb.com/docs/manual/administration/install-community/?operating-system=docker&search-docker=with-search-docker
+  Started - https://www.mongodb.com/docs/atlas/atlas-search/tutorial/?deployment-type=self
 - Documentation - https://docs.mongodb.com/manual/
 - Developer Center - https://www.mongodb.com/developer/
 - MongoDB University - https://learn.mongodb.com
