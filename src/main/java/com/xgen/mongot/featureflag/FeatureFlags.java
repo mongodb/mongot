@@ -251,6 +251,7 @@ public class FeatureFlags implements DocumentEncodable {
    *   <li>{@link Feature#NEW_EMBEDDED_SEARCH_CAPABILITIES}
    *   <li>{@link Feature#ACCURATE_NUM_EMBEDDED_ROOT_DOCS_METRIC}
    *   <li>{@link Feature#INDEX_FEATURE_VERSION_FOUR}
+   *   <li>{@link Feature#SORTED_INDEX}
    * </ul>
    *
    * @return a FeatureFlags with query features enabled
@@ -261,6 +262,7 @@ public class FeatureFlags implements DocumentEncodable {
         .enable(Feature.NEW_EMBEDDED_SEARCH_CAPABILITIES)
         .enable(Feature.ACCURATE_NUM_EMBEDDED_ROOT_DOCS_METRIC)
         .enable(Feature.INDEX_FEATURE_VERSION_FOUR)
+        .enable(Feature.SORTED_INDEX)
         .build();
   }
 }
