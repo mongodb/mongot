@@ -26,9 +26,9 @@ _AWS_CRT_ARTIFACTS = (
 )
 
 _BOUNCY_CASTLE_ARTIFACTS = [
-    "org.bouncycastle:bc-fips:2.0.0",
-    "org.bouncycastle:bcpkix-fips:2.0.8",
-    "org.bouncycastle:bctls-fips:2.0.19",
+    "org.bouncycastle:bc-fips:2.0.1",
+    "org.bouncycastle:bcpkix-fips:2.0.10",
+    "org.bouncycastle:bctls-fips:2.0.22",
 ]
 
 _AZURE = [
