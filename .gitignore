@@ -28,3 +28,4 @@ evergreen_mongo_artifact
 *.swp
 
 community-quick-start/sampledata.archive
+community-quick-start/mongot-community-local-docker.tar

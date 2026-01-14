@@ -1,0 +1,47 @@
+FROM amazonlinux:2023
+
+RUN yum update -y && \
+    yum install -y \
+    tar \
+    gzip \
+    shadow-utils && \
+    yum clean all
+
+RUN groupadd -r -g 999 mongot && \
+    useradd -r -u 999 -g mongot -s /bin/bash -d /mongot-community mongot
+
+WORKDIR /mongot-community
+
+COPY mongot-community-local-docker.tar /tmp/mongot-community.tar
+
+# Extract the tarball
+# The tarball creates a mongot-community/ directory with all contents
+RUN tar -xf /tmp/mongot-community.tar -C /mongot-community --strip-components=1 && \
+    rm /tmp/mongot-community.tar
+
+RUN chmod +x /mongot-community/mongot
+
+RUN chown -R mongot:mongot /mongot-community
+
+# Create data directory with proper permissions
+# The volume will be mounted here, so we need to ensure the directory exists
+# and the mongot user has the right UID/GID
+RUN mkdir -p /data/mongot && \
+    chown -R mongot:mongot /data/mongot && \
+    chmod -R 755 /data/mongot
+
+VOLUME ["/data/mongot"]
+
+# Switch to mongot user
+USER mongot
+
+# Expose default ports
+# 27028: Query server port
+# 9946: Metrics port
+EXPOSE 27028 9946
+
+ENV JAVA_HOME=/mongot-community/bin/jdk
+
+# Default command: run mongot with the default config
+# Users can override the config by mounting a custom config.default.yml
+CMD ["/mongot-community/mongot", "--config=/mongot-community/config.default.yml"]

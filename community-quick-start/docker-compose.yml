@@ -16,12 +16,47 @@ services:
       - ./sampledata.archive:/sampledata.archive
       - ./init-mongo.sh:/docker-entrypoint-initdb.d/init-mongo.sh:ro
     networks:
-      - search-community
+      search-community:
+        aliases:
+          - mongod.search-community
+
+  # MongoDB Search (mongot) service
+  # Supports two deployment modes:
+  # 1. Default mode: Uses pre-built image from Docker Hub
+  #    Usage: docker compose up -d
+  # 2. Local development mode: Uses locally-built image
+  #    Usage: docker compose --profile local up -d
   mongot:
-    image: mongodb/mongodb-community-search:latest
+    # Default: use the latest pre-built image from Docker Hub
+    image: ${MONGOT_IMAGE:-mongodb/mongodb-community-search:latest}
     container_name: mongot-community
+    profiles:
+      - ""  # Active in default profile (no profile specified)
     networks:
-      - search-community
+      search-community:
+        aliases:
+          - mongot.search-community
+    volumes:
+      - mongot_data:/data/mongot
+      - ./mongot.conf:/mongot-community/config.default.yml
+      - ./pwfile:/mongot-community/pwfile:ro
+    depends_on:
+      - mongod
+    ports:
+      - 27028:27028  # Query server port from config
+      - 9946:9946    # Metrics port from config
+
+  # Local development mode: uses locally-built image
+  # Activate with: docker compose --profile local up -d
+  mongot-local:
+    image: mongot-community-local:latest
+    container_name: mongot-community
+    profiles:
+      - local
+    networks:
+      search-community:
+        aliases:
+          - mongot.search-community
     volumes:
       - mongot_data:/data/mongot
       - ./mongot.conf:/mongot-community/config.default.yml

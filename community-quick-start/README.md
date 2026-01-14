@@ -19,24 +19,23 @@ The steps listed will generate:
 
 ## Setup
 
-*All steps are expected to be ran from the `community-quick-start` directory.*
-
 1. Give read-only access to the password file:
 
+**NOTE**: If you would like to change the password update the `pwfile` and `init-mongo.sh` with
+the new password.
+
 ```shell
-chmod 400 ./pwfile
+chmod 400 ./community-quick-start/pwfile
 ```
 
-**NOTE**: If you would like to change the password update the `pwfile` and `init-mongosh.sh` with
-the new password.
 
 2. Download the sample data:
 
 ```shell
-curl https://atlas-education.s3.amazonaws.com/sampledata.archive -o sampledata.archive
+curl https://atlas-education.s3.amazonaws.com/sampledata.archive -o community-quick-start/sampledata.archive
 ```
 
-3. Create the Docker environment:
+3. Create the Docker network:
 
 ```shell
 docker network create search-community
@@ -44,26 +43,67 @@ docker network create search-community
 
 ## Starting `mongod` and `mongot`
 
-1. Launch `mongod` and `mongot`:
+MongoDB Community Search supports two build modes:
+
+### Local Mode (Default)
+Builds `mongot` from your local source code. This is useful for development and testing local changes.
 
 ```shell
-docker compose up -d
+make docker.up
+# or explicitly:
+make docker.up MODE=local
 ```
 
-2. Wait for both servers to fully initialize:
+The script will automatically:
+- Detect your platform (ARM64 for Apple Silicon, AMD64 for Intel/AMD)
+- Build the mongot tarball using Bazel
+- Create a Docker image with your local build
+- Start both `mongod` and `mongot` containers
+
+### Latest Mode
+Uses the pre-built `mongot` image from Docker Hub. This is faster and doesn't require building from source.
 
 ```shell
-docker compose logs -f
+make docker.up MODE=latest
 ```
 
-The initialization is complete when the logs return `mongod startup complete`.
+### Stopping Services
+
+To stop all running containers:
+
+```shell
+make docker.down
+```
+
+
+### Useful Commands
+
+```shell
+# Check container status
+docker compose --project-directory community-quick-start ps
+
+# View logs for specific service
+docker compose --project-directory community-quick-start logs -f mongod
+docker compose --project-directory community-quick-start logs -f mongot-local    # for local mode
+docker compose --project-directory community-quick-start logs -f mongot          # for latest mode
+
+# Restart services
+make docker.down
+make docker.up
+
+# Connect to MongoDB
+mongosh mongodb://localhost:27017
+
+# Check metrics endpoint
+curl http://localhost:9946/metrics
+```
 
 ## Create a MongoDB Search index
 
 1. Connect to MongoDB with mongosh
 
 ```shell
-mongosh
+mongosh mongodb://localhost:27017
 ```
 
 2. In the MongoDB shell, run the following commands to create a search index on the sample data
