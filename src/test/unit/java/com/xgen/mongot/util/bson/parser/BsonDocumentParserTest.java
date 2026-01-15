@@ -1,5 +1,10 @@
 package com.xgen.mongot.util.bson.parser;
 
+import static com.google.common.truth.Truth.assertThat;
+
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import com.xgen.testing.TestUtils;
+import java.util.List;
 import java.util.Optional;
 import org.bson.BsonDocument;
 import org.bson.BsonNull;
@@ -21,6 +26,22 @@ public class BsonDocumentParserTest {
     var parser = BsonDocumentParser.fromRoot(doc).build();
 
     Assert.assertThrows(BsonParseException.class, parser::close);
+  }
+
+  @Test
+  public void logsIfWarningOnUnparsedFields() throws BsonParseException {
+    List<ILoggingEvent> logEvents =
+        TestUtils.getLogEvents(TestUtils.getClassLogger(BsonDocumentParser.class));
+
+    var doc = new BsonDocument("foo", new BsonNull());
+    var parser = BsonDocumentParser.fromRoot(doc).warnOnUnknownFields().build();
+    parser.close();
+
+    assertThat(logEvents).hasSize(1);
+    assertThat(logEvents.getFirst().getMessage())
+        .isEqualTo("Ignoring unknown fields found during parsing");
+    assertThat(logEvents.getFirst().getThrowableProxy().getMessage())
+        .contains("unrecognized field");
   }
 
   @Test

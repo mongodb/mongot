@@ -8,18 +8,29 @@ import java.util.Optional;
 import java.util.Set;
 import org.bson.BsonDocument;
 import org.bson.BsonValue;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class BsonDocumentParser implements DocumentParser {
 
+  public enum UnknownFieldBehavior {
+    ALLOW,
+    DISALLOW,
+    WARN,
+  }
+
+  private static final Logger LOG = LoggerFactory.getLogger(BsonDocumentParser.class);
+
   private final BsonParseContext context;
   private final BsonDocument wrapped;
-  private final boolean allowUnknownFields;
+  private final UnknownFieldBehavior unknownFieldBehavior;
   private final Set<String> witnessedFields;
 
-  BsonDocumentParser(BsonParseContext context, BsonDocument wrapped, boolean allowUnknownFields) {
+  BsonDocumentParser(
+      BsonParseContext context, BsonDocument wrapped, UnknownFieldBehavior unknownFieldBehavior) {
     this.context = context;
     this.wrapped = wrapped;
-    this.allowUnknownFields = allowUnknownFields;
+    this.unknownFieldBehavior = unknownFieldBehavior;
     this.witnessedFields = new HashSet<>();
   }
 
@@ -27,21 +38,27 @@ public class BsonDocumentParser implements DocumentParser {
 
     private final BsonParseContext context;
     private final BsonDocument wrapped;
-    private boolean allowUnknownFields;
+    private UnknownFieldBehavior unknownFieldBehavior;
 
     private Builder(BsonParseContext context, BsonDocument wrapped) {
       this.context = context;
       this.wrapped = wrapped;
-      this.allowUnknownFields = false;
+      this.unknownFieldBehavior = UnknownFieldBehavior.DISALLOW;
     }
 
     public Builder allowUnknownFields(boolean allowUnknownFields) {
-      this.allowUnknownFields = allowUnknownFields;
+      this.unknownFieldBehavior =
+          allowUnknownFields ? UnknownFieldBehavior.ALLOW : UnknownFieldBehavior.DISALLOW;
+      return this;
+    }
+
+    public Builder warnOnUnknownFields() {
+      this.unknownFieldBehavior = UnknownFieldBehavior.WARN;
       return this;
     }
 
     public BsonDocumentParser build() {
-      return new BsonDocumentParser(this.context, this.wrapped, this.allowUnknownFields);
+      return new BsonDocumentParser(this.context, this.wrapped, this.unknownFieldBehavior);
     }
   }
 
@@ -128,15 +145,30 @@ public class BsonDocumentParser implements DocumentParser {
 
   @Override
   public void close() throws BsonParseException {
-    if (this.allowUnknownFields) {
-      return;
-    }
+    switch (this.unknownFieldBehavior) {
+      case ALLOW -> {
+        // No action needed if allowing unknown fields
+      }
+      case DISALLOW, WARN -> {
+        Sets.SetView<String> fieldsNotRequested =
+            Sets.difference(this.wrapped.keySet(), this.witnessedFields);
 
-    Sets.SetView<String> fieldsNotRequested =
-        Sets.difference(this.wrapped.keySet(), this.witnessedFields);
+        boolean allFieldsRequested = fieldsNotRequested.isEmpty();
+        if (allFieldsRequested) {
+          return;
+        }
 
-    if (fieldsNotRequested.size() > 0) {
-      this.context.handleUnexpectedFields(fieldsNotRequested);
+        // If we reach this part of the method, there are some unknown (unconsumed) fields
+        try {
+          this.context.handleUnexpectedFields(fieldsNotRequested);
+        } catch (BsonParseException e) {
+          if (this.unknownFieldBehavior == UnknownFieldBehavior.DISALLOW) {
+            throw e;
+          }
+
+          LOG.atWarn().setCause(e).log("Ignoring unknown fields found during parsing");
+        }
+      }
     }
   }
 }

@@ -35,7 +35,9 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/bson/parser",
         "//src/main/java/com/xgen/proto",
+        "//src/main/java/com/xgen/testing",
         "//src/test/proto:proto3_java_proto",  # keep: until we can figure out how to map these
+        "@maven//:ch_qos_logback_logback_classic",
         "@maven//:com_google_truth_truth",
         "@maven//:junit_junit",
         "@maven//:org_apache_commons_commons_lang3",
