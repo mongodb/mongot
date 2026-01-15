@@ -17,6 +17,7 @@ java_library(
         "ChangeStreamMongoCursorClient.java",
         "ChangeStreamResumeInfo.java",
         "ChangeStreams.java",
+        "ClientSessionRecord.java",
         "CollectionSamplingMongoClient.java",
         "CollectionScanCommandMongoClient.java",
         "CollectionScanMongoClient.java",

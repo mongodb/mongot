@@ -20,7 +20,6 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.google.errorprone.annotations.Keep;
 import com.mongodb.ConnectionString;
-import com.mongodb.client.MongoClient;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
@@ -33,6 +32,7 @@ import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.index.version.MaterializedViewGenerationId;
+import com.xgen.mongot.replication.mongodb.common.ClientSessionRecord;
 import com.xgen.mongot.replication.mongodb.common.DecodingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
@@ -52,6 +52,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -59,7 +60,6 @@ import java.util.function.Supplier;
 import org.bson.types.ObjectId;
 import org.junit.Assert;
 import org.junit.Test;
-import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.slf4j.LoggerFactory;
@@ -202,7 +202,7 @@ public class MaterializedViewManagerTest {
     verify(mocks.initialSyncQueue).shutdown();
     verify(mocks.steadyStateManager).shutdown();
     verify(mocks.executorService).shutdown();
-    verify(mocks.sessionRefresher).shutdown();
+    verify(mocks.clientSessionRecordMap.get("test").sessionRefresher()).shutdown();
   }
 
   @Test
@@ -230,7 +230,7 @@ public class MaterializedViewManagerTest {
     verify(mocks.steadyStateManager).shutdown();
     verify(mocks.commitExecutor).shutdown();
     verify(mocks.executorService).shutdown();
-    verify(mocks.sessionRefresher).shutdown();
+    verify(mocks.clientSessionRecordMap.get("test").sessionRefresher()).shutdown();
   }
 
   @Test
@@ -304,7 +304,7 @@ public class MaterializedViewManagerTest {
     verify(mocks.steadyStateManager).shutdown();
     verify(mocks.commitExecutor).shutdown();
     verify(mocks.executorService).shutdown();
-    verify(mocks.sessionRefresher).shutdown();
+    verify(mocks.clientSessionRecordMap.get("test").sessionRefresher()).shutdown();
   }
 
   @Test
@@ -403,8 +403,7 @@ public class MaterializedViewManagerTest {
     boolean foundHeartbeatLog =
         logEvents.stream()
             .anyMatch(
-                event ->
-                    event.getFormattedMessage().equals("Auto-embedding leader heartbeat"));
+                event -> event.getFormattedMessage().equals("Auto-embedding leader heartbeat"));
     assertTrue("Expected heartbeat log to be emitted", foundHeartbeatLog);
   }
 
@@ -412,7 +411,7 @@ public class MaterializedViewManagerTest {
     final NamedExecutorService executorService;
     @Keep final IndexingWorkSchedulerFactory indexingWorkSchedulerFactory;
     @Keep final MongotCursorManager cursorManager;
-    final SessionRefresher sessionRefresher;
+    final Map<String, ClientSessionRecord> clientSessionRecordMap;
     final InitialSyncQueue initialSyncQueue;
     final SteadyStateManager steadyStateManager;
     final MaterializedViewManager.MaterializedViewGeneratorFactory materializedViewGeneratorFactory;
@@ -431,10 +430,9 @@ public class MaterializedViewManagerTest {
         IndexingWorkSchedulerFactory indexingWorkSchedulerFactory,
         DecodingWorkScheduler decodingScheduler,
         MongotCursorManager cursorManager,
-        SessionRefresher sessionRefresher,
+        Map<String, ClientSessionRecord> clientSessionRecordMap,
         InitialSyncQueue initialSyncQueue,
         SteadyStateManager steadyStateManager,
-        MongoClient syncMongoClient,
         BatchMongoClient syncBatchMongoClient,
         MaterializedViewManager.MaterializedViewGeneratorFactory materializedViewGeneratorFactory,
         NamedScheduledExecutorService commitExecutor,
@@ -444,7 +442,7 @@ public class MaterializedViewManagerTest {
       this.executorService = executorService;
       this.indexingWorkSchedulerFactory = indexingWorkSchedulerFactory;
       this.cursorManager = cursorManager;
-      this.sessionRefresher = sessionRefresher;
+      this.clientSessionRecordMap = clientSessionRecordMap;
       this.initialSyncQueue = initialSyncQueue;
       this.steadyStateManager = steadyStateManager;
       this.materializedViewGeneratorFactory = materializedViewGeneratorFactory;
@@ -458,14 +456,13 @@ public class MaterializedViewManagerTest {
               new MaterializedViewManager(
                   executorService,
                   indexingWorkSchedulerFactory,
-                  sessionRefresher,
+                  clientSessionRecordMap,
                   new SyncSourceConfig(
                       new ConnectionString("mongodb://newString"),
                       Optional.empty(),
                       new ConnectionString("mongodb://newString")),
                   initialSyncQueue,
                   steadyStateManager,
-                  syncMongoClient,
                   syncBatchMongoClient,
                   decodingScheduler,
                   materializedViewGeneratorFactory,
@@ -534,10 +531,9 @@ public class MaterializedViewManagerTest {
           indexingWorkSchedulerFactory,
           decodingWorkScheduler,
           cursorManager,
-          sessionRefresher,
+          Map.of("test", new ClientSessionRecord(syncMongoClient, sessionRefresher)),
           initialSyncQueue,
           steadyStateManager,
-          syncMongoClient,
           syncBatchMongoClient,
           materializedViewGeneratorFactory,
           commitExecutor,

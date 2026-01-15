@@ -1,7 +1,7 @@
 package com.xgen.mongot.replication.mongodb.autoembedding;
 
+import static com.xgen.mongot.replication.mongodb.MongoDbReplicationManager.getClientSessionRecords;
 import static com.xgen.mongot.replication.mongodb.MongoDbReplicationManager.getSyncBatchMongoClient;
-import static com.xgen.mongot.replication.mongodb.MongoDbReplicationManager.getSyncMongoClient;
 import static com.xgen.mongot.replication.mongodb.MongoDbReplicationManager.getSyncSourceHost;
 import static com.xgen.mongot.util.Check.checkState;
 import static com.xgen.mongot.util.FutureUtils.COMPLETED_FUTURE;
@@ -9,7 +9,6 @@ import static com.xgen.mongot.util.FutureUtils.COMPLETED_FUTURE;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
-import com.mongodb.client.MongoClient;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewNonTransientException;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
@@ -26,14 +25,13 @@ import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.monitor.ToggleGate;
 import com.xgen.mongot.replication.ReplicationManager;
 import com.xgen.mongot.replication.mongodb.ReplicationIndexManager;
+import com.xgen.mongot.replication.mongodb.common.ClientSessionRecord;
 import com.xgen.mongot.replication.mongodb.common.DecodingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.DefaultDocumentIndexer;
-import com.xgen.mongot.replication.mongodb.common.DefaultSessionRefresher;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
 import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.PeriodicIndexCommitter;
-import com.xgen.mongot.replication.mongodb.common.SessionRefresher;
 import com.xgen.mongot.replication.mongodb.initialsync.InitialSyncQueue;
 import com.xgen.mongot.replication.mongodb.initialsync.config.InitialSyncConfig;
 import com.xgen.mongot.replication.mongodb.steadystate.SteadyStateManager;
@@ -104,7 +102,13 @@ public class MaterializedViewManager implements ReplicationManager {
 
   private final MaterializedViewGeneratorFactory matViewGeneratorFactory;
 
-  private final SessionRefresher sessionRefresher;
+  /**
+   * Holds (Host, ClientSessionRecord) mapping
+   *
+   * <p>The synchronous MongoClient used by the initial sync and session refresh systems, but owned
+   * by this AutoEmbeddingMatViewManager.
+   */
+  private final Map<String, ClientSessionRecord> clientSessionRecordMap;
 
   private final SyncSourceConfig syncSourceConfig;
 
@@ -113,12 +117,6 @@ public class MaterializedViewManager implements ReplicationManager {
 
   /** The SteadyStateManager is used for auto-embedding replication workload only. */
   private final SteadyStateManager steadyStateManager;
-
-  /**
-   * The synchronous MongoClient used by the initial sync and session refresh systems, but owned by
-   * this AutoEmbeddingMatViewManager.
-   */
-  private final com.mongodb.client.MongoClient syncMongoClient;
 
   private final BatchMongoClient syncBatchMongoClient;
 
@@ -157,11 +155,10 @@ public class MaterializedViewManager implements ReplicationManager {
   MaterializedViewManager(
       NamedExecutorService lifecycleExecutor,
       IndexingWorkSchedulerFactory indexingWorkSchedulerFactory,
-      SessionRefresher sessionRefresher,
+      Map<String, ClientSessionRecord> clientSessionRecordMap,
       SyncSourceConfig syncSourceConfig,
       InitialSyncQueue initialSyncQueue,
       SteadyStateManager steadyStateManager,
-      MongoClient syncMongoClient,
       BatchMongoClient syncBatchMongoClient,
       DecodingWorkScheduler decodingWorkScheduler,
       MaterializedViewGeneratorFactory matViewGeneratorFactory,
@@ -172,10 +169,9 @@ public class MaterializedViewManager implements ReplicationManager {
       LeaseManager leaseManager) {
     this.lifecycleExecutor = lifecycleExecutor;
     this.indexingWorkSchedulerFactory = indexingWorkSchedulerFactory;
-    this.sessionRefresher = sessionRefresher;
+    this.clientSessionRecordMap = clientSessionRecordMap;
     this.initialSyncQueue = initialSyncQueue;
     this.steadyStateManager = steadyStateManager;
-    this.syncMongoClient = syncMongoClient;
     this.syncBatchMongoClient = syncBatchMongoClient;
     this.decodingWorkScheduler = decodingWorkScheduler;
     this.matViewGeneratorFactory = matViewGeneratorFactory;
@@ -252,13 +248,18 @@ public class MaterializedViewManager implements ReplicationManager {
     var sessionRefreshExecutor =
         Executors.singleThreadScheduledExecutor("session-refresh", meterRegistry);
 
-    var syncMongoClient =
-        getSyncMongoClient(syncSourceConfig, materializedViewConfig, meterRegistry);
-
     var syncSourceHost = getSyncSourceHost(syncSourceConfig);
 
-    var sessionRefresher =
-        DefaultSessionRefresher.create(meterRegistry, sessionRefreshExecutor, syncMongoClient);
+    var clientSessionRecords =
+        getClientSessionRecords(
+            syncSourceConfig,
+            materializedViewConfig,
+            meterRegistry,
+            sessionRefreshExecutor,
+            syncSourceHost);
+
+    var syncMongoClient = clientSessionRecords.get(syncSourceHost).syncMongoClient();
+    var sessionRefresher = clientSessionRecords.get(syncSourceHost).sessionRefresher();
 
     var syncBatchMongoClient =
         getSyncBatchMongoClient(
@@ -277,10 +278,9 @@ public class MaterializedViewManager implements ReplicationManager {
     var initialSyncQueue =
         InitialSyncQueue.create(
             meterRegistry,
-            syncMongoClient,
+            clientSessionRecords,
             syncSourceHost,
             indexingWorkSchedulerFactory,
-            sessionRefresher,
             materializedViewConfig,
             initialSyncConfig,
             /* This path should be different from dataPath used in Lucene */
@@ -300,11 +300,10 @@ public class MaterializedViewManager implements ReplicationManager {
     return new MaterializedViewManager(
         lifecycleExecutor,
         indexingWorkSchedulerFactory,
-        sessionRefresher,
+        clientSessionRecords,
         syncSourceConfig,
         initialSyncQueue,
         steadyStateManager,
-        syncMongoClient,
         syncBatchMongoClient,
         decodingWorkScheduler,
         new MaterializedViewGeneratorFactory(
@@ -464,8 +463,16 @@ public class MaterializedViewManager implements ReplicationManager {
                 CompletableFuture.allOf(
                     this.initialSyncQueue.shutdown(), this.steadyStateManager.shutdown()),
             shutdownExecutor)
-        .thenRunAsync(this.sessionRefresher::shutdown, shutdownExecutor)
-        .thenRunAsync(this.syncMongoClient::close, shutdownExecutor)
+        .thenRunAsync(
+            () ->
+                this.clientSessionRecordMap
+                    .values()
+                    .forEach(
+                        clientSessionRecord -> {
+                          clientSessionRecord.sessionRefresher().shutdown();
+                          clientSessionRecord.syncMongoClient().close();
+                        }),
+            shutdownExecutor)
         .thenRunAsync(this.syncBatchMongoClient::close, shutdownExecutor)
         .thenRunAsync(this.decodingWorkScheduler::shutdown, shutdownExecutor)
         .thenRunAsync(
@@ -529,7 +536,11 @@ public class MaterializedViewManager implements ReplicationManager {
       return;
     }
     try {
-      var opTime = MongoDbReplSetStatus.getReadConcernMajorityOpTime(this.syncMongoClient);
+      var opTime =
+          MongoDbReplSetStatus.getReadConcernMajorityOpTime(
+              this.clientSessionRecordMap
+                  .get(getSyncSourceHost(this.syncSourceConfig))
+                  .syncMongoClient());
       getMatViewGenerators()
           .values()
           .forEach(

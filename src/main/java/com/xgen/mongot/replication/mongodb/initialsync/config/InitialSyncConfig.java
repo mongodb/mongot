@@ -8,6 +8,7 @@ import com.xgen.mongot.util.bson.parser.Field;
 import java.time.Duration;
 import java.util.Optional;
 import org.bson.BsonDocument;
+import org.jetbrains.annotations.TestOnly;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -107,6 +108,17 @@ public record InitialSyncConfig(
         Optional.empty(),
         Optional.empty(),
         Optional.empty());
+  }
+
+  @TestOnly
+  public InitialSyncConfig(boolean avoidNaturalOrderScanSyncSourceChangeResync) {
+    this(
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.of(avoidNaturalOrderScanSyncSourceChangeResync));
   }
 
   @SuppressWarnings("checkstyle:MissingJavadocMethod")

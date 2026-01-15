@@ -32,8 +32,10 @@ import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.InitializedSearchIndex;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.version.GenerationId;
+import com.xgen.mongot.replication.mongodb.common.ClientSessionRecord;
 import com.xgen.mongot.replication.mongodb.common.DecodingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
+import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.ReplicationOptimeUpdater;
 import com.xgen.mongot.replication.mongodb.common.SessionRefresher;
 import com.xgen.mongot.replication.mongodb.initialsync.InitialSyncQueue;
@@ -160,7 +162,7 @@ public class MongoDbReplicationManagerTest {
     verify(mocks.steadyStateManager).shutdown();
     verify(mocks.synonymManager).shutdown();
     verify(mocks.executorService).shutdown();
-    verify(mocks.sessionRefresher).shutdown();
+    verify(mocks.clientSessionRecordMap.get("test").sessionRefresher()).shutdown();
   }
 
   @Test
@@ -206,7 +208,7 @@ public class MongoDbReplicationManagerTest {
     verify(mocks.synonymManager).shutdown();
     verify(mocks.commitExecutor).shutdown();
     verify(mocks.executorService).shutdown();
-    verify(mocks.sessionRefresher).shutdown();
+    verify(mocks.clientSessionRecordMap.get("test").sessionRefresher()).shutdown();
   }
 
   @Test
@@ -240,7 +242,7 @@ public class MongoDbReplicationManagerTest {
     verify(shardedMocks.steadyStateManager).shutdown();
     verify(shardedMocks.synonymManager).shutdown();
     verify(shardedMocks.executorService).shutdown();
-    verify(shardedMocks.sessionRefresher).shutdown();
+    verify(shardedMocks.clientSessionRecordMap.get("test").sessionRefresher()).shutdown();
     Check.isPresent(shardedMocks.synonymsSessionRefresher, "synonymsSessionRefresher");
     verify(shardedMocks.synonymsSessionRefresher.get()).shutdown();
     shardedMocks
@@ -332,7 +334,7 @@ public class MongoDbReplicationManagerTest {
     verify(mocks.synonymManager).shutdown();
     verify(mocks.commitExecutor).shutdown();
     verify(mocks.executorService).shutdown();
-    verify(mocks.sessionRefresher).shutdown();
+    verify(mocks.clientSessionRecordMap.get("test").sessionRefresher()).shutdown();
   }
 
   @Test
@@ -380,7 +382,7 @@ public class MongoDbReplicationManagerTest {
       verify(mocks.synonymManager).shutdown();
       verify(mocks.commitExecutor).shutdown();
       verify(mocks.executorService).shutdown();
-      verify(mocks.sessionRefresher).shutdown();
+      verify(mocks.clientSessionRecordMap.get("test").sessionRefresher()).shutdown();
 
       // Verify metrics are deregister
       assertTrue(
@@ -516,11 +518,37 @@ public class MongoDbReplicationManagerTest {
     assertFalse(mocks.indexReplicationManagerGaugeMetricsExist());
   }
 
+  @Test
+  public void testGetClientSessionRecords() {
+    SyncSourceConfig syncSourceConfig =
+        new SyncSourceConfig(
+            new ConnectionString("mongodb://localhost1:27017"),
+            Optional.of(
+                Map.of(
+                    "localhost1",
+                    new ConnectionString("mongodb://localhost1:27017"),
+                    "localhost2",
+                    new ConnectionString("mongodb://localhost2:27018"))),
+            Optional.empty(),
+            new ConnectionString("mongodb://localhost1:27017"));
+
+    var result =
+        MongoDbReplicationManager.getClientSessionRecords(
+            syncSourceConfig,
+            MongoDbReplicationConfig.getDefault(),
+            new SimpleMeterRegistry(),
+            spy(Executors.fixedSizeThreadScheduledExecutor("test", 1, new SimpleMeterRegistry())),
+            "localhost1");
+    Assert.assertEquals(2, result.size());
+    Assert.assertTrue(result.containsKey("localhost1"));
+    Assert.assertTrue(result.containsKey("localhost2"));
+  }
+
   private static class Mocks {
     final NamedExecutorService executorService;
     @Keep final IndexingWorkSchedulerFactory indexingWorkSchedulerFactory;
     @Keep final MongotCursorManager cursorManager;
-    final SessionRefresher sessionRefresher;
+    final Map<String, ClientSessionRecord> clientSessionRecordMap;
     final Optional<SessionRefresher> synonymsSessionRefresher;
     final InitialSyncQueue initialSyncQueue;
     final SteadyStateManager steadyStateManager;
@@ -539,11 +567,10 @@ public class MongoDbReplicationManagerTest {
         IndexingWorkSchedulerFactory indexingWorkSchedulerFactory,
         DecodingWorkScheduler decodingScheduler,
         MongotCursorManager cursorManager,
-        SessionRefresher sessionRefresher,
+        Map<String, ClientSessionRecord> clientSessionRecordMap,
         InitialSyncQueue initialSyncQueue,
         SteadyStateManager steadyStateManager,
         SynonymManager synonymManager,
-        MongoClient syncMongoClient,
         BatchMongoClient syncBatchMongoClient,
         Optional<MongoClient> synonymsSyncMongoClient,
         Optional<SessionRefresher> synonymsSessionRefresher,
@@ -556,7 +583,7 @@ public class MongoDbReplicationManagerTest {
       this.executorService = executorService;
       this.indexingWorkSchedulerFactory = indexingWorkSchedulerFactory;
       this.cursorManager = cursorManager;
-      this.sessionRefresher = sessionRefresher;
+      this.clientSessionRecordMap = clientSessionRecordMap;
       this.synonymsSessionRefresher = synonymsSessionRefresher;
       this.initialSyncQueue = initialSyncQueue;
       this.steadyStateManager = steadyStateManager;
@@ -573,7 +600,7 @@ public class MongoDbReplicationManagerTest {
                   executorService,
                   indexingWorkSchedulerFactory,
                   cursorManager,
-                  sessionRefresher,
+                  clientSessionRecordMap,
                   Optional.of(
                       new SyncSourceConfig(
                           new ConnectionString("mongodb://newString"),
@@ -583,7 +610,6 @@ public class MongoDbReplicationManagerTest {
                   initialSyncQueue,
                   steadyStateManager,
                   synonymManager,
-                  syncMongoClient,
                   syncBatchMongoClient,
                   decodingScheduler,
                   synonymsSyncMongoClient,
@@ -657,11 +683,10 @@ public class MongoDbReplicationManagerTest {
           indexingWorkSchedulerFactory,
           decodingWorkScheduler,
           cursorManager,
-          sessionRefresher,
+          Map.of("test", new ClientSessionRecord(syncMongoClient, sessionRefresher)),
           initialSyncQueue,
           steadyStateManager,
           synonymManager,
-          syncMongoClient,
           syncBatchMongoClient,
           synonymsSyncMongoClient,
           synonymsSessionRefresher,

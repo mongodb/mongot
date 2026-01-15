@@ -11,6 +11,7 @@ java_library(
     ],
     visibility = ["//visibility:public"],
     exports = [
+        "//src/main/java/com/xgen/mongot/replication/mongodb/common",
         "//src/main/java/com/xgen/mongot/replication/mongodb/steadystate/changestream",
         "//src/main/java/com/xgen/mongot/util/mongodb",
         "@maven//:org_mongodb_bson",

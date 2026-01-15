@@ -17,6 +17,7 @@ import static com.xgen.testing.mongot.mock.index.VectorIndex.MOCK_VECTOR_INDEX_D
 import static com.xgen.testing.mongot.mock.index.VectorIndex.mockAutoEmbeddingVectorDefinition;
 import static com.xgen.testing.mongot.mock.index.VectorIndex.mockVectorDefinition;
 import static com.xgen.testing.mongot.mock.replication.mongodb.common.DocumentIndexer.mockDocumentIndexer;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -44,6 +45,7 @@ import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
+import com.xgen.mongot.replication.mongodb.initialsync.config.InitialSyncConfig;
 import com.xgen.mongot.util.Condition;
 import com.xgen.mongot.util.FutureUtils;
 import com.xgen.mongot.util.functionalinterfaces.CheckedSupplier;
@@ -364,6 +366,78 @@ public class InitialSyncQueueTest {
     FutureUtils.swallowedFuture(future4).get(5, TimeUnit.SECONDS);
     mocks.mockInitialSyncManagerFactory.completeSync(index5);
     FutureUtils.swallowedFuture(future5).get(5, TimeUnit.SECONDS);
+  }
+
+  @Test
+  public void testBufferlessInitialSyncsQueue_ChangeSyncSource() throws Exception {
+    List<IndexDefinitionGeneration> definitions =
+        IntStream.range(0, 2)
+            .mapToObj(i -> uniqueMockGenerationDefinition())
+            .collect(Collectors.toList());
+
+    GenerationId index0 = definitions.get(0).getGenerationId();
+    GenerationId index1 = definitions.get(1).getGenerationId();
+
+    String syncSourceHost0 = "host0";
+    InitialSyncMongoClient mongoClient0 = mock(InitialSyncMongoClient.class);
+    when(mongoClient0.resolveAndUpdateCollectionName(any()))
+        .thenReturn(MOCK_INDEX_LAST_OBSERVED_COLLECTION_NAME);
+
+    String syncSourceHost1 = "host1";
+    InitialSyncMongoClient mongoClient1 = mock(InitialSyncMongoClient.class);
+    when(mongoClient1.resolveAndUpdateCollectionName(any()))
+        .thenReturn(MOCK_INDEX_LAST_OBSERVED_COLLECTION_NAME);
+
+    Mocks mocks =
+        Mocks.create(
+            Map.of(index0, () -> RESUME_INFO, index1, () -> RESUME_INFO),
+            new InitialSyncConfig(true),
+            syncSourceHost0,
+            Map.of(syncSourceHost0, mongoClient0, syncSourceHost1, mongoClient1));
+
+    CountDownLatch startedLatch0 = new CountDownLatch(1);
+    Runnable initialSyncStartedCallback0 = startedLatch0::countDown;
+    CompletableFuture<ChangeStreamResumeInfo> future0 =
+        mocks.initialSyncQueue.enqueueResume(
+            DOCUMENT_INDEXER,
+            definitions.get(0),
+            initialSyncStartedCallback0,
+            new BufferlessNaturalOrderInitialSyncResumeInfo(
+                new BsonTimestamp(), new BsonDocument(), Optional.of(syncSourceHost0)),
+            IGNORE_METRICS,
+            false,
+            true);
+
+    CountDownLatch startedLatch1 = new CountDownLatch(1);
+    Runnable initialSyncStartedCallback1 = startedLatch1::countDown;
+    CompletableFuture<ChangeStreamResumeInfo> future1 =
+        mocks.initialSyncQueue.enqueueResume(
+            DOCUMENT_INDEXER,
+            definitions.get(1),
+            initialSyncStartedCallback1,
+            new BufferlessNaturalOrderInitialSyncResumeInfo(
+                new BsonTimestamp(), new BsonDocument(), Optional.of(syncSourceHost1)),
+            IGNORE_METRICS,
+            false,
+            true);
+
+    // The first two initial syncs should have started.
+    startedLatch0.await(5, TimeUnit.SECONDS);
+    verify(mocks.mockInitialSyncManagerFactory.getManager(index0), timeout(1000)).sync();
+
+    assertEquals(mongoClient0, mocks.mockInitialSyncManagerFactory.getClient(index0));
+
+    startedLatch1.await(5, TimeUnit.SECONDS);
+    verify(mocks.mockInitialSyncManagerFactory.getManager(index1), timeout(1000)).sync();
+    assertEquals(mongoClient1, mocks.mockInitialSyncManagerFactory.getClient(index1));
+
+    // Complete the first initial sync.
+    mocks.mockInitialSyncManagerFactory.completeSync(index0);
+    FutureUtils.swallowedFuture(future0).get(5, TimeUnit.SECONDS);
+
+    // Complete the remaining initial syncs.
+    mocks.mockInitialSyncManagerFactory.completeSync(index1);
+    FutureUtils.swallowedFuture(future1).get(5, TimeUnit.SECONDS);
   }
 
   @Test
@@ -1246,18 +1320,20 @@ public class InitialSyncQueueTest {
     final TemporaryFolder tempFolder;
 
     private Mocks(
-        InitialSyncMongoClient mongoClient,
+        Map<String, InitialSyncMongoClient> mongoClients,
+        String syncSourceHost,
         IndexingWorkSchedulerFactory indexingWorkSchedulerFactory,
         BlockingQueue<GenerationId> requestQueue,
         Map<GenerationId, InitialSyncRequest> queued,
         Set<GenerationId> cancelled,
         Map<GenerationId, InProgressInitialSyncInfo> inProgress,
         MongoDbReplicationConfig replicationConfig,
+        InitialSyncConfig initialSyncConfig,
         MockInitialSyncManagerFactory mockInitialSyncManagerFactory,
         MeterRegistry meterRegistry,
         Gate initialSyncGate)
         throws IOException {
-      this.mongoClient = mongoClient;
+      this.mongoClient = mongoClients.get(syncSourceHost);
       this.indexingWorkSchedulerFactory = indexingWorkSchedulerFactory;
       this.requestQueue = requestQueue;
       this.queued = queued;
@@ -1271,13 +1347,15 @@ public class InitialSyncQueueTest {
       this.initialSyncQueue =
           new InitialSyncQueue(
               meterRegistry,
-              mongoClient,
+              mongoClients,
+              syncSourceHost,
               this.indexingWorkSchedulerFactory,
               requestQueue,
               queued,
               cancelled,
               inProgress,
               replicationConfig,
+              initialSyncConfig,
               mockInitialSyncManagerFactory,
               rootPath,
               initialSyncGate);
@@ -1312,9 +1390,34 @@ public class InitialSyncQueueTest {
       InitialSyncMongoClient mongoClient = mock(InitialSyncMongoClient.class);
       when(mongoClient.resolveAndUpdateCollectionName(any()))
           .thenReturn(MOCK_INDEX_LAST_OBSERVED_COLLECTION_NAME);
+      return create(
+          Map.of("test", mongoClient),
+          "test",
+          resultSuppliers,
+          blockingQueue,
+          meterRegistry,
+          numConcurrentInitialSyncs,
+          maxConcurrentEmbeddingInitialSyncs,
+          initialSyncGate,
+          new InitialSyncConfig(false));
+    }
+
+    static Mocks create(
+        Map<String, InitialSyncMongoClient> mongoClients,
+        String syncSourceHost,
+        Map<GenerationId, CheckedSupplier<ChangeStreamResumeInfo, InitialSyncException>>
+            resultSuppliers,
+        BlockingQueue<GenerationId> blockingQueue,
+        MeterRegistry meterRegistry,
+        Optional<Integer> numConcurrentInitialSyncs,
+        Optional<Integer> maxConcurrentEmbeddingInitialSyncs,
+        Gate initialSyncGate,
+        InitialSyncConfig initialSyncConfig)
+        throws Exception {
 
       return new Mocks(
-          mongoClient,
+          mongoClients,
+          syncSourceHost,
           spy(
               IndexingWorkSchedulerFactory.create(
                   2, mock(Supplier.class), new SimpleMeterRegistry())),
@@ -1340,6 +1443,7 @@ public class InitialSyncQueueTest {
               Optional.empty(),
               Optional.empty(),
               Optional.empty()),
+          initialSyncConfig,
           new MockInitialSyncManagerFactory(resultSuppliers),
           meterRegistry,
           initialSyncGate);
@@ -1410,6 +1514,25 @@ public class InitialSyncQueueTest {
       return create(resultSuppliers, ControlledBlockingQueue.ready(), ToggleGate.opened());
     }
 
+    static Mocks create(
+        Map<GenerationId, CheckedSupplier<ChangeStreamResumeInfo, InitialSyncException>>
+            resultSuppliers,
+        InitialSyncConfig initialSyncConfig,
+        String syncSourceHost,
+        Map<String, InitialSyncMongoClient> mongoClients)
+        throws Exception {
+      return Mocks.create(
+          mongoClients,
+          syncSourceHost,
+          resultSuppliers,
+          ControlledBlockingQueue.ready(),
+          new SimpleMeterRegistry(),
+          Optional.of(2),
+          Optional.empty(),
+          ToggleGate.opened(),
+          initialSyncConfig);
+    }
+
     private static class MockInitialSyncManagerFactory implements InitialSyncManagerFactory {
 
       private final Map<GenerationId, CheckedSupplier<ChangeStreamResumeInfo, InitialSyncException>>
@@ -1417,6 +1540,8 @@ public class InitialSyncQueueTest {
       private final Map<GenerationId, CountDownLatch> latches;
       private final Map<GenerationId, InitialSyncManager> managers;
       private InitialSyncContext context;
+
+      private final Map<GenerationId, InitialSyncMongoClient> mongoClients;
 
       MockInitialSyncManagerFactory(
           Map<GenerationId, CheckedSupplier<ChangeStreamResumeInfo, InitialSyncException>>
@@ -1454,6 +1579,7 @@ public class InitialSyncQueueTest {
                           }
                           return manager;
                         }));
+        this.mongoClients = new HashMap<>();
       }
 
       private InitialSyncManager createInitialSyncManager() {
@@ -1471,6 +1597,7 @@ public class InitialSyncQueueTest {
           MongoNamespace namespace,
           Optional<InitialSyncResumeInfo> resumeInfo) {
         this.context = context;
+        this.mongoClients.put(context.getGenerationId(), mongoClient);
         return this.managers.get(context.getGenerationId());
       }
 
@@ -1480,6 +1607,10 @@ public class InitialSyncQueueTest {
 
       InitialSyncManager getManager(GenerationId generationId) {
         return this.managers.get(generationId);
+      }
+
+      InitialSyncMongoClient getClient(GenerationId generationId) {
+        return this.mongoClients.get(generationId);
       }
     }
   }

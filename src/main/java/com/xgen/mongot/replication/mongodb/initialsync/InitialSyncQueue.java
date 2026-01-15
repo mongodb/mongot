@@ -13,7 +13,6 @@ import com.google.common.base.Stopwatch;
 import com.google.errorprone.annotations.Var;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.mongodb.MongoNamespace;
-import com.mongodb.client.MongoClient;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.IndexTypeData;
 import com.xgen.mongot.index.definition.IndexDefinition;
@@ -23,13 +22,13 @@ import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.monitor.Gate;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
+import com.xgen.mongot.replication.mongodb.common.ClientSessionRecord;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.PauseInitialSyncException;
-import com.xgen.mongot.replication.mongodb.common.SessionRefresher;
 import com.xgen.mongot.replication.mongodb.initialsync.config.InitialSyncConfig;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.Crash;
@@ -75,9 +74,11 @@ public class InitialSyncQueue {
 
   private final ReentrantLock queueLock;
 
-  private final InitialSyncMongoClient mongoClient;
+  private final Map<String, InitialSyncMongoClient> mongoClients;
 
   /** Queue for initial sync requests that is read from by the InitialSyncDispatcher. */
+  private final String syncSourceHost;
+
   private final BlockingQueue<GenerationId> requestQueue;
 
   /** Map of pending initial syncs that is updated by the InitialSyncDispatcher. */
@@ -125,20 +126,25 @@ public class InitialSyncQueue {
   /** Gate for pausing initial syncs. */
   private final Gate initialSyncGate;
 
+  private final InitialSyncConfig initialSyncConfig;
+
   @VisibleForTesting
   InitialSyncQueue(
       MeterRegistry meterRegistry,
-      InitialSyncMongoClient mongoClient,
+      Map<String, InitialSyncMongoClient> mongoClients,
+      String syncSourceHost,
       IndexingWorkSchedulerFactory indexingWorkSchedulerFactory,
       BlockingQueue<GenerationId> requestQueue,
       Map<GenerationId, InitialSyncRequest> queued,
       Set<GenerationId> cancelled,
       Map<GenerationId, InProgressInitialSyncInfo> inProgress,
       MongoDbReplicationConfig replicationConfig,
+      InitialSyncConfig initialSyncConfig,
       InitialSyncManagerFactory managerFactory,
       Path dataPath,
       Gate initialSyncGate) {
-    this.mongoClient = mongoClient;
+    this.mongoClients = mongoClients;
+    this.syncSourceHost = syncSourceHost;
     this.indexingWorkSchedulerFactory = indexingWorkSchedulerFactory;
     this.requestQueue = requestQueue;
     this.queued = queued;
@@ -147,6 +153,8 @@ public class InitialSyncQueue {
 
     this.queueLock = new ReentrantLock();
     this.shutdown = false;
+
+    this.initialSyncConfig = initialSyncConfig;
 
     MetricsFactory metricsFactory = new MetricsFactory("initialsync.queue", meterRegistry);
     this.requeuedEmbeddingInitialSyncs = metricsFactory.counter("requeuedEmbeddingInitialSyncs");
@@ -179,10 +187,9 @@ public class InitialSyncQueue {
   /** Creates a new InitialSyncQueue, while also spawning a corresponding InitialSyncDispatcher. */
   public static InitialSyncQueue create(
       MeterRegistry meterRegistry,
-      MongoClient mongoClient,
+      Map<String, ClientSessionRecord> mongoClientSessions,
       String syncSourceHost,
       IndexingWorkSchedulerFactory indexingWorkSchedulerFactory,
-      SessionRefresher sessionRefresher,
       MongoDbReplicationConfig replicationConfig,
       InitialSyncConfig initialSyncConfig,
       Path dataPath,
@@ -191,9 +198,16 @@ public class InitialSyncQueue {
     Check.argIsPositive(
         replicationConfig.maxConcurrentEmbeddingInitialSyncs, "maxConcurrentEmbeddingInitialSyncs");
 
-    InitialSyncMongoClient initialSyncMongoClient =
-        DefaultInitialSyncMongoClient.create(
-            mongoClient, sessionRefresher, meterRegistry, syncSourceHost);
+    Map<String, InitialSyncMongoClient> initialSyncMongoClients = new HashMap<>();
+    mongoClientSessions.forEach(
+        (host, clientSessionRecord) ->
+            initialSyncMongoClients.put(
+                host,
+                DefaultInitialSyncMongoClient.create(
+                    clientSessionRecord.syncMongoClient(),
+                    clientSessionRecord.sessionRefresher(),
+                    meterRegistry,
+                    syncSourceHost)));
 
     MetricsFactory metricsFactory = new MetricsFactory("initialSyncManager", meterRegistry);
     InitialSyncManagerFactory factory =
@@ -201,9 +215,11 @@ public class InitialSyncQueue {
 
     return create(
         meterRegistry,
-        initialSyncMongoClient,
+        initialSyncMongoClients,
+        syncSourceHost,
         indexingWorkSchedulerFactory,
         replicationConfig,
+        initialSyncConfig,
         factory,
         dataPath,
         initialSyncGate);
@@ -212,9 +228,11 @@ public class InitialSyncQueue {
   @VisibleForTesting
   static InitialSyncQueue create(
       MeterRegistry meterRegistry,
-      InitialSyncMongoClient mongoClient,
+      Map<String, InitialSyncMongoClient> mongoClients,
+      String syncSourceHost,
       IndexingWorkSchedulerFactory indexingWorkSchedulerFactory,
       MongoDbReplicationConfig replicationConfig,
+      InitialSyncConfig initialSyncConfig,
       InitialSyncManagerFactory managerFactory,
       Path dataPath,
       Gate initialSyncGate) {
@@ -229,13 +247,15 @@ public class InitialSyncQueue {
 
     return new InitialSyncQueue(
         meterRegistry,
-        mongoClient,
+        mongoClients,
+        syncSourceHost,
         indexingWorkSchedulerFactory,
         requestQueue,
         queued,
         cancelled,
         inProgress,
         replicationConfig,
+        initialSyncConfig,
         managerFactory,
         dataPath,
         initialSyncGate);
@@ -816,12 +836,46 @@ public class InitialSyncQueue {
     private void initialSync(InitialSyncRequest request) {
       @Var Optional<Runnable> completeFuture = Optional.empty();
       try {
+        // The default mongoClient should be constructed from syncSource.mongodURI, it is mapped to
+        // the host InitialSyncQueue.this.syncSourceHost
+        @Var
+        InitialSyncMongoClient mongoClient =
+            InitialSyncQueue.this.mongoClients.get(InitialSyncQueue.this.syncSourceHost);
+        LOG.atInfo()
+            .addKeyValue("host", InitialSyncQueue.this.syncSourceHost)
+            .log("using default mongoClient");
+
+        // Checking whether natural order scan is being resumed
+        if (InitialSyncQueue.this.initialSyncConfig.avoidNaturalOrderScanSyncSourceChangeResync()
+            && request.getResumeInfo().isPresent()
+            && request.getResumeInfo().get().isBufferlessNaturalOrderInitialSyncResumeInfo()) {
+          var resumeInfo = request.getResumeInfo().get();
+          // make sure getSyncSourceHost() is in connection string mappings
+          if (resumeInfo.getSyncSourceHost().isPresent()
+              && InitialSyncQueue.this.mongoClients.containsKey(
+                  resumeInfo.getSyncSourceHost().get())
+              && !resumeInfo
+                  .getSyncSourceHost()
+                  .get()
+                  .equals(InitialSyncQueue.this.syncSourceHost)) {
+            // Replace mongoClient if according sync source could be found./
+            mongoClient =
+                InitialSyncQueue.this.mongoClients.get(resumeInfo.getSyncSourceHost().get());
+            LOG.atInfo()
+                .addKeyValue("host", resumeInfo.getSyncSourceHost().get())
+                .addKeyValue("indexId", request.getIndexDefinitionGeneration().getIndexId())
+                .addKeyValue(
+                    "generationId", request.getIndexDefinitionGeneration().getGenerationId())
+                .log("switching to original mongoClient from initial sync resume info");
+          }
+        }
+
         // Here namespace resolution is first performed, right before the actual sync occurs below
         // in syncManager.sync(). This method will throw an exception if the collection
         // does not exist, and reschedule this initial sync in case the collection exists in the
         // future (if the cluster is sharded.)
         String collectionName =
-            InitialSyncQueue.this.mongoClient.resolveAndUpdateCollectionName(
+            mongoClient.resolveAndUpdateCollectionName(
                 request.getIndexDefinitionGeneration().getIndexDefinition());
 
         InitialSyncContext syncContext =
@@ -839,7 +893,7 @@ public class InitialSyncQueue {
         InitialSyncManager syncManager =
             this.initialSyncManagerFactory.create(
                 syncContext,
-                InitialSyncQueue.this.mongoClient,
+                mongoClient,
                 new MongoNamespace(syncContext.getIndexDefinition().getDatabase(), collectionName),
                 request.getResumeInfo());
 

@@ -18,6 +18,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/monitor",
         "//src/main/java/com/xgen/mongot/replication/mongodb/common",
         "//src/main/java/com/xgen/mongot/replication/mongodb/initialsync",
+        "//src/main/java/com/xgen/mongot/replication/mongodb/initialsync/config",
         "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/functionalinterfaces",
         "//src/main/java/com/xgen/mongot/util/mongodb",
