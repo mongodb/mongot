@@ -19,6 +19,5 @@ java_library(
         "//src/main/java/com/xgen/mongot/util/bson/parser",
         "@maven//:com_google_flogger_flogger",
         "@maven//:org_mongodb_bson",
-        "@maven//:org_slf4j_slf4j_api",
     ],
 )

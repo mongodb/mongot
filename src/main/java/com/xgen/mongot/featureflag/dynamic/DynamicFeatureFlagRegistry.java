@@ -17,8 +17,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.CRC32;
 import org.bson.types.ObjectId;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Registry for managing dynamic feature flag configurations.
@@ -29,7 +27,6 @@ import org.slf4j.LoggerFactory;
  * registered feature flags.
  */
 public class DynamicFeatureFlagRegistry {
-  private static final Logger LOGGER = LoggerFactory.getLogger(DynamicFeatureFlagRegistry.class);
   private static final FluentLogger FLOGGER = FluentLogger.forEnclosingClass();
 
   private volatile Map<String, DynamicFeatureFlagConfig> registeredDynamicFeatureFlagConfigs =
@@ -224,7 +221,8 @@ public class DynamicFeatureFlagRegistry {
     var dynamicFeatureFlagConfig =
         Optional.ofNullable(this.registeredDynamicFeatureFlagConfigs.get(featureFlagName));
     if (dynamicFeatureFlagConfig.isEmpty()) {
-      LOGGER.info("FeatureFlag: {} not registered yet ", featureFlagName);
+      FLOGGER.atInfo().atMostEvery(6, TimeUnit.HOURS).log(
+          "FeatureFlag: %s not registered yet", featureFlagName);
     }
     return dynamicFeatureFlagConfig;
   }
