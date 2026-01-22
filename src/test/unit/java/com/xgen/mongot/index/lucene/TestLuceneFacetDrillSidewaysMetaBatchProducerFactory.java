@@ -8,6 +8,7 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.google.errorprone.annotations.Var;
@@ -370,6 +371,91 @@ public class TestLuceneFacetDrillSidewaysMetaBatchProducerFactory {
   }
 
   @Test
+  public void testCreate_TokenFacets_MissingFirstDrillSidewaysResult_DoesNotSkipSecondFacet()
+      throws Exception {
+
+    // Route facetable string definitions to TOKEN path (no mocking sealed types)
+    when(this.facetContext.getStringFacetFieldDefinition(any(), any()))
+        .thenReturn(new com.xgen.mongot.index.definition.TokenFieldDefinition(Optional.empty()));
+
+    // Ensure token facets state cache is present so token producer path runs
+    com.xgen.mongot.index.lucene.facet.TokenFacetsStateCache tokenCache =
+        mock(com.xgen.mongot.index.lucene.facet.TokenFacetsStateCache.class);
+    when(this.searcher.getTokenFacetsStateCache()).thenReturn(Optional.of(tokenCache));
+
+    com.xgen.mongot.index.lucene.facet.TokenSsdvFacetState tokenState =
+        mock(com.xgen.mongot.index.lucene.facet.TokenSsdvFacetState.class);
+    when(tokenCache.get(anyString())).thenReturn(Optional.of(tokenState));
+
+    // Two token-backed string facets
+    String teamFacetName = "teamFacet";
+    String leagueFacetName = "leagueFacet";
+
+    FacetDefinition.StringFacetDefinition teamDef =
+        new FacetDefinition.StringFacetDefinition("team", 10);
+    FacetDefinition.StringFacetDefinition leagueDef =
+        new FacetDefinition.StringFacetDefinition("league", 10);
+
+    this.facetNameToDefinition.clear();
+    this.facetNameToDefinition.put(teamFacetName, teamDef);
+    this.facetNameToDefinition.put(leagueFacetName, leagueDef);
+
+    this.facetCollector =
+        FacetCollectorBuilder.facet()
+            .operator(OperatorBuilder.exists().path("_id").build())
+            .facetDefinitions(this.facetNameToDefinition)
+            .build();
+
+    this.collectorQuery =
+        CollectorQueryBuilder.builder()
+            .collector(this.facetCollector)
+            .index(SearchIndex.MOCK_INDEX_NAME)
+            .returnScope(new ReturnScope(FieldPath.parse("custom.scope")))
+            .returnStoredSource(false)
+            .build();
+
+    // DrillSidewaysResult present ONLY for leagueFacet
+    FacetResult facetResult = newFacetResult("ignored_path");
+    when(this.facets.getAllChildren(anyString())).thenReturn(facetResult);
+
+    DrillSidewaysResult dsResult = new DrillSidewaysResult(this.facets, null, null, null, null);
+
+    Map<String, DrillSidewaysResult> facetToResult = new HashMap<>();
+    facetToResult.put(leagueFacetName, dsResult); // teamFacet intentionally missing
+
+    // Act: build meta batch producer
+    LuceneFacetCollectorMetaBatchProducer producer =
+        LuceneFacetDrillSidewaysMetaBatchProducerFactory.create(
+            this.collectorQuery,
+            this.facetContext,
+            this.searcherReference,
+            TOP_DOCS,
+            facetName -> Optional.ofNullable(facetToResult.get(facetName)));
+
+    // Pull one batch (large enough)
+    producer.execute(CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT, BatchCursorOptionsBuilder.empty());
+    BsonArray batch = producer.getNextBatch(CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+
+    // Assert: leagueFacet bucket docs must appear.
+    // With old logic (return producers), we'd bail on teamFacet and never add leagueFacet
+    // producers.
+    boolean sawLeagueFacetBucket =
+        batch.getValues().stream()
+            .filter(v -> v.isDocument())
+            .map(v -> v.asDocument())
+            .anyMatch(
+                doc ->
+                    doc.containsKey("type")
+                        && "facet".equals(doc.getString("type").getValue())
+                        && doc.containsKey("tag")
+                        && leagueFacetName.equals(doc.getString("tag").getValue()));
+
+    assertTrue(
+        "Expected leagueFacet buckets present even if teamFacet DrillSidewaysResult missing",
+        sawLeagueFacetBucket);
+  }
+
+  @Test
   public void testGetNextBatch_SingleProducer() throws Exception {
 
     this.bucketProducers.add(new MockProducer(NUM_BUCKETS));
@@ -462,7 +548,7 @@ public class TestLuceneFacetDrillSidewaysMetaBatchProducerFactory {
 
   private FacetResult newFacetResult(String facetPath) {
     LabelAndValue[] labelAndValues = {
-      new LabelAndValue("bucket1", 10), new LabelAndValue("bucket2", 20)
+        new LabelAndValue("bucket1", 10), new LabelAndValue("bucket2", 20)
     };
     return new FacetResult(facetPath, new String[0], 30, labelAndValues, 2);
   }

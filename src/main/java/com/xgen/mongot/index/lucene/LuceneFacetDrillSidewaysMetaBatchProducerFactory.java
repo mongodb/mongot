@@ -219,7 +219,7 @@ public class LuceneFacetDrillSidewaysMetaBatchProducerFactory {
       Optional<DrillSidewaysResult> maybeDrillSidewaysResult =
           facetToDrillSidewaysResultsConverter.apply(entry.getKey());
       if (maybeDrillSidewaysResult.isEmpty()) {
-        return producers;
+        continue;
       }
       Facets facetCounts = maybeDrillSidewaysResult.get().facets;
 
