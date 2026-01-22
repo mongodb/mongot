@@ -30,9 +30,7 @@ public class DiskUtilizationAwareMergePolicy extends FilterMergePolicy {
   private final Counter discardedMergeCounter;
 
   public DiskUtilizationAwareMergePolicy(
-      MergePolicy parent,
-      Gate mergeGate,
-      MeterRegistry meterRegistry) {
+      MergePolicy parent, Gate mergeGate, MeterRegistry meterRegistry) {
     super(parent);
     this.mergeGate = mergeGate;
     var metricsFactory =
