@@ -6,6 +6,8 @@ services:
       mongod
       --config /etc/mongod.conf
       --replSetMember=mongod.search-community:27017
+      --tlsCertificateKeyFile /etc/mongod-tls/mongod-combined.pem
+      --tlsCAFile /etc/mongod-tls/ca.pem
     ports:
       - 27017:27017
     extra_hosts:
@@ -15,6 +17,7 @@ services:
       - ./mongod.conf:/etc/mongod.conf:ro
       - ./sampledata.archive:/sampledata.archive
       - ./init-mongo.sh:/docker-entrypoint-initdb.d/init-mongo.sh:ro
+      - ./tls:/etc/mongod-tls:ro
     networks:
       search-community:
         aliases:
@@ -40,6 +43,7 @@ services:
       - mongot_data:/data/mongot
       - ./mongot.conf:/mongot-community/config.default.yml
       - ./pwfile:/mongot-community/pwfile:ro
+      - ./tls:/mongot-community/tls:ro
     depends_on:
       - mongod
     ports:
@@ -61,6 +65,7 @@ services:
       - mongot_data:/data/mongot
       - ./mongot.conf:/mongot-community/config.default.yml
       - ./pwfile:/mongot-community/pwfile:ro
+      - ./tls:/mongot-community/tls:ro
     depends_on:
       - mongod
     ports:

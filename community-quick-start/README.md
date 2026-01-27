@@ -1,12 +1,11 @@
-This directory contains all the files referenced in
-the Mongot
-Community [Quick Start Guide](https://www.mongodb.com/docs/atlas/atlas-search/tutorial/?deployment-type=self)
+This directory contains a docker-compose example
 to quickly get a MongoDB Community Search running in a local docker container alongside mongod.
 
-The steps listed will generate:
+The steps listed will:
 
-* A MongoDB Community Edition Server (`mongod`) with a single node replica set on port 27017
-* A MongoDB Search (`mongot`) search engine component on port 27028
+* Generate SSL certificates for both `mongod` and `mongot`
+* Start a MongoDB Community Edition Server (`mongod`) with a single node replica set on port 27017
+* Start a MongoDB Community Search (`mongot`) search server on port 27028
 * Persistant data volumes on both ports
 * Pre-loaded sample data
 
@@ -14,32 +13,16 @@ The steps listed will generate:
 
 * Download Docker v4.40 or higher
 * Download Docker Compose
-* Download the `curl` command
+* Download the `curl` and `openssl` commands
 * Download `mongosh` locally or have access to it through Docker
-
-## Setup
-
-1. Give read-only access to the password file:
-
-**NOTE**: If you would like to change the password update the `pwfile` and `init-mongo.sh` with
-the new password.
-
-```shell
-chmod 400 ./community-quick-start/pwfile
-```
-
-
-2. Download the sample data:
+* Download the sample data:
 
 ```shell
 curl https://atlas-education.s3.amazonaws.com/sampledata.archive -o community-quick-start/sampledata.archive
 ```
 
-3. Create the Docker network:
-
-```shell
-docker network create search-community
-```
+* If you would like to change the password, update the `pwfile` and `init-mongo.sh` with
+the new password before starting the services.
 
 ## Starting `mongod` and `mongot`
 
@@ -75,24 +58,33 @@ To stop all running containers:
 make docker.down
 ```
 
+### Clearing All Data
+
+To stop all running containers and remove all data:
+
+```shell
+make docker.clear
+```
+
 
 ### Useful Commands
 
 ```shell
 # Check container status
-docker compose --project-directory community-quick-start ps
+make docker.ps
 
 # View logs for specific service
-docker compose --project-directory community-quick-start logs -f mongod
-docker compose --project-directory community-quick-start logs -f mongot-local    # for local mode
-docker compose --project-directory community-quick-start logs -f mongot          # for latest mode
+make docker.logs                # for mongot logs in local mode 
+make docker.logs SERVICE=mongot # for mongot logs in latest mode
+make docker.logs SERVICE=mongod # for mongod logs
 
 # Restart services
 make docker.down
 make docker.up
 
 # Connect to MongoDB
-mongosh mongodb://localhost:27017
+make docker.connect # Simple alias for:
+mongosh --tls --tlsCAFile ./community-quick-start/tls/ca.pem --tlsCertificateKeyFile ./community-quick-start/tls/client-combined.pem
 
 # Check metrics endpoint
 curl http://localhost:9946/metrics
@@ -103,7 +95,7 @@ curl http://localhost:9946/metrics
 1. Connect to MongoDB with mongosh
 
 ```shell
-mongosh mongodb://localhost:27017
+make docker.connect
 ```
 
 2. In the MongoDB shell, run the following commands to create a search index on the sample data

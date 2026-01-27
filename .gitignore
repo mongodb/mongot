@@ -29,3 +29,4 @@ evergreen_mongo_artifact
 
 community-quick-start/sampledata.archive
 community-quick-start/mongot-community-local-docker.tar
+community-quick-start/tls/

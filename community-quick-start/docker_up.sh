@@ -76,6 +76,23 @@ if ! docker info > /dev/null 2>&1; then
     exit 1
 fi
 
+# Create the search-community network if it doesn't exist
+echo "Checking Docker network..."
+if ! docker network inspect search-community > /dev/null 2>&1; then
+    echo "Creating search-community network..."
+    docker network create search-community
+    echo "Network created successfully!"
+else
+    echo "Network search-community already exists."
+fi
+echo ""
+
+# Set correct permissions on pwfile
+echo "Setting permissions on password file..."
+chmod 400 "$COMPOSE_DIR/pwfile"
+echo "Password file permissions set to read-only."
+echo ""
+
 # Build the Docker image (only for local mode)
 if [ "$MODE" = "local" ]; then
     echo "Building mongot-community Docker image..."
@@ -138,6 +155,58 @@ else
     echo ""
 fi
 
+echo "Generating TLS certificates..."
+echo ""
+
+# Create TLS directory if it doesn't exist
+TLS_DIR="$COMPOSE_DIR/tls"
+mkdir -p "$TLS_DIR"
+
+# Generate CA certificate if it doesn't exist
+if [ ! -f "$TLS_DIR/ca.pem" ]; then
+    echo "Generating CA certificate..."
+    openssl req -new -x509 -days 3650 -nodes \
+        -out "$TLS_DIR/ca.pem" \
+        -keyout "$TLS_DIR/ca-key.pem" \
+        -subj "/CN=CA"
+fi
+
+generate_combined_cert() {
+    local service=$1
+    local cn=$2
+
+    echo "Generating $service certificate..."
+
+    openssl genrsa -out "$TLS_DIR/$service-key.pem" 2048
+
+    openssl req -new -key "$TLS_DIR/$service-key.pem" \
+        -out "$TLS_DIR/$service.csr" \
+        -subj "/CN=$cn" \
+        -addext "subjectAltName=DNS:$cn,DNS:localhost,IP:127.0.0.1,IP:::1"
+
+    openssl x509 -req -in "$TLS_DIR/$service.csr" \
+        -CA "$TLS_DIR/ca.pem" \
+        -CAkey "$TLS_DIR/ca-key.pem" \
+        -out "$TLS_DIR/$service.pem" \
+        -copy_extensions copy \
+        -days 3650
+
+    rm -f "$TLS_DIR/$service.csr"
+
+    cat "$TLS_DIR/$service.pem" "$TLS_DIR/$service-key.pem" > "$TLS_DIR/$service-combined.pem"
+    echo ""
+}
+
+# Generate service certificates if they don't exist
+[ ! -f "$TLS_DIR/mongod-combined.pem" ] && generate_combined_cert "mongod" "mongod.search-community"
+[ ! -f "$TLS_DIR/mongot-combined.pem" ] && generate_combined_cert "mongot" "mongot.search-community"
+
+# Generate client certificate for mongosh/mongorestore connections
+[ ! -f "$TLS_DIR/client-combined.pem" ] && generate_combined_cert "client" "mongodb-client"
+
+echo "TLS certificates ready!"
+echo ""
+
 echo "Starting Docker Compose services..."
 echo ""
 
@@ -189,17 +258,19 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "Useful Commands:"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
+echo "  Connect to MongoDB:   make docker.connect"
+echo ""
+echo "  View mongod logs:     make docker.logs SERVICE=mongod"
 if [ "$MODE" = "local" ]; then
-    echo "  View logs:          docker compose --project-directory community-quick-start logs -f mongot-local"
-    echo "  Switch to latest:   make docker.up MODE=latest"
+    echo "  View mongot logs:     make docker.logs"
+    echo "  Switch to latest:     make docker.up MODE=latest"
 else
-    echo "  View logs:          docker compose --project-directory community-quick-start logs -f mongot"
-    echo "  Switch to local:    make docker.up MODE=local"
+    echo "  View logs:            make docker.logs SERVICE=mongot"
+    echo "  Switch to local:      make docker.up MODE=local"
 fi
-echo "  View all logs:      docker compose --project-directory community-quick-start logs -f"
-echo "  Check status:       docker compose --project-directory community-quick-start ps"
-echo "  Stop services:      make docker.down"
-echo "  Connect to MongoDB: mongosh mongodb://localhost:27017"
+echo ""
+echo "  Check status:         make docker.ps"
+echo "  Stop services:        make docker.down"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
@@ -209,9 +280,15 @@ sleep 5
 if ! docker compose ps | grep -q "mongot-community"; then
     echo "Warning: mongot container may have crashed. Check logs:"
     if [ "$MODE" = "local" ]; then
-        echo "   docker compose --project-directory community-quick-start logs mongot-local"
+        echo "   make docker.logs"
     else
-        echo "   docker compose --project-directory community-quick-start logs mongot"
+        echo "   make docker.logs SERVICE=mongot"
     fi
+    echo ""
+fi
+
+if ! docker compose ps | grep -q "mongod"; then
+    echo "Warning: mongod container may have crashed. Check logs:"
+    echo "   make docker.logs SERVICE=mongod"
     echo ""
 fi
