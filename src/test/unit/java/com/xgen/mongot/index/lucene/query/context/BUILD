@@ -5,6 +5,8 @@ java_test_suite(
     srcs = ["SearchQueryFactoryContextTest.java"],
     tags = ["unit"],
     deps = [
+        "//src/main/java/com/xgen/mongot/featureflag",
+        "//src/main/java/com/xgen/mongot/index",
         "//src/main/java/com/xgen/mongot/index/analyzer",
         "//src/main/java/com/xgen/mongot/index/analyzer/wrapper",
         "//src/main/java/com/xgen/mongot/index/definition",
@@ -19,6 +21,7 @@ java_test_suite(
         "//src/main/java/com/xgen/testing/mongot/index/definition",
         "//src/main/java/com/xgen/testing/mongot/index/lucene/synonym",
         "//src/main/java/com/xgen/testing/mongot/index/path/string",
+        "//src/main/java/com/xgen/testing/mongot/mock/index",
         "@maven//:com_google_truth_truth",
         "@maven//:junit_junit",
         "@maven//:org_apache_lucene_lucene_core",

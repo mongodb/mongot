@@ -4,9 +4,11 @@ import static com.xgen.mongot.index.lucene.query.util.BooleanComposer.shouldClau
 import static com.xgen.mongot.util.bson.FloatVector.OriginalType.NATIVE;
 
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.VectorIndexFilterFieldDefinition;
 import com.xgen.mongot.index.definition.VectorQuantization;
 import com.xgen.mongot.index.definition.VectorSimilarity;
+import com.xgen.mongot.index.lucene.query.context.VectorQueryFactoryContext;
 import com.xgen.mongot.index.lucene.query.custom.ExactVectorSearchQuery;
 import com.xgen.mongot.index.lucene.query.custom.WrappedKnnQuery;
 import com.xgen.mongot.index.query.InvalidQueryException;
@@ -26,6 +28,7 @@ import com.xgen.testing.mongot.index.query.operators.OperatorBuilder;
 import com.xgen.testing.mongot.index.query.operators.mql.ClauseBuilder;
 import com.xgen.testing.mongot.index.query.operators.mql.MqlFilterOperatorBuilder;
 import com.xgen.testing.mongot.index.query.operators.mql.ValueBuilder;
+import com.xgen.testing.mongot.mock.index.SearchIndex;
 import java.io.IOException;
 import java.util.List;
 import org.apache.lucene.document.SortedSetDocValuesField;
@@ -52,6 +55,9 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 public class LuceneVectorQueryFactoryDistributorTest {
+
+  private static final IndexMetricsUpdater.QueryingMetricsUpdater metrics =
+      new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory());
 
   private static Directory directory;
   private static IndexWriter writer;
@@ -179,9 +185,10 @@ public class LuceneVectorQueryFactoryDistributorTest {
                     .quantization(VectorQuantization.NONE)
                     .build()));
 
-    var factory =
-        LuceneVectorQueryFactoryDistributor.create(
-            definition, IndexFormatVersion.CURRENT, FeatureFlags.getDefault());
+    var context =
+        new VectorQueryFactoryContext(
+            definition, IndexFormatVersion.CURRENT, FeatureFlags.getDefault(), metrics);
+    var factory = LuceneVectorQueryFactoryDistributor.create(context);
 
     var mongotQuery =
         VectorQueryBuilder.builder()
@@ -315,9 +322,10 @@ public class LuceneVectorQueryFactoryDistributorTest {
                     .quantization(VectorQuantization.NONE)
                     .build()));
 
-    var factory =
-        LuceneVectorQueryFactoryDistributor.create(
-            definition, IndexFormatVersion.CURRENT, FeatureFlags.getDefault());
+    var context =
+        new VectorQueryFactoryContext(
+            definition, IndexFormatVersion.CURRENT, FeatureFlags.getDefault(), metrics);
+    var factory = LuceneVectorQueryFactoryDistributor.create(context);
 
     var mongotQuery =
         VectorQueryBuilder.builder()

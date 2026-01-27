@@ -5,6 +5,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.VectorAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.VectorFieldDefinitionResolver;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
@@ -25,10 +27,14 @@ import com.xgen.testing.mongot.index.query.VectorQueryBuilder;
 import com.xgen.testing.mongot.index.query.operators.mql.ClauseBuilder;
 import com.xgen.testing.mongot.index.query.operators.mql.MqlFilterOperatorBuilder;
 import com.xgen.testing.mongot.index.query.operators.mql.ValueBuilder;
+import com.xgen.testing.mongot.mock.index.SearchIndex;
 import java.util.List;
 import org.junit.Test;
 
 public class VectorSearchFilterQueryFactoryTest {
+
+  private static final IndexMetricsUpdater.QueryingMetricsUpdater metrics =
+      new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory());
 
   @Test
   public void isAutoEmbedField_validationSucceeds() {
@@ -47,7 +53,8 @@ public class VectorSearchFilterQueryFactoryTest {
 
     VectorQueryFactoryContext context =
         new VectorQueryFactoryContext(
-            new VectorFieldDefinitionResolver(indexDefinition, IndexFormatVersion.CURRENT));
+            new VectorFieldDefinitionResolver(indexDefinition, IndexFormatVersion.CURRENT),
+            FeatureFlags.getDefault(), metrics);
 
     assertTrue(context.isAutoEmbedField(textPath));
     assertTrue(context.isAutoEmbedField(autoEmbedPath));

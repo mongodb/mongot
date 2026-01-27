@@ -3,6 +3,8 @@ package com.xgen.mongot.index.lucene.query.sort;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.truth.Truth;
+import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.analyzer.wrapper.LuceneAnalyzer;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
@@ -330,6 +332,8 @@ public class LuceneSortFactoryTest {
         LuceneAnalyzer.queryAnalyzer(
             SearchIndex.MOCK_INDEX_DEFINITION, AnalyzerRegistryBuilder.empty()),
         fieldDefinitionResolver,
-        SynonymRegistryBuilder.empty());
+        SynonymRegistryBuilder.empty(),
+        new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory()),
+        FeatureFlags.getDefault());
   }
 }

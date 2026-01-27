@@ -19,11 +19,13 @@ import com.xgen.mongot.index.MeteredVectorIndexReader;
 import com.xgen.mongot.index.VectorIndexReader;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.VectorFieldDefinitionResolver;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.lucene.blobstore.LuceneIndexSnapshotter;
 import com.xgen.mongot.index.lucene.directory.IndexDirectoryFactory;
 import com.xgen.mongot.index.lucene.directory.IndexDirectoryHelper;
 import com.xgen.mongot.index.lucene.query.LuceneVectorQueryFactoryDistributor;
+import com.xgen.mongot.index.lucene.query.context.VectorQueryFactoryContext;
 import com.xgen.mongot.index.lucene.searcher.LuceneSearcherFactory;
 import com.xgen.mongot.index.lucene.searcher.LuceneSearcherManager;
 import com.xgen.mongot.index.status.IndexStatus;
@@ -157,10 +159,14 @@ class InitializedLuceneVectorIndex implements InitializedVectorIndex {
                     searcherFactory,
                     vectorIndexProperties.metricsFactory));
 
+    IndexMetricsUpdater.QueryingMetricsUpdater metricsUpdater =
+        indexMetricsUpdaterBuilder.getQueryingMetricsUpdater();
+    VectorFieldDefinitionResolver definitionResolver =
+        new VectorFieldDefinitionResolver(definition, vectorIndexProperties.indexFormatVersion);
+    VectorQueryFactoryContext factoryContext =
+        new VectorQueryFactoryContext(definitionResolver, featureFlags, metricsUpdater);
     var luceneVectorQueryFactoryDistributor =
-        LuceneVectorQueryFactoryDistributor.create(
-            definition, vectorIndexProperties.indexFormatVersion, featureFlags);
-    var metricsUpdater = indexMetricsUpdaterBuilder.getQueryingMetricsUpdater();
+        LuceneVectorQueryFactoryDistributor.create(factoryContext);
 
     List<LuceneVectorIndexReader> vectorIndexReaders =
         indexResources.luceneSearcherManagers.stream()
@@ -168,12 +174,11 @@ class InitializedLuceneVectorIndex implements InitializedVectorIndex {
                 searcherManager ->
                     LuceneVectorIndexReader.create(
                         searcherManager,
+                        factoryContext,
                         definition,
                         luceneVectorQueryFactoryDistributor,
-                        metricsUpdater,
                         vectorIndexProperties.concurrentSearchExecutor,
-                        vectorIndexProperties.concurrentVectorRescoringExecutor,
-                        featureFlags))
+                        vectorIndexProperties.concurrentVectorRescoringExecutor))
             .toList();
     // Only create a MultiLuceneVectorIndexReader if there are at least 2 vectorIndexReaders.
     // Otherwise, we could avoid the extra layer by simply using a LuceneVectorIndexReader.

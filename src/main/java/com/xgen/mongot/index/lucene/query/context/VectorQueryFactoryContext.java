@@ -1,12 +1,17 @@
 package com.xgen.mongot.index.lucene.query.context;
 
+import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.VectorFieldDefinitionResolver;
 import com.xgen.mongot.index.definition.VectorFieldSpecification;
+import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
 import com.xgen.mongot.index.definition.VectorQuantization;
 import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.VectorQueryTimeMappingChecks;
+import com.xgen.mongot.index.version.IndexCapabilities;
+import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.util.FieldPath;
 import java.util.Optional;
 import org.apache.lucene.analysis.Analyzer;
@@ -15,11 +20,27 @@ import org.apache.lucene.analysis.core.KeywordAnalyzer;
 public class VectorQueryFactoryContext implements QueryFactoryContext {
 
   private final VectorQueryTimeMappingChecks checks;
+
+  private final FeatureFlags featureFlags;
+  private final IndexMetricsUpdater.QueryingMetricsUpdater metrics;
   private final VectorFieldDefinitionResolver resolver;
 
-  public VectorQueryFactoryContext(VectorFieldDefinitionResolver resolver) {
+  public VectorQueryFactoryContext(
+      VectorIndexDefinition indexDefinition,
+      IndexFormatVersion ifv,
+      FeatureFlags featureFlags,
+      IndexMetricsUpdater.QueryingMetricsUpdater metrics) {
+    this(indexDefinition.createFieldDefinitionResolver(ifv), featureFlags, metrics);
+  }
+
+  public VectorQueryFactoryContext(
+      VectorFieldDefinitionResolver resolver,
+      FeatureFlags featureFlags,
+      IndexMetricsUpdater.QueryingMetricsUpdater metrics) {
     this.resolver = resolver;
     this.checks = new VectorQueryTimeMappingChecks(resolver);
+    this.featureFlags = featureFlags;
+    this.metrics = metrics;
   }
 
   @Override
@@ -33,29 +54,40 @@ public class VectorQueryFactoryContext implements QueryFactoryContext {
   }
 
   @Override
-  public boolean supportsFieldExistsQuery() {
-    return this.resolver.getIndexCapabilities().supportsFieldExistsQuery();
-  }
-
-  @Override
   public Analyzer getTokenFieldAnalyzer() {
     return new KeywordAnalyzer();
   }
 
   @Override
   public VectorSimilarity getIndexedVectorSimilarityFunction(
-      FieldPath fieldPath, Optional<FieldPath> embeddedRoot)
-      throws
-      InvalidQueryException {
+      FieldPath fieldPath, Optional<FieldPath> embeddedRoot) throws InvalidQueryException {
     return resolveVectorFieldSpecification(fieldPath).similarity();
   }
 
   @Override
   public VectorQuantization getIndexedQuantization(
-      FieldPath fieldPath, Optional<FieldPath> embeddedRoot)
-      throws
-      InvalidQueryException {
+      FieldPath fieldPath, Optional<FieldPath> embeddedRoot) throws InvalidQueryException {
     return resolveVectorFieldSpecification(fieldPath).quantization();
+  }
+
+  @Override
+  public IndexMetricsUpdater.QueryingMetricsUpdater getMetrics() {
+    return this.metrics;
+  }
+
+  @Override
+  public FeatureFlags getFeatureFlags() {
+    return this.featureFlags;
+  }
+
+  @Override
+  public IndexCapabilities getIndexCapabilities() {
+    return this.resolver.getIndexCapabilities();
+  }
+
+  @Override
+  public VectorFieldDefinitionResolver getFieldDefinitionResolver() {
+    return this.resolver;
   }
 
   /**
@@ -70,8 +102,7 @@ public class VectorQueryFactoryContext implements QueryFactoryContext {
   }
 
   private VectorFieldSpecification resolveVectorFieldSpecification(FieldPath fieldPath)
-      throws
-      InvalidQueryException {
+      throws InvalidQueryException {
     return this.resolver
         .getVectorFieldSpecification(fieldPath)
         .orElseThrow(

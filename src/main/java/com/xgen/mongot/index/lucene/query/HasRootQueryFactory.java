@@ -40,9 +40,9 @@ public class HasRootQueryFactory {
   private final SearchQueryFactoryContext context;
   private final FeatureFlags featureFlags;
 
-  HasRootQueryFactory(SearchQueryFactoryContext context, FeatureFlags featureFlags) {
+  HasRootQueryFactory(SearchQueryFactoryContext context) {
     this.context = context;
-    this.featureFlags = featureFlags;
+    this.featureFlags = context.getFeatureFlags();
   }
 
   /**

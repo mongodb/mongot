@@ -21,6 +21,7 @@ import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.quantization.BinaryQuantizedVectorRescorer;
 import com.xgen.mongot.index.lucene.query.LuceneVectorQueryFactoryDistributor;
+import com.xgen.mongot.index.lucene.query.context.VectorQueryFactoryContext;
 import com.xgen.mongot.index.lucene.query.pushdown.project.ProjectFactory;
 import com.xgen.mongot.index.lucene.query.pushdown.project.ProjectSpec;
 import com.xgen.mongot.index.lucene.query.pushdown.project.ProjectStage;
@@ -85,49 +86,46 @@ public class LuceneVectorIndexReader implements VectorIndexReader {
   private boolean closed;
 
   public LuceneVectorIndexReader(
+      VectorQueryFactoryContext context,
       VectorIndexDefinition indexDefinition,
       LuceneSearcherManager searcherManager,
-      IndexMetricsUpdater.QueryingMetricsUpdater metricsUpdater,
       Optional<NamedExecutorService> concurrentSearchExecutor,
       Optional<NamedExecutorService> concurrentVectorRescoringExecutor,
-      LuceneVectorQueryFactoryDistributor queryFactory,
-      FeatureFlags featureFlags) {
+      LuceneVectorQueryFactoryDistributor queryFactory) {
 
     this.indexDefinition = indexDefinition;
     this.searcherManager = searcherManager;
-    this.metricsUpdater = metricsUpdater;
+    this.metricsUpdater = context.getMetrics();
     this.concurrentSearchExecutor = concurrentSearchExecutor;
     this.queryFactory = queryFactory;
     this.luceneSearchManagerFactory =
         new LuceneSearchManagerFactory(
             queryFactory.getDefinitionResolver(),
             new BinaryQuantizedVectorRescorer(concurrentVectorRescoringExecutor),
-            metricsUpdater);
+            this.metricsUpdater);
 
     ReentrantReadWriteLock shutdownLock = new ReentrantReadWriteLock(true);
     this.shutdownExclusiveLock = shutdownLock.writeLock();
     this.shutdownSharedLock = shutdownLock.readLock();
-    this.featureFlags = featureFlags;
+    this.featureFlags = context.getFeatureFlags();
 
     this.closed = false;
   }
 
   public static LuceneVectorIndexReader create(
       LuceneSearcherManager searcherManager,
+      VectorQueryFactoryContext factoryContext,
       VectorIndexDefinition indexDefinition,
       LuceneVectorQueryFactoryDistributor queryFactory,
-      IndexMetricsUpdater.QueryingMetricsUpdater metricsUpdater,
       Optional<NamedExecutorService> concurrentSearchExecutor,
-      Optional<NamedExecutorService> concurrentVectorRescoringExecutor,
-      FeatureFlags featureFlags) {
+      Optional<NamedExecutorService> concurrentVectorRescoringExecutor) {
     return new LuceneVectorIndexReader(
+        factoryContext,
         indexDefinition,
         searcherManager,
-        metricsUpdater,
         concurrentSearchExecutor,
         concurrentVectorRescoringExecutor,
-        queryFactory,
-        featureFlags);
+        queryFactory);
   }
 
   @Override

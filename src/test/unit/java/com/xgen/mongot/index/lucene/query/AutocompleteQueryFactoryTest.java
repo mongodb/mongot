@@ -2,6 +2,8 @@ package com.xgen.mongot.index.lucene.query;
 
 import static org.mockito.Mockito.mock;
 
+import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.analyzer.wrapper.LuceneAnalyzer;
 import com.xgen.mongot.index.analyzer.wrapper.QueryAnalyzerWrapper;
 import com.xgen.mongot.index.definition.AutocompleteFieldDefinition;
@@ -19,6 +21,7 @@ import com.xgen.testing.mongot.index.lucene.synonym.SynonymRegistryBuilder;
 import com.xgen.testing.mongot.index.query.operators.AutocompleteOperatorBuilder;
 import com.xgen.testing.mongot.index.query.operators.FuzzyOptionBuilder;
 import com.xgen.testing.mongot.index.query.operators.OperatorBuilder;
+import com.xgen.testing.mongot.mock.index.SearchIndex;
 import java.util.function.Function;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.Term;
@@ -213,7 +216,9 @@ public class AutocompleteQueryFactoryTest {
                 AnalyzerRegistryBuilder.empty(),
                 analyzer,
                 definition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-                SynonymRegistryBuilder.empty()));
+                SynonymRegistryBuilder.empty(),
+                new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory()),
+                FeatureFlags.getDefault()));
 
     var operator = OperatorBuilder.autocomplete().path("description").query("pizza").build();
 
@@ -364,6 +369,8 @@ public class AutocompleteQueryFactoryTest {
             AnalyzerRegistryBuilder.empty(),
             LuceneAnalyzer.queryAnalyzer(indexDefinition, AnalyzerRegistryBuilder.empty()),
             indexDefinition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            SynonymRegistryBuilder.empty()));
+            SynonymRegistryBuilder.empty(),
+            new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory()),
+            FeatureFlags.getDefault()));
   }
 }

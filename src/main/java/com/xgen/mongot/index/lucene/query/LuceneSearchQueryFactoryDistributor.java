@@ -94,8 +94,6 @@ public class LuceneSearchQueryFactoryDistributor {
   private final LuceneQueryScorer luceneQueryScorer;
   private final LuceneSortFactory luceneSortFactory;
   private final SearchQueryFactoryContext queryFactoryContext;
-  private final FeatureFlags featureFlags;
-  private final IndexMetricsUpdater.QueryingMetricsUpdater queryingMetricsUpdater;
 
   /** Generates Lucene Queries from Operators, IndexDefinitions and Analyzers. */
   private LuceneSearchQueryFactoryDistributor(
@@ -120,9 +118,7 @@ public class LuceneSearchQueryFactoryDistributor {
       RangeQueryFactory rangeQueryFactory,
       LuceneQueryScorer luceneQueryScorer,
       LuceneSortFactory luceneSortFactory,
-      SearchQueryFactoryContext queryFactoryContext,
-      FeatureFlags featureFlags,
-      IndexMetricsUpdater.QueryingMetricsUpdater queryingMetricsUpdater) {
+      SearchQueryFactoryContext queryFactoryContext) {
     this.allDocsQueryFactory = allDocsQueryFactory;
     this.autocompleteQueryFactory = autocompleteQueryFactory;
     this.embeddedDocumentQueryFactory = embeddedDocumentQueryFactory;
@@ -158,8 +154,6 @@ public class LuceneSearchQueryFactoryDistributor {
     this.luceneQueryScorer = luceneQueryScorer;
     this.luceneSortFactory = luceneSortFactory;
     this.queryFactoryContext = queryFactoryContext;
-    this.featureFlags = featureFlags;
-    this.queryingMetricsUpdater = queryingMetricsUpdater;
   }
 
   /**
@@ -186,14 +180,15 @@ public class LuceneSearchQueryFactoryDistributor {
             analyzerRegistry,
             analyzer,
             indexDefinition.createFieldDefinitionResolver(indexFormatVersion),
-            synonymRegistry);
+            synonymRegistry,
+            queryingMetricsUpdater,
+            featureFlags);
     TermQueryFactory termQueryFactory = new TermQueryFactory(queryFactoryContext);
     EqualsQueryFactory equalsQueryFactory = new EqualsQueryFactory(queryFactoryContext);
     ExistsQueryFactory existsQueryFactory = new ExistsQueryFactory(queryFactoryContext);
     RangeQueryFactory rangeQueryFactory =
-        new RangeQueryFactory(
-            queryFactoryContext, equalsQueryFactory, queryFactoryContext.getIndexCapabilities());
-    InQueryFactory inQueryFactory = new InQueryFactory(queryFactoryContext, featureFlags);
+        new RangeQueryFactory(queryFactoryContext, equalsQueryFactory);
+    InQueryFactory inQueryFactory = new InQueryFactory(queryFactoryContext);
 
     AllDocsQueryFactory allDocsQueryFactory = new AllDocsQueryFactory(queryFactoryContext);
     return new LuceneSearchQueryFactoryDistributor(
@@ -202,8 +197,8 @@ public class LuceneSearchQueryFactoryDistributor {
         new EmbeddedDocumentQueryFactory(queryFactoryContext),
         existsQueryFactory,
         new GeoQueryFactory(queryFactoryContext),
-        new HasAncestorQueryFactory(queryFactoryContext, featureFlags),
-        new HasRootQueryFactory(queryFactoryContext, featureFlags),
+        new HasAncestorQueryFactory(queryFactoryContext),
+        new HasRootQueryFactory(queryFactoryContext),
         new KnnQueryFactory(queryFactoryContext),
         new NearQueryFactory(queryFactoryContext),
         new PhraseQueryFactory(queryFactoryContext),
@@ -218,9 +213,7 @@ public class LuceneSearchQueryFactoryDistributor {
         rangeQueryFactory,
         LuceneQueryScorer.create(queryFactoryContext),
         new LuceneSortFactory(queryFactoryContext),
-        queryFactoryContext,
-        featureFlags,
-        queryingMetricsUpdater);
+        queryFactoryContext);
   }
 
   /**
@@ -446,7 +439,7 @@ public class LuceneSearchQueryFactoryDistributor {
         // in case of a lenient error, we replace the query with the one which always returns
         // empty result and track statistics to know when we can switch to the strict mode:
         // CLOUDP-125626
-        this.queryingMetricsUpdater.getLenientFailureCounter().increment();
+        this.queryFactoryContext.getMetrics().getLenientFailureCounter().increment();
         return new MatchNoDocsQuery();
       }
       throw e;
@@ -466,7 +459,9 @@ public class LuceneSearchQueryFactoryDistributor {
   private void validateReturnScope(Optional<ReturnScope> returnScope) throws InvalidQueryException {
     if (returnScope.isPresent()) {
       InvalidQueryException.validate(
-          this.featureFlags.isEnabled(Feature.NEW_EMBEDDED_SEARCH_CAPABILITIES),
+          this.queryFactoryContext
+              .getFeatureFlags()
+              .isEnabled(Feature.NEW_EMBEDDED_SEARCH_CAPABILITIES),
           "returnScope is not currently supported on this cluster");
       Optional<EmbeddedDocumentsFieldDefinition> embeddedDocumentsFieldDefinition =
           this.queryFactoryContext.getEmbeddedDocumentsFieldDefinition(returnScope.get().path());

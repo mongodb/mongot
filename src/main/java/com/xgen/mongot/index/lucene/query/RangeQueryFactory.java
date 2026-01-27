@@ -28,11 +28,10 @@ class RangeQueryFactory {
 
   public RangeQueryFactory(
       QueryFactoryContext queryFactoryContext,
-      EqualsQueryFactory equalsQueryFactory,
-      IndexCapabilities indexCapabilities) {
+      EqualsQueryFactory equalsQueryFactory) {
     this.queryFactoryContext = queryFactoryContext;
     this.equalsQueryFactory = equalsQueryFactory;
-    this.indexCapabilities = indexCapabilities;
+    this.indexCapabilities = queryFactoryContext.getIndexCapabilities();
   }
 
   Query fromOperator(RangeOperator operator, SingleQueryContext singleQueryContext)

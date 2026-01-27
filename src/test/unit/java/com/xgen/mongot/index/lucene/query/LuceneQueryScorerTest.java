@@ -2,6 +2,8 @@ package com.xgen.mongot.index.lucene.query;
 
 import static org.mockito.Mockito.mock;
 
+import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.analyzer.AnalyzerRegistry;
 import com.xgen.mongot.index.analyzer.InvalidAnalyzerDefinitionException;
 import com.xgen.mongot.index.analyzer.wrapper.LuceneAnalyzer;
@@ -17,6 +19,7 @@ import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.query.operators.OperatorBuilder;
 import com.xgen.testing.mongot.index.query.operators.SpanOperatorBuilder;
 import com.xgen.testing.mongot.index.query.scores.ScoreBuilder;
+import com.xgen.testing.mongot.mock.index.SearchIndex;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -132,6 +135,8 @@ public class LuceneQueryScorerTest {
         analyzerRegistry,
         LuceneAnalyzer.queryAnalyzer(indexDefinition, analyzerRegistry),
         indexDefinition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-        synonymRegistry);
+        synonymRegistry,
+        new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory()),
+        FeatureFlags.getDefault());
   }
 }

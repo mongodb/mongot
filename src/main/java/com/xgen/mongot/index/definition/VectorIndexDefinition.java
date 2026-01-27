@@ -173,7 +173,7 @@ public final class VectorIndexDefinition implements IndexDefinition {
   }
 
   @Override
-  public FieldDefinitionResolver createFieldDefinitionResolver(
+  public VectorFieldDefinitionResolver createFieldDefinitionResolver(
       IndexFormatVersion indexFormatVersion) {
     return new VectorFieldDefinitionResolver(this, indexFormatVersion);
   }

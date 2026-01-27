@@ -5,6 +5,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
 
+import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.analyzer.AnalyzerMeta;
 import com.xgen.mongot.index.analyzer.AnalyzerRegistry;
 import com.xgen.mongot.index.analyzer.wrapper.LuceneAnalyzer;
@@ -26,6 +28,7 @@ import com.xgen.testing.mongot.index.definition.StringFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SynonymMappingDefinitionBuilder;
 import com.xgen.testing.mongot.index.lucene.synonym.SynonymRegistryBuilder;
 import com.xgen.testing.mongot.index.path.string.StringPathBuilder;
+import com.xgen.testing.mongot.mock.index.SearchIndex;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -63,7 +66,9 @@ public class SearchQueryFactoryContextTest {
             AnalyzerRegistryBuilder.empty(),
             LuceneAnalyzer.queryAnalyzer(indexDefinition, AnalyzerRegistryBuilder.empty()),
             indexDefinition.createFieldDefinitionResolver(indexFormatVersion),
-            SynonymRegistryBuilder.empty());
+            SynonymRegistryBuilder.empty(),
+            new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory()),
+            FeatureFlags.getDefault());
     var luceneFieldNames =
         queryFactoryContext.getAllLuceneFieldNames(
             new StringFieldPath(FieldPath.parse("a.b")), Optional.empty());
@@ -88,7 +93,9 @@ public class SearchQueryFactoryContextTest {
             AnalyzerRegistryBuilder.empty(),
             LuceneAnalyzer.queryAnalyzer(indexDefinition, AnalyzerRegistryBuilder.empty()),
             indexDefinition.createFieldDefinitionResolver(indexFormatVersion),
-            SynonymRegistryBuilder.empty());
+            SynonymRegistryBuilder.empty(),
+            new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory()),
+            FeatureFlags.getDefault());
     StringPath path = StringPathBuilder.withMulti("path", "invalid");
 
     assertThrows(
@@ -116,7 +123,9 @@ public class SearchQueryFactoryContextTest {
             AnalyzerRegistryBuilder.empty(),
             LuceneAnalyzer.queryAnalyzer(indexDefinition, AnalyzerRegistryBuilder.empty()),
             indexDefinition.createFieldDefinitionResolver(indexFormatVersion),
-            SynonymRegistryBuilder.empty());
+            SynonymRegistryBuilder.empty(),
+            new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory()),
+            FeatureFlags.getDefault());
     StringPath path = StringPathBuilder.fieldPath("path");
 
     Analyzer result = queryFactoryContext.getAnalyzer(path, Optional.empty());
@@ -152,7 +161,9 @@ public class SearchQueryFactoryContextTest {
             AnalyzerRegistryBuilder.empty(),
             LuceneAnalyzer.queryAnalyzer(indexDefinition, AnalyzerRegistryBuilder.empty()),
             indexDefinition.createFieldDefinitionResolver(indexFormatVersion),
-            SynonymRegistryBuilder.empty());
+            SynonymRegistryBuilder.empty(),
+            new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory()),
+            FeatureFlags.getDefault());
     var luceneFields =
         queryFactoryContext.getAllLuceneFieldNames(
             new StringFieldPath(FieldPath.parse("a")), Optional.empty());
@@ -315,6 +326,8 @@ public class SearchQueryFactoryContextTest {
         analyzerRegistry,
         LuceneAnalyzer.queryAnalyzer(indexDefinition, analyzerRegistry),
         indexDefinition.createFieldDefinitionResolver(indexFormatVersion),
-        synonymRegistry);
+        synonymRegistry,
+        new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory()),
+        FeatureFlags.getDefault());
   }
 }

@@ -1,7 +1,6 @@
 package com.xgen.mongot.index.lucene.query;
 
 import com.xgen.mongot.featureflag.Feature;
-import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
 import com.xgen.mongot.index.lucene.field.FieldValue;
 import com.xgen.mongot.index.lucene.query.context.QueryFactoryContext;
@@ -39,11 +38,9 @@ import org.bson.types.ObjectId;
 class InQueryFactory {
 
   private final QueryFactoryContext factoryContext;
-  private final FeatureFlags featureFlags;
 
-  InQueryFactory(QueryFactoryContext factoryContext, FeatureFlags featureFlags) {
+  InQueryFactory(QueryFactoryContext factoryContext) {
     this.factoryContext = factoryContext;
-    this.featureFlags = featureFlags;
   }
 
   public Query fromValues(
@@ -156,7 +153,7 @@ class InQueryFactory {
             .flatMap(
                 path -> {
                   Query numberInt64Query =
-                      this.featureFlags.isEnabled(
+                      this.factoryContext.getFeatureFlags().isEnabled(
                               Feature.INDEX_OR_DOC_VALUES_QUERY_FOR_IN_OPERATOR)
                           ? LongField.newSetQuery(
                               TypeField.NUMBER_INT64.getLuceneFieldName(path, embeddedRoot), longs)
@@ -169,7 +166,7 @@ class InQueryFactory {
                           longs);
 
                   Query numberDoubleQuery =
-                      this.featureFlags.isEnabled(
+                      this.factoryContext.getFeatureFlags().isEnabled(
                               Feature.INDEX_OR_DOC_VALUES_QUERY_FOR_IN_OPERATOR)
                           ? LongField.newSetQuery(
                               TypeField.NUMBER_DOUBLE.getLuceneFieldName(path, embeddedRoot),

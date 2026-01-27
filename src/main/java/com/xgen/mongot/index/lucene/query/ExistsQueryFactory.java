@@ -47,7 +47,7 @@ public class ExistsQueryFactory {
   Query existsQuery(String path, boolean value, SingleQueryContext singleQueryContext)
       throws InvalidQueryException {
 
-    if (!this.queryFactoryContext.supportsFieldExistsQuery()) {
+    if (!this.queryFactoryContext.getIndexCapabilities().supportsFieldExistsQuery()) {
       throw new IllegalStateException("Index format version is not supported");
     }
 

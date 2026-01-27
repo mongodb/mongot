@@ -1,7 +1,6 @@
 package com.xgen.mongot.index.lucene.query;
 
 import com.xgen.mongot.featureflag.Feature;
-import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.field.FieldValue;
 import com.xgen.mongot.index.lucene.query.context.SearchQueryFactoryContext;
@@ -35,11 +34,9 @@ public class HasAncestorQueryFactory {
       new QueryBitSetProducer(ROOT_DOCUMENTS_QUERY);
 
   private final SearchQueryFactoryContext context;
-  private final FeatureFlags featureFlags;
 
-  HasAncestorQueryFactory(SearchQueryFactoryContext context, FeatureFlags featureFlags) {
+  HasAncestorQueryFactory(SearchQueryFactoryContext context) {
     this.context = context;
-    this.featureFlags = featureFlags;
   }
 
   /**
@@ -58,7 +55,7 @@ public class HasAncestorQueryFactory {
       throws InvalidQueryException, IOException {
 
     InvalidQueryException.validate(
-        this.featureFlags.isEnabled(Feature.NEW_EMBEDDED_SEARCH_CAPABILITIES),
+        this.context.getFeatureFlags().isEnabled(Feature.NEW_EMBEDDED_SEARCH_CAPABILITIES),
         "HasAncestor operator is not supported in the current configuration. "
             + "Please enable 'enableNewEmbeddedSearchCapabilities' feature flag to use it.");
 

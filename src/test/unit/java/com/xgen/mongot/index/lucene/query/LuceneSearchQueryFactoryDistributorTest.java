@@ -563,7 +563,9 @@ public class LuceneSearchQueryFactoryDistributorTest {
             registry,
             LuceneAnalyzer.queryAnalyzer(indexDefinition, registry),
             indexDefinition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            synonymRegistry);
+            synonymRegistry,
+            new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory()),
+            FeatureFlags.getDefault());
 
     StringPathQuery spq =
         new StringPathQuery("fast", StringPathBuilder.fieldPath("fieldWithAnalyzer"));
@@ -660,7 +662,9 @@ public class LuceneSearchQueryFactoryDistributorTest {
             registry,
             LuceneAnalyzer.queryAnalyzer(indexDefinition, registry),
             indexDefinition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            synonymRegistry);
+            synonymRegistry,
+            new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory()),
+            FeatureFlags.getDefault());
     Analyzer analyzer =
         queryFactoryContext.getSynonymAnalyzer("en", spq.getPath(), Optional.empty());
 
@@ -712,7 +716,9 @@ public class LuceneSearchQueryFactoryDistributorTest {
             registry,
             LuceneAnalyzer.queryAnalyzer(indexDefinition, registry),
             indexDefinition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            synonymRegistry);
+            synonymRegistry,
+            new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory()),
+            FeatureFlags.getDefault());
     Analyzer analyzer =
         queryFactoryContext.getSynonymAnalyzer("en", spq.getPath(), Optional.empty());
 
@@ -777,7 +783,9 @@ public class LuceneSearchQueryFactoryDistributorTest {
             registry,
             LuceneAnalyzer.queryAnalyzer(indexDefinition, registry),
             indexDefinition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            synonymRegistry);
+            synonymRegistry,
+            new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory()),
+            FeatureFlags.getDefault());
 
     StringPathQuery spq =
         new StringPathQuery("fasts", StringPathBuilder.fieldPath("fieldWithEnglishAnalyzer"));
@@ -836,7 +844,9 @@ public class LuceneSearchQueryFactoryDistributorTest {
             registry,
             LuceneAnalyzer.queryAnalyzer(indexDefinition, registry),
             indexDefinition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            synonymRegistry);
+            synonymRegistry,
+            new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory()),
+            FeatureFlags.getDefault());
 
     StringPathQuery spq =
         new StringPathQuery("fast", StringPathBuilder.fieldPath("fieldWithAnalyzer"));
@@ -886,7 +896,9 @@ public class LuceneSearchQueryFactoryDistributorTest {
             registry,
             LuceneAnalyzer.queryAnalyzer(indexDefinition, registry),
             indexDefinition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            synonymRegistry);
+            synonymRegistry,
+            new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory()),
+            FeatureFlags.getDefault());
 
     StringPathQuery spq =
         new StringPathQuery("fast", StringPathBuilder.fieldPath("fieldWithAnalyzer"));

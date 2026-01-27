@@ -25,6 +25,7 @@ import com.xgen.mongot.index.lucene.directory.IndexDirectoryHelper;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
 import com.xgen.mongot.index.lucene.query.LuceneVectorQueryFactoryDistributor;
+import com.xgen.mongot.index.lucene.query.context.VectorQueryFactoryContext;
 import com.xgen.mongot.index.lucene.searcher.LuceneSearcherFactory;
 import com.xgen.mongot.index.lucene.searcher.LuceneSearcherManager;
 import com.xgen.mongot.index.lucene.searcher.QueryCacheProvider;
@@ -240,13 +241,13 @@ public class TestLuceneVectorIndexReader {
               mock(IndexDirectoryHelper.class),
               Optional.empty(),
               FeatureFlags.getDefault());
-      this.queryFactory =
-          spy(
-              LuceneVectorQueryFactoryDistributor.create(
-                  VectorIndex.MOCK_INDEX_DEFINITION_GENERATION_ALL_QUANTIZATION
-                      .getIndexDefinition(),
-                  IndexFormatVersion.CURRENT,
-                  FeatureFlags.getDefault()));
+      var context =
+          new VectorQueryFactoryContext(
+              VectorIndex.MOCK_INDEX_DEFINITION_GENERATION_ALL_QUANTIZATION.getIndexDefinition(),
+              IndexFormatVersion.CURRENT,
+              FeatureFlags.getDefault(),
+              this.queryingMetricsUpdater);
+      this.queryFactory = spy(LuceneVectorQueryFactoryDistributor.create(context));
 
       this.writer =
           ((SingleLuceneIndexWriter)
@@ -266,15 +267,20 @@ public class TestLuceneVectorIndexReader {
           new LuceneSearcherManager(
               this.writer, this.searcherFactory, SearchIndex.mockMetricsFactory());
 
+      var indexDefinition =
+          VectorIndex.MOCK_INDEX_DEFINITION_GENERATION_ALL_QUANTIZATION.getIndexDefinition();
       this.reader =
           LuceneVectorIndexReader.create(
               searcherManager,
-              VectorIndex.MOCK_INDEX_DEFINITION_GENERATION_ALL_QUANTIZATION.getIndexDefinition(),
+              new VectorQueryFactoryContext(
+                  indexDefinition,
+                  IndexFormatVersion.CURRENT,
+                  FeatureFlags.getDefault(),
+                  this.queryingMetricsUpdater),
+              indexDefinition,
               this.queryFactory,
-              this.queryingMetricsUpdater,
               Optional.of(this.concurrentSearchExecutor),
-              Optional.of(this.concurrentSearchExecutor),
-              FeatureFlags.getDefault());
+              Optional.of(this.concurrentSearchExecutor));
     }
 
     @Test

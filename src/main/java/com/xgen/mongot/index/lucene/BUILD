@@ -115,6 +115,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/lucene/field",
         "//src/main/java/com/xgen/mongot/index/lucene/quantization",
         "//src/main/java/com/xgen/mongot/index/lucene/query",
+        "//src/main/java/com/xgen/mongot/index/lucene/query/context",
         "//src/main/java/com/xgen/mongot/index/lucene/query/custom",
         "//src/main/java/com/xgen/mongot/index/lucene/query/highlights",
         "//src/main/java/com/xgen/mongot/index/lucene/query/pushdown/project",

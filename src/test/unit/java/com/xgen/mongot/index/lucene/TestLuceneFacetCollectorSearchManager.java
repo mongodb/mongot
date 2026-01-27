@@ -3,6 +3,7 @@ package com.xgen.mongot.index.lucene;
 import static org.junit.Assert.assertEquals;
 
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.analyzer.wrapper.LuceneAnalyzer;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.lucene.codec.LuceneCodec;
@@ -73,7 +74,9 @@ public class TestLuceneFacetCollectorSearchManager {
             LuceneAnalyzer.queryAnalyzer(
                 SearchIndex.MOCK_INDEX_DEFINITION, AnalyzerRegistryBuilder.empty()),
             fieldDefinitionResolver,
-            SynonymRegistryBuilder.empty());
+            SynonymRegistryBuilder.empty(),
+            new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory()),
+            FeatureFlags.getDefault());
   }
 
   @After

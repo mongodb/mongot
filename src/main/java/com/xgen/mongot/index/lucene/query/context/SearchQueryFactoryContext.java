@@ -1,6 +1,8 @@
 package com.xgen.mongot.index.lucene.query.context;
 
 import com.google.common.collect.ImmutableSet;
+import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.analyzer.AnalyzerMeta;
 import com.xgen.mongot.index.analyzer.AnalyzerRegistry;
 import com.xgen.mongot.index.analyzer.wrapper.QueryAnalyzerWrapper;
@@ -46,17 +48,23 @@ public class SearchQueryFactoryContext implements QueryFactoryContext {
   private final SearchFieldDefinitionResolver fieldDefinitionResolver;
   private final SynonymRegistry synonymRegistry;
   private final SearchQueryTimeMappingChecks queryTimeMappingChecks;
+  private final IndexMetricsUpdater.QueryingMetricsUpdater metrics;
+  private final FeatureFlags featureFlags;
 
   public SearchQueryFactoryContext(
       AnalyzerRegistry analyzerRegistry,
       QueryAnalyzerWrapper analyzer,
       SearchFieldDefinitionResolver fieldDefinitionResolver,
-      SynonymRegistry synonymRegistry) {
+      SynonymRegistry synonymRegistry,
+      IndexMetricsUpdater.QueryingMetricsUpdater metrics,
+      FeatureFlags featureFlags) {
     this.analyzerRegistry = analyzerRegistry;
     this.analyzer = analyzer;
     this.fieldDefinitionResolver = fieldDefinitionResolver;
     this.synonymRegistry = synonymRegistry;
     this.queryTimeMappingChecks = new SearchQueryTimeMappingChecks(fieldDefinitionResolver);
+    this.metrics = metrics;
+    this.featureFlags = featureFlags;
   }
 
   public SafeQueryBuilder safeQueryBuilder(StringPath stringPath, Optional<FieldPath> embeddedRoot)
@@ -272,11 +280,6 @@ public class SearchQueryFactoryContext implements QueryFactoryContext {
     return this.fieldDefinitionResolver.indexDefinition.hasEmbeddedFields();
   }
 
-  @Override
-  public boolean supportsFieldExistsQuery() {
-    return true;
-  }
-
   public IndexCapabilities getIndexCapabilities() {
     return this.fieldDefinitionResolver.getIndexCapabilities();
   }
@@ -284,6 +287,21 @@ public class SearchQueryFactoryContext implements QueryFactoryContext {
   @Override
   public SearchQueryTimeMappingChecks getQueryTimeMappingChecks() {
     return this.queryTimeMappingChecks;
+  }
+
+  @Override
+  public SearchFieldDefinitionResolver getFieldDefinitionResolver() {
+    return this.fieldDefinitionResolver;
+  }
+
+  @Override
+  public FeatureFlags getFeatureFlags() {
+    return this.featureFlags;
+  }
+
+  @Override
+  public IndexMetricsUpdater.QueryingMetricsUpdater getMetrics() {
+    return this.metrics;
   }
 
   public Optional<NumericFieldOptions.Representation> getNumericRepresentation(

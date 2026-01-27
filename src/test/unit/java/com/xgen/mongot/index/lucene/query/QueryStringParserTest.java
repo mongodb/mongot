@@ -5,6 +5,8 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 
+import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.analyzer.wrapper.LuceneAnalyzer;
 import com.xgen.mongot.index.analyzer.wrapper.QueryAnalyzerWrapper;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
@@ -19,6 +21,7 @@ import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.StringFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.lucene.synonym.SynonymRegistryBuilder;
+import com.xgen.testing.mongot.mock.index.SearchIndex;
 import java.util.Optional;
 import java.util.UUID;
 import org.apache.lucene.index.IndexReader;
@@ -106,7 +109,9 @@ public class QueryStringParserTest {
             AnalyzerRegistryBuilder.empty(),
             wrapper,
             indexDefinition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            SynonymRegistryBuilder.empty());
+            SynonymRegistryBuilder.empty(),
+            new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory()),
+            FeatureFlags.getDefault());
 
     SingleQueryContext singleQueryContext =
         SingleQueryContext.createQueryRoot(mock(IndexReader.class));
