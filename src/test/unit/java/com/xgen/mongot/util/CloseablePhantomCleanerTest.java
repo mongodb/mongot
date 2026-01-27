@@ -1,11 +1,14 @@
 package com.xgen.mongot.util;
 
+import static com.google.common.truth.Truth.assertThat;
+
 import com.google.common.flogger.util.Checks;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.lucene.LuceneIndexSearcherReference;
+import com.xgen.mongot.index.lucene.searcher.LuceneIndexSearcher;
 import com.xgen.mongot.index.lucene.searcher.LuceneSearcherFactory;
 import com.xgen.mongot.index.lucene.searcher.LuceneSearcherManager;
 import com.xgen.mongot.index.lucene.searcher.QueryCacheProvider.DefaultQueryCacheProvider;
@@ -13,12 +16,16 @@ import com.xgen.testing.mongot.mock.index.SearchIndex;
 import io.micrometer.core.instrument.Counter;
 import java.io.Closeable;
 import java.io.IOException;
+import java.lang.ref.WeakReference;
+import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.search.ReferenceManager;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.junit.Test;
 
@@ -27,7 +34,8 @@ public class CloseablePhantomCleanerTest {
   private static final Counter NO_OP =
       new Counter() {
         @Override
-        public void increment(double amount) {}
+        public void increment(double amount) {
+        }
 
         @Override
         public double count() {
@@ -41,7 +49,9 @@ public class CloseablePhantomCleanerTest {
       };
 
   private static class TestCountDownCloseable implements Closeable {
+
     static class Action implements CloseablePhantomCleaner.NoRefCloseable {
+
       private final CountDownLatch latch;
 
       public Action(CountDownLatch latch) {
@@ -70,7 +80,9 @@ public class CloseablePhantomCleanerTest {
   }
 
   private static class TestCounterCloseable implements Closeable {
+
     static class Action implements CloseablePhantomCleaner.NoRefCloseable {
+
       private final AtomicInteger counter;
 
       public Action(AtomicInteger counter) {
@@ -256,6 +268,67 @@ public class CloseablePhantomCleanerTest {
         var finalRefCount = finalSearcher.getIndexReader().getRefCount() - 1;
         manager.release(finalSearcher);
         Checks.checkState(finalRefCount == initialRefCount, "ref count did not decrease");
+      }
+    }
+  }
+
+  // CLOUDP-374952: In the old implementation, LuceneIndexSearcherReference#Cleaning holds weak
+  // reerence to LuceneIndexSearcher. After index refresh, the LuceneIndexSearcher is replaced with
+  // a new one. This will cause the LuceneIndexSearcherReference close skipped due to the searcher
+  // become phantom.
+  @Test
+  public void testPhantomLuceneIndexSearcherReferenceCleanUpWithIndexRefresh() throws Exception {
+    try (var directory = new ByteBuffersDirectory()) {
+      try (var writer = new IndexWriter(directory, new IndexWriterConfig())) {
+        AtomicLong releaseCounter = new AtomicLong();
+        var manager =
+            new LuceneSearcherManager(
+                writer,
+                new LuceneSearcherFactory(
+                    SearchIndex.MOCK_INDEX_DEFINITION,
+                    false,
+                    new DefaultQueryCacheProvider(),
+                    Optional.empty(),
+                    SearchIndex.mockQueryMetricsUpdater(IndexDefinition.Type.SEARCH)),
+                SearchIndex.mockMetricsFactory()) {
+              @Override
+              protected void decRef(LuceneIndexSearcher reference) throws IOException {
+                super.decRef(reference);
+                releaseCounter.incrementAndGet();
+              }
+
+            };
+        var metricsUpdater = SearchIndex.mockQueryMetricsUpdater(IndexDefinition.Type.SEARCH);
+
+        @Var
+        var searcherReference =
+            LuceneIndexSearcherReference.create(
+                manager,
+                metricsUpdater,
+                FeatureFlags.withDefaults().enable(Feature.PHANTOM_REFERENCE_CLEANUP).build());
+
+        // create a weak ref to track when the searcher is GC'd
+        WeakReference<LuceneIndexSearcher> weakSearcher = new WeakReference<>(
+            searcherReference.getIndexSearcher());
+
+        // Null out current to mimic the index refresh behavior
+        Field currentField = ReferenceManager.class.getDeclaredField("current");
+        currentField.setAccessible(true);
+        currentField.set(manager, null);
+
+        searcherReference = null;
+
+        Condition.await()
+            .atMost(Duration.ofSeconds(10))
+            .withPollingInterval(Duration.ofMillis(100))
+            .until(
+              () -> {
+                System.gc();
+                return weakSearcher.get() == null;
+              });
+
+        // Make sure the searcher is released
+        assertThat(releaseCounter.get()).isEqualTo(1);
       }
     }
   }

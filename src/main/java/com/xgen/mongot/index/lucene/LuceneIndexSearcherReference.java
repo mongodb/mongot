@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.lucene;
 
+import com.google.common.flogger.FluentLogger;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
@@ -18,9 +19,8 @@ import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.Optional;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import org.apache.lucene.search.ReferenceManager;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * LuceneIndexSearcherReference couples together an IndexSearcher with the SearcherManager or other
@@ -36,28 +36,38 @@ import org.slf4j.LoggerFactory;
  */
 public class LuceneIndexSearcherReference implements Closeable {
 
+  /**
+   * Cleanup handler for releasing IndexSearcher references when the parent
+   * LuceneIndexSearcherReference is garbage collected.
+   *
+   * <p><b>Uses strong references</b> to prevent resource leaks: When the SearcherManager
+   * refreshes (rotates to a new searcher), the old searcher would become weakly-reachable
+   * and could be GC'd before this cleanup runs. Strong references ensure the searcher
+   * remains alive until {@code manager.release(searcher)} is called, preventing leaks.
+   */
   private record Cleaning(
       WeakReference<ReferenceManager<LuceneIndexSearcher>> searcherManager,
-      WeakReference<LuceneIndexSearcher> indexSearcher)
+      LuceneIndexSearcher indexSearcher)
       implements CloseablePhantomCleaner.NoRefCloseable {
 
     Cleaning(
         ReferenceManager<LuceneIndexSearcher> searcherManager,
         LuceneIndexSearcher indexSearcher) {
-      this(new WeakReference<>(searcherManager), new WeakReference<>(indexSearcher));
+      this(new WeakReference<>(searcherManager), indexSearcher);
     }
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(Cleaning.class);
+    private static final FluentLogger FLOGGER = FluentLogger.forEnclosingClass();
 
     @Override
     public void close() throws IOException {
       Optional<ReferenceManager<LuceneIndexSearcher>> maybeManager =
           Optional.ofNullable(this.searcherManager.get());
-      Optional<LuceneIndexSearcher> maybeSearcher = Optional.ofNullable(this.indexSearcher.get());
-      if (maybeManager.isPresent() && maybeSearcher.isPresent()) {
-        LuceneIndexSearcherReference.releaseSearcher(maybeManager.get(), maybeSearcher.get());
+      if (maybeManager.isPresent()) {
+        LuceneIndexSearcherReference.releaseSearcher(maybeManager.get(), this.indexSearcher);
       } else {
-        LOGGER.warn("Skip releasing searcher because manager or searcher become phantom");
+        FLOGGER.atWarning()
+            .atMostEvery(10, TimeUnit.SECONDS)
+            .log("Skip releasing searcher because manager or searcher become phantom");
       }
     }
   }
