@@ -50,6 +50,7 @@ import com.xgen.testing.mongot.metrics.SimpleMetricsFactory;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -382,7 +383,7 @@ public class MaterializedViewManagerTest {
 
     // Verify the startup log is emitted
     boolean foundStartupLog =
-        logEvents.stream()
+        new ArrayList<>(logEvents).stream()
             .anyMatch(
                 event ->
                     event
