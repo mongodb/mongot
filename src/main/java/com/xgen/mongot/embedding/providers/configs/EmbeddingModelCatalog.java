@@ -5,6 +5,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -102,11 +103,11 @@ public class EmbeddingModelCatalog {
         .anyMatch(compatibleModels -> compatibleModels.contains(queryModelLower));
   }
 
-  /** Returns the set of all allowed query models. */
+  /** Returns the set of all allowed query models, sorted alphabetically. */
   public static Set<String> getAllowedQueryModels() {
     return COMPATIBLE_QUERY_MODEL_MAP.values().stream()
         .flatMap(Set::stream)
-        .collect(Collectors.toSet());
+        .collect(Collectors.toCollection(TreeSet::new));
   }
 
   /**
