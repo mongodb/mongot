@@ -165,10 +165,10 @@ mkdir -p "$TLS_DIR"
 # Generate CA certificate if it doesn't exist
 if [ ! -f "$TLS_DIR/ca.pem" ]; then
     echo "Generating CA certificate..."
-    openssl req -new -x509 -days 3650 -nodes \
-        -out "$TLS_DIR/ca.pem" \
+    openssl req -x509 -nodes -sha256 -days 3650 -newkey rsa:4096 \
         -keyout "$TLS_DIR/ca-key.pem" \
-        -subj "/CN=CA"
+        -out "$TLS_DIR/ca.pem" \
+        -subj "/CN=ca.mongodb-dev.local"
 fi
 
 generate_combined_cert() {
@@ -177,19 +177,23 @@ generate_combined_cert() {
 
     echo "Generating $service certificate..."
 
-    openssl genrsa -out "$TLS_DIR/$service-key.pem" 2048
-
-    openssl req -new -key "$TLS_DIR/$service-key.pem" \
+    openssl req -newkey rsa:4096 -keyout "$TLS_DIR/$service-key.pem" -nodes \
         -out "$TLS_DIR/$service.csr" \
-        -subj "/CN=$cn" \
-        -addext "subjectAltName=DNS:$cn,DNS:localhost,IP:127.0.0.1,IP:::1"
+        -subj "/CN=$cn"
 
-    openssl x509 -req -in "$TLS_DIR/$service.csr" \
+    openssl req -x509 -nodes \
         -CA "$TLS_DIR/ca.pem" \
         -CAkey "$TLS_DIR/ca-key.pem" \
+        -in "$TLS_DIR/$service.csr" \
         -out "$TLS_DIR/$service.pem" \
-        -copy_extensions copy \
-        -days 3650
+        -days 3650 \
+        -subj "/CN=$cn" \
+        -extensions san \
+        -config <(echo '[req]'; \
+                  echo 'distinguished_name=req'; \
+                  echo '[san]'; \
+                  echo "subjectAltName=DNS:localhost,DNS:$cn,IP:127.0.0.1,IP:::1")
+
 
     rm -f "$TLS_DIR/$service.csr"
 
