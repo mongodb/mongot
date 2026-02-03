@@ -8,6 +8,8 @@ import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.util.concurrent.Executors;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * The IndexingWorkSchedulerFactory is used to retrieve the appropriate {@link
@@ -15,6 +17,7 @@ import java.util.Map;
  */
 public class IndexingWorkSchedulerFactory {
 
+  private static final Logger log = LoggerFactory.getLogger(IndexingWorkSchedulerFactory.class);
   private final Map<IndexingStrategy, IndexingWorkScheduler> indexingWorkSchedulers;
 
   private IndexingWorkSchedulerFactory(
@@ -39,7 +42,9 @@ public class IndexingWorkSchedulerFactory {
       int numIndexingThreads,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
       MeterRegistry registry) {
-    var executor = Executors.fixedSizeThreadPool("indexing", numIndexingThreads, registry);
+    log.info("Creating IndexingWorkSchedulerFactory with DEFAULT, EMBEDDING and "
+        + "EMBEDDING_MATERIALIZED_VIEW strategies");
+    var executor = Executors.fixedSizeThreadPool("indexing-work", numIndexingThreads, registry);
     DefaultIndexingWorkScheduler defaultIndexingWorkScheduler =
         DefaultIndexingWorkScheduler.create(executor);
     EmbeddingIndexingWorkScheduler embeddingIndexingWorkScheduler =
@@ -60,6 +65,7 @@ public class IndexingWorkSchedulerFactory {
    */
   public static IndexingWorkSchedulerFactory createWithoutEmbeddingStrategy(
       int numIndexingThreads, MeterRegistry registry) {
+    log.info("Creating IndexingWorkSchedulerFactory without EMBEDDING strategy");
     var executor = Executors.fixedSizeThreadPool("indexing", numIndexingThreads, registry);
     DefaultIndexingWorkScheduler defaultIndexingWorkScheduler =
         DefaultIndexingWorkScheduler.create(executor);
@@ -100,8 +106,18 @@ public class IndexingWorkSchedulerFactory {
    * </ul>
    */
   public enum IndexingStrategy {
-    DEFAULT,
-    EMBEDDING,
-    EMBEDDING_MATERIALIZED_VIEW
+    DEFAULT("DefaultIndexingWorkSchedulerThread"),
+    EMBEDDING("EmbeddingIndexingWorkSchedulerThread"),
+    EMBEDDING_MATERIALIZED_VIEW("EmbeddingMaterializedViewIndexingWorkSchedulerThread");
+
+    private final String threadName;
+
+    IndexingStrategy(String threadName) {
+      this.threadName = threadName;
+    }
+
+    public String getThreadName() {
+      return this.threadName;
+    }
   }
 }

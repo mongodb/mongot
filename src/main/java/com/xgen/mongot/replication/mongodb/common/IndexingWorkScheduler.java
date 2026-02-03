@@ -12,6 +12,7 @@ import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.metrics.ServerStatusDataExtractor;
 import com.xgen.mongot.metrics.ServerStatusDataExtractor.ReplicationMeterData.IndexingMeterData;
+import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory.IndexingStrategy;
 import com.xgen.mongot.replication.mongodb.common.SchedulerQueue.Priority;
 import com.xgen.mongot.util.Crash;
 import com.xgen.mongot.util.FutureUtils;
@@ -67,22 +68,25 @@ public abstract class IndexingWorkScheduler extends Thread {
 
   private final Timer batchSchedulingTimer;
 
-  private final String threadName;
+  private final IndexingStrategy indexingStrategy;
 
   @GuardedBy("this")
   private boolean shutdown;
 
-  protected IndexingWorkScheduler(NamedExecutorService executor, String threadName) {
-    super(threadName);
-    this.threadName = threadName;
+  protected IndexingWorkScheduler(
+      NamedExecutorService executor, IndexingStrategy indexingStrategy) {
+    super(indexingStrategy.getThreadName());
     this.executor = executor;
+    this.indexingStrategy = indexingStrategy;
     this.concurrentIndexingBatches = new Semaphore(NUM_CONCURRENT_INDEXING_BATCHES);
     this.shutdownFuture = new CompletableFuture<>();
     this.shutdown = false;
 
     // TODO(CLOUDP-319970): differentiate metrics for each strategy.
     MetricsFactory metricsFactory =
-        new MetricsFactory("indexingWorkScheduler", executor.getMeterRegistry());
+        new MetricsFactory(
+            "indexingWorkScheduler",
+            executor.getMeterRegistry());
     var replicationTag = ServerStatusDataExtractor.Scope.REPLICATION.getTag();
 
     this.schedulerQueue = new SchedulerQueue<>(metricsFactory);
@@ -191,6 +195,7 @@ public abstract class IndexingWorkScheduler extends Thread {
                     .addKeyValue(
                         "commitUserData", batch.commitUserData.map(e -> e.toBson().toString()))
                     .addKeyValue("sequenceNumber", batch.sequenceNumber)
+                    .addKeyValue("indexingStrategy", this.indexingStrategy.name())
                     .log("Failed to process a scheduler batch");
                 handleBatchException(batch, throwable);
                 return null;
@@ -218,6 +223,7 @@ public abstract class IndexingWorkScheduler extends Thread {
             LOG.atError()
                 .addKeyValue("indexId", batch.generationId.indexId)
                 .addKeyValue("generationId", batch.generationId)
+                .addKeyValue("indexingStrategy", this.indexingStrategy.name())
                 .setCause(unrecoverable)
                 .log("Failed the index due to unrecoverable error.");
             // rethrow MaterializedViewNonTransientException, this should fail the index.
@@ -226,6 +232,7 @@ public abstract class IndexingWorkScheduler extends Thread {
             LOG.atError()
                 .addKeyValue("indexId", batch.generationId.indexId)
                 .addKeyValue("generationId", batch.generationId)
+                .addKeyValue("indexingStrategy", this.indexingStrategy.name())
                 .setCause(e)
                 .log("Failed to commit index");
             throw new MaterializedViewTransientException("Failed to commit index");
@@ -250,7 +257,8 @@ public abstract class IndexingWorkScheduler extends Thread {
       if (!this.schedulerQueue.isEmpty()) {
         String message =
             String.format(
-                "%s was shut down while it still has outstanding batches", this.threadName);
+                "%s was shut down while it still has outstanding batches",
+                this.indexingStrategy.getThreadName());
         Crash.because(message).withThreadDump().now();
       }
 
@@ -297,7 +305,8 @@ public abstract class IndexingWorkScheduler extends Thread {
       if (this.shutdown) {
         String message =
             String.format(
-                "cannot schedule work on the %s after it has been shut down", this.threadName);
+                "cannot schedule work on the %s after it has been shut down",
+                this.indexingStrategy.getThreadName());
         Crash.because(message).now();
       }
 

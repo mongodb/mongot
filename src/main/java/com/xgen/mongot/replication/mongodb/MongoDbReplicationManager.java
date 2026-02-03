@@ -231,9 +231,10 @@ public class MongoDbReplicationManager implements ReplicationManager {
                 supplier ->
                     IndexingWorkSchedulerFactory.create(
                         replicationConfig.numIndexingThreads, supplier, meterRegistry))
-            .orElse(
-                IndexingWorkSchedulerFactory.createWithoutEmbeddingStrategy(
-                    replicationConfig.numIndexingThreads, meterRegistry));
+            .orElseGet(
+                () ->
+                    IndexingWorkSchedulerFactory.createWithoutEmbeddingStrategy(
+                        replicationConfig.numIndexingThreads, meterRegistry));
 
     var decodingWorkScheduler =
         DecodingWorkScheduler.create(

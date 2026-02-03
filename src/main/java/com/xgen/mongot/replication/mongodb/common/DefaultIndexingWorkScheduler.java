@@ -1,6 +1,7 @@
 package com.xgen.mongot.replication.mongodb.common;
 
 import com.xgen.mongot.index.FieldExceededLimitsException;
+import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory.IndexingStrategy;
 import com.xgen.mongot.util.FutureUtils;
 import com.xgen.mongot.util.concurrent.NamedExecutorService;
 import java.util.concurrent.CompletableFuture;
@@ -13,7 +14,7 @@ import java.util.stream.Collectors;
 final class DefaultIndexingWorkScheduler extends IndexingWorkScheduler {
 
   DefaultIndexingWorkScheduler(NamedExecutorService executor) {
-    super(executor, "IndexingWorkScheduler");
+    super(executor, IndexingStrategy.DEFAULT);
   }
 
   /**

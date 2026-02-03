@@ -576,14 +576,22 @@ public class ServerStatusDataExtractor {
       if (meters.isEmpty()) {
         return Optional.empty();
       }
-      Check.checkState(meters.get().size() == 1, "exactly 1 meter must be present");
+      Check.checkState(
+          meters.get().size() == 1,
+          "exactly 1 meter must be present, but found %s, including: %s",
+          meters.get().size(),
+          meters.get().stream().map(meter -> meter.getId().getName()).toList());
 
       return meters.get().stream().findFirst();
     }
 
     public Meter getSingleMeter() {
       Set<Meter> meters = getMultipleMeters();
-      Check.checkState(meters.size() == 1, "exactly 1 meter must be present");
+      Check.checkState(
+          meters.size() == 1,
+          "exactly 1 meter must be present, but found %s, including: %s",
+          meters.size(),
+          meters.stream().map(meter -> meter.getId().getName()).toList());
 
       return meters.stream().findFirst().get();
     }

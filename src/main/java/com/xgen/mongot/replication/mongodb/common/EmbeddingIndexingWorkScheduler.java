@@ -22,6 +22,7 @@ import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.FieldExceededLimitsException;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldMapping;
+import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory.IndexingStrategy;
 import com.xgen.mongot.replication.mongodb.common.SchedulerQueue.Priority;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
@@ -57,17 +58,17 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
   // IndexingSchedulerBatch, greater number means more vectors to hold in memory before indexing
   private static final int MAX_AUTO_EMBED_DOCUMENT_BUNDLE_SIZE = 1000;
 
-  private final Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier;
+  IndexingStrategy indexingStrategy;
 
-  private final boolean isMaterializedViewIndex;
+  private final Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier;
 
   EmbeddingIndexingWorkScheduler(
       NamedExecutorService indexingExecutor,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
-      boolean isMaterializedViewIndex) {
-    super(indexingExecutor, "EmbeddingIndexingWorkScheduler");
+      IndexingStrategy indexingStrategy) {
+    super(indexingExecutor, indexingStrategy);
     this.embeddingServiceManagerSupplier = embeddingServiceManagerSupplier;
-    this.isMaterializedViewIndex = isMaterializedViewIndex;
+    this.indexingStrategy = indexingStrategy;
   }
 
   /**
@@ -80,7 +81,7 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier) {
     EmbeddingIndexingWorkScheduler scheduler =
         new EmbeddingIndexingWorkScheduler(
-            indexingExecutor, embeddingServiceManagerSupplier, false);
+            indexingExecutor, embeddingServiceManagerSupplier, IndexingStrategy.EMBEDDING);
     scheduler.start();
     return scheduler;
   }
@@ -95,7 +96,10 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
       NamedExecutorService indexingExecutor,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier) {
     EmbeddingIndexingWorkScheduler scheduler =
-        new EmbeddingIndexingWorkScheduler(indexingExecutor, embeddingServiceManagerSupplier, true);
+        new EmbeddingIndexingWorkScheduler(
+            indexingExecutor,
+            embeddingServiceManagerSupplier,
+            IndexingStrategy.EMBEDDING_MATERIALIZED_VIEW);
     scheduler.start();
     return scheduler;
   }
@@ -190,7 +194,7 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
 
   @Override
   protected boolean shouldCommitOnFinalize() {
-    return this.isMaterializedViewIndex;
+    return this.indexingStrategy == IndexingStrategy.EMBEDDING_MATERIALIZED_VIEW;
   }
 
   /**
@@ -244,7 +248,7 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
 
                   try {
                     DocumentEvent autoEmbeddingDocumentEvent;
-                    if (this.isMaterializedViewIndex) {
+                    if (this.indexingStrategy == IndexingStrategy.EMBEDDING_MATERIALIZED_VIEW) {
                       autoEmbeddingDocumentEvent =
                           buildMaterializedViewDocumentEvent(
                               event, fieldMapping, embeddingMapPerField);
