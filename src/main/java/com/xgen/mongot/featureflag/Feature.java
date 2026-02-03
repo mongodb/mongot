@@ -54,7 +54,7 @@ public enum Feature {
   NEW_EMBEDDED_SEARCH_CAPABILITIES("enableNewEmbeddedSearchCapabilities", State.DISABLED),
   SHUT_DOWN_REPLICATION_WHEN_COLLECTION_NOT_FOUND(
       "shutDownReplicationWhenCollectionNotFound", State.DISABLED),
-  INITIAL_INDEX_STATUS_UNKNOWN("initialIndexStatusUnknown", State.DISABLED),
+  INITIAL_INDEX_STATUS_UNKNOWN("initialIndexStatusUnknown", State.ENABLED),
   MAAS_METRICS("enableMaasMetrics", State.DISABLED),
   ACCURATE_NUM_EMBEDDED_ROOT_DOCS_METRIC("enableAccurateNumEmbeddedRootDocsMetric", State.DISABLED),
   NON_ZERO_ATTEMPT_UPLOADS("enableNonZeroAttemptUploads", State.DISABLED),
