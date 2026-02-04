@@ -46,7 +46,7 @@ public class LuceneFacetResultUtil {
               path, facetsCollector, facetContext.getRanges(boundaryDefinition, returnScope));
     }
 
-    return facetCounts.getTopChildren(boundaryDefinition.boundaries().size() - 1, path);
+    return facetCounts.getAllChildren(path);
   }
 
   static Map<FieldTypeDefinition.Type, Map<String, FacetDefinition.StringFacetDefinition>>

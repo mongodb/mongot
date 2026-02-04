@@ -190,8 +190,7 @@ class LuceneMetaResultsBuilder {
       throws IOException, InvalidQueryException {
     var boundaryDefinition = (FacetDefinition.BoundaryFacetDefinition<?>) facetDefinition;
     String path = facetContext.getBoundaryFacetPath(boundaryDefinition, returnScope);
-    FacetResult facetResult =
-        drillSidewaysResult.facets.getTopChildren(boundaryDefinition.boundaries().size() - 1, path);
+    FacetResult facetResult = drillSidewaysResult.facets.getAllChildren(path);
     List<FacetBucket> results = new ArrayList<>();
     @Var long facetDocsCount = 0;
     for (int i = 0; i < facetResult.labelValues.length; i++) {

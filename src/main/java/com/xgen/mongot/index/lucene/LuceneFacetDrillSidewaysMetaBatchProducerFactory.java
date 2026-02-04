@@ -116,8 +116,7 @@ public class LuceneFacetDrillSidewaysMetaBatchProducerFactory {
       Optional<FieldPath> returnScope)
       throws IOException, InvalidQueryException {
     String path = facetContext.getBoundaryFacetPath(boundaryDefinition, returnScope);
-    return drillSidewaysResult.facets.getTopChildren(
-        boundaryDefinition.boundaries().size() - 1, path);
+    return drillSidewaysResult.facets.getAllChildren(path);
   }
 
   private static List<LuceneMetaBucketProducer> getStringBucketProducers(
