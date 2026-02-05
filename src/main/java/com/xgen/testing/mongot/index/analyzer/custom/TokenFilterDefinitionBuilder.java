@@ -9,6 +9,7 @@ import com.xgen.mongot.index.analyzer.custom.IcuFoldingTokenFilterDefinition;
 import com.xgen.mongot.index.analyzer.custom.IcuNormalizerTokenFilterDefinition;
 import com.xgen.mongot.index.analyzer.custom.KStemmingTokenFilterDefinition;
 import com.xgen.mongot.index.analyzer.custom.LengthTokenFilterDefinition;
+import com.xgen.mongot.index.analyzer.custom.LimitTokenFilterDefinition;
 import com.xgen.mongot.index.analyzer.custom.LowercaseTokenFilterDefinition;
 import com.xgen.mongot.index.analyzer.custom.NGramTokenFilterDefinition;
 import com.xgen.mongot.index.analyzer.custom.OriginalTokens;
@@ -240,6 +241,23 @@ public class TokenFilterDefinitionBuilder {
 
     public FlattenGraphTokenFilterDefinition build() {
       return new FlattenGraphTokenFilterDefinition();
+    }
+  }
+
+  public static class LimitTokenCountTokenFilter {
+    private int maxTokenCount;
+
+    public static LimitTokenCountTokenFilter builder() {
+      return new LimitTokenCountTokenFilter();
+    }
+
+    public LimitTokenCountTokenFilter maxTokenCount(int maxTokenCount) {
+      this.maxTokenCount = maxTokenCount;
+      return this;
+    }
+
+    public LimitTokenFilterDefinition build() {
+      return new LimitTokenFilterDefinition(this.maxTokenCount);
     }
   }
 

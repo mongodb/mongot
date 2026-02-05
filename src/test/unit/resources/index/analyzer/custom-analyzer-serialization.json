@@ -21,6 +21,21 @@
           }
         ]
       }
+    },
+    {
+      "description": "limit token filter serialization",
+      "value": {
+        "name": "limit test",
+        "tokenizer": {
+          "type": "standard"
+        },
+        "tokenFilters": [
+          {
+            "type": "limitTokenCount",
+            "maxTokenCount": 5
+          }
+        ]
+      }
     }
   ]
 }

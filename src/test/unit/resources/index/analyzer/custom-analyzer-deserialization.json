@@ -21,6 +21,21 @@
           }
         ]
       }
+    },
+    {
+      "description": "definition with limitTokenCount",
+      "value": {
+        "name": "limit test",
+        "tokenizer": {
+          "type": "standard"
+        },
+        "tokenFilters": [
+          {
+            "type": "limitTokenCount",
+            "maxTokenCount": 5
+          }
+        ]
+      }
     }
   ],
   "invalid": [
@@ -37,7 +52,21 @@
       "value": {
         "name": "foo"
       }
+    },
+    {
+      "description": "limitTokenCount must be positive",
+      "value": {
+        "name": "bad limit",
+        "tokenizer": {
+          "type": "standard"
+        },
+        "tokenFilters": [
+          {
+            "type": "limitTokenCount",
+            "maxTokenCount": -1
+          }
+        ]
+      }
     }
   ]
 }
-

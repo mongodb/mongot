@@ -4,6 +4,7 @@ import com.xgen.mongot.index.analyzer.custom.CharFilterDefinition;
 import com.xgen.mongot.index.analyzer.custom.EdgeGramTokenFilterDefinition;
 import com.xgen.mongot.index.analyzer.custom.EdgeGramTokenizerDefinition;
 import com.xgen.mongot.index.analyzer.custom.LengthTokenFilterDefinition;
+import com.xgen.mongot.index.analyzer.custom.LimitTokenFilterDefinition;
 import com.xgen.mongot.index.analyzer.custom.NGramTokenFilterDefinition;
 import com.xgen.mongot.index.analyzer.custom.NGramTokenizerDefinition;
 import com.xgen.mongot.index.analyzer.custom.OriginalTokens;
@@ -42,6 +43,7 @@ import org.apache.lucene.analysis.icu.ICUNormalizer2Filter;
 import org.apache.lucene.analysis.miscellaneous.ASCIIFoldingFilter;
 import org.apache.lucene.analysis.miscellaneous.KeywordRepeatFilter;
 import org.apache.lucene.analysis.miscellaneous.LengthFilter;
+import org.apache.lucene.analysis.miscellaneous.LimitTokenCountFilter;
 import org.apache.lucene.analysis.miscellaneous.RemoveDuplicatesTokenFilter;
 import org.apache.lucene.analysis.miscellaneous.TrimFilter;
 import org.apache.lucene.analysis.miscellaneous.WordDelimiterGraphFilter;
@@ -218,6 +220,16 @@ public class LuceneAnalyzerFactory {
         }
 
         case LOWERCASE -> input -> new LowerCaseFilter(input);
+
+        case LIMIT_TOKEN_COUNT -> {
+          LimitTokenFilterDefinition limitFilter =
+              definition.asLimitTokenFilterDefinition();
+          yield input ->
+              new LimitTokenCountFilter(
+                  input,
+                  limitFilter.getMaxTokenCount(),
+                  false);
+        }
 
         case REGEX -> {
           RegexTokenFilterDefinition regexFilter = definition.asRegexTokenFilterDefinition();

@@ -473,6 +473,13 @@
           "ignoreCase": true
         }
       }
+    },
+    {
+      "description": "limitTokenCount",
+      "value": {
+        "type": "limitTokenCount",
+        "maxTokenCount": 10
+      }
     }
   ],
   "invalid": [
@@ -818,6 +825,27 @@
           ],
           "ingoreCase": true
         }
+      }
+    },
+    {
+      "description": "limitTokenCount zero count",
+      "value": {
+        "type": "limitTokenCount",
+        "maxTokenCount": 0
+      }
+    },
+    {
+      "description": "limitTokenCount negative count",
+      "value": {
+        "type": "limitTokenCount",
+        "maxTokenCount": -5
+      }
+    },
+    {
+      "description": "limitTokenCount null count",
+      "value": {
+        "type": "limitTokenCount",
+        "maxTokenCount": null
       }
     }
   ]

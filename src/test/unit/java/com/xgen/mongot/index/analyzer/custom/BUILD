@@ -18,6 +18,7 @@ java_test_suite(
         "KeywordRepeatTokenFilterDefinitionTest.java",
         "KeywordTokenizerDefinitionTest.java",
         "LengthTokenFilterDefinitionTest.java",
+        "LimitTokenFilterDefinitionTest.java",
         "LowercaseTokenFilterDefinitionTest.java",
         "MappingCharFilterDefinitionTest.java",
         "NGramTokenFilterDefinitionTest.java",
@@ -53,5 +54,7 @@ java_test_suite(
         "//src/main/java/com/xgen/testing/mongot/index/lucene/analyzer",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:junit_junit",
+        "@maven//:org_apache_lucene_lucene_analysis_common",
+        "@maven//:org_apache_lucene_lucene_core",
     ],
 )

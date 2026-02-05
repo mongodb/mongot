@@ -18,6 +18,7 @@ java_library(
         "KeywordRepeatTokenFilterDefinition.java",
         "KeywordTokenizerDefinition.java",
         "LengthTokenFilterDefinition.java",
+        "LimitTokenFilterDefinition.java",
         "LowercaseTokenFilterDefinition.java",
         "MappingCharFilterDefinition.java",
         "NGramTokenFilterDefinition.java",

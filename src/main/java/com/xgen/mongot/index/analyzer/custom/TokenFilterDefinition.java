@@ -28,6 +28,7 @@ public abstract class TokenFilterDefinition
     KEYWORD_REPEAT,
     K_STEMMING,
     LENGTH,
+    LIMIT_TOKEN_COUNT,
     LOWERCASE,
     N_GRAM,
     PORTER_STEMMING,
@@ -77,6 +78,7 @@ public abstract class TokenFilterDefinition
       case N_GRAM -> NGramTokenFilterDefinition.fromBson(parser);
       case PORTER_STEMMING -> new PorterStemmingTokenFilterDefinition();
       case LENGTH -> LengthTokenFilterDefinition.fromBson(parser);
+      case LIMIT_TOKEN_COUNT -> LimitTokenFilterDefinition.fromBson(parser);
       case LOWERCASE -> new LowercaseTokenFilterDefinition();
       case REGEX -> RegexTokenFilterDefinition.fromBson(parser);
       case REMOVE_DUPLICATES -> new RemoveDuplicatesTokenFilterDefinition();
@@ -144,6 +146,11 @@ public abstract class TokenFilterDefinition
   public LengthTokenFilterDefinition asLengthTokenFilterDefinition() {
     Check.expectedType(Type.LENGTH, this.getType());
     return (LengthTokenFilterDefinition) this;
+  }
+
+  public LimitTokenFilterDefinition asLimitTokenFilterDefinition() {
+    Check.expectedType(Type.LIMIT_TOKEN_COUNT, this.getType());
+    return (LimitTokenFilterDefinition) this;
   }
 
   public LowercaseTokenFilterDefinition asLowercaseTokenFilterDefinition() {

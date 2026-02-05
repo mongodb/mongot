@@ -40,6 +40,7 @@ public class TokenFilterDefinitionTest {
           length(),
           lengthMinMaxEqual(),
           lengthDefaultMinAndMax(),
+          limitTokenCount(),
           regexAll(),
           regexFirst(),
           regexEmptyPattern(),
@@ -132,6 +133,14 @@ public class TokenFilterDefinitionTest {
       return BsonDeserializationTestSuite.TestSpec.valid(
           "length default min and max",
           TokenFilterDefinitionBuilder.LengthTokenFilter.builder().build());
+    }
+
+    private static BsonDeserializationTestSuite.ValidSpec<TokenFilterDefinition> limitTokenCount() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "limitTokenCount",
+          TokenFilterDefinitionBuilder.LimitTokenCountTokenFilter.builder()
+              .maxTokenCount(10)
+              .build());
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<TokenFilterDefinition> regexAll() {
@@ -645,6 +654,7 @@ public class TokenFilterDefinitionTest {
           lengthSerializesDefaults(),
           lengthOnlyMin(),
           lengthOnlyMax(),
+          limitTokenCount(),
           regexAll(),
           regexFirst(),
           icuFolding(),
@@ -721,6 +731,14 @@ public class TokenFilterDefinitionTest {
       return BsonSerializationTestSuite.TestSpec.create(
           "length only max",
           TokenFilterDefinitionBuilder.LengthTokenFilter.builder().max(10).build());
+    }
+
+    private static BsonSerializationTestSuite.TestSpec<TokenFilterDefinition> limitTokenCount() {
+      return BsonSerializationTestSuite.TestSpec.create(
+          "limitTokenCount",
+          TokenFilterDefinitionBuilder.LimitTokenCountTokenFilter.builder()
+              .maxTokenCount(10)
+              .build());
     }
 
     private static BsonSerializationTestSuite.TestSpec<TokenFilterDefinition> regexAll() {

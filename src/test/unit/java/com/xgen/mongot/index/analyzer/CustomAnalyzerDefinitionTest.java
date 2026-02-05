@@ -1,7 +1,9 @@
 package com.xgen.mongot.index.analyzer;
 
 import com.xgen.mongot.index.analyzer.attributes.TokenStreamType;
+import com.xgen.mongot.index.analyzer.custom.LimitTokenFilterDefinition;
 import com.xgen.mongot.index.analyzer.custom.SnowballStemmingTokenFilterDefinition;
+import com.xgen.mongot.index.analyzer.custom.TokenFilterDefinition;
 import com.xgen.mongot.index.analyzer.definition.CustomAnalyzerDefinition;
 import com.xgen.testing.BsonDeserializationTestSuite;
 import com.xgen.testing.BsonSerializationTestSuite;
@@ -10,6 +12,7 @@ import com.xgen.testing.mongot.index.analyzer.custom.TokenFilterDefinitionBuilde
 import com.xgen.testing.mongot.index.analyzer.custom.TokenizerDefinitionBuilder;
 import com.xgen.testing.mongot.index.analyzer.definition.CustomAnalyzerDefinitionBuilder;
 import java.util.List;
+import java.util.Optional;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -41,7 +44,7 @@ public class CustomAnalyzerDefinitionTest {
     @Parameterized.Parameters(name = "{0}")
     public static Iterable<BsonDeserializationTestSuite.TestSpecWrapper<CustomAnalyzerDefinition>>
         data() {
-      return TEST_SUITE.withExamples(fullDefinition());
+      return TEST_SUITE.withExamples(fullDefinition(), limitTokenCount());
     }
 
     @Test
@@ -62,6 +65,21 @@ public class CustomAnalyzerDefinitionTest {
     }
   }
 
+  private static BsonDeserializationTestSuite.ValidSpec<CustomAnalyzerDefinition>
+      limitTokenCount() {
+    return BsonDeserializationTestSuite.TestSpec.valid(
+        "definition with limitTokenCount",
+        CustomAnalyzerDefinitionBuilder.builder(
+                "limit test", TokenizerDefinitionBuilder.StandardTokenizer.builder().build())
+            .tokenFilter(
+                TokenFilterDefinitionBuilder
+                    .LimitTokenCountTokenFilter
+                    .builder()
+                    .maxTokenCount(5)
+                    .build())
+            .build());
+  }
+
   @RunWith(Parameterized.class)
   public static class TestSerialization {
     private static final String SUITE_NAME = "custom-analyzer-serialization";
@@ -79,7 +97,7 @@ public class CustomAnalyzerDefinitionTest {
     /** Test data. */
     @Parameterized.Parameters(name = "{0}")
     public static Iterable<BsonSerializationTestSuite.TestSpec<CustomAnalyzerDefinition>> data() {
-      return List.of(fullDefinition());
+      return List.of(fullDefinition(), limitTokenCount()); // Add limitTokenCount() here
     }
 
     @Test
@@ -95,6 +113,20 @@ public class CustomAnalyzerDefinitionTest {
               .tokenFilter(
                   TokenFilterDefinitionBuilder.LengthTokenFilter.builder().min(2).max(12).build())
               .charFilter(CustomCharFilterDefinitionBuilder.HtmlStripCharFilter.builder().build())
+              .build());
+    }
+
+    private static BsonSerializationTestSuite.TestSpec<CustomAnalyzerDefinition> limitTokenCount() {
+      return BsonSerializationTestSuite.TestSpec.create(
+          "limit token filter serialization",
+          CustomAnalyzerDefinitionBuilder.builder(
+                  "limit test", TokenizerDefinitionBuilder.StandardTokenizer.builder().build())
+              .tokenFilter(
+                  TokenFilterDefinitionBuilder
+                      .LimitTokenCountTokenFilter
+                      .builder()
+                      .maxTokenCount(5)
+                      .build())
               .build());
     }
   }
@@ -196,6 +228,25 @@ public class CustomAnalyzerDefinitionTest {
           "should produce graph token stream",
           TokenStreamType.GRAPH,
           definition.getTokenStreamType());
+    }
+
+    @Test
+    public void testLimitTokenCountAddsLimitFilter() {
+      CustomAnalyzerDefinition def =
+          CustomAnalyzerDefinitionBuilder.builder(
+                  "myAnalyzer", TokenizerDefinitionBuilder.StandardTokenizer.builder().build())
+              .tokenFilter(
+                  TokenFilterDefinitionBuilder
+                      .LimitTokenCountTokenFilter
+                      .builder()
+                      .maxTokenCount(5)
+                      .build())
+              .build();
+
+      Optional<List<TokenFilterDefinition>> filtersOpt = def.tokenFilters();
+      Assert.assertTrue(filtersOpt.isPresent());
+      Assert.assertEquals(1, filtersOpt.get().size());
+      Assert.assertTrue(filtersOpt.get().get(0) instanceof LimitTokenFilterDefinition);
     }
   }
 }

@@ -427,6 +427,13 @@
           "ignoreCase": true
         }
       }
+    },
+    {
+      "description": "limitTokenCount",
+      "value": {
+        "type": "limitTokenCount",
+        "maxTokenCount": 10
+      }
     }
   ]
 }
