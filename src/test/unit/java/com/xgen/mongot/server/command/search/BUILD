@@ -10,6 +10,7 @@ java_test_suite(
         "SearchCommandTest.java",
         "ShardedSearchPlannerTest.java",
         "VectorSearchCommandAutoEmbedTest.java",
+        "VectorSearchCommandIndexSizeMetricsTest.java",
         "VectorSearchCommandTest.java",
     ],
     tags = ["unit"],

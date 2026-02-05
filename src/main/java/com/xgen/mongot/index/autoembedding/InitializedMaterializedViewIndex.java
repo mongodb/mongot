@@ -73,6 +73,11 @@ public class InitializedMaterializedViewIndex implements InitializedVectorIndex 
   }
 
   @Override
+  public long getIndexSize() {
+    return this.indexMetricsUpdater.getIndexSize();
+  }
+
+  @Override
   public void clear(EncodedUserData dropUserData) {}
 
   @Override

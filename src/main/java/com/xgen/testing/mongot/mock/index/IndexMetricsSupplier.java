@@ -9,7 +9,8 @@ public class IndexMetricsSupplier {
 
   public static IndexMetricValuesSupplier mockEmptyIndexMetricsSupplier() {
     var indexMetricsSupplier = Mockito.mock(IndexMetricValuesSupplier.class);
-    Mockito.doReturn(0L).when(indexMetricsSupplier).getIndexSize();
+    Mockito.doReturn(0L).when(indexMetricsSupplier).computeIndexSize();
+    Mockito.doReturn(0L).when(indexMetricsSupplier).getCachedIndexSize();
     Mockito.doReturn(new DocCounts(0, 0, 0, 0L)).when(indexMetricsSupplier).getDocCounts();
     Mockito.doReturn(0).when(indexMetricsSupplier).getNumFields();
     Mockito.doAnswer((ignored) -> IndexStatus.notStarted())

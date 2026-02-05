@@ -14,6 +14,13 @@ public record VectorIndexFieldMapping(
     return Optional.ofNullable(this.fieldMap.get(path));
   }
 
+  public Optional<VectorQuantization> getQuantizationForField(FieldPath path) {
+    return getFieldDefinition(path)
+        .filter(VectorIndexFieldDefinition::isVectorField)
+        .map(VectorIndexFieldDefinition::asVectorField)
+        .map(field -> field.specification().quantization());
+  }
+
   public boolean childPathExists(FieldPath path) {
     return this.fieldMap.containsKey(path) || subDocumentExists(path);
   }

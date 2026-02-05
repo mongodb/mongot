@@ -13,6 +13,7 @@ import io.micrometer.core.instrument.Tags;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
@@ -29,6 +30,12 @@ public abstract class LuceneIndexMetricValuesSupplier implements IndexMetricValu
   private final IndexReader indexReader;
   private final LuceneIndexWriter indexWriter;
   private final List<PerIndexMetricsFactory> metricsFactories;
+
+  /**
+   * Cached index size in bytes, updated during async metrics collection. This allows the query hot
+   * path to read the index size without triggering expensive directory walks.
+   */
+  private final AtomicLong cachedIndexSize = new AtomicLong(0);
 
   /** Create LuceneIndexMetricValuesSupplier */
   public LuceneIndexMetricValuesSupplier(
@@ -51,10 +58,19 @@ public abstract class LuceneIndexMetricValuesSupplier implements IndexMetricValu
 
     // Note these gauges are probed asynchronously and not atomically.
     // As we don't create our own metric namespace, it's not our responsibility to de-register them.
+    // When the gauge computes index size, also cache it in the AtomicLong so that
+    // getCachedIndexSize() can return the value without triggering expensive computation.
+    // This allows the query hot path to read index size in O(1) time.
     metricsFactory.perIndexObjectValueGauge(
         MetricNames.INDEX_SIZE_BYTES,
         this,
-        CachedGauge.of(LuceneIndexMetricValuesSupplier::getIndexSize, Duration.ofMinutes(1)),
+        CachedGauge.of(
+            supplier -> {
+              long size = supplier.computeIndexSize();
+              supplier.cachedIndexSize.set(size);
+              return size;
+            },
+            Duration.ofMinutes(1)),
         getNumPartitionTag().and(indexFeatureVersionTag));
     metricsFactory.perIndexObjectValueGauge(
         MetricNames.REQUIRED_MEMORY,
@@ -154,8 +170,13 @@ public abstract class LuceneIndexMetricValuesSupplier implements IndexMetricValu
   }
 
   @Override
-  public long getIndexSize() {
+  public long computeIndexSize() {
     return this.indexBackingStrategy.getIndexSize();
+  }
+
+  @Override
+  public long getCachedIndexSize() {
+    return this.cachedIndexSize.get();
   }
 
   @Override

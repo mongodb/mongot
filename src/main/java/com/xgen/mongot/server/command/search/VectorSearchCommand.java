@@ -28,6 +28,7 @@ import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.ReaderClosedException;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.StoredSourceDefinition;
+import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.lucene.explain.explainers.MetadataFeatureExplainer;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.explain.tracing.ExplainQueryState;
@@ -49,6 +50,7 @@ import com.xgen.mongot.trace.Tracing;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.ErrorType;
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.UserFacingException;
 import com.xgen.mongot.util.bson.FloatVector;
 import com.xgen.mongot.util.bson.Vector;
@@ -57,6 +59,7 @@ import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.mongodb.MongoDbVersion;
 import com.xgen.mongot.util.retry.ActionRetry;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
 import java.io.IOException;
@@ -344,6 +347,7 @@ public class VectorSearchCommand implements Command {
     try (var guard =
         Tracing.simpleSpanGuard("VectorSearchCommand.getSearchResults", Tracing.TOGGLE_OFF)) {
       var timer = Timer.start();
+      var commandTimer = Timer.start();
       InitializedIndex index = optionalIndex.get();
       var reader = index.asVectorIndex().getReader();
       var materializedQuery =
@@ -358,6 +362,9 @@ public class VectorSearchCommand implements Command {
       var durationNs = timer.stop(metrics.getVectorResultLatencyTimer());
       metrics.recordDynamicFeatureFlagLatencyTimer(durationNs);
       metrics.getVectorCommandCounter().increment();
+
+      // Record command-level latency with index size and quantization tags
+      recordVectorSearchCommandLatency(commandTimer, index, vectorSearchQuery);
 
       if (Explain.isEnabled() && BsonUtils.isOversized(serializedBatch)) {
         // Explain must be the problem since results are capped at 10k for vector search
@@ -642,6 +649,89 @@ public class VectorSearchCommand implements Command {
       case APPROXIMATE -> this.metrics.concurrentApproximateQueries.decrementAndGet();
       case AUTO_EMBEDDING -> this.metrics.concurrentAutoEmbeddingQueries.decrementAndGet();
     }
+  }
+
+  /**
+   * Records the vector search command total latency with index size and quantization tags.
+   *
+   * <p>This metric is guarded by the INDEX_SIZE_QUANTIZATION_METRICS feature flag. When disabled,
+   * no metrics are recorded.
+   *
+   * @param timer The timer that was started at the beginning of the command execution
+   * @param index The initialized index being queried
+   * @param vectorSearchQuery The vector search query being executed
+   */
+  private void recordVectorSearchCommandLatency(
+      Timer.Sample timer, InitializedIndex index, VectorSearchQuery vectorSearchQuery) {
+
+    if (!this.metadata.featureFlags().isEnabled(Feature.INDEX_SIZE_QUANTIZATION_METRICS)) {
+      return;
+    }
+
+    long indexSizeBytes = index.getIndexSize();
+    String indexSizeCategory = categorizeIndexSize(indexSizeBytes);
+    String quantizationType = determineQuantizationType(index.getDefinition(), vectorSearchQuery);
+
+    Tags tags = Tags.of(
+        Tag.of("indexSizeCategory", indexSizeCategory),
+        Tag.of("quantizationType", quantizationType)
+    );
+
+    Timer commandTimer = this.metricsFactory.timer(
+        "vectorSearchCommandTotalLatencyByIndexSize", tags, 0.5, 0.75, 0.9, 0.99);
+    timer.stop(commandTimer);
+  }
+
+  /**
+   * Categorizes index size into predefined buckets.
+   *
+   * @param indexSizeBytes The index size in bytes
+   * @return The index size category: "small", "medium", "large", or "xlarge"
+   */
+  private String categorizeIndexSize(long indexSizeBytes) {
+    long oneGiB = 1024L * 1024L * 1024L;
+    long tenGiB = 10L * oneGiB;
+    long hundredGiB = 100L * oneGiB;
+
+    if (indexSizeBytes < oneGiB) {
+      return "small";
+    } else if (indexSizeBytes < tenGiB) {
+      return "medium";
+    } else if (indexSizeBytes < hundredGiB) {
+      return "large";
+    } else {
+      return "xlarge";
+    }
+  }
+
+  /**
+   * Determines the quantization type from the index definition (index-side quantization).
+   *
+   * <p>This returns how vectors are quantized and stored in the index, not how the query vector
+   * is encoded by the client (client-side quantization). Index-side quantization affects search
+   * performance and is a key characteristic for latency metrics.
+   *
+   * @param definition The index definition
+   * @param vectorSearchQuery The vector search query (used to identify the field path)
+   * @return The quantization type: "unquantized", "scalar_quantized", "binary_quantized",
+   *     or "unknown"
+   */
+  private String determineQuantizationType(
+      IndexDefinition definition, VectorSearchQuery vectorSearchQuery) {
+    if (definition.getType() == VECTOR_SEARCH) {
+      VectorIndexDefinition vectorIndexDef = definition.asVectorDefinition();
+      FieldPath queryPath = vectorSearchQuery.criteria().path();
+
+      return vectorIndexDef.getMappings()
+          .getQuantizationForField(queryPath)
+          .map(quantization -> switch (quantization) {
+            case NONE -> "unquantized";
+            case SCALAR -> "scalar_quantized";
+            case BINARY -> "binary_quantized";
+          })
+          .orElse("unknown");
+    }
+    return "unknown";
   }
 
   public static class Factory implements CommandFactory {

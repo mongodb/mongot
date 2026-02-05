@@ -53,8 +53,15 @@ public class MaterializedViewMetricValuesSupplier implements IndexMetricValuesSu
   }
 
   @Override
-  public long getIndexSize() {
+  public long computeIndexSize() {
     return this.cachedStatsSupplier.get().storageSize;
+  }
+
+  @Override
+  public long getCachedIndexSize() {
+    // For materialized views, computeIndexSize() is already cached via
+    // Suppliers.memoizeWithExpiration, so it's safe to call on hot paths.
+    return computeIndexSize();
   }
 
   @Override

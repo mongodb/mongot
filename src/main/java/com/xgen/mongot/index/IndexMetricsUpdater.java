@@ -130,6 +130,19 @@ public class IndexMetricsUpdater implements Closeable {
   }
 
   /**
+   * Returns the cached index size in bytes.
+   *
+   * <p>This method delegates to {@link IndexMetricValuesSupplier#getCachedIndexSize()}, which
+   * returns a pre-computed value updated during async metrics collection. This is safe to call on
+   * hot paths like query execution, as it never triggers expensive operations like directory walks.
+   *
+   * @return the cached index size in bytes, or 0 if not yet computed
+   */
+  public long getIndexSize() {
+    return this.indexMetricValuesSupplier.getCachedIndexSize();
+  }
+
+  /**
    * Gets a snapshot of the current value of all the index metrics tracked by this {@code
    * IndexMetricsUpdater}.
    *
@@ -346,7 +359,7 @@ public class IndexMetricsUpdater implements Closeable {
           getSteadyStateExceptionCounter(),
           getReplicationOpTimeInfo().snapshot(),
           getTotalBytesProcessedCounter(),
-          indexMetricValuesSupplier.getIndexSize(),
+          indexMetricValuesSupplier.computeIndexSize(),
           // deprecated vectorFieldSize is set to 0
           0L,
           indexMetricValuesSupplier.getNumFields(),

@@ -249,7 +249,7 @@ public class AllPresentIndexesTest {
     this.mocks.addIndex(definitionGeneration, ConfigStateMocks.State.PHASE_OUT);
     var phaseOut = this.mocks.waitAndGetInitializedIndex(definitionGeneration.getGenerationId());
 
-    when(phaseOut.getMetricsUpdater().getIndexMetricValuesSupplier().getIndexSize())
+    when(phaseOut.getMetricsUpdater().getIndexMetricValuesSupplier().computeIndexSize())
         .thenAnswer(ignored -> 3L);
     // only phase out present, take its stats
     @Var AggregatedIndexMetrics stats = getIndexInfo(id).getAggregatedMetrics();
@@ -267,7 +267,7 @@ public class AllPresentIndexesTest {
                     definitionGeneration.definition(),
                     definitionGeneration.generation().incrementUser()),
                 ConfigStateMocks.State.LIVE));
-    when(live.getMetricsUpdater().getIndexMetricValuesSupplier().getIndexSize())
+    when(live.getMetricsUpdater().getIndexMetricValuesSupplier().computeIndexSize())
         .thenAnswer(ignored -> 2L);
 
     stats = getIndexInfo(id).getAggregatedMetrics();
@@ -294,7 +294,7 @@ public class AllPresentIndexesTest {
     var staged =
         this.mocks.waitAndGetInitializedIndex(
             this.mocks.staged.getIndex(id).orElseThrow().getGenerationId());
-    when(staged.getMetricsUpdater().getIndexMetricValuesSupplier().getIndexSize())
+    when(staged.getMetricsUpdater().getIndexMetricValuesSupplier().computeIndexSize())
         .thenAnswer(ignored -> 3L);
     when(staged.getMetricsUpdater().getIndexMetricValuesSupplier().getDocCounts())
         .thenAnswer(ignored -> new DocCounts(6, 5, 3, 6));
@@ -341,7 +341,7 @@ public class AllPresentIndexesTest {
 
     // Expect the "numDocs" value reported in AggregatedIndexMetrics to be 11, because it should
     // originate from getNumEmbeddedRootDocs (and not getNumDocs).
-    when(index.getMetricsUpdater().getIndexMetricValuesSupplier().getIndexSize())
+    when(index.getMetricsUpdater().getIndexMetricValuesSupplier().computeIndexSize())
         .thenAnswer(ignored -> 3L);
     when(index.getMetricsUpdater().getIndexMetricValuesSupplier().getDocCounts())
         .thenAnswer(ignored -> new DocCounts(12345, 12345, 5555, 11L));

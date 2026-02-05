@@ -139,7 +139,8 @@ public class VectorIndex {
             generationId);
 
     IndexMetricValuesSupplier indexMetricValuesSupplier = mock(IndexMetricValuesSupplier.class);
-    Mockito.lenient().when(indexMetricValuesSupplier.getIndexSize()).thenReturn(0L);
+    Mockito.lenient().when(indexMetricValuesSupplier.computeIndexSize()).thenReturn(0L);
+    Mockito.lenient().when(indexMetricValuesSupplier.getCachedIndexSize()).thenReturn(0L);
 
     Mockito.lenient()
         .doAnswer(ignored -> index.getStatus())
@@ -186,6 +187,9 @@ public class VectorIndex {
     IndexMetrics metrics = indexMetricsUpdater.getMetrics();
     Mockito.lenient().when(initializedIndex.getMetrics()).thenReturn(metrics);
     Mockito.lenient().when(initializedIndex.getMetricsUpdater()).thenReturn(indexMetricsUpdater);
+    Mockito.lenient()
+        .when(initializedIndex.getIndexSize())
+        .thenAnswer(invocation -> indexMetricsUpdater.getIndexSize());
 
     Mockito.lenient().doReturn(index.getDefinition()).when(initializedIndex).getDefinition();
 

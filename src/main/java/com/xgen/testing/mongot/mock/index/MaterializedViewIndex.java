@@ -47,6 +47,7 @@ public class MaterializedViewIndex {
         };
     Mockito.lenient().doAnswer(setStatus).when(index).setStatus(any());
     Mockito.lenient().when(index.getStatus()).then(ignored -> statusContainer.get());
+    Mockito.lenient().when(index.getIndexSize()).thenReturn(0L);
     return index;
   }
 

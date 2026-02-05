@@ -270,6 +270,11 @@ class InitializedLuceneVectorIndex implements InitializedVectorIndex {
   }
 
   @Override
+  public long getIndexSize() {
+    return this.indexMetricsUpdater.getIndexSize();
+  }
+
+  @Override
   public boolean isCompatibleWith(IndexDefinition indexDefinition) {
     return this.index.isCompatibleWith(indexDefinition);
   }

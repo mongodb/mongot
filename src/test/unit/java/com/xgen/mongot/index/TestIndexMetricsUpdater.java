@@ -125,7 +125,7 @@ public class TestIndexMetricsUpdater {
         Mockito.doAnswer((ignored) -> IndexStatus.steady())
             .when(mockedIndexMetricsSupplier)
             .getIndexStatus();
-        Mockito.doReturn(1000L).when(mockedIndexMetricsSupplier).getIndexSize();
+        Mockito.doReturn(1000L).when(mockedIndexMetricsSupplier).computeIndexSize();
         Mockito.doReturn(500L).when(mockedIndexMetricsSupplier).getRequiredMemoryForVectorData();
 
         var indexingMetricsUpdater =

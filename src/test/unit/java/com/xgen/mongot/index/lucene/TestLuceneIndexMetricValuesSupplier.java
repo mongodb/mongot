@@ -524,7 +524,7 @@ public class TestLuceneIndexMetricValuesSupplier {
       Assert.assertEquals(23, docCounts.numDocs);
       Assert.assertEquals(24, luceneIndexMetricsSupplier.getRequiredMemoryForVectorData());
       Assert.assertEquals(1000, luceneIndexMetricsSupplier.getNumFields());
-      Assert.assertEquals(1234L, luceneIndexMetricsSupplier.getIndexSize());
+      Assert.assertEquals(1234L, luceneIndexMetricsSupplier.computeIndexSize());
       Assert.assertEquals(statusContainer, luceneIndexMetricsSupplier.getIndexStatus());
       Assert.assertEquals(
           1,
