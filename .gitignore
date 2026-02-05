@@ -4,6 +4,7 @@ hack/icecc/.tongo_build_cluster_config
 .ijwb
 .idea/
 .DS_Store
+rust-project.json
 .mongot
 .mongot.yml
 .bazelrc.local
