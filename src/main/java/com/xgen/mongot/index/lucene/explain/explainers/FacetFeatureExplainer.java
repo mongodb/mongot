@@ -56,6 +56,11 @@ public class FacetFeatureExplainer implements FeatureExplainer {
     this.totalStringFacetCardinalities.put(facetName, range.end - range.start + 1);
   }
 
+  /** Records string facet cardinality across the queried set of documents, by count. */
+  public void addQueriedStringFacetCardinality(String facetName, int cardinality) {
+    this.queriedStringFacetCardinalities.put(facetName, cardinality);
+  }
+
   public ExplainTimings getCreateCountTimings() {
     return this.createCountTimings;
   }

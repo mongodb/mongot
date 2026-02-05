@@ -38,7 +38,8 @@ public class LuceneFacetDrillSidewaysMetaBatchProducerFactory {
       LuceneFacetContext facetContext,
       LuceneIndexSearcherReference searcherReference,
       TopDocs topDocs,
-      Function<String, Optional<DrillSidewaysResult>> facetToDrillSidewaysResultConverter)
+      Function<String, Optional<DrillSidewaysResult>> facetToDrillSidewaysResultConverter,
+      Optional<FacetFeatureExplainer> explainer)
       throws IOException, InterruptedException, InvalidQueryException {
     // Ensure that we have an exact count.
     checkState(
@@ -75,7 +76,8 @@ public class LuceneFacetDrillSidewaysMetaBatchProducerFactory {
                 facetContext,
                 searcherReference,
                 facetToDrillSidewaysResultConverter,
-                returnScope));
+                returnScope,
+                explainer));
 
         return new LuceneFacetCollectorMetaBatchProducer(
             topDocs.totalHits.value, bucketProducers, facetCollector);
@@ -124,7 +126,8 @@ public class LuceneFacetDrillSidewaysMetaBatchProducerFactory {
       LuceneFacetContext facetContext,
       LuceneIndexSearcherReference searcherReference,
       Function<String, Optional<DrillSidewaysResult>> facetToDrillSidewaysResultsConverter,
-      Optional<FieldPath> returnScope)
+      Optional<FieldPath> returnScope,
+      Optional<FacetFeatureExplainer> explainer)
       throws IOException, InvalidQueryException {
 
     var searcher = searcherReference.getIndexSearcher();
@@ -142,13 +145,15 @@ public class LuceneFacetDrillSidewaysMetaBatchProducerFactory {
         getStringFacetFieldProducers(
             facetableStringTypeToNameToDefinition.get(FieldTypeDefinition.Type.STRING_FACET),
             facetToDrillSidewaysResultsConverter,
-            searcher);
+            searcher,
+            explainer);
     List<LuceneMetaBucketProducer> tokenFieldProducers =
         getTokenFieldProducers(
             facetableStringTypeToNameToDefinition.get(FieldTypeDefinition.Type.TOKEN),
             facetToDrillSidewaysResultsConverter,
             returnScope,
-            searcher);
+            searcher,
+            explainer);
 
     List<LuceneMetaBucketProducer> producers = new ArrayList<>(stringFacetFieldProducers);
     producers.addAll(tokenFieldProducers);
@@ -158,7 +163,8 @@ public class LuceneFacetDrillSidewaysMetaBatchProducerFactory {
   private static List<LuceneMetaBucketProducer> getStringFacetFieldProducers(
       Map<String, FacetDefinition.StringFacetDefinition> stringFacetToDefinition,
       Function<String, Optional<DrillSidewaysResult>> facetToDrillSidewaysResultsConverter,
-      LuceneIndexSearcher searcher)
+      LuceneIndexSearcher searcher,
+      Optional<FacetFeatureExplainer> explainer)
       throws IOException {
 
     if (searcher.getFacetsState().isEmpty()) {
@@ -166,10 +172,8 @@ public class LuceneFacetDrillSidewaysMetaBatchProducerFactory {
     }
     SortedSetDocValuesReaderState facetsState = searcher.getFacetsState().get();
     List<LuceneMetaBucketProducer> producers = new ArrayList<>();
-    Optional<FacetFeatureExplainer> explainer = LuceneFacetResultUtil.getFacetFeatureExplainer();
 
     for (var entry : stringFacetToDefinition.entrySet()) {
-
       String path = entry.getValue().path();
       Optional<SortedSetDocValuesReaderState.OrdRange> maybeOrdRange =
           Optional.ofNullable(facetsState.getOrdRange(path));
@@ -182,8 +186,11 @@ public class LuceneFacetDrillSidewaysMetaBatchProducerFactory {
         continue;
       }
       Facets facetCounts = drillSidewaysResult.get().facets;
-
       Optional<FacetResult> facetResult = Optional.ofNullable(facetCounts.getAllChildren(path));
+      int queriedCardinality = facetResult.map(fr -> fr.labelValues.length).orElse(0);
+      explainer.ifPresent(
+          exp -> exp.addQueriedStringFacetCardinality(entry.getKey(), queriedCardinality));
+
       if (facetResult.isPresent()) {
         producers.add(
             LuceneStringFacetMetaBucketProducer.create(facetResult.get(), entry.getKey()));
@@ -196,14 +203,14 @@ public class LuceneFacetDrillSidewaysMetaBatchProducerFactory {
       Map<String, FacetDefinition.StringFacetDefinition> stringFacetToDefinition,
       Function<String, Optional<DrillSidewaysResult>> facetToDrillSidewaysResultsConverter,
       Optional<FieldPath> returnScope,
-      LuceneIndexSearcher searcher)
+      LuceneIndexSearcher searcher,
+      Optional<FacetFeatureExplainer> explainer)
       throws IOException, TokenFacetsCardinalityLimitExceededException {
     if (searcher.getTokenFacetsStateCache().isEmpty()) {
       return List.of();
     }
     TokenFacetsStateCache facetsState = searcher.getTokenFacetsStateCache().get();
     List<LuceneMetaBucketProducer> producers = new ArrayList<>();
-    Optional<FacetFeatureExplainer> explainer = LuceneFacetResultUtil.getFacetFeatureExplainer();
 
     for (var entry : stringFacetToDefinition.entrySet()) {
       String path = entry.getValue().path();
@@ -224,6 +231,10 @@ public class LuceneFacetDrillSidewaysMetaBatchProducerFactory {
 
       Optional<FacetResult> facetResult =
           Optional.ofNullable(facetCounts.getAllChildren(lucenePath));
+      int queriedCardinality = facetResult.map(fr -> fr.labelValues.length).orElse(0);
+      explainer.ifPresent(
+          exp -> exp.addQueriedStringFacetCardinality(entry.getKey(), queriedCardinality));
+
       if (facetResult.isPresent()) {
         producers.add(
             LuceneStringFacetMetaBucketProducer.create(facetResult.get(), entry.getKey()));

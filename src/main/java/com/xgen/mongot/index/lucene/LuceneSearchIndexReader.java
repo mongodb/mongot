@@ -25,6 +25,7 @@ import com.xgen.mongot.index.definition.SearchFieldDefinitionResolver;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.lucene.LuceneFacetCollectorSearchManager.FacetCollectorQueryInfo;
 import com.xgen.mongot.index.lucene.LuceneSearchManager.QueryInfo;
+import com.xgen.mongot.index.lucene.explain.explainers.FacetFeatureExplainer;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.field.FieldValue;
@@ -1158,6 +1159,9 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
         facetSearchManager.initialSearch(
             searcherReference, batchSizeStrategy.adviseNextBatchSize());
 
+    Optional<FacetFeatureExplainer> facetExplainer =
+        LuceneFacetResultUtil.getFacetFeatureExplainer();
+
     return new SearchProducerAndMetaProducer(
         searchBatchProducer(
             query,
@@ -1175,7 +1179,8 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
             this.facetContext,
             searcherReference,
             collectorQueryInfo.topDocs,
-            facetName -> Optional.ofNullable(collectorQueryInfo.drillSidewaysResult)));
+            facetName -> Optional.ofNullable(collectorQueryInfo.drillSidewaysResult),
+            facetExplainer));
   }
 
   private SearchProducerAndMetaProducer intermediateFacetCollectorQuery(
@@ -1313,12 +1318,15 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
       Map<String, DrillSidewaysResult> facetToDrillSidewaysResult)
       throws IOException, InterruptedException, InvalidQueryException {
 
+    Optional<FacetFeatureExplainer> facetExplainer =
+        LuceneFacetResultUtil.getFacetFeatureExplainer();
     return LuceneFacetDrillSidewaysMetaBatchProducerFactory.create(
         collectorQuery,
         facetContext,
         searcherReference,
         topDocs,
-        facetName -> Optional.ofNullable(facetToDrillSidewaysResult.get(facetName)));
+        facetName -> Optional.ofNullable(facetToDrillSidewaysResult.get(facetName)),
+        facetExplainer);
   }
 
   @GuardedBy("shutdownSharedLock")

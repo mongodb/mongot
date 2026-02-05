@@ -167,7 +167,8 @@ public class LuceneFacetDrillSidewaysMetaBatchProducerFactoryTest {
         this.facetContext,
         this.searcherReference,
         TOP_DOCS_WITH_NON_EXACT_COUNT,
-        facetName -> Optional.ofNullable(facetToDrillSidewaysResult.get(facetName)));
+        facetName -> Optional.ofNullable(facetToDrillSidewaysResult.get(facetName)),
+        Optional.empty());
   }
 
   @Test
@@ -180,7 +181,8 @@ public class LuceneFacetDrillSidewaysMetaBatchProducerFactoryTest {
             this.facetContext,
             this.searcherReference,
             TOP_DOCS,
-            facetName -> Optional.ofNullable(facetToDrillSidewaysResult.get(facetName)));
+            facetName -> Optional.ofNullable(facetToDrillSidewaysResult.get(facetName)),
+            Optional.empty());
 
     assertNotNull(result);
     assertTrue(result.isExhausted());
@@ -198,7 +200,8 @@ public class LuceneFacetDrillSidewaysMetaBatchProducerFactoryTest {
             this.facetContext,
             this.searcherReference,
             TOP_DOCS,
-            facetName -> Optional.ofNullable(facetToDrillSidewaysResult.get(facetName)));
+            facetName -> Optional.ofNullable(facetToDrillSidewaysResult.get(facetName)),
+            Optional.empty());
 
     assertNotNull(result);
     assertEquals(100L, result.getTotalHits());
@@ -217,7 +220,8 @@ public class LuceneFacetDrillSidewaysMetaBatchProducerFactoryTest {
             this.facetContext,
             this.searcherReference,
             TOP_DOCS,
-            facetName -> Optional.ofNullable(facetToDrillSidewaysResult.get(facetName)));
+            facetName -> Optional.ofNullable(facetToDrillSidewaysResult.get(facetName)),
+            Optional.empty());
 
     assertNotNull(result);
     assertEquals(100L, result.getTotalHits());
@@ -236,7 +240,8 @@ public class LuceneFacetDrillSidewaysMetaBatchProducerFactoryTest {
             this.facetContext,
             this.searcherReference,
             TOP_DOCS,
-            facetName -> Optional.ofNullable(facetToDrillSidewaysResult.get(facetName)));
+            facetName -> Optional.ofNullable(facetToDrillSidewaysResult.get(facetName)),
+            Optional.empty());
 
     assertNotNull(result);
     assertEquals(100L, result.getTotalHits());
@@ -259,7 +264,8 @@ public class LuceneFacetDrillSidewaysMetaBatchProducerFactoryTest {
             this.facetContext,
             this.searcherReference,
             TOP_DOCS,
-            facetName -> Optional.ofNullable(facetToDrillSidewaysResult.get(facetName)));
+            facetName -> Optional.ofNullable(facetToDrillSidewaysResult.get(facetName)),
+            Optional.empty());
 
     assertNotNull(result);
     assertEquals(100L, result.getTotalHits());
@@ -279,7 +285,8 @@ public class LuceneFacetDrillSidewaysMetaBatchProducerFactoryTest {
             this.facetContext,
             this.searcherReference,
             TOP_DOCS,
-            facetKey -> Optional.of(singleSharedResult));
+            facetKey -> Optional.of(singleSharedResult),
+            Optional.empty());
 
     assertNotNull(result);
     assertEquals(100L, result.getTotalHits());
@@ -299,7 +306,8 @@ public class LuceneFacetDrillSidewaysMetaBatchProducerFactoryTest {
             this.facetContext,
             this.searcherReference,
             TOP_DOCS,
-            facetKey -> Optional.of(singleSharedResult));
+            facetKey -> Optional.of(singleSharedResult),
+            Optional.empty());
 
     assertNotNull(result);
     assertEquals(100L, result.getTotalHits());
@@ -319,7 +327,8 @@ public class LuceneFacetDrillSidewaysMetaBatchProducerFactoryTest {
             this.facetContext,
             this.searcherReference,
             TOP_DOCS,
-            facetKey -> Optional.of(singleSharedResult));
+            facetKey -> Optional.of(singleSharedResult),
+            Optional.empty());
 
     assertNotNull(result);
     assertEquals(100L, result.getTotalHits());
@@ -342,7 +351,8 @@ public class LuceneFacetDrillSidewaysMetaBatchProducerFactoryTest {
             this.facetContext,
             this.searcherReference,
             TOP_DOCS,
-            facetKey -> Optional.of(singleSharedResult));
+            facetKey -> Optional.of(singleSharedResult),
+            Optional.empty());
 
     assertNotNull(result);
     assertEquals(100L, result.getTotalHits());
@@ -361,7 +371,8 @@ public class LuceneFacetDrillSidewaysMetaBatchProducerFactoryTest {
             this.facetContext,
             this.searcherReference,
             TOP_DOCS,
-            facetKey -> Optional.of(singleSharedResult));
+            facetKey -> Optional.of(singleSharedResult),
+            Optional.empty());
 
     assertNotNull(result);
     assertTrue(result.isExhausted());
@@ -424,7 +435,8 @@ public class LuceneFacetDrillSidewaysMetaBatchProducerFactoryTest {
             this.facetContext,
             this.searcherReference,
             TOP_DOCS,
-            facetName -> Optional.ofNullable(facetToResult.get(facetName)));
+            facetName -> Optional.ofNullable(facetToResult.get(facetName)),
+            Optional.empty());
 
     producer.execute(CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT, BatchCursorOptionsBuilder.empty());
     BsonArray batch = producer.getNextBatch(CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
