@@ -117,7 +117,7 @@ public class ExplainTimingsTest {
     first.split(ExplainTimings.Type.COLLECT).close();
     second.split(ExplainTimings.Type.COLLECT).close();
 
-    var result = ExplainTimings.merge(first, second);
+    var result = ExplainTimings.merge(fakeTicker(), first, second);
     var collectTimer = result.ofType(ExplainTimings.Type.COLLECT);
     Truth.assertThat(collectTimer.getInvocationCount()).isEqualTo(2);
     Truth.assertThat(collectTimer.getElapsedNanos()).isEqualTo(10);
@@ -130,5 +130,10 @@ public class ExplainTimingsTest {
       Truth.assertThat(timingData.invocationCount()).isEqualTo(0);
       Truth.assertThat(timingData.elapsedNanos()).isEqualTo(0);
     }
+
+    result.split(ExplainTimings.Type.COLLECT).close();
+    var mergedCollectTimer = result.ofType(ExplainTimings.Type.COLLECT);
+    Truth.assertThat(mergedCollectTimer.getInvocationCount()).isEqualTo(3);
+    Truth.assertThat(mergedCollectTimer.getElapsedNanos()).isEqualTo(15);
   }
 }

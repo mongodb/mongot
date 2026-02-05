@@ -4,6 +4,7 @@ java_test_suite(
     name = "timers",
     srcs = [
         "CpuTickerTest.java",
+        "SamplingInvocationCountingTimerTest.java",
         "ThreadSafeInvocationCountingTimerTest.java",
     ],
     tags = ["unit"],

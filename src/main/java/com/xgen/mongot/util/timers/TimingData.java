@@ -2,6 +2,8 @@ package com.xgen.mongot.util.timers;
 
 public interface TimingData {
 
+  TimingData EMPTY = new InvocationCountTimingData(0, 0);
+
   record InvocationCountTimingData(long invocationCount, long elapsedNanos) implements TimingData {
     public InvocationCountTimingData sum(TimingData another) {
       return new InvocationCountTimingData(
@@ -11,6 +13,10 @@ public interface TimingData {
   }
 
   record NoInvocationCountTimingData(long elapsedNanos) implements TimingData {
+    public NoInvocationCountTimingData(long ignored, long elapsedNanos) {
+      this(elapsedNanos);
+    }
+
     @Override
     public long invocationCount() {
       return 0;

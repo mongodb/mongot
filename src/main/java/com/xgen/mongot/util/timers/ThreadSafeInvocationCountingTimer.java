@@ -13,15 +13,10 @@ import java.util.concurrent.atomic.LongAdder;
  */
 public class ThreadSafeInvocationCountingTimer implements InvocationCountingTimer {
 
-  @FunctionalInterface
-  public interface TimingDataCreator {
-    TimingData createTimingData(long invocationCount, long elapsedNanos);
-  }
-
   private final Supplier<Stopwatch> stopwatchSupplier;
   private final LongAdder elapsedNanos = new LongAdder();
   private final LongAdder invocationCount = new LongAdder();
-  private final TimingDataCreator timingDataCreator;
+  private final InvocationCountingTimer.TimingDataCreator timingDataCreator;
 
   /** Initializes the CountingTimer with elapsedNanos and invocationCount. */
   public ThreadSafeInvocationCountingTimer(Ticker ticker, long elapsedNanos, long invocationCount) {
@@ -34,17 +29,20 @@ public class ThreadSafeInvocationCountingTimer implements InvocationCountingTime
     this(ticker, TimingData.InvocationCountTimingData::new);
   }
 
-  public ThreadSafeInvocationCountingTimer(Ticker ticker, TimingDataCreator timingDataCreator) {
+  public ThreadSafeInvocationCountingTimer(
+      Ticker ticker, InvocationCountingTimer.TimingDataCreator timingDataCreator) {
     this.stopwatchSupplier = () -> Stopwatch.createStarted(ticker);
     this.timingDataCreator = timingDataCreator;
   }
 
-  public static ThreadSafeInvocationCountingTimer merge(
-      Ticker ticker, InvocationCountingTimer first, InvocationCountingTimer second) {
-    return new ThreadSafeInvocationCountingTimer(
-        ticker,
-        first.getElapsedNanos() + second.getElapsedNanos(),
-        first.getInvocationCount() + second.getInvocationCount());
+  /** Initializes the timer with a custom TimingDataCreator and existing timing data. */
+  public ThreadSafeInvocationCountingTimer(
+      Ticker ticker,
+      InvocationCountingTimer.TimingDataCreator timingDataCreator,
+      TimingData initialData) {
+    this(ticker, timingDataCreator);
+    this.elapsedNanos.add(initialData.elapsedNanos());
+    this.invocationCount.add(initialData.invocationCount());
   }
 
   @Override

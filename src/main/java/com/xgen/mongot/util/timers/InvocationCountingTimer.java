@@ -4,6 +4,11 @@ import java.util.Optional;
 
 public interface InvocationCountingTimer {
 
+  @FunctionalInterface
+  interface TimingDataCreator {
+    TimingData createTimingData(long invocationCount, long elapsedNanos);
+  }
+
   record AutocloseableOptional<T extends InvocationCountingTimer.SafeClosable>(Optional<T> opt)
       implements SafeClosable {
 

@@ -5,6 +5,7 @@ java_library(
     srcs = [
         "CpuTicker.java",
         "InvocationCountingTimer.java",
+        "SamplingInvocationCountingTimer.java",
         "ThreadSafeInvocationCountingTimer.java",
         "TimingData.java",
     ],
