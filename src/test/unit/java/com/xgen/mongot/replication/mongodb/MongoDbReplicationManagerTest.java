@@ -535,7 +535,8 @@ public class MongoDbReplicationManagerTest {
     var result1 =
         MongoDbReplicationManager.getClientSessionRecords(
             syncSourceConfig1,
-            MongoDbReplicationConfig.getDefault(),
+            MongoDbReplicationManager.getSyncMaxConnections(
+                syncSourceConfig1, MongoDbReplicationConfig.getDefault()),
             new SimpleMeterRegistry(),
             spy(Executors.fixedSizeThreadScheduledExecutor("test", 1, new SimpleMeterRegistry())),
             "localhost1");
@@ -558,7 +559,8 @@ public class MongoDbReplicationManagerTest {
     var result2 =
         MongoDbReplicationManager.getClientSessionRecords(
             syncSourceConfig2,
-            MongoDbReplicationConfig.getDefault(),
+            MongoDbReplicationManager.getSyncMaxConnections(
+                syncSourceConfig2, MongoDbReplicationConfig.getDefault()),
             new SimpleMeterRegistry(),
             spy(Executors.fixedSizeThreadScheduledExecutor("test", 1, new SimpleMeterRegistry())),
             MongoDbReplicationManager.getSyncSourceHost(syncSourceConfig2));

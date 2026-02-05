@@ -249,7 +249,7 @@ public class MongoDbReplicationManager implements ReplicationManager {
     var clientSessionRecords =
         getClientSessionRecords(
             syncSourceConfig.get(),
-            replicationConfig,
+            getSyncMaxConnections(syncSourceConfig.get(), replicationConfig),
             meterRegistry,
             sessionRefreshExecutor,
             syncSourceHost);
@@ -449,12 +449,11 @@ public class MongoDbReplicationManager implements ReplicationManager {
   /** Creates (host, ClientSessionRecord) mapping from syncSourceConfig */
   public static Map<String, ClientSessionRecord> getClientSessionRecords(
       SyncSourceConfig syncSourceConfig,
-      MongoDbReplicationConfig replicationConfig,
+      int maxConnections,
       MeterRegistry meterRegistry,
       NamedScheduledExecutorService sessionRefreshExecutor,
       String syncSourceHost) {
     LOG.atInfo().addKeyValue("defaultHost", syncSourceHost).log("start constructing mongoClients");
-    var maxConnections = getSyncMaxConnections(syncSourceConfig, replicationConfig);
 
     // make sure syncClient and session refresher connecting mongodUri is included
     var syncMongoClient =
@@ -484,7 +483,7 @@ public class MongoDbReplicationManager implements ReplicationManager {
     return clientSessionHostMap;
   }
 
-  public static int getSyncMaxConnections(
+  static int getSyncMaxConnections(
       SyncSourceConfig syncSourceConfig, MongoDbReplicationConfig replicationConfig) {
     int initialSyncConnections = (2 * replicationConfig.numConcurrentInitialSyncs);
     // synonym syncs do not use this client when mongosUri exists
@@ -551,9 +550,11 @@ public class MongoDbReplicationManager implements ReplicationManager {
         .setEnableChangeStreamProjection(replicationConfig.enableSteadyStateChangeStreamProjection)
         .setMaxInFlightEmbeddingGetMores(replicationConfig.maxInFlightEmbeddingGetMores)
         .setEmbeddingGetMoreBatchSize(replicationConfig.embeddingGetMoreBatchSize)
-        .setExcludedChangestreamFields(replicationConfig.excludedChangestreamFields)
-        .setMatchCollectionUuidForUpdateLookup(replicationConfig.matchCollectionUuidForUpdateLookup)
-        .setEnableSplitLargeChangeStreamEvents(replicationConfig.enableSplitLargeChangeStreamEvents)
+        .setExcludedChangestreamFields(replicationConfig.getExcludedChangestreamFields())
+        .setMatchCollectionUuidForUpdateLookup(
+            replicationConfig.getMatchCollectionUuidForUpdateLookup())
+        .setEnableSplitLargeChangeStreamEvents(
+            replicationConfig.getEnableSplitLargeChangeStreamEvents())
         .build();
   }
 

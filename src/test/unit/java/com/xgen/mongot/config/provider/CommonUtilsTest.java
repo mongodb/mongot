@@ -17,6 +17,7 @@ import com.xgen.mongot.monitor.ReplicationStateMonitor;
 import com.xgen.mongot.monitor.ToggleGate;
 import com.xgen.mongot.replication.mongodb.DurabilityConfig;
 import com.xgen.mongot.replication.mongodb.MongoDbNoOpReplicationManager;
+import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
 import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
 import com.xgen.mongot.replication.mongodb.initialsync.config.InitialSyncConfig;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
@@ -31,6 +32,7 @@ public class CommonUtilsTest {
   private static class Mocks {
     private final Path dataPath;
     private final MongoDbReplicationConfig replicationConfig;
+    private final AutoEmbeddingMaterializedViewConfig autoEmbeddingMaterializedViewConfig;
     private final InitialSyncConfig initialSyncConfig;
     private final DurabilityConfig durabilityConfig;
     private final FeatureFlags featureFlags;
@@ -45,7 +47,8 @@ public class CommonUtilsTest {
 
     private Mocks() {
       this.dataPath = mock(Path.class);
-      this.replicationConfig = mock(MongoDbReplicationConfig.class);
+      this.replicationConfig = MongoDbReplicationConfig.getDefault();
+      this.autoEmbeddingMaterializedViewConfig = AutoEmbeddingMaterializedViewConfig.getDefault();
       this.initialSyncConfig = new InitialSyncConfig();
       this.durabilityConfig = mock(DurabilityConfig.class);
       this.featureFlags = mock(FeatureFlags.class);
@@ -125,7 +128,8 @@ public class CommonUtilsTest {
     var replicationStateMonitor =
         ReplicationStateMonitor.builder()
             .setReplicationGate(replicationGate)
-            .setInitialSyncGate(ToggleGate.opened()).build();
+            .setInitialSyncGate(ToggleGate.opened())
+            .build();
     var factory =
         CommonUtils.getReplicationManagerFactory(
             mocks.dataPath,
@@ -161,7 +165,7 @@ public class CommonUtilsTest {
     var factory =
         CommonUtils.getAutoEmbeddingMaterializedViewManagerFactory(
             mocks.dataPath,
-            mocks.replicationConfig,
+            mocks.autoEmbeddingMaterializedViewConfig,
             mocks.initialSyncConfig,
             mocks.featureFlags,
             mocks.mongotCursorManager,
@@ -180,7 +184,7 @@ public class CommonUtilsTest {
     var factory =
         CommonUtils.getAutoEmbeddingMaterializedViewManagerFactory(
             mocks.dataPath,
-            mocks.replicationConfig,
+            mocks.autoEmbeddingMaterializedViewConfig,
             mocks.initialSyncConfig,
             mocks.featureFlags,
             mocks.mongotCursorManager,
@@ -207,7 +211,7 @@ public class CommonUtilsTest {
     var factory =
         CommonUtils.getAutoEmbeddingMaterializedViewManagerFactory(
             mocks.dataPath,
-            mocks.replicationConfig,
+            mocks.autoEmbeddingMaterializedViewConfig,
             mocks.initialSyncConfig,
             mocks.featureFlags,
             mocks.mongotCursorManager,
@@ -226,7 +230,7 @@ public class CommonUtilsTest {
     var factory =
         CommonUtils.getAutoEmbeddingMaterializedViewManagerFactory(
             mocks.dataPath,
-            mocks.replicationConfig,
+            mocks.autoEmbeddingMaterializedViewConfig,
             mocks.initialSyncConfig,
             mocks.featureFlags,
             mocks.mongotCursorManager,
@@ -248,7 +252,7 @@ public class CommonUtilsTest {
     var factory =
         CommonUtils.getAutoEmbeddingMaterializedViewManagerFactory(
             mocks.dataPath,
-            mocks.replicationConfig,
+            mocks.autoEmbeddingMaterializedViewConfig,
             mocks.initialSyncConfig,
             mocks.featureFlags,
             mocks.mongotCursorManager,
@@ -270,5 +274,4 @@ public class CommonUtilsTest {
     // Assert that the message matches the regex pattern
     Assert.assertTrue(Pattern.compile(expectedPattern).matcher(errorMessage).find());
   }
-
 }

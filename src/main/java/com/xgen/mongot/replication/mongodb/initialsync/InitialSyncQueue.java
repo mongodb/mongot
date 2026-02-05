@@ -21,8 +21,10 @@ import com.xgen.mongot.index.lucene.directory.IndexDirectoryHelper;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.monitor.Gate;
+import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.ClientSessionRecord;
+import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
@@ -138,7 +140,7 @@ public class InitialSyncQueue {
       Map<GenerationId, InitialSyncRequest> queued,
       Set<GenerationId> cancelled,
       Map<GenerationId, InProgressInitialSyncInfo> inProgress,
-      MongoDbReplicationConfig replicationConfig,
+      CommonReplicationConfig replicationConfig,
       InitialSyncConfig initialSyncConfig,
       InitialSyncManagerFactory managerFactory,
       Path dataPath,
@@ -168,16 +170,14 @@ public class InitialSyncQueue {
             TAG_VECTOR_SEARCH_AUTO_EMBEDDING,
             getNumGauge(metricsFactory, queuedSyncsName, TAG_VECTOR_SEARCH_AUTO_EMBEDDING));
 
-    boolean shouldLimitConcurrentEmbeddingInitialSyncs =
-        replicationConfig.maxConcurrentEmbeddingInitialSyncs
-            < replicationConfig.numConcurrentInitialSyncs;
+    // TODO(CLOUDP-360914): Deprecate this condition check after shutting down type:text indexes
     this.maxConcurrentEmbeddingInitialSyncs =
-        shouldLimitConcurrentEmbeddingInitialSyncs
-            ? Optional.of(replicationConfig.maxConcurrentEmbeddingInitialSyncs)
-            : Optional.empty();
+        getMaxConcurrentEmbeddingInitialSyncs(replicationConfig);
+
     this.concurrentEmbeddingSyncs = this.maxConcurrentEmbeddingInitialSyncs.map(Semaphore::new);
 
-    this.pauseInitialSyncOnIndexIds = new HashSet<>(replicationConfig.pauseInitialSyncOnIndexIds);
+    this.pauseInitialSyncOnIndexIds =
+        new HashSet<>(replicationConfig.getPauseInitialSyncOnIndexIds());
     this.initialSyncGate = initialSyncGate;
     this.dispatcher =
         new InitialSyncDispatcher(meterRegistry, managerFactory, replicationConfig, dataPath);
@@ -190,13 +190,12 @@ public class InitialSyncQueue {
       Map<String, ClientSessionRecord> mongoClientSessions,
       String syncSourceHost,
       IndexingWorkSchedulerFactory indexingWorkSchedulerFactory,
-      MongoDbReplicationConfig replicationConfig,
+      CommonReplicationConfig replicationConfig,
       InitialSyncConfig initialSyncConfig,
       Path dataPath,
       Gate initialSyncGate) {
-    Check.argIsPositive(replicationConfig.numConcurrentInitialSyncs, "numConcurrentInitialSyncs");
     Check.argIsPositive(
-        replicationConfig.maxConcurrentEmbeddingInitialSyncs, "maxConcurrentEmbeddingInitialSyncs");
+        replicationConfig.getNumConcurrentInitialSyncs(), "numConcurrentInitialSyncs");
 
     Map<String, InitialSyncMongoClient> initialSyncMongoClients = new HashMap<>();
     mongoClientSessions.forEach(
@@ -231,14 +230,13 @@ public class InitialSyncQueue {
       Map<String, InitialSyncMongoClient> mongoClients,
       String syncSourceHost,
       IndexingWorkSchedulerFactory indexingWorkSchedulerFactory,
-      MongoDbReplicationConfig replicationConfig,
+      CommonReplicationConfig replicationConfig,
       InitialSyncConfig initialSyncConfig,
       InitialSyncManagerFactory managerFactory,
       Path dataPath,
       Gate initialSyncGate) {
-    Check.argIsPositive(replicationConfig.numConcurrentInitialSyncs, "numConcurrentInitialSyncs");
     Check.argIsPositive(
-        replicationConfig.maxConcurrentEmbeddingInitialSyncs, "maxConcurrentEmbeddingInitialSyncs");
+        replicationConfig.getNumConcurrentInitialSyncs(), "numConcurrentInitialSyncs");
 
     BlockingQueue<GenerationId> requestQueue = new LinkedBlockingQueue<>();
     Map<GenerationId, InitialSyncRequest> queued = new HashMap<>();
@@ -595,15 +593,16 @@ public class InitialSyncQueue {
     InitialSyncDispatcher(
         MeterRegistry meterRegistry,
         InitialSyncManagerFactory initialSyncManagerFactory,
-        MongoDbReplicationConfig replicationConfig,
+        CommonReplicationConfig replicationConfig,
         Path dataPath) {
       super("InitialSyncDispatcher");
-      Check.argIsPositive(replicationConfig.numConcurrentInitialSyncs, "numConcurrentSyncs");
+      Check.argIsPositive(replicationConfig.getNumConcurrentInitialSyncs(), "numConcurrentSyncs");
 
       this.initialSyncManagerFactory = initialSyncManagerFactory;
-      this.concurrentSyncs = new Semaphore(replicationConfig.numConcurrentInitialSyncs);
-      this.pauseAllInitialSync = replicationConfig.pauseAllInitialSyncs;
-      this.embeddingGetMoreBatchSize = replicationConfig.embeddingGetMoreBatchSize;
+      this.concurrentSyncs = new Semaphore(replicationConfig.getNumConcurrentInitialSyncs());
+      this.pauseAllInitialSync = replicationConfig.getPauseAllInitialSyncs();
+      // TODO(CLOUDP-360914): refactor this after shutting down type:text indexes
+      this.embeddingGetMoreBatchSize = getEmbeddingGetMoreBatchSize(replicationConfig);
 
       this.metricsFactory = new MetricsFactory("initialsync.dispatcher", meterRegistry);
       String inProgressSyncsName = "inProgressSyncs";
@@ -936,5 +935,27 @@ public class InitialSyncQueue {
       var tags = Tags.of("hostName", hostName);
       this.metricsFactory.counter("syncSource", tags).increment();
     }
+  }
+
+  private Optional<Integer> getMaxConcurrentEmbeddingInitialSyncs(
+      CommonReplicationConfig replicationConfig) {
+    return switch (replicationConfig) {
+      // AutoEmbeddingMaterializedViewConfig shouldn't be limited by
+      // maxConcurrentEmbeddingInitialSyncs since it has its own InitialSyncQueue with all
+      // auto-embedding indexes.
+      case AutoEmbeddingMaterializedViewConfig config -> Optional.empty();
+      case MongoDbReplicationConfig config ->
+          config.maxConcurrentEmbeddingInitialSyncs < config.getNumConcurrentInitialSyncs()
+              ? Optional.of(config.maxConcurrentEmbeddingInitialSyncs)
+              : Optional.empty();
+    };
+  }
+
+  private static Optional<Integer> getEmbeddingGetMoreBatchSize(
+      CommonReplicationConfig replicationConfig) {
+    return switch (replicationConfig) {
+      case AutoEmbeddingMaterializedViewConfig config -> config.embeddingGetMoreBatchSize;
+      case MongoDbReplicationConfig config -> config.embeddingGetMoreBatchSize;
+    };
   }
 }

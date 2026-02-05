@@ -1,5 +1,6 @@
 package com.xgen.testing.mongot.replication.mongodb.common;
 
+import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
 import com.xgen.mongot.util.Runtime;
 import java.util.List;
@@ -140,6 +141,12 @@ public class MongoDbReplicationConfigBuilder {
   public MongoDbReplicationConfig build() {
     return MongoDbReplicationConfig.create(
         this.runtime,
+        new CommonReplicationConfig.GlobalReplicationConfig(
+            this.optionalPauseAllInitialSyncs.orElse(false),
+            this.optionalPauseInitialSyncOnIndexIds.orElse(List.of()),
+            this.enableSplitLargeChangeStreamEvents.orElse(false),
+            this.excludedChangestreamFields,
+            this.optionalMatchCollectionUuidForUpdateLookup.orElse(false)),
         this.optionalNumConcurrentInitialSyncs,
         this.optionalNumConcurrentChangeStreams,
         this.optionalNumIndexingThreads,
@@ -148,14 +155,9 @@ public class MongoDbReplicationConfigBuilder {
         this.optionalChangeStreamCursorMaxTimeSec,
         this.optionalNumChangeStreamDecodingThreads,
         this.enableSteadyStateChangeStreamProjection,
-        this.optionalPauseAllInitialSyncs,
-        this.optionalPauseInitialSyncOnIndexIds,
         this.optionalMaxInFlightEmbeddingGetMores,
         this.optionalMaxConcurrentEmbeddingInitialSyncs,
         this.embeddingGetMoreBatchSize,
-        this.excludedChangestreamFields,
-        this.optionalMatchCollectionUuidForUpdateLookup,
-        this.enableSplitLargeChangeStreamEvents,
         this.optionalRequestRateLimitBackoffMs);
   }
 }

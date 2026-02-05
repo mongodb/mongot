@@ -52,6 +52,14 @@ public class MongoDbReplicationConfigTest {
       return BsonSerializationTestSuite.TestSpec.create(
           "full config",
           MongoDbReplicationConfig.create(
+              new CommonReplicationConfig.GlobalReplicationConfig(
+                  false,
+                  List.of(
+                      new ObjectId("68784215b86a4a2d55787ae6"),
+                      new ObjectId("687d201de90e474dfbc7c1d4")),
+                  false,
+                  List.of("updateDescription.disambiguatedPaths"),
+                  true),
               Optional.of(1),
               Optional.of(2),
               Optional.of(3),
@@ -60,17 +68,9 @@ public class MongoDbReplicationConfigTest {
               Optional.of(6),
               Optional.of(7),
               Optional.of(true),
-              Optional.of(false),
-              Optional.of(
-                  List.of(
-                      new ObjectId("68784215b86a4a2d55787ae6"),
-                      new ObjectId("687d201de90e474dfbc7c1d4"))),
               Optional.of(8),
               Optional.of(9),
               Optional.of(10),
-              List.of("updateDescription.disambiguatedPaths"),
-              Optional.of(true),
-              Optional.empty(),
               Optional.of(11)));
     }
 

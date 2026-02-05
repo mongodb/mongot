@@ -4,6 +4,7 @@ java_library(
     name = "common",
     srcs = [
         "AggregateCommandCollectionScanMongoClient.java",
+        "AutoEmbeddingMaterializedViewConfig.java",
         "BufferlessIdOrderInitialSyncResumeInfo.java",
         "BufferlessNaturalOrderInitialSyncResumeInfo.java",
         "ChangeStreamAggregateCommandFactory.java",
@@ -22,6 +23,7 @@ java_library(
         "CollectionScanCommandMongoClient.java",
         "CollectionScanMongoClient.java",
         "CollectionStatsMongoClient.java",
+        "CommonReplicationConfig.java",
         "DecodingSchedulerBatch.java",
         "DecodingWorkScheduler.java",
         "DefaultChangeStreamMongoClient.java",

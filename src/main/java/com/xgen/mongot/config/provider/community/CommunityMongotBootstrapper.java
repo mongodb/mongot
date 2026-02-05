@@ -50,6 +50,7 @@ import com.xgen.mongot.monitor.PeriodicDiskMonitor;
 import com.xgen.mongot.monitor.ReplicationStateMonitor;
 import com.xgen.mongot.replication.mongodb.DurabilityConfig;
 import com.xgen.mongot.replication.mongodb.autoembedding.AutoEmbeddingMaterializedViewManagerFactory;
+import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
 import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
 import com.xgen.mongot.replication.mongodb.initialsync.config.InitialSyncConfig;
 import com.xgen.mongot.server.auth.SecurityConfig;
@@ -535,7 +536,7 @@ public class CommunityMongotBootstrapper {
                 new EmbeddingClientFactory(meterRegistry),
                 Executors.fixedSizeThreadScheduledExecutor(
                     "embedding-providers",
-                    mongotConfigs.replicationConfig.numIndexingThreads * 2,
+                    mongotConfigs.autoEmbeddingMaterializedViewConfig.numIndexingThreads * 2,
                     meterRegistry),
                 meterRegistry));
   }
@@ -648,7 +649,7 @@ public class CommunityMongotBootstrapper {
     AutoEmbeddingMaterializedViewManagerFactory autoEmbeddingMaterializedViewManagerFactory =
         CommonUtils.getAutoEmbeddingMaterializedViewManagerFactory(
             dataPath,
-            mongotConfigs.replicationConfig,
+            mongotConfigs.autoEmbeddingMaterializedViewConfig,
             mongotConfigs.initialSyncConfig,
             mongotConfigs.featureFlags,
             cursorManager,
@@ -819,6 +820,7 @@ public class CommunityMongotBootstrapper {
     var featureFlags = FeatureFlags.withQueryFeaturesEnabled();
     var environmentVariantPerfConfig = EnvironmentVariantPerfConfig.getDefault();
     var regularBlockingRequestSettings = RegularBlockingRequestSettings.defaults();
+    var autoEmbeddingMaterializedViewConfig = AutoEmbeddingMaterializedViewConfig.getDefault();
     return new MongotConfigs(
         luceneConfig,
         replicationConfig,
@@ -829,6 +831,7 @@ public class CommunityMongotBootstrapper {
         lifecycleConfig,
         featureFlags,
         environmentVariantPerfConfig,
-        regularBlockingRequestSettings);
+        regularBlockingRequestSettings,
+        autoEmbeddingMaterializedViewConfig);
   }
 }

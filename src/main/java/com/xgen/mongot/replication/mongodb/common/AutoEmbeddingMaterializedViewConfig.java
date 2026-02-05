@@ -15,20 +15,17 @@ import org.bson.types.ObjectId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public final class MongoDbReplicationConfig extends CommonReplicationConfig
+public final class AutoEmbeddingMaterializedViewConfig extends CommonReplicationConfig
     implements DocumentEncodable {
 
-  private static final Logger LOG = LoggerFactory.getLogger(MongoDbReplicationConfig.class);
+  private static final Logger LOG =
+      LoggerFactory.getLogger(AutoEmbeddingMaterializedViewConfig.class);
 
   private static final int DEFAULT_CHANGE_STREAM_MAX_TIME_MS = 1000;
-  private static final int DEFAULT_NUM_INITIAL_SYNCS = 2;
-  private static final int DEFAULT_NUM_CONCURRENT_SYNONYM_SYNCS = 2;
+  private static final int DEFAULT_NUM_INITIAL_SYNCS = 1;
   private static final int DEFAULT_CHANGE_STREAM_CURSOR_MAX_TIME_SEC =
       Math.toIntExact(Duration.ofMinutes(30).toSeconds());
   private static final int DEFAULT_REQUEST_RATE_LIMIT_BACKOFF_MS = 100;
-
-  /** The number of initial syncs that are allowed to be run concurrently. */
-  public final int numConcurrentInitialSyncs;
 
   /**
    * The number of steady state change streams that are allowed to have outstanding getMores issued
@@ -36,11 +33,36 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
    */
   public final int numConcurrentChangeStreams;
 
-  /** The number of indexing threads to use in the scheduler. */
+  /** The number of indexing threads to use in the EmbeddingIndexingWorkScheduler. */
   public final int numIndexingThreads;
 
-  /** The number of synonym sync operations that are allowed to be run concurrently. */
-  public final int numConcurrentSynonymSyncs;
+  /** The number of change-stream batches decoding threads. Used in steady-state replication. */
+  public final int numChangeStreamDecodingThreads;
+
+  /**
+   * The time period in milliseconds to wait between transient resumes during initial-sync and
+   * steady-state on mongod overload error.
+   */
+  public final int requestRateLimitBackoffMs;
+
+  /**
+   * The batch size (in number of documents) to use for getMore operations on auto-embedding
+   * indexes. If this optional is empty, the default batch size will be used <a
+   * href="https://www.mongodb.com/docs/manual/reference/command/getMore/#command-fields">(16MiB)</a>.
+   */
+  public final Optional<Integer> embeddingGetMoreBatchSize;
+
+  /**
+   * This is the most up-to-date Materialized View Schema Version supported in Mongots. Not setting
+   * it will disable all schema upgrades.
+   */
+  public final Optional<Integer> materializedViewSchemaVersion;
+
+  /**
+   * The maximum number of in-flight getMores allowed for auto-embedding indexes. Used only in
+   * synchronous steady-state flow.
+   */
+  public final int maxInFlightEmbeddingGetMores;
 
   /**
    * The maximum amount of time in milliseconds that any given steady state change stream getMore
@@ -54,137 +76,96 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
    */
   public final int changeStreamCursorMaxTimeSec;
 
-  /** The number of change-stream batches decoding threads. Used in steady-state replication. */
-  public final int numChangeStreamDecodingThreads;
-
-  /**
-   * Optional override of the change stream projection mode. If this optional is empty (default),
-   * mongot will select the mode automatically based on heuristics.
-   */
-  public Optional<Boolean> enableSteadyStateChangeStreamProjection;
-
-  /**
-   * The maximum number of in-flight getMores allowed for auto-embedding indexes. Used only in
-   * synchronous steady-state flow. If this is greater than numConcurrentChangeStreams, the number
-   * of in-flight getMores for auto-embedding indexes will not be limited.
-   */
-  public final int maxInFlightEmbeddingGetMores;
-
   /**
    * The maximum number of auto-embedding indexes that are allowed to run initial sync concurrently.
-   * If this is greater than numConcurrentInitialSyncs, the number of concurrent initial syncs for
-   * auto-embedding indexes will not be limited.
    */
   public final int maxConcurrentEmbeddingInitialSyncs;
 
-  /**
-   * The batch size (in number of documents) to use for getMore operations on auto-embedding
-   * indexes. If this optional is empty, the default batch size will be used <a
-   * href="https://www.mongodb.com/docs/manual/reference/command/getMore/#command-fields">(16MiB)</a>.
-   */
-  public final Optional<Integer> embeddingGetMoreBatchSize;
-
-  /**
-   * The time period in milliseconds to wait between transient resumes during initial-sync and
-   * steady-state on mongod overload error.
-   */
-  public final int requestRateLimitBackoffMs;
-
-  private MongoDbReplicationConfig(
-      int numConcurrentInitialSyncs,
-      int numConcurrentChangeStreams,
-      int numIndexingThreads,
-      int changeStreamMaxTimeMs,
-      int numConcurrentSynonymSyncs,
-      int changeStreamCursorMaxTimeSec,
-      int numChangeStreamDecodingThreads,
-      Optional<Boolean> enableSteadyStateChangeStreamProjection,
+  private AutoEmbeddingMaterializedViewConfig(
       boolean pauseAllInitialSyncs,
       List<ObjectId> pauseInitialSyncOnIndexIds,
-      // TODO(CLOUDP-360914): Remove following 3 parameters after shutting down type:text indexes
-      int maxInFlightEmbeddingGetMores,
-      int maxConcurrentEmbeddingInitialSyncs,
-      Optional<Integer> embeddingGetMoreBatchSize,
       List<String> excludedChangestreamFields,
       boolean matchCollectionUuidForUpdateLookup,
       boolean enableSplitLargeChangeStreamEvents,
-      int requestRateLimitBackoffMs) {
+      int numConcurrentChangeStreams,
+      int numIndexingThreads,
+      int changeStreamMaxTimeMs,
+      int changeStreamCursorMaxTimeSec,
+      int numChangeStreamDecodingThreads,
+      int requestRateLimitBackoffMs,
+      int maxConcurrentEmbeddingInitialSyncs,
+      int maxInFlightEmbeddingGetMores,
+      Optional<Integer> embeddingGetMoreBatchSize,
+      Optional<Integer> materializedViewSchemaVersion) {
     super(
         pauseAllInitialSyncs,
         pauseInitialSyncOnIndexIds,
         enableSplitLargeChangeStreamEvents,
         excludedChangestreamFields,
         matchCollectionUuidForUpdateLookup);
-    this.numConcurrentInitialSyncs = numConcurrentInitialSyncs;
+    this.maxConcurrentEmbeddingInitialSyncs = maxConcurrentEmbeddingInitialSyncs;
     this.numConcurrentChangeStreams = numConcurrentChangeStreams;
     this.numIndexingThreads = numIndexingThreads;
     this.changeStreamMaxTimeMs = changeStreamMaxTimeMs;
-    this.numConcurrentSynonymSyncs = numConcurrentSynonymSyncs;
     this.changeStreamCursorMaxTimeSec = changeStreamCursorMaxTimeSec;
     this.numChangeStreamDecodingThreads = numChangeStreamDecodingThreads;
-    this.enableSteadyStateChangeStreamProjection = enableSteadyStateChangeStreamProjection;
     this.maxInFlightEmbeddingGetMores = maxInFlightEmbeddingGetMores;
-    this.maxConcurrentEmbeddingInitialSyncs = maxConcurrentEmbeddingInitialSyncs;
     this.embeddingGetMoreBatchSize = embeddingGetMoreBatchSize;
     this.requestRateLimitBackoffMs = requestRateLimitBackoffMs;
+    this.materializedViewSchemaVersion = materializedViewSchemaVersion;
   }
 
   /**
-   * Creates a new MongoDbReplicationConfig, deriving defaults for any options that are not
-   * supplied.
+   * Creates a new AutoEmbeddingMaterializedViewReplicationConfig, deriving defaults for any options
+   * that are not supplied.
    */
-  public static MongoDbReplicationConfig create(
+  public static AutoEmbeddingMaterializedViewConfig create(
       GlobalReplicationConfig globalReplicationConfig,
-      Optional<Integer> optionalNumConcurrentInitialSyncs,
       Optional<Integer> optionalNumConcurrentChangeStreams,
       Optional<Integer> optionalNumIndexingThreads,
       Optional<Integer> optionalChangeStreamMaxTimeMs,
-      Optional<Integer> optionalNumConcurrentSynonymSyncs,
       Optional<Integer> optionalChangeStreamCursorMaxTimeSec,
       Optional<Integer> optionalNumChangeStreamDecodingThreads,
-      Optional<Boolean> enableSteadyStateChangeStreamProjection,
-      // TODO(CLOUDP-360914): Remove those embedding parameters after shutdown type:text indexes
-      Optional<Integer> optionalMaxInFlightEmbeddingGetMores,
+      Optional<Integer> optionalRequestRateLimitBackoffMs,
       Optional<Integer> optionalMaxConcurrentEmbeddingInitialSyncs,
+      Optional<Integer> optionalMaxInFlightEmbeddingGetMores,
       Optional<Integer> embeddingGetMoreBatchSize,
-      Optional<Integer> requestRateLimitBackoffMs) {
+      Optional<Integer> materializedViewSchemaVersion) {
     return create(
         Runtime.INSTANCE,
         globalReplicationConfig,
-        optionalNumConcurrentInitialSyncs,
         optionalNumConcurrentChangeStreams,
         optionalNumIndexingThreads,
         optionalChangeStreamMaxTimeMs,
-        optionalNumConcurrentSynonymSyncs,
         optionalChangeStreamCursorMaxTimeSec,
         optionalNumChangeStreamDecodingThreads,
-        enableSteadyStateChangeStreamProjection,
-        optionalMaxInFlightEmbeddingGetMores,
+        optionalRequestRateLimitBackoffMs,
         optionalMaxConcurrentEmbeddingInitialSyncs,
+        optionalMaxInFlightEmbeddingGetMores,
         embeddingGetMoreBatchSize,
-        requestRateLimitBackoffMs);
+        materializedViewSchemaVersion);
   }
 
   /** Used for testing. The above create() method should be called instead. */
   @VisibleForTesting
-  public static MongoDbReplicationConfig create(
+  static AutoEmbeddingMaterializedViewConfig create(
       Runtime runtime,
       GlobalReplicationConfig globalReplicationConfig,
-      Optional<Integer> optionalNumConcurrentInitialSyncs,
       Optional<Integer> optionalNumConcurrentChangeStreams,
       Optional<Integer> optionalNumIndexingThreads,
       Optional<Integer> optionalChangeStreamMaxTimeMs,
-      Optional<Integer> optionalNumConcurrentSynonymSyncs,
       Optional<Integer> optionalChangeStreamCursorMaxTimeSec,
       Optional<Integer> optionalNumChangeStreamDecodingThreads,
-      Optional<Boolean> enableSteadyStateChangeStreamProjection,
-      Optional<Integer> optionalMaxInFlightEmbeddingGetMores,
+      Optional<Integer> optionalRequestRateLimitBackoffMs,
       Optional<Integer> optionalMaxConcurrentEmbeddingInitialSyncs,
+      Optional<Integer> optionalMaxInFlightEmbeddingGetMores,
       Optional<Integer> embeddingGetMoreBatchSize,
-      Optional<Integer> optionalRequestRateLimitBackoffMs) {
-    int numConcurrentInitialSyncs =
-        getNumConcurrentInitialSyncsWithDefault(runtime, optionalNumConcurrentInitialSyncs);
-    Check.argIsPositive(numConcurrentInitialSyncs, "numConcurrentInitialSyncs");
+      Optional<Integer> materializedViewSchemaVersion) {
+
+    int maxConcurrentEmbeddingInitialSyncs =
+        getMaxConcurrentEmbeddingInitialSyncsWithDefault(
+            runtime, optionalMaxConcurrentEmbeddingInitialSyncs);
+    Check.argIsPositive(maxConcurrentEmbeddingInitialSyncs, "maxConcurrentEmbeddingInitialSyncs");
 
     int numConcurrentChangeStreams =
         getNumConcurrentChangeStreamsWithDefault(runtime, optionalNumConcurrentChangeStreams);
@@ -195,10 +176,6 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
 
     int changeStreamMaxTimeMs = getChangeStreamMaxTimeMsWithDefault(optionalChangeStreamMaxTimeMs);
     Check.argIsPositive(changeStreamMaxTimeMs, "changeStreamMaxTimeMs");
-
-    int numConcurrentSynonymSyncs =
-        optionalNumConcurrentSynonymSyncs.orElse(DEFAULT_NUM_CONCURRENT_SYNONYM_SYNCS);
-    Check.argIsPositive(numConcurrentSynonymSyncs, "numConcurrentSynonymSyncs");
 
     int changeStreamCursorMaxTimeSec =
         getChangeStreamCursorMaxTimeSecWithDefault(optionalChangeStreamCursorMaxTimeSec);
@@ -214,11 +191,6 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
             optionalMaxInFlightEmbeddingGetMores, numConcurrentChangeStreams);
     Check.argIsPositive(maxInFlightEmbeddingGetMores, "maxInFlightEmbeddingGetMores");
 
-    int maxConcurrentEmbeddingInitialSyncs =
-        getMaxConcurrentEmbeddingInitialSyncsWithDefault(
-            optionalMaxConcurrentEmbeddingInitialSyncs, numConcurrentInitialSyncs);
-    Check.argIsPositive(maxConcurrentEmbeddingInitialSyncs, "maxConcurrentEmbeddingInitialSyncs");
-
     embeddingGetMoreBatchSize.ifPresent(
         value -> Check.argIsPositive(value, "embeddingGetMoreBatchSize"));
 
@@ -226,32 +198,31 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
         getRequestRateLimitBackoffMsWithDefault(optionalRequestRateLimitBackoffMs);
     Check.argIsPositive(requestRateLimitBackoffMs, "requestRateLimitBackoffMs");
 
-    return new MongoDbReplicationConfig(
-        numConcurrentInitialSyncs,
-        numConcurrentChangeStreams,
-        numIndexingThreads,
-        changeStreamMaxTimeMs,
-        numConcurrentSynonymSyncs,
-        changeStreamCursorMaxTimeSec,
-        numChangeStreamDecodingThreads,
-        enableSteadyStateChangeStreamProjection,
+    return new AutoEmbeddingMaterializedViewConfig(
         globalReplicationConfig.pauseAllInitialSyncs(),
         globalReplicationConfig.pauseInitialSyncOnIndexIds(),
-        maxInFlightEmbeddingGetMores,
-        maxConcurrentEmbeddingInitialSyncs,
-        embeddingGetMoreBatchSize,
         globalReplicationConfig.excludedChangestreamFields(),
         globalReplicationConfig.matchCollectionUuidForUpdateLookup(),
         globalReplicationConfig.enableSplitLargeChangeStreamEvents(),
-        requestRateLimitBackoffMs);
+        numConcurrentChangeStreams,
+        numIndexingThreads,
+        changeStreamMaxTimeMs,
+        changeStreamCursorMaxTimeSec,
+        numChangeStreamDecodingThreads,
+        requestRateLimitBackoffMs,
+        maxConcurrentEmbeddingInitialSyncs,
+        maxInFlightEmbeddingGetMores,
+        embeddingGetMoreBatchSize,
+        materializedViewSchemaVersion);
   }
 
-  /** Creates a new MongoDbReplicationConfig, defaulting to empty options for everything. */
-  public static MongoDbReplicationConfig getDefault() {
+  /**
+   * Creates a new AutoEmbeddingMaterializedViewReplicationConfig, defaulting to empty options for
+   * everything, can be used for community and local dev environments.
+   */
+  public static AutoEmbeddingMaterializedViewConfig getDefault() {
     return create(
         defaultGlobalReplicationConfig(),
-        Optional.empty(),
-        Optional.empty(),
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
@@ -264,15 +235,98 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
         Optional.empty());
   }
 
-  private static int getNumConcurrentInitialSyncsWithDefault(
-      Runtime runtime, Optional<Integer> optionalNumConcurrentInitialSyncs) {
-    return optionalNumConcurrentInitialSyncs.orElseGet(
+  /** Used for testing. The above getDefault() method should be called instead. */
+  @VisibleForTesting
+  static AutoEmbeddingMaterializedViewConfig getDefaultWithRuntime(Runtime runtime) {
+    return create(
+        runtime,
+        defaultGlobalReplicationConfig(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty());
+  }
+
+  @Override
+  public BsonDocument toBson() {
+    return BsonDocumentBuilder.builder()
+        .field(Fields.PAUSE_ALL_INITIAL_SYNCS, this.pauseAllInitialSyncs)
+        .field(Fields.PAUSE_INITIAL_SYNC_ON_INDEX_IDS, this.pauseInitialSyncOnIndexIds)
+        .field(
+            Fields.ENABLE_SPLIT_LARGE_CHANGE_STREAM_EVENTS, this.enableSplitLargeChangeStreamEvents)
+        .fieldOmitDefaultValue(Fields.EXCLUDED_CHANGESTREAM_FIELDS, this.excludedChangestreamFields)
+        .field(
+            Fields.MATCH_COLLECTION_UUID_FOR_UPDATE_LOOKUP, this.matchCollectionUuidForUpdateLookup)
+        .field(Fields.NUM_CONCURRENT_CHANGE_STREAMS, this.numConcurrentChangeStreams)
+        .field(Fields.NUM_INDEXING_THREADS, this.numIndexingThreads)
+        .field(Fields.CHANGE_STREAM_MAX_TIME_MS, this.changeStreamMaxTimeMs)
+        .field(
+            Fields.CHANGE_STREAM_CURSOR_MAX_TIME_SEC,
+            Optional.of(this.changeStreamCursorMaxTimeSec))
+        .field(
+            Fields.NUM_CHANGE_STREAM_DECODING_THREADS,
+            Optional.of(this.numChangeStreamDecodingThreads))
+        .field(Fields.REQUEST_RATE_LIMIT_BACKOFF_MS, Optional.of(this.requestRateLimitBackoffMs))
+        .field(
+            Fields.MAX_CONCURRENT_EMBEDDING_INITIAL_SYNCS, this.maxConcurrentEmbeddingInitialSyncs)
+        .field(Fields.MAX_IN_FLIGHT_EMBEDDING_GET_MORES, this.maxInFlightEmbeddingGetMores)
+        .field(Fields.EMBEDDING_GET_MORE_BATCH_SIZE, this.embeddingGetMoreBatchSize)
+        .field(Fields.MATERIALIZED_VIEW_SCHEMA_VERSION, this.materializedViewSchemaVersion)
+        .build();
+  }
+
+  @Override
+  public int getNumConcurrentInitialSyncs() {
+    // Should be same as maxConcurrentEmbeddingInitialSyncs.
+    return this.maxConcurrentEmbeddingInitialSyncs;
+  }
+
+  @Override
+  public int getNumConcurrentChangeStreams() {
+    return this.numConcurrentChangeStreams;
+  }
+
+  @Override
+  public int getNumIndexingThreads() {
+    return this.numIndexingThreads;
+  }
+
+  @Override
+  public int getChangeStreamMaxTimeMs() {
+    return this.changeStreamMaxTimeMs;
+  }
+
+  @Override
+  public int getChangeStreamCursorMaxTimeSec() {
+    return this.changeStreamCursorMaxTimeSec;
+  }
+
+  @Override
+  public int getNumChangeStreamDecodingThreads() {
+    return this.numChangeStreamDecodingThreads;
+  }
+
+  @Override
+  public int getRequestRateLimitBackoffMs() {
+    return this.requestRateLimitBackoffMs;
+  }
+
+  private static int getMaxConcurrentEmbeddingInitialSyncsWithDefault(
+      Runtime runtime, Optional<Integer> optionalMaxConcurrentEmbeddingInitialSyncs) {
+    return optionalMaxConcurrentEmbeddingInitialSyncs.orElseGet(
         () -> {
-          int numConcurrentInitialSyncs = Math.min(runtime.getNumCpus(), DEFAULT_NUM_INITIAL_SYNCS);
+          int maxConcurrentEmbeddingInitialSyncs =
+              Math.min(runtime.getNumCpus(), DEFAULT_NUM_INITIAL_SYNCS);
           LOG.info(
-              "numConcurrentInitialSyncs not configured, defaulting to {}.",
-              numConcurrentInitialSyncs);
-          return numConcurrentInitialSyncs;
+              "maxConcurrentEmbeddingInitialSyncs not configured, defaulting to {}.",
+              maxConcurrentEmbeddingInitialSyncs);
+          return maxConcurrentEmbeddingInitialSyncs;
         });
   }
 
@@ -339,12 +393,6 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
         () -> Math.max(1, numConcurrentChangeStreams / 4));
   }
 
-  private static int getMaxConcurrentEmbeddingInitialSyncsWithDefault(
-      Optional<Integer> optionalMaxConcurrentEmbeddingInitialSyncs, int numConcurrentInitialSyncs) {
-    return optionalMaxConcurrentEmbeddingInitialSyncs.orElseGet(
-        () -> Math.max(1, numConcurrentInitialSyncs / 2));
-  }
-
   private static int getRequestRateLimitBackoffMsWithDefault(
       Optional<Integer> optionalRequestRateLimitBackoffMs) {
     return optionalRequestRateLimitBackoffMs.orElseGet(
@@ -356,76 +404,7 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
         });
   }
 
-  @Override
-  public BsonDocument toBson() {
-    return BsonDocumentBuilder.builder()
-        .field(Fields.NUM_CONCURRENT_CHANGE_STREAMS, this.numConcurrentChangeStreams)
-        .field(Fields.NUM_CONCURRENT_INITIAL_SYNCS, this.numConcurrentInitialSyncs)
-        .field(Fields.NUM_INDEXING_THREADS, this.numIndexingThreads)
-        .field(Fields.CHANGE_STREAM_MAX_TIME_MS, this.changeStreamMaxTimeMs)
-        .field(Fields.NUM_CONCURRENT_SYNONYM_SYNCS, this.numConcurrentSynonymSyncs)
-        .field(
-            Fields.CHANGE_STREAM_CURSOR_MAX_TIME_SEC,
-            Optional.of(this.changeStreamCursorMaxTimeSec))
-        .field(
-            Fields.NUM_CHANGE_STREAM_DECODING_THREADS,
-            Optional.of(this.numChangeStreamDecodingThreads))
-        .field(
-            Fields.ENABLE_STEADY_STATE_CHANGE_STREAM_PROJECTION,
-            this.enableSteadyStateChangeStreamProjection)
-        .field(Fields.PAUSE_ALL_INITIAL_SYNCS, this.pauseAllInitialSyncs)
-        .field(Fields.PAUSE_INITIAL_SYNC_ON_INDEX_IDS, this.pauseInitialSyncOnIndexIds)
-        .field(Fields.MAX_IN_FLIGHT_EMBEDDING_GET_MORES, this.maxInFlightEmbeddingGetMores)
-        .field(
-            Fields.MAX_CONCURRENT_EMBEDDING_INITIAL_SYNCS, this.maxConcurrentEmbeddingInitialSyncs)
-        .field(Fields.EMBEDDING_GET_MORE_BATCH_SIZE, this.embeddingGetMoreBatchSize)
-        .fieldOmitDefaultValue(Fields.EXCLUDED_CHANGESTREAM_FIELDS, this.excludedChangestreamFields)
-        .field(
-            Fields.MATCH_COLLECTION_UUID_FOR_UPDATE_LOOKUP, this.matchCollectionUuidForUpdateLookup)
-        .field(
-            Fields.ENABLE_SPLIT_LARGE_CHANGE_STREAM_EVENTS, this.enableSplitLargeChangeStreamEvents)
-        .field(Fields.REQUEST_RATE_LIMIT_BACKOFF_MS, Optional.of(this.requestRateLimitBackoffMs))
-        .build();
-  }
-
-  @Override
-  public int getNumConcurrentInitialSyncs() {
-    return this.numConcurrentInitialSyncs;
-  }
-
-  @Override
-  public int getNumConcurrentChangeStreams() {
-    return this.numConcurrentChangeStreams;
-  }
-
-  @Override
-  public int getNumIndexingThreads() {
-    return this.numIndexingThreads;
-  }
-
-  @Override
-  public int getChangeStreamMaxTimeMs() {
-    return this.changeStreamMaxTimeMs;
-  }
-
-  @Override
-  public int getChangeStreamCursorMaxTimeSec() {
-    return this.changeStreamCursorMaxTimeSec;
-  }
-
-  @Override
-  public int getNumChangeStreamDecodingThreads() {
-    return this.numChangeStreamDecodingThreads;
-  }
-
-  @Override
-  public int getRequestRateLimitBackoffMs() {
-    return this.requestRateLimitBackoffMs;
-  }
-
   private static class Fields {
-    private static final Field.Required<Integer> NUM_CONCURRENT_INITIAL_SYNCS =
-        Field.builder("numConcurrentInitialSyncs").intField().mustBePositive().required();
 
     private static final Field.Required<Integer> NUM_CONCURRENT_CHANGE_STREAMS =
         Field.builder("numConcurrentChangeStreams").intField().mustBePositive().required();
@@ -435,9 +414,6 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
 
     private static final Field.Required<Integer> CHANGE_STREAM_MAX_TIME_MS =
         Field.builder("changeStreamMaxTimeMs").intField().mustBePositive().required();
-
-    private static final Field.Required<Integer> NUM_CONCURRENT_SYNONYM_SYNCS =
-        Field.builder("numConcurrentSynonymSyncs").intField().mustBePositive().required();
 
     private static final Field.Optional<Integer> CHANGE_STREAM_CURSOR_MAX_TIME_SEC =
         Field.builder("changeStreamCursorMaxTimeSec")
@@ -453,12 +429,6 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
             .optional()
             .noDefault();
 
-    private static final Field.Optional<Boolean> ENABLE_STEADY_STATE_CHANGE_STREAM_PROJECTION =
-        Field.builder("enableSteadyStateChangeStreamProjection")
-            .booleanField()
-            .optional()
-            .noDefault();
-
     private static final Field.Required<Boolean> PAUSE_ALL_INITIAL_SYNCS =
         Field.builder("pauseAllInitialSyncs").booleanField().required();
 
@@ -466,19 +436,6 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
         Field.builder("pauseInitialSyncOnIndexIds")
             .listOf(Value.builder().objectIdValue().required())
             .required();
-
-    private static final Field.Required<Integer> MAX_IN_FLIGHT_EMBEDDING_GET_MORES =
-        Field.builder("maxInFlightEmbeddingGetMores").intField().mustBePositive().required();
-
-    private static final Field.Required<Integer> MAX_CONCURRENT_EMBEDDING_INITIAL_SYNCS =
-        Field.builder("maxConcurrentEmbeddingInitialSyncs").intField().mustBePositive().required();
-
-    private static final Field.Optional<Integer> EMBEDDING_GET_MORE_BATCH_SIZE =
-        Field.builder("embeddingGetMoreBatchSize")
-            .intField()
-            .mustBePositive()
-            .optional()
-            .noDefault();
 
     private static final Field.WithDefault<List<String>> EXCLUDED_CHANGESTREAM_FIELDS =
         Field.builder("excludedChangestreamFields")
@@ -496,6 +453,26 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
         Field.builder("requestRateLimitBackoffMs")
             .intField()
             .mustBePositive()
+            .optional()
+            .noDefault();
+
+    private static final Field.Required<Integer> MAX_CONCURRENT_EMBEDDING_INITIAL_SYNCS =
+        Field.builder("maxConcurrentEmbeddingInitialSyncs").intField().mustBePositive().required();
+
+    private static final Field.Required<Integer> MAX_IN_FLIGHT_EMBEDDING_GET_MORES =
+        Field.builder("maxInFlightEmbeddingGetMores").intField().mustBePositive().required();
+
+    private static final Field.Optional<Integer> EMBEDDING_GET_MORE_BATCH_SIZE =
+        Field.builder("embeddingGetMoreBatchSize")
+            .intField()
+            .mustBePositive()
+            .optional()
+            .noDefault();
+
+    private static final Field.Optional<Integer> MATERIALIZED_VIEW_SCHEMA_VERSION =
+        Field.builder("materializedViewSchemaVersion")
+            .intField()
+            .mustBeNonNegative()
             .optional()
             .noDefault();
   }

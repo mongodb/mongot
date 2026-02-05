@@ -1,0 +1,55 @@
+{
+  "tests": [
+    {
+      "description": "full config",
+      "json": {
+        "pauseAllInitialSyncs": false,
+        "pauseInitialSyncOnIndexIds": [
+          "68784215b86a4a2d55787ae6",
+          "687d201de90e474dfbc7c1d4"
+        ],
+        "enableSplitLargeChangeStreamEvents": false,
+        "excludedChangestreamFields": [
+          "updateDescription.disambiguatedPaths"
+        ],
+        "matchCollectionUUIDForUpdateLookup": true,
+        "numConcurrentChangeStreams": 1,
+        "numIndexingThreads": 2,
+        "changeStreamMaxTimeMs": 3,
+        "changeStreamCursorMaxTimeSec": 4,
+        "numChangeStreamDecodingThreads": 5,
+        "requestRateLimitBackoffMs": 6,
+        "maxConcurrentEmbeddingInitialSyncs": 7,
+        "maxInFlightEmbeddingGetMores": 8,
+        "embeddingGetMoreBatchSize": 9,
+        "materializedViewSchemaVersion": 2
+      },
+      "bson": {
+        "pauseAllInitialSyncs": false,
+        "pauseInitialSyncOnIndexIds": [
+          {
+            "$oid": "68784215b86a4a2d55787ae6"
+          },
+          {
+            "$oid": "687d201de90e474dfbc7c1d4"
+          }
+        ],
+        "enableSplitLargeChangeStreamEvents": false,
+        "excludedChangestreamFields": [
+          "updateDescription.disambiguatedPaths"
+        ],
+        "matchCollectionUUIDForUpdateLookup": true,
+        "numConcurrentChangeStreams": 1,
+        "numIndexingThreads": 2,
+        "changeStreamMaxTimeMs": 3,
+        "changeStreamCursorMaxTimeSec": 4,
+        "numChangeStreamDecodingThreads": 5,
+        "requestRateLimitBackoffMs": 6,
+        "maxConcurrentEmbeddingInitialSyncs": 7,
+        "maxInFlightEmbeddingGetMores": 8,
+        "embeddingGetMoreBatchSize": 9,
+        "materializedViewSchemaVersion": 2
+      }
+    }
+  ]
+}

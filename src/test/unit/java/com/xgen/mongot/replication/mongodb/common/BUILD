@@ -3,6 +3,7 @@ load("//bazel/java:test.bzl", "java_test_suite")
 java_test_suite(
     name = "common",
     srcs = [
+        "AutoEmbeddingMaterializedViewConfigTest.java",
         "ChangeStreamAggregateCommandFactoryTest.java",
         "ChangeStreamAggregateOperationFactoryTest.java",
         "ChangeStreamDocumentUtilsTest.java",
@@ -54,6 +55,7 @@ java_test_suite(
         "//src/main/java/com/xgen/testing/mongot/mock/replication/mongodb/common",
         "//src/main/java/com/xgen/testing/mongot/replication/mongodb",
         "//src/main/java/com/xgen/testing/mongot/replication/mongodb/common",
+        "//src/main/java/com/xgen/testing/util",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_guava_guava_testlib",

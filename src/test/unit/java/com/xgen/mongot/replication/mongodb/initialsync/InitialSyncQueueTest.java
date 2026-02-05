@@ -6,6 +6,7 @@ import static com.xgen.mongot.index.IndexTypeData.IndexTypeTag.TAG_SEARCH;
 import static com.xgen.mongot.index.IndexTypeData.IndexTypeTag.TAG_VECTOR_SEARCH;
 import static com.xgen.mongot.index.IndexTypeData.IndexTypeTag.TAG_VECTOR_SEARCH_AUTO_EMBEDDING;
 import static com.xgen.mongot.index.IndexTypeData.getIndexTypeTag;
+import static com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig.defaultGlobalReplicationConfig;
 import static com.xgen.testing.mongot.mock.index.IndexGeneration.mockDefinitionGeneration;
 import static com.xgen.testing.mongot.mock.index.IndexGeneration.uniqueMockGenerationDefinition;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.IGNORE_METRICS;
@@ -1427,6 +1428,7 @@ public class InitialSyncQueueTest {
           new HashSet<>(),
           new HashMap<>(),
           MongoDbReplicationConfig.create(
+              defaultGlobalReplicationConfig(),
               numConcurrentInitialSyncs,
               Optional.empty(),
               Optional.empty(),
@@ -1435,13 +1437,8 @@ public class InitialSyncQueueTest {
               Optional.empty(),
               Optional.empty(),
               Optional.empty(),
-              Optional.of(false),
-              Optional.empty(),
               Optional.empty(),
               maxConcurrentEmbeddingInitialSyncs,
-              Optional.empty(),
-              List.of(),
-              Optional.empty(),
               Optional.empty(),
               Optional.empty()),
           initialSyncConfig,

@@ -3,8 +3,8 @@ package com.xgen.mongot.replication.mongodb.initialsync;
 import com.xgen.mongot.logging.DefaultKeyValueLogger;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
+import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
-import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
 import com.xgen.mongot.replication.mongodb.initialsync.config.InitialSyncConfig;
 import com.xgen.mongot.util.Crash;
 import com.xgen.mongot.util.FutureUtils;
@@ -44,15 +44,15 @@ interface InitialSyncManager {
 
   static InitialSyncManagerFactory getFactory(
       InitialSyncConfig bufferlessConfig,
-      MongoDbReplicationConfig replicationConfig,
+      CommonReplicationConfig replicationConfig,
       MetricsFactory metricsFactory) {
     return BufferlessInitialSyncManager.factory(
         bufferlessConfig.collectionScanTime(),
         bufferlessConfig.changeStreamCatchupTimeout(),
         bufferlessConfig.changeStreamLagTime(),
         bufferlessConfig.avoidNaturalOrderScanSyncSourceChangeResync(),
-        replicationConfig.excludedChangestreamFields,
-        replicationConfig.matchCollectionUuidForUpdateLookup,
+        replicationConfig.getExcludedChangestreamFields(),
+        replicationConfig.getMatchCollectionUuidForUpdateLookup(),
         metricsFactory);
   }
 

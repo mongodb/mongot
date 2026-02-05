@@ -32,6 +32,7 @@ import com.xgen.mongot.replication.mongodb.MongoDbReplicationManager;
 import com.xgen.mongot.replication.mongodb.autoembedding.AutoEmbeddingMaterializedViewManagerFactory;
 import com.xgen.mongot.replication.mongodb.autoembedding.MaterializedViewFollowerManager;
 import com.xgen.mongot.replication.mongodb.autoembedding.MaterializedViewManager;
+import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
 import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
 import com.xgen.mongot.replication.mongodb.initialsync.config.InitialSyncConfig;
 import com.xgen.mongot.util.Check;
@@ -167,7 +168,7 @@ public class CommonUtils {
   public static AutoEmbeddingMaterializedViewManagerFactory
       getAutoEmbeddingMaterializedViewManagerFactory(
           Path dataPath,
-          MongoDbReplicationConfig replicationConfig,
+          AutoEmbeddingMaterializedViewConfig autoEmbeddingMaterializedViewConfig,
           InitialSyncConfig initialSyncConfig,
           FeatureFlags featureFlags,
           MongotCursorManager cursorManager,
@@ -205,7 +206,7 @@ public class CommonUtils {
               dataPath,
               // TODO(CLOUDP-360542): Support MaterializedViewManager without syncConfig in Atlas.
               Check.isPresent(syncConfig, "syncConfig"),
-              replicationConfig,
+              autoEmbeddingMaterializedViewConfig,
               initialSyncConfig,
               featureFlags,
               cursorManager,

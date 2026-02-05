@@ -7,6 +7,7 @@ import com.xgen.mongot.index.lucene.config.LuceneConfig;
 import com.xgen.mongot.index.lucene.directory.EnvironmentVariantPerfConfig;
 import com.xgen.mongot.lifecycle.LifecycleConfig;
 import com.xgen.mongot.replication.mongodb.DurabilityConfig;
+import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
 import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
 import com.xgen.mongot.replication.mongodb.initialsync.config.InitialSyncConfig;
 import com.xgen.mongot.server.executors.RegularBlockingRequestSettings;
@@ -27,6 +28,7 @@ public class MongotConfigs implements SanitizableDocumentEncodable {
   public final FeatureFlags featureFlags;
   public final EnvironmentVariantPerfConfig environmentVariantPerfConfig;
   public final RegularBlockingRequestSettings regularBlockingRequestSettings;
+  public final AutoEmbeddingMaterializedViewConfig autoEmbeddingMaterializedViewConfig;
 
   public MongotConfigs(
       LuceneConfig luceneConfig,
@@ -38,7 +40,8 @@ public class MongotConfigs implements SanitizableDocumentEncodable {
       LifecycleConfig lifecycleConfig,
       FeatureFlags featureFlags,
       EnvironmentVariantPerfConfig environmentVariantPerfConfig,
-      RegularBlockingRequestSettings regularBlockingRequestSettings
+      RegularBlockingRequestSettings regularBlockingRequestSettings,
+      AutoEmbeddingMaterializedViewConfig autoEmbeddingMaterializedViewConfig
   ) {
     this.luceneConfig = luceneConfig;
     this.replicationConfig = replicationConfig;
@@ -50,6 +53,7 @@ public class MongotConfigs implements SanitizableDocumentEncodable {
     this.featureFlags = featureFlags;
     this.environmentVariantPerfConfig = environmentVariantPerfConfig;
     this.regularBlockingRequestSettings = regularBlockingRequestSettings;
+    this.autoEmbeddingMaterializedViewConfig = autoEmbeddingMaterializedViewConfig;
   }
 
   /** Initializes a MongotConfig with all default values. */
@@ -97,6 +101,7 @@ public class MongotConfigs implements SanitizableDocumentEncodable {
     var featureFlags = FeatureFlags.withQueryFeaturesEnabled();
     var environmentVariantPerfConfig = EnvironmentVariantPerfConfig.getDefault();
     var regularBlockingRequestSettings = RegularBlockingRequestSettings.defaults();
+    var autoEmbeddingMaterializedViewConfig = AutoEmbeddingMaterializedViewConfig.getDefault();
     return new MongotConfigs(
         luceneConfig,
         replicationConfig,
@@ -107,7 +112,8 @@ public class MongotConfigs implements SanitizableDocumentEncodable {
         lifecycleConfig,
         featureFlags,
         environmentVariantPerfConfig,
-        regularBlockingRequestSettings);
+        regularBlockingRequestSettings,
+        autoEmbeddingMaterializedViewConfig);
   }
 
   @Override
@@ -121,7 +127,10 @@ public class MongotConfigs implements SanitizableDocumentEncodable {
         .append("indexDefinitionConfig", this.indexDefinitionConfig.toBson())
         .append("lifecycleConfig", this.lifecycleConfig.toBson())
         .append("featureflagConfig", this.featureFlags.toBson())
-        .append("environmentVariantPerfConfig", this.environmentVariantPerfConfig.toBson());
+        .append("environmentVariantPerfConfig", this.environmentVariantPerfConfig.toBson())
+        .append(
+            "autoEmbeddingMaterializedViewConfig",
+            this.autoEmbeddingMaterializedViewConfig.toBson());
   }
 
   @Override
@@ -135,6 +144,9 @@ public class MongotConfigs implements SanitizableDocumentEncodable {
         .append("indexDefinitionConfig", this.indexDefinitionConfig.toBson())
         .append("lifecycleConfig", this.lifecycleConfig.toBson())
         .append("featureflagConfig", this.featureFlags.toBson())
-        .append("environmentVariantPerfConfig", this.environmentVariantPerfConfig.toBson());
+        .append("environmentVariantPerfConfig", this.environmentVariantPerfConfig.toBson())
+        .append(
+            "autoEmbeddingMaterializedViewConfig",
+            this.autoEmbeddingMaterializedViewConfig.toBson());
   }
 }

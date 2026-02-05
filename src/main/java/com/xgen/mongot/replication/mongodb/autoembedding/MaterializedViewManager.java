@@ -25,12 +25,12 @@ import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.monitor.ToggleGate;
 import com.xgen.mongot.replication.ReplicationManager;
 import com.xgen.mongot.replication.mongodb.ReplicationIndexManager;
+import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
 import com.xgen.mongot.replication.mongodb.common.ClientSessionRecord;
 import com.xgen.mongot.replication.mongodb.common.DecodingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.DefaultDocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
-import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.PeriodicIndexCommitter;
 import com.xgen.mongot.replication.mongodb.initialsync.InitialSyncQueue;
 import com.xgen.mongot.replication.mongodb.initialsync.config.InitialSyncConfig;
@@ -215,8 +215,7 @@ public class MaterializedViewManager implements ReplicationManager {
   public static MaterializedViewManager create(
       Path rootPath,
       SyncSourceConfig syncSourceConfig,
-      // TODO(CLOUDP-360914): Create a separate replication config for mat view.
-      MongoDbReplicationConfig materializedViewConfig,
+      AutoEmbeddingMaterializedViewConfig materializedViewConfig,
       InitialSyncConfig initialSyncConfig,
       FeatureFlags featureFlags,
       MongotCursorManager cursorManager,
@@ -253,7 +252,7 @@ public class MaterializedViewManager implements ReplicationManager {
     var clientSessionRecords =
         getClientSessionRecords(
             syncSourceConfig,
-            materializedViewConfig,
+            getSyncMaxConnections(materializedViewConfig),
             meterRegistry,
             sessionRefreshExecutor,
             syncSourceHost);
@@ -661,17 +660,29 @@ public class MaterializedViewManager implements ReplicationManager {
    * always applicable. This eliminates unnecessary IO from non-indexed field updates.
    */
   private static SteadyStateReplicationConfig getAutoEmbeddingSteadyStateReplicationConfig(
-      MongoDbReplicationConfig replicationConfig) {
+      AutoEmbeddingMaterializedViewConfig materializedViewConfig) {
     return SteadyStateReplicationConfig.builder()
-        .setNumConcurrentChangeStreams(replicationConfig.numConcurrentChangeStreams)
-        .setChangeStreamQueryMaxTimeMs(replicationConfig.changeStreamMaxTimeMs)
-        .setChangeStreamCursorMaxTimeSec(replicationConfig.changeStreamCursorMaxTimeSec)
+        .setNumConcurrentChangeStreams(materializedViewConfig.numConcurrentChangeStreams)
+        .setChangeStreamQueryMaxTimeMs(materializedViewConfig.changeStreamMaxTimeMs)
+        .setChangeStreamCursorMaxTimeSec(materializedViewConfig.changeStreamCursorMaxTimeSec)
         .setEnableChangeStreamProjection(Optional.of(true)) // Force INDEXED_FIELDS mode
-        .setMaxInFlightEmbeddingGetMores(replicationConfig.maxInFlightEmbeddingGetMores)
-        .setEmbeddingGetMoreBatchSize(replicationConfig.embeddingGetMoreBatchSize)
-        .setExcludedChangestreamFields(replicationConfig.excludedChangestreamFields)
-        .setMatchCollectionUuidForUpdateLookup(replicationConfig.matchCollectionUuidForUpdateLookup)
-        .setEnableSplitLargeChangeStreamEvents(replicationConfig.enableSplitLargeChangeStreamEvents)
+        .setMaxInFlightEmbeddingGetMores(materializedViewConfig.maxInFlightEmbeddingGetMores)
+        .setEmbeddingGetMoreBatchSize(materializedViewConfig.embeddingGetMoreBatchSize)
+        .setExcludedChangestreamFields(materializedViewConfig.getExcludedChangestreamFields())
+        .setMatchCollectionUuidForUpdateLookup(
+            materializedViewConfig.getMatchCollectionUuidForUpdateLookup())
+        .setEnableSplitLargeChangeStreamEvents(
+            materializedViewConfig.getEnableSplitLargeChangeStreamEvents())
         .build();
+  }
+
+  private static int getSyncMaxConnections(AutoEmbeddingMaterializedViewConfig replicationConfig) {
+    int initialSyncConnections = (2 * replicationConfig.getNumConcurrentInitialSyncs());
+    int sessionRefreshConnections = 1;
+    int changeStreamModeSelectionConnections = 1;
+
+    return initialSyncConnections
+        + sessionRefreshConnections
+        + changeStreamModeSelectionConnections;
   }
 }
