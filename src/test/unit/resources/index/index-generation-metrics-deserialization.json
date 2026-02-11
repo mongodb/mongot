@@ -117,6 +117,7 @@
           "sequenceTokenCount": 4.0,
           "requireSequenceTokensCount": 1.0,
           "scoreDetails": 1.0,
+          "explainCount": 3.0,
           "sortCount": 3.0,
           "trackingCount": 11.0,
           "returnScopeCount": 12.0,

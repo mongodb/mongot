@@ -403,6 +403,7 @@ public record IndexMetrics(
         double sequenceTokenCount,
         double requireSequenceTokensCount,
         double scoreDetailsCount,
+        double explainCount,
         double sortCount,
         double trackingCount,
         double returnScopeCount)
@@ -418,6 +419,9 @@ public record IndexMetrics(
 
         public static final Field.WithDefault<Double> SCORE_DETAILS_COUNT =
             Field.builder("scoreDetails").doubleField().optional().withDefault(0.0);
+
+        public static final Field.WithDefault<Double> EXPLAIN_COUNT =
+            Field.builder("explainCount").doubleField().optional().withDefault(0.0);
 
         // TODO(CLOUDP-272535): Stop populating this. It duplicates
         // textSynonymCount + phraseSynomymCount
@@ -522,10 +526,11 @@ public record IndexMetrics(
           Counter concurrentCounter,
           Counter returnStoredSourceCounter,
           Counter sequenceTokenCounter,
-          Counter requireSequenceTokensCounter,
           Counter scoreDetailsCounter,
+          Counter explainCounter,
           Counter sortCounter,
           Counter trackingCounter,
+          Counter requireSequenceTokensCounter,
           Counter returnScopeCounter) {
         return new QueryFeaturesMetrics(
             getCurrentStatsFromCounters(Collector.Type.class, collectorTypeCounterMap),
@@ -551,6 +556,7 @@ public record IndexMetrics(
             sequenceTokenCounter.count(),
             requireSequenceTokensCounter.count(),
             scoreDetailsCounter.count(),
+            explainCounter.count(),
             sortCounter.count(),
             trackingCounter.count(),
             returnScopeCounter.count());
@@ -572,6 +578,7 @@ public record IndexMetrics(
             .field(Fields.SEQUENCE_TOKEN_COUNT, this.sequenceTokenCount)
             .field(Fields.REQUIRE_SEQUENCE_TOKENS_COUNT, this.requireSequenceTokensCount)
             .field(Fields.SCORE_DETAILS_COUNT, this.scoreDetailsCount)
+            .field(Fields.EXPLAIN_COUNT, this.explainCount)
             .field(Fields.SORT_COUNT, this.sortCount)
             .field(Fields.TRACKING_COUNT, this.trackingCount)
             .field(Fields.RETURNSCOPE_COUNT, this.returnScopeCount)
@@ -627,6 +634,7 @@ public record IndexMetrics(
             parser.getField(Fields.SEQUENCE_TOKEN_COUNT).unwrap(),
             parser.getField(Fields.REQUIRE_SEQUENCE_TOKENS_COUNT).unwrap(),
             parser.getField(Fields.SCORE_DETAILS_COUNT).unwrap(),
+            parser.getField(Fields.EXPLAIN_COUNT).unwrap(),
             parser.getField(Fields.SORT_COUNT).unwrap(),
             parser.getField(Fields.TRACKING_COUNT).unwrap(),
             parser.getField(Fields.RETURNSCOPE_COUNT).unwrap());

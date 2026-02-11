@@ -86,6 +86,7 @@ public class IndexMetricsBuilder {
             .sequenceTokenCount(4)
             .requireSequenceTokensCount(1)
             .scoreDetailsCount(1)
+            .explainCount(3)
             .sortCount(3)
             .trackingCount(11)
             .returnScopeCount(12)
@@ -287,6 +288,7 @@ public class IndexMetricsBuilder {
       private double sortCount = 0.0;
       private double trackingCount = 0.0;
       private double returnScopeCount = 0.0;
+      private double explainCount = 0.0;
 
       public static QueryFeaturesMetricsBuilder builder() {
         return new QueryFeaturesMetricsBuilder();
@@ -369,6 +371,11 @@ public class IndexMetricsBuilder {
         return this;
       }
 
+      public QueryFeaturesMetricsBuilder explainCount(double explainCount) {
+        this.explainCount = explainCount;
+        return this;
+      }
+
       public QueryFeaturesMetricsBuilder collectorTypeCount(
           Collector.Type collectorType, double count) {
         this.collectorTypeCountMap.put(collectorType, count);
@@ -433,6 +440,7 @@ public class IndexMetricsBuilder {
             this.sequenceTokenCount,
             this.requireSequenceTokensCount,
             this.scoreDetailsCount,
+            this.explainCount,
             this.sortCount,
             this.trackingCount,
             this.returnScopeCount);

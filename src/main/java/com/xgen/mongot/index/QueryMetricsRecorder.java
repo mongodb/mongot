@@ -3,6 +3,7 @@ package com.xgen.mongot.index;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Streams;
 import com.xgen.mongot.cursor.batch.QueryCursorOptions;
+import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.path.string.UnresolvedStringPath;
 import com.xgen.mongot.index.path.string.UnresolvedStringWildcardPath;
 import com.xgen.mongot.index.query.CollectorQuery;
@@ -74,14 +75,23 @@ public class QueryMetricsRecorder {
   }
 
   public void record(Query query) {
-    getQueryCounters(query).distinct().forEach(Counter::increment);
+    Stream.concat(getQueryCounters(query), getExplainCounter())
+        .distinct()
+        .forEach(Counter::increment);
   }
 
   public void record(Query query, QueryCursorOptions cursorOptions) {
     // increment each unique metric counter once
-    Stream.concat(getQueryCounters(query), getCursorOptionsCounter(cursorOptions))
+    Streams.concat(
+            getQueryCounters(query), getCursorOptionsCounter(cursorOptions), getExplainCounter())
         .distinct()
         .forEach(Counter::increment);
+  }
+
+  private Stream<Counter> getExplainCounter() {
+    return Explain.isEnabled()
+        ? Stream.of(this.queryFeaturesMetricsUpdater.getExplainCounter())
+        : Stream.empty();
   }
 
   private Stream<Counter> getCursorOptionsCounter(QueryCursorOptions cursorOptions) {

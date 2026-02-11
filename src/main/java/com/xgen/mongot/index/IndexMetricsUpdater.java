@@ -806,6 +806,7 @@ public class IndexMetricsUpdater implements Closeable {
       private static final String RETURN_STORED_SOURCE_COUNTER_NAME = "returnStoredSource";
       private static final String RETURN_SCOPE_COUNTER_NAME = "returnScope";
       private static final String VECTOR_SEARCH_FILTER_COUNTER_NAME = "vectorSearch_filter";
+      private static final String EXPLAIN_COUNTER_NAME = "explain";
 
       private final PerIndexMetricsFactory metricsFactory;
       private final Map<Collector.Type, Counter> collectorTypeCounterMap;
@@ -839,6 +840,7 @@ public class IndexMetricsUpdater implements Closeable {
       private final Counter trackingCounter;
       private final Counter returnStoredSourceCounter;
       private final Counter returnScopeCounter;
+      private final Counter explainCounter;
 
       /** Counts the number vector search queries with a pre-filter. */
       private final Counter vectorSearchFilterCounter;
@@ -864,6 +866,7 @@ public class IndexMetricsUpdater implements Closeable {
         this.returnStoredSourceCounter =
             createCounter(metricsFactory, RETURN_STORED_SOURCE_COUNTER_NAME);
         this.returnScopeCounter = createCounter(metricsFactory, RETURN_SCOPE_COUNTER_NAME);
+        this.explainCounter = createCounter(metricsFactory, EXPLAIN_COUNTER_NAME);
         this.collectorTypeCounterMap = createEnumCounterMap(metricsFactory, Collector.Type.class);
         this.operatorTypeCounterMap = createEnumCounterMap(metricsFactory, Operator.Type.class);
         this.scoreTypeCounterMap = createEnumCounterMap(metricsFactory, Score.Type.class);
@@ -977,6 +980,10 @@ public class IndexMetricsUpdater implements Closeable {
         return this.scoreDetailsCounter;
       }
 
+      public Counter getExplainCounter() {
+        return this.explainCounter;
+      }
+
       public Counter getRequireSequenceTokensCounter() {
         return this.requireSequenceTokensCounter;
       }
@@ -1036,6 +1043,7 @@ public class IndexMetricsUpdater implements Closeable {
             this.returnStoredSourceCounter,
             this.sequenceTokenCounter,
             this.scoreDetailsCounter,
+            this.explainCounter,
             this.sortCounter,
             this.trackingCounter,
             this.requireSequenceTokensCounter,

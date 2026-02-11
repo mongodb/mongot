@@ -7,6 +7,8 @@ import static org.junit.Assert.assertEquals;
 
 import com.xgen.mongot.cursor.batch.QueryCursorOptions;
 import com.xgen.mongot.index.IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater;
+import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.query.Query;
 import com.xgen.mongot.index.query.ReturnScope;
 import com.xgen.mongot.index.query.SearchQuery;
@@ -47,6 +49,7 @@ import com.xgen.testing.mongot.index.query.sort.SortOptionsBuilder;
 import com.xgen.testing.mongot.index.query.sort.SortSpecBuilder;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.apache.lucene.search.ScoreDoc;
 import org.bson.BsonString;
 import org.bson.BsonValue;
@@ -1036,5 +1039,103 @@ public class TestQueryMetricsRecorder {
     assertEquals(0, stats.getOperatorTypeCounter(Operator.Type.TEXT).count(), EPSILON);
     // detailed operator stats are not yet incremented for vectorSearch filters,
     assertEquals(0, stats.getFuzzyCounter().count(), EPSILON);
+  }
+
+  @Test
+  public void record_withExplainEnabled_incrementsExplainCounter() {
+    var queryFeaturesStatsUpdater =
+        IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.QueryFeaturesMetricsUpdaterBuilder
+            .empty();
+    var queryMetricsRecorder = new QueryMetricsRecorder(queryFeaturesStatsUpdater);
+
+    SearchQuery query =
+        OperatorQueryBuilder.builder()
+            .operator(OperatorBuilder.text().query("simple").build())
+            .returnStoredSource(false)
+            .build();
+
+    // Run with explain enabled
+    try (var unused =
+        Explain.setup(
+            Optional.of(Explain.Verbosity.QUERY_PLANNER),
+            Optional.of(IndexDefinition.Fields.NUM_PARTITIONS.getDefaultValue()))) {
+      queryMetricsRecorder.record(query, QueryCursorOptions.empty());
+    }
+
+    Assert.assertEquals(1, queryFeaturesStatsUpdater.getExplainCounter().count(), EPSILON);
+  }
+
+  @Test
+  public void record_withoutExplain_doesNotIncrementExplainCounter() {
+    var queryFeaturesStatsUpdater =
+        IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.QueryFeaturesMetricsUpdaterBuilder
+            .empty();
+    var queryMetricsRecorder = new QueryMetricsRecorder(queryFeaturesStatsUpdater);
+
+    SearchQuery query =
+        OperatorQueryBuilder.builder()
+            .operator(OperatorBuilder.text().query("simple").build())
+            .returnStoredSource(false)
+            .build();
+
+    // Run without explain
+    queryMetricsRecorder.record(query, QueryCursorOptions.empty());
+
+    Assert.assertEquals(0, queryFeaturesStatsUpdater.getExplainCounter().count(), EPSILON);
+  }
+
+  @Test
+  public void record_vectorSearchWithExplainEnabled_incrementsExplainCounter() {
+    var queryFeaturesStatsUpdater =
+        IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.QueryFeaturesMetricsUpdaterBuilder
+            .empty();
+    var queryMetricsRecorder = new QueryMetricsRecorder(queryFeaturesStatsUpdater);
+
+    VectorSearchQuery query =
+        VectorQueryBuilder.builder()
+            .index("testIndex")
+            .criteria(
+                ApproximateVectorQueryCriteriaBuilder.builder()
+                    .path(FieldPath.newRoot("test"))
+                    .queryVector(Vector.fromFloats(new float[] {1.f, 2.f}, NATIVE))
+                    .numCandidates(100)
+                    .limit(10)
+                    .build())
+            .build();
+
+    // Run with explain enabled
+    try (var unused =
+        Explain.setup(
+            Optional.of(Explain.Verbosity.QUERY_PLANNER),
+            Optional.of(IndexDefinition.Fields.NUM_PARTITIONS.getDefaultValue()))) {
+      queryMetricsRecorder.record(query);
+    }
+
+    Assert.assertEquals(1, queryFeaturesStatsUpdater.getExplainCounter().count(), EPSILON);
+  }
+
+  @Test
+  public void record_vectorSearchWithoutExplain_doesNotIncrementExplainCounter() {
+    var queryFeaturesStatsUpdater =
+        IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.QueryFeaturesMetricsUpdaterBuilder
+            .empty();
+    var queryMetricsRecorder = new QueryMetricsRecorder(queryFeaturesStatsUpdater);
+
+    VectorSearchQuery query =
+        VectorQueryBuilder.builder()
+            .index("testIndex")
+            .criteria(
+                ApproximateVectorQueryCriteriaBuilder.builder()
+                    .path(FieldPath.newRoot("test"))
+                    .queryVector(Vector.fromFloats(new float[] {1.f, 2.f}, NATIVE))
+                    .numCandidates(100)
+                    .limit(10)
+                    .build())
+            .build();
+
+    // Run without explain
+    queryMetricsRecorder.record(query);
+
+    Assert.assertEquals(0, queryFeaturesStatsUpdater.getExplainCounter().count(), EPSILON);
   }
 }
