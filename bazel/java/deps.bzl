@@ -169,6 +169,8 @@ PINNED_TRANSITIVE_ARTIFACTS = [
     "org.checkerframework:checker-qual:3.48.4",
     # Force gRPC version to 1.75.0 to address CVE-2025-55163
     "io.grpc:grpc-netty-shaded:1.75.0",
+    # Force gson version to 2.13.2 to address CVE-2025-53864
+    "com.google.code.gson:gson:2.13.2",
 ]
 
 def java_deps():
@@ -343,6 +345,9 @@ def _mongot_java_excluded_artifacts():
         # Default SFL4J binding used by checkstyle, but we can't allow it on the classpath for
         # mongot as we require logback for structured logging.
         "org.slf4j:slf4j-simple",
+        # Exclude vulnerable okhttp 2.x (CVE-2021-0341) - the project uses okhttp3 instead.
+        # See CLOUDP-378237 for details.
+        "com.squareup.okhttp:okhttp",
     ]
 
 def _artifact_without_version(artifact):
