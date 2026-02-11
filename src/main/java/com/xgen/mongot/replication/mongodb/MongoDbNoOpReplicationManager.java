@@ -74,7 +74,9 @@ public class MongoDbNoOpReplicationManager implements ReplicationManager {
     this.metricsFactory = new MetricsFactory("replication.mongodb", meterRegistry);
     this.lifeCycleExecutor =
         Executors.fixedSizeThreadPool("no-op-indexing-lifecycle", 1, meterRegistry);
-    this.noOpManagerUp = this.metricsFactory.numGauge("manager", Tags.of("type", "no-op"));
+    this.noOpManagerUp =
+        this.metricsFactory.numGauge(
+            "manager", Tags.of("type", syncSourceConfig.isEmpty() ? "noOpMmsDown" : "noOp"));
     this.noOpManagerUp.incrementAndGet();
     this.featureFlags = featureFlags;
   }

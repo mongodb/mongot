@@ -148,6 +148,12 @@ public class MongoDbMetadataClient implements MongoDbServerInfoProvider, Closeab
       return;
     }
 
+    this.mongodbMetricsFactory
+        .counter(
+            "syncSourceChange",
+            Tags.of("type", this.syncSource.isEmpty() ? "fromMmsDown" : "normal"))
+        .increment();
+
     this.syncSource = Optional.of(newSyncSource);
     this.closeMongoClients();
     this.createMongoClients(newSyncSource);
