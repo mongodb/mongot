@@ -12,6 +12,7 @@ java_library(
     exports = [
         "//src/main/java/com/xgen/mongot/index",
         "//src/main/java/com/xgen/mongot/index/status",
+        "//src/main/java/com/xgen/mongot/index/version",
         "@maven//:org_mongodb_bson",
     ],
     deps = [

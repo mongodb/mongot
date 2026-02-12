@@ -30,7 +30,6 @@ import com.xgen.mongot.replication.mongodb.DurabilityConfig;
 import com.xgen.mongot.replication.mongodb.MongoDbNoOpReplicationManager;
 import com.xgen.mongot.replication.mongodb.MongoDbReplicationManager;
 import com.xgen.mongot.replication.mongodb.autoembedding.AutoEmbeddingMaterializedViewManagerFactory;
-import com.xgen.mongot.replication.mongodb.autoembedding.MaterializedViewFollowerManager;
 import com.xgen.mongot.replication.mongodb.autoembedding.MaterializedViewManager;
 import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
 import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
@@ -159,11 +158,7 @@ public class CommonUtils {
 
   /**
    * Creates an AutoEmbeddingMaterializedViewManager for Materialized View based auto-embedding
-   * index.
-   *
-   * @param isLeader if true, creates MaterializedViewManager (leader mode) to populate
-   *     auto-embedding materialized views; if false, creates MaterializedViewFollowerManager
-   *     (follower mode) to track status only.
+   * index. Leadership for each index is determined dynamically via the LeaseManager.
    */
   public static AutoEmbeddingMaterializedViewManagerFactory
       getAutoEmbeddingMaterializedViewManagerFactory(
@@ -175,7 +170,6 @@ public class CommonUtils {
           MeterAndFtdcRegistry meterAndFtdcRegistry,
           DefaultConfigManager.ReplicationMode replicationMode,
           Optional<Supplier<EmbeddingServiceManager>> embeddingServiceManagerSupplier,
-          boolean isLeader,
           LeaseManager leaseManager) {
 
     return (Optional<SyncSourceConfig> syncConfig) -> {
@@ -190,17 +184,6 @@ public class CommonUtils {
           !replicationMode.equals(DefaultConfigManager.ReplicationMode.DISK_UTILIZATION_BASED),
           "Materialized View Manager doesn't support disk utilization based processing.");
 
-      // Only the leader instance creates the MaterializedViewManager to populate auto-embedding
-      // materialized views. Follower instances create MaterializedViewFollowerManager to track
-      // status without populating the materialized view.
-      if (!isLeader) {
-        LOG.info("Creating auto-embedding tracker (follower mode)");
-        return Optional.of(
-            MaterializedViewFollowerManager.create(
-                Check.isPresent(syncConfig, "syncConfig"), meterAndFtdcRegistry, leaseManager));
-      }
-
-      LOG.info("Creating auto-embedding generator (leader mode)");
       return Optional.of(
           MaterializedViewManager.create(
               dataPath,

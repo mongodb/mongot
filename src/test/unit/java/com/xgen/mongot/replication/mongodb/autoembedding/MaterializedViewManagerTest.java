@@ -10,6 +10,8 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -24,10 +26,12 @@ import com.xgen.mongot.catalog.InitializedIndexCatalog;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.autoembedding.MaterializedViewIndexGeneration;
 import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
+import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.index.version.IndexFormatVersion;
@@ -46,16 +50,21 @@ import com.xgen.mongot.util.concurrent.NamedScheduledExecutorService;
 import com.xgen.mongot.util.mongodb.BatchMongoClient;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import com.xgen.testing.TestUtils;
+import com.xgen.testing.mongot.index.version.GenerationIdBuilder;
 import com.xgen.testing.mongot.metrics.SimpleMetricsFactory;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import org.bson.types.ObjectId;
@@ -81,6 +90,7 @@ public class MaterializedViewManagerTest {
     // Add an index.
     MaterializedViewIndexGeneration materializedViewindexGeneration =
         mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.mockMaterializedViewGenerator(materializedViewindexGeneration);
     mocks.addIndexForReplication(materializedViewindexGeneration);
 
     verify(mocks.leaseManager).add(materializedViewindexGeneration);
@@ -104,6 +114,7 @@ public class MaterializedViewManagerTest {
             MOCK_MAT_VIEW_GENERATION_ID.indexId,
             MOCK_MAT_VIEW_GENERATION_ID.generation.incrementUser());
     var newIndexGeneration = mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(gen2, 1));
+    mocks.mockMaterializedViewGenerator(newIndexGeneration);
     mocks.addIndexForReplication(newIndexGeneration);
 
     // Verify that the old MaterializedViewGenerator was shut down and the new one was added to the
@@ -123,7 +134,7 @@ public class MaterializedViewManagerTest {
         mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(gen1));
     mocks.mockMaterializedViewGenerator(materializedViewindexGeneration);
     mocks.addIndexForReplication(materializedViewindexGeneration);
-    verify(mocks.materializedViewGeneratorFactory).create(any(), any());
+    verify(mocks.materializedViewGeneratorFactory).create(any());
 
     // Add a new version of the same index.
     var gen2 =
@@ -136,7 +147,7 @@ public class MaterializedViewManagerTest {
     mocks.addIndexForReplication(newIndexGeneration);
 
     // Verify that only one MaterializedViewGenerator was created.
-    verify(mocks.materializedViewGeneratorFactory, never()).create(any(), any());
+    verify(mocks.materializedViewGeneratorFactory, never()).create(any());
     // Verify that both index generations point to the same index.
     assertEquals(materializedViewindexGeneration.getIndex(), newIndexGeneration.getIndex());
   }
@@ -167,10 +178,10 @@ public class MaterializedViewManagerTest {
     var index = mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
     mocks.mockMaterializedViewGenerator(index);
     mocks.addIndexForReplication(index);
-    verify(mocks.materializedViewGeneratorFactory).create(any(), any());
+    verify(mocks.materializedViewGeneratorFactory).create(any());
     Mockito.clearInvocations(mocks.materializedViewGeneratorFactory);
     mocks.addIndexForReplication(index);
-    verify(mocks.materializedViewGeneratorFactory, never()).create(any(), any());
+    verify(mocks.materializedViewGeneratorFactory, never()).create(any());
   }
 
   @Test
@@ -386,9 +397,7 @@ public class MaterializedViewManagerTest {
         new ArrayList<>(logEvents).stream()
             .anyMatch(
                 event ->
-                    event
-                        .getFormattedMessage()
-                        .contains("Starting auto-embedding leader heartbeat"));
+                    event.getFormattedMessage().contains("Starting auto-embedding heartbeat"));
     assertTrue("Expected heartbeat startup log to be emitted", foundStartupLog);
 
     // Capture the scheduled heartbeat task and execute it to verify the actual heartbeat log
@@ -408,6 +417,190 @@ public class MaterializedViewManagerTest {
     assertTrue("Expected heartbeat log to be emitted", foundHeartbeatLog);
   }
 
+  @Test
+  public void testAddIndex_emitsCreatingGeneratorLog_leaderMode() throws Exception {
+    Logger logger = (Logger) LoggerFactory.getLogger(MaterializedViewManager.class);
+    List<ILoggingEvent> logEvents = TestUtils.getLogEvents(logger);
+
+    Mocks mocks = Mocks.create();
+
+    // Add an index in leader mode
+    MaterializedViewIndexGeneration materializedViewindexGeneration =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.mockMaterializedViewGenerator(materializedViewindexGeneration);
+    mocks.addIndexForReplication(materializedViewindexGeneration);
+
+    // Verify the log message is emitted with leader mode = true
+    boolean foundLog =
+        logEvents.stream()
+            .anyMatch(
+                event ->
+                    event.getFormattedMessage().contains("Creating auto-embedding generator")
+                        && event.getFormattedMessage().contains("leader mode = true"));
+    assertTrue("Expected 'Creating auto-embedding generator (leader mode = true)' log", foundLog);
+  }
+
+  @Test
+  public void testAddIndex_emitsCreatingGeneratorLog_followerMode() throws Exception {
+    Logger logger = (Logger) LoggerFactory.getLogger(MaterializedViewManager.class);
+    List<ILoggingEvent> logEvents = TestUtils.getLogEvents(logger);
+
+    Mocks mocks = Mocks.createFollower();
+
+    // Add an index in follower mode
+    MaterializedViewIndexGeneration materializedViewindexGeneration =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.mockMaterializedViewGenerator(materializedViewindexGeneration);
+    AutoEmbeddingIndexGeneration autoEmbeddingIndexGeneration =
+        mock(AutoEmbeddingIndexGeneration.class);
+    when(autoEmbeddingIndexGeneration.getMaterializedViewIndexGeneration())
+        .thenReturn(materializedViewindexGeneration);
+    when(autoEmbeddingIndexGeneration.getGenerationId())
+        .thenReturn(materializedViewindexGeneration.getGenerationId());
+    mocks.manager.add(autoEmbeddingIndexGeneration);
+
+    // Verify the log message is emitted with leader mode = false
+    boolean foundLog =
+        logEvents.stream()
+            .anyMatch(
+                event ->
+                    event.getFormattedMessage().contains("Creating auto-embedding generator")
+                        && event.getFormattedMessage().contains("leader mode = false"));
+    assertTrue("Expected 'Creating auto-embedding generator (leader mode = false)' log", foundLog);
+  }
+
+  // ==================== Follower Mode Tests ====================
+
+  @Test
+  public void followerMode_addIndex_tracksIndexGeneration() {
+    Mocks mocks = Mocks.createFollower();
+    MaterializedViewIndexGeneration materializedViewindexGeneration =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    AutoEmbeddingIndexGeneration autoEmbeddingIndexGeneration =
+        mock(AutoEmbeddingIndexGeneration.class);
+    when(autoEmbeddingIndexGeneration.getMaterializedViewIndexGeneration())
+        .thenReturn(materializedViewindexGeneration);
+    when(autoEmbeddingIndexGeneration.getGenerationId())
+        .thenReturn(materializedViewindexGeneration.getGenerationId());
+    mocks.manager.add(autoEmbeddingIndexGeneration);
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+    verify(materializedViewindexGeneration.getIndex()).setStatus(any(IndexStatus.class));
+    assertEquals(mocks.expectedStatus, materializedViewindexGeneration.getIndex().getStatus());
+  }
+
+  @Test
+  public void followerMode_addIndexNewDefinitionVersion_replacesGenerator() {
+    // In the unified implementation, when a new definition version is added,
+    // the old generator is shut down and replaced with a new one.
+    // Only the new generator's status is updated.
+    Mocks mocks = Mocks.createFollower();
+    MaterializedViewIndexGeneration materializedViewindexGeneration =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    AutoEmbeddingIndexGeneration autoEmbeddingIndexGeneration =
+        mock(AutoEmbeddingIndexGeneration.class);
+    when(autoEmbeddingIndexGeneration.getMaterializedViewIndexGeneration())
+        .thenReturn(materializedViewindexGeneration);
+    when(autoEmbeddingIndexGeneration.getGenerationId())
+        .thenReturn(materializedViewindexGeneration.getGenerationId());
+    mocks.manager.add(autoEmbeddingIndexGeneration);
+
+    MaterializedViewIndexGeneration newMaterializedViewindexGeneration =
+        mockMatViewIndexGeneration(
+            mockMatViewDefinitionGeneration(materializedViewindexGeneration.getGenerationId(), 1));
+    AutoEmbeddingIndexGeneration newAutoEmbeddingIndexGeneration =
+        mock(AutoEmbeddingIndexGeneration.class);
+    when(newAutoEmbeddingIndexGeneration.getMaterializedViewIndexGeneration())
+        .thenReturn(newMaterializedViewindexGeneration);
+    when(newAutoEmbeddingIndexGeneration.getGenerationId())
+        .thenReturn(
+            newMaterializedViewindexGeneration
+                .getDefinitionGeneration()
+                .incrementUser()
+                .getGenerationId());
+    mocks.manager.add(newAutoEmbeddingIndexGeneration);
+
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+    // Only the new generation's status is updated (old generator was replaced)
+    verify(newMaterializedViewindexGeneration.getIndex()).setStatus(any(IndexStatus.class));
+    assertEquals(mocks.expectedStatus, newMaterializedViewindexGeneration.getIndex().getStatus());
+  }
+
+  @Test
+  public void followerMode_dropIndex_removesIndexGeneration() {
+    Mocks mocks = Mocks.createFollower();
+    MaterializedViewIndexGeneration materializedViewindexGeneration =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    AutoEmbeddingIndexGeneration autoEmbeddingIndexGeneration =
+        mock(AutoEmbeddingIndexGeneration.class);
+    when(autoEmbeddingIndexGeneration.getMaterializedViewIndexGeneration())
+        .thenReturn(materializedViewindexGeneration);
+    when(autoEmbeddingIndexGeneration.getGenerationId())
+        .thenReturn(materializedViewindexGeneration.getGenerationId());
+    mocks.manager.add(autoEmbeddingIndexGeneration);
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+    verify(materializedViewindexGeneration.getIndex()).setStatus(any(IndexStatus.class));
+    assertEquals(mocks.expectedStatus, materializedViewindexGeneration.getIndex().getStatus());
+
+    mocks.manager.dropIndex(autoEmbeddingIndexGeneration.getGenerationId());
+    // Verify no exception is thrown and the manager continues to work
+    assertTrue(mocks.manager.isReplicationSupported());
+  }
+
+  @Test
+  public void followerMode_dropIndexNewDefinitionVersion_removesCorrectGeneration() {
+    // In the unified implementation, when a new definition version is added,
+    // the old generator is shut down and replaced. Only the new generator's status is updated.
+    Mocks mocks = Mocks.createFollower();
+    MaterializedViewIndexGeneration materializedViewindexGeneration =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    AutoEmbeddingIndexGeneration autoEmbeddingIndexGeneration =
+        mock(AutoEmbeddingIndexGeneration.class);
+    when(autoEmbeddingIndexGeneration.getMaterializedViewIndexGeneration())
+        .thenReturn(materializedViewindexGeneration);
+    when(autoEmbeddingIndexGeneration.getGenerationId())
+        .thenReturn(materializedViewindexGeneration.getGenerationId());
+    mocks.manager.add(autoEmbeddingIndexGeneration);
+
+    MaterializedViewIndexGeneration newMaterializedViewindexGeneration =
+        mockMatViewIndexGeneration(
+            mockMatViewDefinitionGeneration(materializedViewindexGeneration.getGenerationId(), 1));
+    AutoEmbeddingIndexGeneration newAutoEmbeddingIndexGeneration =
+        mock(AutoEmbeddingIndexGeneration.class);
+    when(newAutoEmbeddingIndexGeneration.getMaterializedViewIndexGeneration())
+        .thenReturn(newMaterializedViewindexGeneration);
+    when(newAutoEmbeddingIndexGeneration.getGenerationId())
+        .thenReturn(
+            newMaterializedViewindexGeneration
+                .getDefinitionGeneration()
+                .incrementUser()
+                .getGenerationId());
+    mocks.manager.add(newAutoEmbeddingIndexGeneration);
+
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+    // Only the new generation's status is updated (old generator was replaced)
+    verify(newMaterializedViewindexGeneration.getIndex()).setStatus(any(IndexStatus.class));
+    assertEquals(mocks.expectedStatus, newMaterializedViewindexGeneration.getIndex().getStatus());
+
+    mocks.manager.dropIndex(autoEmbeddingIndexGeneration.getGenerationId());
+    mocks.manager.dropIndex(newAutoEmbeddingIndexGeneration.getGenerationId());
+    // Verify no exception is thrown
+    assertTrue(mocks.manager.isReplicationSupported());
+  }
+
+  @Test
+  public void followerMode_isReplicationSupported_returnsTrue() {
+    // With index-level leader election, every instance supports replication
+    // (it can be a leader for some indexes)
+    Mocks mocks = Mocks.createFollower();
+    assertTrue(mocks.manager.isReplicationSupported());
+  }
+
+  @Test
+  public void followerMode_isInitialized_returnsTrue() {
+    Mocks mocks = Mocks.createFollower();
+    assertTrue(mocks.manager.isInitialized());
+  }
+
   static class Mocks {
     final NamedExecutorService executorService;
     @Keep final IndexingWorkSchedulerFactory indexingWorkSchedulerFactory;
@@ -418,11 +611,14 @@ public class MaterializedViewManagerTest {
     final MaterializedViewManager.MaterializedViewGeneratorFactory materializedViewGeneratorFactory;
     final NamedScheduledExecutorService commitExecutor;
     final NamedScheduledExecutorService heartbeatExecutor;
-    final NamedScheduledExecutorService optimeUpdaterExecutor;
     final Supplier<MaterializedViewManager> managerSupplier;
     final DecodingWorkScheduler decodingScheduler;
     final MeterRegistry meterRegistry;
     final LeaseManager leaseManager;
+    final NamedScheduledExecutorService statusRefreshExecutor;
+    final NamedScheduledExecutorService optimeUpdaterExecutor;
+    final IndexStatus expectedStatus; // For follower mode tests
+    final Optional<ArgumentCaptor<Runnable>> runnableCaptor; // For follower mode tests
 
     MaterializedViewManager manager;
 
@@ -438,8 +634,11 @@ public class MaterializedViewManagerTest {
         MaterializedViewManager.MaterializedViewGeneratorFactory materializedViewGeneratorFactory,
         NamedScheduledExecutorService commitExecutor,
         NamedScheduledExecutorService heartbeatExecutor,
+        NamedScheduledExecutorService statusRefreshExecutor,
         NamedScheduledExecutorService optimeUpdaterExecutor,
-        LeaseManager leaseManager) {
+        LeaseManager leaseManager,
+        IndexStatus expectedStatus,
+        Optional<ArgumentCaptor<Runnable>> runnableCaptor) {
       this.executorService = executorService;
       this.indexingWorkSchedulerFactory = indexingWorkSchedulerFactory;
       this.cursorManager = cursorManager;
@@ -449,19 +648,27 @@ public class MaterializedViewManagerTest {
       this.materializedViewGeneratorFactory = materializedViewGeneratorFactory;
       this.commitExecutor = commitExecutor;
       this.heartbeatExecutor = heartbeatExecutor;
+      this.statusRefreshExecutor = statusRefreshExecutor;
       this.optimeUpdaterExecutor = optimeUpdaterExecutor;
       this.decodingScheduler = decodingScheduler;
       this.meterRegistry = new SimpleMeterRegistry();
+      this.expectedStatus = expectedStatus;
+      this.runnableCaptor = runnableCaptor;
+      this.leaseManager = leaseManager;
+
+      SyncSourceConfig syncSourceConfig =
+          new SyncSourceConfig(
+              new ConnectionString("mongodb://newString"),
+              Optional.empty(),
+              new ConnectionString("mongodb://newString"));
+
       this.managerSupplier =
           () ->
               new MaterializedViewManager(
                   executorService,
                   indexingWorkSchedulerFactory,
                   clientSessionRecordMap,
-                  new SyncSourceConfig(
-                      new ConnectionString("mongodb://newString"),
-                      Optional.empty(),
-                      new ConnectionString("mongodb://newString")),
+                  syncSourceConfig,
                   initialSyncQueue,
                   steadyStateManager,
                   syncBatchMongoClient,
@@ -469,11 +676,11 @@ public class MaterializedViewManagerTest {
                   materializedViewGeneratorFactory,
                   commitExecutor,
                   heartbeatExecutor,
+                  statusRefreshExecutor,
                   optimeUpdaterExecutor,
                   this.meterRegistry,
                   leaseManager);
       this.manager = this.managerSupplier.get();
-      this.leaseManager = leaseManager;
     }
 
     public void recreateManager() {
@@ -515,6 +722,11 @@ public class MaterializedViewManagerTest {
               Executors.singleThreadScheduledExecutor(
                   "mat-view-leader-heartbeat", new SimpleMeterRegistry()));
 
+      NamedScheduledExecutorService statusRefreshExecutor =
+          spy(
+              Executors.fixedSizeThreadScheduledExecutor(
+                  "mat-view-status-refresh", 1, new SimpleMeterRegistry()));
+
       NamedScheduledExecutorService optimeUpdaterExecutor =
           spy(
               Executors.singleThreadScheduledExecutor(
@@ -526,6 +738,10 @@ public class MaterializedViewManagerTest {
 
       LeaseManager leaseManager = mock(LeaseManager.class);
       when(leaseManager.drop(any())).thenReturn(COMPLETED_FUTURE);
+      when(leaseManager.isLeader(any())).thenReturn(true);
+      // Mock getLeaderGenerationIds to return a non-empty set for heartbeat test
+      GenerationId leaderGenId = GenerationIdBuilder.create();
+      when(leaseManager.getLeaderGenerationIds()).thenReturn(Set.of(leaderGenId));
 
       return new Mocks(
           executorService,
@@ -539,8 +755,91 @@ public class MaterializedViewManagerTest {
           materializedViewGeneratorFactory,
           commitExecutor,
           heartbeatExecutor,
+          statusRefreshExecutor,
           optimeUpdaterExecutor,
-          leaseManager);
+          leaseManager,
+          IndexStatus.unknown(), // expectedStatus for leader mode
+          Optional.empty());
+    }
+
+    private static Mocks createFollower() {
+      // Separate mock schedulers for status refresh and optime updater
+      NamedScheduledExecutorService statusRefreshScheduler =
+          mock(NamedScheduledExecutorService.class);
+      NamedScheduledExecutorService optimeUpdaterScheduler =
+          mock(NamedScheduledExecutorService.class);
+      ScheduledFuture<?> mockFuture = mock(ScheduledFuture.class);
+      LeaseManager mockLeaseManager = mock(LeaseManager.class);
+      // Mock isLeader to return false for follower mode
+      when(mockLeaseManager.isLeader(any())).thenReturn(false);
+      // Track added generation IDs to return from getFollowerGenerationIds
+      Set<GenerationId> addedGenerationIds = ConcurrentHashMap.newKeySet();
+      doAnswer(
+              invocation -> {
+                IndexGeneration indexGen = invocation.getArgument(0);
+                addedGenerationIds.add(indexGen.getGenerationId());
+                return null;
+              })
+          .when(mockLeaseManager)
+          .add(any());
+      // Mock getFollowerGenerationIds to return all added generation IDs (since all are followers)
+      when(mockLeaseManager.getFollowerGenerationIds())
+              .thenAnswer(invocation -> addedGenerationIds);
+      // Mock pollFollowerStatuses to return steady status for all added generation IDs
+      when(mockLeaseManager.pollFollowerStatuses())
+          .thenAnswer(
+              invocation -> {
+                Map<GenerationId, IndexStatus> result = new HashMap<>();
+                for (GenerationId genId : addedGenerationIds) {
+                  result.put(genId, IndexStatus.steady());
+                }
+                return result;
+              });
+      // Mock getLeaderGenerationIds to return empty set (no leaders in follower mode)
+      when(mockLeaseManager.getLeaderGenerationIds()).thenReturn(Set.of());
+      ArgumentCaptor<Runnable> runnableCaptor = ArgumentCaptor.forClass(Runnable.class);
+
+      // Capture the status refresh runnable
+      doReturn(mockFuture)
+          .when(statusRefreshScheduler)
+          .scheduleWithFixedDelay(runnableCaptor.capture(), anyLong(), anyLong(), any());
+      // Mock the optime updater scheduler (don't need to capture its runnable)
+      doReturn(mockFuture)
+          .when(optimeUpdaterScheduler)
+          .scheduleWithFixedDelay(any(), anyLong(), anyLong(), any());
+
+      // Create a mock generator factory that returns a mock generator for any input
+      MaterializedViewManager.MaterializedViewGeneratorFactory mockGeneratorFactory =
+          mock(MaterializedViewManager.MaterializedViewGeneratorFactory.class);
+      when(mockGeneratorFactory.create(any()))
+          .thenAnswer(
+              invocation -> {
+                MaterializedViewIndexGeneration matViewIndexGen = invocation.getArgument(0);
+                MaterializedViewGenerator mockGenerator = mock(MaterializedViewGenerator.class);
+                when(mockGenerator.getIndexGeneration()).thenReturn(matViewIndexGen);
+                when(mockGenerator.shutdown())
+                    .thenReturn(CompletableFuture.completedFuture(null));
+                return mockGenerator;
+              });
+
+      // Create minimal mocks for follower mode (many leader fields unused)
+      return new Mocks(
+          mock(NamedExecutorService.class),
+          mock(IndexingWorkSchedulerFactory.class),
+          mock(DecodingWorkScheduler.class),
+          mock(MongotCursorManager.class),
+          Map.of(),
+          mock(InitialSyncQueue.class),
+          mock(SteadyStateManager.class),
+          mock(BatchMongoClient.class),
+          mockGeneratorFactory,
+          mock(NamedScheduledExecutorService.class),
+          mock(NamedScheduledExecutorService.class),
+          statusRefreshScheduler, // statusRefreshExecutor - captures runnable
+          optimeUpdaterScheduler, // optimeUpdaterExecutor - separate mock
+          mockLeaseManager,
+          IndexStatus.steady(), // expectedStatus for follower mode
+          Optional.of(runnableCaptor));
     }
 
     private MaterializedViewGenerator mockMaterializedViewGenerator(
@@ -562,7 +861,9 @@ public class MaterializedViewManagerTest {
                   Duration.ofSeconds(1),
                   Duration.ofSeconds(1),
                   false));
-      when(this.materializedViewGeneratorFactory.create(eq(materializedViewIndexGeneration), any()))
+      // Mock shutdown() to return a completed future so thenRun() callbacks execute immediately
+      doReturn(CompletableFuture.completedFuture(null)).when(materializedViewGenerator).shutdown();
+      when(this.materializedViewGeneratorFactory.create(eq(materializedViewIndexGeneration)))
           .thenReturn(materializedViewGenerator);
       return materializedViewGenerator;
     }

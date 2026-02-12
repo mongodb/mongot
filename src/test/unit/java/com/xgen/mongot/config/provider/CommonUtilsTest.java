@@ -160,7 +160,7 @@ public class CommonUtilsTest {
   }
 
   @Test
-  public void testGetMaterializedViewManager_leader_disableMode() {
+  public void testGetMaterializedViewManager_disableMode() {
     var mocks = Mocks.create();
     var factory =
         CommonUtils.getAutoEmbeddingMaterializedViewManagerFactory(
@@ -172,14 +172,13 @@ public class CommonUtilsTest {
             MeterAndFtdcRegistry.create(mocks.meterRegistry, mocks.ftdcRegistry),
             DefaultConfigManager.ReplicationMode.DISABLE,
             mocks.embeddingServiceManagerSupplier,
-            /* isLeader= */ true,
             mocks.leaseManager);
     var noOpManager = factory.create(Optional.of(mocks.syncSourceConfig));
     Assert.assertTrue(noOpManager.isEmpty());
   }
 
   @Test
-  public void testGetMaterializedViewManager_leader_enableMode() {
+  public void testGetMaterializedViewManager_enableMode_missingEmbeddingServiceManagerSupplier() {
     var mocks = Mocks.create();
     var factory =
         CommonUtils.getAutoEmbeddingMaterializedViewManagerFactory(
@@ -191,11 +190,9 @@ public class CommonUtilsTest {
             MeterAndFtdcRegistry.create(mocks.meterRegistry, mocks.ftdcRegistry),
             DefaultConfigManager.ReplicationMode.ENABLE,
             mocks.embeddingServiceManagerSupplier,
-            /* isLeader= */ true,
             mocks.leaseManager);
 
-    // Leader mode with empty embeddingServiceManagerSupplier should
-    // throw IllegalArgumentException.
+    // With empty embeddingServiceManagerSupplier should throw IllegalArgumentException.
     IllegalArgumentException exception =
         Assert.assertThrows(
             IllegalArgumentException.class,
@@ -203,47 +200,6 @@ public class CommonUtilsTest {
     String errorMessage = exception.getMessage();
     String expectedPattern = "EmbeddingServiceManagerSupplier must be provided";
     Assert.assertTrue(Pattern.compile(expectedPattern).matcher(errorMessage).find());
-  }
-
-  @Test
-  public void testGetMaterializedViewManager_follower_disableMode() {
-    var mocks = Mocks.create();
-    var factory =
-        CommonUtils.getAutoEmbeddingMaterializedViewManagerFactory(
-            mocks.dataPath,
-            mocks.autoEmbeddingMaterializedViewConfig,
-            mocks.initialSyncConfig,
-            mocks.featureFlags,
-            mocks.mongotCursorManager,
-            MeterAndFtdcRegistry.create(mocks.meterRegistry, mocks.ftdcRegistry),
-            DefaultConfigManager.ReplicationMode.DISABLE,
-            mocks.embeddingServiceManagerSupplier,
-            /* isLeader= */ false,
-            mocks.leaseManager);
-    var noOpManager = factory.create(Optional.of(mocks.syncSourceConfig));
-    Assert.assertTrue(noOpManager.isEmpty());
-  }
-
-  @Test
-  public void testGetMaterializedViewManager_follower_enableMode() {
-    var mocks = Mocks.create();
-    var factory =
-        CommonUtils.getAutoEmbeddingMaterializedViewManagerFactory(
-            mocks.dataPath,
-            mocks.autoEmbeddingMaterializedViewConfig,
-            mocks.initialSyncConfig,
-            mocks.featureFlags,
-            mocks.mongotCursorManager,
-            MeterAndFtdcRegistry.create(mocks.meterRegistry, mocks.ftdcRegistry),
-            DefaultConfigManager.ReplicationMode.ENABLE,
-            mocks.embeddingServiceManagerSupplier,
-            /* isLeader= */ false,
-            mocks.leaseManager);
-
-    // Follower mode should succeed without embeddingServiceManagerSupplier
-    // (creates MaterializedViewFollowerManager).
-    var result = factory.create(Optional.of(mock(SyncSourceConfig.class)));
-    Assert.assertTrue("Follower mode should return a manager", result.isPresent());
   }
 
   @Test
@@ -259,7 +215,6 @@ public class CommonUtilsTest {
             MeterAndFtdcRegistry.create(mocks.meterRegistry, mocks.ftdcRegistry),
             DefaultConfigManager.ReplicationMode.DISK_UTILIZATION_BASED,
             mocks.embeddingServiceManagerSupplier,
-            /* isLeader= */ true,
             mocks.leaseManager);
     var noOpManager = factory.create(Optional.empty());
     Assert.assertTrue(noOpManager.isEmpty());

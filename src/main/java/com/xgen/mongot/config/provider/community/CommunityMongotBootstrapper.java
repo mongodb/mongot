@@ -656,7 +656,6 @@ public class CommunityMongotBootstrapper {
             meterAndFtdcRegistry,
             DefaultConfigManager.ReplicationMode.ENABLE,
             Optional.of(embeddingServiceManagerSupplier),
-            isAutoEmbeddingViewWriter,
             leaseManager);
 
     var lifecycleManager =

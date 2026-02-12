@@ -4,7 +4,6 @@ java_library(
     name = "autoembedding",
     srcs = [
         "AutoEmbeddingMaterializedViewManagerFactory.java",
-        "MaterializedViewFollowerManager.java",
         "MaterializedViewGenerator.java",
         "MaterializedViewManager.java",
     ],

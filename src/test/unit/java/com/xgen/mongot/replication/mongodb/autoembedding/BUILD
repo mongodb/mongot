@@ -3,7 +3,7 @@ load("//bazel/java:test.bzl", "java_test_suite")
 java_test_suite(
     name = "autoembedding",
     srcs = [
-        "MaterializedViewFollowerManagerTest.java",
+        "MaterializedViewGeneratorTest.java",
         "MaterializedViewManagerTest.java",
     ],
     tags = ["unit"],
@@ -25,6 +25,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/util/concurrent",
         "//src/main/java/com/xgen/mongot/util/mongodb",
         "//src/main/java/com/xgen/testing",
+        "//src/main/java/com/xgen/testing/mongot/index/version",
         "//src/main/java/com/xgen/testing/mongot/metrics",
         "//src/main/java/com/xgen/testing/mongot/mock/index",
         "//src/main/java/com/xgen/testing/mongot/mock/replication/mongodb/common",

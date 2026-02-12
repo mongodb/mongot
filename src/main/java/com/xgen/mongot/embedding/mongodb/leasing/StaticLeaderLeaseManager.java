@@ -24,8 +24,11 @@ import com.xgen.mongot.util.mongodb.MongoClientBuilder;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import org.bson.Document;
@@ -59,6 +62,10 @@ public class StaticLeaderLeaseManager implements LeaseManager {
   private final String hostname;
   // Mapping of leases to index Ids.
   private final Map<String, Lease> leases;
+  // Tracks all GenerationIds that have been added to this lease manager (both leader and follower).
+  private final Set<GenerationId> managedGenerationIds;
+  // Maps GenerationId to its definition version (as String) for use in pollFollowerStatuses().
+  private final Map<GenerationId, String> generationIdToDefinitionVersion;
   private final MongoCollection<Lease> collection;
   private final boolean isLeader;
 
@@ -72,6 +79,8 @@ public class StaticLeaderLeaseManager implements LeaseManager {
         new MongoClientOperationExecutor(metricsFactory, "leaseTableCollection");
     this.hostname = hostname;
     this.leases = new ConcurrentHashMap<>();
+    this.managedGenerationIds = ConcurrentHashMap.newKeySet();
+    this.generationIdToDefinitionVersion = new ConcurrentHashMap<>();
     // Use LINEARIZABLE read concern for lease operations to ensure we always read the most
     // up-to-date lease state. This is critical for lease correctness.
     // LINEARIZABLE read concern requires ReadPreference.primary() to work correctly.
@@ -123,8 +132,12 @@ public class StaticLeaderLeaseManager implements LeaseManager {
     // If the lease already exists, then just add the index generation to the lease.
     // Note that we only add the lease in memory here, we write to the database only when we update
     // the commit info.
-    if (this.leases.containsKey(getLeaseKey(indexGeneration.getGenerationId()))) {
-      var lease = this.leases.get(getLeaseKey(indexGeneration.getGenerationId()));
+    GenerationId generationId = indexGeneration.getGenerationId();
+    this.managedGenerationIds.add(generationId);
+    this.generationIdToDefinitionVersion.put(
+        generationId, getIndexDefinitionVersion(indexGeneration));
+    if (this.leases.containsKey(getLeaseKey(generationId))) {
+      var lease = this.leases.get(getLeaseKey(generationId));
       String versionKey =
           String.valueOf(
               indexGeneration
@@ -133,7 +146,7 @@ public class StaticLeaderLeaseManager implements LeaseManager {
                   .orElse(DEFAULT_INDEX_DEFINITION_VERSION));
       if (!lease.indexDefinitionVersionStatusMap().containsKey(versionKey)) {
         this.leases.put(
-            getLeaseKey(indexGeneration.getGenerationId()),
+            getLeaseKey(generationId),
             lease.withNewIndexDefinitionVersion(
                 getIndexDefinitionVersion(indexGeneration),
                 indexGeneration.getIndex().getStatus()));
@@ -147,7 +160,7 @@ public class StaticLeaderLeaseManager implements LeaseManager {
               this.hostname,
               getIndexDefinitionVersion(indexGeneration),
               indexGeneration.getIndex().getStatus());
-      this.leases.put(getLeaseKey(indexGeneration.getGenerationId()), lease);
+      this.leases.put(getLeaseKey(generationId), lease);
     }
   }
 
@@ -159,6 +172,13 @@ public class StaticLeaderLeaseManager implements LeaseManager {
     // generations we track to prevent the status map from growing unbounded.
     // Note that we're relying on MaterializedViewManager to do the right thing based on reference
     // counting and only invoke this method when the last index generation is being dropped.
+    //
+    // We remove from managedGenerationIds before the async delete completes. If deleteOne fails,
+    // the lease remains in the database but we no longer track it locally. This is acceptable
+    // because: (1) drop is a terminal operation - we don't need to manage this generation anymore,
+    // (2) orphaned leases in the database don't affect correctness and can be cleaned up later.
+    this.managedGenerationIds.remove(generationId);
+    this.generationIdToDefinitionVersion.remove(generationId);
     if (this.isLeader) {
       return CompletableFuture.runAsync(
           () -> {
@@ -223,62 +243,80 @@ public class StaticLeaderLeaseManager implements LeaseManager {
     }
   }
 
-  @Override
-  public IndexStatus getMaterializedViewReplicationStatus(IndexGeneration indexGeneration) {
-    // Leader reads from in-memory state.
+  /**
+   * Reads the status of a materialized view from the database and applies status resolution logic.
+   *
+   * @param generationId the generation ID to get status for
+   * @param versionKey the definition version key to look up in the status map
+   * @return the effective status, or UNKNOWN if unable to determine
+   */
+  private IndexStatus getMaterializedViewReplicationStatus(
+      GenerationId generationId, String versionKey) {
     @Var
-    Lease.IndexDefinitionVersionStatus requestedIndexDefinitionVersionStatus =
+    Lease.IndexDefinitionVersionStatus requestedStatus =
         new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.UNKNOWN);
     @Var
-    Lease.IndexDefinitionVersionStatus latestIndexDefinitionVersionStatus =
+    Lease.IndexDefinitionVersionStatus latestStatus =
         new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.UNKNOWN);
-    if (this.isLeader) {
-      if (this.leases.containsKey(getLeaseKey(indexGeneration.getGenerationId()))) {
-        var lease = this.leases.get(getLeaseKey(indexGeneration.getGenerationId()));
-        requestedIndexDefinitionVersionStatus =
-            lease
-                .indexDefinitionVersionStatusMap()
-                .get(String.valueOf(indexGeneration.getDefinition().getDefinitionVersion()));
-        latestIndexDefinitionVersionStatus =
-            lease.indexDefinitionVersionStatusMap().get(lease.latestIndexDefinitionVersion());
-      }
-    } else {
-      // Follower reads from database.
-      try {
-        Lease lease = getLeaseFromDatabase(indexGeneration.getGenerationId());
-        if (lease != null) {
-          String versionKey =
-              String.valueOf(
-                  indexGeneration
-                      .getDefinition()
-                      .getDefinitionVersion()
-                      .orElse(DEFAULT_INDEX_DEFINITION_VERSION));
-          if (versionKey != null
-              && lease.indexDefinitionVersionStatusMap().containsKey(versionKey)) {
-            requestedIndexDefinitionVersionStatus =
-                lease.indexDefinitionVersionStatusMap().get(versionKey);
-          } else {
-            LOG.warn(
-                "Requested version key {} not found in lease for generation ID {}",
-                versionKey,
-                indexGeneration);
-          }
-          // we will always have an entry corresponding to the latest index definition version.
-          latestIndexDefinitionVersionStatus =
-              lease.indexDefinitionVersionStatusMap().get(lease.latestIndexDefinitionVersion());
+    try {
+      Lease lease = getLeaseFromDatabase(generationId);
+      if (lease != null) {
+        if (lease.indexDefinitionVersionStatusMap().containsKey(versionKey)) {
+          requestedStatus = lease.indexDefinitionVersionStatusMap().get(versionKey);
+        } else {
+          LOG.warn(
+              "Requested version key {} not found in lease for generation ID {}",
+              versionKey,
+              generationId);
         }
-      } catch (Exception e) {
-        LOG.warn(
-            "Failed to get index status for {}", getLeaseKey(indexGeneration.getGenerationId()), e);
+        latestStatus =
+            lease.indexDefinitionVersionStatusMap().get(lease.latestIndexDefinitionVersion());
+      } else {
+        LOG.warn("No lease found in database for generation ID {}", generationId);
       }
+    } catch (Exception e) {
+      LOG.warn("Failed to poll status for generation ID {}", generationId, e);
     }
-    return getEffectiveMaterializedViewStatus(
-        requestedIndexDefinitionVersionStatus, latestIndexDefinitionVersionStatus);
+    return getEffectiveMaterializedViewStatus(requestedStatus, latestStatus);
   }
 
   @VisibleForTesting
   Map<String, Lease> getLeases() {
     return this.leases;
+  }
+
+  @Override
+  public Set<GenerationId> getLeaderGenerationIds() {
+    if (this.isLeader) {
+      return Collections.unmodifiableSet(this.managedGenerationIds);
+    }
+    return Collections.emptySet();
+  }
+
+  @Override
+  public Set<GenerationId> getFollowerGenerationIds() {
+    if (!this.isLeader) {
+      return Collections.unmodifiableSet(this.managedGenerationIds);
+    }
+    return Collections.emptySet();
+  }
+
+  @Override
+  public Map<GenerationId, IndexStatus> pollFollowerStatuses() {
+    if (this.isLeader) {
+      return Collections.emptyMap();
+    }
+    Map<GenerationId, IndexStatus> result = new HashMap<>();
+    for (GenerationId generationId : this.managedGenerationIds) {
+      String versionKey = this.generationIdToDefinitionVersion.get(generationId);
+      if (versionKey == null) {
+        LOG.warn("No definition version found for generation ID {}", generationId);
+        continue;
+      }
+      IndexStatus status = getMaterializedViewReplicationStatus(generationId, versionKey);
+      result.put(generationId, status);
+    }
+    return result;
   }
 
   private void ensureLeaseExists(GenerationId generationId) {

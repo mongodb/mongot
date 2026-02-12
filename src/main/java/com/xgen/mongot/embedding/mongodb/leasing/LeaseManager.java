@@ -7,6 +7,8 @@ import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.GenerationId;
 import java.io.IOException;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 // TODO(CLOUDP-371278): Refactor interface to have stricter type that only allows MatView related
@@ -68,10 +70,36 @@ public interface LeaseManager {
       throws MaterializedViewTransientException, MaterializedViewNonTransientException;
 
   /**
-   * Returns the status of the materialized view replication.
+   * Returns all generation IDs where this instance is the leader.
    *
-   * @param indexGeneration the index generation to get the status for
-   * @return the status of the leader. defaults to UNKNOWN if we're unable to determine the status.
+   * @return a set of generation IDs where this instance is the leader
    */
-  IndexStatus getMaterializedViewReplicationStatus(IndexGeneration indexGeneration);
+  Set<GenerationId> getLeaderGenerationIds();
+
+  /**
+   * Returns all generation IDs where this instance is a follower.
+   *
+   * @return a set of generation IDs where this instance is a follower
+   */
+  Set<GenerationId> getFollowerGenerationIds();
+
+  /**
+   * Polls the status of all follower materialized views from the database. This method reads the
+   * latest status from MongoDB for each follower generation ID managed by this lease manager.
+   *
+   * @return a map of generation IDs to their current status. Returns an empty map if this instance
+   *     is the leader or if there are no follower generation IDs.
+   */
+  Map<GenerationId, IndexStatus> pollFollowerStatuses();
+
+  /**
+   * Performs a heartbeat for all managed leases. For dynamic leader election, this renews the
+   * leases to maintain leadership and handles any leadership changes. For static leader, this is a
+   * no-op since leadership is pre-assigned and constant.
+   *
+   * <p>This method is called periodically by the MaterializedViewManager.
+   */
+  default void heartbeat() {
+    // Default implementation: no-op for static leader
+  }
 }
