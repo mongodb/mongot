@@ -1,5 +1,6 @@
 package com.xgen.testing.mongot.integration.index.serialization;
 
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -23,7 +24,9 @@ public abstract class ExplainableTestSpec extends TestSpec {
       List<BsonDocument> documents,
       Optional<Map<String, ShardZoneConfig>> shardZoneConfigs,
       Optional<MongoDbVersionInfo> minMongoDbVersionInfo,
-      Optional<MongoDbVersionInfo> minShardedMongoDbVersionInfo) {
+      Optional<MongoDbVersionInfo> minShardedMongoDbVersionInfo,
+      Optional<List<DynamicFeatureFlagConfig>> dynamicFeatureFlags,
+      boolean skipOnAtlas) {
     super(
         name,
         description,
@@ -34,7 +37,9 @@ public abstract class ExplainableTestSpec extends TestSpec {
         result,
         shardZoneConfigs,
         minMongoDbVersionInfo,
-        minShardedMongoDbVersionInfo);
+        minShardedMongoDbVersionInfo,
+        dynamicFeatureFlags,
+        skipOnAtlas);
     this.explain = explain;
     this.documents = documents;
   }

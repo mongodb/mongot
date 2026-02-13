@@ -1,5 +1,6 @@
 package com.xgen.testing.mongot.integration.index.serialization;
 
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentParser;
@@ -51,7 +52,9 @@ public class SearchIndexQueryTestSpec extends ExplainableTestSpec {
       Result result,
       Optional<Map<String, ShardZoneConfig>> shardZoneConfigs,
       Optional<MongoDbVersionInfo> minMongoDbVersion,
-      Optional<MongoDbVersionInfo> minShardedMongoDbVersion) {
+      Optional<MongoDbVersionInfo> minShardedMongoDbVersion,
+      Optional<List<DynamicFeatureFlagConfig>> dynamicFeatureFlags,
+      boolean skipOnAtlas) {
     super(
         name,
         description,
@@ -64,7 +67,9 @@ public class SearchIndexQueryTestSpec extends ExplainableTestSpec {
         documents,
         shardZoneConfigs,
         minMongoDbVersion,
-        minShardedMongoDbVersion);
+        minShardedMongoDbVersion,
+        dynamicFeatureFlags,
+        skipOnAtlas);
     this.synonymDocuments = synonymDocuments;
   }
 
@@ -82,7 +87,9 @@ public class SearchIndexQueryTestSpec extends ExplainableTestSpec {
         parser.getField(TestSpec.Fields.RESULT).unwrap(),
         parser.getField(TestSpec.Fields.SHARD_ZONE_CONFIGS).unwrap(),
         parser.getField(TestSpec.Fields.MIN_MONGODB_VERSION).unwrap(),
-        parser.getField(TestSpec.Fields.MIN_SHARDED_MONGODB_VERSION).unwrap());
+        parser.getField(TestSpec.Fields.MIN_SHARDED_MONGODB_VERSION).unwrap(),
+        parser.getField(TestSpec.Fields.DYNAMIC_FEATURE_FLAGS).unwrap(),
+        parser.getField(TestSpec.Fields.SKIP_ON_ATLAS).unwrap());
   }
 
   @Override

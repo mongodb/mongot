@@ -1,5 +1,6 @@
 package com.xgen.testing.mongot.integration.index.serialization;
 
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
@@ -65,6 +66,22 @@ public abstract class TestSpec implements DocumentEncodable {
             .optional()
             .noDefault();
 
+    static final Field.Optional<List<DynamicFeatureFlagConfig>> DYNAMIC_FEATURE_FLAGS =
+        Field.builder("dynamicFeatureFlags")
+            .classField(DynamicFeatureFlagConfig::fromBson)
+            .allowUnknownFields()
+            .asList()
+            .optional()
+            .noDefault();
+
+    /**
+     * If true, this test will be skipped when running on Atlas. Useful for tests that require
+     * specific DFF configurations that cannot be guaranteed on Atlas, since the engineer must
+     * manually configure DFFs in Atlas before running the tests.
+     */
+    static final Field.WithDefault<Boolean> SKIP_ON_ATLAS =
+        Field.builder("skipOnAtlas").booleanField().optional().withDefault(false);
+
     // If adding fields to this class, considering also adding them to the fingerprint definition in
     // //scripts/tools/find_duplicate_tests.py
   }
@@ -84,8 +101,9 @@ public abstract class TestSpec implements DocumentEncodable {
   private final Result result;
   private final Optional<Map<String, ShardZoneConfig>> shardZoneConfigs;
   private final Optional<MongoDbVersionInfo> minMongoDbVersionInfo;
-
   private final Optional<MongoDbVersionInfo> minShardedMongoDbVersionInfo;
+  private final Optional<List<DynamicFeatureFlagConfig>> dynamicFeatureFlags;
+  private final boolean skipOnAtlas;
 
   TestSpec(
       String name,
@@ -97,7 +115,9 @@ public abstract class TestSpec implements DocumentEncodable {
       Result result,
       Optional<Map<String, ShardZoneConfig>> shardZoneConfigs,
       Optional<MongoDbVersionInfo> minMongoDbVersionInfo,
-      Optional<MongoDbVersionInfo> minShardedMongoDbVersionInfo) {
+      Optional<MongoDbVersionInfo> minShardedMongoDbVersionInfo,
+      Optional<List<DynamicFeatureFlagConfig>> dynamicFeatureFlags,
+      boolean skipOnAtlas) {
     this.name = name;
     this.description = description;
     this.basedOnTestSpec = basedOnTestSpec;
@@ -108,6 +128,54 @@ public abstract class TestSpec implements DocumentEncodable {
     this.shardZoneConfigs = shardZoneConfigs;
     this.minMongoDbVersionInfo = minMongoDbVersionInfo;
     this.minShardedMongoDbVersionInfo = minShardedMongoDbVersionInfo;
+    this.dynamicFeatureFlags = normalizeDynamicFeatureFlagScopes(dynamicFeatureFlags);
+    this.skipOnAtlas = skipOnAtlas;
+
+    // Validate that DFF phases are only ENABLED or DISABLED for test specs.
+    // CONTROLLED and UNSPECIFIED are not supported because tests should explicitly
+    // test enabled or disabled behavior, not rollout percentage logic.
+    validateDynamicFeatureFlagPhases(name, this.dynamicFeatureFlags);
+  }
+
+  private static Optional<List<DynamicFeatureFlagConfig>> normalizeDynamicFeatureFlagScopes(
+      Optional<List<DynamicFeatureFlagConfig>> dynamicFeatureFlags) {
+    return dynamicFeatureFlags.map(
+        dffs ->
+            dffs.stream()
+                .map(
+                    dff -> {
+                      // Default to ORG scope if not specified, so cluster-invariant evaluation
+                      // works
+                      if (dff.scope() == DynamicFeatureFlagConfig.Scope.UNSPECIFIED) {
+                        return new DynamicFeatureFlagConfig(
+                            dff.featureFlagName(),
+                            dff.phase(),
+                            dff.allowedList(),
+                            dff.blockedList(),
+                            dff.rolloutPercentage(),
+                            DynamicFeatureFlagConfig.Scope.ORG);
+                      }
+                      return dff;
+                    })
+                .toList());
+  }
+
+  private static void validateDynamicFeatureFlagPhases(
+      String testName, Optional<List<DynamicFeatureFlagConfig>> dynamicFeatureFlags) {
+    dynamicFeatureFlags.ifPresent(
+        dffs -> {
+          for (DynamicFeatureFlagConfig dff : dffs) {
+            if (dff.phase() != DynamicFeatureFlagConfig.Phase.ENABLED
+                && dff.phase() != DynamicFeatureFlagConfig.Phase.DISABLED) {
+              throw new IllegalArgumentException(
+                  String.format(
+                      "Test '%s' has invalid DFF phase '%s' for flag '%s'. "
+                          + "Only ENABLED or DISABLED phases are allowed in test specs. "
+                          + "CONTROLLED and UNSPECIFIED are not supported.",
+                      testName, dff.phase(), dff.featureFlagName()));
+            }
+          }
+        });
   }
 
   static TestSpec fromBson(DocumentParser parser) throws BsonParseException {
@@ -143,6 +211,8 @@ public abstract class TestSpec implements DocumentEncodable {
             .field(Fields.SHARD_ZONE_CONFIGS, this.shardZoneConfigs)
             .field(Fields.MIN_MONGODB_VERSION, this.minMongoDbVersionInfo)
             .field(Fields.MIN_SHARDED_MONGODB_VERSION, this.minMongoDbVersionInfo)
+            .field(Fields.DYNAMIC_FEATURE_FLAGS, this.dynamicFeatureFlags)
+            .field(Fields.SKIP_ON_ATLAS, this.skipOnAtlas)
             .build();
 
     document.putAll(this.testSpecToBson());
@@ -193,6 +263,20 @@ public abstract class TestSpec implements DocumentEncodable {
 
   public Optional<MongoDbVersionInfo> getMinShardedMongoDbVersionInfo() {
     return this.minShardedMongoDbVersionInfo;
+  }
+
+  public Optional<List<DynamicFeatureFlagConfig>> getDynamicFeatureFlags() {
+    return this.dynamicFeatureFlags;
+  }
+
+  /**
+   * Returns true if this test should be skipped when running on Atlas.
+   *
+   * <p>Tests that require specific DFF configurations should set this to true if the engineer
+   * cannot guarantee the Atlas environment has the required DFFs configured.
+   */
+  public boolean shouldSkipOnAtlas() {
+    return this.skipOnAtlas;
   }
 
   public AggregationTestSpec asAggregationTestSpec() {
