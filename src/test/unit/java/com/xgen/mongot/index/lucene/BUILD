@@ -6,17 +6,14 @@ load("//bazel/java:test.bzl", "mongot_java_unit_test_suite")
 mongot_java_unit_test_suite(
     name = "lib",
     exclude_files = [
-        "TestVectorIndexingAndQueryingLargeScale.java",
         "VectorIndexingAndQueryingTestHarness.java",
     ],
     resources = True,
     timeouts = {
         # Below tests deal with 10k vectors so take more time
-        "TestByteVectorIndexingAndQueryingLargeScale.java": "moderate",
-        "TestFloatVectorIndexingAndQueryingLargeScale.java": "moderate",
+        "TestVectorIndexingAndQueryingLargeScale.java": "moderate",
         # Background: https://jira.mongodb.org/browse/CLOUDP-246113
         "TestLuceneSearchBatchProducer.java": "moderate",
-        "TestVectorIndexingAndQueryingLargeScaleWithQuantization.java": "moderate",
     },
     deps = [
         "commons-codec:commons-codec",
