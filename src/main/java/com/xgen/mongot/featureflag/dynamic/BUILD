@@ -6,7 +6,6 @@ java_library(
         "DynamicFeatureFlagConfig.java",
         "DynamicFeatureFlagRegistry.java",
         "DynamicFeatureFlags.java",
-        "EvaluateDynamicFeatureFlagContext.java",
     ],
     visibility = ["//visibility:public"],
     exports = ["@maven//:org_mongodb_bson"],
@@ -18,6 +17,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/query",
         "//src/main/java/com/xgen/mongot/util/bson/parser",
         "@maven//:com_google_flogger_flogger",
+        "@maven//:com_google_guava_guava",
         "@maven//:org_mongodb_bson",
     ],
 )

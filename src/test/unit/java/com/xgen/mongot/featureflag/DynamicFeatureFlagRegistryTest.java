@@ -406,6 +406,28 @@ public class DynamicFeatureFlagRegistryTest {
   }
 
   @Test
+  public void isHashedIdWithinPercentage_byteArrayAndIntOverloads_equivalentForSameValue() {
+    var registry =
+        new DynamicFeatureFlagRegistry(
+            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+
+    int seed = 42;
+    int entityHash = 0x1234_5678;
+    byte[] entityBytes = ByteBuffer.allocate(4).putInt(entityHash).array();
+
+    for (int rolloutPercentage = 0; rolloutPercentage <= 100; rolloutPercentage++) {
+      boolean resultByteArray =
+          registry.isHashedIdWithinPercentage(seed, entityBytes, rolloutPercentage);
+      boolean resultInt =
+          registry.isHashedIdWithinPercentage(seed, entityHash, rolloutPercentage);
+      assertEquals(
+          "Seed=%d entityHash=%d rollout=%d".formatted(seed, entityHash, rolloutPercentage),
+          resultByteArray,
+          resultInt);
+    }
+  }
+
+  @Test
   public void evaluateClusterInvariant_idMissing_returnsFallback() {
     DynamicFeatureFlagConfig configOrg =
         new DynamicFeatureFlagConfig(

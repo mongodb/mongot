@@ -1,7 +1,9 @@
 package com.xgen.mongot.featureflag.dynamic;
 
+import static com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig.Phase;
 import static com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig.Scope;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.flogger.FluentLogger;
 import com.xgen.mongot.index.DynamicFeatureFlagsMetricsRecorder;
 import com.xgen.mongot.index.lucene.explain.explainers.DynamicFeatureFlagFeatureExplainer;
@@ -45,6 +47,7 @@ public class DynamicFeatureFlagRegistry {
    * evaluation.
    */
   private record InternalDynamicFeatureFlagConfig(
+      Phase phase,
       int seed,
       Set<ObjectId> entityIdAllowList,
       Set<ObjectId> entityIdBlockList,
@@ -84,32 +87,34 @@ public class DynamicFeatureFlagRegistry {
    * @return {@code true} if the feature is enabled, {@code false} if disabled or not found.
    */
   public boolean evaluateClusterInvariant(String featureFlagName, boolean fallback) {
-    var dynamicFeatureFlagConfig = this.getFeatureFlag(featureFlagName);
-    return dynamicFeatureFlagConfig
-        .map(
-            featureFlagConfig ->
-                switch (featureFlagConfig.scope()) {
-                  case Scope.ORG ->
-                      this.orgId
-                          .map(id -> evaluate(featureFlagName, id, fallback))
-                          .orElse(fallback);
-                  case Scope.GROUP ->
-                      this.groupId
-                          .map(id -> evaluate(featureFlagName, id, fallback))
-                          .orElse(fallback);
-                  case Scope.MONGOT_CLUSTER ->
-                      this.clusterId
-                          .map(id -> evaluate(featureFlagName, id, fallback))
-                          .orElse(fallback);
-                  case Scope.MONGOT_QUERY, Scope.MONGOT_INDEX, Scope.UNSPECIFIED -> {
-                    FLOGGER.atWarning().atMostEvery(5, TimeUnit.MINUTES).log(
-                        """
-                            Evaluating Cluster variant DFFs with evaluateClusterInvariant. \
-                            Check feature flag definitions.""");
-                    yield fallback;
-                  }
-                })
-        .orElse(fallback);
+    InternalDynamicFeatureFlagConfig config = this.internalConfigs.get(featureFlagName);
+    if (config == null) {
+      FLOGGER.atWarning().atMostEvery(5, TimeUnit.MINUTES).log(
+          "Feature flag not present in registry, falling back to provided value");
+      return recordAndReturnFallback(featureFlagName, fallback);
+    }
+
+    return switch (config.scope()) {
+      case Scope.ORG ->
+          this.orgId
+              .map(id -> evaluate(featureFlagName, id, fallback))
+              .orElseGet(() -> recordAndReturnFallback(featureFlagName, fallback));
+      case Scope.GROUP ->
+          this.groupId
+              .map(id -> evaluate(featureFlagName, id, fallback))
+              .orElseGet(() -> recordAndReturnFallback(featureFlagName, fallback));
+      case Scope.MONGOT_CLUSTER ->
+          this.clusterId
+              .map(id -> evaluate(featureFlagName, id, fallback))
+              .orElseGet(() -> recordAndReturnFallback(featureFlagName, fallback));
+      case Scope.MONGOT_QUERY, Scope.MONGOT_INDEX, Scope.UNSPECIFIED -> {
+        FLOGGER.atWarning().atMostEvery(5, TimeUnit.MINUTES).log(
+            """
+                Evaluating Cluster variant DFFs with evaluateClusterInvariant. \
+                Check feature flag definitions.""");
+        yield recordAndReturnFallback(featureFlagName, fallback);
+      }
+    };
   }
 
   /**
@@ -121,8 +126,49 @@ public class DynamicFeatureFlagRegistry {
    * @return {@code true} if the feature is enabled, {@code false} if disabled or not found.
    */
   public boolean evaluate(String featureFlagName, ObjectId entityId, boolean fallback) {
-    return evaluateHelper(
-        featureFlagName, new EvaluateDynamicFeatureFlagContext(entityId), fallback);
+    InternalDynamicFeatureFlagConfig config = this.internalConfigs.get(featureFlagName);
+
+    if (config == null) {
+      FLOGGER.atWarning().atMostEvery(5, TimeUnit.MINUTES).log(
+          "Feature flag not present in registry, falling back to provided value");
+      return recordAndReturnFallback(featureFlagName, fallback);
+    }
+
+    // Check phase first - ENABLED/DISABLED take precedence over everything
+    Optional<Boolean> phaseResult = evaluatePhase(featureFlagName, config);
+    if (phaseResult.isPresent()) {
+      return phaseResult.get();
+    }
+
+    // CONTROLLED phase: check allow/block list first
+    if (config.entityIdBlockList().contains(entityId)) {
+      recordEvaluation(featureFlagName, false, FeatureFlagEvaluationSpec.DecisiveField.BLOCK_LIST);
+      return false;
+    }
+    if (config.entityIdAllowList().contains(entityId)) {
+      recordEvaluation(featureFlagName, true, FeatureFlagEvaluationSpec.DecisiveField.ALLOW_LIST);
+      return true;
+    }
+
+    // Check rollout percentage bounds
+    if (config.rolloutPercentage() == 0) {
+      recordEvaluation(
+          featureFlagName, false, FeatureFlagEvaluationSpec.DecisiveField.ROLLOUT_PERCENTAGE);
+      return false;
+    }
+    if (config.rolloutPercentage() == 100) {
+      recordEvaluation(
+          featureFlagName, true, FeatureFlagEvaluationSpec.DecisiveField.ROLLOUT_PERCENTAGE);
+      return true;
+    }
+
+    boolean result =
+        isHashedIdWithinPercentage(
+            config.seed(), entityId.toByteArray(), config.rolloutPercentage());
+
+    recordEvaluation(
+        featureFlagName, result, FeatureFlagEvaluationSpec.DecisiveField.ROLLOUT_PERCENTAGE);
+    return result;
   }
 
   /**
@@ -134,75 +180,86 @@ public class DynamicFeatureFlagRegistry {
    * @return {@code true} if the feature is enabled, {@code false} if disabled or not found.
    */
   public boolean evaluate(String featureFlagName, Query query, boolean fallback) {
-    return evaluateHelper(featureFlagName, new EvaluateDynamicFeatureFlagContext(query), fallback);
-  }
+    InternalDynamicFeatureFlagConfig config = this.internalConfigs.get(featureFlagName);
 
-  private boolean evaluateHelper(
-      String featureFlagName,
-      EvaluateDynamicFeatureFlagContext evaluationContext,
-      boolean fallback) {
-    Optional<InternalDynamicFeatureFlagConfig> maybeConfig =
-        Optional.ofNullable(this.internalConfigs.get(featureFlagName));
-
-    if (maybeConfig.isPresent()) {
-      InternalDynamicFeatureFlagConfig config = maybeConfig.get();
-      return handleControlledPhase(featureFlagName, config, evaluationContext);
+    if (config == null) {
+      FLOGGER.atWarning().atMostEvery(5, TimeUnit.MINUTES).log(
+          "Feature flag not present in registry, falling back to provided value");
+      return recordAndReturnFallback(featureFlagName, fallback);
     }
 
-    FLOGGER.atWarning().atMostEvery(5, TimeUnit.MINUTES).log(
-        "Feature flag not present in registry, falling back to provided value");
-    recordEvaluation(featureFlagName, fallback, FeatureFlagEvaluationSpec.DecisiveField.FALLBACK);
-    return fallback;
-  }
-
-  private boolean handleControlledPhase(
-      String featureFlagName,
-      InternalDynamicFeatureFlagConfig config,
-      EvaluateDynamicFeatureFlagContext evaluationContext) {
-    // We skip allowlist/blocklist check for MONGOT_QUERY since we don't know query ids ahead of
-    // time and cannot allow/block by query ids
-    boolean skipAllowBlockList = config.scope() == Scope.MONGOT_QUERY;
-
-    if (!skipAllowBlockList) {
-      if (config.entityIdBlockList().contains(evaluationContext.entityId())) {
-        recordEvaluation(
-            featureFlagName, false, FeatureFlagEvaluationSpec.DecisiveField.BLOCK_LIST);
-        return false;
-      }
-      if (config.entityIdAllowList().contains(evaluationContext.entityId())) {
-        recordEvaluation(featureFlagName, true, FeatureFlagEvaluationSpec.DecisiveField.ALLOW_LIST);
-        return true;
-      }
+    // Check phase first - ENABLED/DISABLED take precedence over everything
+    Optional<Boolean> phaseResult = evaluatePhase(featureFlagName, config);
+    if (phaseResult.isPresent()) {
+      return phaseResult.get();
     }
 
-    // If the rollout percentage is 0 or 100, the flag's decisive field is considered PHASE
-    // because 'ENABLED' and 'DISABLED/UNSPECIFIED' phases are converted to these percentages
-    // in convertToInternalConfig
+    // CONTROLLED phase: query-scoped flags skip allow/block list; check rollout percentage
     if (config.rolloutPercentage() == 0) {
-      recordEvaluation(featureFlagName, false, FeatureFlagEvaluationSpec.DecisiveField.PHASE);
+      recordEvaluation(
+          featureFlagName, false, FeatureFlagEvaluationSpec.DecisiveField.ROLLOUT_PERCENTAGE);
       return false;
     }
     if (config.rolloutPercentage() == 100) {
-      recordEvaluation(featureFlagName, true, FeatureFlagEvaluationSpec.DecisiveField.PHASE);
+      recordEvaluation(
+          featureFlagName, true, FeatureFlagEvaluationSpec.DecisiveField.ROLLOUT_PERCENTAGE);
       return true;
     }
 
     boolean result =
         isHashedIdWithinPercentage(
-            config.seed(), evaluationContext.entityByteArray(), config.rolloutPercentage());
+            config.seed(), System.identityHashCode(query), config.rolloutPercentage());
 
     recordEvaluation(
         featureFlagName, result, FeatureFlagEvaluationSpec.DecisiveField.ROLLOUT_PERCENTAGE);
     return result;
   }
 
-  private boolean isHashedIdWithinPercentage(
+  /**
+   * Evaluates the phase of a feature flag. Returns the result if phase determines the outcome
+   * (ENABLED/DISABLED/UNSPECIFIED), or empty if evaluation should continue (CONTROLLED phase).
+   */
+  private Optional<Boolean> evaluatePhase(
+      String featureFlagName, InternalDynamicFeatureFlagConfig config) {
+    return switch (config.phase()) {
+      case ENABLED -> {
+        recordEvaluation(featureFlagName, true, FeatureFlagEvaluationSpec.DecisiveField.PHASE);
+        yield Optional.of(true);
+      }
+      case DISABLED, UNSPECIFIED -> {
+        recordEvaluation(featureFlagName, false, FeatureFlagEvaluationSpec.DecisiveField.PHASE);
+        yield Optional.of(false);
+      }
+      case CONTROLLED -> Optional.empty();
+    };
+  }
+
+  private boolean recordAndReturnFallback(String featureFlagName, boolean fallback) {
+    recordEvaluation(featureFlagName, fallback, FeatureFlagEvaluationSpec.DecisiveField.FALLBACK);
+    return fallback;
+  }
+
+  @VisibleForTesting
+  public boolean isHashedIdWithinPercentage(
       int seed, byte[] entityByteArray, int rolloutPercentage) {
     CRC32 hasher = new CRC32();
     for (int shift = 24; shift >= 0; shift -= 8) {
       hasher.update(seed >>> shift);
     }
     hasher.update(entityByteArray);
+    long hashedValue = hasher.getValue();
+    return hashedValue % 100 < rolloutPercentage;
+  }
+
+  @VisibleForTesting
+  public boolean isHashedIdWithinPercentage(int seed, int entityHash, int rolloutPercentage) {
+    CRC32 hasher = new CRC32();
+    for (int shift = 24; shift >= 0; shift -= 8) {
+      hasher.update(seed >>> shift);
+    }
+    for (int shift = 24; shift >= 0; shift -= 8) {
+      hasher.update(entityHash >>> shift);
+    }
     long hashedValue = hasher.getValue();
     return hashedValue % 100 < rolloutPercentage;
   }
@@ -268,17 +325,23 @@ public class DynamicFeatureFlagRegistry {
 
   private InternalDynamicFeatureFlagConfig convertToInternalConfig(DynamicFeatureFlagConfig dto) {
     return switch (dto.phase()) {
-      case ENABLED -> new InternalDynamicFeatureFlagConfig(0, Set.of(), Set.of(), 100, dto.scope());
+      case ENABLED ->
+          new InternalDynamicFeatureFlagConfig(
+              Phase.ENABLED, 0, Set.of(), Set.of(), 100, dto.scope());
       case UNSPECIFIED, DISABLED ->
-          new InternalDynamicFeatureFlagConfig(0, Set.of(), Set.of(), 0, dto.scope());
+          new InternalDynamicFeatureFlagConfig(dto.phase(), 0, Set.of(), Set.of(), 0, dto.scope());
       case CONTROLLED -> {
         Set<ObjectId> allowList = new HashSet<>(dto.allowedList());
         Set<ObjectId> blockList = new HashSet<>(dto.blockedList());
-
         int seed = dto.featureFlagName().hashCode();
 
         yield new InternalDynamicFeatureFlagConfig(
-            seed, allowList, blockList, dto.sanitizedRolloutPercentage(), dto.scope());
+            Phase.CONTROLLED,
+            seed,
+            allowList,
+            blockList,
+            dto.sanitizedRolloutPercentage(),
+            dto.scope());
       }
     };
   }
