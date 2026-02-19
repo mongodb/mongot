@@ -4,6 +4,7 @@ java_library(
     name = "custom",
     srcs = [
         "ExactVectorSearchQuery.java",
+        "MongotKnnByteQuery.java",
         "MongotKnnFloatQuery.java",
         "WrappedKnnQuery.java",
         "WrappedQuery.java",

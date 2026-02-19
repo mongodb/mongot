@@ -6,7 +6,7 @@ import javax.annotation.Nullable;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.QueryTimeout;
 import org.apache.lucene.search.DocIdSetIterator;
-import org.apache.lucene.search.KnnFloatVectorQuery;
+import org.apache.lucene.search.KnnByteVectorQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.TotalHits;
@@ -14,17 +14,17 @@ import org.apache.lucene.search.knn.KnnCollectorManager;
 import org.apache.lucene.util.Bits;
 
 /**
- * A specialized implementation of Lucene's KnnFloatVectorQuery to integrate with Mongot's metrics
+ * A specialized implementation of Lucene's KnnByteVectorQuery to integrate with Mongot's metrics
  * and serve as a potential extension point for future optimizations.
  */
-public class MongotKnnFloatQuery extends KnnFloatVectorQuery {
+public class MongotKnnByteQuery extends KnnByteVectorQuery {
 
   protected final IndexMetricsUpdater.QueryingMetricsUpdater metrics;
   protected final boolean hasFilter;
 
   /** A convenience overload for creating an unfiltered KNN query. */
-  public MongotKnnFloatQuery(
-      IndexMetricsUpdater.QueryingMetricsUpdater metrics, String field, float[] target, int k) {
+  public MongotKnnByteQuery(
+      IndexMetricsUpdater.QueryingMetricsUpdater metrics, String field, byte[] target, int k) {
     this(metrics, field, target, k, null);
   }
 
@@ -33,17 +33,17 @@ public class MongotKnnFloatQuery extends KnnFloatVectorQuery {
    * target vector.
    *
    * @param metrics - a metrics updater that holds counters relating to query execution.
-   * @param field – the lucene field name that has been indexed as a KnnFloatVectorField.
-   * @param target – the target query vector
-   * @param k – the number of documents to find
-   * @param filter – an optional filter applied before the vector search, or null if the search is
-   *     unfiltered.
+   * @param field   – the lucene field name that has been indexed as a KnnByteVectorField.
+   * @param target  – the target query vector
+   * @param k       – the number of documents to find
+   * @param filter  – an optional filter applied before the vector search, or null if the search is
+   *                unfiltered.
    * @throws IllegalArgumentException – if k is less than 1
    */
-  public MongotKnnFloatQuery(
+  public MongotKnnByteQuery(
       IndexMetricsUpdater.QueryingMetricsUpdater metrics,
       String field,
-      float[] target,
+      byte[] target,
       int k,
       @Nullable Query filter) {
     super(field, target, k, filter);
@@ -58,9 +58,6 @@ public class MongotKnnFloatQuery extends KnnFloatVectorQuery {
       int visitedLimit,
       KnnCollectorManager knnCollectorManager)
       throws IOException {
-    // Note: visitedLimit = acceptDocs.cardinality() + 1 if using filtered search, otherwise is
-    // Integer.MAX_VALUE.
-    // acceptDocs is null if there is no filter AND there are no deleted docs in the segment
     TopDocs result =
         super.approximateSearch(context, acceptDocs, visitedLimit, knnCollectorManager);
 

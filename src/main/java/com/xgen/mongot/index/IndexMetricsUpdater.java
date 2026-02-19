@@ -53,6 +53,7 @@ public class IndexMetricsUpdater implements Closeable {
   /** Reports the actual method KNN search selected at query time. */
   public enum KnnSearchMode {
     APPROXIMATE,
+    EXACT,
     FALLBACK_TO_EXACT,
   }
 
@@ -479,6 +480,12 @@ public class IndexMetricsUpdater implements Closeable {
      */
     private final Map<KnnSearchMode, Counter> knnSearchModeCounter;
 
+    /** Counters for visited nodes in KNN queries, indexed by filter and mode. */
+    private final Counter vectorSearchVisitedNodesUnfilteredApproximateCounter;
+    private final Counter vectorSearchVisitedNodesUnfilteredExactCounter;
+    private final Counter vectorSearchVisitedNodesFilteredApproximateCounter;
+    private final Counter vectorSearchVisitedNodesFilteredExactCounter;
+
     @VisibleForTesting
     public QueryingMetricsUpdater(PerIndexMetricsFactory metricsFactory) {
       this(
@@ -581,6 +588,18 @@ public class IndexMetricsUpdater implements Closeable {
       this.limitPerQuery = metricsFactory.histogram("limitPerQuery", LIMIT_BUCKETS);
       this.phantomSearcherCleanupCounter = metricsFactory.counter("phantomSearcherCleanupCount");
       this.benefitFromIndexSortCounter = metricsFactory.counter("benefitFromIndexSortCount");
+      this.vectorSearchVisitedNodesUnfilteredApproximateCounter =
+          metricsFactory.counter(
+              "vectorSearchVisitedNodes", Tags.of("filter", "false", "mode", "approximate"));
+      this.vectorSearchVisitedNodesUnfilteredExactCounter =
+          metricsFactory.counter(
+              "vectorSearchVisitedNodes", Tags.of("filter", "false", "mode", "exact"));
+      this.vectorSearchVisitedNodesFilteredApproximateCounter =
+          metricsFactory.counter(
+              "vectorSearchVisitedNodes", Tags.of("filter", "true", "mode", "approximate"));
+      this.vectorSearchVisitedNodesFilteredExactCounter =
+          metricsFactory.counter(
+              "vectorSearchVisitedNodes", Tags.of("filter", "true", "mode", "exact"));
     }
 
     public Counter getTotalQueryCounter() {
@@ -609,6 +628,21 @@ public class IndexMetricsUpdater implements Closeable {
      */
     public void incrementKnnSearchMode(KnnSearchMode type) {
       this.knnSearchModeCounter.get(type).increment();
+    }
+
+    /** Records the number of visited nodes for a vector search query. */
+    public void recordVectorSearchVisitedNodes(
+        long visitedNodes, boolean hasFilter, KnnSearchMode mode) {
+      Counter counter =
+          switch (mode) {
+            case APPROXIMATE -> hasFilter
+                ? this.vectorSearchVisitedNodesFilteredApproximateCounter
+                : this.vectorSearchVisitedNodesUnfilteredApproximateCounter;
+            case EXACT, FALLBACK_TO_EXACT -> hasFilter
+                ? this.vectorSearchVisitedNodesFilteredExactCounter
+                : this.vectorSearchVisitedNodesUnfilteredExactCounter;
+          };
+      counter.increment(visitedNodes);
     }
 
     @VisibleForTesting

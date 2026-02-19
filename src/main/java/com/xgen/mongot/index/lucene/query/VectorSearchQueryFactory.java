@@ -9,6 +9,7 @@ import com.xgen.mongot.index.lucene.explain.knn.VectorSearchExplainer;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.query.context.QueryFactoryContext;
+import com.xgen.mongot.index.lucene.query.custom.MongotKnnByteQuery;
 import com.xgen.mongot.index.lucene.query.custom.MongotKnnFloatQuery;
 import com.xgen.mongot.index.lucene.query.util.MetaIdRetriever;
 import com.xgen.mongot.index.lucene.util.LuceneDocumentIdEncoder;
@@ -32,7 +33,6 @@ import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.ConstantScoreQuery;
 import org.apache.lucene.search.FieldExistsQuery;
 import org.apache.lucene.search.IndexSearcher;
-import org.apache.lucene.search.KnnByteVectorQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TopDocs;
@@ -148,13 +148,13 @@ class VectorSearchQueryFactory {
 
         if (explainOptions.isEmpty()) {
           return new InstrumentableApproximateVectorQueryCreator(
-              Explain.getQueryInfo().get(), List.of());
+              Explain.getQueryInfo().get(), List.of(), metrics);
         }
 
         List<VectorSearchExplainer.TracingTarget> targets =
             resolveTraceTargets(explainOptions.get().traceDocuments(), fieldName, indexReader);
         return new InstrumentableApproximateVectorQueryCreator(
-            Explain.getQueryInfo().get(), targets);
+            Explain.getQueryInfo().get(), targets, metrics);
       }
 
       return new RegularApproximateVectorQueryCreator(metrics);
@@ -215,30 +215,29 @@ class VectorSearchQueryFactory {
       public Query query(
           ByteVector vector, String field, int k, int limit, Optional<Query> filter) {
         byte[] target = vector.getByteVector();
-        return filter
-            .map(f -> new KnnByteVectorQuery(field, target, k, f))
-            .orElseGet(() -> new KnnByteVectorQuery(field, target, k));
+        return new MongotKnnByteQuery(this.metrics, field, target, k, filter.orElse(null));
       }
 
       @Override
       public Query query(BitVector vector, String field, int k, int limit, Optional<Query> filter) {
         byte[] target = vector.getBitVector();
-        return filter
-            .map(f -> new KnnByteVectorQuery(field, target, k, f))
-            .orElseGet(() -> new KnnByteVectorQuery(field, target, k));
+        return new MongotKnnByteQuery(this.metrics, field, target, k, filter.orElse(null));
       }
     }
 
     class InstrumentableApproximateVectorQueryCreator implements ApproximateVectorQueryCreator {
 
       private final VectorSearchExplainer tracingExplainer;
+      private final IndexMetricsUpdater.QueryingMetricsUpdater metrics;
 
       private InstrumentableApproximateVectorQueryCreator(
           Explain.QueryInfo explainQueryInfo,
-          List<VectorSearchExplainer.TracingTarget> tracingTargets) {
+          List<VectorSearchExplainer.TracingTarget> tracingTargets,
+          IndexMetricsUpdater.QueryingMetricsUpdater metrics) {
         this.tracingExplainer =
             explainQueryInfo.getFeatureExplainer(
                 VectorSearchExplainer.class, () -> new VectorSearchExplainer(tracingTargets));
+        this.metrics = metrics;
       }
 
       @Override
@@ -251,8 +250,9 @@ class VectorSearchQueryFactory {
 
         return filterPresent
             ? new InstrumentableKnnFloatVectorQuery(
-                instrumentationHelper, field, target, k, filter.get())
-            : new InstrumentableKnnFloatVectorQuery(instrumentationHelper, field, target, k);
+                this.metrics, instrumentationHelper, field, target, k, filter.get())
+            : new InstrumentableKnnFloatVectorQuery(
+                this.metrics, instrumentationHelper, field, target, k);
       }
 
       @Override
@@ -265,8 +265,9 @@ class VectorSearchQueryFactory {
 
         return filterPresent
             ? new InstrumentableKnnByteVectorQuery(
-                instrumentationHelper, field, target, k, filter.get())
-            : new InstrumentableKnnByteVectorQuery(instrumentationHelper, field, target, k);
+                this.metrics, instrumentationHelper, field, target, k, filter.get())
+            : new InstrumentableKnnByteVectorQuery(
+                this.metrics, instrumentationHelper, field, target, k);
       }
 
       @Override
@@ -278,8 +279,9 @@ class VectorSearchQueryFactory {
 
         return filterPresent
             ? new InstrumentableKnnByteVectorQuery(
-                instrumentationHelper, field, target, k, filter.get())
-            : new InstrumentableKnnByteVectorQuery(instrumentationHelper, field, target, k);
+                this.metrics, instrumentationHelper, field, target, k, filter.get())
+            : new InstrumentableKnnByteVectorQuery(
+                this.metrics, instrumentationHelper, field, target, k);
       }
     }
   }
