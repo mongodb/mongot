@@ -40,7 +40,13 @@ import org.slf4j.LoggerFactory;
  * for the lifetime of the process. Uses a MongoDB collection to store leases.
  *
  * <p>Expected to be used as a singleton.
+ *
+ * <p>TODO(CLOUDP-382207): Deprecate StaticLeaderLeaseManager
+ *
+ * @deprecated Use {@link DynamicLeaderLeaseManager} instead, which supports dynamic per-index
+ *     leader election and handles leadership transitions gracefully.
  */
+@Deprecated
 public class StaticLeaderLeaseManager implements LeaseManager {
 
   private static final Logger LOG = LoggerFactory.getLogger(StaticLeaderLeaseManager.class);
@@ -302,11 +308,12 @@ public class StaticLeaderLeaseManager implements LeaseManager {
   }
 
   @Override
-  public Map<GenerationId, IndexStatus> pollFollowerStatuses() {
+  public LeaseManager.FollowerPollResult pollFollowerStatuses() {
     if (this.isLeader) {
-      return Collections.emptyMap();
+      // Leaders don't poll follower statuses
+      return LeaseManager.FollowerPollResult.EMPTY;
     }
-    Map<GenerationId, IndexStatus> result = new HashMap<>();
+    Map<GenerationId, IndexStatus> statuses = new HashMap<>();
     for (GenerationId generationId : this.managedGenerationIds) {
       String versionKey = this.generationIdToDefinitionVersion.get(generationId);
       if (versionKey == null) {
@@ -314,9 +321,10 @@ public class StaticLeaderLeaseManager implements LeaseManager {
         continue;
       }
       IndexStatus status = getMaterializedViewReplicationStatus(generationId, versionKey);
-      result.put(generationId, status);
+      statuses.put(generationId, status);
     }
-    return result;
+    // Static leader doesn't support dynamic leader election, so no expired leases
+    return new LeaseManager.FollowerPollResult(statuses, Collections.emptySet());
   }
 
   private void ensureLeaseExists(GenerationId generationId) {

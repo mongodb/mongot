@@ -11,7 +11,9 @@ import com.google.common.base.Supplier;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewNonTransientException;
+import com.xgen.mongot.embedding.mongodb.leasing.DynamicLeaderLeaseManager;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
+import com.xgen.mongot.embedding.mongodb.leasing.StaticLeaderLeaseManager;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexGeneration;
@@ -498,7 +500,12 @@ public class MaterializedViewManager implements ReplicationManager {
     this.leaseManager.add(matViewIndexGeneration);
     MaterializedViewGenerator generator =
         this.matViewGeneratorFactory.create(matViewIndexGeneration);
-    activateLeadershipIfNeeded(generator, generationId);
+    // For static leader election only - activates leader mode immediately since leadership is
+    // determined at startup. For dynamic leader election, generators start as followers and
+    // leadership is acquired later via refreshStatus() when expired leases are detected.
+    if (this.leaseManager instanceof StaticLeaderLeaseManager) {
+      activateStaticLeadership(generator, generationId);
+    }
     return generator;
   }
 
@@ -506,14 +513,19 @@ public class MaterializedViewManager implements ReplicationManager {
    * Replaces an existing generator with a new one for index redefinition.
    *
    * <p>Note on timing: The new generator is returned immediately (in follower mode) while
-   * leaseManager.add() and activateLeadershipIfNeeded() run asynchronously after the old generator
-   * shuts down. This is intentional - the new generator is safe in follower mode (no writes), and
-   * we must wait for the old generator to fully shutdown before activating leadership. If
-   * dropIndex() races with this transition, the generator is removed from the map first, and
-   * leaseManager.drop() handles cleanup.
+   * leaseManager.add() and leadership activation run asynchronously after the old generator shuts
+   * down. This is intentional - the new generator is safe in follower mode (no writes), and we must
+   * wait for the old generator to fully shutdown before activating leadership. If dropIndex() races
+   * with this transition, the generator is removed from the map first, and leaseManager.drop()
+   * handles cleanup.
    *
    * <p>Note: shutdown() is guaranteed to complete successfully (never exceptionally) per its
    * contract, so thenRun() will always execute.
+   *
+   * <p>For dynamic leader election: If the old generator was a leader, the new generator should
+   * also become leader immediately since we still own the lease for this index. This ensures that
+   * index definition updates (e.g., filter field changes) trigger a new initial sync with the
+   * updated field mapping.
    */
   private MaterializedViewGenerator replaceGenerator(
       MaterializedViewGenerator existingGenerator,
@@ -521,12 +533,33 @@ public class MaterializedViewManager implements ReplicationManager {
       GenerationId generationId) {
     MaterializedViewGenerator newGenerator =
         this.matViewGeneratorFactory.create(matViewIndexGeneration);
+    // Capture whether the old generator was a leader BEFORE shutdown.
+    // For dynamic leader election, if we were the leader for the old generation,
+    // we should also be the leader for the new generation (same index, same lease).
+    GenerationId oldGenerationId = existingGenerator.getIndexGeneration().getGenerationId();
+    boolean wasLeader = this.leaseManager.isLeader(oldGenerationId);
     existingGenerator
         .shutdown()
         .thenRun(
             () -> {
               this.leaseManager.add(matViewIndexGeneration);
-              activateLeadershipIfNeeded(newGenerator, generationId);
+              if (this.leaseManager instanceof StaticLeaderLeaseManager) {
+                // For static leader election - see the comments in createNewGenerator().
+                activateStaticLeadership(newGenerator, generationId);
+              } else if (wasLeader) {
+                // For dynamic leader election: if the old generator was a leader, the new
+                // generator should also become leader. This is safe because:
+                // 1. We still own the lease (lease is per-index, not per-generation)
+                // 2. The old generator has been shut down
+                // 3. The new generator has the updated index definition with new field mapping
+                LOG.atInfo()
+                    .addKeyValue("oldGenerationId", oldGenerationId)
+                    .addKeyValue("newGenerationId", generationId)
+                    .log(
+                        "Activating leadership for new generator - "
+                            + "old generator was leader, transferring leadership");
+                newGenerator.becomeLeader();
+              }
             });
     return newGenerator;
   }
@@ -543,18 +576,50 @@ public class MaterializedViewManager implements ReplicationManager {
   }
 
   /**
-   * Activates leader mode on the generator if this instance is the leader for the given generation.
+   * Transitions a generator from leader to follower mode by shutting down the old generator and
+   * replacing it with a new follower generator. This is called when leadership is lost (e.g., due
+   * to OCC failure in lease renewal).
+   *
+   * <p>This respects the ReplicationIndexManager design that generators are not restarted once
+   * stopped - instead, we create a new generator in follower mode.
+   *
+   * <p>Note: Unlike {@link #replaceGenerator}, this does not call leaseManager.add() since the
+   * lease already exists, and does not activate leadership since we just lost it.
+   *
+   * @param uuid the UUID of the materialized view collection
+   * @param existingGenerator the existing leader generator to replace
    */
-  private void activateLeadershipIfNeeded(
+  private synchronized void transitionToFollower(
+      UUID uuid, MaterializedViewGenerator existingGenerator) {
+    MaterializedViewIndexGeneration matViewIndexGeneration = existingGenerator.getIndexGeneration();
+    MaterializedViewGenerator newGenerator =
+        this.matViewGeneratorFactory.create(matViewIndexGeneration);
+    // Replace in the map immediately so subsequent operations use the new follower generator.
+    this.managedMaterializedViewGenerators.put(uuid, newGenerator);
+    // Shutdown the old generator asynchronously. No need to wait or activate leadership.
+    existingGenerator.shutdown();
+  }
+
+  /**
+   * Activates leader mode on the generator for static leader election. This method should only be
+   * called when using {@link StaticLeaderLeaseManager}.
+   *
+   * <p>For static leader election, leadership is determined at startup and never changes, so we
+   * activate immediately if this instance is the leader.
+   *
+   * @deprecated Static leader election is being replaced by the dynamic leader election mechanism
+   *     (CLOUDP-373432). This method will be removed when StaticLeaderLeaseManager is deleted.
+   */
+  @Deprecated
+  private void activateStaticLeadership(
       MaterializedViewGenerator generator, GenerationId generationId) {
-    // TODO(CLOUDP-373432): For dynamic leader election, leadership should be acquired
-    // through the lease manager rather than checked at add() time. The generator should
-    // listen for leadership changes and call becomeLeader()/becomeFollower() accordingly.
     boolean isLeader = this.leaseManager.isLeader(generationId);
     LOG.atInfo()
         .addKeyValue("generationId", generationId)
         .addKeyValue("isLeader", isLeader)
-        .log("Creating auto-embedding generator (leader mode = {})", isLeader);
+        .log(
+            "Creating auto-embedding generator for static leader election (leader mode = {})",
+            isLeader);
     if (isLeader) {
       generator.becomeLeader();
     }
@@ -590,11 +655,11 @@ public class MaterializedViewManager implements ReplicationManager {
       return this.leaseManager.drop(generationId);
     }
 
-    // TODO(CLOUDP-373432): For dynamic leader election, leadership may change during the drop
-    // operation. Consider using generator.isLeader() to check the generator's current role state,
-    // or handle the case where leadership changes mid-drop.
-    if (this.leaseManager.isLeader(generationId)) {
-      // Leader mode: shutdown generator, drop materialized view collection, remove from lease
+    // Use generator.isLeader() to check the generator's current role state.
+    // This is more accurate than leaseManager.isLeader() for dynamic leader election
+    // since the generator tracks its own leadership state.
+    if (generator.isLeader()) {
+      // Leader mode: shutdown generator, drop the materialized view collection, remove from lease
       var matViewWriter =
           Check.instanceOf(
               generator.getIndexGeneration().getIndex().getWriter(), MaterializedViewWriter.class);
@@ -679,43 +744,63 @@ public class MaterializedViewManager implements ReplicationManager {
 
   /**
    * Refreshes status for all managed indexes where this instance is a follower. Polls status from
-   * LeaseManager for each follower index and updates the index status.
+   * LeaseManager for each follower index and updates the index status. Also attempts to acquire
+   * leadership for any expired leases and transitions generators to follower mode if leadership was
+   * lost.
    */
   private void refreshStatus() {
     if (isShutdown()) {
       return;
     }
-    // Poll all follower statuses from LeaseManager and update the local index status.
-    var followerStatuses = this.leaseManager.pollFollowerStatuses();
-    getMatViewGenerators()
+    // Poll all follower statuses from LeaseManager.
+    var pollResult = this.leaseManager.pollFollowerStatuses();
+    var generators = getMatViewGenerators();
+
+    // Update the local index status for all followers.
+    generators
         .values()
         .forEach(
             generator -> {
               var generationId = generator.getIndexGeneration().getGenerationId();
-              if (followerStatuses.containsKey(generationId)) {
-                var status = followerStatuses.get(generationId);
+              if (pollResult.statuses().containsKey(generationId)) {
+                var status = pollResult.statuses().get(generationId);
                 generator.getIndexGeneration().getIndex().setStatus(status);
               }
             });
+
+    // Dynamic leader election only: attempt to acquire leadership for acquirable leases.
+    if (this.leaseManager instanceof DynamicLeaderLeaseManager) {
+      for (GenerationId generationId : pollResult.acquirableLeases()) {
+        if (this.leaseManager.tryAcquireLeadership(generationId)) {
+          // Successfully acquired leadership - transition generator to leader mode.
+          UUID uuid = getCollectionUuid(generationId);
+          var generator = generators.get(uuid);
+          if (generator != null) {
+            LOG.atInfo()
+                .addKeyValue("indexId", generationId.indexId)
+                .addKeyValue("generationId", generationId)
+                .log("Acquired leadership for materialized view, transitioning to leader mode");
+            generator.becomeLeader();
+          }
+        }
+      }
+    }
   }
 
   /**
    * Periodically updates the maxPossibleReplicationOpTime for all queryable materialized view
-   * indexes where this instance is the leader. This needs to happen separately since this metric is
-   * updated only for indexes in the IndexCatalog in ReplicationOptimeUpdater.
+   * indexes. This needs to happen separately since this metric is updated only for indexes in the
+   * IndexCatalog in ReplicationOptimeUpdater.
+   *
+   * <p>This applies to both leaders and followers since both need accurate optime information for
+   * replication lag reporting (materialized view lag + lucene lag).
    */
   @VisibleForTesting
   void updateMaxReplicationOpTime() {
     if (isShutdown()) {
       return;
     }
-    // Only update optime for indexes where this instance is the leader.
-    // Check this first to avoid unnecessary sync source lookup when there are no leader indexes.
     try {
-      var leaderGenerationIds = this.leaseManager.getLeaderGenerationIds();
-      if (leaderGenerationIds.isEmpty()) {
-        return;
-      }
       var clientSessionRecord =
           this.clientSessionRecordMap.get(getSyncSourceHost(this.syncSourceConfig));
       if (clientSessionRecord == null) {
@@ -728,10 +813,6 @@ public class MaterializedViewManager implements ReplicationManager {
           .values()
           .forEach(
               generator -> {
-                var generationId = generator.getIndexGeneration().getGenerationId();
-                if (!leaderGenerationIds.contains(generationId)) {
-                  return;
-                }
                 var matViewIndex = generator.getIndexGeneration().getIndex();
                 if (matViewIndex.isClosed()) {
                   return;
@@ -769,6 +850,24 @@ public class MaterializedViewManager implements ReplicationManager {
   private void emitHeartbeat() {
     // Delegate to lease manager for lease renewal (no-op for static, renews for dynamic)
     this.leaseManager.heartbeat();
+
+    // Dynamic leader election only: detect generators that lost leadership and replace them
+    // with new follower generators. This handles the case where leadership was lost in
+    // DynamicLeaderLeaseManager (e.g., due to failed lease renewal).
+    if (this.leaseManager instanceof DynamicLeaderLeaseManager) {
+      getMatViewGenerators()
+          .forEach(
+              (uuid, generator) -> {
+                var generationId = generator.getIndexGeneration().getGenerationId();
+                if (generator.isLeader() && !this.leaseManager.isLeader(generationId)) {
+                  LOG.atInfo()
+                      .addKeyValue("indexId", generationId.indexId)
+                      .addKeyValue("generationId", generationId)
+                      .log("Detected leadership loss, replacing with follower generator");
+                  transitionToFollower(uuid, generator);
+                }
+              });
+    }
 
     // Log heartbeat for monitoring
     var leaderIndexIds =

@@ -23,6 +23,17 @@ public class EmbeddingModelCatalog {
   private static final Map<String, Set<String>> COMPATIBLE_QUERY_MODEL_MAP =
       new ConcurrentHashMap<>();
 
+  /**
+   * Hardcoded default compatible models for known model families. This is used when the embedding
+   * service config doesn't specify compatibleModels (e.g., MMS bootstrapper). The voyage-4 family
+   * models are all interchangeable for query-time override.
+   */
+  private static final Map<String, Set<String>> DEFAULT_COMPATIBLE_MODELS =
+      Map.of(
+          "voyage-4-large", Set.of("voyage-4", "voyage-4-lite"),
+          "voyage-4", Set.of("voyage-4-large", "voyage-4-lite"),
+          "voyage-4-lite", Set.of("voyage-4", "voyage-4-large"));
+
   public static Set<String> getAllSupportedModels() {
     return REGISTERED_MODEL_CONFIGS.keySet();
   }
@@ -48,16 +59,28 @@ public class EmbeddingModelCatalog {
   /**
    * Registers the compatible query models for an index model. This is called when loading the
    * embedding service config. The model itself is automatically included as compatible.
+   *
+   * <p>If no compatible models are provided, falls back to hardcoded defaults for known model
+   * families (e.g., voyage-4 family). This ensures MMS bootstrapper has the same compatibility
+   * rules as Community Edition without requiring the conf call to include compatibleModels.
    */
   public static void registerCompatibleModels(
       String indexModel, Set<String> additionalCompatibleModels) {
+    String indexModelLower = indexModel.toLowerCase();
     // Always include the model itself as compatible, and ensure all models are lowercase
     Set<String> allCompatibleModels = new HashSet<>();
-    for (String model : additionalCompatibleModels) {
+
+    // If no compatible models provided, use hardcoded defaults for known model families
+    Set<String> modelsToAdd =
+        additionalCompatibleModels.isEmpty()
+            ? DEFAULT_COMPATIBLE_MODELS.getOrDefault(indexModelLower, Set.of())
+            : additionalCompatibleModels;
+
+    for (String model : modelsToAdd) {
       allCompatibleModels.add(model.toLowerCase());
     }
-    allCompatibleModels.add(indexModel.toLowerCase());
-    COMPATIBLE_QUERY_MODEL_MAP.put(indexModel.toLowerCase(), allCompatibleModels);
+    allCompatibleModels.add(indexModelLower);
+    COMPATIBLE_QUERY_MODEL_MAP.put(indexModelLower, allCompatibleModels);
   }
 
   public static void updateModelConfigs(List<EmbeddingServiceConfig> embeddingServiceConfigs) {

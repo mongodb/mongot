@@ -7,6 +7,7 @@ import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.GenerationId;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -15,6 +16,27 @@ import java.util.concurrent.CompletableFuture;
 // IndexGeneration and GenerationId
 /** Interface for managing leases for the materialized view leader. */
 public interface LeaseManager {
+
+  /**
+   * Result of polling follower statuses from the lease manager.
+   *
+   * <p>Contains both the current status of each follower generation and the set of generation IDs
+   * that are eligible for leadership acquisition. This includes:
+   * <ul>
+   *   <li>Leases that have expired (previous leader failed or timed out)</li>
+   *   <li>Leases owned by this instance (re-acquiring after restart)</li>
+   *   <li>New indexes that don't have a lease yet (lease will be created during acquisition)</li>
+   * </ul>
+   *
+   * @param statuses Map of generation IDs to their current replication status
+   * @param acquirableLeases Set of generation IDs eligible for leadership acquisition
+   */
+  record FollowerPollResult(
+      Map<GenerationId, IndexStatus> statuses, Set<GenerationId> acquirableLeases) {
+    /** An empty result with no statuses and no acquirable leases. */
+    public static final FollowerPollResult EMPTY =
+        new FollowerPollResult(Collections.emptyMap(), Collections.emptySet());
+  }
 
   /**
    * Adds a lease for the given index generation.
@@ -87,19 +109,39 @@ public interface LeaseManager {
    * Polls the status of all follower materialized views from the database. This method reads the
    * latest status from MongoDB for each follower generation ID managed by this lease manager.
    *
-   * @return a map of generation IDs to their current status. Returns an empty map if this instance
-   *     is the leader or if there are no follower generation IDs.
+   * <p>For dynamic leader election, this also identifies leases that are eligible for leadership
+   * acquisition (expired leases, leases we own, or new indexes without leases).
+   *
+   * @return a {@link FollowerPollResult} containing the status map and the set of acquirable
+   *     leases. Returns {@link FollowerPollResult#EMPTY} if this instance is the leader or if
+   *     there are no follower generation IDs.
    */
-  Map<GenerationId, IndexStatus> pollFollowerStatuses();
+  FollowerPollResult pollFollowerStatuses();
 
   /**
    * Performs a heartbeat for all managed leases. For dynamic leader election, this renews the
-   * leases to maintain leadership and handles any leadership changes. For static leader, this is a
-   * no-op since leadership is pre-assigned and constant.
+   * leases for leaders to maintain leadership. For static leader, this is a no-op since leadership
+   * is pre-assigned and constant.
    *
    * <p>This method is called periodically by the MaterializedViewManager.
    */
   default void heartbeat() {
     // Default implementation: no-op for static leader
+  }
+
+  /**
+   * Attempts to acquire leadership for the given generation ID. This is called by the
+   * MaterializedViewManager when it detects that a lease has expired and leadership can be
+   * acquired.
+   *
+   * <p>For dynamic leader election, this attempts to claim the lease using optimistic concurrency
+   * control. For static leader, this is a no-op since leadership is pre-assigned.
+   *
+   * @param generationId the generation ID to acquire leadership for
+   * @return true if leadership was successfully acquired, false otherwise
+   */
+  default boolean tryAcquireLeadership(GenerationId generationId) {
+    // Default implementation: no-op for static leader
+    return false;
   }
 }

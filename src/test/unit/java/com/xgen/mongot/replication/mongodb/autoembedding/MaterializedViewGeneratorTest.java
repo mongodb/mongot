@@ -28,11 +28,11 @@ import org.junit.Test;
  * Unit tests for {@link MaterializedViewGenerator}'s role-switching functionality.
  *
  * <p>These tests verify the behavior of the leader/follower role management methods: {@link
- * MaterializedViewGenerator#isLeader()}, {@link MaterializedViewGenerator#becomeLeader()}, and
- * {@link MaterializedViewGenerator#becomeFollower()}.
+ * MaterializedViewGenerator#isLeader()} and {@link MaterializedViewGenerator#becomeLeader()}.
  *
  * <p>All generators are created as followers. Call {@link MaterializedViewGenerator#becomeLeader()}
- * to activate leader mode.
+ * to activate leader mode. To transition back to follower mode, the generator must be shut down and
+ * replaced with a new generator (see {@link MaterializedViewManager#transitionToFollower}).
  */
 public class MaterializedViewGeneratorTest {
 
@@ -76,52 +76,6 @@ public class MaterializedViewGeneratorTest {
     generator.becomeLeader();
 
     assertTrue(generator.isLeader());
-  }
-
-  @Test
-  public void becomeFollower_whenLeader_setsIsLeaderFalse() {
-    MaterializedViewGenerator generator = createGenerator();
-    generator.becomeLeader();
-    assertTrue(generator.isLeader());
-
-    generator.becomeFollower();
-
-    assertFalse(generator.isLeader());
-  }
-
-  @Test
-  public void becomeFollower_whenAlreadyFollower_remainsFollower() {
-    MaterializedViewGenerator generator = createGenerator();
-    assertFalse(generator.isLeader());
-
-    generator.becomeFollower();
-
-    assertFalse(generator.isLeader());
-  }
-
-  @Test
-  public void roleTransition_leaderToFollowerToLeader_transitionsCorrectly() {
-    MaterializedViewGenerator generator = createGenerator();
-    generator.becomeLeader();
-    assertTrue(generator.isLeader());
-
-    generator.becomeFollower();
-    assertFalse(generator.isLeader());
-
-    generator.becomeLeader();
-    assertTrue(generator.isLeader());
-  }
-
-  @Test
-  public void roleTransition_followerToLeaderToFollower_transitionsCorrectly() {
-    MaterializedViewGenerator generator = createGenerator();
-    assertFalse(generator.isLeader());
-
-    generator.becomeLeader();
-    assertTrue(generator.isLeader());
-
-    generator.becomeFollower();
-    assertFalse(generator.isLeader());
   }
 
   private MaterializedViewGenerator createGenerator() {

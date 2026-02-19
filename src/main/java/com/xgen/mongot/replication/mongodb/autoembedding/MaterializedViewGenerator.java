@@ -36,8 +36,12 @@ import java.util.concurrent.Executor;
  * <p>All generators are created as followers. To activate leader mode, call {@link #becomeLeader()}
  * which starts the replication loop. This design naturally supports both static leadership (call
  * becomeLeader() immediately after creation) and dynamic materialized-view-level leader election
- * (CLOUDP-373432) where each materialized view can independently switch between leader and follower
- * roles.
+ * (CLOUDP-373432).
+ *
+ * <p>Note: Generators follow a one-way lifecycle from follower to leader. To transition back to
+ * follower mode (e.g., when leadership is lost), the generator must be shut down and replaced with
+ * a new generator. This respects the {@link ReplicationIndexManager} design that generators are not
+ * restarted once stopped. See {@link MaterializedViewManager#transitionToFollower}.
  */
 public class MaterializedViewGenerator extends ReplicationIndexManager {
 
@@ -110,14 +114,11 @@ public class MaterializedViewGenerator extends ReplicationIndexManager {
     this.logger.info("Transitioning to leader mode, starting replication loop");
     this.isLeader = true;
 
-    // TODO(CLOUDP-373432): Handle follower-to-leader transition for dynamic leader election.
-    // Currently, this assumes the generator is transitioning from initial follower state.
-    // For dynamic election, we may need to:
-    // 1. Verify the previous initFuture is complete or cancelled before starting a new one
-    // 2. Re-acquire leases from leaseManager (listed for integrity. Can be done elsewhere)
-    // 3. Determine the correct resume point for replication (e.g., from last committed optime)
-
-    // Schedule replication initialization on the lifecycle executor
+    // Schedule replication initialization on the lifecycle executor.
+    // Note: For dynamic leader election, when a generator loses leadership, it is shut down and
+    // replaced with a new follower generator (see MaterializedViewManager.transitionToFollower).
+    // When this new generator later acquires leadership, becomeLeader() is called on a fresh
+    // generator in the initial follower state, so no special handling is needed here.
     this.initFuture =
         CompletableFuture.runAsync(this::initReplication, this.lifecycleExecutor)
             .handleAsync(
@@ -130,30 +131,6 @@ public class MaterializedViewGenerator extends ReplicationIndexManager {
                   return null;
                 },
                 this.lifecycleExecutor);
-  }
-
-  /**
-   * Transitions this generator to follower mode. In follower mode, the generator remains idle and
-   * does not run replication. Status is polled by the MaterializedViewManager from the
-   * LeaseManager.
-   *
-   * <p>If already in follower mode, this is a no-op.
-   */
-  public synchronized void becomeFollower() {
-    if (!this.isLeader) {
-      return;
-    }
-    this.logger.info("Transitioning to follower mode");
-    this.isLeader = false;
-    // TODO(CLOUDP-373432): Implement full leader-to-follower transition for dynamic leader
-    // election. When transitioning from leader to follower, we need to:
-    // 1. Stop the replication loop (cancel initFuture if still running)
-    // 2. Stop writing to the materialized view collection
-    // 3. Release any held leases via leaseManager (listed for integrity. Can be done elsewhere)
-    // 4. Optionally clean up in-progress work or wait for graceful completion
-    // Currently, this method only sets the isLeader flag. The replication loop will continue
-    // running until the generator is shut down. This is acceptable for static leadership
-    // configuration but must be addressed for dynamic leader election.
   }
 
   /** Initializes the replication loop. Called by becomeLeader() to start replication. */

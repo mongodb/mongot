@@ -67,8 +67,8 @@ public record Lease(
   private static final long SCHEMA_VERSION = 1L;
 
   @VisibleForTesting static final long FIRST_LEASE_VERSION = 1L;
-  // Placeholder value for now - leases are not renewable yet.
-  private static final long LEASE_EXPIRATION_MS = 60000L;
+  /** Lease expiration time in milliseconds (5 minutes). */
+  public static final long LEASE_EXPIRATION_MS = 300000L;
 
   static class Fields {
     /**
@@ -261,6 +261,27 @@ public record Lease(
         this.commitInfo,
         this.latestIndexDefinitionVersion,
         newVersionStatus);
+  }
+
+  /**
+   * Creates a renewed lease with a new owner, updated expiration, and incremented version. Used for
+   * lease acquisition and renewal (heartbeat).
+   *
+   * @param newOwner the hostname of the new lease owner
+   * @return a new Lease with updated ownership, expiration, and version
+   */
+  public Lease withRenewedOwnership(String newOwner) {
+    return new Lease(
+        this.id,
+        SCHEMA_VERSION,
+        this.collectionUuid,
+        this.collectionName,
+        newOwner,
+        Instant.now().plusMillis(LEASE_EXPIRATION_MS),
+        this.leaseVersion + 1,
+        this.commitInfo,
+        this.latestIndexDefinitionVersion,
+        this.indexDefinitionVersionStatusMap);
   }
 
   /**

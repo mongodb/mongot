@@ -25,6 +25,7 @@ import com.mongodb.ConnectionString;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
+import com.xgen.mongot.embedding.mongodb.leasing.StaticLeaderLeaseManager;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.InitializedIndex;
@@ -736,7 +737,9 @@ public class MaterializedViewManagerTest {
       when(initializedIndexCatalog.getIndex(any()))
           .thenReturn(Optional.of(mock(InitializedIndex.class)));
 
-      LeaseManager leaseManager = mock(LeaseManager.class);
+      // Use StaticLeaderLeaseManager mock so that activateStaticLeadership() is called
+      // (it's guarded by instanceof StaticLeaderLeaseManager check)
+      StaticLeaderLeaseManager leaseManager = mock(StaticLeaderLeaseManager.class);
       when(leaseManager.drop(any())).thenReturn(COMPLETED_FUTURE);
       when(leaseManager.isLeader(any())).thenReturn(true);
       // Mock getLeaderGenerationIds to return a non-empty set for heartbeat test
@@ -769,7 +772,9 @@ public class MaterializedViewManagerTest {
       NamedScheduledExecutorService optimeUpdaterScheduler =
           mock(NamedScheduledExecutorService.class);
       ScheduledFuture<?> mockFuture = mock(ScheduledFuture.class);
-      LeaseManager mockLeaseManager = mock(LeaseManager.class);
+      // Use StaticLeaderLeaseManager mock so that activateStaticLeadership() is called
+      // (it's guarded by instanceof StaticLeaderLeaseManager check)
+      StaticLeaderLeaseManager mockLeaseManager = mock(StaticLeaderLeaseManager.class);
       // Mock isLeader to return false for follower mode
       when(mockLeaseManager.isLeader(any())).thenReturn(false);
       // Track added generation IDs to return from getFollowerGenerationIds
@@ -793,7 +798,7 @@ public class MaterializedViewManagerTest {
                 for (GenerationId genId : addedGenerationIds) {
                   result.put(genId, IndexStatus.steady());
                 }
-                return result;
+                return new LeaseManager.FollowerPollResult(result, Set.of());
               });
       // Mock getLeaderGenerationIds to return empty set (no leaders in follower mode)
       when(mockLeaseManager.getLeaderGenerationIds()).thenReturn(Set.of());
