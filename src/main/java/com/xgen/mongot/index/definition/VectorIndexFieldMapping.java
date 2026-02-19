@@ -39,9 +39,20 @@ public record VectorIndexFieldMapping(
   }
 
   public static VectorIndexFieldMapping create(
-      List<VectorIndexFieldDefinition> fields, Optional<FieldPath> nestedRoot) {
-    return new VectorIndexFieldMapping(
-        createMap(fields), createDocumentPathMap(fields), nestedRoot);
+      List<VectorIndexFieldDefinition> fields, Optional<FieldPath> nestedRoot)
+      throws IllegalArgumentException {
+    ImmutableSet<String> documentPaths = createDocumentPathMap(fields);
+    VectorIndexFieldMapping mapping =
+        new VectorIndexFieldMapping(createMap(fields), documentPaths, nestedRoot);
+
+    if (nestedRoot.isPresent()
+        && !mapping.subDocumentExists(nestedRoot.get())
+        && !mapping.childPathExists(nestedRoot.get())) {
+      throw new IllegalArgumentException(
+          String.format("nestedRoot is set but no field path is under it: %s", nestedRoot.get()));
+    }
+
+    return mapping;
   }
 
   private static ImmutableMap<FieldPath, VectorIndexFieldDefinition> createMap(

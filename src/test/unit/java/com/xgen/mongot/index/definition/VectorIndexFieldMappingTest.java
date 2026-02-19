@@ -242,6 +242,25 @@ public class VectorIndexFieldMappingTest {
   }
 
   @Test
+  public void testNestedRootPresentButNoFieldUnderItFails() {
+    // Invariant: when nestedRoot is present, at least one field path must be under it, so
+    // subDocumentExists(nestedRoot) and childPathExists(nestedRoot) are true for downstream code.
+    FieldPath nestedRoot = FieldPath.parse("sections");
+    FieldPath topLevelOnly = FieldPath.parse("topLevelVector");
+    VectorDataFieldDefinition topLevelField =
+        VectorDataFieldDefinitionBuilder.builder()
+            .path(topLevelOnly)
+            .numDimensions(128)
+            .similarity(VectorSimilarity.COSINE)
+            .quantization(VectorQuantization.NONE)
+            .build();
+    List<VectorIndexFieldDefinition> fields = List.of(topLevelField);
+    Assert.assertThrows(
+        IllegalArgumentException.class,
+        () -> VectorIndexFieldMapping.create(fields, Optional.of(nestedRoot)));
+  }
+
+  @Test
   public void testNoNestedRootWithNestedPaths() {
     // Fields under "sections" but no index-level nestedRoot: isNestedRoot should be false
     FieldPath sectionVectorPath = FieldPath.parse("sections.embedding");

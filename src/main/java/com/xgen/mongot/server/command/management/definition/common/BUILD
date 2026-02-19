@@ -20,6 +20,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/analyzer/definition",
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/query/sort",
+        "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/bson/parser",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:org_mongodb_bson",

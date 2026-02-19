@@ -71,8 +71,7 @@ public class IndexMapper {
               Optional.of(definitionVersion),
               Optional.of(definitionVersionCreatedAt),
               vectorIndexDefinition.storedSource(),
-              // TODO(CLOUDP-375205): Add nestedRoot support to UserVectorIndexDefinition
-              Optional.empty());
+              vectorIndexDefinition.nestedRoot());
     };
   }
 
@@ -93,7 +92,8 @@ public class IndexMapper {
           new UserVectorIndexDefinition(
               vector.getFields(),
               vector.getNumPartitions(),
-              omitDefault(vector.getStoredSource(), StoredSourceDefinition.defaultValue()));
+              omitDefault(vector.getStoredSource(), StoredSourceDefinition.defaultValue()),
+              vector.getNestedRoot());
     };
   }
 

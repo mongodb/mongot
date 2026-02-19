@@ -3,10 +3,12 @@ package com.xgen.mongot.server.command.management.definition.common;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.index.definition.StoredSourceDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentParser;
 import com.xgen.mongot.util.bson.parser.Field;
+import com.xgen.mongot.util.bson.parser.FieldPathField;
 import java.util.List;
 import java.util.Optional;
 import org.bson.BsonDocument;
@@ -18,7 +20,8 @@ import org.bson.BsonDocument;
 public record UserVectorIndexDefinition(
     List<VectorIndexFieldDefinition> fields,
     int numPartitions,
-    Optional<StoredSourceDefinition> storedSource)
+    Optional<StoredSourceDefinition> storedSource,
+    Optional<FieldPath> nestedRoot)
     implements UserIndexDefinition {
 
   private static class Fields {
@@ -39,6 +42,12 @@ public record UserVectorIndexDefinition(
             .asList()
             .validate(Fields::fieldValidator)
             .required();
+
+    static final Field.Optional<FieldPath> NESTED_ROOT =
+        Field.builder("nestedRoot")
+            .classField(FieldPathField::parse, FieldPathField::encode)
+            .optional()
+            .noDefault();
   }
 
   @Override
@@ -50,6 +59,9 @@ public record UserVectorIndexDefinition(
     if (this.storedSource().isPresent()) {
       builder = builder.field(UserIndexDefinition.Fields.STORED_SOURCE, this.storedSource());
     }
+    if (this.nestedRoot().isPresent()) {
+      builder = builder.field(Fields.NESTED_ROOT, this.nestedRoot());
+    }
     return builder.build();
   }
 
@@ -58,6 +70,7 @@ public record UserVectorIndexDefinition(
     return new UserVectorIndexDefinition(
         parser.getField(Fields.FIELDS).unwrap(),
         parser.getField(UserIndexDefinition.Fields.NUM_PARTITIONS).unwrap(),
-        parser.getField(UserIndexDefinition.Fields.STORED_SOURCE).unwrap());
+        parser.getField(UserIndexDefinition.Fields.STORED_SOURCE).unwrap(),
+        parser.getField(Fields.NESTED_ROOT).unwrap());
   }
 }
