@@ -5,6 +5,7 @@ java_library(
     testonly = True,
     srcs = [
         "BsonDocumentUtil.java",
+        "ByteArrayUtil.java",
         "FunctionalTestUtils.java",
         "ManuallyUpdatedClock.java",
         "MockRuntimeBuilder.java",
