@@ -81,6 +81,13 @@ public record IndexStatsEntry(
             new BsonObjectId(serverId));
   }
 
+  public static BsonDocument indexIdFilter(ObjectId indexId) {
+    return new BsonDocument()
+        .append(
+            Fields.INDEX_STATS_KEY.getName() + "." + IndexStatsKey.Fields.INDEX_ID.getName(),
+            new BsonObjectId(indexId));
+  }
+
   @Override
   public boolean equals(Object o) {
     if (o == null || this.getClass() != o.getClass()) {

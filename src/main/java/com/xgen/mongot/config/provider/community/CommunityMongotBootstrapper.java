@@ -254,7 +254,7 @@ public class CommunityMongotBootstrapper {
             mongotConfigs.regularBlockingRequestSettings,
             meterRegistry,
             healthManager,
-            metadataService.getAuthoritativeIndexCatalog(),
+            metadataService,
             internalListAllIndexesForTesting,
             embeddingServiceManagerSupplier);
 
@@ -701,7 +701,7 @@ public class CommunityMongotBootstrapper {
       RegularBlockingRequestSettings regularBlockingRequestSettings,
       MeterRegistry meterRegistry,
       HealthManager healthManager,
-      AuthoritativeIndexCatalog authoritativeIndexCatalog,
+      MetadataService metadataService,
       boolean internalListAllIndexesForTesting,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier) {
     // Create the ExecutorManager that can serve requests for the tcpServer (and the grpcServer).
@@ -722,7 +722,7 @@ public class CommunityMongotBootstrapper {
             healthManager,
             DEFAULT_BSON_SIZE_SOFT_LIMIT,
             DEFAULT_MESSAGE_SIZE_LIMIT,
-            authoritativeIndexCatalog,
+            metadataService,
             internalListAllIndexesForTesting,
             embeddingServiceManagerSupplier);
 

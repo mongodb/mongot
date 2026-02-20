@@ -26,13 +26,19 @@ public record CommunityServerInfo(ObjectId id, Optional<String> name) {
   }
 
   /**
-   * Returns the external name for the server. This is the customer provided name if present, and if
-   * not defaults to the auto-generated server-id.
+   * Returns the external name for the server.
    *
-   * @return the external name for the server
+   * <p>If the customer provided name is present we concatenate it with the server id to provide
+   * both a unique and identifiable name for the server.
+   *
+   * <p>If the server name was not provided by the customer we default to the serverId as the
+   * external name.
    */
   public String getExternalName() {
-    return this.name.orElse(this.id.toHexString());
+    if (this.name.isEmpty()) {
+      return this.id.toHexString();
+    }
+    return this.name.get() + "." + this.id.toHexString();
   }
 
   /**

@@ -4,7 +4,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
-import com.xgen.mongot.catalogservice.AuthoritativeIndexCatalog;
+import com.xgen.mongot.catalogservice.MetadataService;
 import com.xgen.mongot.config.manager.ConfigManager;
 import com.xgen.mongot.config.util.TlsMode;
 import com.xgen.mongot.cursor.MongotCursorManager;
@@ -65,7 +65,7 @@ public class GrpcStreamingServer implements CommandServer {
       HealthManager healthManager,
       Bytes bsonSizeSoftLimit,
       Bytes inboundMessageSizeLimit,
-      AuthoritativeIndexCatalog authoritativeIndexCatalog,
+      MetadataService metadataService,
       boolean internalListAllIndexesForTesting,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier) {
     CommandRegistry commandRegistry =
@@ -82,7 +82,7 @@ public class GrpcStreamingServer implements CommandServer {
     SearchCommandsRegister.registerIndexManagementCommands(
         RegistrationMode.SECURE,
         commandRegistry,
-        authoritativeIndexCatalog,
+        metadataService,
         configManager,
         internalListAllIndexesForTesting);
 

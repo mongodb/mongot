@@ -183,6 +183,7 @@ public final class VectorIndexDefinition implements IndexDefinition {
     return this.definitionVersion;
   }
 
+  @Override
   public Optional<Instant> getDefinitionVersionCreatedAt() {
     return this.definitionVersionCreatedAt;
   }

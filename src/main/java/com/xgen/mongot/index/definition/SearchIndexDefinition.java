@@ -452,6 +452,7 @@ public final class SearchIndexDefinition implements IndexDefinition {
     return this.definitionVersion;
   }
 
+  @Override
   public Optional<Instant> getDefinitionVersionCreatedAt() {
     return this.definitionVersionCreatedAt;
   }

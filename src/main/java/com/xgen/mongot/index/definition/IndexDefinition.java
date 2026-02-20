@@ -11,6 +11,7 @@ import com.xgen.mongot.util.bson.parser.DocumentParser;
 import com.xgen.mongot.util.bson.parser.Field;
 import com.xgen.mongot.util.bson.parser.Field.Required;
 import com.xgen.mongot.util.bson.parser.Field.WithDefault;
+import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
@@ -123,6 +124,8 @@ public sealed interface IndexDefinition extends DocumentEncodable
   FieldDefinitionResolver createFieldDefinitionResolver(IndexFormatVersion indexFormatVersion);
 
   Optional<Long> getDefinitionVersion();
+
+  Optional<Instant> getDefinitionVersionCreatedAt();
 
   /**
    * The index_feature_version specified in the {@link SearchIndexDefinition} or in the {@link

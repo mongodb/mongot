@@ -19,9 +19,7 @@ java_library(
     deps = [
         "//src/main/java/com/xgen/mongot/cursor/serialization",
         "//src/main/java/com/xgen/mongot/index/definition",
-        "//src/main/java/com/xgen/mongot/index/status",
         "//src/main/java/com/xgen/mongot/server/command/management/definition/common",
-        "//src/main/java/com/xgen/mongot/server/command/management/util",
         "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/bson/parser",
         "@maven//:org_apache_commons_commons_lang3",

@@ -20,7 +20,7 @@ import org.bson.conversions.Bson;
  * internal mongod metadata collections.
  */
 public class MetadataClient<T extends DocumentEncodable> {
-  protected static final String DATABASE_NAME = "__mdb_internal_search";
+  public static final String DATABASE_NAME = "__mdb_internal_search";
 
   private final MongoClient mongoClient;
   private final String collectionName;

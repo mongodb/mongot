@@ -1,6 +1,5 @@
 package com.xgen.mongot.index.status;
 
-
 /**
  * The {@link SynonymStatus} of a SynonymMapping represents the readiness of that mapping to service
  * queries.
@@ -33,8 +32,18 @@ public enum SynonymStatus {
   }
 
   public enum External {
-    BUILDING,
-    READY,
-    FAILED;
+    BUILDING(1),
+    READY(2),
+    FAILED(3);
+
+    private final int priority;
+
+    External(int priority) {
+      this.priority = priority;
+    }
+
+    public int getPriority() {
+      return this.priority;
+    }
   }
 }

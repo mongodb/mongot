@@ -6,6 +6,8 @@ import java.util.UUID;
 
 public interface AuthoritativeIndexCatalog {
 
+  String COLLECTION_NAME = "indexCatalog";
+
   /** Stores an index in the catalog. */
   void createIndex(AuthoritativeIndexKey indexKey, IndexDefinition definition)
       throws MetadataServiceException;

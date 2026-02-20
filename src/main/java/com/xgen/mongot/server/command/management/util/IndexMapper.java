@@ -97,15 +97,65 @@ public class IndexMapper {
     };
   }
 
+  public static int toIndexPriority(StatusCode statusCode) {
+    return ExternalStatus.fromStatusCode(statusCode).getPriority();
+  }
+
   public static String toExternalStatus(StatusCode internal) {
-    return switch (internal) {
-      case NOT_STARTED, UNKNOWN -> "PENDING";
-      case INITIAL_SYNC -> "BUILDING";
-      case STALE, RECOVERING_TRANSIENT, RECOVERING_NON_TRANSIENT -> "STALE";
-      case STEADY -> "READY";
-      case FAILED -> "FAILED";
-      case DOES_NOT_EXIST -> "DOES_NOT_EXIST";
-    };
+    return ExternalStatus.fromStatusCode(internal).name();
+  }
+
+  /**
+   * Takes the main index stats, the staged index status and if the main index is on the latest
+   * index definition to determine the overall status of the index.
+   */
+  public static StatusCode calculateStatus(
+      StatusCode mainIndexStatusCode,
+      StatusCode stagedIndexStatusCode,
+      boolean isMainIndexLatestVersion) {
+
+    ExternalStatus mainIndexStatus = ExternalStatus.fromStatusCode(mainIndexStatusCode);
+    ExternalStatus stagedIndexStatus = ExternalStatus.fromStatusCode(stagedIndexStatusCode);
+
+    if (mainIndexStatus == ExternalStatus.PENDING || mainIndexStatus == ExternalStatus.BUILDING) {
+      return mainIndexStatusCode;
+    }
+
+    if (mainIndexStatus == ExternalStatus.DOES_NOT_EXIST) {
+      if (stagedIndexStatus == ExternalStatus.READY || stagedIndexStatus == ExternalStatus.STALE) {
+        // This should be a temporary state before staged swaps into main but without this special
+        // case it would show as READY/STALE but not queryable
+        return StatusCode.INITIAL_SYNC;
+      } else {
+        return stagedIndexStatusCode;
+      }
+    }
+
+    if (mainIndexStatus == ExternalStatus.READY || mainIndexStatus == ExternalStatus.FAILED) {
+      if (isMainIndexLatestVersion) {
+        return mainIndexStatusCode;
+      }
+      if (stagedIndexStatus == ExternalStatus.FAILED) {
+        return StatusCode.FAILED;
+      }
+      return StatusCode.INITIAL_SYNC;
+    }
+
+    if (mainIndexStatus == ExternalStatus.STALE) {
+      if (isMainIndexLatestVersion) {
+        if (stagedIndexStatus == ExternalStatus.BUILDING
+            || stagedIndexStatus == ExternalStatus.READY) {
+          return StatusCode.INITIAL_SYNC;
+        }
+        return mainIndexStatusCode;
+      }
+
+      if (stagedIndexStatus == ExternalStatus.FAILED) {
+        return mainIndexStatusCode;
+      }
+      return StatusCode.INITIAL_SYNC;
+    }
+    throw new IllegalStateException("illegal index status input");
   }
 
   public static String toExternalSynonymStatus(SynonymStatus.External externalStatus) {
@@ -155,6 +205,37 @@ public class IndexMapper {
                       .equals(getter.apply(idx2.asVectorDefinition())));
     } else {
       return false;
+    }
+  }
+
+  enum ExternalStatus {
+    DELETING(6),
+    FAILED(5),
+    STALE(4),
+    PENDING(3),
+    BUILDING(2),
+    READY(1),
+    DOES_NOT_EXIST(0);
+
+    private final int priority;
+
+    private ExternalStatus(int priority) {
+      this.priority = priority;
+    }
+
+    public int getPriority() {
+      return this.priority;
+    }
+
+    static ExternalStatus fromStatusCode(StatusCode internal) {
+      return switch (internal) {
+        case NOT_STARTED, UNKNOWN -> PENDING;
+        case INITIAL_SYNC -> BUILDING;
+        case STALE, RECOVERING_TRANSIENT, RECOVERING_NON_TRANSIENT -> STALE;
+        case STEADY -> READY;
+        case FAILED -> FAILED;
+        case DOES_NOT_EXIST -> DOES_NOT_EXIST;
+      };
     }
   }
 }

@@ -5,7 +5,6 @@ java_test_suite(
     srcs = [
         "AicCreateSearchIndexesCommandTest.java",
         "AicDropSearchIndexCommandTest.java",
-        "AicExtendedListSearchIndexesCommandTest.java",
         "AicListSearchIndexesCommandTest.java",
         "AicUpdateSearchIndexCommandTest.java",
     ],

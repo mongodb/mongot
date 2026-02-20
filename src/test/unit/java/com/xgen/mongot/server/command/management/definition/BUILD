@@ -2,7 +2,10 @@ load("//bazel/java:test.bzl", "java_test_suite")
 
 java_test_suite(
     name = "definition",
-    srcs = ["ManagementCommandDefinitionTest.java"],
+    srcs = [
+        "ListSearchIndexesResponseDefinitionTest.java",
+        "ManagementCommandDefinitionTest.java",
+    ],
     data = ["//src/test/unit/resources/server/command/management/definition:srcs"],
     tags = ["unit"],
     deps = [

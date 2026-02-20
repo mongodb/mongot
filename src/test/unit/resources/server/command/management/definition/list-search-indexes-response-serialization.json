@@ -1,0 +1,973 @@
+{
+  "tests": [
+    {
+      "description": "emptySearchIndexList",
+      "value": {
+        "ok": 1,
+        "cursor": {
+          "id": 0,
+          "ns": "myDatabase.myCollection",
+          "firstBatch": []
+        }
+      }
+    },
+    {
+      "description": "singleSearchIndexMinimal",
+      "value": {
+        "ok": 1,
+        "cursor": {
+          "id": 0,
+          "ns": "myDatabase.myCollection",
+          "firstBatch": [
+            {
+              "id": "507f191e810c19729de860ea",
+              "name": "searchIndex1",
+              "status": "READY",
+              "queryable": true,
+              "latestDefinitionVersion": {
+                "version": 1,
+                "createdAt": {
+                  "$date": "2024-01-01T00:00:00Z"
+                }
+              },
+              "latestDefinition": {
+                "mappings": {
+                  "dynamic": true,
+                  "fields": {}
+                }
+              },
+              "statusDetail": [
+                {
+                  "hostname": "host1",
+                  "status": "READY",
+                  "queryable": true
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "description": "singleSearchIndexComplete",
+      "json": {
+        "ok": 1,
+        "cursor": {
+          "id": 0,
+          "ns": "myDatabase.myCollection",
+          "firstBatch": [
+            {
+              "id": "507f191e810c19729de860ea",
+              "name": "searchIndex1",
+              "status": "READY",
+              "queryable": true,
+              "latestDefinitionVersion": {
+                "version": 1,
+                "createdAt": {
+                  "$date": "2024-01-01T00:00:00Z"
+                }
+              },
+              "latestDefinition": {
+                "analyzer": "lucene.standard",
+                "searchAnalyzer": "lucene.english",
+                "mappings": {
+                  "dynamic": true,
+                  "fields": {}
+                }
+              },
+              "statusDetail": [
+                {
+                  "hostname": "host1",
+                  "status": "READY",
+                  "queryable": true,
+                  "mainIndex": {
+                    "status": "READY",
+                    "queryable": true,
+                    "synonymMappingStatus": "READY",
+                    "synonymMappingStatusDetails": [
+                      {
+                        "status": "READY",
+                        "queryable": true,
+                        "message": "Synonym mapping is ready"
+                      }
+                    ],
+                    "definitionVersion": {
+                      "version": 1,
+                      "createdAt": {
+                        "$date": "2024-01-01T00:00:00Z"
+                      }
+                    },
+                    "definition": {
+                      "analyzer": "lucene.standard",
+                      "searchAnalyzer": "lucene.english",
+                      "mappings": {
+                        "dynamic": true,
+                        "fields": {}
+                      }
+                    },
+                    "message": "Index is ready"
+                  }
+                }
+              ],
+              "synonymMappingStatus": "READY",
+              "synonymMappingStatusDetail": [
+                {
+                  "status": "READY",
+                  "queryable": true,
+                  "message": "Synonym mapping is ready"
+                }
+              ],
+              "numDocs": 12345
+            }
+          ]
+        }
+      },
+      "bson": {
+        "ok": 1,
+        "cursor": {
+          "id": 0,
+          "ns": "myDatabase.myCollection",
+          "firstBatch": [
+            {
+              "id": "507f191e810c19729de860ea",
+              "name": "searchIndex1",
+              "status": "READY",
+              "queryable": true,
+              "latestDefinitionVersion": {
+                "version": 1,
+                "createdAt": {
+                  "$date": "2024-01-01T00:00:00Z"
+                }
+              },
+              "latestDefinition": {
+                "analyzer": "lucene.standard",
+                "searchAnalyzer": "lucene.english",
+                "mappings": {
+                  "dynamic": true,
+                  "fields": {}
+                }
+              },
+              "statusDetail": [
+                {
+                  "hostname": "host1",
+                  "status": "READY",
+                  "queryable": true,
+                  "mainIndex": {
+                    "status": "READY",
+                    "queryable": true,
+                    "synonymMappingStatus": "READY",
+                    "synonymMappingStatusDetails": [
+                      {
+                        "status": "READY",
+                        "queryable": true,
+                        "message": "Synonym mapping is ready"
+                      }
+                    ],
+                    "definitionVersion": {
+                      "version": 1,
+                      "createdAt": {
+                        "$date": "2024-01-01T00:00:00Z"
+                      }
+                    },
+                    "definition": {
+                      "analyzer": "lucene.standard",
+                      "searchAnalyzer": "lucene.english",
+                      "mappings": {
+                        "dynamic": true,
+                        "fields": {}
+                      }
+                    },
+                    "message": "Index is ready"
+                  }
+                }
+              ],
+              "synonymMappingStatus": "READY",
+              "synonymMappingStatusDetail": [
+                {
+                  "status": "READY",
+                  "queryable": true,
+                  "message": "Synonym mapping is ready"
+                }
+              ],
+              "numDocs": {
+                "$numberLong": "12345"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "description": "singleVectorIndexMinimal",
+      "value": {
+        "ok": 1,
+        "cursor": {
+          "id": 0,
+          "ns": "myDatabase.myCollection",
+          "firstBatch": [
+            {
+              "id": "507f191e810c19729de860ea",
+              "name": "vectorIndex1",
+              "status": "READY",
+              "queryable": true,
+              "latestDefinitionVersion": {
+                "version": 1,
+                "createdAt": {
+                  "$date": "2024-01-01T00:00:00Z"
+                }
+              },
+              "latestDefinition": {
+                "fields": [
+                  {
+                    "type": "vector",
+                    "path": "embedding",
+                    "numDimensions": 128,
+                    "similarity": "cosine"
+                  }
+                ]
+              },
+              "statusDetail": [
+                {
+                  "hostname": "host1",
+                  "status": "READY",
+                  "queryable": true
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "description": "singleVectorIndexComplete",
+      "value": {
+        "ok": 1,
+        "cursor": {
+          "id": 0,
+          "ns": "myDatabase.myCollection",
+          "firstBatch": [
+            {
+              "id": "507f191e810c19729de860ea",
+              "name": "vectorIndex1",
+              "status": "READY",
+              "queryable": true,
+              "latestDefinitionVersion": {
+                "version": 1,
+                "createdAt": {
+                  "$date": "2024-01-01T00:00:00Z"
+                }
+              },
+              "latestDefinition": {
+                "fields": [
+                  {
+                    "type": "vector",
+                    "path": "my.vector.field",
+                    "numDimensions": 2048,
+                    "similarity": "euclidean",
+                    "quantization": "scalar"
+                  },
+                  {
+                    "type": "filter",
+                    "path": "my.filter.field"
+                  }
+                ]
+              },
+              "statusDetail": [
+                {
+                  "hostname": "host1",
+                  "status": "READY",
+                  "queryable": true,
+                  "mainIndex": {
+                    "status": "READY",
+                    "queryable": true,
+                    "definitionVersion": {
+                      "version": 1,
+                      "createdAt": {
+                        "$date": "2024-01-01T00:00:00Z"
+                      }
+                    },
+                    "definition": {
+                      "fields": [
+                        {
+                          "type": "vector",
+                          "path": "my.vector.field",
+                          "numDimensions": 2048,
+                          "similarity": "euclidean",
+                          "quantization": "scalar"
+                        },
+                        {
+                          "type": "filter",
+                          "path": "my.filter.field"
+                        }
+                      ]
+                    },
+                    "message": "Vector index is ready"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "description": "multipleIndexesMixed",
+      "value": {
+        "ok": 1,
+        "cursor": {
+          "id": 0,
+          "ns": "myDatabase.myCollection",
+          "firstBatch": [
+            {
+              "id": "507f191e810c19729de860ea",
+              "name": "searchIndex1",
+              "status": "READY",
+              "queryable": true,
+              "latestDefinitionVersion": {
+                "version": 1,
+                "createdAt": {
+                  "$date": "2024-01-01T00:00:00Z"
+                }
+              },
+              "latestDefinition": {
+                "mappings": {
+                  "dynamic": true,
+                  "fields": {}
+                }
+              },
+              "statusDetail": [
+                {
+                  "hostname": "host1",
+                  "status": "READY",
+                  "queryable": true
+                }
+              ]
+            },
+            {
+              "id": "507f191e810c19729de860eb",
+              "name": "vectorIndex1",
+              "status": "READY",
+              "queryable": true,
+              "latestDefinitionVersion": {
+                "version": 1,
+                "createdAt": {
+                  "$date": "2024-01-01T00:00:00Z"
+                }
+              },
+              "latestDefinition": {
+                "fields": [
+                  {
+                    "type": "vector",
+                    "path": "embedding",
+                    "numDimensions": 256,
+                    "similarity": "cosine"
+                  }
+                ]
+              },
+              "statusDetail": [
+                {
+                  "hostname": "host2",
+                  "status": "READY",
+                  "queryable": true
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "description": "searchIndexWithSynonyms",
+      "value": {
+        "ok": 1,
+        "cursor": {
+          "id": 0,
+          "ns": "myDatabase.myCollection",
+          "firstBatch": [
+            {
+              "id": "507f191e810c19729de860ea",
+              "name": "searchIndex1",
+              "status": "READY",
+              "queryable": true,
+              "latestDefinitionVersion": {
+                "version": 1,
+                "createdAt": {
+                  "$date": "2024-01-01T00:00:00Z"
+                }
+              },
+              "latestDefinition": {
+                "mappings": {
+                  "dynamic": true,
+                  "fields": {}
+                }
+              },
+              "statusDetail": [
+                {
+                  "hostname": "host1",
+                  "status": "READY",
+                  "queryable": true,
+                  "mainIndex": {
+                    "status": "READY",
+                    "queryable": true,
+                    "synonymMappingStatus": "READY",
+                    "synonymMappingStatusDetails": [
+                      {
+                        "status": "READY",
+                        "queryable": true
+                      },
+                      {
+                        "status": "PENDING",
+                        "queryable": false,
+                        "message": "Loading synonyms"
+                      }
+                    ],
+                    "definitionVersion": {
+                      "version": 1,
+                      "createdAt": {
+                        "$date": "2024-01-01T00:00:00Z"
+                      }
+                    },
+                    "definition": {
+                      "mappings": {
+                        "dynamic": true,
+                        "fields": {}
+                      }
+                    }
+                  }
+                }
+              ],
+              "synonymMappingStatus": "READY",
+              "synonymMappingStatusDetail": [
+                {
+                  "status": "READY",
+                  "queryable": true
+                },
+                {
+                  "status": "PENDING",
+                  "queryable": false,
+                  "message": "Loading synonyms"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "description": "vectorIndexWithStagedIndex",
+      "value": {
+        "ok": 1,
+        "cursor": {
+          "id": 0,
+          "ns": "myDatabase.myCollection",
+          "firstBatch": [
+            {
+              "id": "507f191e810c19729de860ea",
+              "name": "vectorIndex1",
+              "status": "READY",
+              "queryable": true,
+              "latestDefinitionVersion": {
+                "version": 1,
+                "createdAt": {
+                  "$date": "2024-01-01T00:00:00Z"
+                }
+              },
+              "latestDefinition": {
+                "fields": [
+                  {
+                    "type": "vector",
+                    "path": "embedding",
+                    "numDimensions": 128,
+                    "similarity": "cosine"
+                  }
+                ]
+              },
+              "statusDetail": [
+                {
+                  "hostname": "host1",
+                  "status": "READY",
+                  "queryable": true,
+                  "mainIndex": {
+                    "status": "READY",
+                    "queryable": true,
+                    "definitionVersion": {
+                      "version": 1,
+                      "createdAt": {
+                        "$date": "2024-01-01T00:00:00Z"
+                      }
+                    },
+                    "definition": {
+                      "fields": [
+                        {
+                          "type": "vector",
+                          "path": "embedding",
+                          "numDimensions": 128,
+                          "similarity": "cosine"
+                        }
+                      ]
+                    }
+                  },
+                  "stagedIndex": {
+                    "status": "BUILDING",
+                    "queryable": false,
+                    "definitionVersion": {
+                      "version": 2,
+                      "createdAt": {
+                        "$date": "2024-01-02T00:00:00Z"
+                      }
+                    },
+                    "definition": {
+                      "fields": [
+                        {
+                          "type": "vector",
+                          "path": "embedding",
+                          "numDimensions": 256,
+                          "similarity": "euclidean",
+                          "quantization": "scalar"
+                        }
+                      ]
+                    },
+                    "message": "Building new index version"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "description": "searchIndexWithEmptyLists",
+      "value": {
+        "ok": 1,
+        "cursor": {
+          "id": 0,
+          "ns": "myDatabase.myCollection",
+          "firstBatch": [
+            {
+              "id": "507f191e810c19729de860ea",
+              "name": "searchIndex1",
+              "status": "READY",
+              "queryable": true,
+              "latestDefinitionVersion": {
+                "version": 1,
+                "createdAt": {
+                  "$date": "2024-01-01T00:00:00Z"
+                }
+              },
+              "latestDefinition": {
+                "mappings": {
+                  "dynamic": true,
+                  "fields": {}
+                }
+              },
+              "statusDetail": [],
+              "synonymMappingStatus": "READY",
+              "synonymMappingStatusDetail": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "description": "vectorIndexWithEmptyLists",
+      "value": {
+        "ok": 1,
+        "cursor": {
+          "id": 0,
+          "ns": "myDatabase.myCollection",
+          "firstBatch": [
+            {
+              "id": "507f191e810c19729de860ea",
+              "name": "vectorIndex1",
+              "status": "READY",
+              "queryable": true,
+              "latestDefinitionVersion": {
+                "version": 1,
+                "createdAt": {
+                  "$date": "2024-01-01T00:00:00Z"
+                }
+              },
+              "latestDefinition": {
+                "fields": [
+                  {
+                    "type": "vector",
+                    "path": "embedding",
+                    "numDimensions": 128,
+                    "similarity": "cosine"
+                  }
+                ]
+              },
+              "statusDetail": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "description": "searchIndexWithMultipleHosts",
+      "value": {
+        "ok": 1,
+        "cursor": {
+          "id": 0,
+          "ns": "myDatabase.myCollection",
+          "firstBatch": [
+            {
+              "id": "507f191e810c19729de860ea",
+              "name": "searchIndex1",
+              "status": "READY",
+              "queryable": true,
+              "latestDefinitionVersion": {
+                "version": 1,
+                "createdAt": {
+                  "$date": "2024-01-01T00:00:00Z"
+                }
+              },
+              "latestDefinition": {
+                "mappings": {
+                  "dynamic": true,
+                  "fields": {}
+                }
+              },
+              "statusDetail": [
+                {
+                  "hostname": "host1",
+                  "status": "READY",
+                  "queryable": true
+                },
+                {
+                  "hostname": "host2",
+                  "status": "READY",
+                  "queryable": true
+                },
+                {
+                  "hostname": "host3",
+                  "status": "BUILDING",
+                  "queryable": false
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "description": "vectorIndexWithMultipleHosts",
+      "value": {
+        "ok": 1,
+        "cursor": {
+          "id": 0,
+          "ns": "myDatabase.myCollection",
+          "firstBatch": [
+            {
+              "id": "507f191e810c19729de860ea",
+              "name": "vectorIndex1",
+              "status": "READY",
+              "queryable": true,
+              "latestDefinitionVersion": {
+                "version": 1,
+                "createdAt": {
+                  "$date": "2024-01-01T00:00:00Z"
+                }
+              },
+              "latestDefinition": {
+                "fields": [
+                  {
+                    "type": "vector",
+                    "path": "embedding",
+                    "numDimensions": 128,
+                    "similarity": "cosine"
+                  }
+                ]
+              },
+              "statusDetail": [
+                {
+                  "hostname": "host1",
+                  "status": "READY",
+                  "queryable": true,
+                  "mainIndex": {
+                    "status": "READY",
+                    "queryable": true,
+                    "definitionVersion": {
+                      "version": 1,
+                      "createdAt": {
+                        "$date": "2024-01-01T00:00:00Z"
+                      }
+                    },
+                    "definition": {
+                      "fields": [
+                        {
+                          "type": "vector",
+                          "path": "embedding",
+                          "numDimensions": 128,
+                          "similarity": "cosine"
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "hostname": "host2",
+                  "status": "READY",
+                  "queryable": true
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "description": "searchIndexNotQueryable",
+      "value": {
+        "ok": 1,
+        "cursor": {
+          "id": 0,
+          "ns": "myDatabase.myCollection",
+          "firstBatch": [
+            {
+              "id": "507f191e810c19729de860ea",
+              "name": "searchIndex1",
+              "status": "PENDING",
+              "queryable": false,
+              "latestDefinitionVersion": {
+                "version": 1,
+                "createdAt": {
+                  "$date": "2024-01-01T00:00:00Z"
+                }
+              },
+              "latestDefinition": {
+                "mappings": {
+                  "dynamic": true,
+                  "fields": {}
+                }
+              },
+              "statusDetail": [
+                {
+                  "hostname": "host1",
+                  "status": "PENDING",
+                  "queryable": false,
+                  "mainIndex": {
+                    "status": "PENDING",
+                    "queryable": false,
+                    "definitionVersion": {
+                      "version": 1,
+                      "createdAt": {
+                        "$date": "2024-01-01T00:00:00Z"
+                      }
+                    },
+                    "definition": {
+                      "mappings": {
+                        "dynamic": true,
+                        "fields": {}
+                      }
+                    },
+                    "message": "Index is being built"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "description": "vectorIndexBuilding",
+      "value": {
+        "ok": 1,
+        "cursor": {
+          "id": 0,
+          "ns": "myDatabase.myCollection",
+          "firstBatch": [
+            {
+              "id": "507f191e810c19729de860ea",
+              "name": "vectorIndex1",
+              "status": "BUILDING",
+              "queryable": false,
+              "latestDefinitionVersion": {
+                "version": 1,
+                "createdAt": {
+                  "$date": "2024-01-01T00:00:00Z"
+                }
+              },
+              "latestDefinition": {
+                "fields": [
+                  {
+                    "type": "vector",
+                    "path": "embedding",
+                    "numDimensions": 256,
+                    "similarity": "euclidean",
+                    "quantization": "scalar"
+                  }
+                ]
+              },
+              "statusDetail": [
+                {
+                  "hostname": "host1",
+                  "status": "BUILDING",
+                  "queryable": false,
+                  "mainIndex": {
+                    "status": "BUILDING",
+                    "queryable": false,
+                    "definitionVersion": {
+                      "version": 1,
+                      "createdAt": {
+                        "$date": "2024-01-01T00:00:00Z"
+                      }
+                    },
+                    "definition": {
+                      "fields": [
+                        {
+                          "type": "vector",
+                          "path": "embedding",
+                          "numDimensions": 256,
+                          "similarity": "euclidean",
+                          "quantization": "scalar"
+                        }
+                      ]
+                    },
+                    "message": "Building index"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "description": "searchIndexWithStagedIndex",
+      "value": {
+        "ok": 1,
+        "cursor": {
+          "id": 0,
+          "ns": "myDatabase.myCollection",
+          "firstBatch": [
+            {
+              "id": "507f191e810c19729de860ea",
+              "name": "searchIndex1",
+              "status": "READY",
+              "queryable": true,
+              "latestDefinitionVersion": {
+                "version": 1,
+                "createdAt": {
+                  "$date": "2024-01-01T00:00:00Z"
+                }
+              },
+              "latestDefinition": {
+                "mappings": {
+                  "dynamic": true,
+                  "fields": {}
+                }
+              },
+              "statusDetail": [
+                {
+                  "hostname": "host1",
+                  "status": "READY",
+                  "queryable": true,
+                  "mainIndex": {
+                    "status": "READY",
+                    "queryable": true,
+                    "definitionVersion": {
+                      "version": 1,
+                      "createdAt": {
+                        "$date": "2024-01-01T00:00:00Z"
+                      }
+                    },
+                    "definition": {
+                      "mappings": {
+                        "dynamic": true,
+                        "fields": {}
+                      }
+                    }
+                  },
+                  "stagedIndex": {
+                    "status": "BUILDING",
+                    "queryable": false,
+                    "definitionVersion": {
+                      "version": 2,
+                      "createdAt": {
+                        "$date": "2024-01-02T00:00:00Z"
+                      }
+                    },
+                    "definition": {
+                      "mappings": {
+                        "dynamic": true,
+                        "fields": {}
+                      },
+                      "analyzer": "lucene.standard"
+                    },
+                    "message": "Building new index version"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "description": "hostWithOnlyStagedIndex",
+      "value": {
+        "ok": 1,
+        "cursor": {
+          "id": 0,
+          "ns": "myDatabase.myCollection",
+          "firstBatch": [
+            {
+              "id": "507f191e810c19729de860ea",
+              "name": "vectorIndex1",
+              "status": "PENDING",
+              "queryable": false,
+              "latestDefinitionVersion": {
+                "version": 1,
+                "createdAt": {
+                  "$date": "2024-01-01T00:00:00Z"
+                }
+              },
+              "latestDefinition": {
+                "fields": [
+                  {
+                    "type": "vector",
+                    "path": "embedding",
+                    "numDimensions": 128,
+                    "similarity": "cosine"
+                  }
+                ]
+              },
+              "statusDetail": [
+                {
+                  "hostname": "host1",
+                  "status": "PENDING",
+                  "queryable": false,
+                  "stagedIndex": {
+                    "status": "BUILDING",
+                    "queryable": false,
+                    "definitionVersion": {
+                      "version": 1,
+                      "createdAt": {
+                        "$date": "2024-01-01T00:00:00Z"
+                      }
+                    },
+                    "definition": {
+                      "fields": [
+                        {
+                          "type": "vector",
+                          "path": "embedding",
+                          "numDimensions": 128,
+                          "similarity": "cosine"
+                        }
+                      ]
+                    },
+                    "message": "Building new index"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
+

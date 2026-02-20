@@ -16,7 +16,7 @@ import org.slf4j.LoggerFactory;
 
 public class DefaultAuthoritativeIndexCatalog implements AuthoritativeIndexCatalog {
   private static final Logger LOG = LoggerFactory.getLogger(DefaultAuthoritativeIndexCatalog.class);
-  private static final String COLLECTION_NAME = "indexCatalog";
+
   private static final int CURRENT_WRITTEN_VERSION = 1;
 
   private final MetadataClient<IndexEntry> aicMongoClient;
