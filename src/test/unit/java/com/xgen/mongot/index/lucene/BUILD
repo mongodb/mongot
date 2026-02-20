@@ -10,10 +10,10 @@ mongot_java_unit_test_suite(
     ],
     resources = True,
     timeouts = {
-        # Below tests deal with 10k vectors so take more time
-        "TestVectorIndexingAndQueryingLargeScale.java": "moderate",
         # Background: https://jira.mongodb.org/browse/CLOUDP-246113
         "TestLuceneSearchBatchProducer.java": "moderate",
+        # Below tests deal with 10k vectors so take more time
+        "TestVectorIndexingAndQueryingLargeScale.java": "moderate",
     },
     deps = [
         "commons-codec:commons-codec",
