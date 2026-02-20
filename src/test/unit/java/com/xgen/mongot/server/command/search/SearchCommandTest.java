@@ -196,7 +196,7 @@ public class SearchCommandTest {
   public void testValidIndex() throws Exception {
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -219,7 +219,7 @@ public class SearchCommandTest {
   public void testValidIndexIntermediate() throws Exception {
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -256,7 +256,7 @@ public class SearchCommandTest {
 
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             cursorManager,
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -324,7 +324,7 @@ public class SearchCommandTest {
 
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             cursorManager,
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -363,7 +363,7 @@ public class SearchCommandTest {
         getCursorManager((cursorId) -> metricUpdateCount.incrementAndGet());
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             manager,
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -390,7 +390,7 @@ public class SearchCommandTest {
         getCursorManager((cursorId) -> metricUpdateCount.incrementAndGet());
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             manager,
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -414,7 +414,7 @@ public class SearchCommandTest {
   public void testInvalidDatabaseIntermediate() throws Exception {
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -436,7 +436,7 @@ public class SearchCommandTest {
   public void testInvalidCollectionUuid() throws Exception {
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -457,7 +457,7 @@ public class SearchCommandTest {
   public void testInvalidCollectionUuidIntermediate() throws Exception {
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -479,7 +479,7 @@ public class SearchCommandTest {
   public void testInvalidIndexName() throws Exception {
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -500,7 +500,7 @@ public class SearchCommandTest {
   public void testInvalidIndexNameIntermediate() throws Exception {
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -522,7 +522,7 @@ public class SearchCommandTest {
   public void testInvalidOperatorQuery() throws Exception {
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -548,7 +548,7 @@ public class SearchCommandTest {
   public void testInvalidOperatorQueryIntermediate() throws Exception {
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -575,7 +575,7 @@ public class SearchCommandTest {
   public void testInvalidCollectorQuery() throws Exception {
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -597,7 +597,7 @@ public class SearchCommandTest {
   public void testInvalidCollectorQueryIntermediate() throws Exception {
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -620,7 +620,7 @@ public class SearchCommandTest {
   public void testInvalidQuery() throws Exception {
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -647,7 +647,7 @@ public class SearchCommandTest {
   public void testInvalidQueryIntermediate() throws Exception {
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -675,7 +675,7 @@ public class SearchCommandTest {
   public void testQueryWithValidCount() throws Exception {
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -701,7 +701,7 @@ public class SearchCommandTest {
   public void testQueryWithValidCountIntermediate() throws Exception {
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -728,7 +728,7 @@ public class SearchCommandTest {
   public void testQueryWithInvalidCount() throws Exception {
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -755,7 +755,7 @@ public class SearchCommandTest {
   public void testQueryWithInvalidCountIntermediate() throws Exception {
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -783,7 +783,7 @@ public class SearchCommandTest {
   public void testValidSearchCommandWithCursorOptions() throws Exception {
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -806,7 +806,7 @@ public class SearchCommandTest {
   public void testIoExceptionSearchCommand() throws Exception {
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getThrowableCursorManager(() -> new IOException("IO error")),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -827,7 +827,7 @@ public class SearchCommandTest {
   public void testIoExceptionSearchCommandIntermediate() throws Exception {
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getThrowableCursorManager(() -> new IOException("IO error")),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -852,7 +852,7 @@ public class SearchCommandTest {
   public void testWrappedInvalidQueryException() throws Exception {
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             // Mock a RuntimeException wrapping an InvalidQueryException.
             getThrowableCursorManager(
                 () -> new RuntimeException(new InvalidQueryException("wrapped user error"))),
@@ -882,7 +882,7 @@ public class SearchCommandTest {
     var metricsFactory = mockMetricsFactory();
     SearchCommand command =
         new SearchCommand(
-            metricsFactory,
+            new SearchCommand.Metrics(metricsFactory),
             getThrowableCursorManager(Check::unreachableError),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -910,7 +910,7 @@ public class SearchCommandTest {
     var metricsFactory = mockMetricsFactory();
     SearchCommand command =
         new SearchCommand(
-            metricsFactory,
+            new SearchCommand.Metrics(metricsFactory),
             getThrowableCursorManager(Check::unreachableError),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -950,7 +950,7 @@ public class SearchCommandTest {
 
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             cursorManager,
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -1003,7 +1003,7 @@ public class SearchCommandTest {
 
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             cursorManager,
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -1035,7 +1035,7 @@ public class SearchCommandTest {
 
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             cursorManager,
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -1117,7 +1117,7 @@ public class SearchCommandTest {
 
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getCursorManager(explainInformation),
             catalog,
             initializedIndexCatalog,
@@ -1147,7 +1147,7 @@ public class SearchCommandTest {
   public void testValidFacetSearchCommand() throws Exception {
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -1179,7 +1179,7 @@ public class SearchCommandTest {
 
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getCursorManager(explainInformation),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -1212,7 +1212,7 @@ public class SearchCommandTest {
   public void testValidIntermediateFacetSearchCommand() throws Exception {
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -1242,8 +1242,7 @@ public class SearchCommandTest {
     // Set status to STEADY so throwIfUnavailableForQuerying() won't throw
     mockSearchIndex.setStatus(IndexStatus.steady());
 
-    var indexGeneration =
-        new IndexGeneration(mockSearchIndex, definitionGeneration);
+    var indexGeneration = new IndexGeneration(mockSearchIndex, definitionGeneration);
 
     when(catalog.getIndex(DATABASE_NAME, COLLECTION_UUID, Optional.empty(), INDEX_NAME))
         .thenReturn(Optional.of(indexGeneration));
@@ -1252,7 +1251,7 @@ public class SearchCommandTest {
 
     SearchCommand command =
         new SearchCommand(
-            mockMetricsFactory(),
+            new SearchCommand.Metrics(mockMetricsFactory()),
             getCursorManager(),
             catalog,
             initializedIndexCatalog,
