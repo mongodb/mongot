@@ -16,6 +16,7 @@ import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
+import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
 import com.xgen.mongot.index.EncodedUserData;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.status.IndexStatus;
@@ -49,6 +50,7 @@ public class DynamicLeaderLeaseManagerTest {
   private MongoCollection<BsonDocument> mockCollection;
   private FindIterable<BsonDocument> mockFindIterable;
   private DynamicLeaderLeaseManager leaseManager;
+  private MaterializedViewCollectionMetadataCatalog mvMetadataCatalog;
 
   @Before
   public void setUp() {
@@ -56,6 +58,7 @@ public class DynamicLeaderLeaseManagerTest {
     this.mockDatabase = mock(MongoDatabase.class);
     this.mockCollection = mock(MongoCollection.class);
     this.mockFindIterable = mock(FindIterable.class);
+    this.mvMetadataCatalog = new MaterializedViewCollectionMetadataCatalog();
 
     when(this.mockMongoClient.getDatabase(DATABASE_NAME)).thenReturn(this.mockDatabase);
     when(this.mockDatabase.getCollection(
@@ -69,7 +72,11 @@ public class DynamicLeaderLeaseManagerTest {
 
     this.leaseManager =
         new DynamicLeaderLeaseManager(
-            this.mockMongoClient, new SimpleMetricsFactory(), HOSTNAME, DATABASE_NAME);
+            this.mockMongoClient,
+            new SimpleMetricsFactory(),
+            HOSTNAME,
+            DATABASE_NAME,
+            this.mvMetadataCatalog);
   }
 
   // ==================== Basic State Management ====================
@@ -476,18 +483,39 @@ public class DynamicLeaderLeaseManagerTest {
     this.leaseManager.drop(generationId);
 
     // Assert - verify deleteOne was NOT called
-    verify(this.mockCollection, never()).deleteOne(any(Document.class));
+    verify(this.mockCollection, never()).deleteOne(any(Bson.class));
   }
 
   // ==================== Helper Methods ====================
 
+  /**
+   * Creates an index generation and registers its generationId in the catalog so that
+   * DynamicLeaderLeaseManager.getLeaseKey (which uses catalog) works.
+   */
   private IndexGeneration createTestIndexGeneration() {
-    return mockIndexGeneration(new ObjectId());
+    IndexGeneration gen = mockIndexGeneration(new ObjectId());
+    addCatalogMetadataForGeneration(gen.getGenerationId());
+    return gen;
+  }
+
+  private void addCatalogMetadataForGeneration(GenerationId generationId) {
+    String collectionName = generationId.indexId.toHexString();
+    MaterializedViewCollectionMetadata metadata =
+        new MaterializedViewCollectionMetadata(
+            new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(0, Map.of()),
+            UUID.randomUUID(),
+            collectionName);
+    this.mvMetadataCatalog.addMetadata(generationId, metadata);
+  }
+
+  /** Returns the lease key (collection name) for the given generation from the catalog. */
+  private String getLeaseKeyFromCatalog(GenerationId generationId) {
+    return this.mvMetadataCatalog.getMetadata(generationId).collectionName();
   }
 
   private Lease createLease(GenerationId generationId, String owner, Instant expiration) {
     return new Lease(
-        DynamicLeaderLeaseManager.getLeaseKey(generationId),
+        getLeaseKeyFromCatalog(generationId),
         1,
         "fa41efe9-dd13-4976-a6ce-009682ec4257",
         "collection-name",
@@ -506,7 +534,7 @@ public class DynamicLeaderLeaseManagerTest {
   private Lease createLeaseWithCommitInfo(
       GenerationId generationId, String owner, String commitInfo) {
     return new Lease(
-        DynamicLeaderLeaseManager.getLeaseKey(generationId),
+        getLeaseKeyFromCatalog(generationId),
         1,
         "fa41efe9-dd13-4976-a6ce-009682ec4257",
         "collection-name",

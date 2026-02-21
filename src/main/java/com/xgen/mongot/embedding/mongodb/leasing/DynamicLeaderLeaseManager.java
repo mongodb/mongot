@@ -16,6 +16,7 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.Filters;
 import com.mongodb.lang.Nullable;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
+import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewNonTransientException;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
 import com.xgen.mongot.embedding.utils.MongoClientOperationExecutor;
@@ -81,15 +82,18 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
   // Maps GenerationId to its definition version (as String) for use in pollFollowerStatuses().
   private final Map<GenerationId, String> generationIdToDefinitionVersion;
   private final MongoCollection<BsonDocument> collection;
+  private final MaterializedViewCollectionMetadataCatalog mvMetadataCatalog;
 
   public DynamicLeaderLeaseManager(
       MongoClient mongoClient,
       MetricsFactory metricsFactory,
       String hostname,
-      String databaseName) {
+      String databaseName,
+      MaterializedViewCollectionMetadataCatalog mvMetadataCatalog) {
     this.operationExecutor =
         new MongoClientOperationExecutor(metricsFactory, "leaseTableCollection");
     this.hostname = hostname;
+    this.mvMetadataCatalog = mvMetadataCatalog;
     this.leases = new ConcurrentHashMap<>();
     this.leaderGenerationIds = ConcurrentHashMap.newKeySet();
     this.followerGenerationIds = ConcurrentHashMap.newKeySet();
@@ -106,12 +110,14 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
   public static DynamicLeaderLeaseManager create(
       SyncSourceConfig syncSourceConfig,
       MeterAndFtdcRegistry meterAndFtdcRegistry,
-      String hostname) {
+      String hostname,
+      MaterializedViewCollectionMetadataCatalog mvMetadataCatalog) {
     return new DynamicLeaderLeaseManager(
         getMongoClient(syncSourceConfig, meterAndFtdcRegistry),
         new MetricsFactory(METRICS_NAMESPACE, meterAndFtdcRegistry.meterRegistry()),
         hostname,
-        AUTO_EMBEDDING_INTERNAL_DATABASE_NAME);
+        AUTO_EMBEDDING_INTERNAL_DATABASE_NAME,
+        mvMetadataCatalog);
   }
 
   /**
@@ -854,9 +860,8 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     }
   }
 
-  @VisibleForTesting
-  static String getLeaseKey(GenerationId generationId) {
-    return generationId.indexId.toHexString();
+  private String getLeaseKey(GenerationId generationId) {
+    return this.mvMetadataCatalog.getMetadata(generationId).collectionName();
   }
 
   /**

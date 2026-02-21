@@ -9,6 +9,7 @@ import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
 import com.xgen.mongot.config.manager.DefaultConfigManager;
 import com.xgen.mongot.cursor.MongotCursorManager;
+import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
 import com.xgen.mongot.featureflag.FeatureFlags;
@@ -44,6 +45,7 @@ public class CommonUtilsTest {
     private final SyncSourceConfig syncSourceConfig;
     private final Optional<Supplier<EmbeddingServiceManager>> embeddingServiceManagerSupplier;
     private final LeaseManager leaseManager;
+    private final MaterializedViewCollectionMetadataCatalog mvMetadataCatalog;
 
     private Mocks() {
       this.dataPath = mock(Path.class);
@@ -64,6 +66,7 @@ public class CommonUtilsTest {
               new ConnectionString("mongodb://random/?serverselectiontimeoutms=100"));
       this.embeddingServiceManagerSupplier = Optional.empty();
       this.leaseManager = mock(LeaseManager.class);
+      this.mvMetadataCatalog = mock(MaterializedViewCollectionMetadataCatalog.class);
     }
 
     private static Mocks create() {
@@ -172,7 +175,8 @@ public class CommonUtilsTest {
             MeterAndFtdcRegistry.create(mocks.meterRegistry, mocks.ftdcRegistry),
             DefaultConfigManager.ReplicationMode.DISABLE,
             mocks.embeddingServiceManagerSupplier,
-            mocks.leaseManager);
+            mocks.leaseManager,
+            mocks.mvMetadataCatalog);
     var noOpManager = factory.create(Optional.of(mocks.syncSourceConfig));
     Assert.assertTrue(noOpManager.isEmpty());
   }
@@ -190,7 +194,8 @@ public class CommonUtilsTest {
             MeterAndFtdcRegistry.create(mocks.meterRegistry, mocks.ftdcRegistry),
             DefaultConfigManager.ReplicationMode.ENABLE,
             mocks.embeddingServiceManagerSupplier,
-            mocks.leaseManager);
+            mocks.leaseManager,
+            mocks.mvMetadataCatalog);
 
     // With empty embeddingServiceManagerSupplier should throw IllegalArgumentException.
     IllegalArgumentException exception =
@@ -215,7 +220,8 @@ public class CommonUtilsTest {
             MeterAndFtdcRegistry.create(mocks.meterRegistry, mocks.ftdcRegistry),
             DefaultConfigManager.ReplicationMode.DISK_UTILIZATION_BASED,
             mocks.embeddingServiceManagerSupplier,
-            mocks.leaseManager);
+            mocks.leaseManager,
+            mocks.mvMetadataCatalog);
     var noOpManager = factory.create(Optional.empty());
     Assert.assertTrue(noOpManager.isEmpty());
 

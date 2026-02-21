@@ -1,0 +1,24 @@
+load("//bazel/java:package.bzl", "java_library")
+
+java_library(
+    name = "mongodb",
+    srcs = ["MaterializedViewCollectionResolver.java"],
+    visibility = ["//:__subpackages__"],
+    exports = ["//src/main/java/com/xgen/mongot/embedding/config"],
+    deps = [
+        "//src/main/java/com/xgen/mongot/embedding/config",
+        "//src/main/java/com/xgen/mongot/embedding/exceptions",
+        "//src/main/java/com/xgen/mongot/embedding/mongodb/leasing",
+        "//src/main/java/com/xgen/mongot/index/definition",
+        "//src/main/java/com/xgen/mongot/metrics",
+        "//src/main/java/com/xgen/mongot/replication/mongodb/common",
+        "//src/main/java/com/xgen/mongot/util",
+        "//src/main/java/com/xgen/mongot/util/mongodb",
+        "//src/main/java/com/xgen/mongot/util/mongodb/serialization",
+        "@maven//:com_google_guava_guava",
+        "@maven//:io_micrometer_micrometer_core",
+        "@maven//:org_mongodb_bson",
+        "@maven//:org_mongodb_mongodb_driver_core",
+        "@maven//:org_mongodb_mongodb_driver_sync",
+    ],
+)

@@ -1,5 +1,7 @@
 package com.xgen.mongot.index.autoembedding;
 
+import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
+import com.xgen.mongot.embedding.mongodb.MaterializedViewCollectionResolver;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
@@ -34,18 +36,21 @@ public class MaterializedViewIndexFactory implements IndexFactory {
   private final FeatureFlags featureFlags;
   private final MaterializedViewWriter.Factory materializedViewWriterFactory;
   private final LeaseManager leaseManager;
+  private final MaterializedViewCollectionResolver collectionResolver;
 
   public MaterializedViewIndexFactory(
       SyncSourceConfig syncSourceConfig,
       FeatureFlags featureFlags,
       MeterAndFtdcRegistry meterAndFtdcRegistry,
-      LeaseManager leaseManager) {
+      LeaseManager leaseManager,
+      MaterializedViewCollectionResolver collectionResolver) {
     this.meterAndFtdcRegistry = meterAndFtdcRegistry;
     this.metricsFactory = new MetricsFactory(NAMESPACE, meterAndFtdcRegistry.meterRegistry());
     this.featureFlags = featureFlags;
     this.materializedViewWriterFactory =
         new MaterializedViewWriter.Factory(syncSourceConfig, meterAndFtdcRegistry.meterRegistry());
     this.leaseManager = leaseManager;
+    this.collectionResolver = collectionResolver;
   }
 
   /** Must be called after all associated indexes are closed. */
@@ -65,11 +70,16 @@ public class MaterializedViewIndexFactory implements IndexFactory {
     MaterializedViewIndexDefinitionGeneration matViewIndexDefinitionGeneration =
         indexDefinitionGeneration.asMaterializedView();
 
+    MaterializedViewCollectionMetadata collectionMetadata =
+        this.collectionResolver.getOrCreateMaterializedViewForIndex(
+            matViewIndexDefinitionGeneration);
+
     MaterializedViewWriter writer =
         this.materializedViewWriterFactory.create(
-            matViewIndexDefinitionGeneration.getIndexDefinition().getIndexId().toHexString(),
+            collectionMetadata.collectionName(),
             matViewIndexDefinitionGeneration.getGenerationId(),
-            this.leaseManager);
+            this.leaseManager,
+            collectionMetadata.collectionUuid());
 
     // Shared status reference for supplier and index
     AtomicReference<IndexStatus> statusRef = new AtomicReference<>(IndexStatus.unknown());

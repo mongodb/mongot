@@ -24,6 +24,8 @@ import com.google.errorprone.annotations.Keep;
 import com.mongodb.ConnectionString;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
 import com.xgen.mongot.cursor.MongotCursorManager;
+import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
+import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
 import com.xgen.mongot.embedding.mongodb.leasing.StaticLeaderLeaseManager;
 import com.xgen.mongot.featureflag.FeatureFlags;
@@ -55,6 +57,7 @@ import com.xgen.testing.mongot.index.version.GenerationIdBuilder;
 import com.xgen.testing.mongot.metrics.SimpleMetricsFactory;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -63,6 +66,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
@@ -395,10 +399,11 @@ public class MaterializedViewManagerTest {
 
     // Verify the startup log is emitted
     boolean foundStartupLog =
-        new ArrayList<>(logEvents).stream()
-            .anyMatch(
-                event ->
-                    event.getFormattedMessage().contains("Starting auto-embedding heartbeat"));
+        new ArrayList<>(logEvents)
+            .stream()
+                .anyMatch(
+                    event ->
+                        event.getFormattedMessage().contains("Starting auto-embedding heartbeat"));
     assertTrue("Expected heartbeat startup log to be emitted", foundStartupLog);
 
     // Capture the scheduled heartbeat task and execute it to verify the actual heartbeat log
@@ -412,9 +417,10 @@ public class MaterializedViewManagerTest {
 
     // Verify the actual heartbeat log is emitted
     boolean foundHeartbeatLog =
-        new ArrayList<>(logEvents).stream()
-            .anyMatch(
-                event -> event.getFormattedMessage().equals("Auto-embedding leader heartbeat"));
+        new ArrayList<>(logEvents)
+            .stream()
+                .anyMatch(
+                    event -> event.getFormattedMessage().equals("Auto-embedding leader heartbeat"));
     assertTrue("Expected heartbeat log to be emitted", foundHeartbeatLog);
   }
 
@@ -620,6 +626,7 @@ public class MaterializedViewManagerTest {
     final NamedScheduledExecutorService optimeUpdaterExecutor;
     final IndexStatus expectedStatus; // For follower mode tests
     final Optional<ArgumentCaptor<Runnable>> runnableCaptor; // For follower mode tests
+    final MaterializedViewCollectionMetadataCatalog metadataCatalog;
 
     MaterializedViewManager manager;
 
@@ -639,7 +646,8 @@ public class MaterializedViewManagerTest {
         NamedScheduledExecutorService optimeUpdaterExecutor,
         LeaseManager leaseManager,
         IndexStatus expectedStatus,
-        Optional<ArgumentCaptor<Runnable>> runnableCaptor) {
+        Optional<ArgumentCaptor<Runnable>> runnableCaptor,
+        MaterializedViewCollectionMetadataCatalog metadataCatalog) {
       this.executorService = executorService;
       this.indexingWorkSchedulerFactory = indexingWorkSchedulerFactory;
       this.cursorManager = cursorManager;
@@ -656,6 +664,7 @@ public class MaterializedViewManagerTest {
       this.expectedStatus = expectedStatus;
       this.runnableCaptor = runnableCaptor;
       this.leaseManager = leaseManager;
+      this.metadataCatalog = metadataCatalog;
 
       SyncSourceConfig syncSourceConfig =
           new SyncSourceConfig(
@@ -680,7 +689,8 @@ public class MaterializedViewManagerTest {
                   statusRefreshExecutor,
                   optimeUpdaterExecutor,
                   this.meterRegistry,
-                  leaseManager);
+                  leaseManager,
+                  metadataCatalog);
       this.manager = this.managerSupplier.get();
     }
 
@@ -762,7 +772,8 @@ public class MaterializedViewManagerTest {
           optimeUpdaterExecutor,
           leaseManager,
           IndexStatus.unknown(), // expectedStatus for leader mode
-          Optional.empty());
+          Optional.empty(),
+          createMockMetadataCatalog());
     }
 
     private static Mocks createFollower() {
@@ -789,7 +800,7 @@ public class MaterializedViewManagerTest {
           .add(any());
       // Mock getFollowerGenerationIds to return all added generation IDs (since all are followers)
       when(mockLeaseManager.getFollowerGenerationIds())
-              .thenAnswer(invocation -> addedGenerationIds);
+          .thenAnswer(invocation -> addedGenerationIds);
       // Mock pollFollowerStatuses to return steady status for all added generation IDs
       when(mockLeaseManager.pollFollowerStatuses())
           .thenAnswer(
@@ -822,8 +833,7 @@ public class MaterializedViewManagerTest {
                 MaterializedViewIndexGeneration matViewIndexGen = invocation.getArgument(0);
                 MaterializedViewGenerator mockGenerator = mock(MaterializedViewGenerator.class);
                 when(mockGenerator.getIndexGeneration()).thenReturn(matViewIndexGen);
-                when(mockGenerator.shutdown())
-                    .thenReturn(CompletableFuture.completedFuture(null));
+                when(mockGenerator.shutdown()).thenReturn(CompletableFuture.completedFuture(null));
                 return mockGenerator;
               });
 
@@ -844,7 +854,8 @@ public class MaterializedViewManagerTest {
           optimeUpdaterScheduler, // optimeUpdaterExecutor - separate mock
           mockLeaseManager,
           IndexStatus.steady(), // expectedStatus for follower mode
-          Optional.of(runnableCaptor));
+          Optional.of(runnableCaptor),
+          createMockMetadataCatalog());
     }
 
     private MaterializedViewGenerator mockMaterializedViewGenerator(
@@ -896,5 +907,40 @@ public class MaterializedViewManagerTest {
                       IndexFormatVersion.CURRENT)));
       this.manager.add(autoEmbeddingIndexGeneration);
     }
+  }
+
+  /**
+   * Returns a mock catalog that returns deterministic metadata for any GenerationId. UUID is
+   * derived from indexId only so all generations of the same index map to the same collection.
+   */
+  private static MaterializedViewCollectionMetadataCatalog createMockMetadataCatalog() {
+    MaterializedViewCollectionMetadataCatalog catalog =
+        mock(MaterializedViewCollectionMetadataCatalog.class);
+    when(catalog.getMetadata(any(GenerationId.class)))
+        .thenAnswer(
+            inv -> {
+              GenerationId id = inv.getArgument(0);
+              UUID uuid =
+                  UUID.nameUUIDFromBytes(id.indexId.toHexString().getBytes(StandardCharsets.UTF_8));
+              return new MaterializedViewCollectionMetadata(
+                  new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(
+                      0, Map.of()),
+                  uuid,
+                  "test_" + id.indexId.toHexString());
+            });
+    when(catalog.getMetadataIfPresent(any(GenerationId.class)))
+        .thenAnswer(
+            inv -> {
+              GenerationId id = inv.getArgument(0);
+              UUID uuid =
+                  UUID.nameUUIDFromBytes(id.indexId.toHexString().getBytes(StandardCharsets.UTF_8));
+              return Optional.of(
+                  new MaterializedViewCollectionMetadata(
+                      new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(
+                          0, Map.of()),
+                      uuid,
+                      "test_" + id.indexId.toHexString()));
+            });
+    return catalog;
   }
 }

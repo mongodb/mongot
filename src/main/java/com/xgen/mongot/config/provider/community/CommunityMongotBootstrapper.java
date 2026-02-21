@@ -24,6 +24,7 @@ import com.xgen.mongot.config.util.HysteresisConfig;
 import com.xgen.mongot.cursor.CursorConfig;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.cursor.MongotCursorManagerImpl;
+import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
 import com.xgen.mongot.embedding.providers.clients.EmbeddingClientFactory;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelCatalog;
@@ -630,12 +631,24 @@ public class CommunityMongotBootstrapper {
             Optional.empty(),
             diskMonitor);
 
+    var mvMetadataCatalog = new MaterializedViewCollectionMetadataCatalog();
     var leaseManager =
         CommonUtils.getLeaseManager(
-            syncSourceConfig, meterAndFtdcRegistry, isAutoEmbeddingViewWriter);
+            syncSourceConfig, meterAndFtdcRegistry, isAutoEmbeddingViewWriter, mvMetadataCatalog);
+    var mvCollectionResolver =
+        CommonUtils.getMaterializedViewCollectionResolver(
+            syncSourceConfig,
+            meterAndFtdcRegistry,
+            mvMetadataCatalog,
+            leaseManager,
+            mongotConfigs.autoEmbeddingMaterializedViewConfig);
     var materializedViewIndexFactory =
         CommonUtils.getMaterializedViewIndexFactory(
-            syncSourceConfig, featureFlags, meterAndFtdcRegistry, leaseManager);
+            syncSourceConfig,
+            featureFlags,
+            meterAndFtdcRegistry,
+            leaseManager,
+            mvCollectionResolver);
     var replicationManagerFactory =
         CommonUtils.getReplicationManagerFactory(
             dataPath,
@@ -661,7 +674,8 @@ public class CommunityMongotBootstrapper {
             meterAndFtdcRegistry,
             DefaultConfigManager.ReplicationMode.ENABLE,
             Optional.of(embeddingServiceManagerSupplier),
-            leaseManager);
+            leaseManager,
+            mvMetadataCatalog);
 
     var lifecycleManager =
         CommonUtils.getLifecycleManager(

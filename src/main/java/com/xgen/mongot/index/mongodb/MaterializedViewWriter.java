@@ -1,7 +1,5 @@
 package com.xgen.mongot.index.mongodb;
 
-import static com.xgen.mongot.util.mongodb.MongoDbDatabase.getCollectionInfo;
-
 import com.mongodb.MongoBulkWriteException;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoNamespace;
@@ -25,12 +23,10 @@ import com.xgen.mongot.index.IndexWriter;
 import com.xgen.mongot.index.WriterClosedException;
 import com.xgen.mongot.index.version.MaterializedViewGenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
-import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.concurrent.LockGuard;
 import com.xgen.mongot.util.mongodb.Errors;
 import com.xgen.mongot.util.mongodb.MongoClientBuilder;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
-import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.io.Closeable;
@@ -103,7 +99,8 @@ public class MaterializedViewWriter implements IndexWriter {
       String matViewName,
       MaterializedViewGenerationId generationId,
       LeaseManager leaseManager,
-      MetricsFactory metricsFactory) {
+      MetricsFactory metricsFactory,
+      UUID collectionUuid) {
     this.mongoClient = mongoClient;
     this.namespace = new MongoNamespace(MV_DATABASE_NAME, matViewName);
     this.generationId = generationId;
@@ -113,35 +110,11 @@ public class MaterializedViewWriter implements IndexWriter {
     this.partialBulkWriteErrors = metricsFactory.counter("partialBulkWriteErrors");
     this.operationExecutor =
         new MongoClientOperationExecutor(metricsFactory, "materializedViewCollection");
-    this.collectionUuid = createCollectionIfNeededAndGetUuid();
+    this.collectionUuid = collectionUuid;
     ReentrantReadWriteLock shutdownLock = new ReentrantReadWriteLock(true);
     this.shutdownAndCommitExclusiveLock = shutdownLock.writeLock();
     this.shutdownAndCommitSharedLock = shutdownLock.readLock();
     this.closed = false;
-  }
-
-  private UUID createCollectionIfNeededAndGetUuid() {
-    boolean collectionExists =
-        this.mongoClient
-            .getDatabase(this.namespace.getDatabaseName())
-            .listCollectionNames()
-            .into(new ArrayList<>())
-            .contains(this.namespace.getCollectionName());
-    if (!collectionExists) {
-      this.mongoClient
-          .getDatabase(this.namespace.getDatabaseName())
-          .createCollection(this.namespace.getCollectionName());
-    }
-    try {
-      MongoDbCollectionInfo collectionInfo =
-          getCollectionInfo(
-              this.mongoClient,
-              this.namespace.getDatabaseName(),
-              this.namespace.getCollectionName());
-      return Check.instanceOf(collectionInfo, MongoDbCollectionInfo.Collection.class).info().uuid();
-    } catch (Exception e) {
-      throw new MaterializedViewNonTransientException(e);
-    }
   }
 
   @Override
@@ -150,11 +123,12 @@ public class MaterializedViewWriter implements IndexWriter {
       ensureOpen("updateIndex");
       var bulkOperations = this.bulkOperationsRef.get();
       switch (event.getEventType()) {
-        case INSERT -> bulkOperations.add(
-            new ReplaceOneModel<>(
-                new BsonDocument("_id", event.getDocumentId()),
-                event.getDocument().get(), // only returns empty when event is a delete
-                new ReplaceOptions().upsert(true)));
+        case INSERT ->
+            bulkOperations.add(
+                new ReplaceOneModel<>(
+                    new BsonDocument("_id", event.getDocumentId()),
+                    event.getDocument().get(), // only returns empty when event is a delete
+                    new ReplaceOptions().upsert(true)));
         case UPDATE -> {
           // For filter-only updates, use $set to update only the filter fields.
           // This preserves existing embeddings in the materialized view document.
@@ -171,8 +145,9 @@ public class MaterializedViewWriter implements IndexWriter {
                     new ReplaceOptions().upsert(true)));
           }
         }
-        case DELETE -> bulkOperations.add(
-            new DeleteOneModel<>(new BsonDocument("_id", event.getDocumentId())));
+        case DELETE ->
+            bulkOperations.add(
+                new DeleteOneModel<>(new BsonDocument("_id", event.getDocumentId())));
       }
     }
   }
@@ -296,13 +271,15 @@ public class MaterializedViewWriter implements IndexWriter {
     public MaterializedViewWriter create(
         String matViewColName,
         MaterializedViewGenerationId generationId,
-        LeaseManager leaseManager) {
+        LeaseManager leaseManager,
+        UUID collectionUuid) {
       return new MaterializedViewWriter(
           this.materializedViewMongoClient,
           matViewColName,
           generationId,
           leaseManager,
-          this.metricsFactory);
+          this.metricsFactory,
+          collectionUuid);
     }
 
     @Override

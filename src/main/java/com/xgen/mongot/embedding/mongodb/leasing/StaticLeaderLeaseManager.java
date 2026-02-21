@@ -14,6 +14,7 @@ import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.lang.Nullable;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
+import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewNonTransientException;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
 import com.xgen.mongot.embedding.utils.MongoClientOperationExecutor;
@@ -78,16 +79,19 @@ public class StaticLeaderLeaseManager implements LeaseManager {
   private final Map<GenerationId, String> generationIdToDefinitionVersion;
   private final MongoCollection<BsonDocument> collection;
   private final boolean isLeader;
+  private final MaterializedViewCollectionMetadataCatalog mvMetadataCatalog;
 
   public StaticLeaderLeaseManager(
       MongoClient mongoClient,
       MetricsFactory metricsFactory,
       String hostname,
       String databaseName,
-      boolean isLeader) {
+      boolean isLeader,
+      MaterializedViewCollectionMetadataCatalog mvMetadataCatalog) {
     this.operationExecutor =
         new MongoClientOperationExecutor(metricsFactory, "leaseTableCollection");
     this.hostname = hostname;
+    this.mvMetadataCatalog = mvMetadataCatalog;
     this.leases = new ConcurrentHashMap<>();
     this.managedGenerationIds = ConcurrentHashMap.newKeySet();
     this.generationIdToDefinitionVersion = new ConcurrentHashMap<>();
@@ -110,13 +114,15 @@ public class StaticLeaderLeaseManager implements LeaseManager {
       SyncSourceConfig syncSourceConfig,
       MeterAndFtdcRegistry meterAndFtdcRegistry,
       String hostname,
-      boolean isLeader) {
+      boolean isLeader,
+      MaterializedViewCollectionMetadataCatalog mvMetadataCatalog) {
     return new StaticLeaderLeaseManager(
         getMongoClient(syncSourceConfig, meterAndFtdcRegistry),
         new MetricsFactory(METRICS_NAMESPACE, meterAndFtdcRegistry.meterRegistry()),
         hostname,
         AUTO_EMBEDDING_INTERNAL_DATABASE_NAME,
-        isLeader);
+        isLeader,
+        mvMetadataCatalog);
   }
 
   /**
@@ -167,7 +173,7 @@ public class StaticLeaderLeaseManager implements LeaseManager {
     } else {
       Lease lease =
           Lease.newLease(
-              indexGeneration.getDefinition().getIndexId().toHexString(),
+              getLeaseKey(generationId),
               indexGeneration.getDefinition().getCollectionUuid(),
               indexGeneration.getDefinition().getLastObservedCollectionName(),
               this.hostname,
@@ -353,12 +359,8 @@ public class StaticLeaderLeaseManager implements LeaseManager {
     }
   }
 
-  @VisibleForTesting
-  // Generates the lease key/ID to use for the given generation ID. For now, we derive this using
-  // the same logic that we use to derive the mat view collection name - which is the index ID.
-  // This means that we will have a single lease document per index across all its generations.
-  static String getLeaseKey(GenerationId generationId) {
-    return generationId.indexId.toHexString();
+  private String getLeaseKey(GenerationId generationId) {
+    return this.mvMetadataCatalog.getMetadata(generationId).collectionName();
   }
 
   @Nullable

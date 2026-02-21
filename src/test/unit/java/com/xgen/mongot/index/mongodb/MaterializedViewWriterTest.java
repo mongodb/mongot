@@ -10,12 +10,9 @@ import static org.mockito.Mockito.when;
 import com.mongodb.MongoBulkWriteException;
 import com.mongodb.MongoNamespace;
 import com.mongodb.bulk.BulkWriteError;
-import com.mongodb.client.ListCollectionsIterable;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
-import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.MongoIterable;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewNonTransientException;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
 import com.xgen.mongot.index.DocumentEvent;
@@ -30,12 +27,10 @@ import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.util.BsonUtils;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import org.bson.BsonBinary;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonMaximumSizeExceededException;
@@ -57,6 +52,7 @@ public class MaterializedViewWriterTest {
   private static final MaterializedViewGenerationId GENERATION_ID =
       new MaterializedViewGenerationId(
           new ObjectId(), new MaterializedViewGeneration(Generation.FIRST));
+  private static final UUID COLLECTION_UUID = UUID.randomUUID();
 
   private MongoClient mockMongoClient;
   private MongoDatabase mockDatabase;
@@ -68,27 +64,6 @@ public class MaterializedViewWriterTest {
     this.mockMongoClient = Mockito.mock(MongoClient.class);
     this.mockDatabase = Mockito.mock(MongoDatabase.class);
     this.mockCollection = Mockito.mock(MongoCollection.class);
-
-    // Mock ListCollectionNames
-    ArrayList<String> collectionNames = new ArrayList<>();
-    collectionNames.add(MV_COLLECTION_NAME);
-    MongoIterable<String> mockCollectionNames = Mockito.mock(MongoIterable.class);
-    when(mockCollectionNames.into(any())).thenReturn(collectionNames);
-    when(this.mockDatabase.listCollectionNames()).thenReturn(mockCollectionNames);
-
-    // Mock ListCollections
-    ListCollectionsIterable<BsonDocument> mockListCollections =
-        Mockito.mock(ListCollectionsIterable.class);
-    MongoCursor<BsonDocument> mockCursor = Mockito.mock(MongoCursor.class);
-    when(mockCursor.hasNext()).thenReturn(true, false);
-    when(mockCursor.next())
-        .thenReturn(
-            new BsonDocument("info", new BsonDocument("uuid", new BsonBinary(UUID.randomUUID())))
-                .append("type", new BsonString("collection"))
-                .append("name", new BsonString(MV_COLLECTION_NAME)));
-
-    when(mockListCollections.iterator()).thenReturn(mockCursor);
-    when(this.mockDatabase.listCollections(BsonDocument.class)).thenReturn(mockListCollections);
 
     this.mockLeaseManager = Mockito.mock(LeaseManager.class);
     when(this.mockDatabase.getCollection(MV_NAMESPACE.getCollectionName(), RawBsonDocument.class))
@@ -109,7 +84,8 @@ public class MaterializedViewWriterTest {
             MV_COLLECTION_NAME,
             GENERATION_ID,
             this.mockLeaseManager,
-            METRICS_FACTORY);
+            METRICS_FACTORY,
+            COLLECTION_UUID);
     ObjectId indexId = new ObjectId();
     RawBsonDocument document =
         BsonUtils.documentToRaw(
@@ -141,7 +117,8 @@ public class MaterializedViewWriterTest {
             MV_COLLECTION_NAME,
             GENERATION_ID,
             this.mockLeaseManager,
-            METRICS_FACTORY);
+            METRICS_FACTORY,
+            COLLECTION_UUID);
 
     Assert.assertThrows(
         MaterializedViewNonTransientException.class, () -> updateAndCommit(1, matViewWriter));
@@ -159,7 +136,8 @@ public class MaterializedViewWriterTest {
             MV_COLLECTION_NAME,
             GENERATION_ID,
             this.mockLeaseManager,
-            METRICS_FACTORY);
+            METRICS_FACTORY,
+            COLLECTION_UUID);
 
     // Insert two documents
     updateAndCommit(2, matViewWriter);
@@ -182,7 +160,8 @@ public class MaterializedViewWriterTest {
             MV_COLLECTION_NAME,
             GENERATION_ID,
             this.mockLeaseManager,
-            METRICS_FACTORY);
+            METRICS_FACTORY,
+            COLLECTION_UUID);
 
     Assert.assertThrows(
         MaterializedViewNonTransientException.class, () -> updateAndCommit(1, matViewWriter));
@@ -202,7 +181,8 @@ public class MaterializedViewWriterTest {
             MV_COLLECTION_NAME,
             GENERATION_ID,
             this.mockLeaseManager,
-            METRICS_FACTORY);
+            METRICS_FACTORY,
+            COLLECTION_UUID);
     updateAndCommit(1, matViewWriter);
 
     verify(this.mockCollection, times(2)).bulkWrite(argThat(list -> list.size() == 1));
@@ -216,7 +196,8 @@ public class MaterializedViewWriterTest {
             MV_COLLECTION_NAME,
             GENERATION_ID,
             this.mockLeaseManager,
-            METRICS_FACTORY);
+            METRICS_FACTORY,
+            COLLECTION_UUID);
     matViewWriter.close();
     ObjectId indexId = new ObjectId();
     Assert.assertThrows(
@@ -232,7 +213,8 @@ public class MaterializedViewWriterTest {
             MV_COLLECTION_NAME,
             GENERATION_ID,
             this.mockLeaseManager,
-            METRICS_FACTORY);
+            METRICS_FACTORY,
+            COLLECTION_UUID);
     matViewWriter.close();
     Assert.assertThrows(
         IndexClosedException.class, () -> matViewWriter.commit(EncodedUserData.EMPTY));
@@ -246,7 +228,8 @@ public class MaterializedViewWriterTest {
             MV_COLLECTION_NAME,
             GENERATION_ID,
             this.mockLeaseManager,
-            METRICS_FACTORY);
+            METRICS_FACTORY,
+            COLLECTION_UUID);
     CompletableFuture<Void> future = matViewWriter.dropMaterializedViewCollection();
     future.get();
     verify(this.mockCollection).drop();
@@ -270,7 +253,8 @@ public class MaterializedViewWriterTest {
             MV_COLLECTION_NAME,
             GENERATION_ID,
             this.mockLeaseManager,
-            METRICS_FACTORY);
+            METRICS_FACTORY,
+            COLLECTION_UUID);
 
     ObjectId indexId = new ObjectId();
     RawBsonDocument document =
@@ -298,8 +282,7 @@ public class MaterializedViewWriterTest {
                     return false;
                   }
                   // Check that it's an UpdateOneModel, not ReplaceOneModel
-                  return list.get(0)
-                      instanceof com.mongodb.client.model.UpdateOneModel;
+                  return list.get(0) instanceof com.mongodb.client.model.UpdateOneModel;
                 }));
   }
 
@@ -312,7 +295,8 @@ public class MaterializedViewWriterTest {
             MV_COLLECTION_NAME,
             GENERATION_ID,
             this.mockLeaseManager,
-            METRICS_FACTORY);
+            METRICS_FACTORY,
+            COLLECTION_UUID);
 
     ObjectId indexId = new ObjectId();
     RawBsonDocument document =
@@ -336,8 +320,7 @@ public class MaterializedViewWriterTest {
                     return false;
                   }
                   // Check that it's a ReplaceOneModel, not UpdateOneModel
-                  return list.get(0)
-                      instanceof com.mongodb.client.model.ReplaceOneModel;
+                  return list.get(0) instanceof com.mongodb.client.model.ReplaceOneModel;
                 }));
   }
 

@@ -10,6 +10,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.xgen.mongot.cursor.MongotCursorManager;
+import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewNonTransientException;
 import com.xgen.mongot.embedding.mongodb.leasing.DynamicLeaderLeaseManager;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
@@ -135,6 +136,8 @@ public class MaterializedViewManager implements ReplicationManager {
   /** Factory for creating MaterializedViewGenerator instances. */
   private final MaterializedViewGeneratorFactory matViewGeneratorFactory;
 
+  private final MaterializedViewCollectionMetadataCatalog matViewMetadataCatalog;
+
   // ==================== Index Leader Fields ====================
 
   /**
@@ -198,7 +201,8 @@ public class MaterializedViewManager implements ReplicationManager {
       NamedScheduledExecutorService statusRefreshExecutor,
       NamedScheduledExecutorService optimeUpdaterExecutor,
       MeterRegistry meterRegistry,
-      LeaseManager leaseManager) {
+      LeaseManager leaseManager,
+      MaterializedViewCollectionMetadataCatalog matViewMetadataCatalog) {
     this.lifecycleExecutor = lifecycleExecutor;
     this.indexingWorkSchedulerFactory = indexingWorkSchedulerFactory;
     this.clientSessionRecordMap = clientSessionRecordMap;
@@ -219,6 +223,7 @@ public class MaterializedViewManager implements ReplicationManager {
     this.statusRefreshExecutor = statusRefreshExecutor;
     this.optimeUpdaterExecutor = optimeUpdaterExecutor;
     this.leaseManager = leaseManager;
+    this.matViewMetadataCatalog = matViewMetadataCatalog;
     this.optimeUpdaterErrorCounter = this.meterRegistry.counter(OPTIME_UPDATER_ERROR_COUNTER_NAME);
     createStateGauges(this, this.metricsFactory);
     // Always start heartbeat - it emits heartbeat only for indexes where this instance is leader
@@ -292,7 +297,8 @@ public class MaterializedViewManager implements ReplicationManager {
       MongotCursorManager cursorManager,
       Optional<Supplier<EmbeddingServiceManager>> embeddingServiceManagerSupplier,
       MeterAndFtdcRegistry meterAndFtdcRegistry,
-      LeaseManager leaseManager) {
+      LeaseManager leaseManager,
+      MaterializedViewCollectionMetadataCatalog matViewMetadataCatalog) {
     if (embeddingServiceManagerSupplier.isEmpty()) {
       throw new IllegalArgumentException("EmbeddingServiceManagerSupplier must be provided");
     }
@@ -398,7 +404,8 @@ public class MaterializedViewManager implements ReplicationManager {
         statusRefreshExecutor,
         optimeUpdaterExecutor,
         meterRegistry,
-        leaseManager);
+        leaseManager,
+        matViewMetadataCatalog);
   }
 
   /** Creates gauges to track the number of view generators by state */
@@ -448,7 +455,9 @@ public class MaterializedViewManager implements ReplicationManager {
     checkState(!this.shutdown, "cannot call add() after shutdown()");
     AutoEmbeddingIndexGeneration autoEmbeddingIndexGeneration =
         Check.instanceOf(indexGeneration, AutoEmbeddingIndexGeneration.class);
-    UUID uuid = getCollectionUuid(autoEmbeddingIndexGeneration.getGenerationId());
+    UUID uuid =
+        getCollectionUuid(
+            autoEmbeddingIndexGeneration.getMaterializedViewIndexGeneration().getGenerationId());
     GenerationId generationId = autoEmbeddingIndexGeneration.getGenerationId();
 
     // Reference counting by all indexGenerations with all attempts
@@ -628,7 +637,13 @@ public class MaterializedViewManager implements ReplicationManager {
   @Override
   public synchronized CompletableFuture<Void> dropIndex(GenerationId generationId) {
     checkState(!this.shutdown, "cannot call dropIndex() after shutdown()");
-    UUID uuid = getCollectionUuid(generationId);
+    var metadata = this.matViewMetadataCatalog.getMetadataIfPresent(generationId);
+    if (metadata.isEmpty()) {
+      // Not a materialized-view index (e.g. search or plain vector); nothing to drop here.
+      return COMPLETED_FUTURE;
+    }
+    UUID uuid = metadata.get().collectionUuid();
+    this.matViewMetadataCatalog.removeMetadata(generationId);
 
     // Common logic: reference counting
     if (this.activeGenerationIdByMatViewCollection.containsKey(uuid)) {
@@ -882,12 +897,8 @@ public class MaterializedViewManager implements ReplicationManager {
     }
   }
 
-  // TODO(CLOUDP-360195): Extract destination Materialized View collection UUID from
-  // GenerationId, AutoEmbeddingIndexGenerationFactory should implement compatibility
-  // check to decide whether to create a new Materialized View collection for new auto-embedding
-  // index definition version
-  public static UUID getCollectionUuid(GenerationId generationId) {
-    return UUID.nameUUIDFromBytes(generationId.indexId.toByteArray());
+  public UUID getCollectionUuid(GenerationId generationId) {
+    return this.matViewMetadataCatalog.getMetadata(generationId).collectionUuid();
   }
 
   /**

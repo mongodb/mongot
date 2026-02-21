@@ -5,6 +5,8 @@ import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
 import com.xgen.mongot.config.manager.DefaultConfigManager;
 import com.xgen.mongot.cursor.MongotCursorManager;
+import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
+import com.xgen.mongot.embedding.mongodb.MaterializedViewCollectionResolver;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
 import com.xgen.mongot.embedding.mongodb.leasing.StaticLeaderLeaseManager;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
@@ -170,7 +172,8 @@ public class CommonUtils {
           MeterAndFtdcRegistry meterAndFtdcRegistry,
           DefaultConfigManager.ReplicationMode replicationMode,
           Optional<Supplier<EmbeddingServiceManager>> embeddingServiceManagerSupplier,
-          LeaseManager leaseManager) {
+          LeaseManager leaseManager,
+          MaterializedViewCollectionMetadataCatalog mvMetadataCatalog) {
 
     return (Optional<SyncSourceConfig> syncConfig) -> {
       // Create a no-op replication manager factory if replication mode is disabled or replication
@@ -195,7 +198,8 @@ public class CommonUtils {
               cursorManager,
               embeddingServiceManagerSupplier,
               meterAndFtdcRegistry,
-              leaseManager));
+              leaseManager,
+              mvMetadataCatalog));
     };
   }
 
@@ -204,9 +208,10 @@ public class CommonUtils {
       SyncSourceConfig syncSourceConfig,
       FeatureFlags featureFlags,
       MeterAndFtdcRegistry meterAndFtdcRegistry,
-      LeaseManager leaseManager) {
+      LeaseManager leaseManager,
+      MaterializedViewCollectionResolver collectionResolver) {
     return new MaterializedViewIndexFactory(
-        syncSourceConfig, featureFlags, meterAndFtdcRegistry, leaseManager);
+        syncSourceConfig, featureFlags, meterAndFtdcRegistry, leaseManager, collectionResolver);
   }
 
   /**
@@ -221,10 +226,29 @@ public class CommonUtils {
   public static LeaseManager getLeaseManager(
       SyncSourceConfig syncSourceConfig,
       MeterAndFtdcRegistry meterAndFtdcRegistry,
-      boolean isAutoEmbeddingViewWriter) {
+      boolean isAutoEmbeddingViewWriter,
+      MaterializedViewCollectionMetadataCatalog mvMetadataCatalog) {
     LOG.info("Auto-embedding leader mode set via config: {}", isAutoEmbeddingViewWriter);
     // hostname is an unused parameter for now, so passing in a placeholder.
     return StaticLeaderLeaseManager.create(
-        syncSourceConfig, meterAndFtdcRegistry, "localhost", isAutoEmbeddingViewWriter);
+        syncSourceConfig,
+        meterAndFtdcRegistry,
+        "localhost",
+        isAutoEmbeddingViewWriter,
+        mvMetadataCatalog);
+  }
+
+  public static MaterializedViewCollectionResolver getMaterializedViewCollectionResolver(
+      SyncSourceConfig syncSourceConfig,
+      MeterAndFtdcRegistry meterAndFtdcRegistry,
+      MaterializedViewCollectionMetadataCatalog metadataCatalog,
+      LeaseManager leaseManager,
+      AutoEmbeddingMaterializedViewConfig materializedViewConfig) {
+    return MaterializedViewCollectionResolver.create(
+        syncSourceConfig,
+        meterAndFtdcRegistry,
+        metadataCatalog,
+        leaseManager,
+        materializedViewConfig);
   }
 }
