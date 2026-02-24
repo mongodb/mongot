@@ -4,6 +4,10 @@ register_toolchains(
     "//bazel/java:mongot_java21_toolchain",
 )
 
+load("//bazel/rust/prost:config.bzl", "register_prost_toolchains")
+
+register_prost_toolchains()
+
 # First load any dependencies that themselves contain additional bazel rules.
 # For example, we first have to load rules_oci before loading any .bzl file
 # that itself tries to load from @rules_oci.

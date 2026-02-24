@@ -33,3 +33,11 @@ def common_repos():
         sha256 = "f4aadd8387f381033a9ad0500443a52a0cea5f8ad1ede4369d3c614eb7b2682e",
         strip_prefix = "rules_cc-0.0.15",
     )
+
+    # Required by rules_rust_prost
+    http_archive(
+        name = "bazel_features",
+        sha256 = "966c211ec42c4deb2af4c6dd6948408100b752f61753c97055bdac9bfb5cc0c7",
+        strip_prefix = "bazel_features-1.41.0",
+        url = "https://github.com/bazel-contrib/bazel_features/releases/download/v1.41.0/bazel_features-v1.41.0.tar.gz",
+    )
