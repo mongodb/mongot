@@ -2,6 +2,7 @@
 hack/icecc/.tongo_build_cluster_config
 .bazelbsp
 .ijwb
+.vscode
 .idea/
 .DS_Store
 rust-project.json
