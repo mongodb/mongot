@@ -11,9 +11,19 @@ import java.util.Map;
 import java.util.function.Supplier;
 
 @VisibleForTesting
-public class LuceneVectorIndexMetricValuesSupplier extends LuceneIndexMetricValuesSupplier {
+public final class LuceneVectorIndexMetricValuesSupplier extends LuceneIndexMetricValuesSupplier {
 
-  public LuceneVectorIndexMetricValuesSupplier(
+  /** Private constructor - does not register gauges. Use {@link #create} to construct instances. */
+  private LuceneVectorIndexMetricValuesSupplier(
+      Supplier<IndexStatus> indexStatusSupplier,
+      IndexBackingStrategy indexBackingStrategy,
+      VectorIndexReader indexReader,
+      LuceneIndexWriter luceneIndexWriter) {
+    super(indexStatusSupplier, indexBackingStrategy, indexReader, luceneIndexWriter);
+  }
+
+  /** Static factory method that constructs the supplier and registers all gauges. */
+  public static LuceneVectorIndexMetricValuesSupplier create(
       Supplier<IndexStatus> indexStatusSupplier,
       IndexBackingStrategy indexBackingStrategy,
       VectorIndexReader indexReader,
@@ -21,14 +31,15 @@ public class LuceneVectorIndexMetricValuesSupplier extends LuceneIndexMetricValu
       PerIndexMetricsFactory metricsFactory,
       int indexFeatureVersion,
       boolean isIndexFeatureVersionFourEnabled) {
-    super(
-        indexStatusSupplier,
-        indexBackingStrategy,
-        indexReader,
-        luceneIndexWriter,
-        metricsFactory,
-        indexFeatureVersion,
-        isIndexFeatureVersionFourEnabled);
+    LuceneVectorIndexMetricValuesSupplier supplier =
+        new LuceneVectorIndexMetricValuesSupplier(
+            indexStatusSupplier, indexBackingStrategy, indexReader, luceneIndexWriter);
+
+    // Register common gauges after construction is complete
+    supplier.registerCommonGauges(
+        metricsFactory, indexFeatureVersion, isIndexFeatureVersionFourEnabled);
+
+    return supplier;
   }
 
   @Override

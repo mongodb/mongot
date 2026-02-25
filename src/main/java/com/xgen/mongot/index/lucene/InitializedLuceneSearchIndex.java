@@ -204,7 +204,7 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
                     : Optional.empty());
 
     IndexMetricValuesSupplier indexMetricValuesSupplier =
-        new LuceneSearchIndexMetricValuesSupplier(
+        LuceneSearchIndexMetricValuesSupplier.create(
             index.getStatusRef(),
             searchIndexProperties.indexBackingStrategy,
             searchIndexReader,

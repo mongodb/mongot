@@ -193,7 +193,7 @@ class InitializedLuceneVectorIndex implements InitializedVectorIndex {
                     : Optional.empty());
 
     IndexMetricValuesSupplier indexMetricValuesSupplier =
-        new LuceneVectorIndexMetricValuesSupplier(
+        LuceneVectorIndexMetricValuesSupplier.create(
             index.getStatusRef(),
             vectorIndexProperties.indexBackingStrategy,
             vectorIndexReader,

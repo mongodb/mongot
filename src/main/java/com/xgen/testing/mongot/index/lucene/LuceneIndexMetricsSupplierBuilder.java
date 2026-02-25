@@ -123,7 +123,7 @@ public class LuceneIndexMetricsSupplierBuilder {
         Check.isPresent(this.indexReader, "indexReader");
         SearchIndexReader searchIndexReader =
             Check.instanceOf(this.indexReader.get(), SearchIndexReader.class);
-        yield new LuceneSearchIndexMetricValuesSupplier(
+        yield LuceneSearchIndexMetricValuesSupplier.create(
             this.indexStatusSupplier,
             this.indexBackingStrategy,
             searchIndexReader,
@@ -153,7 +153,7 @@ public class LuceneIndexMetricsSupplierBuilder {
         Check.checkState(
             this.customAnalyzers.isEmpty(),
             "LuceneVectorIndexMetricValuesSupplier doesn't support custom analyzer definitions.");
-        yield new LuceneVectorIndexMetricValuesSupplier(
+        yield LuceneVectorIndexMetricValuesSupplier.create(
             this.indexStatusSupplier,
             this.indexBackingStrategy,
             vectorIndexReader,

@@ -39,7 +39,7 @@ import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.FieldInfos;
 
 @VisibleForTesting
-public class LuceneSearchIndexMetricValuesSupplier extends LuceneIndexMetricValuesSupplier {
+public final class LuceneSearchIndexMetricValuesSupplier extends LuceneIndexMetricValuesSupplier {
   private static final FluentLogger FLOGGER = FluentLogger.forEnclosingClass();
 
   @VisibleForTesting
@@ -64,7 +64,39 @@ public class LuceneSearchIndexMetricValuesSupplier extends LuceneIndexMetricValu
     public static final String NUM_EMBEDDED_ROOT_DOCS = "numEmbeddedRootDocs";
   }
 
-  public LuceneSearchIndexMetricValuesSupplier(
+  /**
+   * Private constructor - does not register gauges. Use static factory methods to construct
+   * instances.
+   */
+  private LuceneSearchIndexMetricValuesSupplier(
+      Supplier<IndexStatus> indexStatusSupplier,
+      IndexBackingStrategy indexBackingStrategy,
+      SearchIndexReader searchIndexReader,
+      LuceneIndexWriter luceneIndexWriter,
+      boolean hasEmbeddedFields,
+      SearchFieldDefinitionResolver resolver,
+      List<CustomAnalyzerDefinition> customAnalyzerDefinitions,
+      Duration numFieldsCacheDuration,
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
+    super(indexStatusSupplier, indexBackingStrategy, searchIndexReader, luceneIndexWriter);
+
+    this.indexReader = searchIndexReader;
+    this.hasEmbeddedFields = hasEmbeddedFields;
+    this.resolver = resolver;
+    this.autocompleteLikeCustomAnalyzerNames =
+        getAutocompleteLikeCustomAnalyzerNames(customAnalyzerDefinitions);
+    this.cachedNumFieldsPerDatatype =
+        Suppliers.memoizeWithExpiration(
+            this::computeNumFieldsPerDatatype,
+            numFieldsCacheDuration.toMillis(),
+            TimeUnit.MILLISECONDS);
+    this.dynamicFeatureFlagRegistry = dynamicFeatureFlagRegistry;
+  }
+
+  /**
+   * Static factory method that constructs the supplier and registers all gauges.
+   */
+  public static LuceneSearchIndexMetricValuesSupplier create(
       Supplier<IndexStatus> indexStatusSupplier,
       IndexBackingStrategy indexBackingStrategy,
       SearchIndexReader searchIndexReader,
@@ -75,7 +107,7 @@ public class LuceneSearchIndexMetricValuesSupplier extends LuceneIndexMetricValu
       int indexFeatureVersion,
       boolean isIndexFeatureVersionFourEnabled,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
-    this(
+    return create(
         indexStatusSupplier,
         indexBackingStrategy,
         searchIndexReader,
@@ -90,8 +122,10 @@ public class LuceneSearchIndexMetricValuesSupplier extends LuceneIndexMetricValu
         dynamicFeatureFlagRegistry);
   }
 
-  /** Instantiates a supplier for lucene-retrieval-based metrics */
-  public LuceneSearchIndexMetricValuesSupplier(
+  /**
+   * Static factory method that constructs the supplier and registers all gauges.
+   */
+  public static LuceneSearchIndexMetricValuesSupplier create(
       Supplier<IndexStatus> indexStatusSupplier,
       IndexBackingStrategy indexBackingStrategy,
       SearchIndexReader searchIndexReader,
@@ -103,7 +137,7 @@ public class LuceneSearchIndexMetricValuesSupplier extends LuceneIndexMetricValu
       int indexFeatureVersion,
       boolean isIndexFeatureVersionFourEnabled,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
-    this(
+    return create(
         indexStatusSupplier,
         indexBackingStrategy,
         searchIndexReader,
@@ -119,11 +153,10 @@ public class LuceneSearchIndexMetricValuesSupplier extends LuceneIndexMetricValu
   }
 
   /**
-   * Instantiates a supplier for lucene-retrieval-based metrics with a configurable cache duration
-   * for the numFieldsPerDatatype metric.
+   * Static factory method with configurable cache duration for the numFieldsPerDatatype metric.
    */
   @VisibleForTesting
-  public LuceneSearchIndexMetricValuesSupplier(
+  public static LuceneSearchIndexMetricValuesSupplier create(
       Supplier<IndexStatus> indexStatusSupplier,
       IndexBackingStrategy indexBackingStrategy,
       SearchIndexReader searchIndexReader,
@@ -136,45 +169,43 @@ public class LuceneSearchIndexMetricValuesSupplier extends LuceneIndexMetricValu
       boolean isIndexFeatureVersionFourEnabled,
       Duration numFieldsCacheDuration,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
-    super(
-        indexStatusSupplier,
-        indexBackingStrategy,
-        searchIndexReader,
-        luceneIndexWriter,
-        indexStatsMetricFactory,
-        indexFeatureVersion,
-        isIndexFeatureVersionFourEnabled);
+    LuceneSearchIndexMetricValuesSupplier supplier =
+        new LuceneSearchIndexMetricValuesSupplier(
+            indexStatusSupplier,
+            indexBackingStrategy,
+            searchIndexReader,
+            luceneIndexWriter,
+            hasEmbeddedFields,
+            resolver,
+            customAnalyzerDefinitions,
+            numFieldsCacheDuration,
+            dynamicFeatureFlagRegistry);
 
-    this.indexReader = searchIndexReader;
-    this.hasEmbeddedFields = hasEmbeddedFields;
-    this.resolver = resolver;
-    this.autocompleteLikeCustomAnalyzerNames =
-        getAutocompleteLikeCustomAnalyzerNames(customAnalyzerDefinitions);
-    this.cachedNumFieldsPerDatatype =
-        Suppliers.memoizeWithExpiration(
-            this::computeNumFieldsPerDatatype,
-            numFieldsCacheDuration.toMillis(),
-            TimeUnit.MILLISECONDS);
-    this.dynamicFeatureFlagRegistry = dynamicFeatureFlagRegistry;
+    // Register common gauges after construction is complete
+    supplier.registerCommonGauges(
+        indexStatsMetricFactory, indexFeatureVersion, isIndexFeatureVersionFourEnabled);
 
-    if (this.hasEmbeddedFields) {
+    // Register search-index-specific gauges
+    if (supplier.hasEmbeddedFields) {
       indexStatsMetricFactory.perIndexObjectValueGauge(
           MetricNames.NUM_EMBEDDED_ROOT_DOCS,
-          this,
+          supplier,
           CachedGauge.of(
               LuceneSearchIndexMetricValuesSupplier::getNumEmbeddedRootDocs,
               Duration.ofMinutes(1)));
     }
 
-    if (this.indexReader instanceof LuceneSearchIndexReader reader
+    if (supplier.indexReader instanceof LuceneSearchIndexReader reader
         && reader.maxFacetCardinalityMetricEnabled()) {
       indexStatsMetricFactory.perIndexObjectValueGauge(
           MetricNames.MAX_STRING_FACET_CARDINALITY,
-          this,
+          supplier,
           CachedGauge.of(
               LuceneSearchIndexMetricValuesSupplier::getMaxStringFacetCardinality,
               Duration.ofMinutes(1)));
     }
+
+    return supplier;
   }
 
   /**

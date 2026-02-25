@@ -37,20 +37,30 @@ public abstract class LuceneIndexMetricValuesSupplier implements IndexMetricValu
    */
   private final AtomicLong cachedIndexSize = new AtomicLong(0);
 
-  /** Create LuceneIndexMetricValuesSupplier */
-  public LuceneIndexMetricValuesSupplier(
+  /**
+   * Private constructor - does not register gauges. Subclasses should use static factory methods to
+   * construct instances and register gauges after construction is complete.
+   */
+  protected LuceneIndexMetricValuesSupplier(
       Supplier<IndexStatus> indexStatusSupplier,
       IndexBackingStrategy indexBackingStrategy,
       IndexReader indexReader,
-      LuceneIndexWriter luceneIndexWriter,
-      PerIndexMetricsFactory metricsFactory,
-      int indexFeatureVersion,
-      boolean isIndexFeatureVersionFourEnabled) {
+      LuceneIndexWriter luceneIndexWriter) {
     this.indexStatusSupplier = indexStatusSupplier;
     this.indexBackingStrategy = indexBackingStrategy;
     this.indexReader = indexReader;
     this.indexWriter = luceneIndexWriter;
     this.metricsFactories = new ArrayList<>();
+  }
+
+  /**
+   * Registers common gauges for all Lucene index types. Should be called by subclass static factory
+   * methods after construction is complete to avoid this-escape.
+   */
+  protected final void registerCommonGauges(
+      PerIndexMetricsFactory metricsFactory,
+      int indexFeatureVersion,
+      boolean isIndexFeatureVersionFourEnabled) {
     Tags indexFeatureVersionTag =
         isIndexFeatureVersionFourEnabled
             ? Tags.of("indexFeatureVersion", String.valueOf(indexFeatureVersion))
