@@ -1,5 +1,7 @@
 package com.xgen.mongot.index.mongodb;
 
+import static com.xgen.mongot.embedding.utils.EmbeddingConnectionStringUtils.disableDirectConnection;
+
 import com.mongodb.MongoBulkWriteException;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoNamespace;
@@ -291,10 +293,19 @@ public class MaterializedViewWriter implements IndexWriter {
     private MongoClient createMaterializedViewMongoClient(
         SyncSourceConfig syncSourceConfig, MeterRegistry meterRegistry) {
       // Use mongosUri if available, otherwise fall back to mongodUri. This allows the MongoDB
-      // driver
-      // to automatically discover replica set topology and route writes to the primary, avoiding
-      // NotWritablePrimary errors after failovers.
-      var connectionString = syncSourceConfig.mongosUri.orElse(syncSourceConfig.mongodUri);
+      // driver to automatically discover replica set topology and route writes to the primary,
+      // avoiding NotWritablePrimary errors after failovers.
+      var originalConnectionString = syncSourceConfig.mongosUri.orElse(syncSourceConfig.mongodUri);
+      // Replace directConnection=true with directConnection=false to enable topology discovery.
+      // MMS provides connection strings with directConnection=true which forces the driver to
+      // connect only to the specified host. For write operations, we need to route to the primary,
+      // so we must enable topology discovery by setting directConnection=false.
+      // TODO(CLOUDP-360542): have mms return connection strings with directConnection=false.
+      var connectionString = disableDirectConnection(originalConnectionString);
+      LOG.atInfo()
+          .addKeyValue("hosts", connectionString.getHosts())
+          .addKeyValue("directConnection", connectionString.isDirectConnection())
+          .log("Creating MongoClient for MaterializedViewWriter");
       return MongoClientBuilder.buildNonReplicationWithDefaults(
           connectionString,
           "AutoEmbedding Materialized View Writer",

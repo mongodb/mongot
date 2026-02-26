@@ -514,6 +514,17 @@ public class MaterializedViewManager implements ReplicationManager {
     // leadership is acquired later via refreshStatus() when expired leases are detected.
     if (this.leaseManager instanceof StaticLeaderLeaseManager) {
       activateStaticLeadership(generator, generationId);
+    } else if (this.leaseManager.isLeader(matViewIndexGeneration.getGenerationId())) {
+      // For dynamic leader election: if we already own the lease (e.g., after restart with
+      // unexpired lease), activate leadership immediately. The add() method already added
+      // this generation to leaderGenerationIds, so we just need to start the generator.
+      // Note: Must use matViewIndexGeneration.getGenerationId() (MaterializedViewGenerationId)
+      // because that's what DynamicLeaderLeaseManager.add() uses when adding to
+      // leaderGenerationIds.
+      LOG.atInfo()
+          .addKeyValue("generationId", matViewIndexGeneration.getGenerationId())
+          .log("Activating leadership for generator - we own the existing lease after restart");
+      generator.becomeLeader();
     }
     return generator;
   }
@@ -769,10 +780,9 @@ public class MaterializedViewManager implements ReplicationManager {
     }
     // Poll all follower statuses from LeaseManager.
     var pollResult = this.leaseManager.pollFollowerStatuses();
-    var generators = getMatViewGenerators();
 
     // Update the local index status for all followers.
-    generators
+    getMatViewGenerators()
         .values()
         .forEach(
             generator -> {
@@ -789,13 +799,29 @@ public class MaterializedViewManager implements ReplicationManager {
         if (this.leaseManager.tryAcquireLeadership(generationId)) {
           // Successfully acquired leadership - transition generator to leader mode.
           UUID uuid = getCollectionUuid(generationId);
-          var generator = generators.get(uuid);
+          // Get a fresh snapshot from managedMaterializedViewGenerators instead of the snapshot
+          // taken at the start of refreshStatus(). The generator may still be missing due to a
+          // race condition (leaseManager.add() called but generator not yet stored), which is
+          // handled below - createNewGenerator() will call becomeLeader() when it completes.
+          var generator = getMatViewGenerators().get(uuid);
           if (generator != null) {
             LOG.atInfo()
                 .addKeyValue("indexId", generationId.indexId)
                 .addKeyValue("generationId", generationId)
                 .log("Acquired leadership for materialized view, transitioning to leader mode");
             generator.becomeLeader();
+          } else {
+            // This is a transient race condition: leaseManager.add() was called (adding to
+            // followerGenerationIds), but the generator hasn't been stored in the map yet.
+            // This is safe because createNewGenerator() checks isLeader() after creating the
+            // generator and will call becomeLeader() when it completes.
+            LOG.atDebug()
+                .addKeyValue("indexId", generationId.indexId)
+                .addKeyValue("generationId", generationId)
+                .addKeyValue("uuid", uuid)
+                .log(
+                    "Acquired leadership but generator still being created, "
+                        + "createNewGenerator() will activate leadership when complete");
           }
         }
       }

@@ -608,6 +608,28 @@ public class MaterializedViewManagerTest {
     assertTrue(mocks.manager.isInitialized());
   }
 
+  // ==================== Dynamic Leader with Unexpired Lease Tests ====================
+
+  @Test
+  public void dynamicLeader_restartWithUnexpiredLease_activatesLeadershipImmediately() {
+    // Tests the code path in createNewGenerator() where we already own an unexpired lease
+    // after restart. The isLeader() check after add() should return true, and becomeLeader()
+    // should be called immediately on the generator.
+    Mocks mocks = Mocks.createDynamicLeaderWithUnexpiredLease();
+
+    // Add an index - this simulates restart where we already own the lease
+    MaterializedViewIndexGeneration materializedViewIndexGeneration =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator materializedViewGenerator =
+        mocks.mockMaterializedViewGenerator(materializedViewIndexGeneration);
+    mocks.addIndexForReplication(materializedViewIndexGeneration);
+
+    // Verify that leaseManager.add() was called
+    verify(mocks.leaseManager).add(materializedViewIndexGeneration);
+    // Verify that becomeLeader() was called on the generator because we own the lease
+    verify(materializedViewGenerator).becomeLeader();
+  }
+
   static class Mocks {
     final NamedExecutorService executorService;
     @Keep final IndexingWorkSchedulerFactory indexingWorkSchedulerFactory;
@@ -855,6 +877,86 @@ public class MaterializedViewManagerTest {
           mockLeaseManager,
           IndexStatus.steady(), // expectedStatus for follower mode
           Optional.of(runnableCaptor),
+          createMockMetadataCatalog());
+    }
+
+    /**
+     * Creates Mocks configured for dynamic leader election where we already own an unexpired lease.
+     * This simulates restart with an existing lease - when add() is called, isLeader() returns true
+     * immediately, triggering the leadership activation path in createNewGenerator().
+     */
+    private static Mocks createDynamicLeaderWithUnexpiredLease() {
+      NamedExecutorService executorService =
+          spy(Executors.fixedSizeThreadPool("indexing", 1, new SimpleMeterRegistry()));
+
+      MaterializedViewManager.MaterializedViewGeneratorFactory materializedViewGeneratorFactory =
+          mock(MaterializedViewManager.MaterializedViewGeneratorFactory.class);
+
+      NamedScheduledExecutorService commitExecutor =
+          spy(
+              Executors.fixedSizeThreadScheduledExecutor(
+                  "index-commit", 1, new SimpleMeterRegistry()));
+
+      NamedScheduledExecutorService heartbeatExecutor =
+          spy(
+              Executors.singleThreadScheduledExecutor(
+                  "mat-view-leader-heartbeat", new SimpleMeterRegistry()));
+
+      NamedScheduledExecutorService statusRefreshExecutor =
+          spy(
+              Executors.fixedSizeThreadScheduledExecutor(
+                  "mat-view-status-refresh", 1, new SimpleMeterRegistry()));
+
+      NamedScheduledExecutorService optimeUpdaterExecutor =
+          spy(
+              Executors.singleThreadScheduledExecutor(
+                  "mat-view-optime-updater", new SimpleMeterRegistry()));
+
+      InitialSyncQueue initialSyncQueue = mock(InitialSyncQueue.class);
+      when(initialSyncQueue.shutdown()).thenReturn(COMPLETED_FUTURE);
+
+      SteadyStateManager steadyStateManager = mock(SteadyStateManager.class);
+      when(steadyStateManager.shutdown()).thenReturn(COMPLETED_FUTURE);
+
+      // Use a plain LeaseManager mock (NOT StaticLeaderLeaseManager) so the dynamic
+      // leader election path in createNewGenerator() is tested
+      LeaseManager mockLeaseManager = mock(LeaseManager.class);
+      when(mockLeaseManager.drop(any())).thenReturn(COMPLETED_FUTURE);
+
+      // Track added generation IDs and mark them as leaders (simulating unexpired lease)
+      Set<GenerationId> leaderGenerationIds = ConcurrentHashMap.newKeySet();
+      doAnswer(
+              invocation -> {
+                IndexGeneration indexGen = invocation.getArgument(0);
+                // Simulate owning an unexpired lease - add to leaders set
+                leaderGenerationIds.add(indexGen.getGenerationId());
+                return null;
+              })
+          .when(mockLeaseManager)
+          .add(any());
+
+      // isLeader returns true for generations in leaderGenerationIds (unexpired lease)
+      when(mockLeaseManager.isLeader(any()))
+          .thenAnswer(inv -> leaderGenerationIds.contains(inv.getArgument(0)));
+      when(mockLeaseManager.getLeaderGenerationIds()).thenAnswer(inv -> leaderGenerationIds);
+
+      return new Mocks(
+          executorService,
+          mock(IndexingWorkSchedulerFactory.class),
+          mock(DecodingWorkScheduler.class),
+          mock(MongotCursorManager.class),
+          Map.of(),
+          initialSyncQueue,
+          steadyStateManager,
+          mock(BatchMongoClient.class),
+          materializedViewGeneratorFactory,
+          commitExecutor,
+          heartbeatExecutor,
+          statusRefreshExecutor,
+          optimeUpdaterExecutor,
+          mockLeaseManager,
+          IndexStatus.unknown(), // expectedStatus
+          Optional.empty(),
           createMockMetadataCatalog());
     }
 

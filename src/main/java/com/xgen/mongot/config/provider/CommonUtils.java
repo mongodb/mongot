@@ -7,6 +7,7 @@ import com.xgen.mongot.config.manager.DefaultConfigManager;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
 import com.xgen.mongot.embedding.mongodb.MaterializedViewCollectionResolver;
+import com.xgen.mongot.embedding.mongodb.leasing.DynamicLeaderLeaseManager;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
 import com.xgen.mongot.embedding.mongodb.leasing.StaticLeaderLeaseManager;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
@@ -183,6 +184,10 @@ public class CommonUtils {
         return Optional.empty();
       }
 
+      // Note: DISK_UTILIZATION_BASED mode is treated as ENABLE for auto-embedding because
+      // auto-embedding writes to the MongoDB materialized view collection (not local disk),
+      // so local disk utilization concerns don't apply.
+      // TODO(CLOUDP-360913): Implement customized disk monitor for mat view.
       Check.checkState(
           !replicationMode.equals(DefaultConfigManager.ReplicationMode.DISK_UTILIZATION_BASED),
           "Materialized View Manager doesn't support disk utilization based processing.");
@@ -222,7 +227,9 @@ public class CommonUtils {
    * @param isAutoEmbeddingViewWriter true if this instance is the auto-embedding view writer
    *     (leader)
    * @return a LeaseManager configured with the specified leader status
+   * @deprecated Use {@link #getDynamicLeaseManager} instead for dynamic leader election.
    */
+  @Deprecated
   public static LeaseManager getLeaseManager(
       SyncSourceConfig syncSourceConfig,
       MeterAndFtdcRegistry meterAndFtdcRegistry,
@@ -250,5 +257,28 @@ public class CommonUtils {
         metadataCatalog,
         leaseManager,
         materializedViewConfig);
+  }
+
+  /**
+   * Creates a DynamicLeaderLeaseManager for dynamic per-index leader election.
+   *
+   * <p>This is used in deployments with multiple mongot instances where leadership is determined
+   * dynamically at the index level through lease acquisition and renewal, rather than being
+   * statically configured.
+   *
+   * @param syncSourceConfig the sync source configuration
+   * @param meterAndFtdcRegistry the meter and FTDC registry
+   * @param hostname the hostname of this mongot instance
+   * @param mvMetadataCatalog the materialized view collection metadata catalog
+   * @return a DynamicLeaderLeaseManager for dynamic leader election
+   */
+  public static LeaseManager getDynamicLeaseManager(
+      SyncSourceConfig syncSourceConfig,
+      MeterAndFtdcRegistry meterAndFtdcRegistry,
+      String hostname,
+      MaterializedViewCollectionMetadataCatalog mvMetadataCatalog) {
+    LOG.info("Creating DynamicLeaderLeaseManager for dynamic per-index leader election");
+    return DynamicLeaderLeaseManager.create(
+        syncSourceConfig, meterAndFtdcRegistry, hostname, mvMetadataCatalog);
   }
 }

@@ -2,11 +2,11 @@ package com.xgen.mongot.embedding.mongodb.leasing;
 
 import static com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata.VERSION_ZERO;
 import static com.xgen.mongot.embedding.mongodb.leasing.StatusResolutionUtils.getEffectiveMaterializedViewStatus;
+import static com.xgen.mongot.embedding.utils.EmbeddingConnectionStringUtils.disableDirectConnection;
 import static com.xgen.mongot.util.FutureUtils.COMPLETED_FUTURE;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.errorprone.annotations.Var;
-import com.mongodb.ConnectionString;
 import com.mongodb.ErrorCategory;
 import com.mongodb.MongoWriteException;
 import com.mongodb.ReadConcern;
@@ -26,7 +26,6 @@ import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.MetricsFactory;
-import com.xgen.mongot.util.mongodb.ConnectionStringUtil;
 import com.xgen.mongot.util.mongodb.MongoClientBuilder;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import java.io.IOException;
@@ -218,7 +217,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
           .log("Starting as follower - no existing lease, creating in-memory placeholder");
       Lease newLease =
           Lease.newLease(
-              indexGeneration.getDefinition().getIndexId().toHexString(),
+              getLeaseKey(generationId),
               indexGeneration.getDefinition().getCollectionUuid(),
               indexGeneration.getDefinition().getLastObservedCollectionName(),
               "", // Empty owner - no one owns this lease yet
@@ -983,7 +982,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
 
     // Replace directConnection=true with directConnection=false to enable topology discovery.
     // MMS provides connection strings with directConnection=true which forces the driver to
-    // connect only to the specified host . For lease operations, we need to route to the primary,
+    // connect only to the specified host. For lease operations, we need to route to the primary,
     // so we must enable topology discovery by setting directConnection=false.
     // TODO(CLOUDP-360542): have mms return connection strings with directConnection=false.
     var connectionString = disableDirectConnection(originalConnectionString);
@@ -999,50 +998,6 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
         MONGO_CLIENT_MAX_CONNECTIONS,
         syncSourceConfig.sslContext,
         meterAndFtdcRegistry.meterRegistry());
-  }
-
-  /**
-   * Disables direct connection in a connection string to enable topology discovery.
-   *
-   * <p>MMS provides connection strings with directConnection=true, which forces the MongoDB driver
-   * to connect only to the specified host. This prevents the driver from discovering the primary
-   * node in a replica set. For lease operations that require LINEARIZABLE read concern and writes,
-   * we need to route to the primary, so we replace directConnection=true with
-   * directConnection=false.
-   *
-   * <p>Note: We cannot simply remove directConnection because the MongoDB ConnectionString class is
-   * immutable and has no builder pattern. Replacing the value in the URI string is the most
-   * practical approach.
-   *
-   * <p>The MongoDB {@link ConnectionString} class is immutable and doesn't provide a builder
-   * pattern for modification. Since we only need to change the directConnection option, string
-   * replacement is the most practical approach.
-   *
-   * @param connectionString the original connection string
-   * @return a new connection string with directConnection=false, or the original if it wasn't true
-   */
-  private static ConnectionString disableDirectConnection(ConnectionString connectionString) {
-    if (!Boolean.TRUE.equals(connectionString.isDirectConnection())) {
-      // directConnection is not set or is false, no need to modify
-      return connectionString;
-    }
-
-    // Replace directConnection=true with directConnection=false
-    String originalUri = connectionString.getConnectionString();
-    // Replace directConnection=true with directConnection=false. This handles both cases:
-    // - ?directConnection=true (first/only option)
-    // - &directConnection=true (subsequent option)
-    String modifiedUri = originalUri.replaceAll("directConnection=true", "directConnection=false");
-
-    try {
-      return ConnectionStringUtil.fromString(modifiedUri);
-    } catch (ConnectionStringUtil.InvalidConnectionStringException e) {
-      LOG.atError()
-          .addKeyValue("originalUri", originalUri)
-          .addKeyValue("modifiedUri", modifiedUri)
-          .log("Failed to parse modified connection string, using original");
-      return connectionString;
-    }
   }
 
   private String getIndexDefinitionVersion(IndexGeneration indexGeneration) {

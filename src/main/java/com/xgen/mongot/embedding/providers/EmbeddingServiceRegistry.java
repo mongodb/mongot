@@ -42,6 +42,9 @@ public class EmbeddingServiceRegistry {
                   EmbeddingModelConfig.create(
                       modelKey, serviceConfig.embeddingProvider, serviceConfig.embeddingConfig);
               EmbeddingModelCatalog.registerModelConfig(modelKey, newConfig);
+              // Register compatible models from the config (model itself is auto-included)
+              EmbeddingModelCatalog.registerCompatibleModels(
+                  modelKey, serviceConfig.compatibleModels);
               REGISTERED_PROVIDER_MANAGERS
                   .computeIfAbsent(
                       modelKey,
