@@ -76,6 +76,7 @@ import org.bson.types.ObjectId;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mockito;
 import org.slf4j.LoggerFactory;
 
@@ -175,6 +176,28 @@ public class MaterializedViewManagerTest {
     // Drop again, verify does not get dropped again.
     mocks.manager.dropIndex(MOCK_GENERATION_ID).get(5, TimeUnit.SECONDS);
     verify(materializedViewGenerator, never()).shutdown();
+  }
+
+  @Test
+  public void testDropIndex_removeMetadataCalledAfterLeaseManagerDrop() throws Exception {
+    Mocks mocks = Mocks.create();
+
+    // Add an index.
+    MaterializedViewIndexGeneration materializedViewindexGeneration =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.mockMaterializedViewGenerator(materializedViewindexGeneration);
+    mocks.addIndexForReplication(materializedViewindexGeneration);
+
+    // Drop the index - this triggers onDrop -> leaseManager.drop -> then removeMetadata
+    mocks.manager.dropIndex(MOCK_GENERATION_ID).get(5, TimeUnit.SECONDS);
+
+    // Verify ordering: leaseManager.drop() must complete BEFORE removeMetadata() is called.
+    // This is critical because leaseManager.drop() internally calls getLeaseKey(generationId),
+    // which resolves the collection name via mvMetadataCatalog.getMetadata(generationId).
+    // If removeMetadata ran first, getLeaseKey would fail.
+    InOrder inOrder = Mockito.inOrder(mocks.leaseManager, mocks.metadataCatalog);
+    inOrder.verify(mocks.leaseManager).drop(MOCK_GENERATION_ID);
+    inOrder.verify(mocks.metadataCatalog).removeMetadata(MOCK_GENERATION_ID);
   }
 
   @Test

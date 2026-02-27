@@ -654,17 +654,22 @@ public class MaterializedViewManager implements ReplicationManager {
       return COMPLETED_FUTURE;
     }
     UUID uuid = metadata.get().collectionUuid();
-    this.matViewMetadataCatalog.removeMetadata(generationId);
+    // Don't call this.matViewMetadataCatalog.removeMetadata(generationId) until the corresponding
+    // ReplicationIndexManager shuts down and LeaseManager.drop() is called.
 
     // Common logic: reference counting
     if (this.activeGenerationIdByMatViewCollection.containsKey(uuid)) {
       this.activeGenerationIdByMatViewCollection.get(uuid).remove(generationId);
       if (this.activeGenerationIdByMatViewCollection.get(uuid).isEmpty()) {
         this.activeGenerationIdByMatViewCollection.remove(uuid);
-        return onDrop(uuid, generationId);
+        // removeMetadata(generationId) should happen after LeaseManager cleanup
+        return onDrop(uuid, generationId)
+            .thenRun(() -> this.matViewMetadataCatalog.removeMetadata(generationId));
       }
     }
-    return COMPLETED_FUTURE;
+    // Normal case: removeMetadata(generationId) always happens after the corresponding
+    // ReplicationIndexManager shuts down.
+    return COMPLETED_FUTURE.thenRun(() -> this.matViewMetadataCatalog.removeMetadata(generationId));
   }
 
   /**
