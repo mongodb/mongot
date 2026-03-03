@@ -437,13 +437,25 @@ public class MqlObjectIdSortTest {
           IntStream.range(0, numDocs)
               .mapToObj(value -> SortPruningTestUtils.createDoc(unused, true, (x) -> true))
               .collect(Collectors.toList());
+      // Extract the "after" ObjectId before shuffling so that afterNum indexes into the
+      // monotonically-increasing generation order, guaranteeing enough documents sort after it.
+      int afterNum = 2;
+      BsonValue afterValue =
+          new BsonObjectId(
+              new ObjectId(
+                  docs.get(afterNum)
+                      .getFields(
+                          FieldName.TypeField.OBJECT_ID.getLuceneFieldName(
+                              FIELD_NAME, Optional.empty()))[0]
+                      .binaryValue()
+                      .bytes));
+
       // ObjectIds were generated in an increasing order above, so randomize the order of the
       // ObjectIds inserted to reflect a more realistic configuration. The order of the doc ids
       // inserted likely won't correspond to the order of ObjectId values in the real world.
       Collections.shuffle(docs);
       IndexSearcher searcher = SortPruningTestUtils.indexDocs(docs, this.writer, 2000);
 
-      int afterNum = 2;
       SortField sortField =
           MqlSortedSetSortField.objectIdSort(
               new MongotSortField(
@@ -456,17 +468,6 @@ public class MqlObjectIdSortTest {
         sortField.setMissingValue(SortPruningTestUtils.MISSING_VALUE_ORDER);
       }
       Sort sort = new Sort(sortField);
-
-      // Get ObjectId of the after doc
-      BsonValue afterValue =
-          new BsonObjectId(
-              new ObjectId(
-                  docs.get(afterNum)
-                      .getFields(
-                          FieldName.TypeField.OBJECT_ID.getLuceneFieldName(
-                              FIELD_NAME, Optional.empty()))[0]
-                      .binaryValue()
-                      .bytes));
       FieldDoc after = new FieldDoc(2, Float.NaN, new BsonValue[] {afterValue});
 
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
