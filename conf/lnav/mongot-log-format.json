@@ -4,30 +4,42 @@
     "description": "Mongot structured log format file for lnav",
     "regex": {
       "std": {
-          "pattern": "^{\"t\":\"(?P<timestamp>[^\"]+)\",\"s\":\"(?P<level>[^\"]+)\",\"svc\":\"(?P<service>[^\"]+)\",\"ctx\":\"(?P<thread>[^\"]+)\",\"n\":\"(?P<logger_name>[^\"]+)\",\"msg\":\"(?P<message>[^\"]+)\"(?:,\"attr\":(?P<attributes>\\{.*\\}))?\\}$"
+        "pattern": "^\\{\"t\":\"(?P<timestamp>[^\"]+)\",\"s\":\"(?P<level>[^\"]+)\",\"svc\":\"(?P<service>[^\"]+)\",\"ctx\":\"(?P<context>[^\"]+)\",\"n\":\"(?P<logger_name>[^\"]+)\",\"msg\":\"(?P<message>[^\"]+)\"(?:,\"attr\":(?P<attributes>\\{.*\\}))?\\}$"
       }
     },
+    "timestamp-format": [
+      "%Y-%m-%dT%H:%M:%S.%L%z"
+    ],
+    "level": {
+      "trace": "TRACE",
+      "debug": "DEBUG",
+      "info": "INFO",
+      "warning": "WARN",
+      "error": "ERROR"
+    },
     "value": {
-      "timestamp": {
-        "kind": "string"
-      },
-      "level": {
-        "kind": "string"
-      },
       "service": {
-        "kind": "string"
+        "kind": "string",
+        "identifier": true,
+        "description": "Service name"
       },
-      "thread": {
-        "kind": "string"
+      "context": {
+        "kind": "string",
+        "identifier": true,
+        "description": "Thread/context name"
       },
       "logger_name": {
-        "kind": "string"
+        "kind": "string",
+        "identifier": true,
+        "description": "Logger name (Java class)"
       },
       "message": {
-        "kind": "string"
+        "kind": "string",
+        "description": "Human-readable log message"
       },
       "attributes": {
-          "kind": "json"
+        "kind": "json",
+        "description": "Optional additional attributes"
       }
     },
     "sample": [
