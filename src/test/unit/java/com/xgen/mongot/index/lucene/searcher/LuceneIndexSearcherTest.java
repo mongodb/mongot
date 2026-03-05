@@ -9,7 +9,6 @@ import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import java.io.IOException;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.NumericDocValuesField;
 import org.apache.lucene.document.SortedSetDocValuesField;
@@ -269,6 +268,37 @@ public class LuceneIndexSearcherTest {
   }
 
   @Test
+  public void testStringFacetsStateRefreshTimerRecordedWhenBuildingFacetState() throws Exception {
+    try (Directory directory = new ByteBuffersDirectory();
+        IndexWriter writer = new IndexWriter(directory, new IndexWriterConfig())) {
+      Document doc = new Document();
+      doc.add(new SortedSetDocValuesFacetField("dim", "value"));
+      writer.addDocument(new FacetsConfig().build(doc));
+      writer.commit();
+
+      IndexReader reader = DirectoryReader.open(directory);
+      IndexMetricsUpdater.QueryingMetricsUpdater queryingMetricsUpdater =
+          SearchIndex.mockQueryMetricsUpdater(IndexDefinition.Type.SEARCH);
+
+      LuceneIndexSearcher.create(
+          reader,
+          new QueryCacheProvider.DefaultQueryCacheProvider(),
+          Optional.empty(),
+          Optional.empty(),
+          true, // stringFacetFieldIndexed
+          false, // enableFacetingOverTokenFields - avoid token path so we only test string facet
+          Optional.empty(),
+          queryingMetricsUpdater);
+
+      assertThat(
+              queryingMetricsUpdater
+                  .getStringFacetsStateRefreshLatencyTimer()
+                  .count())
+          .isGreaterThan(0);
+    }
+  }
+
+  @Test
   public void testFacetsRefreshTimer() throws Exception {
     try (Directory directory = new ByteBuffersDirectory();
         IndexWriter writer = new IndexWriter(directory, new IndexWriterConfig())) {
@@ -290,16 +320,14 @@ public class LuceneIndexSearcherTest {
               true,
               Optional.empty(),
               queryingMetricsUpdater);
-      // first build of facets cache does not do any work, so should not trigger metric
-      assertThat(
-              queryingMetricsUpdater
-                  .getTokenFacetsStateRefreshLatencyTimer()
-                  .totalTime(TimeUnit.NANOSECONDS))
-          .isEqualTo(0);
+      // First create now records token facet state build time (CLOUDP-364960).
+      var timer = queryingMetricsUpdater.getTokenFacetsStateRefreshLatencyTimer();
+      assertThat(timer.count()).isGreaterThan(0);
       var cache = searcher.getTokenFacetsStateCache();
       assertThat(cache).isPresent();
 
       cache.get().get("dim");
+      var countAfterFirstCreate = timer.count();
       LuceneIndexSearcher.create(
           reader,
           new QueryCacheProvider.DefaultQueryCacheProvider(),
@@ -318,12 +346,9 @@ public class LuceneIndexSearcherTest {
           true,
           Optional.empty(),
           queryingMetricsUpdater);
-      // searcher refresh with token fields indexed after a query, should trigger metric
-      assertThat(
-              queryingMetricsUpdater
-                  .getTokenFacetsStateRefreshLatencyTimer()
-                  .totalTime(TimeUnit.NANOSECONDS))
-          .isGreaterThan(0);
+      // Clone path also records; count should increase.
+      assertThat(queryingMetricsUpdater.getTokenFacetsStateRefreshLatencyTimer().count())
+          .isGreaterThan(countAfterFirstCreate);
     }
   }
 

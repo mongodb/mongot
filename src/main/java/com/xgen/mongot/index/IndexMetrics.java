@@ -298,6 +298,7 @@ public record IndexMetrics(
       double searchGetMoreCommandCount,
       SerializableTimer searchResultBatchLatencyStats,
       Optional<SerializableTimer> tokenFacetsStateRefreshLatency,
+      Optional<SerializableTimer> stringFacetsStateRefreshLatency,
       QueryFeaturesMetrics queryFeaturesMetrics)
       implements DocumentEncodable {
 
@@ -333,6 +334,14 @@ public record IndexMetrics(
               .disallowUnknownFields()
               .optional()
               .noDefault();
+
+      /** Time spent on refresh facets on string fields when index searcher refreshes */
+      private static final Field.Optional<SerializableTimer> STRING_FACET_STATE_REFRESH_LATENCY =
+          Field.builder("stringFacetsStateRefreshLatency")
+              .classField(SerializableTimer::fromBson)
+              .disallowUnknownFields()
+              .optional()
+              .noDefault();
     }
 
     static QueryingMetrics create(
@@ -342,6 +351,7 @@ public record IndexMetrics(
         Counter searchGetMoreCommandCounter,
         Timer searchResultBatchLatencyTimer,
         Timer tokenFacetsStateRefreshLatencyTimer,
+        Timer stringFacetsStateRefreshLatencyTimer,
         QueryFeaturesMetrics queryFeaturesMetrics) {
 
       return new QueryingMetrics(
@@ -351,6 +361,7 @@ public record IndexMetrics(
           searchGetMoreCommandCounter.count(),
           SerializableTimer.create(searchResultBatchLatencyTimer),
           Optional.of(SerializableTimer.create(tokenFacetsStateRefreshLatencyTimer)),
+          Optional.of(SerializableTimer.create(stringFacetsStateRefreshLatencyTimer)),
           queryFeaturesMetrics);
     }
 
@@ -364,6 +375,8 @@ public record IndexMetrics(
               .field(Fields.SEARCH_GET_MORE_COMMAND_COUNT, this.searchGetMoreCommandCount)
               .field(Fields.SEARCH_GET_RESULT_BATCH_LATENCY, this.searchResultBatchLatencyStats)
               .field(Fields.TOKEN_FACET_STATE_REFRESH_LATENCY, this.tokenFacetsStateRefreshLatency)
+              .field(Fields.STRING_FACET_STATE_REFRESH_LATENCY,
+                  this.stringFacetsStateRefreshLatency)
               .build();
 
       queryingStats.putAll(this.queryFeaturesMetrics.toBson());
@@ -379,6 +392,7 @@ public record IndexMetrics(
           parser.getField(Fields.SEARCH_GET_MORE_COMMAND_COUNT).unwrap(),
           parser.getField(Fields.SEARCH_GET_RESULT_BATCH_LATENCY).unwrap(),
           parser.getField(Fields.TOKEN_FACET_STATE_REFRESH_LATENCY).unwrap(),
+          parser.getField(Fields.STRING_FACET_STATE_REFRESH_LATENCY).unwrap(),
           QueryFeaturesMetrics.fromBson(parser));
     }
 

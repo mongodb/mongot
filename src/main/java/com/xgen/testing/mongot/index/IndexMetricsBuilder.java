@@ -128,6 +128,21 @@ public class IndexMetricsBuilder {
                             .percentile99(3.0)
                             .build())
                     .build())
+            .stringFacetsStateRefresh(
+                SerializableTimerBuilder.builder()
+                    .timeUnit(TimeUnit.MILLISECONDS)
+                    .count(2L)
+                    .totalTime(8.0)
+                    .max(4.0)
+                    .mean(2.0)
+                    .percentiles(
+                        PercentilesBuilder.builder()
+                            .percentile50(2.0)
+                            .percentile75(2.0)
+                            .percentile90(2.0)
+                            .percentile99(3.0)
+                            .build())
+                    .build())
             .queryFeaturesMetrics(queryFeaturesMetrics)
             .build();
 
@@ -200,6 +215,17 @@ public class IndexMetricsBuilder {
                     Optional.of(0d),
                     Optional.of(0d)))
             .build();
+    private SerializableTimer stringFacetsStateRefresh =
+        SerializableTimerBuilder.builder()
+            .timeUnit(TimeUnit.MILLISECONDS)
+            .percentiles(
+                new Percentiles(
+                    Optional.empty(),
+                    Optional.of(0d),
+                    Optional.of(0d),
+                    Optional.of(0d),
+                    Optional.of(0d)))
+            .build();
     private IndexMetrics.QueryingMetrics.QueryFeaturesMetrics queryFeaturesMetrics =
         QueryFeaturesMetricsBuilder.builder().build();
 
@@ -239,6 +265,12 @@ public class IndexMetricsBuilder {
       return this;
     }
 
+    public QueryingMetricsBuilder stringFacetsStateRefresh(
+        SerializableTimer stringFacetsStateRefresh) {
+      this.stringFacetsStateRefresh = stringFacetsStateRefresh;
+      return this;
+    }
+
     public QueryingMetricsBuilder queryFeaturesMetrics(
         IndexMetrics.QueryingMetrics.QueryFeaturesMetrics queryFeaturesMetrics) {
       this.queryFeaturesMetrics = queryFeaturesMetrics;
@@ -253,6 +285,7 @@ public class IndexMetricsBuilder {
           this.searchGetMoreCommandCount,
           this.searchResultBatchLatency,
           Optional.of(this.tokenFacetsStateRefresh),
+          Optional.of(this.stringFacetsStateRefresh),
           this.queryFeaturesMetrics);
     }
 

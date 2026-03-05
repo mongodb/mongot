@@ -105,6 +105,19 @@
               "99th": 3.0
             }
           },
+          "stringFacetsStateRefreshLatency": {
+            "timeUnit": "milliseconds",
+            "count": 2,
+            "totalTimeSeconds": 8.0,
+            "maxTimeSeconds": 4.0,
+            "meanTimeSeconds": 2.0,
+            "percentiles": {
+              "50th": 2.0,
+              "75th": 2.0,
+              "90th": 2.0,
+              "99th": 3.0
+            }
+          },
           "synonymCount": 6.0,
           "textSynonymCount": 4.0,
           "textSynonymsWithoutMatchCriteriaCount": 3.0,
@@ -367,6 +380,21 @@
             }
           },
           "tokenFacetsStateRefreshLatency": {
+            "timeUnit": "milliseconds",
+            "count": {
+              "$numberLong": "2"
+            },
+            "totalTimeSeconds": 8.0,
+            "maxTimeSeconds": 4.0,
+            "meanTimeSeconds": 2.0,
+            "percentiles": {
+              "50th": 2.0,
+              "75th": 2.0,
+              "90th": 2.0,
+              "99th": 3.0
+            }
+          },
+          "stringFacetsStateRefreshLatency": {
             "timeUnit": "milliseconds",
             "count": {
               "$numberLong": "2"

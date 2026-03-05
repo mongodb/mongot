@@ -389,12 +389,23 @@ public class InitialSyncQueueTest {
     when(mongoClient1.resolveAndUpdateCollectionName(any()))
         .thenReturn(MOCK_INDEX_LAST_OBSERVED_COLLECTION_NAME);
 
+    // Include "test" so the default host used by other Mocks.create overloads is present;
+    // this test uses syncSourceHost0 so the queue is created with syncSourceHost0.
+    Map<String, InitialSyncMongoClient> mongoClients =
+        Map.of(
+            "test",
+            mongoClient0,
+            syncSourceHost0,
+            mongoClient0,
+            syncSourceHost1,
+            mongoClient1);
+
     Mocks mocks =
         Mocks.create(
             Map.of(index0, () -> RESUME_INFO, index1, () -> RESUME_INFO),
             new InitialSyncConfig(true),
             syncSourceHost0,
-            Map.of(syncSourceHost0, mongoClient0, syncSourceHost1, mongoClient1));
+            mongoClients);
 
     CountDownLatch startedLatch0 = new CountDownLatch(1);
     Runnable initialSyncStartedCallback0 = startedLatch0::countDown;

@@ -213,6 +213,21 @@ public class IndexMetricsTest {
                               .percentile99(3.0)
                               .build())
                       .build())
+              .stringFacetsStateRefresh(
+                  SerializableTimerBuilder.builder()
+                      .timeUnit(TimeUnit.MILLISECONDS)
+                      .count(2L)
+                      .totalTime(8.0)
+                      .max(4.0)
+                      .mean(2.0)
+                      .percentiles(
+                          PercentilesBuilder.builder()
+                              .percentile50(2.0)
+                              .percentile75(2.0)
+                              .percentile90(2.0)
+                              .percentile99(3.0)
+                              .build())
+                      .build())
               .build());
     }
   }
@@ -343,6 +358,21 @@ public class IndexMetricsTest {
                               .build())
                       .build())
               .tokenFacetsStateRefresh(
+                  SerializableTimerBuilder.builder()
+                      .timeUnit(TimeUnit.MILLISECONDS)
+                      .count(2L)
+                      .totalTime(8.0)
+                      .max(4.0)
+                      .mean(2.0)
+                      .percentiles(
+                          PercentilesBuilder.builder()
+                              .percentile50(2.0)
+                              .percentile75(2.0)
+                              .percentile90(2.0)
+                              .percentile99(3.0)
+                              .build())
+                      .build())
+              .stringFacetsStateRefresh(
                   SerializableTimerBuilder.builder()
                       .timeUnit(TimeUnit.MILLISECONDS)
                       .count(2L)

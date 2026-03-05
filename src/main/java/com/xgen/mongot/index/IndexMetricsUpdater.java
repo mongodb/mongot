@@ -462,6 +462,7 @@ public class IndexMetricsUpdater implements Closeable {
 
     private final Counter noProgressBatchCounter;
     private final Timer tokenFacetsStateRefreshLatencyTimer;
+    private final Timer stringFacetsStateRefreshLatencyTimer;
 
     private final DistributionSummary numCandidatesUnquantized;
     private final DistributionSummary numCandidatesScalarQuantized;
@@ -566,6 +567,10 @@ public class IndexMetricsUpdater implements Closeable {
           isSearchIndex
               ? metricsFactory.perIndexTimer("tokenFacetsStateRefreshLatency")
               : metricsFactory.timer("tokenFacetsStateRefreshLatency");
+      this.stringFacetsStateRefreshLatencyTimer =
+          isSearchIndex
+              ? metricsFactory.perIndexTimer("stringFacetsStateRefreshLatency")
+              : metricsFactory.timer("stringFacetsStateRefreshLatency");
       this.numCandidatesUnquantized =
           metricsFactory.histogram(
               "numCandidatesPerQuery",
@@ -751,6 +756,10 @@ public class IndexMetricsUpdater implements Closeable {
       return this.tokenFacetsStateRefreshLatencyTimer;
     }
 
+    public Timer getStringFacetsStateRefreshLatencyTimer() {
+      return this.stringFacetsStateRefreshLatencyTimer;
+    }
+
     public DistributionSummary getNumCandidatesUnquantized() {
       return this.numCandidatesUnquantized;
     }
@@ -792,6 +801,7 @@ public class IndexMetricsUpdater implements Closeable {
           this.searchGetMoreCommandCounter,
           this.searchResultBatchLatencyTimer,
           this.tokenFacetsStateRefreshLatencyTimer,
+          this.stringFacetsStateRefreshLatencyTimer,
           this.queryFeaturesMetricsUpdater.getMetrics());
     }
 

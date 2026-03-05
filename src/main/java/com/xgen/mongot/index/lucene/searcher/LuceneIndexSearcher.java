@@ -45,6 +45,7 @@ public class LuceneIndexSearcher extends IndexSearcher {
         stringFacetFieldIndexed,
         enableFacetingOverTokenFields,
         cardinalityLimit,
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -66,7 +67,8 @@ public class LuceneIndexSearcher extends IndexSearcher {
         stringFacetFieldIndexed,
         enableFacetingOverTokenFields,
         cardinalityLimit,
-        Optional.of(queryingMetricsUpdater.getTokenFacetsStateRefreshLatencyTimer()));
+        Optional.of(queryingMetricsUpdater.getTokenFacetsStateRefreshLatencyTimer()),
+        Optional.of(queryingMetricsUpdater.getStringFacetsStateRefreshLatencyTimer()));
   }
 
   private static LuceneIndexSearcher create(
@@ -77,7 +79,8 @@ public class LuceneIndexSearcher extends IndexSearcher {
       boolean stringFacetFieldIndexed,
       boolean enableFacetingOverTokenFields,
       Optional<Integer> cardinalityLimit,
-      Optional<Timer> facetsRefreshTimer)
+      Optional<Timer> tokenFacetsRefreshTimer,
+      Optional<Timer> stringFacetsStateRefreshTimer)
       throws IOException {
     LuceneIndexSearcher indexSearcher =
         new LuceneIndexSearcher(
@@ -88,8 +91,12 @@ public class LuceneIndexSearcher extends IndexSearcher {
                 previousSearcher,
                 enableFacetingOverTokenFields,
                 cardinalityLimit,
-                facetsRefreshTimer),
-            createFacetState(newReader, previousSearcher, stringFacetFieldIndexed));
+                tokenFacetsRefreshTimer),
+            createFacetState(
+                newReader,
+                previousSearcher,
+                stringFacetFieldIndexed,
+                stringFacetsStateRefreshTimer));
 
     similarity.ifPresent(indexSearcher::setSimilarity);
     queryCacheProvider.queryCache().ifPresent(indexSearcher::setQueryCache);
@@ -150,21 +157,37 @@ public class LuceneIndexSearcher extends IndexSearcher {
 
     // the cache optional should only be empty if the FF is off, so this case should not ever hit
     if (previousSearcher.flatMap(LuceneIndexSearcher::getTokenFacetsStateCache).isEmpty()) {
+      if (refreshTimer.isPresent()) {
+        var stopwatch = Stopwatch.createStarted();
+        var cache = TokenFacetsStateCache.create(reader, cardinalityLimit);
+        refreshTimer.get().record(stopwatch.stop().elapsed());
+        return Optional.of(cache);
+      }
       return Optional.of(TokenFacetsStateCache.create(reader, cardinalityLimit));
     }
-    var stopwatch = Stopwatch.createStarted();
-    var newCache =
-        Optional.of(
-            previousSearcher
-                .flatMap(LuceneIndexSearcher::getTokenFacetsStateCache)
-                .get()
-                .cloneWithNewIndexReader(reader));
-    refreshTimer.ifPresent(timer -> timer.record(stopwatch.stop().elapsed()));
-    return newCache;
+    if (refreshTimer.isPresent()) {
+      var stopwatch = Stopwatch.createStarted();
+      var newCache = cloneTokenFacetsStateCache(reader, previousSearcher);
+      refreshTimer.get().record(stopwatch.stop().elapsed());
+      return newCache;
+    }
+    return cloneTokenFacetsStateCache(reader, previousSearcher);
+  }
+
+  private static Optional<TokenFacetsStateCache> cloneTokenFacetsStateCache(
+      IndexReader reader, Optional<LuceneIndexSearcher> previousSearcher) throws IOException {
+    return Optional.of(
+        previousSearcher
+            .flatMap(LuceneIndexSearcher::getTokenFacetsStateCache)
+            .get()
+            .cloneWithNewIndexReader(reader));
   }
 
   private static Optional<SortedSetDocValuesReaderState> createFacetState(
-      IndexReader reader, Optional<LuceneIndexSearcher> previousSearcher, boolean facetsEnabled)
+      IndexReader reader,
+      Optional<LuceneIndexSearcher> previousSearcher,
+      boolean facetsEnabled,
+      Optional<Timer> stringFacetsStateRefreshTimer)
       throws IOException {
 
     if (!facetsEnabled) {
@@ -195,6 +218,7 @@ public class LuceneIndexSearcher extends IndexSearcher {
      * only if facetsState did not exist before. We should still expect exception in
      * case when facet fields existed, but were removed.
      */
+    var stopwatch = Stopwatch.createStarted();
     try {
       return Optional.of(new DefaultSortedSetDocValuesReaderState(reader));
     } catch (IllegalArgumentException e) {
@@ -203,6 +227,9 @@ public class LuceneIndexSearcher extends IndexSearcher {
         return Optional.empty();
       }
       throw e;
+    } finally {
+      stopwatch.stop();
+      stringFacetsStateRefreshTimer.ifPresent(timer -> timer.record(stopwatch.elapsed()));
     }
   }
 
