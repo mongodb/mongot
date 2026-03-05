@@ -48,7 +48,6 @@ import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException.Type;
 import com.xgen.mongot.replication.mongodb.steadystate.changestream.ChangeStreamIndexManager.BatchInfo;
 import com.xgen.mongot.replication.mongodb.steadystate.changestream.ChangeStreamIndexManager.DocumentMetricsUpdater;
-import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.Condition;
 import com.xgen.mongot.util.FutureUtils;
 import com.xgen.testing.mongot.index.IndexMetricsUpdaterBuilder;
@@ -95,7 +94,6 @@ import org.mockito.stubbing.Answer;
 public class ChangeStreamIndexManagerTest {
 
   private enum TestParameter {
-    DEFAULT,
     DECODING_SCHEDULER
   }
 
@@ -115,7 +113,7 @@ public class ChangeStreamIndexManagerTest {
 
     @Parameters(name = "{0}")
     public static List<TestParameter> params() {
-      return List.of(TestParameter.DEFAULT, TestParameter.DECODING_SCHEDULER);
+      return List.of(TestParameter.DECODING_SCHEDULER);
     }
 
     @Parameter() public TestParameter testParameter;
@@ -123,20 +121,9 @@ public class ChangeStreamIndexManagerTest {
     private Optional<DecodingWorkScheduler> decodingScheduler;
 
     private ChangeStreamIndexManagerFactory getChangeStreamIndexManagerFactory() {
-      switch (this.testParameter) {
-        case DEFAULT -> {
-          this.decodingScheduler = Optional.empty();
-          return ChangeStreamIndexManager::createDefault;
-        }
-        case DECODING_SCHEDULER -> {
-          var scheduler = spy(DecodingWorkScheduler.create(2, new SimpleMeterRegistry()));
-          this.decodingScheduler = Optional.of(scheduler);
-          return ChangeStreamManager.indexManagerFactoryWithDecodingScheduler(scheduler);
-        }
-      }
-
-      Check.unreachable();
-      return null;
+      var scheduler = spy(DecodingWorkScheduler.create(2, new SimpleMeterRegistry()));
+      this.decodingScheduler = Optional.of(scheduler);
+      return ChangeStreamManager.indexManagerFactoryWithDecodingScheduler(scheduler);
     }
 
     @Test
@@ -741,18 +728,10 @@ public class ChangeStreamIndexManagerTest {
               ChangeStreamUtils.renameEvent(1),
               ChangeStreamUtils.insertEvent(2, MOCK_INDEX_DEFINITION));
 
-      if (this.testParameter.equals(TestParameter.DEFAULT)) {
-        testThrowsLifecycleException(events, SteadyStateException.Type.REQUIRES_RESYNC);
-      } else {
-        // with decoding on dedicated executor, lifecycle events at the *middle* of a change stream
-        // batch (unexpected) are detected while preparing the batch for indexing. This leads to
-        // throw a lifecycle event indirectly, we first fail the indexing future exceptionally,
-        // which will fail the lifecycle future in ChangeStreamManager exception handling stage.
-        // Note: lifecycle events at the *end* of a batch handling is unchanged, matches in both
-        // implementations (see tests above).
-        Assert.assertEquals(TestParameter.DECODING_SCHEDULER, this.testParameter);
-        testIndexingFutureEndsExceptionally(events, SteadyStateException.Type.REQUIRES_RESYNC);
-      }
+      // Lifecycle events at the *middle* of a change stream batch (unexpected) are detected while
+      // preparing the batch for indexing. This leads to the indexing future failing exceptionally,
+      // which will fail the lifecycle future in ChangeStreamManager exception handling stage.
+      testIndexingFutureEndsExceptionally(events, SteadyStateException.Type.REQUIRES_RESYNC);
     }
 
     @Test

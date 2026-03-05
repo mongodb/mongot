@@ -217,23 +217,18 @@ public class ChangeStreamManagerTest {
     when(indexManagerFactory.create(any(), any(), any(), any(), any(), any(), any(), any()))
         .thenAnswer(
             invocation -> {
-              ChangeStreamIndexManager manager;
-              if (!this.context.shouldUseDecodingScheduler()) {
-                manager = mock(ChangeStreamIndexManager.class);
-              } else {
-                manager =
-                    spy(
-                        DecodingExecutorChangeStreamIndexManager.createWithDecodingScheduler(
-                            MOCK_INDEX_DEFINITION,
-                            invocation.getArgument(1),
-                            invocation.getArgument(2),
-                            invocation.getArgument(3),
-                            invocation.getArgument(4),
-                            invocation.getArgument(5),
-                            invocation.getArgument(6),
-                            invocation.getArgument(7),
-                            mock(DecodingWorkScheduler.class)));
-              }
+              ChangeStreamIndexManager manager =
+                  spy(
+                      DecodingExecutorChangeStreamIndexManager.createWithDecodingScheduler(
+                          MOCK_INDEX_DEFINITION,
+                          invocation.getArgument(1),
+                          invocation.getArgument(2),
+                          invocation.getArgument(3),
+                          invocation.getArgument(4),
+                          invocation.getArgument(5),
+                          invocation.getArgument(6),
+                          invocation.getArgument(7),
+                          mock(DecodingWorkScheduler.class)));
               when(manager.shutdown()).thenReturn(shutdownFuture);
               return manager;
             });
@@ -277,23 +272,18 @@ public class ChangeStreamManagerTest {
     when(indexManagerFactory.create(any(), any(), any(), any(), any(), any(), any(), any()))
         .thenAnswer(
             invocation -> {
-              ChangeStreamIndexManager manager;
-              if (!this.context.shouldUseDecodingScheduler()) {
-                manager = mock(ChangeStreamIndexManager.class);
-              } else {
-                manager =
-                    spy(
-                        DecodingExecutorChangeStreamIndexManager.createWithDecodingScheduler(
-                            MOCK_INDEX_DEFINITION,
-                            invocation.getArgument(1),
-                            invocation.getArgument(2),
-                            invocation.getArgument(3),
-                            invocation.getArgument(4),
-                            invocation.getArgument(5),
-                            invocation.getArgument(6),
-                            invocation.getArgument(7),
-                            mock(DecodingWorkScheduler.class)));
-              }
+              ChangeStreamIndexManager manager =
+                  spy(
+                      DecodingExecutorChangeStreamIndexManager.createWithDecodingScheduler(
+                          MOCK_INDEX_DEFINITION,
+                          invocation.getArgument(1),
+                          invocation.getArgument(2),
+                          invocation.getArgument(3),
+                          invocation.getArgument(4),
+                          invocation.getArgument(5),
+                          invocation.getArgument(6),
+                          invocation.getArgument(7),
+                          mock(DecodingWorkScheduler.class)));
               when(manager.shutdown()).thenReturn(shutdownFuture);
               return manager;
             });
@@ -2039,17 +2029,9 @@ public class ChangeStreamManagerTest {
       return this.name;
     }
 
-    public boolean shouldUseDecodingScheduler() {
-      return this.name.equals("sync-client");
-    }
-
     public ChangeStreamIndexManagerFactory getIndexManagerFactory() {
-      if (this.shouldUseDecodingScheduler()) {
-        return ChangeStreamManager.indexManagerFactoryWithDecodingScheduler(
-            DecodingWorkScheduler.create(2, new SimpleMeterRegistry()));
-      }
-
-      return ChangeStreamIndexManager::createDefault;
+      return ChangeStreamManager.indexManagerFactoryWithDecodingScheduler(
+          DecodingWorkScheduler.create(2, new SimpleMeterRegistry()));
     }
   }
 
