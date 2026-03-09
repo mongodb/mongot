@@ -3,8 +3,10 @@ load("//bazel/java:test.bzl", "java_test_suite")
 java_test_suite(
     name = "grpc",
     srcs = [
+        "BsonMessageCallHandlerTest.java",
         "HealthManagerTest.java",
         "MessageMarshallerTest.java",
+        "RawBsonMarshallerTest.java",
         "SearchEnvoyMetadataInterceptorTest.java",
         "StreamingMessageHandlerTest.java",
     ],

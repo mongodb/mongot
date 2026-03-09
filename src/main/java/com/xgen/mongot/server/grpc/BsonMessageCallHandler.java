@@ -5,12 +5,10 @@ import com.xgen.mongot.searchenvoy.grpc.SearchEnvoyMetadata;
 import com.xgen.mongot.server.command.ParsedCommand;
 import com.xgen.mongot.server.command.registry.CommandRegistry;
 import com.xgen.mongot.server.executors.BulkheadCommandExecutor;
+import com.xgen.mongot.util.BsonUtils;
 import io.grpc.stub.StreamObserver;
 import org.bson.BsonDocument;
-import org.bson.BsonDocumentReader;
 import org.bson.RawBsonDocument;
-import org.bson.codecs.DecoderContext;
-import org.bson.codecs.RawBsonDocumentCodec;
 
 /**
  * A handler class to process {@link RawBsonDocument} for the gRPC bidirectional streaming service.
@@ -37,13 +35,11 @@ public class BsonMessageCallHandler extends ServerCallHandler<RawBsonDocument> {
 
   @Override
   RawBsonDocument serializeResponse(RawBsonDocument request, BsonDocument response) {
-    return new RawBsonDocumentCodec()
-        .decode(new BsonDocumentReader(response), DecoderContext.builder().build());
+    return new RawBsonDocument(response, BsonUtils.BSON_DOCUMENT_CODEC);
   }
 
   @Override
   RawBsonDocument serializeError(RawBsonDocument requestMessage, BsonDocument error) {
-    return new RawBsonDocumentCodec()
-        .decode(new BsonDocumentReader(error), DecoderContext.builder().build());
+    return new RawBsonDocument(error, BsonUtils.BSON_DOCUMENT_CODEC);
   }
 }

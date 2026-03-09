@@ -1,45 +1,20 @@
 package com.xgen.mongot.server.grpc;
 
+import io.grpc.KnownLength;
 import io.grpc.MethodDescriptor;
 import io.grpc.Status;
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufAllocator;
-import io.netty.buffer.ByteBufInputStream;
 import java.io.InputStream;
-import org.bson.BsonBinaryWriter;
+import java.nio.ByteBuffer;
 import org.bson.RawBsonDocument;
-import org.bson.codecs.BsonValueCodecProvider;
-import org.bson.codecs.Codec;
-import org.bson.codecs.EncoderContext;
-import org.bson.codecs.configuration.CodecRegistries;
-import org.bson.codecs.configuration.CodecRegistry;
-import org.bson.io.BasicOutputBuffer;
 
 /** This marshaller will be called by gRPC libraries to encode/decode {@link RawBsonDocument}. */
 public class RawBsonMarshaller implements MethodDescriptor.Marshaller<RawBsonDocument> {
 
-  private static final EncoderContext ENCODER_CONTEXT = EncoderContext.builder().build();
-
-  private static final CodecRegistry CODEC_REGISTRY =
-      CodecRegistries.fromProviders(new BsonValueCodecProvider());
-
   @Override
   public InputStream stream(RawBsonDocument value) {
     try {
-      int size = value.getByteBuffer().remaining() + 1;
-
-      ByteBuf out = ByteBufAllocator.DEFAULT.buffer(size);
-      BasicOutputBuffer buffer = new BasicOutputBuffer();
-      Codec<RawBsonDocument> codec = CODEC_REGISTRY.get(RawBsonDocument.class);
-
-      try (BsonBinaryWriter writer = new BsonBinaryWriter(buffer)) {
-        codec.encode(writer, value, ENCODER_CONTEXT);
-      }
-
-      out.writeBytes(buffer.getInternalBuffer(), 0, buffer.getSize());
-
-      return new ByteBufInputStream(out, true);
-
+      ByteBuffer buffer = value.getByteBuffer().asNIO().duplicate();
+      return new KnownLengthStream(buffer);
     } catch (Exception e) {
       throw Status.INTERNAL
           .withDescription("cannot encode RawBsonDocument")
@@ -57,6 +32,54 @@ public class RawBsonMarshaller implements MethodDescriptor.Marshaller<RawBsonDoc
           .withDescription("cannot decode RawBsonDocument")
           .withCause(e)
           .asRuntimeException();
+    }
+  }
+
+  /**
+   * Zero-copy InputStream that reads directly from a {@link ByteBuffer} and reports its length via
+   * {@link KnownLength#available()}.
+   */
+  private static final class KnownLengthStream extends InputStream implements KnownLength {
+
+    private final ByteBuffer buffer;
+
+    /**
+     * Creates an {@link InputStream} with a known-length from a {@link ByteBuffer}.
+     *
+     * @param buffer the ByteBuffer containing the data to be read by this InputStream. The buffer
+     *     may be on-heap or native, writable or read-only. This stream will modify the given
+     *     buffer's position, but not its content. If you plan to read the buffer multiple times,
+     *     you should call {@link ByteBuffer#duplicate} before passing it to this constructor.
+     */
+    public KnownLengthStream(ByteBuffer buffer) {
+      this.buffer = buffer;
+    }
+
+    @Override
+    public int available() {
+      return this.buffer.remaining();
+    }
+
+    @Override
+    public int read() {
+      return this.buffer.hasRemaining() ? (this.buffer.get() & 0xFF) : -1;
+    }
+
+    @Override
+    public int read(byte[] bytes, int off, int len) {
+      if (!this.buffer.hasRemaining()) {
+        return -1;
+      }
+      int bytesRead = Math.min(len, this.buffer.remaining());
+      this.buffer.get(bytes, off, bytesRead);
+      return bytesRead;
+    }
+
+    @Override
+    public long skip(long n) {
+      int skipped = (int) Math.min(n, this.buffer.remaining());
+      this.buffer.position(this.buffer.position() + skipped);
+      return skipped;
     }
   }
 }
