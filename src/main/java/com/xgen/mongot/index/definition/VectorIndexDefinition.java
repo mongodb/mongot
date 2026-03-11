@@ -171,7 +171,7 @@ public final class VectorIndexDefinition implements IndexDefinition {
   }
 
   public Optional<FieldPath> getNestedRoot() {
-    return this.nestedRoot;
+    return this.mappings.nestedRoot();
   }
 
   @Override
