@@ -22,6 +22,7 @@ import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
 import com.xgen.mongot.index.definition.VectorQuantization;
 import com.xgen.mongot.index.definition.VectorSimilarity;
+import com.xgen.mongot.index.lucene.document.context.IndexingPolicyBuilderContext;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.field.FieldValue;
 import com.xgen.mongot.index.lucene.util.LuceneDocumentIdEncoder;
@@ -160,7 +161,8 @@ public class IndexableFieldFactoryTest {
             DUMMY_ENCODED_BYTES,
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            IndexingPolicyBuilderContext.builder().build());
 
     // ID field and embedded root field should account for the 2 fields in the document.
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -194,7 +196,8 @@ public class IndexableFieldFactoryTest {
             DUMMY_ENCODED_BYTES,
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            IndexingPolicyBuilderContext.builder().build());
 
     // ID field and embedded root field should account for the 2 fields in the document.
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -228,7 +231,8 @@ public class IndexableFieldFactoryTest {
             DUMMY_ENCODED_BYTES,
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            IndexingPolicyBuilderContext.builder().build());
 
     // ID field and embedded root field should account for the 2 fields in the document.
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -262,7 +266,8 @@ public class IndexableFieldFactoryTest {
             DUMMY_ENCODED_BYTES,
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            IndexingPolicyBuilderContext.builder().build());
 
     // ID field and embedded root field should account for the 2 fields in the document.
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -295,7 +300,8 @@ public class IndexableFieldFactoryTest {
             DUMMY_ENCODED_BYTES,
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            IndexingPolicyBuilderContext.builder().build());
 
     // ID field and embedded root field should account for the 2 fields in the document.
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -329,7 +335,8 @@ public class IndexableFieldFactoryTest {
             DUMMY_ENCODED_BYTES,
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            IndexingPolicyBuilderContext.builder().build());
 
     // ID field and embedded root field should account for the 2 fields in the document.
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -361,7 +368,8 @@ public class IndexableFieldFactoryTest {
             DUMMY_ENCODED_BYTES,
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            IndexingPolicyBuilderContext.builder().build());
 
     // ID field and embedded root field should account for the 2 fields in the document.
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -393,7 +401,8 @@ public class IndexableFieldFactoryTest {
             DUMMY_ENCODED_BYTES,
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            IndexingPolicyBuilderContext.builder().build());
 
     // ID field and embedded root field should account for the 2 fields in the document.
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -425,7 +434,8 @@ public class IndexableFieldFactoryTest {
             DUMMY_ENCODED_BYTES,
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            IndexingPolicyBuilderContext.builder().build());
 
     // ID field and embedded root field should account for the 2 fields in the document.
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -461,7 +471,8 @@ public class IndexableFieldFactoryTest {
             DUMMY_ENCODED_BYTES,
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            IndexingPolicyBuilderContext.builder().build());
 
     String checkFieldName =
         FieldName.TypeField.KNN_VECTOR.getLuceneFieldName(rootPath, Optional.empty());
@@ -522,7 +533,8 @@ public class IndexableFieldFactoryTest {
             DUMMY_ENCODED_BYTES,
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            IndexingPolicyBuilderContext.builder().build());
 
     String checkFieldName =
         FieldName.TypeField.KNN_VECTOR.getLuceneFieldName(rootPath, Optional.empty());
@@ -839,7 +851,8 @@ public class IndexableFieldFactoryTest {
             DUMMY_ENCODED_BYTES,
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            IndexingPolicyBuilderContext.builder().build());
 
     FieldPath fieldPath = FieldPath.newRoot("testField");
 
@@ -999,7 +1012,8 @@ public class IndexableFieldFactoryTest {
             encodedId,
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            IndexingPolicyBuilderContext.builder().build());
 
     String loggingId = IndexableFieldFactory.getLoggingId(wrapper);
     // ObjectId is returned as hex string
@@ -1033,12 +1047,13 @@ public class IndexableFieldFactoryTest {
   public void getLoggingId_withLegacyUuid_returnsUnloggable() {
     // Test with legacy UUID (subtype 3) - returns "unloggable" because
     // asUuid() can't determine byte order for legacy UUIDs without explicit UuidRepresentation
-    byte[] uuidBytes = new byte[] {
-        (byte) 0xeb, (byte) 0x6c, (byte) 0x40, (byte) 0xca,
-        (byte) 0xf2, (byte) 0x5e, (byte) 0x47, (byte) 0xe8,
-        (byte) 0xb4, (byte) 0x8c, (byte) 0x02, (byte) 0xa0,
-        (byte) 0x5b, (byte) 0x64, (byte) 0xa5, (byte) 0xaa
-    };
+    byte[] uuidBytes =
+        new byte[] {
+          (byte) 0xeb, (byte) 0x6c, (byte) 0x40, (byte) 0xca,
+          (byte) 0xf2, (byte) 0x5e, (byte) 0x47, (byte) 0xe8,
+          (byte) 0xb4, (byte) 0x8c, (byte) 0x02, (byte) 0xa0,
+          (byte) 0x5b, (byte) 0x64, (byte) 0xa5, (byte) 0xaa
+        };
     BsonBinary legacyUuid = new BsonBinary(BsonBinarySubType.UUID_LEGACY, uuidBytes);
     byte[] encodedId = LuceneDocumentIdEncoder.encodeDocumentId(legacyUuid);
     DocumentWrapper wrapper =

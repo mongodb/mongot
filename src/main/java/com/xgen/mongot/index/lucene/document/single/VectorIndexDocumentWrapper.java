@@ -1,6 +1,7 @@
 package com.xgen.mongot.index.lucene.document.single;
 
 import com.xgen.mongot.index.IndexMetricsUpdater;
+import com.xgen.mongot.index.lucene.document.context.IndexingPolicyBuilderContext;
 import com.xgen.mongot.index.version.IndexCapabilities;
 import com.xgen.mongot.util.FieldPath;
 import java.util.Optional;
@@ -27,12 +28,21 @@ public class VectorIndexDocumentWrapper extends AbstractDocumentWrapper {
   public static VectorIndexDocumentWrapper createRoot(
       byte[] id,
       IndexCapabilities indexCapabilities,
-      IndexMetricsUpdater.IndexingMetricsUpdater indexingMetricsUpdater) {
+      IndexMetricsUpdater.IndexingMetricsUpdater indexingMetricsUpdater,
+      IndexingPolicyBuilderContext context) {
     Document luceneDocument = new Document();
     VectorIndexDocumentWrapper wrapper =
         new VectorIndexDocumentWrapper(
             luceneDocument, indexCapabilities, indexingMetricsUpdater, Optional.empty());
-    IndexableFieldFactory.addDocumentIdField(wrapper, id, false);
+
+    if (context.customVectorEngineId().isPresent()) {
+      long customVectorEngineId = context.customVectorEngineId().get();
+      IndexableFieldFactory.addCustomVectorEngineIdField(wrapper, customVectorEngineId);
+      IndexableFieldFactory.addDocumentIdField(wrapper, id, true);
+    } else {
+      IndexableFieldFactory.addDocumentIdField(wrapper, id, false);
+    }
+
     IndexableFieldFactory.addEmbeddedRootField(wrapper);
     return wrapper;
   }

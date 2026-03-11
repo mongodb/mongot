@@ -13,20 +13,12 @@ import com.xgen.mongot.embedding.mongodb.leasing.LeaseManagerOpsCommands;
 import com.xgen.mongot.embedding.mongodb.leasing.StaticLeaderLeaseManager;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
 import com.xgen.mongot.featureflag.FeatureFlags;
-import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.index.IndexFactory;
-import com.xgen.mongot.index.analyzer.AnalyzerRegistry;
 import com.xgen.mongot.index.autoembedding.MaterializedViewIndexFactory;
 import com.xgen.mongot.index.blobstore.BlobstoreSnapshotterManager;
-import com.xgen.mongot.index.lucene.LuceneGlobalSettings;
-import com.xgen.mongot.index.lucene.LuceneIndexFactory;
-import com.xgen.mongot.index.lucene.blobstore.LuceneIndexSnapshotterManager;
-import com.xgen.mongot.index.lucene.config.LuceneConfig;
-import com.xgen.mongot.index.lucene.directory.EnvironmentVariantPerfConfig;
 import com.xgen.mongot.lifecycle.DefaultLifecycleManager;
 import com.xgen.mongot.lifecycle.LifecycleConfig;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
-import com.xgen.mongot.monitor.DiskMonitor;
 import com.xgen.mongot.monitor.Gate;
 import com.xgen.mongot.monitor.ReplicationStateMonitor;
 import com.xgen.mongot.replication.ReplicationManagerFactory;
@@ -39,7 +31,6 @@ import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewC
 import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
 import com.xgen.mongot.replication.mongodb.initialsync.config.InitialSyncConfig;
 import com.xgen.mongot.util.Check;
-import com.xgen.mongot.util.Crash;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.nio.file.Path;
@@ -49,34 +40,6 @@ import org.slf4j.LoggerFactory;
 
 public class CommonUtils {
   private static final Logger LOG = LoggerFactory.getLogger(CommonUtils.class);
-
-  public static IndexFactory getIndexFactory(
-      LuceneConfig luceneConfig,
-      FeatureFlags featureFlags,
-      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
-      EnvironmentVariantPerfConfig environmentVariantPerfConfig,
-      MeterAndFtdcRegistry meterAndFtdcRegistry,
-      Optional<LuceneIndexSnapshotterManager> snapshotterManager,
-      DiskMonitor diskMonitor) {
-    LuceneGlobalSettings.apply(luceneConfig);
-
-    var analyzerRegistryFactory =
-        Crash.because("failed to get AnalyzerRegistry.Factory instance")
-            .ifThrows(AnalyzerRegistry::factory);
-
-    return Crash.because("failed to get LuceneIndexFactory instance")
-        .ifThrows(
-            () ->
-                LuceneIndexFactory.fromConfig(
-                    luceneConfig,
-                    featureFlags,
-                    dynamicFeatureFlagRegistry,
-                    environmentVariantPerfConfig,
-                    meterAndFtdcRegistry,
-                    snapshotterManager,
-                    analyzerRegistryFactory,
-                    diskMonitor));
-  }
 
   /** Creates ReplicationManagerFactory. */
   public static ReplicationManagerFactory getReplicationManagerFactory(

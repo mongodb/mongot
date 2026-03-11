@@ -66,6 +66,7 @@ public final class VectorIndexDefinition implements IndexDefinition {
   private final Optional<Instant> definitionVersionCreatedAt;
   private final Optional<StoredSourceDefinition> storedSource;
   private final boolean isAutoEmbeddingIndex;
+  private final boolean isCustomVectorEngineIndex;
   private final int parsedAutoEmbeddingFeatureVersion;
   private final ImmutableMap<FieldPath, String> modelNamePerPath;
 
@@ -101,6 +102,10 @@ public final class VectorIndexDefinition implements IndexDefinition {
     this.storedSource = storedSource;
     this.mappings = VectorIndexFieldMapping.create(fields, nestedRoot);
     this.isAutoEmbeddingIndex = calculateIsAutoEmbeddingIndex(fields);
+    this.isCustomVectorEngineIndex =
+        fields.stream()
+            .filter(VectorIndexFieldDefinition::isVectorField)
+            .anyMatch(f -> f.asVectorField().specification().isCustomVectorEngine());
     this.parsedAutoEmbeddingFeatureVersion = calculateAutoEmbeddingFeatureVersion(fields);
     this.modelNamePerPath = calculateAutoEmbeddingModelName(fields);
 
@@ -197,6 +202,10 @@ public final class VectorIndexDefinition implements IndexDefinition {
   public VectorFieldDefinitionResolver createFieldDefinitionResolver(
       IndexFormatVersion indexFormatVersion) {
     return new VectorFieldDefinitionResolver(this, indexFormatVersion);
+  }
+
+  public boolean isCustomVectorEngineIndex() {
+    return this.isCustomVectorEngineIndex;
   }
 
   @Override

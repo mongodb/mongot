@@ -15,6 +15,7 @@ import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
 import com.xgen.mongot.index.definition.VectorQuantization;
 import com.xgen.mongot.index.definition.VectorSimilarity;
+import com.xgen.mongot.index.lucene.document.context.IndexingPolicyBuilderContext;
 import com.xgen.mongot.index.lucene.document.single.IndexableFieldFactory;
 import com.xgen.mongot.index.lucene.document.single.VectorIndexDocumentWrapper;
 import com.xgen.mongot.index.lucene.field.FieldName;
@@ -95,7 +96,8 @@ public class OffHeapQuantizedByteVectorValuesTest {
                 DUMMY_ENCODED_BYTES,
                 SearchIndexCapabilities.CURRENT,
                 new IndexMetricsUpdater.IndexingMetricsUpdater(
-                    SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                    SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+                IndexingPolicyBuilderContext.builder().build());
         IndexableFieldFactory.addKnnVectorField(
             document,
             FIELD_PATH,

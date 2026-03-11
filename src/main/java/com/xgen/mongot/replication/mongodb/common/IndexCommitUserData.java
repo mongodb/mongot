@@ -29,6 +29,7 @@ public class IndexCommitUserData implements DocumentEncodable {
           Optional.empty(),
           Optional.empty(),
           Optional.empty(),
+          Optional.empty(),
           Optional.empty());
 
   private final Optional<ChangeStreamResumeInfo> resumeInfo;
@@ -37,6 +38,7 @@ public class IndexCommitUserData implements DocumentEncodable {
   private final Optional<InitialSyncResumeInfo> initialSyncResumeInfo;
   private final Optional<StaleStateInfo> staleStateInfo;
   private final Optional<IndexStateInfo> indexStateInfo;
+  private final Optional<Long> customVectorEngineLsn;
 
   private static class Fields {
     private static final Field.Optional<ChangeStreamResumeInfo> CHANGE_STREAM_RESUME_INFO =
@@ -77,6 +79,8 @@ public class IndexCommitUserData implements DocumentEncodable {
             .disallowUnknownFields()
             .optional()
             .noDefault();
+    private static final Field.Optional<Long> CUSTOM_VECTOR_ENGINE_LSN =
+        Field.builder("customVectorEngineLsn").longField().optional().noDefault();
   }
 
   @VisibleForTesting
@@ -86,13 +90,15 @@ public class IndexCommitUserData implements DocumentEncodable {
       Optional<String> exceededLimitsReason,
       Optional<InitialSyncResumeInfo> initialSyncResumeInfo,
       Optional<StaleStateInfo> staleStateInfo,
-      Optional<IndexStateInfo> indexStateInfo) {
+      Optional<IndexStateInfo> indexStateInfo,
+      Optional<Long> customVectorEngineLsn) {
     this.resumeInfo = resumeInfo;
     this.backendIndexVersion = backendIndexVersion;
     this.exceededLimitsReason = exceededLimitsReason;
     this.initialSyncResumeInfo = initialSyncResumeInfo;
     this.staleStateInfo = staleStateInfo;
     this.indexStateInfo = indexStateInfo;
+    this.customVectorEngineLsn = customVectorEngineLsn;
   }
 
   public static IndexCommitUserData createExceeded(String reason) {
@@ -100,6 +106,7 @@ public class IndexCommitUserData implements DocumentEncodable {
         Optional.empty(),
         Optional.empty(),
         Optional.of(reason),
+        Optional.empty(),
         Optional.empty(),
         Optional.empty(),
         Optional.empty());
@@ -112,6 +119,7 @@ public class IndexCommitUserData implements DocumentEncodable {
         Optional.empty(),
         Optional.empty(),
         Optional.of(staleStateInfo),
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -123,6 +131,7 @@ public class IndexCommitUserData implements DocumentEncodable {
         Optional.empty(),
         Optional.of(resumeInfo),
         Optional.empty(),
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -131,6 +140,7 @@ public class IndexCommitUserData implements DocumentEncodable {
     return new IndexCommitUserData(
         Optional.of(resumeInfo),
         Optional.of(indexFormatVersion),
+        Optional.empty(),
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
@@ -151,7 +161,8 @@ public class IndexCommitUserData implements DocumentEncodable {
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
-        Optional.of(indexStateInfo));
+        Optional.of(indexStateInfo),
+        Optional.empty());
   }
 
   /**
@@ -170,7 +181,8 @@ public class IndexCommitUserData implements DocumentEncodable {
         parser.getField(Fields.EXCEEDED_LIMITS_REASON).unwrap(),
         parser.getField(Fields.INITIAL_SYNC_RESUME_INFO).unwrap(),
         parser.getField(Fields.STALE_STATE_INFO).unwrap(),
-        parser.getField(Fields.INDEX_STATE_INFO).unwrap());
+        parser.getField(Fields.INDEX_STATE_INFO).unwrap(),
+        parser.getField(Fields.CUSTOM_VECTOR_ENGINE_LSN).unwrap());
   }
 
   private static IndexCommitUserData fromEncodedString(
@@ -219,6 +231,21 @@ public class IndexCommitUserData implements DocumentEncodable {
     return this.indexStateInfo;
   }
 
+  public Optional<Long> getCustomVectorEngineLsn() {
+    return this.customVectorEngineLsn;
+  }
+
+  public IndexCommitUserData withCustomVectorEngineLsn(long lsn) {
+    return new IndexCommitUserData(
+        this.resumeInfo,
+        this.backendIndexVersion,
+        this.exceededLimitsReason,
+        this.initialSyncResumeInfo,
+        this.staleStateInfo,
+        this.indexStateInfo,
+        Optional.of(lsn));
+  }
+
   /**
    * Converts the {@link IndexCommitUserData} into {@link EncodedUserData} matching the format that
    * can later be used to reconstruct {@link IndexCommitUserData} via {@link
@@ -246,6 +273,7 @@ public class IndexCommitUserData implements DocumentEncodable {
         .field(Fields.INITIAL_SYNC_RESUME_INFO, this.initialSyncResumeInfo)
         .field(Fields.STALE_STATE_INFO, this.staleStateInfo)
         .field(Fields.INDEX_STATE_INFO, this.indexStateInfo)
+        .field(Fields.CUSTOM_VECTOR_ENGINE_LSN, this.customVectorEngineLsn)
         .build();
   }
 
@@ -263,7 +291,8 @@ public class IndexCommitUserData implements DocumentEncodable {
         && this.exceededLimitsReason.equals(userData.exceededLimitsReason)
         && this.staleStateInfo.equals(userData.staleStateInfo)
         && this.initialSyncResumeInfo.equals(userData.initialSyncResumeInfo)
-        && this.indexStateInfo.equals(userData.indexStateInfo);
+        && this.indexStateInfo.equals(userData.indexStateInfo)
+        && this.customVectorEngineLsn.equals(userData.customVectorEngineLsn);
   }
 
   @Override
@@ -274,6 +303,7 @@ public class IndexCommitUserData implements DocumentEncodable {
         this.exceededLimitsReason,
         this.staleStateInfo,
         this.initialSyncResumeInfo,
-        this.indexStateInfo);
+        this.indexStateInfo,
+        this.customVectorEngineLsn);
   }
 }

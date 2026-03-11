@@ -58,6 +58,14 @@ public class VectorFieldSpecification implements DocumentEncodable {
             .disallowUnknownFields()
             .optional()
             .noDefault();
+
+    /** Engine for vector storage and search. Defaults to {@link VectorSearchEngine#LUCENE}. */
+    public static final Field.WithDefault<VectorSearchEngine> ENGINE =
+        Field.builder("engine")
+            .enumField(VectorSearchEngine.class)
+            .asCamelCase()
+            .optional()
+            .withDefault(VectorSearchEngine.LUCENE);
   }
 
   public record HnswOptions(int maxEdges, int numEdgeCandidates) implements DocumentEncodable {
@@ -98,16 +106,27 @@ public class VectorFieldSpecification implements DocumentEncodable {
   private final VectorSimilarity similarity;
   private final VectorQuantization quantization;
   private final VectorIndexingAlgorithm indexingAlgorithm;
+  private final VectorSearchEngine engine;
 
   public VectorFieldSpecification(
       int numDimensions,
       VectorSimilarity similarity,
       VectorQuantization quantization,
       VectorIndexingAlgorithm indexingAlgorithm) {
+    this(numDimensions, similarity, quantization, indexingAlgorithm, VectorSearchEngine.LUCENE);
+  }
+
+  public VectorFieldSpecification(
+      int numDimensions,
+      VectorSimilarity similarity,
+      VectorQuantization quantization,
+      VectorIndexingAlgorithm indexingAlgorithm,
+      VectorSearchEngine engine) {
     this.numDimensions = numDimensions;
     this.similarity = similarity;
     this.quantization = quantization;
     this.indexingAlgorithm = indexingAlgorithm;
+    this.engine = engine;
   }
 
   public int numDimensions() {
@@ -126,6 +145,14 @@ public class VectorFieldSpecification implements DocumentEncodable {
     return this.indexingAlgorithm;
   }
 
+  public VectorSearchEngine engine() {
+    return this.engine;
+  }
+
+  public boolean isCustomVectorEngine() {
+    return this.engine == VectorSearchEngine.CUSTOM;
+  }
+
   @Override
   public BsonDocument toBson() {
     Optional<HnswOptions> maybeHnswOptions =
@@ -142,6 +169,7 @@ public class VectorFieldSpecification implements DocumentEncodable {
         // TODO(CLOUDP-307981): remove fieldOmitDefaultValue since scalar quantization has been
         //  introduced
         .fieldOmitDefaultValue(Fields.QUANTIZATION, this.quantization)
+        .fieldOmitDefaultValue(Fields.ENGINE, this.engine)
         .build();
   }
 
@@ -154,13 +182,15 @@ public class VectorFieldSpecification implements DocumentEncodable {
     return this.numDimensions == that.numDimensions
         && this.similarity == that.similarity
         && this.quantization == that.quantization
-        && Objects.equals(this.indexingAlgorithm, that.indexingAlgorithm);
+        && Objects.equals(this.indexingAlgorithm, that.indexingAlgorithm)
+        && this.engine == that.engine;
   }
 
   @Override
   public int hashCode() {
     return Objects.hash(
-        this.numDimensions, this.similarity, this.quantization, this.indexingAlgorithm);
+        this.numDimensions, this.similarity,
+        this.quantization, this.indexingAlgorithm, this.engine);
   }
 
   public static VectorFieldSpecification fromBson(DocumentParser parser) throws BsonParseException {
@@ -179,7 +209,8 @@ public class VectorFieldSpecification implements DocumentEncodable {
         parser.getField(Fields.NUM_DIMENSIONS).unwrap(),
         parser.getField(Fields.SIMILARITY).unwrap(),
         parser.getField(Fields.QUANTIZATION).unwrap(),
-        indexingAlgorithm);
+        indexingAlgorithm,
+        parser.getField(Fields.ENGINE).unwrap());
   }
 
   private static VectorIndexingAlgorithm resolveIndexingAlgorithm(

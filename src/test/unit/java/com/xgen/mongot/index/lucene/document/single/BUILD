@@ -11,6 +11,7 @@ java_test_suite(
     deps = [
         "//src/main/java/com/xgen/mongot/index",
         "//src/main/java/com/xgen/mongot/index/definition",
+        "//src/main/java/com/xgen/mongot/index/lucene/document/context",
         "//src/main/java/com/xgen/mongot/index/lucene/document/single",
         "//src/main/java/com/xgen/mongot/index/lucene/field",
         "//src/main/java/com/xgen/mongot/index/lucene/util",

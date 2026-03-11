@@ -13,6 +13,7 @@ import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
 import com.xgen.mongot.index.definition.VectorQuantization;
 import com.xgen.mongot.index.definition.VectorSimilarity;
+import com.xgen.mongot.index.lucene.document.context.IndexingPolicyBuilderContext;
 import com.xgen.mongot.index.lucene.document.single.IndexableFieldFactory;
 import com.xgen.mongot.index.lucene.document.single.VectorIndexDocumentWrapper;
 import com.xgen.mongot.index.lucene.field.FieldName;
@@ -63,7 +64,8 @@ public class Mongot01042BinaryQuantizedFlatVectorsReaderTest {
               DUMMY_ENCODED_BYTES,
               SearchIndexCapabilities.CURRENT,
               new IndexMetricsUpdater.IndexingMetricsUpdater(
-                  SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                  SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+              IndexingPolicyBuilderContext.builder().build());
 
       IndexableFieldFactory.addKnnVectorField(
           document,
@@ -109,7 +111,8 @@ public class Mongot01042BinaryQuantizedFlatVectorsReaderTest {
               DUMMY_ENCODED_BYTES,
               SearchIndexCapabilities.CURRENT,
               new IndexMetricsUpdater.IndexingMetricsUpdater(
-                  SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                  SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+              IndexingPolicyBuilderContext.builder().build());
 
       IndexableFieldFactory.addKnnVectorField(
           document,
@@ -155,7 +158,8 @@ public class Mongot01042BinaryQuantizedFlatVectorsReaderTest {
               DUMMY_ENCODED_BYTES,
               SearchIndexCapabilities.CURRENT,
               new IndexMetricsUpdater.IndexingMetricsUpdater(
-                  SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                  SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+              IndexingPolicyBuilderContext.builder().build());
 
       IndexableFieldFactory.addKnnVectorField(
           document,
@@ -206,7 +210,8 @@ public class Mongot01042BinaryQuantizedFlatVectorsReaderTest {
               LuceneDocumentIdEncoder.encodeDocumentId(new BsonInt32(1)),
               SearchIndexCapabilities.CURRENT,
               new IndexMetricsUpdater.IndexingMetricsUpdater(
-                  SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                  SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+              IndexingPolicyBuilderContext.builder().build());
 
       wrappedDocument.luceneDocument.add(new StringField("id", "1", Field.Store.NO));
 
@@ -258,7 +263,8 @@ public class Mongot01042BinaryQuantizedFlatVectorsReaderTest {
               LuceneDocumentIdEncoder.encodeDocumentId(new BsonInt32(1)),
               SearchIndexCapabilities.CURRENT,
               new IndexMetricsUpdater.IndexingMetricsUpdater(
-                  SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                  SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+              IndexingPolicyBuilderContext.builder().build());
       wrappedDocument.luceneDocument.add(new StringField("id", "1", Field.Store.NO));
 
       IndexableFieldFactory.addKnnVectorField(

@@ -58,7 +58,8 @@ public class FieldName {
     ID("_id"),
     PARENT_FIELD("parentField"),
     /** Internal meta field used to encode null/noData ordering for index sort. */
-    NULLNESS("nullness");
+    NULLNESS("nullness"),
+    CUSTOM_VECTOR_ENGINE_ID("customVectorEngineId");
 
     private static final String PREFIX = "$meta/";
 
@@ -595,7 +596,7 @@ public class FieldName {
     }
   }
 
-  public static String getNullnessFieldName(FieldPath path) { 
-    return MetaField.NULLNESS.getLuceneFieldName() + "/" + path; 
+  public static String getNullnessFieldName(FieldPath path) {
+    return MetaField.NULLNESS.getLuceneFieldName() + "/" + path;
   }
 }

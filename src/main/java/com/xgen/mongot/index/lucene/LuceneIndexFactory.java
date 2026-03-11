@@ -43,6 +43,7 @@ import com.xgen.mongot.util.concurrent.Executors;
 import com.xgen.mongot.util.concurrent.MeteredCallerRunsPolicy;
 import com.xgen.mongot.util.concurrent.NamedExecutorService;
 import com.xgen.mongot.util.concurrent.NamedScheduledExecutorService;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.Optional;
@@ -56,14 +57,120 @@ public class LuceneIndexFactory implements IndexFactory {
   private static final Logger LOG = LoggerFactory.getLogger(LuceneIndexFactory.class);
   private static final long CACHE_WARMER_MAX_UPTIME_MINUTES = 30L; // VM likely rebooted
 
-  private final LuceneConfig config;
-  private final AtomicDirectoryRemover indexRemover;
+  /** Pre-built plumbing objects shared by all LuceneIndexFactory variants. */
+  protected record IndexFactoryContext(
+      AtomicDirectoryRemover indexRemover,
+      AnalyzerRegistryFactory analyzerRegistryFactory,
+      InstrumentedConcurrentMergeScheduler mergeScheduler,
+      MergePolicy mergePolicy,
+      Optional<MergePolicy> vectorMergePolicy,
+      QueryCacheProvider queryCacheProvider,
+      NamedScheduledExecutorService refreshExecutor,
+      Optional<NamedExecutorService> concurrentSearchExecutor,
+      Optional<NamedExecutorService> concurrentVectorRescoringExecutor,
+      MetricsFactory metricsFactory,
+      IndexDirectoryHelper indexDirectoryHelper) {
+
+    public static IndexFactoryContext create(
+        LuceneConfig config,
+        FeatureFlags featureFlags,
+        MeterAndFtdcRegistry meterAndFtdcRegistry,
+        AnalyzerRegistryFactory analyzerRegistryFactory,
+        DiskMonitor diskMonitor)
+        throws IOException {
+      var meterRegistry = meterAndFtdcRegistry.meterRegistry();
+
+      var mergeScheduler = getInstrumentedConcurrentMergeScheduler(config, meterRegistry);
+
+      Gate mergeGate = DiskUtilizationAwareMergePolicy.createMergeGate(config, diskMonitor);
+      // Pass the merge gate to the scheduler for disk-based pause/resume support
+      if (featureFlags.isEnabled(Feature.CANCEL_MERGE)) {
+        mergeScheduler.setMergeGate(mergeGate);
+      }
+      MergePolicy mergePolicy =
+          MergePolicyFactory.createMergePolicy(config, mergeGate, meterRegistry);
+      QueryCacheProvider queryCacheProvider =
+          featureFlags.isEnabled(Feature.INSTRUMENTED_QUERY_CACHE)
+              ? new QueryCacheProvider.MeteredQueryCacheProvider(meterRegistry)
+              : new QueryCacheProvider.DefaultQueryCacheProvider();
+      Optional<MergePolicy> vectorMergePolicy =
+          MergePolicyFactory.createVectorMergePolicy(
+              config, featureFlags, mergeGate, meterRegistry);
+
+      var refreshExecutor =
+          Executors.fixedSizeThreadScheduledExecutor(
+              "index-refresh", config.refreshExecutorThreads(), meterRegistry);
+
+      Optional<NamedExecutorService> concurrentSearchExecutor =
+          config.enableConcurrentSearch()
+              ? Optional.of(
+                  Executors.fixedSizeThreadPool(
+                      "concurrent-search",
+                      config.concurrentSearchExecutorThreads(),
+                      config.concurrentSearchExecutorQueueSize(),
+                      new MeteredCallerRunsPolicy(
+                          meterRegistry.counter("rejectedConcurrentSearchExecutionCount")),
+                      meterRegistry))
+              : Optional.empty();
+
+      Optional<NamedExecutorService> concurrentVectorRescoringExecutor =
+          config.enableConcurrentSearch()
+              ? Optional.of(
+                  Executors.fixedSizeThreadPool(
+                      "concurrent-vector-rescoring",
+                      config.concurrentVectorRescoringExecutorThreads(),
+                      config.concurrentVectorRescoringExecutorQueueSize(),
+                      new MeteredCallerRunsPolicy(
+                          meterRegistry.counter("rejectedConcurrentVectorRescoringExecutionCount")),
+                      meterRegistry))
+              : Optional.empty();
+
+      var metricsFactory = new MetricsFactory("indexFactory", meterRegistry);
+      var indexDirectoryHelper = IndexDirectoryHelper.create(config.dataPath(), metricsFactory);
+
+      return new IndexFactoryContext(
+          indexDirectoryHelper.getIndexRemover(),
+          analyzerRegistryFactory,
+          mergeScheduler,
+          mergePolicy,
+          vectorMergePolicy,
+          queryCacheProvider,
+          refreshExecutor,
+          concurrentSearchExecutor,
+          concurrentVectorRescoringExecutor,
+          metricsFactory,
+          indexDirectoryHelper);
+    }
+
+    private static InstrumentedConcurrentMergeScheduler getInstrumentedConcurrentMergeScheduler(
+        LuceneConfig config, MeterRegistry meterRegistry) {
+      long cancelMergeTimeout =
+          config
+              .cancelMergePerThreadTimeoutMs()
+              .orElse(
+                  InstrumentedConcurrentMergeScheduler.DEFAULT_CANCEL_MERGE_PER_THREAD_TIMEOUT_MS);
+      long cancelAllMergesTimeout =
+          config
+              .cancelAllMergesPerThreadTimeoutMs()
+              .orElse(
+                  InstrumentedConcurrentMergeScheduler
+                      .DEFAULT_CANCEL_ALL_MERGES_PER_THREAD_TIMEOUT_MS);
+      var mergeScheduler =
+          new InstrumentedConcurrentMergeScheduler(
+              meterRegistry, cancelMergeTimeout, cancelAllMergesTimeout);
+      mergeScheduler.setMaxMergesAndThreads(config.numMaxMerges(), config.numMaxMergeThreads());
+      return mergeScheduler;
+    }
+  }
+
+  protected final LuceneConfig config;
+  protected final AtomicDirectoryRemover indexRemover;
   private final AnalyzerRegistryFactory analyzerRegistryFactory;
-  private final InstrumentedConcurrentMergeScheduler mergeScheduler;
-  private final MergePolicy mergePolicy;
+  protected final InstrumentedConcurrentMergeScheduler mergeScheduler;
+  protected final MergePolicy mergePolicy;
   private final Optional<MergePolicy> vectorMergePolicy;
   private final QueryCacheProvider queryCacheProvider;
-  private final NamedScheduledExecutorService refreshExecutor;
+  protected final NamedScheduledExecutorService refreshExecutor;
   private final Optional<NamedExecutorService> concurrentSearchExecutor;
   private final Optional<NamedExecutorService> concurrentVectorRescoringExecutor;
   private final Optional<LuceneIndexSnapshotterManager> luceneIndexSnapshotterManager;
@@ -71,8 +178,8 @@ public class LuceneIndexFactory implements IndexFactory {
 
   protected final MeterAndFtdcRegistry meterAndFtdcRegistry;
   private final MetricsFactory metricsFactory;
-  private final IndexDirectoryHelper indexDirectoryHelper;
-  private final FeatureFlags featureFlags;
+  protected final IndexDirectoryHelper indexDirectoryHelper;
+  protected final FeatureFlags featureFlags;
   private final DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry;
   private final EnvironmentVariantPerfConfig environmentVariantPerfConfig;
   private final Optional<SystemInfo> systemInfo;
@@ -80,7 +187,7 @@ public class LuceneIndexFactory implements IndexFactory {
   private volatile boolean cacheWarmerAlreadyDisabled;
 
   @VisibleForTesting
-  LuceneIndexFactory(
+  protected LuceneIndexFactory(
       LuceneConfig config,
       AtomicDirectoryRemover indexRemover,
       AnalyzerRegistryFactory analyzerRegistryFactory,
@@ -168,7 +275,38 @@ public class LuceneIndexFactory implements IndexFactory {
   }
 
   @VisibleForTesting
-  static LuceneIndexFactory fromConfig(
+  protected LuceneIndexFactory(
+      LuceneConfig config,
+      IndexFactoryContext ctx,
+      Optional<LuceneIndexSnapshotterManager> snapshotterManager,
+      MeterAndFtdcRegistry meterAndFtdcRegistry,
+      FeatureFlags featureFlags,
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
+      EnvironmentVariantPerfConfig environmentVariantPerfConfig,
+      Optional<SystemInfo> systemInfo) {
+    this(
+        config,
+        ctx.indexRemover(),
+        ctx.analyzerRegistryFactory(),
+        ctx.mergeScheduler(),
+        ctx.mergePolicy(),
+        ctx.vectorMergePolicy(),
+        ctx.queryCacheProvider(),
+        ctx.refreshExecutor(),
+        ctx.concurrentSearchExecutor(),
+        ctx.concurrentVectorRescoringExecutor(),
+        snapshotterManager,
+        meterAndFtdcRegistry,
+        ctx.metricsFactory(),
+        ctx.indexDirectoryHelper(),
+        featureFlags,
+        dynamicFeatureFlagRegistry,
+        environmentVariantPerfConfig,
+        systemInfo);
+  }
+
+  /** Creates LuceneIndexFactory. */
+  public static LuceneIndexFactory fromConfig(
       LuceneConfig config,
       FeatureFlags featureFlags,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
@@ -179,84 +317,14 @@ public class LuceneIndexFactory implements IndexFactory {
       DiskMonitor diskMonitor,
       Optional<SystemInfo> systemInfo)
       throws IOException {
-    var meterRegistry = meterAndFtdcRegistry.meterRegistry();
-
-    long cancelMergeTimeout =
-        config
-            .cancelMergePerThreadTimeoutMs()
-            .orElse(
-                InstrumentedConcurrentMergeScheduler.DEFAULT_CANCEL_MERGE_PER_THREAD_TIMEOUT_MS);
-    long cancelAllMergesTimeout =
-        config
-            .cancelAllMergesPerThreadTimeoutMs()
-            .orElse(
-                InstrumentedConcurrentMergeScheduler
-                    .DEFAULT_CANCEL_ALL_MERGES_PER_THREAD_TIMEOUT_MS);
-    InstrumentedConcurrentMergeScheduler mergeScheduler =
-        new InstrumentedConcurrentMergeScheduler(
-            meterRegistry, cancelMergeTimeout, cancelAllMergesTimeout);
-    mergeScheduler.setMaxMergesAndThreads(config.numMaxMerges(), config.numMaxMergeThreads());
-
-    Gate mergeGate = DiskUtilizationAwareMergePolicy.createMergeGate(config, diskMonitor);
-    // Pass the merge gate to the scheduler for disk-based pause/resume support
-    if (featureFlags.isEnabled(Feature.CANCEL_MERGE)) {
-      mergeScheduler.setMergeGate(mergeGate);
-    }
-    MergePolicy mergePolicy =
-        MergePolicyFactory.createMergePolicy(config, mergeGate, meterRegistry);
-    QueryCacheProvider queryCacheProvider =
-        featureFlags.isEnabled(Feature.INSTRUMENTED_QUERY_CACHE)
-            ? new QueryCacheProvider.MeteredQueryCacheProvider(meterRegistry)
-            : new QueryCacheProvider.DefaultQueryCacheProvider();
-
-    Optional<MergePolicy> vectorMergePolicy =
-        MergePolicyFactory.createVectorMergePolicy(config, featureFlags, mergeGate, meterRegistry);
-
-    NamedScheduledExecutorService refreshExecutor =
-        Executors.fixedSizeThreadScheduledExecutor(
-            "index-refresh", config.refreshExecutorThreads(), meterRegistry);
-
-    Optional<NamedExecutorService> concurrentSearchExecutor =
-        config.enableConcurrentSearch()
-            ? Optional.of(
-                Executors.fixedSizeThreadPool(
-                    "concurrent-search",
-                    config.concurrentSearchExecutorThreads(),
-                    config.concurrentSearchExecutorQueueSize(),
-                    new MeteredCallerRunsPolicy(
-                        meterRegistry.counter("rejectedConcurrentSearchExecutionCount")),
-                    meterRegistry))
-            : Optional.empty();
-
-    Optional<NamedExecutorService> concurrentVectorRescoringExecutor =
-        config.enableConcurrentSearch()
-            ? Optional.of(
-                Executors.fixedSizeThreadPool(
-                    "concurrent-vector-rescoring",
-                    config.concurrentVectorRescoringExecutorThreads(),
-                    config.concurrentVectorRescoringExecutorQueueSize(),
-                    new MeteredCallerRunsPolicy(
-                        meterRegistry.counter("rejectedConcurrentVectorRescoringExecutionCount")),
-                    meterRegistry))
-            : Optional.empty();
-
-    MetricsFactory metricsFactory = new MetricsFactory("indexFactory", meterRegistry);
-    var indexDirectoryHelper = IndexDirectoryHelper.create(config.dataPath(), metricsFactory);
+    var ctx =
+        IndexFactoryContext.create(
+            config, featureFlags, meterAndFtdcRegistry, analyzerRegistryFactory, diskMonitor);
     return new LuceneIndexFactory(
         config,
-        indexDirectoryHelper.getIndexRemover(),
-        analyzerRegistryFactory,
-        mergeScheduler,
-        mergePolicy,
-        vectorMergePolicy,
-        queryCacheProvider,
-        refreshExecutor,
-        concurrentSearchExecutor,
-        concurrentVectorRescoringExecutor,
+        ctx,
         snapshotterManager,
         meterAndFtdcRegistry,
-        metricsFactory,
-        indexDirectoryHelper,
         featureFlags,
         dynamicFeatureFlagRegistry,
         environmentVariantPerfConfig,
@@ -286,7 +354,7 @@ public class LuceneIndexFactory implements IndexFactory {
         LuceneIndexFactory.tryNewSystemInfo());
   }
 
-  private static Optional<SystemInfo> tryNewSystemInfo() {
+  protected static Optional<SystemInfo> tryNewSystemInfo() {
     try {
       return Optional.of(new SystemInfo());
     } catch (Exception | LinkageError e) {
@@ -340,6 +408,9 @@ public class LuceneIndexFactory implements IndexFactory {
     if (definitionGeneration.getType() == Type.VECTOR) {
       VectorIndexDefinition vectorDef =
           definitionGeneration.getIndexDefinition().asVectorDefinition();
+      if (vectorDef.isCustomVectorEngineIndex()) {
+        return createCustomVectorEngineIndex(vectorDef, definitionGeneration, metricsFactory);
+      }
       return LuceneVectorIndex.createDiskBacked(
           this.indexDirectoryHelper.getIndexDirectoryPath(definitionGeneration),
           this.indexDirectoryHelper.getIndexMetadataPath(definitionGeneration),
@@ -390,6 +461,21 @@ public class LuceneIndexFactory implements IndexFactory {
         metricsFactory);
   }
 
+  protected Index createCustomVectorEngineIndex(
+      VectorIndexDefinition vectorDef,
+      IndexDefinitionGeneration definitionGeneration,
+      PerIndexMetricsFactory metricsFactory) {
+    throw new UnsupportedOperationException(
+        "Custom vector engine indexes are not supported in the community build");
+  }
+
+  protected InitializedIndex initializeCustomVectorEngineIndex(
+      Index index, GenerationId generationId, IndexDirectoryFactory directoryFactory)
+      throws IOException {
+    throw new UnsupportedOperationException(
+        "Custom vector engine indexes are not supported in the community build");
+  }
+
   @Override
   public InitializedIndex getInitializedIndex(
       Index index, IndexDefinitionGeneration definitionGeneration) throws IOException {
@@ -416,6 +502,11 @@ public class LuceneIndexFactory implements IndexFactory {
     GenerationId generationId = definitionGeneration.getGenerationId();
 
     if (definitionGeneration.getType() == Type.VECTOR) {
+      VectorIndexDefinition vectorDef =
+          definitionGeneration.getIndexDefinition().asVectorDefinition();
+      if (vectorDef.isCustomVectorEngineIndex()) {
+        return initializeCustomVectorEngineIndex(index, generationId, directoryFactory);
+      }
       var luceneVectorIndex = Check.instanceOf(index, LuceneVectorIndex.class);
       return InitializedLuceneVectorIndex.create(
           luceneVectorIndex,

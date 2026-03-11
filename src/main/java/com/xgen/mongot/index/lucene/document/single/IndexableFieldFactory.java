@@ -142,6 +142,20 @@ public class IndexableFieldFactory {
     }
   }
 
+  /**
+   * Adds an IndexableField for the customVectorEngine id to the root Lucene document for a BSON
+   * document we're indexing.
+   *
+   * @param document - the document wrapper to add the document id field to
+   * @param customVectorEngineId - custom vector engine id
+   */
+  static void addCustomVectorEngineIdField(
+      AbstractDocumentWrapper document, long customVectorEngineId) {
+    String fieldName = FieldName.MetaField.CUSTOM_VECTOR_ENGINE_ID.getLuceneFieldName();
+    document.put(new LongPoint(fieldName, customVectorEngineId));
+    document.put(new NumericDocValuesField(fieldName, customVectorEngineId));
+  }
+
   static void addEmbeddedPathField(AbstractDocumentWrapper document) {
     IndexableField indexableField =
         new Field(

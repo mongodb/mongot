@@ -47,6 +47,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.index.IndexDeletionPolicy;
@@ -125,6 +126,8 @@ public class SingleLuceneIndexWriter implements LuceneIndexWriter {
 
   private final IndexMetricsUpdater.IndexingMetricsUpdater indexingMetricsUpdater;
 
+  private final Set<FieldPath> fieldPathsToFilterOut;
+
   private final FeatureFlags featureFlags;
 
   // Rate limiter for indexing failure logging to avoid excessive ID decoding and logging overhead
@@ -139,6 +142,7 @@ public class SingleLuceneIndexWriter implements LuceneIndexWriter {
       Optional<Integer> docsLimit,
       IndexCapabilities indexCapabilities,
       IndexMetricsUpdater.IndexingMetricsUpdater indexingMetricsUpdater,
+      Set<FieldPath> fieldPathsToFilterOut,
       FeatureFlags featureFlags) {
     HashMap<String, Object> defaultKeyValues = new HashMap<>();
     defaultKeyValues.put("indexId", indexId);
@@ -155,6 +159,7 @@ public class SingleLuceneIndexWriter implements LuceneIndexWriter {
     this.shutdownSharedLock = shutdownLock.readLock();
 
     this.indexingMetricsUpdater = indexingMetricsUpdater;
+    this.fieldPathsToFilterOut = fieldPathsToFilterOut;
     this.featureFlags = featureFlags;
 
     this.closed = false;
@@ -195,6 +200,11 @@ public class SingleLuceneIndexWriter implements LuceneIndexWriter {
     LuceneIndexingPolicy luceneIndexingPolicy =
         DefaultIndexingPolicy.create(indexDefinition, indexCapabilities, indexingMetricsUpdater);
 
+    Set<FieldPath> customVectorEngineFields =
+        vectorFields.entrySet().stream()
+            .filter(entry -> entry.getValue().isCustomVectorEngine())
+            .map(Map.Entry::getKey)
+            .collect(Collectors.toSet());
     SingleLuceneIndexWriter writer =
         new SingleLuceneIndexWriter(
             luceneIndexWriter,
@@ -204,6 +214,7 @@ public class SingleLuceneIndexWriter implements LuceneIndexWriter {
             docsLimit,
             indexCapabilities,
             indexingMetricsUpdater,
+            customVectorEngineFields,
             featureFlags);
 
     writer
@@ -279,6 +290,7 @@ public class SingleLuceneIndexWriter implements LuceneIndexWriter {
             docsLimit,
             resolver.indexCapabilities,
             indexingMetricsUpdater,
+            Set.of(),
             featureFlags);
 
     writer
@@ -548,6 +560,8 @@ public class SingleLuceneIndexWriter implements LuceneIndexWriter {
       IndexingPolicyBuilderContext context =
           IndexingPolicyBuilderContext.builder()
               .autoEmbeddings(event.getAutoEmbeddings())
+              .customVectorEngineId(event.getCustomVectorEngineId())
+              .fieldPathsToFilterOut(this.fieldPathsToFilterOut)
               .build();
       DocumentBlockBuilder builder = this.indexingPolicy.createBuilder(encodedDocumentId, context);
       BsonDocumentProcessor.process(document, builder);

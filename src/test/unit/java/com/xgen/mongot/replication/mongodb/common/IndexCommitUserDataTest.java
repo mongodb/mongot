@@ -41,6 +41,7 @@ public class IndexCommitUserDataTest {
           Optional.empty(),
           Optional.empty(),
           Optional.empty(),
+          Optional.empty(),
           Optional.empty());
 
   private static final IndexCommitUserData USER_DATA_WITH_CHANGE_STREAM_RESUME_INFO =

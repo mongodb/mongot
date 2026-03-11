@@ -19,6 +19,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/lucene",
         "//src/main/java/com/xgen/mongot/index/lucene/codec",
+        "//src/main/java/com/xgen/mongot/index/lucene/document/context",
         "//src/main/java/com/xgen/mongot/index/lucene/document/single",
         "//src/main/java/com/xgen/mongot/index/lucene/extension",
         "//src/main/java/com/xgen/mongot/index/lucene/field",

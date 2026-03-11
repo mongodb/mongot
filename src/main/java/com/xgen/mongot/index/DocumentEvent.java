@@ -33,6 +33,9 @@ public class DocumentEvent {
   // and use partial update ($set) instead of full document replacement in MaterializedViewWriter.
   // Example: {"$set": {"string_filter": "new_value", "int_filter": 11}}
   private final Optional<BsonDocument> filterFieldUpdates;
+  // Custom vector engine id assigned during write to the native index. Carried through to
+  // the Lucene indexing policy so the id-to-_id mapping document can be written.
+  private Optional<Long> customVectorEngineId;
 
   private DocumentEvent(
       DocumentEvent rawDocumentEventWithoutVector,
@@ -42,6 +45,7 @@ public class DocumentEvent {
     this.document = rawDocumentEventWithoutVector.document;
     this.autoEmbeddings = autoEmbeddings;
     this.filterFieldUpdates = rawDocumentEventWithoutVector.filterFieldUpdates;
+    this.customVectorEngineId = rawDocumentEventWithoutVector.customVectorEngineId;
   }
 
   private DocumentEvent(
@@ -51,6 +55,7 @@ public class DocumentEvent {
     this.document = document;
     this.autoEmbeddings = ImmutableMap.of();
     this.filterFieldUpdates = Optional.empty();
+    this.customVectorEngineId = Optional.empty();
   }
 
   private DocumentEvent(
@@ -63,7 +68,10 @@ public class DocumentEvent {
     this.document = document;
     this.autoEmbeddings = ImmutableMap.of();
     this.filterFieldUpdates = Optional.of(filterFieldUpdates);
+    this.customVectorEngineId = Optional.empty();
   }
+
+
 
   public static DocumentEvent createFromDocumentEvent(
       DocumentEvent event, RawBsonDocument document) {
@@ -108,6 +116,16 @@ public class DocumentEvent {
     return new DocumentEvent(rawDocumentEventWithoutVector, autoEmbeddings);
   }
 
+  /** Sets custom vector engine id and returns the same event object. */
+  public DocumentEvent withCustomVectorEngineId(long customVectorEngineId) {
+    this.customVectorEngineId = Optional.of(customVectorEngineId);
+    return this;
+  }
+
+  public Optional<Long> getCustomVectorEngineId() {
+    return this.customVectorEngineId;
+  }
+
   /** Returns {@link Optional#empty()} only when the event type is {@link EventType#DELETE} */
   public Optional<RawBsonDocument> getDocument() {
     return this.document;
@@ -133,6 +151,8 @@ public class DocumentEvent {
     return this.filterFieldUpdates;
   }
 
+
+
   @Override
   public boolean equals(Object o) {
     if (this == o) {
@@ -146,7 +166,8 @@ public class DocumentEvent {
         && this.document.equals(that.document)
         && this.eventType == that.eventType
         && this.autoEmbeddings.equals(that.autoEmbeddings)
-        && this.filterFieldUpdates.equals(that.filterFieldUpdates);
+        && this.filterFieldUpdates.equals(that.filterFieldUpdates)
+        && this.customVectorEngineId.equals(that.customVectorEngineId);
   }
 
   @Override
@@ -156,7 +177,8 @@ public class DocumentEvent {
         this.document,
         this.eventType,
         this.autoEmbeddings,
-        this.filterFieldUpdates);
+        this.filterFieldUpdates,
+        this.customVectorEngineId);
   }
 
   @Override
@@ -172,6 +194,8 @@ public class DocumentEvent {
         + this.autoEmbeddings
         + ", filterFieldUpdates="
         + this.filterFieldUpdates
+        + ", customVectorEngineId="
+        + this.customVectorEngineId
         + '}';
   }
 }

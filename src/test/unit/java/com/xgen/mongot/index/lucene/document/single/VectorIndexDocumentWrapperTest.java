@@ -8,6 +8,7 @@ import static org.junit.Assert.assertTrue;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexCapabilities;
+import com.xgen.mongot.index.lucene.document.context.IndexingPolicyBuilderContext;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.util.FieldPath;
@@ -30,7 +31,11 @@ public class VectorIndexDocumentWrapperTest {
   @Test
   public void addIndexedVectorField_newField_incrementsCounter() {
     VectorIndexDocumentWrapper wrapper =
-        VectorIndexDocumentWrapper.createRoot(new byte[8], CURRENT_CAPABILITIES, this.metrics);
+        VectorIndexDocumentWrapper.createRoot(
+            new byte[8],
+            CURRENT_CAPABILITIES,
+            this.metrics,
+            IndexingPolicyBuilderContext.builder().build());
     assertTrue(wrapper.canIndexVectorField("vector"));
     assertEquals(0.0, this.metrics.getVectorFieldsIndexed().count(), TestUtils.EPSILON);
 
@@ -43,7 +48,11 @@ public class VectorIndexDocumentWrapperTest {
   @Test
   public void addIndexedVectorField_duplicateField_isNoOp() {
     VectorIndexDocumentWrapper wrapper =
-        VectorIndexDocumentWrapper.createRoot(new byte[8], CURRENT_CAPABILITIES, this.metrics);
+        VectorIndexDocumentWrapper.createRoot(
+            new byte[8],
+            CURRENT_CAPABILITIES,
+            this.metrics,
+            IndexingPolicyBuilderContext.builder().build());
     wrapper.addIndexedVectorField("vector");
     assertFalse(wrapper.canIndexVectorField("vector"));
     assertEquals(1.0, this.metrics.getVectorFieldsIndexed().count(), TestUtils.EPSILON);
@@ -57,7 +66,11 @@ public class VectorIndexDocumentWrapperTest {
   @Test
   public void addIndexedVectorField_twoFields_isNoOp() {
     VectorIndexDocumentWrapper wrapper =
-        VectorIndexDocumentWrapper.createRoot(new byte[8], CURRENT_CAPABILITIES, this.metrics);
+        VectorIndexDocumentWrapper.createRoot(
+            new byte[8],
+            CURRENT_CAPABILITIES,
+            this.metrics,
+            IndexingPolicyBuilderContext.builder().build());
     wrapper.addIndexedVectorField("vector");
     assertEquals(1.0, this.metrics.getVectorFieldsIndexed().count(), TestUtils.EPSILON);
 
@@ -72,7 +85,8 @@ public class VectorIndexDocumentWrapperTest {
     byte[] id = new byte[] {1, 2, 3, 4, 5, 6, 7, 8};
 
     VectorIndexDocumentWrapper wrapper =
-        VectorIndexDocumentWrapper.createRoot(id, CURRENT_CAPABILITIES, this.metrics);
+        VectorIndexDocumentWrapper.createRoot(
+            id, CURRENT_CAPABILITIES, this.metrics, IndexingPolicyBuilderContext.builder().build());
 
     assertNotNull(wrapper);
     assertNotNull(wrapper.luceneDocument);

@@ -73,6 +73,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/status",
         "//src/main/java/com/xgen/mongot/index/synonym",
         "//src/main/java/com/xgen/mongot/index/version",
+        "@maven//:com_github_oshi_oshi_core",
         "@maven//:io_micrometer_micrometer_core",
         "@maven//:org_apache_lucene_lucene_core",
         "@maven//:org_apache_lucene_lucene_facet",

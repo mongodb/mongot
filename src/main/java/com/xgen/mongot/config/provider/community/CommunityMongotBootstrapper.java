@@ -34,7 +34,10 @@ import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.Voyage
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
+import com.xgen.mongot.index.analyzer.AnalyzerRegistry;
 import com.xgen.mongot.index.definition.config.IndexDefinitionConfig;
+import com.xgen.mongot.index.lucene.LuceneGlobalSettings;
+import com.xgen.mongot.index.lucene.LuceneIndexFactory;
 import com.xgen.mongot.index.lucene.config.LuceneConfig;
 import com.xgen.mongot.index.lucene.directory.EnvironmentVariantPerfConfig;
 import com.xgen.mongot.lifecycle.LifecycleConfig;
@@ -655,15 +658,23 @@ public class CommunityMongotBootstrapper {
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
       boolean isAutoEmbeddingViewWriter) {
+    LuceneGlobalSettings.apply(mongotConfigs.luceneConfig);
+    var analyzerRegistryFactory =
+        Crash.because("failed to get AnalyzerRegistry.Factory instance")
+            .ifThrows(AnalyzerRegistry::factory);
     var indexFactory =
-        CommonUtils.getIndexFactory(
-            mongotConfigs.luceneConfig,
-            mongotConfigs.featureFlags,
-            dynamicFeatureFlagRegistry,
-            mongotConfigs.environmentVariantPerfConfig,
-            meterAndFtdcRegistry,
-            Optional.empty(),
-            diskMonitor);
+        Crash.because("failed to get LuceneIndexFactory instance")
+            .ifThrows(
+                () ->
+                    LuceneIndexFactory.fromConfig(
+                        mongotConfigs.luceneConfig,
+                        mongotConfigs.featureFlags,
+                        dynamicFeatureFlagRegistry,
+                        mongotConfigs.environmentVariantPerfConfig,
+                        meterAndFtdcRegistry,
+                        Optional.empty(),
+                        analyzerRegistryFactory,
+                        diskMonitor));
 
     var mvMetadataCatalog = new MaterializedViewCollectionMetadataCatalog();
     var leaseManager =

@@ -58,7 +58,8 @@ public class LuceneVectorIndexDocumentBuilder implements DocumentBuilder, Docume
       IndexMetricsUpdater.IndexingMetricsUpdater indexingMetricsUpdater,
       IndexingPolicyBuilderContext context) {
     return new LuceneVectorIndexDocumentBuilder(
-        VectorIndexDocumentWrapper.createRoot(id, indexCapabilities, indexingMetricsUpdater),
+        VectorIndexDocumentWrapper.createRoot(
+            id, indexCapabilities, indexingMetricsUpdater, context),
         mapping,
         Optional.empty(),
         context);
@@ -67,6 +68,9 @@ public class LuceneVectorIndexDocumentBuilder implements DocumentBuilder, Docume
   @Override
   public Optional<FieldValueHandler> valueHandler(String leafPath) {
     FieldPath fullPath = childPath(leafPath);
+    if (this.context.fieldPathsToFilterOut().contains(fullPath)) {
+      return Optional.empty();
+    }
     return this.mapping.childPathExists(fullPath)
         ? Optional.of(
             new LuceneVectorIndexFieldValueHandler(
