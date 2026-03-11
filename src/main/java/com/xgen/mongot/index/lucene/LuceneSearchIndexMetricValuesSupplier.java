@@ -5,6 +5,7 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.Sets;
 import com.google.common.flogger.FluentLogger;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.DocCounts;
 import com.xgen.mongot.index.IndexMetricValuesSupplier;
 import com.xgen.mongot.index.ReaderClosedException;
@@ -43,10 +44,6 @@ import org.apache.lucene.index.FieldInfos;
 @VisibleForTesting
 public final class LuceneSearchIndexMetricValuesSupplier extends LuceneIndexMetricValuesSupplier {
   private static final FluentLogger FLOGGER = FluentLogger.forEnclosingClass();
-
-  @VisibleForTesting
-  public static final String NUM_FIELDS_PER_DATATYPE_METRIC_FLAG =
-      "mongot.featureFlag.enableNumFieldsPerDatatypeMetric";
 
   /**
    * Default cache duration for the numFieldsPerDatatype metric. This computation iterates over all
@@ -229,7 +226,8 @@ public final class LuceneSearchIndexMetricValuesSupplier extends LuceneIndexMetr
   public Map<FieldName.TypeField, Double> getNumFieldsPerDatatype() {
     // Check feature flag - if disabled, return empty map
     if (!this.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
-        NUM_FIELDS_PER_DATATYPE_METRIC_FLAG, false)) {
+        DynamicFeatureFlags.NUM_FIELDS_PER_DATATYPE_METRIC.getName(),
+        DynamicFeatureFlags.NUM_FIELDS_PER_DATATYPE_METRIC.getFallback())) {
       return Collections.emptyMap();
     }
     return this.cachedNumFieldsPerDatatype.get();

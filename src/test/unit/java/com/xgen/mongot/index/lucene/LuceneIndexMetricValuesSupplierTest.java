@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.DocCounts;
 import com.xgen.mongot.index.IndexMetricValuesSupplier;
 import com.xgen.mongot.index.IndexMetricValuesSupplier.MetricNames;
@@ -59,7 +60,7 @@ public class LuceneIndexMetricValuesSupplierTest {
     ObjectId clusterId = new ObjectId();
     DynamicFeatureFlagConfig enabledConfig =
         new DynamicFeatureFlagConfig(
-            LuceneSearchIndexMetricValuesSupplier.NUM_FIELDS_PER_DATATYPE_METRIC_FLAG,
+            DynamicFeatureFlags.NUM_FIELDS_PER_DATATYPE_METRIC.getName(),
             DynamicFeatureFlagConfig.Phase.ENABLED,
             List.of(),
             List.of(),
