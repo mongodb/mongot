@@ -32,7 +32,7 @@ public class AicDropSearchIndexCommandTest {
 
     // Return an existing search index.
     var indexId = new ObjectId();
-    when(mockAic.listIndexes(COLLECTION_UUID))
+    when(mockAic.listIndexDefinitions(COLLECTION_UUID))
         .thenReturn(
             List.of(
                 SearchIndexDefinitionBuilder.builder()
@@ -70,7 +70,7 @@ public class AicDropSearchIndexCommandTest {
 
     // Return an existing search index.
     var indexId = new ObjectId();
-    when(mockAic.listIndexes(COLLECTION_UUID))
+    when(mockAic.listIndexDefinitions(COLLECTION_UUID))
         .thenReturn(
             List.of(
                 SearchIndexDefinitionBuilder.builder()
@@ -105,7 +105,7 @@ public class AicDropSearchIndexCommandTest {
   @Test
   public void testDropMissingSearchIndex() throws MetadataServiceException {
     var mockAic = mock(AuthoritativeIndexCatalog.class);
-    when(mockAic.listIndexes(any())).thenReturn(List.of());
+    when(mockAic.listIndexDefinitions(any())).thenReturn(List.of());
 
     var definition =
         (DropSearchIndexCommandDefinition)

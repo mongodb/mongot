@@ -83,7 +83,7 @@ public record ListSearchIndexesResponseDefinition(int ok, Cursor cursor)
       String status,
       boolean queryable,
       DefinitionVersion latestDefinitionVersion,
-      UserIndexDefinition latestDefinition,
+      BsonDocument latestDefinition,
       List<HostStatusDetail> hostStatusDetails,
       Optional<String> synonymMappingStatus,
       Optional<List<SynonymMappingStatusDetail>> synonymMappingStatusDetail,
@@ -138,7 +138,7 @@ public record ListSearchIndexesResponseDefinition(int ok, Cursor cursor)
           .field(Fields.STATUS, this.status)
           .field(Fields.QUERYABLE, this.queryable)
           .field(Fields.LATEST_DEFINITION_VERSION, this.latestDefinitionVersion.toBson())
-          .field(Fields.LATEST_DEFINITION, this.latestDefinition.toBson())
+          .field(Fields.LATEST_DEFINITION, this.latestDefinition)
           .field(Fields.STATUS_DETAIL, toDocumentList(this.hostStatusDetails))
           .field(Fields.SYNONYM_MAPPING_STATUS, this.synonymMappingStatus)
           .field(

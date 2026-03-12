@@ -12,6 +12,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/server/command/management/definition",
         "//src/main/java/com/xgen/mongot/server/command/management/definition/common",
+        "//src/main/java/com/xgen/mongot/util/bson/parser",
         "//src/main/java/com/xgen/testing",
         "//src/main/java/com/xgen/testing/mongot/index/definition",
         "//src/main/java/com/xgen/testing/mongot/server/command/management/definition",

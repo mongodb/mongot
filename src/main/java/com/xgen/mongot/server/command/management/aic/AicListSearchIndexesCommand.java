@@ -1,6 +1,7 @@
 package com.xgen.mongot.server.command.management.aic;
 
 import com.xgen.mongot.catalogservice.AuthoritativeIndexCatalog;
+import com.xgen.mongot.catalogservice.IndexEntry;
 import com.xgen.mongot.catalogservice.IndexStatsEntry;
 import com.xgen.mongot.catalogservice.MetadataClient;
 import com.xgen.mongot.catalogservice.MetadataService;
@@ -124,7 +125,7 @@ public class AicListSearchIndexesCommand implements Command {
    * IndexDefinition} and it's {@link IndexStatsEntry} per server.
    */
   List<IndexAndStats> getMatchingIndexesAndStats() throws MetadataServiceException {
-    List<IndexDefinition> matchingIndexes = findMatchingIndexes();
+    List<IndexEntry> matchingIndexes = findMatchingIndexes();
     Map<ObjectId, ServerStateEntry> activeServers = getActiveServers();
 
     // As of today we have no way of getting the numDocs per index across the active servers in the
@@ -143,38 +144,47 @@ public class AicListSearchIndexesCommand implements Command {
             : Collections.emptyMap();
 
     List<IndexAndStats> resultList = new ArrayList<>();
-    for (IndexDefinition indexDefinition : matchingIndexes) {
+    for (IndexEntry indexEntry : matchingIndexes) {
       resultList.add(
           new IndexAndStats(
-              indexDefinition,
-              getIndexStatsPerServer(indexDefinition.getIndexId(), activeServers),
-              getNumDocs(indexDefinition.getIndexId(), numDocsByIndex)));
+              indexEntry.definition(),
+              indexEntry.customerDefinition().orElse(indexEntry.definition().toBson()),
+              getIndexStatsPerServer(indexEntry.definition().getIndexId(), activeServers),
+              getNumDocs(indexEntry.definition().getIndexId(), numDocsByIndex)));
     }
 
     return resultList;
   }
 
   /**
-   * Returns the latest IndexDefinition's from the AIC who match the queries filter.
+   * Returns the latest IndexEntries from the AIC who match the queries filter.
    *
    * <p>If {@link #commandShouldReturnAllIndexes} is set then ignores the query filter and returns
    * all indexes across all collections.
    */
-  List<IndexDefinition> findMatchingIndexes() throws MetadataServiceException {
+  List<IndexEntry> findMatchingIndexes() throws MetadataServiceException {
     if (this.commandShouldReturnAllIndexes) {
       // Return all indexes without filtering
       return this.metadataService.getAuthoritativeIndexCatalog().listIndexes();
     }
 
-    Predicate<IndexDefinition> indexDefinitionMatchesTarget =
+    Predicate<IndexEntry> indexesMatchingTarget =
         idx ->
-            this.definition.target().indexId().map(idx.getIndexId()::equals).orElse(true)
-                && this.definition.target().indexName().map(idx.getName()::equals).orElse(true);
+            this.definition
+                    .target()
+                    .indexId()
+                    .map(idx.definition().getIndexId()::equals)
+                    .orElse(true)
+                && this.definition
+                    .target()
+                    .indexName()
+                    .map(idx.definition().getName()::equals)
+                    .orElse(true);
     return this.metadataService
         .getAuthoritativeIndexCatalog()
         .listIndexes(this.collectionUuid)
         .stream()
-        .filter(indexDefinitionMatchesTarget)
+        .filter(indexesMatchingTarget)
         .toList();
   }
 
@@ -225,7 +235,9 @@ public class AicListSearchIndexesCommand implements Command {
   List<BsonDocument> populateResponseData(List<IndexAndStats> matchingIndexes) {
     return matchingIndexes.stream()
         .map(
-            i -> IndexEntryMapper.toIndexEntry(i.indexDefinition, i.indexStatsPerServer, i.numDocs))
+            i ->
+                IndexEntryMapper.toIndexEntry(
+                    i.indexDefinition, i.customerDef, i.indexStatsPerServer, i.numDocs))
         .map(ListSearchIndexesResponseDefinition.IndexEntry::toBson)
         .toList();
   }
@@ -237,6 +249,7 @@ public class AicListSearchIndexesCommand implements Command {
 
   private record IndexAndStats(
       IndexDefinition indexDefinition,
+      BsonDocument customerDef,
       Map<String, IndexStatsEntry> indexStatsPerServer,
       Optional<Long> numDocs) {}
 }

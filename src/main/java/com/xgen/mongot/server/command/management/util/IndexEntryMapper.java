@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import org.bson.BsonDocument;
 
 public class IndexEntryMapper {
 
@@ -29,12 +30,14 @@ public class IndexEntryMapper {
    * IndexEntry to return by ListSearchIndexes.
    *
    * @param definition the AIC index definition
+   * @param customerDef the definition BSON provided by the customer when creating the index
    * @param indexStatsPerServer the IndexStatsEntry for each server in the cluster
    * @param numDocs the number of docs stored in this index
    * @return an IndexEntry object to be returned by ListSearchIndexes
    */
   public static ListSearchIndexesResponseDefinition.IndexEntry toIndexEntry(
       IndexDefinition definition,
+      BsonDocument customerDef,
       Map<String, IndexStatsEntry> indexStatsPerServer,
       Optional<Long> numDocs) {
 
@@ -48,7 +51,7 @@ public class IndexEntryMapper {
         areAllIndexesQueryable(indexStatsPerServer.values()),
         toDefinitionVersion(
             definition.getDefinitionVersion(), definition.getDefinitionVersionCreatedAt()),
-        IndexMapper.toExternal(definition),
+        customerDef,
         toHostStatusDetails(
             indexStatsPerServer, definition.getDefinitionVersion().orElse(DEFAULT_INDEX_VERSION)),
         computeConsolidatedSynonymStatus(indexStatsPerServer.values()),

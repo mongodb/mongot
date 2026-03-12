@@ -85,7 +85,7 @@ public class AicUpdateSearchIndexCommand implements Command {
       Optional<ObjectId> indexId = this.definition.id();
       Optional<String> indexName = this.definition.name();
       Optional<IndexDefinition> matchingIndex =
-          this.authoritativeIndexCatalog.listIndexes(this.collectionUuid).stream()
+          this.authoritativeIndexCatalog.listIndexDefinitions(this.collectionUuid).stream()
               .filter(
                   index ->
                       indexName.map(index.getName()::equals).orElse(true)
@@ -122,10 +122,11 @@ public class AicUpdateSearchIndexCommand implements Command {
             Errors.INVALID_INDEX_SPECIFICATION_OPTION, "An index's type cannot be changed");
       }
 
-      var allIndexes = this.authoritativeIndexCatalog.listIndexes();
+      List<IndexDefinition> allIndexes =
+          this.authoritativeIndexCatalog.listIndexDefinitions();
       var searchList = new ArrayList<SearchIndexDefinition>();
       var vectorList = new ArrayList<VectorIndexDefinition>();
-      this.authoritativeIndexCatalog.listIndexes().stream()
+      this.authoritativeIndexCatalog.listIndexDefinitions().stream()
           .filter(definition -> !definition.getIndexId().equals(oldIndex.getIndexId()))
           .forEach(
               definition -> {
@@ -158,7 +159,9 @@ public class AicUpdateSearchIndexCommand implements Command {
       }
 
       this.authoritativeIndexCatalog.updateIndex(
-          new AuthoritativeIndexKey(this.collectionUuid, newIndex.getName()), newIndex);
+          new AuthoritativeIndexKey(this.collectionUuid, newIndex.getName()),
+          newIndex,
+          this.definition.definitionBson());
     } catch (MetadataServiceException e) {
       return MessageUtils.createError(Errors.COMMAND_FAILED, e.getMessage());
     } catch (Exception e) {

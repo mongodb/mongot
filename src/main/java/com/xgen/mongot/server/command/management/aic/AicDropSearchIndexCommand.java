@@ -76,7 +76,7 @@ public class AicDropSearchIndexCommand implements Command {
 
     try {
       List<IndexDefinition> indexesToDrop =
-          this.authoritativeIndexCatalog.listIndexes(this.collectionUuid).stream()
+          this.authoritativeIndexCatalog.listIndexDefinitions(this.collectionUuid).stream()
               .filter(
                   index ->
                       this.definition.name().map(index.getName()::equals).orElse(true)

@@ -76,7 +76,7 @@ public class CommunityConfigUpdater implements ConfigUpdater {
     // desired index definitions.
     List<IndexDefinition> desiredDefinitions;
     try {
-      desiredDefinitions = this.authoritativeIndexCatalog.listIndexes();
+      desiredDefinitions = this.authoritativeIndexCatalog.listIndexDefinitions();
     } catch (MetadataServiceException e) {
       // CommunityConfigUpdater may have started before mongod is available or we received a
       // transient error because mongod is unavailable.
@@ -152,7 +152,7 @@ public class CommunityConfigUpdater implements ConfigUpdater {
             case VectorIndexDefinition vector -> vector.withUpdatedViewDefinition(updatedView);
           };
 
-      this.authoritativeIndexCatalog.updateIndex(existingIndexKey, newDefinition);
+      this.authoritativeIndexCatalog.updateIndexDefinition(existingIndexKey, newDefinition);
     }
   }
 

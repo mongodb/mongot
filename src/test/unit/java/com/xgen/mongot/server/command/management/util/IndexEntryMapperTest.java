@@ -26,6 +26,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.bson.BsonDocument;
+import org.bson.BsonString;
 import org.bson.types.ObjectId;
 import org.junit.Test;
 
@@ -50,7 +52,8 @@ public class IndexEntryMapperTest {
             IndexStatus.StatusCode.STEADY, 1L, true, Optional.of(createSynonymMap())));
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
     assertEquals(TEST_INDEX_ID, result.indexId());
@@ -60,7 +63,9 @@ public class IndexEntryMapperTest {
     assertEquals(1, result.latestDefinitionVersion().version());
     assertEquals(TEST_INSTANT, result.latestDefinitionVersion().createdAt());
     assertEquals(1, result.hostStatusDetails().size());
-    assertTrue("synonymMappingStatus should be present", result.synonymMappingStatus().isPresent());
+    assertTrue(
+        "synonymMappingStatus should be present",
+        result.synonymMappingStatus().isPresent());
     assertTrue(
         "synonymMappingStatusDetail should be present",
         result.synonymMappingStatusDetail().isPresent());
@@ -76,11 +81,14 @@ public class IndexEntryMapperTest {
         createSearchIndexStatsEntry(IndexStatus.StatusCode.STEADY, 0L, false, Optional.empty()));
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
     assertEquals(0, result.latestDefinitionVersion().version());
-    assertTrue("synonymMappingStatus should be empty", result.synonymMappingStatus().isEmpty());
+    assertTrue(
+        "synonymMappingStatus should be empty",
+        result.synonymMappingStatus().isEmpty());
     assertTrue(
         "synonymMappingStatusDetail should be empty",
         result.synonymMappingStatusDetail().isEmpty());
@@ -92,7 +100,8 @@ public class IndexEntryMapperTest {
     Map<String, IndexStatsEntry> indexStats = Collections.emptyMap();
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
     assertEquals("PENDING", result.status()); // UNKNOWN maps to PENDING
@@ -119,10 +128,13 @@ public class IndexEntryMapperTest {
             IndexStatus.StatusCode.STEADY, 1L, false, Optional.of(synonymMap)));
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
-    assertTrue("synonymMappingStatus should be present", result.synonymMappingStatus().isPresent());
+    assertTrue(
+        "synonymMappingStatus should be present",
+        result.synonymMappingStatus().isPresent());
     // FAILED has highest priority (3)
     assertEquals("FAILED", result.synonymMappingStatus().get());
     assertTrue(
@@ -142,10 +154,13 @@ public class IndexEntryMapperTest {
             IndexStatus.StatusCode.STEADY, 1L, false, Optional.of(Collections.emptyMap())));
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
-    assertTrue("synonymMappingStatus should be empty", result.synonymMappingStatus().isEmpty());
+    assertTrue(
+        "synonymMappingStatus should be empty",
+        result.synonymMappingStatus().isEmpty());
     assertTrue(
         "synonymMappingStatusDetail should be empty",
         result.synonymMappingStatusDetail().isEmpty());
@@ -174,10 +189,13 @@ public class IndexEntryMapperTest {
             IndexStatus.StatusCode.STEADY, 1L, false, Optional.of(synonymMap2)));
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
-    assertTrue("synonymMappingStatus should be present", result.synonymMappingStatus().isPresent());
+    assertTrue(
+        "synonymMappingStatus should be present",
+        result.synonymMappingStatus().isPresent());
     // FAILED has highest priority
     assertEquals("FAILED", result.synonymMappingStatus().get());
   }
@@ -208,7 +226,8 @@ public class IndexEntryMapperTest {
             IndexStatus.StatusCode.STEADY, 1L, false, Optional.of(synonymMap2)));
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
     assertTrue(
@@ -240,7 +259,8 @@ public class IndexEntryMapperTest {
               IndexStatus.StatusCode.STEADY, 1L, false, Optional.of(synonymMap)));
 
       ListSearchIndexesResponseDefinition.IndexEntry result =
-          IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+          IndexEntryMapper.toIndexEntry(
+              definition, definition.toBson(), indexStats, Optional.empty());
 
       assertNotNull(result);
       assertTrue(
@@ -259,10 +279,13 @@ public class IndexEntryMapperTest {
         createSearchIndexStatsEntry(IndexStatus.StatusCode.STEADY, 1L, false, Optional.empty()));
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
-    assertTrue("synonymMappingStatus should be empty", result.synonymMappingStatus().isEmpty());
+    assertTrue(
+        "synonymMappingStatus should be empty",
+        result.synonymMappingStatus().isEmpty());
     assertTrue(
         "synonymMappingStatusDetail should be empty",
         result.synonymMappingStatusDetail().isEmpty());
@@ -285,10 +308,13 @@ public class IndexEntryMapperTest {
             IndexStatus.StatusCode.STEADY, 1L, false, Optional.of(synonymMap)));
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
-    assertTrue("synonymMappingStatus should be present", result.synonymMappingStatus().isPresent());
+    assertTrue(
+        "synonymMappingStatus should be present",
+        result.synonymMappingStatus().isPresent());
     // FAILED should have highest priority
     assertEquals("FAILED", result.synonymMappingStatus().get());
   }
@@ -310,7 +336,8 @@ public class IndexEntryMapperTest {
             IndexStatus.StatusCode.STEADY, 1L, false, Optional.of(synonymMap)));
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
     assertTrue(
@@ -356,10 +383,13 @@ public class IndexEntryMapperTest {
             IndexStatus.StatusCode.STEADY, 1L, false, Optional.of(synonymMap3)));
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
-    assertTrue("synonymMappingStatus should be present", result.synonymMappingStatus().isPresent());
+    assertTrue(
+        "synonymMappingStatus should be present",
+        result.synonymMappingStatus().isPresent());
     // Should pick READY as it has higher priority (2) than BUILDING (1)
     // Priority order: FAILED(3) > READY(2) > BUILDING(1)
     assertEquals("READY", result.synonymMappingStatus().get());
@@ -380,7 +410,8 @@ public class IndexEntryMapperTest {
         createVectorIndexStatsEntry(IndexStatus.StatusCode.STEADY, 1L, Optional.empty()));
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
     assertEquals(TEST_INDEX_ID, result.indexId());
@@ -409,7 +440,8 @@ public class IndexEntryMapperTest {
         createVectorIndexStatsEntry(IndexStatus.StatusCode.STEADY, 0L, Optional.empty()));
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
     assertEquals(0, result.latestDefinitionVersion().version());
@@ -435,14 +467,19 @@ public class IndexEntryMapperTest {
             Optional.empty()));
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
     assertEquals(1, result.hostStatusDetails().size());
     ListSearchIndexesResponseDefinition.HostStatusDetail hostDetail =
         result.hostStatusDetails().get(0);
-    assertTrue("mainIndex should be present", hostDetail.mainIndex().isPresent());
-    assertTrue("stagedIndex should be present", hostDetail.stagedIndex().isPresent());
+    assertTrue(
+        "mainIndex should be present",
+        hostDetail.mainIndex().isPresent());
+    assertTrue(
+        "stagedIndex should be present",
+        hostDetail.stagedIndex().isPresent());
   }
 
   @Test
@@ -466,7 +503,8 @@ public class IndexEntryMapperTest {
           TEST_HOSTNAME, createSearchIndexStatsEntry(statusCode, 1L, false, Optional.empty()));
 
       ListSearchIndexesResponseDefinition.IndexEntry result =
-          IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+          IndexEntryMapper.toIndexEntry(
+              definition, definition.toBson(), indexStats, Optional.empty());
 
       assertNotNull("Result should not be null for status: " + statusCode, result);
       assertNotNull("Status should not be null for: " + statusCode, result.status());
@@ -489,7 +527,8 @@ public class IndexEntryMapperTest {
           TEST_HOSTNAME, createSearchIndexStatsEntry(statusCode, 1L, false, Optional.empty()));
 
       ListSearchIndexesResponseDefinition.IndexEntry result =
-          IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+          IndexEntryMapper.toIndexEntry(
+              definition, definition.toBson(), indexStats, Optional.empty());
 
       assertTrue("Should be queryable for status: " + statusCode, result.queryable());
     }
@@ -511,7 +550,8 @@ public class IndexEntryMapperTest {
           TEST_HOSTNAME, createSearchIndexStatsEntry(statusCode, 1L, false, Optional.empty()));
 
       ListSearchIndexesResponseDefinition.IndexEntry result =
-          IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+          IndexEntryMapper.toIndexEntry(
+              definition, definition.toBson(), indexStats, Optional.empty());
 
       assertFalse("Should not be queryable for status: " + statusCode, result.queryable());
     }
@@ -528,10 +568,13 @@ public class IndexEntryMapperTest {
             IndexStatus.StatusCode.DOES_NOT_EXIST, 1L, false, Optional.empty()));
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     // An index that doesn't exist should not be queryable
-    assertFalse("Index with DOES_NOT_EXIST should not be queryable", result.queryable());
+    assertFalse(
+        "Index with DOES_NOT_EXIST should not be queryable",
+        result.queryable());
   }
 
   @Test
@@ -557,7 +600,8 @@ public class IndexEntryMapperTest {
         createSearchIndexStatsEntry(IndexStatus.StatusCode.STEADY, 1L, false, Optional.empty()));
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertTrue(result.queryable());
     assertEquals(3, result.hostStatusDetails().size());
@@ -587,7 +631,8 @@ public class IndexEntryMapperTest {
             IndexStatus.StatusCode.INITIAL_SYNC, 1L, false, Optional.empty()));
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertFalse(result.queryable());
     assertEquals(3, result.hostStatusDetails().size());
@@ -613,10 +658,13 @@ public class IndexEntryMapperTest {
             IndexStatus.StatusCode.DOES_NOT_EXIST, 1L, false, Optional.empty()));
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     // Should not be queryable when all indexes don't exist
-    assertFalse("All indexes with DOES_NOT_EXIST should not be queryable", result.queryable());
+    assertFalse(
+        "All indexes with DOES_NOT_EXIST should not be queryable",
+        result.queryable());
     assertEquals(3, result.hostStatusDetails().size());
   }
 
@@ -630,7 +678,8 @@ public class IndexEntryMapperTest {
         createSearchIndexStatsEntry(IndexStatus.StatusCode.STEADY, 3L, false, Optional.empty()));
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
     assertEquals(5, result.latestDefinitionVersion().version());
@@ -647,7 +696,8 @@ public class IndexEntryMapperTest {
         createSearchIndexStatsEntry(IndexStatus.StatusCode.STEADY, 0L, false, Optional.empty()));
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
     assertEquals(0, result.latestDefinitionVersion().version());
@@ -665,7 +715,8 @@ public class IndexEntryMapperTest {
     }
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
     assertEquals(100, result.hostStatusDetails().size());
@@ -689,18 +740,23 @@ public class IndexEntryMapperTest {
     indexStats.put(TEST_HOSTNAME, entry);
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
     assertEquals("FAILED", result.status());
     assertEquals(1, result.hostStatusDetails().size());
     ListSearchIndexesResponseDefinition.HostStatusDetail hostDetail =
         result.hostStatusDetails().get(0);
-    assertTrue("mainIndex should be present", hostDetail.mainIndex().isPresent());
+    assertTrue(
+        "mainIndex should be present",
+        hostDetail.mainIndex().isPresent());
     assertTrue(
         "message should be present for failed status",
         hostDetail.mainIndex().get().message().isPresent());
-    assertEquals("Test error message", hostDetail.mainIndex().get().message().get());
+    assertEquals(
+        "Test error message",
+        hostDetail.mainIndex().get().message().get());
   }
 
   @Test
@@ -713,7 +769,8 @@ public class IndexEntryMapperTest {
         createSearchIndexStatsEntry(IndexStatus.StatusCode.STEADY, 0L, false, Optional.empty()));
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
     // Should use DEFAULT_INDEX_VERSION (0L) when definition version is absent
@@ -743,7 +800,8 @@ public class IndexEntryMapperTest {
             IndexStatus.StatusCode.INITIAL_SYNC, 1L, false, Optional.empty()));
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
     assertEquals(3, result.hostStatusDetails().size());
@@ -768,7 +826,8 @@ public class IndexEntryMapperTest {
         "host2", createVectorIndexStatsEntry(IndexStatus.StatusCode.STEADY, 1L, Optional.empty()));
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
     assertEquals(2, result.hostStatusDetails().size());
@@ -795,7 +854,8 @@ public class IndexEntryMapperTest {
     indexStats.put(TEST_HOSTNAME, entry);
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
     assertEquals("PENDING", result.status());
@@ -806,7 +866,9 @@ public class IndexEntryMapperTest {
         result.hostStatusDetails().get(0);
     assertEquals("PENDING", hostDetail.status());
     assertFalse(hostDetail.queryable());
-    assertTrue("mainIndex should be present", hostDetail.mainIndex().isPresent());
+    assertTrue(
+        "mainIndex should be present",
+        hostDetail.mainIndex().isPresent());
     // Note: message is not present because notStarted() doesn't support messages
   }
 
@@ -822,7 +884,10 @@ public class IndexEntryMapperTest {
             .collectionUuid(TEST_COLLECTION_UUID)
             .numPartitions(1)
             .withVectorFieldDefaultOptions(
-                "embedding", 256, VectorSimilarity.EUCLIDEAN, VectorQuantization.SCALAR)
+                "embedding",
+                256,
+                VectorSimilarity.EUCLIDEAN,
+                VectorQuantization.SCALAR)
             .withDefinitionVersionCreatedAt(Optional.of(TEST_INSTANT))
             .withDefinitionVersion(Optional.of(1L))
             .build();
@@ -842,7 +907,8 @@ public class IndexEntryMapperTest {
     indexStats.put(TEST_HOSTNAME, entry);
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
     assertEquals("BUILDING", result.status());
@@ -853,9 +919,15 @@ public class IndexEntryMapperTest {
         result.hostStatusDetails().get(0);
     assertEquals("BUILDING", hostDetail.status());
     assertFalse(hostDetail.queryable());
-    assertTrue("mainIndex should be present", hostDetail.mainIndex().isPresent());
-    assertTrue("message should be present", hostDetail.mainIndex().get().message().isPresent());
-    assertEquals("Building index", hostDetail.mainIndex().get().message().get());
+    assertTrue(
+        "mainIndex should be present",
+        hostDetail.mainIndex().isPresent());
+    assertTrue(
+        "message should be present",
+        hostDetail.mainIndex().get().message().isPresent());
+    assertEquals(
+        "Building index",
+        hostDetail.mainIndex().get().message().get());
   }
 
   @Test
@@ -872,7 +944,8 @@ public class IndexEntryMapperTest {
             .lastObservedCollectionName(TEST_COLLECTION)
             .collectionUuid(TEST_COLLECTION_UUID)
             .view(ViewDefinition.existing("test-view", List.of()))
-            .numPartitions(IndexDefinition.Fields.NUM_PARTITIONS.getDefaultValue())
+            .numPartitions(
+                IndexDefinition.Fields.NUM_PARTITIONS.getDefaultValue())
             .dynamicMapping()
             .definitionVersionCreatedAt(createdAt1)
             .definitionVersion(1L)
@@ -886,7 +959,8 @@ public class IndexEntryMapperTest {
             .lastObservedCollectionName(TEST_COLLECTION)
             .collectionUuid(TEST_COLLECTION_UUID)
             .view(ViewDefinition.existing("test-view", List.of()))
-            .numPartitions(IndexDefinition.Fields.NUM_PARTITIONS.getDefaultValue())
+            .numPartitions(
+                IndexDefinition.Fields.NUM_PARTITIONS.getDefaultValue())
             .dynamicMapping()
             .analyzerName("lucene.standard")
             .definitionVersionCreatedAt(createdAt2)
@@ -912,7 +986,8 @@ public class IndexEntryMapperTest {
     indexStats.put(TEST_HOSTNAME, entry);
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(mainDefinition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            mainDefinition, mainDefinition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
     assertEquals("READY", result.status());
@@ -921,8 +996,12 @@ public class IndexEntryMapperTest {
 
     ListSearchIndexesResponseDefinition.HostStatusDetail hostDetail =
         result.hostStatusDetails().get(0);
-    assertTrue("mainIndex should be present", hostDetail.mainIndex().isPresent());
-    assertTrue("stagedIndex should be present", hostDetail.stagedIndex().isPresent());
+    assertTrue(
+        "mainIndex should be present",
+        hostDetail.mainIndex().isPresent());
+    assertTrue(
+        "stagedIndex should be present",
+        hostDetail.stagedIndex().isPresent());
 
     // Verify mainIndex details
     ListSearchIndexesResponseDefinition.HostIndexStatusDetail mainIndexDetail =
@@ -937,8 +1016,12 @@ public class IndexEntryMapperTest {
     assertEquals("BUILDING", stagedIndexDetail.status());
     assertFalse(stagedIndexDetail.queryable());
     assertEquals(2, stagedIndexDetail.definitionVersion().version());
-    assertTrue("message should be present", stagedIndexDetail.message().isPresent());
-    assertEquals("Building new index version", stagedIndexDetail.message().get());
+    assertTrue(
+        "message should be present",
+        stagedIndexDetail.message().isPresent());
+    assertEquals(
+        "Building new index version",
+        stagedIndexDetail.message().get());
   }
 
   @Test
@@ -962,7 +1045,8 @@ public class IndexEntryMapperTest {
     indexStats.put(TEST_HOSTNAME, entry);
 
     ListSearchIndexesResponseDefinition.IndexEntry result =
-        IndexEntryMapper.toIndexEntry(definition, indexStats, Optional.empty());
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
 
     assertNotNull(result);
     assertEquals("PENDING", result.status());
@@ -973,16 +1057,59 @@ public class IndexEntryMapperTest {
         result.hostStatusDetails().get(0);
     assertEquals("PENDING", hostDetail.status());
     assertFalse(hostDetail.queryable());
-    assertTrue("mainIndex should be empty", hostDetail.mainIndex().isEmpty());
-    assertTrue("stagedIndex should be present", hostDetail.stagedIndex().isPresent());
+    assertTrue(
+        "mainIndex should be empty",
+        hostDetail.mainIndex().isEmpty());
+    assertTrue(
+        "stagedIndex should be present",
+        hostDetail.stagedIndex().isPresent());
 
     // Verify stagedIndex details
     ListSearchIndexesResponseDefinition.HostIndexStatusDetail stagedIndexDetail =
         hostDetail.stagedIndex().get();
     assertEquals("BUILDING", stagedIndexDetail.status());
     assertFalse(stagedIndexDetail.queryable());
-    assertTrue("message should be present", stagedIndexDetail.message().isPresent());
-    assertEquals("Building new index", stagedIndexDetail.message().get());
+    assertTrue(
+        "message should be present",
+        stagedIndexDetail.message().isPresent());
+    assertEquals(
+        "Building new index",
+        stagedIndexDetail.message().get());
+  }
+
+  @Test
+  public void testToIndexEntryUsesCustomerDefAsLatestDefinition() {
+    SearchIndexDefinition definition = createSearchIndexDefinition(1L, TEST_INSTANT);
+    BsonDocument customCustomerDef =
+        new BsonDocument("customField", new BsonString("customValue"));
+    Map<String, IndexStatsEntry> indexStats = new HashMap<>();
+    indexStats.put(
+        TEST_HOSTNAME,
+        createSearchIndexStatsEntry(IndexStatus.StatusCode.STEADY, 1L, false, Optional.empty()));
+
+    ListSearchIndexesResponseDefinition.IndexEntry result =
+        IndexEntryMapper.toIndexEntry(
+            definition, customCustomerDef, indexStats, Optional.empty());
+
+    assertNotNull(result);
+    assertEquals(customCustomerDef, result.latestDefinition());
+  }
+
+  @Test
+  public void testToIndexEntryPassesThroughCustomerDefAsLatestDefinition() {
+    SearchIndexDefinition definition = createSearchIndexDefinition(1L, TEST_INSTANT);
+    BsonDocument emptyCustomerDef = new BsonDocument();
+    Map<String, IndexStatsEntry> indexStats = new HashMap<>();
+    indexStats.put(
+        TEST_HOSTNAME,
+        createSearchIndexStatsEntry(IndexStatus.StatusCode.STEADY, 1L, false, Optional.empty()));
+
+    ListSearchIndexesResponseDefinition.IndexEntry result =
+        IndexEntryMapper.toIndexEntry(
+            definition, emptyCustomerDef, indexStats, Optional.empty());
+
+    assertNotNull(result);
+    assertEquals(emptyCustomerDef, result.latestDefinition());
   }
 
   private SearchIndexDefinition createSearchIndexDefinition(Long version, Instant createdAt) {
@@ -993,7 +1120,8 @@ public class IndexEntryMapperTest {
         .lastObservedCollectionName(TEST_COLLECTION)
         .collectionUuid(TEST_COLLECTION_UUID)
         .view(ViewDefinition.existing("test-view", List.of()))
-        .numPartitions(IndexDefinition.Fields.NUM_PARTITIONS.getDefaultValue())
+        .numPartitions(
+            IndexDefinition.Fields.NUM_PARTITIONS.getDefaultValue())
         .synonyms(
             SynonymMappingDefinitionBuilder.builder()
                 .name("test-synonym")
@@ -1015,7 +1143,8 @@ public class IndexEntryMapperTest {
             .database(TEST_DATABASE)
             .lastObservedCollectionName(TEST_COLLECTION)
             .collectionUuid(TEST_COLLECTION_UUID)
-            .numPartitions(IndexDefinition.Fields.NUM_PARTITIONS.getDefaultValue())
+            .numPartitions(
+                IndexDefinition.Fields.NUM_PARTITIONS.getDefaultValue())
             .dynamicMapping();
 
     version.ifPresent(builder::definitionVersion);
@@ -1070,7 +1199,8 @@ public class IndexEntryMapperTest {
             .lastObservedCollectionName(TEST_COLLECTION)
             .collectionUuid(TEST_COLLECTION_UUID)
             .view(ViewDefinition.existing("test-view", List.of()))
-            .numPartitions(IndexDefinition.Fields.NUM_PARTITIONS.getDefaultValue())
+            .numPartitions(
+                IndexDefinition.Fields.NUM_PARTITIONS.getDefaultValue())
             .dynamicMapping()
             .definitionVersionCreatedAt(TEST_INSTANT)
             .definitionVersion(version)

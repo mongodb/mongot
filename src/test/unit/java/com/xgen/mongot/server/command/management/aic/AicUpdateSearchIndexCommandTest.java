@@ -13,6 +13,7 @@ import static com.xgen.testing.mongot.server.command.management.definition.Manag
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -60,7 +61,7 @@ public class AicUpdateSearchIndexCommandTest {
     // Return an existing search index.
     var indexId = new ObjectId();
     Instant now = Instant.now();
-    when(mockAic.listIndexes(COLLECTION_UUID))
+    when(mockAic.listIndexDefinitions(COLLECTION_UUID))
         .thenReturn(
             List.of(
                 SearchIndexDefinitionBuilder.builder()
@@ -107,8 +108,12 @@ public class AicUpdateSearchIndexCommandTest {
 
     ArgumentCaptor<SearchIndexDefinition> captor =
         ArgumentCaptor.forClass(SearchIndexDefinition.class);
+    ArgumentCaptor<BsonDocument> definitionBsonCaptor = ArgumentCaptor.forClass(BsonDocument.class);
     verify(mockAic)
-        .updateIndex(eq(new AuthoritativeIndexKey(COLLECTION_UUID, INDEX_NAME)), captor.capture());
+        .updateIndex(
+            eq(new AuthoritativeIndexKey(COLLECTION_UUID, INDEX_NAME)),
+            captor.capture(),
+            definitionBsonCaptor.capture());
     assertNotNull(captor.getValue());
     assertEquals(DATABASE_NAME, captor.getValue().getDatabase());
     assertEquals(COLLECTION_UUID, captor.getValue().getCollectionUuid());
@@ -123,6 +128,7 @@ public class AicUpdateSearchIndexCommandTest {
         captor.getValue().getMappings());
     assertEquals(2L, (long) captor.getValue().getDefinitionVersion().get());
     assertTrue(captor.getValue().getDefinitionVersionCreatedAt().get().isAfter(now));
+    assertEquals(updateDefinition.definitionBson(), definitionBsonCaptor.getValue());
   }
 
   @Test
@@ -132,7 +138,7 @@ public class AicUpdateSearchIndexCommandTest {
     // Return an existing vector index.
     var indexId = new ObjectId();
     Instant now = Instant.now();
-    when(mockAic.listIndexes(COLLECTION_UUID))
+    when(mockAic.listIndexDefinitions(COLLECTION_UUID))
         .thenReturn(
             List.of(
                 VectorIndexDefinitionBuilder.builder()
@@ -180,7 +186,9 @@ public class AicUpdateSearchIndexCommandTest {
         ArgumentCaptor.forClass(VectorIndexDefinition.class);
     verify(mockAic)
         .updateIndex(
-            eq(new AuthoritativeIndexKey(COLLECTION_UUID, VECTOR_INDEX_NAME)), captor.capture());
+            eq(new AuthoritativeIndexKey(COLLECTION_UUID, VECTOR_INDEX_NAME)),
+            captor.capture(),
+            any());
     assertNotNull(captor.getValue());
     assertEquals(DATABASE_NAME, captor.getValue().getDatabase());
     assertEquals(COLLECTION_UUID, captor.getValue().getCollectionUuid());
@@ -212,7 +220,7 @@ public class AicUpdateSearchIndexCommandTest {
 
     // Return an existing vector index.
     var indexId = new ObjectId();
-    when(mockAic.listIndexes(COLLECTION_UUID))
+    when(mockAic.listIndexDefinitions(COLLECTION_UUID))
         .thenReturn(
             List.of(
                 VectorIndexDefinitionBuilder.builder()
@@ -259,7 +267,7 @@ public class AicUpdateSearchIndexCommandTest {
 
     // Return some existing index.
     var indexId = new ObjectId();
-    when(mockAic.listIndexes(COLLECTION_UUID))
+    when(mockAic.listIndexDefinitions(COLLECTION_UUID))
         .thenReturn(
             List.of(
                 VectorIndexDefinitionBuilder.builder()
@@ -324,7 +332,7 @@ public class AicUpdateSearchIndexCommandTest {
 
     var objectId = new ObjectId();
     var mockAic = mock(AuthoritativeIndexCatalog.class);
-    when(mockAic.listIndexes(COLLECTION_UUID))
+    when(mockAic.listIndexDefinitions(COLLECTION_UUID))
         .thenReturn(
             List.of(
                 SearchIndexDefinitionBuilder.builder()

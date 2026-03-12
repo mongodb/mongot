@@ -27,7 +27,8 @@
               "name": "myIndex",
               "definition": {
                 "mappings": {
-                  "dynamic": true
+                  "dynamic": true,
+                  "fields": {}
                 }
               }
             }
@@ -68,8 +69,7 @@
                     "type": "vector",
                     "path": "my.vector.field",
                     "numDimensions": 2048,
-                    "similarity": "cosine",
-                    "quantization": "none"
+                    "similarity": "cosine"
                   },
                   {
                     "type": "filter",
@@ -164,6 +164,50 @@
               "fields": {}
             }
           }
+        },
+        "$db": "myDatabase"
+      }
+    },
+    {
+      "description": "create with different customer def",
+      "value": {
+        "manageSearchIndex": "myCollection",
+        "collectionUUID": {
+          "$binary": {
+            "base64": "vs7/zGbuQzmQkhFHB1x2Ag==",
+            "subType": "04"
+          }
+        },
+        "view": {
+          "name": "testView",
+          "effectivePipeline": [
+            {
+              "$addFields": {
+                "name": "value"
+              }
+            }
+          ]
+        },
+        "userCommand": {
+          "createSearchIndexes": "myCollection",
+          "indexes": [
+            {
+              "name": "myIndex",
+              "definition": {
+                "mappings": {
+                  "dynamic": false,
+                  "fields": {
+                    "fieldA": {
+                      "type": "string"
+                    },
+                    "fieldB": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          ]
         },
         "$db": "myDatabase"
       }

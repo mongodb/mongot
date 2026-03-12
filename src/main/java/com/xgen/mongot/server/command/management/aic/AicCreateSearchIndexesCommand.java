@@ -99,14 +99,12 @@ public class AicCreateSearchIndexesCommand implements Command {
         }
       }
 
-      List<IndexDefinition> newIndexes =
-          this.definition.indexes().stream()
-              .map(external -> this.toInternal(external, view))
-              .toList();
+      List<InternalAndExternalDefinition> newIndexes =
+          this.definition.indexes().stream().map(i -> toInternalAndExternalDef(i, view)).toList();
 
       // Validate auto-embedding indexes
-      for (IndexDefinition newIndex : newIndexes) {
-        if (newIndex instanceof VectorIndexDefinition vectorIndex
+      for (InternalAndExternalDefinition newIndex : newIndexes) {
+        if (newIndex.internal instanceof VectorIndexDefinition vectorIndex
             && vectorIndex.isAutoEmbeddingIndex()) {
           try {
             AutoEmbeddingIndexValidator.validate(vectorIndex);
@@ -118,11 +116,12 @@ public class AicCreateSearchIndexesCommand implements Command {
 
       // If a requested index conflicts with an existing index (same name but different definition)
       // we return an error and don't create any of the indexes.
-      List<IndexDefinition> deduplicatedIndexes = new ArrayList<>();
+      List<InternalAndExternalDefinition> deduplicatedIndexes = new ArrayList<>();
       Map<String, IndexDefinition> existingIndexDefinitionsByName =
-          this.authoritativeIndexCatalog.listIndexes(this.collectionUuid).stream()
+          this.authoritativeIndexCatalog.listIndexDefinitions(this.collectionUuid).stream()
               .collect(CollectionUtils.toMapUnsafe(IndexDefinition::getName, Function.identity()));
-      for (IndexDefinition newIndex : newIndexes) {
+      for (InternalAndExternalDefinition newInternalAndExternal : newIndexes) {
+        IndexDefinition newIndex = newInternalAndExternal.internal;
         Optional<IndexDefinition> existingIndex =
             Optional.ofNullable(existingIndexDefinitionsByName.get(newIndex.getName()));
         if (existingIndex.isPresent()
@@ -134,15 +133,17 @@ public class AicCreateSearchIndexesCommand implements Command {
         // However, do not attempt to create an index if it already exists.
         // See http://go/search-index-mgmt-create-index for more detail.
         if (existingIndex.isEmpty()) {
-          deduplicatedIndexes.add(newIndex);
+          deduplicatedIndexes.add(newInternalAndExternal);
         }
       }
 
       // Indexes are free of known conflicts, so proceed with adding them
       var searchList = new ArrayList<SearchIndexDefinition>();
       var vectorList = new ArrayList<VectorIndexDefinition>();
-      var existingIndexesFromCatalog = this.authoritativeIndexCatalog.listIndexes();
-      Stream.concat(existingIndexesFromCatalog.stream(), deduplicatedIndexes.stream())
+      var existingIndexesFromCatalog = this.authoritativeIndexCatalog.listIndexDefinitions();
+      Stream.concat(
+              existingIndexesFromCatalog.stream(),
+              deduplicatedIndexes.stream().map(i -> i.internal))
           .forEach(
               definition -> {
                 switch (definition) {
@@ -161,11 +162,12 @@ public class AicCreateSearchIndexesCommand implements Command {
         AnalyzerInvariants.validateFieldAnalyzerReferences(searchIndex, Set.of(), Set.of());
       }
 
-      for (IndexDefinition indexToCreate : deduplicatedIndexes) {
+      for (InternalAndExternalDefinition indexToCreate : deduplicatedIndexes) {
         try {
           this.authoritativeIndexCatalog.createIndex(
-              new AuthoritativeIndexKey(this.collectionUuid, indexToCreate.getName()),
-              indexToCreate);
+              new AuthoritativeIndexKey(this.collectionUuid, indexToCreate.internal.getName()),
+              indexToCreate.internal,
+              indexToCreate.external);
         } catch (Exception e) {
           if (e instanceof MetadataServiceException mse
               && mse.getCause() instanceof MongoWriteException mwe
@@ -175,12 +177,12 @@ public class AicCreateSearchIndexesCommand implements Command {
             // revalidate the index definition for equivalency and throw an error iff they are not
             // equivalent.
             Optional<IndexDefinition> existingIndex =
-                this.authoritativeIndexCatalog.listIndexes(this.collectionUuid).stream()
-                    .filter(idx -> idx.getName().equals(indexToCreate.getName()))
+                this.authoritativeIndexCatalog.listIndexDefinitions(this.collectionUuid).stream()
+                    .filter(idx -> idx.getName().equals(indexToCreate.internal.getName()))
                     .findFirst();
             if (existingIndex.isPresent()
-                && !IndexMapper.areEquivalent(existingIndex.get(), indexToCreate)) {
-              return indexExistsWithDifferentDefinitionError(indexToCreate);
+                && !IndexMapper.areEquivalent(existingIndex.get(), indexToCreate.internal)) {
+              return indexExistsWithDifferentDefinitionError(indexToCreate.internal);
             }
             // If index exists with equivalent definition, continue to next index
             if (existingIndex.isPresent()) {
@@ -191,7 +193,7 @@ public class AicCreateSearchIndexesCommand implements Command {
           String message =
               String.format(
                   "Error creating index '%s': %s",
-                  Objects.requireNonNull(indexToCreate).getName(),
+                  Objects.requireNonNull(indexToCreate).internal.getName(),
                   Objects.requireNonNullElse(e.getMessage(), "unknown error"));
           return MessageUtils.createError(Errors.COMMAND_FAILED, message);
         }
@@ -199,7 +201,10 @@ public class AicCreateSearchIndexesCommand implements Command {
 
       List<NamedSearchIndexId> responseData =
           newIndexes.stream()
-              .map(id -> new NamedSearchIndexId(id.getName(), id.getIndexId().toString()))
+              .map(
+                  id ->
+                      new NamedSearchIndexId(
+                          id.internal.getName(), id.internal.getIndexId().toString()))
               .collect(Collectors.toList());
 
       return new CreateSearchIndexesResponse(responseData).toBson();
@@ -217,18 +222,24 @@ public class AicCreateSearchIndexesCommand implements Command {
             newIndex.getName()));
   }
 
-  private IndexDefinition toInternal(NamedSearchIndex external, Optional<ViewDefinition> view) {
-    return IndexMapper.toInternal(
-        external.name(),
-        Optional.empty(),
-        external.definition(),
-        this.collectionUuid,
-        this.db,
-        this.collectionName,
-        view,
-        0L,
-        Instant.now());
+  private InternalAndExternalDefinition toInternalAndExternalDef(
+      NamedSearchIndex external, Optional<ViewDefinition> view) {
+
+    return new InternalAndExternalDefinition(
+        IndexMapper.toInternal(
+            external.name(),
+            Optional.empty(),
+            external.definition(),
+            this.collectionUuid,
+            this.db,
+            this.collectionName,
+            view,
+            0L,
+            Instant.now()),
+        external.definitionBson());
   }
+
+  record InternalAndExternalDefinition(IndexDefinition internal, BsonDocument external) {}
 
   @Override
   public ExecutionPolicy getExecutionPolicy() {

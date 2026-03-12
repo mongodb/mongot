@@ -221,7 +221,7 @@ public class CommunityReadinessChecker implements ReadinessChecker {
     Set<ObjectId> indexesInAic;
     try {
       indexesInAic =
-          this.metadataService.getAuthoritativeIndexCatalog().listIndexes().stream()
+          this.metadataService.getAuthoritativeIndexCatalog().listIndexDefinitions().stream()
               .map(IndexDefinition::getIndexId)
               .collect(Collectors.toUnmodifiableSet());
     } catch (Exception e) {

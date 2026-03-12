@@ -9,8 +9,11 @@ import com.xgen.mongot.index.definition.IndexDefinition.Type;
 import com.xgen.mongot.index.definition.VectorQuantization;
 import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.server.command.management.definition.common.NamedSearchIndex;
+import com.xgen.mongot.server.command.management.definition.common.UserIndexDefinition;
 import com.xgen.mongot.server.command.management.definition.common.UserSearchIndexDefinition;
 import com.xgen.mongot.server.command.management.definition.common.UserViewDefinition;
+import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
+import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.testing.BsonDeserializationTestSuite;
 import com.xgen.testing.BsonDeserializationTestSuite.TestSpecWrapper;
 import com.xgen.testing.BsonDeserializationTestSuite.ValidSpec;
@@ -23,6 +26,7 @@ import com.xgen.testing.mongot.server.command.management.definition.UserVectorIn
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.bson.types.ObjectId;
@@ -63,6 +67,7 @@ public class ManagementCommandDefinitionTest {
           listCommand(),
           listAggregation(),
           update(),
+          createWithDifferentCustomerDef(),
           updateVectorByName(),
           updateVectorById());
     }
@@ -83,6 +88,59 @@ public class ManagementCommandDefinitionTest {
                       .mappings(DocumentFieldDefinitionBuilder.builder().dynamic(true))
                       .build())
               .build());
+    }
+
+    // Verifies we serialize the minimal form provided in the input as the 'definitionBson' and the
+    // internal representation as the 'definition' for each NamedIndex in the CreateSearchIndex def.
+    //
+    // Ex:
+    //
+    // definitionBson = "mappings": { "dynamic": false, "fields": { "fieldA": { "type": "string" },
+    // "fieldB": { "type": "number" } } }
+    //
+    // definition = "mappings":  { dynamic: false, fields: { fieldA: { type: 'string', indexOptions:
+    // 'offsets', store: true, norms: 'include' }, fieldB: { type: 'number', representation:
+    // 'double', indexDoubles: true, indexIntegers: true } } }
+    private static ValidSpec<ManageSearchIndexCommandDefinition> createWithDifferentCustomerDef() {
+      BsonDocument definitionBson =
+          new BsonDocument()
+              .append(
+                  "mappings",
+                  new BsonDocument()
+                      .append("dynamic", new BsonBoolean(false))
+                      .append(
+                          "fields",
+                          new BsonDocument()
+                              .append("fieldA", new BsonDocument("type", new BsonString("string")))
+                              .append(
+                                  "fieldB", new BsonDocument("type", new BsonString("number")))));
+
+      UserIndexDefinition definition;
+      try (var parser =
+          BsonDocumentParser.fromRoot(definitionBson).allowUnknownFields(false).build()) {
+        definition = UserIndexDefinition.fromBson(parser, Type.SEARCH);
+      } catch (BsonParseException e) {
+        throw new AssertionError("Failed to parse index definition", e);
+      }
+      NamedSearchIndex namedSearchIndex =
+          new NamedSearchIndex("myIndex", Type.SEARCH, definitionBson, definition);
+      CreateSearchIndexesCommandDefinition createCommand =
+          new CreateSearchIndexesCommandDefinition("myCollection", List.of(namedSearchIndex));
+      ManageSearchIndexCommandDefinition expected =
+          new ManageSearchIndexCommandDefinition(
+              ManageSearchIndexCommandDefinitionBuilder.DATABASE_NAME,
+              ManageSearchIndexCommandDefinitionBuilder.COLLECTION_NAME,
+              ManageSearchIndexCommandDefinitionBuilder.COLLECTION_UUID,
+              Optional.of(
+                  new UserViewDefinition(
+                      "testView",
+                      Optional.of(
+                          List.of(
+                              new BsonDocument(
+                                  "$addFields",
+                                  new BsonDocument("name", new BsonString("value"))))))),
+              createCommand);
+      return valid("create with different customer def", expected);
     }
 
     private static ValidSpec<ManageSearchIndexCommandDefinition> updateVectorByName() {

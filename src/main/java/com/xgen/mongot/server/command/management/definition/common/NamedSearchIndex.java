@@ -10,8 +10,17 @@ import com.xgen.mongot.util.bson.parser.Field;
 import org.bson.BsonDocument;
 
 public record NamedSearchIndex(
-    String name, IndexDefinition.Type type, UserIndexDefinition definition)
+    String name,
+    IndexDefinition.Type type,
+    BsonDocument definitionBson,
+    UserIndexDefinition definition)
     implements DocumentEncodable {
+
+  public NamedSearchIndex(
+      String name, IndexDefinition.Type type, UserIndexDefinition indexDefinition) {
+    this(name, type, indexDefinition.toBson(), indexDefinition);
+  }
+
   private static class Fields {
     static final Field.WithDefault<String> NAME =
         Field.builder("name")
@@ -45,6 +54,7 @@ public record NamedSearchIndex(
         BsonDocumentParser.withContext(parser.getContext(), definitionBson).build();
     UserIndexDefinition definition = UserIndexDefinition.fromBson(definitionParser, type);
 
-    return new NamedSearchIndex(parser.getField(Fields.NAME).unwrap(), type, definition);
+    return new NamedSearchIndex(
+        parser.getField(Fields.NAME).unwrap(), type, definitionBson, definition);
   }
 }

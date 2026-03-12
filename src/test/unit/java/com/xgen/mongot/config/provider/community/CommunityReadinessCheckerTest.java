@@ -61,7 +61,10 @@ public class CommunityReadinessCheckerTest {
     // Default: server state entry exists, not shutdown, not yet ready.
     ServerStateEntry defaultEntry =
         new ServerStateEntry(
-            this.serverInfo.id(), "server-name", Instant.now(), false /* isReady */,
+            this.serverInfo.id(),
+            "server-name",
+            Instant.now(),
+            false /* isReady */,
             false /* shutdown */);
     when(this.serverState.get(this.serverInfo.id())).thenReturn(Optional.of(defaultEntry));
     when(this.metadataService.getServerState()).thenReturn(this.serverState);
@@ -93,7 +96,10 @@ public class CommunityReadinessCheckerTest {
     when(this.configManager.isReplicationInitialized()).thenReturn(true);
     ServerStateEntry shutdownEntry =
         new ServerStateEntry(
-            this.serverInfo.id(), "server-name", Instant.now(), false /* isReady */,
+            this.serverInfo.id(),
+            "server-name",
+            Instant.now(),
+            false /* isReady */,
             true /* shutdown */);
     when(this.serverState.get(this.serverInfo.id())).thenReturn(Optional.of(shutdownEntry));
 
@@ -122,7 +128,10 @@ public class CommunityReadinessCheckerTest {
     when(this.configManager.isReplicationInitialized()).thenReturn(true);
     ServerStateEntry alreadyReadyEntry =
         new ServerStateEntry(
-            this.serverInfo.id(), "server-name", Instant.now(), true /* isReady */,
+            this.serverInfo.id(),
+            "server-name",
+            Instant.now(),
+            true /* isReady */,
             false /* shutdown */);
     when(this.serverState.get(this.serverInfo.id())).thenReturn(Optional.of(alreadyReadyEntry));
 
@@ -160,7 +169,7 @@ public class CommunityReadinessCheckerTest {
     IndexInformation indexInfo1 = createIndexInformation(def1, IndexStatus.steady());
 
     when(this.indexInfoProvider.getIndexInfos()).thenReturn(List.of(indexInfo1));
-    when(this.authoritativeIndexCatalog.listIndexes()).thenReturn(List.of(def1, def2));
+    when(this.authoritativeIndexCatalog.listIndexDefinitions()).thenReturn(List.of(def1, def2));
 
     assertFalse(this.checker.isReady(false));
   }
@@ -185,7 +194,7 @@ public class CommunityReadinessCheckerTest {
     IndexInformation indexInfo = createIndexInformation(def, IndexStatus.steady());
 
     when(this.indexInfoProvider.getIndexInfos()).thenReturn(List.of(indexInfo));
-    when(this.authoritativeIndexCatalog.listIndexes()).thenReturn(List.of(def));
+    when(this.authoritativeIndexCatalog.listIndexDefinitions()).thenReturn(List.of(def));
 
     assertTrue(this.checker.isReady(false));
   }
@@ -201,7 +210,7 @@ public class CommunityReadinessCheckerTest {
         createIndexInformation(def, IndexStatus.recoveringTransient("recovering"));
 
     when(this.indexInfoProvider.getIndexInfos()).thenReturn(List.of(indexInfo));
-    when(this.authoritativeIndexCatalog.listIndexes()).thenReturn(List.of(def));
+    when(this.authoritativeIndexCatalog.listIndexDefinitions()).thenReturn(List.of(def));
 
     assertTrue(this.checker.isReady(false));
   }
@@ -217,7 +226,7 @@ public class CommunityReadinessCheckerTest {
         createIndexInformation(def, IndexStatus.recoveringNonTransient(new BsonTimestamp(1L)));
 
     when(this.indexInfoProvider.getIndexInfos()).thenReturn(List.of(indexInfo));
-    when(this.authoritativeIndexCatalog.listIndexes()).thenReturn(List.of(def));
+    when(this.authoritativeIndexCatalog.listIndexDefinitions()).thenReturn(List.of(def));
 
     assertTrue(this.checker.isReady(false));
   }
@@ -233,7 +242,7 @@ public class CommunityReadinessCheckerTest {
         createIndexInformation(def, IndexStatus.stale("stale reason", new BsonTimestamp(1L)));
 
     when(this.indexInfoProvider.getIndexInfos()).thenReturn(List.of(indexInfo));
-    when(this.authoritativeIndexCatalog.listIndexes()).thenReturn(List.of(def));
+    when(this.authoritativeIndexCatalog.listIndexDefinitions()).thenReturn(List.of(def));
 
     assertTrue(this.checker.isReady(false));
   }
@@ -249,7 +258,7 @@ public class CommunityReadinessCheckerTest {
         createIndexInformation(def, new IndexStatus(IndexStatus.StatusCode.DOES_NOT_EXIST));
 
     when(this.indexInfoProvider.getIndexInfos()).thenReturn(List.of(indexInfo));
-    when(this.authoritativeIndexCatalog.listIndexes()).thenReturn(List.of(def));
+    when(this.authoritativeIndexCatalog.listIndexDefinitions()).thenReturn(List.of(def));
 
     assertTrue(this.checker.isReady(false));
   }
@@ -264,7 +273,7 @@ public class CommunityReadinessCheckerTest {
     IndexInformation indexInfo = createIndexInformation(def, IndexStatus.failed("error message"));
 
     when(this.indexInfoProvider.getIndexInfos()).thenReturn(List.of(indexInfo));
-    when(this.authoritativeIndexCatalog.listIndexes()).thenReturn(List.of(def));
+    when(this.authoritativeIndexCatalog.listIndexDefinitions()).thenReturn(List.of(def));
 
     assertFalse(this.checker.isReady(false));
   }
@@ -281,7 +290,7 @@ public class CommunityReadinessCheckerTest {
         createIndexInformation(def, IndexStatus.failed("Replication error occurred"));
 
     when(this.indexInfoProvider.getIndexInfos()).thenReturn(List.of(indexInfo));
-    when(this.authoritativeIndexCatalog.listIndexes()).thenReturn(List.of(def));
+    when(this.authoritativeIndexCatalog.listIndexDefinitions()).thenReturn(List.of(def));
     when(this.indexStats.list()).thenReturn(Collections.emptyList());
 
     // Regular failures should block readiness regardless of IndexStatsEntry data
@@ -298,7 +307,7 @@ public class CommunityReadinessCheckerTest {
     IndexInformation indexInfo = createIndexInformation(def, IndexStatus.failed("error message"));
 
     when(this.indexInfoProvider.getIndexInfos()).thenReturn(List.of(indexInfo));
-    when(this.authoritativeIndexCatalog.listIndexes()).thenReturn(List.of(def));
+    when(this.authoritativeIndexCatalog.listIndexDefinitions()).thenReturn(List.of(def));
 
     assertTrue(this.checker.isReady(true));
   }
@@ -314,7 +323,7 @@ public class CommunityReadinessCheckerTest {
         createIndexInformation(def, IndexStatus.failed("Invalid definition: bad config"));
 
     when(this.indexInfoProvider.getIndexInfos()).thenReturn(List.of(indexInfo));
-    when(this.authoritativeIndexCatalog.listIndexes()).thenReturn(List.of(def));
+    when(this.authoritativeIndexCatalog.listIndexDefinitions()).thenReturn(List.of(def));
     when(this.indexStats.list()).thenReturn(Collections.emptyList());
 
     assertTrue(this.checker.isReady(false));
@@ -330,7 +339,7 @@ public class CommunityReadinessCheckerTest {
     IndexInformation indexInfo = createIndexInformation(def, IndexStatus.notStarted());
 
     when(this.indexInfoProvider.getIndexInfos()).thenReturn(List.of(indexInfo));
-    when(this.authoritativeIndexCatalog.listIndexes()).thenReturn(List.of(def));
+    when(this.authoritativeIndexCatalog.listIndexDefinitions()).thenReturn(List.of(def));
 
     assertFalse(this.checker.isReady(false));
   }
@@ -353,7 +362,7 @@ public class CommunityReadinessCheckerTest {
             Collections.emptyMap());
 
     when(this.indexInfoProvider.getIndexInfos()).thenReturn(List.of(indexInfo));
-    when(this.authoritativeIndexCatalog.listIndexes()).thenReturn(List.of(def));
+    when(this.authoritativeIndexCatalog.listIndexDefinitions()).thenReturn(List.of(def));
 
     assertFalse(this.checker.isReady(false));
   }
@@ -430,7 +439,7 @@ public class CommunityReadinessCheckerTest {
     IndexInformation indexInfo2 = createIndexInformation(def2, IndexStatus.notStarted());
 
     when(this.indexInfoProvider.getIndexInfos()).thenReturn(List.of(indexInfo1, indexInfo2));
-    when(this.authoritativeIndexCatalog.listIndexes()).thenReturn(List.of(def1, def2));
+    when(this.authoritativeIndexCatalog.listIndexDefinitions()).thenReturn(List.of(def1, def2));
 
     assertFalse(this.checker.isReady(false));
   }
@@ -450,7 +459,7 @@ public class CommunityReadinessCheckerTest {
         createIndexInformation(def2, IndexStatus.recoveringTransient("recovering"));
 
     when(this.indexInfoProvider.getIndexInfos()).thenReturn(List.of(indexInfo1, indexInfo2));
-    when(this.authoritativeIndexCatalog.listIndexes()).thenReturn(List.of(def1, def2));
+    when(this.authoritativeIndexCatalog.listIndexDefinitions()).thenReturn(List.of(def1, def2));
 
     assertTrue(this.checker.isReady(false));
   }
@@ -468,7 +477,7 @@ public class CommunityReadinessCheckerTest {
         createIndexInformation(def, IndexStatus.failed("Invalid definition: bad config"));
 
     when(this.indexInfoProvider.getIndexInfos()).thenReturn(List.of(indexInfo));
-    when(this.authoritativeIndexCatalog.listIndexes()).thenReturn(List.of(def));
+    when(this.authoritativeIndexCatalog.listIndexDefinitions()).thenReturn(List.of(def));
 
     IndexStatsEntry entry1 =
         createIndexStatsEntry(
@@ -497,7 +506,7 @@ public class CommunityReadinessCheckerTest {
         createIndexInformation(def, IndexStatus.failed("Invalid definition: bad config"));
 
     when(this.indexInfoProvider.getIndexInfos()).thenReturn(List.of(indexInfo));
-    when(this.authoritativeIndexCatalog.listIndexes()).thenReturn(List.of(def));
+    when(this.authoritativeIndexCatalog.listIndexDefinitions()).thenReturn(List.of(def));
 
     // Mock getIndexStatsPerIndex() to return IndexStatsEntry where ALL entries have invalid
     // definition failures
@@ -526,7 +535,7 @@ public class CommunityReadinessCheckerTest {
     IndexInformation indexInfo = createIndexInformation(def, IndexStatus.steady());
 
     when(this.indexInfoProvider.getIndexInfos()).thenReturn(List.of(indexInfo));
-    when(this.authoritativeIndexCatalog.listIndexes()).thenReturn(List.of(def));
+    when(this.authoritativeIndexCatalog.listIndexDefinitions()).thenReturn(List.of(def));
 
     RuntimeException cause = new RuntimeException("Failed to fetch index stats");
     when(this.indexStats.list()).thenThrow(MetadataServiceException.createFailed(cause));

@@ -78,20 +78,20 @@ public class CommunityConfigUpdaterTest {
 
   @Test
   public void testUpdatesSearchIndex() throws MetadataServiceException {
-    when(this.authoritativeIndexCatalog.listIndexes())
+    when(this.authoritativeIndexCatalog.listIndexDefinitions())
         .thenReturn(List.of(SearchIndex.MOCK_INDEX_DEFINITION));
 
     this.communityConfigUpdater.update();
 
     verify(this.configManager)
         .update(List.of(), List.of(SearchIndex.MOCK_INDEX_DEFINITION), List.of(), Set.of());
-    verify(this.authoritativeIndexCatalog, never()).updateIndex(any(), any());
+    verify(this.authoritativeIndexCatalog, never()).updateIndex(any(), any(), any());
     verify(this.authoritativeIndexCatalog, never()).deleteIndex(any());
   }
 
   @Test
   public void testUpdatesSearchAndVectorIndex() throws MetadataServiceException {
-    when(this.authoritativeIndexCatalog.listIndexes())
+    when(this.authoritativeIndexCatalog.listIndexDefinitions())
         .thenReturn(List.of(SearchIndex.MOCK_INDEX_DEFINITION, VectorIndex.MOCK_VECTOR_DEFINITION));
 
     this.communityConfigUpdater.update();
@@ -102,7 +102,7 @@ public class CommunityConfigUpdaterTest {
             List.of(SearchIndex.MOCK_INDEX_DEFINITION),
             List.of(),
             Set.of());
-    verify(this.authoritativeIndexCatalog, never()).updateIndex(any(), any());
+    verify(this.authoritativeIndexCatalog, never()).updateIndex(any(), any(), any());
     verify(this.authoritativeIndexCatalog, never()).deleteIndex(any());
   }
 
@@ -142,13 +142,14 @@ public class CommunityConfigUpdaterTest {
         .thenReturn(collectionInfos);
 
     when(this.configManager.getLiveIndexes()).thenReturn(indexDefinitions);
-    when(this.authoritativeIndexCatalog.listIndexes()).thenReturn(List.of(newIndexDefinition));
+    when(this.authoritativeIndexCatalog.listIndexDefinitions())
+        .thenReturn(List.of(newIndexDefinition));
 
     this.communityConfigUpdater.update();
 
     verify(this.configManager).update(List.of(), List.of(newIndexDefinition), List.of(), Set.of());
     verify(this.authoritativeIndexCatalog)
-        .updateIndex(AuthoritativeIndexKey.from(indexDefinition), newIndexDefinition);
+        .updateIndexDefinition(AuthoritativeIndexKey.from(indexDefinition), newIndexDefinition);
     verify(this.authoritativeIndexCatalog, never()).deleteIndex(any());
   }
 
@@ -188,13 +189,14 @@ public class CommunityConfigUpdaterTest {
         .thenReturn(collectionInfos);
 
     when(this.configManager.getLiveIndexes()).thenReturn(indexDefinitions);
-    when(this.authoritativeIndexCatalog.listIndexes()).thenReturn(List.of(newIndexDefinition));
+    when(this.authoritativeIndexCatalog.listIndexDefinitions())
+        .thenReturn(List.of(newIndexDefinition));
 
     this.communityConfigUpdater.update();
 
     verify(this.configManager).update(List.of(newIndexDefinition), List.of(), List.of(), Set.of());
     verify(this.authoritativeIndexCatalog)
-        .updateIndex(AuthoritativeIndexKey.from(indexDefinition), newIndexDefinition);
+        .updateIndexDefinition(AuthoritativeIndexKey.from(indexDefinition), newIndexDefinition);
     verify(this.authoritativeIndexCatalog, never()).deleteIndex(any());
   }
 
@@ -231,12 +233,12 @@ public class CommunityConfigUpdaterTest {
         .thenReturn(collectionInfos);
 
     when(this.configManager.getLiveIndexes()).thenReturn(indexDefinitions);
-    when(this.authoritativeIndexCatalog.listIndexes()).thenReturn(List.of());
+    when(this.authoritativeIndexCatalog.listIndexDefinitions()).thenReturn(List.of());
 
     this.communityConfigUpdater.update();
 
     verify(this.configManager).update(List.of(), List.of(), List.of(), Set.of());
-    verify(this.authoritativeIndexCatalog, never()).updateIndex(any(), any());
+    verify(this.authoritativeIndexCatalog, never()).updateIndexDefinition(any(), any());
     verify(this.authoritativeIndexCatalog).deleteIndex(AuthoritativeIndexKey.from(indexDefinition));
   }
 
@@ -293,7 +295,7 @@ public class CommunityConfigUpdaterTest {
     verify(mockConfigManager).update(List.of(), List.of(), List.of(), Set.of(collectionUuid));
 
     // Verify no updates were issued to the AuthoritativeIndexCatalog
-    verify(mockAuthoritativeIndexCatalog, never()).updateIndex(any(), any());
+    verify(mockAuthoritativeIndexCatalog, never()).updateIndexDefinition(any(), any());
     verify(mockAuthoritativeIndexCatalog, never()).deleteIndex(any());
   }
 }

@@ -14,6 +14,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.xgen.mongot.catalogservice.AuthoritativeIndexCatalog;
+import com.xgen.mongot.catalogservice.AuthoritativeIndexKey;
+import com.xgen.mongot.catalogservice.IndexEntry;
 import com.xgen.mongot.catalogservice.IndexStats;
 import com.xgen.mongot.catalogservice.IndexStatsEntry;
 import com.xgen.mongot.catalogservice.MetadataService;
@@ -78,6 +80,24 @@ public class AicListSearchIndexesCommandTest {
     return createIndexDefinition(new ObjectId(), indexName);
   }
 
+  private IndexEntry toIndexEntry(IndexDefinition def) {
+    return new IndexEntry(
+        new AuthoritativeIndexKey(COLLECTION_UUID, def.getName()),
+        def.getIndexId(),
+        1,
+        def,
+        Optional.empty());
+  }
+
+  private IndexEntry toIndexEntry(IndexDefinition def, Optional<BsonDocument> customerDefinition) {
+    return new IndexEntry(
+        new AuthoritativeIndexKey(COLLECTION_UUID, def.getName()),
+        def.getIndexId(),
+        1,
+        def,
+        customerDefinition);
+  }
+
   private AicListSearchIndexesCommand createCommand(ListSearchIndexesCommandDefinition definition) {
     return createCommand(definition, false);
   }
@@ -103,7 +123,8 @@ public class AicListSearchIndexesCommandTest {
   @Test
   public void testListSearchIndex() throws Exception {
     var indexDefinition = createIndexDefinition(INDEX_NAME);
-    when(this.mockAic.listIndexes(COLLECTION_UUID)).thenReturn(List.of(indexDefinition));
+    when(this.mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(List.of(toIndexEntry(indexDefinition)));
     when(this.mockIndexStats.list(any(BsonDocument.class))).thenReturn(List.of());
     when(this.mockServerState.list(any(BsonDocument.class))).thenReturn(List.of());
 
@@ -119,10 +140,54 @@ public class AicListSearchIndexesCommandTest {
   }
 
   @Test
+  public void testListSearchIndexUsesCustomerDefinitionWhenPresent() throws Exception {
+    BsonDocument customerDef =
+        new BsonDocument("customKey", new org.bson.BsonString("customValue"));
+    var indexDefinition = createIndexDefinition(INDEX_NAME);
+    when(this.mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(List.of(toIndexEntry(indexDefinition, Optional.of(customerDef))));
+    when(this.mockIndexStats.list(any(BsonDocument.class))).thenReturn(List.of());
+    when(this.mockServerState.list(any(BsonDocument.class))).thenReturn(List.of());
+
+    var definition = createListDefinition();
+    var command = createCommand(definition);
+
+    BsonDocument response = command.run();
+    BsonArray batch = response.getDocument("cursor").getArray("firstBatch");
+
+    assertEquals(1, response.getInt32("ok").getValue());
+    assertEquals(1, batch.size());
+    BsonDocument latestDefinition = batch.getFirst().asDocument().getDocument("latestDefinition");
+    assertEquals(customerDef, latestDefinition);
+  }
+
+  @Test
+  public void testListSearchIndexUsesDefinitionToBsonWhenCustomerDefinitionEmpty()
+      throws Exception {
+    var indexDefinition = createIndexDefinition(INDEX_NAME);
+    when(this.mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(List.of(toIndexEntry(indexDefinition, Optional.empty())));
+    when(this.mockIndexStats.list(any(BsonDocument.class))).thenReturn(List.of());
+    when(this.mockServerState.list(any(BsonDocument.class))).thenReturn(List.of());
+
+    var definition = createListDefinition();
+    var command = createCommand(definition);
+
+    BsonDocument response = command.run();
+    BsonArray batch = response.getDocument("cursor").getArray("firstBatch");
+
+    assertEquals(1, response.getInt32("ok").getValue());
+    assertEquals(1, batch.size());
+    BsonDocument latestDefinition = batch.getFirst().asDocument().getDocument("latestDefinition");
+    assertEquals(indexDefinition.toBson(), latestDefinition);
+  }
+
+  @Test
   public void testFilterByIndexName() throws Exception {
     var index1 = createIndexDefinition("index1");
     var index2 = createIndexDefinition("index2");
-    when(this.mockAic.listIndexes(COLLECTION_UUID)).thenReturn(List.of(index1, index2));
+    when(this.mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(List.of(toIndexEntry(index1), toIndexEntry(index2)));
     when(this.mockIndexStats.list(any(BsonDocument.class))).thenReturn(List.of());
     when(this.mockServerState.list(any(BsonDocument.class))).thenReturn(List.of());
 
@@ -147,7 +212,8 @@ public class AicListSearchIndexesCommandTest {
     var indexId2 = new ObjectId();
     var index1 = createIndexDefinition(indexId1, "index1");
     var index2 = createIndexDefinition(indexId2, "index2");
-    when(this.mockAic.listIndexes(COLLECTION_UUID)).thenReturn(List.of(index1, index2));
+    when(this.mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(List.of(toIndexEntry(index1), toIndexEntry(index2)));
     when(this.mockIndexStats.list(any(BsonDocument.class))).thenReturn(List.of());
     when(this.mockServerState.list(any(BsonDocument.class))).thenReturn(List.of());
 
@@ -169,7 +235,8 @@ public class AicListSearchIndexesCommandTest {
   @Test
   public void testMetadataServiceException() throws Exception {
     var indexDefinition = createIndexDefinition(INDEX_NAME);
-    when(this.mockAic.listIndexes(COLLECTION_UUID)).thenReturn(List.of(indexDefinition));
+    when(this.mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(List.of(toIndexEntry(indexDefinition)));
     when(this.mockIndexStats.list(any(BsonDocument.class)))
         .thenThrow(MetadataServiceException.createFailed(new RuntimeException("Test exception")));
 
@@ -186,7 +253,8 @@ public class AicListSearchIndexesCommandTest {
   @Test
   public void testNoActiveServers() throws Exception {
     var indexDefinition = createIndexDefinition(INDEX_NAME);
-    when(this.mockAic.listIndexes(COLLECTION_UUID)).thenReturn(List.of(indexDefinition));
+    when(this.mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(List.of(toIndexEntry(indexDefinition)));
     when(this.mockServerState.list(any(BsonDocument.class))).thenReturn(List.of());
     when(this.mockIndexStats.list(any(BsonDocument.class))).thenReturn(List.of());
 
@@ -212,7 +280,8 @@ public class AicListSearchIndexesCommandTest {
   public void testDuplicateServerIds() throws Exception {
     var indexId = new ObjectId();
     var indexDefinition = createIndexDefinition(indexId, INDEX_NAME);
-    when(this.mockAic.listIndexes(COLLECTION_UUID)).thenReturn(List.of(indexDefinition));
+    when(this.mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(List.of(toIndexEntry(indexDefinition)));
 
     // Create two servers with the same serverId (duplicate)
     var duplicateServerId = new ObjectId();
@@ -233,7 +302,8 @@ public class AicListSearchIndexesCommandTest {
   public void testDuplicateIndexStatsEntries() throws Exception {
     var indexId = new ObjectId();
     var indexDefinition = createIndexDefinition(indexId, INDEX_NAME);
-    when(this.mockAic.listIndexes(COLLECTION_UUID)).thenReturn(List.of(indexDefinition));
+    when(this.mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(List.of(toIndexEntry(indexDefinition)));
 
     // Create a server
     var serverId = new ObjectId();
@@ -287,7 +357,8 @@ public class AicListSearchIndexesCommandTest {
     var index2 = createIndexDefinition("index2");
     var index3 = createIndexDefinition("index3");
 
-    when(this.mockAic.listIndexes(COLLECTION_UUID)).thenReturn(List.of(index1, index2, index3));
+    when(this.mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(List.of(toIndexEntry(index1), toIndexEntry(index2), toIndexEntry(index3)));
     when(this.mockIndexStats.list(any(BsonDocument.class))).thenReturn(List.of());
     when(this.mockServerState.list(any(BsonDocument.class))).thenReturn(List.of());
 
@@ -314,7 +385,8 @@ public class AicListSearchIndexesCommandTest {
       indexes.add(createIndexDefinition("index_" + i));
     }
 
-    when(this.mockAic.listIndexes(COLLECTION_UUID)).thenReturn(indexes);
+    when(this.mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(indexes.stream().map(this::toIndexEntry).toList());
     when(this.mockIndexStats.list(any(BsonDocument.class))).thenReturn(List.of());
     when(this.mockServerState.list(any(BsonDocument.class))).thenReturn(List.of());
 
@@ -335,7 +407,8 @@ public class AicListSearchIndexesCommandTest {
   public void testNumDocsNotReturnedWhenFlagIsFalse() throws Exception {
     var indexId = new ObjectId();
     var indexDefinition = createIndexDefinition(indexId, INDEX_NAME);
-    when(this.mockAic.listIndexes(COLLECTION_UUID)).thenReturn(List.of(indexDefinition));
+    when(this.mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(List.of(toIndexEntry(indexDefinition)));
     when(this.mockIndexStats.list(any(BsonDocument.class))).thenReturn(List.of());
     when(this.mockServerState.list(any(BsonDocument.class))).thenReturn(List.of());
 
@@ -359,7 +432,8 @@ public class AicListSearchIndexesCommandTest {
   public void testNumDocsReturnedWhenFlagIsTrue() throws Exception {
     var indexId = new ObjectId();
     var indexDefinition = createIndexDefinition(indexId, INDEX_NAME);
-    when(this.mockAic.listIndexes(COLLECTION_UUID)).thenReturn(List.of(indexDefinition));
+    when(this.mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(List.of(toIndexEntry(indexDefinition)));
     when(this.mockIndexStats.list(any(BsonDocument.class))).thenReturn(List.of());
     when(this.mockServerState.list(any(BsonDocument.class))).thenReturn(List.of());
 
@@ -397,7 +471,8 @@ public class AicListSearchIndexesCommandTest {
   public void testNumDocsReturnedAsNullWhenNotAvailable() throws Exception {
     var indexId = new ObjectId();
     var indexDefinition = createIndexDefinition(indexId, INDEX_NAME);
-    when(this.mockAic.listIndexes(COLLECTION_UUID)).thenReturn(List.of(indexDefinition));
+    when(this.mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(List.of(toIndexEntry(indexDefinition)));
     when(this.mockIndexStats.list(any(BsonDocument.class))).thenReturn(List.of());
     when(this.mockServerState.list(any(BsonDocument.class))).thenReturn(List.of());
 
@@ -435,7 +510,8 @@ public class AicListSearchIndexesCommandTest {
   @Test
   public void testGetActiveServersThrowsException() throws Exception {
     var indexDefinition = createIndexDefinition(INDEX_NAME);
-    when(this.mockAic.listIndexes(COLLECTION_UUID)).thenReturn(List.of(indexDefinition));
+    when(this.mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(List.of(toIndexEntry(indexDefinition)));
     when(this.mockServerState.list(any(BsonDocument.class)))
         .thenThrow(
             MetadataServiceException.createFailed(
@@ -455,7 +531,8 @@ public class AicListSearchIndexesCommandTest {
   @Test
   public void testGetIndexStatsPerServerThrowsException() throws Exception {
     var indexDefinition = createIndexDefinition(INDEX_NAME);
-    when(this.mockAic.listIndexes(COLLECTION_UUID)).thenReturn(List.of(indexDefinition));
+    when(this.mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(List.of(toIndexEntry(indexDefinition)));
 
     // Setup active servers
     var serverId = new ObjectId();
@@ -483,7 +560,8 @@ public class AicListSearchIndexesCommandTest {
   public void testLargeNumberOfHosts() throws Exception {
     var indexId = new ObjectId();
     var indexDefinition = createIndexDefinition(indexId, INDEX_NAME);
-    when(this.mockAic.listIndexes(COLLECTION_UUID)).thenReturn(List.of(indexDefinition));
+    when(this.mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(List.of(toIndexEntry(indexDefinition)));
 
     // Create 100 active servers
     var servers = new java.util.ArrayList<ServerStateEntry>();
