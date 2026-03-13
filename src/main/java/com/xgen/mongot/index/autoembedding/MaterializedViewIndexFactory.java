@@ -20,6 +20,7 @@ import com.xgen.mongot.metrics.PerIndexMetricsFactory;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import java.io.IOException;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,12 +44,14 @@ public class MaterializedViewIndexFactory implements IndexFactory {
       FeatureFlags featureFlags,
       MeterAndFtdcRegistry meterAndFtdcRegistry,
       LeaseManager leaseManager,
-      MaterializedViewCollectionResolver collectionResolver) {
+      MaterializedViewCollectionResolver collectionResolver,
+      Optional<Integer> mvWriteRateLimitRps) {
     this.meterAndFtdcRegistry = meterAndFtdcRegistry;
     this.metricsFactory = new MetricsFactory(NAMESPACE, meterAndFtdcRegistry.meterRegistry());
     this.featureFlags = featureFlags;
     this.materializedViewWriterFactory =
-        new MaterializedViewWriter.Factory(syncSourceConfig, meterAndFtdcRegistry.meterRegistry());
+        new MaterializedViewWriter.Factory(
+            syncSourceConfig, meterAndFtdcRegistry.meterRegistry(), mvWriteRateLimitRps);
     this.leaseManager = leaseManager;
     this.collectionResolver = collectionResolver;
   }

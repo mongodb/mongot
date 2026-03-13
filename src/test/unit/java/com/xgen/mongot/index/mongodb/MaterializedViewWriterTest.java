@@ -7,6 +7,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.google.common.util.concurrent.RateLimiter;
 import com.mongodb.MongoBulkWriteException;
 import com.mongodb.MongoNamespace;
 import com.mongodb.bulk.BulkWriteError;
@@ -25,6 +26,8 @@ import com.xgen.mongot.index.version.MaterializedViewGeneration;
 import com.xgen.mongot.index.version.MaterializedViewGenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.util.BsonUtils;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
 import java.util.List;
@@ -85,7 +88,8 @@ public class MaterializedViewWriterTest {
             GENERATION_ID,
             this.mockLeaseManager,
             METRICS_FACTORY,
-            COLLECTION_UUID);
+            COLLECTION_UUID,
+            Optional.empty());
     ObjectId indexId = new ObjectId();
     RawBsonDocument document =
         BsonUtils.documentToRaw(
@@ -118,7 +122,8 @@ public class MaterializedViewWriterTest {
             GENERATION_ID,
             this.mockLeaseManager,
             METRICS_FACTORY,
-            COLLECTION_UUID);
+            COLLECTION_UUID,
+            Optional.empty());
 
     Assert.assertThrows(
         MaterializedViewNonTransientException.class, () -> updateAndCommit(1, matViewWriter));
@@ -137,7 +142,8 @@ public class MaterializedViewWriterTest {
             GENERATION_ID,
             this.mockLeaseManager,
             METRICS_FACTORY,
-            COLLECTION_UUID);
+            COLLECTION_UUID,
+            Optional.empty());
 
     // Insert two documents
     updateAndCommit(2, matViewWriter);
@@ -161,7 +167,8 @@ public class MaterializedViewWriterTest {
             GENERATION_ID,
             this.mockLeaseManager,
             METRICS_FACTORY,
-            COLLECTION_UUID);
+            COLLECTION_UUID,
+            Optional.empty());
 
     Assert.assertThrows(
         MaterializedViewNonTransientException.class, () -> updateAndCommit(1, matViewWriter));
@@ -182,7 +189,8 @@ public class MaterializedViewWriterTest {
             GENERATION_ID,
             this.mockLeaseManager,
             METRICS_FACTORY,
-            COLLECTION_UUID);
+            COLLECTION_UUID,
+            Optional.empty());
     updateAndCommit(1, matViewWriter);
 
     verify(this.mockCollection, times(2)).bulkWrite(argThat(list -> list.size() == 1));
@@ -197,7 +205,8 @@ public class MaterializedViewWriterTest {
             GENERATION_ID,
             this.mockLeaseManager,
             METRICS_FACTORY,
-            COLLECTION_UUID);
+            COLLECTION_UUID,
+            Optional.empty());
     matViewWriter.close();
     ObjectId indexId = new ObjectId();
     Assert.assertThrows(
@@ -214,7 +223,8 @@ public class MaterializedViewWriterTest {
             GENERATION_ID,
             this.mockLeaseManager,
             METRICS_FACTORY,
-            COLLECTION_UUID);
+            COLLECTION_UUID,
+            Optional.empty());
     matViewWriter.close();
     Assert.assertThrows(
         IndexClosedException.class, () -> matViewWriter.commit(EncodedUserData.EMPTY));
@@ -229,7 +239,8 @@ public class MaterializedViewWriterTest {
             GENERATION_ID,
             this.mockLeaseManager,
             METRICS_FACTORY,
-            COLLECTION_UUID);
+            COLLECTION_UUID,
+            Optional.empty());
     CompletableFuture<Void> future = matViewWriter.dropMaterializedViewCollection();
     future.get();
     verify(this.mockCollection).drop();
@@ -254,7 +265,8 @@ public class MaterializedViewWriterTest {
             GENERATION_ID,
             this.mockLeaseManager,
             METRICS_FACTORY,
-            COLLECTION_UUID);
+            COLLECTION_UUID,
+            Optional.empty());
 
     ObjectId indexId = new ObjectId();
     RawBsonDocument document =
@@ -296,7 +308,8 @@ public class MaterializedViewWriterTest {
             GENERATION_ID,
             this.mockLeaseManager,
             METRICS_FACTORY,
-            COLLECTION_UUID);
+            COLLECTION_UUID,
+            Optional.empty());
 
     ObjectId indexId = new ObjectId();
     RawBsonDocument document =
@@ -322,6 +335,165 @@ public class MaterializedViewWriterTest {
                   // Check that it's a ReplaceOneModel, not UpdateOneModel
                   return list.get(0) instanceof com.mongodb.client.model.ReplaceOneModel;
                 }));
+  }
+
+  @Test
+  public void testCommitWithoutRateLimiter_proceedsNormally()
+      throws IOException, FieldExceededLimitsException {
+    var writer =
+        new MaterializedViewWriter(
+            this.mockMongoClient,
+            MV_COLLECTION_NAME,
+            GENERATION_ID,
+            this.mockLeaseManager,
+            METRICS_FACTORY,
+            COLLECTION_UUID,
+            Optional.empty());
+    updateAndCommit(1, writer);
+    verify(this.mockCollection).bulkWrite(argThat(list -> list.size() == 1));
+  }
+
+  @Test
+  public void testCommitWithRateLimiter_permitsAvailable_proceedsWithoutDelay()
+      throws IOException, FieldExceededLimitsException {
+    RateLimiter limiter = Mockito.mock(RateLimiter.class);
+    when(limiter.acquire()).thenReturn(0.0);
+    var writer =
+        new MaterializedViewWriter(
+            this.mockMongoClient,
+            MV_COLLECTION_NAME,
+            GENERATION_ID,
+            this.mockLeaseManager,
+            METRICS_FACTORY,
+            COLLECTION_UUID,
+            Optional.of(limiter));
+    updateAndCommit(1, writer);
+    verify(limiter).acquire();
+    verify(this.mockCollection).bulkWrite(argThat(list -> list.size() == 1));
+  }
+
+  @Test
+  public void testCommitWithRateLimiter_throttlesWhenRateExceeded()
+      throws IOException, FieldExceededLimitsException {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MetricsFactory metricsFactory = new MetricsFactory("throttleTest", registry);
+    RateLimiter limiter = Mockito.mock(RateLimiter.class);
+    when(limiter.acquire()).thenReturn(0.0).thenReturn(0.5);
+    var writer =
+        new MaterializedViewWriter(
+            this.mockMongoClient,
+            MV_COLLECTION_NAME,
+            GENERATION_ID,
+            this.mockLeaseManager,
+            metricsFactory,
+            COLLECTION_UUID,
+            Optional.of(limiter));
+    updateAndCommit(1, writer);
+    updateAndCommit(1, writer);
+    verify(limiter, times(2)).acquire();
+    Counter throttleCount = registry.find("throttleTest.mvWriteThrottleCount").counter();
+    Assert.assertNotNull(throttleCount);
+    Assert.assertEquals("Second commit should be throttled", 1, (int) throttleCount.count());
+  }
+
+  @Test
+  public void testCommitEmptyBuffer_skipsRateLimiter() throws IOException {
+    RateLimiter limiter = Mockito.mock(RateLimiter.class);
+    var writer =
+        new MaterializedViewWriter(
+            this.mockMongoClient,
+            MV_COLLECTION_NAME,
+            GENERATION_ID,
+            this.mockLeaseManager,
+            METRICS_FACTORY,
+            COLLECTION_UUID,
+            Optional.of(limiter));
+    writer.commit(EncodedUserData.EMPTY);
+    Mockito.verify(limiter, Mockito.never()).acquire();
+  }
+  
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testFactory_sharedRateLimiterAndNoRateLimiter() throws Exception {
+    RateLimiter sharedLimiter = RateLimiter.create(50);
+    var writer1 =
+        new MaterializedViewWriter(
+            this.mockMongoClient,
+            "col1",
+            GENERATION_ID,
+            this.mockLeaseManager,
+            METRICS_FACTORY,
+            UUID.randomUUID(),
+            Optional.of(sharedLimiter));
+    var writer2 =
+        new MaterializedViewWriter(
+            this.mockMongoClient,
+            "col2",
+            GENERATION_ID,
+            this.mockLeaseManager,
+            METRICS_FACTORY,
+            UUID.randomUUID(),
+            Optional.of(sharedLimiter));
+
+    java.lang.reflect.Field rlField =
+        MaterializedViewWriter.class.getDeclaredField("rateLimiter");
+    rlField.setAccessible(true);
+    Optional<RateLimiter> rl1 = (Optional<RateLimiter>) rlField.get(writer1);
+    Optional<RateLimiter> rl2 = (Optional<RateLimiter>) rlField.get(writer2);
+    Assert.assertTrue("Writer1 should have a rate limiter", rl1.isPresent());
+    Assert.assertTrue("Writer2 should have a rate limiter", rl2.isPresent());
+    Assert.assertSame(
+        "Both writers should share the same RateLimiter instance", rl1.get(), rl2.get());
+
+    var writer3 =
+        new MaterializedViewWriter(
+            this.mockMongoClient,
+            "col3",
+            GENERATION_ID,
+            this.mockLeaseManager,
+            METRICS_FACTORY,
+            UUID.randomUUID(),
+            Optional.empty());
+    Optional<RateLimiter> rl3 = (Optional<RateLimiter>) rlField.get(writer3);
+    Assert.assertFalse("Writer should not have a rate limiter", rl3.isPresent());
+  }
+  
+  @Test
+  public void testRateLimiterMetrics_throttleCountAndWaitTime()
+      throws IOException, FieldExceededLimitsException {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MetricsFactory metricsFactory = new MetricsFactory("testMetrics", registry);
+    RateLimiter limiter = Mockito.mock(RateLimiter.class);
+    when(limiter.acquire()).thenReturn(0.0).thenReturn(0.5);
+    var writer =
+        new MaterializedViewWriter(
+            this.mockMongoClient,
+            MV_COLLECTION_NAME,
+            GENERATION_ID,
+            this.mockLeaseManager,
+            metricsFactory,
+            COLLECTION_UUID,
+            Optional.of(limiter));
+
+    Counter throttleCount = registry.find("testMetrics.mvWriteThrottleCount").counter();
+    Timer throttleWaitTime = registry.find("testMetrics.mvWriteThrottleWaitTime").timer();
+    Assert.assertNotNull("Throttle count metric should be registered", throttleCount);
+    Assert.assertNotNull("Throttle wait time metric should be registered", throttleWaitTime);
+
+    updateAndCommit(1, writer);
+    Assert.assertEquals(
+        "First commit should not be throttled", 0, (int) throttleCount.count());
+    Assert.assertEquals(
+        "No wait time recorded for first commit", 0, throttleWaitTime.count());
+
+    updateAndCommit(1, writer);
+    Assert.assertEquals("Second commit should be throttled", 1, (int) throttleCount.count());
+    Assert.assertEquals("Wait time should be recorded once", 1, throttleWaitTime.count());
+    Assert.assertEquals(
+        "Total wait time should reflect acquire() return value",
+        500.0,
+        throttleWaitTime.totalTime(java.util.concurrent.TimeUnit.MILLISECONDS),
+        50.0);
   }
 
   private DocumentEvent createDocumentEvent(ObjectId indexId, int docId) {

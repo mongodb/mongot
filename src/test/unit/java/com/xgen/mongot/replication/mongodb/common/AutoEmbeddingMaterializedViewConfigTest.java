@@ -2,6 +2,8 @@ package com.xgen.mongot.replication.mongodb.common;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.when;
 
 import com.xgen.mongot.util.Runtime;
@@ -10,6 +12,7 @@ import com.xgen.testing.util.MockRuntimeBuilder;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import org.bson.BsonDocument;
 import org.bson.types.ObjectId;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -69,7 +72,8 @@ public class AutoEmbeddingMaterializedViewConfigTest {
               Optional.of(7),
               Optional.of(8),
               Optional.of(9),
-              Optional.of(2)));
+              Optional.of(2),
+              Optional.of(42)));
     }
 
     @Test
@@ -101,8 +105,8 @@ public class AutoEmbeddingMaterializedViewConfigTest {
       // numConcurrentChangeStreams = numCpus * 2 = 16
       assertEquals(16, config.numConcurrentChangeStreams);
 
-      // numIndexingThreads = Math.max(1, Math.floorDiv(numCpus, 2)) = Math.max(1, 4) = 4
-      assertEquals(4, config.numIndexingThreads);
+      // numIndexingThreads = Math.max(1, numCpus) = Math.max(1, 8) = 8
+      assertEquals(8, config.numIndexingThreads);
 
       // numChangeStreamDecodingThreads = Math.max(1, Math.floorDiv(numCpus, 2)) = Math.max(1, 4) =
       // 4
@@ -120,6 +124,77 @@ public class AutoEmbeddingMaterializedViewConfigTest {
       // Test Optional fields that should be empty by default
       assertEquals(Optional.empty(), config.embeddingGetMoreBatchSize);
       assertEquals(Optional.empty(), config.materializedViewSchemaVersion);
+      assertEquals(Optional.empty(), config.mvWriteRateLimitRps);
+    }
+
+    @Test
+    public void testMvWriteRateLimitRps_defaultCustomAndValidation() {
+      AutoEmbeddingMaterializedViewConfig defaultConfig =
+          AutoEmbeddingMaterializedViewConfig.getDefault();
+      assertEquals(Optional.empty(), defaultConfig.getMvWriteRateLimitRps());
+
+      AutoEmbeddingMaterializedViewConfig customConfig =
+          AutoEmbeddingMaterializedViewConfig.create(
+              CommonReplicationConfig.defaultGlobalReplicationConfig(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.of(50));
+      assertEquals(Optional.of(50), customConfig.getMvWriteRateLimitRps());
+
+      assertThrows(
+          IllegalArgumentException.class,
+          () ->
+              AutoEmbeddingMaterializedViewConfig.create(
+                  CommonReplicationConfig.defaultGlobalReplicationConfig(),
+                  Optional.empty(),
+                  Optional.empty(),
+                  Optional.empty(),
+                  Optional.empty(),
+                  Optional.empty(),
+                  Optional.empty(),
+                  Optional.empty(),
+                  Optional.empty(),
+                  Optional.empty(),
+                  Optional.empty(),
+                  Optional.of(-1)));
+    }
+
+    @Test
+    public void testToBson_withAndWithoutMvWriteRateLimitRps() {
+      AutoEmbeddingMaterializedViewConfig configWith =
+          AutoEmbeddingMaterializedViewConfig.create(
+              CommonReplicationConfig.defaultGlobalReplicationConfig(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.of(75));
+      BsonDocument bsonWith = configWith.toBson();
+      assertTrue(
+          "BSON should contain mvWriteRateLimitRps",
+          bsonWith.containsKey("mvWriteRateLimitRps"));
+      assertEquals(75, bsonWith.getInt32("mvWriteRateLimitRps").getValue());
+
+      AutoEmbeddingMaterializedViewConfig configWithout =
+          AutoEmbeddingMaterializedViewConfig.getDefault();
+      BsonDocument bsonWithout = configWithout.toBson();
+      assertFalse(
+          "BSON should not contain mvWriteRateLimitRps when empty",
+          bsonWithout.containsKey("mvWriteRateLimitRps"));
     }
   }
 }

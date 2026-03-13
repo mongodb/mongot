@@ -2,6 +2,7 @@ package com.xgen.mongot.index.mongodb;
 
 import static com.xgen.mongot.embedding.utils.EmbeddingConnectionStringUtils.disableDirectConnection;
 
+import com.google.common.util.concurrent.RateLimiter;
 import com.mongodb.MongoBulkWriteException;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoNamespace;
@@ -31,6 +32,7 @@ import com.xgen.mongot.util.mongodb.MongoClientBuilder;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -39,6 +41,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import org.bson.BsonDocument;
@@ -75,10 +78,13 @@ public class MaterializedViewWriter implements IndexWriter {
   private final UUID collectionUuid;
   private final MaterializedViewGenerationId generationId;
   private final LeaseManager leaseManager;
+  private final Optional<RateLimiter> rateLimiter;
 
   // Metrics
   private final Counter payloadTooLargeErrors;
   private final Counter partialBulkWriteErrors;
+  private final Counter mvWriteThrottleCount;
+  private final Timer mvWriteThrottleWaitTime;
 
   /**
    * A pair of read and write locks which are used to synchronize access to the materialized view
@@ -102,7 +108,8 @@ public class MaterializedViewWriter implements IndexWriter {
       MaterializedViewGenerationId generationId,
       LeaseManager leaseManager,
       MetricsFactory metricsFactory,
-      UUID collectionUuid) {
+      UUID collectionUuid,
+      Optional<RateLimiter> rateLimiter) {
     this.mongoClient = mongoClient;
     this.namespace = new MongoNamespace(MV_DATABASE_NAME, matViewName);
     this.generationId = generationId;
@@ -110,9 +117,12 @@ public class MaterializedViewWriter implements IndexWriter {
     this.bulkOperationsRef = new AtomicReference<>(new ConcurrentLinkedQueue<>());
     this.payloadTooLargeErrors = metricsFactory.counter("payloadTooLargeErrors");
     this.partialBulkWriteErrors = metricsFactory.counter("partialBulkWriteErrors");
+    this.mvWriteThrottleCount = metricsFactory.counter("mvWriteThrottleCount");
+    this.mvWriteThrottleWaitTime = metricsFactory.timer("mvWriteThrottleWaitTime");
     this.operationExecutor =
         new MongoClientOperationExecutor(metricsFactory, "materializedViewCollection");
     this.collectionUuid = collectionUuid;
+    this.rateLimiter = rateLimiter;
     ReentrantReadWriteLock shutdownLock = new ReentrantReadWriteLock(true);
     this.shutdownAndCommitExclusiveLock = shutdownLock.writeLock();
     this.shutdownAndCommitSharedLock = shutdownLock.readLock();
@@ -162,6 +172,18 @@ public class MaterializedViewWriter implements IndexWriter {
       bulkOperations = this.bulkOperationsRef.getAndSet(new ConcurrentLinkedQueue<>());
     }
     if (!bulkOperations.isEmpty()) {
+      // Throttle MV writes if ratelimiter is configured. acquire() blocks until
+      // a permit is available, smoothing write bursts.
+      this.rateLimiter.ifPresent(
+          limiter -> {
+            double waitSeconds = limiter.acquire();
+            if (waitSeconds > 0) {
+              this.mvWriteThrottleCount.increment();
+              this.mvWriteThrottleWaitTime.record(
+                  (long) (waitSeconds * 1000), TimeUnit.MILLISECONDS);
+            }
+          });
+
       // TODO(CLOUDP-360778): if commit throws an exception, we currently crash the JVM (see
       // PeriodicIndexCommitter::crashWithException). We will likely need to implement our own
       // periodic committer or not have a periodic committer at all since we call commit from the
@@ -261,13 +283,23 @@ public class MaterializedViewWriter implements IndexWriter {
     private static final int DEFAULT_MAX_CONNECTIONS = 2;
     private final MongoClient materializedViewMongoClient;
     private final MetricsFactory metricsFactory;
+    private final Optional<RateLimiter> rateLimiter;
 
-    public Factory(SyncSourceConfig syncSourceConfig, MeterRegistry meterRegistry) {
+    public Factory(
+        SyncSourceConfig syncSourceConfig,
+        MeterRegistry meterRegistry,
+        Optional<Integer> mvWriteRateLimitRps) {
       // TODO(CLOUDP-360542): Investigate whether we need to change this when primary mongod node is
       // not discoverable in original seedAddresses
       this.materializedViewMongoClient =
           createMaterializedViewMongoClient(syncSourceConfig, meterRegistry);
       this.metricsFactory = new MetricsFactory("materializedViewWriter", meterRegistry);
+      this.rateLimiter =
+          mvWriteRateLimitRps.map(
+              rps -> {
+                LOG.info("MV write rate limiter configured at {} RPS", rps);
+                return RateLimiter.create(rps);
+              });
     }
 
     public MaterializedViewWriter create(
@@ -281,7 +313,8 @@ public class MaterializedViewWriter implements IndexWriter {
           generationId,
           leaseManager,
           this.metricsFactory,
-          collectionUuid);
+          collectionUuid,
+          this.rateLimiter);
     }
 
     @Override

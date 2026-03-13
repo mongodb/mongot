@@ -118,6 +118,23 @@ public class MongotConfigs implements SanitizableDocumentEncodable {
         autoEmbeddingMaterializedViewConfig);
   }
 
+  public static MongotConfigs getDefault(
+      Path dataPath, AutoEmbeddingMaterializedViewConfig mvConfig) {
+    var defaults = getDefault(dataPath);
+    return new MongotConfigs(
+        defaults.luceneConfig,
+        defaults.replicationConfig,
+        defaults.initialSyncConfig,
+        defaults.durabilityConfig,
+        defaults.cursorConfig,
+        defaults.indexDefinitionConfig,
+        defaults.lifecycleConfig,
+        defaults.featureFlags,
+        defaults.environmentVariantPerfConfig,
+        defaults.regularBlockingRequestSettings,
+        mvConfig);
+  }
+
   @Override
   public BsonDocument toBson() {
     return new BsonDocument()

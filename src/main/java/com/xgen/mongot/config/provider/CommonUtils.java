@@ -178,9 +178,15 @@ public class CommonUtils {
       FeatureFlags featureFlags,
       MeterAndFtdcRegistry meterAndFtdcRegistry,
       LeaseManager leaseManager,
-      MaterializedViewCollectionResolver collectionResolver) {
+      MaterializedViewCollectionResolver collectionResolver,
+      AutoEmbeddingMaterializedViewConfig materializedViewConfig) {
     return new MaterializedViewIndexFactory(
-        syncSourceConfig, featureFlags, meterAndFtdcRegistry, leaseManager, collectionResolver);
+        syncSourceConfig,
+        featureFlags,
+        meterAndFtdcRegistry,
+        leaseManager,
+        collectionResolver,
+        materializedViewConfig.getMvWriteRateLimitRps());
   }
 
   /**

@@ -56,6 +56,7 @@ import com.xgen.mongot.monitor.ReplicationStateMonitor;
 import com.xgen.mongot.replication.mongodb.DurabilityConfig;
 import com.xgen.mongot.replication.mongodb.autoembedding.AutoEmbeddingMaterializedViewManagerFactory;
 import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
+import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
 import com.xgen.mongot.replication.mongodb.initialsync.config.InitialSyncConfig;
 import com.xgen.mongot.server.CommandServer;
@@ -161,7 +162,8 @@ public class CommunityMongotBootstrapper {
     var initializedIndexCatalog = new InitializedIndexCatalog();
 
     var mongotVersion = MongotVersionResolver.create().getVersion();
-    var mongotConfigs = getMongotConfigs(config.storageConfig().dataPath());
+    var mongotConfigs =
+        getMongotConfigs(config.storageConfig().dataPath(), config.embeddingConfig());
 
     // Initialize global feature flags for utility classes
     LoggableIdUtils.initialize(mongotConfigs.featureFlags.isEnabled(Feature.LOGGABLE_DOCUMENT_ID));
@@ -693,7 +695,8 @@ public class CommunityMongotBootstrapper {
             featureFlags,
             meterAndFtdcRegistry,
             leaseManager,
-            mvCollectionResolver);
+            mvCollectionResolver,
+            mongotConfigs.autoEmbeddingMaterializedViewConfig);
     var replicationManagerFactory =
         CommonUtils.getReplicationManagerFactory(
             dataPath,
@@ -837,7 +840,8 @@ public class CommunityMongotBootstrapper {
         .append("jvmArgs", new BsonArray(bsonJvmArgs));
   }
 
-  private static MongotConfigs getMongotConfigs(Path dataPath) {
+  private static MongotConfigs getMongotConfigs(
+      Path dataPath, Optional<EmbeddingConfig> embeddingConfig) {
     var luceneConfig =
         LuceneConfig.create(
             dataPath,
@@ -886,7 +890,24 @@ public class CommunityMongotBootstrapper {
     var featureFlags = FeatureFlags.withQueryFeaturesEnabled();
     var environmentVariantPerfConfig = EnvironmentVariantPerfConfig.getDefault();
     var regularBlockingRequestSettings = RegularBlockingRequestSettings.defaults();
-    var autoEmbeddingMaterializedViewConfig = AutoEmbeddingMaterializedViewConfig.getDefault();
+
+    var mvWriteRateLimitRps = embeddingConfig.flatMap(EmbeddingConfig::mvWriteRateLimitRps);
+    var autoEmbeddingMaterializedViewConfig =
+        mvWriteRateLimitRps.isPresent()
+            ? AutoEmbeddingMaterializedViewConfig.create(
+                CommonReplicationConfig.defaultGlobalReplicationConfig(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                mvWriteRateLimitRps)
+            : AutoEmbeddingMaterializedViewConfig.getDefault();
     return new MongotConfigs(
         luceneConfig,
         replicationConfig,

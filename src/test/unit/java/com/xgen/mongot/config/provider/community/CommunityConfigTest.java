@@ -59,6 +59,7 @@ public class CommunityConfigTest {
           grpcTls(),
           grpcMtls(),
           withEmbeddingEndpointOverride(),
+          withEmbeddingMvWriteRateLimitRps(),
           ftdcOverrides());
     }
 
@@ -275,7 +276,39 @@ public class CommunityConfigTest {
                       Optional.of("https://custom-api.example.com/v1/embeddings"),
                       Optional.empty(),
                       Optional.empty(),
+                      Optional.empty(),
                       false))));
+    }
+
+    private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig>
+        withEmbeddingMvWriteRateLimitRps() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "with embedding mv write rate limit rps",
+          new CommunityConfig(
+              new SyncSourceConfig(
+                  new ReplicaSetConfig(
+                      List.of(HostAndPort.fromParts("mongod", 27017)),
+                      "user",
+                      Path.of("/etc/mongot/replicaSet.passwd"),
+                      Databases.ADMIN,
+                      false,
+                      MongoReadPreferenceName.SECONDARY_PREFERRED),
+                  Optional.empty(),
+                  Optional.empty()),
+              new StorageConfig(Path.of("data/mongot")),
+              new ServerConfig(
+                  new GrpcServerConfig("localhost:27028", Optional.empty()), Optional.empty()),
+              FtdcCommunityConfig.getDefault(),
+              Optional.of(new MetricsConfig(true, "localhost:9946")),
+              Optional.of(new HealthCheckConfig("localhost:8080")),
+              Optional.of(new LoggingConfig("DEBUG", Optional.of("/var/log/mongot"))),
+              Optional.of(
+                  new EmbeddingConfig(
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.of(50),
+                      true))));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig> ftdcOverrides() {

@@ -81,6 +81,9 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
    */
   public final int maxConcurrentEmbeddingInitialSyncs;
 
+  /** The maximum number of materialized view bulk write commits per second allowed on this node. */
+  public final Optional<Integer> mvWriteRateLimitRps;
+
   private AutoEmbeddingMaterializedViewConfig(
       boolean pauseAllInitialSyncs,
       List<ObjectId> pauseInitialSyncOnIndexIds,
@@ -96,7 +99,8 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
       int maxConcurrentEmbeddingInitialSyncs,
       int maxInFlightEmbeddingGetMores,
       Optional<Integer> embeddingGetMoreBatchSize,
-      Optional<Integer> materializedViewSchemaVersion) {
+      Optional<Integer> materializedViewSchemaVersion,
+      Optional<Integer> mvWriteRateLimitRps) {
     super(
         pauseAllInitialSyncs,
         pauseInitialSyncOnIndexIds,
@@ -113,6 +117,7 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
     this.embeddingGetMoreBatchSize = embeddingGetMoreBatchSize;
     this.requestRateLimitBackoffMs = requestRateLimitBackoffMs;
     this.materializedViewSchemaVersion = materializedViewSchemaVersion;
+    this.mvWriteRateLimitRps = mvWriteRateLimitRps;
   }
 
   /**
@@ -130,7 +135,8 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
       Optional<Integer> optionalMaxConcurrentEmbeddingInitialSyncs,
       Optional<Integer> optionalMaxInFlightEmbeddingGetMores,
       Optional<Integer> embeddingGetMoreBatchSize,
-      Optional<Integer> materializedViewSchemaVersion) {
+      Optional<Integer> materializedViewSchemaVersion,
+      Optional<Integer> mvWriteRateLimitRps) {
     return create(
         Runtime.INSTANCE,
         globalReplicationConfig,
@@ -143,7 +149,8 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
         optionalMaxConcurrentEmbeddingInitialSyncs,
         optionalMaxInFlightEmbeddingGetMores,
         embeddingGetMoreBatchSize,
-        materializedViewSchemaVersion);
+        materializedViewSchemaVersion,
+        mvWriteRateLimitRps);
   }
 
   /** Used for testing. The above create() method should be called instead. */
@@ -160,7 +167,8 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
       Optional<Integer> optionalMaxConcurrentEmbeddingInitialSyncs,
       Optional<Integer> optionalMaxInFlightEmbeddingGetMores,
       Optional<Integer> embeddingGetMoreBatchSize,
-      Optional<Integer> materializedViewSchemaVersion) {
+      Optional<Integer> materializedViewSchemaVersion,
+      Optional<Integer> mvWriteRateLimitRps) {
 
     int maxConcurrentEmbeddingInitialSyncs =
         getMaxConcurrentEmbeddingInitialSyncsWithDefault(
@@ -198,6 +206,8 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
         getRequestRateLimitBackoffMsWithDefault(optionalRequestRateLimitBackoffMs);
     Check.argIsPositive(requestRateLimitBackoffMs, "requestRateLimitBackoffMs");
 
+    mvWriteRateLimitRps.ifPresent(value -> Check.argIsPositive(value, "mvWriteRateLimitRps"));
+
     return new AutoEmbeddingMaterializedViewConfig(
         globalReplicationConfig.pauseAllInitialSyncs(),
         globalReplicationConfig.pauseInitialSyncOnIndexIds(),
@@ -213,7 +223,8 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
         maxConcurrentEmbeddingInitialSyncs,
         maxInFlightEmbeddingGetMores,
         embeddingGetMoreBatchSize,
-        materializedViewSchemaVersion);
+        materializedViewSchemaVersion,
+        mvWriteRateLimitRps);
   }
 
   /**
@@ -232,6 +243,7 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -241,6 +253,7 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
     return create(
         runtime,
         defaultGlobalReplicationConfig(),
+        Optional.empty(),
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
@@ -278,6 +291,7 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
         .field(Fields.MAX_IN_FLIGHT_EMBEDDING_GET_MORES, this.maxInFlightEmbeddingGetMores)
         .field(Fields.EMBEDDING_GET_MORE_BATCH_SIZE, this.embeddingGetMoreBatchSize)
         .field(Fields.MATERIALIZED_VIEW_SCHEMA_VERSION, this.materializedViewSchemaVersion)
+        .field(Fields.MV_WRITE_RATE_LIMIT_RPS, this.mvWriteRateLimitRps)
         .build();
   }
 
@@ -322,6 +336,10 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
     return Type.AUTO_EMBEDDING;
   }
 
+  public Optional<Integer> getMvWriteRateLimitRps() {
+    return this.mvWriteRateLimitRps;
+  }
+
   private static int getMaxConcurrentEmbeddingInitialSyncsWithDefault(
       Runtime runtime, Optional<Integer> optionalMaxConcurrentEmbeddingInitialSyncs) {
     return optionalMaxConcurrentEmbeddingInitialSyncs.orElseGet(
@@ -351,7 +369,7 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
       Runtime runtime, Optional<Integer> optionalNumIndexingThreads) {
     return optionalNumIndexingThreads.orElseGet(
         () -> {
-          int numIndexingThreads = Math.max(1, Math.floorDiv(runtime.getNumCpus(), 2));
+          int numIndexingThreads = Math.max(1, runtime.getNumCpus());
           LOG.info("numIndexingThreads not configured, defaulting to {}.", numIndexingThreads);
           return numIndexingThreads;
         });
@@ -480,5 +498,8 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
             .mustBeNonNegative()
             .optional()
             .noDefault();
+
+    private static final Field.Optional<Integer> MV_WRITE_RATE_LIMIT_RPS =
+        Field.builder("mvWriteRateLimitRps").intField().mustBePositive().optional().noDefault();
   }
 }

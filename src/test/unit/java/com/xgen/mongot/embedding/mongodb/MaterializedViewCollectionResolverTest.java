@@ -422,7 +422,8 @@ public class MaterializedViewCollectionResolverTest {
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
-            Optional.of(0));
+            Optional.of(0),
+            Optional.empty());
 
     MaterializedViewCollectionResolver resolver =
         new MaterializedViewCollectionResolver(
@@ -463,7 +464,8 @@ public class MaterializedViewCollectionResolverTest {
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
-            Optional.of(1));
+            Optional.of(1),
+            Optional.empty());
 
     MaterializedViewCollectionResolver resolver =
         new MaterializedViewCollectionResolver(
