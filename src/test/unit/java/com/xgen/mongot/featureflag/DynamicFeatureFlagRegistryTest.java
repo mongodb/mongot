@@ -2,14 +2,19 @@ package com.xgen.mongot.featureflag;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.google.common.primitives.Ints;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
+import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.testing.mongot.index.query.OperatorQueryBuilder;
 import com.xgen.testing.mongot.index.query.operators.OperatorBuilder;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tags;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.ByteBuffer;
 import java.util.Date;
 import java.util.List;
@@ -444,5 +449,373 @@ public class DynamicFeatureFlagRegistryTest {
 
     assertTrue(registryNoIds.evaluateClusterInvariant("org-feature-no-id", true));
     assertFalse(registryNoIds.evaluateClusterInvariant("org-feature-no-id", false));
+  }
+
+  @Test
+  public void cache_and_gauge_invalidation_onConfigUpdate() {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    MetricsFactory metricsFactory = new MetricsFactory("dynamicFeature", meterRegistry);
+
+    ObjectId org = new ObjectId();
+    DynamicFeatureFlagConfig enabledConfig =
+        new DynamicFeatureFlagConfig(
+            "flip-flag",
+            DynamicFeatureFlagConfig.Phase.ENABLED,
+            List.of(),
+            List.of(),
+            0,
+            DynamicFeatureFlagConfig.Scope.ORG);
+
+    var registry =
+        new DynamicFeatureFlagRegistry(
+            Optional.of(List.of(enabledConfig)),
+            Optional.of(org),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.of(metricsFactory));
+
+    assertTrue(registry.evaluateClusterInvariant("flip-flag", false));
+    assertEquals(
+        1.0,
+        metricsFactory
+            .get(
+                "clusterInvariantStatus",
+                Tags.of("featureFlagName", "flip-flag", "scope", "ORG"))
+            .gauge()
+            .value(),
+        0.0);
+
+    DynamicFeatureFlagConfig disabledConfig =
+        new DynamicFeatureFlagConfig(
+            "flip-flag",
+            DynamicFeatureFlagConfig.Phase.DISABLED,
+            List.of(),
+            List.of(),
+            0,
+            DynamicFeatureFlagConfig.Scope.ORG);
+    registry.updateDynamicFeatureFlags(List.of(disabledConfig));
+
+    assertFalse(registry.evaluateClusterInvariant("flip-flag", true));
+    assertEquals(
+        0.0,
+        metricsFactory
+            .get(
+                "clusterInvariantStatus",
+                Tags.of("featureFlagName", "flip-flag", "scope", "ORG"))
+            .gauge()
+            .value(),
+        0.0);
+  }
+
+  @Test
+  public void cache_removedFlag_returnsFallback() {
+    ObjectId org = new ObjectId();
+    DynamicFeatureFlagConfig config =
+        new DynamicFeatureFlagConfig(
+            "transient-flag",
+            DynamicFeatureFlagConfig.Phase.ENABLED,
+            List.of(),
+            List.of(),
+            0,
+            DynamicFeatureFlagConfig.Scope.ORG);
+
+    var registry =
+        new DynamicFeatureFlagRegistry(
+            Optional.of(List.of(config)),
+            Optional.of(org),
+            Optional.empty(),
+            Optional.empty());
+
+    assertTrue(registry.evaluateClusterInvariant("transient-flag", false));
+
+    registry.updateDynamicFeatureFlags(List.of());
+
+    assertFalse(registry.evaluateClusterInvariant("transient-flag", false));
+    assertTrue(registry.evaluateClusterInvariant("transient-flag", true));
+  }
+
+  @Test
+  public void gaugeEmission_allClusterInvariantScopes_correctValuesAndTags() {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    MetricsFactory metricsFactory = new MetricsFactory("dynamicFeature", meterRegistry);
+
+    ObjectId org = new ObjectId();
+    ObjectId group = new ObjectId();
+    ObjectId cluster = new ObjectId();
+
+    DynamicFeatureFlagConfig orgEnabled =
+        new DynamicFeatureFlagConfig(
+            "org-flag",
+            DynamicFeatureFlagConfig.Phase.ENABLED,
+            List.of(),
+            List.of(),
+            0,
+            DynamicFeatureFlagConfig.Scope.ORG);
+
+    DynamicFeatureFlagConfig groupDisabled =
+        new DynamicFeatureFlagConfig(
+            "group-flag",
+            DynamicFeatureFlagConfig.Phase.DISABLED,
+            List.of(),
+            List.of(),
+            0,
+            DynamicFeatureFlagConfig.Scope.GROUP);
+
+    DynamicFeatureFlagConfig clusterEnabled =
+        new DynamicFeatureFlagConfig(
+            "cluster-flag",
+            DynamicFeatureFlagConfig.Phase.ENABLED,
+            List.of(),
+            List.of(),
+            0,
+            DynamicFeatureFlagConfig.Scope.MONGOT_CLUSTER);
+
+    new DynamicFeatureFlagRegistry(
+        Optional.of(List.of(orgEnabled, groupDisabled, clusterEnabled)),
+        Optional.of(org),
+        Optional.of(group),
+        Optional.of(cluster),
+        Optional.of(metricsFactory));
+
+    assertEquals(
+        1.0,
+        metricsFactory
+            .get(
+                "clusterInvariantStatus",
+                Tags.of("featureFlagName", "org-flag", "scope", "ORG"))
+            .gauge()
+            .value(),
+        0.0);
+
+    assertEquals(
+        0.0,
+        metricsFactory
+            .get(
+                "clusterInvariantStatus",
+                Tags.of("featureFlagName", "group-flag", "scope", "GROUP"))
+            .gauge()
+            .value(),
+        0.0);
+
+    assertEquals(
+        1.0,
+        metricsFactory
+            .get(
+                "clusterInvariantStatus",
+                Tags.of("featureFlagName", "cluster-flag", "scope", "MONGOT_CLUSTER"))
+            .gauge()
+            .value(),
+        0.0);
+  }
+
+  @Test
+  public void noGaugeEmission_forNonClusterInvariantScopes() {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    MetricsFactory metricsFactory = new MetricsFactory("dynamicFeature", meterRegistry);
+
+    DynamicFeatureFlagConfig queryFlag =
+        new DynamicFeatureFlagConfig(
+            "query-flag",
+            DynamicFeatureFlagConfig.Phase.ENABLED,
+            List.of(),
+            List.of(),
+            0,
+            DynamicFeatureFlagConfig.Scope.MONGOT_QUERY);
+
+    DynamicFeatureFlagConfig indexFlag =
+        new DynamicFeatureFlagConfig(
+            "index-flag",
+            DynamicFeatureFlagConfig.Phase.ENABLED,
+            List.of(),
+            List.of(),
+            0,
+            DynamicFeatureFlagConfig.Scope.MONGOT_INDEX);
+
+    new DynamicFeatureFlagRegistry(
+        Optional.of(List.of(queryFlag, indexFlag)),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.of(metricsFactory));
+
+    assertNull(meterRegistry.find("dynamicFeature.clusterInvariantStatus").gauge());
+  }
+
+  @Test
+  public void noGaugeEmission_whenMetricsFactoryAbsent() {
+    ObjectId org = new ObjectId();
+    DynamicFeatureFlagConfig config =
+        new DynamicFeatureFlagConfig(
+            "flag-no-metrics",
+            DynamicFeatureFlagConfig.Phase.ENABLED,
+            List.of(),
+            List.of(),
+            0,
+            DynamicFeatureFlagConfig.Scope.ORG);
+
+    var registry =
+        new DynamicFeatureFlagRegistry(
+            Optional.of(List.of(config)),
+            Optional.of(org),
+            Optional.empty(),
+            Optional.empty());
+
+    assertTrue(registry.evaluateClusterInvariant("flag-no-metrics", false));
+  }
+
+  @Test
+  public void evaluate_entityId_andClusterInvariant_behavioralEquivalence() {
+    ObjectId org = new ObjectId();
+
+    DynamicFeatureFlagConfig allowConfig =
+        new DynamicFeatureFlagConfig(
+            "equiv-allow",
+            DynamicFeatureFlagConfig.Phase.CONTROLLED,
+            List.of(org),
+            List.of(),
+            0,
+            DynamicFeatureFlagConfig.Scope.ORG);
+
+    var registry =
+        new DynamicFeatureFlagRegistry(
+            Optional.of(List.of(allowConfig)),
+            Optional.of(org),
+            Optional.empty(),
+            Optional.empty());
+
+    boolean cachedResult = registry.evaluateClusterInvariant("equiv-allow", false);
+    boolean directResult = registry.evaluate("equiv-allow", org, false);
+    assertEquals(cachedResult, directResult);
+  }
+
+  @Test
+  public void evaluate_entityId_andClusterInvariant_behavioralEquivalence_blockList() {
+    ObjectId org = new ObjectId();
+
+    DynamicFeatureFlagConfig blockConfig =
+        new DynamicFeatureFlagConfig(
+            "equiv-block",
+            DynamicFeatureFlagConfig.Phase.CONTROLLED,
+            List.of(),
+            List.of(org),
+            100,
+            DynamicFeatureFlagConfig.Scope.ORG);
+
+    var registry =
+        new DynamicFeatureFlagRegistry(
+            Optional.of(List.of(blockConfig)),
+            Optional.of(org),
+            Optional.empty(),
+            Optional.empty());
+
+    boolean cachedResult = registry.evaluateClusterInvariant("equiv-block", true);
+    boolean directResult = registry.evaluate("equiv-block", org, true);
+    assertEquals(cachedResult, directResult);
+  }
+
+  @Test
+  public void gaugeEmission_controlledPhaseWithRollout_reflectsEvaluation() {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    MetricsFactory metricsFactory = new MetricsFactory("dynamicFeature", meterRegistry);
+
+    ObjectId cluster = new ObjectId();
+    DynamicFeatureFlagConfig config =
+        new DynamicFeatureFlagConfig(
+            "rollout-flag",
+            DynamicFeatureFlagConfig.Phase.CONTROLLED,
+            List.of(),
+            List.of(),
+            100,
+            DynamicFeatureFlagConfig.Scope.MONGOT_CLUSTER);
+
+    new DynamicFeatureFlagRegistry(
+        Optional.of(List.of(config)),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.of(cluster),
+        Optional.of(metricsFactory));
+
+    assertEquals(
+        1.0,
+        metricsFactory
+            .get(
+                "clusterInvariantStatus",
+                Tags.of("featureFlagName", "rollout-flag", "scope", "MONGOT_CLUSTER"))
+            .gauge()
+            .value(),
+        0.0);
+  }
+
+  @Test
+  public void gaugeEmission_removedFlag_zeroedOut() {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    MetricsFactory metricsFactory = new MetricsFactory("dynamicFeature", meterRegistry);
+
+    ObjectId org = new ObjectId();
+    DynamicFeatureFlagConfig flagA =
+        new DynamicFeatureFlagConfig(
+            "flag-a",
+            DynamicFeatureFlagConfig.Phase.ENABLED,
+            List.of(),
+            List.of(),
+            0,
+            DynamicFeatureFlagConfig.Scope.ORG);
+
+    DynamicFeatureFlagConfig flagB =
+        new DynamicFeatureFlagConfig(
+            "flag-b",
+            DynamicFeatureFlagConfig.Phase.ENABLED,
+            List.of(),
+            List.of(),
+            0,
+            DynamicFeatureFlagConfig.Scope.ORG);
+
+    var registry =
+        new DynamicFeatureFlagRegistry(
+            Optional.of(List.of(flagA, flagB)),
+            Optional.of(org),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.of(metricsFactory));
+
+    assertEquals(
+        1.0,
+        metricsFactory
+            .get(
+                "clusterInvariantStatus",
+                Tags.of("featureFlagName", "flag-a", "scope", "ORG"))
+            .gauge()
+            .value(),
+        0.0);
+    assertEquals(
+        1.0,
+        metricsFactory
+            .get(
+                "clusterInvariantStatus",
+                Tags.of("featureFlagName", "flag-b", "scope", "ORG"))
+            .gauge()
+            .value(),
+        0.0);
+
+    registry.updateDynamicFeatureFlags(List.of(flagA));
+
+    assertEquals(
+        1.0,
+        metricsFactory
+            .get(
+                "clusterInvariantStatus",
+                Tags.of("featureFlagName", "flag-a", "scope", "ORG"))
+            .gauge()
+            .value(),
+        0.0);
+
+    assertEquals(
+        0.0,
+        meterRegistry
+            .find("dynamicFeature.clusterInvariantStatus")
+            .tag("featureFlagName", "flag-b")
+            .gauge()
+            .value(),
+        0.0);
   }
 }
