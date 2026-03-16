@@ -25,6 +25,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/metrics",
         "//src/main/java/com/xgen/mongot/util/concurrent",
         "//src/main/java/com/xgen/mongot/util/mongodb",
+        "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
         "@maven//:io_micrometer_micrometer_core",
         "@maven//:org_mongodb_bson",

@@ -3,6 +3,7 @@ package com.xgen.mongot.index.mongodb;
 import static com.xgen.mongot.embedding.utils.EmbeddingConnectionStringUtils.disableDirectConnection;
 
 import com.google.common.util.concurrent.RateLimiter;
+import com.google.errorprone.annotations.Var;
 import com.mongodb.MongoBulkWriteException;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoNamespace;
@@ -31,6 +32,7 @@ import com.xgen.mongot.util.mongodb.Errors;
 import com.xgen.mongot.util.mongodb.MongoClientBuilder;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import java.io.Closeable;
@@ -85,6 +87,8 @@ public class MaterializedViewWriter implements IndexWriter {
   private final Counter partialBulkWriteErrors;
   private final Counter mvWriteThrottleCount;
   private final Timer mvWriteThrottleWaitTime;
+  private final DistributionSummary bulkWriteNumDocs;
+  private final DistributionSummary bulkWritePayloadSize;
 
   /**
    * A pair of read and write locks which are used to synchronize access to the materialized view
@@ -119,6 +123,8 @@ public class MaterializedViewWriter implements IndexWriter {
     this.partialBulkWriteErrors = metricsFactory.counter("partialBulkWriteErrors");
     this.mvWriteThrottleCount = metricsFactory.counter("mvWriteThrottleCount");
     this.mvWriteThrottleWaitTime = metricsFactory.timer("mvWriteThrottleWaitTime");
+    this.bulkWriteNumDocs = metricsFactory.summary("bulkWriteNumDocs");
+    this.bulkWritePayloadSize = metricsFactory.summary("bulkWritePayloadSize");
     this.operationExecutor =
         new MongoClientOperationExecutor(metricsFactory, "materializedViewCollection");
     this.collectionUuid = collectionUuid;
@@ -363,6 +369,12 @@ public class MaterializedViewWriter implements IndexWriter {
       throw new MaterializedViewNonTransientException(
           "Failed to write to materialized view due to too many sub-retry attempts");
     }
+    // Record bulk write metrics - this metric is at an attempt level, so it is possible to
+    // double count when retrying. This is ok for now as we are mainly using these metrics to
+    // detect general trends and not for precise accounting.
+    this.bulkWriteNumDocs.record(documents.size());
+    this.bulkWritePayloadSize.record(calculatePayloadSize(documents));
+
     try {
       this.operationExecutor.execute(
           "materializedViewBulkWrite",
@@ -441,6 +453,27 @@ public class MaterializedViewWriter implements IndexWriter {
     }
 
     return retryOperations;
+  }
+
+  /**
+   * Calculate the total payload size of all documents in the bulk write operation.
+   *
+   * @param documents list of write models to calculate size for
+   * @return total size in bytes
+   */
+  private static long calculatePayloadSize(List<WriteModel<RawBsonDocument>> documents) {
+    @Var long totalSize = 0;
+    for (WriteModel<RawBsonDocument> writeModel : documents) {
+      if (writeModel instanceof ReplaceOneModel<RawBsonDocument> replaceModel) {
+        totalSize += replaceModel.getReplacement().getByteBuffer().remaining();
+      }
+      // UpdateOneModel is only used for filter-field-only updates (a small $set of a few fields),
+      // so its payload is negligible relative to full-document ReplaceOneModel payloads which carry
+      // embeddings. Measuring it would require serializing a BsonDocument on the hot path, so it
+      // is intentionally excluded here.
+      // DeleteOneModel doesn't have a document payload to measure.
+    }
+    return totalSize;
   }
 
   private void ensureOpen(String methodName) {

@@ -7,13 +7,13 @@ import com.mongodb.MongoNotPrimaryException;
 import com.mongodb.MongoSocketException;
 import com.mongodb.MongoTimeoutException;
 import com.xgen.mongot.metrics.MetricsFactory;
-import com.xgen.mongot.metrics.Timed;
 import com.xgen.mongot.util.mongodb.Errors;
 import com.xgen.mongot.util.retry.ExponentialBackoffPolicy;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
 import java.time.Duration;
+import java.util.concurrent.ConcurrentHashMap;
 import net.jodah.failsafe.Failsafe;
 import net.jodah.failsafe.RetryPolicy;
 import net.jodah.failsafe.function.CheckedRunnable;
@@ -36,6 +36,9 @@ public class MongoClientOperationExecutor {
   private final String requestLatencyMetricName;
   private final String failedRequestsMetricName;
   private final String successfulRequestsMetricName;
+  private final ConcurrentHashMap<String, Timer> timerCache = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, Counter> successCounterCache = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, Counter> failureCounterCache = new ConcurrentHashMap<>();
 
   /**
    * Creates a new MongoClientOperationExecutor.
@@ -79,21 +82,34 @@ public class MongoClientOperationExecutor {
   public <T> T execute(String operationName, CheckedSupplier<T> operation) throws Exception {
 
     var metricTags = Tags.of("operation", operationName);
-    Timer timer = this.metricsFactory.timer(this.requestLatencyMetricName, metricTags);
+    Timer timer =
+        this.timerCache.computeIfAbsent(
+            operationName,
+            k ->
+                this.metricsFactory.timer(
+                    this.requestLatencyMetricName, metricTags, 0.5, 0.75, 0.9, 0.99));
     Counter successCounter =
-        this.metricsFactory.counter(this.successfulRequestsMetricName, metricTags);
-    Counter failureCounter = this.metricsFactory.counter(this.failedRequestsMetricName, metricTags);
+        this.successCounterCache.computeIfAbsent(
+            operationName,
+            k -> this.metricsFactory.counter(this.successfulRequestsMetricName, metricTags));
+    Counter failureCounter =
+        this.failureCounterCache.computeIfAbsent(
+            operationName,
+            k -> this.metricsFactory.counter(this.failedRequestsMetricName, metricTags));
 
+    // The latency metric here includes retries and is recorded for both success and failure.
+    Timer.Sample sample = Timer.start();
     try {
-      // The latency metric here includes retries.
-      T result = Timed.supplier(timer, () -> Failsafe.with(this.retryPolicy).get(operation));
-
+      T result = Failsafe.with(this.retryPolicy).get(operation);
       successCounter.increment();
       return result;
 
     } catch (Exception e) {
       failureCounter.increment();
       throw e;
+
+    } finally {
+      sample.stop(timer);
     }
   }
 
