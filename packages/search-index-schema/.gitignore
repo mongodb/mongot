@@ -20,3 +20,6 @@ Thumbs.db
 
 # npm package
 *.tgz
+
+# Bazel uses pnpm-lock.yaml instead of package-lock.json
+package-lock.json

@@ -59,6 +59,9 @@ genrule(
         # Get the package directory (where the source files are)
         PACKAGE_DIR=$$(dirname $$(echo $(locations package.json) | cut -d' ' -f1))
 
+        # Resolve to the real path (follows symlinks to source tree)
+        SOURCE_PACKAGE_DIR=$$(cd $$PACKAGE_DIR && pwd -P)
+
         # Get the absolute path to the bundle binary before changing directories
         BUNDLE_BIN_PATH=$$(pwd)/$(location :bundle_bin)
 
@@ -67,6 +70,9 @@ genrule(
 
         # Set BAZEL_BINDIR as required by aspect_rules_js (set to '.' for non-build actions)
         export BAZEL_BINDIR=.
+
+        # Output to the source tree so developers can see the bundled schemas
+        export BUNDLE_OUTPUT_DIR=$$SOURCE_PACKAGE_DIR/output
 
         # Run the bundle binary (Bazel-managed, not npm)
         $$BUNDLE_BIN_PATH
@@ -92,13 +98,10 @@ genrule(
             "schema/search/test/**",
             "schema/vectorSearch/test/**",
         ],
-    ) + glob([
-        "output/**/*.json",
-    ]) + [
+    ) + [
         "README.md",
         "CHANGELOG.md",
         "package.json",
-        ":bundle_schemas",
     ],
     outs = ["pkg.stamp"],
     cmd = """
@@ -116,10 +119,10 @@ genrule(
         # Copy schema directory (excluding test directories)
         rsync -av --exclude='search/test' --exclude='vectorSearch/test' $$PACKAGE_DIR/schema/ $$PKG_DIR/schema/
 
-        # Copy output directory
-        if [ -d $$PACKAGE_DIR/output ]; then
-            cp -r $$PACKAGE_DIR/output $$PKG_DIR/
-        fi
+        # Run bundle script to generate bundled schemas directly into pkg/output
+        export BAZEL_BINDIR=.
+        export BUNDLE_OUTPUT_DIR=$$PKG_DIR/output
+        $(location :bundle_bin)
 
         # Create stamp file
         touch $(location pkg.stamp)
@@ -128,6 +131,7 @@ genrule(
         "no-remote-cache",  # Disable remote caching since this rule generates undeclared outputs (pkg/ directory)
         "no-sandbox",
     ],
+    tools = [":bundle_bin"],
     visibility = ["//visibility:public"],
 )
 
