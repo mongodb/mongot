@@ -9,7 +9,6 @@ import com.xgen.mongot.index.Index;
 import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.InitializedSearchIndex;
 import com.xgen.mongot.index.MetaResults;
-import com.xgen.mongot.index.SearchIndex;
 import com.xgen.mongot.index.SearchIndexReader;
 import com.xgen.mongot.index.lucene.EmptySearchBatchProducer;
 import com.xgen.mongot.index.query.InvalidQueryException;
@@ -26,11 +25,11 @@ import java.io.IOException;
 /** Creates cursors with unique incrementing id. */
 class CursorFactory {
 
-  static class SearchCursorAndMetaResults {
+  static class CursorAndMetaResults {
     public final MongotCursor cursor;
     public final MetaResults metaResults;
 
-    public SearchCursorAndMetaResults(MongotCursor cursor, MetaResults metaResults) {
+    public CursorAndMetaResults(MongotCursor cursor, MetaResults metaResults) {
       this.cursor = cursor;
       this.metaResults = metaResults;
     }
@@ -52,7 +51,7 @@ class CursorFactory {
     this.cursorIdSupplier = cursorIdSupplier;
   }
 
-  SearchCursorAndMetaResults createCursor(
+  CursorAndMetaResults createCursor(
       String namespace,
       InitializedSearchIndex index,
       Query query,
@@ -81,7 +80,7 @@ class CursorFactory {
               .getReader()
               .query(query, queryCursorOptions, batchSizeStrategy, queryOptimizationFlags);
 
-      return new SearchCursorAndMetaResults(
+      return new CursorAndMetaResults(
           new MongotCursor(
               cursorId, producerAndMeta.searchBatchProducer, namespace, batchSizeStrategy),
           producerAndMeta.metaResults);
@@ -142,9 +141,9 @@ class CursorFactory {
     }
   }
 
-  SearchCursorAndMetaResults getEmptyCursor(String namespace) {
+  CursorAndMetaResults getEmptyCursor(String namespace) {
     EmptySearchBatchProducer emptyProducer = new EmptySearchBatchProducer();
-    return new SearchCursorAndMetaResults(
+    return new CursorAndMetaResults(
         new MongotCursor(
             this.cursorIdSupplier.nextId(),
             emptyProducer,
@@ -169,12 +168,7 @@ class CursorFactory {
     }
   }
 
-  /**
-   * Check the "effective status" of the index, a status that incorporates the index status from
-   * {@link Index#getStatus()} with the statuses of synonym mappings in {@link
-   * com.xgen.mongot.index.SearchIndex#getSynonymRegistry()}.
-   */
-  static boolean doesNotExist(SearchIndex index) {
+  static boolean doesNotExist(Index index) {
     return index.getStatus().getStatusCode() == IndexStatus.StatusCode.DOES_NOT_EXIST;
   }
 }

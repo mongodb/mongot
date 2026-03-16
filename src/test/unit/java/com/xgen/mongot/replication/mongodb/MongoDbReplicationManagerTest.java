@@ -28,7 +28,6 @@ import com.xgen.mongot.catalog.InitializedIndexCatalog;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexGeneration;
-import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.InitializedSearchIndex;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.version.GenerationId;
@@ -749,7 +748,7 @@ public class MongoDbReplicationManagerTest {
                   "index-commit", 1, new SimpleMeterRegistry()));
       InitializedIndexCatalog initializedIndexCatalog = mock(InitializedIndexCatalog.class);
       when(initializedIndexCatalog.getIndex(any()))
-          .thenReturn(Optional.of(mock(InitializedIndex.class)));
+          .thenReturn(Optional.of(mock(InitializedSearchIndex.class)));
       return new Mocks(
           executorService,
           indexingWorkSchedulerFactory,

@@ -30,7 +30,7 @@ import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
 import com.xgen.mongot.embedding.mongodb.leasing.StaticLeaderLeaseManager;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexGeneration;
-import com.xgen.mongot.index.InitializedIndex;
+import com.xgen.mongot.index.InitializedSearchIndex;
 import com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.autoembedding.InitializedMaterializedViewIndex;
 import com.xgen.mongot.index.autoembedding.MaterializedViewIndexGeneration;
@@ -791,7 +791,7 @@ public class MaterializedViewManagerTest {
 
       InitializedIndexCatalog initializedIndexCatalog = mock(InitializedIndexCatalog.class);
       when(initializedIndexCatalog.getIndex(any()))
-          .thenReturn(Optional.of(mock(InitializedIndex.class)));
+          .thenReturn(Optional.of(mock(InitializedSearchIndex.class)));
 
       // Use StaticLeaderLeaseManager mock so that activateStaticLeadership() is called
       // (it's guarded by instanceof StaticLeaderLeaseManager check)

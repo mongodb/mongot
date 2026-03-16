@@ -21,6 +21,7 @@ import com.xgen.mongot.index.DynamicFeatureFlagsMetricsRecorder;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.InitializedIndex;
+import com.xgen.mongot.index.ReaderClosedException;
 import com.xgen.mongot.index.Variables;
 import com.xgen.mongot.index.lucene.explain.explainers.MetadataFeatureExplainer;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
@@ -159,20 +160,29 @@ public class SearchCommand implements Command {
                     .getCachedMongoDbServerInfo()
                     .mongoDbVersion());
 
-        try (var cursorGuard =
-            new CursorGuard(this.createdCursorIds, this.cursorManager, populateCursorResult)) {
+        try (var cursorGuard = new CursorGuard(this.createdCursorIds, this.cursorManager)) {
+          BsonDocument batch;
           if (this.definition.intermediateVersion().isEmpty()) {
-            return getBatch(
-                queryDefinition, queryCursorOptions, queryOptimizationFlags, populateCursorResult);
+            batch =
+                getBatch(
+                    queryDefinition,
+                    queryCursorOptions,
+                    queryOptimizationFlags,
+                    populateCursorResult);
+          } else {
+            var protocolVersion = this.definition.intermediateVersion().get();
+            batch =
+                getIntermediateBatch(
+                    queryDefinition,
+                    protocolVersion,
+                    queryCursorOptions,
+                    queryOptimizationFlags,
+                    populateCursorResult);
           }
-
-          var protocolVersion = this.definition.intermediateVersion().get();
-          return getIntermediateBatch(
-              queryDefinition,
-              protocolVersion,
-              queryCursorOptions,
-              queryOptimizationFlags,
-              populateCursorResult);
+          if (populateCursorResult) {
+            cursorGuard.keepCursors();
+          }
+          return batch;
         }
       }
     } catch (BsonParseException | InvalidQueryException e) {
@@ -251,7 +261,8 @@ public class SearchCommand implements Command {
           IndexUnavailableException,
           InvalidQueryException,
           IOException,
-          InterruptedException {
+          InterruptedException,
+          ReaderClosedException {
     Timer.Sample sample = Timer.start();
     SearchCursorInfo cursorInfo =
         this.cursorManager.newCursor(
@@ -263,23 +274,25 @@ public class SearchCommand implements Command {
             queryCursorOptions,
             queryOptimizationFlags,
             this.searchEnvoyMetadata);
-    this.createdCursorIds.add(cursorInfo.cursorId);
+
+    long cursorId = cursorInfo.cursorId;
+    this.createdCursorIds.add(cursorId);
 
     // Get the timer consumer first, as the cursor may be killed when the next batch is retrieved.
     QueryBatchTimerRecorder queryBatchTimerRecorder =
-        this.cursorManager.getIndexQueryBatchTimerRecorder(cursorInfo.cursorId);
+        this.cursorManager.getIndexQueryBatchTimerRecorder(cursorId);
 
     Optional<BsonValue> variables = Optional.of(new Variables(cursorInfo.metaResults).toRawBson());
     MongotCursorResultInfo cursorResultInfo =
         this.cursorManager.getNextBatch(
-            cursorInfo.cursorId,
+            cursorId,
             this.bsonSizeSoftLimit.subtract(
                 MongotCursorBatch.calculateEmptyBatchSize(variables, Optional.empty())),
             queryCursorOptions);
 
     Optional<MongotCursorResult> cursorResult =
         populateCursorResult
-            ? Optional.of(cursorResultInfo.toCursorResult(cursorInfo.cursorId, Optional.empty()))
+            ? Optional.of(cursorResultInfo.toCursorResult(cursorId, Optional.empty()))
             : Optional.empty();
 
     MongotCursorBatch batch =

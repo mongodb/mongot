@@ -1,6 +1,6 @@
 package com.xgen.mongot.index;
 
-public interface InitializedVectorIndex extends InitializedIndex, VectorIndex {
+public non-sealed interface InitializedVectorIndex extends InitializedIndex, VectorIndex {
   /**
    * Returns the IndexReader for the Index.
    *

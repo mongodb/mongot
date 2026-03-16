@@ -1,6 +1,6 @@
 package com.xgen.mongot.index;
 
-public interface InitializedSearchIndex extends InitializedIndex, SearchIndex {
+public non-sealed interface InitializedSearchIndex extends InitializedIndex, SearchIndex {
 
   /**
    * Returns the IndexReader for the Index.

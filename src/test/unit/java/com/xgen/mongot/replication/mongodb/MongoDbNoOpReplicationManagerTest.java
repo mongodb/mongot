@@ -24,7 +24,7 @@ import com.xgen.mongot.index.EncodedUserData;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.IndexWriter;
-import com.xgen.mongot.index.InitializedIndex;
+import com.xgen.mongot.index.InitializedSearchIndex;
 import com.xgen.mongot.index.ReplicationOpTimeInfo;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.status.StaleStatusReason;
@@ -165,13 +165,13 @@ public class MongoDbNoOpReplicationManagerTest {
 
   private static class Mocks {
     final MongotCursorManager cursorManager;
-    final InitializedIndex initializedIndex;
+    final InitializedSearchIndex initializedIndex;
     final MongoDbNoOpReplicationManager manager;
 
     private Mocks(
         MongotCursorManager cursorManager,
         InitializedIndexCatalog initializedIndexCatalog,
-        InitializedIndex index,
+        InitializedSearchIndex index,
         FeatureFlags featureFlags) {
       this.cursorManager = cursorManager;
       this.initializedIndex = index;
@@ -195,7 +195,7 @@ public class MongoDbNoOpReplicationManagerTest {
 
     static Mocks create(FeatureFlags featureFlags) {
       InitializedIndexCatalog initializedIndexCatalog = mock(InitializedIndexCatalog.class);
-      InitializedIndex initializedIndex = mock(InitializedIndex.class);
+      InitializedSearchIndex initializedIndex = mock(InitializedSearchIndex.class);
       IndexWriter indexWriter = mock(IndexWriter.class);
       when(indexWriter.getCommitUserData()).thenReturn(EncodedUserData.EMPTY);
       when(initializedIndex.getWriter()).thenReturn(indexWriter);

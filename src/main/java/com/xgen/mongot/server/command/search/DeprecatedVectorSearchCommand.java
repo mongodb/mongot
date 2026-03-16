@@ -16,6 +16,7 @@ import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.InitializedIndex;
+import com.xgen.mongot.index.ReaderClosedException;
 import com.xgen.mongot.index.lucene.explain.explainers.MetadataFeatureExplainer;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.explain.tracing.ExplainQueryState;
@@ -138,9 +139,12 @@ public class DeprecatedVectorSearchCommand implements Command {
                     .mongoDbServerInfoProvider()
                     .getCachedMongoDbServerInfo()
                     .mongoDbVersion());
-        try (var cursorGuard =
-            new CursorGuard(this.createdCursorIds, this.cursorManager, populateCursorResult)) {
-          return getBatch(query, populateCursorResult);
+        try (var cursorGuard = new CursorGuard(this.createdCursorIds, this.cursorManager)) {
+          BsonDocument batch = getBatch(query, populateCursorResult);
+          if (populateCursorResult) {
+            cursorGuard.keepCursors();
+          }
+          return batch;
         }
       }
     } catch (InvalidQueryException | IndexUnavailableException | BsonParseException e) {
@@ -167,8 +171,10 @@ public class DeprecatedVectorSearchCommand implements Command {
           IndexUnavailableException,
           InvalidQueryException,
           IOException,
-          InterruptedException {
+          InterruptedException,
+          ReaderClosedException {
     Timer.Sample sample = Timer.start();
+
     SearchCursorInfo cursorInfo =
         this.cursorManager.newCursor(
             this.definition.db(),

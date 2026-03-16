@@ -5,7 +5,8 @@ import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.util.Check;
 import java.io.Closeable;
 
-public interface InitializedIndex extends Index, Closeable {
+public sealed interface InitializedIndex extends Index, Closeable
+    permits InitializedSearchIndex, InitializedVectorIndex {
   /**
    * Returns the IndexReader for the Index.
    *

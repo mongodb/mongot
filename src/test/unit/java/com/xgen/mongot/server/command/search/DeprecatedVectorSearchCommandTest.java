@@ -33,7 +33,8 @@ import com.xgen.mongot.index.CountResult;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.IndexMetricValuesSupplier;
 import com.xgen.mongot.index.IndexMetricsUpdater;
-import com.xgen.mongot.index.InitializedIndex;
+import com.xgen.mongot.index.InitializedSearchIndex;
+import com.xgen.mongot.index.InitializedVectorIndex;
 import com.xgen.mongot.index.MetaResults;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.lucene.explain.information.LuceneQuerySpecification;
@@ -51,6 +52,7 @@ import com.xgen.mongot.util.bson.Vector;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.mongodb.MongoDbServerInfo;
 import com.xgen.mongot.util.mongodb.MongoDbVersion;
+import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.lucene.explain.information.DefaultQueryBuilder;
 import com.xgen.testing.mongot.index.lucene.explain.information.QueryExplainInformationBuilder;
@@ -501,10 +503,9 @@ public class DeprecatedVectorSearchCommandTest {
     var catalog = Mockito.mock(IndexCatalog.class);
     var initializedIndexCatalog = Mockito.mock(InitializedIndexCatalog.class);
     IndexGeneration indexGeneration = mockVectorIndexGeneration();
-    var initializedIndex = Mockito.mock(InitializedIndex.class);
-    // Set the index type to SEARCH (not VECTOR) so it doesn't delegate to VectorSearchCommand
+    var initializedIndex = Mockito.mock(InitializedSearchIndex.class);
     when(initializedIndex.getType()).thenReturn(IndexDefinitionGeneration.Type.SEARCH);
-    when(initializedIndex.getDefinition()).thenReturn(indexGeneration.getDefinition());
+    when(initializedIndex.getDefinition()).thenReturn(SearchIndexDefinitionBuilder.VALID_INDEX);
     var meterAndFtdcRegistry = MeterAndFtdcRegistry.createWithSimpleRegistries();
     PerIndexMetricsFactory metricsFactory =
         new PerIndexMetricsFactory(
@@ -575,8 +576,7 @@ public class DeprecatedVectorSearchCommandTest {
     // Set status to STEADY so throwIfUnavailableForQuerying() won't throw
     mockVectorIndex.setStatus(IndexStatus.steady());
 
-    IndexGeneration indexGeneration =
-        new IndexGeneration(mockVectorIndex, definitionGeneration);
+    IndexGeneration indexGeneration = new IndexGeneration(mockVectorIndex, definitionGeneration);
 
     when(catalog.getIndex(DATABASE_NAME, COLLECTION_UUID, Optional.empty(), INDEX_NAME))
         .thenReturn(Optional.of(indexGeneration));
@@ -692,7 +692,7 @@ public class DeprecatedVectorSearchCommandTest {
   }
 
   private InitializedIndexCatalog getInitializedIndexCatalog() {
-    var index = Mockito.mock(InitializedIndex.class);
+    var index = Mockito.mock(InitializedVectorIndex.class);
     var meterAndFtdcRegistry = MeterAndFtdcRegistry.createWithSimpleRegistries();
     PerIndexMetricsFactory metricsFactory =
         new PerIndexMetricsFactory(
