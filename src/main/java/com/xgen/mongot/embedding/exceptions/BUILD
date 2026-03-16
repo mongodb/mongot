@@ -5,6 +5,7 @@ java_library(
     srcs = [
         "EmbeddingProviderBatchingException.java",
         "EmbeddingProviderNonTransientException.java",
+        "EmbeddingProviderRateLimitException.java",
         "EmbeddingProviderTransientException.java",
         "MaterializedViewNonTransientException.java",
         "MaterializedViewTransientException.java",

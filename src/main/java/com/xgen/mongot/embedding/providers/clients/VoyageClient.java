@@ -1,16 +1,19 @@
 package com.xgen.mongot.embedding.providers.clients;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.embedding.EmbeddingRequestContext;
 import com.xgen.mongot.embedding.MongotMetadata;
 import com.xgen.mongot.embedding.VectorOrError;
 import com.xgen.mongot.embedding.exceptions.EmbeddingProviderBatchingException;
 import com.xgen.mongot.embedding.exceptions.EmbeddingProviderNonTransientException;
+import com.xgen.mongot.embedding.exceptions.EmbeddingProviderRateLimitException;
 import com.xgen.mongot.embedding.exceptions.EmbeddingProviderTransientException;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.VoyageEmbeddingCredentials;
 import com.xgen.mongot.embedding.providers.configs.VoyageApiSchema;
+import com.xgen.mongot.embedding.providers.congestion.DynamicSemaphore;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.bson.JsonCodec;
@@ -23,6 +26,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -49,6 +53,9 @@ public class VoyageClient implements ClientInterface {
   private URI endpoint;
   private final DistributionSummary inputTokenDistribution;
   private final Counter invalidRequestCounter;
+  private final Counter congestionEventCounter;
+  private final Counter aimdSuccessCounter;
+  private @Nullable DynamicSemaphore congestionSemaphore;
 
   private boolean isDedicatedCluster;
   private final boolean attachBillingMetadata;
@@ -91,6 +98,8 @@ public class VoyageClient implements ClientInterface {
     this.attachBillingMetadata = attachBillingMetadata;
     this.inputTokenDistribution = metricsFactory.summary("inputTokenDistribution");
     this.invalidRequestCounter = metricsFactory.counter("invalidRequestCounter");
+    this.congestionEventCounter = metricsFactory.counter("aimdCongestionEvents");
+    this.aimdSuccessCounter = metricsFactory.counter("aimdSuccessfulRequests");
     updateConfig(workloadParams);
 
     // Dedicated clusters must have credentialToken set
@@ -103,38 +112,75 @@ public class VoyageClient implements ClientInterface {
   @Override
   public List<VectorOrError> embed(List<String> inputs, EmbeddingRequestContext context)
       throws EmbeddingProviderTransientException, EmbeddingProviderNonTransientException {
-    // Voyage Service can't handle empty list or empty string for embedding, needs to filter them
-    // here.
-    List<String> filteredInput = inputs.stream().filter(text -> !text.isEmpty()).toList();
-    if (filteredInput.isEmpty()) {
-      return inputs.stream().map(ignored -> VectorOrError.EMPTY_INPUT_ERROR).toList();
-    }
-
-    // Extract tenant ID if needed and select appropriate credentials
-    Optional<String> tenantId = extractTenantIdIfNeeded(context);
-    String apiToken = selectApiToken(tenantId);
-
-    HttpRequest request;
+    @Var Boolean isAck = null;
     try {
-      request = buildRequest(filteredInput, apiToken, context);
-    } catch (IllegalArgumentException e) {
-      String message = e.getMessage();
-      String cleanedMessage = message != null ? removeApiKeyFromHttpHeader(message) : null;
-      IllegalArgumentException cleanedException =
-          new IllegalArgumentException(cleanedMessage, e.getCause());
-      LOG.error("HTTP Request Error", cleanedException);
-      throw new EmbeddingProviderTransientException(cleanedException);
-    }
-    try {
-      HttpResponse<String> response =
-          this.voyageHttpClient.send(request, HttpResponse.BodyHandlers.ofString());
-      return extractVectorsFromResponse(response, inputs);
-    } catch (InterruptedException | IOException e) {
-      LOG.error("Got an error when sending voyage API request", e);
-      throw new EmbeddingProviderTransientException(e);
-    } catch (EmbeddingProviderTransientException e) {
-      LOG.error("Got an error when processing voyage API response", e);
-      throw e;
+      // Acquire permit if congestion control is enabled
+      if (this.congestionSemaphore != null) {
+        try {
+          this.congestionSemaphore.acquire();
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          throw new EmbeddingProviderTransientException("Interrupted while acquiring semaphore");
+        }
+      }
+
+      // Voyage Service can't handle empty list or empty string for embedding, needs to filter them
+      // here.
+      List<String> filteredInput = inputs.stream().filter(text -> !text.isEmpty()).toList();
+      if (filteredInput.isEmpty()) {
+        return inputs.stream().map(ignored -> VectorOrError.EMPTY_INPUT_ERROR).toList();
+      }
+
+      // Extract tenant ID if needed and select appropriate credentials
+      Optional<String> tenantId = extractTenantIdIfNeeded(context);
+      String apiToken = selectApiToken(tenantId);
+
+      HttpRequest request;
+      try {
+        request = buildRequest(filteredInput, apiToken, context);
+      } catch (IllegalArgumentException e) {
+        String message = e.getMessage();
+        String cleanedMessage = message != null ? removeApiKeyFromHttpHeader(message) : null;
+        IllegalArgumentException cleanedException =
+            new IllegalArgumentException(cleanedMessage, e.getCause());
+        LOG.error("HTTP Request Error", cleanedException);
+        throw new EmbeddingProviderTransientException(cleanedException);
+      }
+      try {
+        HttpResponse<String> response =
+            this.voyageHttpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        var vectorResponse = extractVectorsFromResponse(response, inputs);
+        isAck = true;
+        return vectorResponse;
+      } catch (HttpTimeoutException e) {
+        LOG.error("Got timeout error when sending voyage API request", e);
+        isAck = false;
+        throw new EmbeddingProviderTransientException(e);
+      } catch (EmbeddingProviderRateLimitException e) {
+        LOG.error("Got rate-limit error when sending voyage API request", e);
+        isAck = false;
+        throw new EmbeddingProviderTransientException(e);
+      } catch (InterruptedException | IOException e) {
+        LOG.error("Got an error when sending voyage API request", e);
+        throw new EmbeddingProviderTransientException(e);
+      } catch (EmbeddingProviderTransientException e) {
+        LOG.error("Got an error when processing voyage API response", e);
+        throw e;
+      }
+    } finally {
+      if (this.congestionSemaphore != null) {
+        if (isAck != null) {
+          if (isAck) {
+            this.aimdSuccessCounter.increment();
+          } else {
+            this.congestionEventCounter.increment();
+            LOG.debug("AIMD congestion signal received, reducing window");
+          }
+          this.congestionSemaphore.release(isAck);
+        } else {
+          this.congestionSemaphore.release();
+        }
+      }
     }
   }
 
@@ -163,7 +209,7 @@ public class VoyageClient implements ClientInterface {
    * use the default credentialToken. For MTM clusters, look up tenant-specific credentials.
    */
   private String selectApiToken(Optional<String> tenantId)
-      throws EmbeddingProviderTransientException {
+      throws EmbeddingProviderTransientException, IllegalStateException {
     if (this.isDedicatedCluster) {
       LOG.debug("Using dedicated cluster credentials");
       if (this.credentialToken == null) {
@@ -198,6 +244,11 @@ public class VoyageClient implements ClientInterface {
     } else {
       configureMultiTenantCredentials(workloadParams);
     }
+  }
+
+  @Override
+  public void setCongestionSemaphore(DynamicSemaphore semaphore) {
+    this.congestionSemaphore = semaphore;
   }
 
   /**
@@ -324,7 +375,9 @@ public class VoyageClient implements ClientInterface {
 
   private List<VectorOrError> extractVectorsFromResponse(
       HttpResponse<String> response, List<String> inputs)
-      throws EmbeddingProviderTransientException {
+      throws EmbeddingProviderTransientException,
+          EmbeddingProviderBatchingException,
+          HttpTimeoutException {
     int statusCode = response.statusCode();
     if (statusCode == 400) {
       String errorMessage =
@@ -341,6 +394,14 @@ public class VoyageClient implements ClientInterface {
         this.invalidRequestCounter.increment();
         return inputs.stream().map(ignored -> new VectorOrError(errorMessage)).toList();
       }
+    }
+    if (statusCode == 429) {
+      throw new EmbeddingProviderRateLimitException(
+          String.format("Rate limit exceeded (HTTP 429). Response body: %s", response.body()));
+    }
+    if (statusCode == 408) {
+      throw new HttpTimeoutException(
+          String.format("Timeout exception (HTTP 408). Response body: %s", response.body()));
     }
     if (statusCode > 400) {
       throw new EmbeddingProviderTransientException(

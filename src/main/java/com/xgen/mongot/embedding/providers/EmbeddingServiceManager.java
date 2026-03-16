@@ -30,14 +30,15 @@ import javax.annotation.Nullable;
  * EmbeddingServiceManager holds all EmbeddingProviderManagers for different models and maintains a
  * thread pool to execute embed calls.
  *
- * <p>Note: We assume exactly one EmbeddingProvider(e.g., AWS_BEDROCK) can serve the given model in
- * the Mongot node.
+ * <p>Note: We assume exactly one EmbeddingProvider(e.g., VOYAGE, AWS_BEDROCK) can serve the given
+ * model in the Mongot node.
  */
 public class EmbeddingServiceManager {
   // TODO(CLOUDP-318302): Add AVG_CHAR_SIZE_PER_TOKEN into MongotConfigs.
   private static final double DEFAULT_AVG_CHAR_SIZE_PER_TOKEN = 3.0;
   // In most extreme cases, avg char size per token can be 0.33, like "\uffff"
   private static final double FALLBACK_AVG_CHAR_SIZE_PER_TOKEN = 0.33;
+
   private final NamedScheduledExecutorService namedScheduledExecutorService;
   private final EmbeddingClientFactory embeddingClientFactory;
   private final MetricsFactory metricsFactory;
@@ -53,6 +54,7 @@ public class EmbeddingServiceManager {
     this.namedScheduledExecutorService = namedScheduledExecutorService;
     this.metricsFactory = new MetricsFactory("embeddingServiceManager", meterRegistry);
     this.tokenEstimationFailsCounter = this.metricsFactory.counter("tokenEstimationFailsCounter");
+
     updateEmbeddingProviderManagers(embeddingServiceConfigs);
   }
 
@@ -118,6 +120,7 @@ public class EmbeddingServiceManager {
     EmbeddingModelConfig.ConsolidatedWorkloadParams workloadSpecificParams =
         getWorkloadParamsByTier(embeddingModelConfig, serviceTier);
     EmbeddingServiceConfig.ModelConfig workloadModelConfig = workloadSpecificParams.modelConfig();
+
     List<CompletableFuture<List<VectorOrError>>> futures =
         // 1. batching based on options and client api
         // Set avg char size per token to be DEFAULT_AVG_CHAR_SIZE_PER_TOKEN then we can use a
@@ -130,61 +133,71 @@ public class EmbeddingServiceManager {
             // 2. run api async with retries
             .stream()
             .map(
-                inputList -> {
-                  // embedAsync will call provider with retries.
-                  return clientManager
-                      .embedAsync(inputList, serviceTier, context)
-                      .exceptionallyCompose(
-                          throwable -> {
-                            Throwable unwrapped = unwrapThrowable(throwable);
-                            if (unwrapped instanceof EmbeddingProviderBatchingException) {
-                              // TODO(CLOUDP-297078): We may use tokenizer as long term fix.
-                              // Rebatches it by using FALLBACK_AVG_CHAR_SIZE_PER_TOKEN, which we
-                              // use to divide total char length and we just rebatch it once since
-                              // this token estimation should be conservative enough.
-                              return FutureUtils.transposeList(
-                                      generateBatches(
-                                              inputList,
-                                              workloadModelConfig.getBatchSize(),
-                                              workloadModelConfig.getBatchTokenLimit(),
-                                              FALLBACK_AVG_CHAR_SIZE_PER_TOKEN)
-                                          .stream()
-                                          .map(
-                                              subInputList ->
-                                                  clientManager.embedAsync(
-                                                      subInputList, serviceTier, context))
-                                          .toList())
-                                  // Merge responses from rebatched requests into one list.
-                                  .thenApply(
-                                      listOfOutputLists ->
-                                          listOfOutputLists.stream()
-                                              .flatMap(Collection::stream)
-                                              .toList())
-                                  // Convert EmbeddingProviderBatchingException to
-                                  // EmbeddingProviderNonTransientException to fail it loudly if
-                                  // rebatch also fails
-                                  .exceptionally(
-                                      unrecoverableThrowable -> {
-                                        Throwable unrecoverableEx =
-                                            unwrapThrowable(unrecoverableThrowable);
-                                        if (unrecoverableEx
-                                            instanceof
-                                            EmbeddingProviderBatchingException batchingException) {
-                                          this.tokenEstimationFailsCounter.increment();
-                                          throw new EmbeddingProviderNonTransientException(
-                                              Strings.nullToEmpty(batchingException.getMessage()));
-                                        }
-                                        throw new CompletionException(unrecoverableEx);
-                                      });
-                            }
-                            return CompletableFuture.failedFuture(unwrapped);
-                          });
-                })
+                inputList ->
+                    clientManager
+                        .embedAsync(inputList, serviceTier, context)
+                        .exceptionallyCompose(
+                            throwable ->
+                                handleBatchingException(
+                                    throwable,
+                                    clientManager,
+                                    inputList,
+                                    serviceTier,
+                                    context,
+                                    workloadModelConfig)))
             .toList();
     // 3. collect and join results
     return FutureUtils.transposeList(futures)
         .thenApply(
             listOfList -> listOfList.stream().flatMap(List::stream).collect(Collectors.toList()));
+  }
+
+  /**
+   * Handles EmbeddingProviderBatchingException by rebatching with more conservative token
+   * estimation.
+   */
+  private CompletableFuture<List<VectorOrError>> handleBatchingException(
+      Throwable throwable,
+      EmbeddingProviderManager clientManager,
+      List<String> inputList,
+      ServiceTier serviceTier,
+      EmbeddingRequestContext context,
+      EmbeddingServiceConfig.ModelConfig workloadModelConfig) {
+
+    Throwable unwrapped = unwrapThrowable(throwable);
+    if (unwrapped instanceof EmbeddingProviderBatchingException) {
+      // TODO(CLOUDP-297078): We may use tokenizer as long term fix.
+      // Rebatches it by using FALLBACK_AVG_CHAR_SIZE_PER_TOKEN, which we
+      // use to divide total char length and we just rebatch it once since
+      // this token estimation should be conservative enough.
+      return FutureUtils.transposeList(
+              generateBatches(
+                      inputList,
+                      workloadModelConfig.getBatchSize(),
+                      workloadModelConfig.getBatchTokenLimit(),
+                      FALLBACK_AVG_CHAR_SIZE_PER_TOKEN)
+                  .stream()
+                  .map(subInputList -> clientManager.embedAsync(subInputList, serviceTier, context))
+                  .toList())
+          // Merge responses from rebatched requests into one list.
+          .thenApply(
+              listOfOutputLists -> listOfOutputLists.stream().flatMap(Collection::stream).toList())
+          // Convert EmbeddingProviderBatchingException to
+          // EmbeddingProviderNonTransientException to fail it loudly if
+          // rebatch also fails
+          .exceptionally(
+              unrecoverableThrowable -> {
+                Throwable unrecoverableEx = unwrapThrowable(unrecoverableThrowable);
+                if (unrecoverableEx
+                    instanceof EmbeddingProviderBatchingException batchingException) {
+                  this.tokenEstimationFailsCounter.increment();
+                  throw new EmbeddingProviderNonTransientException(
+                      Strings.nullToEmpty(batchingException.getMessage()));
+                }
+                throw new CompletionException(unrecoverableEx);
+              });
+    }
+    return CompletableFuture.failedFuture(unwrapped);
   }
 
   /**

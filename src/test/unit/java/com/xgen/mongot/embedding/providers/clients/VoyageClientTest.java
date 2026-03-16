@@ -19,6 +19,8 @@ import com.xgen.mongot.embedding.VectorOrError;
 import com.xgen.mongot.embedding.exceptions.EmbeddingProviderTransientException;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
+import com.xgen.mongot.embedding.providers.congestion.AimdCongestionControl;
+import com.xgen.mongot.embedding.providers.congestion.DynamicSemaphore;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.util.bson.Vector;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -679,15 +681,13 @@ public class VoyageClientTest {
     changeStreamClient.embed(List.of("test"), dummyContext());
 
     requestCaptor = ArgumentCaptor.forClass(HttpRequest.class);
-    verify(mockClient, org.mockito.Mockito.times(2))
-        .send(requestCaptor.capture(), any());
+    verify(mockClient, org.mockito.Mockito.times(2)).send(requestCaptor.capture(), any());
 
     requestBody = extractRequestBody(requestCaptor.getValue());
     assertFalse(
         "Request body should NOT contain service_tier for CHANGE_STREAM tier",
         requestBody.contains("service_tier"));
   }
-
 
   private static String extractRequestBody(HttpRequest request) {
     return request
@@ -808,5 +808,161 @@ public class VoyageClientTest {
     BsonDocument doc = BsonDocument.parse(body);
     BsonDocument metadata = doc.getDocument("metadata");
     assertEquals(256, metadata.getString("indexName").getValue().length());
+  }
+
+  @Test
+  public void embed_withCongestionSemaphore_incrementsSuccessCounter() throws Exception {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MetricsFactory metricsFactory = new MetricsFactory("test", registry);
+
+    HttpClient mockClient = createMockHttpClient();
+    VoyageClient voyageClient =
+        new VoyageClient(
+            VOYAGE_3_LARGE,
+            EmbeddingServiceConfig.ServiceTier.COLLECTION_SCAN,
+            VOYAGE_3_LARGE.collectionScan(),
+            metricsFactory,
+            Optional.empty(),
+            false);
+    VoyageClient.injectVoyageClient(voyageClient, mockClient);
+
+    AimdCongestionControl aimd = new AimdCongestionControl();
+    DynamicSemaphore semaphore = new DynamicSemaphore(aimd);
+    voyageClient.setCongestionSemaphore(semaphore);
+
+    voyageClient.embed(List.of("test"), dummyContext());
+
+    assertEquals(1.0, registry.find("test.aimdSuccessfulRequests").counter().count(), 1E-7);
+    assertEquals(0.0, registry.find("test.aimdCongestionEvents").counter().count(), 1E-7);
+  }
+
+  @Test
+  public void embed_withCongestionSemaphore_incrementsCongestionCounterOn429() throws Exception {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MetricsFactory metricsFactory = new MetricsFactory("test", registry);
+
+    HttpClient mockClient = mock(HttpClient.class);
+    HttpResponse<String> mockResponse = mock(HttpResponse.class);
+    doReturn(429).when(mockResponse).statusCode();
+    doReturn("Rate limit exceeded").when(mockResponse).body();
+    doReturn(mockResponse)
+        .when(mockClient)
+        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+
+    VoyageClient voyageClient =
+        new VoyageClient(
+            VOYAGE_3_LARGE,
+            EmbeddingServiceConfig.ServiceTier.COLLECTION_SCAN,
+            VOYAGE_3_LARGE.collectionScan(),
+            metricsFactory,
+            Optional.empty(),
+            false);
+    VoyageClient.injectVoyageClient(voyageClient, mockClient);
+
+    AimdCongestionControl aimd = new AimdCongestionControl();
+    DynamicSemaphore semaphore = new DynamicSemaphore(aimd);
+    voyageClient.setCongestionSemaphore(semaphore);
+
+    assertThrows(
+        EmbeddingProviderTransientException.class,
+        () -> voyageClient.embed(List.of("test"), dummyContext()));
+
+    assertEquals(0.0, registry.find("test.aimdSuccessfulRequests").counter().count(), 1E-7);
+    assertEquals(1.0, registry.find("test.aimdCongestionEvents").counter().count(), 1E-7);
+  }
+
+  @Test
+  public void embed_withoutCongestionSemaphore_worksNormally() throws Exception {
+    HttpClient mockClient = createMockHttpClient();
+    VoyageClient voyageClient =
+        new VoyageClient(
+            VOYAGE_3_LARGE,
+            EmbeddingServiceConfig.ServiceTier.COLLECTION_SCAN,
+            VOYAGE_3_LARGE.collectionScan(),
+            METRICS_FACTORY,
+            Optional.empty(),
+            false);
+    VoyageClient.injectVoyageClient(voyageClient, mockClient);
+
+    List<VectorOrError> result = voyageClient.embed(List.of("test"), dummyContext());
+    assertEquals(1, result.size());
+    assertTrue(result.getFirst().vector.isPresent());
+  }
+
+  @Test
+  public void embed_withCongestionSemaphore_handlesIoErrorAsNonAck() throws Exception {
+    HttpClient mockClient = mock(HttpClient.class);
+    doThrow(new IOException("network error"))
+        .when(mockClient)
+        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MetricsFactory metricsFactory = new MetricsFactory("test", registry);
+
+    VoyageClient voyageClient =
+        new VoyageClient(
+            VOYAGE_3_LARGE,
+            EmbeddingServiceConfig.ServiceTier.COLLECTION_SCAN,
+            VOYAGE_3_LARGE.collectionScan(),
+            metricsFactory,
+            Optional.empty(),
+            false);
+    VoyageClient.injectVoyageClient(voyageClient, mockClient);
+
+    AimdCongestionControl aimd = new AimdCongestionControl();
+    DynamicSemaphore semaphore = new DynamicSemaphore(aimd);
+    voyageClient.setCongestionSemaphore(semaphore);
+
+    assertThrows(
+        EmbeddingProviderTransientException.class,
+        () -> voyageClient.embed(List.of("test"), dummyContext()));
+
+    // IO errors should not increment either counter (isAck = null)
+    assertEquals(0.0, registry.find("test.aimdSuccessfulRequests").counter().count(), 1E-7);
+    assertEquals(0.0, registry.find("test.aimdCongestionEvents").counter().count(), 1E-7);
+    assertEquals(0, semaphore.getUsedPermits());
+  }
+
+  @Test
+  public void embed_withCongestionSemaphore_handlesEmptyInputWithoutSignaling() throws Exception {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MetricsFactory metricsFactory = new MetricsFactory("test", registry);
+
+    // No need to mock HTTP client since we won't make any HTTP calls
+    HttpClient mockClient = mock(HttpClient.class);
+    VoyageClient voyageClient =
+        new VoyageClient(
+            VOYAGE_3_LARGE,
+            EmbeddingServiceConfig.ServiceTier.COLLECTION_SCAN,
+            VOYAGE_3_LARGE.collectionScan(),
+            metricsFactory,
+            Optional.empty(),
+            false);
+    VoyageClient.injectVoyageClient(voyageClient, mockClient);
+
+    AimdCongestionControl aimd = new AimdCongestionControl();
+    DynamicSemaphore semaphore = new DynamicSemaphore(aimd);
+    voyageClient.setCongestionSemaphore(semaphore);
+
+    double initialCwnd = aimd.getCwnd();
+
+    // Call with all empty strings
+    List<VectorOrError> result = voyageClient.embed(List.of("", "", ""), dummyContext());
+
+    // Should return empty input errors
+    assertEquals(3, result.size());
+    assertEquals(VectorOrError.EMPTY_INPUT_ERROR, result.get(0));
+    assertEquals(VectorOrError.EMPTY_INPUT_ERROR, result.get(1));
+    assertEquals(VectorOrError.EMPTY_INPUT_ERROR, result.get(2));
+
+    // Semaphore should be properly released
+    assertEquals(0, semaphore.getUsedPermits());
+
+    // No counters should be incremented (isAck = null for early return)
+    assertEquals(0.0, registry.find("test.aimdSuccessfulRequests").counter().count(), 1E-7);
+    assertEquals(0.0, registry.find("test.aimdCongestionEvents").counter().count(), 1E-7);
+
+    // Window should not change
+    assertEquals(initialCwnd, aimd.getCwnd(), 1e-7);
   }
 }

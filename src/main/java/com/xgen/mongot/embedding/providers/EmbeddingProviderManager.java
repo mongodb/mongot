@@ -16,6 +16,8 @@ import com.xgen.mongot.embedding.providers.clients.ClientInterface;
 import com.xgen.mongot.embedding.providers.clients.EmbeddingClientFactory;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.EmbeddingCredentials;
+import com.xgen.mongot.embedding.providers.congestion.AimdCongestionControl;
+import com.xgen.mongot.embedding.providers.congestion.DynamicSemaphore;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.metrics.Timed;
 import com.xgen.mongot.util.CollectionUtils;
@@ -65,7 +67,10 @@ public class EmbeddingProviderManager {
   private final Map<ServiceTier, Counter> retriedAttemptsCounters = new HashMap<>();
   private final Map<ServiceTier, DistributionSummary> attemptsPerRequestDistributions =
       new HashMap<>();
+
   private EmbeddingModelConfig embeddingModelConfig;
+  private final AimdCongestionControl aimdCongestionControl;
+  private final DynamicSemaphore congestionControlSemaphore;
 
   private EmbeddingModelConfig.ConsolidatedWorkloadParams getWorkloadParamsByTier(
       ServiceTier serviceTier) {
@@ -86,6 +91,21 @@ public class EmbeddingProviderManager {
     this.embeddingClientFactory = embeddingClientFactory;
     this.embeddingModelConfig = embeddingModelConfig;
     this.namedScheduledExecutorService = namedScheduledExecutorService;
+    // AIMD congestion control components for COLLECTION_SCAN workloads
+    this.aimdCongestionControl = new AimdCongestionControl();
+    this.congestionControlSemaphore = new DynamicSemaphore(this.aimdCongestionControl);
+    // Register gauges for monitoring congestion window
+    Tag modelTag = Tag.of("canonicalModel", embeddingModelConfig.name());
+    metricsFactory.objectValueGauge(
+        "aimdCongestionWindow",
+        this.aimdCongestionControl,
+        AimdCongestionControl::getCwnd,
+        Tags.of(modelTag));
+    metricsFactory.objectValueGauge(
+        "aimdUsedPermits",
+        this.congestionControlSemaphore,
+        DynamicSemaphore::getUsedPermits,
+        Tags.of(modelTag));
 
     this.rateLimiters =
         Stream.of(
@@ -107,6 +127,7 @@ public class EmbeddingProviderManager {
                     tier ->
                         this.embeddingClientFactory.createEmbeddingClient(
                             this.embeddingModelConfig, tier, getWorkloadParamsByTier(tier))));
+    this.clients.get(COLLECTION_SCAN).setCongestionSemaphore(this.congestionControlSemaphore);
   }
 
   /**
@@ -135,6 +156,9 @@ public class EmbeddingProviderManager {
                             this.embeddingClientFactory.createEmbeddingClient(
                                 this.embeddingModelConfig, tier, getWorkloadParamsByTier(tier)))
                     .updateConfig(getWorkloadParamsByTier(serviceTier)));
+    if (this.congestionControlSemaphore != null) {
+      this.clients.get(COLLECTION_SCAN).setCongestionSemaphore(this.congestionControlSemaphore);
+    }
   }
 
   private Map<ServiceTier, FailsafeExecutor<List<VectorOrError>>> initializeExecutors() {

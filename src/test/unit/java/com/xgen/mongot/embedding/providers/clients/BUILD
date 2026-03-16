@@ -11,6 +11,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/embedding/exceptions",
         "//src/main/java/com/xgen/mongot/embedding/providers/clients",
         "//src/main/java/com/xgen/mongot/embedding/providers/configs",
+        "//src/main/java/com/xgen/mongot/embedding/providers/congestion",
         "//src/main/java/com/xgen/mongot/metrics",
         "//src/main/java/com/xgen/mongot/util/bson",
         "@maven//:com_google_errorprone_error_prone_annotations",
