@@ -6,7 +6,7 @@ The steps listed will:
 * Generate SSL certificates for both `mongod` and `mongot`
 * Start a MongoDB Community Edition Server (`mongod`) with a single node replica set on port 27017
 * Start a MongoDB Community Search (`mongot`) search server on port 27028
-* Persistant data volumes on both ports
+* Persistent data volumes on both ports
 * Pre-loaded sample data
 
 ## Before You Begin:
