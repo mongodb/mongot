@@ -143,7 +143,7 @@ public class InitializedMaterializedViewIndex implements InitializedVectorIndex 
     // TODO(CLOUDP-360523): Implement compatibility check for redefined index.
     return indexDefinition.isAutoEmbeddingIndex()
         && indexDefinition.asVectorDefinition().getParsedAutoEmbeddingFeatureVersion()
-        >= MIN_VERSION_FOR_MATERIALIZED_VIEW_EMBEDDING;
+            >= MIN_VERSION_FOR_MATERIALIZED_VIEW_EMBEDDING;
   }
 
   @Override
@@ -158,7 +158,9 @@ public class InitializedMaterializedViewIndex implements InitializedVectorIndex 
   public void throwIfUnavailableForQuerying() throws IndexUnavailableException {}
 
   @Override
-  public void close() throws IOException {}
+  public void close() throws IOException {
+    this.indexMetricsUpdater.close();
+  }
 
   /** Returns the oplog position at which the MV first became STEADY. */
   public Optional<BsonTimestamp> getSteadyAsOfOplogPosition() {
