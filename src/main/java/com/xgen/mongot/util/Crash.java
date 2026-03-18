@@ -2,6 +2,7 @@ package com.xgen.mongot.util;
 
 import static com.xgen.mongot.util.Check.checkArg;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.errorprone.annotations.CheckReturnValue;
 import com.google.errorprone.annotations.RestrictedApi;
 import com.xgen.mongot.logging.Logging;
@@ -13,6 +14,7 @@ import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.regex.Pattern;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.bson.BsonDocument;
@@ -37,6 +39,32 @@ public class Crash {
   private Optional<String> noCrashLogReason;
   private Optional<CrashCategory> crashCategory;
   private static final AtomicReference<Boolean> isShutdownStarted = new AtomicReference<>(false);
+
+  // Overrides the halt call in now() for testing. When present, halt() is not called on
+  // Runtime.INSTANCE; instead, the handler is invoked with the exit code.
+  private static volatile Optional<Consumer<Integer>> haltHandlerForTesting = Optional.empty();
+
+  @VisibleForTesting
+  @RestrictedApi(
+      explanation =
+          "Only tests should override Crash.halt(). For compilation to succeed, annotate the call"
+              + " site with @Crash.TestOnlyHaltHandler.",
+      link = "https://jira.mongodb.org/browse/CLOUDP-388565",
+      allowlistAnnotations = {TestOnlyHaltHandler.class})
+  public static void setHaltHandlerForTesting(Consumer<Integer> handler) {
+    haltHandlerForTesting = Optional.of(handler);
+  }
+
+  @VisibleForTesting
+  @RestrictedApi(
+      explanation =
+          "Only tests should clear the Crash.halt() override. For compilation to succeed,"
+              + " annotate the call site with @Crash.TestOnlyHaltHandler.",
+      link = "https://jira.mongodb.org/browse/CLOUDP-388565",
+      allowlistAnnotations = {TestOnlyHaltHandler.class})
+  public static void clearHaltHandlerForTesting() {
+    haltHandlerForTesting = Optional.empty();
+  }
 
   private Crash(String message) {
     this.message = message;
@@ -182,7 +210,33 @@ public class Crash {
     return this;
   }
 
-  /** Crashes if the runnable throws an exception. */
+  /** Crashes if the runnable throws an exception or error. */
+  public void ifThrowsExceptionOrError(CheckedRunnable<Exception> runnable) {
+    try {
+      runnable.run();
+    } catch (Throwable e) {
+      this.withThrowable(e).now();
+    }
+  }
+
+  /** Crashes if the supplier throws an exception or error. */
+  public <T> T ifThrowsExceptionOrError(CheckedSupplier<T, Exception> supplier) {
+    try {
+      return supplier.get();
+    } catch (Throwable e) {
+      this.withThrowable(e).now();
+      return Check.unreachable("Crash.now() should have halted the JVM");
+    }
+  }
+
+  /**
+   * Crashes if the runnable throws an exception.
+   *
+   * @deprecated This method is dangerous as it only catches Exceptions and not Errors which can
+   *     lead to unexpected behavior and subtle bugs. See HELP-90208 for an example. Use {@link
+   *     #ifThrowsExceptionOrError(CheckedRunnable)} instead.
+   */
+  @Deprecated(forRemoval = true)
   public void ifThrows(CheckedRunnable<Exception> runnable) {
     try {
       runnable.run();
@@ -191,7 +245,14 @@ public class Crash {
     }
   }
 
-  /** Crashes if the supplier throws an exception. */
+  /**
+   * Crashes if the supplier throws an exception.
+   *
+   * @deprecated This method is dangerous as it only catches Exceptions and not Errors which can
+   *     lead to unexpected behavior and subtle bugs. See HELP-90208 for an example. Use {@link
+   *     #ifThrowsExceptionOrError(CheckedSupplier)} instead.
+   */
+  @Deprecated(forRemoval = true)
   public <T> T ifThrows(CheckedSupplier<T, Exception> supplier) {
     try {
       return supplier.get();
@@ -217,44 +278,48 @@ public class Crash {
 
   /** Crashes immediately. */
   public void now() {
-    LOG.atError()
-        .addKeyValue("noCrashLogReason", this.noCrashLogReason)
-        .addKeyValue("threadDump", this.dumpThreads ? Runtime.INSTANCE.getThreadDump() : "")
-        .addKeyValue("shutdownStarted", Crash.isShutdownStarted.get())
-        .setCause(this.throwable.orElse(null))
-        .log(this.message);
+    try {
+      LOG.atError()
+          .addKeyValue("noCrashLogReason", this.noCrashLogReason)
+          .addKeyValue("threadDump", this.dumpThreads ? Runtime.INSTANCE.getThreadDump() : "")
+          .addKeyValue("shutdownStarted", Crash.isShutdownStarted.get())
+          .setCause(this.throwable.orElse(null))
+          .log(this.message);
 
-    String throwableTrace =
-        this.throwable.map(t -> "\n" + ExceptionUtils.getStackTrace(t)).orElse("");
-    String exceptionName = this.throwable.map(Object::getClass).map(Class::getTypeName).orElse("");
+      String throwableTrace =
+          this.throwable.map(t -> "\n" + ExceptionUtils.getStackTrace(t)).orElse("");
+      String exceptionName =
+          this.throwable.map(Object::getClass).map(Class::getTypeName).orElse("");
 
-    String threadDump =
-        this.dumpThreads ? "\nthread dump:\n" + Runtime.INSTANCE.getThreadDump() : "";
+      String threadDump =
+          this.dumpThreads ? "\nthread dump:\n" + Runtime.INSTANCE.getThreadDump() : "";
 
-    // Use MongotVersionResolver.getOptional() instead of create().getVersion() to prevent a loop,
-    // because create() Crashes if the version can't be found.
-    String mongotVersion = MongotVersionResolver.getOptional().orElse("unknown");
+      // Use MongotVersionResolver.getOptional() instead of create().getVersion() to prevent a
+      // loop, because create() Crashes if the version can't be found.
+      String mongotVersion = MongotVersionResolver.getOptional().orElse("unknown");
 
-    CrashCategory category = this.crashCategory.orElse(assignCrashCategory(throwableTrace));
+      CrashCategory category = this.crashCategory.orElse(assignCrashCategory(throwableTrace));
 
-    String crashLogs =
-        buildCrashLogs(
-            exceptionName, this.message, throwableTrace, threadDump, mongotVersion, category);
+      String crashLogs =
+          buildCrashLogs(
+              exceptionName, this.message, throwableTrace, threadDump, mongotVersion, category);
 
-    if (this.noCrashLogReason.isEmpty()) {
-      this.writeCrashLog(crashLogs);
+      if (this.noCrashLogReason.isEmpty()) {
+        this.writeCrashLog(crashLogs);
+      }
+
+      // Shut down the logger so that we flush any buffered log lines.
+      Logging.shutdown();
+    } finally {
+      // Our shutdown hooks are intended for graceful shutdown, and as such may enter some
+      // synchronized methods.
+      // However, we want to be able to Fail within other synchronized methods. If you simply
+      // exit() in a method that is synchronized with one called in a shutdown hook, you will
+      // deadlock and never shut down.
+      // So instead, we'll simply halt (which skips shutdown hooks) instead.
+      haltHandlerForTesting.ifPresentOrElse(
+          h -> h.accept(FAIL_EXIT_CODE), () -> Runtime.INSTANCE.halt(FAIL_EXIT_CODE));
     }
-
-    // Shut down the logger so that we flush any buffered log lines.
-    Logging.shutdown();
-
-    // Our shutdown hooks are intended for graceful shutdown, and as such may enter some
-    // synchronized methods.
-    // However, we want to be able to Fail within other synchronized methods. If you simply exit()
-    // in a method that is synchronized with one called in a shutdown hook, you will deadlock and
-    // never shut down.
-    // So instead, we'll simply halt (which skips shutdown hooks) instead.
-    Runtime.INSTANCE.halt(FAIL_EXIT_CODE);
   }
 
   private void writeCrashLog(String crashLogs) {
@@ -269,6 +334,8 @@ public class Crash {
   }
 
   public @interface SafeWithoutCrashLog {}
+
+  public @interface TestOnlyHaltHandler {}
 
   private static class OnUncaughtExceptionHandler implements Thread.UncaughtExceptionHandler {
 

@@ -40,7 +40,9 @@ public class PeriodicConfigMonitor {
     LOG.info("Beginning periodic config monitoring");
 
     this.executorService.scheduleWithFixedDelay(
-        () -> Crash.because("failed to update config").ifThrows(this.configUpdater::update),
+        () ->
+            Crash.because("failed to update config")
+                .ifThrowsExceptionOrError(this.configUpdater::update),
         0,
         this.period.toMillis(),
         TimeUnit.MILLISECONDS);
