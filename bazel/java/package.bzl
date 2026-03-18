@@ -102,39 +102,30 @@ def java_binary_stamped_manifest(name, manifest_lines = [], visibility = [], **k
         srcs = [name + "__non_stamped_deploy.jar"],
         cmd = "\n".join(
             [
+                # Ensure pipelines fail if any command in the pipe fails (e.g. unzip -p).
+                "set -o pipefail",
                 # Getting stamped values into vars.sh.
                 "sed 's| |=\\\"|' < bazel-out/stable-status.txt | sed 's|$$|\\\"|' | sed 's|^|export |' > vars.sh",
                 "sed 's| |=\\\"|' < bazel-out/volatile-status.txt | sed 's|$$|\\\"|' | sed 's|^|export |' >> vars.sh",
                 "source vars.sh",
                 "export INPUT=\"$$PWD/$<\"",  # points to "{name}__non_stamped_deploy.jar" location
                 "export OUTPUT=\"$$PWD/$@\"",  # points to "{name}_deploy.jar" location
-                "mkdir -p tmp",
-                "cd tmp",
+                # Copy the jar and make it writable so we can modify it in-place.
+                # This avoids extracting and re-zipping the entire jar (61K+ files)
+                # just to update the manifest, which previously took ~70s.
+                "cp $$INPUT $$OUTPUT",
+                "chmod u+w $$OUTPUT",
+                # Extract just the manifest (via pipe, no disk extraction), strip empty
+                # lines, and append the stamped manifest lines.
+                "mkdir -p tmp/META-INF",
+                "unzip -q -p $$OUTPUT META-INF/MANIFEST.MF | grep -v '^\\s*$$' > tmp/META-INF/MANIFEST.MF",
             ] + [
-                # MacOS is case insensitive so META-INF/LICENSE and META-INF/license/ are treated as
-                # the same, causing errors when unzipping since Apache creates it as a file and
-                # Azure creates it as a directory. To fix this, unzip them separately (rename one
-                # before unzipping the other).
-
-                # Extract the original jar except the META-INF/LICENSE file.
-                "unzip -q $$INPUT -x META-INF/LICENSE",
-                # Rename the conflicting META-INF/license/ directory.
-                "mv META-INF/license META-INF/license-dir || true",
-                # Extract the META-INF/LICENSE file, which should no longer conflict.
-                "unzip -q $$INPUT META-INF/LICENSE",
-            ] + [
-                # Remove any empty lines from the manifest file.
-                "grep -v '^\\s*$$' < META-INF/MANIFEST.MF > META-INF/MANIFEST2.MF",
-                "mv META-INF/MANIFEST2.MF META-INF/MANIFEST.MF",
-            ] + [
-                # Echo each line from manifest_lines into META-INF/MANIFEST.MF (respecting env
-                # vars).
-                "echo \"" + s + "\" >> META-INF/MANIFEST.MF"
+                "echo \"" + s + "\" >> tmp/META-INF/MANIFEST.MF"
                 for s in manifest_lines
             ] + [
-                # Make final output jar & cleanup.
-                "zip -q -r $$OUTPUT .",
-                "cd ..",
+                # Replace the manifest entry in the jar without touching other entries.
+                "zip -d -q $$OUTPUT META-INF/MANIFEST.MF",
+                "(cd tmp && zip -q $$OUTPUT META-INF/MANIFEST.MF)",
                 "rm -rf tmp vars.sh",
             ],
         ),
