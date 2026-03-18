@@ -404,10 +404,13 @@ public class LuceneVectorIndexReader implements VectorIndexReader {
   // TODO(CLOUDP-333374): try to extract it from here to some utility class to unify this logic
   private String getLuceneFieldName(
       FieldPath fieldPath, VectorQuantization quantization, Vector.VectorType vectorType) {
+    Optional<FieldPath> nestedRoot =
+        this.queryFactory.getDefinitionResolver().getNestedRoot()
+            .filter(fieldPath::isChildOf);
     return switch (vectorType) {
-      case FLOAT -> quantization.toTypeField().getLuceneFieldName(fieldPath, Optional.empty());
-      case BYTE -> FieldName.TypeField.KNN_BYTE.getLuceneFieldName(fieldPath, Optional.empty());
-      case BIT -> FieldName.TypeField.KNN_BIT.getLuceneFieldName(fieldPath, Optional.empty());
+      case FLOAT -> quantization.toTypeField().getLuceneFieldName(fieldPath, nestedRoot);
+      case BYTE -> FieldName.TypeField.KNN_BYTE.getLuceneFieldName(fieldPath, nestedRoot);
+      case BIT -> FieldName.TypeField.KNN_BIT.getLuceneFieldName(fieldPath, nestedRoot);
     };
   }
 }

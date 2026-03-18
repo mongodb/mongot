@@ -19,6 +19,7 @@ import com.xgen.mongot.index.MeteredIndexWriter;
 import com.xgen.mongot.index.ReaderClosedException;
 import com.xgen.mongot.index.VectorIndexReader;
 import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
 import com.xgen.mongot.index.definition.VectorQuantization;
@@ -823,6 +824,43 @@ public class LuceneVectorIndexReaderTest {
       var doubleFloatFileSize = this.indexReader.getRequiredMemoryForVectorData();
       Assert.assertEquals(48 + 4 * HNSW_GRAPH_BYTES_PER_VECTOR, floatFileSize);
       Assert.assertEquals(96 + 8 * HNSW_GRAPH_BYTES_PER_VECTOR, doubleFloatFileSize);
+    }
+
+    @Test
+    public void requiredMemory_nestedEmbeddings_accountsForEmbeddedVectors() throws Exception {
+      String nestedRoot = "sections";
+      String vectorFieldPath = "sections.embedding";
+      VectorIndexDefinition nestedDefinition =
+          VectorIndexDefinitionBuilder.builder()
+              .indexId(VectorIndex.MOCK_INDEX_ID)
+              .name(VectorIndex.MOCK_INDEX_NAME)
+              .database(VectorIndex.MOCK_INDEX_DATABASE_NAME)
+              .lastObservedCollectionName(VectorIndex.MOCK_INDEX_LAST_OBSERVED_COLLECTION_NAME)
+              .collectionUuid(VectorIndex.MOCK_INDEX_COLLECTION_UUID)
+              .withCosineVectorField(vectorFieldPath, 3)
+              .nestedRoot(nestedRoot)
+              .build();
+      VectorIndexDefinitionGeneration nestedGeneration =
+          IndexGeneration.mockDefinitionGeneration(nestedDefinition);
+      generateReaderWriter(nestedGeneration);
+
+      String embeddedFloatFieldName =
+          FieldName.TypeField.KNN_VECTOR.getLuceneFieldName(
+              FieldPath.parse(vectorFieldPath), Optional.of(FieldPath.parse(nestedRoot)));
+
+      indexDocumentsAndCommit(
+          List.of(
+              new float[] {1, 2, 3},
+              new float[] {4, 5, 6},
+              new float[] {7, 8, 9},
+              new float[] {10, 11, 12}),
+          vector ->
+              new KnnFloatVectorField(
+                  embeddedFloatFieldName, vector, VectorSimilarityFunction.COSINE));
+
+      this.indexReader.refresh();
+      long result = this.indexReader.getRequiredMemoryForVectorData();
+      assertEquals(48 + 4 * HNSW_GRAPH_BYTES_PER_VECTOR, result);
     }
 
     private <T> void indexDocumentsAndCommit(
