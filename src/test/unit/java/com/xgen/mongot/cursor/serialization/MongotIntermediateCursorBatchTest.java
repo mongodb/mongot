@@ -36,9 +36,9 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      MongotIntermediateCursorBatchTest.TestFunctionality.class,
-      MongotIntermediateCursorBatchTest.TestDeserialization.class,
-      MongotIntermediateCursorBatchTest.TestSerialization.class
+      MongotIntermediateCursorBatchTest.FunctionalityTest.class,
+      MongotIntermediateCursorBatchTest.DeserializationTest.class,
+      MongotIntermediateCursorBatchTest.SerializationTest.class
     })
 public class MongotIntermediateCursorBatchTest {
 
@@ -70,7 +70,7 @@ public class MongotIntermediateCursorBatchTest {
     return results;
   }
 
-  public static class TestFunctionality {
+  public static class FunctionalityTest {
 
     private static final String MAX_NAMESPACE = new String(new char[255]);
 
@@ -114,7 +114,7 @@ public class MongotIntermediateCursorBatchTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
     private static final String SUITE_NAME = "mongot-intermediate-cursor-batch-deserialization";
 
     private static final BsonDeserializationTestSuite<MongotIntermediateCursorBatch> TEST_SUITE =
@@ -123,7 +123,7 @@ public class MongotIntermediateCursorBatchTest {
     private final BsonDeserializationTestSuite.TestSpecWrapper<MongotIntermediateCursorBatch>
         testSpec;
 
-    public TestDeserialization(
+    public DeserializationTest(
         BsonDeserializationTestSuite.TestSpecWrapper<MongotIntermediateCursorBatch> testSpec) {
       this.testSpec = testSpec;
     }
@@ -186,14 +186,14 @@ public class MongotIntermediateCursorBatchTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
     private static final String SUITE_NAME = "mongot-intermediate-cursor-batch-serialization";
     private static final BsonSerializationTestSuite<MongotIntermediateCursorBatch> TEST_SUITE =
         fromEncodable(RESOURCES_PATH, SUITE_NAME);
 
     private final BsonSerializationTestSuite.TestSpec<MongotIntermediateCursorBatch> testSpec;
 
-    public TestSerialization(
+    public SerializationTest(
         BsonSerializationTestSuite.TestSpec<MongotIntermediateCursorBatch> testSpec) {
       this.testSpec = testSpec;
     }

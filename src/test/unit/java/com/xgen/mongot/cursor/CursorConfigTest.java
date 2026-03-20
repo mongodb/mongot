@@ -12,18 +12,18 @@ import org.junit.runners.Parameterized;
 import org.junit.runners.Suite;
 
 @RunWith(Suite.class)
-@Suite.SuiteClasses(value = {CursorConfigTest.TestSerialization.class})
+@Suite.SuiteClasses(value = {CursorConfigTest.SerializationTest.class})
 public class CursorConfigTest {
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
     private static final String SUITE_NAME = "cursor-config-serialization";
     private static final BsonSerializationTestSuite<CursorConfig> TEST_SUITE =
         BsonSerializationTestSuite.fromEncodable("src/test/unit/resources/cursor", SUITE_NAME);
 
     private final BsonSerializationTestSuite.TestSpec<CursorConfig> testSpec;
 
-    public TestSerialization(BsonSerializationTestSuite.TestSpec<CursorConfig> testSpec) {
+    public SerializationTest(BsonSerializationTestSuite.TestSpec<CursorConfig> testSpec) {
       this.testSpec = testSpec;
     }
 

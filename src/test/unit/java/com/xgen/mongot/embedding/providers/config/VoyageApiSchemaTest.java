@@ -26,13 +26,13 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      VoyageApiSchemaTest.TestResponseDeserialization.class,
-      VoyageApiSchemaTest.TestResponseSerialization.class,
-      VoyageApiSchemaTest.TestRequestSerialization.class
+      VoyageApiSchemaTest.ResponseDeserializationTest.class,
+      VoyageApiSchemaTest.ResponseSerializationTest.class,
+      VoyageApiSchemaTest.RequestSerializationTest.class
     })
 public class VoyageApiSchemaTest {
   @RunWith(Parameterized.class)
-  public static class TestResponseDeserialization {
+  public static class ResponseDeserializationTest {
     private static final String SUITE_NAME = "voyage-api-schema-response-deserialization";
     private static final BsonDeserializationTestSuite<EmbedResponse> TEST_SUITE =
         fromRootDocument(
@@ -44,7 +44,7 @@ public class VoyageApiSchemaTest {
 
     private final TestSpecWrapper<EmbedResponse> testSpec;
 
-    public TestResponseDeserialization(TestSpecWrapper<EmbedResponse> testSpec) {
+    public ResponseDeserializationTest(TestSpecWrapper<EmbedResponse> testSpec) {
       this.testSpec = testSpec;
     }
 
@@ -108,14 +108,14 @@ public class VoyageApiSchemaTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestResponseSerialization {
+  public static class ResponseSerializationTest {
     private static final String SUITE_NAME = "voyage-api-schema-response-serialization";
     private static final BsonSerializationTestSuite<EmbedResponse> TEST_SUITE =
         fromEncodable("src/test/unit/resources/embedding/providers/config", SUITE_NAME);
 
     private final BsonSerializationTestSuite.TestSpec<EmbedResponse> testSpec;
 
-    public TestResponseSerialization(BsonSerializationTestSuite.TestSpec<EmbedResponse> testSpec) {
+    public ResponseSerializationTest(BsonSerializationTestSuite.TestSpec<EmbedResponse> testSpec) {
       this.testSpec = testSpec;
     }
 
@@ -153,14 +153,14 @@ public class VoyageApiSchemaTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestRequestSerialization {
+  public static class RequestSerializationTest {
     private static final String SUITE_NAME = "voyage-api-schema-request-serialization";
     private static final BsonSerializationTestSuite<EmbedRequest> TEST_SUITE =
         fromEncodable("src/test/unit/resources/embedding/providers/config", SUITE_NAME);
 
     private final BsonSerializationTestSuite.TestSpec<EmbedRequest> testSpec;
 
-    public TestRequestSerialization(BsonSerializationTestSuite.TestSpec<EmbedRequest> testSpec) {
+    public RequestSerializationTest(BsonSerializationTestSuite.TestSpec<EmbedRequest> testSpec) {
       this.testSpec = testSpec;
     }
 

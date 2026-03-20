@@ -20,14 +20,14 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      DynamicFeatureFlagConfigTest.TestDeserialization.class,
-      DynamicFeatureFlagConfigTest.TestSerialization.class,
-      DynamicFeatureFlagConfigTest.TestGetters.class,
-      DynamicFeatureFlagConfigTest.TestSorters.class,
+      DynamicFeatureFlagConfigTest.DeserializationTest.class,
+      DynamicFeatureFlagConfigTest.SerializationTest.class,
+      DynamicFeatureFlagConfigTest.GettersTest.class,
+      DynamicFeatureFlagConfigTest.SortersTest.class,
     })
 public class DynamicFeatureFlagConfigTest {
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
     private static final String SUITE_NAME = "dynamicFeatureFlagConfigDeserialization";
     private static final BsonDeserializationTestSuite<DynamicFeatureFlagConfig> TEST_SUITE =
         fromDocument(
@@ -35,7 +35,7 @@ public class DynamicFeatureFlagConfigTest {
 
     private final BsonDeserializationTestSuite.TestSpecWrapper<DynamicFeatureFlagConfig> testSpec;
 
-    public TestDeserialization(
+    public DeserializationTest(
         BsonDeserializationTestSuite.TestSpecWrapper<DynamicFeatureFlagConfig> testSpec) {
       this.testSpec = testSpec;
     }
@@ -145,7 +145,7 @@ public class DynamicFeatureFlagConfigTest {
             DynamicFeatureFlagConfig.Scope.UNSPECIFIED));
   }
 
-  public static class TestGetters {
+  public static class GettersTest {
     @Test
     public void sanitizedRolloutPercentage_variousInputs_clampsToValidRange() {
       // Valid percentage
@@ -206,7 +206,7 @@ public class DynamicFeatureFlagConfigTest {
     }
   }
 
-  public static class TestSorters {
+  public static class SortersTest {
     @Test
     public void testFeatureFlagSorter() {
       int[] sizes = {20, 50, 100, 1000};
@@ -244,14 +244,14 @@ public class DynamicFeatureFlagConfigTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
     private static final String SUITE_NAME = "dynamicFeatureFlagConfigSerialization";
     private static final BsonSerializationTestSuite<DynamicFeatureFlagConfig> TEST_SUITE =
         fromEncodable("src/test/unit/resources/featureflag", SUITE_NAME);
 
     private final BsonSerializationTestSuite.TestSpec<DynamicFeatureFlagConfig> testSpec;
 
-    public TestSerialization(
+    public SerializationTest(
         BsonSerializationTestSuite.TestSpec<DynamicFeatureFlagConfig> testSpec) {
       this.testSpec = testSpec;
     }

@@ -20,8 +20,8 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      MongotCursorResultTest.TestDeserialization.class,
-      MongotCursorResultTest.TestSerialization.class
+      MongotCursorResultTest.DeserializationTest.class,
+      MongotCursorResultTest.SerializationTest.class
     })
 public class MongotCursorResultTest {
 
@@ -38,7 +38,7 @@ public class MongotCursorResultTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
     private static final String SUITE_NAME = "mongot-cursor-result-deserialization";
 
     private static final BsonDeserializationTestSuite<MongotCursorResult> TEST_SUITE =
@@ -46,7 +46,7 @@ public class MongotCursorResultTest {
 
     private final BsonDeserializationTestSuite.TestSpecWrapper<MongotCursorResult> testSpec;
 
-    public TestDeserialization(
+    public DeserializationTest(
         BsonDeserializationTestSuite.TestSpecWrapper<MongotCursorResult> testSpec) {
       this.testSpec = testSpec;
     }
@@ -85,14 +85,14 @@ public class MongotCursorResultTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
     private static final String SUITE_NAME = "mongot-cursor-result-serialization";
     private static final BsonSerializationTestSuite<MongotCursorResult> TEST_SUITE =
         fromEncodable(RESOURCES_PATH, SUITE_NAME);
 
     private final BsonSerializationTestSuite.TestSpec<MongotCursorResult> testSpec;
 
-    public TestSerialization(BsonSerializationTestSuite.TestSpec<MongotCursorResult> testSpec) {
+    public SerializationTest(BsonSerializationTestSuite.TestSpec<MongotCursorResult> testSpec) {
       this.testSpec = testSpec;
     }
 

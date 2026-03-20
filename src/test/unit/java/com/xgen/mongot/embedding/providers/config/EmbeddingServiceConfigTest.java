@@ -27,8 +27,8 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      EmbeddingServiceConfigTest.TestDeserialization.class,
-      EmbeddingServiceConfigTest.TestSerialization.class
+      EmbeddingServiceConfigTest.DeserializationTest.class,
+      EmbeddingServiceConfigTest.SerializationTest.class
     })
 public class EmbeddingServiceConfigTest {
   static final ModelConfig MODEL_CONFIG =
@@ -43,7 +43,7 @@ public class EmbeddingServiceConfigTest {
       new VoyageEmbeddingCredentials("token123", "2024-10-15T22:32:20.925Z");
 
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
     private static final String SUITE_NAME = "embedding-service-config-deserialization";
     private static final BsonDeserializationTestSuite<EmbeddingServiceConfig> TEST_SUITE =
         fromDocument(
@@ -53,7 +53,7 @@ public class EmbeddingServiceConfigTest {
 
     private final TestSpecWrapper<EmbeddingServiceConfig> testSpec;
 
-    public TestDeserialization(TestSpecWrapper<EmbeddingServiceConfig> testSpec) {
+    public DeserializationTest(TestSpecWrapper<EmbeddingServiceConfig> testSpec) {
       this.testSpec = testSpec;
     }
 
@@ -172,14 +172,14 @@ public class EmbeddingServiceConfigTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
     private static final String SUITE_NAME = "embedding-service-config-serialization";
     private static final BsonSerializationTestSuite<EmbeddingServiceConfig> TEST_SUITE =
         fromEncodable("src/test/unit/resources/embedding/providers/config", SUITE_NAME);
 
     private final BsonSerializationTestSuite.TestSpec<EmbeddingServiceConfig> testSpec;
 
-    public TestSerialization(BsonSerializationTestSuite.TestSpec<EmbeddingServiceConfig> testSpec) {
+    public SerializationTest(BsonSerializationTestSuite.TestSpec<EmbeddingServiceConfig> testSpec) {
       this.testSpec = testSpec;
     }
 
