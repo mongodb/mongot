@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.Map;
 import java.util.UUID;
 import org.bson.BsonDocument;
+import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.bson.types.ObjectId;
 import org.junit.Before;
@@ -67,7 +68,7 @@ public class StaticLeaderLeaseManagerTest {
   // ==================== initializeLease Tests ====================
 
   @Test
-  public void initializeLease_noExistingLease_returnsProposedMetadata() {
+  public void initializeLease_noExistingLease_returnsProposedMetadata() throws Exception {
     // Arrange
     StaticLeaderLeaseManager leaseManager = createLeaseManager(true);
 
@@ -77,9 +78,7 @@ public class StaticLeaderLeaseManagerTest {
 
     MaterializedViewCollectionMetadata proposedMetadata =
         new MaterializedViewCollectionMetadata(
-            VERSION_ZERO,
-            UUID.randomUUID(),
-            "mv-collection-name");
+            VERSION_ZERO, UUID.randomUUID(), "mv-collection-name");
 
     // Act
     MaterializedViewCollectionMetadata result =
@@ -90,7 +89,8 @@ public class StaticLeaderLeaseManagerTest {
   }
 
   @Test
-  public void initializeLease_existingLeaseInMemory_returnsExistingMetadata() {
+  @SuppressWarnings("unchecked")
+  public void initializeLease_existingLeaseInMemory_returnsExistingMetadata() throws Exception {
     // Arrange - setup a lease in the database that will be loaded on construction
     String collectionName = "existing-mv-collection";
     UUID existingUuid = UUID.randomUUID();
@@ -101,6 +101,11 @@ public class StaticLeaderLeaseManagerTest {
     ArrayList<BsonDocument> leaseList = new ArrayList<>();
     leaseList.add(existingLease.toBson());
     when(this.mockFindIterable.into(any())).thenReturn(leaseList);
+
+    // Mock find(Document).first() to return the existing lease when queried by collection name
+    FindIterable<BsonDocument> findIterable = mock(FindIterable.class);
+    when(this.mockCollection.find(any(Document.class))).thenReturn(findIterable);
+    when(findIterable.first()).thenReturn(existingLease.toBson());
 
     StaticLeaderLeaseManager leaseManager = createLeaseManager(true);
 
@@ -116,6 +121,7 @@ public class StaticLeaderLeaseManagerTest {
             collectionName);
 
     // Act
+    leaseManager.syncLeasesFromMongod();
     MaterializedViewCollectionMetadata result =
         leaseManager.initializeLease(indexDefGen, proposedMetadata);
 
@@ -126,7 +132,8 @@ public class StaticLeaderLeaseManagerTest {
   }
 
   @Test
-  public void initializeLease_followerWithNoExistingLease_returnsProposedMetadata() {
+  public void initializeLease_followerWithNoExistingLease_returnsProposedMetadata()
+      throws Exception {
     // Arrange - follower (isLeader = false)
     StaticLeaderLeaseManager followerLeaseManager = createLeaseManager(false);
 
@@ -136,9 +143,7 @@ public class StaticLeaderLeaseManagerTest {
 
     MaterializedViewCollectionMetadata proposedMetadata =
         new MaterializedViewCollectionMetadata(
-            VERSION_ZERO,
-            UUID.randomUUID(),
-            "follower-mv-collection");
+            VERSION_ZERO, UUID.randomUUID(), "follower-mv-collection");
 
     // Act
     MaterializedViewCollectionMetadata result =
@@ -177,4 +182,3 @@ public class StaticLeaderLeaseManagerTest {
         null);
   }
 }
-

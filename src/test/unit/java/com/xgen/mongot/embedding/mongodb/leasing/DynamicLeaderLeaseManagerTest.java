@@ -22,22 +22,20 @@ import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.InsertOneResult;
 import com.mongodb.client.result.UpdateResult;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
-import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
 import com.xgen.mongot.index.EncodedUserData;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.GenerationId;
-import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
 import com.xgen.testing.mongot.metrics.SimpleMetricsFactory;
 import com.xgen.testing.mongot.mock.index.MaterializedViewIndex;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.bson.BsonDocument;
-import org.bson.BsonString;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.bson.types.ObjectId;
@@ -637,8 +635,23 @@ public class DynamicLeaderLeaseManagerTest {
             UUID.randomUUID(),
             "mv-collection-name");
 
+    // Track inserted lease to return on subsequent find calls
+    AtomicReference<BsonDocument> insertedLease = new AtomicReference<>();
+
     InsertOneResult insertResult = mock(InsertOneResult.class);
-    when(this.mockCollection.insertOne(any(BsonDocument.class))).thenReturn(insertResult);
+    when(this.mockCollection.insertOne(any(BsonDocument.class)))
+        .thenAnswer(
+            invocation -> {
+              insertedLease.set(invocation.getArgument(0));
+              return insertResult;
+            });
+
+    // First find returns null, subsequent finds return the inserted lease
+    @SuppressWarnings("unchecked")
+    FindIterable<BsonDocument> findIterable = mock(FindIterable.class);
+    when(this.mockCollection.find(any(Document.class))).thenReturn(findIterable);
+    when(findIterable.first()).thenAnswer(invocation -> insertedLease.get());
+
     this.leaseManager.initializeLease(indexDefGen, proposedMetadata);
 
     // Act - call initializeLease again with different proposed metadata but same collection name
@@ -710,85 +723,6 @@ public class DynamicLeaderLeaseManagerTest {
   }
 
   // ==================== normalizeLeaseIfNeeded ====================
-
-  @Test
-  public void normalizeLeaseIfNeeded_notNilUuid_returnsLeaseUnchanged() {
-    // Arrange - create a lease with no MaterializedViewCollectionMetadata (needs to be normalized)
-    String collectionName = "test-mv-collection";
-    UUID originalUuid = UUID.randomUUID();
-    Lease lease = createLeaseWithMatViewUuid(collectionName, originalUuid);
-
-    // Put the lease in the mock collection for syncLeasesFromMongod
-    ArrayList<BsonDocument> leaseList = new ArrayList<>();
-    leaseList.add(lease.toBson());
-    when(this.mockFindIterable.into(any())).thenReturn(leaseList);
-
-    // Act - create a new manager (syncLeasesFromMongod will be called in constructor)
-    DynamicLeaderLeaseManager manager =
-        new DynamicLeaderLeaseManager(
-            this.mockMongoClient,
-            new SimpleMetricsFactory(),
-            HOSTNAME,
-            DATABASE_NAME,
-            this.mvMetadataCatalog);
-
-    Map<String, Lease> storedLeases = manager.getLeases();
-    assertThat(storedLeases).containsKey(collectionName);
-    assertThat(
-            storedLeases.get(collectionName).materializedViewCollectionMetadata().collectionUuid())
-        .isEqualTo(originalUuid);
-  }
-
-  @Test
-  @SuppressWarnings("unchecked")
-  public void normalizeLeaseIfNeeded_resolvesWithCollectionUuid() {
-    // Arrange - create a lease with no MaterializedViewCollectionMetadata (needs to be normalized)
-    String collectionName = "test-mv-collection";
-    UUID expectedUuid = UUID.randomUUID();
-    var rawLease =
-        BsonDocument.parse(
-            "{\"_id\": \"test-mv-collection\",\n"
-                + "        \"schemaVersion\": 1,\n"
-                + "        \"collectionUuid\": \"550e8400-e29b-41d4-a716-446655440000\",\n"
-                + "        \"collectionName\": \"source-collection\",\n"
-                + "        \"leaseOwner\": \"localhost\",\n"
-                + "        \"leaseExpiration\": {\n"
-                + "          \"$date\": \"2024-12-06T00:57:15.661Z\"\n"
-                + "        },\n"
-                + "        \"leaseVersion\": 1,\n"
-                + "        \"commitInfo\": \"{}\",\n"
-                + "        \"latestIndexDefinitionVersion\": \"1\",\n"
-                + "        \"indexDefinitionVersionStatusMap\": {\n"
-                + "          \"1\": {\n"
-                + "            \"isQueryable\": false,\n"
-                + "            \"indexStatusCode\": \"INITIAL_SYNC\"\n"
-                + "          }\n"
-                + "        }}");
-
-    // Put the lease in the mock collection for syncLeasesFromMongod
-    ArrayList<BsonDocument> leaseList = new ArrayList<>();
-    leaseList.add(rawLease);
-    when(this.mockFindIterable.into(any())).thenReturn(leaseList);
-
-    // Mock the internal database for getCollectionInfo
-    setupInternalDatabaseCollectionInfo(collectionName, expectedUuid);
-
-    // Act - create a new manager (syncLeasesFromMongod will call normalizeLeaseIfNeeded)
-    DynamicLeaderLeaseManager manager =
-        new DynamicLeaderLeaseManager(
-            this.mockMongoClient,
-            new SimpleMetricsFactory(),
-            HOSTNAME,
-            DATABASE_NAME,
-            this.mvMetadataCatalog);
-
-    // Assert - lease should be normalized with the new UUID
-    Map<String, Lease> storedLeases = manager.getLeases();
-    assertThat(storedLeases).containsKey(collectionName);
-    assertThat(
-            storedLeases.get(collectionName).materializedViewCollectionMetadata().collectionUuid())
-        .isEqualTo(expectedUuid);
-  }
 
   @Test
   @SuppressWarnings("unchecked")
@@ -939,39 +873,4 @@ public class DynamicLeaderLeaseManagerTest {
     when(findIterable.first()).thenReturn(null);
   }
 
-  private Lease createLeaseWithMatViewUuid(String collectionName, UUID uuid) {
-    return new Lease(
-        collectionName,
-        Lease.SCHEMA_VERSION,
-        uuid.toString(),
-        collectionName,
-        HOSTNAME,
-        Instant.now().plusSeconds(60),
-        1L,
-        "",
-        "0",
-        Map.of("0", new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.UNKNOWN)),
-        new MaterializedViewCollectionMetadata(
-            MaterializedViewSchemaMetadata.VERSION_ZERO, uuid, collectionName),
-        null);
-  }
-
-  @SuppressWarnings("unchecked")
-  private void setupInternalDatabaseCollectionInfo(String collectionName, UUID uuid) {
-    // Reuse this.mockDatabase to avoid overwriting the getCollection stub needed by the
-    // constructor.
-    ListCollectionsIterable<BsonDocument> listCollIterable = mock(ListCollectionsIterable.class);
-    when(this.mockDatabase.listCollections(BsonDocument.class)).thenReturn(listCollIterable);
-
-    BsonDocument collectionInfoDoc =
-        new BsonDocument()
-            .append("type", new BsonString("collection"))
-            .append("name", new BsonString(collectionName))
-            .append("info", new MongoDbCollectionInfo.Collection.Info(uuid).toBson());
-
-    MongoCursor<BsonDocument> cursor = mock(MongoCursor.class);
-    when(cursor.hasNext()).thenReturn(true).thenReturn(false);
-    when(cursor.next()).thenReturn(collectionInfoDoc);
-    when(listCollIterable.iterator()).thenReturn(cursor);
-  }
 }

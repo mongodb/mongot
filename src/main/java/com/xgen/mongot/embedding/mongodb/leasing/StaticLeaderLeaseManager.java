@@ -117,7 +117,6 @@ public class StaticLeaderLeaseManager implements LeaseManager {
             .withReadConcern(ReadConcern.LINEARIZABLE)
             .withReadPreference(ReadPreference.primary());
     this.isLeader = isLeader;
-    syncLeasesFromMongod();
   }
 
   public static StaticLeaderLeaseManager create(
@@ -135,12 +134,8 @@ public class StaticLeaderLeaseManager implements LeaseManager {
         mvMetadataCatalog);
   }
 
-  /**
-   * Initializes the local lease state with the leases from the database.
-   *
-   * @throws Exception if there is an error talking to the database.
-   */
-  private void syncLeasesFromMongod() {
+  /** Initializes the local lease state with the leases from the database. */
+  public void syncLeasesFromMongod() {
     try {
       List<BsonDocument> rawLeases =
           this.operationExecutor.execute(
@@ -157,7 +152,11 @@ public class StaticLeaderLeaseManager implements LeaseManager {
         }
       }
     } catch (Exception e) {
-      throw new RuntimeException("Failed to initialize leases from database.", e);
+      // initializeLease calls should populate in memory leases individually,
+      LOG.atError()
+          .setCause(e)
+          .addKeyValue("hostname", this.hostname)
+          .log("syncLeasesFromMongod fails, skipping syncLeases to avoid crash.");
     }
   }
 
@@ -401,8 +400,9 @@ public class StaticLeaderLeaseManager implements LeaseManager {
   @Override
   public MaterializedViewCollectionMetadata initializeLease(
       IndexDefinitionGeneration indexDefinitionGeneration,
-      MaterializedViewCollectionMetadata proposedMetadata) {
-    var existingLease = this.leases.get(proposedMetadata.collectionName());
+      MaterializedViewCollectionMetadata proposedMetadata)
+      throws Exception {
+    var existingLease = getLeaseFromDatabase(proposedMetadata.collectionName());
     if (existingLease != null) {
       // If another Mongot already created the initial lease before this mongot calls method
       // syncLeasesFromMongod in the constructor, just reuse, no need to make another network call.

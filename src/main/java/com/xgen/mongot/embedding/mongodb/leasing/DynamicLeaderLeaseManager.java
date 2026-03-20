@@ -121,7 +121,6 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
             .withReadConcern(ReadConcern.LINEARIZABLE)
             .withReadPreference(ReadPreference.primary());
     this.mongoClient = mongoClient;
-    syncLeasesFromMongod();
   }
 
   public static DynamicLeaderLeaseManager create(
@@ -236,10 +235,8 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
    *   "indexStatus": "READY"
    * }
    * }</pre>
-   *
-   * @throws RuntimeException if there is an error talking to the database.
    */
-  private void syncLeasesFromMongod() {
+  public void syncLeasesFromMongod() {
     try {
       List<BsonDocument> rawLeases =
           this.operationExecutor.execute(
@@ -260,7 +257,11 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
           .addKeyValue("hostname", this.hostname)
           .log("Initialized leases from database");
     } catch (Exception e) {
-      throw new RuntimeException("Failed to initialize leases from database.", e);
+      // initializeLease calls should populate in memory leases individually,
+      LOG.atError()
+          .setCause(e)
+          .addKeyValue("hostname", this.hostname)
+          .log("syncLeasesFromMongod fails, skipping syncLeases to avoid crash.");
     }
   }
 
@@ -712,7 +713,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
       IndexDefinitionGeneration indexDefinitionGeneration,
       MaterializedViewCollectionMetadata proposedMetadata)
       throws Exception {
-    var existingLease = this.leases.get(proposedMetadata.collectionName());
+    var existingLease = getLeaseFromDatabase(proposedMetadata.collectionName());
     if (existingLease != null) {
       // If another Mongot already created the initial lease before this mongot calls method
       // syncLeasesFromMongod in the constructor, just reuse, no need to make another network call.

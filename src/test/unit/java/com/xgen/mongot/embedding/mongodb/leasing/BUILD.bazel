@@ -20,7 +20,6 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/index/version",
         "//src/main/java/com/xgen/mongot/replication/mongodb/common",
         "//src/main/java/com/xgen/mongot/util",
-        "//src/main/java/com/xgen/mongot/util/mongodb/serialization",
         "//src/main/java/com/xgen/testing",
         "//src/main/java/com/xgen/testing/mongot/metrics",
         "//src/main/java/com/xgen/testing/mongot/mock/index",
