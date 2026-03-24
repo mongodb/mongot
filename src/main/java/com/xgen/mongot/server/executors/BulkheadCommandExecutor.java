@@ -11,6 +11,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.RejectedExecutionHandler;
+import java.util.function.BooleanSupplier;
 import org.bson.BsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +31,7 @@ public class BulkheadCommandExecutor implements Closeable {
   private final NamedExecutorService guaranteedBlockingCommandExecutor;
   private final OptionalInt virtualQueueCapacity;
   private final Optional<Counter> wouldHaveRejectedCounter;
+  private final Counter skippedDueToCancelledStreamCounter;
 
   /** Holds the regular executor configuration created during construction. */
   private record RegularExecutorConfig(
@@ -112,6 +114,9 @@ public class BulkheadCommandExecutor implements Closeable {
     this.regularBlockingCommandExecutor = config.executor();
     this.virtualQueueCapacity = config.virtualQueueCapacity();
     this.wouldHaveRejectedCounter = config.wouldHaveRejectedCounter();
+    this.skippedDueToCancelledStreamCounter =
+        meterRegistry.counter(
+            "loadShedding.skippedDueToCancelledStream", "executor", REGULAR_EXECUTOR_NAME);
   }
 
   private RejectedExecutionHandler rejectionHandler(
@@ -148,6 +153,15 @@ public class BulkheadCommandExecutor implements Closeable {
   /**
    * Schedules given command according to its execution policy.
    *
+   * <p>Equivalent to {@link #execute(Command, BooleanSupplier)} with no cancellation check.
+   */
+  public CompletableFuture<BsonDocument> execute(Command command) {
+    return execute(command, () -> false);
+  }
+
+  /**
+   * Schedules given command according to its execution policy, with an optional cancellation check.
+   *
    * <p>If an exception is thrown in {@link Command#run}, this method won't throw the exception. The
    * returned object will wrap the exception as {@code cause}. Calling {@link CompletableFuture#get}
    * on the returned object will throw a {@link java.util.concurrent.ExecutionException} that wraps
@@ -159,17 +173,37 @@ public class BulkheadCommandExecutor implements Closeable {
    * <p>Commands that return {@code false} from {@link Command#maybeLoadShed()} will be executed on
    * a dedicated unbounded thread pool to ensure they are never rejected due to load shedding.
    *
+   * <p>For ASYNC commands on the regular pool, the {@code isCancelled} supplier is checked at
+   * dequeue time (just before execution). If the supplier returns {@code true}, the command is
+   * skipped and a cancellation metric is recorded.
+   *
+   * @param command the command to execute
+   * @param isCancelled supplier that returns true if the originating stream has been
+   *     cancelled/closed
    * @throws RejectedExecutionException if the executor is configured with a bounded queue and the
    *     queue is full, or if the executor has been shut down
    */
-  public CompletableFuture<BsonDocument> execute(Command command) {
+  public CompletableFuture<BsonDocument> execute(Command command, BooleanSupplier isCancelled) {
     return switch (command.getExecutionPolicy()) {
       case ASYNC -> {
         if (!command.maybeLoadShed()) {
           yield CompletableFuture.supplyAsync(command::run, this.guaranteedBlockingCommandExecutor);
         }
         recordWouldHaveRejectedIfNeeded();
-        yield CompletableFuture.supplyAsync(command::run, this.regularBlockingCommandExecutor);
+        yield CompletableFuture.supplyAsync(
+            () -> {
+              if (isCancelled.getAsBoolean()) {
+                this.skippedDueToCancelledStreamCounter.increment();
+                LOG.debug(
+                    "Skipping dequeued command '{}' because stream was cancelled", command.name());
+                throw new CancelledStreamSkipException(
+                    "Command '"
+                        + command.name()
+                        + "' skipped: stream was cancelled before execution");
+              }
+              return command.run();
+            },
+            this.regularBlockingCommandExecutor);
       }
       case SYNC -> {
         try {

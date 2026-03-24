@@ -12,15 +12,16 @@ import com.xgen.mongot.server.command.CommandFactory;
 import com.xgen.mongot.server.command.ParsedCommand;
 import com.xgen.mongot.server.command.registry.CommandRegistry;
 import com.xgen.mongot.server.executors.BulkheadCommandExecutor;
+import com.xgen.mongot.server.executors.CancelledStreamSkipException;
 import com.xgen.mongot.server.executors.LoadSheddingRejectedException;
 import com.xgen.mongot.server.message.MessageUtils;
+import com.xgen.mongot.util.FutureUtils;
 import com.xgen.mongot.util.mongodb.Errors;
 import io.grpc.stub.StreamObserver;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import org.bson.BsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,11 +73,12 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
         .whenComplete(
             (replyMsg, cause) -> {
               if (cause != null) {
+                Throwable unwrapped = FutureUtils.unwrapCause(cause);
                 this.commandManager.onCommandComplete(
                     getErrorMessage(requestMsg, cause),
                     () -> {
-                      // update metrics for failed commands
-                      if (!(cause instanceof InterruptedException)) {
+                      if (!(unwrapped instanceof InterruptedException)
+                          && !(unwrapped instanceof CancelledStreamSkipException)) {
                         handlingContext.commandRegistration.ifPresent(
                             registration -> registration.failureCounter.increment());
                       }
@@ -123,7 +125,7 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
       command.handleSearchEnvoyMetadata(this.searchEnvoyMetadata);
 
       return this.commandExecutor
-          .execute(command)
+          .execute(command, this.commandManager::isStreamCancelled)
           .thenApply(
               response -> {
                 // If new cursors are created during command execution, track them.
@@ -163,10 +165,7 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
   abstract T serializeResponse(T request, BsonDocument response);
 
   private T getErrorMessage(T request, Throwable exception) {
-    Throwable cause =
-        exception instanceof ExecutionException && exception.getCause() != null
-            ? exception.getCause()
-            : exception;
+    Throwable cause = FutureUtils.unwrapCause(exception);
 
     // Load shedding rejection should include error code and labels for client retry handling
     if (cause instanceof LoadSheddingRejectedException) {
@@ -178,7 +177,8 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
       return serializeError(request, error);
     }
 
-    if (!(cause instanceof InvalidQueryException)) {
+    if (!(cause instanceof InvalidQueryException)
+        && !(cause instanceof CancelledStreamSkipException)) {
       LOG.warn("unexpected exception", cause);
     }
 

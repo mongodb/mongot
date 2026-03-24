@@ -4,6 +4,7 @@ java_test_suite(
     name = "grpc",
     srcs = [
         "BsonMessageCallHandlerTest.java",
+        "CommandManagerTest.java",
         "HealthManagerTest.java",
         "MessageMarshallerTest.java",
         "RawBsonMarshallerTest.java",
@@ -23,6 +24,7 @@ java_test_suite(
         "@io_grpc_grpc_java//api",
         "@io_grpc_grpc_java//stub",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_truth_truth",
         "@maven//:io_micrometer_micrometer_core",
         "@maven//:io_netty_netty_buffer",
         "@maven//:junit_junit",

@@ -2,6 +2,7 @@ package com.xgen.mongot.server.executors;
 
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 
 import com.xgen.mongot.server.command.Command;
 import io.micrometer.core.instrument.Counter;
@@ -13,6 +14,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.bson.BsonDocument;
 import org.junit.Test;
 
@@ -463,5 +465,136 @@ public class BulkheadCommandExecutorTest {
         return false;
       }
     };
+  }
+
+  @Test
+  public void execute_cancelledStream_skipsCommandAndIncrementsCounter()
+      throws InterruptedException {
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    try (BulkheadCommandExecutor exec = new BulkheadCommandExecutor(meterRegistry)) {
+      AtomicBoolean commandRan = new AtomicBoolean(false);
+      Command command = asyncCommand(() -> commandRan.set(true));
+
+      var future = exec.execute(command, () -> true);
+      ExecutionException thrown = assertThrows(ExecutionException.class, future::get);
+      assertThat(thrown.getCause()).isInstanceOf(CancelledStreamSkipException.class);
+
+      assertThat(commandRan.get()).isFalse();
+
+      Counter skippedCounter =
+          meterRegistry
+              .find("loadShedding.skippedDueToCancelledStream")
+              .tag("executor", "blocking-server-worker")
+              .counter();
+      assertThat(skippedCounter).isNotNull();
+      assertThat(skippedCounter.count()).isEqualTo(1.0);
+    }
+  }
+
+  @Test
+  public void execute_liveStream_runsCommandNormally()
+      throws ExecutionException, InterruptedException {
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    try (BulkheadCommandExecutor exec = new BulkheadCommandExecutor(meterRegistry)) {
+      AtomicBoolean commandRan = new AtomicBoolean(false);
+      Command command = asyncCommand(() -> commandRan.set(true));
+
+      exec.execute(command, () -> false).get();
+
+      assertThat(commandRan.get()).isTrue();
+
+      Counter skippedCounter =
+          meterRegistry
+              .find("loadShedding.skippedDueToCancelledStream")
+              .tag("executor", "blocking-server-worker")
+              .counter();
+      assertThat(skippedCounter).isNotNull();
+      assertThat(skippedCounter.count()).isEqualTo(0.0);
+    }
+  }
+
+  @Test
+  public void execute_streamCancelledWhileQueued_skipsOnDequeue() throws InterruptedException {
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    RegularBlockingRequestSettings settings =
+        RegularBlockingRequestSettings.create(
+            Optional.of(0.001), Optional.of(0.001), Optional.of(true));
+
+    try (BulkheadCommandExecutor exec = new BulkheadCommandExecutor(meterRegistry, settings)) {
+      CountDownLatch blockingLatch = new CountDownLatch(1);
+      CountDownLatch taskStartedLatch = new CountDownLatch(1);
+      AtomicBoolean cancelled = new AtomicBoolean(false);
+      AtomicBoolean secondCommandRan = new AtomicBoolean(false);
+
+      exec.execute(blockingCommand(blockingLatch, taskStartedLatch));
+      assertTrue(taskStartedLatch.await(5, TimeUnit.SECONDS));
+
+      var future =
+          exec.execute(asyncCommand(() -> secondCommandRan.set(true)), cancelled::get);
+
+      cancelled.set(true);
+      blockingLatch.countDown();
+
+      ExecutionException thrown = assertThrows(ExecutionException.class, future::get);
+      assertThat(thrown.getCause()).isInstanceOf(CancelledStreamSkipException.class);
+
+      assertThat(secondCommandRan.get()).isFalse();
+
+      Counter skippedCounter =
+          meterRegistry
+              .find("loadShedding.skippedDueToCancelledStream")
+              .tag("executor", "blocking-server-worker")
+              .counter();
+      assertThat(skippedCounter).isNotNull();
+      assertThat(skippedCounter.count()).isEqualTo(1.0);
+    }
+  }
+
+  @Test
+  public void execute_cancelledStreamWithGuaranteedCommand_stillRunsCommand()
+      throws ExecutionException, InterruptedException {
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    try (BulkheadCommandExecutor exec = new BulkheadCommandExecutor(meterRegistry)) {
+      AtomicBoolean commandRan = new AtomicBoolean(false);
+      Command command = nonLoadSheddableAsyncCommand(() -> commandRan.set(true));
+
+      exec.execute(command, () -> true).get();
+
+      assertThat(commandRan.get()).isTrue();
+
+      Counter skippedCounter =
+          meterRegistry
+              .find("loadShedding.skippedDueToCancelledStream")
+              .tag("executor", "blocking-server-worker")
+              .counter();
+      assertThat(skippedCounter.count()).isEqualTo(0.0);
+    }
+  }
+
+  @Test
+  public void execute_cancelledStreamWithSyncCommand_stillRunsCommand()
+      throws ExecutionException, InterruptedException {
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    try (BulkheadCommandExecutor exec = new BulkheadCommandExecutor(meterRegistry)) {
+      AtomicBoolean commandRan = new AtomicBoolean(false);
+      Command command = syncCommand(() -> commandRan.set(true));
+
+      exec.execute(command, () -> true).get();
+
+      assertThat(commandRan.get()).isTrue();
+    }
+  }
+
+  @Test
+  public void constructor_registersSkippedDueToCancelledStreamCounter() {
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    try (BulkheadCommandExecutor exec = new BulkheadCommandExecutor(meterRegistry)) {
+      Counter skippedCounter =
+          meterRegistry
+              .find("loadShedding.skippedDueToCancelledStream")
+              .tag("executor", "blocking-server-worker")
+              .counter();
+      assertThat(skippedCounter).isNotNull();
+    }
   }
 }

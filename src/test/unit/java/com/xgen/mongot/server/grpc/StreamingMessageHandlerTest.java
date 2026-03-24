@@ -187,10 +187,15 @@ public class StreamingMessageHandlerTest {
 
     private static final String Name = "longRunning";
     private final CountDownLatch latch;
+    private final CountDownLatch startedLatch;
 
-    // The command will wait until the latch has counted down to zero.
     private LongRunningCommand(CountDownLatch latch) {
+      this(latch, null);
+    }
+
+    private LongRunningCommand(CountDownLatch latch, CountDownLatch startedLatch) {
       this.latch = latch;
+      this.startedLatch = startedLatch;
     }
 
     @Override
@@ -200,6 +205,9 @@ public class StreamingMessageHandlerTest {
 
     @Override
     public BsonDocument run() {
+      if (this.startedLatch != null) {
+        this.startedLatch.countDown();
+      }
       try {
         this.latch.await();
       } catch (InterruptedException e) {
@@ -384,7 +392,7 @@ public class StreamingMessageHandlerTest {
         true);
     BsonDocument document = new BsonDocument().append(ThrowExceptionCommand.Name, BsonBoolean.TRUE);
     this.messageHandler.onNext(createOpMsgFromBsonDocument(document));
-    verifyServerErrorResponse("java.lang.RuntimeException: throw exception by command");
+    verifyServerErrorResponse("throw exception by command");
     Assert.assertEquals(
         1.00,
         this.commandRegistry
@@ -405,7 +413,7 @@ public class StreamingMessageHandlerTest {
         true);
     BsonDocument document = new BsonDocument().append(ThrowExceptionCommand.Name, BsonBoolean.TRUE);
     this.messageHandler.onNext(createOpMsgFromBsonDocument(document));
-    verifyServerErrorResponse("java.lang.RuntimeException: throw exception by command");
+    verifyServerErrorResponse("throw exception by command");
     this.messageHandler.onCompleted();
     verifyServerHalfClosed();
 
@@ -483,12 +491,16 @@ public class StreamingMessageHandlerTest {
   }
 
   @Test
-  public void streamTerminationWhenThereIsARunningCommand() {
+  public void streamTerminationWhenThereIsARunningCommand() throws InterruptedException {
     CountDownLatch latch = new CountDownLatch(1);
+    CountDownLatch startedLatch = new CountDownLatch(1);
     this.commandRegistry.registerCommand(
-        LongRunningCommand.Name, (CommandFactory) ignored -> new LongRunningCommand(latch), true);
+        LongRunningCommand.Name,
+        (CommandFactory) ignored -> new LongRunningCommand(latch, startedLatch),
+        true);
     BsonDocument document = new BsonDocument().append(LongRunningCommand.Name, BsonBoolean.TRUE);
     this.messageHandler.onNext(createOpMsgFromBsonDocument(document));
+    Assert.assertTrue(startedLatch.await(5, TimeUnit.SECONDS));
     this.streamTerminated = true;
     this.messageHandler.onError(Status.CANCELLED.asRuntimeException());
 

@@ -28,6 +28,19 @@ public class FutureUtils {
   private FutureUtils() {}
 
   /**
+   * Unwraps a single layer of {@link ExecutionException} or {@link CompletionException} to return
+   * the underlying cause. Returns the original throwable if it is not a wrapper type or has no
+   * cause.
+   */
+  public static Throwable unwrapCause(Throwable exception) {
+    if ((exception instanceof ExecutionException || exception instanceof CompletionException)
+        && exception.getCause() != null) {
+      return exception.getCause();
+    }
+    return exception;
+  }
+
+  /**
    * Ignores the return value of the supplied future and returns a future of Void type.
    *
    * @param source the future whose return value should be ignored

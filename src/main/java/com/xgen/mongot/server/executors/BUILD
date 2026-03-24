@@ -4,6 +4,7 @@ java_library(
     name = "executors",
     srcs = [
         "BulkheadCommandExecutor.java",
+        "CancelledStreamSkipException.java",
         "ExecutorManager.java",
         "LoadSheddingRejectedException.java",
         "RegularBlockingRequestSettings.java",

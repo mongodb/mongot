@@ -41,11 +41,14 @@ public class CommandManager<T> {
   // It can only be set in `onStreamCancellation`.
   private volatile Runnable cleanupCallback;
 
+  private volatile boolean streamCancelled;
+
   CommandManager(StreamObserver<T> responseObserver) {
     this.responseObserver = responseObserver;
     // This is initialized to 1 because we need to call `responseObserver.onCompleted` after
     // receiving `onHalfClosedByClient` or `onStreamCancellation`.
     this.numPendingResponseObserverCalls = new AtomicInteger(1);
+    this.streamCancelled = false;
     this.cleanupCallback =
         () -> {
           // Do nothing.
@@ -79,7 +82,12 @@ public class CommandManager<T> {
     }
   }
 
+  boolean isStreamCancelled() {
+    return this.streamCancelled;
+  }
+
   void onStreamCancellation(Runnable cleanupCallback) {
+    this.streamCancelled = true;
     // - If there are running commands, this callback will be triggerred by `onCommandComplete` of
     //   the last completed command.
     // - Otherwise, this callback will be triggerred in the current `onStreamCancellation` call.
