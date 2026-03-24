@@ -58,6 +58,11 @@ public class AicDropSearchIndexCommand implements Command {
   }
 
   @Override
+  public boolean maybeLoadShed() {
+    return false;
+  }
+
+  @Override
   public BsonDocument run() {
     // This should be validated by command deserialization, but do a sanity check here.
     Check.exactlyOneOf(

@@ -11,6 +11,7 @@ import static com.xgen.testing.mongot.server.command.management.definition.Manag
 import static com.xgen.testing.mongot.server.command.management.definition.ManageSearchIndexCommandDefinitionBuilder.VECTOR_QUANTIZATION;
 import static com.xgen.testing.mongot.server.command.management.definition.ManageSearchIndexCommandDefinitionBuilder.VECTOR_SIMILARITY;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -366,5 +367,23 @@ public class AicUpdateSearchIndexCommandTest {
         COLLECTION_NAME,
         Optional.empty(),
         updateDefinition);
+  }
+
+  @Test
+  public void maybeLoadShed_alwaysReturnsFalse() {
+    AuthoritativeIndexCatalog mockAic = mock(AuthoritativeIndexCatalog.class);
+    var definition =
+        (UpdateSearchIndexCommandDefinition)
+            ManageSearchIndexCommandDefinitionBuilder.updateIndex()
+                .withIndexName(INDEX_NAME)
+                .withDefinition(
+                    UserSearchIndexDefinitionBuilder.builder()
+                        .mappings(DocumentFieldDefinitionBuilder.builder().dynamic(true))
+                        .build())
+                .buildSearchIndexCommand();
+    var command =
+        new AicUpdateSearchIndexCommand(
+            mockAic, DATABASE_NAME, COLLECTION_UUID, COLLECTION_NAME, Optional.empty(), definition);
+    assertFalse(command.maybeLoadShed());
   }
 }

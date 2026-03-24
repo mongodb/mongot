@@ -6,6 +6,7 @@ import static com.xgen.testing.mongot.server.command.management.definition.Manag
 import static com.xgen.testing.mongot.server.command.management.definition.ManageSearchIndexCommandDefinitionBuilder.INDEX_NAME;
 import static com.xgen.testing.mongot.server.command.management.definition.ManageSearchIndexCommandDefinitionBuilder.VIEW;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -125,5 +126,20 @@ public class AicDropSearchIndexCommandTest {
 
     assertEquals(0, response.getInt32("ok").getValue());
     verify(mockAic, never()).deleteIndex(any());
+  }
+
+  @Test
+  public void maybeLoadShed_alwaysReturnsFalse() {
+    var mockAic = mock(AuthoritativeIndexCatalog.class);
+    var definition =
+        (DropSearchIndexCommandDefinition)
+            ManageSearchIndexCommandDefinitionBuilder.dropIndex()
+                .withIndexName(INDEX_NAME)
+                .buildSearchIndexCommand();
+    var command =
+        new AicDropSearchIndexCommand(
+            mockAic, DATABASE_NAME, COLLECTION_UUID, COLLECTION_NAME,
+            Optional.of(VIEW), definition);
+    assertFalse(command.maybeLoadShed());
   }
 }

@@ -60,7 +60,8 @@ public interface Command {
    *
    * <p>Commands that return {@code false} are executed on a dedicated unbounded thread pool to
    * ensure they are never rejected due to load shedding. This is useful for critical commands that
-   * must always succeed, such as killCursors.
+   * must always succeed, such as killCursors, and for background management commands (e.g., AIC
+   * index create/update) whose bursty load should not compete with user-facing queries.
    *
    * @return true if this command may be rejected due to load shedding, false if it must always
    *     execute

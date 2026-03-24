@@ -594,4 +594,11 @@ public class AicListSearchIndexesCommandTest {
     BsonArray statusDetail = batch.getFirst().asDocument().getArray("statusDetail");
     assertEquals(100, statusDetail.size());
   }
+
+  @Test
+  public void maybeLoadShed_alwaysReturnsFalse() {
+    var definition = createListDefinition();
+    var command = createCommand(definition);
+    assertFalse(command.maybeLoadShed());
+  }
 }

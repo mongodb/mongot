@@ -444,4 +444,18 @@ public class AicCreateSearchIndexesCommandTest {
     assertEquals(Errors.COMMAND_FAILED.code, response.getInt32("code").getValue());
     assertEquals(expectedMessage, response.getString("errmsg").getValue());
   }
+
+  @Test
+  public void maybeLoadShed_alwaysReturnsFalse() {
+    AuthoritativeIndexCatalog mockAic = mock(AuthoritativeIndexCatalog.class);
+    var definition =
+        (CreateSearchIndexesCommandDefinition)
+            ManageSearchIndexCommandDefinitionBuilder.createIndexes()
+                .withDynamicIndex()
+                .buildSearchIndexCommand();
+    var command =
+        new AicCreateSearchIndexesCommand(
+            mockAic, DATABASE_NAME, COLLECTION_UUID, COLLECTION_NAME, Optional.empty(), definition);
+    assertFalse(command.maybeLoadShed());
+  }
 }

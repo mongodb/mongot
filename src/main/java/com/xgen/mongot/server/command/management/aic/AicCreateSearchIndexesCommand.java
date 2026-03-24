@@ -78,6 +78,11 @@ public class AicCreateSearchIndexesCommand implements Command {
   }
 
   @Override
+  public boolean maybeLoadShed() {
+    return false;
+  }
+
+  @Override
   public BsonDocument run() {
     LOG.atInfo()
         .addKeyValue("command", CreateSearchIndexesCommandDefinition.NAME)

@@ -169,7 +169,7 @@ public class BulkheadCommandExecutorTest {
       CountDownLatch taskStartedLatch = new CountDownLatch(1);
 
       exec.execute(blockingCommand(blockingLatch, taskStartedLatch));
-      taskStartedLatch.await(5, TimeUnit.SECONDS);
+      assertTrue(taskStartedLatch.await(5, TimeUnit.SECONDS));
       exec.execute(simpleAsyncCommand()); // fills queue
 
       // LoadSheddingRejectedException is a subclass of RejectedExecutionException
@@ -196,7 +196,7 @@ public class BulkheadCommandExecutorTest {
       CountDownLatch taskStartedLatch = new CountDownLatch(1);
 
       exec.execute(blockingCommand(blockingLatch, taskStartedLatch));
-      taskStartedLatch.await(5, TimeUnit.SECONDS);
+      assertTrue(taskStartedLatch.await(5, TimeUnit.SECONDS));
       exec.execute(simpleAsyncCommand());
 
       try {
@@ -229,7 +229,7 @@ public class BulkheadCommandExecutorTest {
       CountDownLatch taskStartedLatch = new CountDownLatch(1);
 
       exec.execute(blockingCommand(blockingLatch, taskStartedLatch));
-      taskStartedLatch.await(5, TimeUnit.SECONDS);
+      assertTrue(taskStartedLatch.await(5, TimeUnit.SECONDS));
       exec.execute(simpleAsyncCommand());
       Thread.sleep(50); // allow queue to populate
       exec.execute(simpleAsyncCommand()); // exceeds virtual capacity
@@ -259,7 +259,7 @@ public class BulkheadCommandExecutorTest {
       CountDownLatch taskStartedLatch = new CountDownLatch(1);
 
       exec.execute(blockingCommand(blockingLatch, taskStartedLatch));
-      taskStartedLatch.await(5, TimeUnit.SECONDS);
+      assertTrue(taskStartedLatch.await(5, TimeUnit.SECONDS));
 
       // These should all succeed without throwing - unbounded queue never rejects
       exec.execute(simpleAsyncCommand());
@@ -382,7 +382,7 @@ public class BulkheadCommandExecutorTest {
       CountDownLatch taskStartedLatch = new CountDownLatch(1);
 
       exec.execute(blockingCommand(blockingLatch, taskStartedLatch));
-      taskStartedLatch.await(5, TimeUnit.SECONDS);
+      assertTrue(taskStartedLatch.await(5, TimeUnit.SECONDS));
       exec.execute(simpleAsyncCommand()); // fills queue
 
       // Load-sheddable command would be rejected with LoadSheddingRejectedException
@@ -465,6 +465,44 @@ public class BulkheadCommandExecutorTest {
         return false;
       }
     };
+  }
+
+  @Test
+  public void execute_aicManagementCommand_runsOnGuaranteedExecutor()
+      throws ExecutionException, InterruptedException {
+    String[] executionThreadName = new String[1];
+
+    this.executor
+        .execute(
+            nonLoadSheddableAsyncCommand(
+                () -> executionThreadName[0] = Thread.currentThread().getName()))
+        .get();
+
+    assertThat(executionThreadName[0]).startsWith("guaranteed-blocking-server-worker");
+  }
+
+  @Test
+  public void execute_aicManagementCommandAtCapacity_doesNotReject() throws InterruptedException {
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    RegularBlockingRequestSettings settings =
+        RegularBlockingRequestSettings.create(
+            Optional.of(0.001), Optional.of(0.001), Optional.of(false));
+
+    try (BulkheadCommandExecutor exec = new BulkheadCommandExecutor(meterRegistry, settings)) {
+      CountDownLatch blockingLatch = new CountDownLatch(1);
+      CountDownLatch taskStartedLatch = new CountDownLatch(1);
+
+      exec.execute(blockingCommand(blockingLatch, taskStartedLatch));
+      assertTrue(taskStartedLatch.await(5, TimeUnit.SECONDS));
+      exec.execute(simpleAsyncCommand());
+
+      assertThrows(
+          LoadSheddingRejectedException.class, () -> exec.execute(simpleAsyncCommand()));
+
+      exec.execute(simpleNonLoadSheddableAsyncCommand());
+
+      blockingLatch.countDown();
+    }
   }
 
   @Test
