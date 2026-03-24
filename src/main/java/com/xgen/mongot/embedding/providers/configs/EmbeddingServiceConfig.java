@@ -2,6 +2,7 @@ package com.xgen.mongot.embedding.providers.configs;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.hash.Hashing;
+import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -19,6 +20,8 @@ import java.util.UUID;
 import org.bson.BsonDocument;
 
 public class EmbeddingServiceConfig implements DocumentEncodable {
+  public static final int DEFAULT_RPS_PER_PROVIDER = 30;
+  public static final int MAX_RPS_PER_PROVIDER = 100;
   public static final ErrorHandlingConfig DEFAULT_ERROR_HANDLING_CONFIG =
       new ErrorHandlingConfig(50, 200L, 10000L, 0.1 /* 10% jitter */);
 
@@ -39,12 +42,20 @@ public class EmbeddingServiceConfig implements DocumentEncodable {
 
     static final Field.WithDefault<List<String>> COMPATIBLE_MODELS =
         Field.builder("compatibleModels").stringField().asList().optional().withDefault(List.of());
+
+    static final Field.WithDefault<Integer> RPS_PER_PROVIDER =
+        Field.builder("rpsPerProvider")
+            .intField()
+            .mustBePositive()
+            .optional()
+            .withDefault(DEFAULT_RPS_PER_PROVIDER);
   }
 
   public static EmbeddingServiceConfig fromBson(DocumentParser parser) throws BsonParseException {
     return new EmbeddingServiceConfig(
         parser.getField(Fields.EMBEDDING_PROVIDER).unwrap(),
         parser.getField(Fields.MODEL_NAME).unwrap(),
+        parser.getField(Fields.RPS_PER_PROVIDER).unwrap(),
         parser.getField(Fields.EMBEDDING_CONFIG).unwrap(),
         Set.copyOf(parser.getField(Fields.COMPATIBLE_MODELS).unwrap()));
   }
@@ -59,6 +70,7 @@ public class EmbeddingServiceConfig implements DocumentEncodable {
    * model.
    */
   public final Set<String> compatibleModels;
+  public final Integer rpsPerProvider;
 
   @Override
   public BsonDocument toBson() {
@@ -67,6 +79,7 @@ public class EmbeddingServiceConfig implements DocumentEncodable {
         BsonDocumentBuilder.builder()
             .field(Fields.EMBEDDING_PROVIDER, this.embeddingProvider)
             .field(Fields.MODEL_NAME, this.modelName)
+            .field(Fields.RPS_PER_PROVIDER, this.rpsPerProvider)
             .field(Fields.EMBEDDING_CONFIG, this.embeddingConfig);
     return this.compatibleModels.isEmpty()
         ? builder.build()
@@ -74,18 +87,28 @@ public class EmbeddingServiceConfig implements DocumentEncodable {
   }
 
   public EmbeddingServiceConfig(
-      EmbeddingProvider embeddingProvider, String modelName, EmbeddingConfig embeddingConfig) {
-    this(embeddingProvider, modelName, embeddingConfig, Set.of());
+      EmbeddingProvider embeddingProvider,
+      String modelName,
+      Integer rpsPerProvider,
+      EmbeddingConfig embeddingConfig) {
+    this(embeddingProvider, modelName, rpsPerProvider, embeddingConfig, Set.of());
   }
 
   public EmbeddingServiceConfig(
       EmbeddingProvider embeddingProvider,
       String modelName,
+      Integer rpsPerProvider,
       EmbeddingConfig embeddingConfig,
       Set<String> compatibleModels) {
+    Check.checkArg(
+        rpsPerProvider <= MAX_RPS_PER_PROVIDER,
+        "rpsPerProvider must be at most %s, got %s",
+        MAX_RPS_PER_PROVIDER,
+        rpsPerProvider);
     this.embeddingProvider = embeddingProvider;
     this.modelName = modelName;
     this.embeddingConfig = embeddingConfig;
+    this.rpsPerProvider = rpsPerProvider;
     this.compatibleModels = compatibleModels;
   }
 
@@ -197,6 +220,7 @@ public class EmbeddingServiceConfig implements DocumentEncodable {
     return new EmbeddingServiceConfig(
         this.embeddingProvider,
         this.modelName,
+        this.rpsPerProvider,
         this.embeddingConfig.copySanitized(sanitizedPlaceholder),
         this.compatibleModels);
   }
@@ -262,6 +286,8 @@ public class EmbeddingServiceConfig implements DocumentEncodable {
               .booleanField()
               .optional()
               .withDefault(DEFAULT_USE_FLEX_TIER);
+      static final Field.Optional<Integer> RPS_PER_PROVIDER =
+          Field.builder("rpsPerProvider").intField().mustBePositive().optional().noDefault();
     }
 
     public static EmbeddingConfig fromBson(DocumentParser parser) throws BsonParseException {
@@ -276,7 +302,8 @@ public class EmbeddingServiceConfig implements DocumentEncodable {
           parser.getField(Fields.TENANT_CREDENTIALS).unwrap(),
           parser.getField(Fields.IS_DEDICATED_CLUSTER).unwrap(),
           parser.getField(Fields.PROVIDER_ENDPOINT).unwrap(),
-          parser.getField(Fields.USE_FLEX_TIER).unwrap());
+          parser.getField(Fields.USE_FLEX_TIER).unwrap(),
+          parser.getField(Fields.RPS_PER_PROVIDER).unwrap());
     }
 
     @Override
@@ -293,6 +320,7 @@ public class EmbeddingServiceConfig implements DocumentEncodable {
           .field(Fields.IS_DEDICATED_CLUSTER, this.isDedicatedCluster)
           .field(Fields.PROVIDER_ENDPOINT, this.providerEndpoint)
           .fieldOmitDefaultValue(Fields.USE_FLEX_TIER, this.useFlexTier)
+          .field(Fields.RPS_PER_PROVIDER, this.rpsPerProvider)
           .build();
     }
 
@@ -312,6 +340,7 @@ public class EmbeddingServiceConfig implements DocumentEncodable {
      * model.
      */
     public final boolean useFlexTier;
+    public final Optional<Integer> rpsPerProvider;
 
     public EmbeddingConfig(
         Optional<String> region,
@@ -335,7 +364,8 @@ public class EmbeddingServiceConfig implements DocumentEncodable {
           tenantCredentials,
           isDedicatedCluster,
           providerEndpoint,
-          DEFAULT_USE_FLEX_TIER);
+          DEFAULT_USE_FLEX_TIER,
+          Optional.empty());
     }
 
     public EmbeddingConfig(
@@ -349,7 +379,8 @@ public class EmbeddingServiceConfig implements DocumentEncodable {
         Optional<Map<String, TenantWorkloadCredentials>> tenantCredentials,
         Boolean isDedicatedCluster,
         Optional<String> providerEndpoint,
-        boolean useFlexTier) {
+        boolean useFlexTier,
+        Optional<Integer> rpsPerProvider) {
       this.region = region;
       this.modelConfigBase = modelConfig;
       this.errorHandlingConfigBase = errorHandlingConfig;
@@ -361,6 +392,7 @@ public class EmbeddingServiceConfig implements DocumentEncodable {
       this.isDedicatedCluster = isDedicatedCluster;
       this.providerEndpoint = providerEndpoint;
       this.useFlexTier = useFlexTier;
+      this.rpsPerProvider = rpsPerProvider;
     }
 
     public ModelConfig getModelConfigBase() {
@@ -465,7 +497,8 @@ public class EmbeddingServiceConfig implements DocumentEncodable {
               }),
           this.isDedicatedCluster,
           this.providerEndpoint,
-          this.useFlexTier);
+          this.useFlexTier,
+          this.rpsPerProvider);
     }
   }
 

@@ -15,6 +15,7 @@ import com.xgen.mongot.embedding.exceptions.EmbeddingProviderTransientException;
 import com.xgen.mongot.embedding.providers.clients.ClientInterface;
 import com.xgen.mongot.embedding.providers.clients.EmbeddingClientFactory;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
+import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.EmbeddingCredentials;
 import com.xgen.mongot.embedding.providers.congestion.AimdCongestionControl;
 import com.xgen.mongot.embedding.providers.congestion.AimdCongestionControl.CongestionControlParams;
@@ -38,7 +39,6 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import net.jodah.failsafe.Failsafe;
 import net.jodah.failsafe.FailsafeExecutor;
 import net.jodah.failsafe.RetryPolicy;
@@ -51,7 +51,6 @@ import org.slf4j.LoggerFactory;
  * COHERE_EMBED_MULTILINGUAL_V3)
  */
 public class EmbeddingProviderManager {
-  public static final int DEFAULT_RPS_PER_PROVIDER = 30;
   private static final Logger LOG = LoggerFactory.getLogger(EmbeddingProviderManager.class);
   private static final int DEFAULT_BACKOFF_FACTOR = 2;
   private static final Tag QUERY_TAG = Tag.of("workload", QUERY.name());
@@ -130,17 +129,19 @@ public class EmbeddingProviderManager {
         DynamicSemaphore::getUsedPermits,
         Tags.of(modelTag));
 
-    this.rateLimiters =
-        Stream.of(
-                embeddingModelConfig.query(),
-                embeddingModelConfig.collectionScan(),
-                embeddingModelConfig.changeStream())
-            .map(workloadParams -> workloadParams.credentials().getCredentialsUuID())
-            .collect(
-                Collectors.toMap(
-                    Function.identity(),
-                    unused -> RateLimiter.create(DEFAULT_RPS_PER_PROVIDER),
-                    (prev, curr) -> curr));
+    this.rateLimiters = new HashMap<>();
+    for (var workloadParams :
+        List.of(
+            embeddingModelConfig.query(),
+            embeddingModelConfig.collectionScan(),
+            embeddingModelConfig.changeStream())) {
+      String credUuid = workloadParams.credentials().getCredentialsUuID();
+      int rps =
+          workloadParams
+              .rpsPerProvider()
+              .orElse(EmbeddingServiceConfig.DEFAULT_RPS_PER_PROVIDER);
+      this.rateLimiters.putIfAbsent(credUuid, RateLimiter.create(rps));
+    }
     this.failsafeExecutors = initializeExecutors();
     this.clients =
         Arrays.stream(ServiceTier.values())
@@ -314,6 +315,15 @@ public class EmbeddingProviderManager {
   @SuppressWarnings("checkstyle:MissingJavadocMethod")
   public CompletableFuture<List<VectorOrError>> embedAsync(
       List<String> texts, ServiceTier serviceTier, EmbeddingRequestContext context) {
+    LOG.debug(
+        "embedAsync called: model={}, provider={}, tier={}, batchSize={},"
+            + " database={}, collection={}",
+        this.embeddingModelConfig.name(),
+        this.embeddingModelConfig.provider().name(),
+        serviceTier,
+        texts.size(),
+        context.database(),
+        context.collectionName());
     return this.failsafeExecutors
         .get(serviceTier)
         .getAsync(
@@ -323,7 +333,11 @@ public class EmbeddingProviderManager {
               EmbeddingCredentials creds = params.credentials();
               if (this.rateLimiters.containsKey(creds.getCredentialsUuID())) {
                 if (!this.rateLimiters.get(creds.getCredentialsUuID()).tryAcquire()) {
-                  // TODO(CLOUDP-306972): Add error reason label for this error.
+                  LOG.warn(
+                      "Rate limit exceeded for model={}, tier={}, database={}",
+                      this.embeddingModelConfig.name(),
+                      serviceTier,
+                      context.database());
                   throw new EmbeddingProviderTransientException(
                       "Client side rate limit exceeded, retry it later");
                 }
@@ -337,8 +351,19 @@ public class EmbeddingProviderManager {
             (result, exception) -> {
               if (result != null) {
                 this.successfulRequestCounters.get(serviceTier).increment();
+                LOG.debug(
+                    "embedAsync succeeded: model={}, tier={}, resultSize={}",
+                    this.embeddingModelConfig.name(),
+                    serviceTier,
+                    result.size());
               } else if (exception != null) {
                 this.failedRequestCounters.get(serviceTier).increment();
+                LOG.error(
+                    "embedAsync failed after all retries: model={}, tier={}, database={}",
+                    this.embeddingModelConfig.name(),
+                    serviceTier,
+                    context.database(),
+                    exception);
               }
             });
   }

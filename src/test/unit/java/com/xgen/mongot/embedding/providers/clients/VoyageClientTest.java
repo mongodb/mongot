@@ -80,6 +80,8 @@ public class VoyageClientTest {
         Optional.empty(),
         Optional.empty(),
         true,
+        Optional.empty(),
+        false,
         Optional.empty());
   }
 
@@ -99,6 +101,8 @@ public class VoyageClientTest {
         Optional.empty(),
         Optional.empty(),
         Optional.of(perTenantCredentials),
+        false,
+        Optional.empty(),
         false,
         Optional.empty());
   }
@@ -161,6 +165,8 @@ public class VoyageClientTest {
               Optional.empty(),
               Optional.empty(),
               true,
+              Optional.empty(),
+              false,
               Optional.empty()));
 
   @Test
@@ -341,7 +347,9 @@ public class VoyageClientTest {
                 Optional.empty(),
                 Optional.empty(),
                 true,
-                Optional.of(customEndpoint)));
+                Optional.of(customEndpoint),
+                false,
+                Optional.empty()));
 
     HttpClient mockClient = mock(HttpClient.class);
     HttpResponse<String> mockResponse = mock(HttpResponse.class);
@@ -466,7 +474,9 @@ public class VoyageClientTest {
                 Optional.empty(),
                 Optional.empty(),
                 true,
-                Optional.of(newEndpoint)));
+                Optional.of(newEndpoint),
+                false,
+                Optional.empty()));
 
     voyageClient.updateConfig(updatedConfig.query());
     voyageClient.embed(List.of("test"), dummyContext());

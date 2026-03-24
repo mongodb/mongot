@@ -18,6 +18,12 @@ public class EmbeddingConfigFactory {
             .classField(EmbeddingServiceConfig.EmbeddingConfig::fromBson)
             .allowUnknownFields()
             .required();
+    public static final Field.WithDefault<Integer> RPS_PER_PROVIDER =
+        Field.builder("rpsPerProvider")
+            .intField()
+            .mustBePositive()
+            .optional()
+            .withDefault(EmbeddingServiceConfig.DEFAULT_RPS_PER_PROVIDER);
     public static final Field.Required<String> PROVIDER =
         Field.builder("_provider").stringField().mustNotBeEmpty().required();
   }
@@ -27,8 +33,9 @@ public class EmbeddingConfigFactory {
         EmbeddingProvider.valueOf(parser.getField(Fields.EMBEDDING_PROVIDER).unwrap());
     String model = parser.getField(Fields.MODEL_NAME).unwrap().toLowerCase();
     EmbeddingServiceConfig.EmbeddingConfig config = parser.getField(Fields.CONFIG).unwrap();
+    Integer rpsPerProvider = parser.getField(Fields.RPS_PER_PROVIDER).unwrap();
     // TODO(CLOUDP-373068): Parse compatibility params from ConfCall.
-    return new EmbeddingServiceConfig(provider, model, config);
+    return new EmbeddingServiceConfig(provider, model, rpsPerProvider, config);
   }
 
   public static EmbeddingServiceConfig.EmbeddingCredentials getCredentials(DocumentParser parser)

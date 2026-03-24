@@ -29,6 +29,8 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
   private static final int DEFAULT_CHANGE_STREAM_CURSOR_MAX_TIME_SEC =
       Math.toIntExact(Duration.ofMinutes(30).toSeconds());
   private static final int DEFAULT_REQUEST_RATE_LIMIT_BACKOFF_MS = 100;
+  private static final int DEFAULT_MAT_VIEW_WRITER_MAX_CONNECTIONS = 4;
+  private static final int MAX_MAT_VIEW_WRITER_MAX_CONNECTIONS = 16;
 
   /**
    * The number of steady state change streams that are allowed to have outstanding getMores issued
@@ -99,6 +101,12 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
    */
   public final Optional<Set<EmbeddingServiceConfig.ServiceTier>> flexTierWorkloads;
 
+  /**
+   * The maximum number of connections to the materialized view
+   */
+  public final int matViewWriterMaxConnections;
+
+
   private AutoEmbeddingMaterializedViewConfig(
       boolean pauseAllInitialSyncs,
       List<ObjectId> pauseInitialSyncOnIndexIds,
@@ -113,6 +121,7 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
       int requestRateLimitBackoffMs,
       int maxConcurrentEmbeddingInitialSyncs,
       int maxInFlightEmbeddingGetMores,
+      int matViewWriterMaxConnections,
       Optional<Integer> embeddingGetMoreBatchSize,
       Optional<Integer> materializedViewSchemaVersion,
       Optional<Integer> mvWriteRateLimitRps,
@@ -137,6 +146,7 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
     this.mvWriteRateLimitRps = mvWriteRateLimitRps;
     this.congestionControl = congestionControl;
     this.flexTierWorkloads = flexTierWorkloads;
+    this.matViewWriterMaxConnections = matViewWriterMaxConnections;
   }
 
   /**
@@ -153,6 +163,7 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
       Optional<Integer> optionalRequestRateLimitBackoffMs,
       Optional<Integer> optionalMaxConcurrentEmbeddingInitialSyncs,
       Optional<Integer> optionalMaxInFlightEmbeddingGetMores,
+      Optional<Integer> optionalMatViewWriterMaxConnections,
       Optional<Integer> embeddingGetMoreBatchSize,
       Optional<Integer> materializedViewSchemaVersion,
       Optional<Integer> mvWriteRateLimitRps,
@@ -169,6 +180,7 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
         optionalRequestRateLimitBackoffMs,
         optionalMaxConcurrentEmbeddingInitialSyncs,
         optionalMaxInFlightEmbeddingGetMores,
+        optionalMatViewWriterMaxConnections,
         embeddingGetMoreBatchSize,
         materializedViewSchemaVersion,
         mvWriteRateLimitRps,
@@ -189,6 +201,7 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
       Optional<Integer> optionalRequestRateLimitBackoffMs,
       Optional<Integer> optionalMaxConcurrentEmbeddingInitialSyncs,
       Optional<Integer> optionalMaxInFlightEmbeddingGetMores,
+      Optional<Integer> optionalMatViewWriterMaxConnections,
       Optional<Integer> embeddingGetMoreBatchSize,
       Optional<Integer> materializedViewSchemaVersion,
       Optional<Integer> mvWriteRateLimitRps,
@@ -223,6 +236,16 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
         getMaxInFlightEmbeddingGetMoresWithDefault(
             optionalMaxInFlightEmbeddingGetMores, numConcurrentChangeStreams);
     Check.argIsPositive(maxInFlightEmbeddingGetMores, "maxInFlightEmbeddingGetMores");
+
+    int matViewWriterMaxConnections =
+        getMatViewWriterMaxConnectionsWithDefault(optionalMatViewWriterMaxConnections);
+    Check.argIsPositive(matViewWriterMaxConnections,
+        "matViewWriterMaxConnections");
+    Check.checkArg(
+        matViewWriterMaxConnections <= MAX_MAT_VIEW_WRITER_MAX_CONNECTIONS,
+        "matViewWriterMaxConnections must be at most %s, got %s",
+        MAX_MAT_VIEW_WRITER_MAX_CONNECTIONS,
+        matViewWriterMaxConnections);
 
     embeddingGetMoreBatchSize.ifPresent(
         value -> Check.argIsPositive(value, "embeddingGetMoreBatchSize"));
@@ -260,6 +283,7 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
         requestRateLimitBackoffMs,
         maxConcurrentEmbeddingInitialSyncs,
         maxInFlightEmbeddingGetMores,
+        matViewWriterMaxConnections,
         embeddingGetMoreBatchSize,
         materializedViewSchemaVersion,
         mvWriteRateLimitRps,
@@ -286,6 +310,7 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -295,6 +320,7 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
     return create(
         runtime,
         defaultGlobalReplicationConfig(),
+        Optional.empty(),
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
@@ -332,6 +358,7 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
         .field(Fields.REQUEST_RATE_LIMIT_BACKOFF_MS, Optional.of(this.requestRateLimitBackoffMs))
         .field(
             Fields.MAX_CONCURRENT_EMBEDDING_INITIAL_SYNCS, this.maxConcurrentEmbeddingInitialSyncs)
+        .field(Fields.MAT_VIEW_WRITER_MAX_CONNECTIONS, this.matViewWriterMaxConnections)
         .field(Fields.MAX_IN_FLIGHT_EMBEDDING_GET_MORES, this.maxInFlightEmbeddingGetMores)
         .field(Fields.EMBEDDING_GET_MORE_BATCH_SIZE, this.embeddingGetMoreBatchSize)
         .field(Fields.MATERIALIZED_VIEW_SCHEMA_VERSION, this.materializedViewSchemaVersion)
@@ -467,6 +494,17 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
         });
   }
 
+  private static int getMatViewWriterMaxConnectionsWithDefault(
+      Optional<Integer> optionalMatViewWriterMaxConnections) {
+    return optionalMatViewWriterMaxConnections.orElseGet(
+        () -> {
+          LOG.info(
+              "matViewWriterMaxConnections not configured, defaulting to {}.",
+              DEFAULT_MAT_VIEW_WRITER_MAX_CONNECTIONS);
+          return DEFAULT_MAT_VIEW_WRITER_MAX_CONNECTIONS;
+        });
+  }
+
   private static int getMaxInFlightEmbeddingGetMoresWithDefault(
       Optional<Integer> optionalMaxInFlightEmbeddingGetMores, int numConcurrentChangeStreams) {
     return optionalMaxInFlightEmbeddingGetMores.orElseGet(
@@ -541,6 +579,9 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
 
     private static final Field.Required<Integer> MAX_IN_FLIGHT_EMBEDDING_GET_MORES =
         Field.builder("maxInFlightEmbeddingGetMores").intField().mustBePositive().required();
+
+    private static final Field.Required<Integer> MAT_VIEW_WRITER_MAX_CONNECTIONS =
+        Field.builder("matViewWriterMaxConnections").intField().mustBePositive().required();
 
     private static final Field.Optional<Integer> EMBEDDING_GET_MORE_BATCH_SIZE =
         Field.builder("embeddingGetMoreBatchSize")

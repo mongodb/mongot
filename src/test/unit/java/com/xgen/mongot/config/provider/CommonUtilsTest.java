@@ -238,6 +238,7 @@ public class CommonUtilsTest {
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
+            Optional.empty(),
             Optional.of(100),
             Optional.empty(),
             Optional.empty());
@@ -295,6 +296,7 @@ public class CommonUtilsTest {
     AutoEmbeddingMaterializedViewConfig customMvConfig =
         AutoEmbeddingMaterializedViewConfig.create(
             CommonReplicationConfig.defaultGlobalReplicationConfig(),
+            Optional.empty(),
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),

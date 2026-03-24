@@ -71,6 +71,7 @@ public class AutoEmbeddingMaterializedViewConfigTest {
               Optional.of(6),
               Optional.of(7),
               Optional.of(8),
+              Optional.of(10),
               Optional.of(9),
               Optional.of(2),
               Optional.of(42),
@@ -123,6 +124,9 @@ public class AutoEmbeddingMaterializedViewConfigTest {
       assertEquals(1800, config.changeStreamCursorMaxTimeSec);
       assertEquals(100, config.requestRateLimitBackoffMs);
 
+      // Test matViewWriterMaxConnections default
+      assertEquals(4, config.matViewWriterMaxConnections);
+
       // Test Optional fields that should be empty by default
       assertEquals(Optional.empty(), config.embeddingGetMoreBatchSize);
       assertEquals(Optional.empty(), config.materializedViewSchemaVersion);
@@ -140,6 +144,7 @@ public class AutoEmbeddingMaterializedViewConfigTest {
       AutoEmbeddingMaterializedViewConfig customConfig =
           AutoEmbeddingMaterializedViewConfig.create(
               CommonReplicationConfig.defaultGlobalReplicationConfig(),
+              Optional.empty(),
               Optional.empty(),
               Optional.empty(),
               Optional.empty(),
@@ -170,6 +175,7 @@ public class AutoEmbeddingMaterializedViewConfigTest {
                   Optional.empty(),
                   Optional.empty(),
                   Optional.empty(),
+                  Optional.empty(),
                   Optional.of(-1),
                   Optional.empty(),
                   Optional.empty()));
@@ -180,6 +186,7 @@ public class AutoEmbeddingMaterializedViewConfigTest {
       AutoEmbeddingMaterializedViewConfig configWith =
           AutoEmbeddingMaterializedViewConfig.create(
               CommonReplicationConfig.defaultGlobalReplicationConfig(),
+              Optional.empty(),
               Optional.empty(),
               Optional.empty(),
               Optional.empty(),
@@ -205,6 +212,58 @@ public class AutoEmbeddingMaterializedViewConfigTest {
       assertFalse(
           "BSON should not contain mvWriteRateLimitRps when empty",
           bsonWithout.containsKey("mvWriteRateLimitRps"));
+    }
+
+    @Test
+    public void testMatViewWriterMaxConnections_explicitValue() {
+      Runtime runtime = MockRuntimeBuilder.buildDefault();
+      when(runtime.getNumCpus()).thenReturn(8);
+      AutoEmbeddingMaterializedViewConfig config =
+          AutoEmbeddingMaterializedViewConfig.create(
+              runtime,
+              new CommonReplicationConfig.GlobalReplicationConfig(
+                  false, List.of(), false, List.of(), false),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.of(8),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty());
+      assertEquals(8, config.matViewWriterMaxConnections);
+    }
+
+    @Test
+    public void testMatViewWriterMaxConnections_defaultsTo4WhenAbsent() {
+      Runtime runtime = MockRuntimeBuilder.buildDefault();
+      when(runtime.getNumCpus()).thenReturn(8);
+      AutoEmbeddingMaterializedViewConfig config =
+          AutoEmbeddingMaterializedViewConfig.create(
+              runtime,
+              new CommonReplicationConfig.GlobalReplicationConfig(
+                  false, List.of(), false, List.of(), false),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty());
+      assertEquals(4, config.matViewWriterMaxConnections);
     }
   }
 }

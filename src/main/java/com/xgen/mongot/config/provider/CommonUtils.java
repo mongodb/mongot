@@ -187,7 +187,8 @@ public class CommonUtils {
         meterAndFtdcRegistry,
         leaseManager,
         collectionResolver,
-        materializedViewConfig.getMvWriteRateLimitRps());
+        materializedViewConfig.getMvWriteRateLimitRps(),
+        materializedViewConfig.matViewWriterMaxConnections);
   }
 
   /**

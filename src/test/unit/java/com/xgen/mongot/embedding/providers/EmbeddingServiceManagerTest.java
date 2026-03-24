@@ -60,6 +60,8 @@ public class EmbeddingServiceManagerTest {
           Optional.empty(),
           Optional.empty(),
           true,
+          Optional.empty(),
+          false,
           Optional.empty());
   private static final EmbeddingServiceConfig.EmbeddingConfig VOYAGE_CONFIG_FOR_REBATCHING =
       new EmbeddingServiceConfig.EmbeddingConfig(
@@ -76,6 +78,8 @@ public class EmbeddingServiceManagerTest {
           Optional.empty(),
           Optional.empty(),
           true,
+          Optional.empty(),
+          false,
           Optional.empty());
   private static final NamedScheduledExecutorService EXECUTOR =
       Executors.singleThreadScheduledExecutor("test", new SimpleMeterRegistry());
@@ -89,7 +93,10 @@ public class EmbeddingServiceManagerTest {
   public void testOkStatus() {
     EmbeddingServiceConfig embeddingServiceConfig =
         new EmbeddingServiceConfig(
-            EmbeddingServiceConfig.EmbeddingProvider.VOYAGE, "voyage-3-large", VOYAGE_3_CONFIG);
+            EmbeddingServiceConfig.EmbeddingProvider.VOYAGE,
+            "voyage-3-large",
+            EmbeddingServiceConfig.DEFAULT_RPS_PER_PROVIDER,
+            VOYAGE_3_CONFIG);
 
     EmbeddingServiceManager embeddingServiceManager =
         new EmbeddingServiceManager(
@@ -136,7 +143,10 @@ public class EmbeddingServiceManagerTest {
 
     EmbeddingServiceConfig embeddingServiceConfig =
         new EmbeddingServiceConfig(
-            EmbeddingServiceConfig.EmbeddingProvider.VOYAGE, "voyage-3-large", VOYAGE_3_CONFIG);
+            EmbeddingServiceConfig.EmbeddingProvider.VOYAGE,
+            "voyage-3-large",
+            EmbeddingServiceConfig.DEFAULT_RPS_PER_PROVIDER,
+            VOYAGE_3_CONFIG);
 
     EmbeddingServiceManager embeddingServiceManager =
         new EmbeddingServiceManager(
@@ -169,7 +179,10 @@ public class EmbeddingServiceManagerTest {
   public void testLocalErrorInVectorOrError() {
     EmbeddingServiceConfig embeddingServiceConfig =
         new EmbeddingServiceConfig(
-            EmbeddingServiceConfig.EmbeddingProvider.VOYAGE, "voyage-3-large", VOYAGE_3_CONFIG);
+            EmbeddingServiceConfig.EmbeddingProvider.VOYAGE,
+            "voyage-3-large",
+            EmbeddingServiceConfig.DEFAULT_RPS_PER_PROVIDER,
+            VOYAGE_3_CONFIG);
 
     EmbeddingServiceManager embeddingServiceManager =
         new EmbeddingServiceManager(
@@ -206,7 +219,10 @@ public class EmbeddingServiceManagerTest {
   public void testTransientErrorThrowWithRetries() {
     EmbeddingServiceConfig embeddingServiceConfig =
         new EmbeddingServiceConfig(
-            EmbeddingServiceConfig.EmbeddingProvider.VOYAGE, "voyage-3-large", VOYAGE_3_CONFIG);
+            EmbeddingServiceConfig.EmbeddingProvider.VOYAGE,
+            "voyage-3-large",
+            EmbeddingServiceConfig.DEFAULT_RPS_PER_PROVIDER,
+            VOYAGE_3_CONFIG);
 
     MeterRegistry registry = new SimpleMeterRegistry();
     EmbeddingServiceManager embeddingServiceManager =
@@ -272,7 +288,10 @@ public class EmbeddingServiceManagerTest {
   public void testNonTransientErrorThrowWithRebatches() {
     EmbeddingServiceConfig embeddingServiceConfig =
         new EmbeddingServiceConfig(
-            EmbeddingServiceConfig.EmbeddingProvider.VOYAGE, "voyage-3-large", VOYAGE_3_CONFIG);
+            EmbeddingServiceConfig.EmbeddingProvider.VOYAGE,
+            "voyage-3-large",
+            EmbeddingServiceConfig.DEFAULT_RPS_PER_PROVIDER,
+            VOYAGE_3_CONFIG);
 
     MeterRegistry registry = new SimpleMeterRegistry();
     EmbeddingServiceManager embeddingServiceManager =
@@ -358,7 +377,10 @@ public class EmbeddingServiceManagerTest {
   public void testNonTransientErrorThrowWithRebatches_fails() {
     EmbeddingServiceConfig embeddingServiceConfig =
         new EmbeddingServiceConfig(
-            EmbeddingServiceConfig.EmbeddingProvider.VOYAGE, "voyage-3-large", VOYAGE_3_CONFIG);
+            EmbeddingServiceConfig.EmbeddingProvider.VOYAGE,
+            "voyage-3-large",
+            EmbeddingServiceConfig.DEFAULT_RPS_PER_PROVIDER,
+            VOYAGE_3_CONFIG);
 
     MeterRegistry registry = new SimpleMeterRegistry();
     EmbeddingServiceManager embeddingServiceManager =
@@ -414,11 +436,14 @@ public class EmbeddingServiceManagerTest {
             Optional.empty(),
             Optional.empty(),
             true,
+            Optional.empty(),
+            false,
             Optional.empty());
     EmbeddingServiceConfig embeddingServiceConfig =
         new EmbeddingServiceConfig(
             EmbeddingServiceConfig.EmbeddingProvider.VOYAGE,
             "voyage-3-large",
+            EmbeddingServiceConfig.DEFAULT_RPS_PER_PROVIDER,
             disabledRetriesConfig);
 
     EmbeddingServiceManager embeddingServiceManager =
@@ -433,7 +458,7 @@ public class EmbeddingServiceManagerTest {
                 CompletionException.class,
                 () -> {
                   // Sends 2x QPS limit to get error.
-                  for (int i = 0; i <= EmbeddingProviderManager.DEFAULT_RPS_PER_PROVIDER * 2; i++) {
+                  for (int i = 0; i <= EmbeddingServiceConfig.DEFAULT_RPS_PER_PROVIDER * 2; i++) {
                     embeddingServiceManager
                         .embedAsync(
                             List.of("test"),
@@ -468,11 +493,14 @@ public class EmbeddingServiceManagerTest {
             Optional.empty(),
             Optional.empty(),
             true,
+            Optional.empty(),
+            false,
             Optional.empty());
     EmbeddingServiceConfig embeddingServiceConfig =
         new EmbeddingServiceConfig(
             EmbeddingServiceConfig.EmbeddingProvider.VOYAGE,
             "voyage-3-large",
+            EmbeddingServiceConfig.DEFAULT_RPS_PER_PROVIDER,
             disabledRetriesConfig);
 
     EmbeddingServiceManager embeddingServiceManager =
@@ -525,7 +553,10 @@ public class EmbeddingServiceManagerTest {
   public void testUpdatingEmbeddingProviderManagersWithExistingProvider() {
     EmbeddingServiceConfig embeddingServiceConfig1 =
         new EmbeddingServiceConfig(
-            EmbeddingServiceConfig.EmbeddingProvider.VOYAGE, "voyage-3-large", VOYAGE_3_CONFIG);
+            EmbeddingServiceConfig.EmbeddingProvider.VOYAGE,
+            "voyage-3-large",
+            EmbeddingServiceConfig.DEFAULT_RPS_PER_PROVIDER,
+            VOYAGE_3_CONFIG);
 
     FakeEmbeddingClientFactory embeddingClientFactory = mock(FakeEmbeddingClientFactory.class);
     ClientInterface mockClient = mock(ClientInterface.class);
@@ -576,6 +607,7 @@ public class EmbeddingServiceManagerTest {
         new EmbeddingServiceConfig(
             EmbeddingServiceConfig.EmbeddingProvider.VOYAGE,
             "voyage-3-large",
+            EmbeddingServiceConfig.DEFAULT_RPS_PER_PROVIDER,
             new EmbeddingServiceConfig.EmbeddingConfig(
                 Optional.empty(),
                 new EmbeddingServiceConfig.VoyageModelConfig(
@@ -590,6 +622,8 @@ public class EmbeddingServiceManagerTest {
                 Optional.empty(),
                 Optional.empty(),
                 true,
+                Optional.empty(),
+                false,
                 Optional.empty()));
     embeddingServiceManager.updateEmbeddingProviderManagers(List.of(embeddingServiceConfig2));
     verify(embeddingClientFactory, times(0))
@@ -610,6 +644,7 @@ public class EmbeddingServiceManagerTest {
         new EmbeddingServiceConfig(
             EmbeddingServiceConfig.EmbeddingProvider.VOYAGE,
             "voyage-3-large",
+            EmbeddingServiceConfig.DEFAULT_RPS_PER_PROVIDER,
             new EmbeddingServiceConfig.EmbeddingConfig(
                 Optional.empty(),
                 new EmbeddingServiceConfig.VoyageModelConfig(
@@ -624,6 +659,8 @@ public class EmbeddingServiceManagerTest {
                 Optional.empty(),
                 Optional.empty(),
                 true,
+                Optional.empty(),
+                false,
                 Optional.empty()));
     embeddingServiceManager.updateEmbeddingProviderManagers(List.of(embeddingServiceConfig3));
 

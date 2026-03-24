@@ -49,7 +49,8 @@ public class EmbeddingClientFactoryTest {
             Optional.empty(),
             true,
             Optional.empty(),
-            EmbeddingServiceConfig.EmbeddingConfig.DEFAULT_USE_FLEX_TIER);
+            EmbeddingServiceConfig.EmbeddingConfig.DEFAULT_USE_FLEX_TIER,
+            Optional.empty());
     return EmbeddingModelConfig.create(
         "voyage-3-large", EmbeddingServiceConfig.EmbeddingProvider.VOYAGE, config);
   }
@@ -77,7 +78,8 @@ public class EmbeddingClientFactoryTest {
             Optional.empty(),
             true,
             Optional.empty(),
-            false);
+            false,
+            Optional.empty());
     return EmbeddingModelConfig.create(
         "voyage-3-large", EmbeddingServiceConfig.EmbeddingProvider.VOYAGE, config);
   }

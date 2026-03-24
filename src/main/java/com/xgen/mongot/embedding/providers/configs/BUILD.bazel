@@ -16,6 +16,7 @@ java_library(
     ],
     deps = [
         "//src/main/java/com/xgen/mongot/embedding/exceptions",
+        "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/bson",
         "//src/main/java/com/xgen/mongot/util/bson/parser",
         "@maven//:com_google_errorprone_error_prone_annotations",

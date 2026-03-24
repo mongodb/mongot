@@ -1943,7 +1943,10 @@ public class ChangeStreamManagerTest {
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
-                true, Optional.empty())));
+                true,
+                Optional.empty(),
+                false,
+                Optional.empty())));
   }
 
   private Consumer<ChangeStreamResumeInfo> ignoreResumeInfo() {

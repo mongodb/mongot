@@ -1045,6 +1045,8 @@ public class VectorSearchCommandAutoEmbedTest {
                 Optional.empty(),
                 Optional.empty(),
                 true,
+                Optional.empty(),
+                false,
                 Optional.empty())));
 
     // Register compatible models for voyage-4 family (all interchangeable)

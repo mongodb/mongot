@@ -112,11 +112,16 @@ public class ConfigStateMocks {
           Optional.empty(),
           Optional.empty(),
           true,
+          Optional.empty(),
+          false,
           Optional.empty());
 
   private static final EmbeddingServiceConfig TEST_EMBEDDING_CONFIG_V3_LARGE =
       new EmbeddingServiceConfig(
-          EmbeddingServiceConfig.EmbeddingProvider.VOYAGE, "voyage-3-large", VOYAGE_3_CONFIG);
+          EmbeddingServiceConfig.EmbeddingProvider.VOYAGE,
+          "voyage-3-large",
+          EmbeddingServiceConfig.DEFAULT_RPS_PER_PROVIDER,
+          VOYAGE_3_CONFIG);
 
   public final StagedIndexes staged;
   public final IndexCatalog indexCatalog;

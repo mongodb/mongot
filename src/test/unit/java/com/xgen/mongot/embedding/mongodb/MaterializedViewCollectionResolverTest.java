@@ -427,6 +427,7 @@ public class MaterializedViewCollectionResolverTest {
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
+            Optional.empty(),
             Optional.of(0),
             Optional.empty(),
             Optional.empty(),
@@ -466,6 +467,7 @@ public class MaterializedViewCollectionResolverTest {
     AutoEmbeddingMaterializedViewConfig configV1 =
         AutoEmbeddingMaterializedViewConfig.create(
             CommonReplicationConfig.defaultGlobalReplicationConfig(),
+            Optional.empty(),
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),

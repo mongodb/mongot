@@ -48,7 +48,8 @@ public class MaterializedViewIndexFactory implements IndexFactory {
       MeterAndFtdcRegistry meterAndFtdcRegistry,
       LeaseManager leaseManager,
       MaterializedViewCollectionResolver collectionResolver,
-      Optional<Integer> mvWriteRateLimitRps) {
+      Optional<Integer> mvWriteRateLimitRps,
+      int matViewWriterMaxConnections) {
     this.meterAndFtdcRegistry = meterAndFtdcRegistry;
     this.metricsFactory = new MetricsFactory(NAMESPACE, meterAndFtdcRegistry.meterRegistry());
     this.featureFlags = featureFlags;

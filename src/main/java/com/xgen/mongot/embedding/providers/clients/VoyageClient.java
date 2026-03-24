@@ -142,6 +142,16 @@ public class VoyageClient implements ClientInterface {
       Optional<String> tenantId = extractTenantIdIfNeeded(context);
       String apiToken = selectApiToken(tenantId);
 
+      LOG.debug(
+          "Sending Voyage embedding request: model={}, endpoint={},"
+              + " inputCount={}, tier={}, database={}, collection={}",
+          this.modelId,
+          this.endpoint,
+          filteredInput.size(),
+          this.serviceTier,
+          context.database(),
+          context.collectionName());
+
       HttpRequest request;
       try {
         request = buildRequest(filteredInput, apiToken, context);
@@ -156,6 +166,11 @@ public class VoyageClient implements ClientInterface {
       try {
         HttpResponse<String> response =
             this.voyageHttpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        LOG.debug(
+            "Received Voyage embedding response: model={}, statusCode={}, inputCount={}",
+            this.modelId,
+            response.statusCode(),
+            filteredInput.size());
         var vectorResponse = extractVectorsFromResponse(response, inputs);
         isAck = true;
         return vectorResponse;
@@ -218,14 +233,18 @@ public class VoyageClient implements ClientInterface {
   private String selectApiToken(Optional<String> tenantId)
       throws EmbeddingProviderTransientException, IllegalStateException {
     if (this.isDedicatedCluster) {
-      LOG.debug("Using dedicated cluster credentials");
       if (this.credentialToken == null) {
+        LOG.error("Dedicated cluster credentials not configured, credentialToken is null");
         throw new IllegalStateException("Dedicated cluster credentials not configured. ");
       }
+      LOG.debug(
+          "Using dedicated cluster credentials: tokenLength={}",
+          this.credentialToken.length());
       return this.credentialToken;
     } else {
       // MTM cluster: tenant ID is required
       if (tenantId.isEmpty()) {
+        LOG.error("Unable to extract tenant ID from database name for MTM cluster");
         throw new EmbeddingProviderTransientException(
             "Unable to extract tenant ID from database name for MTM cluster. "
                 + "Database name must be in format 'tenantId_dbName'.");
@@ -233,10 +252,13 @@ public class VoyageClient implements ClientInterface {
       String tenant = tenantId.get();
       String apiToken = this.tenantCredentials.get(tenant);
       if (apiToken == null) {
+        LOG.error("No credentials found for tenant: {}, available tenants: {}",
+            tenant, this.tenantCredentials.keySet());
         throw new EmbeddingProviderTransientException(
             String.format("Unable to find credentials for tenant: %s", tenant));
       }
-      LOG.debug("Using tenant-specific credentials for tenant: {}", tenant);
+      LOG.debug("Using tenant-specific credentials for tenant: {}, tokenLength={}",
+          tenant, apiToken.length());
       return apiToken;
     }
   }

@@ -195,6 +195,20 @@ public class CommunityMongotBootstrapperTest {
           "Collection scan workload should have custom endpoint for " + modelName,
           CUSTOM_ENDPOINT,
           modelConfig.collectionScan().providerEndpoint().orElse(null));
+
+      // Verify rpsPerProvider is preserved through endpoint override
+      assertEquals(
+          "rpsPerProvider should be empty (default) after endpoint override for " + modelName,
+          Optional.empty(),
+          modelConfig.query().rpsPerProvider());
+      assertEquals(
+          "rpsPerProvider should be empty (default) after endpoint override for " + modelName,
+          Optional.empty(),
+          modelConfig.changeStream().rpsPerProvider());
+      assertEquals(
+          "rpsPerProvider should be empty (default) after endpoint override for " + modelName,
+          Optional.empty(),
+          modelConfig.collectionScan().rpsPerProvider());
     }
   }
 

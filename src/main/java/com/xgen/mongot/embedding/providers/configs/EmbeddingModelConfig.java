@@ -33,6 +33,7 @@ public record EmbeddingModelConfig(
             config.getErrorHandlingConfigBase(),
             config.getCredentialsBase(),
             config.getProviderEndpoint(),
+            config.rpsPerProvider,
             config.getQueryParams().flatMap(params -> params.tenantCredentials),
             config.tenantCredentials,
             config.isDedicatedCluster),
@@ -42,6 +43,7 @@ public record EmbeddingModelConfig(
             config.getErrorHandlingConfigBase(),
             config.getCredentialsBase(),
             config.getProviderEndpoint(),
+            config.rpsPerProvider,
             config.getChangeStreamParams().flatMap(params -> params.tenantCredentials),
             config.tenantCredentials,
             config.isDedicatedCluster),
@@ -51,6 +53,7 @@ public record EmbeddingModelConfig(
             config.getErrorHandlingConfigBase(),
             config.getCredentialsBase(),
             config.getProviderEndpoint(),
+            config.rpsPerProvider,
             config.getCollectionScanParams().flatMap(params -> params.tenantCredentials),
             config.tenantCredentials,
             config.isDedicatedCluster));
@@ -80,19 +83,22 @@ public record EmbeddingModelConfig(
               Optional.empty(),
               Optional.empty(),
               Optional.empty(),
-              true),
-          new ConsolidatedWorkloadParams(
-              DEFAULT_CONFIG,
-              DEFAULT_ERROR_CONFIG,
-              VOYAGE_CREDENTIALS,
-              Optional.empty(),
-              Optional.empty(),
               Optional.empty(),
               true),
           new ConsolidatedWorkloadParams(
               DEFAULT_CONFIG,
               DEFAULT_ERROR_CONFIG,
               VOYAGE_CREDENTIALS,
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              true),
+          new ConsolidatedWorkloadParams(
+              DEFAULT_CONFIG,
+              DEFAULT_ERROR_CONFIG,
+              VOYAGE_CREDENTIALS,
+              Optional.empty(),
               Optional.empty(),
               Optional.empty(),
               Optional.empty(),
@@ -118,6 +124,7 @@ public record EmbeddingModelConfig(
       ErrorHandlingConfig baseErrorHandlingConfig,
       EmbeddingCredentials baseCredentials,
       Optional<String> baseProviderEndpoint,
+      Optional<Integer> rpsPerProvider,
       Optional<EmbeddingCredentials> tenantCredentials,
       Optional<Map<String, TenantWorkloadCredentials>> perTenantCredentials,
       boolean isDedicatedCluster) {
@@ -179,6 +186,7 @@ public record EmbeddingModelConfig(
         consolidatedErrorHandlingConfig,
         consolidatedCredentials,
         baseProviderEndpoint,
+        rpsPerProvider,
         tenantCredentials,
         perTenantCredentials,
         isDedicatedCluster);
@@ -233,6 +241,7 @@ public record EmbeddingModelConfig(
       EmbeddingServiceConfig.ErrorHandlingConfig errorHandlingConfig,
       EmbeddingCredentials credentials,
       Optional<String> providerEndpoint,
+      Optional<Integer> rpsPerProvider,
       // default/dedicated clustercredentials
       Optional<EmbeddingCredentials> tenantCredentials,
       Optional<Map<String, TenantWorkloadCredentials>> perTenantCredentials,
@@ -250,6 +259,7 @@ public record EmbeddingModelConfig(
           && Objects.equals(this.errorHandlingConfig, other.errorHandlingConfig)
           && Objects.equals(this.credentials, other.credentials)
           && Objects.equals(this.providerEndpoint.orElse(null), other.providerEndpoint.orElse(null))
+          && Objects.equals(this.rpsPerProvider, other.rpsPerProvider)
           && Objects.equals(
               this.tenantCredentials.orElse(null), other.tenantCredentials.orElse(null))
           && Objects.equals(

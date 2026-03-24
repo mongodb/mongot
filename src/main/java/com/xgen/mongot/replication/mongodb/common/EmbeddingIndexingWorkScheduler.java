@@ -395,6 +395,9 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
       Priority priority,
       IndexDefinition indexDefinition) {
     if (stringsToEmbedPerModel.isEmpty()) {
+      FLOGGER.atFine().log(
+          "No strings to embed for index %s, skipping embedding call",
+          indexDefinition.getName());
       return CompletableFuture.completedFuture(Map.of());
     }
 
@@ -410,6 +413,18 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
         priority == Priority.INITIAL_SYNC_COLLECTION_SCAN
             ? ServiceTier.COLLECTION_SCAN
             : ServiceTier.CHANGE_STREAM;
+
+    for (var entry : stringsToEmbedPerModel.entrySet()) {
+      FLOGGER.atFine().log(
+          "Requesting embeddings: index=%s, model=%s, tier=%s,"
+              + " stringCount=%d, database=%s, collection=%s",
+          indexDefinition.getName(),
+          entry.getKey().name(),
+          tier,
+          entry.getValue().size(),
+          indexDefinition.getDatabase(),
+          indexDefinition.getLastObservedCollectionName());
+    }
     Map<EmbeddingModelConfig, CompletableFuture<Map<String, Vector>>> futuresPerModel =
         new HashMap<>();
 

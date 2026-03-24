@@ -21,6 +21,7 @@
         "requestRateLimitBackoffMs": 6,
         "maxConcurrentEmbeddingInitialSyncs": 7,
         "maxInFlightEmbeddingGetMores": 8,
+        "matViewWriterMaxConnections": 10,
         "embeddingGetMoreBatchSize": 9,
         "materializedViewSchemaVersion": 2,
         "mvWriteRateLimitRps": 42
@@ -48,6 +49,7 @@
         "requestRateLimitBackoffMs": 6,
         "maxConcurrentEmbeddingInitialSyncs": 7,
         "maxInFlightEmbeddingGetMores": 8,
+        "matViewWriterMaxConnections": 10,
         "embeddingGetMoreBatchSize": 9,
         "materializedViewSchemaVersion": 2,
         "mvWriteRateLimitRps": 42

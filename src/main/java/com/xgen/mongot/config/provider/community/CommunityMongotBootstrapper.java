@@ -555,6 +555,7 @@ public class CommunityMongotBootstrapper {
                 new EmbeddingServiceConfig(
                     serviceConfig.embeddingProvider,
                     serviceConfig.modelName,
+                    serviceConfig.rpsPerProvider,
                     new EmbeddingServiceConfig.EmbeddingConfig(
                         serviceConfig.embeddingConfig.region,
                         serviceConfig.embeddingConfig.getModelConfigBase(),
@@ -565,7 +566,9 @@ public class CommunityMongotBootstrapper {
                         serviceConfig.embeddingConfig.getChangeStreamParams(),
                         serviceConfig.embeddingConfig.getTenantCredentials(),
                         serviceConfig.embeddingConfig.isDedicatedCluster,
-                        Optional.of(endpoint)),
+                        Optional.of(endpoint),
+                        serviceConfig.embeddingConfig.useFlexTier,
+                        serviceConfig.embeddingConfig.rpsPerProvider),
                     serviceConfig.compatibleModels))
         .toList();
   }
@@ -847,6 +850,7 @@ public class CommunityMongotBootstrapper {
         mvWriteRateLimitRps.isPresent()
             ? AutoEmbeddingMaterializedViewConfig.create(
                 CommonReplicationConfig.defaultGlobalReplicationConfig(),
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),

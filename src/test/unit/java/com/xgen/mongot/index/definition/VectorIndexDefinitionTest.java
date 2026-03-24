@@ -170,6 +170,8 @@ public class VectorIndexDefinitionTest {
                 Optional.empty(),
                 Optional.empty(),
                 true,
+                Optional.empty(),
+                false,
                 Optional.empty())));
     EmbeddingModelCatalog.registerModelConfig(
         "voyage-3.5",
@@ -188,6 +190,8 @@ public class VectorIndexDefinitionTest {
                 Optional.empty(),
                 Optional.empty(),
                 true,
+                Optional.empty(),
+                false,
                 Optional.empty())));
   }
 

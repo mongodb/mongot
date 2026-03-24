@@ -53,6 +53,8 @@ public class AutoEmbeddingIndexValidatorTest {
                 Optional.empty(),
                 Optional.empty(),
                 true,
+                Optional.empty(),
+                false,
                 Optional.empty()));
     EmbeddingModelCatalog.registerModelConfig(REGISTERED_MODEL, testConfig);
   }
@@ -133,6 +135,8 @@ public class AutoEmbeddingIndexValidatorTest {
                 Optional.empty(),
                 Optional.empty(),
                 true,
+                Optional.empty(),
+                false,
                 Optional.empty()));
     EmbeddingModelCatalog.registerModelConfig("second-model", secondModelConfig);
 
@@ -207,6 +211,8 @@ public class AutoEmbeddingIndexValidatorTest {
                 Optional.empty(),
                 Optional.empty(),
                 true,
+                Optional.empty(),
+                false,
                 Optional.empty()));
     EmbeddingModelCatalog.registerModelConfig("another-model", secondModelConfig);
 
