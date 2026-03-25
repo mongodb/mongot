@@ -421,6 +421,27 @@ public class AicCreateSearchIndexesCommandTest {
         """));
   }
 
+  @Test
+  public void mismatchedNestedRootFailsToCreate()
+      throws BsonParseException, MetadataServiceException {
+    this.failsWithCommandFailed(
+        "nestedRoot \"sections\" does not match any field path in the index definition",
+        bson(
+            """
+        {
+          "name": "bad-nested-root",
+          "type": "vectorSearch",
+          "definition": {
+            "fields": [
+              {"path": "topLevelVector", "type": "vector", "numDimensions": 128, 
+              "similarity": "cosine"}
+            ],
+            "nestedRoot": "sections"
+          }
+        }
+        """));
+  }
+
   private void failsWithCommandFailed(String expectedMessage, BsonDocument indexDefinition)
       throws BsonParseException, MetadataServiceException {
     var mockAic = mock(AuthoritativeIndexCatalog.class);

@@ -2,14 +2,22 @@ package com.xgen.mongot.config.util;
 
 import com.xgen.mongot.config.backup.ConfigJournalV1;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.InvalidIndexDefinitionException;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
+import com.xgen.mongot.index.definition.VectorDataFieldDefinition;
+import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.VectorIndexFilterFieldDefinition;
+import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
+import com.xgen.mongot.index.definition.VectorQuantization;
+import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.index.definition.ViewDefinition;
 import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.index.version.UserIndexVersion;
 import com.xgen.mongot.util.Check;
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.config.backup.ConfigJournalV1Builder;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
@@ -34,6 +42,7 @@ import org.junit.runners.Suite;
     value = {
       InvariantsTest.GenerationalInvariantsTest.class,
       InvariantsTest.ValidateInvariantsTest.class,
+      InvariantsTest.ValidateVectorNestedRootReferencesTest.class,
     })
 public class InvariantsTest {
   @RunWith(Parameterized.class)
@@ -514,6 +523,72 @@ public class InvariantsTest {
         List<VectorIndexDefinition> existingDefinitions)
         throws Invariants.InvariantException {
       Invariants.validateInvariants(desiredDefinitions, existingDefinitions);
+    }
+  }
+
+  @RunWith(org.junit.runners.JUnit4.class)
+  public static class ValidateVectorNestedRootReferencesTest {
+
+    private static final VectorFieldSpecification SIMPLE_SPEC =
+        new VectorFieldSpecification(
+            128,
+            VectorSimilarity.COSINE,
+            VectorQuantization.NONE,
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm());
+
+    @Test
+    public void testNestedRootMatchingFieldPathIsValid() throws Exception {
+      VectorIndexDefinition definition =
+          VectorIndexDefinitionBuilder.builder()
+              .nestedRoot("sections")
+              .setFields(
+                  List.of(
+                      new VectorDataFieldDefinition(
+                          FieldPath.parse("sections.embedding"), SIMPLE_SPEC),
+                      new VectorIndexFilterFieldDefinition(FieldPath.parse("sections.name"))))
+              .build();
+
+      // should not throw
+      Invariants.validateVectorNestedRootReferences(List.of(definition));
+    }
+
+    @Test
+    public void testNoNestedRootIsValid() throws Exception {
+      VectorIndexDefinition definition =
+          VectorIndexDefinitionBuilder.builder()
+              .setFields(
+                  List.of(
+                      new VectorDataFieldDefinition(
+                          FieldPath.parse("embedding"), SIMPLE_SPEC)))
+              .build();
+
+      // should not throw
+      Invariants.validateVectorNestedRootReferences(List.of(definition));
+    }
+
+    @Test
+    public void testNestedRootNotMatchingAnyFieldPathThrows() {
+      VectorIndexDefinition definition =
+          VectorIndexDefinitionBuilder.builder()
+              .nestedRoot("sections")
+              .setFields(
+                  List.of(
+                      new VectorDataFieldDefinition(
+                          FieldPath.parse("topLevelVector"), SIMPLE_SPEC)))
+              .build();
+
+      InvalidIndexDefinitionException exception =
+          Assert.assertThrows(
+              InvalidIndexDefinitionException.class,
+              () -> Invariants.validateVectorNestedRootReferences(List.of(definition)));
+      Assert.assertTrue(
+          exception.getMessage().contains("nestedRoot \"sections\" does not match any field path"));
+    }
+
+    @Test
+    public void testEmptyListIsValid() throws Exception {
+      // should not throw
+      Invariants.validateVectorNestedRootReferences(List.of());
     }
   }
 }

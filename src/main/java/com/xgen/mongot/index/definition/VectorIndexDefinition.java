@@ -183,6 +183,15 @@ public final class VectorIndexDefinition implements IndexDefinition {
     return this.mappings.nestedRoot();
   }
 
+  /**
+   * Returns the nestedRoot as originally specified in the index definition, bypassing {@link
+   * VectorIndexFieldMapping}. Used for validation in {@link
+   * com.xgen.atlas.config.provider.mms.ValidatedConfCallResponse}.
+   */
+  public Optional<FieldPath> getRawNestedRoot() {
+    return this.nestedRoot;
+  }
+
   @Override
   public int getParsedIndexFeatureVersion() {
     return this.indexFeatureVersion;

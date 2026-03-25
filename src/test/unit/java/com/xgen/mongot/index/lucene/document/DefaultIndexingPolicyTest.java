@@ -1,6 +1,5 @@
 package com.xgen.mongot.index.lucene.document;
 
-import static com.google.common.truth.Truth.assertThat;
 import static com.xgen.mongot.index.definition.StoredSourceDefinition.Mode.INCLUSION;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -296,41 +295,4 @@ public class DefaultIndexingPolicyTest {
         rootDocument.getField(storedSourceFieldName));
   }
 
-  @Test
-  public void create_vectorIndexWithUnusedNestedRoot_behavesLikeNoNestedRoot() throws IOException {
-    // nestedRoot is configured, but there are no indexed fields under that path. The mapping
-    // should treat nestedRoot as empty, so DefaultIndexingPolicy must behave as for a non-nested
-    // vector index: single root document, no VectorEmbeddedDocumentBuilder.
-    var indexDefinition =
-        VectorIndexDefinitionBuilder.builder()
-            .nestedRoot("sections")
-            .withCosineVectorField("topLevelVector", 2)
-            .withFilterPath("name")
-            .build();
-
-    LuceneIndexingPolicy policy =
-        DefaultIndexingPolicy.create(
-            indexDefinition,
-            indexDefinition.getIndexCapabilities(IndexFormatVersion.CURRENT),
-            METRICS_UPDATER);
-
-    DocumentBlockBuilder builder = policy.createBuilder(DUMMY_ID);
-    assertThat(builder).isNotInstanceOf(VectorEmbeddedDocumentBuilder.class);
-
-    BsonDocument doc =
-        new BsonDocument()
-            .append("_id", new BsonInt32(1))
-            .append(
-                "topLevelVector",
-                new BsonArray(List.of(new BsonDouble(1.0), new BsonDouble(2.0))))
-            .append("name", new BsonString("a"));
-    BsonDocumentProcessor.process(BsonUtils.documentToRaw(doc), builder);
-
-    List<Document> block = builder.buildBlock();
-    assertEquals(
-        "Vector index with unused nestedRoot should still "
-            + "produce exactly one Lucene document per source doc",
-        1,
-        block.size());
-  }
 }

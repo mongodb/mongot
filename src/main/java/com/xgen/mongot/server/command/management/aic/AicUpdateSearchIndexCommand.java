@@ -127,8 +127,7 @@ public class AicUpdateSearchIndexCommand implements Command {
             Errors.INVALID_INDEX_SPECIFICATION_OPTION, "An index's type cannot be changed");
       }
 
-      List<IndexDefinition> allIndexes =
-          this.authoritativeIndexCatalog.listIndexDefinitions();
+      List<IndexDefinition> allIndexes = this.authoritativeIndexCatalog.listIndexDefinitions();
       var searchList = new ArrayList<SearchIndexDefinition>();
       var vectorList = new ArrayList<VectorIndexDefinition>();
       this.authoritativeIndexCatalog.listIndexDefinitions().stream()
@@ -149,6 +148,9 @@ public class AicUpdateSearchIndexCommand implements Command {
       if (newIndex instanceof SearchIndexDefinition searchIndex) {
         AnalyzerInvariants.validate(searchList, List.of());
         AnalyzerInvariants.validateFieldAnalyzerReferences(searchIndex, Set.of(), Set.of());
+      }
+      if (newIndex instanceof VectorIndexDefinition vectorIndex) {
+        Invariants.validateVectorNestedRootReferences(List.of(vectorIndex));
       }
 
       // Validate auto-embedding index update restrictions

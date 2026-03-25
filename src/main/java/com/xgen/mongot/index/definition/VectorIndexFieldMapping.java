@@ -2,12 +2,9 @@ package com.xgen.mongot.index.definition;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.util.FieldPath;
 import java.util.List;
 import java.util.Optional;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Mapping of vector index field definitions to their paths.
@@ -24,8 +21,6 @@ public record VectorIndexFieldMapping(
     ImmutableMap<FieldPath, VectorIndexFieldDefinition> fieldMap,
     ImmutableSet<String> documentPaths,
     Optional<FieldPath> nestedRoot) {
-
-  private static final Logger LOG = LoggerFactory.getLogger(VectorIndexFieldMapping.class);
 
   public Optional<VectorIndexFieldDefinition> getFieldDefinition(FieldPath path) {
     return Optional.ofNullable(this.fieldMap.get(path));
@@ -68,19 +63,8 @@ public record VectorIndexFieldMapping(
   public static VectorIndexFieldMapping create(
       List<VectorIndexFieldDefinition> fields, Optional<FieldPath> nestedRoot) {
     ImmutableSet<String> documentPaths = createDocumentPathMap(fields);
-    @Var VectorIndexFieldMapping mapping =
+    VectorIndexFieldMapping mapping =
         new VectorIndexFieldMapping(createMap(fields), documentPaths, nestedRoot);
-
-    if (nestedRoot.isPresent()
-        && !mapping.subDocumentExists(nestedRoot.get())
-        && !mapping.childPathExists(nestedRoot.get())) {
-      LOG.warn(
-          "nestedRoot is set but no field path is under it: {}. "
-              + "Treating as no nested root; fields will not be indexed as nested.",
-          nestedRoot.get());
-      mapping =
-          new VectorIndexFieldMapping(createMap(fields), documentPaths, Optional.empty());
-    }
 
     return mapping;
   }

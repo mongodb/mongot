@@ -166,6 +166,7 @@ public class AicCreateSearchIndexesCommand implements Command {
       for (SearchIndexDefinition searchIndex : searchList) {
         AnalyzerInvariants.validateFieldAnalyzerReferences(searchIndex, Set.of(), Set.of());
       }
+      Invariants.validateVectorNestedRootReferences(vectorList);
 
       for (InternalAndExternalDefinition indexToCreate : deduplicatedIndexes) {
         try {

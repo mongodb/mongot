@@ -112,6 +112,28 @@ public class Invariants {
     AnalyzerInvariants.validate(CollectionUtils.concat(stagedIndexes, liveIndexes, deletedIndexes));
   }
 
+  /**
+   * Validates that all vector index definitions with a nestedRoot have at least one field path
+   * under that root. If the nestedRoot does not match any field path, the index definition is
+   * invalid.
+   */
+  public static void validateVectorNestedRootReferences(
+      List<VectorIndexDefinition> vectorDefinitions) throws InvalidIndexDefinitionException {
+    for (VectorIndexDefinition vectorDef : vectorDefinitions) {
+      Optional<FieldPath> rawNestedRoot = vectorDef.getRawNestedRoot();
+      if (rawNestedRoot.isPresent()) {
+        var mappings = vectorDef.getMappings();
+        if (!mappings.subDocumentExists(rawNestedRoot.get())
+            && !mappings.childPathExists(rawNestedRoot.get())) {
+          throw new InvalidIndexDefinitionException(
+              "nestedRoot \""
+                  + rawNestedRoot.get()
+                  + "\" does not match any field path in the index definition");
+        }
+      }
+    }
+  }
+
   /** Validates that the analyzer definitions do not violate any invariants. */
   static void validateAnalyzerInvariants(
       List<SearchIndexDefinition> indexDefinitions,
