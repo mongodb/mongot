@@ -56,7 +56,10 @@ public class InitializedMaterializedViewIndex implements InitializedVectorIndex 
       AtomicReference<IndexStatus> statusRef,
       LeaseManager leaseManager,
       MaterializedViewSchemaMetadata schemaMetadata) {
-    this.vectorIndexDefinition = matViewDefinitionGeneration.getIndexDefinition();
+    // TODO(CLOUDP-353553): Handle search index version - getIndexDefinition() now returns
+    //  IndexDefinition which may be a SearchIndexDefinition.
+    this.vectorIndexDefinition =
+        matViewDefinitionGeneration.getIndexDefinition().asVectorDefinition();
     this.generationId = matViewDefinitionGeneration.getGenerationId();
     this.indexMetricsUpdater = indexMetricsUpdater;
     this.materializedViewWriter = materializedViewWriter;

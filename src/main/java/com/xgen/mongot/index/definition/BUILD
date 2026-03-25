@@ -33,6 +33,7 @@ java_library(
         "NumericFieldDefinition.java",
         "NumericFieldOptions.java",
         "ObjectIdFieldDefinition.java",
+        "SearchAutoEmbedFieldDefinition.java",
         "SearchFieldDefinitionResolver.java",
         "SearchIndexCapabilities.java",
         "SearchIndexDefinition.java",

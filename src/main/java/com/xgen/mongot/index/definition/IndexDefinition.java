@@ -1,9 +1,11 @@
 package com.xgen.mongot.index.definition;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.errorprone.annotations.DoNotMock;
 import com.mongodb.MongoNamespace;
 import com.xgen.mongot.index.version.IndexCapabilities;
 import com.xgen.mongot.index.version.IndexFormatVersion;
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -149,11 +151,24 @@ public sealed interface IndexDefinition extends DocumentEncodable
   /**
    * Returns true if any field requires auto-embedding.
    *
-   * <p>Auto-embedding is only supported in {@link VectorIndexDefinition}. A vector index field
-   * requires auto-embedding if it is specified with type {@link
-   * VectorIndexFieldDefinition.Type#TEXT}.
+   * <p>Auto-embedding is supported in both {@link VectorIndexDefinition} (via {@link
+   * VectorIndexFieldDefinition.Type#TEXT} or {@link VectorIndexFieldDefinition.Type#AUTO_EMBED})
+   * and {@link SearchIndexDefinition} (via {@link FieldTypeDefinition.Type#AUTO_EMBED_VECTOR}).
    */
   boolean isAutoEmbeddingIndex();
+
+  /**
+   * Returns the auto-embedding feature version. Returns 0 if not an auto-embedding index. Returns
+   * 1 for legacy text-type auto-embedding (vector indexes only). Returns 2+ for materialized
+   * view-based auto-embedding.
+   */
+  int getParsedAutoEmbeddingFeatureVersion();
+
+  /**
+   * Returns the embedding model name per field path for auto-embedding fields. Returns an empty map
+   * if this is not an auto-embedding index.
+   */
+  ImmutableMap<FieldPath, String> getModelNamePerPath();
 
   /** Returns the original IndexID carried over before Cluster migration or upgrade */
   Optional<ObjectId> getIndexIdAtCreationTime();

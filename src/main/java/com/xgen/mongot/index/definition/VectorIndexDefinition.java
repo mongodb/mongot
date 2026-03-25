@@ -256,11 +256,13 @@ public final class VectorIndexDefinition implements IndexDefinition {
    * requires auto-embedding if it is specified with type {@link
    * VectorIndexFieldDefinition.Type#TEXT} or {@link VectorIndexFieldDefinition.Type#AUTO_EMBED}.
    */
+  @Override
   public int getParsedAutoEmbeddingFeatureVersion() {
     return this.parsedAutoEmbeddingFeatureVersion;
   }
 
   /** Returns embedding model per FieldPath */
+  @Override
   public ImmutableMap<FieldPath, String> getModelNamePerPath() {
     return this.modelNamePerPath;
   }

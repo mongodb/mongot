@@ -1,6 +1,5 @@
 package com.xgen.mongot.index.definition;
 
-import static com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig.DEFAULT_EMBEDDING_MODEL_CONFIG;
 import static com.xgen.mongot.index.definition.VectorIndexFieldDefinition.Type.AUTO_EMBED;
 import static com.xgen.mongot.index.definition.VectorIndexingAlgorithm.HnswIndexingAlgorithm.DEFAULT_HNSW_OPTIONS;
 import static com.xgen.mongot.index.definition.VectorTextFieldSpecification.DEFAULT_MODALITY;
@@ -136,16 +135,7 @@ public class VectorAutoEmbedFieldDefinition extends VectorIndexVectorFieldDefini
   }
 
   private static EmbeddingModelConfig validateAndGet(String modelName) {
-    return EmbeddingModelCatalog.isModelRegistered(modelName)
-            && EmbeddingModelCatalog.isMatViewEnabled()
-        ? EmbeddingModelCatalog.getModelConfig(modelName)
-        : new EmbeddingModelConfig(
-            modelName,
-            DEFAULT_EMBEDDING_MODEL_CONFIG.provider(),
-            DEFAULT_EMBEDDING_MODEL_CONFIG.useFlexTier(),
-            DEFAULT_EMBEDDING_MODEL_CONFIG.query(),
-            DEFAULT_EMBEDDING_MODEL_CONFIG.changeStream(),
-            DEFAULT_EMBEDDING_MODEL_CONFIG.collectionScan());
+    return EmbeddingModelCatalog.resolveModelConfigOrDefault(modelName);
   }
 
   @Override

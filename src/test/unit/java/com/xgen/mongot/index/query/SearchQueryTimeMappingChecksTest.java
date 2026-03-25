@@ -132,6 +132,7 @@ public class SearchQueryTimeMappingChecksTest {
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
+            Optional.empty(),
             Optional.of(definition),
             Optional.empty(),
             Optional.empty(),
@@ -159,6 +160,7 @@ public class SearchQueryTimeMappingChecksTest {
     var definition = new KnnVectorFieldDefinition(100, VectorSimilarity.EUCLIDEAN);
     var fieldDefinition =
         new FieldDefinition(
+            Optional.empty(),
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),

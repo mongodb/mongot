@@ -20,6 +20,7 @@ import com.xgen.mongot.index.analyzer.definition.OverriddenBaseAnalyzerDefinitio
 import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexCapabilities;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinitionGeneration;
@@ -37,6 +38,7 @@ import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.index.version.SynonymMappingId;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.PerIndexMetricsFactory;
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.index.IndexMetricsUpdaterBuilder;
 import com.xgen.testing.mongot.index.analyzer.definition.OverriddenBaseAnalyzerDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
@@ -92,6 +94,8 @@ public class SearchIndex {
       List.of(MOCK_SINGLE_SYNONYM_MAPPING_DEFINITION);
 
   public static final SearchIndexDefinition MOCK_INDEX_DEFINITION = mockDefinitionBuilder().build();
+  public static final SearchIndexDefinition MOCK_SEARCH_AUTO_EMBEDDING_INDEX_DEFINITION =
+      mockAutoEmbeddingSearchDefinition(MOCK_INDEX_ID);
   public static final SearchIndexDefinition MOCK_INDEX_DEFINITION_EDIT =
       mockDefinitionBuilder().analyzerName("lucene.english").build();
   public static final int NUM_PARTITIONS = 8;
@@ -386,6 +390,27 @@ public class SearchIndex {
         .collectionUuid(MOCK_INDEX_COLLECTION_UUID)
         .mappings(MOCK_INDEX_MAPPINGS)
         .synonyms(MOCK_SYNONYM_MAPPING_DEFINITIONS)
+        .build();
+  }
+
+  /** Creates a mock auto embedding search index definition. */
+  public static SearchIndexDefinition mockAutoEmbeddingSearchDefinition(ObjectId indexId) {
+    SearchAutoEmbedFieldDefinition autoEmbedField =
+        new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("content"));
+    DocumentFieldDefinition autoEmbedMappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
+            .build();
+    return SearchIndexDefinitionBuilder.builder()
+        .indexId(indexId)
+        .name(MOCK_INDEX_NAME)
+        .database(MOCK_INDEX_DATABASE_NAME)
+        .lastObservedCollectionName(MOCK_INDEX_LAST_OBSERVED_COLLECTION_NAME)
+        .collectionUuid(MOCK_INDEX_COLLECTION_UUID)
+        .mappings(autoEmbedMappings)
         .build();
   }
 

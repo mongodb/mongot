@@ -117,6 +117,23 @@ public class EmbeddingModelCatalog {
   }
 
   /**
+   * Resolves the embedding model config for the given model name. If the model is registered and
+   * materialized views are enabled, returns the registered config. Otherwise, returns a default
+   * config using the model name with default provider settings.
+   */
+  public static EmbeddingModelConfig resolveModelConfigOrDefault(String modelName) {
+    return isModelRegistered(modelName) && isMatViewEnabled()
+        ? getModelConfig(modelName)
+        : new EmbeddingModelConfig(
+            modelName,
+            EmbeddingModelConfig.DEFAULT_EMBEDDING_MODEL_CONFIG.provider(),
+            EmbeddingModelConfig.DEFAULT_EMBEDDING_MODEL_CONFIG.useFlexTier(),
+            EmbeddingModelConfig.DEFAULT_EMBEDDING_MODEL_CONFIG.query(),
+            EmbeddingModelConfig.DEFAULT_EMBEDDING_MODEL_CONFIG.changeStream(),
+            EmbeddingModelConfig.DEFAULT_EMBEDDING_MODEL_CONFIG.collectionScan());
+  }
+
+  /**
    * Returns true if the given query model is allowed as a query model. A model is allowed if it
    * appears in any index model's compatible models set. Model names are case-insensitive.
    */

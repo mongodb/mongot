@@ -43,7 +43,9 @@ public class MaterializedViewIndexGeneration extends IndexGeneration {
 
   @Override
   public VectorIndexDefinition getDefinition() {
-    return getDefinitionGeneration().getIndexDefinition();
+    // TODO(CLOUDP-353553): Handle search index version - getIndexDefinition() now returns
+    //  IndexDefinition which may be a SearchIndexDefinition.
+    return getDefinitionGeneration().getIndexDefinition().asVectorDefinition();
   }
 
   public void swapIndex(InitializedMaterializedViewIndex activeIndex) {

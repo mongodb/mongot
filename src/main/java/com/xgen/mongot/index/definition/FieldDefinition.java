@@ -28,6 +28,7 @@ public record FieldDefinition(
     Optional<DocumentFieldDefinition> documentFieldDefinition,
     Optional<EmbeddedDocumentsFieldDefinition> embeddedDocumentsFieldDefinition,
     Optional<GeoFieldDefinition> geoFieldDefinition,
+    Optional<SearchAutoEmbedFieldDefinition> searchAutoEmbedFieldDefinition,
     Optional<SearchIndexVectorFieldDefinition> searchIndexVectorFieldDefinition,
     Optional<KnnVectorFieldDefinition> knnVectorFieldDefinition,
     Optional<NumberFieldDefinition> numberFieldDefinition,
@@ -66,6 +67,7 @@ public record FieldDefinition(
           Optional.of(new DateFieldDefinition()),
           Optional.empty(),
           Optional.of(createOrAssert(new DynamicDefinition.Boolean(true), Collections.emptyMap())),
+          Optional.empty(),
           Optional.empty(),
           Optional.empty(),
           Optional.empty(),
@@ -154,6 +156,7 @@ public record FieldDefinition(
         this.documentFieldDefinition,
         this.embeddedDocumentsFieldDefinition,
         this.geoFieldDefinition,
+        this.searchAutoEmbedFieldDefinition,
         this.searchIndexVectorFieldDefinition,
         this.knnVectorFieldDefinition,
         this.numberFieldDefinition,
@@ -177,6 +180,8 @@ public record FieldDefinition(
     @Var
     Optional<EmbeddedDocumentsFieldDefinition> embeddedDocumentsFieldDefinition = Optional.empty();
     @Var Optional<GeoFieldDefinition> geoFieldDefinition = Optional.empty();
+    @Var
+    Optional<SearchAutoEmbedFieldDefinition> searchAutoEmbedFieldDefinition = Optional.empty();
     @Var
     Optional<SearchIndexVectorFieldDefinition> searchIndexVectorFieldDefinition = Optional.empty();
     @Var Optional<KnnVectorFieldDefinition> knnVectorFieldDefinition = Optional.empty();
@@ -207,6 +212,8 @@ public record FieldDefinition(
         case EmbeddedDocumentsFieldDefinition fd ->
             embeddedDocumentsFieldDefinition = Optional.of(fd);
         case GeoFieldDefinition fd -> geoFieldDefinition = Optional.of(fd);
+        case SearchAutoEmbedFieldDefinition fd ->
+            searchAutoEmbedFieldDefinition = Optional.of(fd);
         case SearchIndexVectorFieldDefinition fd ->
             searchIndexVectorFieldDefinition = Optional.of(fd);
         case KnnVectorFieldDefinition fd -> knnVectorFieldDefinition = Optional.of(fd);
@@ -234,6 +241,7 @@ public record FieldDefinition(
         documentFieldDefinition,
         embeddedDocumentsFieldDefinition,
         geoFieldDefinition,
+        searchAutoEmbedFieldDefinition,
         searchIndexVectorFieldDefinition,
         knnVectorFieldDefinition,
         numberFieldDefinition,
@@ -290,7 +298,11 @@ public record FieldDefinition(
 
     int numVectorTypes =
         extractMatchingTypes
-            .apply(Set.of(FieldTypeDefinition.Type.KNN_VECTOR, FieldTypeDefinition.Type.VECTOR))
+            .apply(
+                Set.of(
+                    FieldTypeDefinition.Type.KNN_VECTOR,
+                    FieldTypeDefinition.Type.VECTOR,
+                    FieldTypeDefinition.Type.AUTO_EMBED_VECTOR))
             .size();
 
     if (numVectorTypes > 1) {
@@ -326,6 +338,9 @@ public record FieldDefinition(
   public Optional<VectorFieldSpecification> vectorFieldSpecification() {
     if (this.knnVectorFieldDefinition.isPresent()) {
       return this.knnVectorFieldDefinition.map(KnnVectorFieldDefinition::specification);
+    }
+    if (this.searchAutoEmbedFieldDefinition.isPresent()) {
+      return this.searchAutoEmbedFieldDefinition.map(SearchAutoEmbedFieldDefinition::specification);
     }
     return this.searchIndexVectorFieldDefinition.map(
         SearchIndexVectorFieldDefinition::specification);

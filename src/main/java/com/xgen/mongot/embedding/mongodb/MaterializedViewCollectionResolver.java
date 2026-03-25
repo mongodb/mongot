@@ -125,7 +125,10 @@ public class MaterializedViewCollectionResolver {
                   Check.instanceOf(collectionInfo, MongoDbCollectionInfo.Collection.class)
                       .info()
                       .uuid(),
-                  indexDefinitionGeneration.asMaterializedView().getIndexDefinition(),
+                  indexDefinitionGeneration
+                      .asMaterializedView()
+                      .getIndexDefinition()
+                      .asVectorDefinition(),
                   this.materializedViewConfig.materializedViewSchemaVersion.orElse(
                       CURRENT_MAT_VIEW_SCHEMA_VERSION)));
       this.metadataCatalog.addMetadata(
@@ -161,7 +164,12 @@ public class MaterializedViewCollectionResolver {
             .toList();
     String collectionName;
     if (collectionNames.isEmpty()) {
-      var hash = computeHash(indexDefinitionGeneration.asMaterializedView().getIndexDefinition());
+      var hash =
+          computeHash(
+              indexDefinitionGeneration
+                  .asMaterializedView()
+                  .getIndexDefinition()
+                  .asVectorDefinition());
       collectionName =
           indexId
               + DELIM
@@ -178,7 +186,12 @@ public class MaterializedViewCollectionResolver {
         collectionName = indexId;
       } else {
         // Check if any of the existing collections can be re-used.
-        var hash = computeHash(indexDefinitionGeneration.asMaterializedView().getIndexDefinition());
+        var hash =
+            computeHash(
+                indexDefinitionGeneration
+                    .asMaterializedView()
+                    .getIndexDefinition()
+                    .asVectorDefinition());
         var reusableCollection =
             collectionNames.stream()
                 .filter(name -> name.startsWith(indexId + DELIM + hash))

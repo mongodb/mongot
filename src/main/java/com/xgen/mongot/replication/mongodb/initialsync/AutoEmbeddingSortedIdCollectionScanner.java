@@ -80,6 +80,9 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
     // collection to build new MV collection
     this.matViewNamespace =
         new MongoNamespace(MV_DATABASE_NAME, this.matViewCollectionMetadata.collectionName());
+
+    // TODO(CLOUDP-353553): Handle search index version - getIndexDefinition() now returns
+    //  IndexDefinition which may be a SearchIndexDefinition.
     this.matViewFieldMappingWithHashes =
         AutoEmbeddingIndexDefinitionUtils.getMatViewIndexFields(
             context.getIndexDefinition().asVectorDefinition().getMappings(),
@@ -185,6 +188,9 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
         matViewIdx++;
       } else {
         // Doc is in both source collection and mat view.
+
+        // TODO(CLOUDP-353553): Handle search index version - getIndexDefinition() now returns
+        //  IndexDefinition which may be a SearchIndexDefinition.
         var comparisonResult =
             AutoEmbeddingDocumentUtils.compareDocuments(
                 sourceDoc,

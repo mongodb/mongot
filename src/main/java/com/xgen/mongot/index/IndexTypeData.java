@@ -18,9 +18,8 @@ public final class IndexTypeData {
    * reporting.
    */
   public enum IndexTypeTag {
-    // Search workload
     TAG_SEARCH("search"),
-    // Regular vector search workload
+    TAG_SEARCH_AUTO_EMBEDDING("search_auto_embedding"),
     TAG_VECTOR_SEARCH("vector_search"),
     // TODO(CLOUDP-390796): Clean up this Tag, should just use replicationType tag once type:text is
     // deprecated.
@@ -31,13 +30,15 @@ public final class IndexTypeData {
       this.tagValue = tagValue;
     }
 
-    // tagValue for metrics reporting.
     public final String tagValue;
   }
 
   public static IndexTypeTag getIndexTypeTag(IndexDefinition indexDefinition) {
     return switch (indexDefinition.getType()) {
-      case SEARCH -> IndexTypeTag.TAG_SEARCH;
+      case SEARCH ->
+          indexDefinition.isAutoEmbeddingIndex()
+              ? IndexTypeTag.TAG_SEARCH_AUTO_EMBEDDING
+              : IndexTypeTag.TAG_SEARCH;
       case VECTOR_SEARCH ->
           indexDefinition.isAutoEmbeddingIndex()
               ? IndexTypeTag.TAG_VECTOR_SEARCH_AUTO_EMBEDDING

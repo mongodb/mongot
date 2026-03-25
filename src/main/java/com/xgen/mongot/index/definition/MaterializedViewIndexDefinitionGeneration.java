@@ -9,18 +9,18 @@ import org.bson.BsonDocument;
 import org.bson.types.ObjectId;
 
 public record MaterializedViewIndexDefinitionGeneration(
-    VectorIndexDefinition definition, MaterializedViewGeneration generation)
+    IndexDefinition definition, MaterializedViewGeneration generation)
     implements IndexDefinitionGeneration {
 
   /**
-   * The minimum version {@link VectorIndexDefinition#getParsedAutoEmbeddingFeatureVersion} to
-   * support Materialized View based auto-embedding feature.
+   * The minimum version {@link IndexDefinition#getParsedAutoEmbeddingFeatureVersion} to support
+   * Materialized View based auto-embedding feature.
    */
   public static final int MIN_VERSION_FOR_MATERIALIZED_VIEW_EMBEDDING = 2;
 
   public static MaterializedViewIndexDefinitionGeneration fromBson(DocumentParser parser)
       throws BsonParseException {
-    VectorIndexDefinition definition = VectorIndexDefinition.fromBson(parser);
+    IndexDefinition definition = IndexDefinition.fromBson(parser);
     return new MaterializedViewIndexDefinitionGeneration(
         definition, new MaterializedViewGeneration(parser.getField(Fields.GENERATION).unwrap()));
   }
@@ -42,7 +42,7 @@ public record MaterializedViewIndexDefinitionGeneration(
   }
 
   @Override
-  public VectorIndexDefinition getIndexDefinition() {
+  public IndexDefinition getIndexDefinition() {
     return this.definition;
   }
 
@@ -77,7 +77,12 @@ public record MaterializedViewIndexDefinitionGeneration(
    */
   public static boolean isMaterializedViewBasedIndex(IndexDefinition indexDefinition) {
     return indexDefinition.isAutoEmbeddingIndex()
-        && indexDefinition.asVectorDefinition().getParsedAutoEmbeddingFeatureVersion()
+        && indexDefinition.getParsedAutoEmbeddingFeatureVersion()
             >= MIN_VERSION_FOR_MATERIALIZED_VIEW_EMBEDDING;
+  }
+
+  public static boolean isMaterializedViewBasedIndex(
+      IndexDefinitionGeneration definitionGeneration) {
+    return isMaterializedViewBasedIndex(definitionGeneration.getIndexDefinition());
   }
 }

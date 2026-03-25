@@ -12,6 +12,7 @@ import com.xgen.mongot.index.definition.KnnVectorFieldDefinition;
 import com.xgen.mongot.index.definition.NumberFacetFieldDefinition;
 import com.xgen.mongot.index.definition.NumberFieldDefinition;
 import com.xgen.mongot.index.definition.ObjectIdFieldDefinition;
+import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexVectorFieldDefinition;
 import com.xgen.mongot.index.definition.SortableDateBetaV1FieldDefinition;
 import com.xgen.mongot.index.definition.SortableNumberBetaV1FieldDefinition;
@@ -32,6 +33,8 @@ public class FieldDefinitionBuilder {
   private Optional<EmbeddedDocumentsFieldDefinition> embeddedDocumentsFieldDefinition =
       Optional.empty();
   private Optional<GeoFieldDefinition> geoFieldDefinition = Optional.empty();
+  private Optional<SearchAutoEmbedFieldDefinition> searchAutoEmbedFieldDefinition =
+      Optional.empty();
   private Optional<SearchIndexVectorFieldDefinition> searchIndexVectorFieldDefinition =
       Optional.empty();
   private Optional<KnnVectorFieldDefinition> knnVectorFieldDefinition = Optional.empty();
@@ -87,6 +90,12 @@ public class FieldDefinitionBuilder {
 
   public FieldDefinitionBuilder geo(GeoFieldDefinition geoFieldDefinition) {
     this.geoFieldDefinition = Optional.of(geoFieldDefinition);
+    return this;
+  }
+
+  public FieldDefinitionBuilder searchAutoEmbed(
+      SearchAutoEmbedFieldDefinition searchAutoEmbedFieldDefinition) {
+    this.searchAutoEmbedFieldDefinition = Optional.of(searchAutoEmbedFieldDefinition);
     return this;
   }
 
@@ -163,6 +172,7 @@ public class FieldDefinitionBuilder {
         this.documentFieldDefinition,
         this.embeddedDocumentsFieldDefinition,
         this.geoFieldDefinition,
+        this.searchAutoEmbedFieldDefinition,
         this.searchIndexVectorFieldDefinition,
         this.knnVectorFieldDefinition,
         this.numericFieldDefinition,

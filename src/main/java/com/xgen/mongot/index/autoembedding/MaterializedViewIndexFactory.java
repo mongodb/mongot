@@ -100,6 +100,8 @@ public class MaterializedViewIndexFactory implements IndexFactory {
     // Avoid metrics collision with Lucene index by setting different NAMESPACE.
     // Use the collection name (lease key, indexIdHex-hash-version) as indexId_logString so that 
     // metrics align with lease id and the tag is easier to use when debugging.
+    // TODO(CLOUDP-353553): Handle search index version - getIndexDefinition() now returns
+    //  IndexDefinition which may be a SearchIndexDefinition.
     var indexMetricsUpdaterBuilder =
         new IndexMetricsUpdater.Builder(
             matViewIndexDefinitionGeneration.getIndexDefinition(),

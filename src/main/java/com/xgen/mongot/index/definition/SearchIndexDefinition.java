@@ -2,6 +2,7 @@ package com.xgen.mongot.index.definition;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
 import com.xgen.mongot.index.analyzer.definition.CustomAnalyzerDefinition;
 import com.xgen.mongot.index.analyzer.definition.StockAnalyzerNames;
@@ -126,6 +127,8 @@ public final class SearchIndexDefinition implements IndexDefinition {
   private final Map<String, TypeSetDefinition> typeSetsMap;
   private final Optional<Long> definitionVersion;
   private final Optional<Instant> definitionVersionCreatedAt;
+  private final boolean isAutoEmbeddingIndex;
+  private final ImmutableMap<FieldPath, String> modelNamePerPath;
   private final Optional<Long> autoEmbeddingDefinitionVersion;
   private final Optional<Long> materializedViewNameFormatVersion;
 
@@ -191,6 +194,8 @@ public final class SearchIndexDefinition implements IndexDefinition {
             .orElse(Collections.emptyMap());
     this.definitionVersion = definitionVersion;
     this.definitionVersionCreatedAt = definitionVersionCreatedAt;
+    this.isAutoEmbeddingIndex = calculateIsAutoEmbeddingIndex(mappings);
+    this.modelNamePerPath = calculateModelNamePerPath(mappings);
     this.indexIdAtCreationTime = indexIdAtCreationTime;
     this.autoEmbeddingDefinitionVersion = autoEmbeddingDefinitionVersion;
     this.materializedViewNameFormatVersion = materializedViewNameFormatVersion;
@@ -576,7 +581,39 @@ public final class SearchIndexDefinition implements IndexDefinition {
 
   @Override
   public boolean isAutoEmbeddingIndex() {
+    // TODO(CLOUDP-353553): make this return this.isAutoEmbeddingIndex; when its really needed
     return false;
+  }
+
+  /**
+   * Returns the auto-embedding feature version for this search index. Returns 2 (materialized view
+   * based) if auto-embed fields are present, 0 otherwise.
+   */
+  public int getParsedAutoEmbeddingFeatureVersion() {
+    return this.isAutoEmbeddingIndex ? 2 : 0;
+  }
+
+  public ImmutableMap<FieldPath, String> getModelNamePerPath() {
+    return this.modelNamePerPath;
+  }
+
+  private static boolean calculateIsAutoEmbeddingIndex(DocumentFieldDefinition mappings) {
+    return mappings.fields().values().stream()
+        .anyMatch(fd -> fd.searchAutoEmbedFieldDefinition().isPresent());
+  }
+
+  private static ImmutableMap<FieldPath, String> calculateModelNamePerPath(
+      DocumentFieldDefinition mappings) {
+    ImmutableMap.Builder<FieldPath, String> builder = ImmutableMap.builder();
+    for (Map.Entry<String, FieldDefinition> entry : mappings.fields().entrySet()) {
+      entry
+          .getValue()
+          .searchAutoEmbedFieldDefinition()
+          .ifPresent(
+              autoEmbed ->
+                  builder.put(FieldPath.parse(entry.getKey()), autoEmbed.modelName()));
+    }
+    return builder.build();
   }
 
   @Override

@@ -19,6 +19,7 @@ public sealed interface FieldTypeDefinition extends DocumentEncodable
         NumberFieldDefinition,
         NumberFacetFieldDefinition,
         ObjectIdFieldDefinition,
+        SearchAutoEmbedFieldDefinition,
         SearchIndexVectorFieldDefinition,
         SortableDateBetaV1FieldDefinition,
         SortableNumberBetaV1FieldDefinition,
@@ -35,6 +36,7 @@ public sealed interface FieldTypeDefinition extends DocumentEncodable
 
   enum Type {
     AUTOCOMPLETE,
+    AUTO_EMBED_VECTOR,
     BOOLEAN,
     DATE,
     @Deprecated
@@ -86,6 +88,7 @@ public sealed interface FieldTypeDefinition extends DocumentEncodable
     var type = parser.getField(Fields.TYPE).unwrap();
     return switch (type) {
       case AUTOCOMPLETE -> AutocompleteFieldDefinition.fromBson(parser);
+      case AUTO_EMBED_VECTOR -> SearchAutoEmbedFieldDefinition.fromBson(parser);
       case BOOLEAN -> BooleanFieldDefinition.fromBson(parser);
       case DATE -> DateFieldDefinition.fromBson(parser);
       case DATE_FACET -> DateFacetFieldDefinition.fromBson(parser);

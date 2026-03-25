@@ -28,7 +28,9 @@ public class MaterializedViewIndex {
   /** Creates mock VectorIndex. */
   public static InitializedMaterializedViewIndex mockIndex(
       MaterializedViewIndexDefinitionGeneration definitionGeneration) {
-    return mockIndex(definitionGeneration.definition());
+    // TODO(CLOUDP-353553): Handle search index version - definition() now returns IndexDefinition
+    //  which may be a SearchIndexDefinition.
+    return mockIndex(definitionGeneration.definition().asVectorDefinition());
   }
 
   /** Creates mock InitializedMaterializedViewIndex. */

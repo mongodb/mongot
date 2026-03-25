@@ -35,6 +35,9 @@ public class IndexTypeDataTest {
     assertEquals(IndexTypeData.IndexTypeTag.TAG_VECTOR_SEARCH_AUTO_EMBEDDING, result);
   }
 
+  // TODO(CLOUDP-353553): add testGetIndexTypeTag_searchAutoEmbeddingIndex when
+  //  SearchIndexDefinition.isAutoEmbeddingIndex() returns the real value.
+
   @Test
   public void testGetNumGauge_withSearchTag() {
     MetricsFactory metricsFactory = mock(MetricsFactory.class);
@@ -77,6 +80,24 @@ public class IndexTypeDataTest {
         metricsFactory,
         gaugeName,
         IndexTypeData.IndexTypeTag.TAG_VECTOR_SEARCH_AUTO_EMBEDDING,
+        Tag.of("replicationType", CommonReplicationConfig.Type.DEFAULT.name()));
+    verify(metricsFactory).numGauge(eq(gaugeName), eq(expectedTags));
+  }
+
+  @Test
+  public void testGetNumGauge_withSearchAutoEmbeddingTag() {
+    MetricsFactory metricsFactory = mock(MetricsFactory.class);
+    String gaugeName = "withSearchAutoEmbeddingTag";
+    Tags expectedTags =
+        Tags.of(
+            IndexTypeData.INDEX_TYPE_TAG_NAME,
+            "search_auto_embedding",
+            "replicationType",
+            "DEFAULT");
+    IndexTypeData.getNumGauge(
+        metricsFactory,
+        gaugeName,
+        IndexTypeData.IndexTypeTag.TAG_SEARCH_AUTO_EMBEDDING,
         Tag.of("replicationType", CommonReplicationConfig.Type.DEFAULT.name()));
     verify(metricsFactory).numGauge(eq(gaugeName), eq(expectedTags));
   }
