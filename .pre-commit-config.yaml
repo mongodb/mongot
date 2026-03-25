@@ -7,3 +7,13 @@ repos:
         entry: ./scripts/pre-commit/kingfisher-precommit.sh
         language: script
         always_run: true
+
+      - id: sync-agent-skills
+        name: Sync agent skill mirrors
+        description: Ensures CLAUDE.md mirrors AGENTS.md, .claude/skills and .cursor/skills symlink to .agents/skills, and skills copy to .augment/rules/
+        language: system
+        stages: [ pre-commit ]
+        entry: ./scripts/sync-agent-skills.sh
+        always_run: false
+        files: (^|/)AGENTS\.md$|^\.agents/skills/[^/]+/SKILL\.md$
+        pass_filenames: false

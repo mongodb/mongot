@@ -37,3 +37,5 @@ community-quick-start/tls/
 scripts/tests/copybara/test-results/
 
 .cache/
+
+.claude/settings.local.json
