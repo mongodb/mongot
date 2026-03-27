@@ -1,7 +1,5 @@
 package com.xgen.mongot.embedding.providers.clients;
 
-import static com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.ServiceTier.COLLECTION_SCAN;
-import static com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.ServiceTier.QUERY;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -95,11 +93,12 @@ public class EmbeddingClientFactoryTest {
         new EmbeddingClientFactory(
             new SimpleMeterRegistry(),
             DeploymentEnvironment.ATLAS,
-            Optional.of(Set.of(QUERY)));
+            Optional.of(Set.of(EmbeddingServiceConfig.ServiceTier.QUERY)));
     DynamicSemaphore sem = testSemaphore();
 
     ClientInterface client =
-        factory.createEmbeddingClient(model, QUERY, model.query(), Optional.of(sem));
+        factory.createEmbeddingClient(
+            model, EmbeddingServiceConfig.ServiceTier.QUERY, model.query(), Optional.of(sem));
 
     assertNotNull(congestionSemaphoreField(client));
   }
@@ -111,12 +110,15 @@ public class EmbeddingClientFactoryTest {
         new EmbeddingClientFactory(
             new SimpleMeterRegistry(),
             DeploymentEnvironment.ATLAS,
-            Optional.of(Set.of(QUERY)));
+            Optional.of(Set.of(EmbeddingServiceConfig.ServiceTier.QUERY)));
     DynamicSemaphore sem = testSemaphore();
 
     ClientInterface client =
         factory.createEmbeddingClient(
-            model, COLLECTION_SCAN, model.collectionScan(), Optional.of(sem));
+            model,
+            EmbeddingServiceConfig.ServiceTier.COLLECTION_SCAN,
+            model.collectionScan(),
+            Optional.of(sem));
 
     assertNull(congestionSemaphoreField(client));
   }
@@ -128,12 +130,15 @@ public class EmbeddingClientFactoryTest {
         new EmbeddingClientFactory(
             new SimpleMeterRegistry(),
             DeploymentEnvironment.ATLAS,
-            Optional.of(Set.of(COLLECTION_SCAN)));
+            Optional.of(Set.of(EmbeddingServiceConfig.ServiceTier.COLLECTION_SCAN)));
     DynamicSemaphore sem = testSemaphore();
 
     ClientInterface client =
         factory.createEmbeddingClient(
-            model, COLLECTION_SCAN, model.collectionScan(), Optional.of(sem));
+            model,
+            EmbeddingServiceConfig.ServiceTier.COLLECTION_SCAN,
+            model.collectionScan(),
+            Optional.of(sem));
 
     assertFalse(useFlexTierField(client));
     assertNull(congestionSemaphoreField(client));
@@ -146,11 +151,14 @@ public class EmbeddingClientFactoryTest {
         new EmbeddingClientFactory(
             new SimpleMeterRegistry(),
             DeploymentEnvironment.ATLAS,
-            Optional.of(Set.of(COLLECTION_SCAN)));
+            Optional.of(Set.of(EmbeddingServiceConfig.ServiceTier.COLLECTION_SCAN)));
 
     ClientInterface client =
         factory.createEmbeddingClient(
-            model, COLLECTION_SCAN, model.collectionScan(), Optional.empty());
+            model,
+            EmbeddingServiceConfig.ServiceTier.COLLECTION_SCAN,
+            model.collectionScan(),
+            Optional.empty());
 
     assertNull(congestionSemaphoreField(client));
   }
@@ -163,12 +171,15 @@ public class EmbeddingClientFactoryTest {
         new EmbeddingClientFactory(
             new SimpleMeterRegistry(),
             DeploymentEnvironment.ATLAS,
-            Optional.of(Set.of(COLLECTION_SCAN)));
+            Optional.of(Set.of(EmbeddingServiceConfig.ServiceTier.COLLECTION_SCAN)));
     DynamicSemaphore sem = testSemaphore();
 
     ClientInterface client =
         factory.createEmbeddingClient(
-            model, COLLECTION_SCAN, model.collectionScan(), Optional.of(sem));
+            model,
+            EmbeddingServiceConfig.ServiceTier.COLLECTION_SCAN,
+            model.collectionScan(),
+            Optional.of(sem));
 
     assertTrue(useFlexTierField(client));
     assertNotNull(congestionSemaphoreField(client));

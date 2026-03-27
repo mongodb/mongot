@@ -11,7 +11,6 @@ import com.xgen.mongot.embedding.exceptions.EmbeddingProviderRateLimitException;
 import com.xgen.mongot.embedding.exceptions.EmbeddingProviderTransientException;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
-import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.VoyageEmbeddingCredentials;
 import com.xgen.mongot.embedding.providers.configs.VoyageApiSchema;
 import com.xgen.mongot.embedding.providers.congestion.DynamicSemaphore;
 import com.xgen.mongot.metrics.MetricsFactory;
@@ -19,11 +18,14 @@ import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.bson.JsonCodec;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
+import com.xgen.mongot.util.concurrent.OneShotSingleThreadExecutor;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import java.io.IOException;
+import java.net.ConnectException;
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
@@ -31,9 +33,11 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import javax.annotation.Nullable;
+import javax.net.ssl.SSLException;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.slf4j.Logger;
@@ -46,6 +50,10 @@ import org.slf4j.LoggerFactory;
 public class VoyageClient implements ClientInterface {
   private static final Logger LOG = LoggerFactory.getLogger(VoyageClient.class);
   private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(60);
+  /** Wall-clock interval after which the {@link HttpClient} is replaced to refresh connections. */
+  private static final Duration HTTP_CLIENT_REFRESH_INTERVAL = Duration.ofMinutes(10);
+  private static final Duration HTTP_CLIENT_SHUTDOWN_AWAIT = Duration.ofSeconds(5);
+  private static final Duration HTTP_CLIENT_SHUTDOWN_NOW_AWAIT = Duration.ofSeconds(2);
   private static final String BATCH_SIZE_TOO_LARGE_ERROR_MESSAGE =
       "Please lower the number of tokens in the batch";
   private final String inputType;
@@ -66,7 +74,13 @@ public class VoyageClient implements ClientInterface {
   private final Map<String, String> tenantCredentials = new HashMap<>(); // MTM Cluster credentials
   private final boolean truncation;
 
-  private HttpClient voyageHttpClient;
+  private volatile HttpClient voyageHttpClient;
+  /**
+   * Epoch millis when {@link #voyageHttpClient} was created; compared to {@link
+   * #HTTP_CLIENT_REFRESH_INTERVAL} for renewal.
+   */
+  private volatile long voyageHttpClientCreatedEpochMs;
+
   private final Optional<MongotMetadata> mongotMetadata;
 
   @VisibleForTesting
@@ -100,7 +114,8 @@ public class VoyageClient implements ClientInterface {
           tier);
     }
     this.endpoint = URI.create(workloadParams.providerEndpoint().orElse(DEFAULT_ENDPOINT));
-    this.voyageHttpClient = HttpClient.newBuilder().version(HttpClient.Version.HTTP_2).build();
+    this.voyageHttpClient = newVoyageHttpClient();
+    this.voyageHttpClientCreatedEpochMs = System.currentTimeMillis();
     this.mongotMetadata = metadata;
     this.attachBillingMetadata = attachBillingMetadata;
     this.inputTokenDistribution = metricsFactory.summary("inputTokenDistribution");
@@ -163,9 +178,11 @@ public class VoyageClient implements ClientInterface {
         LOG.error("HTTP Request Error", cleanedException);
         throw new EmbeddingProviderTransientException(cleanedException);
       }
+      renewHttpClientIfStale();
+      HttpClient clientForRequest = this.voyageHttpClient;
       try {
         HttpResponse<String> response =
-            this.voyageHttpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            clientForRequest.send(request, HttpResponse.BodyHandlers.ofString());
         LOG.debug(
             "Received Voyage embedding response: model={}, statusCode={}, inputCount={}",
             this.modelId,
@@ -175,6 +192,9 @@ public class VoyageClient implements ClientInterface {
         isAck = true;
         return vectorResponse;
       } catch (HttpTimeoutException e) {
+        if (e instanceof HttpConnectTimeoutException) {
+          renewHttpClientAfterConnectionFailure(e, clientForRequest);
+        }
         LOG.error("Got timeout error when sending voyage API request", e);
         isAck = false;
         throw new EmbeddingProviderTransientException(e);
@@ -182,7 +202,14 @@ public class VoyageClient implements ClientInterface {
         LOG.error("Got rate-limit error when sending voyage API request", e);
         isAck = false;
         throw new EmbeddingProviderTransientException(e);
-      } catch (InterruptedException | IOException e) {
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        LOG.error("Got an error when sending voyage API request", e);
+        throw new EmbeddingProviderTransientException(e);
+      } catch (IOException e) {
+        if (indicatesConnectionLayerFailure(e)) {
+          renewHttpClientAfterConnectionFailure(e, clientForRequest);
+        }
         LOG.error("Got an error when sending voyage API request", e);
         throw new EmbeddingProviderTransientException(e);
       } catch (EmbeddingProviderTransientException e) {
@@ -280,6 +307,133 @@ public class VoyageClient implements ClientInterface {
     this.congestionSemaphore = semaphore;
   }
 
+  private static HttpClient newVoyageHttpClient() {
+    return HttpClient.newBuilder().version(HttpClient.Version.HTTP_2).build();
+  }
+
+  /**
+   * Replaces the {@link HttpClient} periodically so underlying HTTP/2 and TLS connections are not
+   * held indefinitely (e.g. DNS updates, server idle limits).
+   */
+  private void renewHttpClientIfStale() {
+    long refreshMs = HTTP_CLIENT_REFRESH_INTERVAL.toMillis();
+    if (System.currentTimeMillis() - this.voyageHttpClientCreatedEpochMs < refreshMs) {
+      return;
+    }
+    synchronized (this) {
+      if (System.currentTimeMillis() - this.voyageHttpClientCreatedEpochMs < refreshMs) {
+        return;
+      }
+      replaceVoyageHttpClientLocked(false, null);
+    }
+  }
+
+  /**
+   * Whether {@code throwable} or its causes indicate TLS, handshake, or transport connection issues
+   * where replacing {@link HttpClient} may help the next retry succeed.
+   */
+  private static boolean indicatesConnectionLayerFailure(Throwable throwable) {
+    for (Throwable t = throwable; t != null; t = t.getCause()) {
+      if (t instanceof SSLException || t instanceof ConnectException) {
+        return true;
+      }
+      if (t instanceof IOException) {
+        String message = t.getMessage();
+        if (message != null) {
+          String lower = message.toLowerCase(Locale.ROOT);
+          if (lower.contains("connection reset")
+              || lower.contains("broken pipe")
+              || lower.contains("connection refused")
+              || lower.contains("forcibly closed")
+              || lower.contains("unexpected end of stream")) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Replaces the client after connection/TLS failures so Failsafe retries do not reuse bad state.
+   *
+   * <p>{@code culpritClient} is the {@link HttpClient} used for the failed {@code send}; if
+   * another thread already renewed, {@link #voyageHttpClient} will differ and we skip duplicate
+   * replace/shutdown.
+   */
+  private void renewHttpClientAfterConnectionFailure(Throwable cause, HttpClient culpritClient) {
+    synchronized (this) {
+      if (this.voyageHttpClient != culpritClient) {
+        return;
+      }
+      replaceVoyageHttpClientLocked(true, cause);
+    }
+  }
+
+  private void replaceVoyageHttpClientLocked(
+      boolean afterConnectionFailure, @Nullable Throwable cause) {
+    HttpClient previous = this.voyageHttpClient;
+    this.voyageHttpClient = newVoyageHttpClient();
+    this.voyageHttpClientCreatedEpochMs = System.currentTimeMillis();
+    if (afterConnectionFailure) {
+      LOG.warn(
+          "Renewed Voyage HttpClient for model {} after connection/TLS failure: {}",
+          this.modelId,
+          cause != null ? cause.toString() : "unknown");
+    } else {
+      LOG.debug(
+          "Renewed Voyage HttpClient for model {} after {} wall-clock interval",
+          this.modelId,
+          HTTP_CLIENT_REFRESH_INTERVAL);
+    }
+    new OneShotSingleThreadExecutor("voyage-http-client-shutdown-" + this.modelId)
+        .execute(() -> shutdownReplacedHttpClient(previous));
+  }
+
+  /**
+   * Shuts down the replaced {@link HttpClient} to release its connection pools and threads (JDK 21+
+   * {@code HttpClient} lifecycle).
+   */
+  private void shutdownReplacedHttpClient(HttpClient previous) {
+    if (previous == null) {
+      return;
+    }
+    try {
+      previous.shutdown();
+      if (!previous.awaitTermination(HTTP_CLIENT_SHUTDOWN_AWAIT)) {
+        LOG.warn(
+            "Previous Voyage HttpClient for model {} did not terminate within {}; forcing"
+                + " shutdownNow",
+            this.modelId,
+            HTTP_CLIENT_SHUTDOWN_AWAIT);
+        previous.shutdownNow();
+        if (!previous.awaitTermination(HTTP_CLIENT_SHUTDOWN_NOW_AWAIT)) {
+          LOG.warn(
+              "Previous Voyage HttpClient for model {} still not terminated after shutdownNow",
+              this.modelId);
+        }
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      LOG.warn(
+          "Interrupted while shutting down previous Voyage HttpClient for model {}",
+          this.modelId,
+          e);
+      previous.shutdownNow();
+    }
+  }
+
+  @VisibleForTesting
+  void renewHttpClientIfStaleForTesting() {
+    renewHttpClientIfStale();
+  }
+
+  @VisibleForTesting
+  void renewHttpClientAfterConnectionFailureForTesting(
+      Throwable cause, HttpClient culpritClient) {
+    renewHttpClientAfterConnectionFailure(cause, culpritClient);
+  }
+
   /**
    * Configure credentials for a dedicated cluster. Uses the tenantCredentials field from
    * workloadParams as the default, falling back to base credentials if not present.
@@ -294,7 +448,8 @@ public class VoyageClient implements ClientInterface {
       throw new IllegalStateException("Dedicated cluster configuration must have credentials");
     }
 
-    VoyageEmbeddingCredentials credentials = (VoyageEmbeddingCredentials) creds.get();
+    EmbeddingServiceConfig.VoyageEmbeddingCredentials credentials =
+        (EmbeddingServiceConfig.VoyageEmbeddingCredentials) creds.get();
     this.credentialToken = credentials.apiToken;
     LOG.debug("Configured dedicated cluster credentials");
   }
@@ -325,7 +480,8 @@ public class VoyageClient implements ClientInterface {
           selectCredentialsForServiceTier(tenantWorkloadCreds);
 
       if (tierCredentials.isPresent()) {
-        VoyageEmbeddingCredentials voyageCreds = (VoyageEmbeddingCredentials) tierCredentials.get();
+        EmbeddingServiceConfig.VoyageEmbeddingCredentials voyageCreds =
+            (EmbeddingServiceConfig.VoyageEmbeddingCredentials) tierCredentials.get();
         this.tenantCredentials.put(tenantId, voyageCreds.apiToken);
         LOG.debug("Configured credentials for tenant: {} (tier: {})", tenantId, this.serviceTier);
       } else {
@@ -461,6 +617,9 @@ public class VoyageClient implements ClientInterface {
   // For test only.
   @VisibleForTesting
   static void injectVoyageClient(VoyageClient target, HttpClient mockHttpClient) {
+    HttpClient previous = target.voyageHttpClient;
     target.voyageHttpClient = mockHttpClient;
+    target.voyageHttpClientCreatedEpochMs = System.currentTimeMillis();
+    target.shutdownReplacedHttpClient(previous);
   }
 }

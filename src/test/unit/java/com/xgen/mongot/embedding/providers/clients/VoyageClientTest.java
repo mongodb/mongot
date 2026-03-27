@@ -1,16 +1,20 @@
 package com.xgen.mongot.embedding.providers.clients;
 
 import static com.xgen.mongot.embedding.providers.clients.VoyageClient.VOYAGE_API_FLEX_TIER;
-import static com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.ErrorHandlingConfig;
 import static com.xgen.mongot.util.bson.FloatVector.OriginalType.NATIVE;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.google.errorprone.annotations.Var;
@@ -25,13 +29,17 @@ import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.util.bson.Vector;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.net.http.HttpClient;
+import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import javax.net.ssl.SSLHandshakeException;
 import org.bson.BsonDocument;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
@@ -54,6 +62,7 @@ public class VoyageClientTest {
     doReturn(mockResponse)
         .when(mockClient)
         .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+    doReturn(true).when(mockClient).awaitTermination(any(Duration.class));
     return mockClient;
   }
 
@@ -143,7 +152,8 @@ public class VoyageClientTest {
     return voyageClient;
   }
 
-  private static final ErrorHandlingConfig RETRY_CONFIG = new ErrorHandlingConfig(3, 10L, 10L, 0.1);
+  private static final EmbeddingServiceConfig.ErrorHandlingConfig RETRY_CONFIG =
+      new EmbeddingServiceConfig.ErrorHandlingConfig(3, 10L, 10L, 0.1);
   private static final MetricsFactory METRICS_FACTORY =
       new MetricsFactory("test", new SimpleMeterRegistry());
   private static final EmbeddingModelConfig VOYAGE_3_LARGE =
@@ -1021,5 +1031,140 @@ public class VoyageClientTest {
     assertEquals(0, semaphore.getUsedPermits());
     assertEquals(0.0, registry.find("test.aimdSuccessfulRequests").counter().count(), 1E-7);
     assertEquals(0.0, registry.find("test.aimdCongestionEvents").counter().count(), 1E-7);
+  }
+
+  @Test
+  public void renewHttpClientIfStale_beforeInterval_keepsInjectedClient() throws Exception {
+    HttpClient mockClient = createMockHttpClient();
+    VoyageClient voyageClient =
+        createMockedVoyageClient(createDedicatedClusterConfig("token"), mockClient);
+    voyageClient.renewHttpClientIfStaleForTesting();
+    Field httpClientField = VoyageClient.class.getDeclaredField("voyageHttpClient");
+    httpClientField.setAccessible(true);
+    assertSame(mockClient, httpClientField.get(voyageClient));
+    verify(mockClient, never()).shutdown();
+  }
+
+  @Test
+  public void renewHttpClientIfStale_afterTenMinuteInterval_replacesHttpClient() throws Exception {
+    HttpClient mockClient = createMockHttpClient();
+    VoyageClient voyageClient =
+        createMockedVoyageClient(createDedicatedClusterConfig("token"), mockClient);
+    Field epochField = VoyageClient.class.getDeclaredField("voyageHttpClientCreatedEpochMs");
+    epochField.setAccessible(true);
+    epochField.set(
+        voyageClient, System.currentTimeMillis() - Duration.ofMinutes(11).toMillis());
+    voyageClient.renewHttpClientIfStaleForTesting();
+    Field httpClientField = VoyageClient.class.getDeclaredField("voyageHttpClient");
+    httpClientField.setAccessible(true);
+    assertNotSame(mockClient, httpClientField.get(voyageClient));
+    verify(mockClient, timeout(1000)).shutdown();
+  }
+
+  @Test
+  public void renewHttpClientAfterConnectionFailure_skipsWhenCulpritNoLongerCurrent()
+      throws Exception {
+    HttpClient mockClient = createMockHttpClient();
+    VoyageClient voyageClient =
+        createMockedVoyageClient(createDedicatedClusterConfig("token"), mockClient);
+    Field epochField = VoyageClient.class.getDeclaredField("voyageHttpClientCreatedEpochMs");
+    epochField.setAccessible(true);
+    epochField.set(
+        voyageClient, System.currentTimeMillis() - Duration.ofMinutes(11).toMillis());
+    voyageClient.renewHttpClientIfStaleForTesting();
+    verify(mockClient, timeout(1000)).shutdown();
+    voyageClient.renewHttpClientAfterConnectionFailureForTesting(
+        new SSLHandshakeException("stale culprit"), mockClient);
+    verify(mockClient, times(1)).shutdown();
+  }
+
+  @Test
+  public void embed_sslHandshakeException_renewsHttpClientBeforeRethrow() throws Exception {
+    HttpClient mockClient = mock(HttpClient.class);
+    doThrow(new SSLHandshakeException("PKIX path validation failed"))
+        .when(mockClient)
+        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+    doReturn(true).when(mockClient).awaitTermination(any(Duration.class));
+    VoyageClient voyageClient =
+        createMockedVoyageClient(createDedicatedClusterConfig("token"), mockClient);
+    assertThrows(
+        EmbeddingProviderTransientException.class,
+        () -> voyageClient.embed(List.of("hi"), dummyContext()));
+    Field httpClientField = VoyageClient.class.getDeclaredField("voyageHttpClient");
+    httpClientField.setAccessible(true);
+    assertNotSame(mockClient, httpClientField.get(voyageClient));
+    verify(mockClient, timeout(1000)).shutdown();
+  }
+
+  @Test
+  public void embed_ioExceptionWithSslCause_renewsHttpClient() throws Exception {
+    HttpClient mockClient = mock(HttpClient.class);
+    doThrow(new IOException("wrapper", new SSLHandshakeException("cert")))
+        .when(mockClient)
+        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+    doReturn(true).when(mockClient).awaitTermination(any(Duration.class));
+    VoyageClient voyageClient =
+        createMockedVoyageClient(createDedicatedClusterConfig("token"), mockClient);
+    assertThrows(
+        EmbeddingProviderTransientException.class,
+        () -> voyageClient.embed(List.of("hi"), dummyContext()));
+    Field httpClientField = VoyageClient.class.getDeclaredField("voyageHttpClient");
+    httpClientField.setAccessible(true);
+    assertNotSame(mockClient, httpClientField.get(voyageClient));
+    verify(mockClient, timeout(1000)).shutdown();
+  }
+
+  @Test
+  public void embed_connectionResetMessage_renewsHttpClient() throws Exception {
+    HttpClient mockClient = mock(HttpClient.class);
+    doThrow(new IOException("Connection reset"))
+        .when(mockClient)
+        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+    doReturn(true).when(mockClient).awaitTermination(any(Duration.class));
+    VoyageClient voyageClient =
+        createMockedVoyageClient(createDedicatedClusterConfig("token"), mockClient);
+    assertThrows(
+        EmbeddingProviderTransientException.class,
+        () -> voyageClient.embed(List.of("hi"), dummyContext()));
+    Field httpClientField = VoyageClient.class.getDeclaredField("voyageHttpClient");
+    httpClientField.setAccessible(true);
+    assertNotSame(mockClient, httpClientField.get(voyageClient));
+    verify(mockClient, timeout(1000)).shutdown();
+  }
+
+  @Test
+  public void embed_genericIoException_doesNotRenewHttpClient() throws Exception {
+    HttpClient mockClient = mock(HttpClient.class);
+    doThrow(new IOException("downstream parse error"))
+        .when(mockClient)
+        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+    doReturn(true).when(mockClient).awaitTermination(any(Duration.class));
+    VoyageClient voyageClient =
+        createMockedVoyageClient(createDedicatedClusterConfig("token"), mockClient);
+    assertThrows(
+        EmbeddingProviderTransientException.class,
+        () -> voyageClient.embed(List.of("hi"), dummyContext()));
+    Field httpClientField = VoyageClient.class.getDeclaredField("voyageHttpClient");
+    httpClientField.setAccessible(true);
+    assertSame(mockClient, httpClientField.get(voyageClient));
+    verify(mockClient, never()).shutdown();
+  }
+
+  @Test
+  public void embed_httpConnectTimeout_renewsHttpClient() throws Exception {
+    HttpClient mockClient = mock(HttpClient.class);
+    doThrow(new HttpConnectTimeoutException("connect timed out"))
+        .when(mockClient)
+        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+    doReturn(true).when(mockClient).awaitTermination(any(Duration.class));
+    VoyageClient voyageClient =
+        createMockedVoyageClient(createDedicatedClusterConfig("token"), mockClient);
+    assertThrows(
+        EmbeddingProviderTransientException.class,
+        () -> voyageClient.embed(List.of("hi"), dummyContext()));
+    Field httpClientField = VoyageClient.class.getDeclaredField("voyageHttpClient");
+    httpClientField.setAccessible(true);
+    assertNotSame(mockClient, httpClientField.get(voyageClient));
+    verify(mockClient, timeout(1000)).shutdown();
   }
 }
