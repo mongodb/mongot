@@ -35,6 +35,7 @@ import com.xgen.mongot.replication.ReplicationManager;
 import com.xgen.mongot.replication.ReplicationManagerFactory;
 import com.xgen.mongot.replication.mongodb.MongoDbNoOpReplicationManager;
 import com.xgen.mongot.replication.mongodb.MongoDbReplicationManager;
+import com.xgen.mongot.replication.mongodb.autoembedding.MaterializedViewManager;
 import com.xgen.mongot.util.concurrent.Executors;
 import com.xgen.mongot.util.concurrent.NamedExecutorService;
 import com.xgen.mongot.util.mongodb.ConnectionInfo;
@@ -433,6 +434,89 @@ public class DefaultLifecycleManagerTest {
     assertTrue(mocks.lifecycleManager.isInitialized());
     latch.countDown();
     verify(mocks.snapshotterManager, timeout(10000)).scheduleUpload(index1);
+  }
+
+  // ==================== MaterializedViewManager Propagation Tests ====================
+
+  private DefaultLifecycleManager createLifecycleManagerWithMatViewManager(
+      MaterializedViewManager matViewManager) throws Exception {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    ReplicationManagerFactory replicationManagerFactory =
+        (Optional<SyncSourceConfig> syncSourceConfig) -> {
+          ReplicationManager rm = mock(MongoDbReplicationManager.class);
+          when(rm.dropIndex(any())).thenReturn(CompletableFuture.completedFuture(null));
+          when(rm.getSyncSourceConfig()).thenReturn(syncSourceConfig);
+          when(rm.isReplicationSupported()).thenReturn(true);
+          return rm;
+        };
+
+    return new DefaultLifecycleManager(
+        replicationManagerFactory,
+        Optional.of(MOCK_SYNC_SOURCE_CONFIG),
+        new InitializedIndexCatalog(),
+        IndexFactory.mockIndexFactory(ig -> {}, () -> IndexStatus.steady()),
+        Optional.empty(),
+        (syncConfig) -> Optional.of(matViewManager),
+        meterRegistry,
+        ToggleGate.opened(),
+        Executors.fixedSizeThreadPool("init", 1, meterRegistry),
+        Executors.fixedSizeThreadPool("lifecycle", 1, meterRegistry),
+        Executors.fixedSizeThreadPool("blobstore", 1, meterRegistry));
+  }
+
+  @Test
+  public void testShutdownReplication_propagatesToMaterializedViewManager() throws Exception {
+    MaterializedViewManager matViewManager = mock(MaterializedViewManager.class);
+    when(matViewManager.shutdownReplication()).thenReturn(CompletableFuture.completedFuture(null));
+    DefaultLifecycleManager lifecycleManager =
+        createLifecycleManagerWithMatViewManager(matViewManager);
+
+    lifecycleManager.shutdownReplication().get(5, TimeUnit.SECONDS);
+
+    verify(matViewManager).shutdownReplication();
+  }
+
+  @Test
+  public void testRestartReplication_propagatesToMaterializedViewManager() throws Exception {
+    MaterializedViewManager matViewManager = mock(MaterializedViewManager.class);
+    when(matViewManager.shutdownReplication()).thenReturn(CompletableFuture.completedFuture(null));
+    DefaultLifecycleManager lifecycleManager =
+        createLifecycleManagerWithMatViewManager(matViewManager);
+
+    lifecycleManager.restartReplication();
+
+    verify(matViewManager).restartReplication();
+  }
+
+  @Test
+  public void testUpdateSyncSource_propagatesToMaterializedViewManager() throws Exception {
+    MaterializedViewManager matViewManager = mock(MaterializedViewManager.class);
+    when(matViewManager.shutdownReplication()).thenReturn(CompletableFuture.completedFuture(null));
+    DefaultLifecycleManager lifecycleManager =
+        createLifecycleManagerWithMatViewManager(matViewManager);
+
+    SyncSourceConfig newConfig =
+        new SyncSourceConfig(
+            ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://newHost"),
+            ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://newHost"),
+            Optional.empty(),
+            Optional.empty());
+    lifecycleManager.updateSyncSource(newConfig);
+
+    verify(matViewManager).updateSyncSource(newConfig);
+  }
+
+  @Test
+  public void testShutdown_propagatesToMaterializedViewManager() throws Exception {
+    MaterializedViewManager matViewManager = mock(MaterializedViewManager.class);
+    when(matViewManager.shutdown()).thenReturn(CompletableFuture.completedFuture(null));
+    when(matViewManager.shutdownReplication()).thenReturn(CompletableFuture.completedFuture(null));
+    DefaultLifecycleManager lifecycleManager =
+        createLifecycleManagerWithMatViewManager(matViewManager);
+
+    lifecycleManager.shutdown().get(5, TimeUnit.SECONDS);
+
+    verify(matViewManager).shutdown();
   }
 
   // Wait for up to 5s for the actual state to match the desired state.

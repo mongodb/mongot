@@ -4,7 +4,10 @@ java_library(
     name = "common",
     srcs = ["AutoEmbeddingMongoClient.java"],
     visibility = ["//:__subpackages__"],
-    exports = ["@maven//:org_mongodb_mongodb_driver_sync"],
+    exports = [
+        "//src/main/java/com/xgen/mongot/util/mongodb",
+        "@maven//:org_mongodb_mongodb_driver_sync",
+    ],
     deps = [
         "//src/main/java/com/xgen/mongot/util/mongodb",
         "@maven//:com_google_guava_guava",

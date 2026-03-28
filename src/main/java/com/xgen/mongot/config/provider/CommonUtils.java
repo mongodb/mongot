@@ -139,29 +139,33 @@ public class CommonUtils {
           DefaultConfigManager.ReplicationMode replicationMode,
           Optional<Supplier<EmbeddingServiceManager>> embeddingServiceManagerSupplier,
           LeaseManager leaseManager,
-          MaterializedViewCollectionMetadataCatalog mvMetadataCatalog) {
+          MaterializedViewCollectionMetadataCatalog mvMetadataCatalog,
+          AutoEmbeddingMongoClient autoEmbeddingMongoClient) {
 
-    return (Optional<SyncSourceConfig> syncConfig) -> {
-      // Create a no-op replication manager factory if replication mode is disabled or replication
-      // is set to be shutdown
-      if (syncConfig.isEmpty()
-          || replicationMode.equals(DefaultConfigManager.ReplicationMode.DISABLE)) {
+    return (Optional<SyncSourceConfig> syncSourceConfig) -> {
+      // Create a no-op replication manager factory if replication mode is disabled.
+      if (replicationMode.equals(DefaultConfigManager.ReplicationMode.DISABLE)) {
+        LOG.atWarn()
+            .log(
+                "Replication is disabled for auto-embedding, "
+                    + "skips creating MaterializedViewManager.");
         return Optional.empty();
       }
 
-      // Note: DISK_UTILIZATION_BASED mode is treated as ENABLE for auto-embedding because
-      // auto-embedding writes to the MongoDB materialized view collection (not local disk),
-      // so local disk utilization concerns don't apply.
-      // TODO(CLOUDP-360913): Implement customized disk monitor for mat view.
-      Check.checkState(
-          !replicationMode.equals(DefaultConfigManager.ReplicationMode.DISK_UTILIZATION_BASED),
-          "Materialized View Manager doesn't support disk utilization based processing.");
+      if (replicationMode.equals(DefaultConfigManager.ReplicationMode.DISK_UTILIZATION_BASED)) {
+        // Note: DISK_UTILIZATION_BASED mode is treated as ENABLE for auto-embedding because
+        // auto-embedding writes to the MongoDB materialized view collection (not local disk),
+        // so local disk utilization concerns don't apply.
+        // TODO(CLOUDP-360913): Implement customized disk monitor for mat view.
+        LOG.atWarn()
+            .log(
+                "Disk utilization based replication is not supported for auto-embedding, "
+                    + "create MaterializedViewManager anyway.");
+      }
 
-      return Optional.of(
+      var matViewManager =
           MaterializedViewManager.create(
               dataPath,
-              // TODO(CLOUDP-360542): Support MaterializedViewManager without syncConfig in Atlas.
-              Check.isPresent(syncConfig, "syncConfig"),
               autoEmbeddingMaterializedViewConfig,
               initialSyncConfig,
               featureFlags,
@@ -169,7 +173,14 @@ public class CommonUtils {
               embeddingServiceManagerSupplier,
               meterAndFtdcRegistry,
               leaseManager,
-              mvMetadataCatalog));
+              mvMetadataCatalog,
+              autoEmbeddingMongoClient);
+      syncSourceConfig.ifPresent(
+          syncSource -> {
+            matViewManager.updateSyncSource(syncSource);
+            matViewManager.setIsReplicationEnabled(true);
+          });
+      return Optional.of(matViewManager);
     };
   }
 

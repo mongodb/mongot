@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 import com.mongodb.client.MongoClient;
+import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Optional;
 import org.junit.Test;
@@ -19,7 +20,11 @@ public class AutoEmbeddingMongoClientTest {
 
     var client =
         new AutoEmbeddingMongoClient(
-            resolverClient, leaseClient, writerClient, new SimpleMeterRegistry());
+            mock(SyncSourceConfig.class),
+            resolverClient,
+            leaseClient,
+            writerClient,
+            new SimpleMeterRegistry());
 
     assertThat(client.getMaterializedViewResolverMongoClient())
         .isEqualTo(Optional.of(resolverClient));
@@ -44,7 +49,11 @@ public class AutoEmbeddingMongoClientTest {
 
     var client =
         new AutoEmbeddingMongoClient(
-            resolverClient, leaseClient, writerClient, new SimpleMeterRegistry());
+            mock(SyncSourceConfig.class),
+            resolverClient,
+            leaseClient,
+            writerClient,
+            new SimpleMeterRegistry());
 
     client.close();
 

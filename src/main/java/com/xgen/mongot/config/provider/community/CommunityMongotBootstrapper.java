@@ -676,7 +676,8 @@ public class CommunityMongotBootstrapper {
             DefaultConfigManager.ReplicationMode.ENABLE,
             Optional.of(embeddingServiceManagerSupplier),
             leaseManager,
-            mvMetadataCatalog);
+            mvMetadataCatalog,
+            autoEmbeddingMongoClient);
 
     var lifecycleManager =
         CommonUtils.getLifecycleManager(

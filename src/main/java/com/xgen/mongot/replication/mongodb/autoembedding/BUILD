@@ -10,7 +10,6 @@ java_library(
     visibility = ["//:__subpackages__"],
     exports = [
         "//src/main/java/com/xgen/mongot/index/autoembedding",
-        "//src/main/java/com/xgen/mongot/replication",
         "//src/main/java/com/xgen/mongot/util/mongodb",
         "@maven//:org_slf4j_slf4j_api",
     ],
@@ -18,6 +17,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/cursor",
         "//src/main/java/com/xgen/mongot/embedding/config",
         "//src/main/java/com/xgen/mongot/embedding/exceptions",
+        "//src/main/java/com/xgen/mongot/embedding/mongodb/common",
         "//src/main/java/com/xgen/mongot/embedding/mongodb/leasing",
         "//src/main/java/com/xgen/mongot/embedding/providers",
         "//src/main/java/com/xgen/mongot/featureflag",

@@ -3,6 +3,7 @@ package com.xgen.mongot.index.mongodb;
 import static com.xgen.mongot.index.mongodb.MaterializedViewWriter.MV_DATABASE_NAME;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -27,6 +28,7 @@ import com.xgen.mongot.index.version.MaterializedViewGeneration;
 import com.xgen.mongot.index.version.MaterializedViewGenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.util.BsonUtils;
+import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -66,18 +68,19 @@ public class MaterializedViewWriterTest {
 
   @Before
   public void setup() {
-    this.mockMongoClient = Mockito.mock(MongoClient.class);
+    this.mockMongoClient = mock(MongoClient.class);
     this.autoEmbeddingMongoClient =
         new AutoEmbeddingMongoClient(
+            mock(SyncSourceConfig.class),
             this.mockMongoClient,
             this.mockMongoClient,
             this.mockMongoClient,
             new SimpleMeterRegistry());
 
-    this.mockDatabase = Mockito.mock(MongoDatabase.class);
-    this.mockCollection = Mockito.mock(MongoCollection.class);
+    this.mockDatabase = mock(MongoDatabase.class);
+    this.mockCollection = mock(MongoCollection.class);
 
-    this.mockLeaseManager = Mockito.mock(LeaseManager.class);
+    this.mockLeaseManager = mock(LeaseManager.class);
     when(this.mockDatabase.getCollection(MV_NAMESPACE.getCollectionName(), RawBsonDocument.class))
         .thenReturn(this.mockCollection);
     when(this.mockMongoClient.getDatabase(MV_DATABASE_NAME)).thenReturn(this.mockDatabase);
@@ -166,7 +169,7 @@ public class MaterializedViewWriterTest {
       throws IOException, FieldExceededLimitsException {
     // Error code 9 is FailedToParse - not retry-able
     BulkWriteError bulkWriteError = new BulkWriteError(9, "mocked error", new BsonDocument(), 0);
-    MongoBulkWriteException bulkWriteException = Mockito.mock(MongoBulkWriteException.class);
+    MongoBulkWriteException bulkWriteException = mock(MongoBulkWriteException.class);
     when(bulkWriteException.getWriteErrors()).thenReturn(List.of(bulkWriteError));
     when(this.mockCollection.bulkWrite(any())).thenThrow(bulkWriteException);
     var matViewWriter =
@@ -188,7 +191,7 @@ public class MaterializedViewWriterTest {
       throws IOException, FieldExceededLimitsException {
     // Error code 6 is HostUnreachable - retry-able
     BulkWriteError bulkWriteError = new BulkWriteError(6, "mocked error", new BsonDocument(), 0);
-    MongoBulkWriteException bulkWriteException = Mockito.mock(MongoBulkWriteException.class);
+    MongoBulkWriteException bulkWriteException = mock(MongoBulkWriteException.class);
     when(bulkWriteException.getWriteErrors()).thenReturn(List.of(bulkWriteError));
     when(this.mockCollection.bulkWrite(any())).thenThrow(bulkWriteException).thenReturn(null);
     var matViewWriter =
@@ -365,7 +368,7 @@ public class MaterializedViewWriterTest {
   @Test
   public void testCommitWithRateLimiter_permitsAvailable_proceedsWithoutDelay()
       throws IOException, FieldExceededLimitsException {
-    RateLimiter limiter = Mockito.mock(RateLimiter.class);
+    RateLimiter limiter = mock(RateLimiter.class);
     when(limiter.acquire()).thenReturn(0.0);
     var writer =
         new MaterializedViewWriter(
@@ -386,7 +389,7 @@ public class MaterializedViewWriterTest {
       throws IOException, FieldExceededLimitsException {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     MetricsFactory metricsFactory = new MetricsFactory("throttleTest", registry);
-    RateLimiter limiter = Mockito.mock(RateLimiter.class);
+    RateLimiter limiter = mock(RateLimiter.class);
     when(limiter.acquire()).thenReturn(0.0).thenReturn(0.5);
     var writer =
         new MaterializedViewWriter(
@@ -407,7 +410,7 @@ public class MaterializedViewWriterTest {
 
   @Test
   public void testCommitEmptyBuffer_skipsRateLimiter() throws IOException {
-    RateLimiter limiter = Mockito.mock(RateLimiter.class);
+    RateLimiter limiter = mock(RateLimiter.class);
     var writer =
         new MaterializedViewWriter(
             this.autoEmbeddingMongoClient,
@@ -472,7 +475,7 @@ public class MaterializedViewWriterTest {
       throws IOException, FieldExceededLimitsException {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     MetricsFactory metricsFactory = new MetricsFactory("testMetrics", registry);
-    RateLimiter limiter = Mockito.mock(RateLimiter.class);
+    RateLimiter limiter = mock(RateLimiter.class);
     when(limiter.acquire()).thenReturn(0.0).thenReturn(0.5);
     var writer =
         new MaterializedViewWriter(

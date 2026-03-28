@@ -28,6 +28,7 @@ import com.xgen.mongot.index.version.MaterializedViewGeneration;
 import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
 import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
 import com.xgen.mongot.util.FieldPath;
+import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -71,7 +72,11 @@ public class MaterializedViewCollectionResolverTest {
     var mongoClient = mock(MongoClient.class);
     this.autoEmbeddingMongoClient =
         new AutoEmbeddingMongoClient(
-            mongoClient, mongoClient, mongoClient, new SimpleMeterRegistry());
+            mock(SyncSourceConfig.class),
+            mongoClient,
+            mongoClient,
+            mongoClient,
+            new SimpleMeterRegistry());
     when(mongoClient.getDatabase(eq(MV_DATABASE_NAME))).thenReturn(this.mongoDatabase);
 
     doAnswer(

@@ -16,6 +16,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/index/version",
         "//src/main/java/com/xgen/mongot/replication/mongodb/common",
         "//src/main/java/com/xgen/mongot/util",
+        "//src/main/java/com/xgen/mongot/util/mongodb",
         "//src/main/java/com/xgen/mongot/util/mongodb/serialization",
         "//src/main/java/com/xgen/testing/mongot/index/definition",
         "@maven//:com_google_truth_truth",

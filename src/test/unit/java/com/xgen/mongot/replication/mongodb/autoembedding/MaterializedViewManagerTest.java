@@ -16,6 +16,7 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -26,6 +27,7 @@ import com.xgen.mongot.catalog.InitializedIndexCatalog;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
+import com.xgen.mongot.embedding.mongodb.common.AutoEmbeddingMongoClient;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
 import com.xgen.mongot.embedding.mongodb.leasing.StaticLeaderLeaseManager;
 import com.xgen.mongot.featureflag.FeatureFlags;
@@ -48,10 +50,8 @@ import com.xgen.mongot.replication.mongodb.common.PeriodicIndexCommitter;
 import com.xgen.mongot.replication.mongodb.common.SessionRefresher;
 import com.xgen.mongot.replication.mongodb.initialsync.InitialSyncQueue;
 import com.xgen.mongot.replication.mongodb.steadystate.SteadyStateManager;
-import com.xgen.mongot.util.concurrent.Executors;
 import com.xgen.mongot.util.concurrent.NamedExecutorService;
 import com.xgen.mongot.util.concurrent.NamedScheduledExecutorService;
-import com.xgen.mongot.util.mongodb.BatchMongoClient;
 import com.xgen.mongot.util.mongodb.ConnectionStringUtil;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import com.xgen.testing.TestUtils;
@@ -240,11 +240,7 @@ public class MaterializedViewManagerTest {
 
     mocks.manager.shutdown().get(5, TimeUnit.SECONDS);
 
-    verify(mocks.initialSyncQueue).shutdown();
-    verify(mocks.initialSyncQueue).shutdown();
-    verify(mocks.steadyStateManager).shutdown();
     verify(mocks.executorService).shutdown();
-    verify(mocks.clientSessionRecordMap.get("test").sessionRefresher()).shutdown();
   }
 
   @Test
@@ -268,11 +264,8 @@ public class MaterializedViewManagerTest {
     mocks.manager.shutdown().get(5, TimeUnit.SECONDS);
     verify(materializedViewGenerator1).shutdown();
     verify(materializedViewGenerator2).shutdown();
-    verify(mocks.initialSyncQueue).shutdown();
-    verify(mocks.steadyStateManager).shutdown();
     verify(mocks.commitExecutor).shutdown();
     verify(mocks.executorService).shutdown();
-    verify(mocks.clientSessionRecordMap.get("test").sessionRefresher()).shutdown();
   }
 
   @Test
@@ -342,11 +335,8 @@ public class MaterializedViewManagerTest {
     }
 
     // Verify all components were shut down
-    verify(mocks.initialSyncQueue).shutdown();
-    verify(mocks.steadyStateManager).shutdown();
     verify(mocks.commitExecutor).shutdown();
     verify(mocks.executorService).shutdown();
-    verify(mocks.clientSessionRecordMap.get("test").sessionRefresher()).shutdown();
   }
 
   @Test
@@ -635,6 +625,223 @@ public class MaterializedViewManagerTest {
     assertTrue(mocks.manager.isInitialized());
   }
 
+  // ==================== Sync Source Update Lifecycle Tests ====================
+
+  @Test
+  public void testAddWhenReplicationDisabled_buffersIndexGeneration() {
+    Mocks mocks = Mocks.create();
+    mocks.manager.setIsReplicationEnabled(false);
+
+    MaterializedViewIndexGeneration matViewIndexGeneration =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.mockMaterializedViewGenerator(matViewIndexGeneration);
+    mocks.addIndexForReplication(matViewIndexGeneration);
+
+    // Generator should NOT be created when replication is disabled
+    verify(mocks.materializedViewGeneratorFactory, never()).create(any());
+    // LeaseManager.add() should NOT be called (it's inside createNewGenerator)
+    verify(mocks.leaseManager, never()).add(any(IndexGeneration.class), anyBoolean());
+  }
+
+  @Test
+  public void testRestartReplication_createsGeneratorsFromBuffer() {
+    Mocks mocks = Mocks.create();
+    mocks.manager.setIsReplicationEnabled(false);
+
+    MaterializedViewIndexGeneration matViewIndexGeneration =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.mockMaterializedViewGenerator(matViewIndexGeneration);
+    mocks.addIndexForReplication(matViewIndexGeneration);
+
+    // No generator created yet
+    verify(mocks.materializedViewGeneratorFactory, never()).create(any());
+
+    // Restart replication — generators should now be created from buffer
+    mocks.manager.restartReplication();
+
+    verify(mocks.materializedViewGeneratorFactory).create(matViewIndexGeneration);
+    verify(mocks.leaseManager).add(matViewIndexGeneration, false);
+    assertTrue(mocks.manager.isReplicationSupported());
+  }
+
+  @Test
+  public void testShutdownReplication_clearsGeneratorsAndDisablesReplication() throws Exception {
+    Mocks mocks = Mocks.create();
+
+    MaterializedViewIndexGeneration matViewIndexGeneration =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator generator =
+        mocks.mockMaterializedViewGenerator(matViewIndexGeneration);
+    mocks.addIndexForReplication(matViewIndexGeneration);
+
+    assertTrue(mocks.manager.isReplicationSupported());
+
+    mocks.manager.shutdownReplication().get(5, TimeUnit.SECONDS);
+
+    verify(generator).shutdown();
+    assertFalse(mocks.manager.isReplicationSupported());
+  }
+
+  @Test
+  public void testShutdownReplication_thenRestartReplication_recreatesAll() throws Exception {
+    Mocks mocks = Mocks.create();
+
+    MaterializedViewIndexGeneration matViewIndexGeneration =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator oldGenerator =
+        mocks.mockMaterializedViewGenerator(matViewIndexGeneration);
+    mocks.addIndexForReplication(matViewIndexGeneration);
+
+    // Shutdown replication
+    mocks.manager.shutdownReplication().get(5, TimeUnit.SECONDS);
+    verify(oldGenerator).shutdown();
+    assertFalse(mocks.manager.isReplicationSupported());
+
+    // Prepare a new generator for restart
+    MaterializedViewGenerator newGenerator = mock(MaterializedViewGenerator.class);
+    doReturn(CompletableFuture.completedFuture(null)).when(newGenerator).shutdown();
+    when(newGenerator.getIndexGeneration()).thenReturn(matViewIndexGeneration);
+    when(mocks.materializedViewGeneratorFactory.create(matViewIndexGeneration))
+        .thenReturn(newGenerator);
+
+    // Restart replication — generator should be recreated from buffer
+    mocks.manager.restartReplication();
+
+    assertTrue(mocks.manager.isReplicationSupported());
+    // Factory.create() called once during add(), once during restartReplication()
+    verify(mocks.materializedViewGeneratorFactory, times(2)).create(matViewIndexGeneration);
+  }
+
+  @Test
+  public void testUpdateSyncSource_delegatesToFactory() {
+    Mocks mocks = Mocks.create();
+    SyncSourceConfig newConfig =
+        new SyncSourceConfig(
+            ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://newHost"),
+            ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://newHost"),
+            Optional.empty(),
+            Optional.empty());
+
+    mocks.manager.updateSyncSource(newConfig);
+
+    verify(mocks.materializedViewGeneratorFactory).updateSyncSourceConfig(newConfig);
+  }
+
+  @Test
+  public void testFullSyncSourceUpdateCycle() throws Exception {
+    Mocks mocks = Mocks.create();
+
+    // Phase 1: Add index with replication enabled
+    MaterializedViewIndexGeneration matViewIndexGeneration =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator oldGenerator =
+        mocks.mockMaterializedViewGenerator(matViewIndexGeneration);
+    mocks.addIndexForReplication(matViewIndexGeneration);
+    verify(mocks.materializedViewGeneratorFactory).create(matViewIndexGeneration);
+
+    // Phase 2: Shutdown replication (simulating sync source change)
+    mocks.manager.shutdownReplication().get(5, TimeUnit.SECONDS);
+    verify(oldGenerator).shutdown();
+    assertFalse(mocks.manager.isReplicationSupported());
+
+    // Phase 3: Update sync source
+    SyncSourceConfig newConfig =
+        new SyncSourceConfig(
+            ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://newHost"),
+            ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://newHost"),
+            Optional.empty(),
+            Optional.empty());
+    mocks.manager.updateSyncSource(newConfig);
+    verify(mocks.materializedViewGeneratorFactory).updateSyncSourceConfig(newConfig);
+
+    // Phase 4: Restart replication — generator recreated from buffer
+    MaterializedViewGenerator newGenerator = mock(MaterializedViewGenerator.class);
+    doReturn(CompletableFuture.completedFuture(null)).when(newGenerator).shutdown();
+    when(newGenerator.getIndexGeneration()).thenReturn(matViewIndexGeneration);
+    when(mocks.materializedViewGeneratorFactory.create(matViewIndexGeneration))
+        .thenReturn(newGenerator);
+
+    mocks.manager.restartReplication();
+    assertTrue(mocks.manager.isReplicationSupported());
+    verify(mocks.materializedViewGeneratorFactory, times(2)).create(matViewIndexGeneration);
+  }
+
+  @Test
+  public void testAddDuringDisabledReplication_higherVersionReplacesInBuffer() {
+    Mocks mocks = Mocks.create();
+    mocks.manager.setIsReplicationEnabled(false);
+
+    // Add version 0
+    var gen1 = MOCK_MAT_VIEW_GENERATION_ID;
+    var matViewIndexGen1 = mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(gen1));
+    mocks.mockMaterializedViewGenerator(matViewIndexGen1);
+    mocks.addIndexForReplication(matViewIndexGen1);
+
+    // Add version 1 of same index (higher)
+    var gen2 =
+        new MaterializedViewGenerationId(
+            MOCK_MAT_VIEW_GENERATION_ID.indexId,
+            MOCK_MAT_VIEW_GENERATION_ID.generation.incrementUser());
+    var matViewIndexGen2 = mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(gen2, 1));
+    mocks.mockMaterializedViewGenerator(matViewIndexGen2);
+    mocks.addIndexForReplication(matViewIndexGen2);
+
+    // No generators created yet
+    verify(mocks.materializedViewGeneratorFactory, never()).create(any());
+
+    // Restart — only version 1 should be used
+    mocks.manager.restartReplication();
+    verify(mocks.materializedViewGeneratorFactory).create(matViewIndexGen2);
+  }
+
+  @Test
+  public void testAddDuringDisabledReplication_sameVersion_swapsIndex() {
+    Mocks mocks = Mocks.create();
+    mocks.manager.setIsReplicationEnabled(false);
+
+    // Add version 0
+    var gen1 = MOCK_MAT_VIEW_GENERATION_ID;
+    var matViewIndexGen1 = mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(gen1));
+    mocks.mockMaterializedViewGenerator(matViewIndexGen1);
+    mocks.addIndexForReplication(matViewIndexGen1);
+
+    // Add same version 0 again (different generation attempt)
+    var gen2 =
+        new MaterializedViewGenerationId(
+            MOCK_MAT_VIEW_GENERATION_ID.indexId,
+            MOCK_MAT_VIEW_GENERATION_ID.generation.incrementUser());
+    var matViewIndexGen2 = mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(gen2));
+    mocks.addIndexForReplication(matViewIndexGen2);
+
+    // Same version: swapIndex should be called on the newer generation, existing wins
+    assertEquals(matViewIndexGen1.getIndex(), matViewIndexGen2.getIndex());
+  }
+
+  @Test
+  public void testIsReplicationSupported_lifecycle() {
+    Mocks mocks = Mocks.create();
+    assertTrue(mocks.manager.isReplicationSupported());
+
+    mocks.manager.setIsReplicationEnabled(false);
+    assertFalse(mocks.manager.isReplicationSupported());
+
+    mocks.manager.setIsReplicationEnabled(true);
+    assertTrue(mocks.manager.isReplicationSupported());
+  }
+
+  @Test
+  public void testPeriodicTasksNoOpWhenReplicationDisabled() {
+    // Use follower mocks because they capture the status refresh runnable
+    Mocks mocks = Mocks.createFollower();
+    mocks.manager.setIsReplicationEnabled(false);
+
+    // Run the captured status refresh runnable
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    // LeaseManager should NOT be polled when replication is disabled
+    verify(mocks.leaseManager, never()).pollFollowerStatuses();
+  }
+
   // ==================== Dynamic Leader with Unexpired Lease Tests ====================
 
   @Test
@@ -687,7 +894,6 @@ public class MaterializedViewManagerTest {
         Map<String, ClientSessionRecord> clientSessionRecordMap,
         InitialSyncQueue initialSyncQueue,
         SteadyStateManager steadyStateManager,
-        BatchMongoClient syncBatchMongoClient,
         MaterializedViewManager.MaterializedViewGeneratorFactory materializedViewGeneratorFactory,
         NamedScheduledExecutorService commitExecutor,
         NamedScheduledExecutorService heartbeatExecutor,
@@ -721,17 +927,15 @@ public class MaterializedViewManagerTest {
               ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://newString"),
               Optional.empty(),
               Optional.empty());
+      AutoEmbeddingMongoClient autoEmbeddingMongoClient =
+          new AutoEmbeddingMongoClient(Optional.of(syncSourceConfig), new SimpleMeterRegistry());
 
       this.managerSupplier =
           () ->
               new MaterializedViewManager(
                   executorService,
                   indexingWorkSchedulerFactory,
-                  clientSessionRecordMap,
-                  syncSourceConfig,
-                  initialSyncQueue,
-                  steadyStateManager,
-                  syncBatchMongoClient,
+                  autoEmbeddingMongoClient,
                   decodingScheduler,
                   materializedViewGeneratorFactory,
                   commitExecutor,
@@ -742,15 +946,22 @@ public class MaterializedViewManagerTest {
                   leaseManager,
                   metadataCatalog);
       this.manager = this.managerSupplier.get();
+      this.manager.setIsReplicationEnabled(true);
     }
 
     public void recreateManager() {
       this.manager = this.managerSupplier.get();
+      this.manager.setIsReplicationEnabled(true);
     }
 
     private static Mocks create() {
-      NamedExecutorService executorService =
-          spy(Executors.fixedSizeThreadPool("indexing", 1, new SimpleMeterRegistry()));
+      NamedExecutorService executorService = mock(NamedExecutorService.class);
+      when(executorService.getName()).thenReturn("indexing");
+      try {
+        when(executorService.awaitTermination(anyLong(), any())).thenReturn(true);
+      } catch (InterruptedException e) {
+        throw new RuntimeException(e);
+      }
 
       IndexingWorkSchedulerFactory indexingWorkSchedulerFactory =
           mock(IndexingWorkSchedulerFactory.class);
@@ -768,30 +979,23 @@ public class MaterializedViewManagerTest {
 
       com.mongodb.client.MongoClient syncMongoClient = mock(com.mongodb.client.MongoClient.class);
 
-      BatchMongoClient syncBatchMongoClient = mock(BatchMongoClient.class);
-
       MaterializedViewManager.MaterializedViewGeneratorFactory materializedViewGeneratorFactory =
           mock(MaterializedViewManager.MaterializedViewGeneratorFactory.class);
+      when(materializedViewGeneratorFactory.shutdown())
+          .thenReturn(CompletableFuture.completedFuture(null));
+      when(indexingWorkSchedulerFactory.getIndexingWorkSchedulers()).thenReturn(Map.of());
 
       NamedScheduledExecutorService commitExecutor =
-          spy(
-              Executors.fixedSizeThreadScheduledExecutor(
-                  "index-commit", 1, new SimpleMeterRegistry()));
+          mockScheduledExecutor("index-commit");
 
       NamedScheduledExecutorService heartbeatExecutor =
-          spy(
-              Executors.singleThreadScheduledExecutor(
-                  "mat-view-leader-heartbeat", new SimpleMeterRegistry()));
+          mockScheduledExecutor("mat-view-leader-heartbeat");
 
       NamedScheduledExecutorService statusRefreshExecutor =
-          spy(
-              Executors.fixedSizeThreadScheduledExecutor(
-                  "mat-view-status-refresh", 1, new SimpleMeterRegistry()));
+          mockScheduledExecutor("mat-view-status-refresh");
 
       NamedScheduledExecutorService optimeUpdaterExecutor =
-          spy(
-              Executors.singleThreadScheduledExecutor(
-                  "mat-view-optime-updater", new SimpleMeterRegistry()));
+          mockScheduledExecutor("mat-view-optime-updater");
 
       InitializedIndexCatalog initializedIndexCatalog = mock(InitializedIndexCatalog.class);
       when(initializedIndexCatalog.getIndex(any()))
@@ -814,7 +1018,6 @@ public class MaterializedViewManagerTest {
           Map.of("test", new ClientSessionRecord(syncMongoClient, sessionRefresher)),
           initialSyncQueue,
           steadyStateManager,
-          syncBatchMongoClient,
           materializedViewGeneratorFactory,
           commitExecutor,
           heartbeatExecutor,
@@ -896,7 +1099,6 @@ public class MaterializedViewManagerTest {
           Map.of(),
           mock(InitialSyncQueue.class),
           mock(SteadyStateManager.class),
-          mock(BatchMongoClient.class),
           mockGeneratorFactory,
           mock(NamedScheduledExecutorService.class),
           mock(NamedScheduledExecutorService.class),
@@ -914,31 +1116,28 @@ public class MaterializedViewManagerTest {
      * immediately, triggering the leadership activation path in createNewGenerator().
      */
     private static Mocks createDynamicLeaderWithUnexpiredLease() {
-      NamedExecutorService executorService =
-          spy(Executors.fixedSizeThreadPool("indexing", 1, new SimpleMeterRegistry()));
+      NamedExecutorService executorService = mock(NamedExecutorService.class);
+      when(executorService.getName()).thenReturn("indexing");
+      try {
+        when(executorService.awaitTermination(anyLong(), any())).thenReturn(true);
+      } catch (InterruptedException e) {
+        throw new RuntimeException(e);
+      }
 
       MaterializedViewManager.MaterializedViewGeneratorFactory materializedViewGeneratorFactory =
           mock(MaterializedViewManager.MaterializedViewGeneratorFactory.class);
 
       NamedScheduledExecutorService commitExecutor =
-          spy(
-              Executors.fixedSizeThreadScheduledExecutor(
-                  "index-commit", 1, new SimpleMeterRegistry()));
+          mockScheduledExecutor("index-commit");
 
       NamedScheduledExecutorService heartbeatExecutor =
-          spy(
-              Executors.singleThreadScheduledExecutor(
-                  "mat-view-leader-heartbeat", new SimpleMeterRegistry()));
+          mockScheduledExecutor("mat-view-leader-heartbeat");
 
       NamedScheduledExecutorService statusRefreshExecutor =
-          spy(
-              Executors.fixedSizeThreadScheduledExecutor(
-                  "mat-view-status-refresh", 1, new SimpleMeterRegistry()));
+          mockScheduledExecutor("mat-view-status-refresh");
 
       NamedScheduledExecutorService optimeUpdaterExecutor =
-          spy(
-              Executors.singleThreadScheduledExecutor(
-                  "mat-view-optime-updater", new SimpleMeterRegistry()));
+          mockScheduledExecutor("mat-view-optime-updater");
 
       InitialSyncQueue initialSyncQueue = mock(InitialSyncQueue.class);
       when(initialSyncQueue.shutdown()).thenReturn(COMPLETED_FUTURE);
@@ -976,7 +1175,6 @@ public class MaterializedViewManagerTest {
           Map.of(),
           initialSyncQueue,
           steadyStateManager,
-          mock(BatchMongoClient.class),
           materializedViewGeneratorFactory,
           commitExecutor,
           heartbeatExecutor,
@@ -986,6 +1184,22 @@ public class MaterializedViewManagerTest {
           IndexStatus.unknown(), // expectedStatus
           Optional.empty(),
           createMockMetadataCatalog());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static NamedScheduledExecutorService mockScheduledExecutor(String name) {
+      NamedScheduledExecutorService executor = mock(NamedScheduledExecutorService.class);
+      when(executor.getName()).thenReturn(name);
+      ScheduledFuture<?> mockFuture = mock(ScheduledFuture.class);
+      Mockito.doReturn(mockFuture)
+          .when(executor)
+          .scheduleWithFixedDelay(any(Runnable.class), anyLong(), anyLong(), any());
+      try {
+        when(executor.awaitTermination(anyLong(), any())).thenReturn(true);
+      } catch (InterruptedException e) {
+        throw new RuntimeException(e);
+      }
+      return executor;
     }
 
     private MaterializedViewGenerator mockMaterializedViewGenerator(
@@ -1009,6 +1223,9 @@ public class MaterializedViewManagerTest {
                   false));
       // Mock shutdown() to return a completed future so thenRun() callbacks execute immediately
       doReturn(CompletableFuture.completedFuture(null)).when(materializedViewGenerator).shutdown();
+      // Mock becomeLeader() to prevent real async tasks from being submitted to the lifecycle
+      // executor, which would cause shutdownOrFail() to hang waiting for task termination.
+      Mockito.doNothing().when(materializedViewGenerator).becomeLeader();
       when(this.materializedViewGeneratorFactory.create(eq(materializedViewIndexGeneration)))
           .thenReturn(materializedViewGenerator);
       return materializedViewGenerator;

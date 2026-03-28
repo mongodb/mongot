@@ -1,7 +1,6 @@
 package com.xgen.mongot.lifecycle;
 
 import static com.xgen.mongot.util.Check.checkState;
-import static com.xgen.mongot.util.FutureUtils.COMPLETED_FUTURE;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.errorprone.annotations.Var;
@@ -18,6 +17,7 @@ import com.xgen.mongot.monitor.Gate;
 import com.xgen.mongot.replication.ReplicationManager;
 import com.xgen.mongot.replication.ReplicationManagerFactory;
 import com.xgen.mongot.replication.mongodb.autoembedding.AutoEmbeddingMaterializedViewManagerFactory;
+import com.xgen.mongot.replication.mongodb.autoembedding.MaterializedViewManager;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FutureUtils;
 import com.xgen.mongot.util.Runtime;
@@ -78,7 +78,7 @@ public class DefaultLifecycleManager implements LifecycleManager {
   private final ReplicationManagerFactory replicationManagerFactory;
   private final AutoEmbeddingMaterializedViewManagerFactory autoEmbeddingMatViewManagerFactory;
   private final ReplicationManagerWrapper replicationManagerWrapper;
-  private final Optional<ReplicationManager> materializedViewManager;
+  private final Optional<MaterializedViewManager> materializedViewManager;
   private final InitializedIndexCatalog initializedIndexCatalog;
   private final IndexFactory indexFactory;
   private final Optional<? extends BlobstoreSnapshotterManager> snapshotterManager;
@@ -250,6 +250,7 @@ public class DefaultLifecycleManager implements LifecycleManager {
   public synchronized void restartReplication() {
     this.replicationManagerWrapper.setReplicationEnabled(true);
     this.indexManagers.values().forEach(IndexLifecycleManager::startReplication);
+    this.materializedViewManager.ifPresent(MaterializedViewManager::restartReplication);
   }
 
   @Override
@@ -269,7 +270,7 @@ public class DefaultLifecycleManager implements LifecycleManager {
             indexManager.drop(),
             this.materializedViewManager
                 .map(matViewManager -> matViewManager.dropIndex(generationId))
-                .orElse(COMPLETED_FUTURE)));
+                .orElse(FutureUtils.COMPLETED_FUTURE)));
   }
 
   @Override
@@ -279,10 +280,11 @@ public class DefaultLifecycleManager implements LifecycleManager {
 
   @Override
   public synchronized void updateSyncSource(SyncSourceConfig syncSourceConfig) {
-    // TODO(CLOUDP-360542): Support syncSource updates for materializedViewManager
     this.replicationManagerWrapper.setCurrentReplicationManager(
         this.replicationManagerFactory.create(Optional.of(syncSourceConfig)));
     this.syncSourceConfig = Optional.of(syncSourceConfig);
+    this.materializedViewManager.ifPresent(
+        matViewManager -> matViewManager.updateSyncSource(syncSourceConfig));
   }
 
   @Override
@@ -317,9 +319,7 @@ public class DefaultLifecycleManager implements LifecycleManager {
                 CompletableFuture.runAsync(
                     () -> Executors.shutdownOrFail(this.blobstoreExecutor), shutdownExecutor),
                 CompletableFuture.runAsync(
-                    () ->
-                        this.materializedViewManager.ifPresentOrElse(
-                            ReplicationManager::shutdown, () -> {}),
+                    () -> this.materializedViewManager.ifPresent(MaterializedViewManager::shutdown),
                     shutdownExecutor)))
         .whenComplete((result, throwable) -> shutdownExecutor.shutdown());
   }
@@ -327,8 +327,13 @@ public class DefaultLifecycleManager implements LifecycleManager {
   @Override
   public CompletableFuture<Void> shutdownReplication() {
     this.replicationManagerWrapper.setReplicationEnabled(false);
-    return CompletableFuture.runAsync(
-        () -> this.replicationManagerWrapper.currentReplicationManager.shutdown());
+    return FutureUtils.allOf(
+        List.of(
+            CompletableFuture.runAsync(
+                () -> this.replicationManagerWrapper.currentReplicationManager.shutdown()),
+            this.materializedViewManager
+                .map(MaterializedViewManager::shutdownReplication)
+                .orElse(FutureUtils.COMPLETED_FUTURE)));
   }
 
   @TestOnly

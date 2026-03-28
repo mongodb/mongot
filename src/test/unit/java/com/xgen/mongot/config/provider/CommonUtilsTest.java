@@ -188,7 +188,8 @@ public class CommonUtilsTest {
             DefaultConfigManager.ReplicationMode.DISABLE,
             mocks.embeddingServiceManagerSupplier,
             mocks.leaseManager,
-            mocks.mvMetadataCatalog);
+            mocks.mvMetadataCatalog,
+            mocks.autoEmbeddingMongoClient);
     var noOpManager = factory.create(Optional.of(mocks.syncSourceConfig));
     Assert.assertTrue(noOpManager.isEmpty());
   }
@@ -207,7 +208,8 @@ public class CommonUtilsTest {
             DefaultConfigManager.ReplicationMode.ENABLE,
             mocks.embeddingServiceManagerSupplier,
             mocks.leaseManager,
-            mocks.mvMetadataCatalog);
+            mocks.mvMetadataCatalog,
+            mocks.autoEmbeddingMongoClient);
 
     // With empty embeddingServiceManagerSupplier should throw IllegalArgumentException.
     IllegalArgumentException exception =
@@ -337,21 +339,12 @@ public class CommonUtilsTest {
             mocks.mongotCursorManager,
             MeterAndFtdcRegistry.create(mocks.meterRegistry, mocks.ftdcRegistry),
             DefaultConfigManager.ReplicationMode.DISK_UTILIZATION_BASED,
-            mocks.embeddingServiceManagerSupplier,
+            Optional.of(() -> mock(EmbeddingServiceManager.class)),
             mocks.leaseManager,
-            mocks.mvMetadataCatalog);
+            mocks.mvMetadataCatalog,
+            mocks.autoEmbeddingMongoClient);
     var noOpManager = factory.create(Optional.empty());
-    Assert.assertTrue(noOpManager.isEmpty());
-
-    // Verify that DISK_UTILIZATION_BASED is not supported yet.
-    Exception exception =
-        Assert.assertThrows(
-            Exception.class, () -> factory.create(Optional.of(mock(SyncSourceConfig.class))));
-    String errorMessage = exception.getMessage();
-    String expectedPattern =
-        "Materialized View Manager doesn't support disk utilization based processing";
-    // Assert that the message matches the regex pattern
-    Assert.assertTrue(Pattern.compile(expectedPattern).matcher(errorMessage).find());
+    Assert.assertTrue(noOpManager.isPresent());
   }
 
   @Test

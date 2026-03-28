@@ -29,15 +29,18 @@ public class AutoEmbeddingMongoClient {
       new AtomicReference<>();
   // Use for LeaseManager for managing leases and metadata.
   private final AtomicReference<MongoClient> leaseManagerMongoClient = new AtomicReference<>();
-
   private final MeterRegistry meterRegistry;
+
+  private Optional<SyncSourceConfig> syncSourceConfig;
 
   @VisibleForTesting
   public AutoEmbeddingMongoClient(
+      SyncSourceConfig syncSourceConfig,
       MongoClient materializedViewResolverMongoClient,
       MongoClient leaseManagerMongoClient,
       MongoClient materializedViewWriterMongoClient,
       MeterRegistry meterRegistry) {
+    this.syncSourceConfig = Optional.of(syncSourceConfig);
     this.materializedViewResolverMongoClient.set(materializedViewResolverMongoClient);
     this.leaseManagerMongoClient.set(leaseManagerMongoClient);
     this.materializedViewWriterMongoClient.set(materializedViewWriterMongoClient);
@@ -46,12 +49,14 @@ public class AutoEmbeddingMongoClient {
 
   public AutoEmbeddingMongoClient(
       Optional<SyncSourceConfig> syncSourceConfig, MeterRegistry meterRegistry) {
+    this.syncSourceConfig = syncSourceConfig;
     this.meterRegistry = meterRegistry;
     syncSourceConfig.ifPresent(this::updateSyncSource);
   }
 
   /** Updates SyncSource for mongo clients. */
   public synchronized void updateSyncSource(SyncSourceConfig syncSourceConfig) {
+    this.syncSourceConfig = Optional.of(syncSourceConfig);
     var resolverClient = Optional.ofNullable(this.materializedViewResolverMongoClient.get());
     var leaseManagerClient = Optional.ofNullable(this.leaseManagerMongoClient.get());
     var writerClient = Optional.ofNullable(this.materializedViewWriterMongoClient.get());
@@ -94,6 +99,10 @@ public class AutoEmbeddingMongoClient {
     getMaterializedViewResolverMongoClient().ifPresent(MongoClient::close);
     getLeaseManagerMongoClient().ifPresent(MongoClient::close);
     getMaterializedViewWriterMongoClient().ifPresent(MongoClient::close);
+  }
+
+  public Optional<SyncSourceConfig> getSyncSourceConfig() {
+    return this.syncSourceConfig;
   }
 
   private MongoClient createLeaseManagerMongoClient(
