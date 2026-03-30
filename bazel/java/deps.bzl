@@ -160,6 +160,7 @@ MISC_ARTIFACTS = [
     # TODO(CLOUDP-196746): Remove okio dependency when GRPC upgrades okio > 3.4.0
     "com.squareup.okio:okio:3.10.2",
     "com.google.auto.service:auto-service:1.1.1",
+    "org.roaringbitmap:RoaringBitmap:1.6.13",
 ]
 
 PINNED_TRANSITIVE_ARTIFACTS = [

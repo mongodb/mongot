@@ -24,12 +24,13 @@ import com.xgen.mongot.index.query.operators.mql.SimpleClause;
 import com.xgen.mongot.util.FieldPath;
 import java.io.IOException;
 import java.util.List;
+import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.Query;
 
-class VectorSearchFilterQueryFactory {
+public class VectorSearchFilterQueryFactory {
 
   private final QueryFactoryContext factoryContext;
   private final RangeQueryFactory rangeQueryFactory;
@@ -37,7 +38,16 @@ class VectorSearchFilterQueryFactory {
   private final ExistsQueryFactory existsQueryFactory;
   private final EqualsQueryFactory equalsQueryFactory;
 
-  public VectorSearchFilterQueryFactory(
+  public static VectorSearchFilterQueryFactory create(VectorQueryFactoryContext factoryContext) {
+    var equalsQueryFactory = new EqualsQueryFactory(factoryContext);
+    var existsQueryFactory = new ExistsQueryFactory(factoryContext);
+    var rangeQueryFactory = new RangeQueryFactory(factoryContext, equalsQueryFactory);
+    var inQueryFactory = new InQueryFactory(factoryContext);
+    return new VectorSearchFilterQueryFactory(
+        factoryContext, rangeQueryFactory, inQueryFactory, existsQueryFactory, equalsQueryFactory);
+  }
+
+  VectorSearchFilterQueryFactory(
       QueryFactoryContext factoryContext,
       RangeQueryFactory rangeQueryFactory,
       InQueryFactory inQueryFactory,
@@ -50,7 +60,16 @@ class VectorSearchFilterQueryFactory {
     this.equalsQueryFactory = equalsQueryFactory;
   }
 
-  public Query createLuceneFilter(VectorSearchFilter filter, SingleQueryContext singleQueryContext)
+  /**
+   * Converts a {@link VectorSearchFilter} into a Lucene {@link Query} suitable for execution
+   * against the given index reader.
+   */
+  public Query createLuceneFilter(VectorSearchFilter filter, IndexReader indexReader)
+      throws InvalidQueryException, IOException {
+    return createLuceneFilter(filter, SingleQueryContext.createQueryRoot(indexReader));
+  }
+
+  Query createLuceneFilter(VectorSearchFilter filter, SingleQueryContext singleQueryContext)
       throws InvalidQueryException, IOException {
     return switch (filter) {
       case VectorSearchFilter.ClauseFilter clauseFilter ->

@@ -23,20 +23,9 @@ public class LuceneVectorQueryFactoryDistributor {
 
   public static LuceneVectorQueryFactoryDistributor create(
       VectorQueryFactoryContext factoryContext) {
-    var equalsQueryFactory = new EqualsQueryFactory(factoryContext);
-    var existsQueryFactory = new ExistsQueryFactory(factoryContext);
-    var rangeQueryFactory = new RangeQueryFactory(factoryContext, equalsQueryFactory);
-    var inQueryFactory = new InQueryFactory(factoryContext);
+    var filterFactory = VectorSearchFilterQueryFactory.create(factoryContext);
     return new LuceneVectorQueryFactoryDistributor(
-        new VectorSearchQueryFactory(
-            factoryContext,
-            new VectorSearchFilterQueryFactory(
-                factoryContext,
-                rangeQueryFactory,
-                inQueryFactory,
-                existsQueryFactory,
-                equalsQueryFactory)),
-        factoryContext);
+        new VectorSearchQueryFactory(factoryContext, filterFactory), factoryContext);
   }
 
   public Query createQuery(MaterializedVectorSearchQuery query, IndexReader indexReader)

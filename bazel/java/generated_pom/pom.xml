@@ -1541,6 +1541,11 @@
   <version>0.10.2</version>
 </dependency>
 <dependency>
+  <groupId>org.roaringbitmap</groupId>
+  <artifactId>RoaringBitmap</artifactId>
+  <version>1.6.13</version>
+</dependency>
+<dependency>
   <groupId>org.slf4j</groupId>
   <artifactId>jul-to-slf4j</artifactId>
   <version>2.0.17</version>
