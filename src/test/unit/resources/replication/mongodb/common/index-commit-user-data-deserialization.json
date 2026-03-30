@@ -84,6 +84,28 @@
       }
     },
     {
+      "description": "with stale info with unknown fields",
+      "value": {
+        "staleStateInfo": {
+          "lastOptime": {
+            "$timestamp": {
+              "t": 0,
+              "i": 1234567890
+            }
+          },
+          "reason": "DOCS_EXCEEDED",
+          "message": "Docs exceeded: Index exceeded max docs limit",
+          "changeStreamResumeInfo": {
+            "namespace": "database.collection",
+            "resumeToken": {
+              "_data": "resume token"
+            }
+          },
+          "backendIndexVersion": 6
+        }
+      }
+    },
+    {
       "description": "with index state info",
       "value": {
         "indexStateInfo": {

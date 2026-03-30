@@ -67,10 +67,11 @@ public class IndexCommitUserData implements DocumentEncodable {
             .optional()
             .noDefault();
 
+    // TODO(CLOUDP-339757): Change back to disallowUnknownFields() in v1.66+
     private static final Field.Optional<StaleStateInfo> STALE_STATE_INFO =
         Field.builder("staleStateInfo")
             .classField(StaleStateInfo::fromBson)
-            .disallowUnknownFields()
+            .allowUnknownFields()
             .optional()
             .noDefault();
     private static final Field.Optional<IndexStateInfo> INDEX_STATE_INFO =

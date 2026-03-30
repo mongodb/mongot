@@ -104,6 +104,7 @@ public class IndexCommitUserDataTest {
           withInitialSyncResume(),
           withNaturalOrderInitialSyncResume(),
           withStaleInfo(),
+          withStaleInfoUnknownFields(),
           withIndexStateInfo());
     }
 
@@ -148,6 +149,12 @@ public class IndexCommitUserDataTest {
     private static BsonDeserializationTestSuite.ValidSpec<IndexCommitUserData> withStaleInfo() {
       return BsonDeserializationTestSuite.TestSpec.valid(
           "with stale info", USER_DATA_WITH_STALE_INFO);
+    }
+
+    private static BsonDeserializationTestSuite.ValidSpec<IndexCommitUserData>
+        withStaleInfoUnknownFields() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "with stale info with unknown fields", USER_DATA_WITH_STALE_INFO);
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<IndexCommitUserData>
