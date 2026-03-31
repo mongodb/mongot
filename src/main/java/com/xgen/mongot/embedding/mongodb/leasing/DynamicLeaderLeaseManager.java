@@ -33,6 +33,7 @@ import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
+import io.micrometer.core.instrument.Counter;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -92,6 +93,9 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
   private final AutoEmbeddingMongoClient autoEmbeddingMongoClient;
   // End of give-up blackout (epoch ms). While now < this, do not acquire leadership.
   private final AtomicLong giveUpBlackoutEndTimeMs = new AtomicLong(0);
+  // Tracks cases where drop() cannot resolve the lease key because metadata was already removed,
+  // resulting in a dangling lease document in the database.
+  private final Counter danglingLeaseOnDropCounter;
 
   public DynamicLeaderLeaseManager(
       AutoEmbeddingMongoClient autoEmbeddingMongoClient,
@@ -109,6 +113,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     this.generationIdToDefinitionVersion = new ConcurrentHashMap<>();
     this.databaseName = databaseName;
     this.autoEmbeddingMongoClient = autoEmbeddingMongoClient;
+    this.danglingLeaseOnDropCounter = metricsFactory.counter("danglingLeaseOnDrop");
   }
 
   public static DynamicLeaderLeaseManager create(
@@ -370,9 +375,23 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     boolean wasFollower = this.followerGenerationIds.remove(generationId);
     this.generationIdToDefinitionVersion.remove(generationId);
 
+    // Resolve leaseKey once — if metadata is already gone, just clean up and return.
+    @Var String leaseKey = null;
+    try {
+      leaseKey = getLeaseKey(generationId);
+    } catch (IllegalStateException e) {
+      LOG.warn(
+          "Metadata removed for generation {} during drop, skipping lease cleanup. "
+              + "Lease document may remain in database.",
+          generationId,
+          e);
+      this.danglingLeaseOnDropCounter.increment();
+      return COMPLETED_FUTURE;
+    }
+
     // Only delete the lease from the database if we own the lease.
     // Enforce ownership check in the filter to handle stale in-memory state.
-    Lease lease = this.leases.get(getLeaseKey(generationId));
+    Lease lease = this.leases.get(leaseKey);
     if (lease != null && this.hostname.equals(lease.leaseOwner())) {
       LOG.atInfo()
           .addKeyValue("generationId", generationId)
@@ -381,13 +400,14 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
           .log("Dropping index - deleting lease from database (we own it)");
       // Remove the lease from memory first, then delete it from DB.
       // This ensures we stop considering ourselves the leader immediately.
-      this.leases.remove(getLeaseKey(generationId));
+      this.leases.remove(leaseKey);
+      String leaseKeyForAsync = leaseKey;
       return CompletableFuture.runAsync(
           () -> {
             try {
               var filter =
                   Filters.and(
-                      Filters.eq("_id", getLeaseKey(generationId)),
+                      Filters.eq("_id", leaseKeyForAsync),
                       Filters.eq(Lease.Fields.LEASE_OWNER.getName(), this.hostname));
               var deleteResult = this.getCollection().deleteOne(filter);
               if (deleteResult.getDeletedCount() > 0) {
@@ -405,7 +425,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
               LOG.warn(
                   "Failed to delete lease for {} from database. "
                       + "Lease will expire naturally if not deleted.",
-                  getLeaseKey(generationId),
+                  leaseKeyForAsync,
                   e);
             }
           });
@@ -427,7 +447,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
           .addKeyValue("wasFollower", wasFollower)
           .log("Dropping index - no lease found in memory");
     }
-    this.leases.remove(getLeaseKey(generationId));
+    this.leases.remove(leaseKey);
     return COMPLETED_FUTURE;
   }
 
@@ -446,8 +466,19 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
   public EncodedUserData getCommitInfo(GenerationId generationId) throws IOException {
     // Leader can read from the in-memory state.
     if (isLeader(generationId)) {
-      ensureLeaseExists(generationId);
-      return EncodedUserData.fromString(this.leases.get(getLeaseKey(generationId)).commitInfo());
+      @Var String leaseKey = null;
+      try {
+        leaseKey = getLeaseKey(generationId);
+        ensureLeaseExists(leaseKey);
+        return EncodedUserData.fromString(this.leases.get(leaseKey).commitInfo());
+      } catch (IllegalStateException e) {
+        LOG.warn(
+            "Metadata removed for generation {} during getCommitInfo, removing from leaders",
+            generationId,
+            e);
+        cleanupAfterMetadataLoss(generationId, leaseKey);
+        return EncodedUserData.EMPTY;
+      }
     }
     // If follower, read from a database.
     try {
@@ -466,10 +497,20 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
       throws MaterializedViewTransientException, MaterializedViewNonTransientException {
     // Only update the commit info in the database if leader.
     if (isLeader(generationId)) {
-      ensureLeaseExists(generationId);
-      Lease currentLease = this.leases.get(getLeaseKey(generationId));
-      Lease updatedLease = currentLease.withUpdatedCheckpoint(encodedUserData);
-      updateLeaseInDatabase(generationId, currentLease, updatedLease, encodedUserData);
+      @Var String leaseKey = null;
+      try {
+        leaseKey = getLeaseKey(generationId);
+        ensureLeaseExists(leaseKey);
+        Lease currentLease = this.leases.get(leaseKey);
+        Lease updatedLease = currentLease.withUpdatedCheckpoint(encodedUserData);
+        updateLeaseInDatabase(leaseKey, generationId, currentLease, updatedLease, encodedUserData);
+      } catch (IllegalStateException e) {
+        LOG.warn(
+            "Metadata removed for generation {} during updateCommitInfo, removing from leaders",
+            generationId,
+            e);
+        cleanupAfterMetadataLoss(generationId, leaseKey);
+      }
     }
   }
 
@@ -479,17 +520,29 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
       throws MaterializedViewTransientException, MaterializedViewNonTransientException {
     // Only update the status in the database of leader.
     if (isLeader(generationId)) {
-      ensureLeaseExists(generationId);
-      Lease currentLease = this.leases.get(getLeaseKey(generationId));
+      @Var String leaseKey = null;
+      try {
+        leaseKey = getLeaseKey(generationId);
+        ensureLeaseExists(leaseKey);
+        Lease currentLease = this.leases.get(leaseKey);
 
-      BsonTimestamp oplogPosition = currentLease.extractHighWaterMark().orElse(null);
-      Lease updatedLease =
-          currentLease.withUpdatedStatus(indexStatus, indexDefinitionVersion, oplogPosition);
-      updateLeaseInDatabase(
-          generationId,
-          currentLease,
-          updatedLease,
-          EncodedUserData.fromString(currentLease.commitInfo()));
+        BsonTimestamp oplogPosition = currentLease.extractHighWaterMark().orElse(null);
+        Lease updatedLease =
+            currentLease.withUpdatedStatus(indexStatus, indexDefinitionVersion, oplogPosition);
+        updateLeaseInDatabase(
+            leaseKey,
+            generationId,
+            currentLease,
+            updatedLease,
+            EncodedUserData.fromString(currentLease.commitInfo()));
+      } catch (IllegalStateException e) {
+        LOG.warn(
+            "Metadata removed for generation {} during updateReplicationStatus, "
+                + "removing from leaders",
+            generationId,
+            e);
+        cleanupAfterMetadataLoss(generationId, leaseKey);
+      }
     }
   }
 
@@ -518,12 +571,27 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     }
 
     // Build a mapping from lease key to generation ID for efficient lookup after batch fetch.
+    // Also build a per-generation cache of lease keys, so we don't call getLeaseKey() again later.
     Map<String, GenerationId> leaseKeyToGenerationId = new HashMap<>();
+    Map<GenerationId, String> generationIdToLeaseKey = new HashMap<>();
     List<String> leaseKeys = new ArrayList<>();
-    for (GenerationId generationId : this.followerGenerationIds) {
-      String leaseKey = getLeaseKey(generationId);
-      leaseKeys.add(leaseKey);
-      leaseKeyToGenerationId.put(leaseKey, generationId);
+    Set<GenerationId> removedDuringPoll = new HashSet<>();
+    for (GenerationId generationId : new ArrayList<>(this.followerGenerationIds)) {
+      try {
+        String leaseKey = getLeaseKey(generationId);
+        leaseKeys.add(leaseKey);
+        leaseKeyToGenerationId.put(leaseKey, generationId);
+        generationIdToLeaseKey.put(generationId, leaseKey);
+      } catch (IllegalStateException e) {
+        LOG.warn(
+            "Metadata removed for follower generation {} during poll, removing", generationId, e);
+        cleanupAfterMetadataLoss(generationId, null);
+        removedDuringPoll.add(generationId);
+      }
+    }
+
+    if (leaseKeys.isEmpty()) {
+      return new LeaseManager.FollowerPollResult(statuses, acquirableLeases);
     }
 
     // Batch fetch all follower leases from the database.
@@ -554,13 +622,16 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     // Process each follower generation ID.
     Instant now = Instant.now();
     for (GenerationId generationId : this.followerGenerationIds) {
+      if (removedDuringPoll.contains(generationId)) {
+        continue;
+      }
       String versionKey = this.generationIdToDefinitionVersion.get(generationId);
       if (versionKey == null) {
         LOG.warn("No definition version found for generation ID {}", generationId);
         continue;
       }
 
-      String leaseKey = getLeaseKey(generationId);
+      String leaseKey = generationIdToLeaseKey.get(generationId);
       Lease lease = fetchedLeases.get(leaseKey);
 
       if (lease != null) {
@@ -701,8 +772,15 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
 
   @Override
   public Optional<BsonTimestamp> getSteadyAsOfOplogPosition(GenerationId generationId) {
-    return Optional.ofNullable(this.leases.get(getLeaseKey(generationId)))
-        .flatMap(Lease::getSteadyAsOfOplogPosition);
+    try {
+      return Optional.ofNullable(this.leases.get(getLeaseKey(generationId)))
+          .flatMap(Lease::getSteadyAsOfOplogPosition);
+    } catch (IllegalStateException e) {
+      // Index was deleted concurrently - metadata is gone.
+      LOG.warn(
+          "Metadata removed for generation {} during getSteadyAsOfOplogPosition", generationId, e);
+      return Optional.empty();
+    }
   }
 
   @Override
@@ -1009,41 +1087,45 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
    * }</pre>
    */
   private void renewLease(GenerationId generationId) {
-    Lease currentLease = this.leases.get(getLeaseKey(generationId));
-    if (currentLease == null) {
-      LOG.warn(
-          "No local lease found for leader generation {}, transitioning to follower", generationId);
-      becomeFollower(generationId);
-      return;
-    }
-
-    // If our in-memory lease has expired, we've lost the right to be leader.
-    // Another instance may have already taken over. Give up leadership.
-    Instant now = Instant.now();
-    if (now.isAfter(currentLease.leaseExpiration())) {
-      LOG.warn(
-          "In-memory lease expired for {}, transitioning to follower. " + "Expiration: {}, Now: {}",
-          generationId,
-          currentLease.leaseExpiration(),
-          now);
-      refreshLeaseFromDatabase(generationId);
-      becomeFollower(generationId);
-      return;
-    }
-
-    Lease renewedLease = currentLease.withRenewedOwnership(this.hostname);
-    var filter =
-        createUpdateFilterForOwnedLease(
-            getLeaseKey(generationId), currentLease.leaseVersion(), renewedLease.leaseVersion());
-
+    @Var String leaseKey = null;
     try {
+      leaseKey = getLeaseKey(generationId);
+      Lease currentLease = this.leases.get(leaseKey);
+      if (currentLease == null) {
+        LOG.warn(
+            "No local lease found for leader generation {}, transitioning to follower",
+            generationId);
+        becomeFollower(generationId);
+        return;
+      }
+
+      // If our in-memory lease has expired, we've lost the right to be leader.
+      // Another instance may have already taken over. Give up leadership.
+      Instant now = Instant.now();
+      if (now.isAfter(currentLease.leaseExpiration())) {
+        LOG.warn(
+            "In-memory lease expired for {}, transitioning to follower. "
+                + "Expiration: {}, Now: {}",
+            generationId,
+            currentLease.leaseExpiration(),
+            now);
+        refreshLeaseFromDatabase(leaseKey);
+        becomeFollower(generationId);
+        return;
+      }
+
+      Lease renewedLease = currentLease.withRenewedOwnership(this.hostname);
+      var filter =
+          createUpdateFilterForOwnedLease(
+              leaseKey, currentLease.leaseVersion(), renewedLease.leaseVersion());
+
       var result =
           this.operationExecutor.execute(
               "renewLease", () -> this.getCollection().replaceOne(filter, renewedLease.toBson()));
 
       if (result.getMatchedCount() > 0) {
         // Successfully renewed.
-        this.leases.put(getLeaseKey(generationId), renewedLease);
+        this.leases.put(leaseKey, renewedLease);
         LOG.atInfo()
             .addKeyValue("generationId", generationId)
             .addKeyValue("newExpiration", renewedLease.leaseExpiration())
@@ -1053,9 +1135,15 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
         // Lease was taken by another instance - lost leadership.
         LOG.warn(
             "Lease renewal failed for {} - lease was updated by another instance", generationId);
-        refreshLeaseFromDatabase(generationId);
+        refreshLeaseFromDatabase(leaseKey);
         becomeFollower(generationId);
       }
+    } catch (IllegalStateException e) {
+      LOG.warn(
+          "Metadata removed for generation {} during lease renewal, removing from leaders",
+          generationId,
+          e);
+      cleanupAfterMetadataLoss(generationId, leaseKey);
     } catch (Exception e) {
       // Transient error (network, etc.) - don't give up leadership yet.
       // Let the next heartbeat cycle retry. If the lease expires, we'll give up then.
@@ -1070,23 +1158,50 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     // If the lease was removed by drop(), we must not re-add to followerGenerationIds.
     // This prevents a race condition where drop() removes the generation from both sets,
     // but a concurrent renewLease() or updateLeaseInDatabase() call re-adds it to follower.
-    if (this.leases.containsKey(getLeaseKey(generationId))) {
-      this.followerGenerationIds.add(generationId);
-      LOG.atInfo()
-          .addKeyValue("generationId", generationId)
-          .addKeyValue("hostname", this.hostname)
-          .log("Transitioned from leader to follower");
-    } else {
-      LOG.atInfo()
-          .addKeyValue("generationId", generationId)
-          .addKeyValue("hostname", this.hostname)
-          .log("Not transitioning to follower - lease was removed by drop()");
+    try {
+      if (this.leases.containsKey(getLeaseKey(generationId))) {
+        this.followerGenerationIds.add(generationId);
+        LOG.atInfo()
+            .addKeyValue("generationId", generationId)
+            .addKeyValue("hostname", this.hostname)
+            .log("Transitioned from leader to follower");
+      } else {
+        LOG.atInfo()
+            .addKeyValue("generationId", generationId)
+            .addKeyValue("hostname", this.hostname)
+            .log("Not transitioning to follower - lease was removed by drop()");
+      }
+    } catch (IllegalStateException e) {
+      // Index was deleted concurrently - metadata is gone. Don't add to followers.
+      LOG.warn(
+          "Metadata removed for generation {} during becomeFollower, skipping follower transition",
+          generationId,
+          e);
+      this.generationIdToDefinitionVersion.remove(generationId);
     }
   }
 
-  private void ensureLeaseExists(GenerationId generationId) {
-    if (!this.leases.containsKey(getLeaseKey(generationId))) {
-      throw new IllegalStateException("Lease does not exist for " + getLeaseKey(generationId));
+  private void ensureLeaseExists(String leaseKey) {
+    if (!this.leases.containsKey(leaseKey)) {
+      throw new IllegalStateException("Lease does not exist for " + leaseKey);
+    }
+  }
+
+  /**
+   * Cleans up all per-generation state after metadata has been concurrently removed. Removes the
+   * generation from leader/follower tracking sets, definition version mapping, and optionally the
+   * in-memory lease cache.
+   *
+   * @param generationId the generation whose state should be purged
+   * @param leaseKey the resolved lease key, or {@code null} if it was not resolved before the
+   *     failure (e.g. {@code getLeaseKey} itself threw)
+   */
+  private void cleanupAfterMetadataLoss(GenerationId generationId, @Nullable String leaseKey) {
+    this.leaderGenerationIds.remove(generationId);
+    this.followerGenerationIds.remove(generationId);
+    this.generationIdToDefinitionVersion.remove(generationId);
+    if (leaseKey != null) {
+      this.leases.remove(leaseKey);
     }
   }
 
@@ -1163,6 +1278,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
    * }</pre>
    */
   private void updateLeaseInDatabase(
+      String leaseKey,
       GenerationId generationId,
       Lease currentLease,
       Lease updatedLease,
@@ -1171,7 +1287,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
       // Base filter checks ownership and version (normal or idempotent case).
       var baseFilter =
           createUpdateFilterForOwnedLease(
-              getLeaseKey(generationId), currentLease.leaseVersion(), updatedLease.leaseVersion());
+              leaseKey, currentLease.leaseVersion(), updatedLease.leaseVersion());
       // For the idempotent case, also verify commitInfo matches to confirm it was our write.
       var filter =
           Filters.and(
@@ -1187,9 +1303,9 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
         becomeFollower(generationId);
         LOG.warn(
             "Failed to update lease for {} - ownership/version mismatch or lease deleted.",
-            getLeaseKey(generationId));
+            leaseKey);
       } else {
-        this.leases.put(getLeaseKey(generationId), updatedLease);
+        this.leases.put(leaseKey, updatedLease);
       }
     } catch (Exception e) {
       // Transient error (e.g., network issue) - throw so caller can retry on next cycle.

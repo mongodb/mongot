@@ -40,6 +40,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
+import org.bson.BsonTimestamp;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.bson.types.ObjectId;
@@ -64,6 +65,7 @@ public class DynamicLeaderLeaseManagerTest {
   private FindIterable<BsonDocument> mockFindIterable;
   private DynamicLeaderLeaseManager leaseManager;
   private MaterializedViewCollectionMetadataCatalog mvMetadataCatalog;
+  private SimpleMetricsFactory metricsFactory;
 
   @Before
   public void setUp() {
@@ -86,10 +88,11 @@ public class DynamicLeaderLeaseManagerTest {
     when(this.mockCollection.find(any(Bson.class))).thenReturn(this.mockFindIterable);
     when(this.mockFindIterable.into(any())).thenReturn(new ArrayList<>());
 
+    this.metricsFactory = new SimpleMetricsFactory();
     this.leaseManager =
         new DynamicLeaderLeaseManager(
             this.mockAutoEmbeddingMongoClient,
-            new SimpleMetricsFactory(),
+            this.metricsFactory,
             HOSTNAME,
             DATABASE_NAME,
             this.mvMetadataCatalog);
@@ -247,6 +250,24 @@ public class DynamicLeaderLeaseManagerTest {
     // Assert
     assertThat(this.leaseManager.getFollowerGenerationIds()).doesNotContain(generationId);
     assertThat(this.leaseManager.getLeaderGenerationIds()).doesNotContain(generationId);
+    // Normal drop should not increment the dangling lease counter.
+    assertThat(getDanglingLeaseOnDropCount()).isEqualTo(0.0);
+  }
+
+  @Test
+  public void drop_metadataAlreadyRemoved_incrementsDanglingLeaseCounter() {
+    // Arrange
+    IndexGeneration gen = createTestIndexGeneration();
+    GenerationId generationId = gen.getGenerationId();
+    this.leaseManager.add(gen);
+    this.mvMetadataCatalog.removeMetadata(generationId);
+
+    // Act
+    this.leaseManager.drop(generationId);
+
+    // Assert - dangling lease counter should be incremented
+    assertThat(getDanglingLeaseOnDropCount()).isEqualTo(1.0);
+    verify(this.mockCollection, never()).deleteOne(any(Bson.class));
   }
 
   // ==================== Leadership Acquisition ====================
@@ -444,7 +465,148 @@ public class DynamicLeaderLeaseManagerTest {
     assertThat(this.leaseManager.getFollowerGenerationIds()).contains(generationId);
   }
 
+  @Test
+  public void heartbeat_metadataRemovedDuringRenewal_removesFromLeadersAndContinues() {
+    // Arrange - set up two leader generations
+    IndexGeneration gen1 = createTestIndexGeneration();
+    GenerationId genId1 = gen1.getGenerationId();
+    this.leaseManager.add(gen1);
+
+    IndexGeneration gen2 = createTestIndexGeneration();
+    GenerationId genId2 = gen2.getGenerationId();
+    this.leaseManager.add(gen2);
+
+    // Acquire leadership for both
+    Lease expiredLease1 = createLease(genId1, OTHER_HOSTNAME, Instant.now().minusSeconds(60));
+    setupFindLeaseFromDatabase(expiredLease1);
+    setupSuccessfulLeaseUpdate();
+    this.leaseManager.pollFollowerStatuses();
+    this.leaseManager.tryAcquireLeadership(genId1);
+    assertThat(this.leaseManager.isLeader(genId1)).isTrue();
+
+    Lease expiredLease2 = createLease(genId2, OTHER_HOSTNAME, Instant.now().minusSeconds(60));
+    setupFindLeaseFromDatabase(expiredLease2);
+    setupSuccessfulLeaseUpdate();
+    this.leaseManager.pollFollowerStatuses();
+    this.leaseManager.tryAcquireLeadership(genId2);
+    assertThat(this.leaseManager.isLeader(genId2)).isTrue();
+
+    // Simulate concurrent index deletion: remove gen1's metadata from catalog
+    this.mvMetadataCatalog.removeMetadata(genId1);
+
+    // Setup renewal to succeed for gen2
+    setupSuccessfulLeaseUpdate();
+
+    // Act - heartbeat should handle gen1's IllegalStateException and continue to gen2
+    this.leaseManager.heartbeat();
+
+    // Assert
+    // gen1: removed from leaders, NOT added to followers (index is gone)
+    assertThat(this.leaseManager.getLeaderGenerationIds()).doesNotContain(genId1);
+    assertThat(this.leaseManager.getFollowerGenerationIds()).doesNotContain(genId1);
+
+    // gen2: still a leader (heartbeat continued past gen1's error)
+    assertThat(this.leaseManager.isLeader(genId2)).isTrue();
+  }
+
   // ==================== Leader-Only Operations ====================
+
+  @Test
+  public void updateCommitInfo_metadataRemovedDuringUpdate_doesNotCrash() throws Exception {
+    // Arrange - become leader for a generation
+    IndexGeneration gen = createTestIndexGeneration();
+    GenerationId generationId = gen.getGenerationId();
+    this.leaseManager.add(gen);
+
+    Lease expiredLease = createLease(generationId, OTHER_HOSTNAME, Instant.now().minusSeconds(60));
+    setupFindLeaseFromDatabase(expiredLease);
+    setupSuccessfulLeaseUpdate();
+    this.leaseManager.pollFollowerStatuses();
+    this.leaseManager.tryAcquireLeadership(generationId);
+    assertThat(this.leaseManager.isLeader(generationId)).isTrue();
+
+    // Simulate concurrent index deletion: remove metadata
+    this.mvMetadataCatalog.removeMetadata(generationId);
+
+    // Act - updateCommitInfo should handle ISE gracefully, not crash
+    this.leaseManager.updateCommitInfo(generationId, EncodedUserData.EMPTY);
+
+    // Assert - generation should no longer be leader
+    assertThat(this.leaseManager.isLeader(generationId)).isFalse();
+  }
+
+  @Test
+  public void updateReplicationStatus_metadataRemovedDuringUpdate_doesNotCrash() throws Exception {
+    // Arrange - become leader for a generation
+    IndexGeneration gen = createTestIndexGeneration();
+    GenerationId generationId = gen.getGenerationId();
+    this.leaseManager.add(gen);
+
+    Lease expiredLease = createLease(generationId, OTHER_HOSTNAME, Instant.now().minusSeconds(60));
+    setupFindLeaseFromDatabase(expiredLease);
+    setupSuccessfulLeaseUpdate();
+    this.leaseManager.pollFollowerStatuses();
+    this.leaseManager.tryAcquireLeadership(generationId);
+    assertThat(this.leaseManager.isLeader(generationId)).isTrue();
+
+    // Simulate concurrent index deletion: remove metadata
+    this.mvMetadataCatalog.removeMetadata(generationId);
+
+    // Act - updateReplicationStatus should handle ISE gracefully, not crash
+    this.leaseManager.updateReplicationStatus(
+        generationId, 0L, new IndexStatus(IndexStatus.StatusCode.UNKNOWN));
+
+    // Assert - generation should no longer be leader
+    assertThat(this.leaseManager.isLeader(generationId)).isFalse();
+  }
+
+  @Test
+  public void getCommitInfo_metadataRemovedAsLeader_doesNotCrash() throws Exception {
+    // Arrange - become leader for a generation
+    IndexGeneration gen = createTestIndexGeneration();
+    GenerationId generationId = gen.getGenerationId();
+    this.leaseManager.add(gen);
+
+    Lease expiredLease = createLease(generationId, OTHER_HOSTNAME, Instant.now().minusSeconds(60));
+    setupFindLeaseFromDatabase(expiredLease);
+    setupSuccessfulLeaseUpdate();
+    this.leaseManager.pollFollowerStatuses();
+    this.leaseManager.tryAcquireLeadership(generationId);
+    assertThat(this.leaseManager.isLeader(generationId)).isTrue();
+
+    // Simulate concurrent index deletion: remove metadata
+    this.mvMetadataCatalog.removeMetadata(generationId);
+
+    // Act - getCommitInfo should handle ISE gracefully, not crash
+    EncodedUserData result = this.leaseManager.getCommitInfo(generationId);
+
+    // Assert - should return empty rather than crash
+    assertThat(result).isEqualTo(EncodedUserData.EMPTY);
+  }
+
+  @Test
+  public void getSteadyAsOfOplogPosition_metadataRemoved_returnsEmpty() {
+    // Arrange - become leader for a generation
+    IndexGeneration gen = createTestIndexGeneration();
+    GenerationId generationId = gen.getGenerationId();
+    this.leaseManager.add(gen);
+
+    Lease expiredLease = createLease(generationId, OTHER_HOSTNAME, Instant.now().minusSeconds(60));
+    setupFindLeaseFromDatabase(expiredLease);
+    setupSuccessfulLeaseUpdate();
+    this.leaseManager.pollFollowerStatuses();
+    this.leaseManager.tryAcquireLeadership(generationId);
+    assertThat(this.leaseManager.isLeader(generationId)).isTrue();
+
+    // Simulate concurrent index deletion: remove metadata
+    this.mvMetadataCatalog.removeMetadata(generationId);
+
+    // Act - should handle ISE gracefully, not crash
+    Optional<BsonTimestamp> result = this.leaseManager.getSteadyAsOfOplogPosition(generationId);
+
+    // Assert - should return empty rather than crash
+    assertThat(result).isEmpty();
+  }
 
   @Test
   public void updateCommitInfo_asLeader_succeeds() throws Exception {
@@ -490,6 +652,36 @@ public class DynamicLeaderLeaseManagerTest {
   }
 
   // ==================== Follower Operations ====================
+
+  @Test
+  public void pollFollowerStatuses_metadataRemovedDuringPoll_skipsRemovedAndContinues()
+      throws Exception {
+    // Arrange - set up two follower generations
+    IndexGeneration gen1 = createTestIndexGeneration();
+    GenerationId genId1 = gen1.getGenerationId();
+    this.leaseManager.add(gen1);
+
+    IndexGeneration gen2 = createTestIndexGeneration();
+    GenerationId genId2 = gen2.getGenerationId();
+    this.leaseManager.add(gen2);
+
+    assertThat(this.leaseManager.getFollowerGenerationIds()).contains(genId1);
+    assertThat(this.leaseManager.getFollowerGenerationIds()).contains(genId2);
+
+    // Simulate concurrent index deletion: remove gen1's metadata from catalog
+    this.mvMetadataCatalog.removeMetadata(genId1);
+
+    // Act - pollFollowerStatuses should handle gen1's IllegalStateException and continue to gen2
+    LeaseManager.FollowerPollResult result = this.leaseManager.pollFollowerStatuses();
+
+    // Assert
+    // gen1: removed from followers (index is gone)
+    assertThat(this.leaseManager.getFollowerGenerationIds()).doesNotContain(genId1);
+
+    // gen2: still a follower with a status result
+    assertThat(this.leaseManager.getFollowerGenerationIds()).contains(genId2);
+    assertThat(result.statuses()).containsKey(genId2);
+  }
 
   @Test
   public void pollFollowerStatuses_andGetCommitInfo_readsFromDatabase() throws Exception {
@@ -997,5 +1189,9 @@ public class DynamicLeaderLeaseManagerTest {
     when(cursor.hasNext()).thenReturn(true).thenReturn(false);
     when(cursor.next()).thenReturn(collectionInfoDoc);
     when(listCollIterable.iterator()).thenReturn(cursor);
+  }
+
+  private double getDanglingLeaseOnDropCount() {
+    return this.metricsFactory.get("danglingLeaseOnDrop").counter().count();
   }
 }
