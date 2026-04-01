@@ -3,6 +3,12 @@ package com.xgen.mongot.embedding.utils;
 import static com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata;
 import static com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils.HASH_FIELD_SUFFIX;
 
+import com.xgen.mongot.index.definition.DocumentFieldDefinition;
+import com.xgen.mongot.index.definition.FieldDefinition;
+import com.xgen.mongot.index.definition.IllegalEmbeddedFieldException;
+import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
+import com.xgen.mongot.index.definition.SearchIndexDefinition;
+import com.xgen.mongot.index.definition.SearchIndexVectorFieldDefinition;
 import com.xgen.mongot.index.definition.VectorAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.VectorDataFieldDefinition;
 import com.xgen.mongot.index.definition.VectorFieldSpecification;
@@ -14,6 +20,7 @@ import com.xgen.mongot.index.definition.VectorIndexVectorFieldDefinition;
 import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
 import com.xgen.mongot.util.FieldPath;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -64,6 +71,44 @@ public class AutoEmbeddingIndexDefinitionUtils {
         rawDefinition.getAutoEmbeddingDefinitionVersion(),
         rawDefinition.getMaterializedViewNameFormatVersion());
   }
+
+  /**
+   * Creates a derived search index definition where auto-embed fields are replaced with regular
+   * vector fields. The derived definition points to the materialized view collection.
+   */
+  public static SearchIndexDefinition getDerivedSearchIndexDefinition(
+      SearchIndexDefinition rawDefinition,
+      String databaseName,
+      UUID materializedViewCollectionUuid,
+      MaterializedViewSchemaMetadata schemaMetadata) {
+    DocumentFieldDefinition derivedMappings =
+        getDerivedSearchMappings(rawDefinition.getMappings(), schemaMetadata);
+    return SearchIndexDefinition.create(
+        rawDefinition.getIndexId(),
+        rawDefinition.getName(),
+        databaseName,
+        rawDefinition.getIndexId().toHexString(),
+        materializedViewCollectionUuid,
+        Optional.empty(),
+        rawDefinition.getNumPartitions(),
+        derivedMappings,
+        rawDefinition.getAnalyzerName(),
+        rawDefinition.getSearchAnalyzerName(),
+        rawDefinition.getAnalyzers().isEmpty()
+            ? Optional.empty()
+            : Optional.of(rawDefinition.getAnalyzers()),
+        rawDefinition.getParsedIndexFeatureVersion(),
+        rawDefinition.getSynonyms(),
+        Optional.empty(),
+        rawDefinition.getTypeSets(),
+        rawDefinition.getSort(),
+        rawDefinition.getDefinitionVersion(),
+        rawDefinition.getDefinitionVersionCreatedAt(),
+        rawDefinition.getIndexIdAtCreationTime(),
+        rawDefinition.getAutoEmbeddingDefinitionVersion(),
+        rawDefinition.getMaterializedViewNameFormatVersion());
+  }
+
 
   /**
    * Returns the hash field path for the given field path by materialized view schema version
@@ -162,5 +207,56 @@ public class AutoEmbeddingIndexDefinitionUtils {
               return field;
             })
         .toList();
+  }
+
+  private static DocumentFieldDefinition getDerivedSearchMappings(
+      DocumentFieldDefinition rawMappings, MaterializedViewSchemaMetadata schemaMetadata) {
+    Map<String, FieldDefinition> derivedFields = new LinkedHashMap<>();
+    for (Map.Entry<String, FieldDefinition> entry : rawMappings.fields().entrySet()) {
+      FieldDefinition fieldDef = entry.getValue();
+      if (fieldDef.searchAutoEmbedFieldDefinition().isPresent()) {
+        SearchAutoEmbedFieldDefinition autoEmbed =
+            fieldDef.searchAutoEmbedFieldDefinition().get();
+        SearchIndexVectorFieldDefinition vectorField =
+            new SearchIndexVectorFieldDefinition(autoEmbed.specification());
+        // Remap the field key to the mat-view path based on sourceField
+        FieldPath matViewPath =
+            getMatViewFieldPath(
+                autoEmbed.sourceField(), schemaMetadata.autoEmbeddingFieldsMapping());
+        derivedFields.put(matViewPath.toString(), replaceWithVectorField(fieldDef, vectorField));
+      } else {
+        derivedFields.put(entry.getKey(), fieldDef);
+      }
+    }
+    try {
+      return DocumentFieldDefinition.create(rawMappings.dynamic(), derivedFields);
+    } catch (IllegalEmbeddedFieldException e) {
+      throw new IllegalStateException("Failed to create derived mappings", e);
+    }
+  }
+
+  private static FieldDefinition replaceWithVectorField(
+      FieldDefinition original, SearchIndexVectorFieldDefinition vectorField) {
+    return new FieldDefinition(
+        original.autocompleteFieldDefinition(),
+        original.booleanFieldDefinition(),
+        original.dateFieldDefinition(),
+        original.dateFacetFieldDefinition(),
+        original.documentFieldDefinition(),
+        original.embeddedDocumentsFieldDefinition(),
+        original.geoFieldDefinition(),
+        Optional.empty(),
+        Optional.of(vectorField),
+        original.knnVectorFieldDefinition(),
+        original.numberFieldDefinition(),
+        original.numberFacetFieldDefinition(),
+        original.objectIdFieldDefinition(),
+        original.sortableDateBetaV1FieldDefinition(),
+        original.sortableNumberBetaV1FieldDefinition(),
+        original.sortableStringBetaV1FieldDefinition(),
+        original.stringFieldDefinition(),
+        original.stringFacetFieldDefinition(),
+        original.tokenFieldDefinition(),
+        original.uuidFieldDefinition());
   }
 }

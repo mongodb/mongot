@@ -581,8 +581,7 @@ public final class SearchIndexDefinition implements IndexDefinition {
 
   @Override
   public boolean isAutoEmbeddingIndex() {
-    // TODO(CLOUDP-353553): make this return this.isAutoEmbeddingIndex; when its really needed
-    return false;
+    return this.isAutoEmbeddingIndex;
   }
 
   /**

@@ -150,7 +150,7 @@ public class InitializedMaterializedViewIndex implements InitializedVectorIndex 
   public boolean isCompatibleWith(IndexDefinition indexDefinition) {
     // TODO(CLOUDP-360523): Implement compatibility check for redefined index.
     return indexDefinition.isAutoEmbeddingIndex()
-        && indexDefinition.asVectorDefinition().getParsedAutoEmbeddingFeatureVersion()
+        && indexDefinition.getParsedAutoEmbeddingFeatureVersion()
             >= MIN_VERSION_FOR_MATERIALIZED_VIEW_EMBEDDING;
   }
 

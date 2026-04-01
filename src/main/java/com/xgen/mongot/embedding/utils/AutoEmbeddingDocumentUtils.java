@@ -108,11 +108,19 @@ public class AutoEmbeddingDocumentUtils {
       ImmutableMap<FieldPath, ImmutableMap<String, Vector>> embeddingsPerField,
       MaterializedViewSchemaMetadata schemaMetadata)
       throws IOException {
+    return buildMaterializedViewDocumentEvent(
+        rawDocumentEvent, vectorIndexDefinition.getMappings(), embeddingsPerField, schemaMetadata);
+  }
+
+  private static DocumentEvent buildMaterializedViewDocumentEvent(
+      DocumentEvent rawDocumentEvent,
+      VectorIndexFieldMapping fieldMapping,
+      ImmutableMap<FieldPath, ImmutableMap<String, Vector>> embeddingsPerField,
+      MaterializedViewSchemaMetadata schemaMetadata)
+      throws IOException {
     if (rawDocumentEvent.getDocument().isEmpty()) {
       return rawDocumentEvent;
     }
-    // Builds a consolidated map of two embedding maps: new embeddings from batch response and old
-    // embeddings from document event. CompositeMap doesn't copy any data, just provides a map view.
     Map<FieldPath, Map<String, Vector>> consolidatedEmbeddingMap = new HashMap<>();
     for (FieldPath fieldPath :
         Sets.union(embeddingsPerField.keySet(), rawDocumentEvent.getAutoEmbeddings().keySet())) {
@@ -131,25 +139,20 @@ public class AutoEmbeddingDocumentUtils {
       consolidatedEmbeddingMap.put(fieldPath, new CompositeMap<>(newEmbeddings, oldEmbeddings));
     }
 
-    // We don't support multiple vectors on the sample FieldPath yet, only embeds the first
-    // vector text at this time. This collectedEmbeddingsPerMatViewPath will be actual output field
-    // path in Materialized View Collection for AutoEmbedding fields and their hash fields.
     ImmutableMap<FieldPath, BsonValue> collectedEmbeddingsPerMatViewPath =
         buildEmbeddingsPerMatViewPath(
             rawDocumentEvent.getDocument().get(),
-            vectorIndexDefinition.getMappings(),
+            fieldMapping,
             consolidatedEmbeddingMap,
             schemaMetadata);
 
-    // TODO(CLOUDP-363302): Extracts stored source as well.
     BsonDocument bsonDoc = new BsonDocument();
-    // Builds Materialized View Document with filter fields and stored sources.
     var filteredMapping =
         VectorIndexFieldMapping.create(
-            vectorIndexDefinition.getFields().stream()
+            fieldMapping.fieldMap().values().stream()
                 .filter(field -> field.getType() == VectorIndexFieldDefinition.Type.FILTER)
                 .toList(),
-            vectorIndexDefinition.getNestedRoot());
+            fieldMapping.nestedRoot());
     MaterializedViewDocumentHandler handler =
         MaterializedViewDocumentHandler.create(filteredMapping, Optional.empty(), bsonDoc);
     BsonDocumentProcessor.process(rawDocumentEvent.getDocument().get(), handler);

@@ -10,6 +10,8 @@ import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.EmbeddingProvider;
 import com.xgen.mongot.index.definition.InvalidIndexDefinitionException;
+import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
+import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.VectorDataFieldDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
@@ -18,6 +20,10 @@ import com.xgen.mongot.index.definition.VectorQuantization;
 import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.index.definition.VectorTextFieldDefinition;
 import com.xgen.mongot.util.FieldPath;
+import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.KnnVectorFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorDataFieldDefinitionBuilder;
 import java.time.Instant;
 import java.util.List;
@@ -67,7 +73,7 @@ public class AutoEmbeddingIndexValidatorTest {
   public void validateIndexWithRegisteredModel_success() throws InvalidIndexDefinitionException {
     VectorIndexDefinition indexWithRegisteredModel = createVectorIndexWithModel(REGISTERED_MODEL);
 
-    AutoEmbeddingIndexValidator.validate(indexWithRegisteredModel);
+    AutoEmbeddingIndexValidator.validate(indexWithRegisteredModel, Optional.empty());
   }
 
   @Test
@@ -78,7 +84,8 @@ public class AutoEmbeddingIndexValidatorTest {
     InvalidIndexDefinitionException exception =
         assertThrows(
             InvalidIndexDefinitionException.class,
-            () -> AutoEmbeddingIndexValidator.validate(indexWithUnregisteredModel));
+            () ->
+                AutoEmbeddingIndexValidator.validate(indexWithUnregisteredModel, Optional.empty()));
 
     assertThat(exception.getMessage()).contains("are not supported");
     assertThat(exception.getMessage()).contains(UNREGISTERED_MODEL);
@@ -93,7 +100,7 @@ public class AutoEmbeddingIndexValidatorTest {
     InvalidIndexDefinitionException exception =
         assertThrows(
             InvalidIndexDefinitionException.class,
-            () -> AutoEmbeddingIndexValidator.validate(indexWithModel));
+            () -> AutoEmbeddingIndexValidator.validate(indexWithModel, Optional.empty()));
 
     assertThat(exception.getMessage()).contains("are not supported");
     assertThat(exception.getMessage()).contains(neverRegisteredModel);
@@ -110,7 +117,7 @@ public class AutoEmbeddingIndexValidatorTest {
 
     VectorIndexDefinition indexWithSameModel = createVectorIndexWithFields(List.of(field1, field2));
 
-    AutoEmbeddingIndexValidator.validate(indexWithSameModel);
+    AutoEmbeddingIndexValidator.validate(indexWithSameModel, Optional.empty());
   }
 
   @Test
@@ -151,7 +158,7 @@ public class AutoEmbeddingIndexValidatorTest {
         createVectorIndexWithFields(List.of(field1, field2));
 
     // Multi-model indexes are now supported - validation should pass
-    AutoEmbeddingIndexValidator.validate(indexWithMultipleModels);
+    AutoEmbeddingIndexValidator.validate(indexWithMultipleModels, Optional.empty());
   }
 
   @Test
@@ -173,7 +180,7 @@ public class AutoEmbeddingIndexValidatorTest {
     InvalidIndexDefinitionException exception =
         assertThrows(
             InvalidIndexDefinitionException.class,
-            () -> AutoEmbeddingIndexValidator.validate(indexWithMixedTypes));
+            () -> AutoEmbeddingIndexValidator.validate(indexWithMixedTypes, Optional.empty()));
 
     assertTrue(exception.getMessage().contains("cannot mix regular vector fields"));
   }
@@ -448,5 +455,101 @@ public class AutoEmbeddingIndexValidatorTest {
         Optional.empty(),
         Optional.empty(),
         Optional.empty());
+  }
+
+  // ---- Search index tests ----
+
+  @Test
+  public void validateSearchIndexWithRegisteredModel_succeeds()
+      throws InvalidIndexDefinitionException {
+    SearchIndexDefinition searchIndex = createSearchIndexWithAutoEmbed(REGISTERED_MODEL);
+    AutoEmbeddingIndexValidator.validate(searchIndex, Optional.empty());
+  }
+
+  @Test
+  public void validateSearchIndexWithUnregisteredModel_throwsException() {
+    SearchIndexDefinition searchIndex = createSearchIndexWithAutoEmbed(UNREGISTERED_MODEL);
+
+    InvalidIndexDefinitionException exception =
+        assertThrows(
+            InvalidIndexDefinitionException.class,
+            () -> AutoEmbeddingIndexValidator.validate(searchIndex, Optional.empty()));
+
+    assertThat(exception.getMessage()).contains("are not supported");
+    assertThat(exception.getMessage()).contains(UNREGISTERED_MODEL);
+  }
+
+  @Test
+  public void validateSearchIndexWithMixedVectorTypes_throwsException() {
+    SearchAutoEmbedFieldDefinition autoEmbedDef =
+        new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL, FieldPath.parse("content"));
+    var knnVectorDef =
+        KnnVectorFieldDefinitionBuilder.builder()
+            .dimensions(1024)
+            .similarity(VectorSimilarity.DOT_PRODUCT)
+            .build();
+    var mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "autoEmbedField",
+                FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedDef).build())
+            .field("vectorField", FieldDefinitionBuilder.builder().knnVector(knnVectorDef).build())
+            .build();
+    SearchIndexDefinition searchIndex =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+
+    InvalidIndexDefinitionException exception =
+        assertThrows(
+            InvalidIndexDefinitionException.class,
+            () -> AutoEmbeddingIndexValidator.validate(searchIndex, Optional.empty()));
+
+    assertThat(exception.getMessage()).contains("cannot mix regular vector fields");
+  }
+
+  @Test
+  public void validateNoSearchAutoEmbeddingFieldChanges_changedFields_throwsException() {
+    SearchIndexDefinition oldIndex =
+        createSearchIndexWithAutoEmbedFields(
+            new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL, FieldPath.parse("content")));
+    SearchIndexDefinition newIndex =
+        createSearchIndexWithAutoEmbedFields(
+            new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL, FieldPath.parse("description")));
+
+    InvalidIndexDefinitionException exception =
+        assertThrows(
+            InvalidIndexDefinitionException.class,
+            () ->
+                AutoEmbeddingIndexValidator.validateNoAutoEmbeddingFieldChanges(
+                    oldIndex, newIndex));
+
+    assertThat(exception.getMessage()).contains("Updates to auto-embedding fields are not allowed");
+  }
+
+  @Test
+  public void validateNoSearchAutoEmbeddingFieldChanges_identicalFields_succeeds()
+      throws InvalidIndexDefinitionException {
+    SearchAutoEmbedFieldDefinition field =
+        new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL, FieldPath.parse("content"));
+    SearchIndexDefinition oldIndex = createSearchIndexWithAutoEmbedFields(field);
+    SearchIndexDefinition newIndex = createSearchIndexWithAutoEmbedFields(field);
+
+    AutoEmbeddingIndexValidator.validateNoAutoEmbeddingFieldChanges(oldIndex, newIndex);
+  }
+
+  private SearchIndexDefinition createSearchIndexWithAutoEmbed(String modelName) {
+    return createSearchIndexWithAutoEmbedFields(
+        new SearchAutoEmbedFieldDefinition(modelName, FieldPath.parse("content")));
+  }
+
+  private SearchIndexDefinition createSearchIndexWithAutoEmbedFields(
+      SearchAutoEmbedFieldDefinition autoEmbedDef) {
+    var mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "embedding", FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedDef).build())
+            .build();
+    return SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
   }
 }

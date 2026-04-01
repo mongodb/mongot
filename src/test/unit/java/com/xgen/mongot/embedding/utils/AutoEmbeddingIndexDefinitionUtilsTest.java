@@ -5,6 +5,12 @@ import static com.xgen.mongot.index.mongodb.MaterializedViewWriter.MV_DATABASE_N
 
 import com.google.common.truth.Truth;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
+import com.xgen.mongot.index.definition.BooleanFieldDefinition;
+import com.xgen.mongot.index.definition.DocumentFieldDefinition;
+import com.xgen.mongot.index.definition.FieldDefinition;
+import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
+import com.xgen.mongot.index.definition.SearchIndexDefinition;
+import com.xgen.mongot.index.definition.SearchIndexVectorFieldDefinition;
 import com.xgen.mongot.index.definition.VectorAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
@@ -16,6 +22,9 @@ import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
+import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import java.util.List;
 import java.util.Map;
@@ -665,5 +674,153 @@ public class AutoEmbeddingIndexDefinitionUtilsTest {
       Assert.assertEquals(64, roundTrippedHnsw.options().maxEdges());
       Assert.assertEquals(300, roundTrippedHnsw.options().numEdgeCandidates());
     }
+  }
+
+  // ---- Search index derivation tests ----
+
+  @Test
+  public void testGetDerivedSearchIndexDefinition() {
+    SearchAutoEmbedFieldDefinition autoEmbedField =
+        new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("content"));
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
+            .field(
+                "active",
+                FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build())
+            .build();
+
+    SearchIndexDefinition rawDefinition =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+
+    UUID collectionUuid = UUID.randomUUID();
+    // sourceField is "content", so schema maps content → _autoEmbed.content
+    var schemaMetadata =
+        new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(
+            1L,
+            Map.of(
+                FieldPath.parse("content"),
+                FieldPath.parse("_autoEmbed.content")));
+    SearchIndexDefinition derivedDefinition =
+        AutoEmbeddingIndexDefinitionUtils.getDerivedSearchIndexDefinition(
+            rawDefinition, MV_DATABASE_NAME, collectionUuid, schemaMetadata);
+
+    Assert.assertEquals(collectionUuid, derivedDefinition.getCollectionUuid());
+    Assert.assertEquals(MV_DATABASE_NAME, derivedDefinition.getDatabase());
+    Assert.assertEquals(
+        rawDefinition.getIndexId().toHexString(),
+        derivedDefinition.getLastObservedCollectionName());
+    Assert.assertEquals(Optional.empty(), derivedDefinition.getView());
+
+    // Field should be remapped from "embedding" key to "_autoEmbed.content" key
+    Assert.assertNull(
+        "Original key should not exist in derived definition",
+        derivedDefinition.getMappings().fields().get("embedding"));
+    FieldDefinition remappedField =
+        derivedDefinition.getMappings().fields().get("_autoEmbed.content");
+    Assert.assertNotNull("Remapped field should exist", remappedField);
+    Assert.assertTrue(
+        "Auto-embed field should be replaced with vector field",
+        remappedField.searchIndexVectorFieldDefinition().isPresent());
+    Assert.assertTrue(
+        "Auto-embed field should be removed from derived definition",
+        remappedField.searchAutoEmbedFieldDefinition().isEmpty());
+
+    SearchIndexVectorFieldDefinition vectorField =
+        remappedField.searchIndexVectorFieldDefinition().get();
+    Assert.assertEquals(autoEmbedField.specification(), vectorField.specification());
+
+    FieldDefinition activeField = derivedDefinition.getMappings().fields().get("active");
+    Assert.assertTrue(
+        "Non-auto-embed fields should be preserved",
+        activeField.booleanFieldDefinition().isPresent());
+  }
+
+  @Test
+  public void testGetDerivedSearchIndexDefinition_multipleAutoEmbedFields() {
+    SearchAutoEmbedFieldDefinition autoEmbedField1 =
+        new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("content"));
+    SearchAutoEmbedFieldDefinition autoEmbedField2 =
+        new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("summary"));
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "contentEmbedding",
+                FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField1).build())
+            .field(
+                "summaryEmbedding",
+                FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField2).build())
+            .build();
+
+    SearchIndexDefinition rawDefinition =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+
+    UUID collectionUuid = UUID.randomUUID();
+    var schemaMetadata =
+        new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(
+            1L,
+            Map.of(
+                FieldPath.parse("content"),
+                FieldPath.parse("_autoEmbed.content"),
+                FieldPath.parse("summary"),
+                FieldPath.parse("_autoEmbed.summary")));
+    SearchIndexDefinition derivedDefinition =
+        AutoEmbeddingIndexDefinitionUtils.getDerivedSearchIndexDefinition(
+            rawDefinition, MV_DATABASE_NAME, collectionUuid, schemaMetadata);
+
+    FieldDefinition contentField =
+        derivedDefinition.getMappings().fields().get("_autoEmbed.content");
+    Assert.assertNotNull(contentField);
+    Assert.assertTrue(contentField.searchIndexVectorFieldDefinition().isPresent());
+    Assert.assertTrue(contentField.searchAutoEmbedFieldDefinition().isEmpty());
+
+    FieldDefinition summaryField =
+        derivedDefinition.getMappings().fields().get("_autoEmbed.summary");
+    Assert.assertNotNull(summaryField);
+    Assert.assertTrue(summaryField.searchIndexVectorFieldDefinition().isPresent());
+    Assert.assertTrue(summaryField.searchAutoEmbedFieldDefinition().isEmpty());
+  }
+
+  @Test
+  public void testGetDerivedSearchIndexDefinition_preservesIndexMetadata() {
+    SearchAutoEmbedFieldDefinition autoEmbedField =
+        new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("content"));
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
+            .build();
+
+    SearchIndexDefinition rawDefinition =
+        SearchIndexDefinitionBuilder.builder()
+            .defaultMetadata()
+            .mappings(mappings)
+            .analyzerName("lucene.standard")
+            .build();
+
+    UUID collectionUuid = UUID.randomUUID();
+    var schemaMetadata =
+        new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(
+            1L,
+            Map.of(
+                FieldPath.parse("content"),
+                FieldPath.parse("_autoEmbed.content")));
+    SearchIndexDefinition derivedDefinition =
+        AutoEmbeddingIndexDefinitionUtils.getDerivedSearchIndexDefinition(
+            rawDefinition, MV_DATABASE_NAME, collectionUuid, schemaMetadata);
+
+    Assert.assertEquals(rawDefinition.getIndexId(), derivedDefinition.getIndexId());
+    Assert.assertEquals(rawDefinition.getName(), derivedDefinition.getName());
+    Assert.assertEquals(rawDefinition.getNumPartitions(), derivedDefinition.getNumPartitions());
+    Assert.assertEquals(rawDefinition.getAnalyzerName(), derivedDefinition.getAnalyzerName());
+    Assert.assertEquals(
+        rawDefinition.getParsedIndexFeatureVersion(),
+        derivedDefinition.getParsedIndexFeatureVersion());
   }
 }

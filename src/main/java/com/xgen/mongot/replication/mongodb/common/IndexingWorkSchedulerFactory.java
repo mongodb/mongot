@@ -7,6 +7,7 @@ import com.xgen.mongot.embedding.AutoEmbeddingMemoryBudget;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
 import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.util.Runtime;
 import com.xgen.mongot.util.concurrent.Executors;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -138,14 +139,14 @@ public class IndexingWorkSchedulerFactory {
       if (!this.getIndexingWorkSchedulers().containsKey(IndexingStrategy.EMBEDDING)) {
         throw new IllegalStateException("Auto-embedding vector search indexes are not supported.");
       }
-      if (indexDefinition.asVectorDefinition().getParsedAutoEmbeddingFeatureVersion()
+      if (indexDefinition.getParsedAutoEmbeddingFeatureVersion()
           >= MIN_VERSION_FOR_MATERIALIZED_VIEW_EMBEDDING) {
         return this.getIndexingWorkSchedulers().get(IndexingStrategy.EMBEDDING_MATERIALIZED_VIEW);
       }
       return this.getIndexingWorkSchedulers().get(IndexingStrategy.EMBEDDING);
     }
-    if (indexDefinition.getType() == IndexDefinition.Type.VECTOR_SEARCH
-        && indexDefinition.asVectorDefinition().isCustomVectorEngineIndex()) {
+    if (indexDefinition instanceof VectorIndexDefinition vectorDef
+        && vectorDef.isCustomVectorEngineIndex()) {
       return this.getIndexingWorkSchedulers().get(IndexingStrategy.CUSTOM_VECTOR_ENGINE);
     }
     return this.getIndexingWorkSchedulers().get(IndexingStrategy.DEFAULT);

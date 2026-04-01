@@ -202,8 +202,7 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
     // Replace text fields in event documents with embedded vectors for VectorText indexes.
     IndexDefinition indexDefinition = batch.indexer.getIndexDefinition();
 
-    ImmutableMap<FieldPath, String> modelNamePerPath =
-        indexDefinition.asVectorDefinition().getModelNamePerPath();
+    ImmutableMap<FieldPath, String> modelNamePerPath = indexDefinition.getModelNamePerPath();
 
     // Look up all configs and verify models are registered
     ImmutableMap.Builder<FieldPath, EmbeddingModelConfig> modelConfigPerPathBuilder =

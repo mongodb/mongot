@@ -15,6 +15,8 @@ import com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils;
 import com.xgen.mongot.embedding.utils.AutoEmbeddingIndexDefinitionUtils;
 import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.DocumentMetadata;
+import com.xgen.mongot.index.definition.SearchIndexDefinition;
+import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldMapping;
 import com.xgen.mongot.index.lucene.query.pushdown.ArrayComparator;
 import com.xgen.mongot.index.lucene.query.pushdown.MqlComparator;
@@ -81,11 +83,9 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
     this.matViewNamespace =
         new MongoNamespace(MV_DATABASE_NAME, this.matViewCollectionMetadata.collectionName());
 
-    // TODO(CLOUDP-353553): Handle search index version - getIndexDefinition() now returns
-    //  IndexDefinition which may be a SearchIndexDefinition.
     this.matViewFieldMappingWithHashes =
         AutoEmbeddingIndexDefinitionUtils.getMatViewIndexFields(
-            context.getIndexDefinition().asVectorDefinition().getMappings(),
+            resolveFieldMapping(context),
             this.matViewCollectionMetadata.schemaMetadata());
   }
 
@@ -189,13 +189,11 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
       } else {
         // Doc is in both source collection and mat view.
 
-        // TODO(CLOUDP-353553): Handle search index version - getIndexDefinition() now returns
-        //  IndexDefinition which may be a SearchIndexDefinition.
         var comparisonResult =
             AutoEmbeddingDocumentUtils.compareDocuments(
                 sourceDoc,
                 matViewDoc,
-                this.context.getIndexDefinition().asVectorDefinition().getMappings(),
+                resolveFieldMapping(this.context),
                 this.matViewFieldMappingWithHashes,
                 this.matViewCollectionMetadata.schemaMetadata());
         if (comparisonResult.needsReIndexing()) {
@@ -274,6 +272,16 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
 
   // Helper method to extract the document metadata from the given document with the appropriate
   // handling for views.
+  private static VectorIndexFieldMapping resolveFieldMapping(InitialSyncContext context) {
+    return switch (context.getIndexDefinition()) {
+      case VectorIndexDefinition vectorDef -> vectorDef.getMappings();
+      case SearchIndexDefinition ignored ->
+          // TODO(CLOUDP-353553): Support search auto-embedding in sorted ID collection scanner
+          throw new UnsupportedOperationException(
+              "Search auto-embedding not yet supported in sorted ID collection scanner");
+    };
+  }
+
   private DocumentMetadata getDocumentMetadata(RawBsonDocument doc) {
     if (this.context.getIndexDefinition().getView().isPresent()) {
       return DocumentMetadata.fromMetadataNamespace(

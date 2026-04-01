@@ -15,8 +15,8 @@ import org.bson.BsonDocument;
 /**
  * Represents an auto-embed vector field definition within a search index.
  *
- * <p>This field type specifies that text from a source field should be automatically
- * embedded using the configured embedding model, then indexed for vector search.
+ * <p>This field type specifies that text from a source field should be automatically embedded using
+ * the configured embedding model, then indexed for vector search.
  */
 public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition {
 
@@ -40,22 +40,20 @@ public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition
             .required();
   }
 
-  private final String modelName;
-  private final String modality;
   private final FieldPath sourceField;
-  private final VectorFieldSpecification specification;
+  private final VectorTextFieldSpecification specification;
 
   public SearchAutoEmbedFieldDefinition(
       String modelName, String modality, FieldPath sourceField) {
-    this.modelName = modelName;
-    this.modality = modality;
     this.sourceField = sourceField;
     this.specification =
-        new VectorFieldSpecification(
+        new VectorTextFieldSpecification(
             resolveModelDimensions(modelName),
             DEFAULT_VECTOR_SIMILARITY,
             DEFAULT_VECTOR_QUANTIZATION,
-            new VectorIndexingAlgorithm.HnswIndexingAlgorithm());
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm(),
+            modelName,
+            modality);
   }
 
   public SearchAutoEmbedFieldDefinition(String modelName, FieldPath sourceField) {
@@ -63,18 +61,18 @@ public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition
   }
 
   public String modelName() {
-    return this.modelName;
+    return this.specification.modelName();
   }
 
   public String modality() {
-    return this.modality;
+    return this.specification.modality();
   }
 
   public FieldPath sourceField() {
     return this.sourceField;
   }
 
-  public VectorFieldSpecification specification() {
+  public VectorTextFieldSpecification specification() {
     return this.specification;
   }
 
@@ -86,8 +84,8 @@ public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition
   @Override
   public BsonDocument fieldTypeToBson() {
     return BsonDocumentBuilder.builder()
-        .field(Fields.MODEL, this.modelName)
-        .field(Fields.MODALITY, this.modality)
+        .field(Fields.MODEL, this.specification.modelName())
+        .field(Fields.MODALITY, this.specification.modality())
         .field(Fields.SOURCE_FIELD, this.sourceField)
         .build();
   }
@@ -114,17 +112,17 @@ public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition
     if (!(o instanceof SearchAutoEmbedFieldDefinition that)) {
       return false;
     }
-    // Intentionally excludes specification (dimensions, similarity, quantization) because these are
-    // derived from the model. This matches VectorAutoEmbedFieldDefinition.equals() behavior.
-    // TODO(CLOUDP-353553): dimensions, similarity, quantization overrides may be enabled soon
-    //  in https://github.com/10gen/mongot/pull/5520 - update equals/hashCode accordingly.
-    return Objects.equals(this.modelName, that.modelName)
-        && Objects.equals(this.modality, that.modality)
+    // Intentionally excludes derived specification fields (dimensions, similarity, quantization)
+    // because these are derived from the model. This matches VectorAutoEmbedFieldDefinition
+    // .equals() behavior.
+    return Objects.equals(this.specification.modelName(), that.specification.modelName())
+        && Objects.equals(this.specification.modality(), that.specification.modality())
         && Objects.equals(this.sourceField, that.sourceField);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(this.modelName, this.modality, this.sourceField);
+    return Objects.hash(this.specification.modelName(), this.specification.modality(),
+        this.sourceField);
   }
 }

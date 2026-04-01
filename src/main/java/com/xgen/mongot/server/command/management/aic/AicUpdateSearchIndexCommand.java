@@ -156,13 +156,21 @@ public class AicUpdateSearchIndexCommand implements Command {
       // Validate auto-embedding index update restrictions
       if (oldIndex instanceof VectorIndexDefinition oldVector
           && newIndex instanceof VectorIndexDefinition newVector) {
-        // Block conversions between regular vector and auto-embedding indexes
         AutoEmbeddingIndexValidator.validateNoAutoEmbeddingTypeConversion(oldVector, newVector);
-
-        // If both are auto-embedding, validate that auto-embedding fields are not modified
         if (oldVector.isAutoEmbeddingIndex() && newVector.isAutoEmbeddingIndex()) {
           AutoEmbeddingIndexValidator.validateNoAutoEmbeddingFieldChanges(oldVector, newVector);
         }
+      } else if (oldIndex instanceof SearchIndexDefinition oldSearch
+          && newIndex instanceof SearchIndexDefinition newSearch) {
+        if (oldSearch.isAutoEmbeddingIndex() && newSearch.isAutoEmbeddingIndex()) {
+          AutoEmbeddingIndexValidator.validateNoAutoEmbeddingFieldChanges(oldSearch, newSearch);
+        }
+      } else {
+        throw new IllegalStateException(
+            "Cannot compare index definitions of different types: "
+                + oldIndex.getClass().getSimpleName()
+                + " vs "
+                + newIndex.getClass().getSimpleName());
       }
 
       this.authoritativeIndexCatalog.updateIndex(

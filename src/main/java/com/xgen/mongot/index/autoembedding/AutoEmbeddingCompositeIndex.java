@@ -82,7 +82,7 @@ public class AutoEmbeddingCompositeIndex implements VectorIndex {
   @Override
   public boolean isCompatibleWith(IndexDefinition indexDefinition) {
     if (indexDefinition.isAutoEmbeddingIndex()
-        && indexDefinition.asVectorDefinition().getParsedAutoEmbeddingFeatureVersion()
+        && indexDefinition.getParsedAutoEmbeddingFeatureVersion()
             >= MIN_VERSION_FOR_MATERIALIZED_VIEW_EMBEDDING) {
       return this.matViewIndex.isCompatibleWith(indexDefinition);
     }
