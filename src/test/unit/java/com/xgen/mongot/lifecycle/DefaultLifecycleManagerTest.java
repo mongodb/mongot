@@ -136,6 +136,7 @@ public class DefaultLifecycleManagerTest {
 
         when(replicationManager.dropIndex(any()))
             .thenReturn(CompletableFuture.completedFuture(null));
+        when(replicationManager.shutdown()).thenReturn(CompletableFuture.completedFuture(null));
         when(replicationManager.getSyncSourceConfig()).thenReturn(syncSourceConfig);
         when(replicationManager.isReplicationSupported()).thenReturn(true);
         return replicationManager;
@@ -445,6 +446,7 @@ public class DefaultLifecycleManagerTest {
         (Optional<SyncSourceConfig> syncSourceConfig) -> {
           ReplicationManager rm = mock(MongoDbReplicationManager.class);
           when(rm.dropIndex(any())).thenReturn(CompletableFuture.completedFuture(null));
+          when(rm.shutdown()).thenReturn(CompletableFuture.completedFuture(null));
           when(rm.getSyncSourceConfig()).thenReturn(syncSourceConfig);
           when(rm.isReplicationSupported()).thenReturn(true);
           return rm;

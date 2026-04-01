@@ -314,13 +314,16 @@ public class DefaultLifecycleManager implements LifecycleManager {
                 CompletableFuture.runAsync(
                     () -> Executors.shutdownOrFail(this.lifecycleExecutor), shutdownExecutor),
                 CompletableFuture.runAsync(
-                    () -> this.replicationManagerWrapper.currentReplicationManager.shutdown(),
-                    shutdownExecutor),
-                CompletableFuture.runAsync(
-                    () -> Executors.shutdownOrFail(this.blobstoreExecutor), shutdownExecutor),
-                CompletableFuture.runAsync(
-                    () -> this.materializedViewManager.ifPresent(MaterializedViewManager::shutdown),
-                    shutdownExecutor)))
+                    () -> Executors.shutdownOrFail(this.blobstoreExecutor), shutdownExecutor)))
+        .thenComposeAsync(
+            ignored ->
+                FutureUtils.allOf(
+                    List.of(
+                        this.replicationManagerWrapper.currentReplicationManager.shutdown(),
+                        this.materializedViewManager
+                            .map(MaterializedViewManager::shutdown)
+                            .orElse(FutureUtils.COMPLETED_FUTURE))),
+            shutdownExecutor)
         .whenComplete((result, throwable) -> shutdownExecutor.shutdown());
   }
 
@@ -329,8 +332,7 @@ public class DefaultLifecycleManager implements LifecycleManager {
     this.replicationManagerWrapper.setReplicationEnabled(false);
     return FutureUtils.allOf(
         List.of(
-            CompletableFuture.runAsync(
-                () -> this.replicationManagerWrapper.currentReplicationManager.shutdown()),
+            this.replicationManagerWrapper.currentReplicationManager.shutdown(),
             this.materializedViewManager
                 .map(MaterializedViewManager::shutdownReplication)
                 .orElse(FutureUtils.COMPLETED_FUTURE)));
