@@ -15,8 +15,9 @@ import java.util.Arrays;
  * <p>The raw bytes are only accessible via {@link #withBytes(CheckedConsumer)} or {@link
  * #mapBytes(CheckedFunction)}, which pass a defensive copy to the callback.
  *
- * <p>The static factory {@link #wrapAndZeroInput(byte[])} zeros the caller's input array after
- * copying. This encourages the caller to ensure the data is only retained by the returned instance.
+ * <p>Note: The static factory {@link #wrapAndZeroInput(byte[])} zeros the caller's input array
+ * after copying. This is done to encourage the caller does not retain the data outside the returned
+ * instance.
  */
 public final class SanitizedBytes {
   private static final String SANITIZED_PLACEHOLDER = "xxx-sanitized-xxx";
