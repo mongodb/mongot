@@ -1,0 +1,27 @@
+{
+  "mappings": {
+    "dynamic": false,
+    "fields": {
+      "description": {
+        "type": "string",
+        "analyzer": "lucene.english"
+      },
+      "categories": {
+        "type": "document",
+        "fields": {
+          "color": {
+            "type": "stringFacet"
+          },
+          "subcategory": {
+            "type": "document",
+            "fields": {
+              "tone": {
+                "type": "stringFacet"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

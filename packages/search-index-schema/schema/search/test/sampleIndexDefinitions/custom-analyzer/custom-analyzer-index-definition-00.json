@@ -1,0 +1,57 @@
+{
+  "mappings": {
+    "dynamic": false,
+    "fields": {
+      "media_type": {
+        "type": "string",
+        "analyzer": "lucene.keyword"
+      },
+      "data": {
+        "type": "document",
+        "fields": {
+          "adult": {
+            "type": "boolean"
+          },
+          "original_title": [
+            {
+              "type": "string",
+              "store": true,
+              "analyzer": "lucene.standard",
+              "multi": {
+                "translated": {
+                  "type": "string",
+                  "analyzer": "lucene.standard",
+                  "indexOptions": "positions",
+                  "store": false
+                },
+                "normalizedExact": {
+                  "type": "string",
+                  "analyzer": "normalizedRomanNumeralFive",
+                  "store": false
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "analyzer": "lucene.standard",
+  "analyzers": [
+    {
+      "name": "normalizedRomanNumeralFive",
+      "charFilters": [
+        {
+          "type": "mapping",
+          "mappings": {
+            "V": "5"
+          }
+        }
+      ],
+      "tokenizer": {
+        "type": "keyword"
+      },
+      "tokenFilters": []
+    }
+  ]
+}

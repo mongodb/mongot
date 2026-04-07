@@ -1,0 +1,15 @@
+{
+  "mappings": {
+    "dynamic": true
+  },
+  "analyzer": "lucene.standard",
+  "synonyms": [
+    {
+      "name": "mySynonyms",
+      "source": {
+        "collection": "collection"
+      },
+      "analyzer": "lucene.standard"
+    }
+  ]
+}

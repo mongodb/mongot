@@ -1,0 +1,14 @@
+{
+  "mappings": {
+    "fields": {
+      "description": {
+        "type": "knnVector",
+        "similarity": "euclidean",
+        "dimensions": 3
+      },
+      "flag": {
+        "type": "boolean"
+      }
+    }
+  }
+}

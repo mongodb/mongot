@@ -1,0 +1,28 @@
+{
+  "mappings": {
+    "dynamic": false,
+    "fields": {
+      "title": {
+        "type": "string",
+        "analyzer": "romanNumeral"
+      }
+    }
+  },
+  "analyzers": [
+    {
+      "name": "romanNumeral",
+      "charFilters": [
+        {
+          "type": "mapping",
+          "mappings": {
+            "II": "2"
+          }
+        }
+      ],
+      "tokenizer": {
+        "type": "keyword"
+      },
+      "tokenFilters": []
+    }
+  ]
+}

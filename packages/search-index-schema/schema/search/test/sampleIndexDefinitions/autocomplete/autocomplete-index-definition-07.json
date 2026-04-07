@@ -1,0 +1,19 @@
+{
+  "mappings": {
+    "fields": {
+      "name": {
+        "type": "autocomplete",
+        "tokenization": "edgeGram",
+        "analyzer": "emailAddressAnalyzer"
+      }
+    }
+  },
+  "analyzers": [
+    {
+      "name": "emailAddressAnalyzer",
+      "tokenizer": {
+        "type": "uaxUrlEmail"
+      }
+    }
+  ]
+}

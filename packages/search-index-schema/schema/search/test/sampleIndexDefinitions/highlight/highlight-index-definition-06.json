@@ -1,0 +1,11 @@
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "a": {
+        "type": "document",
+        "dynamic": false
+      }
+    }
+  }
+}

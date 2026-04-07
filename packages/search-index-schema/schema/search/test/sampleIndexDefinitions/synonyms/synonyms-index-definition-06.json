@@ -1,0 +1,29 @@
+{
+  "mappings": {
+    "dynamic": true
+  },
+  "analyzer": "normalizer",
+  "synonyms": [
+    {
+      "name": "normalizedSynonyms",
+      "source": {
+        "collection": "collection"
+      },
+      "analyzer": "normalizer"
+    }
+  ],
+  "analyzers": [
+    {
+      "name": "normalizer",
+      "charFilters": [
+        {
+          "type": "icuNormalize"
+        }
+      ],
+      "tokenizer": {
+        "type": "standard"
+      },
+      "tokenFilters": []
+    }
+  ]
+}

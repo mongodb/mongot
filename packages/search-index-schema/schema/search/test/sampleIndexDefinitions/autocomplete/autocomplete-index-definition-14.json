@@ -1,0 +1,20 @@
+{
+  "mappings": {
+    "fields": {
+      "name": {
+        "type": "autocomplete",
+        "tokenization": "rightEdgeGram",
+        "analyzer": "splitOnOneTwoThree"
+      }
+    }
+  },
+  "analyzers": [
+    {
+      "name": "splitOnOneTwoThree",
+      "tokenizer": {
+        "type": "regexSplit",
+        "pattern": "[123]+"
+      }
+    }
+  ]
+}

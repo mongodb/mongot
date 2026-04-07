@@ -1,0 +1,11 @@
+{
+  "mappings": {
+    "fields": {
+      "description": {
+        "type": "knnVector",
+        "similarity": "cosine",
+        "dimensions": 2
+      }
+    }
+  }
+}

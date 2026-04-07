@@ -1,0 +1,6 @@
+{
+  "indexFormatVersion": 4,
+  "mappings": {
+    "dynamic": true
+  }
+}

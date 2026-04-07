@@ -1,0 +1,12 @@
+{
+  "mappings": {
+    "fields": {
+      "a": [
+        {
+          "analyzer": "lucene.english",
+          "type": "string"
+        }
+      ]
+    }
+  }
+}

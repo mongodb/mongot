@@ -1,0 +1,22 @@
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "a": {
+        "type": "document",
+        "fields": {
+          "b": {
+            "type": "string",
+            "analyzer": "lucene.simple",
+            "multi": {
+              "english": {
+                "type": "string",
+                "analyzer": "lucene.english"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "mappings": {
+    "fields": {
+      "pilots": {
+        "type": "embeddedDocuments",
+        "dynamic": true,
+        "fields": {
+          "proficiencyScore": {
+            "type": "number"
+          }
+        }
+      }
+    }
+  }
+}

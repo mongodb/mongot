@@ -1,0 +1,29 @@
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "message": {
+        "type": "string",
+        "analyzer": "emailRedact"
+      }
+    }
+  },
+  "analyzer": "lucene.standard",
+  "analyzers": [
+    {
+      "charFilters": [],
+      "name": "emailRedact",
+      "tokenFilters": [
+        {
+          "matches": "all",
+          "pattern": "^([a-z0-9_\\.-]+)@([\\da-z\\.-]+)\\.([a-z\\.]{2,5})$",
+          "replacement": "redacted",
+          "type": "regex"
+        }
+      ],
+      "tokenizer": {
+        "type": "keyword"
+      }
+    }
+  ]
+}

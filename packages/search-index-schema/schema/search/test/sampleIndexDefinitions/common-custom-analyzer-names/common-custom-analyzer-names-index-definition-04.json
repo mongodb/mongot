@@ -1,0 +1,28 @@
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "a": {
+        "type": "string",
+        "analyzer": "email"
+      }
+    }
+  },
+  "analyzer": "lucene.english",
+  "analyzers": [
+    {
+      "name": "email",
+      "charFilters": [
+        {
+          "type": "mapping",
+          "mappings": {
+            ":D": "D:"
+          }
+        }
+      ],
+      "tokenizer": {
+        "type": "whitespace"
+      }
+    }
+  ]
+}

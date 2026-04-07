@@ -1,0 +1,10 @@
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "privateUserData": {
+        "type": "document"
+      }
+    }
+  }
+}

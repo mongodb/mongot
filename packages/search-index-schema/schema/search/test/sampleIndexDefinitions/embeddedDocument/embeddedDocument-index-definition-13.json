@@ -1,0 +1,25 @@
+{
+  "mappings": {
+    "fields": {
+      "teachers": {
+        "type": "embeddedDocuments",
+        "dynamic": true,
+        "fields": {
+          "classes": [
+            {
+              "type": "embeddedDocuments",
+              "dynamic": true
+            },
+            {
+              "type": "document",
+              "dynamic": true,
+              "fields": {
+                "subject": []
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

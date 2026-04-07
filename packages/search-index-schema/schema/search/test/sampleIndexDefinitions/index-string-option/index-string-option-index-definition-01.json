@@ -1,0 +1,10 @@
+{
+  "mappings": {
+    "fields": {
+      "a": {
+        "type": "string",
+        "norms": "omit"
+      }
+    }
+  }
+}

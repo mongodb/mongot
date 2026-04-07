@@ -1,0 +1,21 @@
+{
+  "mappings": {
+    "dynamic": false,
+    "fields": {
+      "description": {
+        "type": "string",
+        "analyzer": "lucene.english"
+      },
+      "color": {
+        "type": "numberFacet",
+        "representation": "int64"
+      },
+      "size": {
+        "type": "numberFacet"
+      },
+      "releaseDate": {
+        "type": "dateFacet"
+      }
+    }
+  }
+}

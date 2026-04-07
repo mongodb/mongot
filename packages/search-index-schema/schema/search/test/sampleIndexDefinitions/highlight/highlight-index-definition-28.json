@@ -1,0 +1,17 @@
+{
+  "mappings": {
+    "fields": {
+      "title": {
+        "type": "string",
+        "analyzer": "lucene.standard"
+      },
+      "year": {
+        "type": "number",
+        "representation": "int64"
+      },
+      "deleted": {
+        "type": "boolean"
+      }
+    }
+  }
+}

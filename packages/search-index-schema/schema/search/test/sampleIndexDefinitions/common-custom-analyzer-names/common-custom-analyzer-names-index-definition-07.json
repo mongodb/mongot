@@ -1,0 +1,28 @@
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "a": {
+        "type": "string",
+        "analyzer": "english"
+      }
+    }
+  },
+  "analyzer": "lucene.english",
+  "analyzers": [
+    {
+      "name": "english",
+      "charFilters": [
+        {
+          "type": "mapping",
+          "mappings": {
+            ":D": "D:"
+          }
+        }
+      ],
+      "tokenizer": {
+        "type": "whitespace"
+      }
+    }
+  ]
+}

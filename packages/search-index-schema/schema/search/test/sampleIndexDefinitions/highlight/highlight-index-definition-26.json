@@ -1,0 +1,18 @@
+{
+  "mappings": {
+    "fields": {
+      "summary": [
+        {
+          "analyzer": "lucene.english",
+          "multi": {
+            "french": {
+              "analyzer": "lucene.french",
+              "type": "string"
+            }
+          },
+          "type": "string"
+        }
+      ]
+    }
+  }
+}

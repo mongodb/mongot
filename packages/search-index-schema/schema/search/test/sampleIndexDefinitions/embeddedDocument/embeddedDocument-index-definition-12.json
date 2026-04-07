@@ -1,0 +1,10 @@
+{
+  "mappings": {
+    "fields": {
+      "pilots": {
+        "type": "embeddedDocuments",
+        "dynamic": true
+      }
+    }
+  }
+}

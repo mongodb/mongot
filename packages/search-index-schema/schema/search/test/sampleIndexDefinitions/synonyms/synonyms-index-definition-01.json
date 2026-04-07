@@ -1,0 +1,61 @@
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "b": {
+        "type": "string",
+        "analyzer": "englishStandardNormalizer"
+      },
+      "c": {
+        "type": "string",
+        "analyzer": "lucene.standard"
+      }
+    }
+  },
+  "analyzer": "lucene.whitespace",
+  "synonyms": [
+    {
+      "name": "firstSynonyms",
+      "source": {
+        "collection": "coll1"
+      },
+      "analyzer": "lucene.whitespace"
+    },
+    {
+      "name": "secondSynonyms",
+      "source": {
+        "collection": "coll2"
+      },
+      "analyzer": "englishStandardNormalizer"
+    },
+    {
+      "name": "thirdSynonyms",
+      "source": {
+        "collection": "coll3"
+      },
+      "analyzer": "lucene.standard"
+    }
+  ],
+  "analyzers": [
+    {
+      "name": "englishStandardNormalizer",
+      "charFilters": [
+        {
+          "type": "icuNormalize"
+        }
+      ],
+      "tokenizer": {
+        "type": "standard"
+      },
+      "tokenFilters": [
+        {
+          "type": "icuFolding"
+        },
+        {
+          "type": "snowballStemming",
+          "stemmerName": "english"
+        }
+      ]
+    }
+  ]
+}

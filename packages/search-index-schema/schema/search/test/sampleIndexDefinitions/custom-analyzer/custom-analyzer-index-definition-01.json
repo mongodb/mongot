@@ -1,0 +1,24 @@
+{
+  "mappings": {
+    "dynamic": false,
+    "fields": {
+      "title": {
+        "type": "string",
+        "analyzer": "keywordReverse"
+      }
+    }
+  },
+  "analyzers": [
+    {
+      "name": "keywordReverse",
+      "tokenizer": {
+        "type": "keyword"
+      },
+      "tokenFilters": [
+        {
+          "type": "reverse"
+        }
+      ]
+    }
+  ]
+}

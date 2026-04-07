@@ -1,0 +1,57 @@
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "email": {
+        "type": "string",
+        "analyzer": "emailAutocompleteIndex",
+        "searchAnalyzer": "emailAutocompleteSearch"
+      }
+    }
+  },
+  "analyzer": "lucene.keyword",
+  "analyzers": [
+    {
+      "name": "emailAutocompleteIndex",
+      "charFilters": [
+        {
+          "type": "mapping",
+          "mappings": {
+            "@": "AT"
+          }
+        }
+      ],
+      "tokenizer": {
+        "type": "whitespace",
+        "maxTokenLength": 15
+      },
+      "tokenFilters": [
+        {
+          "type": "shingle",
+          "minShingleSize": 2,
+          "maxShingleSize": 3
+        },
+        {
+          "type": "edgeGram",
+          "minGram": 2,
+          "maxGram": 15
+        }
+      ]
+    },
+    {
+      "name": "emailAutocompleteSearch",
+      "charFilters": [
+        {
+          "type": "mapping",
+          "mappings": {
+            "@": "AT"
+          }
+        }
+      ],
+      "tokenizer": {
+        "type": "whitespace",
+        "maxTokenLength": 15
+      }
+    }
+  ]
+}

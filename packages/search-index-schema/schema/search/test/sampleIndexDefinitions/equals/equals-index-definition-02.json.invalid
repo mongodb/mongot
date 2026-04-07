@@ -1,0 +1,10 @@
+{
+  "indexFormatVersion": 5,
+  "mappings": {
+    "fields": {
+      "a": {
+        "type": "date"
+      }
+    }
+  }
+}

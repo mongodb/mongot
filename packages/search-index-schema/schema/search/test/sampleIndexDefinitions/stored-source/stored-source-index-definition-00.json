@@ -1,0 +1,10 @@
+{
+  "storedSource": false,
+  "mappings": {
+    "fields": {
+      "a": {
+        "type": "string"
+      }
+    }
+  }
+}

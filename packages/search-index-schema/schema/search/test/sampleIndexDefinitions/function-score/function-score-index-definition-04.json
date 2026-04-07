@@ -1,0 +1,11 @@
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "rating": {
+        "type": "number",
+        "representation": "int64"
+      }
+    }
+  }
+}

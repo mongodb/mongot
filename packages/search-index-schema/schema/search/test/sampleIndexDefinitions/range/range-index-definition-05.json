@@ -1,0 +1,12 @@
+{
+  "mappings": {
+    "dynamic": false,
+    "fields": {
+      "microWatts": {
+        "type": "number",
+        "indexIntegers": true,
+        "indexDoubles": false
+      }
+    }
+  }
+}

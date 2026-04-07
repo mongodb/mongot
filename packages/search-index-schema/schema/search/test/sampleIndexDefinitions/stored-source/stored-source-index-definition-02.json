@@ -1,0 +1,12 @@
+{
+  "storedSource": {
+    "exclude": ["_id", "a", "b.c.d", "x.y.z"]
+  },
+  "mappings": {
+    "fields": {
+      "a": {
+        "type": "string"
+      }
+    }
+  }
+}

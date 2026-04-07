@@ -1,0 +1,21 @@
+{
+  "storedSource": {
+    "include": ["teachers.first", "teachers.last"]
+  },
+  "mappings": {
+    "dynamic": false,
+    "fields": {
+      "teachers": {
+        "type": "embeddedDocuments",
+        "fields": {
+          "first": {
+            "type": "string"
+          },
+          "last": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

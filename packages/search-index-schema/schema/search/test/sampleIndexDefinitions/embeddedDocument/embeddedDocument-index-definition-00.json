@@ -1,0 +1,27 @@
+{
+  "mappings": {
+    "dynamic": false,
+    "fields": {
+      "transactions": [
+        {
+          "type": "embeddedDocuments",
+          "dynamic": false,
+          "fields": {
+            "amount": {
+              "type": "number"
+            },
+            "symbol": {
+              "type": "string"
+            },
+            "transaction_code": {
+              "type": "string"
+            }
+          }
+        }
+      ],
+      "transaction_count": {
+        "type": "number"
+      }
+    }
+  }
+}

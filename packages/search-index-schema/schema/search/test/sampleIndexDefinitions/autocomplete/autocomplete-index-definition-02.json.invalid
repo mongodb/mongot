@@ -1,0 +1,16 @@
+{
+  "indexFormatVersion": 5,
+  "mappings": {
+    "fields": {
+      "items": {
+        "type": "document",
+        "dynamic": false,
+        "fields": {
+          "name": {
+            "type": "autocomplete"
+          }
+        }
+      }
+    }
+  }
+}

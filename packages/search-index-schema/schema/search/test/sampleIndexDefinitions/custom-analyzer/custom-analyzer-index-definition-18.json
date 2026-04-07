@@ -1,0 +1,26 @@
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "search": {
+        "type": "string",
+        "analyzer": "normalizer"
+      }
+    }
+  },
+  "analyzer": "lucene.standard",
+  "analyzers": [
+    {
+      "name": "normalizer",
+      "charFilters": [
+        {
+          "type": "icuNormalize"
+        }
+      ],
+      "tokenizer": {
+        "type": "standard"
+      },
+      "tokenFilters": []
+    }
+  ]
+}

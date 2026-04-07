@@ -1,0 +1,25 @@
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "teachers": [
+        {
+          "type": "embeddedDocuments",
+          "dynamic": true,
+          "fields": {
+            "description": {
+              "type": "string",
+              "analyzer": "lucene.english"
+            },
+            "email": {
+              "type": "autocomplete",
+              "analyzer": "lucene.keyword",
+              "tokenization": "rightEdgeGram"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "analyzer": "lucene.whitespace"
+}

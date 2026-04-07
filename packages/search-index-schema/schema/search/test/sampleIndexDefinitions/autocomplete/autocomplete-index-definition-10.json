@@ -1,0 +1,12 @@
+{
+  "mappings": {
+    "fields": {
+      "name": {
+        "type": "autocomplete",
+        "tokenization": "edgeGram",
+        "minGrams": 1,
+        "maxGrams": 4
+      }
+    }
+  }
+}

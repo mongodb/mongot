@@ -1,0 +1,14 @@
+{
+  "mappings": {
+    "dynamic": false,
+    "fields": {
+      "description": {
+        "type": "string",
+        "analyzer": "lucene.english"
+      },
+      "color": {
+        "type": "numberFacet"
+      }
+    }
+  }
+}

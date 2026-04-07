@@ -1,0 +1,26 @@
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "message": {
+        "type": "string",
+        "analyzer": "englishPossessive-analyzer"
+      }
+    }
+  },
+  "analyzer": "lucene.standard",
+  "analyzers": [
+    {
+      "charFilters": [],
+      "name": "englishPossessive-analyzer",
+      "tokenFilters": [
+        {
+          "type": "englishPossessive"
+        }
+      ],
+      "tokenizer": {
+        "type": "whitespace"
+      }
+    }
+  ]
+}

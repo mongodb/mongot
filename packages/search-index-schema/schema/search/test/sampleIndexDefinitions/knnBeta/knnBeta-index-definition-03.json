@@ -1,0 +1,11 @@
+{
+  "mappings": {
+    "fields": {
+      "description": {
+        "type": "knnVector",
+        "similarity": "dotProduct",
+        "dimensions": 5
+      }
+    }
+  }
+}

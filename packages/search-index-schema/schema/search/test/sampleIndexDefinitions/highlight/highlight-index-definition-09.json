@@ -1,0 +1,18 @@
+{
+  "mappings": {
+    "fields": {
+      "a": [
+        {
+          "analyzer": "lucene.whitespace",
+          "type": "string"
+        }
+      ],
+      "b": [
+        {
+          "analyzer": "lucene.simple",
+          "type": "string"
+        }
+      ]
+    }
+  }
+}

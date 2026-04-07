@@ -1,0 +1,26 @@
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "message": {
+        "type": "string",
+        "analyzer": "porterStemming-analyzer"
+      }
+    }
+  },
+  "analyzer": "lucene.standard",
+  "analyzers": [
+    {
+      "charFilters": [],
+      "name": "porterStemming-analyzer",
+      "tokenFilters": [
+        {
+          "type": "porterStemming"
+        }
+      ],
+      "tokenizer": {
+        "type": "whitespace"
+      }
+    }
+  ]
+}

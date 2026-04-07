@@ -1,0 +1,11 @@
+{
+  "mappings": {
+    "fields": {
+      "name": {
+        "type": "autocomplete",
+        "tokenization": "edgeGram",
+        "analyzer": "lucene.keyword"
+      }
+    }
+  }
+}

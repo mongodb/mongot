@@ -1,0 +1,10 @@
+{
+  "mappings": {
+    "dynamic": false,
+    "fields": {
+      "a": {
+        "type": "token"
+      }
+    }
+  }
+}

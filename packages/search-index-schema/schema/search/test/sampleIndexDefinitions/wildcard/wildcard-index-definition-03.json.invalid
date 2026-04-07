@@ -1,0 +1,22 @@
+{
+  "analyzer": "lucene.standard",
+  "overriddenAnalyzers": [
+    {
+      "name": "keyword-based",
+      "baseAnalyzer": "lucene.keyword"
+    }
+  ],
+  "mappings": {
+    "fields": {
+      "a": {
+        "type": "string",
+        "multi": {
+          "keyword-based": {
+            "type": "string",
+            "analyzer": "keyword-based"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "mappings": {
+    "fields": {
+      "name": {
+        "type": "autocomplete",
+        "tokenization": "edgeGram",
+        "analyzer": "phoneNumberExtractor"
+      }
+    }
+  },
+  "analyzers": [
+    {
+      "name": "phoneNumberExtractor",
+      "tokenizer": {
+        "type": "regexCaptureGroup",
+        "pattern": "\\d{3}[-.]?\\d{3}[-.]?\\d{4}",
+        "group": 0
+      }
+    }
+  ]
+}

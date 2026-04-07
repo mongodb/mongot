@@ -1,0 +1,12 @@
+{
+  "storedSource": {
+    "include": ["a.b", "b.c.d", "x.y.z"]
+  },
+  "mappings": {
+    "fields": {
+      "a": {
+        "type": "string"
+      }
+    }
+  }
+}

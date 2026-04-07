@@ -1,0 +1,20 @@
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "teachers": [
+        {
+          "type": "embeddedDocuments",
+          "dynamic": true,
+          "fields": {
+            "vector": {
+              "type": "knnVector",
+              "similarity": "euclidean",
+              "dimensions": 3
+            }
+          }
+        }
+      ]
+    }
+  }
+}

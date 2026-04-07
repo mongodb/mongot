@@ -1,0 +1,27 @@
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "username": {
+        "type": "string",
+        "analyzer": "daitch-analyzer",
+        "searchAnalyzer": "daitch-analyzer"
+      }
+    }
+  },
+  "analyzer": "lucene.standard",
+  "analyzers": [
+    {
+      "charFilters": [],
+      "name": "daitch-analyzer",
+      "tokenFilters": [
+        {
+          "type": "daitchMokotoffSoundex"
+        }
+      ],
+      "tokenizer": {
+        "type": "keyword"
+      }
+    }
+  ]
+}

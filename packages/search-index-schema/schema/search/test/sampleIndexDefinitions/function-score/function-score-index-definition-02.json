@@ -1,0 +1,11 @@
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "popularity": {
+        "type": "number",
+        "representation": "int64"
+      }
+    }
+  }
+}

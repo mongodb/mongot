@@ -1,0 +1,12 @@
+{
+  "mappings": {
+    "fields": {
+      "name": {
+        "type": "autocomplete"
+      },
+      "unused": {
+        "type": "string"
+      }
+    }
+  }
+}

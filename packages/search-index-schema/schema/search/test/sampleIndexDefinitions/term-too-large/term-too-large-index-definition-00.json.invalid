@@ -1,0 +1,12 @@
+{
+  "analyzer": "customAnalyzer",
+  "analyzers": [
+    {
+      "name": "customAnalyzer",
+      "tokenizer": {
+        "type": "regexSplit",
+        "pattern": "b"
+      }
+    }
+  ]
+}

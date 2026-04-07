@@ -1,0 +1,21 @@
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "teachers": [
+        {
+          "type": "embeddedDocuments",
+          "dynamic": true
+        },
+        {
+          "type": "document",
+          "fields": {
+            "tShirtSize": {
+              "type": "stringFacet"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

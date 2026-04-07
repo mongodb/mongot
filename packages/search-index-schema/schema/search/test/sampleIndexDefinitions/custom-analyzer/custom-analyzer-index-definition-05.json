@@ -1,0 +1,23 @@
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "a": {
+        "type": "string"
+      },
+      "b": {
+        "type": "string",
+        "analyzer": "customAz"
+      }
+    }
+  },
+  "analyzer": "lucene.keyword",
+  "analyzers": [
+    {
+      "name": "customAz",
+      "tokenizer": {
+        "type": "whitespace"
+      }
+    }
+  ]
+}

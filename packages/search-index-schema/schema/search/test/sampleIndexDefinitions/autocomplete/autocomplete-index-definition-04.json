@@ -1,0 +1,55 @@
+{
+  "mappings": {
+    "fields": {
+      "details": {
+        "fields": {
+          "sku": [
+            {
+              "analyzer": "lucene.keyword",
+              "norms": "omit",
+              "searchAnalyzer": "lucene.keyword",
+              "type": "string"
+            },
+            {
+              "foldDiacritics": false,
+              "type": "autocomplete",
+              "analyzer": "lucene.keyword"
+            }
+          ]
+        },
+        "type": "document"
+      },
+      "name": {
+        "fields": {
+          "en": [
+            {
+              "norms": "omit",
+              "type": "string"
+            },
+            {
+              "foldDiacritics": false,
+              "tokenization": "nGram",
+              "type": "autocomplete",
+              "analyzer": "commaSplitter"
+            }
+          ]
+        },
+        "type": "document"
+      }
+    }
+  },
+  "analyzers": [
+    {
+      "name": "commaSplitter",
+      "tokenizer": {
+        "type": "regexSplit",
+        "pattern": "[,]+"
+      },
+      "tokenFilters": [
+        {
+          "type": "trim"
+        }
+      ]
+    }
+  ]
+}

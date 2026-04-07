@@ -1,0 +1,11 @@
+{
+  "analyzer": "myCustomAz",
+  "analyzers": [
+    {
+      "name": "myCustomAz",
+      "tokenizer": {
+        "type": "standard"
+      }
+    }
+  ]
+}

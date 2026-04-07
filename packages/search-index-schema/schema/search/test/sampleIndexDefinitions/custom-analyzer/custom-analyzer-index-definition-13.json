@@ -1,0 +1,26 @@
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "message": {
+        "type": "string",
+        "analyzer": "kStemming-analyzer"
+      }
+    }
+  },
+  "analyzer": "lucene.standard",
+  "analyzers": [
+    {
+      "charFilters": [],
+      "name": "kStemming-analyzer",
+      "tokenFilters": [
+        {
+          "type": "kStemming"
+        }
+      ],
+      "tokenizer": {
+        "type": "whitespace"
+      }
+    }
+  ]
+}

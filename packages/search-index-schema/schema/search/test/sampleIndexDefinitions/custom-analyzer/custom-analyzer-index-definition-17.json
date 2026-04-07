@@ -1,0 +1,49 @@
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "search": {
+        "type": "string",
+        "analyzer": "japaneseAutocompleteIndex",
+        "searchAnalyzer": "japaneseAutocompleteSearch"
+      }
+    }
+  },
+  "analyzer": "lucene.keyword",
+  "analyzers": [
+    {
+      "name": "japaneseAutocompleteIndex",
+      "charFilters": [
+        {
+          "type": "icuNormalize"
+        }
+      ],
+      "tokenizer": {
+        "type": "standard"
+      },
+      "tokenFilters": [
+        {
+          "type": "shingle",
+          "minShingleSize": 2,
+          "maxShingleSize": 3
+        },
+        {
+          "type": "nGram",
+          "minGram": 2,
+          "maxGram": 15
+        }
+      ]
+    },
+    {
+      "name": "japaneseAutocompleteSearch",
+      "charFilters": [
+        {
+          "type": "icuNormalize"
+        }
+      ],
+      "tokenizer": {
+        "type": "standard"
+      }
+    }
+  ]
+}

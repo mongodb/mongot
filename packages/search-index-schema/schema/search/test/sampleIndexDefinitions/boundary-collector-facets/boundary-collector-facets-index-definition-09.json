@@ -1,0 +1,20 @@
+{
+  "mappings": {
+    "dynamic": false,
+    "fields": {
+      "description": {
+        "type": "string",
+        "analyzer": "lucene.english"
+      },
+      "nested": {
+        "type": "document",
+        "fields": {
+          "color": {
+            "type": "numberFacet",
+            "representation": "int64"
+          }
+        }
+      }
+    }
+  }
+}

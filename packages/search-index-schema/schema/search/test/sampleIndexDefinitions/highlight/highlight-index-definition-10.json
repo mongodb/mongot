@@ -1,0 +1,26 @@
+{
+  "mappings": {
+    "fields": {
+      "a": {
+        "type": "document",
+        "fields": {
+          "b": {
+            "type": "document",
+            "fields": {
+              "c": {
+                "type": "string",
+                "analyzer": "lucene.english",
+                "multi": {
+                  "spanish": {
+                    "type": "string",
+                    "analyzer": "lucene.spanish"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

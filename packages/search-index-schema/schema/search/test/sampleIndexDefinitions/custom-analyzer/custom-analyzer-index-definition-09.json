@@ -1,0 +1,22 @@
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "contact_info": {
+        "type": "string",
+        "analyzer": "email-analyzer"
+      }
+    }
+  },
+  "analyzer": "lucene.standard",
+  "analyzers": [
+    {
+      "charFilters": [],
+      "name": "email-analyzer",
+      "tokenFilters": [],
+      "tokenizer": {
+        "type": "uaxUrlEmail"
+      }
+    }
+  ]
+}

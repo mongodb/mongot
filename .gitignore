@@ -31,6 +31,7 @@ docker/volume/cache
 evergreen_mongo_artifact
 
 *.swp
+test_filter.targets
 
 community-quick-start/sampledata.archive
 community-quick-start/mongot-community-local-docker.tar

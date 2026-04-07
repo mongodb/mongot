@@ -1,0 +1,21 @@
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "dogs": [
+        {
+          "type": "embeddedDocuments",
+          "dynamic": true,
+          "fields": {
+            "breed": {
+              "type": "autocomplete"
+            },
+            "location": {
+              "type": "geo"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

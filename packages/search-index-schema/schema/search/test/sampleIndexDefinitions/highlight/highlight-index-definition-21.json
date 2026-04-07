@@ -1,0 +1,23 @@
+{
+  "mappings": {
+    "fields": {
+      "name": [
+        {
+          "type": "string"
+        }
+      ],
+      "title": [
+        {
+          "type": "string",
+          "analyzer": "lucene.english",
+          "multi": {
+            "french": {
+              "analyzer": "lucene.french",
+              "type": "string"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "mappings": {
+    "fields": {
+      "teachers": {
+        "type": "embeddedDocuments",
+        "dynamic": true
+      }
+    }
+  },
+  "analyzer": "lucene.english",
+  "synonyms": [
+    {
+      "name": "standard_synonyms",
+      "source": {
+        "collection": "collection"
+      },
+      "analyzer": "lucene.english"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "mappings": {
+    "fields": {
+      "lengthHrs": {
+        "type": "number"
+      },
+      "pilots": {
+        "type": "embeddedDocuments",
+        "dynamic": true,
+        "fields": {
+          "proficiencyScore": {
+            "type": "number"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "mappings": {
+    "fields": {
+      "teachers": {
+        "type": "embeddedDocuments",
+        "fields": {
+          "classes": {
+            "type": "embeddedDocuments",
+            "fields": {
+              "classRating": {
+                "type": "number"
+              }
+            }
+          },
+          "teacherRating": {
+            "type": "number"
+          }
+        }
+      }
+    }
+  }
+}

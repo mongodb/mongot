@@ -134,11 +134,22 @@ deps.outdated:
 
 .PHONY: test.unit
 test.unit:
-	@echo 'Running unit tests'
-	@$(call BAZEL) test \
-	               --test_tag_filters='unit' \
-	               --test_output=errors \
-	               //src/...
+	@echo 'Running unit tests for files affected by this PR'
+	@if python3 $(DIR)/scripts/ci/affected_tests.py \
+			--base-branch "$${branch_name:-master}" \
+			--bazel "$(BAZEL)" \
+			--tag "unit" \
+			--output-file "test_filter.targets"; then \
+		$(BAZEL) test \
+			--test_output=errors \
+			--target_pattern_file=test_filter.targets; \
+	else \
+		echo 'Running all unit tests'; \
+		$(BAZEL) test \
+			--test_tag_filters='unit' \
+			--test_output=errors \
+			//src/...; \
+	fi
 
 .PHONY: test.unit.coverage
 test.unit.coverage:

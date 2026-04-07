@@ -1,0 +1,20 @@
+{
+  "mappings": {
+    "fields": {
+      "name": [
+        {
+          "type": "autocomplete"
+        },
+        {
+          "type": "string",
+          "multi": {
+            "simple": {
+              "analyzer": "lucene.simple",
+              "type": "string"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

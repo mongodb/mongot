@@ -1,0 +1,15 @@
+{
+  "mappings": {
+    "fields": {
+      "category": {
+        "type": "string",
+        "multi": {
+          "english": {
+            "type": "string",
+            "analyzer": "lucene.english"
+          }
+        }
+      }
+    }
+  }
+}

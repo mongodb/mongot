@@ -1,49 +1,10 @@
-load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive", "http_file")
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 def tools_repos():
-    _evergreen_macos_aarch64()
-    _evergreen_linux_aarch64()
-    _evergreen_linux_x86_64()
     _prometheus_linux_x86_64()
     _prometheus_linux_aarch64()
     _prometheus_macos_x86_64()
     _prometheus_macos_aarch64()
-
-def _evergreen_macos_aarch64():
-    http_file(
-        name = "evergreen_cli_macos_aarch64",
-        integrity = "sha256-UDyx5+7EDAm+dWWJGc6tDFyxOF0rUA+iedMpOmsvbpc=",
-        # This URL may expire in ~1 year. If it fails, find a new commit hash at
-        # https://spruce.corp.mongodb.com/project/evergreen/waterfall and update the URL.
-        urls = [
-            "https://evg-bucket-evergreen.s3.amazonaws.com/evergreen/clients/evergreen_aef4d34bf9a5c6974617ae27979de715f3df712e/darwin_arm64/evergreen",
-        ],
-        executable = True,
-    )
-
-def _evergreen_linux_aarch64():
-    http_file(
-        name = "evergreen_cli_linux_aarch64",
-        integrity = "sha256-ZXfpTVkfJs1POUl8fydC6r+r4MxHOazaj1g57BOH4g4=",
-        # This URL may expire in ~1 year. If it fails, find a new commit hash at
-        # https://spruce.corp.mongodb.com/project/evergreen/waterfall and update the URL.
-        urls = [
-            "https://evg-bucket-evergreen.s3.amazonaws.com/evergreen/clients/evergreen_e7d6c62adf6597e3bdf24e5e552df36f43b57aca/linux_arm64/evergreen",
-        ],
-        executable = True,
-    )
-
-def _evergreen_linux_x86_64():
-    http_file(
-        name = "evergreen_cli_linux_x86_64",
-        integrity = "sha256-8dR523k/NNwaRbF6zZyWCcEot8rbGLqGxkaJbE7GEko=",
-        # This URL may expire in ~1 year. If it fails, find a new commit hash at
-        # https://spruce.corp.mongodb.com/project/evergreen/waterfall and update the URL.
-        urls = [
-            "https://evg-bucket-evergreen.s3.amazonaws.com/evergreen/clients/evergreen_e7d6c62adf6597e3bdf24e5e552df36f43b57aca/linux_amd64/evergreen",
-        ],
-        executable = True,
-    )
 
 def _prometheus_linux_x86_64():
     http_archive(

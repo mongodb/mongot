@@ -1,0 +1,15 @@
+{
+  "indexFormatVersion": 4,
+  "mappings": {
+    "fields": {
+      "name": [
+        {
+          "type": "autocomplete"
+        },
+        {
+          "type": "string"
+        }
+      ]
+    }
+  }
+}

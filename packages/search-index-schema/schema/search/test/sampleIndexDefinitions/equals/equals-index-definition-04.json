@@ -1,0 +1,9 @@
+{
+  "mappings": {
+    "fields": {
+      "a": {
+        "type": "boolean"
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "mappings": {
+    "dynamic": false,
+    "fields": {
+      "organizationId": {
+        "type": "objectId"
+      },
+      "title": {
+        "type": "string"
+      }
+    }
+  }
+}
