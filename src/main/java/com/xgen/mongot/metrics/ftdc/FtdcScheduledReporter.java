@@ -4,6 +4,7 @@ import static com.google.common.collect.ImmutableSortedMap.toImmutableSortedMap;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSortedMap;
+import com.google.common.flogger.FluentLogger;
 import com.google.errorprone.annotations.CompileTimeConstant;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.xgen.mongot.metrics.micrometer.SerializableDistributionSummary;
@@ -27,6 +28,7 @@ import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.composite.CompositeMeterRegistry;
 import java.io.IOException;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
@@ -44,11 +46,34 @@ public class FtdcScheduledReporter {
   static final String FTDC_MONGOT_REPORTING_TIMER_NAME = "ftdc-reporting-time";
   static final Tags FTDC_MONGOT_REPORTING_TIMER_TAGS = Tags.of("timeUnit", "milliseconds");
   private static final Logger LOG = LoggerFactory.getLogger(FtdcScheduledReporter.class);
+  private static final FluentLogger FLOGGER = FluentLogger.forEnclosingClass();
   private final Reporter reporter;
   private final NamedScheduledExecutorService executor;
 
   /**
-   * Creates a new FtdcScheduledReporter.
+   * Default maximum number of meters allowed before FTDC reporting is skipped when the meter limit
+   * is enabled.
+   *
+   * <p>This is an approximation of the number of meters that will be reported for a typical
+   * deployment with 100 indexes.
+   */
+  public static final int DEFAULT_MAX_METER_COUNT = 40000;
+
+  public static FtdcScheduledReporter create(
+      MeterRegistry reportingMeterRegistry,
+      CompositeMeterRegistry combinedMeterRegistry,
+      Ftdc ftdc,
+      boolean useCombinedRegistryForExecutorMetrics) {
+    return create(
+        reportingMeterRegistry,
+        combinedMeterRegistry,
+        ftdc,
+        useCombinedRegistryForExecutorMetrics,
+        DEFAULT_MAX_METER_COUNT);
+  }
+
+  /**
+   * Creates a new FtdcScheduledReporter with a meter count limit.
    *
    * @param reportingMeterRegistry the registry to use for reporting metrics to FTDC. This should be
    *     the ftdcRegistry to ensure only FTDC-specific metrics are reported.
@@ -59,16 +84,20 @@ public class FtdcScheduledReporter {
    * @param ftdc the FTDC instance to write metrics to
    * @param useCombinedRegistryForExecutorMetrics whether to use the combined meter registry for
    *     executor metrics
+   * @param maxMeterCount the maximum number of meters before FTDC reporting is skipped. Use {@link
+   *     Integer#MAX_VALUE} to disable the limit.
    * @return the newly created FtdcScheduledReporter
    */
   public static FtdcScheduledReporter create(
       MeterRegistry reportingMeterRegistry,
       CompositeMeterRegistry combinedMeterRegistry,
       Ftdc ftdc,
-      boolean useCombinedRegistryForExecutorMetrics) {
+      boolean useCombinedRegistryForExecutorMetrics,
+      int maxMeterCount) {
+    Check.argIsPositive(maxMeterCount, "maxMeterCount");
     MeterRegistry executorRegistry =
         useCombinedRegistryForExecutorMetrics ? combinedMeterRegistry : reportingMeterRegistry;
-    return new FtdcScheduledReporter(executorRegistry, reportingMeterRegistry, ftdc);
+    return new FtdcScheduledReporter(executorRegistry, reportingMeterRegistry, ftdc, maxMeterCount);
   }
 
   /**
@@ -81,11 +110,15 @@ public class FtdcScheduledReporter {
    * @param reportingRegistry the registry to use for reporting metrics to FTDC. This should be the
    *     ftdcRegistry to ensure only FTDC-specific metrics are reported.
    * @param ftdc the FTDC instance to write metrics to
+   * @param maxMeterCount the maximum number of meters before FTDC reporting is skipped
    */
   private FtdcScheduledReporter(
-      MeterRegistry executorRegistry, MeterRegistry reportingRegistry, Ftdc ftdc) {
+      MeterRegistry executorRegistry,
+      MeterRegistry reportingRegistry,
+      Ftdc ftdc,
+      int maxMeterCount) {
     this.executor = Executors.singleThreadScheduledExecutor("ftdc-reporter", executorRegistry);
-    this.reporter = new Reporter(executorRegistry, reportingRegistry, ftdc);
+    this.reporter = new Reporter(executorRegistry, reportingRegistry, ftdc, maxMeterCount);
   }
 
   /**
@@ -122,6 +155,7 @@ public class FtdcScheduledReporter {
 
     private final MeterRegistry meterRegistry;
     private final MeterRegistry executorRegistry;
+    private final int maxMeterCount;
 
     /** Timer to export metric of how long reporting takes. */
     private final Timer reportingTimer;
@@ -135,9 +169,19 @@ public class FtdcScheduledReporter {
 
     @VisibleForTesting
     Reporter(MeterRegistry executorRegistry, MeterRegistry reportingRegistry, Ftdc ftdc) {
+      this(executorRegistry, reportingRegistry, ftdc, Integer.MAX_VALUE);
+    }
+
+    @VisibleForTesting
+    Reporter(
+        MeterRegistry executorRegistry,
+        MeterRegistry reportingRegistry,
+        Ftdc ftdc,
+        int maxMeterCount) {
       this.executorRegistry = executorRegistry;
       this.meterRegistry = reportingRegistry;
       this.ftdc = ftdc;
+      this.maxMeterCount = maxMeterCount;
       this.reportingTimer =
           Timer.builder(FTDC_MONGOT_REPORTING_TIMER_NAME)
               .tags(FTDC_MONGOT_REPORTING_TIMER_TAGS)
@@ -159,10 +203,22 @@ public class FtdcScheduledReporter {
     /** Report the current values of all metrics in the registry. */
     synchronized void report() {
       try {
+        List<Meter> meters = this.meterRegistry.getMeters();
+        int meterCount = meters.size();
+
+        if (meterCount > this.maxMeterCount) {
+          FLOGGER.atWarning().atMostEvery(1, TimeUnit.HOURS).log(
+              "Skipping FTDC reporting: meter count (%d) exceeds limit (%d). "
+                  + "This typically happens when there are too many indexes.",
+              meterCount, this.maxMeterCount);
+          ftdcFailureCounter("meterLimitExceeded", this.executorRegistry).increment();
+          return;
+        }
+
         // we sort by meter names so metrics in FTDC will be displayed in alphabetical order and for
         // the BSON document to be a consistent format across all FTDC samples
         ImmutableSortedMap<String, Meter> sortedMeterMap =
-            this.meterRegistry.getMeters().stream()
+            meters.stream()
                 .collect(
                     toImmutableSortedMap(
                         Comparator.naturalOrder(), this::createMeterName, meter -> meter));
@@ -185,9 +241,7 @@ public class FtdcScheduledReporter {
         // Catch any exceptions during metric collection or document creation to prevent them from
         // interrupting the entire reporting cycle. Log the error but allow the reporter to
         // continue.
-        LOG.atError()
-            .setCause(e)
-            .log("Error during metric reporting, skipping this report cycle");
+        LOG.atError().setCause(e).log("Error during metric reporting, skipping this report cycle");
 
         ftdcFailureCounter("exceptionDuringReport", this.executorRegistry).increment();
       }

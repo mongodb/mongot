@@ -28,6 +28,7 @@ import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.composite.CompositeMeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -1000,6 +1001,147 @@ public class FtdcScheduledReporterTest {
     } finally {
       reporter.stop();
     }
+  }
+
+  @Test
+  public void create_withMeterLimit_skipsSampleWhenExceeded() throws Exception {
+    var ftdc = mockFtdc();
+    SimpleMeterRegistry reportingRegistry = new SimpleMeterRegistry();
+    CompositeMeterRegistry combinedRegistry = new CompositeMeterRegistry();
+    combinedRegistry.add(reportingRegistry);
+    var reporter =
+        FtdcScheduledReporter.create(reportingRegistry, combinedRegistry, ftdc, false, 1);
+    reporter.start(10, TimeUnit.MILLISECONDS);
+
+    try {
+      // Wait until the failure counter proves that report cycles ran and were skipped.
+      assertThat(
+              pollUntil(
+                  () ->
+                      reportingRegistry.find("mongot.ftdc_executor_failure").counters().stream()
+                          .anyMatch(c -> c.count() > 0),
+                  Duration.ofSeconds(2)))
+          .isTrue();
+      verifyNoInteractions(ftdc);
+    } finally {
+      reporter.stop();
+    }
+  }
+
+  private static boolean pollUntil(java.util.function.BooleanSupplier condition, Duration timeout)
+      throws InterruptedException {
+    long deadline = System.nanoTime() + timeout.toNanos();
+    while (System.nanoTime() < deadline) {
+      if (condition.getAsBoolean()) {
+        return true;
+      }
+      Thread.sleep(10);
+    }
+    return false;
+  }
+
+  @Test
+  public void create_withDefaultMeterLimit_reportsSample() throws Exception {
+    var ftdc = mockFtdc();
+    SimpleMeterRegistry reportingRegistry = new SimpleMeterRegistry();
+    CompositeMeterRegistry combinedRegistry = new CompositeMeterRegistry();
+    combinedRegistry.add(reportingRegistry);
+
+    var reporter =
+        FtdcScheduledReporter.create(reportingRegistry, combinedRegistry, ftdc, false);
+    reporter.start(10, TimeUnit.MILLISECONDS);
+
+    try {
+      verify(ftdc, timeout(1000).atLeast(1)).addSample(any(), anyLong());
+    } finally {
+      reporter.stop();
+    }
+  }
+
+  @Test
+  public void report_meterCountExceedsLimit_skipsSample() throws Exception {
+    var ftdc = mockFtdc();
+    var executorRegistry = new SimpleMeterRegistry();
+    var reportingRegistry = new SimpleMeterRegistry();
+    var reporter =
+        new FtdcScheduledReporter.Reporter(executorRegistry, reportingRegistry, ftdc, 1);
+
+    reporter.report();
+
+    // Limit is 1 and the reporter always registers at least one meter (the reporting timer).
+    verifyNoInteractions(ftdc);
+  }
+
+  @Test
+  public void report_meterCountBelowLimit_reportsSample() throws Exception {
+    var ftdc = mockFtdc();
+    var executorRegistry = new SimpleMeterRegistry();
+    var reportingRegistry = new SimpleMeterRegistry();
+    // Use a limit well above any plausible internal meter count so the test is not
+    // sensitive to how many meters the reporting timer creates internally.
+    var reporter =
+        new FtdcScheduledReporter.Reporter(executorRegistry, reportingRegistry, ftdc, 10_000);
+
+    reportingRegistry.counter("counter1").increment();
+    reportingRegistry.counter("counter2").increment();
+
+    reporter.report();
+
+    verify(ftdc).addSample(any(), anyLong());
+  }
+
+  @Test
+  public void report_meterLimitDisabled_reportsRegardlessOfCount() throws Exception {
+    var ftdc = mockFtdc();
+    var meterRegistry = new SimpleMeterRegistry();
+    var reporter =
+        new FtdcScheduledReporter.Reporter(meterRegistry, meterRegistry, ftdc, Integer.MAX_VALUE);
+
+    for (int i = 0; i < 100; i++) {
+      meterRegistry.counter("counter_" + i).increment();
+    }
+
+    reporter.report();
+
+    verify(ftdc).addSample(any(), anyLong());
+  }
+
+  @Test
+  public void report_meterCountDropsBelowLimit_resumesReporting() throws Exception {
+    var ftdc = mockFtdc();
+    var executorRegistry = new SimpleMeterRegistry();
+    var reportingRegistry = new SimpleMeterRegistry();
+
+    // Measure baseline: register the same timer the Reporter creates internally to discover
+    // how many meters SimpleMeterRegistry actually allocates for it.
+    Timer.builder(FtdcScheduledReporter.FTDC_MONGOT_REPORTING_TIMER_NAME)
+        .tags(FtdcScheduledReporter.FTDC_MONGOT_REPORTING_TIMER_TAGS)
+        .publishPercentileHistogram()
+        .publishPercentiles(0.5, 0.75, 0.9, 0.99)
+        .register(reportingRegistry);
+    int baseMeterCount = reportingRegistry.getMeters().size();
+    reportingRegistry.clear();
+
+    int limit = baseMeterCount + 1;
+    var reporter =
+        new FtdcScheduledReporter.Reporter(executorRegistry, reportingRegistry, ftdc, limit);
+
+    // Add 2 counters — puts us at baseMeterCount + 2, which exceeds limit.
+    var c1 = reportingRegistry.counter("a");
+    var c2 = reportingRegistry.counter("b");
+    c1.increment();
+    c2.increment();
+
+    assertThat(reportingRegistry.getMeters().size()).isGreaterThan(limit);
+    reporter.report();
+    verifyNoInteractions(ftdc);
+
+    // Remove one counter to drop to baseMeterCount + 1, which equals the limit (not exceeded).
+    reportingRegistry.remove(c2);
+
+    assertThat(reportingRegistry.getMeters().size()).isAtMost(limit);
+    reporter.report();
+    verify(ftdc).addSample(any(), anyLong());
   }
 
   @Test

@@ -18,6 +18,7 @@ public class FtdcConfig {
   final Bytes archiveFileSize;
   final Bytes directorySize;
   final int maxFileCount;
+  private final int maxMeterCount;
 
   public FtdcConfig(
       Path ftdcDirectory,
@@ -25,10 +26,12 @@ public class FtdcConfig {
       Bytes archiveFileSize,
       int samplesPerInterimUpdate,
       int samplesPerMetricChunk,
-      int maxFileCount) {
+      int maxFileCount,
+      int maxMeterCount) {
     Check.argIsPositive(samplesPerInterimUpdate, "samplesPerInterimUpdate");
     Check.argIsPositive(samplesPerMetricChunk, "samplesPerMetricChunk");
     Check.argIsPositive(maxFileCount, "maxFileCount");
+    Check.argIsPositive(maxMeterCount, "maxMeterCount");
 
     checkArg(
         samplesPerMetricChunk > samplesPerInterimUpdate,
@@ -43,6 +46,7 @@ public class FtdcConfig {
     this.archiveFileSize = archiveFileSize;
     this.directorySize = directorySize;
     this.maxFileCount = maxFileCount;
+    this.maxMeterCount = maxMeterCount;
   }
 
   /** Create a FtdcConfig with default values for all the missing parameters. */
@@ -52,7 +56,8 @@ public class FtdcConfig {
       Optional<Bytes> optionalArchiveFileSize,
       Optional<Integer> samplesPerInterimUpdate,
       Optional<Integer> samplesPerMetricChunk,
-      Optional<Integer> maxFileCount) {
+      Optional<Integer> maxFileCount,
+      Optional<Integer> maxMeterCount) {
     FtdcConfig config =
         new FtdcConfig(
             directory,
@@ -60,7 +65,8 @@ public class FtdcConfig {
             optionalArchiveFileSize.orElse(Bytes.ofMebi(10)),
             samplesPerInterimUpdate.orElse(10),
             samplesPerMetricChunk.orElse(50),
-            maxFileCount.orElse(300));
+            maxFileCount.orElse(300),
+            maxMeterCount.orElse(FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT));
     LOG.atInfo()
         .addKeyValue("ftdcDirectory", config.ftdcDirectory)
         .addKeyValue("directorySize", config.directorySize)
@@ -68,7 +74,12 @@ public class FtdcConfig {
         .addKeyValue("samplesPerInterimUpdate", config.samplesPerInterimUpdate)
         .addKeyValue("samplesPerMetricChunk", config.samplesPerMetricChunk)
         .addKeyValue("maxFileCount", config.maxFileCount)
+        .addKeyValue("maxMeterCount", config.maxMeterCount)
         .log("instantiated FTDC config");
     return config;
+  }
+
+  public int maxMeterCount() {
+    return this.maxMeterCount;
   }
 }

@@ -272,7 +272,8 @@ public class FtdcFileManagerTest {
   }
 
   private FtdcConfig getConfig(Path dir) {
-    return new FtdcConfig(dir, MAX_STORAGE_SIZE, Bytes.ofBytes(1000), 4, 50, MAX_FILE_COUNT);
+    return new FtdcConfig(
+        dir, MAX_STORAGE_SIZE, Bytes.ofBytes(1000), 4, 50, MAX_FILE_COUNT, Integer.MAX_VALUE);
   }
 
   private BsonDocument document() {

@@ -257,6 +257,7 @@ public class FtdcTest {
         Bytes.ofBytes(1000),
         MAX_NUM_INTERIM_SAMPLES,
         MAX_NUM_ARCHIVE_SAMPLES,
-        MAX_NUM_FILES);
+        MAX_NUM_FILES,
+        Integer.MAX_VALUE);
   }
 }

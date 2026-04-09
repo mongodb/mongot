@@ -374,6 +374,7 @@ public class CommunityMongotBootstrapper {
             // Use defaults for the remaining configs
             Optional.empty(),
             Optional.empty(),
+            Optional.empty(),
             Optional.empty());
 
     var metadata =
