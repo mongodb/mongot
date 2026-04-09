@@ -3,15 +3,21 @@ package com.xgen.mongot.config.provider.community;
 import com.google.common.net.HostAndPort;
 import com.mongodb.ConnectionString;
 import com.mongodb.ReadConcernLevel;
+import com.mongodb.ReadPreference;
+import com.mongodb.TaggableReadPreference;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.Crash;
 import com.xgen.mongot.util.SecretsParser;
 import com.xgen.mongot.util.mongodb.ConnectionInfo;
 import com.xgen.mongot.util.mongodb.ConnectionStringBuilder;
 import com.xgen.mongot.util.mongodb.SslContextFactory;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 import javax.net.ssl.SSLContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,11 +26,15 @@ public class ConnectionInfoFactory {
 
   private static final Logger LOG = LoggerFactory.getLogger(ConnectionInfoFactory.class);
 
-  public static ConnectionInfo getConnectionInfo(
-      MongoConnectionConfig config, Optional<Path> caFile, boolean directConnect) {
+  public static ConnectionInfo getSingleHostConnectionInfo(
+      MongoConnectionConfig config, Optional<Path> caFile) {
+    return new ConnectionInfo(getSingleHostConnectionString(config), getSslContext(config, caFile));
+  }
+
+  public static ConnectionInfo getClusterConnectionInfo(
+      MongoConnectionConfig config, ReadPreference readPreference, Optional<Path> caFile) {
     return new ConnectionInfo(
-        directConnect ? getSingleHostConnectionString(config) : getClusterConnectionString(config),
-        getSslContext(config, caFile));
+        getClusterConnectionString(config, readPreference), getSslContext(config, caFile));
   }
 
   private static ConnectionString getSingleHostConnectionString(MongoConnectionConfig config) {
@@ -44,13 +54,35 @@ public class ConnectionInfoFactory {
     return getConnectionString(config, connectionStringBuilder);
   }
 
-  private static ConnectionString getClusterConnectionString(MongoConnectionConfig config) {
+  private static ConnectionString getClusterConnectionString(
+      MongoConnectionConfig config, ReadPreference readPreference) {
     ConnectionStringBuilder connectionStringBuilder =
         ConnectionStringBuilder.standard()
             .withHostAndPorts(config.hostandPorts())
-            .withOption("readPreference", config.readPreference().asReadPreference().getName())
+            .withOption("readPreference", readPreference.getName())
             .withOption("directConnection", "false");
+    addTagSets(connectionStringBuilder, readPreference);
     return getConnectionString(config, connectionStringBuilder);
+  }
+
+  private static void addTagSets(ConnectionStringBuilder builder, ReadPreference readPreference) {
+    if (!(readPreference instanceof TaggableReadPreference taggable)) {
+      return;
+    }
+    taggable
+        .getTagSetList()
+        .forEach(
+            tagSet -> {
+              String encoded =
+                  StreamSupport.stream(tagSet.spliterator(), false)
+                      .map(
+                          tag ->
+                              URLEncoder.encode(tag.getName(), StandardCharsets.UTF_8)
+                                  + ":"
+                                  + URLEncoder.encode(tag.getValue(), StandardCharsets.UTF_8))
+                      .collect(Collectors.joining(","));
+              builder.withRepeatableOption("readPreferenceTags", encoded);
+            });
   }
 
   private static ConnectionString getConnectionString(
@@ -64,7 +96,8 @@ public class ConnectionInfoFactory {
     } else {
       String replicaSetPassword =
           Crash.because("failed to read password file")
-              .ifThrows(() -> SecretsParser.readSecretFile(config.passwordFile().get()));
+              .ifThrowsExceptionOrError(
+                  () -> SecretsParser.readSecretFile(config.passwordFile().get()));
 
       connectionStringBuilder
           .withAuthenticationCredentials(config.username().get(), replicaSetPassword)
@@ -72,7 +105,7 @@ public class ConnectionInfoFactory {
     }
 
     return Crash.because("failed to construct connection string")
-        .ifThrows(connectionStringBuilder::build);
+        .ifThrowsExceptionOrError(connectionStringBuilder::build);
   }
 
   private static Optional<SSLContext> getSslContext(

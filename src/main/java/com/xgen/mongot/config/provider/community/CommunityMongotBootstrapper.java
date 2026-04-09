@@ -6,6 +6,7 @@ import static com.xgen.mongot.cursor.CursorConfig.DEFAULT_MESSAGE_SIZE_LIMIT;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.net.HostAndPort;
+import com.mongodb.ReadPreference;
 import com.xgen.mongot.catalog.DefaultIndexCatalog;
 import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
@@ -310,25 +311,33 @@ public class CommunityMongotBootstrapper {
       com.xgen.mongot.config.provider.community.SyncSourceConfig communitySyncSourceConfig) {
 
     var caFile = communitySyncSourceConfig.caFile();
-    var mongodHostConnectionInfo =
-        ConnectionInfoFactory.getConnectionInfo(
-            communitySyncSourceConfig.replicaSet(), caFile, true /* directConnect */);
-    var mongodClusterConnectionInfo =
-        ConnectionInfoFactory.getConnectionInfo(
-            communitySyncSourceConfig.replicaSet(), caFile, false /* directConnect */);
-    var mongosConnectionInfo =
+    var replicaSet = communitySyncSourceConfig.replicaSet();
+    var replicationReadPreference = communitySyncSourceConfig.getReplicationReaderReadPreference();
+
+    var mongodSingleHostReplicationUri =
+        ConnectionInfoFactory.getSingleHostConnectionInfo(replicaSet, caFile);
+    var mongodClusterReplicationUri =
+        ConnectionInfoFactory.getClusterConnectionInfo(
+            replicaSet, replicationReadPreference, caFile);
+
+    // Default the read-preference to secondary-preferred. Callers should override to primary where
+    // applicable.
+    var mongodClusterReadWriteConnectionInfo =
+        ConnectionInfoFactory.getClusterConnectionInfo(
+            replicaSet, ReadPreference.secondaryPreferred(), caFile);
+    var mongosReplicationUri =
         communitySyncSourceConfig
             .router()
             .map(
                 router ->
-                    ConnectionInfoFactory.getConnectionInfo(
-                        router, caFile, false /* directConnect */));
+                    ConnectionInfoFactory.getClusterConnectionInfo(
+                        router, replicationReadPreference, caFile));
 
     return new SyncSourceConfig(
-        mongodHostConnectionInfo,
-        mongodClusterConnectionInfo,
-        mongodClusterConnectionInfo, // mongodClusterConnectionInfo has directConnection=false
-        mongosConnectionInfo,
+        mongodSingleHostReplicationUri,
+        mongodClusterReplicationUri,
+        mongodClusterReadWriteConnectionInfo,
+        mongosReplicationUri,
         Optional.empty());
   }
 

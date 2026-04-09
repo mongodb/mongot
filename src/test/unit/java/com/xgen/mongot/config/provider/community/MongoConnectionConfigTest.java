@@ -33,7 +33,7 @@ public class MongoConnectionConfigTest {
         passwordFile,
         Databases.ADMIN,
         tls,
-        MongoReadPreferenceName.SECONDARY_PREFERRED,
+        Optional.empty(),
         x509);
   }
 

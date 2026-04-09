@@ -17,6 +17,7 @@ java_library(
         "MetricsConfig.java",
         "MongoConnectionConfig.java",
         "MongoReadPreferenceName.java",
+        "ReadPreferenceConfig.java",
         "ReplicaSetConfig.java",
         "RouterConfig.java",
         "ServerConfig.java",

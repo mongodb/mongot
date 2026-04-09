@@ -1,6 +1,8 @@
 package com.xgen.mongot.catalogservice;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.mongodb.ReadPreference;
+import com.mongodb.WriteConcern;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.BulkWriteOptions;
@@ -186,6 +188,8 @@ public class MetadataClient<T extends DocumentEncodable> {
   private MongoCollection<BsonDocument> getCollection() {
     return this.mongoClient
         .getDatabase(this.databaseName)
-        .getCollection(this.collectionName, BsonDocument.class);
+        .getCollection(this.collectionName, BsonDocument.class)
+        .withWriteConcern(WriteConcern.MAJORITY)
+        .withReadPreference(ReadPreference.primary());
   }
 }

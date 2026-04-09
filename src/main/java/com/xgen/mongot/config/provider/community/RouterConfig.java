@@ -6,7 +6,6 @@ import com.xgen.mongot.util.bson.parser.DocumentParser;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-import org.bson.BsonDocument;
 
 public final class RouterConfig extends MongoConnectionConfig {
   public RouterConfig(
@@ -15,7 +14,7 @@ public final class RouterConfig extends MongoConnectionConfig {
       Optional<Path> passwordFile,
       String authSource,
       boolean tls,
-      MongoReadPreferenceName readPreference,
+      Optional<MongoReadPreferenceName> readPreference,
       Optional<X509Config> x509) {
     super(hostandPorts, username, passwordFile, authSource, tls, readPreference, x509);
   }
@@ -29,12 +28,7 @@ public final class RouterConfig extends MongoConnectionConfig {
         parser.getField(Fields.PASSWORD_FILE).unwrap(),
         parser.getField(Fields.AUTH_SOURCE).unwrap(),
         parser.getField(Fields.TLS).unwrap(),
-        parser.getField(Fields.PRIMARY_READ_PREFERENCE).unwrap(),
+        parser.getField(Fields.READ_PREFERENCE).unwrap(),
         parser.getField(Fields.X509).unwrap());
-  }
-
-  @Override
-  public BsonDocument toBson() {
-    return toBson(Fields.PRIMARY_READ_PREFERENCE);
   }
 }

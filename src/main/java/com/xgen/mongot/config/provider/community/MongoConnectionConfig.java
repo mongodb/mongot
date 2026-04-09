@@ -7,7 +7,6 @@ import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
 import com.xgen.mongot.util.bson.parser.DocumentParser;
 import com.xgen.mongot.util.bson.parser.Field;
-import com.xgen.mongot.util.bson.parser.OptionalField;
 import com.xgen.mongot.util.bson.parser.Value;
 import com.xgen.mongot.util.mongodb.Databases;
 import java.nio.file.Path;
@@ -24,7 +23,11 @@ public abstract sealed class MongoConnectionConfig implements DocumentEncodable
   private final Optional<Path> passwordFile;
   private final String authSource;
   private final boolean tls;
-  private final MongoReadPreferenceName readPreference;
+
+  // TODO(CLOUDP-395903) - remove before community GA.
+  @Deprecated(forRemoval = true)
+  private final Optional<MongoReadPreferenceName> readPreference;
+
   private final Optional<X509Config> x509;
 
   public MongoConnectionConfig(
@@ -33,7 +36,7 @@ public abstract sealed class MongoConnectionConfig implements DocumentEncodable
       Optional<Path> passwordFile,
       String authSource,
       boolean tls,
-      MongoReadPreferenceName readPreference,
+      Optional<MongoReadPreferenceName> readPreference,
       Optional<X509Config> x509) {
     this.hostandPorts = hostandPorts;
     this.username = username;
@@ -70,17 +73,12 @@ public abstract sealed class MongoConnectionConfig implements DocumentEncodable
     public static final Field.WithDefault<Boolean> TLS =
         Field.builder("tls").booleanField().optional().withDefault(false);
 
-    public static final OptionalField.FieldBuilder<MongoReadPreferenceName> READ_PREFERENCE =
+    public static final Field.Optional<MongoReadPreferenceName> READ_PREFERENCE =
         Field.builder("readPreference")
             .enumField(MongoReadPreferenceName.class)
             .asCamelCase()
-            .optional();
-
-    public static final Field.WithDefault<MongoReadPreferenceName> PRIMARY_READ_PREFERENCE =
-        READ_PREFERENCE.withDefault(MongoReadPreferenceName.PRIMARY);
-
-    public static final Field.WithDefault<MongoReadPreferenceName> SECONDARY_READ_PREFERENCE =
-        READ_PREFERENCE.withDefault(MongoReadPreferenceName.SECONDARY_PREFERRED);
+            .optional()
+            .noDefault();
 
     public static final Field.Optional<X509Config> X509 =
         Field.builder("x509")
@@ -110,7 +108,8 @@ public abstract sealed class MongoConnectionConfig implements DocumentEncodable
     return this.tls;
   }
 
-  public MongoReadPreferenceName readPreference() {
+  @Deprecated(forRemoval = true)
+  public Optional<MongoReadPreferenceName> readPreference() {
     return this.readPreference;
   }
 
@@ -118,14 +117,15 @@ public abstract sealed class MongoConnectionConfig implements DocumentEncodable
     return this.x509;
   }
 
-  public BsonDocument toBson(Field.WithDefault<MongoReadPreferenceName> readPreferenceArg) {
+  @Override
+  public BsonDocument toBson() {
     return BsonDocumentBuilder.builder()
         .field(Fields.HOST_AND_PORT, this.hostandPorts.stream().map(HostAndPort::toString).toList())
         .field(Fields.USERNAME, this.username)
         .field(Fields.PASSWORD_FILE, this.passwordFile)
         .field(Fields.AUTH_SOURCE, this.authSource)
         .field(Fields.TLS, this.tls)
-        .field(readPreferenceArg, this.readPreference)
+        .field(Fields.READ_PREFERENCE, this.readPreference)
         .field(Fields.X509, this.x509)
         .build();
   }
@@ -163,7 +163,7 @@ public abstract sealed class MongoConnectionConfig implements DocumentEncodable
         && Objects.equals(this.username, that.username)
         && Objects.equals(this.passwordFile, that.passwordFile)
         && Objects.equals(this.authSource, that.authSource)
-        && this.readPreference == that.readPreference
+        && Objects.equals(this.readPreference, that.readPreference)
         && Objects.equals(this.x509, that.x509);
   }
 

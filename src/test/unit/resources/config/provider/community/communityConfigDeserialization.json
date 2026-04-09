@@ -415,6 +415,90 @@
           "collectionPeriodMillis": 3000
         }
       }
+    },
+    {
+      "description": "with replicationReader",
+      "value": {
+        "syncSource": {
+          "replicaSet": {
+            "hostAndPort": "mongod:27017",
+            "username": "user",
+            "passwordFile": "/etc/mongot/replicaSet.passwd"
+          },
+          "replicationReader": {
+            "readPreference": "nearest"
+          }
+        },
+        "storage": {
+          "dataPath": "data/mongot"
+        },
+        "server": {
+          "grpc": {
+            "address": "localhost:27028"
+          }
+        },
+        "metrics": {
+          "enabled": true,
+          "address": "localhost:9946"
+        },
+        "healthCheck": {
+          "address": "localhost:8080"
+        },
+        "logging": {
+          "verbosity": "DEBUG",
+          "logPath": "/var/log/mongot"
+        },
+        "ftdc": {
+          "enabled": true,
+          "directorySizeMb": 100,
+          "fileSizeMb": 10,
+          "collectionPeriodMillis": 1000
+        }
+      }
+    },
+    {
+      "description": "with replicationReader tagSets",
+      "value": {
+        "syncSource": {
+          "replicaSet": {
+            "hostAndPort": "mongod:27017",
+            "username": "user",
+            "passwordFile": "/etc/mongot/replicaSet.passwd"
+          },
+          "replicationReader": {
+            "readPreference": "nearest",
+            "tagSets": [
+              [{"name": "dc", "value": "east"}],
+              [{"name": "dc", "value": "west"}]
+            ]
+          }
+        },
+        "storage": {
+          "dataPath": "data/mongot"
+        },
+        "server": {
+          "grpc": {
+            "address": "localhost:27028"
+          }
+        },
+        "metrics": {
+          "enabled": true,
+          "address": "localhost:9946"
+        },
+        "healthCheck": {
+          "address": "localhost:8080"
+        },
+        "logging": {
+          "verbosity": "DEBUG",
+          "logPath": "/var/log/mongot"
+        },
+        "ftdc": {
+          "enabled": true,
+          "directorySizeMb": 100,
+          "fileSizeMb": 10,
+          "collectionPeriodMillis": 1000
+        }
+      }
     }
   ],
   "invalid": [
@@ -819,6 +903,33 @@
         }
       },
       "errorMessageContains": "x509 and username/passwordFile"
+    },
+    {
+      "description": "replicationReader PRIMARY with tagSets",
+      "value": {
+        "syncSource": {
+          "replicaSet": {
+            "hostAndPort": "mongod:27017",
+            "username": "user",
+            "passwordFile": "/etc/mongot/replicaSet.passwd"
+          },
+          "replicationReader": {
+            "readPreference": "primary",
+            "tagSets": [
+              [{"name": "dc", "value": "east"}]
+            ]
+          }
+        },
+        "storage": {
+          "dataPath": "data/mongot"
+        },
+        "server": {
+          "grpc": {
+            "address": "localhost:27028"
+          }
+        }
+      },
+      "errorMessageContains": "tagSets must be empty or null when readPreference is PRIMARY"
     }
   ]
 }

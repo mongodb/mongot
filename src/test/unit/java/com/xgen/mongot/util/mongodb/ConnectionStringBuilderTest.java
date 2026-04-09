@@ -80,6 +80,25 @@ public class ConnectionStringBuilderTest {
     assertEquals(expected, builtConnectionString);
   }
 
+  @Test
+  public void testWithRepeatableOption_multipleValuesForSameKey()
+      throws ConnectionStringUtil.InvalidConnectionStringException {
+    var builtConnectionString =
+        ConnectionStringBuilder.standard()
+            .withHost("localhost")
+            .withOption("readPreference", "nearest")
+            .withRepeatableOption("readPreferenceTags", "dc:east,rack:1")
+            .withRepeatableOption("readPreferenceTags", "dc:west")
+            .build()
+            .toString();
+
+    assertEquals(
+        "mongodb://localhost/?readPreference=nearest"
+            + "&readPreferenceTags=dc:east,rack:1"
+            + "&readPreferenceTags=dc:west",
+        builtConnectionString);
+  }
+
   @Test(expected = ConnectionStringUtil.InvalidConnectionStringException.class)
   public void testInvalid() throws ConnectionStringUtil.InvalidConnectionStringException {
     var ignored =

@@ -324,8 +324,9 @@ public class CommunityMongotBootstrapperTest {
             Optional.of(Path.of("/tmp/test.passwd")),
             Databases.ADMIN,
             false,
-            MongoReadPreferenceName.PRIMARY,
+            Optional.empty(),
             Optional.empty()),
+        Optional.empty(),
         Optional.empty(),
         Optional.empty());
   }

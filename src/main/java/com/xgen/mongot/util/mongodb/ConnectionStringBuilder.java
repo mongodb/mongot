@@ -8,10 +8,9 @@ import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.mongodb.ConnectionStringUtil.InvalidConnectionStringException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collection;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -27,12 +26,13 @@ public class ConnectionStringBuilder {
   @Nullable private String authenticationDatabase;
   private boolean x509Authentication = false;
 
-  private final Map<String, String> options;
+  private record Option(String name, String value) {}
+
+  private final List<Option> options;
 
   private ConnectionStringBuilder(String scheme) {
     this.scheme = scheme;
-    // Use LinkedHashMap for consistent ordering of options.
-    this.options = new LinkedHashMap<>();
+    this.options = new ArrayList<>();
   }
 
   public static ConnectionStringBuilder srv() {
@@ -75,16 +75,39 @@ public class ConnectionStringBuilder {
   }
 
   public ConnectionStringBuilder withX509Config() {
-    this.options.put("authSource", "$external");
-    this.options.put("authMechanism", "MONGODB-X509");
+    this.withOption("authSource", "$external");
+    this.withOption("authMechanism", "MONGODB-X509");
 
     this.x509Authentication = true;
     return this;
   }
 
-  /** Sets an option on the connection string. {@code value} must be urlencoded if required. */
+  /**
+   * Sets a single-valued option on the connection string. If an option with the same key was
+   * previously set, it is replaced. {@code value} must be urlencoded if required.
+   *
+   * <p>Use this for options that may only appear once in a connection string (e.g. {@code
+   * readPreference}, {@code tls}). For options that may appear multiple times, use {@link
+   * #withRepeatableOption(String, String)}.
+   */
   public ConnectionStringBuilder withOption(String key, String value) {
-    this.options.put(key, value);
+    this.options.removeIf(e -> e.name().equals(key));
+    this.options.add(new Option(key, value));
+    return this;
+  }
+
+  /**
+   * Appends a multi-valued option to the connection string without replacing prior entries with the
+   * same key. Each call adds one more occurrence of {@code key=value} to the query string.
+   *
+   * <p>Use this for options that the MongoDB driver expects to appear multiple times, such as
+   * {@code readPreferenceTags} where each occurrence represents one tag set in priority order (e.g.
+   * {@code readPreferenceTags=dc:east,rack:1&readPreferenceTags=dc:west}).
+   *
+   * <p>For single-valued options, use {@link #withOption(String, String)} instead.
+   */
+  public ConnectionStringBuilder withRepeatableOption(String key, String value) {
+    this.options.add(new Option(key, value));
     return this;
   }
 
@@ -104,9 +127,7 @@ public class ConnectionStringBuilder {
     String hostList =
         this.hostAndPorts.stream().map(HostAndPort::toString).collect(Collectors.joining(","));
     String options =
-        this.options.entrySet().stream()
-            .map(e -> e.getKey() + "=" + e.getValue())
-            .collect(Collectors.joining("&"));
+        this.options.stream().map(e -> e.name() + "=" + e.value()).collect(Collectors.joining("&"));
     String optionsPrefix = options.isEmpty() ? "" : "?";
 
     return ConnectionStringUtil.toConnectionString(
