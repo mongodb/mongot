@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.definition;
 
+import com.xgen.mongot.embedding.exceptions.EmbeddingProviderNonTransientException;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelCatalog;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
@@ -161,11 +162,12 @@ public final class VectorAutoEmbedFieldSpecification extends VectorFieldSpecific
     if ((resolved.providerQuantization() == VectorAutoEmbedQuantization.BINARY_NO_RESCORE
             || resolved.providerQuantization() == VectorAutoEmbedQuantization.BINARY)
         && resolved.numDimensions() % 8 != 0) {
-      throw new IllegalArgumentException(
+      throw new BsonParseException(
           "numDimensions must be a multiple of 8 for quantization type "
               + resolved.providerQuantization()
               + "; but got "
-              + resolved.numDimensions());
+              + resolved.numDimensions(),
+          Optional.empty());
     }
 
     return new VectorAutoEmbedFieldSpecification(
@@ -213,7 +215,8 @@ public final class VectorAutoEmbedFieldSpecification extends VectorFieldSpecific
       String modelName,
       Optional<Integer> userNumDimensions,
       Optional<VectorSimilarity> userSimilarity,
-      Optional<VectorAutoEmbedQuantization> userQuantization) {
+      Optional<VectorAutoEmbedQuantization> userQuantization)
+      throws BsonParseException {
     // Fast‑path: if the user provided all optional values, avoid touching the model catalog.
     if (userNumDimensions.isPresent() && userQuantization.isPresent()) {
       return new ResolvedAutoEmbedVectorParams(
@@ -222,20 +225,29 @@ public final class VectorAutoEmbedFieldSpecification extends VectorFieldSpecific
           userQuantization.get());
     }
 
-    // Resolve model config from catalog
-    EmbeddingModelConfig cfg = EmbeddingModelCatalog.getModelConfig(modelName);
+    // Resolve model config from catalog. When confcall response doesn't contain embedding model
+    // configs, the model may not be registered yet. Wrap as BsonParseException so the confcall
+    // handler marks the index as invalid instead of crashing confcall processing.
+    EmbeddingModelConfig cfg;
+    try {
+      cfg = EmbeddingModelCatalog.getModelConfig(modelName);
+    } catch (EmbeddingProviderNonTransientException e) {
+      throw new BsonParseException(e.getMessage(), Optional.empty(), e);
+    }
     EmbeddingServiceConfig.VoyageModelConfig modelConfig =
         (EmbeddingServiceConfig.VoyageModelConfig) cfg.collectionScan().modelConfig();
 
     // resolve numDimensions
     if (modelConfig.outputDimensions.isEmpty()) {
-      throw new IllegalArgumentException("numDimensions cannot be resolved from model config");
+      throw new BsonParseException(
+          "numDimensions cannot be resolved from model config", Optional.empty());
     }
     Integer resolvedNumDimensions = userNumDimensions.orElse(modelConfig.outputDimensions.get());
 
     // resolve VectorProviderQuantization
     if (modelConfig.quantization.isEmpty()) {
-      throw new IllegalArgumentException("quantization cannot be resolved from model config");
+      throw new BsonParseException(
+          "quantization cannot be resolved from model config", Optional.empty());
     }
     VectorAutoEmbedQuantization resolvedQuantization =
         userQuantization.orElse(modelConfig.quantization.get());

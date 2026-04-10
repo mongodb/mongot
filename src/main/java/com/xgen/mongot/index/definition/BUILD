@@ -84,6 +84,7 @@ java_library(
         "@maven//:org_mongodb_mongodb_driver_core",
     ],
     deps = [
+        "//src/main/java/com/xgen/mongot/embedding/exceptions",
         "//src/main/java/com/xgen/mongot/embedding/providers/configs",
         "//src/main/java/com/xgen/mongot/featureflag",
         "//src/main/java/com/xgen/mongot/index/analyzer/definition",
