@@ -1130,4 +1130,149 @@ public class IndexableFieldFactoryTest {
     // Should return UNKNOWN_LOGGABLE_ID when ID field is missing
     assertThat(loggingId).isEqualTo(LoggableIdUtils.UNKNOWN_LOGGABLE_ID);
   }
+
+  @Test
+  public void addDateField_duplicateSingleValuedField_skipsSecondAdd() {
+    DocumentWrapper wrapper =
+        DocumentWrapper.createRootStandalone(
+            DUMMY_ENCODED_BYTES,
+            new KeywordAnalyzer(),
+            SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
+                IndexFormatVersion.CURRENT),
+            new IndexingMetricsUpdater(
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+
+    FieldPath fieldPath = FieldPath.newRoot("testDate");
+    int initialFieldCount = wrapper.luceneDocument.getFields().size();
+
+    // First call with isMultiValued=false - should add NumericDocValuesField + LongPoint
+    IndexableFieldFactory.addDateField(wrapper, fieldPath, 1000L, false);
+    int afterFirstAdd = wrapper.luceneDocument.getFields().size();
+    assertThat(afterFirstAdd).isEqualTo(initialFieldCount + 2);
+
+    // Second call with same field (simulates duplicate BSON key) - should skip
+    IndexableFieldFactory.addDateField(wrapper, fieldPath, 2000L, false);
+    assertEquals(afterFirstAdd, wrapper.luceneDocument.getFields().size());
+  }
+
+  @Test
+  public void addDateField_multiValued_allowsMultipleAdds() {
+    DocumentWrapper wrapper =
+        DocumentWrapper.createRootStandalone(
+            DUMMY_ENCODED_BYTES,
+            new KeywordAnalyzer(),
+            SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
+                IndexFormatVersion.CURRENT),
+            new IndexingMetricsUpdater(
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+
+    FieldPath fieldPath = FieldPath.newRoot("testDate");
+    int initialFieldCount = wrapper.luceneDocument.getFields().size();
+
+    // Multi-valued path uses addDateMultipleField (LongPoint only, no DocValues) - no crash
+    IndexableFieldFactory.addDateField(wrapper, fieldPath, 1000L, true);
+    IndexableFieldFactory.addDateField(wrapper, fieldPath, 2000L, true);
+    // Each call adds one LongPoint
+    assertThat(wrapper.luceneDocument.getFields().size()).isEqualTo(initialFieldCount + 2);
+  }
+
+  @Test
+  public void addNumericField_duplicateSingleValuedField_skipsSecondAdd() {
+    DocumentWrapper wrapper =
+        DocumentWrapper.createRootStandalone(
+            DUMMY_ENCODED_BYTES,
+            new KeywordAnalyzer(),
+            SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
+                IndexFormatVersion.CURRENT),
+            new IndexingMetricsUpdater(
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+
+    FieldPath fieldPath = FieldPath.newRoot("testNum");
+    int initialFieldCount = wrapper.luceneDocument.getFields().size();
+
+    // First call with isMultiValued=false - should add NumericDocValuesField + LongPoint
+    IndexableFieldFactory.addFloatingPointValueToNumericField(
+        wrapper, fieldPath, 12.5, Representation.DOUBLE, false);
+    int afterFirstAdd = wrapper.luceneDocument.getFields().size();
+    assertThat(afterFirstAdd).isEqualTo(initialFieldCount + 2);
+
+    // Second call with same field (simulates duplicate BSON key) - should skip
+    IndexableFieldFactory.addFloatingPointValueToNumericField(
+        wrapper, fieldPath, 24.0, Representation.DOUBLE, false);
+    assertEquals(afterFirstAdd, wrapper.luceneDocument.getFields().size());
+  }
+
+  @Test
+  public void addIntegralNumericField_duplicateSingleValuedField_skipsSecondAdd() {
+    DocumentWrapper wrapper =
+        DocumentWrapper.createRootStandalone(
+            DUMMY_ENCODED_BYTES,
+            new KeywordAnalyzer(),
+            SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
+                IndexFormatVersion.CURRENT),
+            new IndexingMetricsUpdater(
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+
+    FieldPath fieldPath = FieldPath.newRoot("testInt");
+    int initialFieldCount = wrapper.luceneDocument.getFields().size();
+
+    // First call with isMultiValued=false
+    IndexableFieldFactory.addIntegralValueToNumericField(
+        wrapper, fieldPath, 42L, Representation.INT64, false);
+    int afterFirstAdd = wrapper.luceneDocument.getFields().size();
+    assertThat(afterFirstAdd).isEqualTo(initialFieldCount + 2);
+
+    // Second call with same field - should skip
+    IndexableFieldFactory.addIntegralValueToNumericField(
+        wrapper, fieldPath, 99L, Representation.INT64, false);
+    assertEquals(afterFirstAdd, wrapper.luceneDocument.getFields().size());
+  }
+
+  @Test
+  public void addDateField_differentFields_addsBoth() {
+    DocumentWrapper wrapper =
+        DocumentWrapper.createRootStandalone(
+            DUMMY_ENCODED_BYTES,
+            new KeywordAnalyzer(),
+            SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
+                IndexFormatVersion.CURRENT),
+            new IndexingMetricsUpdater(
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+
+    FieldPath fieldPath1 = FieldPath.newRoot("date1");
+    FieldPath fieldPath2 = FieldPath.newRoot("date2");
+    int initialFieldCount = wrapper.luceneDocument.getFields().size();
+
+    IndexableFieldFactory.addDateField(wrapper, fieldPath1, 1000L, false);
+    assertThat(wrapper.luceneDocument.getFields().size()).isEqualTo(initialFieldCount + 2);
+
+    IndexableFieldFactory.addDateField(wrapper, fieldPath2, 2000L, false);
+    assertThat(wrapper.luceneDocument.getFields().size()).isEqualTo(initialFieldCount + 4);
+  }
+
+  @Test
+  public void addNumericFacetField_duplicateField_skipsSecondAdd() {
+    DocumentWrapper wrapper =
+        DocumentWrapper.createRootStandalone(
+            DUMMY_ENCODED_BYTES,
+            new KeywordAnalyzer(),
+            SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
+                IndexFormatVersion.CURRENT),
+            new IndexingMetricsUpdater(
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+
+    FieldPath fieldPath = FieldPath.newRoot("testFacet");
+    int initialFieldCount = wrapper.luceneDocument.getFields().size();
+
+    // First call - should add NumericDocValuesField
+    IndexableFieldFactory.addFloatingPointNumericFacetField(
+        wrapper, fieldPath, 12.5, Representation.DOUBLE);
+    int afterFirstAdd = wrapper.luceneDocument.getFields().size();
+    assertThat(afterFirstAdd).isEqualTo(initialFieldCount + 1);
+
+    // Second call with same field (simulates duplicate BSON key) - should skip
+    IndexableFieldFactory.addFloatingPointNumericFacetField(
+        wrapper, fieldPath, 24.0, Representation.DOUBLE);
+    assertEquals(afterFirstAdd, wrapper.luceneDocument.getFields().size());
+  }
 }

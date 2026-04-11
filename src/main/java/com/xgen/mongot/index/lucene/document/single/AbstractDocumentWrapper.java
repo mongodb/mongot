@@ -51,6 +51,17 @@ public abstract class AbstractDocumentWrapper {
   private final Set<String> vectorFieldsIndexed;
 
   /**
+   * A numeric or date field indexed with {@link org.apache.lucene.document.NumericDocValuesField}
+   * throws an exception if the same field name appears more than once in a Lucene document, because
+   * NumericDocValuesField only allows one value per field. This can happen when a BSON document
+   * contains duplicate keys at the same path.
+   *
+   * <p>This tracks which numeric DocValues fields have been indexed to skip duplicates and avoid
+   * the exception.
+   */
+  private final Set<String> numericDocValuesFieldsIndexed;
+
+  /**
    * This is used to store the check field names of a vector field when it is invalid for indexing
    * to avoid indexing the following vectors under the same vector field.
    */
@@ -70,6 +81,7 @@ public abstract class AbstractDocumentWrapper {
     this.nullFieldsIndexed = new HashSet<>();
     this.vectorFieldsIndexed = new HashSet<>();
     this.vectorFieldsInvalidForIndexing = new HashSet<>();
+    this.numericDocValuesFieldsIndexed = new HashSet<>();
   }
 
   /**
@@ -172,6 +184,17 @@ public abstract class AbstractDocumentWrapper {
   boolean canIndexVectorField(String checkFieldName) {
     return !this.vectorFieldsInvalidForIndexing.contains(checkFieldName)
         && !this.vectorFieldsIndexed.contains(checkFieldName);
+  }
+
+  /**
+   * Checks if a NumericDocValuesField can be indexed (has not already been added for this field
+   * name). Returns true and marks the field as indexed if it can be added. Returns false if the
+   * field has already been indexed.
+   *
+   * @param fieldName - the Lucene field name of the numeric DocValues field
+   */
+  boolean canIndexNumericDocValuesField(String fieldName) {
+    return this.numericDocValuesFieldsIndexed.add(fieldName);
   }
 
   /**

@@ -398,6 +398,15 @@ public class IndexableFieldFactory {
 
   private static void addDateSingleField(
       AbstractDocumentWrapper document, String luceneFieldName, long value) {
+    // Duplicate BSON keys at the same path are non-standard. We skip both the
+    // NumericDocValuesField (which would throw if added twice) and the LongPoint so that the
+    // first value wins consistently for both sorting/faceting and range queries.
+    if (!document.canIndexNumericDocValuesField(luceneFieldName)) {
+      FLOGGER.atWarning().atMostEvery(1, TimeUnit.HOURS).log(
+          "NumericDocValuesField %s already indexed, skipping duplicate. _id=%s",
+          luceneFieldName, lazy(() -> getLoggingId(document)));
+      return;
+    }
     document.put(new NumericDocValuesField(luceneFieldName, value));
     document.put(new LongPoint(luceneFieldName, value));
   }
@@ -727,6 +736,15 @@ public class IndexableFieldFactory {
 
   private static void addNumericSingleField(
       AbstractDocumentWrapper document, String luceneFieldName, long value) {
+    // Duplicate BSON keys at the same path are non-standard. We skip both the
+    // NumericDocValuesField (which would throw if added twice) and the LongPoint so that the
+    // first value wins consistently for both sorting/faceting and range queries.
+    if (!document.canIndexNumericDocValuesField(luceneFieldName)) {
+      FLOGGER.atWarning().atMostEvery(1, TimeUnit.HOURS).log(
+          "NumericDocValuesField %s already indexed, skipping duplicate. _id=%s",
+          luceneFieldName, lazy(() -> getLoggingId(document)));
+      return;
+    }
     document.put(new NumericDocValuesField(luceneFieldName, value));
     document.put(new LongPoint(luceneFieldName, value));
   }
@@ -738,6 +756,12 @@ public class IndexableFieldFactory {
 
   private static void addNumericFacetField(
       AbstractDocumentWrapper document, String luceneFieldName, long value) {
+    if (!document.canIndexNumericDocValuesField(luceneFieldName)) {
+      FLOGGER.atWarning().atMostEvery(1, TimeUnit.HOURS).log(
+          "NumericDocValuesField %s already indexed, skipping duplicate. _id=%s",
+          luceneFieldName, lazy(() -> getLoggingId(document)));
+      return;
+    }
     document.put(new NumericDocValuesField(luceneFieldName, value));
   }
 
