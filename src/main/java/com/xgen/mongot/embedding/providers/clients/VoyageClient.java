@@ -51,7 +51,18 @@ import org.slf4j.LoggerFactory;
  */
 public class VoyageClient implements ClientInterface {
   private static final Logger LOG = LoggerFactory.getLogger(VoyageClient.class);
-  private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(60);
+
+  /**
+   * Per-request HTTP timeout for {@link EmbeddingServiceConfig.ServiceTier#QUERY} when not using
+   * Voyage flex tier.
+   */
+  private static final Duration VOYAGE_QUERY_HTTP_TIMEOUT = Duration.ofSeconds(30);
+
+  /**
+   * Per-request HTTP timeout for document workloads (change stream, collection scan) and whenever
+   * {@code useFlexTier} is true (including hypothetical QUERY + flex).
+   */
+  private static final Duration VOYAGE_DOCUMENT_OR_FLEX_HTTP_TIMEOUT = Duration.ofSeconds(310);
 
   /** Wall-clock interval after which the {@link HttpClient} is replaced to refresh connections. */
   private static final Duration HTTP_CLIENT_REFRESH_INTERVAL = Duration.ofMinutes(10);
@@ -89,12 +100,43 @@ public class VoyageClient implements ClientInterface {
 
   private final Optional<MongotMetadata> mongotMetadata;
 
+  /** Wall-clock timeout for each Voyage HTTP request (depends on workload tier / flex). */
+  private final Duration requestTimeout;
+
   @VisibleForTesting
   public static final String DEFAULT_ENDPOINT = "https://api.voyageai.com/v1/embeddings";
 
   private static final int MAX_INDEX_NAME_LENGTH = 256;
 
   @VisibleForTesting public static final String VOYAGE_API_FLEX_TIER = "flex";
+
+  /**
+   * HTTP headers for Voyage Client API
+   */
+  @VisibleForTesting public static final String VOYAGE_HEADER_MODEL = "X-Voyage-Model";
+
+  @VisibleForTesting public static final String VOYAGE_HEADER_TIER = "X-Voyage-Tier";
+
+  /**
+   * Value for {@link #VOYAGE_HEADER_TIER} when {@link EmbeddingServiceConfig.ServiceTier#QUERY}.
+   */
+  private static final String VOYAGE_TIER_HEADER_QUERY = "query";
+
+  /** Value for {@link #VOYAGE_HEADER_TIER} for document workloads (non-query, non-flex). */
+  private static final String VOYAGE_TIER_HEADER_DOCUMENT = "document";
+
+  /**
+   * Long timeout for flex (any tier) or non-query workloads; short only for query without flex.
+   */
+  private static Duration resolveVoyageHttpTimeout(
+      EmbeddingServiceConfig.ServiceTier tier, boolean useFlexTier) {
+    if (useFlexTier) {
+      return VOYAGE_DOCUMENT_OR_FLEX_HTTP_TIMEOUT;
+    }
+    return tier == EmbeddingServiceConfig.ServiceTier.QUERY
+        ? VOYAGE_QUERY_HTTP_TIMEOUT
+        : VOYAGE_DOCUMENT_OR_FLEX_HTTP_TIMEOUT;
+  }
 
   VoyageClient(
       EmbeddingModelConfig embeddingModelConfig,
@@ -112,6 +154,7 @@ public class VoyageClient implements ClientInterface {
     this.serviceTierApiValue = useFlexTier ? Optional.of(VOYAGE_API_FLEX_TIER) : Optional.empty();
     this.modelId = embeddingModelConfig.name();
     this.serviceTier = tier;
+    this.requestTimeout = resolveVoyageHttpTimeout(tier, useFlexTier);
     if (useFlexTier) {
       LOG.debug(
           "Using Voyage flex tier for embedding model {} (service tier: {})", this.modelId, tier);
@@ -551,7 +594,7 @@ public class VoyageClient implements ClientInterface {
     HttpRequest.Builder requestBuilder =
         HttpRequest.newBuilder()
             .uri(this.endpoint)
-            .timeout(DEFAULT_TIMEOUT)
+            .timeout(this.requestTimeout)
             .header("Authorization", "Bearer " + apiToken);
 
     String userAgent =
@@ -563,6 +606,8 @@ public class VoyageClient implements ClientInterface {
             .orElse("mongot/UNKNOWN (UNKNOWN)");
 
     requestBuilder.header("User-Agent", userAgent);
+    requestBuilder.header(VOYAGE_HEADER_MODEL, this.modelId);
+    requestBuilder.header(VOYAGE_HEADER_TIER, voyageTierHeaderValue());
 
     String outputDataType = getOutputDataType(context.autoEmbedQuantization());
     BsonDocument body =
@@ -581,6 +626,16 @@ public class VoyageClient implements ClientInterface {
             .toBson();
 
     return requestBuilder.POST(HttpRequest.BodyPublishers.ofString(body.toJson())).build();
+  }
+
+  /** Returns the {@value #VOYAGE_HEADER_TIER} value: query, document, or flex. */
+  private String voyageTierHeaderValue() {
+    if (this.useFlexTier) {
+      return VOYAGE_API_FLEX_TIER;
+    }
+    return this.serviceTier == EmbeddingServiceConfig.ServiceTier.QUERY
+        ? VOYAGE_TIER_HEADER_QUERY
+        : VOYAGE_TIER_HEADER_DOCUMENT;
   }
 
   /**

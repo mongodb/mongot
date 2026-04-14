@@ -1,6 +1,8 @@
 package com.xgen.mongot.embedding.providers.clients;
 
 import static com.xgen.mongot.embedding.providers.clients.VoyageClient.VOYAGE_API_FLEX_TIER;
+import static com.xgen.mongot.embedding.providers.clients.VoyageClient.VOYAGE_HEADER_MODEL;
+import static com.xgen.mongot.embedding.providers.clients.VoyageClient.VOYAGE_HEADER_TIER;
 import static com.xgen.mongot.embedding.providers.clients.VoyageClient.getOutputDataType;
 import static com.xgen.mongot.util.bson.FloatVector.OriginalType.NATIVE;
 import static org.junit.Assert.assertEquals;
@@ -741,6 +743,145 @@ public class VoyageClientTest {
     assertFalse(
         "Request body should NOT contain service_tier for CHANGE_STREAM tier",
         requestBody.contains("service_tier"));
+  }
+
+  /** CLOUDP-390933: short timeout for query embeddings; long for document / indexing workloads. */
+  @Test
+  public void httpRequestTimeout_query30Seconds_documentWorkloads310Seconds() throws Exception {
+    HttpClient mockClient = mock(HttpClient.class);
+    HttpResponse<String> mockResponse = mock(HttpResponse.class);
+    doReturn(200).when(mockResponse).statusCode();
+    doReturn(
+            "{\"object\":\"list\",\"data\":[{\"object\":\"embedding\","
+                + "\"embedding\":\"AKBEPACgSbw=\",\"index\":0}],\"model\":\"voyage-3-large\","
+                + "\"usage\":{\"total_tokens\":1}}")
+        .when(mockResponse)
+        .body();
+    doReturn(mockResponse)
+        .when(mockClient)
+        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+
+    VoyageClient queryClient =
+        new VoyageClient(
+            VOYAGE_3_LARGE,
+            EmbeddingServiceConfig.ServiceTier.QUERY,
+            VOYAGE_3_LARGE.query(),
+            METRICS_FACTORY,
+            Optional.empty(),
+            false,
+            false);
+    VoyageClient.injectVoyageClient(queryClient, mockClient);
+    queryClient.embed(List.of("test"), dummyContext());
+
+    ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
+    verify(mockClient).send(captor.capture(), any(HttpResponse.BodyHandler.class));
+    assertEquals(Optional.of(Duration.ofSeconds(30)), captor.getValue().timeout());
+
+    VoyageClient changeStreamClient =
+        new VoyageClient(
+            VOYAGE_3_LARGE,
+            EmbeddingServiceConfig.ServiceTier.CHANGE_STREAM,
+            VOYAGE_3_LARGE.changeStream(),
+            METRICS_FACTORY,
+            Optional.empty(),
+            false,
+            false);
+    VoyageClient.injectVoyageClient(changeStreamClient, mockClient);
+    changeStreamClient.embed(List.of("test"), dummyContext());
+
+    verify(mockClient, times(2)).send(captor.capture(), any(HttpResponse.BodyHandler.class));
+    assertEquals(Optional.of(Duration.ofSeconds(310)), captor.getValue().timeout());
+
+    VoyageClient queryWithFlexTier =
+        new VoyageClient(
+            VOYAGE_3_LARGE,
+            EmbeddingServiceConfig.ServiceTier.QUERY,
+            VOYAGE_3_LARGE.query(),
+            METRICS_FACTORY,
+            Optional.empty(),
+            false,
+            true);
+    VoyageClient.injectVoyageClient(queryWithFlexTier, mockClient);
+    queryWithFlexTier.embed(List.of("test"), dummyContext());
+
+    verify(mockClient, times(3)).send(captor.capture(), any(HttpResponse.BodyHandler.class));
+    assertEquals(
+        "Flex tier uses long HTTP timeout even if ServiceTier is QUERY",
+        Optional.of(Duration.ofSeconds(310)),
+        captor.getValue().timeout());
+  }
+
+  /**
+   * CLOUDP-392208: X-Voyage-Model and X-Voyage-Tier for GLB routing (no route-override header).
+   */
+  @Test
+  public void voyageLoadBalancerHeaders_modelAndTierMatchWorkload() throws Exception {
+    HttpClient mockClient = mock(HttpClient.class);
+    HttpResponse<String> mockResponse = mock(HttpResponse.class);
+    doReturn(200).when(mockResponse).statusCode();
+    doReturn(
+            "{\"object\":\"list\",\"data\":[{\"object\":\"embedding\","
+                + "\"embedding\":\"AKBEPACgSbw=\",\"index\":0}],\"model\":\"voyage-3-large\","
+                + "\"usage\":{\"total_tokens\":1}}")
+        .when(mockResponse)
+        .body();
+    doReturn(mockResponse)
+        .when(mockClient)
+        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+
+    VoyageClient queryClient =
+        new VoyageClient(
+            VOYAGE_3_LARGE,
+            EmbeddingServiceConfig.ServiceTier.QUERY,
+            VOYAGE_3_LARGE.query(),
+            METRICS_FACTORY,
+            Optional.empty(),
+            false,
+            false);
+    VoyageClient.injectVoyageClient(queryClient, mockClient);
+    queryClient.embed(List.of("test"), dummyContext());
+
+    ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
+    verify(mockClient).send(captor.capture(), any(HttpResponse.BodyHandler.class));
+    HttpRequest q = captor.getValue();
+    assertEquals(List.of("voyage-3-large"), q.headers().allValues(VOYAGE_HEADER_MODEL));
+    assertEquals(List.of("query"), q.headers().allValues(VOYAGE_HEADER_TIER));
+    assertTrue(q.headers().allValues("X-Voyage-Route-Override").isEmpty());
+
+    VoyageClient changeStreamClient =
+        new VoyageClient(
+            VOYAGE_3_LARGE,
+            EmbeddingServiceConfig.ServiceTier.CHANGE_STREAM,
+            VOYAGE_3_LARGE.changeStream(),
+            METRICS_FACTORY,
+            Optional.empty(),
+            false,
+            false);
+    VoyageClient.injectVoyageClient(changeStreamClient, mockClient);
+    changeStreamClient.embed(List.of("test"), dummyContext());
+
+    verify(mockClient, times(2)).send(captor.capture(), any(HttpResponse.BodyHandler.class));
+    HttpRequest cs = captor.getValue();
+    assertEquals(List.of("voyage-3-large"), cs.headers().allValues(VOYAGE_HEADER_MODEL));
+    assertEquals(List.of("document"), cs.headers().allValues(VOYAGE_HEADER_TIER));
+
+    VoyageClient flexClient =
+        new VoyageClient(
+            VOYAGE_3_LARGE,
+            EmbeddingServiceConfig.ServiceTier.COLLECTION_SCAN,
+            VOYAGE_3_LARGE.collectionScan(),
+            METRICS_FACTORY,
+            Optional.empty(),
+            false,
+            true);
+    VoyageClient.injectVoyageClient(flexClient, mockClient);
+    flexClient.embed(List.of("test"), dummyContext());
+
+    verify(mockClient, times(3)).send(captor.capture(), any(HttpResponse.BodyHandler.class));
+    HttpRequest flex = captor.getValue();
+    assertEquals(List.of("voyage-3-large"), flex.headers().allValues(VOYAGE_HEADER_MODEL));
+    assertEquals(List.of(VOYAGE_API_FLEX_TIER), flex.headers().allValues(VOYAGE_HEADER_TIER));
+    assertEquals(Optional.of(Duration.ofSeconds(310)), flex.timeout());
   }
 
   private static String extractRequestBody(HttpRequest request) {
