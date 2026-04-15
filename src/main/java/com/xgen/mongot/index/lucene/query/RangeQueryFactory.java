@@ -2,6 +2,7 @@ package com.xgen.mongot.index.lucene.query;
 
 import static com.xgen.mongot.util.Check.checkState;
 
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.index.lucene.query.context.QueryFactoryContext;
 import com.xgen.mongot.index.lucene.query.util.BooleanComposer;
 import com.xgen.mongot.index.query.InvalidQueryException;
@@ -25,13 +26,25 @@ class RangeQueryFactory {
   private final QueryFactoryContext queryFactoryContext;
   private final EqualsQueryFactory equalsQueryFactory;
   private final IndexCapabilities indexCapabilities;
+  private final DateRangeQueryFactory dateRangeQueryFactory;
+
+  public RangeQueryFactory(
+      QueryFactoryContext queryFactoryContext, EqualsQueryFactory equalsQueryFactory) {
+    this(
+        queryFactoryContext,
+        equalsQueryFactory,
+        new DateRangeQueryFactory(
+            queryFactoryContext.getIndexCapabilities(), DynamicFeatureFlagRegistry.empty()));
+  }
 
   public RangeQueryFactory(
       QueryFactoryContext queryFactoryContext,
-      EqualsQueryFactory equalsQueryFactory) {
+      EqualsQueryFactory equalsQueryFactory,
+      DateRangeQueryFactory dateRangeQueryFactory) {
     this.queryFactoryContext = queryFactoryContext;
     this.equalsQueryFactory = equalsQueryFactory;
     this.indexCapabilities = queryFactoryContext.getIndexCapabilities();
+    this.dateRangeQueryFactory = dateRangeQueryFactory;
   }
 
   Query fromOperator(RangeOperator operator, SingleQueryContext singleQueryContext)
@@ -51,7 +64,7 @@ class RangeQueryFactory {
       case DateRangeBound dateRangeBound ->
           paths.mapWithBoundSecondArgument(
               singleQueryContext.getEmbeddedRoot(),
-              DateRangeQueryFactory.fromBounds(dateRangeBound),
+              this.dateRangeQueryFactory.fromBounds(dateRangeBound),
               BooleanClause.Occur.SHOULD);
       case NumericRangeBound numericRangeBound ->
           paths.mapWithBoundSecondArgument(

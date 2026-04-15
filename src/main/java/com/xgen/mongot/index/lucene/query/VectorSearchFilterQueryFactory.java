@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.lucene.query;
 
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.index.lucene.query.context.QueryFactoryContext;
 import com.xgen.mongot.index.lucene.query.context.VectorQueryFactoryContext;
 import com.xgen.mongot.index.lucene.query.util.MappingCompatibilityValidator;
@@ -39,9 +40,19 @@ public class VectorSearchFilterQueryFactory {
   private final EqualsQueryFactory equalsQueryFactory;
 
   public static VectorSearchFilterQueryFactory create(VectorQueryFactoryContext factoryContext) {
-    var equalsQueryFactory = new EqualsQueryFactory(factoryContext);
+    return create(factoryContext, DynamicFeatureFlagRegistry.empty());
+  }
+
+  public static VectorSearchFilterQueryFactory create(
+      VectorQueryFactoryContext factoryContext,
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
+    var dateRangeQueryFactory =
+        new DateRangeQueryFactory(
+            factoryContext.getIndexCapabilities(), dynamicFeatureFlagRegistry);
+    var equalsQueryFactory = new EqualsQueryFactory(factoryContext, dateRangeQueryFactory);
     var existsQueryFactory = new ExistsQueryFactory(factoryContext);
-    var rangeQueryFactory = new RangeQueryFactory(factoryContext, equalsQueryFactory);
+    var rangeQueryFactory =
+        new RangeQueryFactory(factoryContext, equalsQueryFactory, dateRangeQueryFactory);
     var inQueryFactory = new InQueryFactory(factoryContext);
     return new VectorSearchFilterQueryFactory(
         factoryContext, rangeQueryFactory, inQueryFactory, existsQueryFactory, equalsQueryFactory);

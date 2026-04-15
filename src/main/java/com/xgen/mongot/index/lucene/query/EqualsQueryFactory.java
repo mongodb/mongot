@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.lucene.query;
 
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.field.FieldValue;
 import com.xgen.mongot.index.lucene.query.context.QueryFactoryContext;
@@ -28,9 +29,19 @@ import org.apache.lucene.util.BytesRef;
 class EqualsQueryFactory {
 
   private final QueryFactoryContext queryFactoryContext;
+  private final DateRangeQueryFactory dateRangeQueryFactory;
 
   EqualsQueryFactory(QueryFactoryContext queryFactoryContext) {
+    this(
+        queryFactoryContext,
+        new DateRangeQueryFactory(
+            queryFactoryContext.getIndexCapabilities(), DynamicFeatureFlagRegistry.empty()));
+  }
+
+  EqualsQueryFactory(
+      QueryFactoryContext queryFactoryContext, DateRangeQueryFactory dateRangeQueryFactory) {
     this.queryFactoryContext = queryFactoryContext;
+    this.dateRangeQueryFactory = dateRangeQueryFactory;
   }
 
   Query fromValue(Value value, FieldPath path, Optional<FieldPath> embeddedRoot)
@@ -72,7 +83,7 @@ class EqualsQueryFactory {
 
   private Query dateQuery(DateValue dateValue, FieldPath path, Optional<FieldPath> embeddedRoot)
       throws InvalidQueryException {
-    return DateRangeQueryFactory.fromBounds(dateValue.getDateRangeBound())
+    return this.dateRangeQueryFactory.fromBounds(dateValue.getDateRangeBound())
         .apply(path, embeddedRoot);
   }
 

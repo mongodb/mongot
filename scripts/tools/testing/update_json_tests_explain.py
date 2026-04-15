@@ -5,6 +5,17 @@ changes to a query implementation. The output should still be manually inspected
 correctness. This script will terminate if a test failure outside explain is encountered (e.g.
 it will not update returned doc IDs)
 
+Note on duplicate test cases with runFor restrictions:
+  Some test cases (mostly for TestQueryIntegration and TestQueryIntegrationV3) are duplicated in
+  the golden files to support different explain output across index feature versions.
+  For example, a date query test may have two entries with the same name:
+    - one with "runFor": { "indexFeatureVersion": { "from": 4 } }  (V4 explain)
+    - one with "runFor": { "indexFeatureVersion": { "to": 3 } }    (V3 explain)
+  This script matches by name and updates the FIRST match it finds. To ensure the correct copy
+  is updated, the "from: 4" copy must be listed FIRST in the JSON file. That way, running this
+  script against V4 test logs updates the V4 copy, and V3 test logs won't contain failures for
+  those tests.
+
 Sample run:
 
 make test.e2e

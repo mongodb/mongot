@@ -3,13 +3,15 @@ package com.xgen.mongot.index.lucene.query;
 import static com.xgen.mongot.util.bson.FloatVector.OriginalType.NATIVE;
 
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.VectorIndexFilterFieldDefinition;
 import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.index.definition.quantization.VectorQuantization;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.query.custom.MongotKnnFloatQuery;
-import com.xgen.mongot.index.lucene.query.util.BooleanComposer;
 import com.xgen.mongot.index.query.VectorSearchQuery;
 import com.xgen.mongot.index.query.operators.VectorSearchFilter;
 import com.xgen.mongot.index.query.operators.mql.Clause;
@@ -28,12 +30,12 @@ import java.util.List;
 import java.util.Optional;
 import java.util.TimeZone;
 import org.apache.lucene.document.LongPoint;
-import org.apache.lucene.document.NumericDocValuesField;
+import org.apache.lucene.document.SortedNumericDocValuesField;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
-import org.apache.lucene.search.ConstantScoreQuery;
 import org.apache.lucene.search.IndexOrDocValuesQuery;
 import org.apache.lucene.search.Query;
+import org.bson.types.ObjectId;
 import org.junit.Test;
 
 public class DateRangeVectorQueryFactoryTest {
@@ -87,8 +89,7 @@ public class DateRangeVectorQueryFactoryTest {
 
     Clause filter =
         ClauseBuilder.simpleClause()
-            .addOperator(
-                MqlFilterOperatorBuilder.lt().value(ValueBuilder.date(DATE_FIRST)).build())
+            .addOperator(MqlFilterOperatorBuilder.lt().value(ValueBuilder.date(DATE_FIRST)).build())
             .path(FieldPath.parse(FILTER_PATH))
             .build();
 
@@ -121,8 +122,7 @@ public class DateRangeVectorQueryFactoryTest {
 
     Clause filter =
         ClauseBuilder.simpleClause()
-            .addOperator(
-                MqlFilterOperatorBuilder.gt().value(ValueBuilder.date(DATE_FIRST)).build())
+            .addOperator(MqlFilterOperatorBuilder.gt().value(ValueBuilder.date(DATE_FIRST)).build())
             .path(FieldPath.parse(FILTER_PATH))
             .build();
 
@@ -170,14 +170,10 @@ public class DateRangeVectorQueryFactoryTest {
   }
 
   private static Query createDateRangeQueryForBounds(long lowerBound, long upperBound) {
-    Query dateRangeQuery =
-        BooleanComposer.should(
-            new IndexOrDocValuesQuery(
-                LongPoint.newRangeQuery("$type:date/" + FILTER_PATH, lowerBound, upperBound),
-                NumericDocValuesField.newSlowRangeQuery(
-                    "$type:date/" + FILTER_PATH, lowerBound, upperBound)),
-            LongPoint.newRangeQuery("$type:dateMultiple/" + FILTER_PATH, lowerBound, upperBound));
-    return new ConstantScoreQuery(dateRangeQuery);
+    return new IndexOrDocValuesQuery(
+        LongPoint.newRangeQuery("$type:dateV2/" + FILTER_PATH, lowerBound, upperBound),
+        SortedNumericDocValuesField.newSlowRangeQuery(
+            "$type:dateV2/" + FILTER_PATH, lowerBound, upperBound));
   }
 
   private static VectorSearchQuery createVectorQuery(Clause filter) {
@@ -194,6 +190,23 @@ public class DateRangeVectorQueryFactoryTest {
         .build();
   }
 
+  private static DynamicFeatureFlagRegistry createNumericV2EnabledRegistry() {
+    ObjectId clusterId = new ObjectId();
+    DynamicFeatureFlagConfig enabledConfig =
+        new DynamicFeatureFlagConfig(
+            DynamicFeatureFlags.NUMERIC_V2_SEMANTICS.getName(),
+            DynamicFeatureFlagConfig.Phase.ENABLED,
+            List.of(),
+            List.of(),
+            0,
+            DynamicFeatureFlagConfig.Scope.MONGOT_CLUSTER);
+    return new DynamicFeatureFlagRegistry(
+        Optional.of(List.of(enabledConfig)),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.of(clusterId));
+  }
+
   private LuceneVectorTranslation getLuceneVectorTranslation() {
     return new LuceneVectorTranslation(
         List.of(
@@ -203,6 +216,8 @@ public class DateRangeVectorQueryFactoryTest {
                 .similarity(VectorSimilarity.EUCLIDEAN)
                 .quantization(VectorQuantization.NONE)
                 .build(),
-            VectorIndexFilterFieldDefinition.create(FieldPath.parse(FILTER_PATH))));
+            VectorIndexFilterFieldDefinition.create(FieldPath.parse(FILTER_PATH))),
+        FeatureFlags.getDefault(),
+        createNumericV2EnabledRegistry());
   }
 }

@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.lucene.query;
 
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.index.definition.VectorFieldDefinitionResolver;
 import com.xgen.mongot.index.lucene.query.context.VectorQueryFactoryContext;
 import com.xgen.mongot.index.lucene.query.custom.WrappedKnnQuery;
@@ -23,9 +24,17 @@ public class LuceneVectorQueryFactoryDistributor {
 
   public static LuceneVectorQueryFactoryDistributor create(
       VectorQueryFactoryContext factoryContext) {
-    var filterFactory = VectorSearchFilterQueryFactory.create(factoryContext);
+    return create(factoryContext, DynamicFeatureFlagRegistry.empty());
+  }
+
+  public static LuceneVectorQueryFactoryDistributor create(
+      VectorQueryFactoryContext factoryContext,
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
     return new LuceneVectorQueryFactoryDistributor(
-        new VectorSearchQueryFactory(factoryContext, filterFactory), factoryContext);
+        new VectorSearchQueryFactory(
+            factoryContext,
+            VectorSearchFilterQueryFactory.create(factoryContext, dynamicFeatureFlagRegistry)),
+        factoryContext);
   }
 
   public Query createQuery(MaterializedVectorSearchQuery query, IndexReader indexReader)

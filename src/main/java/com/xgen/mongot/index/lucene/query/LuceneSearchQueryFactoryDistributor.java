@@ -5,6 +5,7 @@ import static com.xgen.mongot.index.query.InvalidQueryException.Type;
 import com.google.common.annotations.VisibleForTesting;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.analyzer.AnalyzerRegistry;
 import com.xgen.mongot.index.analyzer.wrapper.LuceneAnalyzer;
@@ -172,6 +173,26 @@ public class LuceneSearchQueryFactoryDistributor {
       IndexMetricsUpdater.QueryingMetricsUpdater queryingMetricsUpdater,
       boolean enableTextOperatorNewSynonymsSyntax,
       FeatureFlags featureFlags) {
+    return create(
+        indexDefinition,
+        indexFormatVersion,
+        analyzerRegistry,
+        synonymRegistry,
+        queryingMetricsUpdater,
+        enableTextOperatorNewSynonymsSyntax,
+        featureFlags,
+        DynamicFeatureFlagRegistry.empty());
+  }
+
+  public static LuceneSearchQueryFactoryDistributor create(
+      SearchIndexDefinition indexDefinition,
+      IndexFormatVersion indexFormatVersion,
+      AnalyzerRegistry analyzerRegistry,
+      SynonymRegistry synonymRegistry,
+      IndexMetricsUpdater.QueryingMetricsUpdater queryingMetricsUpdater,
+      boolean enableTextOperatorNewSynonymsSyntax,
+      FeatureFlags featureFlags,
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
 
     QueryAnalyzerWrapper analyzer = LuceneAnalyzer.queryAnalyzer(indexDefinition, analyzerRegistry);
 
@@ -184,10 +205,14 @@ public class LuceneSearchQueryFactoryDistributor {
             queryingMetricsUpdater,
             featureFlags);
     TermQueryFactory termQueryFactory = new TermQueryFactory(queryFactoryContext);
-    EqualsQueryFactory equalsQueryFactory = new EqualsQueryFactory(queryFactoryContext);
+    DateRangeQueryFactory dateRangeQueryFactory =
+        new DateRangeQueryFactory(
+            queryFactoryContext.getIndexCapabilities(), dynamicFeatureFlagRegistry);
+    EqualsQueryFactory equalsQueryFactory =
+        new EqualsQueryFactory(queryFactoryContext, dateRangeQueryFactory);
     ExistsQueryFactory existsQueryFactory = new ExistsQueryFactory(queryFactoryContext);
     RangeQueryFactory rangeQueryFactory =
-        new RangeQueryFactory(queryFactoryContext, equalsQueryFactory);
+        new RangeQueryFactory(queryFactoryContext, equalsQueryFactory, dateRangeQueryFactory);
     InQueryFactory inQueryFactory = new InQueryFactory(queryFactoryContext);
 
     AllDocsQueryFactory allDocsQueryFactory = new AllDocsQueryFactory(queryFactoryContext);

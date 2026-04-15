@@ -36,7 +36,7 @@ public enum DynamicFeatureFlags {
   ENABLE_10K_BUCKET_LIMIT("mongot.featureFlag.enable10kBucketLimit", false),
   ENABLE_TOTAL_STRING_FACET_BUCKETS("mongot.featureFlag.enableTotalStringFacetBuckets", false),
   BLOOM_FILTER_FOR_ID_FIELD("mongot.featureFlag.enableBloomFilterNaturalOrderInitialSync", false),
-  ;
+  NUMERIC_V2_SEMANTICS("mongot.featureFlag.numericV2Semantics", false);
 
   private final String name;
   private final boolean fallback;

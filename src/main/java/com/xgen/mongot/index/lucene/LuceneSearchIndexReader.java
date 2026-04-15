@@ -219,7 +219,8 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
             synonymRegistry,
             queryingMetricsUpdater,
             enableTextOperatorNewSynonymsSyntax,
-            featureFlags);
+            featureFlags,
+            dynamicFeatureFlagRegistry);
     SearchFieldDefinitionResolver fieldDefinitionResolver =
         indexDefinition.createFieldDefinitionResolver(indexFormatVersion);
 

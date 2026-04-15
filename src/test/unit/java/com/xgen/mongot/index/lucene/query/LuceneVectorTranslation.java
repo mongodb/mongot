@@ -1,6 +1,7 @@
 package com.xgen.mongot.index.lucene.query;
 
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
@@ -33,6 +34,7 @@ class LuceneVectorTranslation {
   private Directory directory;
   private IndexWriter writer;
   private final FeatureFlags featureFlags;
+  private final DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry;
   private final Map<FieldPath, FieldPath> autoEmbeddingFieldsMapping;
 
   private void setUp() throws IOException {
@@ -50,18 +52,31 @@ class LuceneVectorTranslation {
   LuceneVectorTranslation(VectorIndexDefinition indexDefinition) {
     this.indexDefinition = indexDefinition;
     this.featureFlags = FeatureFlags.getDefault();
+    this.dynamicFeatureFlagRegistry = DynamicFeatureFlagRegistry.empty();
     this.autoEmbeddingFieldsMapping = Map.of();
   }
 
   LuceneVectorTranslation(List<VectorIndexFieldDefinition> definitions) {
     this.indexDefinition = getIndexDefinition(definitions);
     this.featureFlags = FeatureFlags.getDefault();
+    this.dynamicFeatureFlagRegistry = DynamicFeatureFlagRegistry.empty();
     this.autoEmbeddingFieldsMapping = Map.of();
   }
 
   LuceneVectorTranslation(List<VectorIndexFieldDefinition> definitions, FeatureFlags featureFlags) {
     this.indexDefinition = getIndexDefinition(definitions);
     this.featureFlags = featureFlags;
+    this.dynamicFeatureFlagRegistry = DynamicFeatureFlagRegistry.empty();
+    this.autoEmbeddingFieldsMapping = Map.of();
+  }
+
+  LuceneVectorTranslation(
+      List<VectorIndexFieldDefinition> definitions,
+      FeatureFlags featureFlags,
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
+    this.indexDefinition = getIndexDefinition(definitions);
+    this.featureFlags = featureFlags;
+    this.dynamicFeatureFlagRegistry = dynamicFeatureFlagRegistry;
     this.autoEmbeddingFieldsMapping = Map.of();
   }
 
@@ -71,6 +86,7 @@ class LuceneVectorTranslation {
       Map<FieldPath, FieldPath> autoEmbeddingFieldsMapping) {
     this.indexDefinition = getIndexDefinition(definitions);
     this.featureFlags = featureFlags;
+    this.dynamicFeatureFlagRegistry = DynamicFeatureFlagRegistry.empty();
     this.autoEmbeddingFieldsMapping = autoEmbeddingFieldsMapping;
   }
 
@@ -79,7 +95,7 @@ class LuceneVectorTranslation {
     Query result = translate(query);
     Assert.assertEquals("Lucene query:", expected, result);
   }
-  
+
   Query translate(VectorSearchQuery query) throws InvalidQueryException, IOException {
     setUp();
     return getLuceneQuery(query);
@@ -92,7 +108,8 @@ class LuceneVectorTranslation {
             this.indexDefinition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
             this.featureFlags,
             metrics);
-    var factory = LuceneVectorQueryFactoryDistributor.create(context);
+    var factory =
+        LuceneVectorQueryFactoryDistributor.create(context, this.dynamicFeatureFlagRegistry);
     try (var reader = DirectoryReader.open(this.directory)) {
       return factory.createQuery(
           new MaterializedVectorSearchQuery(
@@ -102,7 +119,7 @@ class LuceneVectorTranslation {
       tearDown();
     }
   }
-  
+
   static VectorIndexDefinition getIndexDefinition(List<VectorIndexFieldDefinition> definitions) {
     return VectorIndexDefinitionBuilder.builder().setFields(definitions).build();
   }

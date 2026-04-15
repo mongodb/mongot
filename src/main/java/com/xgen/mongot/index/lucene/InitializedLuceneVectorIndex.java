@@ -193,7 +193,7 @@ class InitializedLuceneVectorIndex implements InitializedVectorIndex {
     VectorQueryFactoryContext factoryContext =
         new VectorQueryFactoryContext(definitionResolver, featureFlags, metricsUpdater);
     var luceneVectorQueryFactoryDistributor =
-        LuceneVectorQueryFactoryDistributor.create(factoryContext);
+        LuceneVectorQueryFactoryDistributor.create(factoryContext, dynamicFeatureFlagRegistry);
 
     List<LuceneVectorIndexReader> vectorIndexReaders =
         indexResources.luceneSearcherManagers.stream()

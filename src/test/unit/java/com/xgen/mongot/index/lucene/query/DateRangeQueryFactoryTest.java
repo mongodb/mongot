@@ -5,6 +5,9 @@ import static com.google.common.truth.Truth.assertWithMessage;
 import static org.mockito.Mockito.mock;
 
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.analyzer.AnalyzerRegistry;
 import com.xgen.mongot.index.lucene.query.util.BooleanComposer;
@@ -20,10 +23,12 @@ import com.xgen.testing.mongot.mock.index.SearchIndex;
 import java.io.IOException;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.List;
 import java.util.Optional;
 import java.util.TimeZone;
 import org.apache.lucene.document.LongPoint;
 import org.apache.lucene.document.NumericDocValuesField;
+import org.apache.lucene.document.SortedNumericDocValuesField;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
@@ -35,6 +40,7 @@ import org.apache.lucene.search.MatchNoDocsQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.MMapDirectory;
+import org.bson.types.ObjectId;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -287,6 +293,42 @@ public class DateRangeQueryFactoryTest {
     Assert.assertEquals("multiple path date range lower, upper, and near", expected, result);
   }
 
+  @Test
+  public void testDateRangeQueryV1WhenFlagDisabled() throws Exception {
+    RangeOperator definition =
+        OperatorBuilder.range()
+            .path(PATH_START)
+            .dateBounds(Optional.of(DATE_FIRST), Optional.of(DATE_SECOND), true, true)
+            .build();
+
+    Query expected =
+        createLegacyDateRangeQuery(
+            "start", DATE_FIRST.value().getTime(), DATE_SECOND.value().getTime());
+
+    LuceneSearchQueryFactoryDistributor factory = createFactoryWithFlagDisabled();
+    Query result =
+        factory.createQuery(
+            definition, DirectoryReader.open(directory), QueryOptimizationFlags.DEFAULT_OPTIONS);
+    Assert.assertEquals("legacy date range when NumericV2 DFF disabled", expected, result);
+  }
+
+  private static DynamicFeatureFlagRegistry createNumericV2EnabledRegistry() {
+    ObjectId clusterId = new ObjectId();
+    DynamicFeatureFlagConfig enabledConfig =
+        new DynamicFeatureFlagConfig(
+            DynamicFeatureFlags.NUMERIC_V2_SEMANTICS.getName(),
+            DynamicFeatureFlagConfig.Phase.ENABLED,
+            List.of(),
+            List.of(),
+            0,
+            DynamicFeatureFlagConfig.Scope.MONGOT_CLUSTER);
+    return new DynamicFeatureFlagRegistry(
+        Optional.of(List.of(enabledConfig)),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.of(clusterId));
+  }
+
   private static LuceneSearchQueryFactoryDistributor createFactory() {
     return LuceneSearchQueryFactoryDistributor.create(
         SearchIndexDefinitionBuilder.VALID_INDEX,
@@ -295,16 +337,37 @@ public class DateRangeQueryFactoryTest {
         mock(SynonymRegistry.class),
         new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory()),
         false,
-        FeatureFlags.getDefault());
+        FeatureFlags.withDefaults().build(),
+        createNumericV2EnabledRegistry());
+  }
+
+  private static LuceneSearchQueryFactoryDistributor createFactoryWithFlagDisabled() {
+    return LuceneSearchQueryFactoryDistributor.create(
+        SearchIndexDefinitionBuilder.VALID_INDEX,
+        IndexFormatVersion.CURRENT,
+        mock(AnalyzerRegistry.class),
+        mock(SynonymRegistry.class),
+        new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory()),
+        false,
+        FeatureFlags.withDefaults().build(),
+        DynamicFeatureFlagRegistry.empty());
   }
 
   private static Query createDateRangeQuery(String field, long lowerBound, long upperBound) {
+    return new IndexOrDocValuesQuery(
+        LongPoint.newRangeQuery("$type:dateV2/" + field, lowerBound, upperBound),
+        SortedNumericDocValuesField.newSlowRangeQuery(
+            "$type:dateV2/" + field, lowerBound, upperBound));
+  }
+
+  private static Query createLegacyDateRangeQuery(String field, long lowerBound, long upperBound) {
     return new ConstantScoreQuery(
         BooleanComposer.should(
             new IndexOrDocValuesQuery(
                 LongPoint.newRangeQuery("$type:date/" + field, lowerBound, upperBound),
                 NumericDocValuesField.newSlowRangeQuery(
                     "$type:date/" + field, lowerBound, upperBound)),
-            LongPoint.newRangeQuery("$type:dateMultiple/" + field, lowerBound, upperBound)));
+            LongPoint.newRangeQuery(
+                "$type:dateMultiple/" + field, lowerBound, upperBound)));
   }
 }

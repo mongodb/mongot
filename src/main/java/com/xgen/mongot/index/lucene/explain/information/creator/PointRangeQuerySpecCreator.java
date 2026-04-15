@@ -99,6 +99,7 @@ public class PointRangeQuerySpecCreator {
     if (FieldName.TypeField.DATE
         .isType()
         .or(FieldName.TypeField.DATE_MULTIPLE.isType())
+        .or(FieldName.TypeField.DATE_V2.isType())
         .test(path)) {
       return Optional.of(Point.Type.DATE);
     }
