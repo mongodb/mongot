@@ -11,19 +11,22 @@ class ZlibUtil {
 
   static byte[] zlibCompress(byte[] in) {
     Deflater deflater = new Deflater();
-    deflater.setInput(in);
-    deflater.finish();
+    try {
+      deflater.setInput(in);
+      deflater.finish();
 
-    ByteArrayOutputStream outputStream = new ByteArrayOutputStream(in.length / 2);
-    byte[] buffer = new byte[BUFFER_SIZE];
+      ByteArrayOutputStream outputStream = new ByteArrayOutputStream(in.length / 2);
+      byte[] buffer = new byte[BUFFER_SIZE];
 
-    while (!deflater.finished()) {
-      int count = deflater.deflate(buffer);
-      outputStream.write(buffer, 0, count);
+      while (!deflater.finished()) {
+        int count = deflater.deflate(buffer);
+        outputStream.write(buffer, 0, count);
+      }
+      // outputStream is in memory, no need to close
+      return outputStream.toByteArray();
+    } finally {
+      deflater.end(); // Free native memory
     }
-
-    // outputStream is in memory, no need to close
-    return outputStream.toByteArray();
   }
 
   static byte[] zlibDecompress(byte[] in) throws DataFormatException {
