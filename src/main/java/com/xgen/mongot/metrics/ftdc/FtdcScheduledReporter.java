@@ -59,19 +59,6 @@ public class FtdcScheduledReporter {
    */
   public static final int DEFAULT_MAX_METER_COUNT = 40000;
 
-  public static FtdcScheduledReporter create(
-      MeterRegistry reportingMeterRegistry,
-      CompositeMeterRegistry combinedMeterRegistry,
-      Ftdc ftdc,
-      boolean useCombinedRegistryForExecutorMetrics) {
-    return create(
-        reportingMeterRegistry,
-        combinedMeterRegistry,
-        ftdc,
-        useCombinedRegistryForExecutorMetrics,
-        DEFAULT_MAX_METER_COUNT);
-  }
-
   /**
    * Creates a new FtdcScheduledReporter with a meter count limit.
    *

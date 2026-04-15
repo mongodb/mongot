@@ -414,7 +414,11 @@ public class CommunityMongotBootstrapper {
         mongotConfigs.featureFlags.isEnabled(Feature.FTDC_EXECUTOR_METRICS_TO_PROMETHEUS);
     var reporter =
         FtdcScheduledReporter.create(
-            reportingRegistry, executorRegistry, ftdc, useCombinedRegistryForExecutorMetrics);
+            reportingRegistry,
+            executorRegistry,
+            ftdc,
+            useCombinedRegistryForExecutorMetrics,
+            ftdcConfig.maxMeterCount());
 
     return Optional.of(
         new MetricsLifecycles(

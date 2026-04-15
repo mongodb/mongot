@@ -46,7 +46,8 @@ public class FtdcScheduledReporterTest {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     CompositeMeterRegistry combinedRegistry = new CompositeMeterRegistry();
     combinedRegistry.add(registry);
-    FtdcScheduledReporter.create(registry, combinedRegistry, ftdc, false);
+    FtdcScheduledReporter.create(
+        registry, combinedRegistry, ftdc, false, FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT);
     Thread.sleep(100);
     verifyNoMoreInteractions(ftdc);
   }
@@ -57,7 +58,8 @@ public class FtdcScheduledReporterTest {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     CompositeMeterRegistry combinedRegistry = new CompositeMeterRegistry();
     combinedRegistry.add(registry);
-    var reporter = FtdcScheduledReporter.create(registry, combinedRegistry, ftdc, false);
+    var reporter = FtdcScheduledReporter.create(
+        registry, combinedRegistry, ftdc, false, FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT);
     reporter.start(10, TimeUnit.MILLISECONDS);
     // we report every 10 ms, so we can report 10 times in under a second.
     verify(ftdc, timeout(1000).atLeast(10)).addSample(any(), anyLong());
@@ -486,8 +488,10 @@ public class FtdcScheduledReporterTest {
     CompositeMeterRegistry combinedRegistry = new CompositeMeterRegistry();
     combinedRegistry.add(meterRegistry);
     var scheduledReporter =
-        FtdcScheduledReporter.create(meterRegistry, combinedRegistry, ftdc, false);
-    
+        FtdcScheduledReporter.create(
+            meterRegistry, combinedRegistry, ftdc, false,
+            FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT);
+
     // Set up captor to capture all successful reports before starting
     ArgumentCaptor<BsonDocument> docCaptor = ArgumentCaptor.forClass(BsonDocument.class);
     
@@ -813,7 +817,9 @@ public class FtdcScheduledReporterTest {
     CompositeMeterRegistry combinedRegistry = new CompositeMeterRegistry();
     combinedRegistry.add(meterRegistry);
     var scheduledReporter =
-        FtdcScheduledReporter.create(meterRegistry, combinedRegistry, ftdc, false);
+        FtdcScheduledReporter.create(
+            meterRegistry, combinedRegistry, ftdc, false,
+            FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT);
     ArgumentCaptor<BsonDocument> docCaptor = ArgumentCaptor.forClass(BsonDocument.class);
     String gaugeBeforeKey = getFormattedKey("gauge_before", Optional.empty());
     String gaugeMiddleKey = getFormattedKey("gauge_middle", Optional.empty());
@@ -900,7 +906,9 @@ public class FtdcScheduledReporterTest {
     CompositeMeterRegistry combinedRegistry = new CompositeMeterRegistry();
     combinedRegistry.add(meterRegistry);
     var scheduledReporter =
-        FtdcScheduledReporter.create(meterRegistry, combinedRegistry, ftdc, false);
+        FtdcScheduledReporter.create(
+            meterRegistry, combinedRegistry, ftdc, false,
+            FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT);
     ArgumentCaptor<BsonDocument> docCaptor = ArgumentCaptor.forClass(BsonDocument.class);
     String gaugeBeforeKey = getFormattedKey("gauge_before", Optional.empty());
     String gaugeMiddleKey = getFormattedKey("gauge_middle", Optional.empty());
@@ -955,7 +963,9 @@ public class FtdcScheduledReporterTest {
 
     // Use combinedRegistry for executor metrics so they go to executorRegistry
     var reporter =
-        FtdcScheduledReporter.create(reportingRegistry, combinedRegistry, ftdc, true);
+        FtdcScheduledReporter.create(
+            reportingRegistry, combinedRegistry, ftdc, true,
+            FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT);
     reporter.start(10, TimeUnit.MILLISECONDS);
 
     try {
@@ -1041,14 +1051,16 @@ public class FtdcScheduledReporterTest {
   }
 
   @Test
-  public void create_withDefaultMeterLimit_reportsSample() throws Exception {
+  public void create_withMeterLimit_reportsSampleWhenBelowLimit() throws Exception {
     var ftdc = mockFtdc();
     SimpleMeterRegistry reportingRegistry = new SimpleMeterRegistry();
     CompositeMeterRegistry combinedRegistry = new CompositeMeterRegistry();
     combinedRegistry.add(reportingRegistry);
 
     var reporter =
-        FtdcScheduledReporter.create(reportingRegistry, combinedRegistry, ftdc, false);
+        FtdcScheduledReporter.create(
+            reportingRegistry, combinedRegistry, ftdc, false,
+            FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT);
     reporter.start(10, TimeUnit.MILLISECONDS);
 
     try {
