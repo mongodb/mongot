@@ -1,7 +1,7 @@
 package com.xgen.mongot.embedding.utils;
 
 import com.google.common.collect.ImmutableMap;
-import com.xgen.mongot.index.definition.VectorIndexFieldMapping;
+import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
 import com.xgen.mongot.index.ingestion.handlers.DocumentHandler;
 import com.xgen.mongot.index.ingestion.handlers.FieldValueHandler;
 import com.xgen.mongot.util.FieldPath;
@@ -20,12 +20,12 @@ import java.util.Set;
  */
 public class CollectVectorTextStringsDocumentHandler implements DocumentHandler {
 
-  private final VectorIndexFieldMapping mapping;
+  private final AutoEmbedFieldMapping mapping;
   private final Optional<FieldPath> path;
   private final Map<FieldPath, Set<String>> vectorTextPathMap;
 
   CollectVectorTextStringsDocumentHandler(
-      VectorIndexFieldMapping mapping,
+      AutoEmbedFieldMapping mapping,
       Optional<FieldPath> path,
       Map<FieldPath, Set<String>> vectorTextPathMap) {
     this.mapping = mapping;
@@ -34,7 +34,7 @@ public class CollectVectorTextStringsDocumentHandler implements DocumentHandler 
   }
 
   public static CollectVectorTextStringsDocumentHandler create(
-      VectorIndexFieldMapping mapping, Optional<FieldPath> path) {
+      AutoEmbedFieldMapping mapping, Optional<FieldPath> path) {
     return new CollectVectorTextStringsDocumentHandler(mapping, path, new HashMap<>());
   }
 

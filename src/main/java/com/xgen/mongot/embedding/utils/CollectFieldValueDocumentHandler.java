@@ -1,8 +1,7 @@
 package com.xgen.mongot.embedding.utils;
 
 import com.google.common.collect.ImmutableMap;
-import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
-import com.xgen.mongot.index.definition.VectorIndexFieldMapping;
+import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
 import com.xgen.mongot.index.ingestion.handlers.DocumentHandler;
 import com.xgen.mongot.index.ingestion.handlers.FieldValueHandler;
 import com.xgen.mongot.util.FieldPath;
@@ -25,22 +24,23 @@ import org.bson.BsonValue;
  */
 public class CollectFieldValueDocumentHandler implements DocumentHandler {
 
-  private final VectorIndexFieldMapping mapping;
+  private final AutoEmbedFieldMapping mapping;
   private final Optional<FieldPath> path;
   private final Map<FieldPath, List<BsonValue>> fieldPathValueMap;
   private final Set<FieldPath> arrayPaths;
+
   // TODO(CLOUDP-366279): Callers can currently provide both the predicate and set
   // onlyCollectFieldsinMapping to true, but we currently ignore the predicate in such cases. We
   // should refactor this to allow callers to only set one of the two.
-  private final Predicate<VectorIndexFieldDefinition> fieldPredicate;
+  private final Predicate<FieldPath> fieldPredicate;
   private final boolean onlyCollectFieldsinMapping;
 
   CollectFieldValueDocumentHandler(
-      VectorIndexFieldMapping mapping,
+      AutoEmbedFieldMapping mapping,
       Optional<FieldPath> path,
       Map<FieldPath, List<BsonValue>> fieldPathValueMap,
       Set<FieldPath> arrayPaths,
-      Predicate<VectorIndexFieldDefinition> fieldPredicate,
+      Predicate<FieldPath> fieldPredicate,
       boolean onlyCollectFieldsinMapping) {
     this.mapping = mapping;
     this.path = path;
@@ -51,9 +51,9 @@ public class CollectFieldValueDocumentHandler implements DocumentHandler {
   }
 
   public static CollectFieldValueDocumentHandler create(
-      VectorIndexFieldMapping mapping,
+      AutoEmbedFieldMapping mapping,
       Optional<FieldPath> path,
-      Predicate<VectorIndexFieldDefinition> fieldPredicate,
+      Predicate<FieldPath> fieldPredicate,
       boolean onlyCollectFieldsinMapping) {
     return new CollectFieldValueDocumentHandler(
         mapping,

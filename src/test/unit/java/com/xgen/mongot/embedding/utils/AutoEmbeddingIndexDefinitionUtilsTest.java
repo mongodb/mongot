@@ -1,6 +1,5 @@
 package com.xgen.mongot.embedding.utils;
 
-import static com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils.HASH_FIELD_SUFFIX;
 import static com.xgen.mongot.index.mongodb.MaterializedViewWriter.MV_DATABASE_NAME;
 
 import com.google.common.truth.Truth;
@@ -250,94 +249,6 @@ public class AutoEmbeddingIndexDefinitionUtilsTest {
   }
 
   @Test
-  public void testGetMatViewIndexFields_version0() {
-    var defaultAutoEmbedField =
-        new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("a"));
-    var autoEmbedFieldWithSpecifications =
-        new VectorAutoEmbedFieldDefinition(
-            "voyage-3-large",
-            "text",
-            FieldPath.parse("b"),
-            1024,
-            VectorSimilarity.COSINE,
-            VectorAutoEmbedQuantization.FLOAT);
-    var filterField = new VectorIndexFilterFieldDefinition(FieldPath.parse("color"));
-
-    List<VectorIndexFieldDefinition> fields =
-        List.of(defaultAutoEmbedField, autoEmbedFieldWithSpecifications, filterField);
-    var autoEmbedIndexDefinition = VectorIndexDefinitionBuilder.builder().setFields(fields).build();
-
-    var matViewFieldMapping =
-        AutoEmbeddingIndexDefinitionUtils.getMatViewIndexFields(
-            autoEmbedIndexDefinition.getMappings(), MAT_VIEW_SCHEMA_METADATA);
-
-    // 2 auto-embed fields, so 2 additional hash field entries.
-    Assert.assertEquals(
-        autoEmbedIndexDefinition.getFields().size() + 2, matViewFieldMapping.fieldMap().size());
-    Assert.assertTrue(
-        matViewFieldMapping.fieldMap().containsKey(FieldPath.parse("a" + HASH_FIELD_SUFFIX)));
-    Assert.assertTrue(
-        matViewFieldMapping.fieldMap().containsKey(FieldPath.parse("b" + HASH_FIELD_SUFFIX)));
-  }
-
-  @Test
-  public void testGetMatViewIndexFields_version1() {
-    var schemaMetadata =
-        new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(
-            1,
-            Map.of(
-                FieldPath.parse("b.a"),
-                FieldPath.parse("_autoEmbed.b.a"),
-                FieldPath.parse("a"),
-                FieldPath.parse("_autoEmbed.a")));
-    var defaultAutoEmbedField =
-        new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("a"));
-    var autoEmbedFieldWithSpecifications =
-        new VectorAutoEmbedFieldDefinition(
-            "voyage-3-large",
-            "text",
-            FieldPath.parse("b.a"),
-            1024,
-            VectorSimilarity.COSINE,
-            VectorAutoEmbedQuantization.FLOAT);
-    var filterField = new VectorIndexFilterFieldDefinition(FieldPath.parse("color"));
-
-    List<VectorIndexFieldDefinition> fields =
-        List.of(defaultAutoEmbedField, autoEmbedFieldWithSpecifications, filterField);
-    var autoEmbedIndexDefinition = VectorIndexDefinitionBuilder.builder().setFields(fields).build();
-
-    var matViewFieldMapping =
-        AutoEmbeddingIndexDefinitionUtils.getMatViewIndexFields(
-            autoEmbedIndexDefinition.getMappings(), schemaMetadata);
-
-    // 2 auto-embed fields, so 2 additional hash field entries.
-    Assert.assertEquals(
-        autoEmbedIndexDefinition.getFields().size() + 2, matViewFieldMapping.fieldMap().size());
-    Assert.assertTrue(
-        matViewFieldMapping
-            .fieldMap()
-            .containsKey(FieldPath.parse("_autoEmbed." + HASH_FIELD_SUFFIX + ".b.a")));
-    Assert.assertTrue(
-        matViewFieldMapping
-            .fieldMap()
-            .containsKey(FieldPath.parse("_autoEmbed." + HASH_FIELD_SUFFIX + ".a")));
-  }
-
-  @Test
-  public void testGetHashFieldPathRootLevel() {
-    Assert.assertEquals(
-        "a" + HASH_FIELD_SUFFIX,
-        AutoEmbeddingIndexDefinitionUtils.getHashFieldPath(FieldPath.parse("a"), 0).toString());
-  }
-
-  @Test
-  public void testGetHashFieldPathNested() {
-    Assert.assertEquals(
-        "a.b.c" + HASH_FIELD_SUFFIX,
-        AutoEmbeddingIndexDefinitionUtils.getHashFieldPath(FieldPath.parse("a.b.c"), 0).toString());
-  }
-
-  @Test
   public void testGetDerivedVectorIndexDefinitionPreservesNestedRoot() {
     var autoEmbedFieldUnderNested =
         new VectorAutoEmbedFieldDefinition(
@@ -520,42 +431,6 @@ public class AutoEmbeddingIndexDefinitionUtilsTest {
   }
 
   @Test
-  public void getMatViewIndexFields_preservesHnswOptions() {
-    var hnswOptions = new VectorFieldSpecification.HnswOptions(32, 200);
-    var autoEmbedField =
-        new VectorAutoEmbedFieldDefinition(
-            "voyage-3-large",
-            "text",
-            FieldPath.parse("a"),
-            1024,
-            VectorSimilarity.COSINE,
-            VectorAutoEmbedQuantization.FLOAT,
-            new VectorIndexingAlgorithm.HnswIndexingAlgorithm(hnswOptions));
-    var filterField = new VectorIndexFilterFieldDefinition(FieldPath.parse("color"));
-    List<VectorIndexFieldDefinition> fields = List.of(autoEmbedField, filterField);
-    var indexDefinition = VectorIndexDefinitionBuilder.builder().setFields(fields).build();
-
-    var matViewFieldMapping =
-        AutoEmbeddingIndexDefinitionUtils.getMatViewIndexFields(
-            indexDefinition.getMappings(), MAT_VIEW_SCHEMA_METADATA);
-
-    var matViewAutoEmbedField =
-        matViewFieldMapping.fieldMap().values().stream()
-            .filter(f -> f.getType() == VectorIndexFieldDefinition.Type.AUTO_EMBED)
-            .findFirst()
-            .get()
-            .asVectorAutoEmbedField();
-    Assert.assertTrue(
-        matViewAutoEmbedField.specification().indexingAlgorithm()
-            instanceof VectorIndexingAlgorithm.HnswIndexingAlgorithm);
-    var preservedHnsw =
-        (VectorIndexingAlgorithm.HnswIndexingAlgorithm)
-            matViewAutoEmbedField.specification().indexingAlgorithm();
-    Assert.assertEquals(32, preservedHnsw.options().maxEdges());
-    Assert.assertEquals(200, preservedHnsw.options().numEdgeCandidates());
-  }
-
-  @Test
   public void fromBson_withIndexingMethodFlat_usesFlatAlgorithm() throws BsonParseException {
     var bsonDoc =
         new BsonDocument()
@@ -636,70 +511,6 @@ public class AutoEmbeddingIndexDefinitionUtilsTest {
 
     BsonDocument bson = field.toBson();
     Assert.assertFalse(bson.containsKey("indexingMethod"));
-  }
-
-  @Test
-  public void getMatViewIndexFields_preservesIndexingMethodFlat() {
-    var autoEmbedField =
-        new VectorAutoEmbedFieldDefinition(
-            "voyage-3-large",
-            "text",
-            FieldPath.parse("a"),
-            1024,
-            VectorSimilarity.COSINE,
-            VectorAutoEmbedQuantization.FLOAT,
-            new VectorIndexingAlgorithm.FlatIndexingAlgorithm());
-    var filterField = new VectorIndexFilterFieldDefinition(FieldPath.parse("color"));
-    List<VectorIndexFieldDefinition> fields = List.of(autoEmbedField, filterField);
-    var indexDefinition = VectorIndexDefinitionBuilder.builder().setFields(fields).build();
-
-    var matViewFieldMapping =
-        AutoEmbeddingIndexDefinitionUtils.getMatViewIndexFields(
-            indexDefinition.getMappings(), MAT_VIEW_SCHEMA_METADATA);
-
-    var matViewAutoEmbedField =
-        matViewFieldMapping.fieldMap().values().stream()
-            .filter(f -> f.getType() == VectorIndexFieldDefinition.Type.AUTO_EMBED)
-            .findFirst()
-            .get()
-            .asVectorAutoEmbedField();
-    Assert.assertTrue(
-        matViewAutoEmbedField.specification().indexingAlgorithm()
-            instanceof VectorIndexingAlgorithm.FlatIndexingAlgorithm);
-  }
-
-  @Test
-  public void getMatViewIndexFieldsPreservesNestedRootAndHashPaths() {
-    var autoEmbedUnderNested =
-        new VectorAutoEmbedFieldDefinition(
-            "voyage-3-large",
-            "text",
-            FieldPath.parse("sections.embedding"),
-            1024,
-            VectorSimilarity.COSINE,
-            VectorAutoEmbedQuantization.FLOAT);
-    var filterUnderNested = new VectorIndexFilterFieldDefinition(FieldPath.parse("sections.name"));
-    List<VectorIndexFieldDefinition> fields = List.of(autoEmbedUnderNested, filterUnderNested);
-    var autoEmbedIndexDefinition =
-        VectorIndexDefinitionBuilder.builder().setFields(fields).nestedRoot("sections").build();
-
-    var rawMapping = autoEmbedIndexDefinition.getMappings();
-    var matViewFieldMapping =
-        AutoEmbeddingIndexDefinitionUtils.getMatViewIndexFields(
-            rawMapping, MAT_VIEW_SCHEMA_METADATA);
-
-    Assert.assertTrue(
-        "Mat view mapping should preserve nestedRoot", matViewFieldMapping.hasNestedRoot());
-    Assert.assertEquals(FieldPath.parse("sections"), matViewFieldMapping.nestedRoot().get());
-
-    FieldPath nestedAutoEmbedPath = FieldPath.parse("sections.embedding");
-    FieldPath expectedHashPath = FieldPath.parse("sections.embedding" + HASH_FIELD_SUFFIX);
-    Assert.assertTrue(
-        "Should contain original auto-embed path",
-        matViewFieldMapping.fieldMap().containsKey(nestedAutoEmbedPath));
-    Assert.assertTrue(
-        "Should contain hash path for nested auto-embed field",
-        matViewFieldMapping.fieldMap().containsKey(expectedHashPath));
   }
 
   // ======================= Similarity/Quantization Serialization Tests =======================

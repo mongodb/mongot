@@ -5,12 +5,16 @@ java_test_suite(
     srcs = [
         "AutoEmbeddingMemoryBudgetTest.java",
         "EmbeddingRequestContextTest.java",
+        "VectorAutoEmbedFieldMappingTest.java",
     ],
     tags = ["unit"],
     deps = [
         "//src/main/java/com/xgen/mongot/embedding",
+        "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/definition/quantization",
+        "//src/main/java/com/xgen/mongot/util",
         "@maven//:com_google_flogger_flogger_system_backend",  # keep
+        "@maven//:com_google_guava_guava",
         "@maven//:com_google_truth_truth",
         "@maven//:junit_junit",
     ],

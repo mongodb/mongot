@@ -1,8 +1,6 @@
 package com.xgen.mongot.embedding.utils;
 
 import com.mongodb.client.model.geojson.Geometry;
-import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
-import com.xgen.mongot.index.definition.VectorIndexFieldMapping;
 import com.xgen.mongot.index.ingestion.handlers.DocumentHandler;
 import com.xgen.mongot.index.ingestion.handlers.FieldValueHandler;
 import com.xgen.mongot.util.Check;
@@ -11,6 +9,7 @@ import com.xgen.mongot.util.bson.BsonVectorParser;
 import com.xgen.mongot.util.bson.Vector;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import org.bson.BsonArray;
 import org.bson.BsonBinary;
@@ -28,26 +27,36 @@ import org.bson.types.Binary;
 import org.bson.types.ObjectId;
 
 /**
- * Clones field values based on VectorIndexDefinition, keeps filter fields and stored source fields.
+ * Handles a single field value during materialized view document traversal. Copies the value if the
+ * field is a passthrough field, and descends into sub-documents that are ancestors of passthrough
+ * fields.
  */
 public class MaterializedViewFieldValueHandler implements FieldValueHandler {
-  private final VectorIndexFieldMapping filteredMapping;
+  private final Predicate<FieldPath> shouldKeep;
+  private final Predicate<FieldPath> shouldDescend;
   private final FieldPath path;
   private final BsonValue bsonValue;
 
   private MaterializedViewFieldValueHandler(
-      VectorIndexFieldMapping filteredMapping, FieldPath path, BsonValue bsonValue) {
-    this.filteredMapping = filteredMapping;
+      Predicate<FieldPath> shouldKeep,
+      Predicate<FieldPath> shouldDescend,
+      FieldPath path,
+      BsonValue bsonValue) {
+    this.shouldKeep = shouldKeep;
+    this.shouldDescend = shouldDescend;
     this.path = path;
     this.bsonValue = bsonValue;
   }
 
   public static FieldValueHandler create(
-      VectorIndexFieldMapping filteredMapping, FieldPath path, BsonValue bsonValue) {
+      Predicate<FieldPath> shouldKeep,
+      Predicate<FieldPath> shouldDescend,
+      FieldPath path,
+      BsonValue bsonValue) {
     Check.checkArg(
         (bsonValue instanceof BsonDocument) || (bsonValue instanceof BsonArray),
         "bsonValue input must be either BsonDocument or BsonArray");
-    return new MaterializedViewFieldValueHandler(filteredMapping, path, bsonValue);
+    return new MaterializedViewFieldValueHandler(shouldKeep, shouldDescend, path, bsonValue);
   }
 
   @Override
@@ -148,24 +157,23 @@ public class MaterializedViewFieldValueHandler implements FieldValueHandler {
   }
 
   @Override
-  public void markFieldNameExists() {
-  }
+  public void markFieldNameExists() {}
 
   @Override
   public Optional<FieldValueHandler> arrayFieldValueHandler() {
     BsonArray childBsonArray = new BsonArray();
     add(childBsonArray);
-    return Optional.of(create(this.filteredMapping, this.path, childBsonArray));
+    return Optional.of(create(this.shouldKeep, this.shouldDescend, this.path, childBsonArray));
   }
 
   @Override
   public Optional<DocumentHandler> subDocumentHandler() {
-    if (this.filteredMapping.subDocumentExists(this.path)) {
+    if (this.shouldDescend.test(this.path)) {
       BsonDocument childBsonDocument = new BsonDocument();
       add(childBsonDocument);
       return Optional.of(
-          MaterializedViewDocumentHandler.create(
-              this.filteredMapping, Optional.of(this.path), childBsonDocument));
+          new MaterializedViewDocumentHandler(
+              this.shouldKeep, this.shouldDescend, Optional.of(this.path), childBsonDocument));
     }
     return Optional.empty();
   }
@@ -174,18 +182,13 @@ public class MaterializedViewFieldValueHandler implements FieldValueHandler {
     switch (this.bsonValue) {
       case BsonDocument bsonDocument -> bsonDocument.append(this.path.getLeaf(), childValue);
       case BsonArray bsonArray -> bsonArray.add(childValue);
-      default -> throw new IllegalStateException(
-          "Unexpected bsonValue type: " + this.bsonValue.getBsonType());
+      default ->
+          throw new IllegalStateException(
+              "Unexpected bsonValue type: " + this.bsonValue.getBsonType());
     }
   }
 
   private boolean shouldKeepField() {
-    Optional<VectorIndexFieldDefinition> fieldDefinition =
-        this.filteredMapping.getFieldDefinition(this.path);
-    return fieldDefinition
-        .filter(
-            vectorFieldDefinition ->
-                vectorFieldDefinition.getType() == VectorIndexFieldDefinition.Type.FILTER)
-        .isPresent();
+    return this.shouldKeep.test(this.path);
   }
 }

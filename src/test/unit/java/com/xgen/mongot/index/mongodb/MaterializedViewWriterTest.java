@@ -1,5 +1,7 @@
 package com.xgen.mongot.index.mongodb;
 
+import static com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator.createAutoEmbedMapping;
+import static com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping;
 import static com.xgen.mongot.index.mongodb.MaterializedViewWriter.MV_DATABASE_NAME;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -25,6 +27,7 @@ import com.xgen.mongot.embedding.exceptions.MaterializedViewNonTransientExceptio
 import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
 import com.xgen.mongot.embedding.mongodb.common.AutoEmbeddingMongoClient;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
+import com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils;
 import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.DocumentMetadata;
 import com.xgen.mongot.index.EncodedUserData;
@@ -925,7 +928,7 @@ public class MaterializedViewWriterTest {
         com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils
             .buildMaterializedViewDocumentEvent(
                 rawDocumentEvent,
-                vectorIndexDefinition,
+                createAutoEmbedMapping(vectorIndexDefinition),
                 embeddingsPerFieldBuilder.build(),
                 schemaMetadata);
 
@@ -946,12 +949,11 @@ public class MaterializedViewWriterTest {
 
     // Now compareDocuments against the fenced MV doc — it should NOT trigger re-indexing.
     var comparisonResult =
-        com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils.compareDocuments(
+        AutoEmbeddingDocumentUtils.compareDocuments(
             rawDocumentEvent.getDocument().get(),
             fencedDoc,
-            vectorIndexDefinition.getMappings(),
-            com.xgen.mongot.embedding.utils.AutoEmbeddingIndexDefinitionUtils.getMatViewIndexFields(
-                vectorIndexDefinition.getMappings(), schemaMetadata),
+            createAutoEmbedMapping(vectorIndexDefinition),
+            createMatViewAutoEmbedMapping(vectorIndexDefinition, schemaMetadata),
             schemaMetadata);
 
     Assert.assertFalse(
@@ -977,10 +979,8 @@ public class MaterializedViewWriterTest {
             Optional.empty());
     MaterializedViewNonTransientException ex =
         Assert.assertThrows(
-            MaterializedViewNonTransientException.class,
-            () -> updateAndCommit(1, matViewWriter));
-    Assert.assertEquals(
-        MaterializedViewNonTransientException.Reason.INVALID_LEASE, ex.getReason());
+            MaterializedViewNonTransientException.class, () -> updateAndCommit(1, matViewWriter));
+    Assert.assertEquals(MaterializedViewNonTransientException.Reason.INVALID_LEASE, ex.getReason());
   }
 
   @Test
@@ -999,8 +999,7 @@ public class MaterializedViewWriterTest {
             Optional.empty());
     MaterializedViewNonTransientException ex =
         Assert.assertThrows(
-            MaterializedViewNonTransientException.class,
-            () -> updateAndCommit(1, matViewWriter));
+            MaterializedViewNonTransientException.class, () -> updateAndCommit(1, matViewWriter));
     Assert.assertEquals(
         MaterializedViewNonTransientException.Reason.DOCUMENT_TOO_LARGE, ex.getReason());
   }
@@ -1008,8 +1007,7 @@ public class MaterializedViewWriterTest {
   @Test
   public void testCommitNonRetryableErrorHasNonRetryableErrorReason() {
     // Error code 9 is FailedToParse - not retryable
-    BulkWriteError bulkWriteError =
-        new BulkWriteError(9, "mocked error", new BsonDocument(), 0);
+    BulkWriteError bulkWriteError = new BulkWriteError(9, "mocked error", new BsonDocument(), 0);
     MongoBulkWriteException bulkWriteException = mock(MongoBulkWriteException.class);
     when(bulkWriteException.getWriteErrors()).thenReturn(List.of(bulkWriteError));
     when(this.mockCollection.bulkWrite(any(), same(MaterializedViewWriter.MV_BULK_WRITE_OPTIONS)))
@@ -1026,11 +1024,9 @@ public class MaterializedViewWriterTest {
             Optional.empty());
     MaterializedViewNonTransientException ex =
         Assert.assertThrows(
-            MaterializedViewNonTransientException.class,
-            () -> updateAndCommit(1, matViewWriter));
+            MaterializedViewNonTransientException.class, () -> updateAndCommit(1, matViewWriter));
     Assert.assertEquals(
-        MaterializedViewNonTransientException.Reason.NON_RETRYABLE_ERROR,
-        ex.getReason());
+        MaterializedViewNonTransientException.Reason.NON_RETRYABLE_ERROR, ex.getReason());
   }
 
   @Test
@@ -1049,8 +1045,7 @@ public class MaterializedViewWriterTest {
             Optional.empty());
     MaterializedViewTransientException ex =
         Assert.assertThrows(
-            MaterializedViewTransientException.class,
-            matViewWriter::getCommitUserData);
+            MaterializedViewTransientException.class, matViewWriter::getCommitUserData);
     Assert.assertEquals(
         MaterializedViewTransientException.Reason.READ_LEASE_FAILED, ex.getReason());
   }

@@ -6,6 +6,8 @@ import com.google.errorprone.annotations.Var;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.client.model.changestream.OperationType;
+import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
+import com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator;
 import com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils;
 import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.DocumentMetadata;
@@ -13,7 +15,6 @@ import com.xgen.mongot.index.definition.FieldDefinitionResolver;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
-import com.xgen.mongot.index.definition.VectorIndexFieldMapping;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.Crash;
@@ -213,6 +214,13 @@ public class ChangeStreamDocumentUtils {
     ChangeStreamBatchMetrics metrics = new ChangeStreamBatchMetrics();
     Set<BsonDocument> processedDocs = new HashSet<>();
 
+    Optional<AutoEmbedFieldMapping> autoEmbedMapping =
+        (indexDefinition instanceof VectorIndexDefinition vectorDef
+                && MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(
+                    indexDefinition))
+            ? Optional.of(AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef))
+            : Optional.empty();
+
     List<DocumentEvent> finalChangeEvents = new ArrayList<>();
 
     for (var event : Lists.reverse(batch)) {
@@ -229,7 +237,8 @@ public class ChangeStreamDocumentUtils {
                 indexDefinition,
                 fieldDefinitionResolver,
                 metrics,
-                areUpdateEventsPrefiltered);
+                areUpdateEventsPrefiltered,
+                autoEmbedMapping);
         if (docEvent.isPresent()) {
           finalChangeEvents.add(docEvent.get());
 
@@ -256,7 +265,8 @@ public class ChangeStreamDocumentUtils {
       IndexDefinition indexDefinition,
       FieldDefinitionResolver fieldDefinitionResolver,
       ChangeStreamBatchMetrics metrics,
-      boolean areUpdateEventsPrefiltered) {
+      boolean areUpdateEventsPrefiltered,
+      Optional<AutoEmbedFieldMapping> autoEmbedMapping) {
 
     DocumentMetadata metadata = createMetadata(event, indexDefinition);
 
@@ -305,15 +315,13 @@ public class ChangeStreamDocumentUtils {
           // check if embedding generation is required. If not (only filter fields changed),
           // we can skip embedding and use partial updates. Old EMBEDDING strategy (TEXT fields,
           // version 1) does not support partial updates as it writes directly to Lucene.
-          if (indexDefinition instanceof VectorIndexDefinition vectorDef
-              && MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(
-                  indexDefinition)) {
-            VectorIndexFieldMapping fieldMapping = vectorDef.getMappings();
+          if (autoEmbedMapping.isPresent()) {
+            AutoEmbedFieldMapping mapping = autoEmbedMapping.get();
             if (!AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(
-                event.getUpdateDescription(), fieldMapping)) {
+                event.getUpdateDescription(), mapping)) {
               BsonDocument filterFieldUpdates =
                   AutoEmbeddingDocumentUtils.extractFilterFieldValues(
-                      event.getFullDocument(), fieldMapping);
+                      event.getFullDocument(), mapping);
               // Use partial update if filter fields were extracted successfully.
               // If empty (extraction failed or only non-indexed fields changed), fall back to full
               // document replacement to ensure data correctness.

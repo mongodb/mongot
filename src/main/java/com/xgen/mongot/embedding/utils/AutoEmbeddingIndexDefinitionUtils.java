@@ -1,7 +1,7 @@
 package com.xgen.mongot.embedding.utils;
 
 import static com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata;
-import static com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils.HASH_FIELD_SUFFIX;
+import static com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator.getMatViewFieldPath;
 
 import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.FieldDefinition;
@@ -15,10 +15,7 @@ import com.xgen.mongot.index.definition.VectorDataFieldDefinition;
 import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
-import com.xgen.mongot.index.definition.VectorIndexFieldMapping;
-import com.xgen.mongot.index.definition.VectorIndexFilterFieldDefinition;
 import com.xgen.mongot.util.FieldPath;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,8 +23,6 @@ import java.util.Optional;
 import java.util.UUID;
 
 public class AutoEmbeddingIndexDefinitionUtils {
-
-  private static final String HASH_FIELD_PREFIX = "_autoEmbed._hash";
 
   /**
    * Converts original raw VectorIndexDefinition in source collection to normalized
@@ -110,85 +105,6 @@ public class AutoEmbeddingIndexDefinitionUtils {
         rawDefinition.getIndexIdAtCreationTime(),
         rawDefinition.getAutoEmbeddingDefinitionVersion(),
         rawDefinition.getMaterializedViewNameFormatVersion());
-  }
-
-
-  /**
-   * Returns the hash field path for the given field path by materialized view schema version
-   *
-   * <p>For version 0, converts field path by appending _hash to leaf
-   *
-   * <p>For version 1 and above, prepends '_autoEmbed._hash.' to the field path
-   *
-   * @param fieldPath the current field path from source collection
-   * @return the hash field path corresponding to the given field path
-   */
-  public static FieldPath getHashFieldPath(FieldPath fieldPath, long matViewSchemaVersion) {
-    // TODO(CLOUDP-363914): build hash field from MV schema metadata, not by version.
-    if (matViewSchemaVersion == 0) {
-      return fieldPath
-          .getParent()
-          .map(path -> path.newChild(fieldPath.getLeaf() + HASH_FIELD_SUFFIX))
-          .orElse(FieldPath.newRoot(fieldPath.getLeaf() + HASH_FIELD_SUFFIX));
-    }
-    return FieldPath.parse(HASH_FIELD_PREFIX + FieldPath.DELIMITER + fieldPath.toString());
-  }
-
-  /**
-   * Creates a new VectorIndexFieldMapping from original VectorIndexFieldMapping by converting
-   * AUTO_EMBED VectorIndexFieldDefinition and adding hash VectorIndexFieldDefinition if
-   * VectorIndexFieldDefinition is set.
-   *
-   * <p>For example: {'title': {'path': 'title', 'type': 'autoEmbed', 'model': 'voyage-4',
-   * 'modality': 'text'}, 'plot': {'path': 'plot', 'type': 'filter'}}
-   *
-   * <p>will be converted to:
-   *
-   * <p>{'_autoEmbed.title': {'path': '_autoEmbed.title', 'type': 'autoEmb', 'numDimensions': 1024,
-   * 'similarity': 'dotProduct'}, '_autoEmbed._hash.title': {'path': '_autoEmbed._hash.title',
-   * 'type': 'filter'}, 'plot': {'path': 'plot', 'type': 'filter'}}
-   */
-  public static VectorIndexFieldMapping getMatViewIndexFields(
-      VectorIndexFieldMapping rawFieldMapping, MaterializedViewSchemaMetadata schemaMetadata) {
-    List<VectorIndexFieldDefinition> updatedFieldDefinitions = new ArrayList<>();
-    rawFieldMapping.fieldMap().values().stream()
-        .forEach(
-            field -> {
-              if (field.getType() == VectorIndexFieldDefinition.Type.AUTO_EMBED) {
-                var autoEmbedField = field.asVectorAutoEmbedField();
-                var specification = autoEmbedField.specification();
-                updatedFieldDefinitions.add(
-                    new VectorAutoEmbedFieldDefinition(
-                        specification.modelName(),
-                        specification.modality(),
-                        getMatViewFieldPath(
-                            field.getPath(), schemaMetadata.autoEmbeddingFieldsMapping()),
-                        specification.numDimensions(),
-                        specification.similarity(),
-                        specification.autoEmbedQuantization(),
-                        specification.indexingAlgorithm()));
-                // Use Filter field definition for internal Hash Field. Derived Definition should
-                // exclude hash fields, this is only for auto-embedding resync process.
-                updatedFieldDefinitions.add(
-                    new VectorIndexFilterFieldDefinition(
-                        getHashFieldPath(
-                            field.getPath(), schemaMetadata.materializedViewSchemaVersion())));
-
-              } else {
-                updatedFieldDefinitions.add(field);
-              }
-            });
-    return VectorIndexFieldMapping.create(updatedFieldDefinitions, rawFieldMapping.nestedRoot());
-  }
-
-  // Converts source auto-embedding field path to materialized view field path if there is schema
-  // fields mapping available, returns original field path otherwise
-  static FieldPath getMatViewFieldPath(
-      FieldPath sourceFieldPath, Map<FieldPath, FieldPath> schemaFieldsMapping) {
-    if (schemaFieldsMapping.containsKey(sourceFieldPath)) {
-      return schemaFieldsMapping.get(sourceFieldPath);
-    }
-    return sourceFieldPath;
   }
 
   private static List<VectorIndexFieldDefinition> getDerivedVectorIndexFields(

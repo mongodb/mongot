@@ -1,8 +1,7 @@
 package com.xgen.mongot.embedding.utils;
 
 import com.mongodb.client.model.geojson.Geometry;
-import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
-import com.xgen.mongot.index.definition.VectorIndexFieldMapping;
+import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
 import com.xgen.mongot.index.ingestion.handlers.DocumentHandler;
 import com.xgen.mongot.index.ingestion.handlers.FieldValueHandler;
 import com.xgen.mongot.util.FieldPath;
@@ -29,19 +28,19 @@ import org.bson.types.ObjectId;
 
 public class CollectFieldValueHandler implements FieldValueHandler {
 
-  private final VectorIndexFieldMapping mapping;
+  private final AutoEmbedFieldMapping mapping;
   private final FieldPath path;
   private final Map<FieldPath, List<BsonValue>> collectedValues;
   private final Set<FieldPath> arrayPaths;
-  private final Predicate<VectorIndexFieldDefinition> fieldPredicate;
+  private final Predicate<FieldPath> fieldPredicate;
   private final boolean onlyCollectFieldsinMapping;
 
   private CollectFieldValueHandler(
-      VectorIndexFieldMapping mapping,
+      AutoEmbedFieldMapping mapping,
       FieldPath path,
       Map<FieldPath, List<BsonValue>> collectedValues,
       Set<FieldPath> arrayPaths,
-      Predicate<VectorIndexFieldDefinition> fieldPredicate,
+      Predicate<FieldPath> fieldPredicate,
       boolean onlyCollectFieldsinMapping) {
     this.mapping = mapping;
     this.path = path;
@@ -52,11 +51,11 @@ public class CollectFieldValueHandler implements FieldValueHandler {
   }
 
   public static FieldValueHandler create(
-      VectorIndexFieldMapping mapping,
+      AutoEmbedFieldMapping mapping,
       FieldPath path,
       Map<FieldPath, List<BsonValue>> vectorTextPathMap,
       Set<FieldPath> arrayPaths,
-      Predicate<VectorIndexFieldDefinition> fieldPredicate,
+      Predicate<FieldPath> fieldPredicate,
       boolean onlyCollectFieldsinMapping) {
     return new CollectFieldValueHandler(
         mapping, path, vectorTextPathMap, arrayPaths, fieldPredicate, onlyCollectFieldsinMapping);
@@ -170,9 +169,7 @@ public class CollectFieldValueHandler implements FieldValueHandler {
 
   private boolean shouldCollect() {
     if (this.onlyCollectFieldsinMapping) {
-      Optional<VectorIndexFieldDefinition> fieldDefinition =
-          this.mapping.getFieldDefinition(this.path);
-      return fieldDefinition.map(this.fieldPredicate::test).orElse(false);
+      return this.mapping.getField(this.path).isPresent() && this.fieldPredicate.test(this.path);
     } else {
       return true;
     }

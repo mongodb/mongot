@@ -11,16 +11,20 @@ import com.google.common.hash.Hashing;
 import com.google.common.io.BaseEncoding;
 import com.mongodb.MongoCommandException;
 import com.mongodb.client.MongoClient;
+import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
 import com.xgen.mongot.embedding.mongodb.common.AutoEmbeddingMongoClient;
 import com.xgen.mongot.embedding.mongodb.common.InternalDatabaseResolver;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
+import com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.VectorAutoEmbedFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
+import com.xgen.mongot.index.definition.VectorTextFieldSpecification;
 import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
@@ -29,6 +33,7 @@ import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -134,8 +139,7 @@ public class MaterializedViewCollectionResolver {
                       CURRENT_MAT_VIEW_SCHEMA_VERSION)));
       this.metadataCatalog.addMetadata(
           indexDefinitionGeneration.getGenerationId(), materializedViewCollectionMetadata);
-      this.metadataCatalog.addDatabaseName(
-          indexDefinitionGeneration.getGenerationId(), matViewDb);
+      this.metadataCatalog.addDatabaseName(indexDefinitionGeneration.getGenerationId(), matViewDb);
       LOG.atInfo()
           .addKeyValue("generationId", indexDefinitionGeneration.getGenerationId())
           .addKeyValue("collectionName", collectionName)
@@ -273,37 +277,56 @@ public class MaterializedViewCollectionResolver {
   }
 
   /**
-   * Computes a hash of the index definition. The hash is used to determine if the index definition
-   * has changed in a way that requires a new materialized view collection.
+   * Computes a hash of the auto-embed fields in a vector index definition. Convenience overload
+   * that extracts auto-embed fields before delegating to {@link
+   * #computeHash(AutoEmbedFieldMapping)}.
    */
   public static String computeHash(VectorIndexDefinition indexDefinition) {
-    var autoEmbedFields =
-        indexDefinition.getFields().stream()
-            .filter(field -> field.getType() == VectorIndexFieldDefinition.Type.AUTO_EMBED)
-            .map(VectorIndexFieldDefinition::asVectorAutoEmbedField)
+    return computeHash(AutoEmbedFieldMappingCreator.createAutoEmbedMapping(indexDefinition));
+  }
+
+  /**
+   * Computes a hash of the auto-embed field mapping. The hash is used to determine if the index
+   * definition has changed in a way that requires a new materialized view collection.
+   *
+   * <p>The hash includes path, model name, modality, num dimensions, and auto-embed quantization
+   * for each AUTO_EMBED field. Legacy TEXT fields are not valid inputs.
+   */
+  public static String computeHash(AutoEmbedFieldMapping mapping) {
+    List<Map.Entry<FieldPath, AutoEmbedFieldMapping.AutoEmbedField.EmbedField>> sortedEntries =
+        mapping.embedFields().entrySet().stream()
+            .sorted(Comparator.comparing(e -> e.getKey().toString()))
             .toList();
 
-    // Order-independent: sort so same set of fields always hashes the same
-    var sortedFields =
-        autoEmbedFields.stream()
-            .sorted(
-                Comparator.comparing(
-                    VectorIndexFieldDefinition::getPath, Comparator.comparing(FieldPath::toString)))
-            .toList();
+    for (var entry : sortedEntries) {
+      switch (entry.getValue().specification()) {
+        case VectorAutoEmbedFieldSpecification ignored -> {
+          // do nothing, this is what we want here
+        }
+        case VectorTextFieldSpecification ignored ->
+            throw new IllegalArgumentException(
+                "Legacy TEXT field specification is not supported for materialized view hash"
+                    + " computation: "
+                    + entry.getKey());
+      }
+    }
 
     StringBuilder sb = new StringBuilder();
-    for (var field : sortedFields) {
+    for (var entry : sortedEntries) {
+      FieldPath path = entry.getKey();
+      VectorAutoEmbedFieldSpecification spec =
+          (VectorAutoEmbedFieldSpecification) entry.getValue().specification();
       // Include path, model name, modality, num dimensions, and quantization in hash as those
       // fields impact the embeddings generated or how they are stored.
-      sb.append(field.getPath().toString())
+      sb.append(path.toString())
           .append(HASH_STRING_DELIM)
-          .append(field.specification().modelName())
+          .append(spec.modelName())
           .append(HASH_STRING_DELIM)
-          .append(field.specification().modality())
+          .append(spec.modality())
           .append(HASH_STRING_DELIM)
-          .append(field.specification().numDimensions())
+          .append(spec.numDimensions())
           .append(HASH_STRING_DELIM)
-          .append(field.specification().autoEmbedQuantization());
+          .append(spec.autoEmbedQuantization());
       // For future reference: Include additional field params conditionally for newer hash versions
       // as needed. Note that default values need careful handling to ensure that simply bumping the
       // hash version doesn't change the hash value for all indexes.

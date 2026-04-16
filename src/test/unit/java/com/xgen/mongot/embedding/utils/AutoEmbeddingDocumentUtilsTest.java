@@ -12,6 +12,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.errorprone.annotations.Var;
+import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata;
 import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.DocumentMetadata;
@@ -55,9 +56,12 @@ public class AutoEmbeddingDocumentUtilsTest {
         List.of(
             new VectorTextFieldDefinition(FieldPath.parse("a")),
             new VectorTextFieldDefinition(FieldPath.parse("b")));
-    VectorIndexFieldMapping mappings = VectorIndexFieldMapping.create(fields, Optional.empty());
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
 
-    Map<FieldPath, Set<String>> result = getVectorTextPathMap(rawBsonDoc, mappings);
+    Map<FieldPath, Set<String>> result =
+        getVectorTextPathMap(
+            rawBsonDoc, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef));
     assertEquals(
         ImmutableMap.of(
             FieldPath.parse("a"), Set.of("aString"), FieldPath.parse("b"), Set.of("bString")),
@@ -71,14 +75,17 @@ public class AutoEmbeddingDocumentUtilsTest {
             new VectorTextFieldDefinition(FieldPath.parse("root.a")),
             new VectorTextFieldDefinition(FieldPath.parse("root.b")),
             new VectorTextFieldDefinition(FieldPath.newRoot("dot.field")));
-    VectorIndexFieldMapping mappings = VectorIndexFieldMapping.create(fields, Optional.empty());
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
     BsonDocument bsonDoc = createEmbeddedBson();
 
     // also test that "." in field name works
     bsonDoc.append("dot.field", new BsonString("dotString"));
     RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
 
-    Map<FieldPath, Set<String>> result = getVectorTextPathMap(rawBsonDoc, mappings);
+    Map<FieldPath, Set<String>> result =
+        getVectorTextPathMap(
+            rawBsonDoc, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef));
     assertEquals(
         ImmutableMap.of(
             FieldPath.parse("root.a"),
@@ -96,11 +103,14 @@ public class AutoEmbeddingDocumentUtilsTest {
         List.of(
             new VectorTextFieldDefinition(FieldPath.parse("root")),
             new VectorTextFieldDefinition(FieldPath.parse("root.a")));
-    VectorIndexFieldMapping mappings = VectorIndexFieldMapping.create(fields, Optional.empty());
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
     BsonDocument bsonDoc = createArrayBson();
     RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
 
-    Map<FieldPath, Set<String>> result = getVectorTextPathMap(rawBsonDoc, mappings);
+    Map<FieldPath, Set<String>> result =
+        getVectorTextPathMap(
+            rawBsonDoc, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef));
     assertEquals(
         ImmutableMap.of(
             FieldPath.parse("root"),
@@ -119,13 +129,16 @@ public class AutoEmbeddingDocumentUtilsTest {
             new VectorTextFieldDefinition(FieldPath.parse("d")),
             new VectorTextFieldDefinition(FieldPath.parse("a")),
             new VectorTextFieldDefinition(FieldPath.parse("num")));
-    VectorIndexFieldMapping mappings = VectorIndexFieldMapping.create(fields, Optional.empty());
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
     BsonDocument bsonDoc = createArrayBson();
     bsonDoc.append("d", new BsonString("dString"));
     bsonDoc.append("num", new BsonDouble(1.23));
     RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
 
-    Map<FieldPath, Set<String>> result = getVectorTextPathMap(rawBsonDoc, mappings);
+    Map<FieldPath, Set<String>> result =
+        getVectorTextPathMap(
+            rawBsonDoc, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef));
     assertEquals(
         Map.of(
             FieldPath.parse("d"),
@@ -146,7 +159,8 @@ public class AutoEmbeddingDocumentUtilsTest {
             new VectorTextFieldDefinition(FieldPath.parse("c")),
             new VectorTextFieldDefinition(FieldPath.parse("extra")),
             new VectorTextFieldDefinition(FieldPath.parse("num")));
-    VectorIndexFieldMapping mappings = VectorIndexFieldMapping.create(fields, Optional.empty());
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
     ImmutableMap<String, Vector> embeddings = createEmbeddings();
     BsonDocument bsonDoc = createBasicBson();
     bsonDoc.append("extra", new BsonString("no-embedding"));
@@ -159,8 +173,8 @@ public class AutoEmbeddingDocumentUtilsTest {
     DocumentEvent result =
         buildAutoEmbeddingDocumentEvent(
             rawDocumentEvent,
-            mappings,
-            mappings.fieldMap().keySet().stream()
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef),
+            vectorDef.getMappings().fieldMap().keySet().stream()
                 .map(fieldPath -> new AbstractMap.SimpleEntry<>(fieldPath, embeddings))
                 .collect(ImmutableMap.toImmutableMap(Map.Entry::getKey, Map.Entry::getValue)));
 
@@ -184,12 +198,15 @@ public class AutoEmbeddingDocumentUtilsTest {
   public void testBuildDocumentEvent_noop() throws IOException {
     List<VectorIndexFieldDefinition> fields =
         List.of(new VectorTextFieldDefinition(FieldPath.parse("a")));
-    VectorIndexFieldMapping mappings = VectorIndexFieldMapping.create(fields, Optional.empty());
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
     ImmutableMap<String, Vector> embeddings = createEmbeddings();
     DocumentEvent rawDocumentEvent = DocumentEvent.createDelete(new BsonInt32(1));
     DocumentEvent result =
         buildAutoEmbeddingDocumentEvent(
-            rawDocumentEvent, mappings, ImmutableMap.of(FieldPath.parse("a"), embeddings));
+            rawDocumentEvent,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef),
+            ImmutableMap.of(FieldPath.parse("a"), embeddings));
     assertEquals(rawDocumentEvent, result);
   }
 
@@ -200,7 +217,8 @@ public class AutoEmbeddingDocumentUtilsTest {
             new VectorTextFieldDefinition(FieldPath.parse("root.a")),
             new VectorTextFieldDefinition(FieldPath.parse("root.b")),
             new VectorTextFieldDefinition(FieldPath.newRoot("dot.field")));
-    VectorIndexFieldMapping mappings = VectorIndexFieldMapping.create(fields, Optional.empty());
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
     ImmutableMap<String, Vector> embeddings = createEmbeddings();
     BsonDocument bsonDoc = createEmbeddedBson();
 
@@ -215,7 +233,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     DocumentEvent result =
         buildAutoEmbeddingDocumentEvent(
             rawDocumentEvent,
-            mappings,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef),
             ImmutableMap.of(
                 FieldPath.parse("root.a"),
                 embeddings,
@@ -241,7 +259,8 @@ public class AutoEmbeddingDocumentUtilsTest {
   public void testBuildDocumentEvent_array() throws IOException {
     List<VectorIndexFieldDefinition> fields =
         List.of(new VectorTextFieldDefinition(FieldPath.parse("root")));
-    VectorIndexFieldMapping mappings = VectorIndexFieldMapping.create(fields, Optional.empty());
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
     ImmutableMap<String, Vector> embeddings = createEmbeddings();
     BsonDocument bsonDoc = createArrayBson();
     RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
@@ -250,7 +269,9 @@ public class AutoEmbeddingDocumentUtilsTest {
             DocumentMetadata.fromOriginalDocument(Optional.of(rawBsonDoc)), rawBsonDoc);
     DocumentEvent result =
         buildAutoEmbeddingDocumentEvent(
-            rawDocumentEvent, mappings, ImmutableMap.of(FieldPath.parse("root"), embeddings));
+            rawDocumentEvent,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef),
+            ImmutableMap.of(FieldPath.parse("root"), embeddings));
     assertEquals(
         DocumentEvent.createFromDocumentEventAndVectors(
             rawDocumentEvent,
@@ -271,7 +292,8 @@ public class AutoEmbeddingDocumentUtilsTest {
             new VectorTextFieldDefinition(FieldPath.parse("root")),
             new VectorTextFieldDefinition(FieldPath.parse("root.a")),
             new VectorTextFieldDefinition(FieldPath.parse("root.b")));
-    VectorIndexFieldMapping mappings = VectorIndexFieldMapping.create(fields, Optional.empty());
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
     ImmutableMap<String, Vector> embeddings = createEmbeddings();
     BsonDocument bsonDoc = createArrayBson();
     RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
@@ -283,7 +305,10 @@ public class AutoEmbeddingDocumentUtilsTest {
         ImmutableMap.of(
             FieldPath.parse("root.b"), embeddings, FieldPath.parse("root.a"), embeddings);
     DocumentEvent result =
-        buildAutoEmbeddingDocumentEvent(rawDocumentEvent, mappings, allEmbeddingsFromBatchResponse);
+        buildAutoEmbeddingDocumentEvent(
+            rawDocumentEvent,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef),
+            allEmbeddingsFromBatchResponse);
     assertEquals(
         DocumentEvent.createFromDocumentEventAndVectors(
             rawDocumentEvent,
@@ -329,7 +354,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     DocumentEvent result =
         buildMaterializedViewDocumentEvent(
             rawDocumentEvent,
-            vectorIndexDefinition,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
             createEmbeddingsPerField(vectorIndexDefinition.getMappings(), embeddings),
             MAT_VIEW_SCHEMA_METADATA);
 
@@ -407,7 +432,10 @@ public class AutoEmbeddingDocumentUtilsTest {
     // "text2" -> vector2New (from new), "text1" -> vector1 (from old, since not in new)
     DocumentEvent result =
         buildMaterializedViewDocumentEvent(
-            rawEventWithOldEmbeddings, vectorIndexDefinition, newEmbeddings, schemaMetadata);
+            rawEventWithOldEmbeddings,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
+            newEmbeddings,
+            schemaMetadata);
 
     // The result document should use vector1 for "text1" since that's what's in the document
     BsonDocument resultDoc = result.getDocument().get().clone();
@@ -460,7 +488,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     DocumentEvent result =
         buildMaterializedViewDocumentEvent(
             rawEventWithOldEmbeddings,
-            vectorIndexDefinition,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
             newEmbeddings,
             MAT_VIEW_SCHEMA_METADATA);
 
@@ -509,7 +537,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     DocumentEvent result =
         buildMaterializedViewDocumentEvent(
             rawEventWithOldEmbeddings,
-            vectorIndexDefinition,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
             newEmbeddings,
             MAT_VIEW_SCHEMA_METADATA);
 
@@ -539,7 +567,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     DocumentEvent result =
         buildMaterializedViewDocumentEvent(
             rawDocumentEvent,
-            vectorIndexDefinition,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
             createEmbeddingsPerField(vectorIndexDefinition.getMappings(), embeddings),
             MAT_VIEW_SCHEMA_METADATA);
 
@@ -547,9 +575,9 @@ public class AutoEmbeddingDocumentUtilsTest {
         compareDocuments(
             rawDocumentEvent.getDocument().get(),
             result.getDocument().get(),
-            vectorIndexDefinition.getMappings(),
-            AutoEmbeddingIndexDefinitionUtils.getMatViewIndexFields(
-                vectorIndexDefinition.getMappings(), MAT_VIEW_SCHEMA_METADATA),
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
+            AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(
+                vectorIndexDefinition, MAT_VIEW_SCHEMA_METADATA),
             MAT_VIEW_SCHEMA_METADATA);
 
     assertFalse(comparisonResult.needsReIndexing());
@@ -581,9 +609,9 @@ public class AutoEmbeddingDocumentUtilsTest {
                 FieldPath.parse("c.f"),
                 FieldPath.parse("_autoEmbed.c.f")));
 
-    VectorIndexFieldMapping matViewMappingsWithHash =
-        AutoEmbeddingIndexDefinitionUtils.getMatViewIndexFields(
-            vectorIndexDefinition.getMappings(), schemaMetadata);
+    AutoEmbedFieldMapping matViewMappingsWithHash =
+        AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(
+            vectorIndexDefinition, schemaMetadata);
     ImmutableMap<String, Vector> embeddings = createEmbeddings();
     BsonDocument bsonDoc = createArrayEmbededBson();
     RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
@@ -593,14 +621,14 @@ public class AutoEmbeddingDocumentUtilsTest {
     DocumentEvent result =
         buildMaterializedViewDocumentEvent(
             rawDocumentEvent,
-            vectorIndexDefinition,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
             createEmbeddingsPerField(vectorIndexDefinition.getMappings(), embeddings),
             schemaMetadata);
     var comparisonResult =
         compareDocuments(
             rawBsonDoc,
             result.getDocument().get(),
-            vectorIndexDefinition.getMappings(),
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
             matViewMappingsWithHash,
             schemaMetadata);
 
@@ -629,7 +657,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     DocumentEvent result =
         buildMaterializedViewDocumentEvent(
             rawDocumentEvent,
-            vectorIndexDefinition,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
             createEmbeddingsPerField(vectorIndexDefinition.getMappings(), embeddings),
             MAT_VIEW_SCHEMA_METADATA);
 
@@ -637,9 +665,9 @@ public class AutoEmbeddingDocumentUtilsTest {
         compareDocuments(
             rawDocumentEvent.getDocument().get(),
             result.getDocument().get(),
-            vectorIndexDefinition.getMappings(),
-            AutoEmbeddingIndexDefinitionUtils.getMatViewIndexFields(
-                vectorIndexDefinition.getMappings(), MAT_VIEW_SCHEMA_METADATA),
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
+            AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(
+                vectorIndexDefinition, MAT_VIEW_SCHEMA_METADATA),
             MAT_VIEW_SCHEMA_METADATA);
 
     assertFalse(comparisonResult.needsReIndexing());
@@ -661,7 +689,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     DocumentEvent result =
         buildMaterializedViewDocumentEvent(
             rawDocumentEvent,
-            vectorIndexDefinition,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
             createEmbeddingsPerField(vectorIndexDefinition.getMappings(), embeddings),
             MAT_VIEW_SCHEMA_METADATA);
 
@@ -670,9 +698,9 @@ public class AutoEmbeddingDocumentUtilsTest {
         compareDocuments(
             rawDocumentEvent.getDocument().get(),
             result.getDocument().get(),
-            vectorIndexDefinition.getMappings(),
-            AutoEmbeddingIndexDefinitionUtils.getMatViewIndexFields(
-                vectorIndexDefinition.getMappings(), MAT_VIEW_SCHEMA_METADATA),
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
+            AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(
+                vectorIndexDefinition, MAT_VIEW_SCHEMA_METADATA),
             MAT_VIEW_SCHEMA_METADATA);
 
     assertFalse(comparisonResult.needsReIndexing());
@@ -689,9 +717,9 @@ public class AutoEmbeddingDocumentUtilsTest {
         compareDocuments(
             rawDocumentEvent.getDocument().get(),
             result.getDocument().get(),
-            vectorIndexDefinition.getMappings(),
-            AutoEmbeddingIndexDefinitionUtils.getMatViewIndexFields(
-                vectorIndexDefinition.getMappings(), MAT_VIEW_SCHEMA_METADATA),
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
+            AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(
+                vectorIndexDefinition, MAT_VIEW_SCHEMA_METADATA),
             MAT_VIEW_SCHEMA_METADATA);
 
     assertTrue(comparisonResult.needsReIndexing());
@@ -712,7 +740,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     DocumentEvent result =
         buildMaterializedViewDocumentEvent(
             rawDocumentEvent,
-            vectorIndexDefinition,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
             createEmbeddingsPerField(vectorIndexDefinition.getMappings(), embeddings),
             MAT_VIEW_SCHEMA_METADATA);
 
@@ -720,9 +748,9 @@ public class AutoEmbeddingDocumentUtilsTest {
         compareDocuments(
             rawDocumentEvent.getDocument().get(),
             result.getDocument().get(),
-            vectorIndexDefinition.getMappings(),
-            AutoEmbeddingIndexDefinitionUtils.getMatViewIndexFields(
-                vectorIndexDefinition.getMappings(), MAT_VIEW_SCHEMA_METADATA),
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
+            AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(
+                vectorIndexDefinition, MAT_VIEW_SCHEMA_METADATA),
             MAT_VIEW_SCHEMA_METADATA);
 
     assertFalse(comparisonResult.needsReIndexing());
@@ -744,7 +772,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     DocumentEvent result =
         buildMaterializedViewDocumentEvent(
             rawDocumentEvent,
-            vectorIndexDefinition,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
             createEmbeddingsPerField(vectorIndexDefinition.getMappings(), embeddings),
             MAT_VIEW_SCHEMA_METADATA);
 
@@ -759,9 +787,9 @@ public class AutoEmbeddingDocumentUtilsTest {
         compareDocuments(
             rawDocumentEvent.getDocument().get(),
             result.getDocument().get(),
-            vectorIndexDefinition.getMappings(),
-            AutoEmbeddingIndexDefinitionUtils.getMatViewIndexFields(
-                vectorIndexDefinition.getMappings(), MAT_VIEW_SCHEMA_METADATA),
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
+            AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(
+                vectorIndexDefinition, MAT_VIEW_SCHEMA_METADATA),
             MAT_VIEW_SCHEMA_METADATA);
 
     // Expect false as the first vector string in "root.a" is unchanged, we only changed the second
@@ -794,7 +822,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     DocumentEvent result =
         buildMaterializedViewDocumentEvent(
             rawDocumentEvent,
-            vectorIndexDefinition,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
             createEmbeddingsPerField(vectorIndexDefinition.getMappings(), embeddings),
             MAT_VIEW_SCHEMA_METADATA);
 
@@ -802,9 +830,9 @@ public class AutoEmbeddingDocumentUtilsTest {
         compareDocuments(
             rawDocumentEvent.getDocument().get(),
             result.getDocument().get(),
-            vectorIndexDefinition.getMappings(),
-            AutoEmbeddingIndexDefinitionUtils.getMatViewIndexFields(
-                vectorIndexDefinition.getMappings(), MAT_VIEW_SCHEMA_METADATA),
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
+            AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(
+                vectorIndexDefinition, MAT_VIEW_SCHEMA_METADATA),
             MAT_VIEW_SCHEMA_METADATA);
 
     // Expect re-indexing since only 2 of the 3 auto-embedding fields have embeddings in the mat
@@ -835,7 +863,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     DocumentEvent result =
         buildMaterializedViewDocumentEvent(
             rawDocumentEvent,
-            vectorIndexDefinition1,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition1),
             createEmbeddingsPerField(vectorIndexDefinition1.getMappings(), embeddings),
             MAT_VIEW_SCHEMA_METADATA);
 
@@ -857,9 +885,9 @@ public class AutoEmbeddingDocumentUtilsTest {
         compareDocuments(
             rawDocumentEvent.getDocument().get(),
             result.getDocument().get(),
-            vectorIndexDefinition2.getMappings(),
-            AutoEmbeddingIndexDefinitionUtils.getMatViewIndexFields(
-                vectorIndexDefinition2.getMappings(), MAT_VIEW_SCHEMA_METADATA),
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition2),
+            AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(
+                vectorIndexDefinition2, MAT_VIEW_SCHEMA_METADATA),
             MAT_VIEW_SCHEMA_METADATA);
 
     // Expect re-indexing since filter fields dont match
@@ -891,7 +919,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     DocumentEvent result =
         buildMaterializedViewDocumentEvent(
             rawDocumentEvent,
-            vectorIndexDefinition1,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition1),
             createEmbeddingsPerField(vectorIndexDefinition1.getMappings(), embeddings),
             MAT_VIEW_SCHEMA_METADATA);
 
@@ -907,9 +935,9 @@ public class AutoEmbeddingDocumentUtilsTest {
         compareDocuments(
             rawDocumentEvent.getDocument().get(),
             result.getDocument().get(),
-            vectorIndexDefinition2.getMappings(),
-            AutoEmbeddingIndexDefinitionUtils.getMatViewIndexFields(
-                vectorIndexDefinition2.getMappings(), MAT_VIEW_SCHEMA_METADATA),
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition2),
+            AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(
+                vectorIndexDefinition2, MAT_VIEW_SCHEMA_METADATA),
             MAT_VIEW_SCHEMA_METADATA);
 
     // Expect re-indexing since filter fields dont match
@@ -937,7 +965,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     DocumentEvent result =
         buildMaterializedViewDocumentEvent(
             rawDocumentEvent,
-            vectorIndexDefinition,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
             createEmbeddingsPerField(vectorIndexDefinition.getMappings(), embeddings),
             MAT_VIEW_SCHEMA_METADATA);
 
@@ -951,16 +979,15 @@ public class AutoEmbeddingDocumentUtilsTest {
             : new BsonDocument();
     autoEmbedDoc.put("_leaseVersion", new BsonInt64(42));
     matViewDoc.put("_autoEmbed", autoEmbedDoc);
-    RawBsonDocument matViewRawDoc =
-        new RawBsonDocument(matViewDoc, BsonUtils.BSON_DOCUMENT_CODEC);
+    RawBsonDocument matViewRawDoc = new RawBsonDocument(matViewDoc, BsonUtils.BSON_DOCUMENT_CODEC);
 
     var comparisonResult =
         compareDocuments(
             rawDocumentEvent.getDocument().get(),
             matViewRawDoc,
-            vectorIndexDefinition.getMappings(),
-            AutoEmbeddingIndexDefinitionUtils.getMatViewIndexFields(
-                vectorIndexDefinition.getMappings(), MAT_VIEW_SCHEMA_METADATA),
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
+            AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(
+                vectorIndexDefinition, MAT_VIEW_SCHEMA_METADATA),
             MAT_VIEW_SCHEMA_METADATA);
 
     // _leaseVersion is a metadata field and should NOT trigger re-indexing.
@@ -995,7 +1022,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     DocumentEvent result =
         buildMaterializedViewDocumentEvent(
             rawDocumentEvent,
-            vectorIndexDefinition,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
             createEmbeddingsPerField(vectorIndexDefinition.getMappings(), embeddings),
             schemaMetadata);
 
@@ -1006,16 +1033,15 @@ public class AutoEmbeddingDocumentUtilsTest {
     BsonDocument autoEmbedDoc = matViewDoc.getDocument("_autoEmbed");
     autoEmbedDoc.put("_leaseVersion", new BsonInt64(42));
 
-    RawBsonDocument matViewRawDoc =
-        new RawBsonDocument(matViewDoc, BsonUtils.BSON_DOCUMENT_CODEC);
+    RawBsonDocument matViewRawDoc = new RawBsonDocument(matViewDoc, BsonUtils.BSON_DOCUMENT_CODEC);
 
     var comparisonResult =
         compareDocuments(
             rawDocumentEvent.getDocument().get(),
             matViewRawDoc,
-            vectorIndexDefinition.getMappings(),
-            AutoEmbeddingIndexDefinitionUtils.getMatViewIndexFields(
-                vectorIndexDefinition.getMappings(), schemaMetadata),
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
+            AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(
+                vectorIndexDefinition, schemaMetadata),
             schemaMetadata);
 
     // _leaseVersion is a metadata field and should NOT trigger re-indexing.
@@ -1042,7 +1068,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     DocumentEvent result =
         buildMaterializedViewDocumentEvent(
             rawDocumentEvent,
-            vectorIndexDefinition,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
             createEmbeddingsPerField(vectorIndexDefinition.getMappings(), embeddings),
             MAT_VIEW_SCHEMA_METADATA);
 
@@ -1050,16 +1076,15 @@ public class AutoEmbeddingDocumentUtilsTest {
     BsonDocument matViewDoc = new BsonDocument();
     matViewDoc.putAll(result.getDocument().get());
     matViewDoc.put("_unknownFutureField", new BsonString("someValue"));
-    RawBsonDocument matViewRawDoc =
-        new RawBsonDocument(matViewDoc, BsonUtils.BSON_DOCUMENT_CODEC);
+    RawBsonDocument matViewRawDoc = new RawBsonDocument(matViewDoc, BsonUtils.BSON_DOCUMENT_CODEC);
 
     var comparisonResult =
         compareDocuments(
             rawDocumentEvent.getDocument().get(),
             matViewRawDoc,
-            vectorIndexDefinition.getMappings(),
-            AutoEmbeddingIndexDefinitionUtils.getMatViewIndexFields(
-                vectorIndexDefinition.getMappings(), MAT_VIEW_SCHEMA_METADATA),
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
+            AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(
+                vectorIndexDefinition, MAT_VIEW_SCHEMA_METADATA),
             MAT_VIEW_SCHEMA_METADATA);
 
     // Unknown fields SHOULD trigger re-indexing — we must not over-exclude.
@@ -1071,10 +1096,8 @@ public class AutoEmbeddingDocumentUtilsTest {
     // Ensure MV_METADATA_FIELDS tracks _autoEmbed._leaseVersion (written by
     // MaterializedViewWriter). The enforcer test in MaterializedViewWriterTest verifies the full
     // writer → compareDocuments path. This test catches removal of the field from the set.
-    assertThat(AutoEmbeddingDocumentUtils.MV_METADATA_FIELDS)
-        .contains("_autoEmbed._leaseVersion");
+    assertThat(AutoEmbeddingDocumentUtils.MV_METADATA_FIELDS).contains("_autoEmbed._leaseVersion");
   }
-
 
   private BsonDocument createBasicBson() {
     BsonDocument bsonDoc = new BsonDocument();
@@ -1172,7 +1195,8 @@ public class AutoEmbeddingDocumentUtilsTest {
         List.of(
             new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("text")),
             new VectorIndexFilterFieldDefinition(FieldPath.parse("color")));
-    VectorIndexFieldMapping mappings = VectorIndexFieldMapping.create(fields, Optional.empty());
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
 
     // UpdateDescription with only filter field updated
     com.mongodb.client.model.changestream.UpdateDescription updateDescription =
@@ -1180,7 +1204,8 @@ public class AutoEmbeddingDocumentUtilsTest {
             null, new BsonDocument("color", new BsonString("blue")));
 
     assertFalse(
-        AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(updateDescription, mappings));
+        AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(
+            updateDescription, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef)));
   }
 
   @Test
@@ -1190,14 +1215,17 @@ public class AutoEmbeddingDocumentUtilsTest {
         List.of(
             new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("text")),
             new VectorIndexFilterFieldDefinition(FieldPath.parse("color")));
-    VectorIndexFieldMapping mappings = VectorIndexFieldMapping.create(fields, Optional.empty());
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
 
     // UpdateDescription with auto-embed field updated
     com.mongodb.client.model.changestream.UpdateDescription updateDescription =
         new com.mongodb.client.model.changestream.UpdateDescription(
             null, new BsonDocument("text", new BsonString("new text")));
 
-    assertTrue(AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(updateDescription, mappings));
+    assertTrue(
+        AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(
+            updateDescription, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef)));
   }
 
   @Test
@@ -1207,7 +1235,8 @@ public class AutoEmbeddingDocumentUtilsTest {
         List.of(
             new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("text")),
             new VectorIndexFilterFieldDefinition(FieldPath.parse("color")));
-    VectorIndexFieldMapping mappings = VectorIndexFieldMapping.create(fields, Optional.empty());
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
 
     // UpdateDescription with both fields updated
     com.mongodb.client.model.changestream.UpdateDescription updateDescription =
@@ -1216,7 +1245,9 @@ public class AutoEmbeddingDocumentUtilsTest {
             new BsonDocument("text", new BsonString("new text"))
                 .append("color", new BsonString("blue")));
 
-    assertTrue(AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(updateDescription, mappings));
+    assertTrue(
+        AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(
+            updateDescription, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef)));
   }
 
   @Test
@@ -1226,13 +1257,16 @@ public class AutoEmbeddingDocumentUtilsTest {
         List.of(
             new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("text")),
             new VectorIndexFilterFieldDefinition(FieldPath.parse("color")));
-    VectorIndexFieldMapping mappings = VectorIndexFieldMapping.create(fields, Optional.empty());
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
 
     // UpdateDescription with auto-embed field removed
     com.mongodb.client.model.changestream.UpdateDescription updateDescription =
         new com.mongodb.client.model.changestream.UpdateDescription(List.of("text"), null);
 
-    assertTrue(AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(updateDescription, mappings));
+    assertTrue(
+        AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(
+            updateDescription, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef)));
   }
 
   @Test
@@ -1242,14 +1276,16 @@ public class AutoEmbeddingDocumentUtilsTest {
         List.of(
             new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("text")),
             new VectorIndexFilterFieldDefinition(FieldPath.parse("color")));
-    VectorIndexFieldMapping mappings = VectorIndexFieldMapping.create(fields, Optional.empty());
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
 
     // UpdateDescription with filter field removed
     com.mongodb.client.model.changestream.UpdateDescription updateDescription =
         new com.mongodb.client.model.changestream.UpdateDescription(List.of("color"), null);
 
     assertFalse(
-        AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(updateDescription, mappings));
+        AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(
+            updateDescription, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef)));
   }
 
   @Test
@@ -1259,7 +1295,8 @@ public class AutoEmbeddingDocumentUtilsTest {
         List.of(
             new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("text")),
             new VectorIndexFilterFieldDefinition(FieldPath.parse("color")));
-    VectorIndexFieldMapping mappings = VectorIndexFieldMapping.create(fields, Optional.empty());
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
 
     // UpdateDescription with unrelated field updated (not in index at all)
     com.mongodb.client.model.changestream.UpdateDescription updateDescription =
@@ -1269,7 +1306,8 @@ public class AutoEmbeddingDocumentUtilsTest {
     // No AUTO_EMBED/TEXT fields were changed, so embedding is not required.
     // The unrelated field is not in the index, so we don't need to regenerate embeddings.
     assertFalse(
-        AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(updateDescription, mappings));
+        AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(
+            updateDescription, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef)));
   }
 
   @Test
@@ -1279,7 +1317,8 @@ public class AutoEmbeddingDocumentUtilsTest {
         List.of(
             new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("text")),
             new VectorIndexFilterFieldDefinition(FieldPath.parse("color")));
-    VectorIndexFieldMapping mappings = VectorIndexFieldMapping.create(fields, Optional.empty());
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
 
     // Document with filter field
     BsonDocument bsonDoc =
@@ -1289,7 +1328,9 @@ public class AutoEmbeddingDocumentUtilsTest {
             .append("color", new BsonString("red"));
     RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
 
-    BsonDocument result = AutoEmbeddingDocumentUtils.extractFilterFieldValues(rawBsonDoc, mappings);
+    BsonDocument result =
+        AutoEmbeddingDocumentUtils.extractFilterFieldValues(
+            rawBsonDoc, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef));
 
     assertEquals(new BsonDocument("color", new BsonString("red")), result);
   }
@@ -1302,7 +1343,8 @@ public class AutoEmbeddingDocumentUtilsTest {
             new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("text")),
             new VectorIndexFilterFieldDefinition(FieldPath.parse("color")),
             new VectorIndexFilterFieldDefinition(FieldPath.parse("size")));
-    VectorIndexFieldMapping mappings = VectorIndexFieldMapping.create(fields, Optional.empty());
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
 
     // Document with multiple filter fields
     BsonDocument bsonDoc =
@@ -1313,7 +1355,9 @@ public class AutoEmbeddingDocumentUtilsTest {
             .append("size", new BsonString("large"));
     RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
 
-    BsonDocument result = AutoEmbeddingDocumentUtils.extractFilterFieldValues(rawBsonDoc, mappings);
+    BsonDocument result =
+        AutoEmbeddingDocumentUtils.extractFilterFieldValues(
+            rawBsonDoc, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef));
 
     assertEquals(
         new BsonDocument("color", new BsonString("red")).append("size", new BsonString("large")),
@@ -1327,7 +1371,8 @@ public class AutoEmbeddingDocumentUtilsTest {
         List.of(
             new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("text")),
             new VectorIndexFilterFieldDefinition(FieldPath.parse("color")));
-    VectorIndexFieldMapping mappings = VectorIndexFieldMapping.create(fields, Optional.empty());
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
 
     // Document without filter field
     BsonDocument bsonDoc =
@@ -1336,7 +1381,9 @@ public class AutoEmbeddingDocumentUtilsTest {
             .append("text", new BsonString("some text"));
     RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
 
-    BsonDocument result = AutoEmbeddingDocumentUtils.extractFilterFieldValues(rawBsonDoc, mappings);
+    BsonDocument result =
+        AutoEmbeddingDocumentUtils.extractFilterFieldValues(
+            rawBsonDoc, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef));
 
     // Should return empty document when filter field is missing
     assertEquals(new BsonDocument(), result);
@@ -1350,7 +1397,8 @@ public class AutoEmbeddingDocumentUtilsTest {
         List.of(
             new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("text")),
             new VectorIndexFilterFieldDefinition(FieldPath.parse("tags")));
-    VectorIndexFieldMapping mappings = VectorIndexFieldMapping.create(fields, Optional.empty());
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
     BsonDocument bsonDoc =
         new BsonDocument()
             .append("_id", new BsonString("anId"))
@@ -1363,7 +1411,9 @@ public class AutoEmbeddingDocumentUtilsTest {
     RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
 
     // Act
-    BsonDocument result = AutoEmbeddingDocumentUtils.extractFilterFieldValues(rawBsonDoc, mappings);
+    BsonDocument result =
+        AutoEmbeddingDocumentUtils.extractFilterFieldValues(
+            rawBsonDoc, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef));
 
     // Assert
     assertThat(result)
@@ -1382,7 +1432,8 @@ public class AutoEmbeddingDocumentUtilsTest {
         List.of(
             new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("text")),
             new VectorIndexFilterFieldDefinition(FieldPath.parse("tags")));
-    VectorIndexFieldMapping mappings = VectorIndexFieldMapping.create(fields, Optional.empty());
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
     BsonDocument bsonDoc =
         new BsonDocument()
             .append("_id", new BsonString("anId"))
@@ -1391,7 +1442,9 @@ public class AutoEmbeddingDocumentUtilsTest {
     RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
 
     // Act
-    BsonDocument result = AutoEmbeddingDocumentUtils.extractFilterFieldValues(rawBsonDoc, mappings);
+    BsonDocument result =
+        AutoEmbeddingDocumentUtils.extractFilterFieldValues(
+            rawBsonDoc, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef));
 
     // Assert
     assertThat(result)
@@ -1407,7 +1460,8 @@ public class AutoEmbeddingDocumentUtilsTest {
             new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("text")),
             new VectorIndexFilterFieldDefinition(FieldPath.parse("color")),
             new VectorIndexFilterFieldDefinition(FieldPath.parse("tags")));
-    VectorIndexFieldMapping mappings = VectorIndexFieldMapping.create(fields, Optional.empty());
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
     BsonDocument bsonDoc =
         new BsonDocument()
             .append("_id", new BsonString("anId"))
@@ -1418,7 +1472,9 @@ public class AutoEmbeddingDocumentUtilsTest {
     RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
 
     // Act
-    BsonDocument result = AutoEmbeddingDocumentUtils.extractFilterFieldValues(rawBsonDoc, mappings);
+    BsonDocument result =
+        AutoEmbeddingDocumentUtils.extractFilterFieldValues(
+            rawBsonDoc, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef));
 
     // Assert
     assertThat(result)

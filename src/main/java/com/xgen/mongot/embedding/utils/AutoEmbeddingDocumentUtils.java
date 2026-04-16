@@ -2,8 +2,8 @@ package com.xgen.mongot.embedding.utils;
 
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata;
-import static com.xgen.mongot.embedding.utils.AutoEmbeddingIndexDefinitionUtils.getHashFieldPath;
-import static com.xgen.mongot.embedding.utils.AutoEmbeddingIndexDefinitionUtils.getMatViewFieldPath;
+import static com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator.getHashFieldPath;
+import static com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator.getMatViewFieldPath;
 
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
@@ -12,10 +12,9 @@ import com.google.common.collect.Sets;
 import com.google.common.hash.Hashing;
 import com.google.errorprone.annotations.Var;
 import com.mongodb.client.model.changestream.UpdateDescription;
+import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
+import com.xgen.mongot.embedding.AutoEmbedFieldMapping.AutoEmbedField;
 import com.xgen.mongot.index.DocumentEvent;
-import com.xgen.mongot.index.definition.VectorIndexDefinition;
-import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
-import com.xgen.mongot.index.definition.VectorIndexFieldMapping;
 import com.xgen.mongot.index.ingestion.BsonDocumentProcessor;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.FieldPath;
@@ -64,7 +63,7 @@ public class AutoEmbeddingDocumentUtils {
    * mapping for auto-embedding calls.
    */
   public static ImmutableMap<FieldPath, Set<String>> getVectorTextPathMap(
-      RawBsonDocument rawBsonDocument, VectorIndexFieldMapping fieldMapping) throws IOException {
+      RawBsonDocument rawBsonDocument, AutoEmbedFieldMapping fieldMapping) throws IOException {
     CollectVectorTextStringsDocumentHandler handler =
         CollectVectorTextStringsDocumentHandler.create(fieldMapping, Optional.empty());
     BsonDocumentProcessor.process(rawBsonDocument, handler);
@@ -78,7 +77,7 @@ public class AutoEmbeddingDocumentUtils {
    */
   public static DocumentEvent buildAutoEmbeddingDocumentEvent(
       DocumentEvent rawDocumentEvent,
-      VectorIndexFieldMapping fieldMapping,
+      AutoEmbedFieldMapping fieldMapping,
       ImmutableMap<FieldPath, ImmutableMap<String, Vector>> allVectorsFromBatchResponse)
       throws IOException {
     if (rawDocumentEvent.getDocument().isEmpty()) {
@@ -116,17 +115,7 @@ public class AutoEmbeddingDocumentUtils {
    */
   public static DocumentEvent buildMaterializedViewDocumentEvent(
       DocumentEvent rawDocumentEvent,
-      VectorIndexDefinition vectorIndexDefinition,
-      ImmutableMap<FieldPath, ImmutableMap<String, Vector>> embeddingsPerField,
-      MaterializedViewSchemaMetadata schemaMetadata)
-      throws IOException {
-    return buildMaterializedViewDocumentEvent(
-        rawDocumentEvent, vectorIndexDefinition.getMappings(), embeddingsPerField, schemaMetadata);
-  }
-
-  private static DocumentEvent buildMaterializedViewDocumentEvent(
-      DocumentEvent rawDocumentEvent,
-      VectorIndexFieldMapping fieldMapping,
+      AutoEmbedFieldMapping fieldMapping,
       ImmutableMap<FieldPath, ImmutableMap<String, Vector>> embeddingsPerField,
       MaterializedViewSchemaMetadata schemaMetadata)
       throws IOException {
@@ -159,14 +148,8 @@ public class AutoEmbeddingDocumentUtils {
             schemaMetadata);
 
     BsonDocument bsonDoc = new BsonDocument();
-    var filteredMapping =
-        VectorIndexFieldMapping.create(
-            fieldMapping.fieldMap().values().stream()
-                .filter(field -> field.getType() == VectorIndexFieldDefinition.Type.FILTER)
-                .toList(),
-            fieldMapping.nestedRoot());
     MaterializedViewDocumentHandler handler =
-        MaterializedViewDocumentHandler.create(filteredMapping, Optional.empty(), bsonDoc);
+        MaterializedViewDocumentHandler.create(fieldMapping, Optional.empty(), bsonDoc);
     BsonDocumentProcessor.process(rawDocumentEvent.getDocument().get(), handler);
 
     for (var embeddingOrHashEntry : collectedEmbeddingsPerMatViewPath.entrySet()) {
@@ -197,18 +180,17 @@ public class AutoEmbeddingDocumentUtils {
   public static DocumentComparisonResult compareDocuments(
       RawBsonDocument sourceDoc,
       RawBsonDocument matViewDoc,
-      VectorIndexFieldMapping mappings,
-      VectorIndexFieldMapping matViewMappings,
+      AutoEmbedFieldMapping mappings,
+      AutoEmbedFieldMapping matViewMappings,
       MaterializedViewSchemaMetadata schemaMetadata) {
     // Collect all autoEmbed and filter fields from source doc.
     var sourceFilterValuesCollector =
-        CollectFieldValueDocumentHandler.create(
-            mappings, Optional.empty(), (fieldDefinition) -> true, true);
+        CollectFieldValueDocumentHandler.create(mappings, Optional.empty(), (path) -> true, true);
 
     // Collect all fields from mat view doc, even if they are not in the index definition.
     var matViewFilterValuesCollector =
         CollectFieldValueDocumentHandler.create(
-            matViewMappings, Optional.empty(), (fieldDefinition) -> true, false);
+            matViewMappings, Optional.empty(), (path) -> true, false);
 
     @Var boolean needsReIndexing = false;
     var reusableEmbeddingsBuilder = ImmutableMap.<FieldPath, ImmutableMap<String, Vector>>builder();
@@ -220,17 +202,16 @@ public class AutoEmbeddingDocumentUtils {
       var sourceDocValues = sourceFilterValuesCollector.getCollectedValues();
       var matViewValues = matViewFilterValuesCollector.getCollectedValues();
 
-      for (Map.Entry<FieldPath, VectorIndexFieldDefinition> entry :
-          mappings.fieldMap().entrySet()) {
+      for (Map.Entry<FieldPath, AutoEmbedField> entry : mappings.fieldMap().entrySet()) {
         FieldPath sourceFieldPath = entry.getKey();
         FieldPath matViewFieldPath =
             getMatViewFieldPath(sourceFieldPath, schemaMetadata.autoEmbeddingFieldsMapping());
         FieldPath matViewFieldHashPath =
             getHashFieldPath(sourceFieldPath, schemaMetadata.materializedViewSchemaVersion());
-        VectorIndexFieldDefinition fieldDefinition = entry.getValue();
+        AutoEmbedField field = entry.getValue();
 
-        // Check filter values = here we do a simple quality check.
-        if (fieldDefinition.getType() == VectorIndexFieldDefinition.Type.FILTER) {
+        // Check filter values = here we do a simple equality check.
+        if (field instanceof AutoEmbedField.PassthroughField) {
           // Still use matViewFieldPath for filter as we store filter field as is.
           if (!Objects.equals(
               sourceDocValues.get(sourceFieldPath), matViewValues.get(matViewFieldPath))) {
@@ -243,7 +224,7 @@ public class AutoEmbeddingDocumentUtils {
         // TODO(CLOUDP-380567): Only checks when modelConfig hash matches when resyncing across
         // redefinitions.
         // check embeddings against their hashes. Collect ones that match for re-use.
-        if (fieldDefinition.getType() == VectorIndexFieldDefinition.Type.AUTO_EMBED) {
+        if (field instanceof AutoEmbedField.EmbedField) {
           if (sourceDocValues.containsKey(sourceFieldPath)) {
             var stringValuesWithHashes =
                 sourceDocValues.get(sourceFieldPath).stream()
@@ -339,7 +320,7 @@ public class AutoEmbeddingDocumentUtils {
    *     filter fields or non-indexed fields were updated
    */
   public static boolean requiresEmbeddingGeneration(
-      UpdateDescription updateDescription, VectorIndexFieldMapping fieldMapping) {
+      UpdateDescription updateDescription, AutoEmbedFieldMapping fieldMapping) {
     if (updateDescription == null) {
       // No update description means we can't determine what changed - require embedding to be safe
       return true;
@@ -360,25 +341,19 @@ public class AutoEmbeddingDocumentUtils {
 
     // Check if any updated field is an AUTO_EMBED or TEXT field
     for (String field : updatedFields) {
-      if (fieldMapping
-          .getFieldDefinition(FieldPath.parse(field))
-          .filter(VectorIndexFieldDefinition::isAutoEmbedField)
-          .isPresent()) {
+      if (fieldMapping.isEmbed(FieldPath.parse(field))) {
         return true;
       }
     }
 
     // Check if any removed field is an AUTO_EMBED or TEXT field
     for (String field : removedFields) {
-      if (fieldMapping
-          .getFieldDefinition(FieldPath.parse(field))
-          .filter(VectorIndexFieldDefinition::isAutoEmbedField)
-          .isPresent()) {
+      if (fieldMapping.isEmbed(FieldPath.parse(field))) {
         return true;
       }
     }
 
-    // No AUTO_EMBED/TEXT fields changed - only filter fields were updated
+    // No AUTO_EMBED/TEXT fields changed - only passthrough fields were updated
     return false;
   }
 
@@ -392,14 +367,11 @@ public class AutoEmbeddingDocumentUtils {
    * @return a BsonDocument containing only the filter field values for use with $set
    */
   public static BsonDocument extractFilterFieldValues(
-      RawBsonDocument fullDocument, VectorIndexFieldMapping fieldMapping) {
+      RawBsonDocument fullDocument, AutoEmbedFieldMapping fieldMapping) {
     try {
       var filterValuesCollector =
           CollectFieldValueDocumentHandler.create(
-              fieldMapping,
-              Optional.empty(),
-              fieldDef -> fieldDef.getType() == VectorIndexFieldDefinition.Type.FILTER,
-              true);
+              fieldMapping, Optional.empty(), fieldMapping::isPassthrough, true);
 
       BsonDocumentProcessor.process(fullDocument, filterValuesCollector);
       return filterValuesCollector.toBsonDocument();
@@ -451,7 +423,7 @@ public class AutoEmbeddingDocumentUtils {
 
   private static ImmutableMap<FieldPath, BsonValue> buildEmbeddingsPerMatViewPath(
       RawBsonDocument rawBsonDocument,
-      VectorIndexFieldMapping mappings,
+      AutoEmbedFieldMapping mappings,
       Map<FieldPath, Map<String, Vector>> consolidatedEmbeddingMap,
       MaterializedViewSchemaMetadata schemaMetadata)
       throws IOException {
@@ -459,9 +431,7 @@ public class AutoEmbeddingDocumentUtils {
         CollectFieldValueDocumentHandler.create(
             mappings,
             Optional.empty(),
-            fieldDef ->
-                fieldDef.getType() == VectorIndexFieldDefinition.Type.AUTO_EMBED
-                    && consolidatedEmbeddingMap.containsKey(fieldDef.getPath()),
+            path -> mappings.isEmbed(path) && consolidatedEmbeddingMap.containsKey(path),
             true);
     BsonDocumentProcessor.process(rawBsonDocument, collectTextValuesHandler);
 

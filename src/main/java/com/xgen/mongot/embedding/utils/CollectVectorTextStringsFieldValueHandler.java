@@ -1,8 +1,7 @@
 package com.xgen.mongot.embedding.utils;
 
 import com.mongodb.client.model.geojson.Geometry;
-import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
-import com.xgen.mongot.index.definition.VectorIndexFieldMapping;
+import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
 import com.xgen.mongot.index.ingestion.handlers.DocumentHandler;
 import com.xgen.mongot.index.ingestion.handlers.FieldValueHandler;
 import com.xgen.mongot.util.FieldPath;
@@ -25,12 +24,12 @@ import org.bson.types.ObjectId;
  */
 public class CollectVectorTextStringsFieldValueHandler implements FieldValueHandler {
 
-  private final VectorIndexFieldMapping mapping;
+  private final AutoEmbedFieldMapping mapping;
   private final FieldPath path;
   private final Map<FieldPath, Set<String>> vectorTextPathMap;
 
   private CollectVectorTextStringsFieldValueHandler(
-      VectorIndexFieldMapping mapping,
+      AutoEmbedFieldMapping mapping,
       FieldPath path,
       Map<FieldPath, Set<String>> vectorTextPathMap
   ) {
@@ -40,7 +39,7 @@ public class CollectVectorTextStringsFieldValueHandler implements FieldValueHand
   }
 
   public static FieldValueHandler create(
-      VectorIndexFieldMapping mapping,
+      AutoEmbedFieldMapping mapping,
       FieldPath path,
       Map<FieldPath, Set<String>> vectorTextPathMap
   ) {
@@ -89,7 +88,7 @@ public class CollectVectorTextStringsFieldValueHandler implements FieldValueHand
 
   @Override
   public void handleString(Supplier<String> supplier) {
-    if (isVectorTextField()) {
+    if (this.mapping.isEmbed(this.path)) {
       this.vectorTextPathMap.computeIfAbsent(this.path, key -> new HashSet<>()).add(supplier.get());
     }
   }
@@ -119,17 +118,5 @@ public class CollectVectorTextStringsFieldValueHandler implements FieldValueHand
     return Optional.of(
         new CollectVectorTextStringsDocumentHandler(
             this.mapping, Optional.of(this.path), this.vectorTextPathMap));
-  }
-
-  private boolean isVectorTextField() {
-    Optional<VectorIndexFieldDefinition> fieldDefinition =
-        this.mapping.getFieldDefinition(this.path);
-    return fieldDefinition
-        .filter(
-            vectorFieldDefinition ->
-                vectorFieldDefinition.getType() == VectorIndexFieldDefinition.Type.TEXT
-                    || vectorFieldDefinition.getType()
-                    == VectorIndexFieldDefinition.Type.AUTO_EMBED)
-        .isPresent();
   }
 }

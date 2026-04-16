@@ -3,6 +3,7 @@ load("//bazel/java:package.bzl", "java_library")
 java_library(
     name = "utils",
     srcs = [
+        "AutoEmbedFieldMappingCreator.java",
         "AutoEmbeddingDocumentUtils.java",
         "AutoEmbeddingIndexDefinitionUtils.java",
         "CollectFieldValueDocumentHandler.java",
@@ -15,6 +16,7 @@ java_library(
     ],
     visibility = ["//:__subpackages__"],
     exports = [
+        "//src/main/java/com/xgen/mongot/embedding",
         "//src/main/java/com/xgen/mongot/index",
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/ingestion/handlers",
@@ -22,6 +24,7 @@ java_library(
         "@maven//:org_mongodb_bson",
     ],
     deps = [
+        "//src/main/java/com/xgen/mongot/embedding",
         "//src/main/java/com/xgen/mongot/embedding/config",
         "//src/main/java/com/xgen/mongot/embedding/exceptions",
         "//src/main/java/com/xgen/mongot/index",

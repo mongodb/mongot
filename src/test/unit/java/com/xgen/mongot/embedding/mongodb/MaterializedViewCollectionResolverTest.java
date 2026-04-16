@@ -21,6 +21,7 @@ import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
 import com.xgen.mongot.embedding.mongodb.common.AutoEmbeddingMongoClient;
 import com.xgen.mongot.embedding.mongodb.common.DefaultInternalDatabaseResolver;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
+import com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator;
 import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.version.Generation;
@@ -404,8 +405,7 @@ public class MaterializedViewCollectionResolverTest {
 
   @Test
   @SuppressWarnings("unchecked")
-  public void
-      getOrCreateMaterializedViewForIndex_schemaVersion0_returnsVersionZeroMetadata() {
+  public void getOrCreateMaterializedViewForIndex_schemaVersion0_returnsVersionZeroMetadata() {
     ObjectId indexId = new ObjectId();
     VectorIndexDefinition definition =
         VectorIndexDefinitionBuilder.builder()
@@ -457,14 +457,12 @@ public class MaterializedViewCollectionResolverTest {
     assertThat(metadata.schemaMetadata().materializedViewSchemaVersion()).isEqualTo(0L);
     assertThat(metadata.schemaMetadata().autoEmbeddingFieldsMapping()).isEmpty();
     assertThat(metadata.schemaMetadata())
-        .isEqualTo(
-            MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata.VERSION_ZERO);
+        .isEqualTo(MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata.VERSION_ZERO);
   }
 
   @Test
   @SuppressWarnings("unchecked")
-  public void
-      getOrCreateMaterializedViewForIndex_schemaVersion1_returnsAutoEmbedFieldMapping() {
+  public void getOrCreateMaterializedViewForIndex_schemaVersion1_returnsAutoEmbedFieldMapping() {
     ObjectId indexId = new ObjectId();
     VectorIndexDefinition definition =
         VectorIndexDefinitionBuilder.builder()
@@ -529,8 +527,7 @@ public class MaterializedViewCollectionResolverTest {
 
   @Test
   @SuppressWarnings("unchecked")
-  public void
-      getOrCreateMaterializedViewForIndex_defaultNameFormatVersion0_usesIndexIdOnly() {
+  public void getOrCreateMaterializedViewForIndex_defaultNameFormatVersion0_usesIndexIdOnly() {
     ObjectId indexId = new ObjectId();
     VectorIndexDefinition definition =
         VectorIndexDefinitionBuilder.builder()
@@ -594,8 +591,7 @@ public class MaterializedViewCollectionResolverTest {
 
   @Test
   @SuppressWarnings("unchecked")
-  public void
-      getOrCreateMaterializedViewForIndex_defaultNameFormatVersion1_usesHashFormat() {
+  public void getOrCreateMaterializedViewForIndex_defaultNameFormatVersion1_usesHashFormat() {
     ObjectId indexId = new ObjectId();
     VectorIndexDefinition definition =
         VectorIndexDefinitionBuilder.builder()
@@ -658,8 +654,7 @@ public class MaterializedViewCollectionResolverTest {
 
   @Test
   @SuppressWarnings("unchecked")
-  public void
-      getOrCreateMaterializedViewForIndex_defaultConfig_usesHashFormat() {
+  public void getOrCreateMaterializedViewForIndex_defaultConfig_usesHashFormat() {
     // Default config (getDefault()) should use version 1 (hash format)
     ObjectId indexId = new ObjectId();
     VectorIndexDefinition definition =
@@ -911,15 +906,13 @@ public class MaterializedViewCollectionResolverTest {
         resolver.getOrCreateMaterializedViewForIndex(indexDefGenExplicitZero);
 
     // Both should produce the same collection name since default is 0.
-    assertThat(metadataNoVersion.collectionName())
-        .isEqualTo(metadataExplicitZero.collectionName());
+    assertThat(metadataNoVersion.collectionName()).isEqualTo(metadataExplicitZero.collectionName());
     assertThat(metadataNoVersion.collectionName()).endsWith("-1-0");
   }
 
   @Test
   @SuppressWarnings("unchecked")
-  public void
-      getOrCreateMaterializedViewForIndex_indexIdAtCreationTimeOverridesIndexId_v0() {
+  public void getOrCreateMaterializedViewForIndex_indexIdAtCreationTimeOverridesIndexId_v0() {
     // When indexIDAtCreationTime is set, it should be used as the collection name prefix
     // instead of the current indexId, for both v0 and v1 name formats.
     ObjectId indexId = new ObjectId();
@@ -981,8 +974,7 @@ public class MaterializedViewCollectionResolverTest {
 
   @Test
   @SuppressWarnings("unchecked")
-  public void
-      getOrCreateMaterializedViewForIndex_indexIdAtCreationTimeOverridesIndexId_v1() {
+  public void getOrCreateMaterializedViewForIndex_indexIdAtCreationTimeOverridesIndexId_v1() {
     ObjectId indexId = new ObjectId();
     ObjectId indexIdAtCreation = new ObjectId();
     VectorIndexDefinition definition =
@@ -1010,5 +1002,20 @@ public class MaterializedViewCollectionResolverTest {
     assertThat(metadata.collectionName().startsWith(indexId.toHexString())).isFalse();
     assertThat(metadata.collectionName()).contains("-");
     assertThat(metadata.collectionName()).endsWith("-1-0");
+  }
+
+  @Test
+  public void computeHash_legacyTextFieldSpecification_throwsIllegalArgumentException() {
+    VectorIndexDefinition definition =
+        VectorIndexDefinitionBuilder.builder().withTextField("legacyTextField").build();
+
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                MaterializedViewCollectionResolver.computeHash(
+                    AutoEmbedFieldMappingCreator.createAutoEmbedMapping(definition)));
+
+    assertThat(thrown.getMessage()).contains("Legacy TEXT field specification");
   }
 }

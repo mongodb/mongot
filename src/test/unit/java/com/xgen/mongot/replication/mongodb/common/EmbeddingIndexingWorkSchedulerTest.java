@@ -28,6 +28,7 @@ import com.xgen.mongot.embedding.providers.EmbeddingServiceRegistry;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelCatalog;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
+import com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator;
 import com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils;
 import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.DocumentMetadata;
@@ -154,7 +155,9 @@ public class EmbeddingIndexingWorkSchedulerTest {
     indexingFuture.get(5, TimeUnit.SECONDS);
     DocumentEvent expected =
         AutoEmbeddingDocumentUtils.buildAutoEmbeddingDocumentEvent(
-            event, vectorIndexDefinition.getMappings(), expectedAutoEmbeddingsByPath(indexId));
+            event,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
+            expectedAutoEmbeddingsByPath(indexId));
     verify(indexer, times(1)).indexDocumentEvent(expected);
   }
 
@@ -343,7 +346,7 @@ public class EmbeddingIndexingWorkSchedulerTest {
     DocumentEvent expected =
         AutoEmbeddingDocumentUtils.buildMaterializedViewDocumentEvent(
             event,
-            vectorIndexDefinition,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
             expectedAutoEmbeddingsPerField(vectorIndexDefinition.getMappings()),
             VERSION_ZERO);
     verify(indexer, times(1)).indexDocumentEvent(expected);
@@ -505,7 +508,7 @@ public class EmbeddingIndexingWorkSchedulerTest {
     DocumentEvent expected =
         AutoEmbeddingDocumentUtils.buildMaterializedViewDocumentEvent(
             event,
-            vectorIndexDefinition,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
             expectedAutoEmbeddingsPerField(vectorIndexDefinition.getMappings()),
             VERSION_ZERO);
     verify(indexer, times(1)).indexDocumentEvent(expected);
@@ -768,7 +771,6 @@ public class EmbeddingIndexingWorkSchedulerTest {
             .withAutoEmbedField(indexId + ".a", "voyage-3-large")
             .withAutoEmbedField(indexId + ".b", "voyage-3-lite")
             .build();
-    VectorIndexFieldMapping fieldMapping = vectorIndexDefinition.getMappings();
 
     // Get model configs from the catalog (now registered)
     EmbeddingModelConfig largeModelConfig = EmbeddingModelCatalog.getModelConfig("voyage-3-large");
@@ -798,7 +800,10 @@ public class EmbeddingIndexingWorkSchedulerTest {
     // Call getTextValueBundles
     var bundles =
         EmbeddingIndexingWorkScheduler.getTextValueBundles(
-            List.of(event), fieldMapping, embedBatchKeyPerPath, 100);
+            List.of(event),
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
+            embedBatchKeyPerPath,
+            100);
 
     // Should have one bundle with the document
     assertThat(bundles).hasSize(1);
@@ -1052,10 +1057,8 @@ public class EmbeddingIndexingWorkSchedulerTest {
         new BsonDocument("_id", new BsonString("id1")).append("a", new BsonString("text1"));
     BsonDocument inner2 =
         new BsonDocument("_id", new BsonString("id2")).append("a", new BsonString("text2"));
-    RawBsonDocument rawDoc1 =
-        BsonUtils.documentToRaw(new BsonDocument(indexId.toString(), inner1));
-    RawBsonDocument rawDoc2 =
-        BsonUtils.documentToRaw(new BsonDocument(indexId.toString(), inner2));
+    RawBsonDocument rawDoc1 = BsonUtils.documentToRaw(new BsonDocument(indexId.toString(), inner1));
+    RawBsonDocument rawDoc2 = BsonUtils.documentToRaw(new BsonDocument(indexId.toString(), inner2));
     DocumentEvent event1 =
         DocumentEvent.createInsert(
             DocumentMetadata.fromMetadataNamespace(Optional.of(rawDoc1), indexId), rawDoc1);
@@ -1151,7 +1154,6 @@ public class EmbeddingIndexingWorkSchedulerTest {
                 VectorAutoEmbedQuantization.SCALAR,
                 VectorSimilarity.DOT_PRODUCT)
             .build();
-    VectorIndexFieldMapping fieldMapping = vectorIndexDefinition.getMappings();
     EmbeddingModelConfig modelConfig = EmbeddingModelCatalog.getModelConfig("voyage-3-large");
     ImmutableMap<FieldPath, EmbeddingModelConfig> modelConfigPerPath =
         ImmutableMap.of(
@@ -1177,7 +1179,10 @@ public class EmbeddingIndexingWorkSchedulerTest {
 
     var bundles =
         EmbeddingIndexingWorkScheduler.getTextValueBundles(
-            List.of(event), fieldMapping, embedBatchKeyPerPath, 100);
+            List.of(event),
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
+            embedBatchKeyPerPath,
+            100);
 
     assertThat(bundles).hasSize(1);
     var textsPerBatchKey = bundles.get(0).textsPerBatchKey().asMap();

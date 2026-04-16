@@ -3,12 +3,14 @@ load("//bazel/java:test.bzl", "java_test_suite")
 java_test_suite(
     name = "utils",
     srcs = [
+        "AutoEmbedFieldMappingCreatorTest.java",
         "AutoEmbeddingDocumentUtilsTest.java",
         "AutoEmbeddingIndexDefinitionUtilsTest.java",
         "MongoClientOperationExecutorTest.java",
     ],
     tags = ["unit"],
     deps = [
+        "//src/main/java/com/xgen/mongot/embedding",
         "//src/main/java/com/xgen/mongot/embedding/config",
         "//src/main/java/com/xgen/mongot/embedding/exceptions",
         "//src/main/java/com/xgen/mongot/embedding/providers/configs",

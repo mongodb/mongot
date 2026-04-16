@@ -9,15 +9,14 @@ import com.mongodb.ReadConcern;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.Indexes;
 import com.mongodb.client.model.Sorts;
+import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
+import com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator;
 import com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils;
-import com.xgen.mongot.embedding.utils.AutoEmbeddingIndexDefinitionUtils;
 import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.DocumentMetadata;
-import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
-import com.xgen.mongot.index.definition.VectorIndexFieldMapping;
 import com.xgen.mongot.index.lucene.query.pushdown.ArrayComparator;
 import com.xgen.mongot.index.lucene.query.pushdown.MqlComparator;
 import com.xgen.mongot.logging.DefaultKeyValueLogger;
@@ -50,7 +49,8 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
 
   private final DefaultKeyValueLogger logger;
   private final MongoNamespace matViewNamespace;
-  private final VectorIndexFieldMapping matViewFieldMappingWithHashes;
+  private final AutoEmbedFieldMapping autoEmbedMapping;
+  private final AutoEmbedFieldMapping matViewAutoEmbedMapping;
   private final MaterializedViewCollectionMetadata matViewCollectionMetadata;
 
   private final Timer preprocessingBatchTimer;
@@ -89,9 +89,12 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
             matViewCollectionMetadataCatalog.getDatabaseName(context.getGenerationId()),
             this.matViewCollectionMetadata.collectionName());
 
-    this.matViewFieldMappingWithHashes =
-        AutoEmbeddingIndexDefinitionUtils.getMatViewIndexFields(
-            resolveFieldMapping(context), this.matViewCollectionMetadata.schemaMetadata());
+    VectorIndexDefinition vectorDef =
+        Check.instanceOf(context.getIndexDefinition(), VectorIndexDefinition.class);
+    this.autoEmbedMapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef);
+    this.matViewAutoEmbedMapping =
+        AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(
+            vectorDef, this.matViewCollectionMetadata.schemaMetadata());
   }
 
   @Override
@@ -202,8 +205,8 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
             AutoEmbeddingDocumentUtils.compareDocuments(
                 sourceDoc,
                 matViewDoc,
-                resolveFieldMapping(this.context),
-                this.matViewFieldMappingWithHashes,
+                this.autoEmbedMapping,
+                this.matViewAutoEmbedMapping,
                 this.matViewCollectionMetadata.schemaMetadata());
         if (comparisonResult.needsReIndexing()) {
           var rawDocumentEvent = DocumentEvent.createUpdate(sourceDocMetadata, sourceDoc);
@@ -277,18 +280,6 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
         this.context.getIndexDefinition(),
         this.matViewNamespace,
         this.context.getInitialSyncMetricsUpdater());
-  }
-
-  // Helper method to extract the document metadata from the given document with the appropriate
-  // handling for views.
-  private static VectorIndexFieldMapping resolveFieldMapping(InitialSyncContext context) {
-    return switch (context.getIndexDefinition()) {
-      case VectorIndexDefinition vectorDef -> vectorDef.getMappings();
-      case SearchIndexDefinition ignored ->
-          // TODO(CLOUDP-353553): Support search auto-embedding in sorted ID collection scanner
-          throw new UnsupportedOperationException(
-              "Search auto-embedding not yet supported in sorted ID collection scanner");
-    };
   }
 
   private DocumentMetadata getDocumentMetadata(RawBsonDocument doc) {
