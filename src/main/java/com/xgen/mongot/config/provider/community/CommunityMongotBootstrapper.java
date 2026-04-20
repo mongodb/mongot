@@ -278,7 +278,8 @@ public class CommunityMongotBootstrapper {
             mongoDbMetadataClient,
             configManager,
             mongotConfigs.featureFlags,
-            meterRegistry);
+            meterRegistry,
+            () -> syncSourceConfig);
 
     // Register shutdown hook prior to starting the server.
     // Close the server to cleanly finish any in-flight requests.
@@ -792,10 +793,15 @@ public class CommunityMongotBootstrapper {
       MongoDbMetadataClient mongoDbMetadataClient,
       ConfigManager configManager,
       FeatureFlags featureFlags,
-      MeterRegistry meterRegistry) {
+      MeterRegistry meterRegistry,
+      Supplier<SyncSourceConfig> syncSourceConfigSupplier) {
     var configUpdater =
         new CommunityConfigUpdater(
-            authoritativeIndexCatalog, mongoDbMetadataClient, configManager, featureFlags);
+            authoritativeIndexCatalog,
+            mongoDbMetadataClient,
+            configManager,
+            featureFlags,
+            syncSourceConfigSupplier);
     return PeriodicConfigMonitor.create(configUpdater, DEFAULT_CONFIG_UPDATE_PERIOD, meterRegistry);
   }
 

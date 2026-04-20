@@ -33,11 +33,17 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import org.junit.Assert;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 public class CommonUtilsTest {
+
+  @Rule public TemporaryFolder tmpFolder = new TemporaryFolder();
+
   private static class Mocks {
     private final Path dataPath;
     private final MongoDbReplicationConfig replicationConfig;
@@ -180,6 +186,104 @@ public class CommonUtilsTest {
   }
 
   @Test
+  public void testGetReplicationManager_missingReplicationUri_returnsNoOp() {
+    var mocks = Mocks.create();
+    var factory =
+        CommonUtils.getReplicationManagerFactory(
+            mocks.dataPath,
+            mocks.replicationConfig,
+            mocks.initialSyncConfig,
+            mocks.durabilityConfig,
+            mocks.featureFlags,
+            mocks.mongotCursorManager,
+            mocks.indexCatalog,
+            mocks.initializedIndexCatalog,
+            MeterAndFtdcRegistry.create(mocks.meterRegistry, mocks.ftdcRegistry),
+            DefaultConfigManager.ReplicationMode.ENABLE,
+            ReplicationStateMonitor.enabled(),
+            mocks.embeddingServiceManagerSupplier);
+
+    var configWithMissingUri =
+        SyncSourceConfig.builder()
+            // mongodSingleHostReplicationUri intentionally left empty
+            .mongodClusterReplicationUri(
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://host"))
+            .mongodClusterReadWriteUri(
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://host"))
+            .build();
+    var manager = factory.create(Optional.of(configWithMissingUri));
+    Assert.assertTrue(manager instanceof MongoDbNoOpReplicationManager);
+  }
+
+  @Test
+  public void
+      testGetAutoEmbeddingMaterializedViewManagerFactory_missingUri_doesNotEnableReplication() {
+    var mocks = Mocks.create();
+    var factory =
+        CommonUtils.getAutoEmbeddingMaterializedViewManagerFactory(
+            mocks.dataPath,
+            mocks.autoEmbeddingMaterializedViewConfig,
+            mocks.initialSyncConfig,
+            mocks.featureFlags,
+            mocks.mongotCursorManager,
+            MeterAndFtdcRegistry.create(mocks.meterRegistry, mocks.ftdcRegistry),
+            DefaultConfigManager.ReplicationMode.ENABLE,
+            Optional.of(() -> mock(EmbeddingServiceManager.class)),
+            mocks.leaseManager,
+            mocks.mvMetadataCatalog,
+            mocks.autoEmbeddingMongoClient);
+
+    var configWithMissingUri =
+        SyncSourceConfig.builder()
+            // mongodSingleHostReplicationUri intentionally left empty
+            .mongodClusterReplicationUri(
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://host"))
+            .mongodClusterReadWriteUri(
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://host"))
+            .build();
+
+    var manager = factory.create(Optional.of(configWithMissingUri));
+
+    Assert.assertTrue(manager.isPresent());
+    Assert.assertFalse(manager.get().isReplicationSupported());
+  }
+
+  @Test
+  public void testGetAutoEmbeddingMaterializedViewManagerFactory_validUri_enablesReplication()
+      throws Exception {
+    var mocks = Mocks.create();
+    var factory =
+        CommonUtils.getAutoEmbeddingMaterializedViewManagerFactory(
+            this.tmpFolder.getRoot().toPath(),
+            mocks.autoEmbeddingMaterializedViewConfig,
+            mocks.initialSyncConfig,
+            mocks.featureFlags,
+            mocks.mongotCursorManager,
+            MeterAndFtdcRegistry.create(mocks.meterRegistry, mocks.ftdcRegistry),
+            DefaultConfigManager.ReplicationMode.ENABLE,
+            Optional.of(() -> mock(EmbeddingServiceManager.class)),
+            mocks.leaseManager,
+            mocks.mvMetadataCatalog,
+            mocks.autoEmbeddingMongoClient);
+
+    var configWithValidUri =
+        SyncSourceConfig.builder()
+            .mongodSingleHostReplicationUri(
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://host"))
+            .mongodClusterReplicationUri(
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://host"))
+            .mongodClusterReadWriteUri(
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://host"))
+            .build();
+
+    var manager = factory.create(Optional.of(configWithValidUri));
+
+    Assert.assertTrue(manager.isPresent());
+    Assert.assertTrue(manager.get().isReplicationSupported());
+    manager.get().shutdown().get(10, TimeUnit.SECONDS);
+  }
+
+  @Test
   public void testGetMaterializedViewManager_disableMode() {
     var mocks = Mocks.create();
     var factory =
@@ -261,8 +365,7 @@ public class CommonUtilsTest {
             Optional.empty(),
             Optional.empty());
 
-    DefaultInternalDatabaseResolver dbResolver =
-        new DefaultInternalDatabaseResolver();
+    DefaultInternalDatabaseResolver dbResolver = new DefaultInternalDatabaseResolver();
     MaterializedViewIndexFactory factory =
         CommonUtils.getMaterializedViewIndexFactory(
             mocks.autoEmbeddingMongoClient,

@@ -484,7 +484,8 @@ public class MaterializedViewManager implements ReplicationManager {
   }
 
   public synchronized CompletableFuture<Void> shutdownReplication() {
-    this.isReplicationEnabled = false;
+    prepareForShutdown();
+
     // Shutdown all generators. Each generator handles its own role-specific cleanup.
     // For follower mode, the map is empty, so this completes immediately.
     List<CompletableFuture<?>> futures =
@@ -582,20 +583,57 @@ public class MaterializedViewManager implements ReplicationManager {
     return generator;
   }
 
-  public synchronized void updateSyncSource(SyncSourceConfig syncSourceConfig) {
+  /**
+   * Updates the sync source configuration used for auto-embedding replication.
+   *
+   * <p>If the provided config has valid replication URIs, the underlying {@link
+   * MaterializedViewGeneratorFactory} is re-initialized with the new connection details. The caller
+   * is responsible for enabling replication (e.g. via {@link #setIsReplicationEnabled}) if
+   * appropriate.
+   *
+   * <p>If the URIs are not yet available, the update is skipped and {@code false} is returned.
+   *
+   * @param syncSourceConfig the new sync source configuration
+   * @return {@code true} if the factory was updated; {@code false} if URIs were unavailable and the
+   *     update was skipped
+   */
+  public synchronized boolean updateSyncSource(SyncSourceConfig syncSourceConfig) {
     if (!syncSourceConfig.hasReplicationUrisAvailable()) {
-      // Factory shutdown is async and done by the lifecycle manager before updating the sync
-      // source. By the time we reach this guard, the factory is either uninitialized or already
-      // shut down, and mongo clients will be re-created once the required URIs are available.
-      LOG.info("Sync source URIs not yet available; skipping auto-embedding sync source update.");
-      return;
+      LOG.atInfo()
+          .addKeyValue(
+              "mongodSingleHostReplicationUri",
+              syncSourceConfig
+                  .mongodSingleHostReplicationUri
+                  .map(info -> info.uri().getHosts())
+                  .orElse(null))
+          .addKeyValue(
+              "mongosSingleHostReplicationUri",
+              syncSourceConfig
+                  .mongosSingleHostReplicationUri
+                  .map(info -> info.uri().getHosts())
+                  .orElse(null))
+          .log("Sync source URIs not yet available; skipping auto-embedding sync source update.");
+      return false;
     }
     LOG.info("Update AutoEmbeddingMatViewManager by new sync source.");
     this.matViewGeneratorFactory.updateSyncSourceConfig(syncSourceConfig);
+    return true;
   }
 
   public synchronized void setIsReplicationEnabled(boolean isReplicationEnabled) {
     this.isReplicationEnabled = isReplicationEnabled;
+  }
+
+  /**
+   * Disables replication and marks the generator factory as uninitialized.
+   *
+   * <p>Must be called under the {@code MaterializedViewManager} lock before any async teardown so
+   * that concurrent callers of {@link #restartReplication()} observe the uninitialized state
+   * immediately, without waiting for the async factory shutdown chain to complete.
+   */
+  public synchronized void prepareForShutdown() {
+    this.isReplicationEnabled = false;
+    this.matViewGeneratorFactory.markUninitialized();
   }
 
   /**
@@ -933,7 +971,7 @@ public class MaterializedViewManager implements ReplicationManager {
   public synchronized CompletableFuture<Void> shutdown() {
     LOG.info("Shutting down.");
     this.shutdown = true;
-    this.isReplicationEnabled = false;
+    prepareForShutdown();
 
     // Cancel the periodic status refresh task
     this.statusRefreshFuture.cancel(false);
@@ -1242,6 +1280,11 @@ public class MaterializedViewManager implements ReplicationManager {
   }
 
   public synchronized void restartReplication() {
+    if (!this.matViewGeneratorFactory.isInitialized()) {
+      LOG.atInfo().log(
+          "Skipping materialized view replication restart - sync source URIs not yet available.");
+      return;
+    }
     this.isReplicationEnabled = true;
     this.activeGenerationIdCatalog.latestMatViewIndexGenerationByCollection.forEach(
         (uuid, matViewIndexGeneration) -> {
@@ -1280,6 +1323,7 @@ public class MaterializedViewManager implements ReplicationManager {
 
     // These fields are initialized in updateSyncSourceConfig(), owned by
     // MaterializedViewGeneratorFactory
+    private boolean initialized;
     private Map<String, ClientSessionRecord> clientSessionRecordMap;
     private Optional<BatchMongoClient> syncBatchMongoClient;
     private Optional<InitialSyncQueue> initialSyncQueue;
@@ -1320,6 +1364,7 @@ public class MaterializedViewManager implements ReplicationManager {
       this.requestRateLimitBackoffMs =
           Duration.ofMillis(materializedViewConfig.requestRateLimitBackoffMs);
       // Sets to empty values. updateSyncSourceConfig() will be called later to initialize them.
+      this.initialized = false;
       this.clientSessionRecordMap = new HashMap<>();
       this.syncBatchMongoClient = Optional.empty();
       this.initialSyncQueue = Optional.empty();
@@ -1355,6 +1400,14 @@ public class MaterializedViewManager implements ReplicationManager {
           this.meterAndFtdcRegistry.meterRegistry(),
           this.featureFlags,
           this.enableNaturalOrderScan);
+    }
+
+    boolean isInitialized() {
+      return this.initialized;
+    }
+
+    void markUninitialized() {
+      this.initialized = false;
     }
 
     /** Returns true if the InitialSyncQueue has an entry for this generationId. */
@@ -1415,15 +1468,33 @@ public class MaterializedViewManager implements ReplicationManager {
                   this.resolvedPath,
                   ToggleGate.opened(),
                   Optional.of(this.matViewMetadataCatalog)));
+      this.initialized = true;
     }
 
     public CompletionStage<Void> shutdown() {
-      return CompletableFuture.allOf(
-              this.initialSyncQueue.map(InitialSyncQueue::shutdown).orElse(COMPLETED_FUTURE),
-              this.steadyStateManager.map(SteadyStateManager::shutdown).orElse(COMPLETED_FUTURE))
+      // Capture current state before clearing fields. shutdown() is invoked asynchronously (off
+      // the MaterializedViewManager lock). Callers MUST block on the returned future before
+      // calling updateSyncSourceConfig(); otherwise a concurrent updateSyncSourceConfig() could
+      // repopulate these fields and this shutdown chain would capture and close the new resources.
+      // Captured locals are private to this shutdown chain. Async callbacks MUST NOT reference
+      // this.X for the same reason.
+      var sessionRecordsToClose = this.clientSessionRecordMap;
+      var batchClientToClose = this.syncBatchMongoClient;
+      var initialSyncQueueFuture =
+          this.initialSyncQueue.map(InitialSyncQueue::shutdown).orElse(COMPLETED_FUTURE);
+      var steadyStateFuture =
+          this.steadyStateManager.map(SteadyStateManager::shutdown).orElse(COMPLETED_FUTURE);
+
+      // Clear fields synchronously so any re-initialization starts from a clean slate.
+      this.clientSessionRecordMap = new HashMap<>();
+      this.syncBatchMongoClient = Optional.empty();
+      this.steadyStateManager = Optional.empty();
+      this.initialSyncQueue = Optional.empty();
+
+      return CompletableFuture.allOf(initialSyncQueueFuture, steadyStateFuture)
           .whenCompleteAsync(
               (result, throwable) ->
-                  this.clientSessionRecordMap
+                  sessionRecordsToClose
                       .values()
                       .forEach(
                           clientSessionRecord -> {
@@ -1431,7 +1502,7 @@ public class MaterializedViewManager implements ReplicationManager {
                             clientSessionRecord.syncMongoClient().close();
                           }))
           .whenCompleteAsync(
-              (result, throwable) -> this.syncBatchMongoClient.ifPresent(BatchMongoClient::close));
+              (result, throwable) -> batchClientToClose.ifPresent(BatchMongoClient::close));
     }
   }
 

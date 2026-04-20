@@ -25,6 +25,7 @@ import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.util.mongodb.CheckedMongoException;
 import com.xgen.mongot.util.mongodb.MongoDbMetadataClient;
+import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
 import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfos;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
@@ -49,6 +50,7 @@ public class CommunityConfigUpdaterTest {
   private MongoDbMetadataClient mongoDbMetadataClient;
   private ConfigManager configManager;
   private FeatureFlags featureFlags;
+  private SyncSourceConfig syncSourceConfig;
 
   private CommunityConfigUpdater communityConfigUpdater;
 
@@ -62,13 +64,15 @@ public class CommunityConfigUpdaterTest {
             .enable(Feature.SHUT_DOWN_REPLICATION_WHEN_COLLECTION_NOT_FOUND)
             .enable(Feature.INDEX_FEATURE_VERSION_FOUR)
             .build();
+    this.syncSourceConfig = mock(SyncSourceConfig.class);
 
     this.communityConfigUpdater =
         new CommunityConfigUpdater(
             this.authoritativeIndexCatalog,
             this.mongoDbMetadataClient,
             this.configManager,
-            this.featureFlags);
+            this.featureFlags,
+            () -> this.syncSourceConfig);
   }
 
   @After
@@ -83,6 +87,8 @@ public class CommunityConfigUpdaterTest {
 
     this.communityConfigUpdater.update();
 
+    verify(this.mongoDbMetadataClient).maybeUpdateSyncSource(this.syncSourceConfig);
+    verify(this.configManager).handleReplicationAndSyncSourceUpdate(this.syncSourceConfig);
     verify(this.configManager)
         .update(List.of(), List.of(SearchIndex.MOCK_INDEX_DEFINITION), List.of(), Set.of());
     verify(this.authoritativeIndexCatalog, never()).updateIndex(any(), any(), any());
@@ -289,7 +295,8 @@ public class CommunityConfigUpdaterTest {
             mockAuthoritativeIndexCatalog,
             mockMongoDbMetadataClient,
             mockConfigManager,
-            this.featureFlags);
+            this.featureFlags,
+            () -> this.syncSourceConfig);
 
     communityConfigUpdater.update();
     verify(mockConfigManager).update(List.of(), List.of(), List.of(), Set.of(collectionUuid));

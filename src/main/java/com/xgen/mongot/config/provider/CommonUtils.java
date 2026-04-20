@@ -74,7 +74,31 @@ public class CommonUtils {
             .log("Disk usage exceeded pause threshold, pausing replication on initialization.");
       }
 
+      boolean missingReplicationUris =
+          syncConfig.isPresent() && !syncConfig.get().hasReplicationUrisAvailable();
+
+      if (missingReplicationUris) {
+        LOG.atInfo()
+            .addKeyValue(
+                "mongodSingleHostReplicationUri",
+                syncConfig
+                    .get()
+                    .mongodSingleHostReplicationUri
+                    .map(info -> info.uri().getHosts())
+                    .orElse(null))
+            .addKeyValue(
+                "mongosSingleHostReplicationUri",
+                syncConfig
+                    .get()
+                    .mongosSingleHostReplicationUri
+                    .map(info -> info.uri().getHosts())
+                    .orElse(null))
+            .addKeyValue("sharded", syncConfig.get().isSharded)
+            .log("Single host URIs not set, initializing with MongoDbNoOpReplicationManager.");
+      }
+
       if (syncConfig.isEmpty()
+          || missingReplicationUris
           || replicationMode.equals(DefaultConfigManager.ReplicationMode.DISABLE)
           || pauseReplication) {
 
@@ -178,8 +202,9 @@ public class CommonUtils {
               autoEmbeddingMongoClient);
       syncSourceConfig.ifPresent(
           syncSource -> {
-            matViewManager.updateSyncSource(syncSource);
-            matViewManager.setIsReplicationEnabled(true);
+            if (matViewManager.updateSyncSource(syncSource)) {
+              matViewManager.setIsReplicationEnabled(true);
+            }
           });
       return Optional.of(matViewManager);
     };
@@ -268,8 +293,7 @@ public class CommonUtils {
       String hostname,
       MaterializedViewCollectionMetadataCatalog mvMetadataCatalog,
       LeaseManagerOpsCommands opsCommands) {
-    LOG.info(
-        "Creating DynamicLeaderLeaseManager for dynamic per-index leader election");
+    LOG.info("Creating DynamicLeaderLeaseManager for dynamic per-index leader election");
     return DynamicLeaderLeaseManager.create(
         autoEmbeddingMongoClient,
         meterAndFtdcRegistry,

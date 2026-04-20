@@ -2,6 +2,7 @@ package com.xgen.mongot.config.provider.community;
 
 import static com.xgen.mongot.util.Check.checkState;
 
+import com.google.common.base.Supplier;
 import com.google.common.flogger.FluentLogger;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.mongodb.MongoNamespace;
@@ -22,6 +23,7 @@ import com.xgen.mongot.index.definition.ViewDefinition;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.mongodb.CheckedMongoException;
 import com.xgen.mongot.util.mongodb.MongoDbMetadataClient;
+import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfos;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,6 +44,7 @@ public class CommunityConfigUpdater implements ConfigUpdater {
   private final MongoDbMetadataClient mongoDbMetadataClient;
   private final ConfigManager configManager;
   private final FeatureFlags featureFlags;
+  private final Supplier<SyncSourceConfig> syncSourceConfigSupplier;
 
   @GuardedBy("this")
   private volatile boolean closed;
@@ -50,11 +53,13 @@ public class CommunityConfigUpdater implements ConfigUpdater {
       AuthoritativeIndexCatalog authoritativeIndexCatalog,
       MongoDbMetadataClient mongoDbMetadataClient,
       ConfigManager configManager,
-      FeatureFlags featureFlags) {
+      FeatureFlags featureFlags,
+      Supplier<SyncSourceConfig> syncSourceConfigSupplier) {
     this.authoritativeIndexCatalog = authoritativeIndexCatalog;
     this.mongoDbMetadataClient = mongoDbMetadataClient;
     this.configManager = configManager;
     this.featureFlags = featureFlags;
+    this.syncSourceConfigSupplier = syncSourceConfigSupplier;
 
     this.closed = false;
   }
@@ -63,7 +68,15 @@ public class CommunityConfigUpdater implements ConfigUpdater {
   public synchronized void update() {
     checkState(!this.closed, "cannot call update() after close()");
 
-    // First try updating all our live indexes with views. This may fail, if the catalog is
+    // First update the mongodbMetadataClient and configManager with the new SyncSourceConfig if it
+    // changed.
+    // If the replication URIs in the new SyncSourceConfig are unavailable this will disable
+    // replication and start up the NoOpReplicationManager.
+    SyncSourceConfig syncSourceConfig = this.syncSourceConfigSupplier.get();
+    this.mongoDbMetadataClient.maybeUpdateSyncSource(syncSourceConfig);
+    this.configManager.handleReplicationAndSyncSourceUpdate(syncSourceConfig);
+
+    // Then try updating all our live indexes with views. This may fail, if the catalog is
     // concurrently modified by another mongot, or for some other transient reason.
     try {
       updateIndexesWithViews();

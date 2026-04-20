@@ -5,6 +5,7 @@ import com.xgen.mongot.index.analyzer.definition.OverriddenBaseAnalyzerDefinitio
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
+import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -26,6 +27,12 @@ public interface ConfigManager extends CachedIndexInfoProvider {
       List<SearchIndexDefinition> searchDefinitions,
       List<OverriddenBaseAnalyzerDefinition> analyzerDefinitions,
       Set<UUID> directMongodCollectionSet);
+
+  /**
+   * Updates the sync source config, shutting down and restarting replication if it has changed.
+   * If the config has not changed, delegates to disk-based replication restart instead.
+   */
+  void handleReplicationAndSyncSourceUpdate(SyncSourceConfig syncSourceConfig);
 
   List<IndexDefinition> getLiveIndexes();
 

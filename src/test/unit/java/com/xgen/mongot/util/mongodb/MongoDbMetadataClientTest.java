@@ -177,6 +177,47 @@ public class MongoDbMetadataClientTest {
   }
 
   @Test
+  public void maybeUpdateSyncSource_uriBecomesAvailable_recreatesClients() throws Exception {
+    var validConfig =
+        SyncSourceConfig.builder()
+            .mongodSingleHostReplicationUri(
+                // kingfisher:ignore
+                ConnectionStringUtil.toConnectionInfo("mongodb://user:pass@mongod:27017/"))
+            .mongodClusterReplicationUri(
+                // kingfisher:ignore
+                ConnectionStringUtil.toConnectionInfo("mongodb://user:pass@mongod:27017/"))
+            .mongodClusterReadWriteUri(
+                // kingfisher:ignore
+                ConnectionStringUtil.toConnectionInfo("mongodb://user:pass@mongod:27017/"))
+            .build();
+    var configWithoutMongodUri =
+        SyncSourceConfig.builder()
+            .mongodClusterReplicationUri(
+                // kingfisher:ignore
+                ConnectionStringUtil.toConnectionInfo("mongodb://user:pass@mongod:27017/"))
+            .mongodClusterReadWriteUri(
+                // kingfisher:ignore
+                ConnectionStringUtil.toConnectionInfo("mongodb://user:pass@mongod:27017/"))
+            .build();
+
+    try (var client =
+        new MongoDbMetadataClient(Optional.of(validConfig), new SimpleMeterRegistry())) {
+      // Initial state: clients are present. Querying an empty db set succeeds without connecting.
+      client.resolveCollectionInfos(Set.of());
+
+      // Remove URI: clients are closed.
+      client.maybeUpdateSyncSource(configWithoutMongodUri);
+      Assert.assertThrows(
+          CheckedMongoException.class, () -> client.resolveCollectionInfos(Set.of()));
+
+      // URI becomes available: clients are recreated.
+      client.maybeUpdateSyncSource(validConfig);
+      // resolveCollectionInfos no longer throws "unavailable" — clients are present again.
+      client.resolveCollectionInfos(Set.of());
+    }
+  }
+
+  @Test
   public void testUpdateMongoDbVersionMetric() throws Exception {
     MeterRegistry meterRegistry = new SimpleMeterRegistry();
     MongoDbMetadataClient client = new MongoDbMetadataClient(Optional.empty(), meterRegistry);

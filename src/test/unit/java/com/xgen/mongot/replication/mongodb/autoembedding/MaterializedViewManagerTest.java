@@ -908,6 +908,7 @@ public class MaterializedViewManagerTest {
     mocks.manager.shutdownReplication().get(5, TimeUnit.SECONDS);
 
     verify(generator).shutdown();
+    verify(mocks.materializedViewGeneratorFactory).markUninitialized();
     assertFalse(mocks.manager.isReplicationSupported());
   }
 
@@ -924,6 +925,7 @@ public class MaterializedViewManagerTest {
     // Shutdown replication
     mocks.manager.shutdownReplication().get(5, TimeUnit.SECONDS);
     verify(oldGenerator).shutdown();
+    verify(mocks.materializedViewGeneratorFactory).markUninitialized();
     assertFalse(mocks.manager.isReplicationSupported());
 
     // Prepare a new generator for restart
@@ -942,35 +944,56 @@ public class MaterializedViewManagerTest {
   }
 
   @Test
-  public void testUpdateSyncSource_delegatesToFactory() {
+  public void testUpdateSyncSource_validUris_returnsTrueAndDelegatesToFactory() {
     Mocks mocks = Mocks.create();
-    SyncSourceConfig newConfig =
+    SyncSourceConfig validConfig =
         SyncSourceConfig.builder()
             .mongodSingleHostReplicationUri(
-                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://newHost"))
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://host"))
             .mongodClusterReplicationUri(
-                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://newHost"))
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://host"))
             .mongodClusterReadWriteUri(
-                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://newHost"))
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://host"))
             .build();
 
-    mocks.manager.updateSyncSource(newConfig);
-
-    verify(mocks.materializedViewGeneratorFactory).updateSyncSourceConfig(newConfig);
+    assertTrue(mocks.manager.updateSyncSource(validConfig));
+    verify(mocks.materializedViewGeneratorFactory).updateSyncSourceConfig(validConfig);
   }
 
   @Test
-  public void testUpdateSyncSource_mongodUriAbsent_skipsFactoryUpdate() {
+  public void testUpdateSyncSource_missingMongodUri_returnsFalseAndSkipsFactory() {
     Mocks mocks = Mocks.create();
-    SyncSourceConfig configWithoutMongodUri =
+    SyncSourceConfig missingUriConfig =
         SyncSourceConfig.builder()
+            // mongodSingleHostReplicationUri intentionally left empty
             .mongodClusterReplicationUri(
                 ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://host"))
             .mongodClusterReadWriteUri(
                 ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://host"))
             .build();
 
-    mocks.manager.updateSyncSource(configWithoutMongodUri);
+    assertFalse(mocks.manager.updateSyncSource(missingUriConfig));
+    verify(mocks.materializedViewGeneratorFactory, never()).updateSyncSourceConfig(any());
+  }
+
+  @Test
+  public void testUpdateSyncSource_shardedMissingMongosUri_skipsFactory() {
+    Mocks mocks = Mocks.create();
+    SyncSourceConfig config =
+        SyncSourceConfig.builder()
+            .mongodSingleHostReplicationUri(
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://mongod"))
+            .mongodClusterReplicationUri(
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://mongod"))
+            .mongodClusterReadWriteUri(
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://mongod"))
+            .mongosClusterReadWriteUri(
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://mongos"))
+            .isSharded(true)
+            // mongosSingleHostReplicationUri intentionally left empty
+            .build();
+
+    mocks.manager.updateSyncSource(config);
 
     verify(mocks.materializedViewGeneratorFactory, never()).updateSyncSourceConfig(any());
   }
@@ -990,6 +1013,7 @@ public class MaterializedViewManagerTest {
     // Phase 2: Shutdown replication (simulating sync source change)
     mocks.manager.shutdownReplication().get(5, TimeUnit.SECONDS);
     verify(oldGenerator).shutdown();
+    verify(mocks.materializedViewGeneratorFactory).markUninitialized();
     assertFalse(mocks.manager.isReplicationSupported());
 
     // Phase 3: Update sync source
@@ -1015,6 +1039,99 @@ public class MaterializedViewManagerTest {
     mocks.manager.restartReplication();
     assertTrue(mocks.manager.isReplicationSupported());
     verify(mocks.materializedViewGeneratorFactory, times(2)).create(matViewIndexGeneration);
+  }
+
+  /**
+   * Verifies the end-to-end missing-URI lifecycle: shutdown → factory uninitialized → missing URI →
+   * restart is no-op → URI available → factory updated → restart recreates generators.
+   */
+  @Test
+  public void testMissingUri_shutdownThenRecovery_restartsCorrectly() throws Exception {
+    Mocks mocks = Mocks.create();
+
+    // Setup: add an index and start replication.
+    MaterializedViewIndexGeneration matViewIndexGeneration =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.mockMaterializedViewGenerator(matViewIndexGeneration);
+    mocks.addIndexForReplication(matViewIndexGeneration);
+    assertTrue(mocks.manager.isReplicationSupported());
+
+    // Step 1: shutdownReplication (simulates restart triggered by a sync source change).
+    mocks.manager.shutdownReplication().get(5, TimeUnit.SECONDS);
+    assertFalse(mocks.manager.isReplicationSupported());
+    verify(mocks.materializedViewGeneratorFactory).markUninitialized();
+    Mockito.clearInvocations(mocks.materializedViewGeneratorFactory);
+
+    // Step 2: simulate factory becoming uninitialized after shutdown (closeClients() clears
+    // initialSyncQueue in production).
+    when(mocks.materializedViewGeneratorFactory.isInitialized()).thenReturn(false);
+
+    // Step 3: updateSyncSource with missing mongod URI — factory update must be skipped.
+    var configWithMissingUri =
+        SyncSourceConfig.builder()
+            // mongodSingleHostReplicationUri intentionally left empty
+            .mongodClusterReplicationUri(
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://host"))
+            .mongodClusterReadWriteUri(
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://host"))
+            .build();
+    mocks.manager.updateSyncSource(configWithMissingUri);
+    verify(mocks.materializedViewGeneratorFactory, never()).updateSyncSourceConfig(any());
+
+    // Step 4: restartReplication with uninitialized factory — must be a no-op.
+    mocks.manager.restartReplication();
+    verify(mocks.materializedViewGeneratorFactory, never()).create(any());
+    assertFalse(mocks.manager.isReplicationSupported());
+
+    // Step 5: URI becomes available — factory must be updated and becomes initialized.
+    var validConfig =
+        SyncSourceConfig.builder()
+            .mongodSingleHostReplicationUri(
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://newHost"))
+            .mongodClusterReplicationUri(
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://newHost"))
+            .mongodClusterReadWriteUri(
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://newHost"))
+            .build();
+    mocks.manager.updateSyncSource(validConfig);
+    verify(mocks.materializedViewGeneratorFactory).updateSyncSourceConfig(validConfig);
+    when(mocks.materializedViewGeneratorFactory.isInitialized()).thenReturn(true);
+
+    // Step 6: restartReplication — generators recreated from the buffer.
+    MaterializedViewGenerator newGenerator = mock(MaterializedViewGenerator.class);
+    doReturn(CompletableFuture.completedFuture(null)).when(newGenerator).shutdown();
+    when(newGenerator.getIndexGeneration()).thenReturn(matViewIndexGeneration);
+    when(mocks.materializedViewGeneratorFactory.create(matViewIndexGeneration))
+        .thenReturn(newGenerator);
+    mocks.manager.restartReplication();
+
+    verify(mocks.materializedViewGeneratorFactory).create(matViewIndexGeneration);
+    assertTrue(mocks.manager.isReplicationSupported());
+  }
+
+  @Test
+  public void testRestartReplication_withUninitializedFactory_skipsGeneratorCreation() {
+    Mocks mocks = Mocks.create();
+    when(mocks.materializedViewGeneratorFactory.isInitialized()).thenReturn(false);
+    mocks.manager.setIsReplicationEnabled(false);
+
+    MaterializedViewIndexGeneration matViewIndexGeneration =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.addIndexForReplication(matViewIndexGeneration);
+
+    // Factory not yet initialized (no replication URIs) — restart should be a no-op.
+    mocks.manager.restartReplication();
+
+    verify(mocks.materializedViewGeneratorFactory, never()).create(any());
+    assertFalse(mocks.manager.isReplicationSupported());
+
+    // Simulate URIs becoming available: factory initialized, then restart.
+    when(mocks.materializedViewGeneratorFactory.isInitialized()).thenReturn(true);
+    mocks.mockMaterializedViewGenerator(matViewIndexGeneration);
+    mocks.manager.restartReplication();
+
+    verify(mocks.materializedViewGeneratorFactory).create(matViewIndexGeneration);
+    assertTrue(mocks.manager.isReplicationSupported());
   }
 
   @Test
@@ -2602,6 +2719,7 @@ public class MaterializedViewManagerTest {
           mock(MaterializedViewManager.MaterializedViewGeneratorFactory.class);
       when(materializedViewGeneratorFactory.shutdown())
           .thenReturn(CompletableFuture.completedFuture(null));
+      when(materializedViewGeneratorFactory.isInitialized()).thenReturn(true);
       when(indexingWorkSchedulerFactory.getIndexingWorkSchedulers()).thenReturn(Map.of());
 
       NamedScheduledExecutorService commitExecutor = mockScheduledExecutor("index-commit");
@@ -2950,6 +3068,7 @@ public class MaterializedViewManagerTest {
           mock(MaterializedViewManager.MaterializedViewGeneratorFactory.class);
       when(materializedViewGeneratorFactory.shutdown())
           .thenReturn(CompletableFuture.completedFuture(null));
+      when(materializedViewGeneratorFactory.isInitialized()).thenReturn(true);
 
       NamedScheduledExecutorService commitExecutor = mockScheduledExecutor("index-commit");
       NamedScheduledExecutorService heartbeatExecutor =

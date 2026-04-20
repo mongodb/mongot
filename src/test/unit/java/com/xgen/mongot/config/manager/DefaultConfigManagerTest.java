@@ -15,8 +15,10 @@ import static java.util.Collections.emptyList;
 import static java.util.Collections.emptySet;
 import static java.util.Collections.singletonList;
 import static org.junit.Assert.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -41,6 +43,8 @@ import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.monitor.ReplicationStateMonitor;
 import com.xgen.mongot.monitor.ToggleGate;
+import com.xgen.mongot.util.mongodb.ConnectionStringUtil;
+import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import com.xgen.testing.mongot.config.backup.ConfigJournalV1Builder;
 import com.xgen.testing.mongot.config.manager.ConfigStateMocks;
 import com.xgen.testing.mongot.config.manager.DefaultConfigManagerMocks;
@@ -830,5 +834,105 @@ public class DefaultConfigManagerTest {
     assertThat(mocks.configManager.getReplicationStatus().initialSyncStatus());
     assertThat(mocks.configManager.getReplicationStatus().initialSyncStatus().isInitialSyncPaused())
         .isFalse();
+  }
+
+  @Test
+  public void testHandleReplicationAndSyncSourceUpdate_changedSyncSource_restartsReplication()
+      throws Exception {
+    var mocks = DefaultConfigManagerMocks.create();
+    mocks.clearInvocations();
+
+    var differentConfig =
+        SyncSourceConfig.builder()
+            .mongodSingleHostReplicationUri(
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://otherhost"))
+            .mongodClusterReplicationUri(
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://otherhost"))
+            .mongodClusterReadWriteUri(
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://otherhost"))
+            .build();
+
+    mocks.configManager.handleReplicationAndSyncSourceUpdate(differentConfig);
+
+    verify(mocks.lifecycleManager).updateSyncSource(differentConfig);
+  }
+
+  @Test
+  public void testHandleReplicationAndSyncSourceUpdate_missingMongodUri_restartsReplication()
+      throws Exception {
+    var mocks = DefaultConfigManagerMocks.create();
+    mocks.clearInvocations();
+
+    var configWithMissingUri =
+        SyncSourceConfig.builder()
+            // mongodSingleHostReplicationUri intentionally left empty — differs from
+            // MOCK_SYNC_SOURCE_CONFIG, so a restart is expected.
+            .mongodClusterReplicationUri(
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://host"))
+            .mongodClusterReadWriteUri(
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://host"))
+            .build();
+
+    mocks.configManager.handleReplicationAndSyncSourceUpdate(configWithMissingUri);
+
+    verify(mocks.lifecycleManager).updateSyncSource(configWithMissingUri);
+  }
+
+  @Test
+  public void testHandleReplicationAndSyncSourceUpdate_unchangedSyncSource_doesNotRestart()
+      throws Exception {
+    var mocks = DefaultConfigManagerMocks.create();
+    mocks.clearInvocations();
+
+    mocks.configManager.handleReplicationAndSyncSourceUpdate(
+        ConfigStateMocks.MOCK_SYNC_SOURCE_CONFIG);
+
+    verify(mocks.lifecycleManager, never()).updateSyncSource(any());
+  }
+
+  @Test
+  public void
+      testHandleReplicationAndSyncSourceUpdate_unchangedSyncSource_missingUris_skipsDiskCheck()
+          throws Exception {
+    var mocks = DefaultConfigManagerMocks.create();
+
+    var noUriConfig =
+        SyncSourceConfig.builder()
+            .mongodClusterReplicationUri(
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://host"))
+            .mongodClusterReadWriteUri(
+                ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://host"))
+            .build();
+
+    // First call: config differs from MOCK_SYNC_SOURCE_CONFIG, triggering a restart.
+    mocks.configManager.handleReplicationAndSyncSourceUpdate(noUriConfig);
+    mocks.clearInvocations();
+
+    // Second call: same no-URI config — sync source unchanged, URIs absent, disk check skipped.
+    mocks.configManager.handleReplicationAndSyncSourceUpdate(noUriConfig);
+
+    verify(mocks.lifecycleManager, never()).updateSyncSource(any());
+  }
+
+  @Test
+  public void testHandleReplicationAndSyncSourceUpdate_unchangedSyncSourceAndDiskPressure_restarts()
+      throws Exception {
+    var replicationGate = ToggleGate.opened();
+    var replicationStateMonitor =
+        ReplicationStateMonitor.builder()
+            .setReplicationGate(replicationGate)
+            .setInitialSyncGate(ToggleGate.opened())
+            .build();
+    var mocks = DefaultConfigManagerMocks.create(replicationStateMonitor);
+    mocks.clearInvocations();
+
+    // Simulate disk pressure crossing the pause threshold.
+    replicationGate.close();
+
+    // Same sync source with valid URIs — disk pressure changed, restart expected.
+    mocks.configManager.handleReplicationAndSyncSourceUpdate(
+        ConfigStateMocks.MOCK_SYNC_SOURCE_CONFIG);
+
+    verify(mocks.lifecycleManager).updateSyncSource(ConfigStateMocks.MOCK_SYNC_SOURCE_CONFIG);
   }
 }

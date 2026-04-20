@@ -297,7 +297,6 @@ public class DefaultConfigManager implements ConfigManager {
       Set<UUID> directMongodCollectionSet) {
     ensureOpen("update");
 
-    handleDiskBasedReplicationRestart();
     // no dynamic feature flag update is needed since this code path only serves community and
     // localdev.
     Crash.because("failed to update config")
@@ -311,6 +310,35 @@ public class DefaultConfigManager implements ConfigManager {
 
     // Update our cache of index information.
     updateIndexInfos();
+  }
+
+  /**
+   * Restarts replication if the sync source has changed; otherwise delegates to {@link
+   * #handleDiskBasedReplicationRestart()}. Ensures replication is restarted at most once per cycle.
+   *
+   * <p>On a sync source change, a {@link
+   * com.xgen.mongot.replication.mongodb.MongoDbNoOpReplicationManager} is installed when
+   * single-host URIs are not yet available (see {@link
+   * com.xgen.mongot.util.mongodb.SyncSourceConfig#hasReplicationUrisAvailable()}) or disk usage
+   * exceeds the pause threshold. Replication stays disabled until the next sync source change.
+   */
+  @Override
+  public synchronized void handleReplicationAndSyncSourceUpdate(
+      SyncSourceConfig newSyncSourceConfig) {
+    ensureOpen("handleReplicationAndSyncSourceUpdate");
+    Optional<SyncSourceConfig> currentConfig =
+        this.configState.getLifecycleManager().getSyncSourceConfig();
+    boolean syncSourceUpdated =
+        currentConfig.isEmpty() || !currentConfig.get().equals(newSyncSourceConfig);
+    if (syncSourceUpdated) {
+      shutdownAndRestartReplication(newSyncSourceConfig);
+    } else if (!newSyncSourceConfig.hasReplicationUrisAvailable()) {
+      // Sync source config is missing required replication URIs.
+      // Don't try to restart replication and wait for the next update loop.
+      LOG.info("Replication URIs unavailable, skipping disk-based restart check");
+    } else {
+      handleDiskBasedReplicationRestart();
+    }
   }
 
   protected final synchronized void updateCycle(
@@ -494,7 +522,7 @@ public class DefaultConfigManager implements ConfigManager {
   protected final synchronized void handleDiskBasedReplicationRestart() {
     // Restart replication if intended pause value changes.
     var isReplicationPaused = !this.configState.getLifecycleManager().isReplicationSupported();
-    var shouldRestartReplication = this.shouldPauseReplication() != isReplicationPaused;
+    var shouldRestartReplication = this.shouldReplicationBePaused() != isReplicationPaused;
 
     Optional<SyncSourceConfig> currentConfig =
         this.configState.getLifecycleManager().getSyncSourceConfig();
@@ -521,7 +549,7 @@ public class DefaultConfigManager implements ConfigManager {
     this.replicationStatusChangeTimestamp = Instant.now();
   }
 
-  protected final boolean shouldPauseReplication() {
+  protected final boolean shouldReplicationBePaused() {
     return this.replicationGate.isClosed();
   }
 
