@@ -4,6 +4,7 @@ import static com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadat
 import static com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils.HASH_FIELD_SUFFIX;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
 import com.xgen.mongot.embedding.AutoEmbedFieldMapping.AutoEmbedField;
 import com.xgen.mongot.embedding.VectorAutoEmbedFieldMapping;
@@ -12,9 +13,14 @@ import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldMapping;
 import com.xgen.mongot.util.FieldPath;
 import java.util.Map;
+import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Factory methods for creating {@link AutoEmbedFieldMapping} instances from index definitions. */
 public class AutoEmbedFieldMappingCreator {
+
+  private static final Logger LOG = LoggerFactory.getLogger(AutoEmbedFieldMappingCreator.class);
 
   private static final String HASH_FIELD_PREFIX = "_autoEmbed._hash";
 
@@ -123,6 +129,87 @@ public class AutoEmbedFieldMappingCreator {
       return schemaFieldsMapping.get(sourceFieldPath);
     }
     return sourceFieldPath;
+  }
+
+  /**
+   * Converts a source {@code nestedRoot} to the materialized view {@code nestedRoot} by mirroring
+   * the path rewrite applied to auto-embed fields that live under it. Returns the original
+   * {@code nestedRoot} if the {@code schemaFieldsMapping} is empty or contains no entry whose
+   * source path is a descendant of {@code nestedRoot}.
+   *
+   * <p>The auto-embed field-path remapping (see {@link
+   * com.xgen.mongot.embedding.mongodb.MaterializedViewCollectionResolver}) prepends the MV
+   * namespace (e.g. {@code _autoEmbed.}) to every source auto-embed path. Because {@code
+   * nestedRoot} must be an ancestor of those source paths, the MV-equivalent {@code nestedRoot} is
+   * the derived path with the per-entry "tail below the source {@code nestedRoot}" stripped off.
+   *
+   * <p>Example: with source {@code nestedRoot = "sections"} and mapping {@code
+   * "sections.section_content" -> "_autoEmbed.sections.section_content"}, the derived {@code
+   * nestedRoot} is {@code "_autoEmbed.sections"}.
+   *
+   * <p><b>Invariant:</b> all auto-embed fields under the same source {@code nestedRoot} are
+   * expected to share the same MV-prefix, and therefore produce the same derived root. This method
+   * returns the derived root computed from the first matching entry encountered. If later
+   * matching entries disagree, a warning is logged and the lexicographically smallest derived root
+   * is returned to ensure a deterministic result regardless of map iteration order.
+   */
+  public static Optional<FieldPath> getMatViewNestedRoot(
+      Optional<FieldPath> sourceNestedRoot, Map<FieldPath, FieldPath> schemaFieldsMapping) {
+    if (sourceNestedRoot.isEmpty()) {
+      return Optional.empty();
+    }
+    FieldPath source = sourceNestedRoot.get();
+    @Var Optional<FieldPath> result = Optional.empty();
+    @Var boolean inconsistencyDetected = false;
+    for (Map.Entry<FieldPath, FieldPath> entry : schemaFieldsMapping.entrySet()) {
+      FieldPath sourcePath = entry.getKey();
+      FieldPath derivedPath = entry.getValue();
+      if (!sourcePath.isChildOf(source)) {
+        continue;
+      }
+      FieldPath derivedRoot = stripLevelsBelowRoot(source, sourcePath, derivedPath);
+      if (result.isEmpty()) {
+        result = Optional.of(derivedRoot);
+      } else if (!result.get().equals(derivedRoot)) {
+        // Invariant violation: different auto-embed fields under the same nestedRoot disagree on
+        // the MV-prefix. Pick the lexicographically smallest derived root to guarantee a
+        // deterministic result regardless of map iteration order. Log rather than throw so we
+        // fail loud in logs but don't break index derivation over a schema inconsistency.
+        inconsistencyDetected = true;
+        if (derivedRoot.toString().compareTo(result.get().toString()) < 0) {
+          result = Optional.of(derivedRoot);
+        }
+      }
+    }
+    if (inconsistencyDetected) {
+      LOG.warn(
+          "Inconsistent derived nestedRoot across auto-embed mapping entries under source"
+              + " nestedRoot={}. Using lexicographically smallest derived root: {}.",
+          source,
+          result.get());
+    }
+    return result.isPresent() ? result : sourceNestedRoot;
+  }
+
+  private static FieldPath stripLevelsBelowRoot(
+      FieldPath sourceNestedRoot, FieldPath sourcePath, FieldPath derivedPath) {
+    int levelsBelowRoot =
+        sourcePath.getPathHierarchy().size() - sourceNestedRoot.getPathHierarchy().size();
+    @Var FieldPath derivedRoot = derivedPath;
+    for (int i = 0; i < levelsBelowRoot; i++) {
+      derivedRoot =
+          derivedRoot
+              .getParent()
+              .orElseThrow(
+                  () ->
+                      new IllegalStateException(
+                          String.format(
+                              "Derived field path has fewer segments than its source path when"
+                                  + " deriving materialized-view nestedRoot: source=%s,"
+                                  + " derived=%s, sourceNestedRoot=%s",
+                              sourcePath, derivedPath, sourceNestedRoot)));
+    }
+    return derivedRoot;
   }
 
   private AutoEmbedFieldMappingCreator() {}

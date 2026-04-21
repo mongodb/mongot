@@ -2,6 +2,7 @@ package com.xgen.mongot.embedding.utils;
 
 import static com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata;
 import static com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator.getMatViewFieldPath;
+import static com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator.getMatViewNestedRoot;
 
 import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.FieldDefinition;
@@ -63,8 +64,14 @@ public class AutoEmbeddingIndexDefinitionUtils {
         rawDefinition.getParsedIndexFeatureVersion(),
         rawDefinition.getDefinitionVersion(),
         rawDefinition.getDefinitionVersionCreatedAt(),
-        Optional.empty(), // TODO(https://jira.mongodb.org/browse/CLOUDP-363302)
-        rawDefinition.getNestedRoot(),
+        Optional.empty(), // TODO(CLOUDP-363302)
+        // Remap nestedRoot so it lives in the same namespace as the (possibly remapped) vector
+        // field paths on the materialized view. Without this, embedded-vector detection at query
+        // time (VectorSearchQueryFactory#determineEmbeddedRoot) fails because the field path is
+        // prefixed (e.g. "_autoEmbed.sections.section_content") while nestedRoot is not
+        // ("sections"), causing the isChildOf check to return false. See CLOUDP-398738.
+        getMatViewNestedRoot(
+            rawDefinition.getNestedRoot(), schemaMetadata.autoEmbeddingFieldsMapping()),
         rawDefinition.getIndexIdAtCreationTime(),
         rawDefinition.getAutoEmbeddingDefinitionVersion(),
         rawDefinition.getMaterializedViewNameFormatVersion());

@@ -484,6 +484,122 @@ public class VectorSearchNestedFilterTest {
         termFields.stream().noneMatch(f -> f.startsWith("$embedded:")));
   }
 
+  /**
+   * Regression test for CLOUDP-398738. Verifies that a vector query with {@code nestedOptions} on
+   * an auto-embedding + nestedRoot index does not throw "nestedOptions can only be specified for
+   * embedded vector fields". Before the fix, the derived definition's {@code nestedRoot} was the
+   * user-facing path ({@code sections}) while the materialized query path was the MV-namespaced
+   * path ({@code _autoEmbed.sections.section_vector}), so embedded-vector detection failed. The
+   * fix remaps {@code nestedRoot} into the MV namespace as well.
+   */
+  @Test
+  public void testAutoEmbedNestedRootRemappedAcceptsNestedOptions() throws Exception {
+    // Mirrors the shape of the derived definition produced by
+    // AutoEmbeddingIndexDefinitionUtils.getDerivedVectorIndexDefinition after the fix: both the
+    // vector field path and the nestedRoot are in the _autoEmbed.* namespace.
+    VectorIndexDefinition derivedDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .nestedRoot("_autoEmbed.sections")
+            .withEuclideanVectorField("_autoEmbed.sections.section_vector", NUM_DIMENSIONS)
+            .withFilterPath("sections.section_name")
+            .build();
+
+    // The user-provided query uses the user-facing path; MaterializedVectorSearchQuery rewrites
+    // it to the MV path via the autoEmbedding field mapping before invoking the query factory.
+    VectorSearchQuery userQuery =
+        VectorQueryBuilder.builder()
+            .index("test")
+            .criteria(
+                ApproximateVectorQueryCriteriaBuilder.builder()
+                    .path(FieldPath.parse("sections.section_vector"))
+                    .numCandidates(NUM_CANDIDATES)
+                    .limit(LIMIT)
+                    .queryVector(Vector.fromFloats(QUERY_VECTOR, NATIVE))
+                    .embeddedOptions(new VectorEmbeddedOptions(VectorEmbeddedOptions.ScoreMode.MAX))
+                    .build())
+            .build();
+
+    MaterializedVectorSearchQuery materialized =
+        new MaterializedVectorSearchQuery(
+            userQuery,
+            userQuery.criteria().queryVector().get(),
+            java.util.Map.of(
+                FieldPath.parse("sections.section_vector"),
+                FieldPath.parse("_autoEmbed.sections.section_vector")));
+
+    var context =
+        new VectorQueryFactoryContext(
+            derivedDefinition, IndexFormatVersion.CURRENT, FeatureFlags.getDefault(), METRICS);
+    var factory = LuceneVectorQueryFactoryDistributor.create(context);
+
+    try (var reader = DirectoryReader.open(this.directory)) {
+      // Before the fix, this call threw InvalidQueryException: "nestedOptions can only be
+      // specified for embedded vector fields, but '_autoEmbed.sections.section_vector' is not
+      // embedded".
+      Query result = factory.createQuery(materialized, reader);
+
+      Assert.assertTrue(
+          "Auto-embed + nestedRoot query with nestedOptions should produce an embedded "
+              + "block-join query, got: "
+              + result.getClass().getName(),
+          result instanceof WrappedToParentBlockJoinQuery);
+    }
+  }
+
+  /**
+   * Companion test to {@link #testAutoEmbedNestedRootRemappedAcceptsNestedOptions} covering the
+   * no-{@code nestedOptions} path. Before the fix, such queries were silently classified as
+   * non-embedded and skipped the block-join wrap, returning bogus rankings against an actually
+   * embedded index. After the fix, the remapped {@code nestedRoot} lets embedded-vector detection
+   * succeed regardless of whether the user supplied {@code nestedOptions}, so the query is still
+   * wrapped in a block-join. See CLOUDP-398738.
+   */
+  @Test
+  public void testAutoEmbedNestedRootRemappedProducesEmbeddedQueryWithoutNestedOptions()
+      throws Exception {
+    VectorIndexDefinition derivedDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .nestedRoot("_autoEmbed.sections")
+            .withEuclideanVectorField("_autoEmbed.sections.section_vector", NUM_DIMENSIONS)
+            .withFilterPath("sections.section_name")
+            .build();
+
+    VectorSearchQuery userQuery =
+        VectorQueryBuilder.builder()
+            .index("test")
+            .criteria(
+                ApproximateVectorQueryCriteriaBuilder.builder()
+                    .path(FieldPath.parse("sections.section_vector"))
+                    .numCandidates(NUM_CANDIDATES)
+                    .limit(LIMIT)
+                    .queryVector(Vector.fromFloats(QUERY_VECTOR, NATIVE))
+                    .build())
+            .build();
+
+    MaterializedVectorSearchQuery materialized =
+        new MaterializedVectorSearchQuery(
+            userQuery,
+            userQuery.criteria().queryVector().get(),
+            java.util.Map.of(
+                FieldPath.parse("sections.section_vector"),
+                FieldPath.parse("_autoEmbed.sections.section_vector")));
+
+    var context =
+        new VectorQueryFactoryContext(
+            derivedDefinition, IndexFormatVersion.CURRENT, FeatureFlags.getDefault(), METRICS);
+    var factory = LuceneVectorQueryFactoryDistributor.create(context);
+
+    try (var reader = DirectoryReader.open(this.directory)) {
+      Query result = factory.createQuery(materialized, reader);
+
+      Assert.assertTrue(
+          "Auto-embed + nestedRoot query without nestedOptions should still produce an embedded "
+              + "block-join query, got: "
+              + result.getClass().getName(),
+          result instanceof WrappedToParentBlockJoinQuery);
+    }
+  }
+
   // ---- integration tests: execute queries against an indexed Lucene directory ----
 
   @Test

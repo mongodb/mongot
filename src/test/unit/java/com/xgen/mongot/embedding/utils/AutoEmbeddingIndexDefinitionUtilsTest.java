@@ -288,6 +288,55 @@ public class AutoEmbeddingIndexDefinitionUtilsTest {
     Assert.assertEquals(VectorIndexFieldDefinition.Type.FILTER, derivedFilterField.getType());
   }
 
+  /**
+   * Regression test for CLOUDP-398738: when the source index has a nestedRoot and auto-embed
+   * field paths are remapped to the MV namespace (schema version 1), the derived nestedRoot must
+   * be remapped to the same namespace so that query-time embedded-vector detection matches the
+   * remapped field path.
+   */
+  @Test
+  public void testGetDerivedVectorIndexDefinition_nestedRootRemappedForVersion1() {
+    var schemaMetadata =
+        new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(
+            1,
+            Map.of(
+                FieldPath.parse("sections.section_content"),
+                FieldPath.parse("_autoEmbed.sections.section_content")));
+    var autoEmbedFieldUnderNested =
+        new VectorAutoEmbedFieldDefinition(
+            "voyage-3-large",
+            "text",
+            FieldPath.parse("sections.section_content"),
+            1024,
+            VectorSimilarity.COSINE,
+            VectorAutoEmbedQuantization.FLOAT);
+    var filterUnderNested = new VectorIndexFilterFieldDefinition(FieldPath.parse("sections.name"));
+    var autoEmbedIndexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(List.of(autoEmbedFieldUnderNested, filterUnderNested))
+            .nestedRoot("sections")
+            .build();
+
+    var derivedIndexDefinition =
+        AutoEmbeddingIndexDefinitionUtils.getDerivedVectorIndexDefinition(
+            autoEmbedIndexDefinition, MV_DATABASE_NAME, UUID.randomUUID(), schemaMetadata);
+
+    Truth.assertThat(derivedIndexDefinition.getNestedRoot()).isPresent();
+    Assert.assertEquals(
+        "Derived nestedRoot should be remapped into the MV namespace",
+        FieldPath.parse("_autoEmbed.sections"),
+        derivedIndexDefinition.getNestedRoot().get());
+
+    // Sanity check: the remapped nestedRoot is now an ancestor of the remapped vector field path,
+    // which is the invariant VectorSearchQueryFactory#determineEmbeddedRoot relies on.
+    var derivedVectorField =
+        getVectorFieldDefinition("_autoEmbed.sections.section_content", derivedIndexDefinition);
+    Assert.assertEquals(VectorIndexFieldDefinition.Type.VECTOR, derivedVectorField.getType());
+    Assert.assertTrue(
+        "Remapped vector field path must be a descendant of remapped nestedRoot",
+        derivedVectorField.getPath().isChildOf(derivedIndexDefinition.getNestedRoot().get()));
+  }
+
   @Test
   public void fromBson_withoutHnswOptions_usesDefaults() throws BsonParseException {
     var bsonDoc =

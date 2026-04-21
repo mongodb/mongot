@@ -267,4 +267,108 @@ public class AutoEmbedFieldMappingCreatorTest {
         "Should contain hash path for nested auto-embed field",
         matViewMapping.fieldMap().containsKey(expectedHashPath));
   }
+
+  @Test
+  public void getMatViewNestedRoot_emptySource_returnsEmpty() {
+    Assert.assertEquals(
+        Optional.empty(),
+        AutoEmbedFieldMappingCreator.getMatViewNestedRoot(
+            Optional.empty(),
+            Map.of(
+                FieldPath.parse("sections.section_content"),
+                FieldPath.parse("_autoEmbed.sections.section_content"))));
+  }
+
+  @Test
+  public void getMatViewNestedRoot_emptyMapping_returnsSourceUnchanged() {
+    // An empty mapping (no field-path remapping, e.g. MV schema version 0) should leave
+    // nestedRoot unchanged.
+    Optional<FieldPath> nestedRoot = Optional.of(FieldPath.parse("sections"));
+    Assert.assertEquals(
+        nestedRoot, AutoEmbedFieldMappingCreator.getMatViewNestedRoot(nestedRoot, Map.of()));
+  }
+
+  @Test
+  public void getMatViewNestedRoot_mappingContainsOnlyFieldsOutsideNestedRoot_returnsUnchanged() {
+    Optional<FieldPath> nestedRoot = Optional.of(FieldPath.parse("sections"));
+    Assert.assertEquals(
+        nestedRoot,
+        AutoEmbedFieldMappingCreator.getMatViewNestedRoot(
+            nestedRoot,
+            Map.of(FieldPath.parse("title"), FieldPath.parse("_autoEmbed.title"))));
+  }
+
+  @Test
+  public void getMatViewNestedRoot_directChildField_stripsOneSegment() {
+    Optional<FieldPath> nestedRoot = Optional.of(FieldPath.parse("sections"));
+    Assert.assertEquals(
+        Optional.of(FieldPath.parse("_autoEmbed.sections")),
+        AutoEmbedFieldMappingCreator.getMatViewNestedRoot(
+            nestedRoot,
+            Map.of(
+                FieldPath.parse("sections.section_content"),
+                FieldPath.parse("_autoEmbed.sections.section_content"))));
+  }
+
+  @Test
+  public void getMatViewNestedRoot_grandchildField_stripsMultipleSegments() {
+    Optional<FieldPath> nestedRoot = Optional.of(FieldPath.parse("sections"));
+    Assert.assertEquals(
+        Optional.of(FieldPath.parse("_autoEmbed.sections")),
+        AutoEmbedFieldMappingCreator.getMatViewNestedRoot(
+            nestedRoot,
+            Map.of(
+                FieldPath.parse("sections.paragraphs.vector"),
+                FieldPath.parse("_autoEmbed.sections.paragraphs.vector"))));
+  }
+
+  @Test
+  public void getMatViewNestedRoot_multiLevelNestedRoot_remapsConsistently() {
+    Optional<FieldPath> nestedRoot = Optional.of(FieldPath.parse("sections.paragraphs"));
+    Assert.assertEquals(
+        Optional.of(FieldPath.parse("_autoEmbed.sections.paragraphs")),
+        AutoEmbedFieldMappingCreator.getMatViewNestedRoot(
+            nestedRoot,
+            Map.of(
+                FieldPath.parse("sections.paragraphs.vector"),
+                FieldPath.parse("_autoEmbed.sections.paragraphs.vector"))));
+  }
+
+  @Test
+  public void getMatViewNestedRoot_multipleConsistentFieldsUnderRoot_returnsSharedPrefix() {
+    // Multiple auto-embed fields under the same nestedRoot sharing the same MV prefix (the
+    // expected in-production shape) should resolve to that shared prefix regardless of which
+    // mapping entry is inspected first.
+    Optional<FieldPath> nestedRoot = Optional.of(FieldPath.parse("sections"));
+    Map<FieldPath, FieldPath> mapping =
+        Map.of(
+            FieldPath.parse("sections.section_content"),
+            FieldPath.parse("_autoEmbed.sections.section_content"),
+            FieldPath.parse("sections.section_title"),
+            FieldPath.parse("_autoEmbed.sections.section_title"));
+    Assert.assertEquals(
+        Optional.of(FieldPath.parse("_autoEmbed.sections")),
+        AutoEmbedFieldMappingCreator.getMatViewNestedRoot(nestedRoot, mapping));
+  }
+
+  @Test
+  public void getMatViewNestedRoot_inconsistentPrefixesUnderRoot_picksLexicographicallySmallest() {
+    // Invariant violation: two auto-embed fields under the same source nestedRoot produce
+    // different derived roots. The method logs a warning but still returns a deterministic result
+    // (the lexicographically smallest derived root) so index derivation does not fail and the
+    // result is reproducible regardless of map iteration order.
+    Optional<FieldPath> nestedRoot = Optional.of(FieldPath.parse("sections"));
+    Map<FieldPath, FieldPath> mapping =
+        Map.of(
+            FieldPath.parse("sections.section_content"),
+            FieldPath.parse("_autoEmbed.sections.section_content"),
+            FieldPath.parse("sections.section_title"),
+            FieldPath.parse("_otherPrefix.sections.section_title"));
+
+    Optional<FieldPath> result =
+        AutoEmbedFieldMappingCreator.getMatViewNestedRoot(nestedRoot, mapping);
+
+    // "_autoEmbed.sections" < "_otherPrefix.sections" lexicographically, so it is always picked.
+    Assert.assertEquals(Optional.of(FieldPath.parse("_autoEmbed.sections")), result);
+  }
 }
