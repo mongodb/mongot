@@ -1,0 +1,110 @@
+{
+  "valid": [
+    {
+      "description": "Empty document uses defaults",
+      "value": {}
+    },
+    {
+      "description": "Disabled default overridden to enabled",
+      "value": {
+        "enableStaleStateTransition": true
+      }
+    },
+    {
+      "description": "Enabled default overridden to disabled",
+      "value": {
+        "initialIndexStatusUnknown": false
+      }
+    },
+    {
+      "description": "All features enabled",
+      "value": {
+        "enableStaleStateTransition": true,
+        "retainFailedIndexDataOnDisk": true,
+        "retainFailedInitialSyncDataOnDisk": true,
+        "removeAbsentIndexesBeforeInitialization": true,
+        "enableFacetingOverTokenFields": true,
+        "enableGzipConfCallRequestCompression": true,
+        "enableIndexOrDocValuesQueryForInOperator": true,
+        "enableNewEmbeddedSearchCapabilities": true,
+        "shutDownReplicationWhenCollectionNotFound": true,
+        "initialIndexStatusUnknown": true,
+        "enableMaasMetrics": true,
+        "enableAccurateNumEmbeddedRootDocsMetric": true,
+        "enableNonZeroAttemptUploads": true,
+        "indexFeatureVersionFour": true,
+        "enableFloorSegmentMB": true,
+        "restartWithNoConfCall": true,
+        "enableSortedIndex": true,
+        "enableTruncateAutocompleteTokens": true,
+        "enableValidationOfReturnStoredSource": true,
+        "vectorStoredSource": true,
+        "instrumentedQueryCache": true,
+        "phantomReferenceCleanup": true,
+        "ftdcExecutorMetricsToPrometheus": true,
+        "enableMaxStringFacetCardinalityMetric": true,
+        "enableIndexSizeQuantizationMetrics": true,
+        "mongotLoggableDocumentId": true,
+        "cacheWarmer": true,
+        "enableConcurrentIndexPartitionSearch": true,
+        "enableCancelMerge": true,
+        "enableKnnFullScanHeuristic": true,
+        "customVectorEngine": true,
+        "overloadRetrySignal": true
+      }
+    },
+    {
+      "description": "All features disabled",
+      "value": {
+        "enableStaleStateTransition": false,
+        "retainFailedIndexDataOnDisk": false,
+        "retainFailedInitialSyncDataOnDisk": false,
+        "removeAbsentIndexesBeforeInitialization": false,
+        "enableFacetingOverTokenFields": false,
+        "enableGzipConfCallRequestCompression": false,
+        "enableIndexOrDocValuesQueryForInOperator": false,
+        "enableNewEmbeddedSearchCapabilities": false,
+        "shutDownReplicationWhenCollectionNotFound": false,
+        "initialIndexStatusUnknown": false,
+        "enableMaasMetrics": false,
+        "enableAccurateNumEmbeddedRootDocsMetric": false,
+        "enableNonZeroAttemptUploads": false,
+        "indexFeatureVersionFour": false,
+        "enableFloorSegmentMB": false,
+        "restartWithNoConfCall": false,
+        "enableSortedIndex": false,
+        "enableTruncateAutocompleteTokens": false,
+        "enableValidationOfReturnStoredSource": false,
+        "vectorStoredSource": false,
+        "instrumentedQueryCache": false,
+        "phantomReferenceCleanup": false,
+        "ftdcExecutorMetricsToPrometheus": false,
+        "enableMaxStringFacetCardinalityMetric": false,
+        "enableIndexSizeQuantizationMetrics": false,
+        "mongotLoggableDocumentId": false,
+        "cacheWarmer": false,
+        "enableConcurrentIndexPartitionSearch": false,
+        "enableCancelMerge": false,
+        "enableKnnFullScanHeuristic": false,
+        "customVectorEngine": false,
+        "overloadRetrySignal": false
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "description": "String value for boolean field",
+      "value": {
+        "enableStaleStateTransition": "yes"
+      },
+      "errorMessageContains": "must be a boolean"
+    },
+    {
+      "description": "Integer value for boolean field",
+      "value": {
+        "vectorStoredSource": 0
+      },
+      "errorMessageContains": "must be a boolean"
+    }
+  ]
+}

@@ -5,6 +5,7 @@ java_test_suite(
     srcs = [
         "DynamicFeatureFlagConfigTest.java",
         "DynamicFeatureFlagRegistryTest.java",
+        "FeatureFlagsTest.java",
     ],
     data = ["//src/test/unit/resources/featureflag:srcs"],
     tags = ["unit"],
