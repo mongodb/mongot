@@ -34,7 +34,8 @@
         "enableCancelMerge": false,
         "enableKnnFullScanHeuristic": false,
         "customVectorEngine": false,
-        "overloadRetrySignal": false
+        "overloadRetrySignal": false,
+        "nestedVector": true
       }
     },
     {
@@ -71,7 +72,8 @@
         "enableCancelMerge": false,
         "enableKnnFullScanHeuristic": false,
         "customVectorEngine": false,
-        "overloadRetrySignal": false
+        "overloadRetrySignal": false,
+        "nestedVector": true
       }
     },
     {
@@ -108,7 +110,8 @@
         "enableCancelMerge": true,
         "enableKnnFullScanHeuristic": true,
         "customVectorEngine": true,
-        "overloadRetrySignal": true
+        "overloadRetrySignal": true,
+        "nestedVector": true
       }
     },
     {
@@ -145,7 +148,8 @@
         "enableCancelMerge": false,
         "enableKnnFullScanHeuristic": false,
         "customVectorEngine": false,
-        "overloadRetrySignal": false
+        "overloadRetrySignal": false,
+        "nestedVector": false
       }
     }
   ]

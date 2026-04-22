@@ -189,6 +189,7 @@ public class FeatureFlagsTest {
       assertTrue(
           FeatureFlags.getDefault().isEnabled(Feature.ENABLE_VALIDATION_OF_RETURN_STORED_SOURCE));
       assertTrue(FeatureFlags.getDefault().isEnabled(Feature.VECTOR_STORED_SOURCE));
+      assertTrue(FeatureFlags.getDefault().isEnabled(Feature.NESTED_VECTOR));
     }
 
     @Test
@@ -199,6 +200,7 @@ public class FeatureFlagsTest {
       assertTrue(flags.isEnabled(Feature.ACCURATE_NUM_EMBEDDED_ROOT_DOCS_METRIC));
       assertTrue(flags.isEnabled(Feature.INDEX_FEATURE_VERSION_FOUR));
       assertTrue(flags.isEnabled(Feature.SORTED_INDEX));
+      assertTrue(flags.isEnabled(Feature.NESTED_VECTOR));
     }
 
     @Test

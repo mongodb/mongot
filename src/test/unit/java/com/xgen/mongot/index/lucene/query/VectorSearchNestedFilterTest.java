@@ -75,7 +75,10 @@ public class VectorSearchNestedFilterTest {
   private static final int NUM_CANDIDATES = 100;
   private static final int LIMIT = 2;
   private static final int NUM_DIMENSIONS = 3;
-  private static final FeatureFlags FLAGS = FeatureFlags.getDefault();
+  private static final FeatureFlags FLAGS =
+      FeatureFlags.withDefaults()
+          .enable(com.xgen.mongot.featureflag.Feature.NESTED_VECTOR)
+          .build();
 
   private static final String EMBEDDED_VECTOR_FIELD =
       "$embedded:8/sections/$type:knnVector/sections.section_vector";
@@ -418,7 +421,7 @@ public class VectorSearchNestedFilterTest {
     VectorIndexDefinition definition = createNestedDefinition();
     var context =
         new VectorQueryFactoryContext(
-            definition, IndexFormatVersion.CURRENT, FeatureFlags.getDefault(), METRICS);
+            definition, IndexFormatVersion.CURRENT, FLAGS, METRICS);
 
     Assert.assertTrue(
         "isIndexWithEmbeddedFields() should return true for vector indexes with nestedRoot",
@@ -434,7 +437,7 @@ public class VectorSearchNestedFilterTest {
             .build();
     var context =
         new VectorQueryFactoryContext(
-            definition, IndexFormatVersion.CURRENT, FeatureFlags.getDefault(), METRICS);
+            definition, IndexFormatVersion.CURRENT, FLAGS, METRICS);
 
     Assert.assertFalse(
         "isIndexWithEmbeddedFields() should return false for vector indexes without nestedRoot",
@@ -529,7 +532,7 @@ public class VectorSearchNestedFilterTest {
 
     var context =
         new VectorQueryFactoryContext(
-            derivedDefinition, IndexFormatVersion.CURRENT, FeatureFlags.getDefault(), METRICS);
+            derivedDefinition, IndexFormatVersion.CURRENT, FLAGS, METRICS);
     var factory = LuceneVectorQueryFactoryDistributor.create(context);
 
     try (var reader = DirectoryReader.open(this.directory)) {
@@ -586,7 +589,7 @@ public class VectorSearchNestedFilterTest {
 
     var context =
         new VectorQueryFactoryContext(
-            derivedDefinition, IndexFormatVersion.CURRENT, FeatureFlags.getDefault(), METRICS);
+            derivedDefinition, IndexFormatVersion.CURRENT, FLAGS, METRICS);
     var factory = LuceneVectorQueryFactoryDistributor.create(context);
 
     try (var reader = DirectoryReader.open(this.directory)) {
@@ -613,7 +616,7 @@ public class VectorSearchNestedFilterTest {
     VectorIndexDefinition definition = createNestedDefinition();
     var context =
         new VectorQueryFactoryContext(
-            definition, IndexFormatVersion.CURRENT, FeatureFlags.getDefault(), METRICS);
+            definition, IndexFormatVersion.CURRENT, FLAGS, METRICS);
     var factory = LuceneVectorQueryFactoryDistributor.create(context);
 
     try (var reader = DirectoryReader.open(this.directory)) {
@@ -644,7 +647,7 @@ public class VectorSearchNestedFilterTest {
     VectorIndexDefinition definition = createNestedDefinition();
     var context =
         new VectorQueryFactoryContext(
-            definition, IndexFormatVersion.CURRENT, FeatureFlags.getDefault(), METRICS);
+            definition, IndexFormatVersion.CURRENT, FLAGS, METRICS);
     var factory = LuceneVectorQueryFactoryDistributor.create(context);
 
     try (var reader = DirectoryReader.open(this.directory)) {
@@ -674,7 +677,7 @@ public class VectorSearchNestedFilterTest {
     VectorIndexDefinition definition = createNestedDefinition();
     var context =
         new VectorQueryFactoryContext(
-            definition, IndexFormatVersion.CURRENT, FeatureFlags.getDefault(), METRICS);
+            definition, IndexFormatVersion.CURRENT, FLAGS, METRICS);
     var factory = LuceneVectorQueryFactoryDistributor.create(context);
 
     try (var reader = DirectoryReader.open(this.directory)) {
@@ -715,7 +718,7 @@ public class VectorSearchNestedFilterTest {
     VectorIndexDefinition definition = createNestedDefinition();
     var context =
         new VectorQueryFactoryContext(
-            definition, IndexFormatVersion.CURRENT, FeatureFlags.getDefault(), METRICS);
+            definition, IndexFormatVersion.CURRENT, FLAGS, METRICS);
     var factory = LuceneVectorQueryFactoryDistributor.create(context);
 
     try (var reader = DirectoryReader.open(this.directory)) {
@@ -737,6 +740,80 @@ public class VectorSearchNestedFilterTest {
     }
   }
 
+  @Test
+  public void testNestedVectorQueryRejectedWhenFeatureFlagDisabled() throws Exception {
+    VectorIndexDefinition definition = createNestedDefinition();
+
+    VectorSearchQuery query =
+        VectorQueryBuilder.builder()
+            .index("test")
+            .criteria(
+                ApproximateVectorQueryCriteriaBuilder.builder()
+                    .path(FieldPath.parse("sections.section_vector"))
+                    .numCandidates(NUM_CANDIDATES)
+                    .limit(LIMIT)
+                    .queryVector(Vector.fromFloats(QUERY_VECTOR, NATIVE))
+                    .embeddedOptions(new VectorEmbeddedOptions(VectorEmbeddedOptions.ScoreMode.MAX))
+                    .build())
+            .build();
+
+    FeatureFlags flagsWithNestedDisabled =
+        FeatureFlags.withDefaults()
+            .disable(com.xgen.mongot.featureflag.Feature.NESTED_VECTOR)
+            .build();
+    var context =
+        new VectorQueryFactoryContext(
+            definition, IndexFormatVersion.CURRENT, flagsWithNestedDisabled, METRICS);
+    var factory = LuceneVectorQueryFactoryDistributor.create(context);
+
+    try (var reader = DirectoryReader.open(this.directory)) {
+      Assert.assertThrows(
+          "Nested vector query should be rejected when NESTED_VECTOR flag is disabled",
+          InvalidQueryException.class,
+          () ->
+              factory.createQuery(
+                  new MaterializedVectorSearchQuery(query, query.criteria().queryVector().get()),
+                  reader));
+    }
+  }
+
+  @Test
+  public void testNestedVectorQueryWithoutNestedOptionsRejectedWhenFeatureFlagDisabled()
+      throws Exception {
+    VectorIndexDefinition definition = createNestedDefinition();
+
+    VectorSearchQuery query =
+        VectorQueryBuilder.builder()
+            .index("test")
+            .criteria(
+                ApproximateVectorQueryCriteriaBuilder.builder()
+                    .path(FieldPath.parse("sections.section_vector"))
+                    .numCandidates(NUM_CANDIDATES)
+                    .limit(LIMIT)
+                    .queryVector(Vector.fromFloats(QUERY_VECTOR, NATIVE))
+                    .build())
+            .build();
+
+    FeatureFlags flagsWithNestedDisabled =
+        FeatureFlags.withDefaults()
+            .disable(com.xgen.mongot.featureflag.Feature.NESTED_VECTOR)
+            .build();
+    var context =
+        new VectorQueryFactoryContext(
+            definition, IndexFormatVersion.CURRENT, flagsWithNestedDisabled, METRICS);
+    var factory = LuceneVectorQueryFactoryDistributor.create(context);
+
+    try (var reader = DirectoryReader.open(this.directory)) {
+      Assert.assertThrows(
+          "Nested vector query should be rejected even without nestedOptions when flag is disabled",
+          InvalidQueryException.class,
+          () ->
+              factory.createQuery(
+                  new MaterializedVectorSearchQuery(query, query.criteria().queryVector().get()),
+                  reader));
+    }
+  }
+
   // ---- helpers ----
 
   private static VectorIndexDefinition createNestedDefinition() {
@@ -752,7 +829,7 @@ public class VectorSearchNestedFilterTest {
       throws IOException, InvalidQueryException {
     var context =
         new VectorQueryFactoryContext(
-            definition, IndexFormatVersion.CURRENT, FeatureFlags.getDefault(), METRICS);
+            definition, IndexFormatVersion.CURRENT, FLAGS, METRICS);
     var factory = LuceneVectorQueryFactoryDistributor.create(context);
     try (var reader = DirectoryReader.open(this.directory)) {
       return factory.createQuery(

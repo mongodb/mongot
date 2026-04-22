@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.lucene.query;
 
+import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.VectorSimilarity;
@@ -69,6 +70,12 @@ class VectorSearchQueryFactory {
 
     // Check if this is an embedded vector field
     Optional<FieldPath> embeddedRoot = determineEmbeddedRoot(path, queryContext);
+
+    if (embeddedRoot.isPresent()
+        && !this.factoryContext.getFeatureFlags().isEnabled(Feature.NESTED_VECTOR)) {
+      throw new InvalidQueryException(
+          "Nested vector search is not supported on this cluster");
+    }
 
     // nestedOptions is optional for embedded vector fields; defaults to scoreMode=max
     if (embeddedRoot.isEmpty() && criteria.embeddedOptions().isPresent()) {

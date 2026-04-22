@@ -77,7 +77,8 @@ public enum Feature {
   CANCEL_MERGE("enableCancelMerge", State.DISABLED),
   KNN_FULL_SCAN_HEURISTIC("enableKnnFullScanHeuristic", State.DISABLED),
   CUSTOM_VECTOR_ENGINE("customVectorEngine", State.DISABLED),
-  OVERLOAD_RETRY_SIGNAL("overloadRetrySignal", State.DISABLED);
+  OVERLOAD_RETRY_SIGNAL("overloadRetrySignal", State.DISABLED),
+  NESTED_VECTOR("nestedVector", State.ENABLED);
 
   private final String name;
   private final State defaultState;
