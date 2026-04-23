@@ -445,6 +445,36 @@ public class VectorSearchNestedFilterTest {
   }
 
   @Test
+  public void testNestedOptionsOnNonEmbeddedFieldThrowsDescriptiveError() throws Exception {
+    VectorIndexDefinition definition =
+        VectorIndexDefinitionBuilder.builder()
+            .withEuclideanVectorField("chapters.vec", NUM_DIMENSIONS)
+            .build();
+
+    VectorSearchQuery query =
+        VectorQueryBuilder.builder()
+            .index("test")
+            .criteria(
+                ApproximateVectorQueryCriteriaBuilder.builder()
+                    .path(FieldPath.parse("chapters.vec"))
+                    .numCandidates(NUM_CANDIDATES)
+                    .limit(LIMIT)
+                    .queryVector(Vector.fromFloats(QUERY_VECTOR, NATIVE))
+                    .embeddedOptions(new VectorEmbeddedOptions(VectorEmbeddedOptions.ScoreMode.MAX))
+                    .build())
+            .build();
+
+    InvalidQueryException e =
+        Assert.assertThrows(InvalidQueryException.class, () -> translate(definition, query));
+    Assert.assertEquals(
+        "\"nestedOptions\" requires a vector path within the index's nested root, but"
+            + " 'chapters.vec' is outside it. Specify a path under the index's \"nestedRoot\""
+            + " field, or remove \"nestedOptions\" to query 'chapters.vec' as a standard vector"
+            + " field.",
+        e.getMessage());
+  }
+
+  @Test
   public void testParentFilterUsesRootFieldNaming() throws Exception {
     VectorIndexDefinition definition = createNestedDefinition();
 

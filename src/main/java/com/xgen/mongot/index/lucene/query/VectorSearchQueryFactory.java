@@ -81,9 +81,10 @@ class VectorSearchQueryFactory {
     if (embeddedRoot.isEmpty() && criteria.embeddedOptions().isPresent()) {
       throw new InvalidQueryException(
           String.format(
-              "nestedOptions can only be specified for embedded vector fields, "
-                  + "but '%s' is not embedded",
-              path));
+              "\"nestedOptions\" requires a vector path within the index's nested root, but '%s'"
+                  + " is outside it. Specify a path under the index's \"nestedRoot\" field, or"
+                  + " remove \"nestedOptions\" to query '%s' as a standard vector field.",
+              path, path));
     }
 
     this.factoryContext

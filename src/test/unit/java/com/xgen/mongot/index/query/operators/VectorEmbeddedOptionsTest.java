@@ -31,10 +31,15 @@ public class VectorEmbeddedOptionsTest {
 
   @Test
   public void testParseInvalidScoreMode() {
-    BsonDocument doc = new BsonDocument("scoreMode", new BsonString("invalid"));
+    BsonDocument doc = new BsonDocument("scoreMode", new BsonString("sum"));
     BsonDocumentParser parser = BsonDocumentParser.fromRoot(doc).build();
 
-    assertThrows(BsonParseException.class, () -> VectorEmbeddedOptions.fromBson(parser));
+    BsonParseException e =
+        assertThrows(BsonParseException.class, () -> VectorEmbeddedOptions.fromBson(parser));
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "scoreMode: \"sum\" is not supported. Accepted values are \"max\" or \"avg\"");
   }
 
   @Test
