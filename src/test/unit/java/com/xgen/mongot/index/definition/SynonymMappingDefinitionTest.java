@@ -16,14 +16,14 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      SynonymMappingDefinitionTest.TestDeserialization.class,
-      SynonymMappingDefinitionTest.TestSerialization.class,
-      SynonymMappingDefinitionTest.TestDefinition.class,
+      SynonymMappingDefinitionTest.DeserializationTest.class,
+      SynonymMappingDefinitionTest.SerializationTest.class,
+      SynonymMappingDefinitionTest.DefinitionTest.class,
     })
 public class SynonymMappingDefinitionTest {
 
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
     private static final String SUITE_NAME = "synonym-deserialization";
     private static final BsonDeserializationTestSuite<SynonymMappingDefinition> TEST_SUITE =
         fromDocument(
@@ -31,7 +31,7 @@ public class SynonymMappingDefinitionTest {
 
     private final BsonDeserializationTestSuite.TestSpecWrapper<SynonymMappingDefinition> testSpec;
 
-    public TestDeserialization(
+    public DeserializationTest(
         BsonDeserializationTestSuite.TestSpecWrapper<SynonymMappingDefinition> testSpec) {
       this.testSpec = testSpec;
     }
@@ -60,14 +60,14 @@ public class SynonymMappingDefinitionTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
     private static final String SUITE_NAME = "synonym-serialization";
     private static final BsonSerializationTestSuite<SynonymMappingDefinition> TEST_SUITE =
         fromEncodable(DefinitionTests.RESOURCES_PATH, SUITE_NAME);
 
     private final BsonSerializationTestSuite.TestSpec<SynonymMappingDefinition> testSpec;
 
-    public TestSerialization(
+    public SerializationTest(
         BsonSerializationTestSuite.TestSpec<SynonymMappingDefinition> testSpec) {
       this.testSpec = testSpec;
     }
@@ -94,7 +94,7 @@ public class SynonymMappingDefinitionTest {
     }
   }
 
-  public static class TestDefinition {
+  public static class DefinitionTest {
     @Test
     public void testEquals() {
       TestUtils.assertEqualityGroups(

@@ -17,14 +17,14 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      StringFacetFieldDefinitionTest.TestDeserialization.class,
-      StringFacetFieldDefinitionTest.TestSerialization.class,
-      StringFacetFieldDefinitionTest.TestDefinition.class
+      StringFacetFieldDefinitionTest.DeserializationTest.class,
+      StringFacetFieldDefinitionTest.SerializationTest.class,
+      StringFacetFieldDefinitionTest.DefinitionTest.class
     })
 public class StringFacetFieldDefinitionTest {
 
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
 
     private static final String SUITE_NAME = "stringFacet-deserialization";
     private static final BsonDeserializationTestSuite<StringFacetFieldDefinition> TEST_SUITE =
@@ -33,7 +33,7 @@ public class StringFacetFieldDefinitionTest {
 
     private final BsonDeserializationTestSuite.TestSpecWrapper<StringFacetFieldDefinition> testSpec;
 
-    public TestDeserialization(
+    public DeserializationTest(
         BsonDeserializationTestSuite.TestSpecWrapper<StringFacetFieldDefinition> testSpec) {
       this.testSpec = testSpec;
     }
@@ -57,7 +57,7 @@ public class StringFacetFieldDefinitionTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
 
     private static final String SUITE_NAME = "stringFacet-serialization";
     private static final BsonSerializationTestSuite<StringFacetFieldDefinition> TEST_SUITE =
@@ -68,7 +68,7 @@ public class StringFacetFieldDefinitionTest {
 
     private final BsonSerializationTestSuite.TestSpec<StringFacetFieldDefinition> testSpec;
 
-    public TestSerialization(
+    public SerializationTest(
         BsonSerializationTestSuite.TestSpec<StringFacetFieldDefinition> testSpec) {
       this.testSpec = testSpec;
     }
@@ -90,7 +90,7 @@ public class StringFacetFieldDefinitionTest {
     }
   }
 
-  public static class TestDefinition {
+  public static class DefinitionTest {
     @Test
     public void testGetType() {
       var definition = StringFacetFieldDefinitionBuilder.builder().build();

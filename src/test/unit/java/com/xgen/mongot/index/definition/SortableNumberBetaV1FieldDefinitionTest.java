@@ -17,14 +17,14 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      SortableNumberBetaV1FieldDefinitionTest.TestDeserialization.class,
-      SortableNumberBetaV1FieldDefinitionTest.TestSerialization.class,
-      SortableNumberBetaV1FieldDefinitionTest.TestDefinition.class
+      SortableNumberBetaV1FieldDefinitionTest.DeserializationTest.class,
+      SortableNumberBetaV1FieldDefinitionTest.SerializationTest.class,
+      SortableNumberBetaV1FieldDefinitionTest.DefinitionTest.class
     })
 public class SortableNumberBetaV1FieldDefinitionTest {
 
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
 
     private static final String SUITE_NAME = "sortable-number-beta-v1-deserialization";
     private static final BsonDeserializationTestSuite<SortableNumberBetaV1FieldDefinition>
@@ -37,7 +37,7 @@ public class SortableNumberBetaV1FieldDefinitionTest {
     private final BsonDeserializationTestSuite.TestSpecWrapper<SortableNumberBetaV1FieldDefinition>
         testSpec;
 
-    public TestDeserialization(
+    public DeserializationTest(
         BsonDeserializationTestSuite.TestSpecWrapper<SortableNumberBetaV1FieldDefinition>
             testSpec) {
       this.testSpec = testSpec;
@@ -64,7 +64,7 @@ public class SortableNumberBetaV1FieldDefinitionTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
 
     private static final String SUITE_NAME = "sortable-number-beta-v1-serialization";
     private static final BsonSerializationTestSuite<SortableNumberBetaV1FieldDefinition>
@@ -76,7 +76,7 @@ public class SortableNumberBetaV1FieldDefinitionTest {
 
     private final BsonSerializationTestSuite.TestSpec<SortableNumberBetaV1FieldDefinition> testSpec;
 
-    public TestSerialization(
+    public SerializationTest(
         BsonSerializationTestSuite.TestSpec<SortableNumberBetaV1FieldDefinition> testSpec) {
       this.testSpec = testSpec;
     }
@@ -100,7 +100,7 @@ public class SortableNumberBetaV1FieldDefinitionTest {
     }
   }
 
-  public static class TestDefinition {
+  public static class DefinitionTest {
 
     @Test
     public void testGetType() {

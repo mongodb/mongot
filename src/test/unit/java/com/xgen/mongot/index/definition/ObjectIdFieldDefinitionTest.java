@@ -17,14 +17,14 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      ObjectIdFieldDefinitionTest.TestDeserialization.class,
-      ObjectIdFieldDefinitionTest.TestSerialization.class,
-      ObjectIdFieldDefinitionTest.TestDefinition.class
+      ObjectIdFieldDefinitionTest.DeserializationTest.class,
+      ObjectIdFieldDefinitionTest.SerializationTest.class,
+      ObjectIdFieldDefinitionTest.DefinitionTest.class
     })
 public class ObjectIdFieldDefinitionTest {
 
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
 
     private static final String SUITE_NAME = "objectId-deserialization";
     private static final BsonDeserializationTestSuite<ObjectIdFieldDefinition> TEST_SUITE =
@@ -32,7 +32,7 @@ public class ObjectIdFieldDefinitionTest {
 
     private final BsonDeserializationTestSuite.TestSpecWrapper<ObjectIdFieldDefinition> testSpec;
 
-    public TestDeserialization(
+    public DeserializationTest(
         BsonDeserializationTestSuite.TestSpecWrapper<ObjectIdFieldDefinition> testSpec) {
       this.testSpec = testSpec;
     }
@@ -56,7 +56,7 @@ public class ObjectIdFieldDefinitionTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
 
     private static final String SUITE_NAME = "objectId-serialization";
     private static final BsonSerializationTestSuite<ObjectIdFieldDefinition> TEST_SUITE =
@@ -64,7 +64,7 @@ public class ObjectIdFieldDefinitionTest {
 
     private final BsonSerializationTestSuite.TestSpec<ObjectIdFieldDefinition> testSpec;
 
-    public TestSerialization(
+    public SerializationTest(
         BsonSerializationTestSuite.TestSpec<ObjectIdFieldDefinition> testSpec) {
       this.testSpec = testSpec;
     }
@@ -86,7 +86,7 @@ public class ObjectIdFieldDefinitionTest {
     }
   }
 
-  public static class TestDefinition {
+  public static class DefinitionTest {
     @Test
     public void testGetType() {
       ObjectIdFieldDefinition definition = ObjectIdFieldDefinitionBuilder.builder().build();

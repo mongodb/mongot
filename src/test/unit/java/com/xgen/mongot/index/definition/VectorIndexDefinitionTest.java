@@ -33,15 +33,15 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      VectorIndexDefinitionTest.TestDeserialization.class,
-      VectorIndexDefinitionTest.TestSerialization.class,
-      VectorIndexDefinitionTest.TestNestedRoot.class
+      VectorIndexDefinitionTest.DeserializationTest.class,
+      VectorIndexDefinitionTest.SerializationTest.class,
+      VectorIndexDefinitionTest.NestedRootTest.class
     })
 public class VectorIndexDefinitionTest {
 
   /** Tests for VectorIndexDefinition with nestedRoot (flat fields under an array root). */
   @RunWith(org.junit.runners.JUnit4.class)
-  public static class TestNestedRoot {
+  public static class NestedRootTest {
 
     private static final VectorFieldSpecification SIMPLE_SPEC =
         new VectorFieldSpecification(
@@ -334,14 +334,14 @@ public class VectorIndexDefinitionTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
     private static final String SUITE_NAME = "vector-index-deserialization";
     private static final BsonDeserializationTestSuite<VectorIndexDefinition> TEST_SUITE =
         fromDocument(DefinitionTests.RESOURCES_PATH, SUITE_NAME, VectorIndexDefinition::fromBson);
 
     private final BsonDeserializationTestSuite.TestSpecWrapper<VectorIndexDefinition> testSpec;
 
-    public TestDeserialization(
+    public DeserializationTest(
         BsonDeserializationTestSuite.TestSpecWrapper<VectorIndexDefinition> testSpec) {
       this.testSpec = testSpec;
     }
@@ -644,7 +644,7 @@ public class VectorIndexDefinitionTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
 
     private static final String SUITE_NAME = "vector-index-serialization";
     private static final BsonSerializationTestSuite<VectorIndexDefinition> TEST_SUITE =
@@ -652,7 +652,7 @@ public class VectorIndexDefinitionTest {
 
     private final BsonSerializationTestSuite.TestSpec<VectorIndexDefinition> testSpec;
 
-    public TestSerialization(BsonSerializationTestSuite.TestSpec<VectorIndexDefinition> testSpec) {
+    public SerializationTest(BsonSerializationTestSuite.TestSpec<VectorIndexDefinition> testSpec) {
       this.testSpec = testSpec;
       setupRegistry();
     }

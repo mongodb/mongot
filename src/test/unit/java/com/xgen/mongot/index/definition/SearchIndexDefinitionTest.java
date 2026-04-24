@@ -61,14 +61,14 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      SearchIndexDefinitionTest.TestDeserialization.class,
-      SearchIndexDefinitionTest.TestSerialization.class,
-      SearchIndexDefinitionTest.TestDefinition.class,
+      SearchIndexDefinitionTest.DeserializationTest.class,
+      SearchIndexDefinitionTest.SerializationTest.class,
+      SearchIndexDefinitionTest.DefinitionTest.class,
     })
 public class SearchIndexDefinitionTest {
 
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
 
     private static final String SUITE_NAME = "search-index-deserialization";
     private static final BsonDeserializationTestSuite<SearchIndexDefinition> TEST_SUITE =
@@ -76,7 +76,7 @@ public class SearchIndexDefinitionTest {
 
     private final BsonDeserializationTestSuite.TestSpecWrapper<SearchIndexDefinition> testSpec;
 
-    public TestDeserialization(
+    public DeserializationTest(
         BsonDeserializationTestSuite.TestSpecWrapper<SearchIndexDefinition> testSpec) {
       this.testSpec = testSpec;
     }
@@ -593,7 +593,7 @@ public class SearchIndexDefinitionTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
 
     private static final String SUITE_NAME = "search-index-serialization";
     private static final BsonSerializationTestSuite<SearchIndexDefinition> TEST_SUITE =
@@ -601,7 +601,7 @@ public class SearchIndexDefinitionTest {
 
     private final BsonSerializationTestSuite.TestSpec<SearchIndexDefinition> testSpec;
 
-    public TestSerialization(BsonSerializationTestSuite.TestSpec<SearchIndexDefinition> testSpec) {
+    public SerializationTest(BsonSerializationTestSuite.TestSpec<SearchIndexDefinition> testSpec) {
       this.testSpec = testSpec;
     }
 
@@ -928,7 +928,7 @@ public class SearchIndexDefinitionTest {
     }
   }
 
-  public static class TestDefinition {
+  public static class DefinitionTest {
 
     private static final ObjectId BASIC_INDEX_ID = new ObjectId("507f191e810c19729de860ea");
     private static final UUID BASIC_COLLECTION_UUID =

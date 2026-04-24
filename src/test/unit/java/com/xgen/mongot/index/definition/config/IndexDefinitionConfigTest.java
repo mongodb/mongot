@@ -12,13 +12,13 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      IndexDefinitionConfigTest.TestDeserialization.class,
-      IndexDefinitionConfigTest.TestSerialization.class,
+      IndexDefinitionConfigTest.DeserializationTest.class,
+      IndexDefinitionConfigTest.SerializationTest.class,
     })
 public class IndexDefinitionConfigTest {
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
     private static final String SUITE_NAME = "index-definition-config-serialization";
     private static final BsonSerializationTestSuite<IndexDefinitionConfig> TEST_SUITE =
         BsonSerializationTestSuite.fromEncodable(
@@ -26,7 +26,7 @@ public class IndexDefinitionConfigTest {
 
     private final BsonSerializationTestSuite.TestSpec<IndexDefinitionConfig> testSpec;
 
-    public TestSerialization(BsonSerializationTestSuite.TestSpec<IndexDefinitionConfig> testSpec) {
+    public SerializationTest(BsonSerializationTestSuite.TestSpec<IndexDefinitionConfig> testSpec) {
       this.testSpec = testSpec;
     }
 
@@ -58,7 +58,7 @@ public class IndexDefinitionConfigTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
     private static final String SUITE_NAME = "index-definition-config-deserialization";
     private static final BsonDeserializationTestSuite<IndexDefinitionConfig> TEST_SUITE =
         BsonDeserializationTestSuite.fromDocument(
@@ -68,7 +68,7 @@ public class IndexDefinitionConfigTest {
 
     private final BsonDeserializationTestSuite.TestSpecWrapper<IndexDefinitionConfig> testSpec;
 
-    public TestDeserialization(
+    public DeserializationTest(
         BsonDeserializationTestSuite.TestSpecWrapper<IndexDefinitionConfig> testSpec) {
       this.testSpec = testSpec;
     }

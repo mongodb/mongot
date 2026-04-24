@@ -18,19 +18,19 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      TypeSetDefinitionTest.TestDeserialization.class,
-      TypeSetDefinitionTest.TestSerialization.class,
+      TypeSetDefinitionTest.DeserializationTest.class,
+      TypeSetDefinitionTest.SerializationTest.class,
     })
 public class TypeSetDefinitionTest {
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
     private static final String SUITE_NAME = "typeSet-deserialization";
     private static final BsonDeserializationTestSuite<TypeSetDefinition> TEST_SUITE =
         fromDocument(DefinitionTests.RESOURCES_PATH, SUITE_NAME, TypeSetDefinition::fromBson);
 
     private final BsonDeserializationTestSuite.TestSpecWrapper<TypeSetDefinition> testSpec;
 
-    public TestDeserialization(
+    public DeserializationTest(
         BsonDeserializationTestSuite.TestSpecWrapper<TypeSetDefinition> testSpec) {
       this.testSpec = testSpec;
     }
@@ -80,14 +80,14 @@ public class TypeSetDefinitionTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
     private static final String SUITE_NAME = "typeSet-serialization";
     private static final BsonSerializationTestSuite<TypeSetDefinition> TEST_SUITE =
         load(DefinitionTests.RESOURCES_PATH, SUITE_NAME, TypeSetDefinition::toBson);
 
     private final BsonSerializationTestSuite.TestSpec<TypeSetDefinition> testSpec;
 
-    public TestSerialization(BsonSerializationTestSuite.TestSpec<TypeSetDefinition> testSpec) {
+    public SerializationTest(BsonSerializationTestSuite.TestSpec<TypeSetDefinition> testSpec) {
       this.testSpec = testSpec;
     }
 

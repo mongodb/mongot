@@ -24,14 +24,14 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      VectorIndexDefinitionGenerationTest.TestDeserialization.class,
-      VectorIndexDefinitionGenerationTest.TestSerialization.class,
-      VectorIndexDefinitionGenerationTest.TestClass.class,
+      VectorIndexDefinitionGenerationTest.DeserializationTest.class,
+      VectorIndexDefinitionGenerationTest.SerializationTest.class,
+      VectorIndexDefinitionGenerationTest.ClassTest.class,
     })
 public class VectorIndexDefinitionGenerationTest {
 
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
 
     private static final String SUITE_NAME = "vector-index-definition-generation-deserialization";
     private static final BsonDeserializationTestSuite<IndexDefinitionGeneration> TEST_SUITE =
@@ -40,7 +40,7 @@ public class VectorIndexDefinitionGenerationTest {
 
     private final BsonDeserializationTestSuite.TestSpecWrapper<IndexDefinitionGeneration> testSpec;
 
-    public TestDeserialization(
+    public DeserializationTest(
         BsonDeserializationTestSuite.TestSpecWrapper<IndexDefinitionGeneration> testSpec) {
       this.testSpec = testSpec;
     }
@@ -64,7 +64,7 @@ public class VectorIndexDefinitionGenerationTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
 
     private static final String SUITE_NAME = "vector-index-definition-generation-serialization";
     private static final BsonSerializationTestSuite<IndexDefinitionGeneration> TEST_SUITE =
@@ -72,7 +72,7 @@ public class VectorIndexDefinitionGenerationTest {
 
     private final BsonSerializationTestSuite.TestSpec<IndexDefinitionGeneration> testSpec;
 
-    public TestSerialization(
+    public SerializationTest(
         BsonSerializationTestSuite.TestSpec<IndexDefinitionGeneration> testSpec) {
       this.testSpec = testSpec;
     }
@@ -113,7 +113,7 @@ public class VectorIndexDefinitionGenerationTest {
         .build();
   }
 
-  public static class TestClass {
+  public static class ClassTest {
     @Test
     public void testIncrementsUser() {
       var firstIndex =

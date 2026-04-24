@@ -25,14 +25,14 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      ViewDefinitionTest.TestDeserialization.class,
-      ViewDefinitionTest.TestSerialization.class,
-      ViewDefinitionTest.TestDefinition.class
+      ViewDefinitionTest.DeserializationTest.class,
+      ViewDefinitionTest.SerializationTest.class,
+      ViewDefinitionTest.DefinitionTest.class
     })
 public class ViewDefinitionTest {
 
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
 
     private static final String SUITE_NAME = "view-definition-deserialization";
     private static final BsonDeserializationTestSuite<ViewDefinition> TEST_SUITE =
@@ -40,7 +40,7 @@ public class ViewDefinitionTest {
 
     private final BsonDeserializationTestSuite.TestSpecWrapper<ViewDefinition> testSpec;
 
-    public TestDeserialization(
+    public DeserializationTest(
         BsonDeserializationTestSuite.TestSpecWrapper<ViewDefinition> testSpec) {
       this.testSpec = testSpec;
     }
@@ -77,7 +77,7 @@ public class ViewDefinitionTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
 
     private static final String SUITE_NAME = "view-definition-serialization";
     private static final BsonSerializationTestSuite<ViewDefinition> TEST_SUITE =
@@ -85,7 +85,7 @@ public class ViewDefinitionTest {
 
     private final BsonSerializationTestSuite.TestSpec<ViewDefinition> testSpec;
 
-    public TestSerialization(BsonSerializationTestSuite.TestSpec<ViewDefinition> testSpec) {
+    public SerializationTest(BsonSerializationTestSuite.TestSpec<ViewDefinition> testSpec) {
       this.testSpec = testSpec;
     }
 
@@ -120,7 +120,7 @@ public class ViewDefinitionTest {
     }
   }
 
-  public static class TestDefinition {
+  public static class DefinitionTest {
 
     @Test
     public void testSingleViewParent() {

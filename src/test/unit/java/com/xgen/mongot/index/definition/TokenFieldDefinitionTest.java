@@ -18,14 +18,14 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      TokenFieldDefinitionTest.TestDeserialization.class,
-      TokenFieldDefinitionTest.TestSerialization.class,
-      TokenFieldDefinitionTest.TestDefinition.class
+      TokenFieldDefinitionTest.DeserializationTest.class,
+      TokenFieldDefinitionTest.SerializationTest.class,
+      TokenFieldDefinitionTest.DefinitionTest.class
     })
 public class TokenFieldDefinitionTest {
 
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
 
     private static final String SUITE_NAME = "token-deserialization";
     private static final BsonDeserializationTestSuite<TokenFieldDefinition> TEST_SUITE =
@@ -33,7 +33,7 @@ public class TokenFieldDefinitionTest {
 
     private final BsonDeserializationTestSuite.TestSpecWrapper<TokenFieldDefinition> testSpec;
 
-    public TestDeserialization(
+    public DeserializationTest(
         BsonDeserializationTestSuite.TestSpecWrapper<TokenFieldDefinition> testSpec) {
       this.testSpec = testSpec;
     }
@@ -63,7 +63,7 @@ public class TokenFieldDefinitionTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
 
     private static final String SUITE_NAME = "token-serialization";
     private static final BsonSerializationTestSuite<TokenFieldDefinition> TEST_SUITE =
@@ -71,7 +71,7 @@ public class TokenFieldDefinitionTest {
 
     private final BsonSerializationTestSuite.TestSpec<TokenFieldDefinition> testSpec;
 
-    public TestSerialization(BsonSerializationTestSuite.TestSpec<TokenFieldDefinition> testSpec) {
+    public SerializationTest(BsonSerializationTestSuite.TestSpec<TokenFieldDefinition> testSpec) {
       this.testSpec = testSpec;
     }
 
@@ -98,7 +98,7 @@ public class TokenFieldDefinitionTest {
     }
   }
 
-  public static class TestDefinition {
+  public static class DefinitionTest {
     @Test
     public void testGetType() {
       var definition = TokenFieldDefinitionBuilder.builder().build();

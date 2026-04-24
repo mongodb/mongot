@@ -19,14 +19,14 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      StoredSourceDefinitionTest.TestDeserialization.class,
-      StoredSourceDefinitionTest.TestSerialization.class,
-      StoredSourceDefinitionTest.TestDefinition.class
+      StoredSourceDefinitionTest.DeserializationTest.class,
+      StoredSourceDefinitionTest.SerializationTest.class,
+      StoredSourceDefinitionTest.DefinitionTest.class
     })
 public class StoredSourceDefinitionTest {
 
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
 
     private static final String SUITE_NAME = "storedSource-deserialization";
     private static final BsonDeserializationTestSuite<StoredSourceDefinition> TEST_SUITE =
@@ -34,7 +34,7 @@ public class StoredSourceDefinitionTest {
 
     private final BsonDeserializationTestSuite.TestSpecWrapper<StoredSourceDefinition> testSpec;
 
-    public TestDeserialization(
+    public DeserializationTest(
         BsonDeserializationTestSuite.TestSpecWrapper<StoredSourceDefinition> testSpec) {
       this.testSpec = testSpec;
     }
@@ -82,7 +82,7 @@ public class StoredSourceDefinitionTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
 
     private static final String SUITE_NAME = "storedSource-serialization";
     private static final BsonSerializationTestSuite<StoredSourceDefinition> TEST_SUITE =
@@ -90,7 +90,7 @@ public class StoredSourceDefinitionTest {
 
     private final BsonSerializationTestSuite.TestSpec<StoredSourceDefinition> testSpec;
 
-    public TestSerialization(BsonSerializationTestSuite.TestSpec<StoredSourceDefinition> testSpec) {
+    public SerializationTest(BsonSerializationTestSuite.TestSpec<StoredSourceDefinition> testSpec) {
       this.testSpec = testSpec;
     }
 
@@ -133,7 +133,7 @@ public class StoredSourceDefinitionTest {
     }
   }
 
-  public static class TestDefinition {
+  public static class DefinitionTest {
 
     @Test
     public void testInclusionWithExclusionMode() {

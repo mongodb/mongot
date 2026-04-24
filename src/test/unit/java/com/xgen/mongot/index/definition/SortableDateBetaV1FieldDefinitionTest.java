@@ -17,14 +17,14 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      SortableDateBetaV1FieldDefinitionTest.TestDeserialization.class,
-      SortableDateBetaV1FieldDefinitionTest.TestSerialization.class,
-      SortableDateBetaV1FieldDefinitionTest.TestDefinition.class
+      SortableDateBetaV1FieldDefinitionTest.DeserializationTest.class,
+      SortableDateBetaV1FieldDefinitionTest.SerializationTest.class,
+      SortableDateBetaV1FieldDefinitionTest.DefinitionTest.class
     })
 public class SortableDateBetaV1FieldDefinitionTest {
 
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
 
     private static final String SUITE_NAME = "sortable-date-beta-v1-deserialization";
     private static final BsonDeserializationTestSuite<SortableDateBetaV1FieldDefinition>
@@ -37,7 +37,7 @@ public class SortableDateBetaV1FieldDefinitionTest {
     private final BsonDeserializationTestSuite.TestSpecWrapper<SortableDateBetaV1FieldDefinition>
         testSpec;
 
-    public TestDeserialization(
+    public DeserializationTest(
         BsonDeserializationTestSuite.TestSpecWrapper<SortableDateBetaV1FieldDefinition> testSpec) {
       this.testSpec = testSpec;
     }
@@ -63,7 +63,7 @@ public class SortableDateBetaV1FieldDefinitionTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
 
     private static final String SUITE_NAME = "sortable-date-beta-v1-serialization";
     private static final BsonSerializationTestSuite<SortableDateBetaV1FieldDefinition> TEST_SUITE =
@@ -74,7 +74,7 @@ public class SortableDateBetaV1FieldDefinitionTest {
 
     private final BsonSerializationTestSuite.TestSpec<SortableDateBetaV1FieldDefinition> testSpec;
 
-    public TestSerialization(
+    public SerializationTest(
         BsonSerializationTestSuite.TestSpec<SortableDateBetaV1FieldDefinition> testSpec) {
       this.testSpec = testSpec;
     }
@@ -97,7 +97,7 @@ public class SortableDateBetaV1FieldDefinitionTest {
     }
   }
 
-  public static class TestDefinition {
+  public static class DefinitionTest {
 
     @Test
     public void testGetType() {
