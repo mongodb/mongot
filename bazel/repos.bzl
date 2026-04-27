@@ -1,4 +1,5 @@
 load("//bazel/buildifier:repos.bzl", "buildifier_repos")
+load("//bazel/cc:repos.bzl", "cc_repos")
 load("//bazel/common:repos.bzl", "common_repos")
 load("//bazel/docker:repos.bzl", "docker_repos")
 load("//bazel/go:repos.bzl", "go_repos")
@@ -11,6 +12,7 @@ load("//bazel/shell:repos.bzl", "shell_repos")
 load("//bazel/tools:repos.bzl", "tools_repos")
 
 def mongot_repos():
+    cc_repos()
     common_repos()
     buildifier_repos()
     docker_repos()

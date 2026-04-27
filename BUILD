@@ -115,6 +115,12 @@ filegroup(
     visibility = ["//scripts/tests:__pkg__"],
 )
 
+# Make the comment in .github/CODEOWNERS point to the right rule.
+alias(
+    name = "codeowners",
+    actual = "//bazel/python:codeowners",
+)
+
 # Gazelle magic for dependency resolution
 # gazelle:java_maven_install_file bazel/java/maven_pin_info.json
 # TODO(mccullocht): figure out why there are two sources for this (tomcat?)

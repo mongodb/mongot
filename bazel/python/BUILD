@@ -9,4 +9,5 @@ compile_pip_requirements(
 alias(
     name = "codeowners",
     actual = "@bazel_rules_mongo//codeowners:codeowners",
+    visibility = ["//visibility:public"],
 )

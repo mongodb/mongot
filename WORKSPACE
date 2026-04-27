@@ -4,6 +4,16 @@ register_toolchains(
     "//bazel/java:mongot_java21_toolchain",
 )
 
+# Register LLVM cc_toolchains before mongot_bazel_deps() so they take priority over the
+# auto-configured local toolchain registered by rules_cc_toolchains() inside common_bazel_deps().
+# This ensures that we use the hermetic llvm toolchain when compiling on linux.
+#
+# To list available llvm toolchain targets: bazel query @llvm_toolchain//:all
+register_toolchains(
+    "@llvm_toolchain//:cc-toolchain-aarch64-linux",
+    "@llvm_toolchain//:cc-toolchain-x86_64-linux",
+)
+
 load("//bazel/rust/prost:config.bzl", "register_prost_toolchains")
 
 register_prost_toolchains()
