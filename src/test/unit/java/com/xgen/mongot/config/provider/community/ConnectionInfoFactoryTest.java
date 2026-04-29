@@ -156,11 +156,10 @@ public class ConnectionInfoFactoryTest {
           routerConfig(Optional.of("u"), Optional.of(passwordFile), Optional.empty());
 
       ConnectionInfo info =
-          ConnectionInfoFactory.getSingleHostConnectionInfo(config, Optional.empty());
+          ConnectionInfoFactory.getSingleHostConnectionInfo(config, HOSTS.get(0), Optional.empty());
 
       ConnectionString cs = new ConnectionString(info.uri().getConnectionString());
-      assertThat(cs.getHosts()).hasSize(1);
-      assertThat(cs.getHosts().get(0)).isAnyOf("localhost:27017", "localhost:27018");
+      assertThat(cs.getHosts()).containsExactly("localhost:27017");
       assertThat(info.uri().getConnectionString()).contains("directConnection=true");
       assertThat(info.uri().getConnectionString()).doesNotContain("readPreference");
     } finally {
@@ -185,29 +184,6 @@ public class ConnectionInfoFactoryTest {
   }
 
   @Test
-  public void getSingleHostConnectionInfo_multiHost_singleHostChosenByRandom() throws IOException {
-    Path passwordFile = createPasswordFile("p"); // kingfisher:ignore
-    try {
-      ReplicaSetConfig config =
-          replicaSetConfig(Optional.of("u"), Optional.of(passwordFile), Optional.empty(), false);
-
-      ConnectionInfo info =
-          ConnectionInfoFactory.getSingleHostConnectionInfo(config, Optional.empty());
-
-      // Host is selected with ThreadLocalRandom; only one of the configured hosts appears.
-      ConnectionString cs = new ConnectionString(info.uri().getConnectionString());
-      assertThat(cs.getHosts()).hasSize(1);
-      assertThat(cs.getHosts().get(0)).isAnyOf("localhost:27017", "localhost:27018");
-      String uri = info.uri().getConnectionString();
-      assertThat(uri).contains("directConnection=true");
-      assertThat(uri).doesNotContain("readPreference");
-      assertThat(uri).doesNotContain("27017,localhost");
-    } finally {
-      Files.deleteIfExists(passwordFile);
-    }
-  }
-
-  @Test
   public void getSingleHostConnectionInfo_usernamePassword_parsesAsExpectedUri()
       throws IOException {
     Path passwordFile = createPasswordFile("secret"); // kingfisher:ignore
@@ -217,7 +193,7 @@ public class ConnectionInfoFactoryTest {
               Optional.of("testuser"), Optional.of(passwordFile), Optional.empty(), false);
 
       ConnectionInfo info =
-          ConnectionInfoFactory.getSingleHostConnectionInfo(config, Optional.empty());
+          ConnectionInfoFactory.getSingleHostConnectionInfo(config, HOSTS.get(0), Optional.empty());
 
       ConnectionString cs = new ConnectionString(info.uri().getConnectionString());
       assertThat(cs.getHosts()).hasSize(1);
@@ -246,11 +222,57 @@ public class ConnectionInfoFactoryTest {
               oneHost, Optional.of("u"), Optional.of(passwordFile), Optional.empty(), false);
 
       ConnectionInfo info =
-          ConnectionInfoFactory.getSingleHostConnectionInfo(config, Optional.empty());
+          ConnectionInfoFactory.getSingleHostConnectionInfo(
+              config, oneHost.get(0), Optional.empty());
 
       ConnectionString cs = new ConnectionString(info.uri().getConnectionString());
       assertThat(cs.getHosts()).containsExactly("sync.example:27019");
       assertThat(info.uri().getConnectionString()).contains("directConnection=true");
+    } finally {
+      Files.deleteIfExists(passwordFile);
+    }
+  }
+
+  @Test
+  public void
+      getSingleHostConnectionInfo_withReadPreference_uriHasReadPreferenceAndNoDirectConnect()
+          throws IOException {
+    Path passwordFile = createPasswordFile("p"); // kingfisher:ignore
+    try {
+      ReplicaSetConfig config =
+          replicaSetConfig(Optional.of("u"), Optional.of(passwordFile), Optional.empty(), false);
+
+      ConnectionInfo info =
+          ConnectionInfoFactory.getSingleHostConnectionInfo(
+              config, HOSTS.get(0), Optional.empty(), ReadPreference.secondary());
+
+      String uri = info.uri().getConnectionString();
+      assertThat(uri).contains("readPreference=secondary");
+      assertThat(uri).doesNotContain("directConnection");
+      assertThat(new ConnectionString(uri).getHosts()).containsExactly("localhost:27017");
+    } finally {
+      Files.deleteIfExists(passwordFile);
+    }
+  }
+
+  @Test
+  public void getSingleHostConnectionInfo_withReadPreferenceAndTagSets_uriHasTagSets()
+      throws IOException {
+    Path passwordFile = createPasswordFile("p"); // kingfisher:ignore
+    try {
+      ReplicaSetConfig config =
+          replicaSetConfig(Optional.of("u"), Optional.of(passwordFile), Optional.empty(), false);
+      ReadPreference rpWithTags =
+          ReadPreference.secondary(List.of(new TagSet(List.of(new Tag("dc", "east")))));
+
+      ConnectionInfo info =
+          ConnectionInfoFactory.getSingleHostConnectionInfo(
+              config, HOSTS.get(0), Optional.empty(), rpWithTags);
+
+      String uri = info.uri().getConnectionString();
+      assertThat(uri).contains("readPreference=secondary");
+      assertThat(uri).contains("readPreferenceTags=dc:east");
+      assertThat(uri).doesNotContain("directConnection");
     } finally {
       Files.deleteIfExists(passwordFile);
     }

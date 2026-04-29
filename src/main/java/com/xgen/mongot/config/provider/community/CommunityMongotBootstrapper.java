@@ -93,6 +93,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.bson.BsonArray;
@@ -316,7 +317,8 @@ public class CommunityMongotBootstrapper {
     var replicationReadPreference = communitySyncSourceConfig.getReplicationReaderReadPreference();
 
     var mongodSingleHostReplicationUri =
-        ConnectionInfoFactory.getSingleHostConnectionInfo(replicaSet, caFile);
+        ConnectionInfoFactory.getSingleHostConnectionInfo(
+            replicaSet, randomHost(replicaSet.hostandPorts()), caFile);
     var mongodClusterReplicationUri =
         ConnectionInfoFactory.getClusterConnectionInfo(
             replicaSet, replicationReadPreference, caFile);
@@ -330,7 +332,10 @@ public class CommunityMongotBootstrapper {
     var mongosSingleHostReplicationUri =
         communitySyncSourceConfig
             .router()
-            .map(router -> ConnectionInfoFactory.getSingleHostConnectionInfo(router, caFile));
+            .map(
+                router ->
+                    ConnectionInfoFactory.getSingleHostConnectionInfo(
+                        router, randomHost(router.hostandPorts()), caFile));
 
     var mongosClusterReadWriteUri =
         communitySyncSourceConfig
@@ -348,6 +353,14 @@ public class CommunityMongotBootstrapper {
         .mongosClusterReadWriteUri(mongosClusterReadWriteUri)
         .isSharded(communitySyncSourceConfig.router().isPresent())
         .build();
+  }
+
+  private static HostAndPort randomHost(List<HostAndPort> hosts) {
+    HostAndPort selected = hosts.get(ThreadLocalRandom.current().nextInt(hosts.size()));
+    LOG.atInfo()
+        .addKeyValue("hostAndPort", selected)
+        .log("Selected host and port for sync source config");
+    return selected;
   }
 
   private static Optional<PrometheusServer> maybeStartPrometheusServer(

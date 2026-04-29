@@ -11,6 +11,7 @@ java_test_suite(
         "CommunityServerIdProviderTest.java",
         "CommunityServerInfoTest.java",
         "ConnectionInfoFactoryTest.java",
+        "InitialSyncHostProviderTest.java",
         "MongoConnectionConfigTest.java",
         "ServerConfigTest.java",
         "SyncSourceConfigTest.java",
@@ -51,5 +52,6 @@ java_test_suite(
         "@maven//:org_mockito_mockito_core",
         "@maven//:org_mongodb_bson",
         "@maven//:org_mongodb_mongodb_driver_core",
+        "@maven//:org_mongodb_mongodb_driver_sync",
     ],
 )

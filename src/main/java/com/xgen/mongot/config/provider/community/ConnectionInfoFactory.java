@@ -15,21 +15,11 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Optional;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import javax.net.ssl.SSLContext;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class ConnectionInfoFactory {
-
-  private static final Logger LOG = LoggerFactory.getLogger(ConnectionInfoFactory.class);
-
-  public static ConnectionInfo getSingleHostConnectionInfo(
-      MongoConnectionConfig config, Optional<Path> caFile) {
-    return new ConnectionInfo(getSingleHostConnectionString(config), getSslContext(config, caFile));
-  }
 
   public static ConnectionInfo getClusterConnectionInfo(
       MongoConnectionConfig config, ReadPreference readPreference, Optional<Path> caFile) {
@@ -37,21 +27,51 @@ public class ConnectionInfoFactory {
         getClusterConnectionString(config, readPreference), getSslContext(config, caFile));
   }
 
-  private static ConnectionString getSingleHostConnectionString(MongoConnectionConfig config) {
-    HostAndPort hostAndPort =
-        config
-            .hostandPorts()
-            .get(ThreadLocalRandom.current().nextInt(config.hostandPorts().size()));
+  /**
+   * Creates a {@link ConnectionInfo} for a direct connection ({@code directConnection=true}) to the
+   * specified {@code hostAndPort}, using the authentication and TLS settings from {@code config}.
+   */
+  public static ConnectionInfo getSingleHostConnectionInfo(
+      MongoConnectionConfig config, HostAndPort hostAndPort, Optional<Path> caFile) {
+    return new ConnectionInfo(
+        getSingleHostConnectionString(config, hostAndPort, Optional.empty()),
+        getSslContext(config, caFile));
+  }
 
-    LOG.atInfo()
-        .addKeyValue("hostAndPort", hostAndPort)
-        .log("Selected host and port for sync source config");
+  /**
+   * Creates a {@link ConnectionInfo} targeting the specified {@code hostAndPort} with the given
+   * {@code readPreference} embedded in the URI. The driver rejects a connection string that
+   * combines {@code directConnection=true} with a read preference, so {@code directConnection} is
+   * omitted — the single-host URI still causes the driver to use {@link
+   * com.mongodb.connection.ClusterConnectionMode#SINGLE}, and the read preference is forwarded in
+   * each command so that mongos can route to the correct shard members.
+   */
+  public static ConnectionInfo getSingleHostConnectionInfo(
+      MongoConnectionConfig config,
+      HostAndPort hostAndPort,
+      Optional<Path> caFile,
+      ReadPreference readPreference) {
+    return new ConnectionInfo(
+        getSingleHostConnectionString(config, hostAndPort, Optional.of(readPreference)),
+        getSslContext(config, caFile));
+  }
 
-    ConnectionStringBuilder connectionStringBuilder =
-        ConnectionStringBuilder.standard()
-            .withHostAndPort(hostAndPort)
-            .withOption("directConnection", "true");
-    return getConnectionString(config, connectionStringBuilder);
+  private static ConnectionString getSingleHostConnectionString(
+      MongoConnectionConfig config,
+      HostAndPort hostAndPort,
+      Optional<ReadPreference> readPreference) {
+    // directConnection=true and readPreference are mutually exclusive: the driver rejects a URI
+    // that carries both. For direct mongod connections (no readPreference) we set
+    // directConnection=true. For mongos connections that embed a readPreference, we omit
+    // directConnection — the single-host URI causes the driver to use SINGLE mode anyway.
+    var builder = ConnectionStringBuilder.standard().withHostAndPort(hostAndPort);
+    if (readPreference.isPresent()) {
+      builder.withOption("readPreference", readPreference.get().getName());
+      addTagSets(builder, readPreference.get());
+    } else {
+      builder.withOption("directConnection", "true");
+    }
+    return getConnectionString(config, builder);
   }
 
   private static ConnectionString getClusterConnectionString(

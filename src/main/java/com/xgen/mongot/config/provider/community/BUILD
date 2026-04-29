@@ -13,6 +13,7 @@ java_library(
         "ConnectionInfoFactory.java",
         "FtdcCommunityConfig.java",
         "HealthCheckConfig.java",
+        "InitialSyncHostProvider.java",
         "LoggingConfig.java",
         "MetricsConfig.java",
         "MongoConnectionConfig.java",
@@ -93,6 +94,7 @@ java_library(
         "@maven//:org_apache_commons_commons_lang3",
         "@maven//:org_mongodb_bson",
         "@maven//:org_mongodb_mongodb_driver_core",
+        "@maven//:org_mongodb_mongodb_driver_sync",
         "@maven//:org_slf4j_slf4j_api",
     ],
 )

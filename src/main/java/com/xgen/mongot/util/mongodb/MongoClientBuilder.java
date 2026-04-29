@@ -41,6 +41,10 @@ public class MongoClientBuilder {
   private Optional<Integer> socketTimeoutMs;
   private Optional<SSLContext> sslContext;
   private Optional<ReadConcern> readConcern;
+  private Optional<Long> heartbeatFrequencyMs;
+  private Optional<Long> minHeartbeatFrequencyMs;
+  private Optional<Long> localThresholdMs;
+  private Optional<Long> serverSelectionTimeoutMs;
 
   private MongoClientBuilder(
       ConnectionString connectionString,
@@ -60,6 +64,10 @@ public class MongoClientBuilder {
     this.socketTimeoutMs = Optional.empty();
     this.sslContext = Optional.empty();
     this.readConcern = Optional.empty();
+    this.heartbeatFrequencyMs = Optional.empty();
+    this.minHeartbeatFrequencyMs = Optional.empty();
+    this.localThresholdMs = Optional.empty();
+    this.serverSelectionTimeoutMs = Optional.empty();
   }
 
   public static MongoClientBuilder builder(
@@ -183,6 +191,26 @@ public class MongoClientBuilder {
     return this;
   }
 
+  public MongoClientBuilder heartbeatFrequencyMs(long ms) {
+    this.heartbeatFrequencyMs = Optional.of(ms);
+    return this;
+  }
+
+  public MongoClientBuilder minHeartbeatFrequencyMs(long ms) {
+    this.minHeartbeatFrequencyMs = Optional.of(ms);
+    return this;
+  }
+
+  public MongoClientBuilder localThresholdMs(long ms) {
+    this.localThresholdMs = Optional.of(ms);
+    return this;
+  }
+
+  public MongoClientBuilder serverSelectionTimeoutMs(long ms) {
+    this.serverSelectionTimeoutMs = Optional.of(ms);
+    return this;
+  }
+
   public MongoClient buildSyncClientForTesting(ReadConcern readConcern) {
     return MongoClients.create(buildSettings(readConcern));
   }
@@ -210,11 +238,24 @@ public class MongoClientBuilder {
   MongoClientSettings buildSettings(boolean replicationClient) {
     var settings = MongoClientSettings.builder().applyConnectionString(this.connectionString);
 
-    // Reduce server selection timeout from 30 seconds, effectively makes
-    // commands fail faster in case mongod/mongodb is not available before
-    // the command is run
     settings.applyToClusterSettings(
-        builder -> builder.serverSelectionTimeout(10, TimeUnit.SECONDS));
+        builder -> {
+          builder.serverSelectionTimeout(
+              // Default to 10 s (down from the 30 s driver default) so commands fail fast
+              // when mongod/mongos is unavailable at call time.
+              this.serverSelectionTimeoutMs.orElse(10_000L), TimeUnit.MILLISECONDS);
+          this.localThresholdMs.ifPresent(ms -> builder.localThreshold(ms, TimeUnit.MILLISECONDS));
+        });
+
+    if (this.heartbeatFrequencyMs.isPresent() || this.minHeartbeatFrequencyMs.isPresent()) {
+      settings.applyToServerSettings(
+          b -> {
+            this.heartbeatFrequencyMs.ifPresent(
+                ms -> b.heartbeatFrequency(ms, TimeUnit.MILLISECONDS));
+            this.minHeartbeatFrequencyMs.ifPresent(
+                ms -> b.minHeartbeatFrequency(ms, TimeUnit.MILLISECONDS));
+          });
+    }
 
     if (replicationClient) {
       // Settings for replication clients.

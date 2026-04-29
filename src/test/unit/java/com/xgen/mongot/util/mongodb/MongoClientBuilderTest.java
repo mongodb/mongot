@@ -250,6 +250,57 @@ public class MongoClientBuilderTest {
   }
 
   @Test
+  public void testServerSelectionTimeoutDefaultsTo10Seconds() {
+    var connectionString =
+        new ConnectionString("mongodb://localhost:11111/?serverSelectionTimeoutMS=12345678");
+    var settings =
+        MongoClientBuilder.builder(connectionString, new SimpleMeterRegistry())
+            .buildSettings(false);
+
+    Assert.assertEquals(
+        10_000, settings.getClusterSettings().getServerSelectionTimeout(TimeUnit.MILLISECONDS));
+  }
+
+  @Test
+  public void testServerSelectionTimeoutIsConfigurable() {
+    var connectionString = new ConnectionString("mongodb://localhost:11111/");
+    var settings =
+        MongoClientBuilder.builder(connectionString, new SimpleMeterRegistry())
+            .serverSelectionTimeoutMs(5_000)
+            .buildSettings(false);
+
+    Assert.assertEquals(
+        5_000, settings.getClusterSettings().getServerSelectionTimeout(TimeUnit.MILLISECONDS));
+  }
+
+  @Test
+  public void testHeartbeatFrequencySettings() {
+    var connectionString = new ConnectionString("mongodb://localhost:11111/");
+    var settings =
+        MongoClientBuilder.builder(connectionString, new SimpleMeterRegistry())
+            .heartbeatFrequencyMs(5_000)
+            .minHeartbeatFrequencyMs(500)
+            .buildSettings(false);
+
+    Assert.assertEquals(
+        5_000, settings.getServerSettings().getHeartbeatFrequency(TimeUnit.MILLISECONDS));
+    Assert.assertEquals(
+        500, settings.getServerSettings().getMinHeartbeatFrequency(TimeUnit.MILLISECONDS));
+  }
+
+  @Test
+  public void testLocalThresholdSetting() {
+    var connectionString = new ConnectionString("mongodb://localhost:11111/");
+    var settings =
+        MongoClientBuilder.builder(connectionString, new SimpleMeterRegistry())
+            .localThresholdMs(100)
+            .buildSettings(false);
+
+    Assert.assertEquals(
+        100, settings.getClusterSettings().getLocalThreshold(TimeUnit.MILLISECONDS));
+  }
+
+  @Test
   public void testBuildNonReplicationPreferringMongos() throws Exception {
     var syncSource =
         SyncSourceConfig.builder()
