@@ -24,6 +24,7 @@ import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.query.context.SearchQueryFactoryContext;
 import com.xgen.mongot.index.lucene.query.custom.WrappedQuery;
 import com.xgen.mongot.index.lucene.query.util.BooleanComposer;
+import com.xgen.mongot.index.lucene.query.util.DisableBulkScorerQuery;
 import com.xgen.mongot.index.lucene.query.util.SafeTermAutomatonQueryWrapper;
 import com.xgen.mongot.index.lucene.query.util.WrappedToParentBlockJoinQuery;
 import com.xgen.mongot.index.lucene.searcher.FieldToSortableTypesMapping;
@@ -278,7 +279,8 @@ public class LuceneSearchQueryFactoryDistributorTest {
     builder.add(
         BooleanComposer.mustNotClause(
             new WrappedToParentBlockJoinQuery(
-                new TermQuery(new Term("$embedded:3/foo/$type:string/foo.title", "godfather")),
+                new DisableBulkScorerQuery(
+                    new TermQuery(new Term("$embedded:3/foo/$type:string/foo.title", "godfather"))),
                 new QueryBitSetProducer(new TermQuery(new Term("$meta/embeddedRoot", "T"))),
                 ScoreMode.Total)));
 

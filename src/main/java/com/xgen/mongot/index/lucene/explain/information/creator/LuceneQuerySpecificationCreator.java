@@ -20,6 +20,7 @@ import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.query.custom.ExactVectorSearchQuery;
 import com.xgen.mongot.index.lucene.query.custom.WrappedKnnQuery;
+import com.xgen.mongot.index.lucene.query.util.DisableBulkScorerQuery;
 import com.xgen.mongot.index.lucene.query.util.WrappedToChildBlockJoinQuery;
 import com.xgen.mongot.index.lucene.query.util.WrappedToParentBlockJoinQuery;
 import com.xgen.mongot.util.Check;
@@ -69,6 +70,12 @@ public class LuceneQuerySpecificationCreator {
                   q ->
                       ConstantScoreQuerySpecCreator.fromQuery(
                           q, getOnlyChild(children), verbosity));
+      case DISABLE_BULK_SCORER_QUERY ->
+          tryCast(query, DisableBulkScorerQuery.class)
+              .map(
+                  q ->
+                      DisableBulkScorerQuerySpecCreator.fromQuery(
+                          getOnlyChild(children), verbosity));
       case DISJUNCTION_MAX_QUERY ->
           tryCast(query, org.apache.lucene.search.DisjunctionMaxQuery.class)
               .map(q -> DisjunctionMaxQuerySpecCreator.fromQuery(q, children, verbosity));

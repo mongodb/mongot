@@ -4,6 +4,7 @@ import static com.xgen.mongot.index.lucene.query.util.BooleanComposer.filterClau
 import static com.xgen.mongot.index.lucene.query.util.BooleanComposer.mustClause;
 import static com.xgen.mongot.index.lucene.query.util.BooleanComposer.shouldClause;
 
+import com.xgen.mongot.index.lucene.query.util.DisableBulkScorerQuery;
 import com.xgen.mongot.index.lucene.query.util.WrappedToChildBlockJoinQuery;
 import com.xgen.mongot.index.lucene.query.util.WrappedToParentBlockJoinQuery;
 import com.xgen.testing.TestUtils;
@@ -115,6 +116,37 @@ public class ScoreDetailsWrappedQueryTest {
         ScoreDetailsWrappedQuery.wrap(
             new WrappedToParentBlockJoinQuery(termQuery, parentsFilter, scoreMode));
     Assert.assertEquals(expected, actual);
+  }
+
+  @Test
+  public void testWrapStripsDisableBulkScorerAroundBlockJoinChild() {
+    TermQuery termQuery = termQuery("hello");
+    QueryBitSetProducer parentsFilter = new QueryBitSetProducer(termQuery("parent"));
+    ScoreMode scoreMode = ScoreMode.Total;
+
+    ScoreDetailsWrappedQuery expected =
+        ScoreDetailsWrappedQueryBuilder.builder()
+            .query(
+                new WrappedToParentBlockJoinQuery(
+                    ScoreDetailsWrappedQueryBuilder.builder().query(termQuery).build(),
+                    parentsFilter,
+                    scoreMode))
+            .build();
+
+    ScoreDetailsWrappedQuery actual =
+        ScoreDetailsWrappedQuery.wrap(
+            new WrappedToParentBlockJoinQuery(
+                new DisableBulkScorerQuery(termQuery), parentsFilter, scoreMode));
+    Assert.assertEquals(expected, actual);
+  }
+
+  @Test
+  public void testWrapStripsDisableBulkScorerAroundTerm() {
+    TermQuery termQuery = termQuery("hello");
+    ScoreDetailsWrappedQuery expected =
+        ScoreDetailsWrappedQueryBuilder.builder().query(termQuery).build();
+    Assert.assertEquals(
+        expected, ScoreDetailsWrappedQuery.wrap(new DisableBulkScorerQuery(termQuery)));
   }
 
   @Test

@@ -2,6 +2,7 @@ package com.xgen.mongot.index.lucene.query;
 
 import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.lucene.query.util.BooleanComposer;
+import com.xgen.mongot.index.lucene.query.util.DisableBulkScorerQuery;
 import com.xgen.mongot.index.lucene.query.util.WrappedToParentBlockJoinQuery;
 import com.xgen.mongot.index.query.operators.EmbeddedDocumentOperator;
 import com.xgen.mongot.index.query.operators.Operator;
@@ -65,9 +66,42 @@ public class EmbeddedDocumentQueryFactoryTest {
 
     Query expected =
         new WrappedToParentBlockJoinQuery(
-            childQuery, parentFilter(Optional.empty()), ScoreMode.Total);
+            new DisableBulkScorerQuery(childQuery),
+            parentFilter(Optional.empty()),
+            ScoreMode.Total);
 
     LuceneSearchTranslation.mapped(mappings).assertTranslatedTo(operator, expected);
+  }
+
+  @Test
+  public void testSingleEmbeddedDocumentQueryDoesNotWrapWhenDynamicFlagExplicitlyDisabled()
+      throws Exception {
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .field(
+                "teachers",
+                FieldDefinitionBuilder.builder()
+                    .embeddedDocuments(
+                        EmbeddedDocumentsFieldDefinitionBuilder.builder().dynamic(true).build())
+                    .build())
+            .build();
+
+    EmbeddedDocumentOperator operator =
+        EmbeddedDocumentOperatorBuilder.embeddedDocument()
+            .path("teachers")
+            .operator(TextOperatorBuilder.text().path("teachers.firstName").query("john").build())
+            .build();
+
+    Query childQuery =
+        new TermQuery(new Term("$embedded:8/teachers/$type:string/teachers.firstName", "john"));
+
+    Query expected =
+        new WrappedToParentBlockJoinQuery(
+            childQuery, parentFilter(Optional.empty()), ScoreMode.Total);
+
+    LuceneSearchTranslation.mappedWithDisableBulkScorerQueryForEmbeddedDocumentChildDisabled(
+            mappings)
+        .assertTranslatedTo(operator, expected);
   }
 
   static class AggregatePairing {
@@ -119,7 +153,9 @@ public class EmbeddedDocumentQueryFactoryTest {
 
     Query expected =
         new WrappedToParentBlockJoinQuery(
-            childQuery, parentFilter(Optional.empty()), aggregatePairing.scoreMode);
+            new DisableBulkScorerQuery(childQuery),
+            parentFilter(Optional.empty()),
+            aggregatePairing.scoreMode);
 
     LuceneSearchTranslation.mapped(mappings).assertTranslatedTo(operator, expected);
   }
@@ -159,7 +195,9 @@ public class EmbeddedDocumentQueryFactoryTest {
 
     Query expected =
         new WrappedToParentBlockJoinQuery(
-            childDocumentQueryBuilder.build(), parentFilter(Optional.empty()), ScoreMode.Total);
+            new DisableBulkScorerQuery(childDocumentQueryBuilder.build()),
+            parentFilter(Optional.empty()),
+            ScoreMode.Total);
 
     LuceneSearchTranslation.mapped(
             DocumentFieldDefinitionBuilder.builder()
@@ -231,16 +269,20 @@ public class EmbeddedDocumentQueryFactoryTest {
     innerCompoundBuilder.add(
         BooleanComposer.mustNotClause(
             new WrappedToParentBlockJoinQuery(
-                new TermQuery(
-                    new Term(
-                        "$embedded:11/foo.bar.baz/$type:string/foo.bar.baz.title", "godfather")),
+                new DisableBulkScorerQuery(
+                    new TermQuery(
+                        new Term(
+                            "$embedded:11/foo.bar.baz/$type:string/foo.bar.baz.title",
+                            "godfather"))),
                 parentFilter(Optional.of(FieldPath.parse("foo"))),
                 ScoreMode.Total)));
 
     // Inner block join query joins to parent embedded documents at path "foo".
     Query fooEmbeddedDocumentsQuery =
         new WrappedToParentBlockJoinQuery(
-            innerCompoundBuilder.build(), parentFilter(Optional.empty()), ScoreMode.Total);
+            new DisableBulkScorerQuery(innerCompoundBuilder.build()),
+            parentFilter(Optional.empty()),
+            ScoreMode.Total);
 
     BooleanQuery.Builder outerCompoundBuilder = new BooleanQuery.Builder();
 

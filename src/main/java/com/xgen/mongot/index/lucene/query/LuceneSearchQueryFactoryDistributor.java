@@ -220,7 +220,7 @@ public class LuceneSearchQueryFactoryDistributor {
     return new LuceneSearchQueryFactoryDistributor(
         allDocsQueryFactory,
         new AutocompleteQueryFactory(queryFactoryContext),
-        new EmbeddedDocumentQueryFactory(queryFactoryContext),
+        new EmbeddedDocumentQueryFactory(queryFactoryContext, dynamicFeatureFlagRegistry),
         existsQueryFactory,
         new GeoQueryFactory(queryFactoryContext),
         new HasAncestorQueryFactory(queryFactoryContext),

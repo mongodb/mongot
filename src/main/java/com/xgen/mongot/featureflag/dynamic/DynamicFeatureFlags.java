@@ -36,7 +36,14 @@ public enum DynamicFeatureFlags {
   ENABLE_10K_BUCKET_LIMIT("mongot.featureFlag.enable10kBucketLimit", false),
   ENABLE_TOTAL_STRING_FACET_BUCKETS("mongot.featureFlag.enableTotalStringFacetBuckets", false),
   BLOOM_FILTER_FOR_ID_FIELD("mongot.featureFlag.enableBloomFilterNaturalOrderInitialSync", false),
-  NUMERIC_V2_SEMANTICS("mongot.featureFlag.numericV2Semantics", false);
+  NUMERIC_V2_SEMANTICS("mongot.featureFlag.numericV2Semantics", false),
+  /**
+   * When enabled, wraps the Lucene child query of {@code embeddedDocument} operators so Lucene
+   * uses default bulk scoring instead of specialized bulk scorers for that subtree (mitigation for
+   * select Lucene 10 perf regressions on dense embedded child queries).
+   */
+  DISABLE_BULK_SCORER_QUERY_FOR_EMBEDDED_DOCUMENT_CHILD(
+      "mongot.featureFlag.disableBulkScorerQueryForEmbeddedDocumentChild", true);
 
   private final String name;
   private final boolean fallback;

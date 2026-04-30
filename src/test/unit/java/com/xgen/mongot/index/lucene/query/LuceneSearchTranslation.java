@@ -87,14 +87,23 @@ class LuceneSearchTranslation {
       Optional<String> analyzerName,
       Optional<DocumentFieldDefinition> mappings,
       Optional<Map<String, SynonymMappingDefinition>> synonyms,
-      Optional<FeatureFlags> featureFlags) {
+      Optional<FeatureFlags> featureFlags,
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
     this.analyzerRegistry = AnalyzerRegistryBuilder.empty();
     this.indexDefinition = getIndexDefinition(mappings, analyzerName);
     this.synonymRegistry =
         LuceneSynonymRegistry.create(
             this.analyzerRegistry, synonyms.orElseGet(Collections::emptyMap), Optional.empty());
     this.featureFlags = featureFlags.orElse(FeatureFlags.getDefault());
-    this.dynamicFeatureFlagRegistry = DynamicFeatureFlagRegistry.empty();
+    this.dynamicFeatureFlagRegistry = dynamicFeatureFlagRegistry;
+  }
+
+  private LuceneSearchTranslation(
+      Optional<String> analyzerName,
+      Optional<DocumentFieldDefinition> mappings,
+      Optional<Map<String, SynonymMappingDefinition>> synonyms,
+      Optional<FeatureFlags> featureFlags) {
+    this(analyzerName, mappings, synonyms, featureFlags, DynamicFeatureFlagRegistry.empty());
   }
 
   private LuceneSearchTranslation(
@@ -158,7 +167,36 @@ class LuceneSearchTranslation {
   static LuceneSearchTranslation featureFlagWithMapping(
       FeatureFlags featureFlags, DocumentFieldDefinition mapping) {
     return new LuceneSearchTranslation(
-        Optional.empty(), Optional.of(mapping), Optional.empty(), Optional.of(featureFlags));
+        Optional.empty(),
+        Optional.of(mapping),
+        Optional.empty(),
+        Optional.of(featureFlags),
+        DynamicFeatureFlagRegistry.empty());
+  }
+
+  /**
+   * Same as {@link #mapped(DocumentFieldDefinition)} but with {@link
+   * DynamicFeatureFlags#DISABLE_BULK_SCORER_QUERY_FOR_EMBEDDED_DOCUMENT_CHILD} explicitly disabled
+   * (cluster phase), so embedded child queries are not wrapped with {@code DisableBulkScorerQuery}.
+   */
+  static LuceneSearchTranslation mappedWithDisableBulkScorerQueryForEmbeddedDocumentChildDisabled(
+      DocumentFieldDefinition mapping) {
+    DynamicFeatureFlagConfig config =
+        new DynamicFeatureFlagConfig(
+            DynamicFeatureFlags.DISABLE_BULK_SCORER_QUERY_FOR_EMBEDDED_DOCUMENT_CHILD.getName(),
+            DynamicFeatureFlagConfig.Phase.DISABLED,
+            List.of(),
+            List.of(),
+            0,
+            DynamicFeatureFlagConfig.Scope.MONGOT_CLUSTER);
+    DynamicFeatureFlagRegistry registry =
+        new DynamicFeatureFlagRegistry(
+            Optional.of(List.of(config)),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.of(new ObjectId()));
+    return new LuceneSearchTranslation(
+        Optional.empty(), Optional.of(mapping), Optional.empty(), Optional.empty(), registry);
   }
 
   static LuceneSearchTranslation synonyms(

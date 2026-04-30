@@ -16,6 +16,7 @@ java_library(
         "ConstantScoreQuerySpec.java",
         "Coordinate.java",
         "DefaultQuerySpec.java",
+        "DisableBulkScorerQuerySpec.java",
         "DisjunctionMaxQuerySpec.java",
         "DocAndScoreQuerySpec.java",
         "DrillSidewaysQuerySpec.java",

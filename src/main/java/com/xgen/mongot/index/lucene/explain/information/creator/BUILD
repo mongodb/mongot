@@ -7,6 +7,7 @@ java_library(
         "BoostQuerySpecCreator.java",
         "ConstantScoreQuerySpecCreator.java",
         "DefaultQuerySpecCreator.java",
+        "DisableBulkScorerQuerySpecCreator.java",
         "DisjunctionMaxQuerySpecCreator.java",
         "ExactVectorSearchQuerySpecCreator.java",
         "FunctionScoreQuerySpecCreator.java",

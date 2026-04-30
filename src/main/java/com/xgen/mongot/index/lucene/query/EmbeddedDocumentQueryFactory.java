@@ -1,8 +1,11 @@
 package com.xgen.mongot.index.lucene.query;
 
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.field.FieldValue;
 import com.xgen.mongot.index.lucene.query.context.SearchQueryFactoryContext;
+import com.xgen.mongot.index.lucene.query.util.DisableBulkScorerQuery;
 import com.xgen.mongot.index.lucene.query.util.WrappedToParentBlockJoinQuery;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.operators.EmbeddedDocumentOperator;
@@ -41,9 +44,12 @@ class EmbeddedDocumentQueryFactory {
       new QueryBitSetProducer(parentFilter(Optional.empty()));
 
   private final SearchQueryFactoryContext context;
+  private final DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry;
 
-  EmbeddedDocumentQueryFactory(SearchQueryFactoryContext context) {
+  EmbeddedDocumentQueryFactory(
+      SearchQueryFactoryContext context, DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
     this.context = context;
+    this.dynamicFeatureFlagRegistry = dynamicFeatureFlagRegistry;
   }
 
   /**
@@ -66,10 +72,15 @@ class EmbeddedDocumentQueryFactory {
         embeddedDocumentOperator.path().toString());
 
     // The query to match to individual embedded documents.
-    Query childQuery =
+    Query innerChildQuery =
         luceneQueryFactory.createQuery(
             embeddedDocumentOperator.operator(),
             singleQueryContext.withEmbeddedRoot(embeddedDocumentOperator.path()));
+    Query childQuery =
+        this.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+                DynamicFeatureFlags.DISABLE_BULK_SCORER_QUERY_FOR_EMBEDDED_DOCUMENT_CHILD)
+            ? new DisableBulkScorerQuery(innerChildQuery)
+            : innerChildQuery;
 
     // delegate to child query since a join is not needed for the same query context root and
     // embedded root.

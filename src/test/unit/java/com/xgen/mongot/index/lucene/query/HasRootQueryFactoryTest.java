@@ -4,6 +4,7 @@ import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.StoredSourceDefinition;
 import com.xgen.mongot.index.lucene.query.util.BooleanComposer;
+import com.xgen.mongot.index.lucene.query.util.DisableBulkScorerQuery;
 import com.xgen.mongot.index.lucene.query.util.WrappedToParentBlockJoinQuery;
 import com.xgen.mongot.index.query.operators.HasRootOperator;
 import com.xgen.mongot.index.query.operators.Operator;
@@ -161,7 +162,7 @@ public class HasRootQueryFactoryTest {
     // Inner block join query joins to parent embedded documents at path "foo".
     Query fooEmbeddedDocumentsQuery =
         new WrappedToParentBlockJoinQuery(
-            innerCompoundBuilder.build(),
+            new DisableBulkScorerQuery(innerCompoundBuilder.build()),
             HasRootQueryFactory.ROOT_BIT_SET_PRODUCER,
             ScoreMode.Total);
 
