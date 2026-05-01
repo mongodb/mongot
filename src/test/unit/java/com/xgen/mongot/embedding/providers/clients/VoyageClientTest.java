@@ -31,6 +31,7 @@ import com.xgen.mongot.embedding.providers.congestion.DynamicSemaphore;
 import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.util.bson.Vector;
+import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -1521,6 +1522,91 @@ public class VoyageClientTest {
     assertEquals(
         EmbeddingProviderTransientException.Reason.TENANT_CREDENTIALS_FAILURE,
         ex.getReason());
+  }
+
+  @Test
+  public void embed_408Status_recordsErrorCode408() throws Exception {
+    assertErrorCodeRecorded(httpResponseClient(408, "request timeout"), "http_timeout", "408");
+  }
+
+  @Test
+  public void embed_429Status_recordsErrorCode429() throws Exception {
+    assertErrorCodeRecorded(
+        httpResponseClient(429, "rate limited"), "rate_limit_exceeded", "429");
+  }
+
+  @Test
+  public void embed_500Status_recordsErrorCode500() throws Exception {
+    assertErrorCodeRecorded(
+        httpResponseClient(500, "server error"), "http_non_ok_status", "500");
+  }
+
+  @Test
+  public void embed_clientTimeout_recordsErrorCode408() throws Exception {
+    HttpClient mockClient = mock(HttpClient.class);
+    doThrow(new HttpTimeoutException("client side timeout"))
+        .when(mockClient)
+        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+    assertErrorCodeRecorded(mockClient, "http_timeout", "408");
+  }
+
+  @Test
+  public void embed_ioException_recordsErrorCodeNone() throws Exception {
+    HttpClient mockClient = mock(HttpClient.class);
+    doThrow(new IOException("network error"))
+        .when(mockClient)
+        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+    assertErrorCodeRecorded(mockClient, "http_io_exception", "none");
+  }
+
+  /**
+   * Drives a single embed() attempt against {@code mockClient}, expects a transient failure, and
+   * asserts the {@code embeddingProviderErrors} counter was incremented exactly once for the given
+   * (reason, errorCode) tag pair (with {@code exceptionType} pinned to guard against tag-name
+   * regressions).
+   */
+  private static void assertErrorCodeRecorded(
+      HttpClient mockClient, String expectedReason, String expectedErrorCode) {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MetricsFactory metricsFactory = new MetricsFactory("test", registry);
+    VoyageClient voyageClient =
+        new VoyageClient(
+            VOYAGE_3_LARGE,
+            EmbeddingServiceConfig.ServiceTier.QUERY,
+            VOYAGE_3_LARGE.query(),
+            metricsFactory,
+            Optional.empty(),
+            false,
+            false);
+    VoyageClient.injectVoyageClient(voyageClient, mockClient);
+
+    assertThrows(
+        EmbeddingProviderTransientException.class,
+        () -> voyageClient.embed(List.of("hi"), dummyContext()));
+
+    double count =
+        registry
+            .find("test.embeddingProviderErrors")
+            .tags(
+                Tags.of(
+                    "exceptionType", "EmbeddingProviderTransientException",
+                    "reason", expectedReason,
+                    "errorCode", expectedErrorCode))
+            .counter()
+            .count();
+    assertEquals(1.0, count, 1E-7);
+  }
+
+  /** Mock HttpClient that returns a single response with the given status code and body. */
+  private static HttpClient httpResponseClient(int statusCode, String body) throws Exception {
+    HttpClient mockClient = mock(HttpClient.class);
+    HttpResponse<String> mockResponse = mock(HttpResponse.class);
+    doReturn(statusCode).when(mockResponse).statusCode();
+    doReturn(body).when(mockResponse).body();
+    doReturn(mockResponse)
+        .when(mockClient)
+        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+    return mockClient;
   }
 
   @Test

@@ -274,15 +274,19 @@ public class VoyageClient implements ClientInterface {
         if (e instanceof HttpConnectTimeoutException) {
           renewHttpClientAfterConnectionFailure(e, clientForRequest);
         }
-        LOG.error("Got timeout error when sending voyage API request", e);
+        LOG.error("Got timeout when sending voyage API request", e);
         isAck = false;
-        recordProviderErrorMetric(EmbeddingProviderTransientException.Reason.HTTP_TIMEOUT);
+        recordProviderErrorMetric(
+            EmbeddingProviderTransientException.Reason.HTTP_TIMEOUT, Optional.of(408));
         throw new EmbeddingProviderTransientException(
             e, EmbeddingProviderTransientException.Reason.HTTP_TIMEOUT);
       } catch (EmbeddingProviderRateLimitException e) {
         LOG.error("Got rate-limit error when sending voyage API request", e);
         isAck = false;
-        recordProviderErrorMetric(EmbeddingProviderTransientException.Reason.RATE_LIMIT_EXCEEDED);
+        // EmbeddingProviderRateLimitException is only thrown from the HTTP 429 branch in
+        // extractVectorsFromResponse, so the status code is always 429.
+        recordProviderErrorMetric(
+            EmbeddingProviderTransientException.Reason.RATE_LIMIT_EXCEEDED, Optional.of(429));
         throw new EmbeddingProviderTransientException(
             e, EmbeddingProviderTransientException.Reason.RATE_LIMIT_EXCEEDED);
       } catch (InterruptedException e) {
@@ -321,6 +325,19 @@ public class VoyageClient implements ClientInterface {
   }
 
   private void recordProviderErrorMetric(EmbeddingProviderTransientException.Reason reason) {
+    recordProviderErrorMetric(reason, Optional.empty());
+  }
+
+  /**
+   * Records a transient embedding-provider error. {@code httpStatusCode} carries the HTTP status
+   * when the failure is a Voyage HTTP error response (e.g. 408, 429, 500). When there is no HTTP
+   * error response — network errors, client-side request-build failures, or parse errors on
+   * otherwise-successful (2xx) responses — it is empty and the {@code errorCode} tag is set to
+   * {@code "none"}. Both server-side HTTP 408 and client-side request timeouts are tagged as
+   * {@code 408}.
+   */
+  private void recordProviderErrorMetric(
+      EmbeddingProviderTransientException.Reason reason, Optional<Integer> httpStatusCode) {
     this.metricsFactory
         .counter(
             "embeddingProviderErrors",
@@ -328,7 +345,9 @@ public class VoyageClient implements ClientInterface {
                 "exceptionType",
                 "EmbeddingProviderTransientException",
                 "reason",
-                reason.name().toLowerCase(Locale.ROOT)))
+                reason.name().toLowerCase(Locale.ROOT),
+                "errorCode",
+                httpStatusCode.map(Object::toString).orElse("none")))
         .increment();
   }
 
@@ -713,7 +732,8 @@ public class VoyageClient implements ClientInterface {
           String.format("Timeout exception (HTTP 408). Response body: %s", response.body()));
     }
     if (statusCode > 400) {
-      recordProviderErrorMetric(EmbeddingProviderTransientException.Reason.HTTP_NON_OK_STATUS);
+      recordProviderErrorMetric(
+          EmbeddingProviderTransientException.Reason.HTTP_NON_OK_STATUS, Optional.of(statusCode));
       throw new EmbeddingProviderTransientException(
           String.format("Got non OK status from response, status code: %s", statusCode),
           EmbeddingProviderTransientException.Reason.HTTP_NON_OK_STATUS);
@@ -738,6 +758,8 @@ public class VoyageClient implements ClientInterface {
       }
       return results;
     } catch (BsonParseException e) {
+      // The Voyage HTTP response itself succeeded; only the body failed to parse, so there is no
+      // meaningful error code to report.
       recordProviderErrorMetric(EmbeddingProviderTransientException.Reason.RESPONSE_PARSE_ERROR);
       throw new EmbeddingProviderTransientException(
           e, EmbeddingProviderTransientException.Reason.RESPONSE_PARSE_ERROR);
