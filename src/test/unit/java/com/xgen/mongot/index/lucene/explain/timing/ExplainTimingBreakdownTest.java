@@ -18,19 +18,19 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      ExplainTimingBreakdownTest.TestDeserialization.class,
-      ExplainTimingBreakdownTest.TestSerialization.class,
+      ExplainTimingBreakdownTest.DeserializationTest.class,
+      ExplainTimingBreakdownTest.SerializationTest.class,
     })
 public class ExplainTimingBreakdownTest {
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
     private static final String SUITE_NAME = "explain-timing-breakdown-deserialization";
     private static final BsonDeserializationTestSuite<ExplainTimingBreakdown> TEST_SUITE =
         fromDocument(TimingTestUtil.RESOURCES_PATH, SUITE_NAME, ExplainTimingBreakdown::fromBson);
 
     private final BsonDeserializationTestSuite.TestSpecWrapper<ExplainTimingBreakdown> testSpec;
 
-    public TestDeserialization(
+    public DeserializationTest(
         BsonDeserializationTestSuite.TestSpecWrapper<ExplainTimingBreakdown> testSpec) {
       this.testSpec = testSpec;
     }
@@ -65,14 +65,14 @@ public class ExplainTimingBreakdownTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
     private static final String SUITE_NAME = "explain-timing-breakdown-serialization";
     private static final BsonSerializationTestSuite<ExplainTimingBreakdown> TEST_SUITE =
         fromEncodable(TimingTestUtil.RESOURCES_PATH, SUITE_NAME);
 
     private final BsonSerializationTestSuite.TestSpec<ExplainTimingBreakdown> testSpec;
 
-    public TestSerialization(BsonSerializationTestSuite.TestSpec<ExplainTimingBreakdown> testSpec) {
+    public SerializationTest(BsonSerializationTestSuite.TestSpec<ExplainTimingBreakdown> testSpec) {
       this.testSpec = testSpec;
     }
 

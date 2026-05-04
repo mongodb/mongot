@@ -17,12 +17,12 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      SynonymQuerySpecTest.TestDeserialization.class,
-      SynonymQuerySpecTest.TestSerialization.class,
+      SynonymQuerySpecTest.DeserializationTest.class,
+      SynonymQuerySpecTest.SerializationTest.class,
     })
 public class SynonymQuerySpecTest {
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
     private static final String SUITE_NAME = "synonym-query-deserialization";
     private static final BsonDeserializationTestSuite<SynonymQuerySpec> TEST_SUITE =
         fromDocument(
@@ -30,7 +30,7 @@ public class SynonymQuerySpecTest {
 
     private final BsonDeserializationTestSuite.TestSpecWrapper<SynonymQuerySpec> testSpec;
 
-    public TestDeserialization(
+    public DeserializationTest(
         BsonDeserializationTestSuite.TestSpecWrapper<SynonymQuerySpec> testSpec) {
       this.testSpec = testSpec;
     }
@@ -54,14 +54,14 @@ public class SynonymQuerySpecTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
     private static final String SUITE_NAME = "synonym-query-serialization";
     private static final BsonSerializationTestSuite<SynonymQuerySpec> TEST_SUITE =
         fromEncodable(ExplainInformationTestUtil.RESOURCES_PATH, SUITE_NAME);
 
     private final BsonSerializationTestSuite.TestSpec<SynonymQuerySpec> testSpec;
 
-    public TestSerialization(BsonSerializationTestSuite.TestSpec<SynonymQuerySpec> testSpec) {
+    public SerializationTest(BsonSerializationTestSuite.TestSpec<SynonymQuerySpec> testSpec) {
       this.testSpec = testSpec;
     }
 

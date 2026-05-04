@@ -5,7 +5,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.google.common.collect.ImmutableList;
 import com.xgen.mongot.index.lucene.query.pushdown.match.MatchStageTest.InequalityTest;
-import com.xgen.mongot.index.lucene.query.pushdown.match.MatchStageTest.TestMixedTypes;
+import com.xgen.mongot.index.lucene.query.pushdown.match.MatchStageTest.MixedTypesTest;
 import com.xgen.mongot.index.query.operators.mql.Clause;
 import com.xgen.mongot.index.query.operators.mql.MqlFilterOperator;
 import com.xgen.mongot.index.query.operators.mql.MqlFilterOperatorList;
@@ -46,7 +46,7 @@ import org.junit.runners.Suite.SuiteClasses;
 
 @SuiteClasses({
   InequalityTest.class,
-  TestMixedTypes.class,
+  MixedTypesTest.class,
 })
 @RunWith(Suite.class)
 public class MatchStageTest {
@@ -327,7 +327,7 @@ public class MatchStageTest {
   }
 
   @RunWith(Theories.class)
-  public static class TestMixedTypes {
+  public static class MixedTypesTest {
 
     @DataPoints
     public static ImmutableList<Supplier<InequalityBuilder<?>>> builders() {

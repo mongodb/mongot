@@ -17,19 +17,19 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      QueryExecutionAreaTest.TestDeserialization.class,
-      QueryExecutionAreaTest.TestSerialization.class,
+      QueryExecutionAreaTest.DeserializationTest.class,
+      QueryExecutionAreaTest.SerializationTest.class,
     })
 public class QueryExecutionAreaTest {
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
     private static final String SUITE_NAME = "query-exec-area-deserialization";
     private static final BsonDeserializationTestSuite<QueryExecutionArea> TEST_SUITE =
         fromDocument(TimingTestUtil.RESOURCES_PATH, SUITE_NAME, QueryExecutionArea::fromBson);
 
     private final BsonDeserializationTestSuite.TestSpecWrapper<QueryExecutionArea> testSpec;
 
-    public TestDeserialization(
+    public DeserializationTest(
         BsonDeserializationTestSuite.TestSpecWrapper<QueryExecutionArea> testSpec) {
       this.testSpec = testSpec;
     }
@@ -63,14 +63,14 @@ public class QueryExecutionAreaTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
     private static final String SUITE_NAME = "query-exec-area-serialization";
     private static final BsonSerializationTestSuite<QueryExecutionArea> TEST_SUITE =
         fromEncodable(TimingTestUtil.RESOURCES_PATH, SUITE_NAME);
 
     private final BsonSerializationTestSuite.TestSpec<QueryExecutionArea> testSpec;
 
-    public TestSerialization(BsonSerializationTestSuite.TestSpec<QueryExecutionArea> testSpec) {
+    public SerializationTest(BsonSerializationTestSuite.TestSpec<QueryExecutionArea> testSpec) {
       this.testSpec = testSpec;
     }
 

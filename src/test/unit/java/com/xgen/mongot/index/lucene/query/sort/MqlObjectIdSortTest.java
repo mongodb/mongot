@@ -64,11 +64,11 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      MqlObjectIdSortTest.TestClass.class,
-      MqlObjectIdSortTest.TestPruning.class,
+      MqlObjectIdSortTest.ClassTest.class,
+      MqlObjectIdSortTest.PruningTest.class,
     })
 public class MqlObjectIdSortTest {
-  public static class TestClass {
+  public static class ClassTest {
     private Directory directory;
     private IndexSearcher searcher;
 
@@ -258,7 +258,7 @@ public class MqlObjectIdSortTest {
    * pruning tests</a>.
    */
   @RunWith(Theories.class)
-  public static class TestPruning {
+  public static class PruningTest {
     private Directory directory;
     private IndexWriter writer;
 

@@ -63,11 +63,11 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      MqlUuidSortTest.TestClass.class,
-      MqlUuidSortTest.TestPruning.class,
+      MqlUuidSortTest.ClassTest.class,
+      MqlUuidSortTest.PruningTest.class,
     })
 public class MqlUuidSortTest {
-  public static class TestClass {
+  public static class ClassTest {
     private Directory directory;
     private IndexSearcher searcher;
     private static final String uuidField =
@@ -248,7 +248,7 @@ public class MqlUuidSortTest {
   }
 
   @RunWith(Theories.class)
-  public static class TestPruning {
+  public static class PruningTest {
     private Directory directory;
     private IndexWriter writer;
 

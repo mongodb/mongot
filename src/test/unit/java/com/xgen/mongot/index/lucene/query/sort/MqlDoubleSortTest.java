@@ -67,11 +67,11 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      MqlDoubleSortTest.TestClass.class,
-      MqlDoubleSortTest.TestPruning.class,
+      MqlDoubleSortTest.ClassTest.class,
+      MqlDoubleSortTest.PruningTest.class,
     })
 public class MqlDoubleSortTest {
-  public static class TestClass {
+  public static class ClassTest {
     private Directory directory;
     private IndexSearcher searcher;
     private static final String doubleField =
@@ -359,12 +359,12 @@ public class MqlDoubleSortTest {
    * pruning tests</a>.
    */
   @RunWith(Parameterized.class)
-  public static class TestPruning {
+  public static class PruningTest {
     private static final FieldName.TypeField FIELD_TYPE = FieldName.TypeField.NUMBER_DOUBLE_V2;
 
     SortPruningTestUtils.TestRunner testRunner;
 
-    public TestPruning(
+    public PruningTest(
         CheckedBiFunction<Boolean, IndexWriter, List<TopDocs>, IOException> testFunc) {
       this.testRunner = new SortPruningTestUtils.TestRunner(testFunc);
     }
@@ -373,28 +373,28 @@ public class MqlDoubleSortTest {
     public static Iterable<CheckedBiFunction<Boolean, IndexWriter, List<TopDocs>, IOException>>
         data() {
       return List.of(
-          TestPruning::testSortOptimizationExplain,
-          TestPruning::testSortOptimizationExplainAfter,
-          TestPruning::testSortOptimizationSimpleAndAfter,
-          TestPruning::testSortOptimizationSimpleAndAfterNullsHighest,
-          TestPruning::testSortOptimizationSecondarySortScore,
-          TestPruning::testMinValueAscPruned,
-          TestPruning::testMinValueAscPrunedNullsHighest,
-          TestPruning::testMinValueDescPruned,
-          TestPruning::testSearchAfterTopNullBottomNonNullAscPruned,
-          TestPruning::testSearchAfterTopNullBottomNullAscPruned,
-          TestPruning::testSearchAfterTopNullBottomNonNullDescPrunedNullsHighest,
-          TestPruning::testSearchAfterTopNullBottomNullDescPrunedNullsHighest,
-          TestPruning::testSearchAfterDescTopNonNullBottomNull,
-          TestPruning::testSortOptimizationEqualValues,
-          TestPruning::testSortOptimizationWithNonCompetitiveMissingValue,
-          TestPruning::testSortOptimizationWithNonCompetitiveMissingValueNullsHighest,
-          TestPruning::testSortOptimizationMissingValueNonCompetitiveWhenBottomNullSingleSort,
-          TestPruning::testNoSortOptimizationMissingValueCompetitiveWhenBottomNullCompoundSort,
-          TestPruning::testNoSortOptimizationWithCompetitiveMissingValue,
-          TestPruning::testSortOptimizationWithMultipleCompetitiveMissingValue,
-          TestPruning::testNoOptimizationOnFieldNotIndexedWithPoints,
-          TestPruning::testNoOptimizationIfSecondarySort);
+          PruningTest::testSortOptimizationExplain,
+          PruningTest::testSortOptimizationExplainAfter,
+          PruningTest::testSortOptimizationSimpleAndAfter,
+          PruningTest::testSortOptimizationSimpleAndAfterNullsHighest,
+          PruningTest::testSortOptimizationSecondarySortScore,
+          PruningTest::testMinValueAscPruned,
+          PruningTest::testMinValueAscPrunedNullsHighest,
+          PruningTest::testMinValueDescPruned,
+          PruningTest::testSearchAfterTopNullBottomNonNullAscPruned,
+          PruningTest::testSearchAfterTopNullBottomNullAscPruned,
+          PruningTest::testSearchAfterTopNullBottomNonNullDescPrunedNullsHighest,
+          PruningTest::testSearchAfterTopNullBottomNullDescPrunedNullsHighest,
+          PruningTest::testSearchAfterDescTopNonNullBottomNull,
+          PruningTest::testSortOptimizationEqualValues,
+          PruningTest::testSortOptimizationWithNonCompetitiveMissingValue,
+          PruningTest::testSortOptimizationWithNonCompetitiveMissingValueNullsHighest,
+          PruningTest::testSortOptimizationMissingValueNonCompetitiveWhenBottomNullSingleSort,
+          PruningTest::testNoSortOptimizationMissingValueCompetitiveWhenBottomNullCompoundSort,
+          PruningTest::testNoSortOptimizationWithCompetitiveMissingValue,
+          PruningTest::testSortOptimizationWithMultipleCompetitiveMissingValue,
+          PruningTest::testNoOptimizationOnFieldNotIndexedWithPoints,
+          PruningTest::testNoOptimizationIfSecondarySort);
     }
 
     @Test

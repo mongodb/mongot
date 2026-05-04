@@ -22,12 +22,12 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      SortStatsTest.TestClass.class,
-      SortStatsTest.TestDeserialization.class,
-      SortStatsTest.TestSerialization.class,
+      SortStatsTest.ClassTest.class,
+      SortStatsTest.DeserializationTest.class,
+      SortStatsTest.SerializationTest.class,
     })
 public class SortStatsTest {
-  public static class TestClass {
+  public static class ClassTest {
     @Test
     public void testCreate() {
       SortStats expected =
@@ -55,7 +55,7 @@ public class SortStatsTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
     private static final String SUITE_NAME = "sort-stats-deserialization";
 
     private static final BsonDeserializationTestSuite<SortStats> TEST_SUITE =
@@ -63,7 +63,7 @@ public class SortStatsTest {
 
     private final BsonDeserializationTestSuite.TestSpecWrapper<SortStats> testSpec;
 
-    public TestDeserialization(BsonDeserializationTestSuite.TestSpecWrapper<SortStats> testSpec) {
+    public DeserializationTest(BsonDeserializationTestSuite.TestSpecWrapper<SortStats> testSpec) {
       this.testSpec = testSpec;
     }
 
@@ -106,7 +106,7 @@ public class SortStatsTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
     private static final String SUITE_NAME = "sort-stats-serialization";
 
     private static final BsonSerializationTestSuite<SortStats> TEST_SUITE =
@@ -114,7 +114,7 @@ public class SortStatsTest {
 
     private final BsonSerializationTestSuite.TestSpec<SortStats> testSpec;
 
-    public TestSerialization(BsonSerializationTestSuite.TestSpec<SortStats> testSpec) {
+    public SerializationTest(BsonSerializationTestSuite.TestSpec<SortStats> testSpec) {
       this.testSpec = testSpec;
     }
 

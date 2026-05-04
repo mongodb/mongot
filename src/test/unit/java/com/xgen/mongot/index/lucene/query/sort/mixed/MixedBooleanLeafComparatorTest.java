@@ -36,14 +36,14 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      MixedBooleanLeafComparatorTest.TestSegmentWithTrueFalse.class,
-      MixedBooleanLeafComparatorTest.TestSegmentWithOnlyTrue.class,
-      MixedBooleanLeafComparatorTest.TestSegmentWithOnlyFalse.class
+      MixedBooleanLeafComparatorTest.SegmentWithTrueFalseTest.class,
+      MixedBooleanLeafComparatorTest.SegmentWithOnlyTrueTest.class,
+      MixedBooleanLeafComparatorTest.SegmentWithOnlyFalseTest.class
     })
 public class MixedBooleanLeafComparatorTest {
   private static final String FIELD = "field";
 
-  public static class TestSegmentWithTrueFalse {
+  public static class SegmentWithTrueFalseTest {
     private ByteBuffersDirectory directory;
 
     /** Contains both true and false values in the segment. */
@@ -153,7 +153,7 @@ public class MixedBooleanLeafComparatorTest {
     }
   }
 
-  public static class TestSegmentWithOnlyTrue {
+  public static class SegmentWithOnlyTrueTest {
     private ByteBuffersDirectory directory;
 
     /** Contains only true values in the segment. */
@@ -257,7 +257,7 @@ public class MixedBooleanLeafComparatorTest {
     }
   }
 
-  public static class TestSegmentWithOnlyFalse {
+  public static class SegmentWithOnlyFalseTest {
     private ByteBuffersDirectory directory;
 
     /** Contains only false values in the segment. */

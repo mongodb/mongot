@@ -58,12 +58,12 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      MqlStringSortTest.TestClass.class,
-      MqlStringSortTest.TestPruningTokenField.class,
-      MqlStringSortTest.TestPruningNullField.class
+      MqlStringSortTest.ClassTest.class,
+      MqlStringSortTest.PruningTokenFieldTest.class,
+      MqlStringSortTest.PruningNullFieldTest.class
     })
 public class MqlStringSortTest {
-  public static class TestClass {
+  public static class ClassTest {
     private Directory directory;
     private IndexSearcher searcher;
 
@@ -291,30 +291,30 @@ public class MqlStringSortTest {
    * pruning tests</a>.
    */
   @RunWith(Parameterized.class)
-  public static class TestPruningTokenField {
+  public static class PruningTokenFieldTest {
     public static final FieldName.TypeField FIELD_TYPE = FieldName.TypeField.TOKEN;
     SortPruningTestUtils.TestRunner testRunner;
 
-    public TestPruningTokenField(
+    public PruningTokenFieldTest(
         CheckedBiFunction<Boolean, IndexWriter, List<TopDocs>, IOException> testFunc) {
       this.testRunner = new SortPruningTestUtils.TestRunner(testFunc);
     }
 
-    @Parameterized.Parameters(name = "TestPruningTokenField-{index}")
+    @Parameterized.Parameters(name = "PruningTokenFieldTest-{index}")
     public static Iterable<CheckedBiFunction<Boolean, IndexWriter, List<TopDocs>, IOException>>
         data() {
       return List.of(
-          TestPruningTokenField::testStringSortExplain,
-          TestPruningTokenField::testSortExplainAfterAscOptimization,
-          TestPruningTokenField::testStringSortAscOptimization,
-          TestPruningTokenField::testStringSortAscOptimizationNullsHighest,
-          TestPruningTokenField::testStringSortDescOptimization,
-          TestPruningTokenField::testStringSortDescOptimizationNullsHighest,
-          TestPruningTokenField::testSortAfterAscOptimization,
-          TestPruningTokenField::testSortAfterAscOptimizationNullsHighest,
-          TestPruningTokenField::testSecondarySortNoOptimization,
-          TestPruningTokenField::testTokenThenScoreSecondarySortOptimization,
-          TestPruningTokenField::testSortOptimizationEqualValues);
+          PruningTokenFieldTest::testStringSortExplain,
+          PruningTokenFieldTest::testSortExplainAfterAscOptimization,
+          PruningTokenFieldTest::testStringSortAscOptimization,
+          PruningTokenFieldTest::testStringSortAscOptimizationNullsHighest,
+          PruningTokenFieldTest::testStringSortDescOptimization,
+          PruningTokenFieldTest::testStringSortDescOptimizationNullsHighest,
+          PruningTokenFieldTest::testSortAfterAscOptimization,
+          PruningTokenFieldTest::testSortAfterAscOptimizationNullsHighest,
+          PruningTokenFieldTest::testSecondarySortNoOptimization,
+          PruningTokenFieldTest::testTokenThenScoreSecondarySortOptimization,
+          PruningTokenFieldTest::testSortOptimizationEqualValues);
     }
 
     @Test
@@ -698,29 +698,29 @@ public class MqlStringSortTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestPruningNullField {
+  public static class PruningNullFieldTest {
 
     SortPruningTestUtils.TestRunner testRunner;
 
-    public TestPruningNullField(
+    public PruningNullFieldTest(
         CheckedBiFunction<Boolean, IndexWriter, List<TopDocs>, IOException> testFunc) {
       this.testRunner = new SortPruningTestUtils.TestRunner(testFunc);
     }
 
-    @Parameterized.Parameters(name = "TestPruningNullField-{index}")
+    @Parameterized.Parameters(name = "PruningNullFieldTest-{index}")
     public static Iterable<CheckedBiFunction<Boolean, IndexWriter, List<TopDocs>, IOException>>
         data() {
       return List.of(
-          TestPruningNullField::testStringSortAscOptimization,
-          TestPruningNullField::testStringSortAscOptimizationNullsHighest,
-          TestPruningNullField::testStringSortDescOptimization,
-          TestPruningNullField::testStringSortDescOptimizationNullsHighest,
-          TestPruningNullField::testSortAfterAscOptimization,
-          TestPruningNullField::testSortAfterAscOptimizationNullsHighest,
-          TestPruningNullField::testNullSortAfterAscNoOptimization,
-          TestPruningNullField::testNullThenScoreSecondarySortNoOptimization,
-          TestPruningNullField::testSecondarySortNoOptimization,
-          TestPruningNullField::testSortOptimizationEqualValues);
+          PruningNullFieldTest::testStringSortAscOptimization,
+          PruningNullFieldTest::testStringSortAscOptimizationNullsHighest,
+          PruningNullFieldTest::testStringSortDescOptimization,
+          PruningNullFieldTest::testStringSortDescOptimizationNullsHighest,
+          PruningNullFieldTest::testSortAfterAscOptimization,
+          PruningNullFieldTest::testSortAfterAscOptimizationNullsHighest,
+          PruningNullFieldTest::testNullSortAfterAscNoOptimization,
+          PruningNullFieldTest::testNullThenScoreSecondarySortNoOptimization,
+          PruningNullFieldTest::testSecondarySortNoOptimization,
+          PruningNullFieldTest::testSortOptimizationEqualValues);
     }
 
     @Test

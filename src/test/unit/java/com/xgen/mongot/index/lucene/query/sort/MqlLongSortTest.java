@@ -63,12 +63,12 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      MqlLongSortTest.TestClass.class,
-      MqlLongSortTest.TestPruning.class,
+      MqlLongSortTest.ClassTest.class,
+      MqlLongSortTest.PruningTest.class,
     })
 public class MqlLongSortTest {
 
-  public static class TestClass {
+  public static class ClassTest {
     private Directory directory;
     private IndexSearcher searcher;
 
@@ -260,11 +260,11 @@ public class MqlLongSortTest {
    * pruning tests</a>.
    */
   @RunWith(Parameterized.class)
-  public static class TestPruning {
+  public static class PruningTest {
     private static final FieldName.TypeField FIELD_TYPE = FieldName.TypeField.NUMBER_INT64_V2;
     SortPruningTestUtils.TestRunner testRunner;
 
-    public TestPruning(MethodReference testFunc) {
+    public PruningTest(MethodReference testFunc) {
       this.testRunner = new SortPruningTestUtils.TestRunner(testFunc.function);
     }
 
@@ -281,69 +281,69 @@ public class MqlLongSortTest {
     public static Iterable<MethodReference> data() {
       return List.of(
           new MethodReference(
-              TestPruning::testSortOptimizationExplain, "testSortOptimizationExplain"),
+              PruningTest::testSortOptimizationExplain, "testSortOptimizationExplain"),
           new MethodReference(
-              TestPruning::testSortOptimizationSimpleAndAfter,
+              PruningTest::testSortOptimizationSimpleAndAfter,
               "testSortOptimizationSimpleAndAfter"),
           new MethodReference(
-              TestPruning::testSortOptimizationSimpleAndAfterNullsHighest,
+              PruningTest::testSortOptimizationSimpleAndAfterNullsHighest,
               "testSortOptimizationSimpleAndAfterNullsHighest"),
           new MethodReference(
-              TestPruning::testSortOptimizationSecondarySortScore,
+              PruningTest::testSortOptimizationSecondarySortScore,
               "testSortOptimizationSecondarySortScore"),
-          new MethodReference(TestPruning::testMinValueNotPruned, "testMinValueNotPruned"),
-          new MethodReference(TestPruning::testMinValueAscPruned, "testMinValueAscPruned"),
+          new MethodReference(PruningTest::testMinValueNotPruned, "testMinValueNotPruned"),
+          new MethodReference(PruningTest::testMinValueAscPruned, "testMinValueAscPruned"),
           new MethodReference(
-              TestPruning::testMinValueAscPrunedNullsHighest, "testMinValueAscPrunedNullsHighest"),
-          new MethodReference(TestPruning::testMinValueDescPruned, "testMinValueDescPruned"),
+              PruningTest::testMinValueAscPrunedNullsHighest, "testMinValueAscPrunedNullsHighest"),
+          new MethodReference(PruningTest::testMinValueDescPruned, "testMinValueDescPruned"),
           new MethodReference(
-              TestPruning::testSearchBottomNullAscNullsHighestPruned,
+              PruningTest::testSearchBottomNullAscNullsHighestPruned,
               "testSearchBottomNullAscNullsHighestPruned"),
           new MethodReference(
-              TestPruning::testSearchBottomNullDescPruned, "testSearchBottomNullDescPruned"),
+              PruningTest::testSearchBottomNullDescPruned, "testSearchBottomNullDescPruned"),
           new MethodReference(
-              TestPruning::testSearchAfterTopNullBottomNonNullAscPruned,
+              PruningTest::testSearchAfterTopNullBottomNonNullAscPruned,
               "testSearchAfterTopNullBottomNonNullAscPruned"),
           new MethodReference(
-              TestPruning::testSearchAfterTopNullBottomNullAscPruned,
+              PruningTest::testSearchAfterTopNullBottomNullAscPruned,
               "testSearchAfterTopNullBottomNullAscPruned"),
           new MethodReference(
-              TestPruning::testSearchAfterTopNullBottomNonNullDescPrunedNullsHighest,
+              PruningTest::testSearchAfterTopNullBottomNonNullDescPrunedNullsHighest,
               "testSearchAfterTopNullBottomNonNullDescPrunedNullsHighest"),
           new MethodReference(
-              TestPruning::testSearchAfterTopNullBottomNullDescPrunedNullsHighest,
+              PruningTest::testSearchAfterTopNullBottomNullDescPrunedNullsHighest,
               "testSearchAfterTopNullBottomNullDescPrunedNullsHighest"),
           new MethodReference(
-              TestPruning::testSearchAfterAscNullsHighestTopMaxValueBottomNull,
+              PruningTest::testSearchAfterAscNullsHighestTopMaxValueBottomNull,
               "testSearchAfterAscNullsHighestTopMaxValueBottomNull"),
           new MethodReference(
-              TestPruning::testSearchAfterDescTopMinValueBottomNull,
+              PruningTest::testSearchAfterDescTopMinValueBottomNull,
               "testSearchAfterDescTopMinValueBottomNull"),
           new MethodReference(
-              TestPruning::testSearchAfterDescTopNonNullBottomNull,
+              PruningTest::testSearchAfterDescTopNonNullBottomNull,
               "testSearchAfterDescTopNonNullBottomNull"),
           new MethodReference(
-              TestPruning::testSortOptimizationEqualValues, "testSortOptimizationEqualValues"),
+              PruningTest::testSortOptimizationEqualValues, "testSortOptimizationEqualValues"),
           new MethodReference(
-              TestPruning::testSortOptimizationWithNonCompetitiveMissingValue,
+              PruningTest::testSortOptimizationWithNonCompetitiveMissingValue,
               "testSortOptimizationWithNonCompetitiveMissingValue"),
           new MethodReference(
-              TestPruning::testSortOptimizationWithNonCompetitiveMissingValueNullsHighest,
+              PruningTest::testSortOptimizationWithNonCompetitiveMissingValueNullsHighest,
               "testSortOptimizationWithNonCompetitiveMissingValueNullsHighest"),
           new MethodReference(
-              TestPruning::testNoSortOptimizationWithCompetitiveMissingValue,
+              PruningTest::testNoSortOptimizationWithCompetitiveMissingValue,
               "testNoSortOptimizationWithCompetitiveMissingValue"),
           new MethodReference(
-              TestPruning::testSortOptimizationWithMultipleCompetitiveMissingValue,
+              PruningTest::testSortOptimizationWithMultipleCompetitiveMissingValue,
               "testSortOptimizationWithMultipleCompetitiveMissingValue"),
           new MethodReference(
-              TestPruning::testNoSortOptimizationMissingValueCompetitiveWhenBottomNullCompoundSort,
+              PruningTest::testNoSortOptimizationMissingValueCompetitiveWhenBottomNullCompoundSort,
               "testNoSortOptimizationMissingValueCompetitiveWhenBottomNullCompoundSort"),
           new MethodReference(
-              TestPruning::testNoOptimizationOnFieldNotIndexedWithPoints,
+              PruningTest::testNoOptimizationOnFieldNotIndexedWithPoints,
               "testNoOptimizationOnFieldNotIndexedWithPoints"),
           new MethodReference(
-              TestPruning::testNoOptimizationIfSecondarySort, "testNoOptimizationIfSecondarySort"));
+              PruningTest::testNoOptimizationIfSecondarySort, "testNoOptimizationIfSecondarySort"));
     }
 
     @Test

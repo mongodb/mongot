@@ -24,12 +24,12 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      SearchExplainInformationTest.TestDeserialization.class,
-      SearchExplainInformationTest.TestSerialization.class,
+      SearchExplainInformationTest.DeserializationTest.class,
+      SearchExplainInformationTest.SerializationTest.class,
     })
 public class SearchExplainInformationTest {
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
     private static final String SUITE_NAME = "search-explain-info-deserialization";
     private static final BsonDeserializationTestSuite<SearchExplainInformation> TEST_SUITE =
         fromDocument(
@@ -39,7 +39,7 @@ public class SearchExplainInformationTest {
 
     private final BsonDeserializationTestSuite.TestSpecWrapper<SearchExplainInformation> testSpec;
 
-    public TestDeserialization(
+    public DeserializationTest(
         BsonDeserializationTestSuite.TestSpecWrapper<SearchExplainInformation> testSpec) {
       this.testSpec = testSpec;
     }
@@ -164,14 +164,14 @@ public class SearchExplainInformationTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
     private static final String SUITE_NAME = "search-explain-info-serialization";
     private static final BsonSerializationTestSuite<SearchExplainInformation> TEST_SUITE =
         fromEncodable(ExplainInformationTestUtil.RESOURCES_PATH, SUITE_NAME);
 
     private final BsonSerializationTestSuite.TestSpec<SearchExplainInformation> testSpec;
 
-    public TestSerialization(
+    public SerializationTest(
         BsonSerializationTestSuite.TestSpec<SearchExplainInformation> testSpec) {
       this.testSpec = testSpec;
     }

@@ -18,12 +18,12 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      PointRangeQuerySpecTest.TestDeserialization.class,
-      PointRangeQuerySpecTest.TestSerialization.class,
+      PointRangeQuerySpecTest.DeserializationTest.class,
+      PointRangeQuerySpecTest.SerializationTest.class,
     })
 public class PointRangeQuerySpecTest {
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
     private static final String SUITE_NAME = "point-range-query-deserialization";
     private static final BsonDeserializationTestSuite<PointRangeQuerySpec> TEST_SUITE =
         fromDocument(
@@ -31,7 +31,7 @@ public class PointRangeQuerySpecTest {
 
     private final BsonDeserializationTestSuite.TestSpecWrapper<PointRangeQuerySpec> testSpec;
 
-    public TestDeserialization(
+    public DeserializationTest(
         BsonDeserializationTestSuite.TestSpecWrapper<PointRangeQuerySpec> testSpec) {
       this.testSpec = testSpec;
     }
@@ -67,14 +67,14 @@ public class PointRangeQuerySpecTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
     private static final String SUITE_NAME = "point-range-query-serialization";
     private static final BsonSerializationTestSuite<PointRangeQuerySpec> TEST_SUITE =
         fromEncodable(ExplainInformationTestUtil.RESOURCES_PATH, SUITE_NAME);
 
     private final BsonSerializationTestSuite.TestSpec<PointRangeQuerySpec> testSpec;
 
-    public TestSerialization(BsonSerializationTestSuite.TestSpec<PointRangeQuerySpec> testSpec) {
+    public SerializationTest(BsonSerializationTestSuite.TestSpec<PointRangeQuerySpec> testSpec) {
       this.testSpec = testSpec;
     }
 

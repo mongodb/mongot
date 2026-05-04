@@ -16,12 +16,12 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses(
     value = {
-      TermQuerySpecTest.TestDeserialization.class,
-      TermQuerySpecTest.TestSerialization.class,
+      TermQuerySpecTest.DeserializationTest.class,
+      TermQuerySpecTest.SerializationTest.class,
     })
 public class TermQuerySpecTest {
   @RunWith(Parameterized.class)
-  public static class TestDeserialization {
+  public static class DeserializationTest {
     private static final String SUITE_NAME = "term-query-deserialization";
     private static final BsonDeserializationTestSuite<TermQuerySpec> TEST_SUITE =
         fromDocument(
@@ -29,7 +29,7 @@ public class TermQuerySpecTest {
 
     private final BsonDeserializationTestSuite.TestSpecWrapper<TermQuerySpec> testSpec;
 
-    public TestDeserialization(
+    public DeserializationTest(
         BsonDeserializationTestSuite.TestSpecWrapper<TermQuerySpec> testSpec) {
       this.testSpec = testSpec;
     }
@@ -52,14 +52,14 @@ public class TermQuerySpecTest {
   }
 
   @RunWith(Parameterized.class)
-  public static class TestSerialization {
+  public static class SerializationTest {
     private static final String SUITE_NAME = "term-query-serialization";
     private static final BsonSerializationTestSuite<TermQuerySpec> TEST_SUITE =
         fromEncodable(ExplainInformationTestUtil.RESOURCES_PATH, SUITE_NAME);
 
     private final BsonSerializationTestSuite.TestSpec<TermQuerySpec> testSpec;
 
-    public TestSerialization(BsonSerializationTestSuite.TestSpec<TermQuerySpec> testSpec) {
+    public SerializationTest(BsonSerializationTestSuite.TestSpec<TermQuerySpec> testSpec) {
       this.testSpec = testSpec;
     }
 
