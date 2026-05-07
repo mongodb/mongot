@@ -51,14 +51,27 @@ TEST_CONFIGS = {
         ("sample_vectors", "cohere_wikipedia_multilingual_v3", "increase-hnsw-construction-params", "vector", 10),
         ("sample_vectors", "cohere_wikipedia_multilingual_v3", "max-out-hnsw-construction-params", "vector", 10)
     ],
+    "query-nested-30GB-vector-search.yml": [
+        ("sample_vectors", "nested_vector_1024d", "unquantized", "sections.vector", 10),
+    ],
 }
 
 
 def select_query_docs(db, collection_name, field, n=NUM_QUERY_VECTORS):
     """Select n documents deterministically, sorted by _id."""
     coll = db[collection_name]
+    # For nested paths like "sections.vector", use $elemMatch so the filter
+    # matches the same element that extract_query_vector will read (index 0).
+    # This avoids selecting docs where the vector exists in a later element
+    # but not in sections[0], which would cause extraction to fail.
+    parts = field.split(".", 1)
+    if len(parts) == 2 and "." in field:
+        array_field, sub_field = parts
+        query_filter = {array_field: {"$elemMatch": {sub_field: {"$exists": True}}}}
+    else:
+        query_filter = {field: {"$exists": True}}
     docs = list(
-        coll.find({field: {"$exists": True}})
+        coll.find(query_filter)
         .sort("_id", 1)
         .limit(n)
     )
@@ -66,6 +79,21 @@ def select_query_docs(db, collection_name, field, n=NUM_QUERY_VECTORS):
         raise ValueError(f"Only found {len(docs)} docs with field '{field}' "
                          f"in {collection_name} (wanted {n})")
     return docs
+
+
+def extract_query_vector(doc, field):
+    """Extract the query vector from a document, handling nested array paths.
+
+    For a path like 'sections.vector', reads the vector from the first element
+    of the array rather than expecting the field directly on the root doc.
+    """
+    parts = field.split(".", 1)
+    if len(parts) == 2 and isinstance(doc.get(parts[0]), list):
+        array = doc[parts[0]]
+        if not array:
+            raise ValueError(f"Empty array at '{parts[0]}' in doc {doc['_id']}")
+        return array[0][parts[1]]
+    return doc[field]
 
 
 def run_exact_vector_search(db, collection_name, index_name, field, query_vector, limit):
@@ -109,7 +137,7 @@ def generate_ground_truth(client, db_name, collection_name, index_name, field, l
 
     num_queries_written = 0
     for i, doc in enumerate(query_docs):
-        query_vector = doc[field]
+        query_vector = extract_query_vector(doc, field)
         doc_id = doc["_id"]
 
         results = run_exact_vector_search(
