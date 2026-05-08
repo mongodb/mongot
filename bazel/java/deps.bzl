@@ -167,9 +167,9 @@ MISC_ARTIFACTS = [
 
 PINNED_TRANSITIVE_ARTIFACTS = [
     "com.google.protobuf:protobuf-java:4.29.0",
-    "io.netty:netty-codec-http:4.1.132.Final",
-    "io.netty:netty-handler:4.1.132.Final",
-    "io.netty:netty-codec-http2:4.1.132.Final",
+    "io.netty:netty-codec-http:4.1.133.Final",
+    "io.netty:netty-handler:4.1.133.Final",
+    "io.netty:netty-codec-http2:4.1.133.Final",
     # GRPC requires this but doesn't bundle it for some reason
     "org.checkerframework:checker-qual:3.48.4",
     # Force gRPC version to 1.75.0 to address CVE-2025-55163

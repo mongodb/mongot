@@ -46,7 +46,7 @@ _GCP = [
     "com.google.cloud:google-cloud-nio:0.128.7",
 ]
 
-_NETTY_VERSION = "4.1.130.Final"
+_NETTY_VERSION = "4.1.133.Final"
 
 # Netty core artifacts
 _NETTY_ARTIFACTS = (
