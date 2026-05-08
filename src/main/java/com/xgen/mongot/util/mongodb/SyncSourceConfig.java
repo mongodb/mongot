@@ -213,6 +213,18 @@ public class SyncSourceConfig {
     }
   }
 
+  public SyncSourceConfig copyWithUpdatedReplicationUris(
+      Optional<ConnectionInfo> mongodUri, Optional<ConnectionInfo> mongosUri) {
+    return new SyncSourceConfig(
+        mongodUri,
+        this.mongodClusterReplicationUri,
+        this.mongodClusterReadWriteUri,
+        mongosUri,
+        this.mongosClusterReadWriteUri,
+        this.isSharded,
+        this.mongodUris);
+  }
+
   @Override
   public boolean equals(Object o) {
     if (this == o) {

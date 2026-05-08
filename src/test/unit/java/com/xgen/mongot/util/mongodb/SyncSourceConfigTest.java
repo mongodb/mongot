@@ -1,8 +1,10 @@
 package com.xgen.mongot.util.mongodb;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import java.util.Optional;
 import org.junit.Test;
 
 public class SyncSourceConfigTest {
@@ -73,6 +75,61 @@ public class SyncSourceConfigTest {
   @Test
   public void build_sharded_mongosClusterReadWriteUriPresent_doesNotThrow() {
     baseBuilder().isSharded(true).mongosClusterReadWriteUri(MONGOS).build();
+  }
+
+  @Test
+  public void copyWithUpdatedReplicationUris_setsMongodUri() {
+    SyncSourceConfig original = baseBuilder().build();
+    SyncSourceConfig copy =
+        original.copyWithUpdatedReplicationUris(Optional.of(MONGOD), Optional.empty());
+    assertEquals(Optional.of(MONGOD), copy.mongodSingleHostReplicationUri);
+  }
+
+  @Test
+  public void copyWithUpdatedReplicationUris_clearsMongodUri() {
+    SyncSourceConfig original = baseBuilder().mongodSingleHostReplicationUri(MONGOD).build();
+    SyncSourceConfig copy =
+        original.copyWithUpdatedReplicationUris(Optional.empty(), Optional.empty());
+    assertEquals(Optional.empty(), copy.mongodSingleHostReplicationUri);
+  }
+
+  @Test
+  public void copyWithUpdatedReplicationUris_setsMongosUri() {
+    SyncSourceConfig original = baseBuilder().build();
+    SyncSourceConfig copy =
+        original.copyWithUpdatedReplicationUris(Optional.empty(), Optional.of(MONGOS));
+    assertEquals(Optional.of(MONGOS), copy.mongosSingleHostReplicationUri);
+  }
+
+  @Test
+  public void copyWithUpdatedReplicationUris_clearsMongosUri() {
+    SyncSourceConfig original = baseBuilder().mongosSingleHostReplicationUri(MONGOS).build();
+    SyncSourceConfig copy =
+        original.copyWithUpdatedReplicationUris(Optional.empty(), Optional.empty());
+    assertEquals(Optional.empty(), copy.mongosSingleHostReplicationUri);
+  }
+
+  @Test
+  public void copyWithUpdatedReplicationUris_preservesOtherFields() {
+    SyncSourceConfig original =
+        baseBuilder()
+            .mongosClusterReadWriteUri(MONGOS)
+            .isSharded(true)
+            .build();
+    SyncSourceConfig copy =
+        original.copyWithUpdatedReplicationUris(Optional.of(MONGOD), Optional.of(MONGOS));
+    assertEquals(MONGOD, copy.mongodClusterReplicationUri);
+    assertEquals(MONGOD, copy.mongodClusterReadWriteUri);
+    assertEquals(Optional.of(MONGOS), copy.mongosClusterReadWriteUri);
+    assertTrue(copy.isSharded);
+    assertEquals(Optional.empty(), copy.mongodUris);
+  }
+
+  @Test
+  public void copyWithUpdatedReplicationUris_doesNotMutateOriginal() {
+    SyncSourceConfig original = baseBuilder().mongodSingleHostReplicationUri(MONGOD).build();
+    original.copyWithUpdatedReplicationUris(Optional.empty(), Optional.empty());
+    assertEquals(Optional.of(MONGOD), original.mongodSingleHostReplicationUri);
   }
 
   @Test(expected = IllegalStateException.class)

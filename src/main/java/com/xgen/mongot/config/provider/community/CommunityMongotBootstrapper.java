@@ -93,7 +93,6 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.bson.BsonArray;
@@ -150,7 +149,14 @@ public class CommunityMongotBootstrapper {
     var serverInfo = new CommunityServerInfo(config);
     LOG.atInfo().addKeyValue("serverInfo", serverInfo).log("Starting server with server info");
 
-    var syncSourceConfig = syncSourceConfig(config.syncSourceConfig());
+    var meterAndFtdcRegistry = MeterAndFtdcRegistry.createWithCompositeMeterRegistry();
+    var meterRegistry = meterAndFtdcRegistry.getCompositeMeterRegistry();
+
+    // InitialSyncHostProvider starts replica-set discovery when it's first instantiated. Initiate
+    // it early in the bootstrap process so as a best-effort it can be ready before first use.
+    var initialSyncHostProvider =
+        new InitialSyncHostProvider(config.syncSourceConfig(), meterRegistry);
+
     var indexCatalog = new DefaultIndexCatalog();
     var initializedIndexCatalog = new InitializedIndexCatalog();
 
@@ -160,11 +166,6 @@ public class CommunityMongotBootstrapper {
 
     // Initialize global feature flags for utility classes
     LoggableIdUtils.initialize(mongotConfigs.featureFlags.isEnabled(Feature.LOGGABLE_DOCUMENT_ID));
-
-    // metrics
-
-    var meterAndFtdcRegistry = MeterAndFtdcRegistry.createWithCompositeMeterRegistry();
-    var meterRegistry = meterAndFtdcRegistry.getCompositeMeterRegistry();
 
     var prometheusServerOptional =
         config
@@ -201,6 +202,7 @@ public class CommunityMongotBootstrapper {
     var replicationStateMonitor =
         ReplicationStateMonitor.diskBased(replicationGateConfig, initialSyncConfig, diskMonitor);
 
+    var syncSourceConfig = syncSourceConfig(config.syncSourceConfig(), initialSyncHostProvider);
     var mongoDbMetadataClient =
         new MongoDbMetadataClient(Optional.of(syncSourceConfig), meterRegistry);
     mongoDbMetadataClient.refreshServerInfo();
@@ -283,7 +285,8 @@ public class CommunityMongotBootstrapper {
             configManager,
             mongotConfigs.featureFlags,
             meterRegistry,
-            () -> syncSourceConfig);
+            syncSourceConfig,
+            initialSyncHostProvider);
 
     // Register shutdown hook prior to starting the server.
     // Close the server to cleanly finish any in-flight requests.
@@ -299,6 +302,7 @@ public class CommunityMongotBootstrapper {
         healthCheckServer::stop,
         diskMonitor::stop,
         metadataService::close,
+        initialSyncHostProvider::close,
         Logging::shutdown);
 
     // Start our background processes.
@@ -313,15 +317,13 @@ public class CommunityMongotBootstrapper {
   }
 
   private static SyncSourceConfig syncSourceConfig(
-      com.xgen.mongot.config.provider.community.SyncSourceConfig communitySyncSourceConfig) {
+      com.xgen.mongot.config.provider.community.SyncSourceConfig communitySyncSourceConfig,
+      InitialSyncHostProvider initialSyncHostProvider) {
 
     var caFile = communitySyncSourceConfig.caFile();
     var replicaSet = communitySyncSourceConfig.replicaSet();
     var replicationReadPreference = communitySyncSourceConfig.getReplicationReaderReadPreference();
 
-    var mongodSingleHostReplicationUri =
-        ConnectionInfoFactory.getSingleHostConnectionInfo(
-            replicaSet, randomHost(replicaSet.hostandPorts()), caFile);
     var mongodClusterReplicationUri =
         ConnectionInfoFactory.getClusterConnectionInfo(
             replicaSet, replicationReadPreference, caFile);
@@ -332,14 +334,6 @@ public class CommunityMongotBootstrapper {
         ConnectionInfoFactory.getClusterConnectionInfo(
             replicaSet, ReadPreference.secondaryPreferred(), caFile);
 
-    var mongosSingleHostReplicationUri =
-        communitySyncSourceConfig
-            .router()
-            .map(
-                router ->
-                    ConnectionInfoFactory.getSingleHostConnectionInfo(
-                        router, randomHost(router.hostandPorts()), caFile));
-
     var mongosClusterReadWriteUri =
         communitySyncSourceConfig
             .router()
@@ -348,22 +342,19 @@ public class CommunityMongotBootstrapper {
                     ConnectionInfoFactory.getClusterConnectionInfo(
                         router, ReadPreference.secondaryPreferred(), caFile));
 
+    // The InitialSyncHostProvider may not have finished replica-set discovery and is not 'ready'
+    // yet. If that's the case the SyncSourceConfig will be configured with empty single host
+    // replication URIs and we will start up the NoOpReplicationManager. By the first run of the
+    // CommunityConfigUpdater the InitialSyncHostProvider will be ready and start up the real
+    // ReplicationManager.
     return SyncSourceConfig.builder()
-        .mongodSingleHostReplicationUri(mongodSingleHostReplicationUri)
+        .mongodSingleHostReplicationUri(initialSyncHostProvider.getMongodInitialSyncConnection())
         .mongodClusterReplicationUri(mongodClusterReplicationUri)
         .mongodClusterReadWriteUri(mongodClusterReadWriteUri)
-        .mongosSingleHostReplicationUri(mongosSingleHostReplicationUri)
+        .mongosSingleHostReplicationUri(initialSyncHostProvider.getMongosInitialSyncConnection())
         .mongosClusterReadWriteUri(mongosClusterReadWriteUri)
         .isSharded(communitySyncSourceConfig.router().isPresent())
         .build();
-  }
-
-  private static HostAndPort randomHost(List<HostAndPort> hosts) {
-    HostAndPort selected = hosts.get(ThreadLocalRandom.current().nextInt(hosts.size()));
-    LOG.atInfo()
-        .addKeyValue("hostAndPort", selected)
-        .log("Selected host and port for sync source config");
-    return selected;
   }
 
   private static Optional<PrometheusServer> maybeStartPrometheusServer(
@@ -813,14 +804,16 @@ public class CommunityMongotBootstrapper {
       ConfigManager configManager,
       FeatureFlags featureFlags,
       MeterRegistry meterRegistry,
-      Supplier<SyncSourceConfig> syncSourceConfigSupplier) {
+      SyncSourceConfig initialSyncSourceConfig,
+      InitialSyncHostProvider initialSyncHostProvider) {
     var configUpdater =
         new CommunityConfigUpdater(
             authoritativeIndexCatalog,
             mongoDbMetadataClient,
             configManager,
             featureFlags,
-            syncSourceConfigSupplier);
+            initialSyncSourceConfig,
+            initialSyncHostProvider);
     return PeriodicConfigMonitor.create(configUpdater, DEFAULT_CONFIG_UPDATE_PERIOD, meterRegistry);
   }
 

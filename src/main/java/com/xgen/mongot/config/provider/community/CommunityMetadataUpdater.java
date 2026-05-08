@@ -249,7 +249,7 @@ public class CommunityMetadataUpdater {
       // our server state would be listSearchIndexes filtering out this server's indexes which while
       // not great is better than crashing. When writes resume listSearchIndexes will naturally
       // recover.
-      LOG.error("error updating server status", e);
+      LOG.warn("error updating server status", e);
     }
   }
 
@@ -323,7 +323,7 @@ public class CommunityMetadataUpdater {
       // Log but catch any errors writing to the index stats collection. There's no need to
       // propagate the error and crash the process as we already expect data in the collection to be
       // eventually consistent.
-      LOG.error("error updating index stats", e);
+      LOG.warn("error updating index stats", e);
     }
   }
 

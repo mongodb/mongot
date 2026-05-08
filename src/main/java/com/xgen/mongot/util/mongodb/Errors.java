@@ -39,6 +39,8 @@ public class Errors {
 
   public static final Error QUERY_PLAN_KILLED = new Error(175, "QueryPlanKilled");
 
+  public static final Error KEY_NOT_FOUND = new Error(211, "KeyNotFound");
+
   public static final Error AUTHENTICATION_RESTRICTION_UNMET =
       new Error(214, "AuthenticationRestrictionUnmet");
 

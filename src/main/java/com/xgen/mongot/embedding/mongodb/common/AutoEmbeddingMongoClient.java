@@ -66,21 +66,45 @@ public class AutoEmbeddingMongoClient {
       Optional<SyncSourceConfig> syncSourceConfig,
       MeterRegistry meterRegistry,
       AutoEmbeddingMaterializedViewConfig autoEmbeddingMaterializedViewConfig) {
-    this.syncSourceConfig = syncSourceConfig;
     this.meterRegistry = meterRegistry;
     this.materializedViewWriterSocketTimeoutMs =
         autoEmbeddingMaterializedViewConfig.materializedViewWriterSocketTimeoutMs;
     this.matViewWriterMaxConnections =
         autoEmbeddingMaterializedViewConfig.matViewWriterMaxConnections;
-    syncSourceConfig.ifPresent(this::updateSyncSource);
+    this.syncSourceConfig = syncSourceConfig;
+    this.syncSourceConfig.ifPresent(this::initClients);
   }
 
   /** Updates SyncSource for mongo clients. */
   public synchronized void updateSyncSource(SyncSourceConfig syncSourceConfig) {
+    // Only recreate clients when the cluster URI changes. initClients() exclusively uses
+    // mongodClusterReadWriteUri to build all three clients, so that is the only field we need
+    // to compare. Single-host replication URIs can flip between empty and present (e.g. the
+    // startup NoOp cycle in community) without affecting the cluster URI, and recreating clients
+    // in that case would close connections still held by collaborators such as
+    // StaticLeaderLeaseManager.
+    if (this.syncSourceConfig.isPresent()
+        && this.syncSourceConfig
+            .get()
+            .mongodClusterReadWriteUri
+            .equals(syncSourceConfig.mongodClusterReadWriteUri)) {
+      this.syncSourceConfig = Optional.of(syncSourceConfig);
+      return;
+    }
     this.syncSourceConfig = Optional.of(syncSourceConfig);
     var resolverClient = Optional.ofNullable(this.materializedViewResolverMongoClient.get());
     var leaseManagerClient = Optional.ofNullable(this.leaseManagerMongoClient.get());
     var writerClient = Optional.ofNullable(this.materializedViewWriterMongoClient.get());
+
+    initClients(syncSourceConfig);
+
+    // Close old clients after new ones are in place.
+    resolverClient.ifPresent(MongoClient::close);
+    leaseManagerClient.ifPresent(MongoClient::close);
+    writerClient.ifPresent(MongoClient::close);
+  }
+
+  private synchronized void initClients(SyncSourceConfig syncSourceConfig) {
     // We connect to the mongod endpoint directly instead of using mongos, even for sharded
     // clusters. This is to ensure all MV/lease operations happen at a shard-local level rather than
     // a global cluster level.
@@ -97,10 +121,6 @@ public class AutoEmbeddingMongoClient {
         createLeaseManagerMongoClient(connectionInfo.uri(), connectionInfo.sslContext()));
     this.materializedViewWriterMongoClient.set(
         createMaterializedViewWriterMongoClient(connectionInfo.uri(), connectionInfo.sslContext()));
-    // Then close old clients.
-    resolverClient.ifPresent(MongoClient::close);
-    leaseManagerClient.ifPresent(MongoClient::close);
-    writerClient.ifPresent(MongoClient::close);
   }
 
   public Optional<MongoClient> getMaterializedViewResolverMongoClient() {
