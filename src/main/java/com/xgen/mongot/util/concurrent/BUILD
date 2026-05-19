@@ -7,6 +7,7 @@ java_library(
         "DefaultNamedScheduledExecutorService.java",
         "Executors.java",
         "FileLockGuard.java",
+        "LiveThreadIdsRegistry.java",
         "LockGuard.java",
         "MeteredCallerRunsPolicy.java",
         "NamedExecutorService.java",

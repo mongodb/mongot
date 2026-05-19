@@ -1,13 +1,15 @@
 package com.xgen.mongot.metrics;
 
 import static com.google.common.truth.Truth.assertThat;
+import static com.google.common.truth.Truth.assertWithMessage;
 
+import com.sun.management.ThreadMXBean;
 import com.xgen.mongot.util.concurrent.Executors;
+import com.xgen.mongot.util.concurrent.LiveThreadIdsRegistry;
 import com.xgen.mongot.util.concurrent.NamedExecutorService;
 import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import java.util.Collection;
-import java.util.concurrent.ConcurrentHashMap;
+import java.lang.management.ManagementFactory;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.LongStream;
@@ -45,7 +47,7 @@ public class ThreadPoolResourceMetricsTest {
   }
 
   @Test
-  public void allocatedBytes_prunesDeadThreadIdsFromMutableSet() throws Exception {
+  public void allocatedBytes_prunesDeadThreadIdsFromRegistry() throws Exception {
     var registry = new SimpleMeterRegistry();
     try (NamedExecutorService executor = Executors.fixedSizeThreadPool(POOL_NAME, 1, registry)) {
       // Make sure the real worker is alive so its id stays in the set.
@@ -53,11 +55,11 @@ public class ThreadPoolResourceMetricsTest {
       executor.submit(ready::countDown);
       ready.await(1, TimeUnit.MINUTES);
 
-      var liveIds = executor.getMutableThreadIds().orElseThrow();
+      var liveIds = executor.getLiveThreadIdsRegistry().orElseThrow();
       // Inject a synthetic id the JVM cannot match, so getThreadAllocatedBytes returns -1 for it.
       long fakeDeadId = Long.MAX_VALUE - 1;
-      liveIds.add(fakeDeadId);
-      assertThat(liveIds).contains(fakeDeadId);
+      liveIds.register(fakeDeadId);
+      assertThat(liveIds.contains(fakeDeadId)).isTrue();
 
       ThreadPoolResourceMetrics.create(SUBSYSTEM).register(executor, registry);
       // Trigger a counter scrape (the path Prometheus follows) which sums + prunes.
@@ -68,22 +70,22 @@ public class ThreadPoolResourceMetricsTest {
           .functionCounter()
           .count();
 
-      assertThat(liveIds).doesNotContain(fakeDeadId);
+      assertThat(liveIds.contains(fakeDeadId)).isFalse();
     }
   }
 
   @Test
-  public void cpuTimeNanos_prunesDeadThreadIdsFromMutableSet() throws Exception {
+  public void cpuTimeNanos_prunesDeadThreadIdsFromRegistry() throws Exception {
     var registry = new SimpleMeterRegistry();
     try (NamedExecutorService executor = Executors.fixedSizeThreadPool(POOL_NAME, 1, registry)) {
       var ready = new CountDownLatch(1);
       executor.submit(ready::countDown);
       ready.await(1, TimeUnit.MINUTES);
 
-      var liveIds = executor.getMutableThreadIds().orElseThrow();
+      var liveIds = executor.getLiveThreadIdsRegistry().orElseThrow();
       long fakeDeadId = Long.MAX_VALUE - 1;
-      liveIds.add(fakeDeadId);
-      assertThat(liveIds).contains(fakeDeadId);
+      liveIds.register(fakeDeadId);
+      assertThat(liveIds.contains(fakeDeadId)).isTrue();
 
       ThreadPoolResourceMetrics.create(SUBSYSTEM).register(executor, registry);
       registry
@@ -93,7 +95,7 @@ public class ThreadPoolResourceMetricsTest {
           .functionCounter()
           .count();
 
-      assertThat(liveIds).doesNotContain(fakeDeadId);
+      assertThat(liveIds.contains(fakeDeadId)).isFalse();
     }
   }
 
@@ -152,10 +154,10 @@ public class ThreadPoolResourceMetricsTest {
   }
 
   @Test
-  public void register_withSupplier_emitsCountersTaggedWithSubsystemAndName() {
+  public void register_withRegistry_emitsCountersTaggedWithSubsystemAndName() {
     var registry = new SimpleMeterRegistry();
-    Collection<Long> liveIds = ConcurrentHashMap.newKeySet();
-    ThreadPoolResourceMetrics.create("merge").register("lucene-merge", () -> liveIds, registry);
+    LiveThreadIdsRegistry liveIds = new LiveThreadIdsRegistry();
+    ThreadPoolResourceMetrics.create("merge").register("lucene-merge", liveIds, registry);
 
     assertThat(
             registry
@@ -174,10 +176,10 @@ public class ThreadPoolResourceMetricsTest {
   }
 
   @Test
-  public void register_withSupplier_summingZeroIdsReportsZero() {
+  public void register_withRegistry_summingZeroIdsReportsZero() {
     var registry = new SimpleMeterRegistry();
-    Collection<Long> liveIds = ConcurrentHashMap.newKeySet();
-    ThreadPoolResourceMetrics.create("merge").register("lucene-merge", () -> liveIds, registry);
+    LiveThreadIdsRegistry liveIds = new LiveThreadIdsRegistry();
+    ThreadPoolResourceMetrics.create("merge").register("lucene-merge", liveIds, registry);
 
     FunctionCounter alloc =
         registry
@@ -186,18 +188,18 @@ public class ThreadPoolResourceMetricsTest {
             .tag("name", "lucene-merge")
             .functionCounter();
     assertThat(alloc).isNotNull();
-    // Empty live id collection -> counter reports 0 without throwing.
+    // Empty live id registry -> counter reports 0 without throwing.
     assertThat(alloc.count()).isEqualTo(0.0);
   }
 
   @Test
-  public void register_withSupplier_prunesDeadIds() {
+  public void register_withRegistry_prunesDeadIds() {
     var registry = new SimpleMeterRegistry();
-    Collection<Long> liveIds = ConcurrentHashMap.newKeySet();
+    LiveThreadIdsRegistry liveIds = new LiveThreadIdsRegistry();
     long fakeDeadId = Long.MAX_VALUE - 1;
-    liveIds.add(fakeDeadId);
+    liveIds.register(fakeDeadId);
 
-    ThreadPoolResourceMetrics.create("merge").register("lucene-merge", () -> liveIds, registry);
+    ThreadPoolResourceMetrics.create("merge").register("lucene-merge", liveIds, registry);
 
     FunctionCounter alloc =
         registry
@@ -208,7 +210,69 @@ public class ThreadPoolResourceMetricsTest {
     assertThat(alloc).isNotNull();
     // Triggering the counter scrape prunes the synthetic dead id.
     alloc.count();
-    assertThat(liveIds).doesNotContain(fakeDeadId);
+    assertThat(liveIds.contains(fakeDeadId)).isFalse();
+  }
+
+  @Test
+  public void register_withRegistry_retainsContributionAfterThreadDeath() throws Exception {
+    var registry = new SimpleMeterRegistry();
+    LiveThreadIdsRegistry liveIds = new LiveThreadIdsRegistry();
+
+    var threadStarted = new CountDownLatch(1);
+    var allowExit = new CountDownLatch(1);
+
+    Thread worker =
+        new Thread(
+            () -> {
+              // Touch ~1 MB so the thread has a non-zero allocation footprint to be folded.
+              byte[] randomAlloc = new byte[1024 * 1024];
+              randomAlloc[0] = 1;
+              threadStarted.countDown();
+              try {
+                allowExit.await(1, TimeUnit.MINUTES);
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+              }
+            });
+    worker.start();
+    threadStarted.await(1, TimeUnit.MINUTES);
+
+    long tid = worker.getId();
+    liveIds.register(tid);
+
+    ThreadPoolResourceMetrics.create(SUBSYSTEM).register(POOL_NAME, liveIds, registry);
+    FunctionCounter alloc =
+        registry
+            .find(ALLOCATED_BYTES)
+            .tag("subsystem", SUBSYSTEM)
+            .tag("name", POOL_NAME)
+            .functionCounter();
+    assertThat(alloc).isNotNull();
+
+    // Scrape while the thread is alive so lastSeenAllocByTid captures a positive value.
+    double whileAlive = alloc.count();
+
+    allowExit.countDown();
+    worker.join(TimeUnit.MINUTES.toMillis(1));
+
+    // Wait for the JVM to mark the thread dead in the MXBean view. Without this the next
+    // scrape may still see a positive value for the now-joined thread.
+    var bean = (ThreadMXBean) ManagementFactory.getThreadMXBean();
+    long deadline = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(1);
+    while (bean.getThreadAllocatedBytes(tid) >= 0 && System.currentTimeMillis() < deadline) {
+      Thread.sleep(50);
+    }
+    // Fail rather than assert on stale state if the JVM never reports the thread dead.
+    assertWithMessage("JVM did not report thread death within deadline")
+        .that(bean.getThreadAllocatedBytes(tid))
+        .isLessThan(0L);
+
+    double afterDeath = alloc.count();
+
+    // The dying contribution must be folded into retiredAllocBytes so the counter does not
+    // go backwards when the thread is pruned from the live set.
+    assertThat(afterDeath).isAtLeast(whileAlive);
+    assertThat(liveIds.contains(tid)).isFalse();
   }
 
   @Test

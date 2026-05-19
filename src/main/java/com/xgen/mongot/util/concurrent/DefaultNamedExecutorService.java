@@ -141,7 +141,7 @@ class DefaultNamedExecutorService implements NamedExecutorService {
   }
 
   @Override
-  public Optional<Collection<Long>> getMutableThreadIds() {
-    return this.threadFactory.map(CountingNamedThreadFactory::getMutableThreadIds);
+  public Optional<LiveThreadIdsRegistry> getLiveThreadIdsRegistry() {
+    return this.threadFactory.map(CountingNamedThreadFactory::getLiveThreadIdsRegistry);
   }
 }

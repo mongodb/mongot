@@ -5,11 +5,8 @@ import com.xgen.mongot.util.Crash;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
 import java.time.Duration;
-import java.util.Collection;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.ScheduledExecutorService;
@@ -245,12 +242,12 @@ public class Executors {
 
   /**
    * Thread factory that names threads with an incrementing index and records the IDs of every
-   * thread it creates. Uses a {@link ConcurrentHashMap} key-set so dead thread IDs can be removed.
+   * thread it creates in a {@link LiveThreadIdsRegistry}.
    */
   static class CountingNamedThreadFactory extends NamedThreadFactory {
 
     private final AtomicInteger threadCounter;
-    private final Set<Long> threadIds = ConcurrentHashMap.newKeySet();
+    private final LiveThreadIdsRegistry liveThreadIds = new LiveThreadIdsRegistry();
 
     CountingNamedThreadFactory(String name) {
       super(name);
@@ -265,16 +262,13 @@ public class Executors {
     @Override
     public Thread newThread(Runnable runnable) {
       Thread thread = super.newThread(runnable);
-      this.threadIds.add(thread.threadId());
+      this.liveThreadIds.register(thread.threadId());
       return thread;
     }
 
-    /**
-     * Live, mutable view of the IDs of every thread this factory has created. Callers that detect
-     * a dead thread may remove it directly.
-     */
-    Collection<Long> getMutableThreadIds() {
-      return this.threadIds;
+    /** Returns the live thread id registry this factory writes to. */
+    LiveThreadIdsRegistry getLiveThreadIdsRegistry() {
+      return this.liveThreadIds;
     }
   }
 }

@@ -14,6 +14,7 @@ import com.xgen.mongot.metrics.Timed;
 import com.xgen.mongot.monitor.Gate;
 import com.xgen.mongot.monitor.ToggleGate;
 import com.xgen.mongot.util.Bytes;
+import com.xgen.mongot.util.concurrent.LiveThreadIdsRegistry;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -1030,7 +1031,7 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
     };
 
     private final ThreadMXBean threadMxBean;
-    private final Set<Long> liveMergeThreadIds;
+    private final LiveThreadIdsRegistry liveMergeThreadIds;
     private final MetricsFactory metricsFactory;
     private final ConcurrentHashMap<String, DistributionSummary> allocatedBytesByIndexType =
         new ConcurrentHashMap<>();
@@ -1039,7 +1040,7 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
 
     private MergeAttribution(
         ThreadMXBean threadMxBean,
-        Set<Long> liveMergeThreadIds,
+        LiveThreadIdsRegistry liveMergeThreadIds,
         MetricsFactory metricsFactory) {
       this.threadMxBean = threadMxBean;
       this.liveMergeThreadIds = liveMergeThreadIds;
@@ -1065,13 +1066,13 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
         return Optional.empty();
       }
 
-      Set<Long> liveIds = ConcurrentHashMap.newKeySet();
+      LiveThreadIdsRegistry liveThreadIds = new LiveThreadIdsRegistry();
 
       // Aggregate live-merge FunctionCounters.
       ThreadPoolResourceMetrics.create(MERGE_SUBSYSTEM)
-          .register(MERGE_POOL_NAME, () -> liveIds, meterRegistry);
+          .register(MERGE_POOL_NAME, liveThreadIds, meterRegistry);
 
-      return Optional.of(new MergeAttribution(bean, liveIds, metricsFactory));
+      return Optional.of(new MergeAttribution(bean, liveThreadIds, metricsFactory));
     }
 
     long snapshotAllocated(long threadId) {
@@ -1083,24 +1084,22 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
     }
 
     void markStarted(long threadId) {
-      this.liveMergeThreadIds.add(threadId);
+      this.liveMergeThreadIds.register(threadId);
     }
 
     void recordEnd(long threadId, long allocBefore, long cpuBefore, String indexType) {
-      try {
-        long allocDelta = this.threadMxBean.getThreadAllocatedBytes(threadId) - allocBefore;
-        long cpuDelta = this.threadMxBean.getThreadCpuTime(threadId) - cpuBefore;
-        // Negative delta only happens if the thread died between start and end (after = -1).
-        // Skip recording in that case to avoid corrupting DistributionSummary statistics.
-        if (allocDelta >= 0) {
-          allocatedBytesHistogramFor(indexType).record(allocDelta);
-        }
-        if (cpuDelta >= 0) {
-          cpuTimeNanosHistogramFor(indexType).record(cpuDelta);
-        }
-      } finally {
-        this.liveMergeThreadIds.remove(threadId);
+      long allocDelta = this.threadMxBean.getThreadAllocatedBytes(threadId) - allocBefore;
+      long cpuDelta = this.threadMxBean.getThreadCpuTime(threadId) - cpuBefore;
+      // Negative delta only happens if the thread died between start and end (after = -1).
+      // Skip recording in that case to avoid corrupting DistributionSummary statistics.
+      if (allocDelta >= 0) {
+        allocatedBytesHistogramFor(indexType).record(allocDelta);
       }
+      if (cpuDelta >= 0) {
+        cpuTimeNanosHistogramFor(indexType).record(cpuDelta);
+      }
+      // The threads are re-used across merges, so we do not need to remove from liveMergeThreadIds.
+      // ThreadPoolResourceMetrics will prune the thread ids if the thread dies for any reason.
     }
 
     private DistributionSummary allocatedBytesHistogramFor(String indexType) {

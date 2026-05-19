@@ -2,18 +2,16 @@ package com.xgen.mongot.metrics;
 
 import com.google.common.flogger.FluentLogger;
 import com.sun.management.ThreadMXBean;
+import com.xgen.mongot.util.concurrent.LiveThreadIdsRegistry;
 import com.xgen.mongot.util.concurrent.NamedExecutorService;
 import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.lang.management.ManagementFactory;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
-import java.util.function.Supplier;
-import java.util.stream.IntStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -85,18 +83,32 @@ public final class ThreadPoolResourceMetrics {
    * for thread sources that live behind a {@link NamedExecutorService}.
    */
   public void register(NamedExecutorService executor, MeterRegistry meterRegistry) {
-    register(executor.getName(), supplierFor(executor), meterRegistry);
+    Optional<LiveThreadIdsRegistry> liveThreadIds = executor.getLiveThreadIdsRegistry();
+    if (liveThreadIds.isEmpty()) {
+      logUnsupportedExecutor(executor);
+      return;
+    }
+    register(executor.getName(), liveThreadIds.get(), meterRegistry);
   }
 
   /**
    * Registers per-pool allocation and CPU-time counters for an arbitrary thread source. The
-   * supplier is invoked at scrape time and must return the live thread ids
-   * The returned collection must be mutable: dead ids are pruned from it on each
-   * scrape so the set stays bounded for long-lived sources.
+   * registry can be mutated by {@link LiveThreadIdsRegistry#register(long)} on thread birth and
+   * {@link LiveThreadIdsRegistry#remove(long)}. The consumer removes ids from the registry when
+   * the JVM MXBean reports them dead, keeping the resulting counters monotonic.
    */
   public void register(
-      String name, Supplier<Collection<Long>> liveThreadIds, MeterRegistry meterRegistry) {
-    FunctionCounter.builder(ALLOCATED_BYTES_METRIC, liveThreadIds, this::sumAllocatedBytes)
+      String name, LiveThreadIdsRegistry liveThreadIds, MeterRegistry meterRegistry) {
+    if (this.threadMxBean.isEmpty()) {
+      return;
+    }
+    ThreadMXBean bean = this.threadMxBean.get();
+    Registration bytesAllocated = new Registration(liveThreadIds, bean::getThreadAllocatedBytes);
+    Registration cpu = new Registration(liveThreadIds, bean::getThreadCpuTime);
+
+    // Capture the Registration in the lambda because Micrometer takes a WeakReference.
+    FunctionCounter.builder(
+            ALLOCATED_BYTES_METRIC, bytesAllocated, ignored -> bytesAllocated.value())
         .description(
             "Cumulative bytes allocated into the Java heap by all threads this source has ever"
                 + " created. Excludes direct ByteBuffers and native allocations.")
@@ -105,60 +117,13 @@ public final class ThreadPoolResourceMetrics {
         .tag(NAME_TAG, name)
         .register(meterRegistry);
 
-    FunctionCounter.builder(CPU_TIME_METRIC, liveThreadIds, this::sumCpuTimeNanos)
+    FunctionCounter.builder(CPU_TIME_METRIC, cpu, ignored -> cpu.value())
         .description(
             "Cumulative on-CPU nanoseconds across all threads this source has ever created.")
         .baseUnit("nanoseconds")
         .tag(SUBSYSTEM_TAG, this.subsystem)
         .tag(NAME_TAG, name)
         .register(meterRegistry);
-  }
-
-  private double sumAllocatedBytes(Supplier<Collection<Long>> liveThreadIds) {
-    if (this.threadMxBean.isEmpty()) {
-      return 0.0;
-    }
-    return sumPerThread(liveThreadIds.get(), this.threadMxBean.get()::getThreadAllocatedBytes);
-  }
-
-  private double sumCpuTimeNanos(Supplier<Collection<Long>> liveThreadIds) {
-    if (this.threadMxBean.isEmpty()) {
-      return 0.0;
-    }
-    return sumPerThread(liveThreadIds.get(), this.threadMxBean.get()::getThreadCpuTime);
-  }
-
-  private static Supplier<Collection<Long>> supplierFor(NamedExecutorService executor) {
-    return () ->
-        executor
-            .getMutableThreadIds()
-            .orElseGet(
-                () -> {
-                  logUnsupportedExecutor(executor);
-                  return Collections.emptyList();
-                });
-  }
-
-  /**
-   * Sums the MXBean data across the supplied thread ids and prunes any ids the JVM reports as
-   * dead.
-   */
-  private double sumPerThread(Collection<Long> liveIds, Function<long[], long[]> beanReader) {
-    long[] ids = liveIds.stream().mapToLong(Long::longValue).toArray();
-    if (ids.length == 0) {
-      return 0.0;
-    }
-    long[] beanValues;
-    try {
-      beanValues = beanReader.apply(ids);
-    } catch (UnsupportedOperationException | SecurityException e) {
-      return 0.0;
-    }
-    // -1 means the thread has terminated, prune it so the set stays bounded.
-    IntStream.range(0, ids.length)
-        .filter(i -> beanValues[i] < 0)
-        .forEach(i -> liveIds.remove(ids[i]));
-    return Arrays.stream(beanValues).filter(v -> v >= 0).sum();
   }
 
   private static void logUnsupportedExecutor(NamedExecutorService executor) {
@@ -168,5 +133,58 @@ public final class ThreadPoolResourceMetrics {
         .log(
             "Per-thread attribution unavailable for executor '%s', counter will report 0.",
             executor.getName());
+  }
+
+  /**
+   * Holds the sum of values for a single MXBean channel (allocation bytes or CPU nanoseconds).
+   * Holds the last observed bean value per live thread id and a retired-total accumulator for
+   * threads the JVM has reported as dead.
+   */
+  private static final class Registration {
+
+    private final LiveThreadIdsRegistry liveThreadIds;
+    // Function of [ThreadIds] -> [Bean values].
+    private final Function<long[], long[]> beanReader;
+    // Map of thread id -> last seen bean value.
+    private final ConcurrentHashMap<Long, Long> lastSeen = new ConcurrentHashMap<>();
+    private final AtomicLong retiredSum = new AtomicLong();
+
+    Registration(LiveThreadIdsRegistry liveThreadIds, Function<long[], long[]> beanReader) {
+      this.liveThreadIds = liveThreadIds;
+      this.beanReader = beanReader;
+    }
+
+    double value() {
+      long[] ids = this.liveThreadIds.stream().mapToLong(Long::longValue).toArray();
+      if (ids.length > 0) {
+        long[] beanValues;
+        try {
+          beanValues = this.beanReader.apply(ids);
+        } catch (UnsupportedOperationException | SecurityException e) {
+          return sumBeanValues();
+        }
+        for (int i = 0; i < ids.length; i++) {
+          long tid = ids[i];
+          long val = beanValues[i];
+          if (val < 0) {
+            // Thread died. The atomic remove guarantees only the scrape that wins folds the
+            // prior value into retiredSum, even if value() runs concurrently.
+            Long last = this.lastSeen.remove(tid);
+            if (last != null) {
+              this.retiredSum.addAndGet(last);
+            }
+            this.liveThreadIds.remove(tid);
+          } else {
+            this.lastSeen.put(tid, val);
+          }
+        }
+      }
+      return sumBeanValues();
+    }
+
+    private long sumBeanValues() {
+      return this.retiredSum.get()
+          + this.lastSeen.values().stream().mapToLong(Long::longValue).sum();
+    }
   }
 }
