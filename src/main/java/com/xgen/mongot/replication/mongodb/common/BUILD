@@ -39,6 +39,7 @@ java_library(
         "FragmentBuffer.java",
         "FragmentProcessingException.java",
         "HeuristicChangeStreamModeSelector.java",
+        "IdTypeObservingDocumentIndexer.java",
         "IndexCommitUserData.java",
         "IndexStateInfo.java",
         "IndexingSchedulerBatch.java",

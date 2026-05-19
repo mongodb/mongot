@@ -11,6 +11,7 @@ import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.DecodingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
+import com.xgen.mongot.replication.mongodb.common.IdTypeObservingDocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
 import com.xgen.mongot.replication.mongodb.common.SessionRefresher;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
@@ -128,10 +129,19 @@ public class SteadyStateManager {
       Consumer<ChangeStreamResumeInfo> resumeInfoUpdater = resumeInfoReference::set;
       Supplier<ChangeStreamResumeInfo> resumeInfoSupplier = resumeInfoReference::get;
 
+      DocumentIndexer observingIndexer =
+          IdTypeObservingDocumentIndexer.wrap(
+              documentIndexer,
+              typeName ->
+                  indexMetricsUpdater
+                      .getReplicationMetricsUpdater()
+                      .getSteadyStateMetrics()
+                      .reportIdKeyFieldType(typeName));
+
       CompletableFuture<Void> changeStreamLifecycleFuture =
           this.changeStreamManager.add(
               generationId,
-              documentIndexer,
+              observingIndexer,
               indexDefinition,
               resumeInfo,
               resumeInfoUpdater,

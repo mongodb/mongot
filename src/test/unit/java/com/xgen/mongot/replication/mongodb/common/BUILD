@@ -22,6 +22,7 @@ java_test_suite(
         "FragmentBufferTest.java",
         "FragmentProcessingExceptionTest.java",
         "HeuristicChangeStreamModeSelectorTest.java",
+        "IdTypeObservingDocumentIndexerTest.java",
         "IndexCommitUserDataTest.java",
         "IndexingWorkSchedulerFactoryTest.java",
         "InitialSyncExceptionTest.java",

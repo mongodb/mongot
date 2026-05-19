@@ -16,6 +16,7 @@ import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
+import com.xgen.mongot.replication.mongodb.common.IdTypeObservingDocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
 import com.xgen.mongot.replication.mongodb.steadystate.changestream.ChangeStreamManager;
 import com.xgen.mongot.util.FutureUtils;
@@ -30,6 +31,7 @@ import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 
 public class SteadyStateManagerTest {
 
@@ -75,15 +77,20 @@ public class SteadyStateManagerTest {
         RESUME_INFO,
         false);
 
+    ArgumentCaptor<DocumentIndexer> indexerCaptor =
+        ArgumentCaptor.forClass(DocumentIndexer.class);
     verify(changeStreamManager)
         .add(
             eq(MOCK_INDEX_GENERATION_ID),
-            eq(documentIndexer),
+            indexerCaptor.capture(),
             eq(MOCK_INDEX_DEFINITION),
             eq(RESUME_INFO),
             any(),
             any(),
             eq(false));
+    assertThat(indexerCaptor.getValue()).isInstanceOf(IdTypeObservingDocumentIndexer.class);
+    assertThat(((IdTypeObservingDocumentIndexer) indexerCaptor.getValue()).getDelegate())
+        .isEqualTo(documentIndexer);
 
     // Add an index with the same indexId, but new generation should work
     clearInvocations(changeStreamManager);
@@ -97,15 +104,20 @@ public class SteadyStateManagerTest {
         RESUME_INFO,
         false);
 
+    ArgumentCaptor<DocumentIndexer> indexerCaptor2 =
+        ArgumentCaptor.forClass(DocumentIndexer.class);
     verify(changeStreamManager)
         .add(
             eq(incrementedGeneration),
-            eq(documentIndexer),
+            indexerCaptor2.capture(),
             eq(MOCK_INDEX_DEFINITION),
             eq(RESUME_INFO),
             any(),
             any(),
             eq(false));
+    assertThat(indexerCaptor2.getValue()).isInstanceOf(IdTypeObservingDocumentIndexer.class);
+    assertThat(((IdTypeObservingDocumentIndexer) indexerCaptor2.getValue()).getDelegate())
+        .isEqualTo(documentIndexer);
   }
 
   @Test

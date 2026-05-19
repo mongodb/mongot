@@ -27,6 +27,7 @@ import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.ClientSessionRecord;
 import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
+import com.xgen.mongot.replication.mongodb.common.IdTypeObservingDocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncResumeInfo;
@@ -933,12 +934,22 @@ public class InitialSyncQueue {
             mongoClient.resolveAndUpdateCollectionName(
                 request.getIndexDefinitionGeneration().getIndexDefinition());
 
+        DocumentIndexer observingIndexer =
+            IdTypeObservingDocumentIndexer.wrap(
+                request.getDocumentIndexer(),
+                typeName ->
+                    request
+                        .getIndexMetricsUpdater()
+                        .getReplicationMetricsUpdater()
+                        .getInitialSyncMetrics()
+                        .reportIdKeyFieldType(typeName));
+
         InitialSyncContext syncContext =
             InitialSyncContext.create(
                 request.getIndexDefinitionGeneration(),
                 InitialSyncQueue.this.indexingWorkSchedulerFactory.getIndexingWorkScheduler(
                     request.getIndexDefinitionGeneration().getIndexDefinition()),
-                request.getDocumentIndexer(),
+                observingIndexer,
                 request.getIndexMetricsUpdater(),
                 this.embeddingGetMoreBatchSize,
                 request.isRemoveMatchCollectionUuid(),

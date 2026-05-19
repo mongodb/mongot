@@ -1337,6 +1337,7 @@ public class IndexMetricsUpdater implements Closeable {
       static final String TOTAL_APPLICABLE_BYTES = "totalApplicableBytes";
 
       private final PerIndexMetricsFactory metricsFactory;
+      private final Tags tags;
       private final DistributionSummary collScanBatchTotalApplicableDocuments;
       private final DistributionSummary collScanBatchTotalApplicableBytes;
       private final DistributionSummary changeStreamBatchTotalApplicableDocuments;
@@ -1347,6 +1348,7 @@ public class IndexMetricsUpdater implements Closeable {
 
       InitialSyncMetrics(PerIndexMetricsFactory metricsFactory, Tags tags) {
         this.metricsFactory = metricsFactory;
+        this.tags = tags;
         this.collScanBatchTotalApplicableDocuments =
             this.metricsFactory.summary(
                 COLL_SCAN_BATCH_TOTAL_APPLICABLE_DOCUMENTS,
@@ -1408,6 +1410,10 @@ public class IndexMetricsUpdater implements Closeable {
         return this.totalApplicableBytes;
       }
 
+      public void reportIdKeyFieldType(String idFieldTypeName) {
+        reportIdKeyFieldTypeGauge(this.metricsFactory, this, idFieldTypeName, this.tags);
+      }
+
       @Override
       public void close() {
         this.metricsFactory.close();
@@ -1422,6 +1428,7 @@ public class IndexMetricsUpdater implements Closeable {
       static final String BATCH_DECODING_TIMER = "decodingBatchDurations";
 
       private final PerIndexMetricsFactory metricsFactory;
+      private final Tags tags;
       private final DistributionSummary batchTotalApplicableDocuments;
       private final DistributionSummary batchTotalApplicableBytes;
       private final Timer batchGetMoreTimer;
@@ -1429,6 +1436,7 @@ public class IndexMetricsUpdater implements Closeable {
 
       SteadyStateMetrics(PerIndexMetricsFactory metricsFactory, Tags tags) {
         this.metricsFactory = metricsFactory;
+        this.tags = tags;
         this.batchTotalApplicableDocuments =
             this.metricsFactory.summary(
                 BATCH_TOTAL_APPLICABLE_DOCUMENTS,
@@ -1461,10 +1469,25 @@ public class IndexMetricsUpdater implements Closeable {
         return this.batchDecodingTimer;
       }
 
+      public void reportIdKeyFieldType(String idFieldTypeName) {
+        reportIdKeyFieldTypeGauge(this.metricsFactory, this, idFieldTypeName, this.tags);
+      }
+
       @Override
       public void close() {
         this.metricsFactory.close();
       }
+    }
+
+    /**
+     * Records the BSON type name of the collection's {@code _id} field as an info gauge fixed at
+     * 1.0, with the type encoded in the {@code bsonType} tag. Safe to call more than once —
+     * Micrometer returns the same gauge on repeated calls with identical tags.
+     */
+    private static void reportIdKeyFieldTypeGauge(
+        PerIndexMetricsFactory metricsFactory, Object owner, String idFieldTypeName, Tags tags) {
+      metricsFactory.perIndexObjectValueGauge(
+          "idFieldType", owner, ignored -> 1.0, tags.and("bsonType", idFieldTypeName));
     }
 
     private static Tags extractTagsFromIndexDefinition(IndexDefinition indexDefinition) {
