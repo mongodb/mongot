@@ -403,7 +403,8 @@
           2
         ],
         "returnStoredSource": false
-      }
+      },
+      "errorMessageContains": "'queryVector' contains a non-finite value (Infinity or NaN) at position [1]. All values in \"queryVector\" must be finite."
     },
     {
       "description": "contains both query and queryVector",

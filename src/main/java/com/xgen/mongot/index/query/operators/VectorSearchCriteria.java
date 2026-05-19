@@ -118,6 +118,10 @@ public sealed interface VectorSearchCriteria extends DocumentEncodable
     return ApproximateVectorSearchCriteria.fromBson(parser, path, filterType);
   }
 
+  /**
+   * Validates query vector and auto-embedding input fields shared by exact and approximate vector
+   * search.
+   */
   static void checkBasicFields(
       DocumentParser parser,
       Optional<Vector> queryVector,
@@ -138,7 +142,13 @@ public sealed interface VectorSearchCriteria extends DocumentEncodable
       var v = floatVector.getFloatVector();
       for (int i = 0; i < v.length; i++) {
         if (!Float.isFinite(v[i])) {
-          parser.getContext().arrayElement(i).handleSemanticError("non-finite value");
+          parser
+              .getContext()
+              .handleSemanticError(
+                  String.format(
+                      "'queryVector' contains a non-finite value (Infinity or NaN) at position"
+                          + " [%d]. All values in \"queryVector\" must be finite.",
+                      i));
         }
       }
     }
