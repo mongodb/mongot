@@ -436,7 +436,9 @@ public class FieldName {
           firstDelimiterUtf8CodeUnitOffset + embeddedRootUtf8CodeUnitCount + 2;
 
       return new String(
-          Arrays.copyOfRange(utf8CodeUnitBytes, regularFieldNameOffset, utf8CodeUnitBytes.length),
+          utf8CodeUnitBytes,
+          regularFieldNameOffset,
+          utf8CodeUnitBytes.length - regularFieldNameOffset,
           StandardCharsets.UTF_8);
     }
 
@@ -457,12 +459,10 @@ public class FieldName {
       byte[] utf8CodeUnitBytes = fieldName.getBytes(StandardCharsets.UTF_8);
 
       // Add '1' to this value to account for a '/' delimiter character.
-      int regularFieldNameOffset =
-          firstDelimiterUtf8CodeUnitOffset + embeddedRootUtf8CodeUnitCount + 1;
-
       return new String(
-          Arrays.copyOfRange(
-              utf8CodeUnitBytes, firstDelimiterUtf8CodeUnitOffset + 1, regularFieldNameOffset),
+          utf8CodeUnitBytes,
+          firstDelimiterUtf8CodeUnitOffset + 1,
+          embeddedRootUtf8CodeUnitCount,
           StandardCharsets.UTF_8);
     }
   }

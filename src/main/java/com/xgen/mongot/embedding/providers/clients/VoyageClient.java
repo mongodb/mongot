@@ -364,9 +364,9 @@ public class VoyageClient implements ClientInterface {
     // MTM cluster: extract tenant ID from database string
     // Database format: "tenant123_mydb" -> extract "tenant123"
     String database = context.database();
-    if (database.contains("_")) {
-      String tenantId = database.split("_", 2)[0];
-      return Optional.of(tenantId);
+    int tenantSeparatorIndex = database.indexOf('_');
+    if (tenantSeparatorIndex >= 0) {
+      return Optional.of(database.substring(0, tenantSeparatorIndex));
     }
     return Optional.empty();
   }
