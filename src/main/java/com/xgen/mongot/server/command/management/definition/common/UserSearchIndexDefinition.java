@@ -7,10 +7,12 @@ import com.xgen.mongot.index.definition.StoredSourceDefinition;
 import com.xgen.mongot.index.definition.SynonymMappingDefinition;
 import com.xgen.mongot.index.definition.TypeSetDefinition;
 import com.xgen.mongot.index.query.sort.Sort;
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentParser;
 import com.xgen.mongot.util.bson.parser.Field;
+import com.xgen.mongot.util.bson.parser.FieldPathField;
 import com.xgen.mongot.util.bson.parser.Value;
 import java.util.List;
 import java.util.Optional;
@@ -72,6 +74,11 @@ public record UserSearchIndexDefinition(
             .asList()
             .optional()
             .noDefault();
+    static final Field.Optional<FieldPath> NESTED_ROOT =
+        Field.builder("nestedRoot")
+            .classField(FieldPathField::parse, FieldPathField::encode)
+            .optional()
+            .noDefault();
   }
 
   @Override
@@ -96,6 +103,14 @@ public record UserSearchIndexDefinition(
 
   public static UserSearchIndexDefinition fromBson(DocumentParser parser)
       throws BsonParseException {
+    if (parser.hasField(Fields.NESTED_ROOT)) {
+      parser
+          .getContext()
+          .handleSemanticError(
+              "`nestedRoot` is not supported in search index definitions. Remove `nestedRoot` from"
+                  + " the definition, or set the index `type` to `\"vectorSearch\"` if you"
+                  + " intended to create a vector search index.");
+    }
     return new UserSearchIndexDefinition(
         parser.getField(Fields.ANALYZER).unwrap(),
         parser.getField(Fields.SEARCH_ANALYZER).unwrap(),

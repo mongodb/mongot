@@ -29,5 +29,15 @@
     }
   ],
   "invalid": [
+    {
+      "description": "nestedRoot not supported in search index",
+      "value": {
+        "mappings": {
+          "dynamic": true
+        },
+        "nestedRoot": "sections"
+      },
+      "errorMessageContains": "`nestedRoot` is not supported in search index definitions"
+    }
   ]
 }
