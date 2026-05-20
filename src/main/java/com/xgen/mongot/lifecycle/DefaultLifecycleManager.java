@@ -13,6 +13,7 @@ import com.xgen.mongot.index.blobstore.BlobstoreSnapshotterManager;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
+import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import com.xgen.mongot.monitor.Gate;
 import com.xgen.mongot.replication.ReplicationManager;
 import com.xgen.mongot.replication.ReplicationManagerFactory;
@@ -137,7 +138,8 @@ public class DefaultLifecycleManager implements LifecycleManager {
       AutoEmbeddingMaterializedViewManagerFactory autoEmbeddingMaterializedViewManagerFactory,
       MeterRegistry meterRegistry,
       Gate replicationGate,
-      LifecycleConfig lifecycleConfig) {
+      LifecycleConfig lifecycleConfig,
+      boolean enableInitAttributionMetrics) {
     this(
         replicationManagerFactory,
         syncSourceConfig,
@@ -153,7 +155,8 @@ public class DefaultLifecycleManager implements LifecycleManager {
             meterRegistry),
         Executors.fixedSizeThreadPool(
             "index-lifecycle", Math.max(1, Runtime.INSTANCE.getNumCpus() / 4), meterRegistry),
-        Executors.fixedSizeThreadPool("blobstore-lifecycle", 1, meterRegistry));
+        Executors.fixedSizeThreadPool("blobstore-lifecycle", 1, meterRegistry),
+        enableInitAttributionMetrics);
   }
 
   @VisibleForTesting
@@ -168,7 +171,8 @@ public class DefaultLifecycleManager implements LifecycleManager {
       Gate replicationGate,
       NamedExecutorService initExecutor,
       NamedExecutorService lifecycleExecutor,
-      NamedExecutorService blobstoreExecutor) {
+      NamedExecutorService blobstoreExecutor,
+      boolean enableInitAttributionMetrics) {
     this.initExecutor = initExecutor;
     this.lifecycleExecutor = lifecycleExecutor;
     this.blobstoreExecutor = blobstoreExecutor;
@@ -195,6 +199,9 @@ public class DefaultLifecycleManager implements LifecycleManager {
     this.initialized = false;
     this.shutdown = false;
     this.metrics = IndexLifecycleManager.Metrics.create(metricsFactory);
+    if (enableInitAttributionMetrics) {
+      ThreadPoolResourceMetrics.create("init").register(initExecutor, meterRegistry);
+    }
   }
 
   @Override

@@ -130,15 +130,16 @@ public class Executors {
    */
   public static NamedScheduledExecutorService fixedSizeThreadScheduledExecutor(
       String name, int size, int priority, MeterRegistry meterRegistry) {
-    ScheduledThreadPoolExecutor executor =
-        new ScheduledThreadPoolExecutor(size, new NamedThreadFactory(name, priority));
+    CountingNamedThreadFactory threadFactory = new CountingNamedThreadFactory(name, priority);
+    ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(size, threadFactory);
     executor.setContinueExistingPeriodicTasksAfterShutdownPolicy(false);
     executor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
 
     return new DefaultNamedScheduledExecutorService(
         ExecutorServiceMetrics.monitor(meterRegistry, executor, "executorMetrics", name),
         name,
-        meterRegistry);
+        meterRegistry,
+        Optional.of(threadFactory));
   }
 
   public static NamedScheduledExecutorService fixedSizeThreadScheduledExecutor(
@@ -170,10 +171,13 @@ public class Executors {
 
   public static NamedScheduledExecutorService namedExecutor(
       String name, ScheduledExecutorService executor, MeterRegistry meterRegistry) {
+    // The supplied executor was built externally, so there is no thread factory to track its
+    // threads.
     return new DefaultNamedScheduledExecutorService(
         ExecutorServiceMetrics.monitor(meterRegistry, executor, "executorMetrics", name),
         name,
-        meterRegistry);
+        meterRegistry,
+        Optional.empty());
   }
 
   /**
@@ -251,6 +255,11 @@ public class Executors {
 
     CountingNamedThreadFactory(String name) {
       super(name);
+      this.threadCounter = new AtomicInteger();
+    }
+
+    CountingNamedThreadFactory(String name, int priority) {
+      super(name, priority);
       this.threadCounter = new AtomicInteger();
     }
 

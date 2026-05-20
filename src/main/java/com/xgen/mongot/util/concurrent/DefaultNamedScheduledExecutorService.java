@@ -1,8 +1,10 @@
 package com.xgen.mongot.util.concurrent;
 
+import com.xgen.mongot.util.concurrent.Executors.CountingNamedThreadFactory;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -16,12 +18,17 @@ class DefaultNamedScheduledExecutorService implements NamedScheduledExecutorServ
   private final ScheduledExecutorService delegate;
   private final String name;
   private final MeterRegistry meterRegistry;
+  private final Optional<CountingNamedThreadFactory> threadFactory;
 
   DefaultNamedScheduledExecutorService(
-      ScheduledExecutorService delegate, String name, MeterRegistry meterRegistry) {
+      ScheduledExecutorService delegate,
+      String name,
+      MeterRegistry meterRegistry,
+      Optional<CountingNamedThreadFactory> threadFactory) {
     this.delegate = delegate;
     this.name = name;
     this.meterRegistry = meterRegistry;
+    this.threadFactory = threadFactory;
   }
 
   @Override
@@ -125,5 +132,10 @@ class DefaultNamedScheduledExecutorService implements NamedScheduledExecutorServ
   public ScheduledFuture<?> scheduleWithFixedDelay(
       Runnable command, long initialDelay, long delay, TimeUnit unit) {
     return this.delegate.scheduleWithFixedDelay(command, initialDelay, delay, unit);
+  }
+
+  @Override
+  public Optional<LiveThreadIdsRegistry> getLiveThreadIdsRegistry() {
+    return this.threadFactory.map(CountingNamedThreadFactory::getLiveThreadIdsRegistry);
   }
 }

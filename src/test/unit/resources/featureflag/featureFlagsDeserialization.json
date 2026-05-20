@@ -54,7 +54,8 @@
         "nestedVector": true,
         "queryMemoryAttributionMetrics": true,
         "metricsCache": true,
-        "mergeAttributionMetrics": true
+        "mergeAttributionMetrics": true,
+        "lifecycleAttributionMetrics": true
       }
     },
     {
@@ -95,7 +96,8 @@
         "nestedVector": false,
         "queryMemoryAttributionMetrics": false,
         "metricsCache": false,
-        "mergeAttributionMetrics": false
+        "mergeAttributionMetrics": false,
+        "lifecycleAttributionMetrics": false
       }
     }
   ],

@@ -728,7 +728,8 @@ public class CommunityMongotBootstrapper {
             Optional.empty(),
             autoEmbeddingMaterializedViewManagerFactory,
             meterAndFtdcRegistry.meterRegistry(),
-            replicationStateMonitor.getReplicationGate());
+            replicationStateMonitor.getReplicationGate(),
+            mongotConfigs.featureFlags);
 
     return DefaultConfigManager.initialize(
         indexCatalog,

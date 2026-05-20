@@ -116,7 +116,8 @@ public class DefaultLifecycleManagerTest {
                 this.replicationGate,
                 this.initExecutor,
                 this.lifecycleExecutor,
-                this.blobstoreExecutor);
+                this.blobstoreExecutor,
+                false);
       } catch (Exception e) {
         throw new RuntimeException(e);
       }
@@ -467,7 +468,8 @@ public class DefaultLifecycleManagerTest {
         ToggleGate.opened(),
         Executors.fixedSizeThreadPool("init", 1, meterRegistry),
         Executors.fixedSizeThreadPool("lifecycle", 1, meterRegistry),
-        Executors.fixedSizeThreadPool("blobstore", 1, meterRegistry));
+        Executors.fixedSizeThreadPool("blobstore", 1, meterRegistry),
+        false);
   }
 
   @Test

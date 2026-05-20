@@ -1,5 +1,6 @@
 package com.xgen.mongot.replication.mongodb.common;
 
+import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
@@ -21,6 +22,7 @@ import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.Enums;
 import com.xgen.mongot.util.concurrent.Executors;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
+import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -601,6 +603,88 @@ public class DecodingWorkSchedulerTest {
     assertEquals(0.0,
         meterRegistry.find("decodingWorkScheduler" + ".queuedEventsTotal").gauge().value(),
         NO_EPSILON);
+  }
+
+  @Test
+  public void create_autoEmbeddingType_tagsCounterUnderAutoEmbeddingSubsystem() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    DecodingWorkScheduler.create(2, CommonReplicationConfig.Type.AUTO_EMBEDDING, registry, true);
+
+    assertThat(
+            registry
+                .find("executor.thread.allocatedBytes")
+                .tag("subsystem", "autoembedding")
+                .tag("name", "autoEmbedding.decoding")
+                .functionCounter())
+        .isNotNull();
+    // Replication subsystem should NOT carry the auto-embedding pool.
+    assertThat(
+            registry
+                .find("executor.thread.allocatedBytes")
+                .tag("subsystem", "replication")
+                .functionCounter())
+        .isNull();
+  }
+
+  @Test
+  public void create_lifecycleAttributionDisabled_doesNotRegisterResourceMetrics() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    DecodingWorkScheduler.create(2, CommonReplicationConfig.Type.DEFAULT, registry, false);
+
+    assertThat(
+            registry
+                .find("executor.thread.allocatedBytes")
+                .tag("subsystem", "replication")
+                .functionCounter())
+        .isNull();
+  }
+
+  @Test
+  public void create_lifecycleAttributionEnabled_decodingCounterIncreasesUnderLoad()
+      throws Exception {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    DecodingWorkScheduler scheduler =
+        DecodingWorkScheduler.create(2, CommonReplicationConfig.Type.DEFAULT, registry, true);
+
+    FunctionCounter allocated =
+        registry
+            .find("executor.thread.allocatedBytes")
+            .tag("subsystem", "replication")
+            .tag("name", "decoding")
+            .functionCounter();
+    assertThat(allocated).isNotNull();
+
+    // Warm a worker thread so getThreadAllocatedBytes has a non-zero baseline.
+    scheduler
+        .schedule(
+            new GenerationId(new ObjectId(), Generation.CURRENT),
+            Optional.of(new ObjectId()),
+            List.of(),
+            SchedulerQueue.Priority.STEADY_STATE_CHANGE_STREAM,
+            events -> {},
+            IGNORE_METRICS)
+        .get(5, TimeUnit.SECONDS);
+    double before = allocated.count();
+
+    // Allocate ~1 MB on a decoding-pool thread.
+    scheduler
+        .schedule(
+            new GenerationId(new ObjectId(), Generation.CURRENT),
+            Optional.of(new ObjectId()),
+            List.of(),
+            SchedulerQueue.Priority.STEADY_STATE_CHANGE_STREAM,
+            events -> {
+              byte[] dummy = new byte[1024 * 1024];
+              dummy[0] = 1;
+            },
+            IGNORE_METRICS)
+        .get(5, TimeUnit.SECONDS);
+    double after = allocated.count();
+
+    // JVMs without per-thread allocation tracking report 0 for both reads; skip rather than flake.
+    if (before != 0.0 || after != 0.0) {
+      assertThat(after).isGreaterThan(before);
+    }
   }
 
   private void warpWithRuntimeException(Callable<Void> callable) {

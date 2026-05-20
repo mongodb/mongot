@@ -8,6 +8,7 @@ import com.xgen.mongot.index.IndexMetricsUpdater.ReplicationMetricsUpdater;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.metrics.ServerStatusDataExtractor;
+import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import com.xgen.mongot.replication.mongodb.common.SchedulerQueue.Priority;
 import com.xgen.mongot.util.Crash;
 import com.xgen.mongot.util.concurrent.Executors;
@@ -90,13 +91,14 @@ public class DecodingWorkScheduler extends Thread {
         metricsFactory.timer("decodingBatchSchedulingDurations", Tags.of(replicationTag));
   }
 
-  /**
-   * Creates and starts a new DecodingWorkScheduler.
-   *
-   * @return an DecodingWorkScheduler.
-   */
+  // TODO(CLOUDP-405327): remove test-only overloads once LIFECYCLE_ATTRIBUTION_METRICS rolls out.
   public static DecodingWorkScheduler create(int numDecodingThreads, MeterRegistry registry) {
-    return create(numDecodingThreads, DEFAULT, registry);
+    return create(numDecodingThreads, DEFAULT, registry, false);
+  }
+
+  public static DecodingWorkScheduler create(
+      int numDecodingThreads, CommonReplicationConfig.Type type, MeterRegistry registry) {
+    return create(numDecodingThreads, type, registry, false);
   }
 
   /**
@@ -106,10 +108,17 @@ public class DecodingWorkScheduler extends Thread {
    *     metrics.
    */
   public static DecodingWorkScheduler create(
-      int numDecodingThreads, CommonReplicationConfig.Type type, MeterRegistry registry) {
+      int numDecodingThreads,
+      CommonReplicationConfig.Type type,
+      MeterRegistry registry,
+      boolean enableLifecycleAttributionMetrics) {
     var executor =
         Executors.fixedSizeThreadPool(
             type.metricsNamespacePrefix + "decoding", numDecodingThreads, registry);
+    if (enableLifecycleAttributionMetrics) {
+      ThreadPoolResourceMetrics.create(type.resourceAttributionSubsystem)
+          .register(executor, registry);
+    }
     var scheduler =
         new DecodingWorkScheduler(
             numDecodingThreads,

@@ -272,7 +272,8 @@ public class ConfigStateMocks {
                 (syncSourceConfig) -> Optional.empty(),
                 new SimpleMeterRegistry(),
                 replicationGate,
-                DEFAULT_LIFECYCLE_CONFIG));
+                DEFAULT_LIFECYCLE_CONFIG,
+                false));
 
     return new ConfigStateMocks(
         indexCatalog,

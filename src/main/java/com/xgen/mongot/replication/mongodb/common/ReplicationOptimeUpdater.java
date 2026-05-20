@@ -8,6 +8,7 @@ import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.GenerationId;
+import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import com.xgen.mongot.util.VerboseRunnable;
 import com.xgen.mongot.util.concurrent.Executors;
 import com.xgen.mongot.util.concurrent.NamedScheduledExecutorService;
@@ -89,12 +90,24 @@ public class ReplicationOptimeUpdater implements AutoCloseable {
     }
   }
 
+  // TODO(CLOUDP-405327): remove test-only overload once LIFECYCLE_ATTRIBUTION_METRICS rolls out.
   public static ReplicationOptimeUpdater create(
       IndexCatalog indexCatalog,
       InitializedIndexCatalog initializedIndexCatalog,
       Optional<SyncSourceConfig> syncSource,
       Duration updateInterval,
       MeterRegistry meterRegistry) {
+    return create(
+        indexCatalog, initializedIndexCatalog, syncSource, updateInterval, meterRegistry, false);
+  }
+
+  public static ReplicationOptimeUpdater create(
+      IndexCatalog indexCatalog,
+      InitializedIndexCatalog initializedIndexCatalog,
+      Optional<SyncSourceConfig> syncSource,
+      Duration updateInterval,
+      MeterRegistry meterRegistry,
+      boolean enableLifecycleAttributionMetrics) {
     // mongodSingleHostReplicationUri may be absent when this updater is created alongside a
     // NoOpReplicationManager (i.e. no healthy sync-source host has been selected yet).
     Optional<MongoClient> mongoClient =
@@ -106,6 +119,9 @@ public class ReplicationOptimeUpdater implements AutoCloseable {
                             uri, "periodic optime fetcher", meterRegistry)));
     var executor =
         Executors.singleThreadScheduledExecutor("replicationOptimeUpdater", meterRegistry);
+    if (enableLifecycleAttributionMetrics) {
+      ThreadPoolResourceMetrics.create("replication").register(executor, meterRegistry);
+    }
     return new ReplicationOptimeUpdater(
         indexCatalog,
         initializedIndexCatalog,

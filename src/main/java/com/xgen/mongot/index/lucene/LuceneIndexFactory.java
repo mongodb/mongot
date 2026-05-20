@@ -33,6 +33,7 @@ import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.metrics.PerIndexMetricsFactory;
+import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import com.xgen.mongot.monitor.DiskMonitor;
 import com.xgen.mongot.monitor.Gate;
 import com.xgen.mongot.util.AtomicDirectoryRemover;
@@ -127,6 +128,13 @@ public class LuceneIndexFactory implements IndexFactory {
                           meterRegistry.counter("rejectedConcurrentVectorRescoringExecutionCount")),
                       meterRegistry))
               : Optional.empty();
+
+      if (featureFlags.isEnabled(Feature.QUERY_MEMORY_ATTRIBUTION_METRICS)) {
+        ThreadPoolResourceMetrics resourceMetrics = ThreadPoolResourceMetrics.create("query");
+        concurrentSearchExecutor.ifPresent(e -> resourceMetrics.register(e, meterRegistry));
+        concurrentVectorRescoringExecutor.ifPresent(
+            e -> resourceMetrics.register(e, meterRegistry));
+      }
 
       var metricsFactory = new MetricsFactory("indexFactory", meterRegistry);
       var indexDirectoryHelper = IndexDirectoryHelper.create(config.dataPath(), metricsFactory);

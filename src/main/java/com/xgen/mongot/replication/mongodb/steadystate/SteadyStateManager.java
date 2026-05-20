@@ -65,7 +65,8 @@ public class SteadyStateManager {
       com.mongodb.client.MongoClient syncMongoClient,
       BatchMongoClient syncBatchMongoClient,
       DecodingWorkScheduler decodingWorkScheduler,
-      SteadyStateReplicationConfig replicationConfig) {
+      SteadyStateReplicationConfig replicationConfig,
+      boolean enableLifecycleAttributionMetrics) {
     Check.argIsPositive(
         replicationConfig.getNumConcurrentChangeStreams(), "numConcurrentChangeStreams");
     Check.argIsPositive(
@@ -81,7 +82,8 @@ public class SteadyStateManager {
             syncBatchMongoClient,
             indexingWorkSchedulerFactory,
             decodingWorkScheduler,
-            replicationConfig),
+            replicationConfig,
+            enableLifecycleAttributionMetrics),
         new HashMap<>());
   }
 

@@ -21,6 +21,7 @@ import com.xgen.mongot.embedding.mongodb.leasing.DynamicLeaderLeaseManager;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
 import com.xgen.mongot.embedding.mongodb.leasing.StaticLeaderLeaseManager;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
+import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGeneration;
@@ -31,6 +32,7 @@ import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.index.version.MaterializedViewGenerationId;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.MetricsFactory;
+import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import com.xgen.mongot.monitor.ToggleGate;
 import com.xgen.mongot.replication.ReplicationManager;
 import com.xgen.mongot.replication.mongodb.ReplicationIndexManager;
@@ -346,11 +348,17 @@ public class MaterializedViewManager implements ReplicationManager {
     LOG.info("creating AutoEmbeddingMatViewManager");
     var meterRegistry = meterAndFtdcRegistry.meterRegistry();
     meterRegistry.gauge("materializedView.replication.manager", 1);
+    boolean enableLifecycleAttributionMetrics =
+        featureFlags.isEnabled(Feature.LIFECYCLE_ATTRIBUTION_METRICS);
+
     var lifecycleExecutor =
         Executors.fixedSizeThreadPool(
             "materialized-view-lifecycle",
             Math.max(1, Runtime.INSTANCE.getNumCpus() / 4),
             meterRegistry);
+    if (enableLifecycleAttributionMetrics) {
+      ThreadPoolResourceMetrics.create("autoembedding").register(lifecycleExecutor, meterRegistry);
+    }
 
     var indexingWorkSchedulerFactory =
         IndexingWorkSchedulerFactory.createEmbeddingIndexingSchedulerOnly(
@@ -359,15 +367,22 @@ public class MaterializedViewManager implements ReplicationManager {
             matViewMetadataCatalog,
             meterRegistry,
             materializedViewConfig.globalMemoryBudgetHeapPercent,
-            materializedViewConfig.perBatchMemoryBudgetHeapPercent);
+            materializedViewConfig.perBatchMemoryBudgetHeapPercent,
+            enableLifecycleAttributionMetrics);
 
     var decodingWorkScheduler =
         DecodingWorkScheduler.create(
-            materializedViewConfig.numChangeStreamDecodingThreads, AUTO_EMBEDDING, meterRegistry);
+            materializedViewConfig.numChangeStreamDecodingThreads,
+            AUTO_EMBEDDING,
+            meterRegistry,
+            enableLifecycleAttributionMetrics);
 
     var commitExecutor =
         Executors.fixedSizeThreadScheduledExecutor(
             "mat-view-commit", NUM_COMMITTING_THREADS, meterRegistry);
+    if (enableLifecycleAttributionMetrics) {
+      ThreadPoolResourceMetrics.create("autoembedding").register(commitExecutor, meterRegistry);
+    }
 
     var materializedViewGeneratorFactory =
         new MaterializedViewGeneratorFactory(
@@ -1453,7 +1468,8 @@ public class MaterializedViewManager implements ReplicationManager {
                   syncMongoClient,
                   this.syncBatchMongoClient.get(),
                   this.decodingWorkScheduler,
-                  getAutoEmbeddingSteadyStateReplicationConfig(this.materializedViewConfig)));
+                  getAutoEmbeddingSteadyStateReplicationConfig(this.materializedViewConfig),
+                  this.featureFlags.isEnabled(Feature.LIFECYCLE_ATTRIBUTION_METRICS)));
 
       this.initialSyncQueue =
           Optional.of(

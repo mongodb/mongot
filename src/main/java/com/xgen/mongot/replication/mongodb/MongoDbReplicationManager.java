@@ -12,6 +12,7 @@ import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
+import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.Index;
 import com.xgen.mongot.index.IndexGeneration;
@@ -19,6 +20,7 @@ import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.MetricsFactory;
+import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import com.xgen.mongot.monitor.Gate;
 import com.xgen.mongot.replication.ReplicationManager;
 import com.xgen.mongot.replication.mongodb.common.ClientSessionRecord;
@@ -281,27 +283,45 @@ public class MongoDbReplicationManager implements ReplicationManager {
     LOG.info("creating MongoDbReplicationManager");
     var meterRegistry = meterAndFtdcRegistry.meterRegistry();
     meterRegistry.gauge("replication.manager", 1);
+    boolean enableLifecycleAttributionMetrics =
+        featureFlags.isEnabled(Feature.LIFECYCLE_ATTRIBUTION_METRICS);
+
     var lifecycleExecutor =
         Executors.fixedSizeThreadPool(
             "indexing-lifecycle", Math.max(1, Runtime.INSTANCE.getNumCpus() / 4), meterRegistry);
+    if (enableLifecycleAttributionMetrics) {
+      ThreadPoolResourceMetrics.create("replication").register(lifecycleExecutor, meterRegistry);
+    }
 
     var indexingWorkSchedulerFactory =
         embeddingServiceManagerSupplier
             .map(
                 supplier ->
                     IndexingWorkSchedulerFactory.create(
-                        replicationConfig.numIndexingThreads, supplier, meterRegistry))
+                        replicationConfig.numIndexingThreads,
+                        supplier,
+                        meterRegistry,
+                        enableLifecycleAttributionMetrics))
             .orElseGet(
                 () ->
                     IndexingWorkSchedulerFactory.createWithoutEmbeddingStrategy(
-                        replicationConfig.numIndexingThreads, meterRegistry));
+                        replicationConfig.numIndexingThreads,
+                        meterRegistry,
+                        enableLifecycleAttributionMetrics));
 
     var decodingWorkScheduler =
         DecodingWorkScheduler.create(
-            replicationConfig.numChangeStreamDecodingThreads, meterRegistry);
+            replicationConfig.numChangeStreamDecodingThreads,
+            CommonReplicationConfig.Type.DEFAULT,
+            meterRegistry,
+            enableLifecycleAttributionMetrics);
 
     var sessionRefreshExecutor =
         Executors.singleThreadScheduledExecutor("session-refresh", meterRegistry);
+    if (enableLifecycleAttributionMetrics) {
+      ThreadPoolResourceMetrics.create("replication")
+          .register(sessionRefreshExecutor, meterRegistry);
+    }
 
     // There should only be one sync source host
     var syncSourceHost = getSyncSourceHost(syncSourceConfig.get());
@@ -370,7 +390,8 @@ public class MongoDbReplicationManager implements ReplicationManager {
             syncMongoClient,
             syncBatchMongoClient,
             decodingWorkScheduler,
-            steadyStateReplicationConfig);
+            steadyStateReplicationConfig,
+            enableLifecycleAttributionMetrics);
 
     var synonymManager =
         SynonymManager.create(
@@ -383,6 +404,9 @@ public class MongoDbReplicationManager implements ReplicationManager {
     var commitExecutor =
         Executors.fixedSizeThreadScheduledExecutor(
             "index-commit", durabilityConfig.numCommittingThreads, meterRegistry);
+    if (enableLifecycleAttributionMetrics) {
+      ThreadPoolResourceMetrics.create("replication").register(commitExecutor, meterRegistry);
+    }
 
     var replicationOptimeMetricUpdater =
         ReplicationOptimeUpdater.create(
@@ -390,7 +414,8 @@ public class MongoDbReplicationManager implements ReplicationManager {
             initializedIndexCatalog,
             syncSourceConfig,
             replicationOptimeUpdaterInterval,
-            meterRegistry);
+            meterRegistry,
+            enableLifecycleAttributionMetrics);
 
     return MongoDbReplicationManager.create(
         lifecycleExecutor,

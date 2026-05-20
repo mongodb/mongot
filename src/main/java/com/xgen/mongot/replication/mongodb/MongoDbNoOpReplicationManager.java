@@ -89,13 +89,16 @@ public class MongoDbNoOpReplicationManager implements ReplicationManager {
       FeatureFlags featureFlags,
       MeterRegistry meterRegistry) {
 
+    boolean enableLifecycleAttributionMetrics =
+        featureFlags.isEnabled(Feature.LIFECYCLE_ATTRIBUTION_METRICS);
     var replicationOptimeMetricUpdater =
         ReplicationOptimeUpdater.create(
             indexCatalog,
             initializedIndexCatalog,
             syncSourceConfig,
             ReplicationOptimeUpdater.DEFAULT_UPDATE_INTERVAL,
-            meterRegistry);
+            meterRegistry,
+            enableLifecycleAttributionMetrics);
 
     return new MongoDbNoOpReplicationManager(
         syncSourceConfig,

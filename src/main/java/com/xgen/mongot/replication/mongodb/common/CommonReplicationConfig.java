@@ -19,12 +19,14 @@ public abstract sealed class CommonReplicationConfig
       boolean matchCollectionUuidForUpdateLookup) {}
 
   public enum Type {
-    DEFAULT(""),
-    AUTO_EMBEDDING("autoEmbedding.");
+    DEFAULT("", "replication"),
+    AUTO_EMBEDDING("autoEmbedding.", "autoembedding");
     public final String metricsNamespacePrefix;
+    public final String resourceAttributionSubsystem;
 
-    Type(String metricsNamespacePrefix) {
+    Type(String metricsNamespacePrefix, String resourceAttributionSubsystem) {
       this.metricsNamespacePrefix = metricsNamespacePrefix;
+      this.resourceAttributionSubsystem = resourceAttributionSubsystem;
     }
   }
 

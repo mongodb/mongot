@@ -14,6 +14,7 @@ import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManagerOpsCommands;
 import com.xgen.mongot.embedding.mongodb.leasing.StaticLeaderLeaseManager;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
+import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexFactory;
 import com.xgen.mongot.index.autoembedding.MaterializedViewIndexFactory;
@@ -136,7 +137,8 @@ public class CommonUtils {
       Optional<? extends BlobstoreSnapshotterManager> snapshotterManager,
       AutoEmbeddingMaterializedViewManagerFactory autoEmbeddingMatViewManagerFactory,
       MeterRegistry meterRegistry,
-      Gate replicationGate) {
+      Gate replicationGate,
+      FeatureFlags featureFlags) {
     return new DefaultLifecycleManager(
         factory,
         syncConfig,
@@ -146,7 +148,8 @@ public class CommonUtils {
         autoEmbeddingMatViewManagerFactory,
         meterRegistry,
         replicationGate,
-        lifecycleConfig);
+        lifecycleConfig,
+        featureFlags.isEnabled(Feature.LIFECYCLE_ATTRIBUTION_METRICS));
   }
 
   /**

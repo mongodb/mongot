@@ -10,6 +10,7 @@ import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.MetricsFactory;
+import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamModeSelector;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamModeSelector.ChangeStreamMode;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
@@ -79,7 +80,8 @@ public class ChangeStreamManager {
       BatchMongoClient syncBatchMongoClient,
       IndexingWorkSchedulerFactory indexingWorkSchedulerFactory,
       DecodingWorkScheduler decodingScheduler,
-      SteadyStateReplicationConfig replicationConfig) {
+      SteadyStateReplicationConfig replicationConfig,
+      boolean enableLifecycleAttributionMetrics) {
     Check.argIsPositive(
         replicationConfig.getChangeStreamQueryMaxTimeMs(), "changeStreamQueryMaxTimeMs");
     Check.argIsPositive(
@@ -92,16 +94,24 @@ public class ChangeStreamManager {
 
     var meterRegistry = meterAndFtdcRegistry.meterRegistry();
 
+    NamedScheduledExecutorService modeSelectorExecutor =
+        Executors.singleThreadScheduledExecutor(
+            replicationConfig.getReplicationType().metricsNamespacePrefix
+                + "change-stream-mode-selector",
+            meterRegistry);
     ChangeStreamModeSelector modeSelector =
         new HeuristicChangeStreamModeSelector(
             new CollectionStatsMongoClient(syncMongoClient),
             new CollectionSamplingMongoClient(syncMongoClient),
-            Executors.singleThreadScheduledExecutor(
-                replicationConfig.getReplicationType().metricsNamespacePrefix
-                    + "change-stream-mode-selector",
-                meterRegistry),
+            modeSelectorExecutor,
             modeSelectorOverride,
             new MetricsFactory("indexing.changeStreamModeSelector", meterRegistry));
+
+    if (enableLifecycleAttributionMetrics) {
+      ThreadPoolResourceMetrics.create(
+              replicationConfig.getReplicationType().resourceAttributionSubsystem)
+          .register(modeSelectorExecutor, meterRegistry);
+    }
 
     return getSyncChangeStreamManager(
         meterAndFtdcRegistry,
@@ -110,7 +120,8 @@ public class ChangeStreamManager {
         indexingWorkSchedulerFactory,
         decodingScheduler,
         modeSelector,
-        replicationConfig);
+        replicationConfig,
+        enableLifecycleAttributionMetrics);
   }
 
   private static ChangeStreamManager getSyncChangeStreamManager(
@@ -120,7 +131,8 @@ public class ChangeStreamManager {
       IndexingWorkSchedulerFactory indexingWorkSchedulerFactory,
       DecodingWorkScheduler decodingScheduler,
       ChangeStreamModeSelector modeSelector,
-      SteadyStateReplicationConfig replicationConfig) {
+      SteadyStateReplicationConfig replicationConfig,
+      boolean enableLifecycleAttributionMetrics) {
 
     ChangeStreamMongoClientFactory syncMongoClientFactory =
         ChangeStreamMongoClientFactory.create(
@@ -136,9 +148,11 @@ public class ChangeStreamManager {
         modeSelector,
         indexingWorkSchedulerFactory,
         replicationConfig,
-        indexManagerFactoryWithDecodingScheduler(decodingScheduler));
+        indexManagerFactoryWithDecodingScheduler(decodingScheduler),
+        enableLifecycleAttributionMetrics);
   }
 
+  // TODO(CLOUDP-405327): remove test-only overload once LIFECYCLE_ATTRIBUTION_METRICS rolls out.
   @VisibleForTesting
   static ChangeStreamManager createSync(
       MeterAndFtdcRegistry meterAndFtdcRegistry,
@@ -147,6 +161,24 @@ public class ChangeStreamManager {
       IndexingWorkSchedulerFactory indexingWorkSchedulerFactory,
       SteadyStateReplicationConfig replicationConfig,
       ChangeStreamIndexManagerFactory indexManagerFactory) {
+    return createSync(
+        meterAndFtdcRegistry,
+        syncMongoClientFactory,
+        modeSelector,
+        indexingWorkSchedulerFactory,
+        replicationConfig,
+        indexManagerFactory,
+        false);
+  }
+
+  private static ChangeStreamManager createSync(
+      MeterAndFtdcRegistry meterAndFtdcRegistry,
+      ChangeStreamMongoClientFactory syncMongoClientFactory,
+      ChangeStreamModeSelector modeSelector,
+      IndexingWorkSchedulerFactory indexingWorkSchedulerFactory,
+      SteadyStateReplicationConfig replicationConfig,
+      ChangeStreamIndexManagerFactory indexManagerFactory,
+      boolean enableLifecycleAttributionMetrics) {
     Check.argIsPositive(
         replicationConfig.getNumConcurrentChangeStreams(), "numConcurrentChangeStreams");
     Check.argIsPositive(
@@ -160,6 +192,12 @@ public class ChangeStreamManager {
                 + "change-stream-sync-dispatcher",
             replicationConfig.getNumConcurrentChangeStreams(),
             meterAndFtdcRegistry.meterRegistry());
+
+    if (enableLifecycleAttributionMetrics) {
+      ThreadPoolResourceMetrics.create(
+              replicationConfig.getReplicationType().resourceAttributionSubsystem)
+          .register(executorService, meterAndFtdcRegistry.meterRegistry());
+    }
 
     boolean shouldLimitMaxInFlightEmbeddingGetMores =
         replicationConfig.getMaxInFlightEmbeddingGetMores()
