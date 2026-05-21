@@ -1,0 +1,125 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "vectorSearch/components/fields/autoEmbed.json",
+  "type": "object",
+  "properties": {
+    "type": {
+      "suggestSortText": "0",
+      "type": "string",
+      "markdownDescription": "Field type to use to index text data for semantic search. Automated Embedding automatically generates vector embeddings for the selected field, using the embedding model chosen by you. To learn more about this data type, see [autoEmbed type](https://dochub.mongodb.org/core/avs-autoembed-type/).",
+      "description": "Field type to use to index text data for semantic search. Automated Embedding automatically generates vector embeddings for the selected field, using the embedding model chosen by you.",
+      "const": "autoEmbed",
+      "$ref": "../fields.json#/definitions/typeErrorMessage"
+    },
+    "modality": {
+      "suggestSortText": "1",
+      "type": "string",
+      "markdownDescription": "Specifies the type of data this field contains.",
+      "description": "Specifies the type of data this field contains.",
+      "const": "text"
+    },
+    "path": {
+      "suggestSortText": "2",
+      "type": "string",
+      "pattern": "^.*$",
+      "markdownDescription": "Name of the text field to use as a data source for generating embeddings. Use dot notation for embedded fields.",
+      "errorMessage": "Field name does not meet MongoDb field naming restrictions. To learn more, see [Field Names](https://dochub.mongodb.org/core/mdb-field-names) ."
+    },
+    "model": {
+      "suggestSortText": "3",
+      "type": "string",
+      "description": "Embedding model to use to generate embeddings.",
+      "markdownDescription": "Embedding model to use to generate embeddings. \n\n**General Purpose Models:**\n- `voyage-4` (recommended) - Optimized for general-purpose and multilingual retrieval quality.\n- `voyage-4-large` - The best general-purpose and multilingual retrieval quality.\n- `voyage-4-lite` - Optimized for latency and cost.\n\n**Domain Specific Models:**\n- `voyage-code-3` - Optimized for code retrieval.",
+      "oneOf": [
+        {
+          "const": "voyage-4"
+        },
+        {
+          "const": "voyage-4-large"
+        },
+        {
+          "const": "voyage-4-lite"
+        },
+        {
+          "const": "voyage-code-3"
+        }
+      ]
+    },
+    "quantization": {
+      "suggestSortText": "4",
+      "type": "string",
+      "description": "A compression technique to control storage and compute required for Vector Search Index, with possible accuracy tradeoffs.",
+      "markdownDescription": "A compression technique to control storage and compute required for Vector Search Index, with possible accuracy tradeoffs. \nValues include:\n- `scalar` - compresses vectors into lower-precision scalar values to reduce storage while maintaining reasonable accuracy.\n- `float` - stores full-fidelity vector values without compression for maximum accuracy at higher storage cost.\n- `binary` - compresses vectors into binary representations to minimize storage and improve performance, coupled with recording using full-fidelity vector at query time, offering better accuracy tradeoffs.\n- `binaryNoRescore` - uses binary vectors for indexing and querying without rescoring using full-fidelity values, prioritizing performance over accuracy.",
+      "oneOf": [
+        {
+          "const": "scalar"
+        },
+        {
+          "const": "float"
+        },
+        {
+          "const": "binary"
+        },
+        {
+          "const": "binaryNoRescore"
+        }
+      ]
+    },
+    "numDimensions": {
+      "suggestSortText": "5",
+      "type": "integer",
+      "markdownDescription": "Number of vector dimensions.\nValues include:\n- `1024` (default)\n- `256`\n- `512`\n- `2048`",
+      "description": "Number of vector dimensions.",
+      "oneOf": [
+        {
+          "const": 256
+        },
+        {
+          "const": 512
+        },
+        {
+          "const": 1024
+        },
+        {
+          "const": 2048
+        }
+      ]
+    },
+    "similarity": {
+      "suggestSortText": "6",
+      "type": "string",
+      "markdownDescription": "Vector similarity function to use to search for top K-nearest neighbors. \nValues include:\n- `dotProduct` (default) - measures similarity based on both the angle between, and magnitude of vectors. See [Dot Product](https://en.wikipedia.org/wiki/Dot_product) to learn more.\n- `cosine` - measures similarity based on the angle between vectors allowing for similarity measurements not scaled by magnitude. See [Cosine](https://en.wikipedia.org/wiki/Cosine_similarity) to learn more.\n- `euclidean` - measures the distance between ends of vectors allowing similarity measurements based on varying dimensions. See [Euclidean](https://en.wikipedia.org/wiki/Euclidean_distance) to learn more.",
+      "description": "Vector similarity function to use to search for top K-nearest neighbors.",
+      "oneOf": [
+        {
+          "const": "dotProduct"
+        },
+        {
+          "const": "cosine"
+        },
+        {
+          "const": "euclidean"
+        }
+      ]
+    }
+  },
+  "required": ["type", "modality", "path", "model"],
+  "examples": [
+    {
+      "type": "autoEmbed",
+      "modality": "text",
+      "path": "<field-name>",
+      "model": "voyage-4"
+    },
+    {
+      "type": "autoEmbed",
+      "modality": "text",
+      "path": "<field-name>",
+      "model": "voyage-4",
+      "quantization": "binary",
+      "numDimensions": 1024,
+      "similarity": "euclidean"
+    }
+  ],
+  "additionalProperties": false
+}

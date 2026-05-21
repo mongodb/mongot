@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "search/components/sort.json",
+  "markdownDescription": "Specifies the fields to use for pre-sorting the index. Pre-sorting improves query performance when using this exact specification in `$search.sort`. You can specify a single field or multiple fields for a compound sort. You can specify 1 for ascending, -1 for descending, or an object with `order` and `noData`. To learn more, see [Atlas Search Index Sort Options](https://dochub.mongodb.org/core/atlas-search-sort).",
+  "description": "Specifies the fields to use for pre-sorting the index.",
+  "type": "object",
+  "minProperties": 1,
+  "examples": [
+    {
+      "field_a": 1,
+      "field_b": -1
+    },
+    {
+      "field_a": {
+        "order": 1
+      },
+      "field_b": {
+        "order": -1,
+        "noData": "highest"
+      }
+    }
+  ],
+  "patternProperties": {
+    "^.*$": {
+      "oneOf": [
+        {
+          "type": "integer",
+          "enum": [1, -1],
+          "markdownDescription": "Sort order for this field. Use `1` for ascending order or `-1` for descending order.",
+          "description": "Sort order: 1 (ascending) or -1 (descending)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "order": {
+              "type": "integer",
+              "enum": [1, -1],
+              "markdownDescription": "Sort order for this field. Use `1` for ascending order or `-1` for descending order.",
+              "description": "Sort order: 1 (ascending) or -1 (descending)."
+            },
+            "noData": {
+              "type": "string",
+              "enum": ["lowest", "highest"],
+              "default": "lowest",
+              "markdownDescription": "Specifies how to sort documents that are missing this field. Use `lowest` to sort missing values first or `highest` to sort them last. Defaults to `lowest`.",
+              "description": "How to sort documents missing this field: 'lowest' or 'highest'."
+            }
+          },
+          "required": ["order"],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "additionalProperties": false
+}

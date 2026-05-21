@@ -21,10 +21,10 @@
     "numDimensions": {
       "suggestSortText": "2",
       "type": "integer",
-      "markdownDescription": "Number of vector dimensions. Value can be between 1 and 4096, both inclusive.",
-      "description": "Number of vector dimensions. Value can be between 1 and 4096, both inclusive.",
+      "markdownDescription": "Number of vector dimensions. Value can be between 1 and 8192, both inclusive.",
+      "description": "Number of vector dimensions. Value can be between 1 and 8192, both inclusive.",
       "minimum": 1,
-      "maximum": 4096
+      "maximum": 8192
     },
     "similarity": {
       "suggestSortText": "3",
@@ -48,6 +48,21 @@
         },
         {
           "const": "binary"
+        }
+      ]
+    },
+    "indexingMethod": {
+      "suggestSortText": "5",
+      "type": "string",
+      "description": "Indexing method to use",
+      "markdownDescription": "Indexing method to use. \nValues include:\n- `hnsw` - Hierarchical Navigable Small Worlds graph construction.\n- `flat` - flat index build.",
+      "default": "hnsw",
+      "oneOf": [
+        {
+          "const": "hnsw"
+        },
+        {
+          "const": "flat"
         }
       ]
     }

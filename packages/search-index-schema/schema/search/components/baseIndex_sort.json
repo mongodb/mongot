@@ -1,12 +1,12 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "search/components/baseIndex_CDI.json",
+  "$id": "search/components/baseIndex_sort.json",
   "type": "object",
   "description": "Define your Atlas Search Index",
   "properties": {
     "mappings": {
       "suggestSortText": "0",
-      "$ref": "mappings_CDI.json"
+      "$ref": "mappings.json"
     },
     "synonyms": {
       "suggestSortText": "4",
@@ -49,6 +49,10 @@
     "typeSets": {
       "suggestSortText": "7",
       "$ref": "typeSets.json"
+    },
+    "sort": {
+      "suggestSortText": "8",
+      "$ref": "sort.json"
     }
   }
 }

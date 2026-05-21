@@ -1,14 +1,15 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "vectorSearch/components/fields.json",
+  "$id": "vectorSearch/components/fields_autoEmbeddingPublicPreview.json",
   "type": "array",
   "properties": {
     "type": {
       "type": "string",
-      "enum": ["vector", "filter"],
+      "enum": ["vector", "filter", "autoEmbed"],
       "markdownEnumDescriptions": [
         "Field type to use to index array of numbers for vector search. To learn more, see [vector Type](https://dochub.mongodb.org/core/avs-vector-type/).",
-        "Field type to use to index string, number, and boolean values for pre-filtering the data. To learn more, see [filter Type](https://dochub.mongodb.org/core/avs-vector-search-filter-type/)."
+        "Field type to use to index string, number, and boolean values for pre-filtering the data. To learn more, see [filter Type](https://dochub.mongodb.org/core/avs-vector-search-filter-type/).",
+        "Field type to use to generate auto-embeddings for vector search."
       ]
     }
   },
@@ -20,6 +21,9 @@
         "$ref": "fields/vector.json"
       },
       {
+        "$ref": "fields/autoEmbed.json"
+      },
+      {
         "$ref": "fields/filter.json"
       }
     ]
@@ -27,7 +31,14 @@
   "contains": {
     "properties": {
       "type": {
-        "const": "vector"
+        "anyOf": [
+          {
+            "const": "vector"
+          },
+          {
+            "const": "autoEmbed"
+          }
+        ]
       }
     }
   },

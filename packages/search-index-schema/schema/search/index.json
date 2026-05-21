@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "search/jsonEditorIndex.json",
+  "$id": "search/index.json",
   "type": "object",
   "allOf": [
     {
@@ -14,7 +14,8 @@
     "searchAnalyzer": true,
     "analyzers": true,
     "storedSource": true,
-    "numPartitions": true
+    "numPartitions": true,
+    "typeSets": true
   },
   "description": "Define your Atlas Search Index",
   "required": ["mappings"],

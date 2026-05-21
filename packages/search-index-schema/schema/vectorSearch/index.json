@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "vectorSearch/jsonEditorIndex.json",
+  "$id": "vectorSearch/index.json",
   "type": "object",
   "description": "Define your Atlas Vector Search Index",
   "properties": {
@@ -12,6 +12,11 @@
     },
     "nestedRoot": {
       "$ref": "components/nestedRoot.json"
+    },
+    "storedSource": {
+      "$ref": "components/storedSource.json",
+      "markdownDescription": "Specifies the fields to store on Atlas Vector Search. You can set this to `false` to disable stored source, or provide an object with `include` or `exclude` field lists. Note: `true` is not supported for vector search indexes.",
+      "description": "Specifies the fields to store on Atlas Vector Search."
     }
   },
   "required": ["fields"],

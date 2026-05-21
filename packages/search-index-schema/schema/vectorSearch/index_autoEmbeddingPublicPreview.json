@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "vectorSearch/index_autoEmbeddingPublicPreview.json",
+  "type": "object",
+  "description": "Define your Atlas Vector Search Index",
+  "properties": {
+    "fields": {
+      "$ref": "components/fields_autoEmbeddingPublicPreview.json",
+      "suggestSortText": "0",
+      "markdownDescription": "Array of fields to index for vector search.",
+      "description": "Array of fields to index for vector search."
+    },
+    "nestedRoot": {
+      "$ref": "components/nestedRoot.json"
+    },
+    "storedSource": {
+      "$ref": "components/storedSource.json",
+      "markdownDescription": "Specifies the fields to store on Atlas Vector Search. You can set this to `false` to disable stored source, or provide an object with `include` or `exclude` field lists. Note: `true` is not supported for vector search indexes.",
+      "description": "Specifies the fields to store on Atlas Vector Search."
+    }
+  },
+  "required": ["fields"],
+  "additionalProperties": false
+}

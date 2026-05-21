@@ -8,11 +8,8 @@ indexes, including subschemas and samples.
 Search and Vector Search index schema definitions conforming to the Atlas Search index management
 syntax live at:
 
-- [search/index_full.json](https://github.com/mongodb/mongot/blob/master/packages/search-index-schema/schema/search/index_full.json)
-- [vectorSearch/index_full.json](https://github.com/mongodb/mongot/blob/master/packages/search-index-schema/schema/vectorSearch/index_full.json):
-  _for use in Atlas Search and Vector Search APIs_
-- [search/index_jsonEditor.json](https://github.com/mongodb/mongot/blob/master/packages/search-index-schema/schema/search/index_jsonEditor.json):
-- [vectorSearch/index_jsonEditor.json](https://github.com/mongodb/mongot/blob/master/packages/search-index-schema/schema/vectorSearch/index_jsonEditor.json):
+- [search/index.json](https://github.com/mongodb/mongot/blob/master/packages/search-index-schema/schema/search/index.json):
+- [vectorSearch/index.json](https://github.com/mongodb/mongot/blob/master/packages/search-index-schema/schema/vectorSearch/index.json):
   _for use in the Atlas Search and Vector Search JSON Editor_
 
 and may be used to validate an atlas search index schema using any of the
@@ -93,9 +90,9 @@ component to enforce the discriminator. An example of the initial workaround is 
 
 ## Code organization
 
-[search/index_full.json](https://github.com/mongodb/mongot/blob/master/packages/search-index-schema/schema/search/index_full.json)
-and [search/index_jsonEditor.json](https://github.com/mongodb/mongot/blob/master/packages/search-index-schema/schema/search/index_jsonEditor.json)
-(and its vectorSearch counterparts) are both schema definitions at the highest level and makes
+[search/index.json](https://github.com/mongodb/mongot/blob/master/packages/search-index-schema/schema/search/index.json)
+and [vectorSearch/index.json](https://github.com/mongodb/mongot/blob/master/packages/search-index-schema/schema/vectorSearch/index.json)
+are both schema definitions at the highest level and makes
 references to other locally defined schemas and subschemas hierarchically organized in the
 corresponding [components](https://github.com/mongodb/mongot/tree/master/packages/search-index-schema/schema/search/components)
 directory accompanying this README. Also, available in the same location, are sample index
@@ -111,11 +108,11 @@ validators. Please see validation example using [`ajv-cli`](https://ajv.js.org/)
 
 ```shell
 cd schema/search
-ajv compile -s index_full.json -r "components/**/*.json" --strict=false
+ajv compile -s index.json -r "components/**/*.json" --strict=false
 ```
 
 should return:
 
 ```
-schema index_full.json is valid
+schema index.json is valid
 ```

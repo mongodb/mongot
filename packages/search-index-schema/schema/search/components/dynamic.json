@@ -1,5 +1,28 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "search/components/dynamic.json",
-  "type": "boolean"
+  "examples": [
+    true,
+    false,
+    {
+      "typeSet": "<typeSet_name_1>"
+    }
+  ],
+  "oneOf": [
+    {
+      "type": "boolean"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "typeSet": {
+          "type": "string",
+          "markdownDescription": "Name of a typeSet defined in the typeSets section of your index definition.",
+          "description": "Name of a typeSet defined in the typeSets section of your index definition."
+        }
+      },
+      "required": ["typeSet"],
+      "additionalProperties": false
+    }
+  ]
 }

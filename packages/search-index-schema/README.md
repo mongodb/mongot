@@ -21,13 +21,11 @@ The package includes schemas for different search index types:
 
 ### Search Indexes
 
-- `search/index_full.json` - Complete search index schema
-- `search/index_jsonEditor.json` - Search index schema for use in JSON editors, which excludes metadata such as `name`, `database`, and `collectionName`
+- `search/index.json` - Search index schema for use in JSON editors, which excludes metadata such as `name`, `database`, and `collectionName`
 
 ### Vector Search Indexes
 
-- `vectorSearch/index_full.json` - Complete vector search index schema
-- `vectorSearch/index_jsonEditor.json` - Vector search index schema for use in JSON editors, which excludes metadata such as `name`, `database`, and `collectionName`
+- `vectorSearch/index.json` - Vector search index schema for use in JSON editors, which excludes metadata such as `name`, `database`, and `collectionName`
 
 ## License
 

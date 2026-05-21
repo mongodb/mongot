@@ -14,8 +14,8 @@
     "dynamic": {
       "suggestSortText": "1",
       "$ref": "../../dynamic.json",
-      "markdownDescription": "Boolean flag that indicates whether to index every [dynamically indexable](https://dochub.mongodb.org/core/data-types-fts) field in the document. If you omit or set this parameter to `false`, Atlas Search doesn't index any field and you can define the fields to index in the field definition.",
-      "description": "Boolean flag that indicates whether to index every dynamically indexable field in the document.",
+      "markdownDescription": "Boolean flag that indicates whether to index every [dynamically indexable](https://dochub.mongodb.org/core/data-types-fts) field in the document. Alternatively, you can set this parameter to an object with a typeSet property to use one of your custom typeSets. If you omit or set this parameter to `false`, Atlas Search doesn't index any field and you can define the fields to index in the field definition.",
+      "description": "Boolean flag that indicates whether to index every dynamically indexable field in the document. Alternatively, you can set this parameter to an object with a typeSet property to use one of your custom typeSets.",
       "default": false
     },
     "fields": {
