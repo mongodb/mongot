@@ -37,13 +37,10 @@ import java.util.Objects;
 import java.util.Optional;
 import javax.annotation.Nullable;
 import org.apache.lucene.codecs.CodecUtil;
-import org.apache.lucene.codecs.KnnVectorsReader;
-import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.FlatFieldVectorsWriter;
 import org.apache.lucene.codecs.hnsw.FlatVectorsScorer;
 import org.apache.lucene.codecs.hnsw.FlatVectorsWriter;
 import org.apache.lucene.codecs.lucene95.OrdToDocDISIReaderConfiguration;
-import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
 import org.apache.lucene.index.DocIDMerger;
 import org.apache.lucene.index.DocsWithFieldSet;
 import org.apache.lucene.index.FieldInfo;
@@ -56,19 +53,15 @@ import org.apache.lucene.index.SegmentWriteState;
 import org.apache.lucene.index.Sorter;
 import org.apache.lucene.index.VectorEncoding;
 import org.apache.lucene.index.VectorSimilarityFunction;
-import org.apache.lucene.internal.hppc.IntArrayList;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.VectorScorer;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.util.IOUtils;
-import org.apache.lucene.util.InfoStream;
-import org.apache.lucene.util.VectorUtil;
 import org.apache.lucene.util.hnsw.CloseableRandomVectorScorerSupplier;
 import org.apache.lucene.util.hnsw.RandomVectorScorer;
 import org.apache.lucene.util.hnsw.RandomVectorScorerSupplier;
 import org.apache.lucene.util.quantization.QuantizedByteVectorValues;
-import org.apache.lucene.util.quantization.QuantizedVectorsReader;
 import org.apache.lucene.util.quantization.ScalarQuantizer;
 
 /**
@@ -84,24 +77,6 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
   private static final long SHALLOW_RAM_BYTES_USED =
       shallowSizeOfInstance(Mongot01042BinaryQuantizedFlatVectorsWriter.class);
 
-  // Used for determining when merged quantiles shifted too far from individual segment quantiles.
-  // When merging quantiles from various segments, we need to ensure that the new quantiles
-  // are not exceptionally different from an individual segments quantiles.
-  // This would imply that the quantization buckets would shift too much
-  // for floating point values and justify recalculating the quantiles. This helps preserve
-  // accuracy of the calculated quantiles, even in adversarial cases such as vector clustering.
-  // This number was determined via empirical testing
-  private static final float QUANTILE_RECOMPUTE_LIMIT = 32;
-  // Used for determining if a new quantization state requires a re-quantization
-  // for a given segment.
-  // This ensures that in expectation 4/5 of the vector would be unchanged by requantization.
-  // Furthermore, only those values where the value is within 1/5 of the centre of a quantization
-  // bin will be changed. In these cases the error introduced by snapping one way or another
-  // is small compared to the error introduced by quantization in the first place. Furthermore,
-  // empirical testing showed that the relative error by not requantizing is small (compared to
-  // the quantization error) and the condition is sensitive enough to detect all adversarial cases,
-  // such as merging clustered data.
-  private static final float REQUANTIZATION_LIMIT = 0.2f;
   private final SegmentWriteState segmentWriteState;
 
   private final List<FieldWriter> fields = new ArrayList<>();
@@ -185,11 +160,7 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
     if (fieldInfo.getVectorEncoding().equals(VectorEncoding.FLOAT32)) {
       // [Changed from Lucene] removed a check for even dimension from here, no longer required
       FieldWriter quantizedWriter =
-          new FieldWriter(
-              this.confidenceInterval,
-              fieldInfo,
-              this.segmentWriteState.infoStream,
-              (FlatFieldVectorsWriter<float[]>) delegate);
+          new FieldWriter(fieldInfo, (FlatFieldVectorsWriter<float[]>) delegate);
       this.fields.add(quantizedWriter);
     }
     return delegate;
@@ -202,14 +173,13 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
     // the vectors directly to the new segment.
     // No need to use temporary file as we don't have to re-open for reading
     if (fieldInfo.getVectorEncoding().equals(VectorEncoding.FLOAT32)) {
-      ScalarQuantizer mergedQuantizationState =
-          mergeAndRecalculateQuantiles(mergeState, fieldInfo, this.confidenceInterval, (byte) 1);
+      ScalarQuantizer mergedQuantizationState = new BinaryQuantizer();
       MergedQuantizedVectorValues byteVectorValues =
           MergedQuantizedVectorValues.mergeQuantizedByteVectorValues(
               fieldInfo, mergeState, mergedQuantizationState);
       long vectorDataOffset = this.quantizedVectorData.alignFilePointer(Float.BYTES);
       DocsWithFieldSet docsWithField =
-          writeQuantizedVectorData(this.quantizedVectorData, byteVectorValues, (byte) 1, true);
+          writeQuantizedVectorData(this.quantizedVectorData, byteVectorValues);
       long vectorDataLength = this.quantizedVectorData.getFilePointer() - vectorDataOffset;
       writeMeta(
           fieldInfo,
@@ -217,8 +187,8 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
           vectorDataOffset,
           vectorDataLength,
           this.confidenceInterval,
-          mergedQuantizationState.getLowerQuantile(),
-          mergedQuantizationState.getUpperQuantile(),
+          BinaryQuantizer.UNUSED_MIN_QUANTILE,
+          BinaryQuantizer.UNUSED_MAX_QUANTILE,
           docsWithField);
     }
   }
@@ -274,8 +244,8 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
         vectorDataOffset,
         vectorDataLength,
         this.confidenceInterval,
-        fieldData.minQuantile,
-        fieldData.maxQuantile,
+        BinaryQuantizer.UNUSED_MIN_QUANTILE,
+        BinaryQuantizer.UNUSED_MAX_QUANTILE,
         fieldData.getDocsWithFieldSet());
   }
 
@@ -327,18 +297,11 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
   }
 
   private void writeQuantizedVectors(FieldWriter fieldData) throws IOException {
-    ScalarQuantizer scalarQuantizer = fieldData.createQuantizer();
+    ScalarQuantizer scalarQuantizer = new BinaryQuantizer();
     byte[] vector = new byte[fieldData.fieldInfo.getVectorDimension()];
     byte[] compressedVector = compressedArray(fieldData.fieldInfo.getVectorDimension());
     ByteBuffer offsetBuffer = ByteBuffer.allocate(Float.BYTES).order(ByteOrder.LITTLE_ENDIAN);
-    float[] copy = fieldData.normalize ? new float[fieldData.fieldInfo.getVectorDimension()] : null;
-    for (@Var float[] v : fieldData.getVectors()) {
-      if (copy != null) {
-        System.arraycopy(v, 0, copy, 0, copy.length);
-        VectorUtil.l2normalize(copy);
-        v = copy;
-      }
-
+    for (float[] v : fieldData.getVectors()) {
       float offsetCorrection =
           scalarQuantizer.quantize(v, vector, fieldData.fieldInfo.getVectorSimilarityFunction());
       BinaryQuantizationUtils.compressBytes(vector, compressedVector);
@@ -383,24 +346,18 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
         vectorDataOffset,
         quantizedVectorLength,
         this.confidenceInterval,
-        fieldData.minQuantile,
-        fieldData.maxQuantile,
+        BinaryQuantizer.UNUSED_MIN_QUANTILE,
+        BinaryQuantizer.UNUSED_MAX_QUANTILE,
         newDocsWithField);
   }
 
   private void writeSortedQuantizedVectors(FieldWriter fieldData, int[] ordMap) throws IOException {
-    ScalarQuantizer scalarQuantizer = fieldData.createQuantizer();
+    ScalarQuantizer scalarQuantizer = new BinaryQuantizer();
     byte[] vector = new byte[fieldData.fieldInfo.getVectorDimension()];
     byte[] compressedVector = compressedArray(fieldData.fieldInfo.getVectorDimension());
     ByteBuffer offsetBuffer = ByteBuffer.allocate(Float.BYTES).order(ByteOrder.LITTLE_ENDIAN);
-    float[] copy = fieldData.normalize ? new float[fieldData.fieldInfo.getVectorDimension()] : null;
     for (int ordinal : ordMap) {
-      @Var float[] v = fieldData.getVectors().get(ordinal);
-      if (copy != null) {
-        System.arraycopy(v, 0, copy, 0, copy.length);
-        VectorUtil.l2normalize(copy);
-        v = copy;
-      }
+      float[] v = fieldData.getVectors().get(ordinal);
       float offsetCorrection =
           scalarQuantizer.quantize(v, vector, fieldData.fieldInfo.getVectorSimilarityFunction());
       BinaryQuantizationUtils.compressBytes(vector, compressedVector);
@@ -419,8 +376,7 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
       // Simply merge the underlying delegate, which just copies the raw vector data to a new
       // segment file
       this.rawVectorDelegate.mergeOneField(fieldInfo, mergeState);
-      ScalarQuantizer mergedQuantizationState =
-          mergeAndRecalculateQuantiles(mergeState, fieldInfo, this.confidenceInterval, (byte) 1);
+      ScalarQuantizer mergedQuantizationState = new BinaryQuantizer();
       return mergeOneFieldToIndex(
           this.segmentWriteState, fieldInfo, mergeState, mergedQuantizationState);
     }
@@ -457,7 +413,7 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
           MergedQuantizedVectorValues.mergeQuantizedByteVectorValues(
               fieldInfo, mergeState, mergedQuantizationState);
       DocsWithFieldSet docsWithField =
-          writeQuantizedVectorData(tempQuantizedVectorData, byteVectorValues, (byte) 1, true);
+          writeQuantizedVectorData(tempQuantizedVectorData, byteVectorValues);
       CodecUtil.writeFooter(tempQuantizedVectorData);
       IOUtils.close(tempQuantizedVectorData);
       quantizationDataInput =
@@ -522,189 +478,11 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
     return new byte[BinaryQuantizationUtils.requiredBytes(dimension)];
   }
 
-  @Nullable
-  static ScalarQuantizer mergeQuantiles(
-      List<ScalarQuantizer> quantizationStates, IntArrayList segmentSizes, byte bits) {
-    assert bits == 1;
-    assert quantizationStates.size() == segmentSizes.size();
-    if (quantizationStates.isEmpty()) {
-      return null;
-    }
-    @Var float lowerQuantile = 0f;
-    @Var float upperQuantile = 0f;
-    @Var int totalCount = 0;
-    for (int i = 0; i < quantizationStates.size(); i++) {
-      if (quantizationStates.get(i) == null) {
-        return null;
-      }
-      lowerQuantile += quantizationStates.get(i).getLowerQuantile() * segmentSizes.get(i);
-      upperQuantile += quantizationStates.get(i).getUpperQuantile() * segmentSizes.get(i);
-      totalCount += segmentSizes.get(i);
-      if (quantizationStates.get(i).getBits() != bits) {
-        return null;
-      }
-    }
-    lowerQuantile /= totalCount;
-    upperQuantile /= totalCount;
-    return new BinaryQuantizer(lowerQuantile, upperQuantile);
-  }
-
-  /**
-   * Returns true if the quantiles of the merged state are too far from the quantiles of the
-   * individual states.
-   *
-   * @param mergedQuantizationState The merged quantization state
-   * @param quantizationStates The quantization states of the individual segments
-   * @return true if the quantiles should be recomputed
-   */
-  static boolean shouldRecomputeQuantiles(
-      ScalarQuantizer mergedQuantizationState, List<ScalarQuantizer> quantizationStates) {
-    // calculate the limit for the quantiles to be considered too far apart
-    // We utilize upper & lower here to determine if the new upper and merged upper would
-    // drastically
-    // change the quantization buckets for floats
-    // This is a fairly conservative check.
-    float limit =
-        (mergedQuantizationState.getUpperQuantile() - mergedQuantizationState.getLowerQuantile())
-            / QUANTILE_RECOMPUTE_LIMIT;
-    for (ScalarQuantizer quantizationState : quantizationStates) {
-      if (Math.abs(
-              quantizationState.getUpperQuantile() - mergedQuantizationState.getUpperQuantile())
-          > limit) {
-        return true;
-      }
-      if (Math.abs(
-              quantizationState.getLowerQuantile() - mergedQuantizationState.getLowerQuantile())
-          > limit) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  @Nullable
-  private static QuantizedVectorsReader getQuantizedKnnVectorsReader(
-      @Var KnnVectorsReader vectorsReader, String fieldName) {
-    if (vectorsReader instanceof PerFieldKnnVectorsFormat.FieldsReader fieldsReader) {
-      vectorsReader = fieldsReader.getFieldReader(fieldName);
-    }
-    if (vectorsReader instanceof QuantizedVectorsReader quantizedVectorsReader) {
-      return quantizedVectorsReader;
-    }
-    return null;
-  }
-
-  @Nullable
-  private static ScalarQuantizer getQuantizedState(
-      KnnVectorsReader vectorsReader, String fieldName) {
-    QuantizedVectorsReader reader = getQuantizedKnnVectorsReader(vectorsReader, fieldName);
-    if (reader != null) {
-      return reader.getQuantizationState(fieldName);
-    }
-    return null;
-  }
-
-  /**
-   * Merges the quantiles of the segments and recalculates the quantiles if necessary.
-   *
-   * @param mergeState The merge state
-   * @param fieldInfo The field info
-   * @param confidenceInterval The confidence interval
-   * @param bits The number of bits
-   * @return The merged quantiles
-   * @throws IOException If there is a low-level I/O error
-   */
-  public static ScalarQuantizer mergeAndRecalculateQuantiles(
-      MergeState mergeState, FieldInfo fieldInfo, Optional<Float> confidenceInterval, byte bits)
-      throws IOException {
-    assert fieldInfo.getVectorEncoding().equals(VectorEncoding.FLOAT32);
-    List<ScalarQuantizer> quantizationStates = new ArrayList<>(mergeState.liveDocs.length);
-    IntArrayList segmentSizes = new IntArrayList(mergeState.liveDocs.length);
-    for (int i = 0; i < mergeState.liveDocs.length; i++) {
-      FloatVectorValues fvv;
-      if (mergeState.knnVectorsReaders[i] != null
-          && hasVectorValues(mergeState.fieldInfos[i], fieldInfo.name)
-          && (fvv = mergeState.knnVectorsReaders[i].getFloatVectorValues(fieldInfo.name)).size()
-              > 0) {
-        ScalarQuantizer quantizationState =
-            getQuantizedState(mergeState.knnVectorsReaders[i], fieldInfo.name);
-        // If we have quantization state, we can utilize that to make merging cheaper
-        quantizationStates.add(quantizationState);
-        segmentSizes.add(fvv.size());
-      }
-    }
-    ScalarQuantizer mergedQuantiles = mergeQuantiles(quantizationStates, segmentSizes, bits);
-    // Segments no providing quantization state indicates that their quantiles were never
-    // calculated.
-    // To be safe, we should always recalculate given a sample set over all the float vectors in the
-    // merged
-    // segment view
-    if (mergedQuantiles == null
-        // For smaller `bits` values, we should always recalculate the quantiles
-        // TO DO: this is very conservative, could we reuse information for even int4 quantization?
-        || bits <= 4
-        || shouldRecomputeQuantiles(mergedQuantiles, quantizationStates)) {
-      @Var int numVectors = 0;
-      DocIndexIterator vectorValues =
-          MergedVectorValues.mergeFloatVectorValues(fieldInfo, mergeState).iterator();
-      // iterate vectorValues and increment numVectors
-      for (int doc = vectorValues.nextDoc();
-          doc != DocIdSetIterator.NO_MORE_DOCS;
-          doc = vectorValues.nextDoc()) {
-        numVectors++;
-      }
-      return buildScalarQuantizer(
-          KnnVectorsWriter.MergedVectorValues.mergeFloatVectorValues(fieldInfo, mergeState),
-          numVectors,
-          fieldInfo.getVectorSimilarityFunction(),
-          confidenceInterval,
-          bits);
-    }
-    return mergedQuantiles;
-  }
-
-  ////////// NOTE(corecursion): Binary Quantization requires hardcoded confidenceInterval == 1f
-  // [Changed from Lucene] Removed DYNAMIC_CONFIDENCE_INTERVAL fromVectorsAutoInterval() call.
-  static ScalarQuantizer buildScalarQuantizer(
-      FloatVectorValues floatVectorValues,
-      int numVectors,
-      VectorSimilarityFunction vectorSimilarityFunction,
-      Optional<Float> confidenceInterval,
-      byte bits)
-      throws IOException {
-    assert bits == 1;
-    return BinaryQuantizer.fromVectors(floatVectorValues, numVectors);
-  }
-
-  /**
-   * Returns true if the quantiles of the new quantization state are too far from the quantiles of
-   * the existing quantization state. This would imply that floating point values would slightly
-   * shift quantization buckets.
-   *
-   * @param existingQuantiles The existing quantiles for a segment
-   * @param newQuantiles The new quantiles for a segment, could be merged, or fully re-calculated
-   * @return true if the floating point values should be requantized
-   */
-  static boolean shouldRequantize(ScalarQuantizer existingQuantiles, ScalarQuantizer newQuantiles) {
-    float tol =
-        REQUANTIZATION_LIMIT
-            * (newQuantiles.getUpperQuantile() - newQuantiles.getLowerQuantile())
-            / 128f;
-    if (Math.abs(existingQuantiles.getUpperQuantile() - newQuantiles.getUpperQuantile()) > tol) {
-      return true;
-    }
-    return Math.abs(existingQuantiles.getLowerQuantile() - newQuantiles.getLowerQuantile()) > tol;
-  }
-
   /**
    * Writes the vector values to the output and returns a set of documents that contains vectors.
    */
   public static DocsWithFieldSet writeQuantizedVectorData(
-      IndexOutput output,
-      QuantizedByteVectorValues quantizedByteVectorValues,
-      byte bits,
-      boolean compress)
-      throws IOException {
+      IndexOutput output, QuantizedByteVectorValues quantizedByteVectorValues) throws IOException {
     DocsWithFieldSet docsWithField = new DocsWithFieldSet();
     byte[] compressedVector = compressedArray(quantizedByteVectorValues.dimension());
     DocIndexIterator iterator = quantizedByteVectorValues.iterator();
@@ -731,25 +509,13 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
   static class FieldWriter extends FlatFieldVectorsWriter<float[]> {
     private static final long SHALLOW_SIZE = shallowSizeOfInstance(FieldWriter.class);
     private final FieldInfo fieldInfo;
-    private final Optional<Float> confidenceInterval;
-    private final InfoStream infoStream;
-    private final boolean normalize;
-    private float minQuantile = Float.POSITIVE_INFINITY;
-    private float maxQuantile = Float.NEGATIVE_INFINITY;
     private boolean finished;
     private final FlatFieldVectorsWriter<float[]> flatFieldVectorsWriter;
 
     @SuppressWarnings("unchecked")
-    FieldWriter(
-        Optional<Float> confidenceInterval,
-        FieldInfo fieldInfo,
-        InfoStream infoStream,
-        FlatFieldVectorsWriter<float[]> indexWriter) {
+    FieldWriter(FieldInfo fieldInfo, FlatFieldVectorsWriter<float[]> indexWriter) {
       super();
-      this.confidenceInterval = confidenceInterval;
       this.fieldInfo = fieldInfo;
-      this.normalize = fieldInfo.getVectorSimilarityFunction() == VectorSimilarityFunction.COSINE;
-      this.infoStream = infoStream;
       this.flatFieldVectorsWriter = Objects.requireNonNull(indexWriter);
     }
 
@@ -777,37 +543,6 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
       this.finished = true;
     }
 
-    ScalarQuantizer createQuantizer() throws IOException {
-      assert this.flatFieldVectorsWriter.isFinished();
-      List<float[]> floatVectors = this.flatFieldVectorsWriter.getVectors();
-      if (floatVectors.isEmpty()) {
-        return new BinaryQuantizer(0, 0);
-      }
-      FloatVectorValues floatVectorValues = new FloatVectorWrapper(floatVectors, this.normalize);
-
-      ScalarQuantizer quantizer =
-          buildScalarQuantizer(
-              floatVectorValues,
-              floatVectors.size(),
-              this.fieldInfo.getVectorSimilarityFunction(),
-              this.confidenceInterval,
-              (byte) 1);
-      this.minQuantile = quantizer.getLowerQuantile();
-      this.maxQuantile = quantizer.getUpperQuantile();
-      if (this.infoStream.isEnabled(QUANTIZED_VECTOR_COMPONENT)) {
-        this.infoStream.message(
-            QUANTIZED_VECTOR_COMPONENT,
-            "quantized field="
-                + " confidenceInterval="
-                + this.confidenceInterval
-                + " minQuantile="
-                + this.minQuantile
-                + " maxQuantile="
-                + this.maxQuantile);
-      }
-      return quantizer;
-    }
-
     @Override
     public long ramBytesUsed() {
       return SHALLOW_SIZE + this.flatFieldVectorsWriter.ramBytesUsed();
@@ -821,48 +556,6 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
     @Override
     public float[] copyValue(float[] vectorValue) {
       throw new UnsupportedOperationException();
-    }
-  }
-
-  static class FloatVectorWrapper extends FloatVectorValues {
-    private final List<float[]> vectorList;
-    private final float[] copy;
-    private final boolean normalize;
-
-    FloatVectorWrapper(List<float[]> vectorList, boolean normalize) {
-      this.vectorList = vectorList;
-      this.copy = new float[vectorList.getFirst().length];
-      this.normalize = normalize;
-    }
-
-    @Override
-    public int dimension() {
-      return this.vectorList.getFirst().length;
-    }
-
-    @Override
-    public int size() {
-      return this.vectorList.size();
-    }
-
-    @Override
-    public float[] vectorValue(int ord) throws IOException {
-      if (this.normalize) {
-        System.arraycopy(this.vectorList.get(ord), 0, this.copy, 0, this.copy.length);
-        VectorUtil.l2normalize(this.copy);
-        return this.copy;
-      }
-      return this.vectorList.get(ord);
-    }
-
-    @Override
-    public FloatVectorValues copy() throws IOException {
-      return new FloatVectorWrapper(this.vectorList, this.normalize);
-    }
-
-    @Override
-    public DocIndexIterator iterator() {
-      return createDenseIterator();
     }
   }
 
@@ -897,38 +590,13 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
       List<QuantizedByteVectorValueSub> subs = new ArrayList<>();
       for (int i = 0; i < mergeState.knnVectorsReaders.length; i++) {
         if (hasVectorValues(mergeState.fieldInfos[i], fieldInfo.name)) {
-          QuantizedVectorsReader reader =
-              getQuantizedKnnVectorsReader(mergeState.knnVectorsReaders[i], fieldInfo.name);
-          assert scalarQuantizer != null;
-          QuantizedByteVectorValueSub sub;
-          // Either our quantization parameters are way different than the merged ones
-          // Or we have never been quantized.
-          if (reader == null
-              || reader.getQuantizationState(fieldInfo.name) == null
-              // For smaller `bits` values, we should always recalculate the quantiles
-              // TO DO: this is very conservative, could we reuse information for even int4
-              // quantization?
-              || scalarQuantizer.getBits() <= 4
-              || shouldRequantize(reader.getQuantizationState(fieldInfo.name), scalarQuantizer)) {
-            @Var
-            FloatVectorValues toQuantize =
-                mergeState.knnVectorsReaders[i].getFloatVectorValues(fieldInfo.name);
-            if (fieldInfo.getVectorSimilarityFunction() == VectorSimilarityFunction.COSINE) {
-              toQuantize = new NormalizedFloatVectorValues(toQuantize);
-            }
-            sub =
-                new QuantizedByteVectorValueSub(
-                    mergeState.docMaps[i],
-                    new QuantizedFloatVectorValues(
-                        toQuantize, fieldInfo.getVectorSimilarityFunction(), scalarQuantizer));
-          } else {
-            QuantizedByteVectorValues qvv = reader.getQuantizedVectorValues(fieldInfo.name);
-            // [Changed from Lucene] Added check for null qvv.
-            if (qvv == null) {
-              throw new RuntimeException("internal error: vector values not found");
-            }
-            sub = new QuantizedByteVectorValueSub(mergeState.docMaps[i], qvv);
-          }
+          FloatVectorValues toQuantize =
+              mergeState.knnVectorsReaders[i].getFloatVectorValues(fieldInfo.name);
+          QuantizedByteVectorValueSub sub =
+              new QuantizedByteVectorValueSub(
+                  mergeState.docMaps[i],
+                  new QuantizedFloatVectorValues(
+                      toQuantize, fieldInfo.getVectorSimilarityFunction(), scalarQuantizer));
           subs.add(sub);
         }
       }
@@ -1032,7 +700,6 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
     private final FloatVectorValues values;
     private final ScalarQuantizer quantizer;
     private final byte[] quantizedVector;
-    @Nullable private final float[] normalizedVector;
     private float offsetValue = 0f;
 
     private final VectorSimilarityFunction vectorSimilarityFunction;
@@ -1045,11 +712,6 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
       this.quantizer = quantizer;
       this.quantizedVector = new byte[values.dimension()];
       this.vectorSimilarityFunction = vectorSimilarityFunction;
-      if (vectorSimilarityFunction == VectorSimilarityFunction.COSINE) {
-        this.normalizedVector = new float[values.dimension()];
-      } else {
-        this.normalizedVector = null;
-      }
     }
 
     @Override
@@ -1068,17 +730,8 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
     }
 
     private void quantize(float[] raw) throws IOException {
-      if (this.vectorSimilarityFunction == VectorSimilarityFunction.COSINE
-          && this.normalizedVector != null) {
-        System.arraycopy(raw, 0, this.normalizedVector, 0, this.normalizedVector.length);
-        VectorUtil.l2normalize(this.normalizedVector);
-        this.offsetValue =
-            this.quantizer.quantize(
-                this.normalizedVector, this.quantizedVector, this.vectorSimilarityFunction);
-      } else {
-        this.offsetValue =
-            this.quantizer.quantize(raw, this.quantizedVector, this.vectorSimilarityFunction);
-      }
+      this.offsetValue =
+          this.quantizer.quantize(raw, this.quantizedVector, this.vectorSimilarityFunction);
     }
 
     @Override
@@ -1130,49 +783,6 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
     @Override
     public int totalVectorCount() {
       return this.numVectors;
-    }
-  }
-
-  static final class NormalizedFloatVectorValues extends FloatVectorValues {
-    private final FloatVectorValues values;
-    private final float[] normalizedVector;
-
-    public NormalizedFloatVectorValues(FloatVectorValues values) {
-      this.values = values;
-      this.normalizedVector = new float[values.dimension()];
-    }
-
-    @Override
-    public int dimension() {
-      return this.values.dimension();
-    }
-
-    @Override
-    public int size() {
-      return this.values.size();
-    }
-
-    @Override
-    public int ordToDoc(int ord) {
-      return this.values.ordToDoc(ord);
-    }
-
-    @Override
-    public float[] vectorValue(int ord) throws IOException {
-      System.arraycopy(
-          this.values.vectorValue(ord), 0, this.normalizedVector, 0, this.normalizedVector.length);
-      VectorUtil.l2normalize(this.normalizedVector);
-      return this.normalizedVector;
-    }
-
-    @Override
-    public DocIndexIterator iterator() {
-      return this.values.iterator();
-    }
-
-    @Override
-    public NormalizedFloatVectorValues copy() throws IOException {
-      return new NormalizedFloatVectorValues(this.values.copy());
     }
   }
 }

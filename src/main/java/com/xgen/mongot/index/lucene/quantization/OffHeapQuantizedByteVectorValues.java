@@ -315,7 +315,7 @@ public abstract class OffHeapQuantizedByteVectorValues extends QuantizedByteVect
         int dimension,
         VectorSimilarityFunction similarityFunction,
         FlatVectorsScorer vectorsScorer) {
-      super(dimension, 0, new BinaryQuantizer(-1, 1), similarityFunction, vectorsScorer, null);
+      super(dimension, 0, new BinaryQuantizer(), similarityFunction, vectorsScorer, null);
     }
 
     @Override

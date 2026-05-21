@@ -364,28 +364,17 @@ public final class Mongot01042BinaryQuantizedFlatVectorsReader extends FlatVecto
       this.size = input.readInt();
       if (this.size > 0) {
         if (versionMeta < Mongot01042BinaryQuantizedFlatVectorsFormat.VERSION_ADD_BITS) {
-          int floatBits = input.readInt(); // confidenceInterval, unused
-          if (floatBits == -1) { // indicates a null confidence interval
-            throw new CorruptIndexException(
-                "Missing confidence interval for scalar quantizer", input);
-          }
-          float confidenceInterval = Float.intBitsToFloat(floatBits);
-          // indicates a dynamic interval, which shouldn't be provided in this version
-          if (confidenceInterval
-              == Mongot01042BinaryQuantizedFlatVectorsFormat.DYNAMIC_CONFIDENCE_INTERVAL) {
-            throw new CorruptIndexException(
-                "Invalid confidence interval for scalar quantizer: " + confidenceInterval, input);
-          }
-          float minQuantile = Float.intBitsToFloat(input.readInt());
-          float maxQuantile = Float.intBitsToFloat(input.readInt());
-          this.scalarQuantizer = new BinaryQuantizer(minQuantile, maxQuantile);
+          input.readInt(); // confidenceInterval, unused
+          input.readInt(); // minQuantile, unused
+          input.readInt(); // maxQuantile, unused
+          this.scalarQuantizer = new BinaryQuantizer();
         } else {
           input.readInt(); // confidenceInterval, unused
           input.readByte(); // bits
           input.readByte(); // compress
-          float minQuantile = Float.intBitsToFloat(input.readInt());
-          float maxQuantile = Float.intBitsToFloat(input.readInt());
-          this.scalarQuantizer = new BinaryQuantizer(minQuantile, maxQuantile);
+          input.readInt(); // minQuantile, unused
+          input.readInt(); // maxQuantile, unused
+          this.scalarQuantizer = new BinaryQuantizer();
         }
       } else {
         this.scalarQuantizer = null;

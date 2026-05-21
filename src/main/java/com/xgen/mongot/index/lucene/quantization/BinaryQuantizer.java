@@ -19,25 +19,18 @@
 
 package com.xgen.mongot.index.lucene.quantization;
 
-import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
-
-import com.google.errorprone.annotations.Var;
-import java.io.IOException;
-import org.apache.lucene.index.FloatVectorValues;
-import org.apache.lucene.index.KnnVectorValues.DocIndexIterator;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.util.quantization.ScalarQuantizer;
 
 public class BinaryQuantizer extends ScalarQuantizer {
-  public BinaryQuantizer(float minQuantile, float maxQuantile) {
-    // CLOUDP-289670: work around Lucene ScalarQuantizer division-by-zero bug
-    // This (?:) logic can be removed from mongot when we upgrade to Lucene 11+.
-    super(
-        minQuantile == maxQuantile ? minQuantile - 1 : minQuantile,
-        minQuantile == maxQuantile ? maxQuantile + 1 : maxQuantile,
-        (byte) 1);
-    // Starting in Lucene 11 this constructor can be changed to this:
-    //    super(minQuantile, maxQuantile, (byte) 1);
+  // Placeholder quantile values: quantiles are not used for binary quantization.
+  // The ScalarQuantizer superclass computes scalar-quantization-specific parameters
+  // from these values but they are unused here.
+  static final float UNUSED_MIN_QUANTILE = 0f;
+  static final float UNUSED_MAX_QUANTILE = 1f;
+
+  public BinaryQuantizer() {
+    super(UNUSED_MIN_QUANTILE, UNUSED_MAX_QUANTILE, (byte) 1);
   }
 
   @Override
@@ -59,23 +52,5 @@ public class BinaryQuantizer extends ScalarQuantizer {
     // Corrective offsets aren't necessary with single bit quantization, and they are not used for
     // scoring.
     return 0f;
-  }
-
-  static BinaryQuantizer fromVectors(FloatVectorValues floatVectorValues, int totalVectorCount)
-      throws IOException {
-    if (totalVectorCount == 0) {
-      return new BinaryQuantizer(0f, 0f);
-    }
-    // TODO(corecursion): can we just provide dummy (0, 1?) values for these min and max quantiles
-    @Var float min = Float.POSITIVE_INFINITY;
-    @Var float max = Float.NEGATIVE_INFINITY;
-    DocIndexIterator iterator = floatVectorValues.iterator();
-    while (iterator.nextDoc() != NO_MORE_DOCS) {
-      for (float v : floatVectorValues.vectorValue(iterator.index())) {
-        min = Math.min(min, v);
-        max = Math.max(max, v);
-      }
-    }
-    return new BinaryQuantizer(min, max);
   }
 }
