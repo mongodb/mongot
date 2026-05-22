@@ -21,6 +21,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
@@ -54,7 +55,8 @@ import org.mockito.junit.MockitoJUnitRunner;
       LuceneUnifiedHighlighterTest.TestMongotHighlightTransposition.class,
       LuceneUnifiedHighlighterTest.TestQueryValidation.class,
       LuceneUnifiedHighlighterTest.TestUnitLogic.class,
-      LuceneUnifiedHighlighterTest.TestComputeStoredFieldsAndRemap.class
+      LuceneUnifiedHighlighterTest.TestComputeStoredFieldsAndRemap.class,
+      LuceneUnifiedHighlighterTest.TestByPathComparator.class
     })
 public class LuceneUnifiedHighlighterTest {
 
@@ -198,12 +200,7 @@ public class LuceneUnifiedHighlighterTest {
               : Optional.empty();
 
       return LuceneUnifiedHighlighter.create(
-          new IndexSearcher(reader),
-          new StandardAnalyzer(),
-          highlight,
-
-          query,
-          explainer);
+          new IndexSearcher(reader), new StandardAnalyzer(), highlight, query, explainer);
     }
 
     @Test
@@ -213,8 +210,7 @@ public class LuceneUnifiedHighlighterTest {
               Optional.of(Explain.Verbosity.EXECUTION_STATS),
               Optional.of(IndexDefinition.Fields.NUM_PARTITIONS.getDefaultValue()))) {
         var highlight =
-            HighlightBuilder
-                .builder()
+            HighlightBuilder.builder()
                 .maxNumPassages(1)
                 .maxCharsToExamine(1)
                 .path("title")
@@ -242,8 +238,7 @@ public class LuceneUnifiedHighlighterTest {
     @Test
     public void testValidatesUtf8() {
       var highlight =
-          HighlightBuilder
-              .builder()
+          HighlightBuilder.builder()
               .maxNumPassages(1)
               .maxCharsToExamine(1)
               .path("title")
@@ -334,11 +329,7 @@ public class LuceneUnifiedHighlighterTest {
 
     @Test
     public void computeStoredFieldsAndRemap_deduplicatesStoredFields() {
-      String[] fields = {
-          "$multi/title.french",
-          "$multi/title.spanish",
-          "$type:string/title"
-      };
+      String[] fields = {"$multi/title.french", "$multi/title.spanish", "$type:string/title"};
       Map<String, String> map =
           Map.of(
               "$multi/title.french", "$type:string/title",
@@ -350,18 +341,15 @@ public class LuceneUnifiedHighlighterTest {
           LuceneUnifiedHighlighter.PublicUnifiedHighlighter.computeStoredFieldsAndRemap(
               fields, map, remapOut);
 
-      Assert.assertArrayEquals(new String[] { "$type:string/title" }, storedFields);
+      Assert.assertArrayEquals(new String[] {"$type:string/title"}, storedFields);
 
-      Assert.assertArrayEquals(new int[] { 0, 0, 0 }, remapOut);
+      Assert.assertArrayEquals(new int[] {0, 0, 0}, remapOut);
     }
 
     @Test
     public void computeStoredFieldsAndRemap_sortsStoredFields() {
       String[] fields = {
-          "$multi/title.french",
-          "$multi/author.french",
-          "$multi/plot.french",
-          "$type:string/title"
+        "$multi/title.french", "$multi/author.french", "$multi/plot.french", "$type:string/title"
       };
       Map<String, String> map =
           Map.of(
@@ -376,23 +364,15 @@ public class LuceneUnifiedHighlighterTest {
               fields, map, remapOut);
 
       Assert.assertArrayEquals(
-          new String[] {
-              "$type:string/author",
-              "$type:string/plot",
-              "$type:string/title"
-          },
-          storedFields
-      );
+          new String[] {"$type:string/author", "$type:string/plot", "$type:string/title"},
+          storedFields);
 
-      Assert.assertArrayEquals(new int[] { 2, 0, 1, 2 }, remapOut);
+      Assert.assertArrayEquals(new int[] {2, 0, 1, 2}, remapOut);
     }
 
     @Test
     public void computeStoredFieldsAndRemap_storedFieldsOnly() {
-      String[] fields = {
-          "$type:string/title",
-          "$type:string/author"
-      };
+      String[] fields = {"$type:string/title", "$type:string/author"};
       Map<String, String> map =
           Map.of(
               "$type:string/title", "$type:string/title",
@@ -404,14 +384,86 @@ public class LuceneUnifiedHighlighterTest {
               fields, map, remapOut);
 
       Assert.assertArrayEquals(
-          new String[] {
-              "$type:string/author",
-              "$type:string/title"
-          },
-          storedFields
-      );
+          new String[] {"$type:string/author", "$type:string/title"}, storedFields);
 
-      Assert.assertArrayEquals(new int[] { 1, 0 }, remapOut);
+      Assert.assertArrayEquals(new int[] {1, 0}, remapOut);
+    }
+  }
+
+  public static class TestByPathComparator {
+
+    private static SearchHighlight highlight(StringPath path) {
+      return new SearchHighlight(
+          1.0f, path, List.of(new SearchHighlightText("text", SearchHighlightText.Type.TEXT)));
+    }
+
+    @Test
+    public void byPath_fieldPaths_sortsAlphabeticallyByPath() {
+      List<SearchHighlight> highlights =
+          new ArrayList<>(
+              List.of(
+                  highlight(StringPathBuilder.fieldPath("c")),
+                  highlight(StringPathBuilder.fieldPath("a")),
+                  highlight(StringPathBuilder.fieldPath("b"))));
+
+      highlights.sort(LuceneUnifiedHighlighter.BY_PATH);
+
+      Truth.assertThat(
+              highlights.stream().map(h -> h.path().toString()).collect(Collectors.toList()))
+          .containsExactly("a", "b", "c")
+          .inOrder();
+    }
+
+    @Test
+    public void byPath_nestedFieldPaths_sortsByLexicographicPath() {
+      List<SearchHighlight> highlights =
+          new ArrayList<>(
+              List.of(
+                  highlight(StringPathBuilder.fieldPath("a.z")),
+                  highlight(StringPathBuilder.fieldPath("a.b")),
+                  highlight(StringPathBuilder.fieldPath("a"))));
+
+      highlights.sort(LuceneUnifiedHighlighter.BY_PATH);
+
+      Truth.assertThat(
+              highlights.stream().map(h -> h.path().toString()).collect(Collectors.toList()))
+          .containsExactly("a", "a.b", "a.z")
+          .inOrder();
+    }
+
+    @Test
+    public void byPath_multiAndFieldPaths_orderMultiAfterBaseField() {
+      // StringMultiFieldPath.toString() is "<path> (multi: <name>)", so it sorts after the bare
+      // base field "a" but is still grouped near other "a"-rooted paths.
+      List<SearchHighlight> highlights =
+          new ArrayList<>(
+              List.of(
+                  highlight(StringPathBuilder.withMulti("a", "french")),
+                  highlight(StringPathBuilder.fieldPath("a"))));
+
+      highlights.sort(LuceneUnifiedHighlighter.BY_PATH);
+
+      Truth.assertThat(
+              highlights.stream().map(h -> h.path().toString()).collect(Collectors.toList()))
+          .containsExactly("a", "a (multi: french)")
+          .inOrder();
+    }
+
+    @Test
+    public void byPath_alreadySorted_isStableNoop() {
+      List<SearchHighlight> highlights =
+          new ArrayList<>(
+              List.of(
+                  highlight(StringPathBuilder.fieldPath("a")),
+                  highlight(StringPathBuilder.fieldPath("b")),
+                  highlight(StringPathBuilder.fieldPath("c"))));
+
+      highlights.sort(LuceneUnifiedHighlighter.BY_PATH);
+
+      Truth.assertThat(
+              highlights.stream().map(h -> h.path().toString()).collect(Collectors.toList()))
+          .containsExactly("a", "b", "c")
+          .inOrder();
     }
   }
 }

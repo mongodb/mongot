@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -37,6 +38,10 @@ class LuceneUnifiedHighlighter {
   private final Highlight highlight;
   private final Query searchQuery;
   private final Optional<HighlightFeatureExplainer> explainer;
+
+  @VisibleForTesting
+  static final Comparator<SearchHighlight> BY_PATH =
+      Comparator.comparing(h -> h.path().toString());
 
   private LuceneUnifiedHighlighter(
       PublicUnifiedHighlighter luceneHighlighter,
@@ -154,6 +159,14 @@ class LuceneUnifiedHighlighter {
 
     mergeSearchHighlightsArray(searchHighlightsArrayByFieldMap, docSearchHighlights);
 
+    // Lucene's UnifiedHighlighter returns a HashMap whose iteration order depends on field-name
+    // hashes and the map's internal capacity (sized to the resolved field count). That order is
+    // not a contract we want to expose, and it can shift between shard topologies and Lucene/JDK
+    // versions. Sort each doc's highlights by path so callers (and tests) see a stable order.
+    for (List<SearchHighlight> doc : docSearchHighlights) {
+      doc.sort(BY_PATH);
+    }
+
     return docSearchHighlights;
   }
 
@@ -249,19 +262,18 @@ class LuceneUnifiedHighlighter {
     return objectOptional.map(o -> ((LuceneSearchHighlights) o).toSearchHighlights(path));
   }
 
-
   /**
    * PublicUnifiedHighlighter extends Lucene's {@link UnifiedHighlighter} to allow:
+   *
    * <ul>
-   *   <li>Direct invocation of {@code highlightFieldsAsObjects} and {@code extractTerms} in
-   *       tests</li>
-   *   <li>Custom field value loading logic via {@code loadFieldValues}, enabling the use of
-   *       stored base fields instead of multi fields when highlighting</li>
+   *   <li>Direct invocation of {@code highlightFieldsAsObjects} and {@code extractTerms} in tests
+   *   <li>Custom field value loading logic via {@code loadFieldValues}, enabling the use of stored
+   *       base fields instead of multi fields when highlighting
    * </ul>
    *
    * <p>This class is used to simulate real-world field resolution behavior in highlight tests
-   * without modifying Lucene's internals. It relies on a resolved mapping of
-   * {@code resolvedLuceneFieldName → storedLuceneFieldName} provided externally.</p>
+   * without modifying Lucene's internals. It relies on a resolved mapping of {@code
+   * resolvedLuceneFieldName → storedLuceneFieldName} provided externally.
    */
   @VisibleForTesting
   static class PublicUnifiedHighlighter extends UnifiedHighlighter {
@@ -296,8 +308,8 @@ class LuceneUnifiedHighlighter {
     }
 
     /**
-     * Overrides the default Lucene behavior to load stored fields, which are mapped from
-     * the provided fields using {@code storedLuceneFieldNameMap}.
+     * Overrides the default Lucene behavior to load stored fields, which are mapped from the
+     * provided fields using {@code storedLuceneFieldNameMap}.
      */
     @Override
     protected List<CharSequence[]> loadFieldValues(
@@ -311,13 +323,14 @@ class LuceneUnifiedHighlighter {
           super.loadFieldValues(storedFields, docIter, cacheCharsThreshold);
 
       return storedFieldValues.stream()
-          .map(storedRow -> {
-            CharSequence[] aligned = new CharSequence[remap.length];
-            for (int i = 0; i < remap.length; i++) {
-              aligned[i] = storedRow[remap[i]];
-            }
-            return aligned;
-          })
+          .map(
+              storedRow -> {
+                CharSequence[] aligned = new CharSequence[remap.length];
+                for (int i = 0; i < remap.length; i++) {
+                  aligned[i] = storedRow[remap[i]];
+                }
+                return aligned;
+              })
           .collect(Collectors.toList());
     }
 
@@ -334,10 +347,8 @@ class LuceneUnifiedHighlighter {
         String[] fields, Map<String, String> storedLuceneFieldNameMap, int[] remapOut) {
       // Deduplicate and sort the base fields. This is needed because Lucene performs binary search
       // on the field names to determine if the field values need to be fetched.
-      String[] storedFields = storedLuceneFieldNameMap.values().stream()
-          .distinct()
-          .sorted()
-          .toArray(String[]::new);
+      String[] storedFields =
+          storedLuceneFieldNameMap.values().stream().distinct().sorted().toArray(String[]::new);
 
       // Map from stored field name to index in array.
       Map<String, Integer> baseFieldIndex =
