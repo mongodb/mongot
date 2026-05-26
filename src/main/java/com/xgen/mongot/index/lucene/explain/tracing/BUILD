@@ -25,6 +25,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/lucene/explain/information",
         "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/mongodb",
+        "@maven//:com_github_oshi_oshi_common",
         "@maven//:com_github_oshi_oshi_core",
         "@maven//:com_google_code_findbugs_jsr305",
         "@maven//:com_google_errorprone_error_prone_annotations",

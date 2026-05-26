@@ -113,6 +113,7 @@ mongot_java_unit_test_suite(
         "@lucene_fork//:org_apache_lucene_lucene_codecs",
         "@maven//:ch_qos_logback_logback_classic",
         "@maven//:ch_qos_logback_logback_core",
+        "@maven//:com_github_oshi_oshi_common",
         "@maven//:com_github_oshi_oshi_core",
         "@maven//:io_opentelemetry_opentelemetry_context",
         "@maven//:org_apache_lucene_lucene_test_framework",

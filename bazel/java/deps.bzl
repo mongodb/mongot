@@ -154,7 +154,7 @@ MISC_ARTIFACTS = [
     "org.yaml:snakeyaml:2.4",
     "com.google.flogger:flogger:0.9",
     "com.google.flogger:flogger-slf4j-backend:0.9",
-    "com.github.oshi:oshi-core:6.8.2",
+    "com.github.oshi:oshi-core:7.1.0",
     "com.github.luben:zstd-jni:1.5.5-11",
     "org.xerial.snappy:snappy-java:1.1.10.8",
     # Okio is a grpc dependency with CVE-2023-3635 vulnerability,
@@ -179,6 +179,9 @@ PINNED_TRANSITIVE_ARTIFACTS = [
     "com.google.code.gson:gson:2.13.2",
     # Force plexus-utils version to 4.0.3 to address CVE-2025-67030
     "org.codehaus.plexus:plexus-utils:4.0.3",
+    # OSHI 7.x switched to jna-platform-jpms, removing the transitive driver for jna-platform;
+    # pin explicitly to hold the pre-existing version
+    "net.java.dev.jna:jna-platform:5.17.0",
 ]
 
 def java_deps():

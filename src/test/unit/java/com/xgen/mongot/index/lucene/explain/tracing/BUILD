@@ -14,6 +14,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/index/lucene/explain/tracing",
         "//src/main/java/com/xgen/testing/mongot/index/lucene/explain/information",
         "//src/main/java/com/xgen/testing/mongot/index/lucene/explain/tracing",
+        "@maven//:com_github_oshi_oshi_common",
         "@maven//:com_github_oshi_oshi_core",
         "@maven//:com_google_truth_truth",
         "@maven//:io_opentelemetry_opentelemetry_context",

@@ -1,5 +1,6 @@
 package com.xgen.mongot.metrics.system;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.flogger.FluentLogger;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -14,25 +15,41 @@ import java.util.stream.Stream;
 import oshi.SystemInfo;
 import oshi.hardware.GlobalMemory;
 import oshi.hardware.VirtualMemory;
+import oshi.software.os.CgroupInfo;
 
 // TODO(CLOUDP-285787): investigate moving metrics (especially gauges) to MetricsFactory
 public class MemoryMetrics {
   private static final FluentLogger FLOGGER = FluentLogger.forEnclosingClass();
   private final GlobalMemory globalMemory;
   private final VirtualMemory virtualMemory;
+  private final CgroupInfo cgroupInfo;
+  private final AtomicLong physTotal = new AtomicLong();
+  private final AtomicLong physAvailable = new AtomicLong();
   private final AtomicLong physicalInUse = new AtomicLong();
   private final AtomicLong swapAvailable = new AtomicLong();
   private final AtomicLong memoryMappings = new AtomicLong();
 
-  private MemoryMetrics(GlobalMemory globalMemory, VirtualMemory virtualMemory) {
+  private MemoryMetrics(
+      GlobalMemory globalMemory, VirtualMemory virtualMemory, CgroupInfo cgroupInfo) {
     this.globalMemory = globalMemory;
     this.virtualMemory = virtualMemory;
+    this.cgroupInfo = cgroupInfo;
   }
 
   static MemoryMetrics create(SystemInfo systemInfo, MeterRegistry meterRegistry) {
     GlobalMemory globalMemory = systemInfo.getHardware().getMemory();
     VirtualMemory virtualMemory = globalMemory.getVirtualMemory();
-    MemoryMetrics memoryMetrics = new MemoryMetrics(globalMemory, virtualMemory);
+    CgroupInfo cgroupInfo = systemInfo.getOperatingSystem().getCgroupInfo();
+    return create(globalMemory, virtualMemory, cgroupInfo, meterRegistry);
+  }
+
+  @VisibleForTesting
+  static MemoryMetrics create(
+      GlobalMemory globalMemory,
+      VirtualMemory virtualMemory,
+      CgroupInfo cgroupInfo,
+      MeterRegistry meterRegistry) {
+    MemoryMetrics memoryMetrics = new MemoryMetrics(globalMemory, virtualMemory, cgroupInfo);
 
     Gauge.builder("system.memory.memoryMappings", memoryMetrics.memoryMappings, AtomicLong::get)
         .description("The number of memory mappings")
@@ -40,11 +57,11 @@ public class MemoryMetrics {
         .register(meterRegistry);
 
     // Physical memory metrics
-    Gauge.builder("system.memory.phys.total", globalMemory, GlobalMemory::getTotal)
+    Gauge.builder("system.memory.phys.total", memoryMetrics.physTotal, AtomicLong::get)
         .description("The amount of physical memory")
         .baseUnit(BaseUnits.BYTES)
         .register(meterRegistry);
-    Gauge.builder("system.memory.phys.available", globalMemory, GlobalMemory::getAvailable)
+    Gauge.builder("system.memory.phys.available", memoryMetrics.physAvailable, AtomicLong::get)
         .description("The amount of physical memory available")
         .baseUnit(BaseUnits.BYTES)
         .register(meterRegistry);
@@ -70,7 +87,8 @@ public class MemoryMetrics {
         .description("The current swap file size")
         .baseUnit(BaseUnits.BYTES)
         .register(meterRegistry);
-    Gauge.builder("system.memory.virt.swap.available", memoryMetrics.swapAvailable, AtomicLong::get)
+    Gauge.builder(
+            "system.memory.virt.swap.available", memoryMetrics.swapAvailable, AtomicLong::get)
         .description("The amount of unallocated swap memory available")
         .baseUnit(BaseUnits.BYTES)
         .register(meterRegistry);
@@ -82,7 +100,8 @@ public class MemoryMetrics {
         .description("The amount of memory committed to the swap file")
         .baseUnit(BaseUnits.OPERATIONS)
         .register(meterRegistry);
-    Gauge.builder("system.memory.virt.swap.pagesOut", virtualMemory, VirtualMemory::getSwapPagesOut)
+    Gauge.builder(
+            "system.memory.virt.swap.pagesOut", virtualMemory, VirtualMemory::getSwapPagesOut)
         .description("The amount of memory committed to the swap file")
         .baseUnit(BaseUnits.OPERATIONS)
         .register(meterRegistry);
@@ -108,12 +127,26 @@ public class MemoryMetrics {
     return Optional.empty();
   }
 
+  /** Refreshes all periodically-computed memory metrics. */
   public void update() {
-    var physicalInUse = this.globalMemory.getTotal() - this.globalMemory.getAvailable();
-    var swapAvailable = this.virtualMemory.getSwapTotal() - this.virtualMemory.getSwapUsed();
+    long hostTotal = this.globalMemory.getTotal();
+    long hostAvailable = this.globalMemory.getAvailable();
 
-    this.physicalInUse.set(physicalInUse);
-    this.swapAvailable.set(swapAvailable);
+    long cgroupLimit = this.cgroupInfo.getMemoryLimit();
+    if (cgroupLimit < CgroupInfo.UNLIMITED_MEMORY && cgroupLimit < hostTotal) {
+      long cgroupUsage = this.cgroupInfo.getMemoryUsage();
+      long adjustedAvailable = Math.max(0L, cgroupLimit - cgroupUsage);
+
+      this.physTotal.set(cgroupLimit);
+      this.physAvailable.set(adjustedAvailable);
+      this.physicalInUse.set(cgroupLimit - adjustedAvailable);
+    } else {
+      this.physTotal.set(hostTotal);
+      this.physAvailable.set(hostAvailable);
+      this.physicalInUse.set(hostTotal - hostAvailable);
+    }
+
+    this.swapAvailable.set(this.virtualMemory.getSwapTotal() - this.virtualMemory.getSwapUsed());
 
     // update memory mappings - only updated every 5 seconds
     var memoryMappings = getMemoryMappings();

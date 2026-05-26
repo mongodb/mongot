@@ -14,6 +14,7 @@ java_library(
     visibility = ["//visibility:public"],
     deps = [
         "//src/main/java/com/xgen/mongot/util/concurrent",
+        "@maven//:com_github_oshi_oshi_common",
         "@maven//:com_github_oshi_oshi_core",
         "@maven//:com_google_flogger_flogger",
         "@maven//:com_google_guava_guava",
