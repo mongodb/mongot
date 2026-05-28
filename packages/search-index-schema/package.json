@@ -5,8 +5,6 @@
   "files": [
     "output/**/*",
     "schema/**/*",
-    "!schema/search/test/**",
-    "!schema/vectorSearch/test/**",
     "README.md",
     "CHANGELOG.md"
   ],

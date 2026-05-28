@@ -1,9 +1,0 @@
-{
-  "mappings": {
-    "fields": {
-      "a": {
-        "type": "string"
-      }
-    }
-  }
-}

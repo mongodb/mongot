@@ -95,10 +95,7 @@ and [vectorSearch/index.json](https://github.com/mongodb/mongot/blob/master/pack
 are both schema definitions at the highest level and makes
 references to other locally defined schemas and subschemas hierarchically organized in the
 corresponding [components](https://github.com/mongodb/mongot/tree/master/packages/search-index-schema/schema/search/components)
-directory accompanying this README. Also, available in the same location, are sample index
-definitions from the mongot testbed that are used for detecting schema errors as part of continuous
-integration in evergreen. Schema elements are **not**
-_remotely_ defined at this time.
+directory accompanying this README.
 
 ## Schema Validation
 

@@ -11,6 +11,7 @@ js_library(
         ":node_modules",
     ] + glob([
         "schema/**/*.json",
+        "test/**/*.json",
     ]),
 )
 
@@ -90,15 +91,9 @@ genrule(
 
 genrule(
     name = "pkg",
-    srcs = glob(
-        [
-            "schema/**/*",
-        ],
-        exclude = [
-            "schema/search/test/**",
-            "schema/vectorSearch/test/**",
-        ],
-    ) + [
+    srcs = glob([
+        "schema/**/*",
+    ]) + [
         "README.md",
         "CHANGELOG.md",
         "package.json",
@@ -116,8 +111,8 @@ genrule(
         cp $$PACKAGE_DIR/README.md $$PKG_DIR/
         cp $$PACKAGE_DIR/CHANGELOG.md $$PKG_DIR/
 
-        # Copy schema directory (excluding test directories)
-        rsync -av --exclude='search/test' --exclude='vectorSearch/test' $$PACKAGE_DIR/schema/ $$PKG_DIR/schema/
+        # Copy schema directory
+        rsync -av $$PACKAGE_DIR/schema/ $$PKG_DIR/schema/
 
         # Run bundle script to generate bundled schemas directly into pkg/output
         export BAZEL_BINDIR=.
@@ -145,6 +140,7 @@ js_library(
     ] + glob([
         "schema/**/*.json",
         "scripts/**/*.js",
+        "test/**/*.json",
         "*.json",
         "*.md",
     ]),
@@ -172,6 +168,7 @@ js_library(
     ] + glob([
         "schema/**/*.json",
         "scripts/**/*.js",
+        "test/**/*.json",
         "*.json",
         "*.md",
     ]),
