@@ -54,6 +54,21 @@
           "maximum": 3200
         }
       }
+    },
+    "indexingMethod": {
+      "suggestSortText": "5",
+      "type": "string",
+      "description": "Indexing method to use",
+      "markdownDescription": "Indexing method to use. \nValues include:\n- `hnsw` - Hierarchical Navigable Small Worlds graph construction.\n- `flat` - flat index build.",
+      "default": "hnsw",
+      "oneOf": [
+        {
+          "const": "hnsw"
+        },
+        {
+          "const": "flat"
+        }
+      ]
     }
   },
   "required": ["type", "numDimensions", "similarity"],
