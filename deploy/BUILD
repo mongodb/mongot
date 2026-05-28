@@ -53,8 +53,13 @@ package_deploy_tar(
     ],
     lib = [
         "//:fips-jars",
-        "//src/main/c:mongot_vecsim",
-    ],
+    ] + select({
+        # mongot_vecsim has no CC toolchain on macOS x86_64: exclude it there and
+        # rely on the JVM-side Similarity loader, which degrades gracefully when
+        # the library is absent.
+        "//bazel/platforms:is_macos_x86_64": [],
+        "//conditions:default": ["//src/main/c:mongot_vecsim"],
+    }),
     license = [
         ":community-resources/LICENSE/LICENSE",
         ":community-resources/LICENSE/THIRD_PARTY_NOTICES.txt",

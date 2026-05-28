@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.lucene.vector;
 
+import com.google.errorprone.annotations.Var;
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
@@ -12,23 +13,28 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class Similarity {
   private static final Logger LOG = LoggerFactory.getLogger(Similarity.class);
-  private static final MethodHandle DOT_I8;
-  private static final MethodHandle L2_I8;
-  private static final MethodHandle COS_I8;
-  private static final MethodHandle I8_ACCELERATED;
+  private static final @Nullable MethodHandle DOT_I8;
+  private static final @Nullable MethodHandle L2_I8;
+  private static final @Nullable MethodHandle COS_I8;
 
   /**
    * Set to true if the underlying native implementations are hardware accelerated.
    *
    * <p>This may be false on older hardware where low usage rate makes it hard to justify writing an
-   * implementation.
+   * implementation. It is also false on platforms where the {@code mongot_vecsim} native library is
+   * unavailable (e.g. macOS x86_64 builds that ship without the shared library). Callers must
+   * always check this flag before invoking {@link #dotI8}, {@link #l2I8}, or {@link #cosI8};
+   * calling those methods when this flag is {@code false} will throw {@link NullPointerException}.
+   * {@link #prepareVector} is pure JVM and is safe to call regardless of this flag.
    */
   public static final boolean I8_ACCELERATION;
 
@@ -40,34 +46,47 @@ public class Similarity {
   }
 
   static {
-    loadNativeLibrary();
-
-    Linker linker = Linker.nativeLinker();
-    SymbolLookup lookup = SymbolLookup.loaderLookup();
-
-    FunctionDescriptor i8Desc =
-        FunctionDescriptor.of(
-            ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG);
-    FunctionDescriptor cosI8Desc =
-        FunctionDescriptor.of(
-            ValueLayout.JAVA_FLOAT,
-            ValueLayout.ADDRESS,
-            ValueLayout.ADDRESS,
-            ValueLayout.JAVA_LONG);
-
-    DOT_I8 = linker.downcallHandle(lookup.find("mongot_vecsim_dot_i8").orElseThrow(), i8Desc);
-    L2_I8 = linker.downcallHandle(lookup.find("mongot_vecsim_l2_i8").orElseThrow(), i8Desc);
-    COS_I8 = linker.downcallHandle(lookup.find("mongot_vecsim_cos_i8").orElseThrow(), cosI8Desc);
-    I8_ACCELERATED =
-        linker.downcallHandle(
-            lookup.find("mongot_vecsim_i8_accelerated").orElseThrow(),
-            FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN));
-
+    @Var MethodHandle dotI8 = null;
+    @Var MethodHandle l2I8 = null;
+    @Var MethodHandle cosI8 = null;
+    @Var boolean accel = false;
     try {
-      I8_ACCELERATION = (boolean) I8_ACCELERATED.invokeExact();
+      loadNativeLibrary();
+
+      Linker linker = Linker.nativeLinker();
+      SymbolLookup lookup = SymbolLookup.loaderLookup();
+
+      FunctionDescriptor i8Desc =
+          FunctionDescriptor.of(
+              ValueLayout.JAVA_INT,
+              ValueLayout.ADDRESS,
+              ValueLayout.ADDRESS,
+              ValueLayout.JAVA_LONG);
+      FunctionDescriptor cosI8Desc =
+          FunctionDescriptor.of(
+              ValueLayout.JAVA_FLOAT,
+              ValueLayout.ADDRESS,
+              ValueLayout.ADDRESS,
+              ValueLayout.JAVA_LONG);
+
+      dotI8 = linker.downcallHandle(lookup.find("mongot_vecsim_dot_i8").orElseThrow(), i8Desc);
+      l2I8 = linker.downcallHandle(lookup.find("mongot_vecsim_l2_i8").orElseThrow(), i8Desc);
+      cosI8 = linker.downcallHandle(lookup.find("mongot_vecsim_cos_i8").orElseThrow(), cosI8Desc);
+      MethodHandle i8Accelerated =
+          linker.downcallHandle(
+              lookup.find("mongot_vecsim_i8_accelerated").orElseThrow(),
+              FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN));
+      accel = (boolean) i8Accelerated.invokeExact();
+    } catch (UnsatisfiedLinkError e) {
+      LOG.atWarn().setCause(e).log(
+          "mongot_vecsim native library unavailable; falling back to non-native vector scoring");
     } catch (Throwable t) {
       throw new ExceptionInInitializerError(t);
     }
+    DOT_I8 = dotI8;
+    L2_I8 = l2I8;
+    COS_I8 = cosI8;
+    I8_ACCELERATION = accel;
   }
 
   static final String LIB_NAME = "mongot_vecsim";
@@ -149,12 +168,16 @@ public class Similarity {
     return seg;
   }
 
+  private static final String NATIVE_UNAVAILABLE_MESSAGE =
+      "mongot_vecsim native library unavailable; check Similarity.I8_ACCELERATION before calling";
+
   public static int dotI8(MemorySegment a, MemorySegment b) {
     if (a.byteSize() != b.byteSize()) {
       throw new IllegalArgumentException("Vectors must have the same size");
     }
+    MethodHandle handle = Objects.requireNonNull(DOT_I8, NATIVE_UNAVAILABLE_MESSAGE);
     try {
-      return (int) DOT_I8.invokeExact(a, b, a.byteSize());
+      return (int) handle.invokeExact(a, b, a.byteSize());
     } catch (Throwable t) {
       throw new AssertionError(t);
     }
@@ -164,8 +187,9 @@ public class Similarity {
     if (a.byteSize() != b.byteSize()) {
       throw new IllegalArgumentException("Vectors must have the same size");
     }
+    MethodHandle handle = Objects.requireNonNull(L2_I8, NATIVE_UNAVAILABLE_MESSAGE);
     try {
-      return (int) L2_I8.invokeExact(a, b, a.byteSize());
+      return (int) handle.invokeExact(a, b, a.byteSize());
     } catch (Throwable t) {
       throw new AssertionError(t);
     }
@@ -175,8 +199,9 @@ public class Similarity {
     if (a.byteSize() != b.byteSize()) {
       throw new IllegalArgumentException("Vectors must have the same size");
     }
+    MethodHandle handle = Objects.requireNonNull(COS_I8, NATIVE_UNAVAILABLE_MESSAGE);
     try {
-      return (float) COS_I8.invokeExact(a, b, a.byteSize());
+      return (float) handle.invokeExact(a, b, a.byteSize());
     } catch (Throwable t) {
       throw new AssertionError(t);
     }

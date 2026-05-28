@@ -7,7 +7,11 @@ java_library(
         "Lucene99NativeMemorySegmentVectorScorer.java",
         "Similarity.java",
     ],
-    data = ["//src/main/c:mongot_vecsim"],
+    # mongot_vecsim has no CC toolchain on macOS x86_64; Similarity degrades gracefully when absent.
+    data = select({
+        "//bazel/platforms:is_macos_x86_64": [],
+        "//conditions:default": ["//src/main/c:mongot_vecsim"],
+    }),
     javacopts = ["--enable-preview"],
     visibility = ["//:__subpackages__"],
     exports = ["@maven//:org_apache_lucene_lucene_core"],

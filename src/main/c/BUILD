@@ -11,5 +11,10 @@ cc_binary(
     }),
     linkshared = True,
     linkstatic = False,
+    # No CC toolchain on macOS x86_64; dependents must select() this out.
+    target_compatible_with = select({
+        "//bazel/platforms:is_macos_x86_64": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
     visibility = ["//visibility:public"],
 )
