@@ -166,11 +166,29 @@ MISC_ARTIFACTS = [
     "com.carrotsearch:hppc:0.10.0",
 ]
 
+# Force Netty transitive artifacts to 4.1.133.Final to address CVE-2026-42579, CVE-2026-42578,
+# and to unify Netty versions. Keep in sync with _NETTY_VERSION in bazel/java/systems_deps.bzl.
+_NETTY_VERSION = "4.1.133.Final"
+_NETTY_PINNED_TRANSITIVE_ARTIFACTS = append_version(
+    _NETTY_VERSION,
+    [
+        "io.netty:netty-codec-http",
+        "io.netty:netty-handler",
+        "io.netty:netty-codec-http2",
+        "io.netty:netty-codec-dns",
+        "io.netty:netty-codec-socks",
+        "io.netty:netty-handler-proxy",
+        "io.netty:netty-resolver",
+        "io.netty:netty-resolver-dns",
+        "io.netty:netty-resolver-dns-classes-macos",
+        "io.netty:netty-resolver-dns-native-macos:jar:osx-x86_64",
+        "io.netty:netty-resolver-dns-native-macos:jar:osx-aarch_64",
+        "io.netty:netty-transport-native-unix-common",
+    ],
+)
+
 PINNED_TRANSITIVE_ARTIFACTS = [
     "com.google.protobuf:protobuf-java:4.29.0",
-    "io.netty:netty-codec-http:4.1.133.Final",
-    "io.netty:netty-handler:4.1.133.Final",
-    "io.netty:netty-codec-http2:4.1.133.Final",
     # GRPC requires this but doesn't bundle it for some reason
     "org.checkerframework:checker-qual:3.48.4",
     # Force gRPC version to 1.75.0 to address CVE-2025-55163
@@ -182,7 +200,7 @@ PINNED_TRANSITIVE_ARTIFACTS = [
     # OSHI 7.x switched to jna-platform-jpms, removing the transitive driver for jna-platform;
     # pin explicitly to hold the pre-existing version
     "net.java.dev.jna:jna-platform:5.17.0",
-]
+] + _NETTY_PINNED_TRANSITIVE_ARTIFACTS
 
 def java_deps():
     lint_setup({

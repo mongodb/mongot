@@ -704,7 +704,7 @@
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-codec-dns</artifactId>
-  <version>4.1.122.Final</version>
+  <version>4.1.133.Final</version>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
@@ -719,7 +719,7 @@
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-codec-socks</artifactId>
-  <version>4.1.110.Final</version>
+  <version>4.1.133.Final</version>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
@@ -734,29 +734,36 @@
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-handler-proxy</artifactId>
-  <version>4.1.110.Final</version>
+  <version>4.1.133.Final</version>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-resolver</artifactId>
-  <version>4.1.110.Final</version>
+  <version>4.1.133.Final</version>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-resolver-dns</artifactId>
-  <version>4.1.122.Final</version>
+  <version>4.1.133.Final</version>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-resolver-dns-classes-macos</artifactId>
-  <version>4.1.122.Final</version>
+  <version>4.1.133.Final</version>
+</dependency>
+<dependency>
+  <groupId>io.netty</groupId>
+  <artifactId>netty-resolver-dns-native-macos</artifactId>
+  <version>jar</version>
+  <type>osx-aarch_64</type>
+  <classifier>4.1.133.Final</classifier>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-resolver-dns-native-macos</artifactId>
   <version>jar</version>
   <type>osx-x86_64</type>
-  <classifier>4.1.122.Final</classifier>
+  <classifier>4.1.133.Final</classifier>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
@@ -863,7 +870,7 @@
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-transport-native-unix-common</artifactId>
-  <version>4.1.110.Final</version>
+  <version>4.1.133.Final</version>
 </dependency>
 <dependency>
   <groupId>io.opencensus</groupId>
