@@ -51,6 +51,9 @@ public class IndexLifecycleManager {
     DROPPED
   }
 
+  // volatile is correct here: state is read outside synchronized blocks (e.g. getState()) but
+  // written only inside synchronized blocks, so volatile ensures readers see the latest value
+  // without blocking the conf call.
   private volatile State state;
   private final ReplicationManagerWrapper replicationManagerWrapper;
   private final IndexGeneration indexGeneration;
@@ -63,6 +66,7 @@ public class IndexLifecycleManager {
 
   private final InitializedIndexCatalog initializedIndexCatalog;
   private final Metrics metrics;
+  @GuardedBy("this")
   private CompletableFuture<Void> initFuture;
 
   static class Metrics {
@@ -194,21 +198,34 @@ public class IndexLifecycleManager {
       var initializedIndex =
           this.indexFactory.getInitializedIndex(
               this.indexGeneration.getIndex(), this.indexGeneration.getDefinitionGeneration());
-      synchronized (this) {
-        this.initializedIndexCatalog.addIndex(initializedIndex);
-      }
       long elapsed = timer.stop(this.metrics.indexInitializationDurations);
       LOG.atInfo()
           .addKeyValue("indexId", generationId.indexId)
           .addKeyValue("generationId", generationId)
           .addKeyValue("duration", Duration.ofNanos(elapsed))
           .log("Initialized index");
-      if (this.state == State.DROPPED) {
-        dropIndex();
-        return;
+      synchronized (this) {
+        if (this.state == State.DROPPED) {
+          // getInitializedIndex() has already run, so the index holds open resources that must be
+          // explicitly closed before deletion. drop() called before getInitializedIndex() (e.g. the
+          // early return at the top of this method) has no open resources to clean up.
+          try {
+            initializedIndex.close();
+            initializedIndex.drop();
+          } catch (Exception e) {
+            LOG.atError()
+                .addKeyValue("indexId", generationId.indexId)
+                .addKeyValue("generationId", generationId)
+                .setCause(e)
+                .log("Unable to drop index");
+            this.metrics.failedDropIndexes.increment();
+          }
+          return;
+        }
+        this.initializedIndexCatalog.addIndex(initializedIndex);
+        this.metrics.indexesInInitializedState.incrementAndGet();
+        transitionState(State.INITIALIZED);
       }
-      this.metrics.indexesInInitializedState.incrementAndGet();
-      transitionState(State.INITIALIZED);
 
     } catch (Exception e) {
       LOG.atWarn()
@@ -217,9 +234,7 @@ public class IndexLifecycleManager {
           .addKeyValue("state", this.state)
           .setCause(e)
           .log("Initialization failed for index");
-      if (this.state != State.SHUTDOWN) {
-        handleInitializationError(e);
-      }
+      handleInitializationError(e);
     }
   }
 
@@ -290,7 +305,9 @@ public class IndexLifecycleManager {
       Index index = this.indexGeneration.getIndex();
       GenerationId generationId = this.indexGeneration.getGenerationId();
 
-      if (this.state != State.DROPPED) {
+      if (this.state == State.DROPPED) {
+        dropIndex();
+      } else if (this.state != State.SHUTDOWN) {
         LOG.atError()
             .addKeyValue("indexId", generationId.indexId)
             .addKeyValue("generationId", generationId)
@@ -302,8 +319,6 @@ public class IndexLifecycleManager {
                 INITIALIZATION_FAILED_PREFIX + throwable.getMessage(),
                 IndexStatus.Reason.INITIALIZATION_FAILED));
         transitionState(State.SHUTDOWN);
-      } else {
-        dropIndex();
       }
     }
   }
