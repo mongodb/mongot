@@ -40,6 +40,7 @@ run_mongot() {
     # JVM_FLAGS and PASS_THROUGH_ARGS purposefully unquoted so they expand
     exec "${JAVA_HOME}/bin/java" \
     -XX:+ExitOnOutOfMemoryError \
+    -XX:-UseGCOverheadLimit \
     '-Djava.security.egd=file:/dev/urandom' \
     '--add-modules=jdk.incubator.vector' \
     '--enable-preview' \

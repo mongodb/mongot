@@ -7,7 +7,7 @@ import org.junit.Test;
 
 public class Java21 {
 
-  record StringRecord(String data) { }
+  record StringRecord(String data) {}
 
   @Test
   public void testRecord() {
@@ -22,9 +22,7 @@ public class Java21 {
   public void testUnicode150() {
     // Kawi is new in Unicode 15.0
     // https://www.unicode.org/versions/Unicode15.0.0/#Character_Additions
-    Assert.assertEquals(
-        Character.UnicodeBlock.KAWI,
-        Character.UnicodeBlock.of(73472));
+    Assert.assertEquals(Character.UnicodeBlock.KAWI, Character.UnicodeBlock.of(73472));
   }
 
   @Test

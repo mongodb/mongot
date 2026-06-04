@@ -229,7 +229,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 The following software is licensed under GPLv2:
 
 * HttpServer: Copyright 2005, 2021, Oracle and/or its affiliates
-* Eclipse Temurin OpenJDK 21.0.3+9:  Copyright (c) 2024 Eclipse Foundation and/or its affiliates; Copyright (c) 2023 Oracle Corporation and/or its affiliates; Copyright (c) Contributors to the OpenJDK project.
+* Eclipse Temurin OpenJDK 21.0.11+10:  Copyright (c) 2024 Eclipse Foundation and/or its affiliates; Copyright (c) 2023 Oracle Corporation and/or its affiliates; Copyright (c) Contributors to the OpenJDK project.
 
 The GNU General Public License (GPL)
 Version 2, June 1991
@@ -2145,7 +2145,7 @@ The following software is licensed under the modified BSD 2-clause LICENSE
 
 ------------------------------------------------------------------------------
 
-Eclipse Temurin OpenJDK 21.0.3+9
+Eclipse Temurin OpenJDK 21.0.11+10
 
 This software includes code from the OpenJDK project, distributed by Adoptium Temurin, which is
 subject to the following copyright notices:
@@ -2153,7 +2153,7 @@ subject to the following copyright notices:
 © 2023 Oracle Corporation and/or its affiliates
 © Contributors to the OpenJDK project
 
-This software includes the Eclipse Temurin distribution of OpenJDK 21.0.3+9, which is derived from
+This software includes the Eclipse Temurin distribution of OpenJDK 21.0.11+10, which is derived from
 the OpenJDK project (http://openjdk.org/), an open-source implementation of the Java Platform,
 Standard Edition.
 
@@ -2164,4 +2164,4 @@ being bound by the restrictions of the GPL on your program, provided your progra
 provided by OpenJDK.
 
 Source code and build information for this version of Eclipse Temurin are available at:
-https://github.com/adoptium/temurin21-binaries/releases/tag/jdk-21.0.3%2B9
+https://github.com/adoptium/temurin21-binaries/releases/tag/jdk-21.0.11%2B10

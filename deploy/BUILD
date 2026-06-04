@@ -33,6 +33,26 @@ alias(
     visibility = ["//visibility:public"],
 )
 
+alias(
+    name = "release_community_target_jdk",
+    actual = selects.with_or({
+        "//bazel/platforms:is_linux_aarch64": "@adoptium_jdk_community_linux_aarch64//:jdk",
+        "//bazel/platforms:is_linux_x86_64": "@adoptium_jdk_community_linux_x86_64//:jdk",
+        "//bazel/platforms:is_macos_aarch64": "@adoptium_jdk_community_macos_aarch64//:jdk",
+        "//bazel/platforms:is_macos_x86_64": "@adoptium_jdk_community_macos_x86_64//:jdk",
+    }),
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "docker_community_target_jdk",
+    actual = select({
+        "@platforms//cpu:aarch64": "@adoptium_jdk_community_linux_aarch64//:jdk",
+        "@platforms//cpu:x86_64": "@adoptium_jdk_community_linux_x86_64//:jdk",
+    }),
+    visibility = ["//visibility:public"],
+)
+
 set_version(
     name = "community_release_version",
     version = "//bazel/config:version",
@@ -51,6 +71,7 @@ package_deploy_tar(
     bin = [
         "//:mongot_community_deploy.jar",
     ],
+    docker_jdk = "//deploy:docker_community_target_jdk",
     lib = [
         "//:fips-jars",
     ] + select({
@@ -64,6 +85,7 @@ package_deploy_tar(
         ":community-resources/LICENSE/LICENSE",
         ":community-resources/LICENSE/THIRD_PARTY_NOTICES.txt",
     ],
+    target_jdk = "//deploy:release_community_target_jdk",
     toplevel = [
         ":community-resources/config.default.yml",
         ":community-resources/mongot",

@@ -1,11 +1,11 @@
 load("@apple_rules_lint//lint:setup.bzl", "lint_setup")
-load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive", "http_file")
-load("@bazel_tools//tools/jdk:remote_java_repository.bzl", "remote_java_repository")
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
 load("@contrib_rules_jvm//:gazelle_setup.bzl", "contrib_rules_jvm_gazelle_setup")
 load("@contrib_rules_jvm//:setup.bzl", "contrib_rules_jvm_setup")
 load("@io_grpc_grpc_java//:repositories.bzl", "IO_GRPC_GRPC_JAVA_ARTIFACTS")
 load("@rules_jvm_external//:defs.bzl", "maven_install")
 load("//bazel/java:dep_utils.bzl", "append_version", "as_neverlink", "as_test_only")
+load("//bazel/java:jdk_config.bzl", "adoptium_jdk", "adoptium_jdk_community")
 load("//bazel/java:netty_tcnative.bzl", "netty_tcnative_deps")
 load("//bazel/java:search_query_deps.bzl", "LUCENE_FORK_ARTIFACTS", "LUCENE_FORK_OVERRIDE_TARGETS", "SEARCH_QUERY_DEPS")
 load("//bazel/java:systems_deps.bzl", "SYSTEMS_DEPS")
@@ -236,114 +236,10 @@ def java_deps():
         excluded_artifacts = _mongot_java_excluded_artifacts(),
     )
 
-    _adoptium_jdk()
+    adoptium_jdk()
+    adoptium_jdk_community()
     _test_deps()
     netty_tcnative_deps()
-
-def _adoptium_jdk():
-    _adoptium_jdk_linux_x86_64()
-    _adoptium_jdk_linux_x86_64_repo()
-
-    _adoptium_jdk_linux_aarch64()
-    _adoptium_jdk_linux_aarch64_repo()
-
-    _adoptium_jdk_macos_x86_64()
-    _adoptium_jdk_macos_x86_64_repo()
-
-    _adoptium_jdk_macos_aarch64()
-    _adoptium_jdk_macos_aarch64_repo()
-
-def _adoptium_jdk_linux_x86_64():
-    http_archive(
-        name = "adoptium_jdk_linux_x86_64",
-        build_file = "@//bazel/java:jdk_linux.BUILD",
-        sha256 = "fffa52c22d797b715a962e6c8d11ec7d79b90dd819b5bc51d62137ea4b22a340",
-        strip_prefix = "jdk-21.0.3+9",
-        urls = ["https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.3%2B9/OpenJDK21U-jdk_x64_linux_hotspot_21.0.3_9.tar.gz"],
-    )
-
-def _adoptium_jdk_linux_x86_64_repo():
-    remote_java_repository(
-        name = "adoptium_jdk_linux_x86_64_repo",
-        strip_prefix = "jdk-21.0.3+9",
-        sha256 = "fffa52c22d797b715a962e6c8d11ec7d79b90dd819b5bc51d62137ea4b22a340",
-        urls = ["https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.3%2B9/OpenJDK21U-jdk_x64_linux_hotspot_21.0.3_9.tar.gz"],
-        target_compatible_with = [
-            "@platforms//os:linux",
-            "@platforms//cpu:x86_64",
-        ],
-        prefix = "adoptium",
-        version = "21",
-    )
-
-def _adoptium_jdk_linux_aarch64():
-    http_archive(
-        name = "adoptium_jdk_linux_aarch64",
-        build_file = "@//bazel/java:jdk_linux.BUILD",
-        sha256 = "7d3ab0e8eba95bd682cfda8041c6cb6fa21e09d0d9131316fd7c96c78969de31",
-        strip_prefix = "jdk-21.0.3+9",
-        urls = ["https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.3%2B9/OpenJDK21U-jdk_aarch64_linux_hotspot_21.0.3_9.tar.gz"],
-    )
-
-def _adoptium_jdk_linux_aarch64_repo():
-    remote_java_repository(
-        name = "adoptium_jdk_linux_aarch64_repo",
-        strip_prefix = "jdk-21.0.3+9",
-        sha256 = "7d3ab0e8eba95bd682cfda8041c6cb6fa21e09d0d9131316fd7c96c78969de31",
-        urls = ["https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.3%2B9/OpenJDK21U-jdk_aarch64_linux_hotspot_21.0.3_9.tar.gz"],
-        target_compatible_with = [
-            "@platforms//os:linux",
-            "@platforms//cpu:aarch64",
-        ],
-        prefix = "adoptium",
-        version = "21",
-    )
-
-def _adoptium_jdk_macos_x86_64():
-    http_archive(
-        name = "adoptium_jdk_macos_x86_64",
-        build_file = "@//bazel/java:jdk_macos.BUILD",
-        sha256 = "f777103aab94330d14a29bd99f3a26d60abbab8e2c375cec9602746096721a7c",
-        strip_prefix = "jdk-21.0.3+9",
-        urls = ["https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.3%2B9/OpenJDK21U-jdk_x64_mac_hotspot_21.0.3_9.tar.gz"],
-    )
-
-def _adoptium_jdk_macos_x86_64_repo():
-    remote_java_repository(
-        name = "adoptium_jdk_macos_x86_64_repo",
-        sha256 = "f777103aab94330d14a29bd99f3a26d60abbab8e2c375cec9602746096721a7c",
-        strip_prefix = "jdk-21.0.3+9/Contents/Home",
-        urls = ["https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.3%2B9/OpenJDK21U-jdk_x64_mac_hotspot_21.0.3_9.tar.gz"],
-        target_compatible_with = [
-            "@platforms//os:macos",
-            "@platforms//cpu:x86_64",
-        ],
-        prefix = "adoptium",
-        version = "21",
-    )
-
-def _adoptium_jdk_macos_aarch64():
-    http_archive(
-        name = "adoptium_jdk_macos_aarch64",
-        build_file = "@//bazel/java:jdk_macos.BUILD",
-        sha256 = "b6be6a9568be83695ec6b7cb977f4902f7be47d74494c290bc2a5c3c951e254f",
-        strip_prefix = "jdk-21.0.3+9",
-        urls = ["https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.3%2B9/OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.3_9.tar.gz"],
-    )
-
-def _adoptium_jdk_macos_aarch64_repo():
-    remote_java_repository(
-        name = "adoptium_jdk_macos_aarch64_repo",
-        sha256 = "b6be6a9568be83695ec6b7cb977f4902f7be47d74494c290bc2a5c3c951e254f",
-        strip_prefix = "jdk-21.0.3+9/Contents/Home",
-        urls = ["https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.3%2B9/OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.3_9.tar.gz"],
-        target_compatible_with = [
-            "@platforms//os:macos",
-            "@platforms//cpu:aarch64",
-        ],
-        prefix = "adoptium",
-        version = "21",
-    )
 
 def _test_deps():
     http_file(
