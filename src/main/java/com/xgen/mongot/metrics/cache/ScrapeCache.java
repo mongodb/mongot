@@ -44,6 +44,7 @@ public class ScrapeCache {
   public static final Duration NO_TIMEOUT = Duration.ofMillis(Long.MAX_VALUE);
 
   private final ScrapeCacheConfig config;
+  private final IntervalThrottle throttle;
 
   // Original source for the metrics — every cache scrape ultimately delegates to registry.scrape().
   private final PrometheusMeterRegistry registry;
@@ -63,9 +64,11 @@ public class ScrapeCache {
   private final NamedExecutorService liveComputeExecutor;
   private final NamedScheduledExecutorService backgroundComputeExecutor;
 
-  public ScrapeCache(PrometheusMeterRegistry registry, ScrapeCacheConfig config) {
+  public ScrapeCache(
+      PrometheusMeterRegistry registry, ScrapeCacheConfig config, IntervalThrottle throttle) {
     this.registry = registry;
     this.config = config;
+    this.throttle = throttle;
     this.liveComputeExecutor = Executors.fixedSizeThreadPool(COMPUTE_EXECUTOR_NAME, 1, registry);
     this.backgroundComputeExecutor =
         Executors.singleThreadScheduledExecutor(REFRESH_EXECUTOR_NAME, registry);
@@ -88,6 +91,10 @@ public class ScrapeCache {
    * switches to cached mode and serves periodically refreshed metrics.
    */
   public String get(Duration timeout) {
+    if (this.throttle.shouldThrottle()) {
+      LOG.atDebug().log("scrape throttled, serving cached metrics");
+      return getCachedMetrics();
+    }
     // Exit on the read path so the background thread keeps cachedMetrics warm until exit. If the
     // subsequent live scrape() times out, the fallback snapshot is at most one refresh old.
     exitCachedModeIfExpired();

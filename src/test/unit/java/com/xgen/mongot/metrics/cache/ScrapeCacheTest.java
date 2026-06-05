@@ -2,10 +2,18 @@ package com.xgen.mongot.metrics.cache;
 
 import io.micrometer.prometheusmetrics.PrometheusConfig;
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
+import java.time.Clock;
+import java.time.Duration;
 import org.junit.Assert;
 import org.junit.Test;
 
 public class ScrapeCacheTest {
+
+  private static final Duration THROTTLE_INTERVAL = Duration.ofSeconds(30);
+
+  private static IntervalThrottle defaultThrottle() {
+    return new IntervalThrottle(Clock.systemUTC(), THROTTLE_INTERVAL);
+  }
 
   @Test
   public void testGetReturnsSupplerValue() {
@@ -16,7 +24,8 @@ public class ScrapeCacheTest {
             return "data";
           }
         };
-    ScrapeCache cache = new ScrapeCache(registry, ScrapeCacheConfig.getDefault());
+    ScrapeCache cache =
+        new ScrapeCache(registry, ScrapeCacheConfig.getDefault(), defaultThrottle());
     try {
       Assert.assertEquals("data", cache.get(ScrapeCache.NO_TIMEOUT));
     } finally {
@@ -34,7 +43,8 @@ public class ScrapeCacheTest {
             throw ex;
           }
         };
-    ScrapeCache cache = new ScrapeCache(registry, ScrapeCacheConfig.getDefault());
+    ScrapeCache cache =
+        new ScrapeCache(registry, ScrapeCacheConfig.getDefault(), defaultThrottle());
     try {
       RuntimeException thrown =
           Assert.assertThrows(RuntimeException.class, () -> cache.get(ScrapeCache.NO_TIMEOUT));

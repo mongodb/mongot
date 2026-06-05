@@ -3,6 +3,7 @@ load("//bazel/java:package.bzl", "java_library")
 java_library(
     name = "cache",
     srcs = [
+        "IntervalThrottle.java",
         "ScrapeCache.java",
         "ScrapeCacheConfig.java",
     ],

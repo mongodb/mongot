@@ -4,6 +4,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.sun.net.httpserver.HttpServer;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.metrics.cache.IntervalThrottle;
 import com.xgen.mongot.metrics.cache.ScrapeCache;
 import com.xgen.mongot.metrics.cache.ScrapeCacheConfig;
 import io.micrometer.core.instrument.Meter;
@@ -17,6 +18,7 @@ import io.micrometer.prometheusmetrics.PrometheusNamingConvention;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -105,7 +107,13 @@ public class PrometheusServer {
 
     Optional<ScrapeCache> scrapeCache =
         featureFlags.isEnabled(Feature.METRICS_CACHE)
-            ? Optional.of(new ScrapeCache(prometheusRegistry, scrapeCacheConfig))
+            ? Optional.of(
+                new ScrapeCache(
+                    prometheusRegistry,
+                    scrapeCacheConfig,
+                    new IntervalThrottle(
+                        Clock.systemUTC(),
+                        Duration.ofSeconds(scrapeCacheConfig.throttleIntervalSec()))))
             : Optional.empty();
     // Eager pre-warm with no timeout so the first /metrics request doesn't pay cold-start cost.
     if (preWarmCache) {
