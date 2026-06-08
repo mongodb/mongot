@@ -27,6 +27,8 @@ import com.xgen.mongot.config.manager.metrics.GroupedIndexGenerationMetrics;
 import com.xgen.mongot.config.manager.metrics.IndexConfigState;
 import com.xgen.mongot.config.manager.metrics.IndexGenerationStateMetrics;
 import com.xgen.mongot.cursor.batch.QueryCursorOptions;
+import com.xgen.mongot.featureflag.Feature;
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.AggregatedIndexMetrics;
 import com.xgen.mongot.index.Index;
 import com.xgen.mongot.index.IndexDetailedStatus;
@@ -936,5 +938,65 @@ public class DefaultConfigManagerTest {
         ConfigStateMocks.MOCK_SYNC_SOURCE_CONFIG);
 
     verify(mocks.lifecycleManager).updateSyncSource(ConfigStateMocks.MOCK_SYNC_SOURCE_CONFIG);
+  }
+
+  /**
+   * Validates that when a live index (v1) fails with INITIAL_SYNC_REPLICATION_FAILED_RETRY while a
+   * staged replacement (v2) already exists, the recovery logic skips v1 instead of crashing.
+   *
+   * <p>This scenario occurs when a customer updates an index definition (staging v2) while v1's
+   * initial sync replication fails in the background. Since IndexInitialSyncRecovery runs before
+   * StagedIndexesSwapper in the update cycle, it must recognize that a staged replacement already
+   * handles v1's index ID and avoid retrying it. StagedIndexesSwapper then swaps v2 into live
+   * because v1 is non-serviceable (FAILED).
+   */
+  @Test
+  public void testFailedInitialSyncIndexWithStagedReplacement_skipsRetry() throws Exception {
+    var featureFlags =
+        FeatureFlags.withDefaults()
+            .enable(Feature.RETAIN_FAILED_INITIAL_SYNC_DATA_ON_DISK)
+            .build();
+    var mocks = DefaultConfigManagerMocks.create(featureFlags);
+    var configStateMocks = mocks.mockedDependencies;
+
+    // Create v1 and let it reach steady state.
+    mocks.configManager.update(
+        emptyList(), List.of(MOCK_INDEX_DEFINITION), emptyList(), emptySet());
+    var liveIndex =
+        mocks.indexCatalog.getIndexById(MOCK_INDEX_ID).orElseThrow();
+    liveIndex.getIndex().setStatus(IndexStatus.steady());
+
+    // Future indexes created in initial sync (so v2 won't be immediately swapped in the
+    // same cycle it is staged).
+    configStateMocks.setStatusForCreatedIndexes(IndexStatus.initialSync());
+
+    // Change the definition to stage v2.
+    var newDef =
+        SearchIndexDefinitionBuilder.from(MOCK_INDEX_DEFINITION)
+            .analyzerName("lucene.keyword")
+            .build();
+    mocks.configManager.update(emptyList(), List.of(newDef), emptyList(), emptySet());
+
+    var stagedIndex = configStateMocks.staged.getIndex(MOCK_INDEX_ID).orElseThrow();
+
+    // Simulate v1 failing with a retryable initial sync failure in the background.
+    liveIndex.getIndex().setStatus(
+        IndexStatus.failed(
+            "initial sync failed",
+            IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY));
+
+    configStateMocks.clearInvocations();
+
+    // Run another update cycle. IndexInitialSyncRecovery should skip v1 because v2 is staged.
+    // Then StagedIndexesSwapper swaps v2 into live because v1 is non-serviceable (FAILED).
+    mocks.configManager.update(emptyList(), List.of(newDef), emptyList(), emptySet());
+
+    // v2 was promoted to live by StagedIndexesSwapper (v1 is FAILED and non-serviceable).
+    configStateMocks.assertLiveIndexesAre(stagedIndex);
+    // No staged indexes remain after the swap.
+    configStateMocks.assertStagedIndexesAre();
+    // v1 was phased out by StagedIndexesSwapper and then dropped by PhasingOutIndexesDropper
+    // (no active cursors), so phasing out is now empty.
+    configStateMocks.assertPhasingOutIndexesAre();
   }
 }

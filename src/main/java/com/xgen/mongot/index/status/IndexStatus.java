@@ -29,6 +29,9 @@ public class IndexStatus implements DocumentEncodable {
     reasonValidationMap.put(
         Reason.INITIAL_SYNC_REPLICATION_FAILED, statusCode -> statusCode == StatusCode.FAILED);
     reasonValidationMap.put(
+        Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY,
+        statusCode -> statusCode == StatusCode.FAILED);
+    reasonValidationMap.put(
         Reason.STEADY_STATE_REPLICATION_FAILED, statusCode -> statusCode == StatusCode.FAILED);
     reasonValidationMap.put(Reason.EXCEED_MAX_LIMIT, statusCode -> statusCode == StatusCode.FAILED);
     reasonValidationMap.put(

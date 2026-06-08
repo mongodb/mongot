@@ -58,6 +58,16 @@ public class DefaultConfigManagerMocks {
       ReplicationManagerFactory replicationManagerFactory,
       Optional<Set<ObjectId>> desiredIndexIds,
       ReplicationStateMonitor replicationStateMonitor) {
+    this(mockedDependencies, replicationManagerFactory, desiredIndexIds, replicationStateMonitor,
+        FeatureFlags.getDefault());
+  }
+
+  private DefaultConfigManagerMocks(
+      ConfigStateMocks mockedDependencies,
+      ReplicationManagerFactory replicationManagerFactory,
+      Optional<Set<ObjectId>> desiredIndexIds,
+      ReplicationStateMonitor replicationStateMonitor,
+      FeatureFlags featureFlags) {
     this.mockedDependencies = mockedDependencies;
     this.indexCatalog = mockedDependencies.indexCatalog;
     this.cursorManager = mockedDependencies.cursorManager;
@@ -76,7 +86,7 @@ public class DefaultConfigManagerMocks {
             desiredIndexIds,
             this.configJournalPath,
             replicationStateMonitor,
-            FeatureFlags.getDefault(),
+            featureFlags,
             this.meterRegistry,
             this.dynamicFeatureFlagsJournalPath);
   }
@@ -93,6 +103,15 @@ public class DefaultConfigManagerMocks {
 
   public static DefaultConfigManagerMocks create() throws Exception {
     return create(getConfigJournalPath());
+  }
+
+  public static DefaultConfigManagerMocks create(FeatureFlags featureFlags) throws Exception {
+    ConfigStateMocks wrapped = ConfigStateMocks.create(getConfigJournalPath(), false);
+    wrapped.configState.postInitializationFromConfigJournal();
+
+    return new DefaultConfigManagerMocks(
+        wrapped, wrapped.getReplicationManagerFactory(), Optional.empty(),
+        ReplicationStateMonitor.enabled(), featureFlags);
   }
 
   public static DefaultConfigManagerMocks create(

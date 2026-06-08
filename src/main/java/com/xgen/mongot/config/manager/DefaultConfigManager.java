@@ -18,6 +18,7 @@ import com.xgen.mongot.config.manager.metrics.GroupedIndexGenerationMetrics;
 import com.xgen.mongot.config.manager.metrics.IndexGenerationStateMetrics;
 import com.xgen.mongot.config.util.Invariants;
 import com.xgen.mongot.cursor.MongotCursorManager;
+import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.index.IndexFactory;
@@ -361,6 +362,13 @@ public class DefaultConfigManager implements ConfigManager {
         producers,
         this.metricsFactory);
 
+    if (this.featureFlags.isEnabled(
+        Feature.RETAIN_FAILED_INITIAL_SYNC_DATA_ON_DISK)) {
+      // Retries failed initial sync indexes.
+      IndexInitialSyncRecovery.retryFailedInitialSyncIndexes(
+          this.configState, IndexActions.withReplication(this.configState));
+
+    }
     // hot swaps staged indexes that reached steady state.
     StagedIndexesSwapper.swapReady(this.configState, this.featureFlags, this.metricsFactory);
 

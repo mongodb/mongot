@@ -11,6 +11,7 @@ java_test_suite(
         "DesiredConfigStateUpdaterTest.java",
         "IndexActionsTest.java",
         "IndexFormatVersionUpgraderTest.java",
+        "IndexInitialSyncRecoveryTest.java",
         "IndexRecoveryStagerTest.java",
         "JournalWriterTest.java",
         "PhasingOutIndexesDropperTest.java",
