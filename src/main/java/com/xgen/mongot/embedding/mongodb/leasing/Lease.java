@@ -26,6 +26,7 @@ import com.xgen.mongot.util.bson.parser.Value;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.apache.commons.codec.DecoderException;
@@ -64,7 +65,8 @@ import org.bson.codecs.pojo.annotations.BsonId;
  *        "mvMetadataSchemaVersion": 1
  *      }
  *     },
- *     "steadyAsOfOplogPosition": {"$timestamp": {"t": 1702857600, "i": 1}}
+ *     "steadyAsOfOplogPosition": {"$timestamp": {"t": 1702857600, "i": 1}},
+ *     "cleanupState": "NOT_ELIGIBLE"
  *   }
  * </pre>
  */
@@ -80,8 +82,24 @@ public record Lease(
     String latestIndexDefinitionVersion,
     Map<String, IndexDefinitionVersionStatus> indexDefinitionVersionStatusMap,
     @NonNull MaterializedViewCollectionMetadata materializedViewCollectionMetadata,
-    @Nullable BsonTimestamp steadyAsOfOplogPosition)
+    @Nullable BsonTimestamp steadyAsOfOplogPosition,
+    @NonNull CleanupState cleanupState)
     implements DocumentEncodable {
+
+  /**
+   * Compact constructor. Enforces non-null {@code cleanupState} so {@link #toBson()} always writes
+   * a real value — the persistent contract is that every serialized lease document includes the
+   * cleanupState field, which is what makes the "free backfill on write" property work for legacy
+   * documents that pre-date the field. (Reads already default to {@code NOT_ELIGIBLE} via the
+   * field's {@code withDefault}; this guards in-code construction.) A null would surface as a
+   * runtime NPE deep inside the BSON writer; catch it at construction instead.
+   *
+   * <p>The {@link com.mongodb.lang.NonNull} annotation on the record component is advisory only;
+   * Java records do not enforce it.
+   */
+  public Lease {
+    Objects.requireNonNull(cleanupState, "cleanupState must not be null");
+  }
 
   public static final long SCHEMA_VERSION = 1L;
 
@@ -89,6 +107,24 @@ public record Lease(
 
   /** Lease expiration time in milliseconds (5 minutes). */
   public static final long LEASE_EXPIRATION_MS = 300000L;
+
+  /**
+   * GC cleanup state of the lease (and its 1:1 materialized view collection). {@link
+   * CleanupState#NOT_ELIGIBLE} is the steady state; {@link CleanupState#ELIGIBLE_FOR_CLEANUP} is a
+   * one-way terminal state set by the stale-lease scanner when a superseded lease's heartbeat has
+   * gone stale beyond the cleanup window. The scanner subsequently drops the materialized view
+   * collection and the lease document. It is named for its narrow GC scope — it is not a general
+   * lease lifecycle status.
+   *
+   * <p>This field was added after the lease document was already in use in production. For
+   * backwards compatibility, documents missing this field are treated as {@code NOT_ELIGIBLE} on
+   * read (see {@link #fromBson(DocumentParser)}). The schema is otherwise unchanged, so {@link
+   * #SCHEMA_VERSION} is not bumped.
+   */
+  public enum CleanupState {
+    NOT_ELIGIBLE,
+    ELIGIBLE_FOR_CLEANUP
+  }
 
   static class Fields {
     /**
@@ -176,6 +212,30 @@ public record Lease(
      */
     public static final Field.Optional<BsonTimestamp> STEADY_AS_OF_OPLOG_POSITION =
         Field.builder("steadyAsOfOplogPosition").bsonTimestampField().optional().noDefault();
+
+    /**
+     * GC cleanup state of the lease. Two layers of rollback/upgrade tolerance, both falling back to
+     * {@link CleanupState#NOT_ELIGIBLE} (the benign state that never triggers MV deletion):
+     *
+     * <ul>
+     *   <li>{@code withDefault} — the field is <em>absent</em> (a legacy lease written before this
+     *       field existed).
+     *   <li>{@code withFallback} — the field is <em>present but holds an unrecognized value</em> (a
+     *       newer binary wrote a {@code CleanupState} this binary doesn't know, during a rollback
+     *       or rolling upgrade). Without this, the parse would throw and break {@code
+     *       syncLeasesFromMongod} for the index — the rollback-safety failure mode tracked in
+     *       CLOUDP-401373.
+     * </ul>
+     *
+     * <p>See {@link CleanupState} for the state machine.
+     */
+    public static final Field.WithDefault<CleanupState> CLEANUP_STATE =
+        Field.builder("cleanupState")
+            .enumField(CleanupState.class)
+            .withFallback(CleanupState.NOT_ELIGIBLE)
+            .asUpperUnderscore()
+            .optional()
+            .withDefault(CleanupState.NOT_ELIGIBLE);
   }
 
   public static Lease fromBson(DocumentParser parser) throws BsonParseException {
@@ -201,7 +261,11 @@ public record Lease(
                     NIL,
                     // _id should be same as MatView collection name.
                     parser.getField(Fields._ID).unwrap())),
-        parser.getField(Fields.STEADY_AS_OF_OPLOG_POSITION).unwrap().orElse(null));
+        parser.getField(Fields.STEADY_AS_OF_OPLOG_POSITION).unwrap().orElse(null),
+        // Backwards-compat: leases predating the cleanupState field read as NOT_ELIGIBLE via the
+        // field's withDefault. Applied on read (not via normalize-on-startup) so every in-memory
+        // Lease is complete; durable upgrade happens the next time the document is written.
+        parser.getField(Fields.CLEANUP_STATE).unwrap());
   }
 
   public static Lease fromBson(BsonDocument bsonDocument) throws BsonParseException {
@@ -281,7 +345,8 @@ public record Lease(
             indexDefinitionVersion,
             new IndexDefinitionVersionStatus(false, initialIndexStatus.getStatusCode())),
         materializedViewCollectionMetadata,
-        null);
+        null,
+        CleanupState.NOT_ELIGIBLE);
   }
 
   public static Lease newLease(
@@ -306,7 +371,8 @@ public record Lease(
             indexDefinitionVersion,
             new IndexDefinitionVersionStatus(false, initialIndexStatus.getStatusCode())),
         materializedViewCollectionMetadata,
-        null);
+        null,
+        CleanupState.NOT_ELIGIBLE);
   }
 
   public Lease withUpdatedCheckpoint(EncodedUserData commitInfo) {
@@ -322,7 +388,8 @@ public record Lease(
         this.latestIndexDefinitionVersion,
         this.indexDefinitionVersionStatusMap,
         this.materializedViewCollectionMetadata,
-        this.steadyAsOfOplogPosition);
+        this.steadyAsOfOplogPosition,
+        this.cleanupState);
   }
 
   /**
@@ -386,7 +453,8 @@ public record Lease(
         indexDefinitionVersion,
         newVersionStatus,
         this.materializedViewCollectionMetadata,
-        skipInitialSync ? this.steadyAsOfOplogPosition : null);
+        skipInitialSync ? this.steadyAsOfOplogPosition : null,
+        this.cleanupState);
   }
 
   /**
@@ -427,7 +495,8 @@ public record Lease(
         this.latestIndexDefinitionVersion,
         newVersionStatus,
         this.materializedViewCollectionMetadata,
-        newSteadyPosition);
+        newSteadyPosition,
+        this.cleanupState);
   }
 
   /**
@@ -450,7 +519,8 @@ public record Lease(
         this.latestIndexDefinitionVersion,
         this.indexDefinitionVersionStatusMap,
         this.materializedViewCollectionMetadata,
-        this.steadyAsOfOplogPosition);
+        this.steadyAsOfOplogPosition,
+        this.cleanupState);
   }
 
   public Lease withResolvedMatViewUuid(UUID matViewCollectionUuid) {
@@ -472,7 +542,8 @@ public record Lease(
         this.latestIndexDefinitionVersion(),
         this.indexDefinitionVersionStatusMap(),
         newMetadata,
-        this.steadyAsOfOplogPosition);
+        this.steadyAsOfOplogPosition,
+        this.cleanupState);
   }
 
   /**
@@ -492,7 +563,38 @@ public record Lease(
         this.latestIndexDefinitionVersion,
         this.indexDefinitionVersionStatusMap,
         this.materializedViewCollectionMetadata,
-        this.steadyAsOfOplogPosition);
+        this.steadyAsOfOplogPosition,
+        this.cleanupState);
+  }
+
+  /**
+   * Returns a copy of this lease with the GC cleanup state changed. Used by the stale-lease scanner
+   * to transition {@link CleanupState#NOT_ELIGIBLE} to {@link CleanupState#ELIGIBLE_FOR_CLEANUP} (a
+   * one-way move by design).
+   *
+   * <p>Does not bump {@code leaseVersion}: this is a cleanupState-only change and must not
+   * invalidate concurrent OCC updates on other fields. Race coordination between the resolver
+   * (which checks {@code cleanupState != ELIGIBLE_FOR_CLEANUP} before reusing) and the scanner is
+   * via the conditional filter on the update, not via OCC on {@code leaseVersion}.
+   *
+   * <p>The one-way invariant is not enforced here; the scanner is the sole writer and is
+   * responsible for never moving back to NOT_ELIGIBLE.
+   */
+  public Lease withCleanupState(CleanupState newCleanupState) {
+    return new Lease(
+        this.id,
+        SCHEMA_VERSION,
+        this.collectionUuid,
+        this.collectionName,
+        this.leaseOwner,
+        this.leaseExpiration,
+        this.leaseVersion,
+        this.commitInfo,
+        this.latestIndexDefinitionVersion,
+        this.indexDefinitionVersionStatusMap,
+        this.materializedViewCollectionMetadata,
+        this.steadyAsOfOplogPosition,
+        newCleanupState);
   }
 
   /**
@@ -549,6 +651,7 @@ public record Lease(
             Optional.of(this.materializedViewCollectionMetadata))
         .field(
             Fields.STEADY_AS_OF_OPLOG_POSITION, Optional.ofNullable(this.steadyAsOfOplogPosition))
+        .field(Fields.CLEANUP_STATE, this.cleanupState)
         .build();
   }
 }

@@ -101,7 +101,8 @@ public class LeaseTest {
                       1L, Map.of(FieldPath.parse("title"), FieldPath.parse("_autoEmbed.title"))),
                   UUID.fromString(COLLECTION_UUID),
                   COLLECTION_NAME),
-              null));
+              null,
+              Lease.CleanupState.NOT_ELIGIBLE));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<Lease>
@@ -123,7 +124,8 @@ public class LeaseTest {
                   new Lease.IndexDefinitionVersionStatus(
                       false, IndexStatus.StatusCode.INITIAL_SYNC)),
               new MaterializedViewCollectionMetadata(VERSION_ZERO, new UUID(0, 0), LEASE_ID),
-              null));
+              null,
+              Lease.CleanupState.NOT_ELIGIBLE));
     }
   }
 
@@ -175,7 +177,8 @@ public class LeaseTest {
                   new Lease.IndexDefinitionVersionStatus(
                       false, IndexStatus.StatusCode.INITIAL_SYNC)),
               customMetadata,
-              null);
+              null,
+              Lease.CleanupState.NOT_ELIGIBLE);
       return BsonSerializationTestSuite.TestSpec.create("leaseWithMaterializedViewMetadata", lease);
     }
 
@@ -198,7 +201,8 @@ public class LeaseTest {
                       false, IndexStatus.StatusCode.INITIAL_SYNC)),
               new MaterializedViewCollectionMetadata(
                   VERSION_ZERO, UUID.fromString(COLLECTION_UUID), COLLECTION_NAME),
-              null);
+              null,
+              Lease.CleanupState.NOT_ELIGIBLE);
       return BsonSerializationTestSuite.TestSpec.create(
           "leaseWithEmptyMaterializedViewMetadata", lease);
     }
@@ -310,7 +314,8 @@ public class LeaseTest {
                       true, IndexStatus.StatusCode.STEADY)),
               new MaterializedViewCollectionMetadata(
                   VERSION_ZERO, UUID.fromString(COLLECTION_UUID), COLLECTION_NAME),
-              null);
+              null,
+              Lease.CleanupState.NOT_ELIGIBLE);
 
       // skipInitialSync=true (Lucene-only change): isQueryable should be preserved from V1.
       var v2SkipSync =
@@ -554,7 +559,8 @@ public class LeaseTest {
               Map.of(
                   "2", new Lease.IndexDefinitionVersionStatus(true, IndexStatus.StatusCode.STEADY)),
               originalMvMetadata,
-              new BsonTimestamp(1234567890L));
+              new BsonTimestamp(1234567890L),
+              Lease.CleanupState.NOT_ELIGIBLE);
 
       Lease updatedLease = originalLease.withResolvedMatViewUuid(newMatViewUuid);
 
@@ -618,6 +624,207 @@ public class LeaseTest {
           withNewVersion.indexDefinitionVersionStatusMap().get("2").isQueryable());
     }
 
+    /**
+     * Builds a BSON document that mimics a lease persisted before the {@code cleanupState} field
+     * existed in the schema. Used by backwards-compatibility tests.
+     */
+    private static org.bson.BsonDocument legacyDocWithoutCleanupState() {
+      return org.bson.BsonDocument.parse(
+          "{\"_id\": \""
+              + LEASE_ID
+              + "\",\n"
+              + "\"schemaVersion\": 1,\n"
+              + "\"collectionUuid\": \""
+              + COLLECTION_UUID
+              + "\",\n"
+              + "\"collectionName\": \""
+              + COLLECTION_NAME
+              + "\",\n"
+              + "\"leaseOwner\": \""
+              + LEASE_OWNER
+              + "\",\n"
+              + "\"leaseExpiration\": {\"$date\": \"2024-12-06T00:57:15.661Z\"},\n"
+              + "\"leaseVersion\": 1,\n"
+              + "\"commitInfo\": \"{}\",\n"
+              + "\"latestIndexDefinitionVersion\": \"1\",\n"
+              + "\"indexDefinitionVersionStatusMap\": {\n"
+              + "  \"1\": {\"isQueryable\": false, \"indexStatusCode\": \"INITIAL_SYNC\"}\n"
+              + "}}");
+    }
+
+    /**
+     * Legacy documents written before the {@code cleanupState} field existed must parse without
+     * error and default to {@link Lease.CleanupState#NOT_ELIGIBLE}. This is the load-bearing
+     * backwards-compat guarantee for the online migration: existing production leases stay
+     * readable after the new code rolls out.
+     */
+    @Test
+    public void testFromBson_missingCleanupState_defaultsToNotEligible() throws Exception {
+      Lease parsed = Lease.fromBson(legacyDocWithoutCleanupState());
+      assertEquals(Lease.CleanupState.NOT_ELIGIBLE, parsed.cleanupState());
+    }
+
+    /**
+     * Rollback / rolling-upgrade safety: a newer binary may write a {@link Lease.CleanupState}
+     * value this binary doesn't recognize. The field's {@code withFallback(NOT_ELIGIBLE)} must keep
+     * parsing from throwing — otherwise the {@code BsonParseException} would break {@code
+     * syncLeasesFromMongod} for the index (the failure mode tracked in CLOUDP-401373).
+     */
+    @Test
+    public void testFromBson_unrecognizedCleanupState_fallsBackToNotEligible() throws Exception {
+      org.bson.BsonDocument doc = legacyDocWithoutCleanupState();
+      doc.put("cleanupState", new org.bson.BsonString("FUTURE_UNKNOWN_STATE"));
+
+      Lease parsed = Lease.fromBson(doc);
+
+      assertEquals(Lease.CleanupState.NOT_ELIGIBLE, parsed.cleanupState());
+    }
+
+    /**
+     * After a legacy lease is parsed and re-serialized through {@code toBson} (which is what every
+     * write path — heartbeat renewal, status update, ownership change — already does), the
+     * persisted document carries the new {@code cleanupState} field. This is the "free backfill"
+     * mechanism: no separate migration code path is needed because any write naturally upgrades
+     * the document.
+     */
+    @Test
+    public void testFromBsonToBson_legacyDocIsUpgradedOnWrite() throws Exception {
+      // Parse legacy doc (no cleanupState field).
+      Lease parsed = Lease.fromBson(legacyDocWithoutCleanupState());
+
+      // Round-trip through toBson — simulates the next write that this lease will see.
+      var upgraded = parsed.toBson();
+      assertTrue(
+          "Re-serialized legacy lease must include the cleanupState field",
+          upgraded.containsKey("cleanupState"));
+      assertEquals("NOT_ELIGIBLE", upgraded.getString("cleanupState").getValue());
+
+      // Re-parsing the upgraded BSON yields the same in-memory representation.
+      Lease reparsed = Lease.fromBson(upgraded);
+      assertEquals(Lease.CleanupState.NOT_ELIGIBLE, reparsed.cleanupState());
+    }
+
+    /**
+     * A legacy lease (no cleanupState field in the persisted doc) can be marked
+     * {@link Lease.CleanupState#ELIGIBLE_FOR_CLEANUP} by {@link Lease#withCleanupState} and the
+     * mark survives the round-trip to BSON and back. This is the case the stale-lease scanner
+     * relies on: legacy/orphan leases — which never had a {@code cleanupState} field on disk — must
+     * still be mark-and-cleanable, because they will never get upgraded by a heartbeat (they have
+     * no heartbeater).
+     */
+    @Test
+    public void testFromBsonWithCleanupStateToBson_legacyDocCanBeMarkedEligible() throws Exception {
+      Lease parsed = Lease.fromBson(legacyDocWithoutCleanupState());
+
+      // Simulate scanner phase-1: mark eligible for cleanup.
+      Lease marked = parsed.withCleanupState(Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+
+      // Persist + reload.
+      Lease reloaded = Lease.fromBson(marked.toBson());
+
+      assertEquals(Lease.CleanupState.ELIGIBLE_FOR_CLEANUP, reloaded.cleanupState());
+      // The rest of the lease must be unchanged — withCleanupState is a cleanupState-only update.
+      assertEquals(parsed.id(), reloaded.id());
+      assertEquals(parsed.leaseVersion(), reloaded.leaseVersion());
+      assertEquals(parsed.leaseOwner(), reloaded.leaseOwner());
+      assertEquals(parsed.collectionUuid(), reloaded.collectionUuid());
+      assertEquals(parsed.collectionName(), reloaded.collectionName());
+    }
+
+    /**
+     * Round-tripping a v1 document through fromBson → toBson upgrades it to include the
+     * status field. This is the durable-upgrade-by-write path: any write that goes through
+     * toBson() (heartbeat renewal, status update, etc.) carries the new field, so older documents
+     * naturally converge to the new shape without any explicit backfill code.
+     */
+    @Test
+    public void testToBson_writesCleanupState() {
+      Lease lease = createLeaseWithSteadyPosition(null);
+      var bson = lease.toBson();
+      assertTrue("toBson must include the cleanupState field", bson.containsKey("cleanupState"));
+      assertEquals("NOT_ELIGIBLE", bson.getString("cleanupState").getValue());
+    }
+
+    /**
+     * The {@code with*} builders preserve status when not explicitly changed. Failing any one
+     * of these would let a heartbeat or status update silently drop an ELIGIBLE_FOR_CLEANUP marker
+     * and the scanner would never get a chance to clean the lease up.
+     */
+    @Test
+    public void testWithBuilders_preserveCleanupState() {
+      Lease eligibleLease =
+          createLeaseWithSteadyPosition(null)
+              .withCleanupState(Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+
+      assertEquals(
+          Lease.CleanupState.ELIGIBLE_FOR_CLEANUP,
+          eligibleLease.withUpdatedCheckpoint(EncodedUserData.EMPTY).cleanupState());
+      assertEquals(
+          Lease.CleanupState.ELIGIBLE_FOR_CLEANUP,
+          eligibleLease.withRenewedOwnership("new-owner").cleanupState());
+      assertEquals(
+          Lease.CleanupState.ELIGIBLE_FOR_CLEANUP,
+          eligibleLease.withReleasedOwnership().cleanupState());
+      assertEquals(
+          Lease.CleanupState.ELIGIBLE_FOR_CLEANUP,
+          eligibleLease.withUpdatedStatus(IndexStatus.steady(), 1L, null).cleanupState());
+      assertEquals(
+          Lease.CleanupState.ELIGIBLE_FOR_CLEANUP,
+          eligibleLease
+              .withNewIndexDefinitionVersion("2", IndexStatus.initialSync(), false)
+              .cleanupState());
+      assertEquals(
+          Lease.CleanupState.ELIGIBLE_FOR_CLEANUP,
+          eligibleLease.withResolvedMatViewUuid(UUID.randomUUID()).cleanupState());
+    }
+
+    /** {@code withCleanupState} changes only the cleanupState field. */
+    @Test
+    public void testWithCleanupState_changesOnlyCleanupState() {
+      Lease lease = createLeaseWithSteadyPosition(null);
+      Lease updated = lease.withCleanupState(Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+
+      assertEquals(Lease.CleanupState.ELIGIBLE_FOR_CLEANUP, updated.cleanupState());
+      // Every other field unchanged — leaseVersion in particular must not bump, because
+      // withCleanupState is a cleanupState-only change and bumping would invalidate concurrent OCC
+      // updates on other fields.
+      assertEquals(lease.id(), updated.id());
+      assertEquals(lease.leaseOwner(), updated.leaseOwner());
+      assertEquals(lease.leaseExpiration(), updated.leaseExpiration());
+      assertEquals(lease.leaseVersion(), updated.leaseVersion());
+      assertEquals(lease.commitInfo(), updated.commitInfo());
+      assertEquals(lease.latestIndexDefinitionVersion(), updated.latestIndexDefinitionVersion());
+      assertEquals(
+          lease.indexDefinitionVersionStatusMap(), updated.indexDefinitionVersionStatusMap());
+      assertEquals(
+          lease.materializedViewCollectionMetadata(), updated.materializedViewCollectionMetadata());
+    }
+
+    /**
+     * Constructing a Lease with a null status must fail at the call site rather than surface as
+     * an NPE deep inside the BSON writer (where toBson() does {@code Optional.of(this.status)}).
+     */
+    @Test(expected = NullPointerException.class)
+    public void testConstructor_nullCleanupState_throws() {
+      new Lease(
+          LEASE_ID,
+          Lease.FIRST_LEASE_VERSION,
+          COLLECTION_UUID,
+          COLLECTION_NAME,
+          LEASE_OWNER,
+          Instant.now(),
+          Lease.FIRST_LEASE_VERSION,
+          "",
+          "1",
+          Map.of(
+              "1",
+              new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.INITIAL_SYNC)),
+          new MaterializedViewCollectionMetadata(
+              VERSION_ZERO, UUID.fromString(COLLECTION_UUID), COLLECTION_NAME),
+          null,
+          /* status= */ null);
+    }
+
     private static Lease createLeaseWithCommitInfo(String commitInfo) {
       return new Lease(
           LEASE_ID,
@@ -634,7 +841,8 @@ public class LeaseTest {
               new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.INITIAL_SYNC)),
           new MaterializedViewCollectionMetadata(
               VERSION_ZERO, UUID.fromString(COLLECTION_UUID), COLLECTION_NAME),
-          null);
+          null,
+          Lease.CleanupState.NOT_ELIGIBLE);
     }
 
     private static Lease createLeaseWithSteadyPosition(@Nullable BsonTimestamp steadyPosition) {
@@ -653,7 +861,8 @@ public class LeaseTest {
               new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.INITIAL_SYNC)),
           new MaterializedViewCollectionMetadata(
               VERSION_ZERO, UUID.fromString(COLLECTION_UUID), COLLECTION_NAME),
-          steadyPosition);
+          steadyPosition,
+          Lease.CleanupState.NOT_ELIGIBLE);
     }
   }
 }

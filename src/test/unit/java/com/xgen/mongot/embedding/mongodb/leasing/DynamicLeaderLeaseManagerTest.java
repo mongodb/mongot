@@ -1511,7 +1511,8 @@ public class DynamicLeaderLeaseManagerTest {
             current.latestIndexDefinitionVersion(),
             current.indexDefinitionVersionStatusMap(),
             current.materializedViewCollectionMetadata(),
-            current.steadyAsOfOplogPosition());
+            current.steadyAsOfOplogPosition(),
+            current.cleanupState());
     this.leaseManager.putLease(leaseKey, nearExpiry);
   }
 
@@ -1529,7 +1530,8 @@ public class DynamicLeaderLeaseManagerTest {
         "0",
         Map.of("0", new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.UNKNOWN)),
         new MaterializedViewCollectionMetadata(VERSION_ZERO, UUID.randomUUID(), "collection-name"),
-        null);
+        null,
+        Lease.CleanupState.NOT_ELIGIBLE);
   }
 
   private Lease createLeaseWithCommitInfo(
@@ -1546,7 +1548,8 @@ public class DynamicLeaderLeaseManagerTest {
         "0",
         Map.of("0", new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.UNKNOWN)),
         new MaterializedViewCollectionMetadata(VERSION_ZERO, UUID.randomUUID(), "collection-name"),
-        null);
+        null,
+        Lease.CleanupState.NOT_ELIGIBLE);
   }
 
   @SuppressWarnings("unchecked")
@@ -1602,7 +1605,8 @@ public class DynamicLeaderLeaseManagerTest {
             MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata.VERSION_ZERO,
             uuid,
             collectionName),
-        null);
+        null,
+        Lease.CleanupState.NOT_ELIGIBLE);
   }
 
   @Test

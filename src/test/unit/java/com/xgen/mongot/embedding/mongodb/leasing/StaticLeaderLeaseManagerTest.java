@@ -312,6 +312,7 @@ public class StaticLeaderLeaseManagerTest {
         "0",
         Map.of("0", new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.UNKNOWN)),
         metadata,
-        null);
+        null,
+        Lease.CleanupState.NOT_ELIGIBLE);
   }
 }
