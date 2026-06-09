@@ -1,21 +1,5 @@
-load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
+load("@bazel_skylib//rules:common_settings.bzl", "string_flag")
 load(":def.bzl", "version")
-
-# Flag to use pre-built vectorlite library (built in Docker) instead of compiling from source
-# Use with: --//bazel/config:vectorlite_prebuilt=true
-bool_flag(
-    name = "vectorlite_prebuilt",
-    build_setting_default = False,
-    visibility = ["//visibility:public"],
-)
-
-config_setting(
-    name = "use_vectorlite_prebuilt",
-    flag_values = {
-        ":vectorlite_prebuilt": "True",
-    },
-    visibility = ["//visibility:public"],
-)
 
 string_flag(
     name = "base_docker_image_os",
