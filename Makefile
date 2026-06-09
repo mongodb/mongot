@@ -74,6 +74,15 @@ tools.buildifier.check:
 tools.buildifier.fix:
 	@$(call BAZEL) run //bazel:buildifier-fix
 
+# Refresh use_repo lists in MODULE.bazel fragments after adding/removing an
+# extension, then re-normalize formatting. `bazel mod tidy` inserts blank lines
+# between consecutive include() calls that buildifier wants compact; running
+# buildifier-fix afterwards converges on the canonical form.
+.PHONY: tools.bazel.tidy
+tools.bazel.tidy:
+	@$(call BAZEL) mod tidy
+	@$(call BAZEL) run //bazel:buildifier-fix
+
 .PHONY: tools.buf.lint
 tools.buf.lint:
 	@$(call BAZEL) test --build_tests_only $(shell $(call BAZEL) query 'kind(buf_lint_test, //...)')
@@ -106,7 +115,7 @@ tools.jdk.fetch:
 
 .PHONY: tools.jdk.path
 tools.jdk.path: tools.jdk.fetch
-	@echo $(shell $(BAZELISK) info output_base)/external/adoptium_jdk_macos_aarch64/Contents/Home
+	@echo $(shell $(BAZELISK) info output_base)/external/+java_repos+adoptium_jdk_macos_aarch64/Contents/Home
 
 .PHONY: tools.precommit.enabled
 tools.precommit.enabled:

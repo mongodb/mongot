@@ -1,0 +1,21 @@
+"""MODULE.bazel for Python."""
+
+bazel_dep(name = "rules_python", version = "1.4.1")
+
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(
+    configure_coverage_tool = False,
+    is_default = True,
+    python_version = "3.11",
+)
+use_repo(python, "python_3_11", "python_3_11_host")
+
+# hub_name = "mongot_pip" (not "pip_deps") avoids collision with the
+# `pip_deps` hub declared by the protobuf bazel_dep's transitive pip extension.
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+pip.parse(
+    hub_name = "mongot_pip",
+    python_version = "3.11",
+    requirements_lock = "//bazel/python:requirements_lock.txt",
+)
+use_repo(pip, "mongot_pip")

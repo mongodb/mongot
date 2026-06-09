@@ -111,7 +111,7 @@ public class Similarity {
     Optional<Path> found =
         Stream.of(
                 resolveFromEnv("RUNFILES_DIR", bazelRelative),
-                resolveFromEnv("TEST_SRCDIR", "com_xgen_mongot/" + bazelRelative),
+                resolveFromEnv("TEST_SRCDIR", "_main/" + bazelRelative),
                 Optional.of(Path.of("bazel-bin", bazelRelative)),
                 resolveFromJarSibling(libName))
             .flatMap(Optional::stream)

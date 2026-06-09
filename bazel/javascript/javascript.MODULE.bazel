@@ -1,0 +1,26 @@
+"""MODULE.bazel for JavaScript/Node/npm."""
+
+bazel_dep(name = "aspect_rules_js", version = "2.9.2")
+bazel_dep(name = "rules_nodejs", version = "6.7.3")
+
+# Register Node.js toolchains
+node = use_extension("@rules_nodejs//nodejs:extensions.bzl", "node")
+node.toolchain(
+    name = "nodejs",
+    node_version = "20.11.0",  # LTS version
+)
+use_repo(node, "nodejs", "nodejs_toolchains")
+
+# Translate the pnpm-lock.yaml for search-index-schema to Bazel targets
+npm = use_extension(
+    "@aspect_rules_js//npm:extensions.bzl",
+    "npm",
+    dev_dependency = True,
+)
+npm.npm_translate_lock(
+    name = "npm_search_index_schema",
+    data = ["//packages/search-index-schema:package.json"],
+    pnpm_lock = "//packages/search-index-schema:pnpm-lock.yaml",
+    verify_node_modules_ignored = "//:.bazelignore",
+)
+use_repo(npm, "npm_search_index_schema")

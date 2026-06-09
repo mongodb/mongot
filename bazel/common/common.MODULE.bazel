@@ -1,0 +1,78 @@
+"""MODULE.bazel for shared infrastructure.
+
+Owns:
+- platforms, bazel_skylib, bazel_features, rules_pkg, rules_cc bazel_deps
+- Non-BCR archives declared via `use_repo_rule(http_archive)` /
+  `use_repo_rule(poetry)`: rules_poetry, com_github_bazel_common,
+  bazel_rules_mongo, poetry_bazel_rules_mongo. They share the root
+  module's namespace because `bazel_rules_mongo`'s BUILDs `load("@poetry//...")`
+  and extension-created sibling repos cannot see each other by short
+  apparent name.
+- codeowners_validator and codeowners_binary repos (Go-binary linters
+  invoked by `@bazel_rules_mongo//codeowners:codeowners`).
+"""
+
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "bazel_skylib", version = "1.8.2")
+
+# Required by rules_rust_prost
+bazel_dep(name = "bazel_features", version = "1.41.0")
+bazel_dep(name = "rules_pkg", version = "1.0.1")
+bazel_dep(name = "rules_cc", version = "0.2.16")
+
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+poetry = use_repo_rule("@rules_poetry//rules_poetry:poetry.bzl", "poetry")
+
+http_archive(
+    name = "rules_poetry",
+    sha256 = "48001b928488e78f03a47bcc712c56432a471fc6cdd90fe57c884efbfcd13696",
+    strip_prefix = "rules_poetry-917630033c736c188605cf0f558c34afc1eca540",
+    urls = ["https://github.com/mongodb-forks/rules_poetry/archive/917630033c736c188605cf0f558c34afc1eca540.tar.gz"],
+)
+
+# Required to generate a pom.xml file
+http_archive(
+    name = "com_github_bazel_common",
+    sha256 = "d8c9586b24ce4a5513d972668f94b62eb7d705b92405d4bc102131f294751f1d",
+    strip_prefix = "bazel-common-413b433b91f26dbe39cdbc20f742ad6555dd1e27",
+    urls = ["https://github.com/google/bazel-common/archive/413b433b91f26dbe39cdbc20f742ad6555dd1e27.zip"],
+)
+
+# Provides the codeowners + engflow_auth py_binary targets. Its BUILDs reference
+# `@poetry`; the patch rewrites those references to `@poetry_bazel_rules_mongo`
+# (the local poetry instance declared below).
+http_archive(
+    name = "bazel_rules_mongo",
+    patch_args = ["-p1"],
+    patch_tool = "patch",
+    patches = ["//bazel/common/patches:bazel_rules_mongo-poetry-bzlmod.patch"],
+    sha256 = "4bdde5bcd17fc50bd04697e6dddebde53db052214ef2988658b2ee0a4284d911",
+    strip_prefix = "bazel_rules_mongo",
+    urls = ["https://mdb-build-public.s3.amazonaws.com/bazel_rules_mongo/0.1.11/bazel_rules_mongo.tar.gz"],
+)
+
+poetry(
+    name = "poetry_bazel_rules_mongo",
+    lockfile = "@bazel_rules_mongo//:poetry.lock",
+    pyproject = "@bazel_rules_mongo//:pyproject.toml",
+    python_interpreter_target_mac = "@python_3_11_host//:python",
+)
+
+# Go-binary linter repos consumed at runtime by
+# @bazel_rules_mongo//codeowners:codeowners. Declared via the private
+# repository_rules directly (not the public macros, which add no value beyond
+# the wrapper) so the repos sit at the root namespace.
+_codeowners_validator = use_repo_rule(
+    "@bazel_rules_mongo//codeowners:codeowners_validator.bzl",
+    "_codeowners_validator",
+)
+
+_codeowners_binary = use_repo_rule(
+    "@bazel_rules_mongo//codeowners:codeowners_binary.bzl",
+    "_codeowners_binary",
+)
+
+_codeowners_validator(name = "codeowners_validator")
+
+_codeowners_binary(name = "codeowners_binary")

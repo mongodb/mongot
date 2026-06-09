@@ -1,0 +1,216 @@
+"""Core Maven artifact list for the shared `@maven` install.
+
+The `maven.install(name = "maven", ...)` config and pin file live here, along with
+the artifacts that aren't owned by a specific team. Team-owned artifacts are
+contributed as `maven.artifact(name = "maven", ...)` tags from sibling fragments
+that the maven extension merges into this install:
+
+- bazel/java/maven_search_query.MODULE.bazel (Search Query: Lucene + @lucene_fork)
+- bazel/java/maven_search_systems.MODULE.bazel (Search Systems: AWS/Azure/GCP/Netty/...)
+
+Regenerate the pin files with `make deps.update` after editing any of these.
+"""
+
+maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")
+
+# ---------------------------------------------------------------------------
+# Main Maven install. Pinned to //bazel/java:maven_pin_info.json. Regenerate
+# the pin file with `make deps.update` after editing this list.
+# ---------------------------------------------------------------------------
+maven.install(
+    name = "maven",
+    artifacts = [
+        "com.google.guava:guava:33.5.0-jre",
+        # Jackson (2.18.6)
+        "com.fasterxml.jackson.core:jackson-databind:2.18.6",
+        "com.fasterxml.jackson.core:jackson-annotations:2.18.6",
+        "com.fasterxml.jackson.core:jackson-core:2.18.6",
+        "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.6",
+        "com.fasterxml.jackson.datatype:jackson-datatype-jdk8:2.18.6",
+        "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.18.6",
+        "com.fasterxml.jackson.module:jackson-module-parameter-names:2.18.6",
+        # METRICS_ARTIFACTS (1.15.3)
+        "io.micrometer:micrometer-core:1.15.3",
+        "io.micrometer:micrometer-registry-prometheus:1.15.3",
+        "io.micrometer:micrometer-registry-otlp:1.15.3",
+        # OPEN_TELEMETRY_ARTIFACTS (1.62.0)
+        "io.opentelemetry:opentelemetry-api:1.62.0",
+        "io.opentelemetry:opentelemetry-context:1.62.0",
+        "io.opentelemetry:opentelemetry-sdk:1.62.0",
+        "io.opentelemetry:opentelemetry-sdk-trace:1.62.0",
+        "io.opentelemetry:opentelemetry-sdk-common:1.62.0",
+        "io.opentelemetry:opentelemetry-exporter-logging-otlp:1.62.0",
+        "io.opentelemetry:opentelemetry-exporter-otlp-common:1.62.0",
+        "io.opentelemetry:opentelemetry-exporter-common:1.62.0",
+        "io.opentelemetry:opentelemetry-exporter-otlp:1.62.0",
+        "io.opentelemetry:opentelemetry-semconv:1.28.0-alpha",
+        "io.opentelemetry:opentelemetry-sdk-extension-resources:1.19.0",
+        # MISC_ARTIFACTS
+        "com.uber.nullaway:nullaway:0.12.15",
+        "ch.qos.logback:logback-classic:1.5.25",
+        "net.logstash.logback:logstash-logback-encoder:8.1",
+        "org.slf4j:slf4j-api:2.0.17",
+        "org.slf4j:jul-to-slf4j:2.0.17",
+        "com.github.ben-manes.caffeine:caffeine:3.2.2",
+        "commons-codec:commons-codec:1.19.0",
+        "commons-io:commons-io:2.20.0",
+        "info.picocli:picocli:4.7.7",
+        "net.jodah:failsafe:2.4.4",
+        "org.apache.commons:commons-collections4:4.5.0",
+        "org.apache.commons:commons-rng-client-api:1.6",
+        "org.apache.commons:commons-rng-simple:1.6",
+        "org.apache.commons:commons-rng-sampling:1.6",
+        "org.apache.commons:commons-lang3:3.18.0",
+        "org.apache.commons:commons-math3:3.6.1",
+        "org.apache.commons:commons-text:1.14.0",
+        "org.apache.commons:commons-compress:1.28.0",
+        "org.apache.httpcomponents:httpclient:4.5.14",
+        "org.apache.httpcomponents:httpcore:4.4.16",
+        "org.apache.logging.log4j:log4j-core:2.25.4",
+        "org.reactivestreams:reactive-streams:1.0.4",
+        "org.yaml:snakeyaml:2.4",
+        "com.google.flogger:flogger:0.9",
+        "com.google.flogger:flogger-slf4j-backend:0.9",
+        "com.github.oshi:oshi-core:7.1.0",
+        "com.github.luben:zstd-jni:1.5.5-11",
+        "org.xerial.snappy:snappy-java:1.1.10.8",
+        # Okio is a grpc dependency with CVE-2023-3635 vulnerability,
+        # manually pinning to fix version until GRPC integrates it
+        # TODO(CLOUDP-196746): Remove okio dependency when GRPC upgrades okio > 3.4.0
+        "com.squareup.okio:okio:3.10.2",
+        "com.google.auto.service:auto-service:1.1.1",
+        "org.roaringbitmap:RoaringBitmap:1.6.13",
+        "com.carrotsearch:hppc:0.10.0",
+        # PINNED_TRANSITIVE_ARTIFACTS
+        "com.google.protobuf:protobuf-java:4.29.0",
+        # Force Netty transitive artifacts to 4.1.133.Final to address CVE-2026-42579,
+        # CVE-2026-42578, and to unify Netty versions.
+        "io.netty:netty-codec-http:4.1.133.Final",
+        "io.netty:netty-handler:4.1.133.Final",
+        "io.netty:netty-codec-http2:4.1.133.Final",
+        "io.netty:netty-codec-dns:4.1.133.Final",
+        "io.netty:netty-codec-socks:4.1.133.Final",
+        "io.netty:netty-handler-proxy:4.1.133.Final",
+        "io.netty:netty-resolver:4.1.133.Final",
+        "io.netty:netty-resolver-dns:4.1.133.Final",
+        "io.netty:netty-resolver-dns-classes-macos:4.1.133.Final",
+        "io.netty:netty-resolver-dns-native-macos:jar:osx-x86_64:4.1.133.Final",
+        "io.netty:netty-resolver-dns-native-macos:jar:osx-aarch_64:4.1.133.Final",
+        "io.netty:netty-transport-native-unix-common:4.1.133.Final",
+        # GRPC requires this but doesn't bundle it for some reason
+        "org.checkerframework:checker-qual:3.48.4",
+        # Force gRPC version to 1.75.0 to address CVE-2025-55163
+        "io.grpc:grpc-netty-shaded:1.75.0",
+        # Force gson version to 2.13.2 to address CVE-2025-53864
+        "com.google.code.gson:gson:2.13.2",
+        # Force plexus-utils version to 4.0.3 to address CVE-2025-67030
+        "org.codehaus.plexus:plexus-utils:4.0.3",
+        # OSHI 7.x switched to jna-platform-jpms, removing the transitive driver for jna-platform;
+        # pin explicitly to hold the pre-existing version
+        "net.java.dev.jna:jna-platform:5.17.0",
+        # IO_GRPC_GRPC_JAVA_ARTIFACTS (deduped against above; gRPC v1.70.0 snapshot)
+        "com.google.android:annotations:4.1.1.4",
+        "com.google.api.grpc:proto-google-common-protos:2.48.0",
+        "com.google.auto.value:auto-value-annotations:1.11.0",
+        "com.google.auto.value:auto-value:1.11.0",
+        "com.google.code.findbugs:jsr305:3.0.2",
+        "com.google.guava:failureaccess:1.0.1",
+        "com.google.re2j:re2j:1.7",
+        "io.opencensus:opencensus-api:0.31.0",
+        "io.opencensus:opencensus-contrib-grpc-metrics:0.31.0",
+        "io.perfmark:perfmark-api:0.27.0",
+        "org.apache.tomcat:annotations-api:6.0.53",
+        "org.codehaus.mojo:animal-sniffer-annotations:1.24",
+    ],
+    duplicate_version_warning = "error",
+    excluded_artifacts = [
+        # bcpkix-jdk18on is a transitive dependency from docker-java that we do not want to include
+        # because -jdk18on is not approved for use in gov.
+        "org.bouncycastle:bcpkix-jdk18on",
+        # Default SFL4J binding used by checkstyle, but we can't allow it on the classpath for
+        # mongot as we require logback for structured logging.
+        "org.slf4j:slf4j-simple",
+        # Exclude vulnerable okhttp 2.x (CVE-2021-0341) - the project uses okhttp3 instead.
+        # See CLOUDP-378237 for details.
+        "com.squareup.okhttp:okhttp",
+    ],
+    fetch_sources = True,
+    generate_compat_repositories = True,
+    lock_file = "//bazel/java:maven_pin_info.json",
+    repositories = ["https://repo1.maven.org/maven2"],
+    # Use the versions we've pinned if a conflict is detected.
+    version_conflict_policy = "pinned",
+)
+
+# ---------------------------------------------------------------------------
+# Per-artifact testonly / neverlink classification.
+# Same pin entries as the plain-string artifacts above, but the @maven//
+# aliases are tagged so production Java targets fail to compile if they
+# transitively depend on them.
+# ---------------------------------------------------------------------------
+
+# TEST_ONLY_ARTIFACTS
+[
+    maven.artifact(
+        name = "maven",
+        testonly = True,
+        artifact = artifact,
+        group = group,
+        version = version,
+    )
+    for (group, artifact, version) in [
+        ("org.openjdk.jmh", "jmh-core", "1.37"),
+        ("org.openjdk.jmh", "jmh-generator-annprocess", "1.37"),
+        ("com.google.guava", "guava-testlib", "33.5.0-jre"),
+        ("com.pholser", "junit-quickcheck-core", "1.0"),
+        ("com.pholser", "junit-quickcheck-generators", "1.0"),
+        ("com.github.docker-java", "docker-java-core", "3.7.1"),
+        ("com.github.docker-java", "docker-java-api", "3.7.1"),
+        ("com.github.docker-java", "docker-java-transport", "3.7.1"),
+        ("com.github.docker-java", "docker-java-transport-httpclient5", "3.7.1"),
+        ("io.projectreactor", "reactor-test", "3.7.8"),
+        ("com.googlecode.junit-toolbox", "junit-toolbox", "2.4"),
+        ("org.hamcrest", "hamcrest-library", "3.0"),
+        ("org.hamcrest", "hamcrest-core", "3.0"),
+        ("junit", "junit", "4.13.2"),
+        ("org.mockito", "mockito-subclass", "5.18.0"),
+        ("com.google.truth", "truth", "1.4.5"),
+        ("com.googlecode.json-simple", "json-simple", "1.1.1"),
+        ("com.puppycrawl.tools", "checkstyle", "12.3.0"),
+        ("com.github.spotbugs", "spotbugs", "4.9.8"),
+    ]
+]
+
+# COMPILE_ONLY_ARTIFACTS (neverlink: available at compile time only)
+[
+    maven.artifact(
+        name = "maven",
+        artifact = artifact,
+        group = group,
+        neverlink = True,
+        version = version,
+    )
+    for (group, artifact, version) in [
+        ("com.google.errorprone", "error_prone_annotations", "2.27.1"),
+        ("com.google.errorprone", "error_prone_core", "2.27.1"),
+        ("com.google.errorprone", "error_prone_check_api", "2.27.1"),
+        ("org.jetbrains", "annotations", "26.0.2"),
+    ]
+]
+
+use_repo(maven, "maven")
+
+# ---------------------------------------------------------------------------
+# Lock file for the @protobuf_maven hub that the protobuf bazel_dep declares
+# for its java/util classpath. mongot does not import from @protobuf_maven
+# directly, but the maven extension resolves every declared install eagerly
+# at module-resolution time.
+# Pinning the deps here allows us to skip coursier on fresh builds, which
+# would otherwise require a host JDK (doesn't use the Bazel-managed JDK).
+# Regenerate with `make deps.update`.
+# ---------------------------------------------------------------------------
+maven.install(
+    name = "protobuf_maven",
+    lock_file = "//bazel/java:protobuf_maven_pin_info.json",
+)
+use_repo(maven, "protobuf_maven")

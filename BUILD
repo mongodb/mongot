@@ -176,7 +176,7 @@ alias(
 
 exports_files([
     "BUILD",
-    "WORKSPACE",
+    "MODULE.bazel",
     "scripts/runfiles_helper.sh",
 ])
 

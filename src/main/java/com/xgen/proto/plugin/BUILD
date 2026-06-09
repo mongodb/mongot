@@ -1,3 +1,5 @@
+load("@rules_java//java:java_binary.bzl", "java_binary")
+load("@rules_java//java:java_library.bzl", "java_library")
 load("@rules_jvm_external//:defs.bzl", "artifact")
 load("//bazel/java:proto_bson.bzl", "java_proto_bson_toolchain")
 

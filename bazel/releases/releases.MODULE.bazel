@@ -1,0 +1,8 @@
+"""Community variant of bazel/releases/releases.MODULE.bazel.
+
+Community publishes no historical mongot releases (RELEASES dict is empty in
+deps-Community.bzl), so this fragment has no use_repo entries. The extension
+exists only to maintain symbol parity for any code that may reference it.
+"""
+
+releases = use_extension("//bazel/releases:extensions.bzl", "releases")

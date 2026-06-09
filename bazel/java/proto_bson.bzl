@@ -6,6 +6,10 @@ This is cribbed from java_grpc_library().
 # TODO: this does not function like java_proto_library(), to do some we would need to implement an
 # aspect so that we generate bson proto compilation of all the libraries in between.
 
+load("@com_google_protobuf//bazel/common:proto_info.bzl", "ProtoInfo")
+load("@rules_java//java/common:java_common.bzl", "java_common")
+load("@rules_java//java/common:java_info.bzl", "JavaInfo")
+
 _JavaProtoBsonToolchainInfo = provider(
     fields = [
         "java_toolchain",

@@ -1,4 +1,5 @@
 load("@contrib_rules_jvm//java:defs.bzl", _java_library = "java_library")
+load("@rules_java//java:java_binary.bzl", "java_binary")
 load("@rules_jvm_external//:defs.bzl", "artifact")
 
 def java_library(name, plugins = [], javacopts = [], testonly = False, **kwargs):
@@ -90,8 +91,7 @@ def java_binary_stamped_manifest(name, manifest_lines = [], visibility = [], **k
     """
         Same as java_binary rule but also has a manifest_lines to allow stamping over values
     """
-
-    native.java_binary(
+    java_binary(
         name = name + "__non_stamped",
         visibility = visibility,
         **kwargs

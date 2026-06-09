@@ -1,4 +1,4 @@
-load("@com_github_bazelbuild_buildtools//buildifier:def.bzl", "buildifier", "buildifier_test")
+load("@buildifier_prebuilt//:rules.bzl", "buildifier", "buildifier_test")
 
 buildifier(
     name = "buildifier-fix",
@@ -24,5 +24,5 @@ buildifier_test(
     mode = "check",
     no_sandbox = True,
     tags = ["lint"],
-    workspace = "//:WORKSPACE",
+    workspace = "//:MODULE.bazel",
 )

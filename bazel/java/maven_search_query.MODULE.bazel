@@ -1,0 +1,101 @@
+"""Maven artifacts owned by the Search Query team.
+
+Contributes Lucene artifacts to the shared `@maven` install declared in
+bazel/java/maven.MODULE.bazel (tags merge by `name = "maven"`), and owns the
+separate `@lucene_fork` install plus the override tags that redirect
+lucene-core / -codecs / -backward-codecs to the fork JARs.
+
+Kept in its own file so the Search Query team owns it via OWNERS.yml,
+mirroring the pre-bzlmod bazel/java/search_query_deps.bzl.
+"""
+
+# Upstream Apache Lucene release version.
+_LUCENE_VERSION = "10.1.0"
+
+# Version of mongot's Lucene fork artifacts published to
+# https://downloads.mongodb.com/lucene-mongot/*. Built from the corresponding mongot development
+# branch in the [lucene-mongot](https://github.com/mongodb-forks/lucene-mongot) repository.
+# These override the upstream artifacts in the main maven install via the maven.override tags below.
+# Changes included in this fork are documented in
+# https://github.com/mongodb-forks/lucene-mongot/blob/mongot_10_1_0/lucene/CHANGES.txt#L6-L12
+# Major change - Support for Bloom Filter for id field
+_LUCENE_FORK_VERSION = "10.1.0-3"
+
+# lucene-core, lucene-backward-codecs and lucene-codecs are resolved from the fork and override the
+# upstream artifacts (which are listed at _LUCENE_VERSION below so the main install's transitive
+# resolution stays consistent) via the maven.override tags below.
+_LUCENE_FORK_ARTIFACTS = [
+    "lucene-backward-codecs",
+    "lucene-codecs",
+    "lucene-core",
+]
+
+# Upstream Lucene artifacts consumed directly (the fork artifacts above are appended to this set
+# below so they resolve transitively, then overridden to the fork JARs).
+_LUCENE_UPSTREAM_ARTIFACTS = [
+    "lucene-analysis-common",
+    "lucene-analysis-icu",
+    "lucene-analysis-kuromoji",
+    "lucene-analysis-morfologik",
+    "lucene-analysis-nori",
+    "lucene-analysis-phonetic",
+    "lucene-analysis-smartcn",
+    "lucene-analysis-stempel",
+    "lucene-expressions",
+    "lucene-highlighter",
+    "lucene-join",
+    "lucene-misc",
+    "lucene-queries",
+    "lucene-queryparser",
+    "lucene-facet",
+]
+
+lucene_fork_maven = use_extension(
+    "@rules_jvm_external//:extensions.bzl",
+    "maven",
+    isolate = True,
+)
+lucene_fork_maven.install(
+    name = "lucene_fork",
+    artifacts = [
+        "org.apache.lucene:%s:%s" % (artifact, _LUCENE_FORK_VERSION)
+        for artifact in _LUCENE_FORK_ARTIFACTS
+    ],
+    fetch_sources = True,
+    lock_file = "//bazel/java:lucene_fork_pin_info.json",
+    repositories = ["https://downloads.mongodb.com/lucene-mongot/maven"],
+)
+use_repo(lucene_fork_maven, "lucene_fork")
+
+maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")
+
+# Upstream Apache Lucene. lucene-core, lucene-backward-codecs and lucene-codecs are listed here at
+# the upstream version so transitive dependency resolution in the main maven install works
+# correctly; the maven.override tags below redirect them to the fork JARs at build time.
+[
+    maven.artifact(
+        name = "maven",
+        artifact = artifact,
+        group = "org.apache.lucene",
+        version = _LUCENE_VERSION,
+    )
+    for artifact in _LUCENE_UPSTREAM_ARTIFACTS + _LUCENE_FORK_ARTIFACTS
+]
+
+maven.artifact(
+    name = "maven",
+    testonly = True,
+    artifact = "lucene-test-framework",
+    group = "org.apache.lucene",
+    version = _LUCENE_VERSION,
+)
+
+# Redirect the fork artifacts from the upstream coordinates to the fork JARs in @lucene_fork.
+[
+    maven.override(
+        name = "maven",
+        coordinates = "org.apache.lucene:%s" % artifact,
+        target = "@lucene_fork//:org_apache_lucene_%s" % artifact.replace("-", "_"),
+    )
+    for artifact in _LUCENE_FORK_ARTIFACTS
+]

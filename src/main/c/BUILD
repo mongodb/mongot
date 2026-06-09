@@ -1,3 +1,5 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+
 cc_binary(
     name = "mongot_vecsim",
     srcs = ["mongot_vecsim.c"],

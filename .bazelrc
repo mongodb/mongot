@@ -37,13 +37,9 @@ build --experimental_repository_downloader_retries=5
 # Build with full optimizations so native code is compiled in release mode
 build -c opt
 
-# We have not yet migrated to bzlmod (https://bazel.build/external/migration) but it has been
-# enabled by default. Leaving it enabled makes some bazel dependencies like rules_python ignore
-# how they are enabled in the WORKSPACE.
-common --noenable_bzlmod
-
-# Bazel 8.0.0 requires explicitly enabling WORKSPACE mode when not using bzlmod
-common --enable_workspace
+# Enable isolation (used by Maven) to scope overrides to a single extension usage.
+# Flag has been stable in practice despite name.
+common --experimental_isolated_extension_usages
 
 # Set to false to grandfather in existing BUILD files with empty globs
 common --incompatible_disallow_empty_glob=false

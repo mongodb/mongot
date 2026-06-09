@@ -1,3 +1,4 @@
+load("@rules_java//java:java_binary.bzl", "java_binary")
 load("//bazel/java:package.bzl", "mongot_java_package")
 
 mongot_java_package(

@@ -1,0 +1,39 @@
+"""Root MODULE.bazel for mongot.
+
+Per-language concerns live in `bazel/{lang}/{lang}.MODULE.bazel` fragments and
+are pulled in below via `include()`. Each fragment owns its own bazel_dep,
+use_extension, use_repo, and register_toolchains calls. Module-level overrides
+(archive_override, git_override, single_version_override) must live in this
+root file — `include()` fragments cannot contain them.
+"""
+
+module(
+    name = "com_xgen_mongot",
+    compatibility_level = 1,
+)
+
+# rules_java 8.11+ bundles Error Prone 2.36, whose PreferredInterfaceType
+# check throws an AssertionError on cursor/CursorFactory.java.
+# TODO(CLOUDP-411743): upgrade rules_java once there's a java_tools that
+# bundles EP 2.49, which fixes the PreferredInterfaceType bug.
+single_version_override(
+    module_name = "rules_java",
+    version = "8.5.1",
+)
+
+include("//bazel/common:common.MODULE.bazel")
+include("//bazel/cc:cc.MODULE.bazel")
+include("//bazel/buildifier:buildifier.MODULE.bazel")
+include("//bazel/docker:docker.MODULE.bazel")
+include("//bazel/go:go.MODULE.bazel")
+include("//bazel/java:java.MODULE.bazel")
+include("//bazel/java:maven.MODULE.bazel")
+include("//bazel/java:maven_search_query.MODULE.bazel")
+include("//bazel/java:maven_search_systems.MODULE.bazel")
+include("//bazel/javascript:javascript.MODULE.bazel")
+include("//bazel/proto:proto.MODULE.bazel")
+include("//bazel/python:python.MODULE.bazel")
+include("//bazel/rust:rust.MODULE.bazel")
+include("//bazel/shell:shell.MODULE.bazel")
+include("//bazel/tools:tools.MODULE.bazel")
+include("//bazel/releases:releases.MODULE.bazel")

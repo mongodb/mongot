@@ -1,0 +1,8 @@
+"""MODULE.bazel for buildifier.
+
+`buildifier_prebuilt` ships prebuilt binaries and auto-registers its
+toolchains, so `bazel/BUILD` can load `buildifier` / `buildifier_test`
+from `@buildifier_prebuilt//:rules.bzl` with no further wiring.
+"""
+
+bazel_dep(name = "buildifier_prebuilt", version = "8.2.1")

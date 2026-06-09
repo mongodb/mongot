@@ -1,0 +1,13 @@
+"""MODULE.bazel for Protobuf and Buf."""
+
+bazel_dep(name = "protobuf", version = "29.1", repo_name = "com_google_protobuf")
+bazel_dep(name = "rules_proto", version = "7.1.0")
+
+# This is required by io_grpc_grpc_java, which should be including it itself, but isn't for some
+# reason.
+bazel_dep(name = "stardoc", version = "0.7.2", repo_name = "io_bazel_stardoc")
+bazel_dep(name = "rules_buf", version = "0.4.0")
+
+buf = use_extension("@rules_buf//buf:extensions.bzl", "buf")
+buf.toolchains(version = "v1.31.0")
+use_repo(buf, "rules_buf_toolchains")

@@ -1,0 +1,84 @@
+"""MODULE.bazel for Java rule sets, gRPC, JDKs, linters.
+
+The Maven artifact list (@maven + @lucene_fork) lives in the sibling
+bazel/java/maven.MODULE.bazel fragment to keep this file small.
+"""
+
+bazel_dep(name = "rules_jvm_external", version = "6.7")
+
+# 0.27.0 is the final version that doesn't require migrating to bzlmod
+bazel_dep(name = "contrib_rules_jvm", version = "0.27.0")
+
+# An explicit dependency on rules_license is necessary for rules_jvm 6.3+
+bazel_dep(name = "rules_license", version = "1.0.0")
+
+# Pin rules_java to 8.5.1 for Bazel 8.0.0 compatibility (see root MODULE.bazel
+# for the single_version_override that holds the rest of the graph at 8.5.1).
+bazel_dep(name = "rules_java", version = "8.5.1")
+bazel_dep(name = "apple_rules_lint", version = "0.4.0")
+
+git_repository = use_repo_rule("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
+
+git_repository(
+    name = "io_grpc_grpc_java",
+    # v1.70.0,
+    commit = "22a42c88d80fb96326b8c507591e4017c5e15ed3",
+    remote = "https://github.com/grpc/grpc-java.git",
+    shallow_since = "1737476933 +0000",
+)
+
+# netty-tcnative dynamic OpenSSL build for amazon2023 (used by integration tests
+# whose host base image does not ship libssl at the version netty expects).
+netty_tcnative_ext = use_extension("//bazel/java:extensions.bzl", "netty_tcnative_ext")
+use_repo(netty_tcnative_ext, "netty_tcnative_openssl_dynamic_linux_x86_64")
+
+# grpc-java transitive repos produced by grpc_java_repositories(). The only
+# transitive name referenced from project BUILD files is @io_grpc_grpc_proto.
+grpc_java = use_extension("//bazel/java:extensions.bzl", "grpc_java")
+use_repo(grpc_java, "io_grpc_grpc_proto")
+
+# Adoptium JDK archives + their remote_java_repository toolchain wrappers, the
+# community-release JDK archives bundled into community deploy artifacts, plus
+# the english_dictionary corpus consumed by tokenizer tests.
+java_repos = use_extension("//bazel/java:extensions.bzl", "java_repos")
+use_repo(
+    java_repos,
+    "adoptium_jdk_community_linux_aarch64",
+    "adoptium_jdk_community_linux_x86_64",
+    "adoptium_jdk_community_macos_aarch64",
+    "adoptium_jdk_community_macos_x86_64",
+    "adoptium_jdk_linux_aarch64",
+    "adoptium_jdk_linux_aarch64_repo",
+    "adoptium_jdk_linux_aarch64_repo_toolchain_config_repo",
+    "adoptium_jdk_linux_x86_64",
+    "adoptium_jdk_linux_x86_64_repo",
+    "adoptium_jdk_linux_x86_64_repo_toolchain_config_repo",
+    "adoptium_jdk_macos_aarch64",
+    "adoptium_jdk_macos_aarch64_repo",
+    "adoptium_jdk_macos_aarch64_repo_toolchain_config_repo",
+    "adoptium_jdk_macos_x86_64",
+    "adoptium_jdk_macos_x86_64_repo",
+    "adoptium_jdk_macos_x86_64_repo_toolchain_config_repo",
+    "english_dictionary",
+)
+
+# apple_rules_lint: wires the checkstyle + spotbugs config labels that
+# contrib_rules_jvm's lint aspects look up by name.
+linter = use_extension("@apple_rules_lint//lint:extensions.bzl", "linter")
+linter.configure(
+    name = "java-checkstyle",
+    config = "//conf/checkstyle:mongot",
+)
+linter.configure(
+    name = "java-spotbugs",
+    config = "//conf/spotbugs:mongot",
+)
+use_repo(linter, "apple_linters")
+
+register_toolchains(
+    "//bazel/java:mongot_java21_toolchain",
+    "@adoptium_jdk_linux_x86_64_repo_toolchain_config_repo//:all",
+    "@adoptium_jdk_linux_aarch64_repo_toolchain_config_repo//:all",
+    "@adoptium_jdk_macos_x86_64_repo_toolchain_config_repo//:all",
+    "@adoptium_jdk_macos_aarch64_repo_toolchain_config_repo//:all",
+)
