@@ -1,5 +1,6 @@
 package com.xgen.mongot.replication.mongodb.common;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.flogger.FluentLogger;
 import com.google.errorprone.annotations.Var;
@@ -327,8 +328,11 @@ public class ChangeStreamDocumentUtils {
               // document replacement to ensure data correctness.
               if (!filterFieldUpdates.isEmpty()) {
                 return Optional.of(
-                    DocumentEvent.createFilterOnlyUpdate(
-                        metadata, event.getFullDocument(), filterFieldUpdates));
+                    DocumentEvent.createPartialUpdate(
+                        metadata,
+                        event.getFullDocument(),
+                        filterFieldUpdates,
+                        ImmutableMap.of()));
               }
             }
           }

@@ -347,10 +347,11 @@ public class MaterializedViewWriterTest {
     // Create a filter-only update event with filterFieldUpdates
     BsonDocument filterFieldUpdates = new BsonDocument("filterField", new BsonString("newValue"));
     DocumentEvent filterOnlyUpdateEvent =
-        DocumentEvent.createFilterOnlyUpdate(
+        DocumentEvent.createPartialUpdate(
             DocumentMetadata.fromMetadataNamespace(Optional.of(document), indexId),
             document,
-            filterFieldUpdates);
+            filterFieldUpdates,
+            com.google.common.collect.ImmutableMap.of());
 
     matViewWriter.updateIndex(filterOnlyUpdateEvent);
     matViewWriter.commit(EncodedUserData.EMPTY);

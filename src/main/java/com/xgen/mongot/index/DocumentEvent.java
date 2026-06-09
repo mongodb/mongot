@@ -28,11 +28,21 @@ public class DocumentEvent {
   // e.g., {eventType:INSERT, documentId:123, document: {text_path_a: "text to be vectorized"},
   // autoEmbeddings: {text_path_a:{"text to be vectorized": [1f, 2f, ...]}}}
   private final ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings;
-  // For filter-only updates: contains the $set document with only filter field values.
-  // When present, indicates this is a filter-only update that should skip embedding generation
-  // and use partial update ($set) instead of full document replacement in MaterializedViewWriter.
-  // Example: {"$set": {"string_filter": "new_value", "int_filter": 11}}
+  // The $set BODY for partial updates (fields-to-set only — MaterializedViewWriter wraps this in
+  // $set itself, callers must NOT pre-wrap). For filter-only updates this holds only filter-field
+  // values. For partial-embed updates it starts the same way and gets augmented with vector + hash
+  // entries for the changed embed paths once the embedding service responds (see the embedding
+  // scheduler). Either way, when present, the writer issues a $set instead of a full document
+  // replacement.
+  // Example (filter-only):     {"string_filter": "new_value"}
+  // Example (partial-embed, post-embedding):
+  //   {"string_filter": "new_value", "_autoEmbed.ae1": <vec>, "_autoEmbed._hash.ae1": "abc..."}
   private final Optional<BsonDocument> filterFieldUpdates;
+  // For partial-embed updates: declared embed paths whose embeddings need to be regenerated,
+  // mapped to the chosen non-empty source text for each path. Populated by the change-stream
+  // classifier so the embedding scheduler and $set builder don't have to re-walk the source
+  // document. Empty for filter-only updates, full replacements, and post-augmentation events.
+  private final ImmutableMap<FieldPath, String> changedEmbedTexts;
   // Custom vector engine id assigned during write to the native index. Carried through to
   // the Lucene indexing policy so the id-to-_id mapping document can be written.
   private final Optional<Long> customVectorEngineId;
@@ -45,6 +55,7 @@ public class DocumentEvent {
     this.document = rawDocumentEventWithoutVector.document;
     this.autoEmbeddings = autoEmbeddings;
     this.filterFieldUpdates = rawDocumentEventWithoutVector.filterFieldUpdates;
+    this.changedEmbedTexts = rawDocumentEventWithoutVector.changedEmbedTexts;
     this.customVectorEngineId = rawDocumentEventWithoutVector.customVectorEngineId;
   }
 
@@ -55,6 +66,7 @@ public class DocumentEvent {
     this.document = document;
     this.autoEmbeddings = ImmutableMap.of();
     this.filterFieldUpdates = Optional.empty();
+    this.changedEmbedTexts = ImmutableMap.of();
     this.customVectorEngineId = Optional.empty();
   }
 
@@ -62,12 +74,14 @@ public class DocumentEvent {
       EventType eventType,
       BsonValue documentId,
       Optional<RawBsonDocument> document,
-      BsonDocument filterFieldUpdates) {
+      BsonDocument filterFieldUpdates,
+      ImmutableMap<FieldPath, String> changedEmbedTexts) {
     this.eventType = eventType;
     this.documentId = documentId;
     this.document = document;
     this.autoEmbeddings = ImmutableMap.of();
     this.filterFieldUpdates = Optional.of(filterFieldUpdates);
+    this.changedEmbedTexts = changedEmbedTexts;
     this.customVectorEngineId = Optional.empty();
   }
 
@@ -77,16 +91,16 @@ public class DocumentEvent {
       Optional<RawBsonDocument> document,
       ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings,
       Optional<BsonDocument> filterFieldUpdates,
+      ImmutableMap<FieldPath, String> changedEmbedTexts,
       Optional<Long> customVectorEngineId) {
     this.eventType = eventType;
     this.documentId = documentId;
     this.document = document;
     this.autoEmbeddings = autoEmbeddings;
     this.filterFieldUpdates = filterFieldUpdates;
+    this.changedEmbedTexts = changedEmbedTexts;
     this.customVectorEngineId = customVectorEngineId;
   }
-
-
 
   public static DocumentEvent createFromDocumentEvent(
       DocumentEvent event, RawBsonDocument document) {
@@ -108,21 +122,45 @@ public class DocumentEvent {
   }
 
   /**
-   * Creates an UPDATE event for filter-only updates. When only filter fields change (no AUTO_EMBED
-   * or TEXT fields), we skip embedding generation and use partial update ($set) in
-   * MaterializedViewWriter.
+   * Creates an UPDATE event whose MV write is a partial {@code $set} rather than a full document
+   * replacement.
    *
-   * @param metadata the document metadata
-   * @param document the full document from the change stream
-   * @param filterFieldUpdates the $set document containing only filter field values to update
+   * <p>{@code changedEmbedTexts} carries the source-side declared embed paths whose embeddings
+   * need to be regenerated and the chosen non-empty text for each. An empty map describes a
+   * filter-only update (no embedding work pending); a non-empty map describes a partial-embed
+   * update that the embedding scheduler will augment via {@link #withFilterFieldUpdates} once it
+   * has the vectors.
    */
-  public static DocumentEvent createFilterOnlyUpdate(
-      DocumentMetadata metadata, RawBsonDocument document, BsonDocument filterFieldUpdates) {
+  public static DocumentEvent createPartialUpdate(
+      DocumentMetadata metadata,
+      RawBsonDocument document,
+      BsonDocument filterFieldUpdates,
+      ImmutableMap<FieldPath, String> changedEmbedTexts) {
     return new DocumentEvent(
         EventType.UPDATE,
         Check.isPresent(metadata.getId(), "id"),
         Optional.of(document),
-        filterFieldUpdates);
+        filterFieldUpdates,
+        changedEmbedTexts);
+  }
+
+  /**
+   * Returns a copy of this partial-embed event with the {@code $set} body replaced by {@code
+   * augmentedFilterFieldUpdates} and {@code changedEmbedTexts} cleared. Used by the embedding
+   * scheduler after merging vector + hash entries for the changed embed paths into the original
+   * filter-field {@code $set} body — once that augmentation completes, the event has no further
+   * embedding work to do, so it should be indistinguishable from a filter-only update to
+   * downstream code.
+   */
+  public DocumentEvent withFilterFieldUpdates(BsonDocument augmentedFilterFieldUpdates) {
+    return new DocumentEvent(
+        this.eventType,
+        this.documentId,
+        this.document,
+        this.autoEmbeddings,
+        Optional.of(augmentedFilterFieldUpdates),
+        ImmutableMap.of(),
+        this.customVectorEngineId);
   }
 
   public static DocumentEvent createFromDocumentEventAndVectors(
@@ -139,6 +177,7 @@ public class DocumentEvent {
         this.document,
         this.autoEmbeddings,
         this.filterFieldUpdates,
+        this.changedEmbedTexts,
         Optional.of(customVectorEngineId));
   }
 
@@ -164,14 +203,37 @@ public class DocumentEvent {
   }
 
   /**
-   * Returns the $set document for filter-only updates. When present, indicates this event should
-   * use partial update instead of full document replacement in MaterializedViewWriter.
+   * Returns the $set body for partial updates. When present, indicates this event should use a
+   * partial update instead of full document replacement in MaterializedViewWriter. The body is
+   * filter-fields-only for filter-only updates, and filter-fields + new vector/hash entries for
+   * partial-embed updates after embeddings are applied.
+   *
+   * <p>Presence is <b>not</b> a reliable proxy for "filter-only" — both filter-only updates and
+   * partial-embed updates carry a body. Callers needing to distinguish "no embedding work
+   * pending" should use {@link #isFilterOnlyUpdate()} instead.
    */
   public Optional<BsonDocument> getFilterFieldUpdates() {
     return this.filterFieldUpdates;
   }
 
+  /**
+   * Returns the chosen non-empty source text per declared auto-embed path whose embedding still
+   * needs to be regenerated and merged into {@link #getFilterFieldUpdates}. Non-empty only for
+   * partial-embed updates that have not yet been processed by the embedding scheduler.
+   */
+  public ImmutableMap<FieldPath, String> getChangedEmbedTexts() {
+    return this.changedEmbedTexts;
+  }
 
+  /**
+   * Returns {@code true} if this is a filter-only update — i.e. it carries a {@code $set} body to
+   * apply verbatim and needs no embedding work. Partial-embed updates also carry a {@code $set}
+   * body but still need embeddings for {@link #getChangedEmbedTexts()} and therefore are
+   * <b>not</b> filter-only.
+   */
+  public boolean isFilterOnlyUpdate() {
+    return this.filterFieldUpdates.isPresent() && this.changedEmbedTexts.isEmpty();
+  }
 
   @Override
   public boolean equals(Object o) {
@@ -187,6 +249,7 @@ public class DocumentEvent {
         && this.eventType == that.eventType
         && this.autoEmbeddings.equals(that.autoEmbeddings)
         && this.filterFieldUpdates.equals(that.filterFieldUpdates)
+        && this.changedEmbedTexts.equals(that.changedEmbedTexts)
         && this.customVectorEngineId.equals(that.customVectorEngineId);
   }
 
@@ -198,6 +261,7 @@ public class DocumentEvent {
         this.eventType,
         this.autoEmbeddings,
         this.filterFieldUpdates,
+        this.changedEmbedTexts,
         this.customVectorEngineId);
   }
 
@@ -214,8 +278,11 @@ public class DocumentEvent {
         + this.autoEmbeddings
         + ", filterFieldUpdates="
         + this.filterFieldUpdates
+        + ", changedEmbedTexts="
+        + this.changedEmbedTexts
         + ", customVectorEngineId="
         + this.customVectorEngineId
         + '}';
   }
+
 }

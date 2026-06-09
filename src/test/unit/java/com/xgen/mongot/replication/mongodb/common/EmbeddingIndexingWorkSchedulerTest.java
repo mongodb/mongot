@@ -570,10 +570,11 @@ public class EmbeddingIndexingWorkSchedulerTest {
     BsonDocument filterFieldUpdates =
         new BsonDocument(indexId + ".filter", new BsonString("newFilterValue"));
     DocumentEvent filterOnlyEvent =
-        DocumentEvent.createFilterOnlyUpdate(
+        DocumentEvent.createPartialUpdate(
             DocumentMetadata.fromMetadataNamespace(Optional.of(rawBsonDoc), indexId),
             rawBsonDoc,
-            filterFieldUpdates);
+            filterFieldUpdates,
+            com.google.common.collect.ImmutableMap.of());
 
     List<DocumentEvent> batch = new ArrayList<>(List.of(filterOnlyEvent));
     CompletableFuture<Void> indexingFuture =
