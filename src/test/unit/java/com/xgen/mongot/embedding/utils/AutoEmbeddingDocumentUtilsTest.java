@@ -458,6 +458,56 @@ public class AutoEmbeddingDocumentUtilsTest {
   }
 
   @Test
+  public void buildMaterializedViewDocumentEvent_idSubdocumentFilter_omitsIdFromMatViewDoc()
+      throws IOException {
+    // Regression for CLOUDP-412237. When the index declares a filter on a subfield of _id (e.g.
+    // _id.ProfileId) and the source document's _id is a subdocument with additional sibling
+    // fields, the MaterializedViewDocumentHandler used to descend into _id and copy only the
+    // declared subfield, producing an MV doc with a truncated _id. The MV writer's
+    // ReplaceOneModel filter is {_id: <full source _id>}, so the replacement _id no longer
+    // matched and MongoDB rejected the write as a non-retryable alteration of the immutable _id
+    // field, FAILing the index during initial sync.
+    //
+    // The MV doc must therefore never carry _id: it is owned by the upsert filter, which already
+    // carries the full source _id (subdocument and all).
+    VectorIndexDefinition vectorIndexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("statement.Text")
+            .withFilterPath("_id.ProfileId")
+            .build();
+    ImmutableMap<String, Vector> embeddings = createEmbeddings();
+    BsonDocument bsonDoc =
+        new BsonDocument()
+            .append(
+                "_id",
+                new BsonDocument("ProfileId", new BsonString("P1"))
+                    .append("Tenant", new BsonString("T1")))
+            .append("statement", new BsonDocument("Text", new BsonString("aString")));
+    RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
+    DocumentEvent rawDocumentEvent =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromOriginalDocument(Optional.of(rawBsonDoc)), rawBsonDoc);
+
+    DocumentEvent result =
+        buildMaterializedViewDocumentEvent(
+            rawDocumentEvent,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
+            createEmbeddingsPerField(vectorIndexDefinition.getMappings(), embeddings),
+            MAT_VIEW_SCHEMA_METADATA);
+
+    BsonDocument mvDoc = result.getDocument().get();
+    assertFalse(
+        "MV doc must not include _id; the upsert filter owns it. Found: " + mvDoc.get("_id"),
+        mvDoc.containsKey("_id"));
+    // The documentId on the event must still carry the full source _id so the upsert filter can
+    // address the MV row correctly.
+    assertEquals(
+        new BsonDocument("ProfileId", new BsonString("P1"))
+            .append("Tenant", new BsonString("T1")),
+        result.getDocumentId());
+  }
+
+  @Test
   public void testBuildMaterializedViewDocumentEvent_withExistingEmbeddings_prefersNewEmbeddings()
       throws IOException {
     // Setup: a document with auto-embed field "a"

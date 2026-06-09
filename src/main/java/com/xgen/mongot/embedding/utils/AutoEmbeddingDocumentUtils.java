@@ -157,8 +157,32 @@ public class AutoEmbeddingDocumentUtils {
           bsonDoc, embeddingOrHashEntry.getKey(), embeddingOrHashEntry.getValue());
     }
 
+    stripIdForMaterializedViewWrite(bsonDoc);
+
     return DocumentEvent.createFromDocumentEvent(
         rawDocumentEvent, new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC));
+  }
+
+  /**
+   * Removes the top-level {@code _id} field from a materialized-view-shaped BSON document before
+   * it is handed to {@link com.xgen.mongot.index.mongodb.MaterializedViewWriter}.
+   *
+   * <p>The MV row's {@code _id} is owned by the upsert filter in {@code MaterializedViewWriter}
+   * ({@code {_id: event.getDocumentId()}}), which carries the full source {@code _id} value —
+   * including any subdocument structure. Letting an MV-bound document carry its own {@code _id}
+   * is unsafe whenever the index declares a filter on a subfield of {@code _id} (e.g. {@code
+   * _id.ProfileId}): {@link MaterializedViewDocumentHandler} treats {@code _id} as a passthrough
+   * ancestor and copies only the declared subfield, dropping siblings. The resulting write then
+   * either targets the immutable {@code _id} field directly (filter-only {@code $set} path,
+   * CLOUDP-406702) or presents a truncated {@code _id} that no longer matches the upsert filter
+   * (full-replace / initial-sync path, CLOUDP-412237). Both are non-retryable errors that FAIL
+   * the index.
+   *
+   * <p>Call this on every MV-shaped document produced by this utility before it leaves the
+   * embedding pipeline.
+   */
+  static void stripIdForMaterializedViewWrite(BsonDocument bsonDoc) {
+    bsonDoc.remove("_id");
   }
 
   /**
@@ -369,11 +393,8 @@ public class AutoEmbeddingDocumentUtils {
    * replication and avoids MongoDB rejecting dotted-path updates that traverse arrays
    * (CLOUDP-406702).
    *
-   * <p>The returned document never contains a top-level {@code _id}. The MV document's {@code _id}
-   * is established by the upsert filter in {@link
-   * com.xgen.mongot.index.mongodb.MaterializedViewWriter} ({@code {_id: event.getDocumentId()}}),
-   * so the {@code $set} body is the right place to carry filter-field updates only — {@code _id}
-   * is already correct on the MV document and does not need to be re-set.
+   * <p>The returned document never contains a top-level {@code _id}; see {@link
+   * #stripIdForMaterializedViewWrite} for the contract and rationale.
    *
    * @param fullDocument the full document from the change stream event
    * @param fieldMapping the vector index field mapping
@@ -386,9 +407,7 @@ public class AutoEmbeddingDocumentUtils {
       MaterializedViewDocumentHandler handler =
           MaterializedViewDocumentHandler.create(fieldMapping, Optional.empty(), bsonDoc);
       BsonDocumentProcessor.process(fullDocument, handler);
-      // _id is owned by the upsert filter (see Javadoc); strip it here so the contract holds even
-      // if a future index definition declares _id as a filter field.
-      bsonDoc.remove("_id");
+      stripIdForMaterializedViewWrite(bsonDoc);
       return bsonDoc;
     } catch (Exception e) {
       LOG.warn(
