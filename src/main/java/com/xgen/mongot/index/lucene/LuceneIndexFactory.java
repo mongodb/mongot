@@ -20,6 +20,7 @@ import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.lucene.blobstore.LuceneIndexSnapshotter;
 import com.xgen.mongot.index.lucene.blobstore.LuceneIndexSnapshotterManager;
+import com.xgen.mongot.index.lucene.codec.bloom.BloomCodecPolicy;
 import com.xgen.mongot.index.lucene.config.LuceneConfig;
 import com.xgen.mongot.index.lucene.directory.ByteReadCollector;
 import com.xgen.mongot.index.lucene.directory.EnvironmentVariantPerfConfig;
@@ -51,6 +52,7 @@ import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BooleanSupplier;
 import org.apache.lucene.index.MergePolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -583,6 +585,12 @@ public class LuceneIndexFactory implements IndexFactory {
             Optional.of(this.cacheWarmerTotalMilliseconds));
     GenerationId generationId = definitionGeneration.getGenerationId();
 
+    BooleanSupplier useIdBloomFilter = BloomCodecPolicy.getBloomFilterEnabledForIdField(
+        this.dynamicFeatureFlagRegistry,
+        this.enableNaturalOrderScan,
+        definitionGeneration.getIndexDefinition(),
+        index::getStatus);
+    
     if (definitionGeneration.getType() == Type.VECTOR) {
       VectorIndexDefinition vectorDef =
           definitionGeneration.getIndexDefinition().asVectorDefinition();
@@ -598,7 +606,7 @@ public class LuceneIndexFactory implements IndexFactory {
           luceneIndexSnapshotter,
           this.featureFlags,
           this.dynamicFeatureFlagRegistry,
-          this.enableNaturalOrderScan);
+          useIdBloomFilter);
     } else {
       var luceneSearchIndex = Check.instanceOf(index, LuceneSearchIndex.class);
       return InitializedLuceneSearchIndex.create(
@@ -609,7 +617,7 @@ public class LuceneIndexFactory implements IndexFactory {
           luceneIndexSnapshotter,
           this.featureFlags,
           this.dynamicFeatureFlagRegistry,
-          this.enableNaturalOrderScan);
+          useIdBloomFilter);
     }
   }
 

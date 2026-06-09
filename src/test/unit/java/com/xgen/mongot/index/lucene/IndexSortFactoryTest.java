@@ -487,7 +487,8 @@ public class IndexSortFactoryTest {
               MOCK_INDEX_GENERATION_ID,
               0,
               1,
-              false);
+              false, 
+              this.directory);
       mergeScheduler.getIn().setMaxMergesAndThreads(10, 4);
 
       this.indexWriter =

@@ -12,6 +12,7 @@ java_library(
     ],
     visibility = ["//visibility:public"],
     exports = [
+        "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/lucene/facet",
         "//src/main/java/com/xgen/mongot/index/lucene/field",
         "//src/main/java/com/xgen/mongot/util",
@@ -19,15 +20,12 @@ java_library(
         "@maven//:org_apache_lucene_lucene_facet",
     ],
     deps = [
-        "//src/main/java/com/xgen/mongot/featureflag/dynamic",
         "//src/main/java/com/xgen/mongot/index",
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/lucene/codec/bloom",
         "//src/main/java/com/xgen/mongot/index/lucene/facet",
         "//src/main/java/com/xgen/mongot/index/lucene/field",
         "//src/main/java/com/xgen/mongot/index/lucene/similarity",
-        "//src/main/java/com/xgen/mongot/index/status",
-        "//src/main/java/com/xgen/mongot/index/version",
         "//src/main/java/com/xgen/mongot/metrics",
         "//src/main/java/com/xgen/mongot/util",
         "@maven//:com_google_errorprone_error_prone_annotations",

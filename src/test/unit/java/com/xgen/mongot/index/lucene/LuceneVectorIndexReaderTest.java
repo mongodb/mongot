@@ -73,7 +73,6 @@ import org.apache.lucene.index.FloatVectorValues;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexableField;
-import org.apache.lucene.index.KnnVectorValues.DocIndexIterator;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.TieredMergePolicy;
 import org.apache.lucene.index.VectorSimilarityFunction;
@@ -268,7 +267,7 @@ public class LuceneVectorIndexReaderTest {
               Optional.empty(),
               FeatureFlags.getDefault(),
               DynamicFeatureFlagRegistry.empty(),
-              false);
+              () -> false);
       var context =
           new VectorQueryFactoryContext(
               VectorIndex.MOCK_INDEX_DEFINITION_GENERATION_ALL_QUANTIZATION.getIndexDefinition(),
@@ -926,7 +925,7 @@ public class LuceneVectorIndexReaderTest {
               Optional.empty(),
               FeatureFlags.getDefault(),
               DynamicFeatureFlagRegistry.empty(),
-              false);
+              () -> false);
       this.writer =
           ((SingleLuceneIndexWriter)
                   ((MeteredIndexWriter) this.initializedIndex.getWriter()).getWrapped())

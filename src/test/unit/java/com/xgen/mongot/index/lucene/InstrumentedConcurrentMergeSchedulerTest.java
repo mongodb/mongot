@@ -6,6 +6,7 @@ import com.xgen.mongot.index.lucene.merge.InstrumentedConcurrentMergeScheduler;
 import com.xgen.mongot.index.lucene.merge.InstrumentedConcurrentMergeScheduler.PerIndexPartitionMergeScheduler;
 import com.xgen.mongot.index.version.GenerationId;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.apache.lucene.store.Directory;
 import org.junit.Test;
 
 public class InstrumentedConcurrentMergeSchedulerTest {
@@ -18,9 +19,16 @@ public class InstrumentedConcurrentMergeSchedulerTest {
       GenerationId generationId,
       int indexPartitionId,
       int numIndexes,
-      boolean cancelMergeEnabled) {
+      boolean cancelMergeEnabled,
+      Directory directory) {
     return scheduler.createForIndexPartition(
-        generationId, indexPartitionId, numIndexes, cancelMergeEnabled, "test");
+        generationId,
+        indexPartitionId,
+        numIndexes,
+        cancelMergeEnabled,
+        () -> false,
+        "test",
+        directory);
   }
 
   @Test

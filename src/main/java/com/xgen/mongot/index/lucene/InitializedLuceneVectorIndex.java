@@ -39,6 +39,7 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.BooleanSupplier;
 import org.apache.lucene.search.ReferenceManager;
 import org.apache.lucene.store.Directory;
 import org.slf4j.Logger;
@@ -86,7 +87,7 @@ class InitializedLuceneVectorIndex implements InitializedVectorIndex {
       Optional<LuceneIndexSnapshotter> luceneIndexSnapshotter,
       FeatureFlags featureFlags,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
-      boolean enableNaturalOrderScan)
+      BooleanSupplier useIdBloomFilter)
       throws IOException {
     LOG.atInfo()
         .addKeyValue("indexId", generationId.indexId)
@@ -101,7 +102,7 @@ class InitializedLuceneVectorIndex implements InitializedVectorIndex {
               luceneIndexSnapshotter,
               featureFlags,
               dynamicFeatureFlagRegistry,
-              enableNaturalOrderScan);
+              useIdBloomFilter);
       LOG.atInfo()
           .addKeyValue("indexId", generationId.indexId)
           .addKeyValue("generationId", generationId)
@@ -126,7 +127,7 @@ class InitializedLuceneVectorIndex implements InitializedVectorIndex {
             luceneIndexSnapshotter,
             featureFlags,
             dynamicFeatureFlagRegistry,
-            enableNaturalOrderScan);
+            useIdBloomFilter);
     LOG.atInfo()
         .addKeyValue("indexId", generationId.indexId)
         .addKeyValue("generationId", generationId)
@@ -141,7 +142,7 @@ class InitializedLuceneVectorIndex implements InitializedVectorIndex {
       Optional<LuceneIndexSnapshotter> luceneIndexSnapshotter,
       FeatureFlags featureFlags,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
-      boolean enableNaturalOrderScan)
+      BooleanSupplier useIdBloomFilter)
       throws IOException {
     var vectorIndexProperties = index.getVectorIndexProperties();
     var definition = index.getDefinition();
@@ -166,16 +167,12 @@ class InitializedLuceneVectorIndex implements InitializedVectorIndex {
             (directory, indexPartitionId) ->
                 SingleLuceneIndexWriter.createForVectorIndex(
                     directory,
-                    generationId,
                     vectorIndexProperties.mergeScheduler.createForIndexPartition(
                         generationId,
                         indexPartitionId,
                         definition.getNumPartitions(),
                         featureFlags.isEnabled(Feature.CANCEL_MERGE),
-                        dynamicFeatureFlagRegistry,
-                        enableNaturalOrderScan,
-                        definition,
-                        index::getStatus,
+                        useIdBloomFilter,
                         IndexTypeData.getIndexTypeTag(definition).tagValue,
                         directory),
                     vectorIndexProperties.mergePolicy,
@@ -188,18 +185,13 @@ class InitializedLuceneVectorIndex implements InitializedVectorIndex {
                     luceneIndexSnapshotter.map(
                         snapshotter -> snapshotter.getSnapshotDeletionPolicy(indexPartitionId)),
                     featureFlags,
-                    dynamicFeatureFlagRegistry,
-                    enableNaturalOrderScan,
-                    index::getStatus),
+                    useIdBloomFilter),
             luceneIndexWriter ->
                 LuceneSearcherManager.create(
                     luceneIndexWriter.getLuceneWriter(),
                     searcherFactory,
                     vectorIndexProperties.metricsFactory,
-                    dynamicFeatureFlagRegistry,
-                    enableNaturalOrderScan,
-                    index::getStatus,
-                    generationId));
+                    useIdBloomFilter));
 
     IndexMetricsUpdater.QueryingMetricsUpdater metricsUpdater =
         indexMetricsUpdaterBuilder.getQueryingMetricsUpdater();

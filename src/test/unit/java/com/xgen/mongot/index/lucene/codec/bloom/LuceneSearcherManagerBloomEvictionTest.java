@@ -15,8 +15,6 @@ import com.xgen.mongot.index.lucene.searcher.LuceneSearcherFactory;
 import com.xgen.mongot.index.lucene.searcher.LuceneSearcherManager;
 import com.xgen.mongot.index.lucene.searcher.QueryCacheProvider;
 import com.xgen.mongot.index.status.IndexStatus;
-import com.xgen.mongot.index.version.Generation;
-import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
@@ -24,6 +22,7 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 import org.apache.lucene.codecs.FieldsProducer;
 import org.apache.lucene.codecs.bloom.FuzzySet;
 import org.apache.lucene.document.Document;
@@ -192,6 +191,9 @@ public class LuceneSearcherManagerBloomEvictionTest {
     writer.addDocument(doc);
     writer.commit();
 
+    BooleanSupplier useIdBloomFilter =
+        BloomCodecPolicy.getBloomFilterEnabledForIdField(
+            registry, true, indexDefinition, indexStatus::get);
     LuceneSearcherManager manager =
         LuceneSearcherManager.create(
             writer,
@@ -202,10 +204,7 @@ public class LuceneSearcherManagerBloomEvictionTest {
                 Optional.empty(),
                 SearchIndex.mockQueryMetricsUpdater(IndexDefinition.Type.SEARCH)),
             SearchIndex.mockMetricsFactory(),
-            registry,
-            true,
-            indexStatus::get,
-            new GenerationId(indexDefinition.getIndexId(), Generation.CURRENT));
+            useIdBloomFilter);
 
     return new Harness(directory, writer, manager, indexStatus);
   }

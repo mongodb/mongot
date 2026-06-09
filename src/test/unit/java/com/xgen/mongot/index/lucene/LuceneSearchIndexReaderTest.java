@@ -197,7 +197,7 @@ public class LuceneSearchIndexReaderTest {
             new DynamicFeatureFlagRegistry(
                 Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty()),
-            false);
+            () -> false);
     this.writer =
         ((SingleLuceneIndexWriter) ((MeteredIndexWriter) initializedIndex.getWriter()).getWrapped())
             .getLuceneWriter();

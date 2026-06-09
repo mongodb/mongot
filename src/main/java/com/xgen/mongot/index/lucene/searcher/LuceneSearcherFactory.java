@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.lucene.searcher;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
@@ -56,5 +57,10 @@ public class LuceneSearcherFactory {
               Optional.empty(),
               this.queryingMetricsUpdater);
     };
+  }
+
+  @VisibleForTesting
+  public IndexDefinition getIndexDefinition() {
+    return this.indexDefinition;
   }
 }

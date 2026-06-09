@@ -35,6 +35,7 @@ import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
+import com.xgen.mongot.index.lucene.codec.bloom.BloomCodecPolicy;
 import com.xgen.mongot.index.lucene.config.LuceneConfig;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.merge.InstrumentedConcurrentMergeScheduler;
@@ -46,6 +47,7 @@ import com.xgen.mongot.index.lucene.searcher.QueryCacheProvider;
 import com.xgen.mongot.index.lucene.util.LuceneDocumentIdEncoder;
 import com.xgen.mongot.index.lucene.util.LuceneDoubleConversionUtils;
 import com.xgen.mongot.index.lucene.writer.SingleLuceneIndexWriter;
+import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.util.BsonUtils;
@@ -160,7 +162,8 @@ public class SingleLuceneIndexWriterTest {
             MOCK_INDEX_GENERATION_ID,
             0,
             1,
-            false),
+            false,
+            directory),
         new TieredMergePolicy(),
         16D,
         Optional.of(fieldLimit),
@@ -189,7 +192,8 @@ public class SingleLuceneIndexWriterTest {
             MOCK_INDEX_GENERATION_ID,
             0,
             1,
-            false),
+            false,
+            directory),
         new TieredMergePolicy(),
         16D,
         Optional.of(fieldLimit),
@@ -240,7 +244,8 @@ public class SingleLuceneIndexWriterTest {
             MOCK_INDEX_GENERATION_ID,
             0,
             1,
-            false),
+            false,
+            indexDirectory),
         new TieredMergePolicy(),
         16D,
         Optional.empty(),
@@ -266,7 +271,8 @@ public class SingleLuceneIndexWriterTest {
             MOCK_INDEX_GENERATION_ID,
             0,
             1,
-            false),
+            false,
+            indexDirectory),
         new TieredMergePolicy(),
         16D,
         Optional.empty(),
@@ -276,8 +282,7 @@ public class SingleLuceneIndexWriterTest {
         VectorIndex.mockIndexingMetricsUpdater(),
         Optional.empty(),
         FeatureFlags.getDefault(),
-        DynamicFeatureFlagRegistry.empty(),
-        false);
+        () -> false);
   }
 
   @RunWith(Theories.class)
@@ -1499,8 +1504,7 @@ public class SingleLuceneIndexWriterTest {
         SingleLuceneIndexWriter writer1 =
             SingleLuceneIndexWriter.createForSearchIndex(
                 directory1,
-                createMergeScheduler(
-                    sharedScheduler, generationId1, 0, 2, false),
+                createMergeScheduler(sharedScheduler, generationId1, 0, 2, false, directory1),
                 new TieredMergePolicy(),
                 16D,
                 Optional.empty(),
@@ -1517,8 +1521,7 @@ public class SingleLuceneIndexWriterTest {
         SingleLuceneIndexWriter writer2 =
             SingleLuceneIndexWriter.createForSearchIndex(
                 directory2,
-                createMergeScheduler(
-                    sharedScheduler, generationId2, 1, 2, false),
+                createMergeScheduler(sharedScheduler, generationId2, 1, 2, false, directory2),
                 new TieredMergePolicy(),
                 16D,
                 Optional.empty(),
@@ -1644,8 +1647,7 @@ public class SingleLuceneIndexWriterTest {
         SingleLuceneIndexWriter writer1 =
             SingleLuceneIndexWriter.createForSearchIndex(
                 directory1,
-                createMergeScheduler(
-                    sharedScheduler, generationId1, 0, 3, false),
+                createMergeScheduler(sharedScheduler, generationId1, 0, 3, false, directory1),
                 new TieredMergePolicy(),
                 16D,
                 Optional.empty(),
@@ -1662,8 +1664,7 @@ public class SingleLuceneIndexWriterTest {
         SingleLuceneIndexWriter writer2 =
             SingleLuceneIndexWriter.createForSearchIndex(
                 directory2,
-                createMergeScheduler(
-                    sharedScheduler, generationId2, 1, 3, false),
+                createMergeScheduler(sharedScheduler, generationId2, 1, 3, false, directory2),
                 new TieredMergePolicy(),
                 16D,
                 Optional.empty(),
@@ -1680,7 +1681,7 @@ public class SingleLuceneIndexWriterTest {
         SingleLuceneIndexWriter writer3 =
             SingleLuceneIndexWriter.createForSearchIndex(
                 directory3,
-                createMergeScheduler(sharedScheduler, generationId3, 2, 3, false),
+                createMergeScheduler(sharedScheduler, generationId3, 2, 3, false, directory3),
                 new TieredMergePolicy(),
                 16D,
                 Optional.empty(),
@@ -1808,7 +1809,8 @@ public class SingleLuceneIndexWriterTest {
                     MOCK_INDEX_GENERATION_ID,
                     0,
                     1,
-                    false),
+                    false,
+                    directory),
                 new TieredMergePolicy(),
                 16D,
                 Optional.empty(),
@@ -1870,7 +1872,8 @@ public class SingleLuceneIndexWriterTest {
                     MOCK_INDEX_GENERATION_ID,
                     0,
                     1,
-                    true),
+                    true,
+                    directory),
                 new TieredMergePolicy(),
                 16D,
                 Optional.empty(),
@@ -2032,8 +2035,11 @@ public class SingleLuceneIndexWriterTest {
       when(registry.evaluateClusterInvariant(DynamicFeatureFlags.BLOOM_FILTER_FOR_ID_FIELD))
           .thenReturn(this.bloomDffEnabled);
       BooleanSupplier supplier =
-          SingleLuceneIndexWriter.getBloomFilterForIdFieldEnabledSupplier(
-              registry, this.enableNaturalOrderScan, MOCK_INDEX_DEFINITION);
+          BloomCodecPolicy.getBloomFilterEnabledForIdField(
+              registry,
+              this.enableNaturalOrderScan,
+              SearchIndex.MOCK_INDEX_DEFINITION,
+              IndexStatus::initialSync);
       assertThat(supplier.getAsBoolean()).isEqualTo(this.expectedBloom);
     }
   }

@@ -98,7 +98,7 @@ public class InitializedLuceneVectorIndexTest {
             Optional.empty(),
             FeatureFlags.getDefault(),
             DynamicFeatureFlagRegistry.empty(),
-            false);
+            () -> false);
     Assert.assertEquals(
         DirectorySize.of(indexPath.toFile()),
         initializedIndex.getMetricsUpdater().getMetrics().indexingMetrics().indexSize().toBytes());
@@ -147,7 +147,7 @@ public class InitializedLuceneVectorIndexTest {
                 Optional.empty(),
                 FeatureFlags.getDefault(),
                 DynamicFeatureFlagRegistry.empty(),
-                false));
+                () -> false));
     verify(indexDirectoryHelper, times(1))
         .attemptToRecoverUnreadableIndex(any(), any(), any(), any(), any());
     verify(index, times(1)).getVectorIndexProperties();
@@ -207,7 +207,7 @@ public class InitializedLuceneVectorIndexTest {
                 Optional.empty(),
                 FeatureFlags.getDefault(),
                 DynamicFeatureFlagRegistry.empty(),
-                false));
+                () -> false));
 
     verify(indexDirectoryHelper, times(1))
         .attemptToRecoverUnreadableIndex(any(), any(), any(), any(), any());
@@ -267,7 +267,7 @@ public class InitializedLuceneVectorIndexTest {
             Optional.empty(),
             FeatureFlags.getDefault(),
             DynamicFeatureFlagRegistry.empty(),
-            false);
+            () -> false);
     assertEquals(SearchIndex.MOCK_INDEX_GENERATION_ID, vectorIndex.getGenerationId());
     verify(indexDirectoryHelper, times(1))
         .attemptToRecoverUnreadableIndex(any(), any(), any(), any(), any());
@@ -326,7 +326,7 @@ public class InitializedLuceneVectorIndexTest {
             Optional.empty(),
             FeatureFlags.getDefault(),
             DynamicFeatureFlagRegistry.empty(),
-            false);
+            () -> false);
     assertEquals(SearchIndex.MOCK_INDEX_GENERATION_ID, vectorIndex.getGenerationId());
     verify(indexDirectoryHelper).attemptToRecoverUnreadableIndex(any(), any(), any(), any(), any());
     verify(index, times(2)).getVectorIndexProperties();
@@ -497,7 +497,7 @@ public class InitializedLuceneVectorIndexTest {
             Optional.empty(),
             FeatureFlags.getDefault(),
             DynamicFeatureFlagRegistry.empty(),
-            false);
+            () -> false);
 
     // Ensure metadata is cleared but not index directory.
     var commitData = IndexCommitUserData.createExceeded("test").toEncodedData();
@@ -583,7 +583,7 @@ public class InitializedLuceneVectorIndexTest {
             Optional.empty(),
             FeatureFlags.getDefault(),
             DynamicFeatureFlagRegistry.empty(),
-            false);
+            () -> false);
     // Ensure the directory exists after creating the Index.
     Assert.assertTrue(indexPath.toFile().exists());
     Assert.assertTrue(metadataPath.toFile().exists());
@@ -636,7 +636,7 @@ public class InitializedLuceneVectorIndexTest {
         Optional.empty(),
         FeatureFlags.getDefault(),
         DynamicFeatureFlagRegistry.empty(),
-        false);
+        () -> false);
   }
 
   private LuceneVectorIndex.VectorIndexProperties getIndexProperties() {

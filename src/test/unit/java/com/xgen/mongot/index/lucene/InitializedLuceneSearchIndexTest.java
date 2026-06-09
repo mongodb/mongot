@@ -118,7 +118,7 @@ public class InitializedLuceneSearchIndexTest {
             FeatureFlags.getDefault(),
             new DynamicFeatureFlagRegistry(
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
-            false);
+            () -> false);
 
     Assert.assertEquals(
         DirectorySize.of(directoryFactory.getPath().toFile()),
@@ -255,7 +255,7 @@ public class InitializedLuceneSearchIndexTest {
             FeatureFlags.getDefault(),
             new DynamicFeatureFlagRegistry(
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
-            false);
+            () -> false);
 
     // Ensure metadata is cleared but not index directory.
     var commitData = IndexCommitUserData.createExceeded("test").toEncodedData();
@@ -324,7 +324,7 @@ public class InitializedLuceneSearchIndexTest {
                 FeatureFlags.getDefault(),
                 new DynamicFeatureFlagRegistry(
                     Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
-                false));
+                () -> false));
     verify(indexDirectoryHelper, times(1))
         .attemptToRecoverUnreadableIndex(any(), any(), any(), any(), any());
     verify(index, times(1)).getSearchIndexProperties();
@@ -388,7 +388,7 @@ public class InitializedLuceneSearchIndexTest {
             FeatureFlags.getDefault(),
             new DynamicFeatureFlagRegistry(
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
-            false);
+            () -> false);
     assertEquals(MOCK_INDEX_GENERATION_ID, initializedLuceneSearchIndex.getGenerationId());
     // Ensure the directory exists after creating the Index.
     Assert.assertTrue(indexPath.toFile().exists());
@@ -451,7 +451,7 @@ public class InitializedLuceneSearchIndexTest {
             FeatureFlags.getDefault(),
             new DynamicFeatureFlagRegistry(
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
-            false);
+            () -> false);
     assertEquals(MOCK_INDEX_GENERATION_ID, initializedLuceneSearchIndex.getGenerationId());
     // Ensure the directory exists after creating the Index.
     Assert.assertTrue(indexPath.toFile().exists());
@@ -520,7 +520,7 @@ public class InitializedLuceneSearchIndexTest {
                 FeatureFlags.getDefault(),
                 new DynamicFeatureFlagRegistry(
                     Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
-                false));
+                () -> false));
     verify(indexDirectoryHelper, times(1))
         .attemptToRecoverUnreadableIndex(any(), any(), any(), any(), any());
     verify(index, times(1)).getSearchIndexProperties();
@@ -571,7 +571,7 @@ public class InitializedLuceneSearchIndexTest {
             FeatureFlags.getDefault(),
             new DynamicFeatureFlagRegistry(
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
-            false);
+            () -> false);
 
     // Ensure the directory exists after creating the Index.
     Assert.assertTrue(folderPath.toFile().exists());
@@ -658,7 +658,7 @@ public class InitializedLuceneSearchIndexTest {
         FeatureFlags.getDefault(),
         new DynamicFeatureFlagRegistry(
             Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
-        false);
+        () -> false);
     verify(indexDirectoryHelper, Mockito.times(1))
         .attemptToRecoverUnreadableIndex(any(), any(), any(), any(), any());
     Assert.assertEquals(
@@ -759,7 +759,7 @@ public class InitializedLuceneSearchIndexTest {
         FeatureFlags.getDefault(),
         new DynamicFeatureFlagRegistry(
             Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
-        false);
+        () -> false);
   }
 
   private LuceneSearchIndex.SearchIndexProperties getIndexProperties() {

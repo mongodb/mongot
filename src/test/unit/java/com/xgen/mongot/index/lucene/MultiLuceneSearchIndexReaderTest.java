@@ -271,7 +271,7 @@ public class MultiLuceneSearchIndexReaderTest {
         Optional.empty(),
         featureFlags,
         drillSidewaysEnabledRegistry(),
-        false);
+        () -> false);
   }
 
   private static void assertStringBucket(

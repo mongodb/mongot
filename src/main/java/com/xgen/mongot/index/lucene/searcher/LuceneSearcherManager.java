@@ -4,19 +4,13 @@ import static com.xgen.mongot.util.Check.checkArg;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.errorprone.annotations.Var;
-import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
-import com.xgen.mongot.index.lucene.codec.bloom.BloomCodecPolicy;
 import com.xgen.mongot.index.lucene.codec.bloom.MongotBloomReadPolicy;
-import com.xgen.mongot.index.status.IndexStatus;
-import com.xgen.mongot.index.version.Generation;
-import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.CachedGauge;
 import com.xgen.mongot.metrics.PerIndexMetricsFactory;
 import java.io.IOException;
 import java.time.Duration;
-import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Supplier;
+import java.util.function.BooleanSupplier;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
@@ -39,10 +33,8 @@ public class LuceneSearcherManager extends ReferenceManager<LuceneIndexSearcher>
   private static final Logger LOG = LoggerFactory.getLogger(LuceneSearcherManager.class);
 
   private final LuceneSearcherFactory factory;
-  private final DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry;
-  private final boolean enableNaturalOrderScan;
-  private final Supplier<IndexStatus> indexStatusSupplier;
   private final IndexWriter indexWriter;
+  private final BooleanSupplier useIdBloomFilter;
 
   /**
    * Tracks whether bloom bitsets were loaded on the last reader open. Used to detect the
@@ -57,59 +49,26 @@ public class LuceneSearcherManager extends ReferenceManager<LuceneIndexSearcher>
    * Protected constructor - does not register gauges. Use {@link #create} to construct instances.
    * Protected to allow test subclasses.
    */
-  protected LuceneSearcherManager(IndexWriter writer, LuceneSearcherFactory factory)
-      throws IOException {
-    this(
-        writer,
-        factory,
-        DynamicFeatureFlagRegistry.empty(),
-        false,
-        IndexStatus::steady,
-        new GenerationId(factory.indexDefinition.getIndexId(), Generation.CURRENT));
-  }
-
-  /**
-   * Protected constructor - does not register gauges. Use {@link #create} to construct instances.
-   * Protected to allow test subclasses.
-   */
   protected LuceneSearcherManager(
-      IndexWriter writer,
-      LuceneSearcherFactory factory,
-      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
-      boolean enableNaturalOrderScan,
-      Supplier<IndexStatus> indexStatusSupplier,
-      GenerationId generationId)
+      IndexWriter writer, LuceneSearcherFactory factory, BooleanSupplier useIdBloomFilter)
       throws IOException {
     this.factory = factory;
-    this.dynamicFeatureFlagRegistry = dynamicFeatureFlagRegistry;
-    this.enableNaturalOrderScan = enableNaturalOrderScan;
-    this.indexStatusSupplier = indexStatusSupplier;
     this.indexWriter = writer;
-    Objects.requireNonNull(generationId, "generationId");
-    boolean initialBloomLoad =
-        BloomCodecPolicy.getBloomFilterEnabledForIdField(
-                dynamicFeatureFlagRegistry,
-                enableNaturalOrderScan,
-                factory.indexDefinition,
-                indexStatusSupplier)
-            .getAsBoolean();
+    this.useIdBloomFilter = useIdBloomFilter;
+
+    boolean initialBloomLoad = useIdBloomFilter.getAsBoolean();
     this.lastBloomLoadState = initialBloomLoad;
     MongotBloomReadPolicy.setLoadBloomOnHeap(writer.getDirectory(), initialBloomLoad);
+
     this.current = getSearcher(DirectoryReader.open(writer));
   }
 
   /** Static factory method that constructs the manager and registers all gauges. */
+  @VisibleForTesting
   public static LuceneSearcherManager create(
       IndexWriter writer, LuceneSearcherFactory factory, PerIndexMetricsFactory metrics)
       throws IOException {
-    return create(
-        writer,
-        factory,
-        metrics,
-        DynamicFeatureFlagRegistry.empty(),
-        false,
-        IndexStatus::steady,
-        new GenerationId(factory.indexDefinition.getIndexId(), Generation.CURRENT));
+    return create(writer, factory, metrics, () -> false);
   }
 
   /** Static factory method that constructs the manager and registers all gauges. */
@@ -117,19 +76,10 @@ public class LuceneSearcherManager extends ReferenceManager<LuceneIndexSearcher>
       IndexWriter writer,
       LuceneSearcherFactory factory,
       PerIndexMetricsFactory metrics,
-      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
-      boolean enableNaturalOrderScan,
-      Supplier<IndexStatus> indexStatusSupplier,
-      GenerationId generationId)
+      BooleanSupplier useIdBloomFilter)
       throws IOException {
-    LuceneSearcherManager manager =
-        new LuceneSearcherManager(
-            writer,
-            factory,
-            dynamicFeatureFlagRegistry,
-            enableNaturalOrderScan,
-            indexStatusSupplier,
-            generationId);
+
+    LuceneSearcherManager manager = new LuceneSearcherManager(writer, factory, useIdBloomFilter);
 
     // Register gauges after construction is complete
     metrics.perIndexObjectValueGauge(
@@ -156,13 +106,7 @@ public class LuceneSearcherManager extends ReferenceManager<LuceneIndexSearcher>
     var oldReader = referenceToRefresh.getIndexReader();
     checkArg(oldReader instanceof DirectoryReader, "IndexReader should be a DirectoryReader");
 
-    boolean loadBloomOnHeap =
-        BloomCodecPolicy.getBloomFilterEnabledForIdField(
-                this.dynamicFeatureFlagRegistry,
-                this.enableNaturalOrderScan,
-                this.factory.indexDefinition,
-                this.indexStatusSupplier)
-            .getAsBoolean();
+    boolean loadBloomOnHeap = this.useIdBloomFilter.getAsBoolean();
     MongotBloomReadPolicy.setLoadBloomOnHeap(this.indexWriter.getDirectory(), loadBloomOnHeap);
     boolean evictBloom = this.lastBloomLoadState && !loadBloomOnHeap;
     this.lastBloomLoadState = loadBloomOnHeap;

@@ -280,7 +280,7 @@ public class VectorIndexingAndQueryingTestHarness implements AutoCloseable {
             Optional.empty(),
             featureFlags,
             DynamicFeatureFlagRegistry.empty(),
-            false);
+            () -> false);
     this.indexWriter = initializedIndex.getWriter();
     this.indexReader = initializedIndex.getReader();
   }

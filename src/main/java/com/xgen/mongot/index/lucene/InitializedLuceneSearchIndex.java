@@ -41,6 +41,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.BooleanSupplier;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.search.ReferenceManager;
 import org.apache.lucene.store.Directory;
@@ -88,7 +89,7 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
       Optional<LuceneIndexSnapshotter> luceneIndexSnapshotter,
       FeatureFlags featureFlags,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
-      boolean enableNaturalOrderScan)
+      BooleanSupplier useIdBloomFilter)
       throws IOException {
     LOG.atInfo()
         .addKeyValue("indexId", generationId.indexId)
@@ -104,7 +105,7 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
               luceneIndexSnapshotter,
               featureFlags,
               dynamicFeatureFlagRegistry,
-              enableNaturalOrderScan);
+              useIdBloomFilter);
       LOG.atInfo()
           .addKeyValue("indexId", generationId.indexId)
           .addKeyValue("generationId", generationId)
@@ -129,7 +130,7 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
             luceneIndexSnapshotter,
             featureFlags,
             dynamicFeatureFlagRegistry,
-            enableNaturalOrderScan);
+            useIdBloomFilter);
     LOG.atInfo()
         .addKeyValue("indexId", generationId.indexId)
         .addKeyValue("generationId", generationId)
@@ -144,7 +145,7 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
       Optional<LuceneIndexSnapshotter> luceneIndexSnapshotter,
       FeatureFlags featureFlags,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
-      boolean enableNaturalOrderScan)
+      BooleanSupplier useIdBloomFilter)
       throws IOException {
     var definition = index.getDefinition();
     var searchIndexProperties = index.getSearchIndexProperties();
@@ -171,16 +172,12 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
             (directory, indexPartitionId) ->
                 SingleLuceneIndexWriter.createForSearchIndex(
                     directory,
-                    generationId,
                     searchIndexProperties.mergeScheduler.createForIndexPartition(
                         generationId,
                         indexPartitionId,
                         definition.getNumPartitions(),
                         featureFlags.isEnabled(Feature.CANCEL_MERGE),
-                        dynamicFeatureFlagRegistry,
-                        enableNaturalOrderScan,
-                        definition,
-                        index::getStatus,
+                        useIdBloomFilter,
                         IndexTypeData.getIndexTypeTag(definition).tagValue,
                         directory),
                     searchIndexProperties.mergePolicy,
@@ -194,18 +191,13 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
                     luceneIndexSnapshotter.map(
                         snapshotter -> snapshotter.getSnapshotDeletionPolicy(indexPartitionId)),
                     featureFlags,
-                    dynamicFeatureFlagRegistry,
-                    enableNaturalOrderScan,
-                    index::getStatus),
+                    useIdBloomFilter),
             luceneIndexWriter ->
                 LuceneSearcherManager.create(
                     luceneIndexWriter.getLuceneWriter(),
                     searcherFactory,
                     searchIndexProperties.metricsFactory,
-                    dynamicFeatureFlagRegistry,
-                    enableNaturalOrderScan,
-                    index::getStatus,
-                    generationId));
+                    useIdBloomFilter));
 
     List<LuceneSearchIndexReader> searchIndexReaders =
         new ArrayList<>(indexResources.luceneSearcherManagers.size());
