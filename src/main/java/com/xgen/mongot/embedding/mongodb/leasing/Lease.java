@@ -146,6 +146,11 @@ public record Lease(
      * A map of index definition versions to their status. The key is the index definition version
      * and the value is an IndexDefinitionVersionStatus object corresponding to the status of that
      * index definition version.
+     *
+     * <p>Values use lenient parsing ({@code allowUnknownFields}) so an older binary can load
+     * documents written by a newer binary during rollback or rolling updates. Strict parsing here
+     * would throw {@link com.xgen.mongot.util.bson.parser.BsonParseException} on any unknown field
+     * and break lease loading for the affected index. See CLOUDP-401373.
      */
     public static final Field.Required<Map<String, IndexDefinitionVersionStatus>>
         INDEX_DEFINITION_VERSION_STATUS_MAP =
@@ -153,7 +158,7 @@ public record Lease(
                 .mapOf(
                     Value.builder()
                         .classValue(IndexDefinitionVersionStatus::fromBson)
-                        .disallowUnknownFields()
+                        .allowUnknownFields()
                         .required())
                 .required();
 
@@ -233,10 +238,19 @@ public record Lease(
       public static final Field.Required<Boolean> IS_QUERYABLE =
           Field.builder("isQueryable").booleanField().required();
 
-      /** The status code of the index definition version. */
+      /**
+       * The status code of the index definition version.
+       *
+       * <p>Uses {@code UNKNOWN} as a fallback so an older binary can tolerate a newer {@code
+       * StatusCode} value written by a newer binary during rollback or rolling updates. Without
+       * the fallback, an unrecognized status string would throw {@link
+       * com.xgen.mongot.util.bson.parser.BsonParseException} and break lease loading for the
+       * affected index. See CLOUDP-401373.
+       */
       public static final Field.Required<IndexStatus.StatusCode> INDEX_STATUS =
           Field.builder("indexStatusCode")
               .enumField(IndexStatus.StatusCode.class)
+              .withFallback(IndexStatus.StatusCode.UNKNOWN)
               .asUpperUnderscore()
               .required();
     }

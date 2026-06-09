@@ -25,6 +25,11 @@ import java.util.Arrays;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.bson.BsonBoolean;
+import org.bson.BsonDateTime;
+import org.bson.BsonDocument;
+import org.bson.BsonInt64;
+import org.bson.BsonString;
 import org.bson.BsonTimestamp;
 import org.jetbrains.annotations.Nullable;
 import org.junit.Test;
@@ -320,6 +325,78 @@ public class LeaseTest {
       assertFalse(
           "isQueryable should be false when skipInitialSync=false",
           v2NoSkip.indexDefinitionVersionStatusMap().get("2").isQueryable());
+    }
+
+    /**
+     * Rollback safety (CLOUDP-401373): a newer binary may add fields to {@code
+     * IndexDefinitionVersionStatus} entries. An older binary loading those documents must skip the
+     * unknown fields instead of throwing, otherwise all lease loading for the affected index
+     * breaks.
+     */
+    @Test
+    public void testFromBson_tolerantOfUnknownFieldsInIndexDefinitionVersionStatusMap()
+        throws Exception {
+      var statusWithUnknownField =
+          new BsonDocument()
+              .append("isQueryable", new BsonBoolean(true))
+              .append("indexStatusCode", new BsonString("STEADY"))
+              .append("futureFieldFromNewerBinary", new BsonString("ignored"));
+
+      var leaseDoc =
+          new BsonDocument()
+              .append("_id", new BsonString(LEASE_ID))
+              .append("schemaVersion", new BsonInt64(1L))
+              .append("collectionUuid", new BsonString(COLLECTION_UUID))
+              .append("collectionName", new BsonString(COLLECTION_NAME))
+              .append("leaseOwner", new BsonString(LEASE_OWNER))
+              .append("leaseExpiration", new BsonDateTime(1733446635661L))
+              .append("leaseVersion", new BsonInt64(Lease.FIRST_LEASE_VERSION))
+              .append("commitInfo", new BsonString(EncodedUserData.EMPTY.asString()))
+              .append("latestIndexDefinitionVersion", new BsonString("1"))
+              .append(
+                  "indexDefinitionVersionStatusMap",
+                  new BsonDocument("1", statusWithUnknownField));
+
+      Lease lease = Lease.fromBson(leaseDoc);
+
+      var status = lease.indexDefinitionVersionStatusMap().get("1");
+      assertTrue(status.isQueryable());
+      assertEquals(IndexStatus.StatusCode.STEADY, status.indexStatusCode());
+    }
+
+    /**
+     * Rollback safety (CLOUDP-401373): a newer binary may introduce a new {@code
+     * IndexStatus.StatusCode} value. An older binary loading those documents must fall back to
+     * {@code UNKNOWN} instead of throwing, otherwise all lease loading for the affected index
+     * breaks.
+     */
+    @Test
+    public void testFromBson_tolerantOfUnknownStatusCodeEnumValue() throws Exception {
+      var statusWithUnknownEnum =
+          new BsonDocument()
+              .append("isQueryable", new BsonBoolean(true))
+              .append("indexStatusCode", new BsonString("FUTURE_STATUS_FROM_NEWER_BINARY"));
+
+      var leaseDoc =
+          new BsonDocument()
+              .append("_id", new BsonString(LEASE_ID))
+              .append("schemaVersion", new BsonInt64(1L))
+              .append("collectionUuid", new BsonString(COLLECTION_UUID))
+              .append("collectionName", new BsonString(COLLECTION_NAME))
+              .append("leaseOwner", new BsonString(LEASE_OWNER))
+              .append("leaseExpiration", new BsonDateTime(1733446635661L))
+              .append("leaseVersion", new BsonInt64(Lease.FIRST_LEASE_VERSION))
+              .append("commitInfo", new BsonString(EncodedUserData.EMPTY.asString()))
+              .append("latestIndexDefinitionVersion", new BsonString("1"))
+              .append(
+                  "indexDefinitionVersionStatusMap",
+                  new BsonDocument("1", statusWithUnknownEnum));
+
+      Lease lease = Lease.fromBson(leaseDoc);
+
+      var status = lease.indexDefinitionVersionStatusMap().get("1");
+      assertTrue(status.isQueryable());
+      assertEquals(IndexStatus.StatusCode.UNKNOWN, status.indexStatusCode());
     }
 
     @Test
