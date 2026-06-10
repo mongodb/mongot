@@ -2500,6 +2500,54 @@ public class MaterializedViewManagerTest {
   }
 
   @Test
+  public void replaceGenerator_closesOldMatViewIndexOnVersionRoll_keepsItOnSameVersion()
+      throws Exception {
+    // Different-version replacement closes the old InitializedMaterializedViewIndex so its
+    // per-index gauges (notably leaderStatus) are unregistered for the now-defunct
+    // materialized view. Same-version replacement must skip the close because the new
+    // instance shares the same label set and would unregister a live gauge.
+    {
+      Mocks mocks = Mocks.create();
+      var matViewIndexGen1 = mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+      InitializedMaterializedViewIndex oldMatViewIndex = matViewIndexGen1.getIndex();
+      mocks.mockMaterializedViewGenerator(matViewIndexGen1);
+      mocks.addIndexForReplication(matViewIndexGen1);
+
+      var gen2 =
+          new MaterializedViewGenerationId(
+              MOCK_MAT_VIEW_GENERATION_ID.indexId,
+              MOCK_MAT_VIEW_GENERATION_ID.generation.incrementUser());
+      var matViewIndexGen2 = mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(gen2, 1));
+      mocks.mockMaterializedViewGenerator(matViewIndexGen2);
+      mocks.addIndexForReplication(matViewIndexGen2);
+
+      // Confirm replaceGenerator actually fired before asserting on close().
+      assertTrue(
+          "pendingShutdowns should contain the new generationId after replaceGenerator",
+          mocks.manager.pendingShutdowns.containsKey(matViewIndexGen2.getGenerationId()));
+      verify(oldMatViewIndex).close();
+    }
+    {
+      Mocks mocks = Mocks.create();
+      var matViewIndexGen = mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+      InitializedMaterializedViewIndex oldMatViewIndex = matViewIndexGen.getIndex();
+      mocks.mockMaterializedViewGenerator(matViewIndexGen);
+      mocks.addIndexForReplication(matViewIndexGen);
+
+      // Same generationId triggers same-version replacement.
+      mocks.mockMaterializedViewGenerator(matViewIndexGen);
+      mocks.addIndexForReplication(matViewIndexGen);
+
+      // Confirm replaceGenerator actually fired (same-genId branch populates pendingShutdowns
+      // before deferring leadership to refreshStatus).
+      assertTrue(
+          "pendingShutdowns should contain the generationId after same-genId replaceGenerator",
+          mocks.manager.pendingShutdowns.containsKey(matViewIndexGen.getGenerationId()));
+      verify(oldMatViewIndex, never()).close();
+    }
+  }
+
+  @Test
   public void replaceGenerator_pendingShutdownSetBeforeFactoryCreate() {
     // Verify that pendingShutdowns.put() happens BEFORE factory.create() in
     // replaceGenerator, matching the transitionToFollower pattern from CLOUDP-393734.

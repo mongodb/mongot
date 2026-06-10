@@ -61,6 +61,7 @@ import com.xgen.mongot.util.mongodb.MongoDbReplSetStatus;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -737,6 +738,16 @@ public class MaterializedViewManager implements ReplicationManager {
                             .addKeyValue("newGenerationId", newGenerationId)
                             .log("Activating leadership for new generator");
                         newGenerator.becomeLeader();
+                      }
+                      // Unregister metrics for the now-replaced generation so the registry
+                      // doesn't retain a stale series for a defunct materialized view.
+                      try {
+                        existingGenerator.getIndexGeneration().getIndex().close();
+                      } catch (IOException e) {
+                        LOG.atWarn()
+                            .addKeyValue("oldGenerationId", oldGenerationId)
+                            .setCause(e)
+                            .log("Failed to close replaced materialized view index");
                       }
                     }
                   });
