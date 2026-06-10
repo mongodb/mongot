@@ -19,6 +19,7 @@ import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.metrics.MetricsFactory;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
+import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -1034,6 +1035,38 @@ public class FtdcScheduledReporterTest {
           .that(executorRegistry.find("ftdc-reporting-time").timer())
           .isNull();
 
+    } finally {
+      reporter.stop();
+    }
+  }
+
+  @Test
+  public void create_reporterThreadAttributionCounterIncreasesUnderLoad() throws Exception {
+    var ftdc = mockFtdc();
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    CompositeMeterRegistry combinedRegistry = new CompositeMeterRegistry();
+    combinedRegistry.add(registry);
+    var reporter =
+        FtdcScheduledReporter.create(
+            registry, combinedRegistry, ftdc, false, FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT);
+
+    FunctionCounter allocated =
+        registry
+            .find("executor.thread.allocatedBytes")
+            .tag("subsystem", "ftdc")
+            .tag("name", "ftdc-reporter")
+            .functionCounter();
+    assertThat(allocated).isNotNull();
+
+    reporter.start(10, TimeUnit.MILLISECONDS);
+    try {
+      verify(ftdc, timeout(20000).atLeast(1)).addSample(any(), anyLong());
+      double before = allocated.count();
+      // JVMs without per-thread allocation tracking report 0; skip rather than flake.
+      if (before == 0.0) {
+        return;
+      }
+      assertThat(pollUntil(() -> allocated.count() > before, Duration.ofSeconds(20))).isTrue();
     } finally {
       reporter.stop();
     }

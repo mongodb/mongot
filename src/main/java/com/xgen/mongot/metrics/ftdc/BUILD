@@ -23,6 +23,7 @@ java_library(
         "@maven//:org_slf4j_slf4j_api",
     ],
     deps = [
+        "//src/main/java/com/xgen/mongot/metrics",
         "//src/main/java/com/xgen/mongot/metrics/micrometer",
         "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/bson",

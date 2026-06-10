@@ -7,6 +7,7 @@ import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.flogger.FluentLogger;
 import com.google.errorprone.annotations.CompileTimeConstant;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
+import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import com.xgen.mongot.metrics.micrometer.SerializableDistributionSummary;
 import com.xgen.mongot.metrics.micrometer.SerializableTimer;
 import com.xgen.mongot.util.Check;
@@ -105,6 +106,7 @@ public class FtdcScheduledReporter {
       Ftdc ftdc,
       int maxMeterCount) {
     this.executor = Executors.singleThreadScheduledExecutor("ftdc-reporter", executorRegistry);
+    ThreadPoolResourceMetrics.create("ftdc").register(this.executor, executorRegistry);
     this.reporter = new Reporter(executorRegistry, reportingRegistry, ftdc, maxMeterCount);
   }
 
