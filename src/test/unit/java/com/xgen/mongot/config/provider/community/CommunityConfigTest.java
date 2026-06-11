@@ -67,6 +67,7 @@ public class CommunityConfigTest {
           grpcTls(),
           grpcTlsWithPassword(),
           grpcMtls(),
+          scramTlsWithCertKeyPasswordAndCa(),
           withEmbeddingEndpointOverride(),
           withEmbeddingMvWriteRateLimitRps(),
           ftdcOverrides(),
@@ -404,6 +405,46 @@ public class CommunityConfigTest {
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig>
+        scramTlsWithCertKeyPasswordAndCa() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "scramTlsWithCertKeyPasswordAndCa",
+          new CommunityConfig(
+              new SyncSourceConfig(
+                  new ReplicaSetConfig(
+                      List.of(HostAndPort.fromParts("mongod", 27017)),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.of(
+                          new ScramConfig(
+                              Databases.ADMIN,
+                              "user",
+                              Path.of("/etc/mongot/replicaSet.passwd"),
+                              new TlsConfig(
+                                  true,
+                                  Optional.of(Path.of("/etc/mongot/tls/client-combined.pem")),
+                                  Optional.of(Path.of("/etc/mongot/secrets/cert-key-pass")),
+                                  Optional.of(Path.of("/etc/mongot/ca.pem")))))),
+                  Optional.empty(),
+                  Optional.empty(),
+                  Optional.empty()),
+              new StorageConfig(Path.of("data/mongot")),
+              new ServerConfig(
+                  new GrpcServerConfig("localhost:27028", Optional.empty()), Optional.empty()),
+              FtdcCommunityConfig.getDefault(),
+              Optional.of(new MetricsConfig(true, "localhost:9946")),
+              Optional.of(new HealthCheckConfig("localhost:8080")),
+              Optional.of(new LoggingConfig("DEBUG", Optional.of("/var/log/mongot"))),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty()));
+    }
+
+    private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig>
         withEmbeddingEndpointOverride() {
       return BsonDeserializationTestSuite.TestSpec.valid(
           "with embedding endpoint override",
@@ -704,6 +745,29 @@ public class CommunityConfigTest {
           Optional.of(MongoReadPreferenceName.PRIMARY_PREFERRED), replicaSet.readPreference());
       assertTrue("caFile should be present", result.syncSourceConfig().caFile().isPresent());
       assertEquals(Path.of("/etc/mongot/tls/ca.pem"), result.syncSourceConfig().caFile().get());
+    }
+
+    @Test
+    public void readFromFile_withScram_tlsCertKeyFileNoCaFile()
+        throws IOException, BsonParseException {
+      Path configPath =
+          Path.of(
+              "src/test/unit/resources/config/provider/community/communityConfigScramNoCa.yaml");
+      CommunityConfig result = CommunityConfig.readFromFile(configPath).config();
+
+      var replicaSet = result.syncSourceConfig().replicaSet();
+      assertTrue("replicaSet should use scram auth", replicaSet.scram().isPresent());
+      ScramConfig scram = replicaSet.scram().get();
+      assertTrue("tls should be enabled", scram.tls().enabled());
+      assertTrue(
+          "tlsCertificateKeyFile should be present",
+          scram.tls().tlsCertificateKeyFile().isPresent());
+      assertEquals(
+          Path.of("/etc/mongot/tls/client-combined.pem"),
+          scram.tls().tlsCertificateKeyFile().get());
+      assertTrue(
+          "caFile should be absent — JVM default trust store is used for server verification",
+          scram.tls().caFile().isEmpty());
     }
 
     @Test

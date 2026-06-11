@@ -1,0 +1,23 @@
+syncSource:
+  replicaSet:
+    hostAndPort: "mongod1.internal:27017"
+    scramAuth:
+      username: "user"
+      passwordFile: "/etc/mongot/router.passwd"
+      authSource: "admin"
+      tls:
+        enabled: true
+        tlsCertificateKeyFile: "/etc/mongot/tls/client-combined.pem"
+storage:
+  dataPath: "/var/lib/mongot"
+server:
+  grpc:
+    address: "localhost:27028"
+metrics:
+  enabled: true
+  address: "localhost:9946"
+healthCheck:
+  address: "localhost:8080"
+logging:
+  verbosity: "DEBUG"
+  logPath: "/var/log/mongot"

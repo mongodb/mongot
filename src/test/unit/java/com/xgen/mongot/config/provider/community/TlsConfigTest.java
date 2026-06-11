@@ -147,4 +147,21 @@ public class TlsConfigTest {
       assertEquals("tls must be enabled when caFile is configured", e.getMessage());
     }
   }
+
+  @Test
+  public void validate_passwordFile_withoutCertKeyFile_throws() throws BsonParseException {
+    TlsConfig tls =
+        new TlsConfig(
+            true,
+            Optional.empty(),
+            Optional.of(Path.of("/etc/tls/cert-pass")),
+            Optional.empty());
+
+    try (var parser = BsonDocumentParser.fromRoot(new BsonDocument()).build()) {
+      BsonParseException e = assertThrows(BsonParseException.class, () -> tls.validate(parser));
+      assertEquals(
+          "tlsCertificateKeyFile is required when tlsCertificateKeyFilePasswordFile is provided",
+          e.getMessage());
+    }
+  }
 }

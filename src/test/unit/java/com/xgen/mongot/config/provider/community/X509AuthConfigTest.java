@@ -143,9 +143,7 @@ public class X509AuthConfigTest {
     assertTrue(
         "Expected message about tlsCertificateKeyFile being required for x509",
         caught.getMessage() != null
-            && caught
-                .getMessage()
-                .contains("tlsCertificateKeyFile is required when passwordFile is provided"));
+            && caught.getMessage().contains("tlsCertificateKeyFile is required using x509 auth"));
   }
 
   @Test

@@ -11,8 +11,8 @@ import java.nio.file.Path;
 import java.util.Optional;
 import org.bson.BsonDocument;
 
-public record ScramConfig(String authSource, String username, Path passwordFile,
-                          TlsConfig tls) implements DocumentEncodable {
+public record ScramConfig(String authSource, String username, Path passwordFile, TlsConfig tls)
+    implements DocumentEncodable {
 
   private static class Fields {
     public static final Field.WithDefault<String> AUTH_SOURCE =
@@ -26,9 +26,7 @@ public record ScramConfig(String authSource, String username, Path passwordFile,
         Field.builder("username").stringField().mustNotBeEmpty().required();
 
     public static final Field.Required<Path> PASSWORD_FILE =
-        Field.builder("passwordFile")
-            .classField(PathField.PARSER, PathField.ENCODER)
-            .required();
+        Field.builder("passwordFile").classField(PathField.PARSER, PathField.ENCODER).required();
 
     public static final Field.WithDefault<TlsConfig> TLS =
         Field.builder("tls")
@@ -47,6 +45,9 @@ public record ScramConfig(String authSource, String username, Path passwordFile,
         parser.getField(Fields.TLS).unwrap());
   }
 
+  /**
+   * Validates this SCRAM config, enforcing constraints on TLS fields and inherited CA file usage.
+   */
   public void validate(DocumentParser parser, Optional<Path> parentCaFile)
       throws BsonParseException {
     // TODO(CLOUDP-395903): Remove this check after parent caFile deprecated
@@ -55,17 +56,12 @@ public record ScramConfig(String authSource, String username, Path passwordFile,
           .getContext()
           .handleSemanticError(
               "CA file must be defined within SCRAM's TLS config."
-                  + "CA file not supported within sync source definition.");
+                  + " CA file not supported within sync source definition.");
     }
 
-    // Todo(CLOUDP-377241): Support certificateKeyFilePassword for Scram TLS
-    // Once complete this check can be removed
-    if (this.tls.tlsCertificateKeyFilePasswordFile().isPresent()) {
-      parser
-          .getContext()
-          .handleSemanticError(
-              "tlsCertificateKeyFilePasswordFile is not supported for scram tls connections");
-    }
+    // caFile is intentionally not required when tlsCertificateKeyFile is set: SCRAM authenticates
+    // via password, so when no caFile is provided the driver falls back to the JVM default trust
+    // store for server certificate verification.
 
     this.tls.validate(parser);
   }
@@ -79,5 +75,4 @@ public record ScramConfig(String authSource, String username, Path passwordFile,
         .field(Fields.TLS, this.tls)
         .build();
   }
-
 }

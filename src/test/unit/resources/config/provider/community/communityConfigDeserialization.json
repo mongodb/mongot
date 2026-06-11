@@ -547,6 +547,51 @@
       }
     },
     {
+      "description": "scramTlsWithCertKeyPasswordAndCa",
+      "value": {
+        "syncSource": {
+          "replicaSet": {
+            "hostAndPort": "mongod:27017",
+            "scramAuth": {
+              "username": "user",
+              "passwordFile": "/etc/mongot/replicaSet.passwd",
+              "tls": {
+                "enabled": true,
+                "tlsCertificateKeyFile": "/etc/mongot/tls/client-combined.pem",
+                "tlsCertificateKeyFilePasswordFile": "/etc/mongot/secrets/cert-key-pass",
+                "caFile": "/etc/mongot/ca.pem"
+              }
+            }
+          }
+        },
+        "storage": {
+          "dataPath": "data/mongot"
+        },
+        "server": {
+          "grpc": {
+            "address": "localhost:27028"
+          }
+        },
+        "metrics": {
+          "enabled": true,
+          "address": "localhost:9946"
+        },
+        "healthCheck": {
+          "address": "localhost:8080"
+        },
+        "logging": {
+          "verbosity": "DEBUG",
+          "logPath": "/var/log/mongot"
+        },
+        "ftdc": {
+          "enabled": true,
+          "directorySizeMb": 100,
+          "fileSizeMb": 10,
+          "collectionPeriodMillis": 1000
+        }
+      }
+    },
+    {
       "description": "with replicationReader tagSets",
       "value": {
         "syncSource": {
@@ -558,8 +603,18 @@
           "replicationReader": {
             "readPreference": "nearest",
             "tagSets": [
-              [{"name": "dc", "value": "east"}],
-              [{"name": "dc", "value": "west"}]
+              [
+                {
+                  "name": "dc",
+                  "value": "east"
+                }
+              ],
+              [
+                {
+                  "name": "dc",
+                  "value": "west"
+                }
+              ]
             ]
           }
         },
@@ -1140,7 +1195,7 @@
           "verbosity": "DEBUG"
         }
       },
-      "errorMessageContains": "tlsCertificateKeyFilePasswordFile is not supported for scram tls connections"
+      "errorMessageContains": "tlsCertificateKeyFile is required when tlsCertificateKeyFilePasswordFile is provided"
     },
     {
       "description": "replicationReader PRIMARY with tagSets",
@@ -1154,7 +1209,12 @@
           "replicationReader": {
             "readPreference": "primary",
             "tagSets": [
-              [{"name": "dc", "value": "east"}]
+              [
+                {
+                  "name": "dc",
+                  "value": "east"
+                }
+              ]
             ]
           }
         },

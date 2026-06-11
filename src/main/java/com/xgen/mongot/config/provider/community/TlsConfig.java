@@ -36,6 +36,15 @@ public record TlsConfig(
     } else if (this.caFile.isPresent() && !this.enabled) {
       parser.getContext().handleSemanticError("tls must be enabled when caFile is configured");
     }
+
+    if (this.tlsCertificateKeyFilePasswordFile().isPresent()
+        && this.tlsCertificateKeyFile().isEmpty()) {
+      parser
+          .getContext()
+          .handleSemanticError(
+              "tlsCertificateKeyFile is required when tlsCertificateKeyFilePasswordFile "
+                  + "is provided");
+    }
   }
 
   @Override

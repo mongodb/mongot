@@ -19,8 +19,9 @@ public record X509Config(TlsConfig tlsConfig) implements DocumentEncodable {
    * @throws BsonParseException - Throws in cases of malformed configurations
    */
   public void validate(DocumentParser parser, Optional<Path> caFile) throws BsonParseException {
-    // At least one of the ca file locations must be populated (legacy or inline).
-    // Populating this in multiple paradigms (legacy vs inline) is ambiguous.
+    // x509 uses a private PKI, so caFile is required — the private CA that signs client certs is
+    // not in the JVM default trust store. Exactly one source is allowed (inline or legacy parent)
+    // to avoid ambiguity.
     long presentCount =
         Stream.of(caFile, this.tlsConfig.caFile()).filter(Optional::isPresent).count();
     if (presentCount != 1) {
@@ -30,15 +31,7 @@ public record X509Config(TlsConfig tlsConfig) implements DocumentEncodable {
               "caFile must be set either within x509 config or parent sync source.");
     }
 
-    // Todo(CLOUDP-377241): Support certificateKeyFilePassword for Scram TLS.
-    // Once complete this check can be shared within TlsConfig.validate()
-    if (this.tlsConfig().tlsCertificateKeyFilePasswordFile().isPresent()
-        && this.tlsConfig().tlsCertificateKeyFile().isEmpty()) {
-      parser
-          .getContext()
-          .handleSemanticError("tlsCertificateKeyFile is required when passwordFile is provided");
-    }
-
+    // x509 authentication is certificate-based, so a client certificate is always required.
     if (this.tlsConfig.tlsCertificateKeyFile().isEmpty()) {
       parser.getContext().handleSemanticError("tlsCertificateKeyFile is required using x509 auth");
     }

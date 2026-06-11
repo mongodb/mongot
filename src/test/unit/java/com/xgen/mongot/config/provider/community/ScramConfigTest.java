@@ -147,8 +147,7 @@ public class ScramConfigTest {
                 new BsonDocument("enabled", BsonBoolean.TRUE)
                     .append("tlsCertificateKeyFile", new BsonString("/etc/tls/client.pem"))
                     .append(
-                        "tlsCertificateKeyFilePasswordFile",
-                        new BsonString("/etc/tls/cert-pass")));
+                        "tlsCertificateKeyFilePasswordFile", new BsonString("/etc/tls/cert-pass")));
 
     try (var parser = BsonDocumentParser.fromRoot(doc).build()) {
       ScramConfig parsed = ScramConfig.fromBson(parser);
@@ -180,13 +179,28 @@ public class ScramConfigTest {
   }
 
   @Test
-  public void validate_tlsCertificateKeyFilePasswordFilePresent_throws() {
+  public void validate_certKeyFileAndPassword_withCaFile_succeeds() throws BsonParseException {
     TlsConfig tls =
         new TlsConfig(
             true,
             Optional.of(Path.of("/etc/tls/client.pem")),
             Optional.of(Path.of("/etc/tls/cert-pass")),
-            Optional.empty());
+            Optional.of(Path.of("/etc/tls/ca.pem")));
+    ScramConfig config = new ScramConfig("admin", "__system", Path.of("/etc/mongot/keyfile"), tls);
+
+    try (var parser = BsonDocumentParser.fromRoot(new BsonDocument()).build()) {
+      config.validate(parser, Optional.empty());
+    }
+  }
+
+  @Test
+  public void validate_passwordFile_withoutCertKeyFile_throws() {
+    TlsConfig tls =
+        new TlsConfig(
+            true,
+            Optional.empty(),
+            Optional.of(Path.of("/etc/tls/cert-pass")),
+            Optional.of(Path.of("/etc/tls/ca.pem")));
     ScramConfig config = new ScramConfig("admin", "__system", Path.of("/etc/mongot/keyfile"), tls);
 
     var parser = BsonDocumentParser.fromRoot(new BsonDocument()).build();
@@ -203,15 +217,29 @@ public class ScramConfigTest {
         caught = e;
       }
     }
-    assertNotNull("Expected BsonParseException for tlsCertificateKeyFilePasswordFile", caught);
+    assertNotNull(
+        "Expected BsonParseException when passwordFile provided without certKeyFile", caught);
     assertTrue(
-        "Expected message about tlsCertificateKeyFilePasswordFile not being supported",
         caught.getMessage() != null
             && caught
                 .getMessage()
                 .contains(
-                    "tlsCertificateKeyFilePasswordFile is not supported for scram tls"
-                        + " connections"));
+                    "tlsCertificateKeyFile is required when tlsCertificateKeyFilePasswordFile "
+                        + "is provided"));
+  }
+
+  @Test
+  public void validate_certKeyFile_withoutCaFile_succeeds() throws BsonParseException {
+    // caFile is optional for SCRAM: when absent the driver falls back to the JVM default trust
+    // store for server certificate verification.
+    TlsConfig tls =
+        new TlsConfig(
+            true, Optional.of(Path.of("/etc/tls/client.pem")), Optional.empty(), Optional.empty());
+    ScramConfig config = new ScramConfig("admin", "__system", Path.of("/etc/mongot/keyfile"), tls);
+
+    try (var parser = BsonDocumentParser.fromRoot(new BsonDocument()).build()) {
+      config.validate(parser, Optional.empty());
+    }
   }
 
   @Test
@@ -241,7 +269,7 @@ public class ScramConfigTest {
                 .getMessage()
                 .contains(
                     "CA file must be defined within SCRAM's TLS config."
-                        + "CA file not supported within sync source definition."));
+                        + " CA file not supported within sync source definition."));
   }
 
   @Test

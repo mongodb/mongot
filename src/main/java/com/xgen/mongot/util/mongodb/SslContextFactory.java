@@ -66,23 +66,28 @@ public class SslContextFactory {
   /**
    * Creates a TLS 1.3 {@link SSLContext} for mutual TLS (x509 client authentication).
    *
-   * <p>Configures both a key manager from the client certificate/key file and a trust manager from
-   * the CA file, so the client can present its certificate and verify the server.
+   * <p>Configures a key manager from the client certificate/key file, and optionally a trust
+   * manager from the CA file. If {@code caFilePath} is empty, the JVM default trust store is used
+   * to verify the server.
    *
-   * @param caFilePath path to the CA file used to verify the server
+   * @param caFilePath optional path to the CA file used to verify the server; absent means JVM
+   *     default trust store
    * @param certKeyFilePath path to the combined PEM file (client private key and certificate(s))
    * @param certKeyFilePasswordPath optional path to the file containing the key passphrase
    * @return an initialized SSLContext for mTLS
    */
-  public static SSLContext getWithCaAndCertificateFile(
-      Path caFilePath, Path certKeyFilePath, Optional<Path> certKeyFilePasswordPath) {
+  public static SSLContext getWithCertKeyFile(
+      Optional<Path> caFilePath, Path certKeyFilePath, Optional<Path> certKeyFilePasswordPath) {
     try {
-      KeyManagerFactory kmf =
-          createKmfFromCombinedPem(certKeyFilePath, certKeyFilePasswordPath);
-      TrustManagerFactory tmf = createTrustManagerFromCaFile(caFilePath);
+      KeyManagerFactory kmf = createKmfFromCombinedPem(certKeyFilePath, certKeyFilePasswordPath);
 
       SSLContext sslContext = SSLContext.getInstance("TLSv1.3");
-      sslContext.init(kmf.getKeyManagers(), tmf.getTrustManagers(), new SecureRandom());
+      if (caFilePath.isPresent()) {
+        TrustManagerFactory tmf = createTrustManagerFromCaFile(caFilePath.get());
+        sslContext.init(kmf.getKeyManagers(), tmf.getTrustManagers(), new SecureRandom());
+      } else {
+        sslContext.init(kmf.getKeyManagers(), null, new SecureRandom());
+      }
 
       return sslContext;
     } catch (Exception e) {

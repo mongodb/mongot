@@ -177,20 +177,29 @@ public class ConnectionInfoFactory {
       MongoConnectionConfig connectionConfig, Optional<Path> caFile) {
 
     if (connectionConfig.scram().isPresent()) {
-      return getScramSslContext(connectionConfig);
+      return getScramSslContext(connectionConfig.scram().get());
     }
 
     if (connectionConfig.x509().isPresent()) {
       X509Config x509Config = connectionConfig.x509().get();
-      return getX509SslContext(x509Config, caFile);
+      return Optional.of(getX509SslContext(x509Config, caFile));
     }
 
     // Legacy approach to generate ssl context from top level members
     return caFile.map(SslContextFactory::getWithCaFile);
   }
 
-  private static Optional<SSLContext> getX509SslContext(
-      X509Config x509Config, Optional<Path> caFile) {
+  /**
+   * Builds an {@link SSLContext} for x509 client-certificate authentication. A CA file is required
+   * (either inline on {@code x509Config} or via the legacy {@code caFile} parameter). x509 setups
+   * use a private CA not present in the JVM default trust store, so falling back to it would either
+   * fail verification or silently accept any server certificate signed by a public CA.
+   *
+   * @param x509Config the x509 auth configuration, which may carry an inline CA and cert-key file
+   * @param caFile legacy CA file path inherited from the parent config; used when not set inline
+   * @return an {@link SSLContext} configured with the resolved CA and client certificate
+   */
+  private static SSLContext getX509SslContext(X509Config x509Config, Optional<Path> caFile) {
 
     // Todo(CLOUDP-395903): Remove reference to legacy CA location
     @Var Optional<Path> caPath = x509Config.tlsConfig().caFile();
@@ -202,17 +211,35 @@ public class ConnectionInfoFactory {
     Check.checkArg(
         caPath.isPresent(), "caFile must be present with x509 at either parent or inline");
 
-    return Optional.of(
-        SslContextFactory.getWithCaAndCertificateFile(
-            caPath.get(),
-            x509Config.tlsConfig().tlsCertificateKeyFile().get(),
-            x509Config.tlsConfig().tlsCertificateKeyFilePasswordFile()));
+    Check.checkArg(
+        x509Config.tlsConfig().tlsCertificateKeyFile().isPresent(),
+        "tlsCertificateKeyFile required for x509 auth");
+
+    return SslContextFactory.getWithCertKeyFile(
+        caPath,
+        x509Config.tlsConfig().tlsCertificateKeyFile().get(),
+        x509Config.tlsConfig().tlsCertificateKeyFilePasswordFile());
   }
 
-  private static Optional<SSLContext> getScramSslContext(MongoConnectionConfig connectionConfig) {
-    // Todo(CLOUDP-377241): Support certificateKeyFilePassword for Scram TLS
-    // For scram approaches, customers using the new Scram auth method should also be using the
-    // inline CA file location.
-    return connectionConfig.scram().get().tls().caFile().map(SslContextFactory::getWithCaFile);
+  /**
+   * Builds an {@link SSLContext} for SCRAM authentication. Because SCRAM authenticates via
+   * password, a CA file is optional: when absent the driver falls back to the JVM default trust
+   * store for server certificate verification. When {@code tlsCertificateKeyFile} is also
+   * configured, a client certificate is included to enable mTLS on top of SCRAM.
+   *
+   * @param scramConfig the SCRAM auth configuration, including TLS settings
+   * @return an {@link SSLContext} if any TLS material is configured, or empty to use driver
+   *     defaults
+   */
+  private static Optional<SSLContext> getScramSslContext(ScramConfig scramConfig) {
+    TlsConfig tlsConfig = scramConfig.tls();
+    if (tlsConfig.tlsCertificateKeyFile().isPresent()) {
+      return Optional.of(
+          SslContextFactory.getWithCertKeyFile(
+              tlsConfig.caFile(),
+              tlsConfig.tlsCertificateKeyFile().get(),
+              tlsConfig.tlsCertificateKeyFilePasswordFile()));
+    }
+    return tlsConfig.caFile().map(SslContextFactory::getWithCaFile);
   }
 }
