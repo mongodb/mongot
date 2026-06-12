@@ -133,7 +133,8 @@ public class AicUpdateSearchIndexCommand implements Command {
               this.collectionName,
               oldIndex.getView(),
               oldIndex.getDefinitionVersion().map(old -> old + 1).orElse(1L),
-              Instant.now());
+              Instant.now(),
+              oldIndex.getMaterializedViewNameFormatVersion());
 
       if (oldIndex.getType() != newIndex.getType()) {
         // Can't switch between search/vector indexes via an update.

@@ -244,11 +244,6 @@ public class MaterializedViewCollectionResolver {
 
   private String getOrCreateCollectionName(
       IndexDefinitionGeneration indexDefinitionGeneration, String matViewDb) throws Exception {
-    // TODO(CLOUDP-384821): Update index catalog service for community to set
-    // MaterializedViewNameFormatVersion for new indexes.
-    // MMS should set fallback defaultMaterializedViewNameFormatVersion >= 1, community currectly
-    // sets it to 0 for backward compatibility, new indexes should use per-index name format
-    // version.
     long matViewNameFormatVersion =
         indexDefinitionGeneration
             .getIndexDefinition()

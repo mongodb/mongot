@@ -7,9 +7,11 @@ import static org.junit.Assert.assertTrue;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.quantization.VectorQuantization;
+import com.xgen.mongot.server.command.management.definition.common.UserSearchIndexDefinition;
 import com.xgen.mongot.server.command.management.definition.common.UserVectorIndexDefinition;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
+import com.xgen.testing.mongot.server.command.management.definition.UserSearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.server.command.management.definition.UserVectorIndexDefinitionBuilder;
 import java.time.Instant;
 import java.util.Optional;
@@ -57,11 +59,114 @@ public class IndexMapperTest {
             COLLECTION,
             Optional.empty(),
             DEFINITION_VERSION,
-            DEFINITION_VERSION_CREATED_AT);
+            DEFINITION_VERSION_CREATED_AT,
+            Optional.empty());
 
     assertTrue(internal.getType() == IndexDefinition.Type.VECTOR_SEARCH);
     VectorIndexDefinition vectorDef = internal.asVectorDefinition();
     assertEquals(Optional.of(FieldPath.parse("sections")), vectorDef.getNestedRoot());
+  }
+
+  /** Create path (no existing version) stamps materializedViewNameFormatVersion = 1. */
+  @Test
+  public void testToInternal_StampsMaterializedViewNameFormatVersionV1OnCreate() {
+    UserVectorIndexDefinition userDef =
+        UserVectorIndexDefinitionBuilder.builder()
+            .addVectorField(
+                256,
+                com.xgen.mongot.index.definition.VectorSimilarity.COSINE,
+                VectorQuantization.NONE,
+                "embedding")
+            .build();
+
+    IndexDefinition internal =
+        IndexMapper.toInternal(
+            INDEX_NAME,
+            Optional.of(INDEX_ID),
+            userDef,
+            COLLECTION_UUID,
+            DB,
+            COLLECTION,
+            Optional.empty(),
+            DEFINITION_VERSION,
+            DEFINITION_VERSION_CREATED_AT,
+            Optional.empty());
+
+    assertEquals(
+        Optional.of(1L), internal.asVectorDefinition().getMaterializedViewNameFormatVersion());
+  }
+
+  /** Update path preserves the prior materializedViewNameFormatVersion (e.g. legacy v0). */
+  @Test
+  public void testToInternal_PreservesExistingMaterializedViewNameFormatVersionOnUpdate() {
+    UserVectorIndexDefinition userDef =
+        UserVectorIndexDefinitionBuilder.builder()
+            .addVectorField(
+                256,
+                com.xgen.mongot.index.definition.VectorSimilarity.COSINE,
+                VectorQuantization.NONE,
+                "embedding")
+            .build();
+
+    IndexDefinition internal =
+        IndexMapper.toInternal(
+            INDEX_NAME,
+            Optional.of(INDEX_ID),
+            userDef,
+            COLLECTION_UUID,
+            DB,
+            COLLECTION,
+            Optional.empty(),
+            DEFINITION_VERSION,
+            DEFINITION_VERSION_CREATED_AT,
+            Optional.of(0L));
+
+    assertEquals(
+        Optional.of(0L), internal.asVectorDefinition().getMaterializedViewNameFormatVersion());
+  }
+
+  /** Create path stamps materializedViewNameFormatVersion = 1 on new search indexes too. */
+  @Test
+  public void testToInternal_StampsSearchMaterializedViewNameFormatVersionV1OnCreate() {
+    UserSearchIndexDefinition userDef = UserSearchIndexDefinitionBuilder.builder().build();
+
+    IndexDefinition internal =
+        IndexMapper.toInternal(
+            INDEX_NAME,
+            Optional.of(INDEX_ID),
+            userDef,
+            COLLECTION_UUID,
+            DB,
+            COLLECTION,
+            Optional.empty(),
+            DEFINITION_VERSION,
+            DEFINITION_VERSION_CREATED_AT,
+            Optional.empty());
+
+    assertEquals(
+        Optional.of(1L), internal.asSearchDefinition().getMaterializedViewNameFormatVersion());
+  }
+
+  /** Update path preserves the prior materializedViewNameFormatVersion on search indexes. */
+  @Test
+  public void testToInternal_PreservesSearchExistingMaterializedViewNameFormatVersionOnUpdate() {
+    UserSearchIndexDefinition userDef = UserSearchIndexDefinitionBuilder.builder().build();
+
+    IndexDefinition internal =
+        IndexMapper.toInternal(
+            INDEX_NAME,
+            Optional.of(INDEX_ID),
+            userDef,
+            COLLECTION_UUID,
+            DB,
+            COLLECTION,
+            Optional.empty(),
+            DEFINITION_VERSION,
+            DEFINITION_VERSION_CREATED_AT,
+            Optional.of(0L));
+
+    assertEquals(
+        Optional.of(0L), internal.asSearchDefinition().getMaterializedViewNameFormatVersion());
   }
 
   /** Internal definition with nestedRoot → user definition preserves nestedRoot. */

@@ -25,6 +25,16 @@ import java.util.stream.Stream;
 import org.bson.types.ObjectId;
 
 public class IndexMapper {
+  /**
+   * Builds an internal {@link IndexDefinition} from a user-supplied definition.
+   *
+   * <p>{@code existingMaterializedViewNameFormatVersion} is the
+   * materializedViewNameFormatVersion already stored on a pre-existing index, or
+   * {@link Optional#empty()} when none exists. Update callers should pass the value from the
+   * prior on-disk definition so the auto-embedding MV name does not shift; create callers pass
+   * {@link Optional#empty()} and get the v1 stamp applied. Applies to both vector and search
+   * auto-embed indexes, which share the same MV resolver. See CLOUDP-409822.
+   */
   @SuppressWarnings("checkstyle:MissingJavadocMethod")
   public static IndexDefinition toInternal(
       String indexName,
@@ -35,7 +45,8 @@ public class IndexMapper {
       String collectionName,
       Optional<ViewDefinition> view,
       Long definitionVersion,
-      Instant definitionVersionCreatedAt) {
+      Instant definitionVersionCreatedAt,
+      Optional<Long> existingMaterializedViewNameFormatVersion) {
     var newIndexId = indexId.orElseGet(ObjectId::new);
     return switch (indexDefinition) {
       case UserSearchIndexDefinition searchIndexDefinition ->
@@ -60,7 +71,8 @@ public class IndexMapper {
               Optional.of(definitionVersionCreatedAt),
               Optional.of(newIndexId),
               Optional.empty(),
-              Optional.empty());
+              // Preserve prior value on update; stamp v1 on create
+              existingMaterializedViewNameFormatVersion.or(() -> Optional.of(1L)));
       case UserVectorIndexDefinition vectorIndexDefinition ->
           new VectorIndexDefinition(
               newIndexId,
@@ -78,7 +90,8 @@ public class IndexMapper {
               vectorIndexDefinition.nestedRoot(),
               Optional.of(newIndexId),
               Optional.empty(),
-              Optional.empty());
+              // Preserve prior value on update; stamp v1 on create
+              existingMaterializedViewNameFormatVersion.or(() -> Optional.of(1L)));
     };
   }
 

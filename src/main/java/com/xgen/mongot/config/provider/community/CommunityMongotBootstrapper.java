@@ -1014,7 +1014,9 @@ public class CommunityMongotBootstrapper {
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
-            // Set 0 for now, as we are still working on the mat view collection naming.
+            // Keep the default at v0 for community/EA so legacy unstamped indexes continue
+            // resolving to their existing v0 MV collections. New indexes are pinned to v1 by
+            // IndexMapper at creation time.
             Optional.of(0L),
             Optional.empty(),
             Optional.empty(),

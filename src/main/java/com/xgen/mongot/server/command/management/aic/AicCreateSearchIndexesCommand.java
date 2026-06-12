@@ -256,7 +256,8 @@ public class AicCreateSearchIndexesCommand implements Command {
             this.collectionName,
             view,
             0L,
-            Instant.now()),
+            Instant.now(),
+            Optional.empty()),
         external.definitionBson());
   }
 
