@@ -307,8 +307,14 @@ public class StaticLeaderLeaseManager implements LeaseManager {
   @Override
   public void updateCommitInfo(
       MaterializedViewGenerationId generationId, EncodedUserData encodedUserData) {
+    // Only the leader owns the lease. A follower can reach this path because
+    // MaterializedViewWriter.commit calls updateCommitInfo unconditionally (e.g. from a
+    // PeriodicIndexCommitter tick), which must be a no-op rather than fatal, matching
+    // DynamicLeaderLeaseManager.
+    if (!this.isLeader) {
+      return;
+    }
     ensureLeaseExists(generationId);
-    ensureLeader();
     Lease currentLease = this.leases.get(getLeaseKey(generationId));
     Lease updatedLease = currentLease.withUpdatedCheckpoint(encodedUserData);
     updateLeaseInDatabase(generationId, currentLease, updatedLease, encodedUserData);
@@ -585,13 +591,6 @@ public class StaticLeaderLeaseManager implements LeaseManager {
   private void ensureLeaseExists(MaterializedViewGenerationId generationId) {
     if (!this.leases.containsKey(getLeaseKey(generationId))) {
       throw new IllegalStateException("Lease does not exist for " + getLeaseKey(generationId));
-    }
-  }
-
-  private void ensureLeader() {
-    if (!this.isLeader) {
-      throw new IllegalStateException(
-          "Attempting to update lease state while not being the leader");
     }
   }
 

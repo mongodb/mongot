@@ -19,6 +19,7 @@ import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
 import com.xgen.mongot.embedding.mongodb.common.DefaultInternalDatabaseResolver;
 import com.xgen.mongot.embedding.mongodb.common.InternalDatabaseResolver;
+import com.xgen.mongot.index.EncodedUserData;
 import com.xgen.mongot.index.autoembedding.MaterializedViewIndexGeneration;
 import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
 import com.xgen.mongot.index.status.IndexStatus;
@@ -260,6 +261,24 @@ public class StaticLeaderLeaseManagerTest {
     verify(this.mockCollection, never()).deleteOne(any(Document.class));
     // Assert - lease is removed from local cache
     assertThat(leaseManager.getLeases()).doesNotContainKey(leaseKey);
+  }
+
+  // ==================== updateCommitInfo Tests ====================
+
+  @Test
+  public void updateCommitInfo_asFollower_isNoOp() throws Exception {
+    // Arrange - follower with a lease tracked in memory (followers track leases too)
+    StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
+    leaseManager.add(indexGeneration, false);
+
+    // Act - MaterializedViewWriter.commit calls updateCommitInfo unconditionally, so a
+    // follower can reach this path (e.g. from a PeriodicIndexCommitter tick).
+    // DynamicLeaderLeaseManager no-ops here; the static manager must behave the same.
+    leaseManager.updateCommitInfo(indexGeneration.getGenerationId(), EncodedUserData.EMPTY);
+
+    // Assert - follower must not write to the lease collection
+    verify(this.mockCollection, never()).replaceOne(any(Bson.class), any(), any());
   }
 
   // ==================== findGcCandidates / markEligibleForCleanup ====================
