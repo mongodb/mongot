@@ -170,6 +170,9 @@ public class CommunityMongotBootstrapper {
     var mongotVersion = MongotVersionResolver.create().getVersion();
     var mongotConfigs = getMongotConfigs(config);
 
+    // Initialize static global feature flags for quantization or codec objects
+    FeatureFlags.initializeProcessInstance(mongotConfigs.featureFlags);
+
     // Initialize global feature flags for utility classes
     LoggableIdUtils.initialize(mongotConfigs.featureFlags.isEnabled(Feature.LOGGABLE_DOCUMENT_ID));
 

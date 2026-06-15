@@ -5,12 +5,16 @@ import static com.xgen.testing.BsonSerializationTestSuite.fromEncodable;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.xgen.testing.BsonDeserializationTestSuite;
 import com.xgen.testing.BsonSerializationTestSuite;
 import java.util.List;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -22,6 +26,7 @@ import org.junit.runners.Suite;
       FeatureFlagsTest.DeserializationTest.class,
       FeatureFlagsTest.SerializationTest.class,
       FeatureFlagsTest.BuilderTest.class,
+      FeatureFlagsTest.StaticTest.class,
     })
 public class FeatureFlagsTest {
 
@@ -269,4 +274,67 @@ public class FeatureFlagsTest {
       assertEquals(flags1.hashCode(), flags2.hashCode());
     }
   }
+
+  public static class StaticTest {
+    private FeatureFlags flags;
+
+    @Before
+    public void setUp() {
+      this.flags = FeatureFlags.withDefaults().build();
+    }
+
+    @After
+    public void tearDown() {
+      FeatureFlags.resetForTest();
+    }
+
+    @Test
+    public void initializeProcessInstance_called_instanceNotNull() {
+      FeatureFlags.initializeProcessInstance(this.flags);
+      assertNotNull(FeatureFlags.getStatic());
+    }
+
+    @Test
+    public void getStatic_noDependencyInjection_returnsEnabledFeature() {
+      var custom = FeatureFlags.withDefaults().enable(Feature.SORTED_INDEX).build();
+      FeatureFlags.initializeProcessInstance(custom);
+      assertTrue(FeatureFlags.getStatic().isEnabled(Feature.SORTED_INDEX));
+    }
+
+    @Test
+    public void getStatic_noDependencyInjection_returnsDisabledFeature() {
+      var custom = FeatureFlags.withDefaults().disable(Feature.SORTED_INDEX).build();
+      FeatureFlags.initializeProcessInstance(custom);
+      assertFalse(FeatureFlags.getStatic().isEnabled(Feature.SORTED_INDEX));
+    }
+
+    @Test
+    public void getStatic_beforeInit_throwsIllegalStateException() {
+      assertThrows(IllegalStateException.class, FeatureFlags::getStatic);
+    }
+
+    @Test
+    public void initializeProcessInstance_calledTwice_throwsIllegalStateException() {
+      FeatureFlags.initializeProcessInstance(this.flags);
+      assertThrows(IllegalStateException.class,
+          () -> FeatureFlags.initializeProcessInstance(this.flags));
+    }
+
+    @Test
+    public void getStatic_afterReset_throwsIllegalStateException() {
+      FeatureFlags.initializeProcessInstance(this.flags);
+      FeatureFlags.resetForTest();
+      assertThrows(IllegalStateException.class, FeatureFlags::getStatic);
+    }
+
+    @Test
+    public void getStatic_succeeds_afterReset() {
+      FeatureFlags.initializeProcessInstance(this.flags);
+      FeatureFlags.resetForTest();
+      FeatureFlags.initializeProcessInstance(this.flags);
+      assertNotNull(FeatureFlags.getStatic());
+    }
+
+  }
+
 }

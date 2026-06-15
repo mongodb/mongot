@@ -1,11 +1,15 @@
 package com.xgen.mongot.featureflag;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.errorprone.annotations.RestrictedApi;
+import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
 import com.xgen.mongot.util.bson.parser.DocumentParser;
 import com.xgen.mongot.util.bson.parser.Field;
 import java.util.EnumMap;
 import java.util.Objects;
+import java.util.Optional;
 import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
 
@@ -58,6 +62,13 @@ import org.bson.BsonDocument;
  */
 public class FeatureFlags implements DocumentEncodable {
   private static final FeatureFlags DEFAULT_INSTANCE = withDefaults().build();
+  /**
+   * Process-wide {@link FeatureFlags} for non-DI code paths. Set exactly once by
+   * {@link #initializeProcessInstance} at bootstrap, read via {@link #getStatic};
+   * all access guarded by the {@code FeatureFlags.class} monitor.
+   */
+  @GuardedBy("FeatureFlags.class")
+  private static Optional<FeatureFlags> globalFeatureFlags = Optional.empty();
   private final EnumMap<Feature, Feature.State> featureStates;
 
   /**
@@ -290,5 +301,64 @@ public class FeatureFlags implements DocumentEncodable {
         .enable(Feature.CONCURRENT_INDEX_PARTITION_SEARCH)
         .enable(Feature.CANCEL_MERGE)
         .build();
+  }
+
+  /**
+   * Installs the process-wide {@link FeatureFlags} for code that cannot receive it via dependency
+   * injection (the Lucene SPI/codec layer).
+   *
+   * <p><b>Lifecycle contract:</b> mongot's bootstrapper calls this exactly once, early in process
+   * startup, before any code path that calls {@link #getStatic()} runs. Once this method returns,
+   * every subsequent {@link #getStatic()} call is guaranteed to return the populated instance
+   * supplied here for the remainder of the process's lifetime. It must never be called more than
+   * once per process.
+   *
+   * @param featureFlags the instance to publish as the process-wide static configuration
+   * @throws IllegalStateException if the process instance has already been initialized; mongot
+   *     processes must never initialize the global configuration twice
+   * @see #getStatic()
+   */
+  public static synchronized void initializeProcessInstance(FeatureFlags featureFlags) {
+    if (globalFeatureFlags.isPresent()) {
+      throw new IllegalStateException("global FeatureFlags already initialized");
+    }
+    globalFeatureFlags = Optional.of(featureFlags);
+  }
+
+  /**
+   * Returns the process-wide {@link FeatureFlags} installed by {@link #initializeProcessInstance}.
+   *
+   * <p><b>Contract:</b> once the bootstrapper has called {@link #initializeProcessInstance} during
+   * startup, this method is guaranteed to return a non-null, populated instance for the rest of the
+   * process's lifetime. It throws only when that precondition is unmet — i.e. it is called before
+   * initialization (ordering bug) or after {@link #resetForTest()} (which happens only in tests).
+   *
+   * <p>Use only from code that cannot receive {@link FeatureFlags} via dependency injection (the
+   * Lucene SPI/codec layer); prefer injection everywhere else. Tests relying on the global instance
+   * can be order-sensitive because its scope is process-wide — injection avoids this by scoping the
+   * configuration to the individual test.
+   *
+   * @return the process-wide {@link FeatureFlags} instance
+   * @throws IllegalStateException if called before {@link #initializeProcessInstance} or after
+   *     {@link #resetForTest()}
+   * @see #initializeProcessInstance(FeatureFlags)
+   */
+  @RestrictedApi(
+      explanation =
+          "FeatureFlags.getStatic() should only be used in the Lucene"
+              + " codec/quantization layer or in FeatureFlagsTest.java."
+              + " If you're in the Lucene SPI/codec layer where"
+              + " injection is impossible add the path to allowedOnPath"
+              + " in the @RestrictedApi annotation of FeatureFlags.getStatic().",
+      link = "https://jira.mongodb.org/browse/CLOUDP-411746",
+      allowedOnPath = ".*/index/lucene/(codec|quantization)/.*|.*FeatureFlagsTest\\.java")
+  public static synchronized FeatureFlags getStatic() {
+    return globalFeatureFlags.orElseThrow(() -> new IllegalStateException(
+        "global FeatureFlags not initialized or has been reset"));
+  }
+
+  @VisibleForTesting
+  static synchronized void resetForTest() {
+    globalFeatureFlags = Optional.empty();
   }
 }
