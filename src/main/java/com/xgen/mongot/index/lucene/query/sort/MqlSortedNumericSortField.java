@@ -11,7 +11,7 @@ import org.apache.lucene.search.SortedNumericSortField;
  * <p>Lucene deserializes custom {@code SortedNumericSortField} subclasses as the base class after a
  * segment round-trip. The default {@code SortedNumericSortField.equals()} uses a strict {@code
  * getClass()} check, which breaks {@code TopFieldCollector.canEarlyTerminateOnPrefix()}, {@code
- * IndexWriter.validateIndexSort()}, and our own {@code IndexSortUtils.canBenefitFromIndexSort()}.
+ * IndexWriter.validateIndexSort()}, and our own {@code IndexSortUtils.usesIndexSort()}.
  */
 abstract class MqlSortedNumericSortField extends SortedNumericSortField {
 

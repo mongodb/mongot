@@ -34,11 +34,11 @@ public class IndexSortUtils {
   }
 
   /**
-   * Determines if a query sort can benefit from index sort optimization.
+   * Determines if a query sort uses index sort optimization.
    *
    * <p>this method is the same as TopFieldCollector#canEarlyTerminateOnPrefix.
    */
-  public static boolean canBenefitFromIndexSort(
+  public static boolean usesIndexSort(
       org.apache.lucene.search.Sort querySort,
       org.apache.lucene.search.Sort indexSort) {
     SortField[] querySortFields = querySort.getSort();

@@ -196,8 +196,8 @@ public class LuceneSortFactory {
           is ->
               sortFeatureExplainer
                   .get()
-                  .setCanBenefitFromIndexSort(
-                      IndexSortUtils.canBenefitFromIndexSort(luceneSort, is)));
+                  .setUsesIndexSort(
+                      IndexSortUtils.usesIndexSort(luceneSort, is)));
     }
     return luceneSort;
   }
@@ -238,7 +238,7 @@ public class LuceneSortFactory {
 
   /**
    * Creates a $nullness query sort field that matches the corresponding field in the index sort.
-   * This enables {@link IndexSortUtils#canBenefitFromIndexSort} prefix matching for early
+   * This enables {@link IndexSortUtils#usesIndexSort} prefix matching for early
    * termination and sort pruning optimizations.
    */
   public static SortField createNullnessSortField(MongotSortField mongotSortField) {

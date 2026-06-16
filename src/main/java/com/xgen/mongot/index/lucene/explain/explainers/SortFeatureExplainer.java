@@ -37,7 +37,7 @@ public class SortFeatureExplainer implements FeatureExplainer {
 
   @GuardedBy("this")
   @Var
-  private Optional<Boolean> canBenefitFromIndexSort;
+  private Optional<Boolean> usesIndexSort;
 
   public SortFeatureExplainer(
       SortSpec sortSpec,
@@ -46,7 +46,7 @@ public class SortFeatureExplainer implements FeatureExplainer {
     this.fieldToSortableTypes = fieldToSortableTypes;
     this.timings = ExplainTimings.builder().build();
     this.allCompetitiveIterators = new ArrayList<>();
-    this.canBenefitFromIndexSort = Optional.empty();
+    this.usesIndexSort = Optional.empty();
   }
 
   public ExplainTimings getTimings() {
@@ -90,8 +90,8 @@ public class SortFeatureExplainer implements FeatureExplainer {
         new ArrayList<>(List.of(ProfileDocIdSetIterator.create(DocIdSetIterator.empty(), summed)));
   }
 
-  public synchronized void setCanBenefitFromIndexSort(boolean canBenefitFromIndexSort) {
-    this.canBenefitFromIndexSort = Optional.of(canBenefitFromIndexSort);
+  public synchronized void setUsesIndexSort(boolean usesIndexSort) {
+    this.usesIndexSort = Optional.of(usesIndexSort);
   }
 
   @Override
@@ -101,7 +101,7 @@ public class SortFeatureExplainer implements FeatureExplainer {
 
     if (verbosity.equals(Explain.Verbosity.QUERY_PLANNER)) {
       builder.sortStats(SortStats.create(
-          filteredFieldToTypes, this.canBenefitFromIndexSort));
+          filteredFieldToTypes, this.usesIndexSort));
       return;
     }
 
@@ -122,6 +122,6 @@ public class SortFeatureExplainer implements FeatureExplainer {
                 : Optional.of(
                     QueryExecutionArea.sortComparatorAreaFor(this.timings.extractTimingData())),
             filteredFieldToTypes,
-            this.canBenefitFromIndexSort));
+            this.usesIndexSort));
   }
 }

@@ -44,7 +44,7 @@
       }
     },
     {
-      "description": "full-with-can-benefit-from-index-sort",
+      "description": "full-with-uses-index-sort",
       "json": {
         "stats": {
           "prunedResultIterator": {
@@ -62,7 +62,7 @@
             "token"
           ]
         },
-        "canBenefitFromIndexSort": true
+        "usesIndexSort": true
       },
       "bson": {
         "stats": {
@@ -85,7 +85,7 @@
             "token"
           ]
         },
-        "canBenefitFromIndexSort": true
+        "usesIndexSort": true
       }
     }
   ]

@@ -22,7 +22,7 @@
       }
     },
     {
-      "description": "full-with-can-benefit-from-index-sort",
+      "description": "full-with-uses-index-sort",
       "value": {
         "stats": {
           "prunedResultIterator": {
@@ -40,7 +40,7 @@
             "token"
           ]
         },
-        "canBenefitFromIndexSort": true
+        "usesIndexSort": true
       }
     }
   ],

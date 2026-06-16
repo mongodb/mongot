@@ -1355,7 +1355,7 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
     // track Index sort metrics
     if (luceneSort.isPresent()
         && indexSort.isPresent()
-        && IndexSortUtils.canBenefitFromIndexSort(luceneSort.get(), indexSort.get())) {
+        && IndexSortUtils.usesIndexSort(luceneSort.get(), indexSort.get())) {
       this.queryingMetricsUpdater.getBenefitFromIndexSortCounter().increment();
     }
   }

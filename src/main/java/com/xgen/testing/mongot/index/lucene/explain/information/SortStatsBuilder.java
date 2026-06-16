@@ -13,7 +13,7 @@ public class SortStatsBuilder {
   private Optional<QueryExecutionArea> profilingIteratorExecutionArea;
   private Optional<QueryExecutionArea> sortExecutionArea;
   private Optional<Map<String, List<FieldName.TypeField>>> fieldInfos;
-  private Optional<Boolean> canBenefitFromIndexSort = Optional.empty();
+  private Optional<Boolean> usesIndexSort = Optional.empty();
 
   public static SortStatsBuilder builder() {
     return new SortStatsBuilder();
@@ -35,8 +35,8 @@ public class SortStatsBuilder {
     return this;
   }
 
-  public SortStatsBuilder canBenefitFromIndexSort(boolean canBenefitFromIndexSort) {
-    this.canBenefitFromIndexSort = Optional.of(canBenefitFromIndexSort);
+  public SortStatsBuilder usesIndexSort(boolean usesIndexSort) {
+    this.usesIndexSort = Optional.of(usesIndexSort);
     return this;
   }
 
@@ -50,6 +50,6 @@ public class SortStatsBuilder {
                     this.profilingIteratorExecutionArea.get(), this.sortExecutionArea.get()))
             : Optional.empty();
 
-    return new SortStats(sortExplainTimingBreakdown, infos, this.canBenefitFromIndexSort);
+    return new SortStats(sortExplainTimingBreakdown, infos, this.usesIndexSort);
   }
 }

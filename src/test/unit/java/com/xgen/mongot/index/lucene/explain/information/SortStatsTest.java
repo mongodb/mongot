@@ -36,7 +36,7 @@ public class SortStatsTest {
               .sortExecutionArea(ExplainInformationTestUtil.QUERY_EXECUTION_AREA)
               .fieldInfos(
                   Map.of("foo", List.of(FieldName.TypeField.DATE, FieldName.TypeField.TOKEN)))
-              .canBenefitFromIndexSort(true)
+              .usesIndexSort(true)
               .build();
 
       SortStats result =
@@ -77,7 +77,7 @@ public class SortStatsTest {
     public static Iterable<BsonDeserializationTestSuite.TestSpecWrapper<SortStats>> data() {
       return TEST_SUITE.withExamples(
           full(),
-          fullWithCanBenefitFromIndexSort());
+          fullWithUsesIndexSort());
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<SortStats> full() {
@@ -92,15 +92,15 @@ public class SortStatsTest {
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<SortStats>
-        fullWithCanBenefitFromIndexSort() {
+        fullWithUsesIndexSort() {
       return BsonDeserializationTestSuite.TestSpec.valid(
-          "full-with-can-benefit-from-index-sort",
+          "full-with-uses-index-sort",
           SortStatsBuilder.builder()
               .profilingIteratorExecutionArea(ExplainInformationTestUtil.QUERY_EXECUTION_AREA)
               .sortExecutionArea(ExplainInformationTestUtil.QUERY_EXECUTION_AREA)
               .fieldInfos(
                   Map.of("foo", List.of(FieldName.TypeField.DATE, FieldName.TypeField.TOKEN)))
-              .canBenefitFromIndexSort(true)
+              .usesIndexSort(true)
               .build());
     }
   }
@@ -123,7 +123,7 @@ public class SortStatsTest {
     public static Iterable<BsonSerializationTestSuite.TestSpec<SortStats>> data() {
       return List.of(
           full(),
-          fullWithCanBenefitFromIndexSort());
+          fullWithUsesIndexSort());
     }
 
     @Test
@@ -143,15 +143,15 @@ public class SortStatsTest {
     }
 
     private static BsonSerializationTestSuite.TestSpec<SortStats>
-        fullWithCanBenefitFromIndexSort() {
+        fullWithUsesIndexSort() {
       return BsonSerializationTestSuite.TestSpec.create(
-          "full-with-can-benefit-from-index-sort",
+          "full-with-uses-index-sort",
           SortStatsBuilder.builder()
               .profilingIteratorExecutionArea(ExplainInformationTestUtil.QUERY_EXECUTION_AREA)
               .sortExecutionArea(ExplainInformationTestUtil.QUERY_EXECUTION_AREA)
               .fieldInfos(
                   Map.of("foo", List.of(FieldName.TypeField.DATE, FieldName.TypeField.TOKEN)))
-              .canBenefitFromIndexSort(true)
+              .usesIndexSort(true)
               .build());
     }
   }

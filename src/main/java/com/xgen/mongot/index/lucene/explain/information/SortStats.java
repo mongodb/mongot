@@ -24,7 +24,7 @@ import org.bson.BsonDocument;
 public record SortStats(
     Optional<SortExplainTimingBreakdown> stats,
     Map<String, List<FieldName.TypeField>> fieldInfos,
-    Optional<Boolean> canBenefitFromIndexSort)
+    Optional<Boolean> usesIndexSort)
     implements DocumentEncodable, Comparable<SortStats> {
   static class Fields {
     static final Field.Optional<SortExplainTimingBreakdown> STATS =
@@ -46,15 +46,15 @@ public record SortStats(
                     .required())
             .required();
 
-    static final Field.Optional<Boolean> CAN_BENEFIT_FROM_INDEX_SORT =
-        Field.builder("canBenefitFromIndexSort").booleanField().optional().noDefault();
+    static final Field.Optional<Boolean> USES_INDEX_SORT =
+        Field.builder("usesIndexSort").booleanField().optional().noDefault();
   }
 
   public static SortStats create(
       ImmutableSetMultimap<FieldPath, FieldName.TypeField> fieldToTypeField,
-      Optional<Boolean> canBenefitFromIndexSort) {
+      Optional<Boolean> usesIndexSort) {
     return SortStats.create(
-        Optional.empty(), Optional.empty(), fieldToTypeField, canBenefitFromIndexSort);
+        Optional.empty(), Optional.empty(), fieldToTypeField, usesIndexSort);
   }
 
 
@@ -62,7 +62,7 @@ public record SortStats(
       Optional<QueryExecutionArea> prunedResultIterator,
       Optional<QueryExecutionArea> comparator,
       ImmutableSetMultimap<FieldPath, FieldName.TypeField> fieldToTypeField,
-      Optional<Boolean> canBenefitFromIndexSort) {
+      Optional<Boolean> usesIndexSort) {
 
     Optional<SortExplainTimingBreakdown> sortExplainTimingBreakdown =
         Stream.of(prunedResultIterator, comparator).allMatch(Optional::isPresent)
@@ -82,14 +82,14 @@ public record SortStats(
                             .sorted()
                             .collect(Collectors.toList())));
 
-    return new SortStats(sortExplainTimingBreakdown, fieldInfos, canBenefitFromIndexSort);
+    return new SortStats(sortExplainTimingBreakdown, fieldInfos, usesIndexSort);
   }
 
   public static SortStats fromBson(DocumentParser parser) throws BsonParseException {
     return new SortStats(
         parser.getField(Fields.STATS).unwrap(),
         parser.getField(Fields.FIELD_INFOS).unwrap(),
-        parser.getField(Fields.CAN_BENEFIT_FROM_INDEX_SORT).unwrap());
+        parser.getField(Fields.USES_INDEX_SORT).unwrap());
   }
 
   public boolean equals(SortStats other, Equator<QueryExecutionArea> timingEquator) {
@@ -100,7 +100,7 @@ public record SortStats(
             .orElse(true)
         // both stats are either present or absent
         && Objects.equals(this.fieldInfos, other.fieldInfos)
-        && Objects.equals(this.canBenefitFromIndexSort, other.canBenefitFromIndexSort);
+        && Objects.equals(this.usesIndexSort, other.usesIndexSort);
   }
 
   @Override
@@ -108,7 +108,7 @@ public record SortStats(
     return BsonDocumentBuilder.builder()
         .field(Fields.FIELD_INFOS, this.fieldInfos)
         .field(Fields.STATS, this.stats)
-        .field(Fields.CAN_BENEFIT_FROM_INDEX_SORT, this.canBenefitFromIndexSort)
+        .field(Fields.USES_INDEX_SORT, this.usesIndexSort)
         .build();
   }
 
