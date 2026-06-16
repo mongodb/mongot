@@ -1,6 +1,7 @@
 package com.xgen.mongot.replication.mongodb.common;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,14 +24,18 @@ public class SplitEventChangeStreamClient<E extends Exception>
   private final ChangeStreamMongoClient<E> wrapped;
   private final FragmentBuffer fragmentBuffer;
   private final WrapIfThrows<E> exceptionWrapper;
+  private final GenerationId generationId;
+  private boolean splitEventLogged = false;
 
   public SplitEventChangeStreamClient(
       ChangeStreamMongoClient<E> wrapped,
       WrapIfThrows<E> exceptionWrapper,
-      MetricsFactory metricsFactory) {
+      MetricsFactory metricsFactory,
+      GenerationId generationId) {
     this.wrapped = wrapped;
     this.fragmentBuffer = new FragmentBuffer(metricsFactory);
     this.exceptionWrapper = exceptionWrapper;
+    this.generationId = generationId;
   }
 
   @Override
@@ -101,7 +106,12 @@ public class SplitEventChangeStreamClient<E extends Exception>
                   .processEvent(event)
                   .ifPresent(
                       completeEvent -> {
-                        LOG.atDebug().log("Successfully reassembled split event");
+                        if (!this.splitEventLogged) {
+                          LOG.atInfo()
+                              .addKeyValue("generationId", this.generationId)
+                              .log("Successfully reassembled split event");
+                          this.splitEventLogged = true;
+                        }
                         modifiedEvents.add(completeEvent);
                       });
             } else {

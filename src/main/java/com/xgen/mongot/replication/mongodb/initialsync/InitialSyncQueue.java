@@ -224,7 +224,8 @@ public class InitialSyncQueue {
                     clientSessionRecord.syncMongoClient(),
                     clientSessionRecord.sessionRefresher(),
                     meterRegistry,
-                    syncSourceHost)));
+                    syncSourceHost,
+                    replicationConfig.getSplitLargeChangeStreamEventsForInitialSync())));
     MetricsFactory metricsFactory = new MetricsFactory("initialSyncManager", meterRegistry);
     InitialSyncManagerFactory factory =
         getFactory(

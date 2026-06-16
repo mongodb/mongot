@@ -218,7 +218,8 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
                   getAggregateCommand(),
                   this.namespace,
                   this.context.getInitialSyncMetricsUpdater(),
-                  this.context.getEmbeddingGetMoreBatchSize()));
+                  this.context.getEmbeddingGetMoreBatchSize(),
+                  this.context.getGenerationId()));
     }
   }
 

@@ -6,11 +6,20 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.mongodb.MongoNamespace;
+import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoClient;
+import com.xgen.mongot.index.IndexMetricsUpdater.ReplicationMetricsUpdater.InitialSyncMetrics;
+import com.xgen.mongot.index.version.Generation;
+import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
 import com.xgen.mongot.replication.mongodb.common.NamespaceResolutionException;
 import com.xgen.mongot.replication.mongodb.common.NamespaceResolver;
+import com.xgen.mongot.replication.mongodb.common.SplitEventChangeStreamClient;
+import com.xgen.mongot.util.mongodb.ChangeStreamAggregateCommand;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.util.Optional;
+import org.bson.types.ObjectId;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -27,7 +36,8 @@ public class DefaultInitialSyncMongoClientTest {
             mockSessionRefresher(),
             new SimpleMeterRegistry(),
             namespaceResolver,
-            "");
+            "",
+            false);
 
     client.ensureCollectionNameUnchanged(MOCK_INDEX_DEFINITION, "foo");
   }
@@ -43,7 +53,8 @@ public class DefaultInitialSyncMongoClientTest {
             mockSessionRefresher(),
             new SimpleMeterRegistry(),
             namespaceResolver,
-            "");
+            "",
+            false);
 
     try {
       client.ensureCollectionNameUnchanged(MOCK_INDEX_DEFINITION, "foo");
@@ -51,6 +62,56 @@ public class DefaultInitialSyncMongoClientTest {
     } catch (InitialSyncException e) {
       Assert.assertTrue(e.isRequiresResync());
     }
+  }
+
+  @Test
+  public void testGetChangeStreamMongoClientWithoutSplitLargeEvents() throws Exception {
+    var mongoClient = mock(MongoClient.class);
+    when(mongoClient.startSession()).thenReturn(mock(ClientSession.class));
+
+    DefaultInitialSyncMongoClient client =
+        new DefaultInitialSyncMongoClient(
+            mongoClient,
+            mockSessionRefresher(),
+            new SimpleMeterRegistry(),
+            mock(NamespaceResolver.class),
+            "",
+            false);
+
+    var result =
+        client.getChangeStreamMongoClient(
+            new ChangeStreamAggregateCommand.Builder().build(),
+            new MongoNamespace("db", "coll"),
+            mock(InitialSyncMetrics.class),
+            Optional.empty(),
+            new GenerationId(new ObjectId(), Generation.CURRENT));
+
+    Assert.assertFalse(result instanceof SplitEventChangeStreamClient);
+  }
+
+  @Test
+  public void testGetChangeStreamMongoClientWithSplitLargeEvents() throws Exception {
+    var mongoClient = mock(MongoClient.class);
+    when(mongoClient.startSession()).thenReturn(mock(ClientSession.class));
+
+    DefaultInitialSyncMongoClient client =
+        new DefaultInitialSyncMongoClient(
+            mongoClient,
+            mockSessionRefresher(),
+            new SimpleMeterRegistry(),
+            mock(NamespaceResolver.class),
+            "",
+            true);
+
+    var result =
+        client.getChangeStreamMongoClient(
+            new ChangeStreamAggregateCommand.Builder().build(),
+            new MongoNamespace("db", "coll"),
+            mock(InitialSyncMetrics.class),
+            Optional.empty(),
+            new GenerationId(new ObjectId(), Generation.CURRENT));
+
+    Assert.assertTrue(result instanceof SplitEventChangeStreamClient);
   }
 
   @Test
@@ -65,7 +126,8 @@ public class DefaultInitialSyncMongoClientTest {
             mockSessionRefresher(),
             new SimpleMeterRegistry(),
             namespaceResolver,
-            "");
+            "",
+            false);
 
     try {
       client.ensureCollectionNameUnchanged(MOCK_INDEX_DEFINITION, "foo");

@@ -7,6 +7,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.xgen.mongot.index.version.Generation;
+import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.List;
@@ -17,6 +19,7 @@ import org.bson.BsonString;
 import org.bson.BsonTimestamp;
 import org.bson.RawBsonDocument;
 import org.bson.codecs.BsonDocumentCodec;
+import org.bson.types.ObjectId;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -82,7 +85,8 @@ public class SplitEventChangeStreamClientTest {
 
     this.client =
         new SplitEventChangeStreamClient<>(
-            this.mockWrappedClient, RUNTIME_EXCEPTION_WRAPPER, this.metricsFactory);
+            this.mockWrappedClient, RUNTIME_EXCEPTION_WRAPPER, this.metricsFactory,
+            new GenerationId(new ObjectId(), Generation.CURRENT));
   }
 
   @Test

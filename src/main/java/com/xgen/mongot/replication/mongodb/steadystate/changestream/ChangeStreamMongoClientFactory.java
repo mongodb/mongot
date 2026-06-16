@@ -94,7 +94,8 @@ class ChangeStreamMongoClientFactory {
 
     if (this.enableSplitLargeChangeStreamEvents) {
       return new SplitEventChangeStreamClient<>(
-          client, SteadyStateException::wrapIfThrows, this.meterMetricsFactory);
+          client, SteadyStateException::wrapIfThrows,
+              this.meterMetricsFactory, generationId);
     } else {
       return client;
     }
@@ -118,7 +119,8 @@ class ChangeStreamMongoClientFactory {
 
     if (this.enableSplitLargeChangeStreamEvents) {
       return new SplitEventChangeStreamClient<>(
-          client, SteadyStateException::wrapIfThrows, this.meterMetricsFactory);
+          client, SteadyStateException::wrapIfThrows,
+              this.meterMetricsFactory, generationId);
     } else {
       return client;
     }

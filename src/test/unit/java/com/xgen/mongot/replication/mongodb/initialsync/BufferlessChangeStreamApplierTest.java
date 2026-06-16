@@ -450,7 +450,7 @@ public class BufferlessChangeStreamApplierTest {
       when(changeStreamClient.getNext()).thenReturn(EMPTY_BATCH);
 
       InitialSyncMongoClient mongoClient = mock(InitialSyncMongoClient.class);
-      when(mongoClient.getChangeStreamMongoClient(any(), any(), any(), any()))
+      when(mongoClient.getChangeStreamMongoClient(any(), any(), any(), any(), any()))
           .thenReturn(changeStreamClient);
       when(mongoClient.getSyncSourceHost()).thenReturn("testHost");
 
@@ -478,7 +478,7 @@ public class BufferlessChangeStreamApplierTest {
       when(changeStreamClient.getNext()).thenReturn(EMPTY_BATCH);
 
       InitialSyncMongoClient mongoClient = mock(InitialSyncMongoClient.class);
-      when(mongoClient.getChangeStreamMongoClient(any(), any(), any(), any()))
+      when(mongoClient.getChangeStreamMongoClient(any(), any(), any(), any(), any()))
           .thenReturn(changeStreamClient);
       when(mongoClient.getSyncSourceHost()).thenReturn("testHost");
 
@@ -493,7 +493,7 @@ public class BufferlessChangeStreamApplierTest {
               isFreshStart);
 
       when(mongoClient.getChangeStreamMongoClient(
-              mocks.commandCaptor.capture(), any(), any(), any()))
+              mocks.commandCaptor.capture(), any(), any(), any(), any()))
           .thenReturn(changeStreamClient);
       return mocks;
     }

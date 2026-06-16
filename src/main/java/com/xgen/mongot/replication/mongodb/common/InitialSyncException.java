@@ -202,6 +202,8 @@ public class InitialSyncException extends Exception {
       throw createRequiresResync(e, "presumed transient issue decoding response from mongod");
     } catch (InitialSyncException e) {
       throw e;
+    } catch (FragmentProcessingException e) {
+      throw createRequiresResync(e);
     } catch (Exception e) {
       if (e instanceof RuntimeException runtimeException) {
         throw runtimeException;

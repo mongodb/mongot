@@ -267,6 +267,20 @@ public class InitialSyncExceptionTest {
   }
 
   @Test
+  public void testWrapIfThrowsFragmentProcessingException() {
+    var e =
+        Assert.assertThrows(
+            InitialSyncException.class,
+            () ->
+                InitialSyncException.wrapIfThrows(
+                    () -> {
+                      throw new FragmentProcessingException("fragment error");
+                    },
+                    InitialSyncException.Phase.MAIN));
+    Assert.assertTrue(e.isRequiresResync());
+  }
+
+  @Test
   public void testGetOrWrapThrowablePropagatesErrors() {
     var future = CompletableFuture.failedFuture(new OutOfMemoryError());
     Assert.assertThrows(

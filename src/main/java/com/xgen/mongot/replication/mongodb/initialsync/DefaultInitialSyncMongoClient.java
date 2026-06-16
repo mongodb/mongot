@@ -4,6 +4,7 @@ import com.mongodb.MongoNamespace;
 import com.mongodb.client.MongoClient;
 import com.xgen.mongot.index.IndexMetricsUpdater.ReplicationMetricsUpdater.InitialSyncMetrics;
 import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.replication.mongodb.common.AggregateCommandCollectionScanMongoClient;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoClient;
@@ -15,6 +16,7 @@ import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
 import com.xgen.mongot.replication.mongodb.common.NamespaceResolutionException;
 import com.xgen.mongot.replication.mongodb.common.NamespaceResolver;
 import com.xgen.mongot.replication.mongodb.common.SessionRefresher;
+import com.xgen.mongot.replication.mongodb.common.SplitEventChangeStreamClient;
 import com.xgen.mongot.util.mongodb.ChangeStreamAggregateCommand;
 import com.xgen.mongot.util.mongodb.CollectionScanAggregateCommand;
 import com.xgen.mongot.util.mongodb.CollectionScanFindCommand;
@@ -35,33 +37,37 @@ class DefaultInitialSyncMongoClient implements InitialSyncMongoClient {
   private final SessionRefresher sessionRefresher;
   private final NamespaceResolver namespaceResolver;
   private final MeterRegistry meterRegistry;
-
   private final String syncSourceHost;
+  private final boolean splitLargeChangeStreamEvents;
 
   DefaultInitialSyncMongoClient(
       MongoClient mongoClient,
       SessionRefresher sessionRefresher,
       MeterRegistry meterRegistry,
       NamespaceResolver namespaceResolver,
-      String syncSourceHost) {
+      String syncSourceHost,
+      boolean splitLargeChangeStreamEvents) {
     this.mongoClient = mongoClient;
     this.sessionRefresher = sessionRefresher;
     this.namespaceResolver = namespaceResolver;
     this.meterRegistry = meterRegistry;
     this.syncSourceHost = syncSourceHost;
+    this.splitLargeChangeStreamEvents = splitLargeChangeStreamEvents;
   }
 
   public static DefaultInitialSyncMongoClient create(
       MongoClient mongoClient,
       SessionRefresher sessionRefresher,
       MeterRegistry meterRegistry,
-      String syncSourceHost) {
+      String syncSourceHost,
+      boolean splitLargeChangeStreamEvents) {
     return new DefaultInitialSyncMongoClient(
         mongoClient,
         sessionRefresher,
         meterRegistry,
         new DefaultNamespaceResolver(mongoClient),
-        syncSourceHost);
+        syncSourceHost,
+        splitLargeChangeStreamEvents);
   }
 
   @Override
@@ -126,16 +132,26 @@ class DefaultInitialSyncMongoClient implements InitialSyncMongoClient {
       ChangeStreamAggregateCommand aggregateCommand,
       MongoNamespace namespace,
       InitialSyncMetrics initialSyncMetricsUpdater,
-      Optional<Integer> batchSize)
+      Optional<Integer> batchSize,
+      GenerationId generationId)
       throws InitialSyncException {
-    return DefaultChangeStreamMongoClient.createInitialSync(
-        aggregateCommand,
-        this.mongoClient,
-        this.sessionRefresher,
-        namespace,
-        new MetricsFactory("indexing.initialSyncChangeStream", this.meterRegistry),
-        initialSyncMetricsUpdater,
-        batchSize);
+    var metricsFactory =
+        new MetricsFactory("indexing.initialSyncChangeStream", this.meterRegistry);
+    ChangeStreamMongoClient<InitialSyncException> client =
+        DefaultChangeStreamMongoClient.createInitialSync(
+            aggregateCommand,
+            this.mongoClient,
+            this.sessionRefresher,
+            namespace,
+            metricsFactory,
+            initialSyncMetricsUpdater,
+            batchSize);
+
+    if (this.splitLargeChangeStreamEvents) {
+      return new SplitEventChangeStreamClient<>(
+          client, InitialSyncException::wrapIfThrowsChangeStream, metricsFactory, generationId);
+    }
+    return client;
   }
 
   @Override

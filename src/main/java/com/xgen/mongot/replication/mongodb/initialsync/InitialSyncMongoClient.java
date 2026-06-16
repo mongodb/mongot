@@ -3,6 +3,7 @@ package com.xgen.mongot.replication.mongodb.initialsync;
 import com.mongodb.MongoNamespace;
 import com.xgen.mongot.index.IndexMetricsUpdater.ReplicationMetricsUpdater.InitialSyncMetrics;
 import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoClient;
 import com.xgen.mongot.replication.mongodb.common.CollectionScanMongoClient;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
@@ -45,7 +46,8 @@ interface InitialSyncMongoClient {
       ChangeStreamAggregateCommand aggregateCommand,
       MongoNamespace namespace,
       InitialSyncMetrics initialSyncMetricsUpdater,
-      Optional<Integer> batchSize)
+      Optional<Integer> batchSize,
+      GenerationId generationId)
       throws InitialSyncException;
 
   /**
