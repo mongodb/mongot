@@ -12,6 +12,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/definition/quantization",
         "//src/main/java/com/xgen/mongot/util",
+        "//src/main/java/com/xgen/mongot/util/bson/parser",
         "//src/main/java/com/xgen/testing/mongot/index/definition",
         "@maven//:com_google_truth_truth",
         "@maven//:junit_junit",

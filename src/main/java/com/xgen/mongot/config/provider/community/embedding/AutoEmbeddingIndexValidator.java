@@ -1,6 +1,5 @@
 package com.xgen.mongot.config.provider.community.embedding;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelCatalog;
 import com.xgen.mongot.index.definition.FieldDefinition;
@@ -16,9 +15,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import org.bson.BsonArray;
-import org.bson.BsonDocument;
-import org.bson.BsonValue;
 
 /**
  * Validator for auto-embedding vector indexes on community.
@@ -28,21 +24,14 @@ import org.bson.BsonValue;
  */
 public class AutoEmbeddingIndexValidator {
 
-  // temporary, to be removed after allowing advanced configs in community
-  public static final String AUTO_EMBED_INDEX_FIELD_TYPE = "autoEmbed";
-
   /**
    * Runs validations for auto-embedding indexes on community. Works for both vector and search
    * index definitions.
    *
-   * <p>Pass the raw definition BSON when available to reject explicit hnswOptions on community
-   * vector indexes; pass {@link Optional#empty()} to skip the BSON check.
-   *
    * @throws InvalidIndexDefinitionException if the index violates restrictions
    * @throws IllegalArgumentException if called on a non-auto-embedding index
    */
-  public static void validate(
-      IndexDefinition indexDefinition, Optional<BsonDocument> definitionBson)
+  public static void validate(IndexDefinition indexDefinition)
       throws InvalidIndexDefinitionException {
     if (!indexDefinition.isAutoEmbeddingIndex()) {
       throw new IllegalArgumentException(
@@ -51,73 +40,8 @@ public class AutoEmbeddingIndexValidator {
 
     validateEmbeddingModelsAreRegistered(indexDefinition);
     switch (indexDefinition) {
-      case VectorIndexDefinition vectorIndex -> {
-        validateNoMixedVectorTypes(vectorIndex);
-        if (definitionBson.isPresent()) {
-          validateUnsupportedAutoEmbedOptions(definitionBson.get());
-        }
-      }
+      case VectorIndexDefinition vectorIndex -> validateNoMixedVectorTypes(vectorIndex);
       case SearchIndexDefinition searchIndex -> validateSearchNoMixedVectorTypes(searchIndex);
-    }
-  }
-
-  /** Unsupported auto-embed field options on community. */
-  private static final List<UnsupportedOption> UNSUPPORTED_AUTO_EMBED_OPTIONS =
-      List.of(
-          new UnsupportedOption(
-              "indexingMethod",
-              "indexingMethod is not supported for auto-embedding indexes on community. "
-                  + "Omit indexingMethod to use default HNSW."),
-          new UnsupportedOption(
-              "hnswOptions",
-              "hnswOptions is not supported for auto-embedding indexes on community. "
-                  + "Omit hnswOptions to use default HNSW settings."),
-          new UnsupportedOption(
-              "similarity",
-              "similarity is not supported for auto-embedding indexes on community. "
-                  + "Omit similarity to use the default (dotProduct)."),
-          new UnsupportedOption(
-              "quantization",
-              "quantization is not supported for auto-embedding indexes on community. "
-                  + "Omit quantization to use the default (float)."),
-          new UnsupportedOption(
-              "numDimensions",
-              "numDimensions is not supported for auto-embedding indexes on community. "
-                  + "The embedding model determines dimensions automatically."));
-
-  private record UnsupportedOption(String fieldName, String errorMessage) {}
-
-  /**
-   * Rejects raw definition BSON that contains unsupported options in any autoEmbed field on
-   * community. Call before parsing. BSON walk avoids touching shared parser; remove when community
-   * allows these options.
-   *
-   * @param definitionBson raw index definition (e.g. has "fields" array)
-   * @throws InvalidIndexDefinitionException if any autoEmbed field has unsupported options
-   */
-  @VisibleForTesting
-  public static void validateUnsupportedAutoEmbedOptions(BsonDocument definitionBson)
-      throws InvalidIndexDefinitionException {
-    BsonValue fieldsValue = definitionBson.get("fields");
-    if (fieldsValue == null || !fieldsValue.isArray()) {
-      return;
-    }
-    BsonArray fields = fieldsValue.asArray();
-    for (BsonValue v : fields) {
-      if (!v.isDocument()) {
-        continue;
-      }
-      BsonDocument field = v.asDocument();
-      // check params for autoEmbed fields and skip filter fields
-      if (field.containsKey("type")
-          && field.get("type").isString()
-          && AUTO_EMBED_INDEX_FIELD_TYPE.equalsIgnoreCase(field.getString("type").getValue())) {
-        for (UnsupportedOption option : UNSUPPORTED_AUTO_EMBED_OPTIONS) {
-          if (field.containsKey(option.fieldName())) {
-            throw new InvalidIndexDefinitionException(option.errorMessage());
-          }
-        }
-      }
     }
   }
 
