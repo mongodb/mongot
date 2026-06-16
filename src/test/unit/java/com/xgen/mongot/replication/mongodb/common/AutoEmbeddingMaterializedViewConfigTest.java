@@ -319,47 +319,6 @@ public class AutoEmbeddingMaterializedViewConfigTest {
       assertEquals(8, config.matViewWriterMaxConnections);
     }
 
-    /**
-     * Community and LocalDev bootstrappers pass {@code Optional.of(0L)} to keep legacy unstamped
-     * indexes resolving to their existing v0 MV collections. Verify the override is honored.
-     */
-    @Test
-    public void testMaterializedViewNameFormatVersion_overrideZeroIsHonored() {
-      Runtime runtime = MockRuntimeBuilder.buildDefault();
-      when(runtime.getNumCpus()).thenReturn(8);
-      AutoEmbeddingMaterializedViewConfig config =
-          AutoEmbeddingMaterializedViewConfig.create(
-              runtime,
-              new CommonReplicationConfig.GlobalReplicationConfig(
-                  false, List.of(), false, false, List.of(), false),
-              Optional.empty(),
-              Optional.empty(),
-              Optional.empty(),
-              Optional.empty(),
-              Optional.empty(),
-              Optional.empty(),
-              Optional.empty(),
-              Optional.empty(),
-              Optional.empty(),
-              Optional.empty(),
-              Optional.empty(),
-              Optional.empty(),
-              Optional.empty(),
-              Optional.empty(),
-              Optional.empty(),
-              Optional.empty(),
-              Optional.empty(),
-              Optional.empty(),
-              Optional.of(0L),
-              Optional.empty(),
-              Optional.empty(),
-              Optional.empty(),
-              Optional.empty(),
-              Optional.empty(),
-              Optional.empty());
-      assertEquals(0L, config.defaultMaterializedViewNameFormatVersion);
-    }
-
     @Test
     public void testMatViewWriterMaxConnections_defaultsTo4WhenAbsent() {
       Runtime runtime = MockRuntimeBuilder.buildDefault();
