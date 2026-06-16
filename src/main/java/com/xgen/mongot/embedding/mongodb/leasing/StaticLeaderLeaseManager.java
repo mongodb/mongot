@@ -415,10 +415,10 @@ public class StaticLeaderLeaseManager implements LeaseManager {
   @Override
   public List<Lease> findGcCandidates(Instant expirationCutoff) {
     // Scans only the default internal database — static deployments are single-tenant (see
-    // DynamicLeaderLeaseManager#findGcCandidates for the multi-database variant). Note: in static
-    // mode the leader renews leases only as a side effect of replication-event writes, so an idle
-    // index's lease can legitimately expire — GC must not be enabled for static deployments until
-    // renewal exists for idle leases.
+    // DynamicLeaderLeaseManager#findGcCandidates for the multi-database variant). A healthy
+    // leader keeps its lease fresh on every PeriodicIndexCommitter tick (the commit refreshes
+    // leaseExpiration even with no source writes), well within the lease TTL, so an idle index
+    // does not expire; a lapsed lease means the generator is not running.
     List<Lease> candidates = new ArrayList<>();
     try {
       String defaultDb = this.dbResolver.resolveDefault();

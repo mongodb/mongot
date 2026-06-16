@@ -38,6 +38,7 @@ import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalo
 import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
 import com.xgen.mongot.embedding.mongodb.common.AutoEmbeddingMongoClient;
 import com.xgen.mongot.embedding.mongodb.leasing.DynamicLeaderLeaseManager;
+import com.xgen.mongot.embedding.mongodb.leasing.Lease;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
 import com.xgen.mongot.embedding.mongodb.leasing.StaticLeaderLeaseManager;
 import com.xgen.mongot.featureflag.FeatureFlags;
@@ -75,6 +76,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -3106,6 +3108,147 @@ public class MaterializedViewManagerTest {
     verify(materializedViewGenerator).becomeLeader();
   }
 
+  // ==================== Stale-Lease GC Scanner Tests ====================
+
+  private static Lease leaseWithExpiration(
+      String leaseKey, Instant leaseExpiration, Lease.CleanupState cleanupState) {
+    return new Lease(
+        leaseKey,
+        Lease.SCHEMA_VERSION,
+        UUID.randomUUID().toString(),
+        leaseKey,
+        "some-other-mongot",
+        leaseExpiration,
+        1L,
+        "",
+        "0",
+        Map.of(),
+        new MaterializedViewCollectionMetadata(
+            new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(0, Map.of()),
+            UUID.randomUUID(),
+            leaseKey),
+        null,
+        cleanupState);
+  }
+
+  @Test
+  public void scanStaleLeases_disabledByDefault_threadNotScheduled() {
+    Mocks mocks = Mocks.create();
+
+    // The GC scanner thread is gated off (STALE_LEASE_SCAN_ENABLED = false): the periodic scan task
+    // is never scheduled on its executor, so no background thread is created.
+    verify(mocks.staleLeaseScannerExecutor, never())
+        .scheduleWithFixedDelay(any(), anyLong(), anyLong(), any());
+  }
+
+  @Test
+  public void scanStaleLeases_staleLease_marksEligible() {
+    Mocks mocks = Mocks.create();
+    Instant longExpired = Instant.now().minus(Duration.ofHours(1));
+    Lease stale =
+        leaseWithExpiration("stale-lease", longExpired, Lease.CleanupState.NOT_ELIGIBLE);
+    when(mocks.leaseManager.findGcCandidates(any())).thenReturn(List.of(stale));
+    when(mocks.leaseManager.markEligibleForCleanup(any(), any())).thenReturn(true);
+
+    mocks.manager.scanStaleLeasesForCleanup();
+
+    // The same cutoff is used for the candidate query and the mark: now minus the grace period.
+    ArgumentCaptor<Instant> queryCutoff = ArgumentCaptor.forClass(Instant.class);
+    ArgumentCaptor<Instant> markCutoff = ArgumentCaptor.forClass(Instant.class);
+    verify(mocks.leaseManager).findGcCandidates(queryCutoff.capture());
+    verify(mocks.leaseManager).markEligibleForCleanup(eq("stale-lease"), markCutoff.capture());
+    assertEquals(queryCutoff.getValue(), markCutoff.getValue());
+    assertTrue(markCutoff.getValue().isBefore(Instant.now()));
+    assertTrue(markCutoff.getValue().isAfter(longExpired));
+  }
+
+  @Test
+  public void scanStaleLeases_alreadyEligible_skips() {
+    Mocks mocks = Mocks.create();
+    Lease alreadyMarked =
+        leaseWithExpiration(
+            "already-marked",
+            Instant.now().minus(Duration.ofHours(2)),
+            Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+    when(mocks.leaseManager.findGcCandidates(any())).thenReturn(List.of(alreadyMarked));
+
+    mocks.manager.scanStaleLeasesForCleanup();
+
+    verify(mocks.leaseManager, never()).markEligibleForCleanup(any(), any());
+  }
+
+  @Test
+  public void scanStaleLeases_mixedLeases_marksOnlyNotEligible() {
+    Mocks mocks = Mocks.create();
+    Lease stale =
+        leaseWithExpiration(
+            "stale-lease",
+            Instant.now().minus(Duration.ofHours(1)),
+            Lease.CleanupState.NOT_ELIGIBLE);
+    Lease alreadyMarked =
+        leaseWithExpiration(
+            "already-marked",
+            Instant.now().minus(Duration.ofHours(2)),
+            Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+    when(mocks.leaseManager.findGcCandidates(any())).thenReturn(List.of(stale, alreadyMarked));
+    when(mocks.leaseManager.markEligibleForCleanup(any(), any())).thenReturn(true);
+
+    mocks.manager.scanStaleLeasesForCleanup();
+
+    verify(mocks.leaseManager).markEligibleForCleanup(eq("stale-lease"), any());
+    verify(mocks.leaseManager, never()).markEligibleForCleanup(eq("already-marked"), any());
+  }
+
+  @Test
+  public void scanStaleLeases_markThrows_continuesToNextLease() {
+    Mocks mocks = Mocks.create();
+    Lease throwing =
+        leaseWithExpiration(
+            "throwing-lease",
+            Instant.now().minus(Duration.ofHours(1)),
+            Lease.CleanupState.NOT_ELIGIBLE);
+    Lease second =
+        leaseWithExpiration(
+            "second-lease",
+            Instant.now().minus(Duration.ofHours(2)),
+            Lease.CleanupState.NOT_ELIGIBLE);
+    when(mocks.leaseManager.findGcCandidates(any())).thenReturn(List.of(throwing, second));
+    when(mocks.leaseManager.markEligibleForCleanup(eq("throwing-lease"), any()))
+        .thenThrow(new RuntimeException("simulated mark failure"));
+    when(mocks.leaseManager.markEligibleForCleanup(eq("second-lease"), any())).thenReturn(true);
+
+    mocks.manager.scanStaleLeasesForCleanup();
+
+    // The first lease's failure is contained per-iteration; the sweep still marks the second.
+    verify(mocks.leaseManager).markEligibleForCleanup(eq("second-lease"), any());
+  }
+
+  @Test
+  public void scanStaleLeases_scanThrows_isContained() {
+    Mocks mocks = Mocks.create();
+    when(mocks.leaseManager.findGcCandidates(any()))
+        .thenThrow(new RuntimeException("simulated scan failure"));
+
+    // Must not propagate: VerboseRunnable rethrows and scheduleWithFixedDelay would cancel the
+    // periodic task permanently.
+    mocks.manager.scanStaleLeasesForCleanup();
+
+    verify(mocks.leaseManager, never()).markEligibleForCleanup(any(), any());
+  }
+
+  @Test
+  public void scanStaleLeases_replicationDisabled_noOp() {
+    Mocks mocks = Mocks.create();
+    mocks.manager.setIsReplicationEnabled(false);
+
+    // The scanner is scheduled unconditionally, so the isReplicationSupported() guard must keep it
+    // from touching the lease store when replication is disabled.
+    mocks.manager.scanStaleLeasesForCleanup();
+
+    verify(mocks.leaseManager, never()).findGcCandidates(any());
+    verify(mocks.leaseManager, never()).markEligibleForCleanup(any(), any());
+  }
+
   static class Mocks {
     final NamedExecutorService executorService;
     @Keep final IndexingWorkSchedulerFactory indexingWorkSchedulerFactory;
@@ -3124,6 +3267,7 @@ public class MaterializedViewManagerTest {
     final IndexStatus expectedStatus; // For follower mode tests
     final Optional<ArgumentCaptor<Runnable>> runnableCaptor; // For follower mode tests
     final MaterializedViewCollectionMetadataCatalog metadataCatalog;
+    final NamedScheduledExecutorService staleLeaseScannerExecutor;
 
     MaterializedViewManager manager;
 
@@ -3159,6 +3303,7 @@ public class MaterializedViewManagerTest {
       this.runnableCaptor = runnableCaptor;
       this.leaseManager = leaseManager;
       this.metadataCatalog = metadataCatalog;
+      this.staleLeaseScannerExecutor = mockScheduledExecutor("mat-view-stale-lease-scanner");
 
       SyncSourceConfig syncSourceConfig =
           SyncSourceConfig.builder()
@@ -3186,6 +3331,7 @@ public class MaterializedViewManagerTest {
                   heartbeatExecutor,
                   statusRefreshExecutor,
                   optimeUpdaterExecutor,
+                  this.staleLeaseScannerExecutor,
                   this.meterRegistry,
                   leaseManager,
                   metadataCatalog,

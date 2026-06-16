@@ -20,6 +20,7 @@ import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalo
 import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
 import com.xgen.mongot.embedding.mongodb.common.AutoEmbeddingMongoClient;
 import com.xgen.mongot.embedding.mongodb.leasing.DynamicLeaderLeaseManager;
+import com.xgen.mongot.embedding.mongodb.leasing.Lease;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
 import com.xgen.mongot.embedding.mongodb.leasing.StaticLeaderLeaseManager;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
@@ -64,6 +65,7 @@ import io.micrometer.core.instrument.Tags;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -79,6 +81,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.bson.types.ObjectId;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -178,6 +181,31 @@ public class MaterializedViewManager implements ReplicationManager {
 
   private final ScheduledFuture<?> statusRefreshFuture;
 
+  // ==================== Stale-lease GC scanner fields ====================
+
+  /**
+   * Mark a lease eligible for cleanup once it has lapsed by this much — far past the lease TTL
+   * ({@link Lease#LEASE_EXPIRATION_MS}), so a lapse means every mongot has flipped off the MV.
+   * TODO(CLOUDP-409036): make configurable, alongside the cleaner's (longer) delete grace.
+   */
+  private static final Duration STALE_LEASE_MARK_GRACE_PERIOD = Duration.ofMinutes(30);
+
+  /** How often the stale-lease scanner sweeps. Well under the grace period so marks are timely. */
+  private static final long STALE_LEASE_SCAN_INTERVAL_MS = Duration.ofMinutes(5).toMillis();
+
+  /**
+   * Whether to create the periodic stale-lease GC scanner thread. Hardcoded off until the GC stack
+   * (scanner + cleaner + safeguards) is complete: while off, the scan task is never scheduled, so
+   * no background thread is created and merging this is not a behavior change.
+   * TODO(CLOUDP-409036): replace with a feature flag.
+   */
+  private static final boolean STALE_LEASE_SCAN_ENABLED = false;
+
+  /** Executor for the periodic stale-lease GC scan. Separate from heartbeat and status refresh. */
+  private final NamedScheduledExecutorService staleLeaseScannerExecutor;
+
+  @Nullable private final ScheduledFuture<?> staleLeaseScannerFuture;
+
   private final AutoEmbeddingMaterializedViewConfig materializedViewConfig;
 
   /**
@@ -206,6 +234,7 @@ public class MaterializedViewManager implements ReplicationManager {
       NamedScheduledExecutorService heartbeatExecutor,
       NamedScheduledExecutorService statusRefreshExecutor,
       NamedScheduledExecutorService optimeUpdaterExecutor,
+      NamedScheduledExecutorService staleLeaseScannerExecutor,
       MeterRegistry meterRegistry,
       LeaseManager leaseManager,
       MaterializedViewCollectionMetadataCatalog matViewMetadataCatalog,
@@ -219,6 +248,7 @@ public class MaterializedViewManager implements ReplicationManager {
         heartbeatExecutor,
         statusRefreshExecutor,
         optimeUpdaterExecutor,
+        staleLeaseScannerExecutor,
         meterRegistry,
         leaseManager,
         matViewMetadataCatalog,
@@ -239,6 +269,7 @@ public class MaterializedViewManager implements ReplicationManager {
       NamedScheduledExecutorService heartbeatExecutor,
       NamedScheduledExecutorService statusRefreshExecutor,
       NamedScheduledExecutorService optimeUpdaterExecutor,
+      NamedScheduledExecutorService staleLeaseScannerExecutor,
       MeterRegistry meterRegistry,
       LeaseManager leaseManager,
       MaterializedViewCollectionMetadataCatalog matViewMetadataCatalog,
@@ -257,6 +288,7 @@ public class MaterializedViewManager implements ReplicationManager {
     this.metricsFactory = new MetricsFactory("replication.mongodb", this.meterRegistry);
     this.statusRefreshExecutor = statusRefreshExecutor;
     this.optimeUpdaterExecutor = optimeUpdaterExecutor;
+    this.staleLeaseScannerExecutor = staleLeaseScannerExecutor;
     this.leaseManager = leaseManager;
     this.matViewMetadataCatalog = matViewMetadataCatalog;
     this.isReplicationEnabled = false;
@@ -319,6 +351,29 @@ public class MaterializedViewManager implements ReplicationManager {
             0,
             this.materializedViewConfig.materializedViewOptimeUpdateIntervalMs,
             TimeUnit.MILLISECONDS);
+
+    // Periodic stale-lease GC scan. The background thread is created only when
+    // STALE_LEASE_SCAN_ENABLED is on; while off (until the GC stack lands) the task is never
+    // scheduled. TODO(CLOUDP-409036): replace the constant with a feature flag. First run is
+    // deferred by one interval.
+    this.staleLeaseScannerFuture =
+        STALE_LEASE_SCAN_ENABLED
+            ? staleLeaseScannerExecutor.scheduleWithFixedDelay(
+                new VerboseRunnable() {
+                  @Override
+                  public void verboseRun() {
+                    scanStaleLeasesForCleanup();
+                  }
+
+                  @Override
+                  public Logger getLogger() {
+                    return LOG;
+                  }
+                },
+                STALE_LEASE_SCAN_INTERVAL_MS,
+                STALE_LEASE_SCAN_INTERVAL_MS,
+                TimeUnit.MILLISECONDS)
+            : null;
 
     if (registerGauges) {
       createStateGauges(this, this.metricsFactory);
@@ -396,6 +451,9 @@ public class MaterializedViewManager implements ReplicationManager {
     var optimeUpdaterExecutor =
         Executors.singleThreadScheduledExecutor("mat-view-optime-updater", meterRegistry);
 
+    var staleLeaseScannerExecutor =
+        Executors.singleThreadScheduledExecutor("mat-view-stale-lease-scanner", meterRegistry);
+
     MaterializedViewManager manager =
         new MaterializedViewManager(
             lifecycleExecutor,
@@ -406,6 +464,7 @@ public class MaterializedViewManager implements ReplicationManager {
             heartbeatExecutor,
             statusRefreshExecutor,
             optimeUpdaterExecutor,
+            staleLeaseScannerExecutor,
             meterRegistry,
             leaseManager,
             matViewMetadataCatalog,
@@ -895,13 +954,13 @@ public class MaterializedViewManager implements ReplicationManager {
 
   /**
    * Tears down this mongot's local state for a dropped generation. When this was the last local
-   * user of the MV collection (UUID ref-count hits 0), it decides whether to reclaim the shared MV
-   * collection + lease now, or leave them for the leaderless stale-lease GC. {@code dropIndex} is
-   * only reached via the config-driven removal path, which means either:
+   * user of the MV collection (UUID ref-count hits 0), it decides whether to clean up the shared
+   * MV collection + lease now, or leave them for the leaderless stale-lease GC. {@code dropIndex}
+   * is only reached via the config-driven removal path, which means either:
    *
    * <ul>
    *   <li><b>autoEmbed-field update (supersession)</b> -- a newer lease for the same indexId
-   *       survives. Leave the shared collection + lease; reclaiming them is gated on every mongot
+   *       survives. Leave the shared collection + lease; cleaning them up is gated on every mongot
    *       flipping off the old version, which only the GC can safely observe.
    *   <li><b>index deletion</b> -- no surviving sibling lease, so the leader drops both now.
    * </ul>
@@ -934,7 +993,7 @@ public class MaterializedViewManager implements ReplicationManager {
       return COMPLETED_FUTURE;
     }
     // Last local user of this MV collection: tear down local state below, then decide whether to
-    // reclaim the shared MV collection + lease now or leave them for the stale-lease GC.
+    // clean up the shared MV collection + lease now or leave them for the stale-lease GC.
     String leaseKey = metadata.get().collectionName();
     this.activeGenerationIdCatalog.genIdByMatViewCollection.remove(uuid);
     var generator = this.managedMaterializedViewGenerators.remove(uuid);
@@ -1049,6 +1108,11 @@ public class MaterializedViewManager implements ReplicationManager {
     // Cancel the periodic heartbeat task
     this.heartbeatFuture.cancel(false);
 
+    // Cancel the periodic stale-lease GC scan
+    if (this.staleLeaseScannerFuture != null) {
+      this.staleLeaseScannerFuture.cancel(false);
+    }
+
     // Shutdown all generators. Each generator handles its own role-specific cleanup.
     // For follower mode, the map is empty, so this completes immediately.
     List<CompletableFuture<?>> futures =
@@ -1076,6 +1140,8 @@ public class MaterializedViewManager implements ReplicationManager {
         .thenRunAsync(() -> Executors.shutdownOrFail(this.optimeUpdaterExecutor), shutdownExecutor)
         .thenRunAsync(() -> Executors.shutdownOrFail(this.lifecycleExecutor), shutdownExecutor)
         .thenRunAsync(() -> Executors.shutdownOrFail(this.statusRefreshExecutor), shutdownExecutor)
+        .thenRunAsync(
+            () -> Executors.shutdownOrFail(this.staleLeaseScannerExecutor), shutdownExecutor)
         // Signal the shutdown executor to clean up, but don't block waiting for it to do so.
         .thenRunAsync(shutdownExecutor::shutdown, shutdownExecutor);
   }
@@ -1271,6 +1337,59 @@ public class MaterializedViewManager implements ReplicationManager {
 
   private synchronized boolean isShutdown() {
     return this.shutdown;
+  }
+
+  /**
+   * Periodic stale-lease GC scan (phase 1: detection). Marks leases lapsed by more than {@link
+   * #STALE_LEASE_MARK_GRACE_PERIOD} as {@link Lease.CleanupState#ELIGIBLE_FOR_CLEANUP} for the
+   * later cleanup pass to drop.
+   *
+   * <p>Staleness alone is the trigger: a superseded MV's lease stays renewed until every mongot
+   * has flipped off it (any laggard re-acquires it through re-election), so "lapsed past the grace
+   * period" is the cluster-wide all-flipped signal. Leaderless and idempotent — safe to run on
+   * every mongot concurrently (see {@link LeaseManager#findGcCandidates} and {@link
+   * LeaseManager#markEligibleForCleanup}).
+   *
+   * <p>The mark is a hint, not a verdict: the cleaner (CLOUDP-384018) re-validates before any
+   * destructive drop. TODO(CLOUDP-411009): add the "never clean up the only lease of a
+   * still-configured index" safeguard before the cleaner ships.
+   */
+  @VisibleForTesting
+  void scanStaleLeasesForCleanup() {
+    if (isShutdown() || !isReplicationSupported()) {
+      return;
+    }
+    // Contain all failures to this tick: VerboseRunnable rethrows after logging, and
+    // scheduleWithFixedDelay cancels the task permanently on a throw.
+    try {
+      Instant cutoff = Instant.now().minus(STALE_LEASE_MARK_GRACE_PERIOD);
+      for (Lease lease : this.leaseManager.findGcCandidates(cutoff)) {
+        // Contain per-lease failures too: one bad lease must not starve the rest of the sweep.
+        try {
+          if (lease.cleanupState() == Lease.CleanupState.ELIGIBLE_FOR_CLEANUP) {
+            continue;
+          }
+          if (this.leaseManager.markEligibleForCleanup(lease.id(), cutoff)) {
+            LOG.atInfo()
+                .addKeyValue("leaseKey", lease.id())
+                .addKeyValue("leaseExpiration", lease.leaseExpiration())
+                .addKeyValue("gracePeriod", STALE_LEASE_MARK_GRACE_PERIOD)
+                .log("Marked stale lease eligible for cleanup");
+          }
+        } catch (Exception e) {
+          LOG.atWarn()
+              .addKeyValue("leaseKey", lease.id())
+              .setCause(e)
+              .log("Failed to mark stale lease eligible for cleanup, continuing sweep");
+        }
+      }
+      // TODO(CLOUDP-384018): the cleaner (phase 2: deletion) runs here, in this same periodic
+      // sweep, after the mark pass: for each lease already ELIGIBLE_FOR_CLEANUP and expired past
+      // the delete grace, re-validate eligibility atomically, drop the MV collection, then drop
+      // the lease.
+    } catch (Exception e) {
+      LOG.atWarn().setCause(e).log("Stale-lease GC sweep failed, will retry on next tick");
+    }
   }
 
   /**
