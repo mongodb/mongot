@@ -43,6 +43,7 @@ scripts/tests/copybara/test-results/
 
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
+CLAUDE.local.md
 
 scripts/enterprise/state-*.json
 scripts/enterprise/manifest-*.yaml
