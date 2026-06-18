@@ -8,6 +8,7 @@ import java.util.AbstractQueue;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.Objects;
 import java.util.concurrent.BlockingQueue;
@@ -30,11 +31,6 @@ import org.jetbrains.annotations.Nullable;
  * operations ({@link #take()}, {@link #poll(long, TimeUnit)}) wait on the {@code notEmpty}
  * condition. It is intended to back a {@link java.util.concurrent.ThreadPoolExecutor} shared by
  * multiple worker threads.
- *
- * <p>The {@code preferredTasksPerRegularTask} ratio is approximate: {@code
- * consecutiveHighPriorityCount} resets to 0 whenever the regular queue is chosen, including the
- * empty-queue fallback paths. When a queue intermittently empties, the actual ratio of served
- * tasks can favor preferred tasks more than configured; this is intentional.
  *
  * <p>The {@code preferredTasksPerRegularTask} ratio is approximate: {@code
  * consecutiveHighPriorityCount} resets to 0 whenever the regular queue is chosen, including the
@@ -226,8 +222,13 @@ public class DualBlockingQueue extends AbstractQueue<Runnable> implements Blocki
   }
 
   /**
-   * Returns an iterator over a copy of the queue contents at the time of this call. {@code
-   * iterator.remove()} does not affect the underlying queues.
+   * Returns an iterator over a snapshot of the queue contents at the time of this call. {@code
+   * remove()} is unsupported (it would only mutate the snapshot, not the backing queues); use
+   * {@link #remove(Object)} to remove an element. Nothing in the executor path relies on
+   * iterator-based removal: {@link AbstractQueue#clear()} is implemented via {@code poll()},
+   * {@code shutdownNow()} drains via {@link #drainTo(Collection)}, and {@link
+   * java.util.concurrent.ThreadPoolExecutor#purge()} only removes {@code Future}s — which never
+   * enter this queue, since {@link #offer(Runnable)} accepts only {@link PrioritizedTask}.
    */
   @Override
   public @NotNull Iterator<Runnable> iterator() {
@@ -237,7 +238,9 @@ public class DualBlockingQueue extends AbstractQueue<Runnable> implements Blocki
           new ArrayList<>(this.preferredQueue.size() + this.regularQueue.size());
       snapshot.addAll(this.preferredQueue);
       snapshot.addAll(this.regularQueue);
-      return snapshot.iterator();
+      // Unmodifiable so remove() throws UnsupportedOperationException rather than silently mutating
+      // only the snapshot.
+      return Collections.unmodifiableList(snapshot).iterator();
     } finally {
       this.lock.unlock();
     }

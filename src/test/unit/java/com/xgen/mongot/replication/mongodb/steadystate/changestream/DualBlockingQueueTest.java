@@ -169,9 +169,29 @@ public class DualBlockingQueueTest {
 
   @Test
   public void testOffer_rejectsNonPrioritizedTask() {
+    // The PrioritizedTask-only contract (TODO(CLOUDP-410283)) is enforced, not conventional: a raw
+    // Runnable is rejected and nothing leaks into either queue.
     DualBlockingQueue queue = new DualBlockingQueue(4, new SimpleMeterRegistry());
 
     Assert.assertThrows(IllegalArgumentException.class, () -> queue.offer(() -> {}));
+    assertThat(queue.size()).isEqualTo(0);
+    assertThat(queue.peek()).isNull();
+  }
+
+  @Test
+  public void testIterator_removeIsUnsupported() {
+    // iterator() returns a snapshot; remove() would only mutate the copy, so it throws rather than
+    // silently no-op'ing on the backing queues. Removal goes through remove(Object) instead.
+    DualBlockingQueue queue = new DualBlockingQueue(4, new SimpleMeterRegistry());
+    queue.offer(task(true));
+    queue.offer(task(false));
+
+    var it = queue.iterator();
+    assertThat(it.hasNext()).isTrue();
+    it.next();
+    Assert.assertThrows(UnsupportedOperationException.class, it::remove);
+
+    assertThat(queue.size()).isEqualTo(2);
   }
 
   @Test
