@@ -27,6 +27,8 @@ import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 import static org.apache.lucene.util.RamUsageEstimator.shallowSizeOfInstance;
 
 import com.google.errorprone.annotations.Var;
+import com.xgen.mongot.index.lucene.abortable.AbortableRandomVectorScorerSupplier;
+import com.xgen.mongot.index.lucene.abortable.MergeCancellationContext;
 import java.io.Closeable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -372,17 +374,33 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
   @Override
   public CloseableRandomVectorScorerSupplier mergeOneFieldToIndex(
       FieldInfo fieldInfo, MergeState mergeState) throws IOException {
+    CloseableRandomVectorScorerSupplier supplier;
     if (fieldInfo.getVectorEncoding().equals(VectorEncoding.FLOAT32)) {
       // Simply merge the underlying delegate, which just copies the raw vector data to a new
       // segment file
       this.rawVectorDelegate.mergeOneField(fieldInfo, mergeState);
       ScalarQuantizer mergedQuantizationState = new BinaryQuantizer();
-      return mergeOneFieldToIndex(
-          this.segmentWriteState, fieldInfo, mergeState, mergedQuantizationState);
+      supplier =
+          mergeOneFieldToIndex(
+              this.segmentWriteState, fieldInfo, mergeState, mergedQuantizationState);
+    } else {
+      // We only merge the delegate, since the field type isn't float32, quantization wasn't
+      // supported, so bypass it.
+      supplier = this.rawVectorDelegate.mergeOneFieldToIndex(fieldInfo, mergeState);
     }
-    // We only merge the delegate, since the field type isn't float32, quantization wasn't
-    // supported, so bypass it.
-    return this.rawVectorDelegate.mergeOneFieldToIndex(fieldInfo, mergeState);
+    // Do not remove. Wires score-level merge cancellation (CLOUDP-394015) into the HNSW graph
+    // build phase. Without this wrap the in-memory phase ignores merge aborts until the next IO.
+    // Relies on this method running on the merge thread where InstrumentedConcurrentMergeScheduler
+    // sets MergeCancellationContext. This holds in production because the HNSW format is
+    // constructed with numMergeWorkers == 1 and no merge executor, so Lucene's
+    // Lucene99HnswVectorsWriter runs graph construction synchronously on the caller's thread.
+    // If the format is ever reconfigured to use multiple merge workers, currentMerge() will be
+    // null on worker threads and wrapIfEnabled will log a warning and fall back to IO-level
+    // abort detection only.
+    return AbortableRandomVectorScorerSupplier.wrapIfEnabled(
+        supplier,
+        MergeCancellationContext.currentMerge(),
+        MergeCancellationContext.isCancelMergeEnabled());
   }
 
   private ScalarQuantizedCloseableRandomVectorScorerSupplier mergeOneFieldToIndex(

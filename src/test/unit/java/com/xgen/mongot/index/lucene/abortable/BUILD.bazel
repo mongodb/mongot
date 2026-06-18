@@ -4,6 +4,8 @@ java_test_suite(
     name = "abortable",
     srcs = [
         "AbortableDirectoryTest.java",
+        "AbortableRandomVectorScorerSupplierTest.java",
+        "MergeCancellationContextTest.java",
     ],
     tags = ["unit"],
     deps = [

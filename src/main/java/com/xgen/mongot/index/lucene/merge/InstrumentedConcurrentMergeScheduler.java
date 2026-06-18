@@ -5,6 +5,7 @@ import com.google.errorprone.annotations.Var;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.sun.management.ThreadMXBean;
 import com.xgen.mongot.index.lucene.abortable.AbortableDirectory;
+import com.xgen.mongot.index.lucene.abortable.MergeCancellationContext;
 import com.xgen.mongot.index.lucene.codec.bloom.MongotBloomReadPolicy;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
@@ -990,6 +991,10 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
       MongotBloomReadPolicy.setLoadBloomOnHeap(
           this.taggedMergeSource.indexPartitionDirectory,
           this.taggedMergeSource.useIdBloomFilter.getAsBoolean());
+      // Do not remove. Exposes the current merge to in-memory merge code (e.g. HNSW graph
+      // building) so it can check for abort requests during phases that perform no IO. Paired
+      // with clear() below. Required for score-level merge cancellation (CLOUDP-394015).
+      MergeCancellationContext.set(this.merge, this.taggedMergeSource.isCancelMergeEnabled());
       try {
         Timed.runnable(InstrumentedConcurrentMergeScheduler.this.mergeTime, super::run);
       } catch (Exception e) {
@@ -998,6 +1003,7 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
             .setCause(e)
             .log("Exception during merge");
       } finally {
+        MergeCancellationContext.clear();
         stopwatch.stopOneMerge(this.merge);
         // Decrease the counters no matter run() throws error or not to guarantee the correctness.
         InstrumentedConcurrentMergeScheduler.this.runningMerges.decrementAndGet();

@@ -22,6 +22,7 @@ java_library(
     exports = ["@maven//:org_apache_lucene_lucene_core"],
     deps = [
         "//src/main/java/com/xgen/mongot/index/definition",
+        "//src/main/java/com/xgen/mongot/index/lucene/abortable",
         "//src/main/java/com/xgen/mongot/index/lucene/explain/knn",
         "//src/main/java/com/xgen/mongot/index/lucene/explain/tracing",
         "//src/main/java/com/xgen/mongot/index/lucene/util",
