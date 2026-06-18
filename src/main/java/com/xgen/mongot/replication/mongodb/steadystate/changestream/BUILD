@@ -8,8 +8,12 @@ java_library(
         "ChangeStreamIndexManagerFactory.java",
         "ChangeStreamManager.java",
         "ChangeStreamMongoClientFactory.java",
+        "ChangeStreamTaskExecutor.java",
         "DecodingExecutorChangeStreamIndexManager.java",
+        "DualQueueExecutor.java",
+        "EnqueueContext.java",
         "ModeAwareChangeStreamClient.java",
+        "PreviousBatchInfo.java",
         "SteadyStateReplicationConfig.java",
         "SyncChangeStreamDispatcher.java",
         "TimedChangeStreamClient.java",
@@ -18,6 +22,7 @@ java_library(
     exports = [
         "//src/main/java/com/xgen/mongot/index/version",
         "//src/main/java/com/xgen/mongot/replication/mongodb/common",
+        "//src/main/java/com/xgen/mongot/util/concurrent",
         "@maven//:org_mongodb_bson",
     ],
     deps = [
