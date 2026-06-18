@@ -1,6 +1,7 @@
 package com.xgen.mongot.util.concurrent;
 
 import com.google.errorprone.annotations.Var;
+import com.google.errorprone.annotations.concurrent.GuardedBy;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.AbstractQueue;
@@ -29,10 +30,18 @@ import org.jetbrains.annotations.Nullable;
  * operations ({@link #take()}, {@link #poll(long, TimeUnit)}) wait on the {@code notEmpty}
  * condition. It is intended to back a {@link java.util.concurrent.ThreadPoolExecutor} shared by
  * multiple worker threads.
+ *
+ * <p>The {@code preferredTasksPerRegularTask} ratio is approximate: {@code
+ * consecutiveHighPriorityCount} resets to 0 whenever the regular queue is chosen, including the
+ * empty-queue fallback paths. When a queue intermittently empties, the actual ratio of served
+ * tasks can favor preferred tasks more than configured; this is intentional.
  */
 public class DualBlockingQueue extends AbstractQueue<Runnable> implements BlockingQueue<Runnable> {
 
+  @GuardedBy("lock")
   private final ArrayDeque<Runnable> preferredQueue = new ArrayDeque<>();
+
+  @GuardedBy("lock")
   private final ArrayDeque<Runnable> regularQueue = new ArrayDeque<>();
 
   private final ReentrantLock lock = new ReentrantLock();
@@ -43,7 +52,9 @@ public class DualBlockingQueue extends AbstractQueue<Runnable> implements Blocki
   private final int preferredTasksPerRegularTask;
 
   // Counter to track how many high-priority tasks have been served in a row.
+  @GuardedBy("lock")
   private int consecutiveHighPriorityCount = 0;
+
   private final Counter preferredQueueTasksServed;
   private final Counter regularQueueTasksServed;
 
@@ -148,6 +159,7 @@ public class DualBlockingQueue extends AbstractQueue<Runnable> implements Blocki
    * reached, one regular task is served and the counter resets to 0. If the preferred queue is
    * empty, falls back to the regular queue so a worker is never idle while tasks are waiting.
    */
+  @GuardedBy("lock")
   private Runnable selectNext() {
     if (this.consecutiveHighPriorityCount < this.preferredTasksPerRegularTask) {
       Runnable task = this.preferredQueue.poll();
