@@ -1,22 +1,25 @@
-"""netty-tcnative configuration for Community builds.
+"""netty-tcnative configuration for Atlas builds.
 
-This file replaces netty_tcnative.bzl in the open source repository.
-Community builds use only the standard Maven artifacts.
+This file is swapped with netty_tcnative-Community.bzl by copybara when publishing
+to the open source repository. See scripts/copybara/exclusions.yaml.
 
-In bzlmod, the Maven artifact version is controlled by
-maven_search_systems-Community.MODULE.bazel (swapped to
-maven_search_systems.MODULE.bazel in OSS). NETTY_TCNATIVE_VERSION and
-NETTY_TCNATIVE_MAVEN_ARTIFACTS below are vestigial — they are not loaded by
-anything since systems_deps.bzl was removed in the bzlmod migration. This file
-is kept for the Bazel target label constants and the netty_tcnative_deps() stub.
+For Atlas AL2023 x86_64 builds, we use an AL2023-compatible JAR built from source
+that dynamically links to OpenSSL 3.x (required for FIPS compliance).
+See scripts/netty-tcnative/README.md for details.
 """
 
-# 2.0.79.Final is the first release where the linux-aarch_64-fedora artifact
-# links against OpenSSL 3.x (matching the x86_64-fedora behavior), enabling
-# FIPS compliance on AL2023 aarch64 where OpenSSL 3.x is installed.
-NETTY_TCNATIVE_VERSION = "2.0.79.Final"
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
 
-# Unused in bzlmod — artifact registration moved to maven_search_systems-Community.MODULE.bazel.
+# Note that matching tcnative version for Netty 4.1.130.Final is 2.0.74.Final.
+# However, the linux-aarch_64-fedora artifact has been removed for that version,
+# hence using 2.0.71.Final.
+NETTY_TCNATIVE_VERSION = "2.0.71.Final"
+
+# SHA256 for the AL2023-compatible netty-tcnative JAR with dynamic OpenSSL linking.
+# Built and updated using scripts/netty-tcnative/build-and-publish.sh which uploads to S3.
+NETTY_TCNATIVE_AL2023_X86_64_SHA256 = "da321e9378fe60e9a3fdde5f832b0039c56237ef8cae429ba548b7f19654e223"
+
+# Maven artifacts for maven_install() - used by both Atlas and Community builds
 NETTY_TCNATIVE_MAVEN_ARTIFACTS = [
     "io.netty:netty-tcnative-boringssl-static:{}".format(NETTY_TCNATIVE_VERSION),
     "io.netty:netty-tcnative-classes:{}".format(NETTY_TCNATIVE_VERSION),
@@ -24,17 +27,32 @@ NETTY_TCNATIVE_MAVEN_ARTIFACTS = [
     "io.netty:netty-tcnative:jar:linux-x86_64-fedora:{}".format(NETTY_TCNATIVE_VERSION),
 ]
 
+# Target references for netty-tcnative JARs.
+# Used by both extracted_libraries (root BUILD) and runtime dependencies.
+# aarch64 always uses Maven.
 NETTY_TCNATIVE_AARCH64_TARGET = "@maven//:io_netty_netty_tcnative_linux_aarch_64_fedora"
 
-# AL2 and AL2023 targets point to same JAR to maintain compatibility with Atlas build configuration.
-# In AL2 dynamic linking to OpenSSL will fail since it does not have OpenSSL3.x
-NETTY_TCNATIVE_X86_64_AL2_TARGET = "@maven//:io_netty_netty_tcnative_linux_x86_64_fedora"
-NETTY_TCNATIVE_X86_64_AL2023_TARGET = "@maven//:io_netty_netty_tcnative_linux_x86_64_fedora"
+# x86_64 targets for dual-library bundling (single artifact for AL2 + AL2023).
+# Both libraries are always extracted; runtime selection happens in Java (TcNativeLoader).
+# AL2 (OpenSSL 1.x) - standard Maven fedora build
+NETTY_TCNATIVE_X86_64_AL2_TARGET = "//bazel/atlas/java:netty-tcnative-al2-linux-x86_64"
 
-# Legacy alias for runtime dependency resolution
-NETTY_TCNATIVE_X86_64_TARGET = "@maven//:io_netty_netty_tcnative_linux_x86_64_fedora"
+# AL2023 (OpenSSL 3.x) - custom build from S3 with dynamic OpenSSL linking
+NETTY_TCNATIVE_X86_64_AL2023_TARGET = "//bazel/atlas/java:netty-tcnative-openssl-dynamic-linux-x86_64"
+
+# For runtime classpath resolution, use the AL2 target (Maven).
+# The actual library selection happens at runtime via TcNativeLoader.
+NETTY_TCNATIVE_X86_64_TARGET = "//bazel/atlas/java:netty-tcnative-al2-linux-x86_64"
 
 def netty_tcnative_deps():
-    """No-op for community builds.
+    """Fetch AL2023-compatible netty-tcnative JAR from S3.
+
+    This is only used for Atlas AL2023 x86_64 builds. Community builds and other
+    Atlas configurations use the Maven artifacts defined in NETTY_TCNATIVE_MAVEN_ARTIFACTS.
     """
-    pass
+    http_file(
+        name = "netty_tcnative_openssl_dynamic_linux_x86_64",
+        sha256 = NETTY_TCNATIVE_AL2023_X86_64_SHA256,
+        downloaded_file_path = "netty-tcnative-{}-linux-x86_64.jar".format(NETTY_TCNATIVE_VERSION),
+        urls = ["https://search-build-and-release-3p-tools.s3.us-east-2.amazonaws.com/netty-tcnative/netty-tcnative-{}-linux-x86_64.jar".format(NETTY_TCNATIVE_VERSION)],
+    )

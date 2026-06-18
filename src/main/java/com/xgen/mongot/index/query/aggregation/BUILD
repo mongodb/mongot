@@ -1,0 +1,42 @@
+load("//bazel/java:package.bzl", "java_library")
+
+java_library(
+    name = "aggregation",
+    srcs = [
+        "Accumulator.java",
+        "AggregationContext.java",
+        "AggregationRegistry.java",
+        "AggregationResult.java",
+        "AggregationResults.java",
+        "AggregationSpec.java",
+        "BucketCollector.java",
+        "BucketsAccumulator.java",
+        "DoubleArray.java",
+        "GroupAggregationSpec.java",
+        "LeafBucketCollector.java",
+        "LongArray.java",
+        "MultiBucketAggregationResult.java",
+        "MultiBucketCollector.java",
+        "Operator.java",
+        "OperatorAggregationSpec.java",
+        "ShardMergePipelineBuilder.java",
+        "TopAggregationSpec.java",
+        "TopLevelAggregationResult.java",
+    ],
+    visibility = ["//visibility:public"],
+    exports = [
+        "//src/main/java/com/xgen/mongot/index/definition",
+        "//src/main/java/com/xgen/mongot/util",
+        "@maven//:org_apache_lucene_lucene_core",
+        "@maven//:org_mongodb_bson",
+    ],
+    deps = [
+        "//src/main/java/com/xgen/mongot/index/definition",
+        "//src/main/java/com/xgen/mongot/util",
+        "@maven//:com_carrotsearch_hppc",
+        "@maven//:com_google_guava_guava",
+        "@maven//:org_apache_lucene_lucene_core",
+        "@maven//:org_jetbrains_annotations",
+        "@maven//:org_mongodb_bson",
+    ],
+)

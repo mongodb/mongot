@@ -4,6 +4,7 @@ java_test_suite(
     name = "query",
     srcs = [
         "ApproximateVectorSearchQueryTest.java",
+        "AutoEmbedQueryVectorReconcilerTest.java",
         "CollectorQueryTest.java",
         "ExactVectorSearchQueryTest.java",
         "InvalidQueryExceptionTest.java",

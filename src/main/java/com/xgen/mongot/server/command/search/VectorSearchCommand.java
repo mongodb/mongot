@@ -50,6 +50,7 @@ import com.xgen.mongot.index.lucene.explain.explainers.MetadataFeatureExplainer;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.explain.tracing.ExplainQueryState;
 import com.xgen.mongot.index.lucene.explain.tracing.ExplainTooLargeException;
+import com.xgen.mongot.index.query.AutoEmbedQueryVectorReconciler;
 import com.xgen.mongot.index.query.DeadlineExceededException;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.MaterializedVectorSearchQuery;
@@ -450,7 +451,7 @@ public class VectorSearchCommand implements Command {
       var timer = Timer.start();
       var commandTimer = Timer.start();
       var materializedQuery =
-          maybeEmbed(
+          materializeQuery(
               vectorSearchQuery,
               findEmbedRequestInfo(optionalIndex.get().getDefinition(), vectorSearchQuery));
       var context = buildQueryExecutionContext();
@@ -601,30 +602,24 @@ public class VectorSearchCommand implements Command {
     return serializedBatch;
   }
 
-  // Returns EmbeddingRequestInfo if embedding request is needed, for queryVector on autoEmbed
-  // index, we also return empty here.
+  // EmbedRequestInfo for an auto-embedded path: with a model for text queries, model-less for
+  // queryVector (whose source definition is still needed to reconcile the vector dtype).
   @VisibleForTesting
   Optional<EmbedRequestInfo> findEmbedRequestInfo(
       IndexDefinition regularIndexDefinition, VectorSearchQuery vectorSearchQuery)
       throws InvalidQueryException {
-    if (vectorSearchQuery.criteria().query().isEmpty()) {
-      // No need to find model for queryVector and source definition for request context.
-      return Optional.empty();
-    }
+    boolean isTextQuery = vectorSearchQuery.criteria().query().isPresent();
     // TODO(CLOUDP-353553): Handle search index with autoEmbed field.
     if (regularIndexDefinition.getType() != VECTOR_SEARCH) {
       return Optional.empty();
     }
     @Var var vectorIndexDef = regularIndexDefinition.asVectorDefinition();
     // For the EmbedRequestInfo we need the source definition that carries the original
-    // user-facing database name. For direct auto-embedding indexes (e.g., legacy type:text
-    // index) this is regularIndexDefinition itself; for mat-view derived indexes it is the
-    // raw auto-embedding definition looked up from the catalog. In both cases vectorIndexDef
-    // tracks the correct source definition.
-    // This is a non-autoembedding index but has query string, could be a derived index definition
-    // from auto-embedding index.
+    // user-facing database name. For direct auto-embedding indexes this is regularIndexDefinition
+    // itself; for mat-view derived indexes (whose queried definition is a plain vector spec) it is
+    // the raw auto-embedding definition resolved from the catalog below, used for both the model
+    // (text queries) and the quantization (queryVector reconciliation).
     if (!regularIndexDefinition.isAutoEmbeddingIndex()) {
-      // For mat view based index, needs to use raw index definition to look up model names.
       Optional<IndexDefinition> rawAutoEmbeddingDefinition =
           this.indexCatalog
               .getIndex(
@@ -641,7 +636,18 @@ public class VectorSearchCommand implements Command {
       }
     }
     var fieldPath = vectorSearchQuery.criteria().path();
-    if (!vectorIndexDef.getModelNamePerPath().containsKey(fieldPath)) {
+    boolean isAutoEmbeddedPath = vectorIndexDef.getModelNamePerPath().containsKey(fieldPath);
+
+    // queryVector needs the source definition only to reconcile against an auto-embedded path;
+    // on any other path it carries no embedding request (regular vector field semantics).
+    if (!isTextQuery) {
+      return isAutoEmbeddedPath
+          ? Optional.of(new EmbedRequestInfo(Optional.empty(), vectorIndexDef))
+          : Optional.empty();
+    }
+
+    // Text query path: the path must be auto-embedded.
+    if (!isAutoEmbeddedPath) {
       throw new InvalidQueryException(
           "Path '%s' is not defined in Automated Embedding index '%s'"
               .formatted(fieldPath, vectorSearchQuery.index()));
@@ -788,7 +794,56 @@ public class VectorSearchCommand implements Command {
     return QueryExecutionContext.withDeadline(deadlineTimestampMs);
   }
 
-  private MaterializedVectorSearchQuery maybeEmbed(
+  // Produces the vector to search with. Exactly one of query/queryVector is present (enforced by
+  // VectorSearchCriteria): a user-supplied queryVector is reconciled against the index encoding; a
+  // text query is embedded into a vector via the provider.
+  private MaterializedVectorSearchQuery materializeQuery(
+      VectorSearchQuery vectorSearchQuery, Optional<EmbedRequestInfo> embedRequestInfo)
+      throws InvalidQueryException,
+          EmbeddingProviderTransientException,
+          EmbeddingProviderNonTransientException {
+    if (vectorSearchQuery.criteria().queryVector().isPresent()) {
+      return materializeUserQueryVector(vectorSearchQuery, embedRequestInfo);
+    }
+    return embedQueryText(vectorSearchQuery, embedRequestInfo);
+  }
+
+  // Builds the query from a user-supplied queryVector, reconciling it against the index encoding.
+  private MaterializedVectorSearchQuery materializeUserQueryVector(
+      VectorSearchQuery vectorSearchQuery, Optional<EmbedRequestInfo> embedRequestInfo)
+      throws InvalidQueryException {
+    return new MaterializedVectorSearchQuery(
+        vectorSearchQuery,
+        reconcileUserQueryVector(vectorSearchQuery, embedRequestInfo),
+        findAutoEmbeddingFieldsMapping(vectorSearchQuery));
+  }
+
+  // Reconciles a user-supplied queryVector against the index's autoEmbed encoding: returns it
+  // unchanged for regular type:vector (BYOV) and matching autoEmbed dtypes (dtype/dimension
+  // validation happens later in VectorSearchQueryFactory); throws on a mismatch.
+  private Vector reconcileUserQueryVector(
+      VectorSearchQuery vectorSearchQuery, Optional<EmbedRequestInfo> embedRequestInfo)
+      throws InvalidQueryException {
+    VectorSearchCriteria criteria = vectorSearchQuery.criteria();
+    Vector queryVector = criteria.queryVector().get();
+    Optional<VectorAutoEmbedQuantization> autoEmbedQuantization =
+        embedRequestInfo
+            .filter(info -> info.sourceDefinition().isAutoEmbeddingIndex())
+            .flatMap(
+                info ->
+                    findAutoEmbedQuantization(
+                        info.sourceDefinition().asVectorDefinition(), criteria.path()));
+    if (autoEmbedQuantization.isEmpty()) {
+      return queryVector;
+    }
+    return AutoEmbedQueryVectorReconciler.reconcile(
+        queryVector, autoEmbedQuantization.get(), criteria.path());
+  }
+
+  // Embeds a text query into a vector via the auto-embedding provider. Only reached when there is
+  // no queryVector, so a non-auto-embedding (BYOV) index here means the user omitted the required
+  // queryVector.
+  private MaterializedVectorSearchQuery embedQueryText(
       VectorSearchQuery vectorSearchQuery, Optional<EmbedRequestInfo> embedRequestInfo)
       throws InvalidQueryException,
           EmbeddingProviderTransientException,
@@ -796,15 +851,7 @@ public class VectorSearchCommand implements Command {
     VectorSearchCriteria criteria = vectorSearchQuery.criteria();
     Optional<String> textToEmbed = criteria.query().flatMap(VectorSearchQueryInput::getText);
 
-    // No auto-embedding source from findEmbedRequestInfo: BYOV or plain vector (other teams: this
-    // gate). Anything else needs queryVector, including empty `query` on a regular vector index.
     if (embedRequestInfo.filter(info -> info.sourceDefinition().isAutoEmbeddingIndex()).isEmpty()) {
-      if (criteria.queryVector().isPresent()) {
-        return new MaterializedVectorSearchQuery(
-            vectorSearchQuery,
-            criteria.queryVector().get(),
-            findAutoEmbeddingFieldsMapping(vectorSearchQuery));
-      }
       throw new InvalidQueryException("queryVector must be present");
     }
 
@@ -865,6 +912,17 @@ public class VectorSearchCommand implements Command {
         vectorSearchQuery,
         Check.isPresent(result.vector, "vector"),
         findAutoEmbeddingFieldsMapping(vectorSearchQuery));
+  }
+
+  /** AutoEmbed quantization for the path; empty for non-autoEmbed fields (no reconciliation). */
+  private static Optional<VectorAutoEmbedQuantization> findAutoEmbedQuantization(
+      VectorIndexDefinition sourceIndexDefinition, FieldPath path) {
+    return sourceIndexDefinition
+        .getMappings()
+        .getFieldDefinition(path)
+        .filter(fieldDef -> fieldDef.getType() == VectorIndexFieldDefinition.Type.AUTO_EMBED)
+        .map(VectorIndexFieldDefinition::asVectorAutoEmbedField)
+        .map(fieldDef -> fieldDef.specification().autoEmbedQuantization());
   }
 
   private EmbeddingRequestContext prepareEmbeddingRequestContext(

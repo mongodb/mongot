@@ -1,9 +1,11 @@
 package com.xgen.mongot.index.lucene.query;
 
+import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.VectorSimilarity;
+import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.index.lucene.explain.knn.InstrumentableKnnByteVectorQuery;
 import com.xgen.mongot.index.lucene.explain.knn.InstrumentableKnnFloatVectorQuery;
 import com.xgen.mongot.index.lucene.explain.knn.KnnInstrumentationHelper;
@@ -16,6 +18,7 @@ import com.xgen.mongot.index.lucene.query.custom.MongotKnnFloatQuery;
 import com.xgen.mongot.index.lucene.query.util.MetaIdRetriever;
 import com.xgen.mongot.index.lucene.query.util.WrappedToParentBlockJoinQuery;
 import com.xgen.mongot.index.lucene.util.LuceneDocumentIdEncoder;
+import com.xgen.mongot.index.query.AutoEmbedQueryVectorReconciler;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.operators.ApproximateVectorSearchCriteria;
 import com.xgen.mongot.index.query.operators.ExactVectorSearchCriteria;
@@ -66,7 +69,7 @@ class VectorSearchQueryFactory {
       throws InvalidQueryException, IOException {
 
     FieldPath path = criteria.path();
-    Vector queryVector = Check.isPresent(criteria.queryVector(), "queryVector");
+    @Var Vector queryVector = Check.isPresent(criteria.queryVector(), "queryVector");
 
     // Check if this is an embedded vector field
     Optional<FieldPath> embeddedRoot = determineEmbeddedRoot(path, queryContext);
@@ -90,6 +93,17 @@ class VectorSearchQueryFactory {
     this.factoryContext
         .getQueryTimeMappingChecks()
         .validateVectorField(path, embeddedRoot, queryVector.numDimensions());
+
+    // Reconcile with the indexed embedding encoding; see AutoEmbedQueryVectorReconciler.
+    Optional<VectorAutoEmbedQuantization> autoEmbedQuantization =
+        this.factoryContext.getAutoEmbedQuantization(path);
+    if (autoEmbedQuantization.isPresent()) {
+      queryVector =
+          AutoEmbedQueryVectorReconciler.reconcile(queryVector, autoEmbedQuantization.get(), path);
+    }
+    // TODO(CLOUDP-413841): regular type:vector (BYOV) queryVectors are not validated here, so a
+    // dtype mismatch (e.g. an int8 query against a float-indexed field) silently returns 0 results
+    // instead of a clear error.
 
     // Create query context with embedded root if this is an embedded vector query
     SingleQueryContext effectiveQueryContext =

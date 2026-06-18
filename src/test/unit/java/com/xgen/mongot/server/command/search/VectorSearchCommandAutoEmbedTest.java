@@ -37,6 +37,8 @@ import com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.autoembedding.InitializedMaterializedViewIndex;
 import com.xgen.mongot.index.autoembedding.MaterializedViewIndexGeneration;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
+import com.xgen.mongot.index.definition.VectorSimilarity;
+import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.index.lucene.LuceneVectorIndex;
 import com.xgen.mongot.index.lucene.LuceneVectorIndexReader;
 import com.xgen.mongot.index.query.InvalidQueryException;
@@ -170,7 +172,7 @@ public class VectorSearchCommandAutoEmbedTest {
 
   @Test
   public void testEmbeddingRequestContext_usesSourceDatabaseNotDerived() throws Exception {
-    // Verify that maybeEmbed passes the original source database (from the raw auto-embedding
+    // Verify that embedQueryText passes the original source database (from the raw auto-embedding
     // definition) to EmbeddingRequestContext, not the derived mat-view database.
     setupRegistry();
     EmbeddingServiceManager manager = mock(EmbeddingServiceManager.class);
@@ -431,9 +433,10 @@ public class VectorSearchCommandAutoEmbedTest {
   }
 
   @Test
-  public void findEmbedRequestInfo_returnsEmpty_whenQueryVectorUsed() throws Exception {
+  public void findEmbedRequestInfo_returnsInfoWithoutModel_whenQueryVectorUsedOnAutoEmbedPath()
+      throws Exception {
     var mocks = new Mocks();
-    // Query uses queryVector instead of query text
+    // Query uses queryVector instead of query text against an auto-embedded path
     var queryWithVector =
         VectorQueryBuilder.builder()
             .index(MAT_VIEW_INDEX_NAME)
@@ -453,7 +456,37 @@ public class VectorSearchCommandAutoEmbedTest {
                 .withDotProductVectorField(PATH.toString(), 1024)
                 .build(),
             queryWithVector);
-    // Should return empty since queryVector is used, not query text
+    // Model-less info: the source definition is still needed to reconcile the queryVector.
+    assertThat(embedInfo).isPresent();
+    assertThat(embedInfo.get().modelName()).isEmpty();
+    Assert.assertTrue(embedInfo.get().sourceDefinition().isAutoEmbeddingIndex());
+  }
+
+  @Test
+  public void findEmbedRequestInfo_returnsEmpty_whenQueryVectorUsedOnNonAutoEmbedPath()
+      throws Exception {
+    var mocks = new Mocks();
+    // Query uses queryVector against a path the auto-embedding index does not embed
+    var queryWithVector =
+        VectorQueryBuilder.builder()
+            .index(MAT_VIEW_INDEX_NAME)
+            .criteria(
+                ApproximateVectorQueryCriteriaBuilder.builder()
+                    .limit(LIMIT)
+                    .numCandidates(NUM_CANDIDATES)
+                    .queryVector(QUERY_VECTOR)
+                    .path(PATH.newChild("plainVector"))
+                    .filter(getFilter())
+                    .build())
+            .build();
+    var command = buildAutoEmbeddingVectorSearchCommandWithMocks(mocks, queryWithVector);
+    var embedInfo =
+        command.findEmbedRequestInfo(
+            VectorIndexDefinitionBuilder.builder()
+                .withDotProductVectorField(PATH.toString(), 1024)
+                .build(),
+            queryWithVector);
+    // Regular vector field semantics apply: no reconciliation, no embedding request.
     assertThat(embedInfo).isEmpty();
   }
 
@@ -935,7 +968,7 @@ public class VectorSearchCommandAutoEmbedTest {
 
   @Test
   public void testMaybeEmbed_withTextQuery_includesAutoEmbeddingFieldsMapping() throws Exception {
-    // Verifies that maybeEmbed() includes autoEmbeddingFieldsMapping when using text query
+    // Verifies that embedQueryText() includes autoEmbeddingFieldsMapping when using text query
     var mocks = new Mocks();
     var internalPath = FieldPath.parse("_autoEmbed.testPath");
     configureWithAutoEmbeddingFieldsMapping(mocks, Map.of(PATH, internalPath));
@@ -967,7 +1000,7 @@ public class VectorSearchCommandAutoEmbedTest {
 
   @Test
   public void testMaybeEmbed_withQueryVector_includesAutoEmbeddingFieldsMapping() throws Exception {
-    // Verifies that maybeEmbed() includes autoEmbeddingFieldsMapping when using queryVector
+    // Verifies that the queryVector path includes autoEmbeddingFieldsMapping
     var mocks = new Mocks();
     var internalPath = FieldPath.parse("_autoEmbed.testPath");
     configureWithAutoEmbeddingFieldsMapping(mocks, Map.of(PATH, internalPath));
@@ -997,6 +1030,69 @@ public class VectorSearchCommandAutoEmbedTest {
     assertThat(criteria.query()).isEmpty();
   }
 
+  @Test
+  public void testMaybeEmbed_floatQueryVectorOnScalarAutoEmbed_returnsMismatchError()
+      throws Exception {
+    // A float queryVector against a scalar (int8-encoded) auto-embedding index must be rejected at
+    // the command layer — the mat-view topology where the factory layer is a no-op.
+    var mocks = new Mocks();
+    configureWithAutoEmbeddingFieldsMapping(
+        mocks,
+        Map.of(PATH, FieldPath.parse("_autoEmbed.testPath")),
+        VectorAutoEmbedQuantization.SCALAR);
+
+    var command =
+        buildAutoEmbeddingVectorSearchCommandWithMocks(
+            mocks,
+            VectorQueryBuilder.builder()
+                .index(INDEX_NAME)
+                .criteria(
+                    ApproximateVectorQueryCriteriaBuilder.builder()
+                        .limit(LIMIT)
+                        .numCandidates(NUM_CANDIDATES)
+                        .queryVector(QUERY_VECTOR)
+                        .path(PATH)
+                        .filter(getFilter())
+                        .build())
+                .build());
+    var result = command.run();
+
+    assertThat(result.getInt32("ok").getValue()).isEqualTo(0);
+    assertThat(result.getString("errmsg").getValue()).contains("autoEmbed quantization 'scalar'");
+    Mockito.verify(mocks.reader, Mockito.never()).query(any(), any());
+  }
+
+  @Test
+  public void testMaybeEmbed_derivedMatViewTopology_resolvesRawQuantizationAndRejects()
+      throws Exception {
+    // Production Atlas topology: the queried (initialized) index exposes a DERIVED plain vector
+    // definition, so findEmbedRequestInfo must resolve the raw scalar autoEmbed definition from the
+    // catalog before reconciliation. A float queryVector is then rejected against scalar.
+    // If the catalog lookup were broken, no reconciliation would run and the query would not error.
+    var mocks = new Mocks();
+    configureDerivedMatViewTopology(mocks, VectorAutoEmbedQuantization.SCALAR);
+
+    var command =
+        buildAutoEmbeddingVectorSearchCommandWithMocks(
+            mocks,
+            VectorQueryBuilder.builder()
+                .index(INDEX_NAME)
+                .criteria(
+                    ApproximateVectorQueryCriteriaBuilder.builder()
+                        .limit(LIMIT)
+                        .numCandidates(NUM_CANDIDATES)
+                        .queryVector(QUERY_VECTOR)
+                        .path(PATH)
+                        .filter(getFilter())
+                        .build())
+                .build());
+    var result = command.run();
+
+    assertThat(result.getInt32("ok").getValue()).isEqualTo(0);
+    assertThat(result.getString("errmsg").getValue()).contains("autoEmbed quantization 'scalar'");
+    Mockito.verify(mocks.reader, Mockito.never()).query(any(), any());
+  }
+
   /**
    * Configures a Mocks instance with an AutoEmbeddingIndexGeneration that has the given
    * autoEmbeddingFieldsMapping. This overrides the catalog stubs to return the auto-embedding
@@ -1004,6 +1100,14 @@ public class VectorSearchCommandAutoEmbedTest {
    */
   private static void configureWithAutoEmbeddingFieldsMapping(
       Mocks mocks, Map<FieldPath, FieldPath> autoEmbeddingFieldsMapping) {
+    configureWithAutoEmbeddingFieldsMapping(
+        mocks, autoEmbeddingFieldsMapping, VectorAutoEmbedQuantization.FLOAT);
+  }
+
+  private static void configureWithAutoEmbeddingFieldsMapping(
+      Mocks mocks,
+      Map<FieldPath, FieldPath> autoEmbeddingFieldsMapping,
+      VectorAutoEmbedQuantization quantization) {
     var schemaMetadata =
         new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(
             1, autoEmbeddingFieldsMapping);
@@ -1011,7 +1115,10 @@ public class VectorSearchCommandAutoEmbedTest {
         new MaterializedViewGenerationId(
             MOCK_INDEX_GENERATION_ID.indexId, new MaterializedViewGeneration(Generation.CURRENT));
     var vectorDef =
-        VectorIndexDefinitionBuilder.builder().withAutoEmbedField(PATH.toString()).build();
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField(
+                PATH.toString(), "voyage-3-large", 1024, quantization, VectorSimilarity.DOT_PRODUCT)
+            .build();
 
     // InitializedMaterializedViewIndex - the actual index that gets queried
     var matViewIndex = Mockito.mock(InitializedMaterializedViewIndex.class);
@@ -1032,6 +1139,44 @@ public class VectorSearchCommandAutoEmbedTest {
     when(autoEmbeddingIndexGeneration.getIndex()).thenReturn(matViewIndex);
 
     // Override catalog stubs
+    when(mocks.catalog.getIndex(DATABASE_NAME, COLLECTION_UUID, Optional.empty(), INDEX_NAME))
+        .thenReturn(Optional.of(autoEmbeddingIndexGeneration));
+    when(mocks.initializedIndexCatalog.getIndex(matViewGenId))
+        .thenReturn(Optional.of(matViewIndex));
+  }
+
+  /**
+   * Production Atlas mat-view topology: the queried index exposes a derived plain vector definition
+   * while the catalog generation carries the raw autoEmbed definition, forcing findEmbedRequestInfo
+   * through its catalog-lookup branch. Contrast {@link #configureWithAutoEmbeddingFieldsMapping},
+   * where the queried definition is itself autoEmbed.
+   */
+  private static void configureDerivedMatViewTopology(
+      Mocks mocks, VectorAutoEmbedQuantization quantization) {
+    var matViewGenId =
+        new MaterializedViewGenerationId(
+            MOCK_INDEX_GENERATION_ID.indexId, new MaterializedViewGeneration(Generation.CURRENT));
+    var rawAutoEmbedDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField(
+                PATH.toString(), "voyage-3-large", 1024, quantization, VectorSimilarity.DOT_PRODUCT)
+            .build();
+    var derivedVectorDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withDotProductVectorField(PATH.toString(), 1024)
+            .build();
+
+    // Initialized index returns the derived plain vector definition (autoEmbed spec stripped).
+    var matViewIndex = Mockito.mock(InitializedMaterializedViewIndex.class);
+    lenient().when(matViewIndex.getReader()).thenReturn(mocks.reader);
+    when(matViewIndex.getDefinition()).thenReturn(derivedVectorDef);
+
+    // Catalog generation carries the raw autoEmbed definition, resolved by findEmbedRequestInfo.
+    var autoEmbeddingIndexGeneration = Mockito.mock(AutoEmbeddingIndexGeneration.class);
+    when(autoEmbeddingIndexGeneration.getGenerationId()).thenReturn(matViewGenId);
+    when(autoEmbeddingIndexGeneration.getIndex()).thenReturn(matViewIndex);
+    when(autoEmbeddingIndexGeneration.getDefinition()).thenReturn(rawAutoEmbedDef);
+
     when(mocks.catalog.getIndex(DATABASE_NAME, COLLECTION_UUID, Optional.empty(), INDEX_NAME))
         .thenReturn(Optional.of(autoEmbeddingIndexGeneration));
     when(mocks.initializedIndexCatalog.getIndex(matViewGenId))

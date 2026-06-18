@@ -1,0 +1,158 @@
+"""Maven artifacts owned by the Search Systems team.
+
+Contributes the AWS, Azure, GCP, Bouncy Castle, Netty core, netty-tcnative, and
+MongoDB-driver artifacts to the shared `@maven` install declared in
+bazel/java/maven.MODULE.bazel (tags merge by `name = "maven"`).
+
+Kept in its own file so the Search Systems team owns it via OWNERS.yml,
+mirroring the pre-bzlmod bazel/java/systems_deps.bzl. The named per-vendor
+constants below preserve that file's grouping.
+
+`.MODULE.bazel` files cannot define functions or `load()` the old
+dep_utils.append_version helper, so the comprehensions at the bottom apply a
+shared version to each named group inline instead.
+
+Note: the CVE-pinned Netty transitive artifacts live in bazel/java/maven.MODULE.bazel
+(they were PINNED_TRANSITIVE_ARTIFACTS, not systems deps, pre-bzlmod). Keep
+_NETTY_VERSION below in sync with those.
+
+This file replaces maven_search_systems.MODULE.bazel in the open source repository.
+It is temporary while community and Atlas use different netty-tcnative versions.
+Once the versions are aligned, this file and maven_pin_info-community.json can be removed.
+"""
+
+# Vendor groups that pin every artifact to one shared version. Only the artifact
+# id varies; the group id and version are applied in the comprehension below.
+_AWS_SDK_VERSION = "2.22.9"
+
+_AWS_SDK_ARTIFACTS = [
+    "s3",
+    "sdk-core",
+    "auth",
+    "regions",
+    "s3-transfer-manager",
+    "sts",
+    "secretsmanager",
+]
+
+_NETTY_VERSION = "4.1.133.Final"
+
+_NETTY_CORE_ARTIFACTS = [
+    "netty-buffer",
+    "netty-codec",
+    "netty-common",
+    "netty-transport",
+]
+
+# 2.0.79.Final is the first release where the linux-aarch_64-fedora artifact
+# links against OpenSSL 3.x (matching the x86_64-fedora behavior), enabling
+# FIPS compliance on AL2023 aarch64 where OpenSSL 3.x is installed.
+_NETTY_TCNATIVE_VERSION = "2.0.79.Final"
+
+_NETTY_TCNATIVE_ARTIFACTS = [
+    "netty-tcnative-boringssl-static",
+    "netty-tcnative-classes",
+]
+
+# Netty native transports carry a platform classifier: (artifact, classifier).
+_NETTY_NATIVE_ARTIFACTS = [
+    ("netty-transport-native-epoll", "linux-x86_64"),
+    ("netty-transport-native-epoll", "linux-aarch_64"),
+    ("netty-transport-native-kqueue", "osx-x86_64"),
+    ("netty-transport-native-kqueue", "osx-aarch_64"),
+]
+
+_NETTY_TCNATIVE_NATIVE_CLASSIFIERS = [
+    "linux-aarch_64-fedora",
+    "linux-x86_64-fedora",
+]
+
+# Vendor groups whose artifacts each pin a distinct version: (group, artifact, version).
+_AWS_CRT_ARTIFACTS = [
+    ("software.amazon.awssdk.crt", "aws-crt", "0.29.5"),
+]
+
+_BOUNCY_CASTLE_ARTIFACTS = [
+    ("org.bouncycastle", "bc-fips", "2.0.1"),
+    ("org.bouncycastle", "bcpkix-fips", "2.0.10"),
+    ("org.bouncycastle", "bctls-fips", "2.0.22"),
+]
+
+_AZURE_ARTIFACTS = [
+    ("com.azure", "azure-identity", "1.17.0"),
+    ("com.azure", "azure-storage-blob", "12.31.1"),
+    ("com.azure", "azure-storage-blob-batch", "12.27.1"),
+]
+
+_GCP_ARTIFACTS = [
+    ("com.google.cloud", "google-cloud-storage", "2.59.0"),
+    ("com.google.cloud", "google-cloud-storage-control", "2.59.0"),
+    ("com.google.auth", "google-auth-library-oauth2-http", "1.40.0"),
+    ("com.google.auth", "google-auth-library-credentials", "1.40.0"),
+    ("com.google.cloud", "google-cloud-nio", "0.128.7"),
+]
+
+_MONGO_DRIVER_ARTIFACTS = [
+    ("org.mongodb", "mongodb-driver-sync", "4.11.5"),
+]
+
+maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")
+
+# Single-version vendor groups: apply each group's shared version to its artifact ids.
+[
+    maven.artifact(
+        name = "maven",
+        artifact = artifact,
+        group = group,
+        version = version,
+    )
+    for (group, artifact_ids, version) in [
+        ("software.amazon.awssdk", _AWS_SDK_ARTIFACTS, _AWS_SDK_VERSION),
+        ("io.netty", _NETTY_CORE_ARTIFACTS, _NETTY_VERSION),
+        ("io.netty", _NETTY_TCNATIVE_ARTIFACTS, _NETTY_TCNATIVE_VERSION),
+    ]
+    for artifact in artifact_ids
+]
+
+# Netty native transports (shared _NETTY_VERSION, per-platform classifier).
+[
+    maven.artifact(
+        name = "maven",
+        artifact = artifact,
+        classifier = classifier,
+        group = "io.netty",
+        packaging = "jar",
+        version = _NETTY_VERSION,
+    )
+    for (artifact, classifier) in _NETTY_NATIVE_ARTIFACTS
+]
+
+# netty-tcnative native (shared _NETTY_TCNATIVE_VERSION, per-platform classifier).
+[
+    maven.artifact(
+        name = "maven",
+        artifact = "netty-tcnative",
+        classifier = classifier,
+        group = "io.netty",
+        packaging = "jar",
+        version = _NETTY_TCNATIVE_VERSION,
+    )
+    for classifier in _NETTY_TCNATIVE_NATIVE_CLASSIFIERS
+]
+
+# Vendor groups whose artifacts each carry a distinct version.
+[
+    maven.artifact(
+        name = "maven",
+        artifact = artifact,
+        group = group,
+        version = version,
+    )
+    for (group, artifact, version) in (
+        _AWS_CRT_ARTIFACTS +
+        _BOUNCY_CASTLE_ARTIFACTS +
+        _AZURE_ARTIFACTS +
+        _GCP_ARTIFACTS +
+        _MONGO_DRIVER_ARTIFACTS
+    )
+]

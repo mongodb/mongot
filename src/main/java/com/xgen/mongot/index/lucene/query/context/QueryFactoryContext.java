@@ -6,6 +6,7 @@ import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.FieldDefinitionResolver;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.VectorSimilarity;
+import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.index.definition.quantization.VectorQuantization;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.QueryTimeMappingChecks;
@@ -83,6 +84,17 @@ public interface QueryFactoryContext {
    */
   default Optional<com.xgen.mongot.index.definition.VectorIndexFieldDefinition>
       getVectorIndexFieldDefinition(FieldPath path) {
+    return Optional.empty();
+  }
+
+  /**
+   * Returns the auto-embedding quantization of the field's autoEmbed specification, which
+   * determines the indexed embedding encoding; empty for non-autoEmbed fields.
+   */
+  // TODO(CLOUDP-353553): search-index contexts must override this to support autoEmbed fields in
+  // lexical prefilters; the default returns empty, so their queryVectors are not yet reconciled.
+  default Optional<VectorAutoEmbedQuantization> getAutoEmbedQuantization(FieldPath fieldPath)
+      throws InvalidQueryException {
     return Optional.empty();
   }
 

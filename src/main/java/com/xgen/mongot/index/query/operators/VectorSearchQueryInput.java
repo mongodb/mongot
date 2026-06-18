@@ -20,7 +20,7 @@ import org.bson.BsonValue;
  * so they will never coexist in a request. When {@code query} is present, it indicates an
  * auto-embedding search where mongot will generate the vector from the text.
  *
- * <p>Downstream behavior (see {@code VectorSearchCommand.maybeEmbed}):
+ * <p>Downstream behavior (see {@code VectorSearchCommand.embedQueryText}):
  *
  * <ul>
  *   <li>{@code {query: "some text"}} → Auto-embedding with the provided text
