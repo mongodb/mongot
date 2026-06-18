@@ -13,6 +13,8 @@ java_library(
         "MaterializedViewDocumentHandler.java",
         "MaterializedViewFieldValueHandler.java",
         "MongoClientOperationExecutor.java",
+        "PartialEmbedClassification.java",
+        "PartialEmbedFallbackReason.java",
     ],
     visibility = ["//:__subpackages__"],
     exports = [

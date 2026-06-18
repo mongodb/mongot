@@ -1823,7 +1823,7 @@ public class AutoEmbeddingDocumentUtilsTest {
             List.of(truncated));
 
     Optional<ImmutableMap<FieldPath, String>> result =
-        AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(ud, fullDoc, mapping);
+        classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -1863,7 +1863,7 @@ public class AutoEmbeddingDocumentUtilsTest {
             BsonUtils.BSON_DOCUMENT_CODEC);
 
     Optional<ImmutableMap<FieldPath, String>> result =
-        AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(null, fullDoc, mapping);
+        classify(null, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -1882,7 +1882,7 @@ public class AutoEmbeddingDocumentUtilsTest {
         new UpdateDescription(null, new BsonDocument("title", new BsonString("new title")));
 
     Optional<ImmutableMap<FieldPath, String>> result =
-        AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(ud, fullDoc, mapping);
+        classify(ud, fullDoc, mapping);
 
     assertTrue(result.isPresent());
     assertEquals(Set.of(FieldPath.parse("title")), result.get().keySet());
@@ -1898,7 +1898,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     UpdateDescription ud = new UpdateDescription(List.of("title"), new BsonDocument());
 
     Optional<ImmutableMap<FieldPath, String>> result =
-        AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(ud, fullDoc, mapping);
+        classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -1916,7 +1916,7 @@ public class AutoEmbeddingDocumentUtilsTest {
         new UpdateDescription(null, new BsonDocument("items.title", new BsonString("b")));
 
     Optional<ImmutableMap<FieldPath, String>> result =
-        AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(ud, fullDoc, mapping);
+        classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -1940,7 +1940,7 @@ public class AutoEmbeddingDocumentUtilsTest {
 
     assertThrows(
         com.google.common.base.VerifyException.class,
-        () -> AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(ud, fullDoc, mapping));
+        () -> classify(ud, fullDoc, mapping));
   }
 
   @Test
@@ -1959,7 +1959,7 @@ public class AutoEmbeddingDocumentUtilsTest {
         new UpdateDescription(null, new BsonDocument("title", new BsonString("")));
 
     Optional<ImmutableMap<FieldPath, String>> result =
-        AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(ud, fullDoc, mapping);
+        classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -1982,7 +1982,7 @@ public class AutoEmbeddingDocumentUtilsTest {
                 .append("unrelated", new BsonString("noise")));
 
     Optional<ImmutableMap<FieldPath, String>> result =
-        AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(ud, fullDoc, mapping);
+        classify(ud, fullDoc, mapping);
 
     assertTrue(result.isPresent());
     assertEquals(Set.of(FieldPath.parse("title")), result.get().keySet());
@@ -2013,7 +2013,7 @@ public class AutoEmbeddingDocumentUtilsTest {
                 .append("description", new BsonString("desc updated")));
 
     Optional<ImmutableMap<FieldPath, String>> result =
-        AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(ud, fullDoc, mapping);
+        classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -2031,7 +2031,7 @@ public class AutoEmbeddingDocumentUtilsTest {
         new UpdateDescription(List.of("items.0.title"), new BsonDocument());
 
     Optional<ImmutableMap<FieldPath, String>> result =
-        AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(ud, fullDoc, mapping);
+        classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -2119,7 +2119,7 @@ public class AutoEmbeddingDocumentUtilsTest {
                 .append("title", new BsonString("new")));
 
     Optional<ImmutableMap<FieldPath, String>> result =
-        AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(ud, fullDoc, mapping);
+        classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -2138,7 +2138,7 @@ public class AutoEmbeddingDocumentUtilsTest {
         new UpdateDescription(null, new BsonDocument("a", new BsonString("y")));
 
     Optional<ImmutableMap<FieldPath, String>> result =
-        AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(ud, fullDoc, mapping);
+        classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -2160,7 +2160,7 @@ public class AutoEmbeddingDocumentUtilsTest {
         new UpdateDescription(List.of("body"), new BsonDocument("title", new BsonString("new")));
 
     Optional<ImmutableMap<FieldPath, String>> result =
-        AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(ud, fullDoc, mapping);
+        classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -2179,7 +2179,7 @@ public class AutoEmbeddingDocumentUtilsTest {
         new UpdateDescription(null, new BsonDocument("a", new BsonString("y")));
 
     Optional<ImmutableMap<FieldPath, String>> result =
-        AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(ud, fullDoc, mapping);
+        classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -2200,7 +2200,7 @@ public class AutoEmbeddingDocumentUtilsTest {
             List.of("category"), new BsonDocument("title", new BsonString("new")));
 
     Optional<ImmutableMap<FieldPath, String>> result =
-        AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(ud, fullDoc, mapping);
+        classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -2214,7 +2214,7 @@ public class AutoEmbeddingDocumentUtilsTest {
         new UpdateDescription(null, new BsonDocument("title", new BsonString("hi")));
 
     Optional<ImmutableMap<FieldPath, String>> result =
-        AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(ud, null, mapping);
+        classify(ud, null, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -2232,7 +2232,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     UpdateDescription ud = new UpdateDescription(null, new BsonDocument());
 
     Optional<ImmutableMap<FieldPath, String>> result =
-        AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(ud, fullDoc, mapping);
+        classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -2264,9 +2264,114 @@ public class AutoEmbeddingDocumentUtilsTest {
             null, new BsonDocument("b", new BsonDocument("c", new BsonString("hello"))));
 
     Optional<ImmutableMap<FieldPath, String>> result =
-        AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(ud, fullDoc, mapping);
+        classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
+  }
+
+  @Test
+  public void computePartialEmbedChangedTexts_pinsFallbackReason() {
+    // Each input shape the classifier can reject maps to exactly one PartialEmbedFallbackReason.
+    // (TEXT_EXTRACTION_FAILED needs an IOException mid-walk, not reachable from a well-formed doc;
+    // REPLACE_EVENT is produced at the change-stream routing layer, not by the classifier.)
+    BsonArray items = new BsonArray();
+    items.add(new BsonDocument("title", new BsonString("a")));
+    items.add(new BsonDocument("title", new BsonString("b")));
+
+    record ReasonCase(
+        String name,
+        AutoEmbedFieldMapping mapping,
+        UpdateDescription ud,
+        RawBsonDocument fullDoc,
+        PartialEmbedFallbackReason expected) {}
+
+    List<ReasonCase> cases =
+        List.of(
+            new ReasonCase(
+                "null update description",
+                autoEmbedMappingWithFields("title"),
+                null,
+                rawDoc(new BsonDocument("title", new BsonString("hi"))),
+                PartialEmbedFallbackReason.NULL_UPDATE_DESCRIPTION),
+            new ReasonCase(
+                "null full document",
+                autoEmbedMappingWithFields("title"),
+                new UpdateDescription(null, new BsonDocument("title", new BsonString("hi"))),
+                null,
+                PartialEmbedFallbackReason.NULL_FULL_DOCUMENT),
+            new ReasonCase(
+                "no channels reported",
+                autoEmbedMappingWithFields("title"),
+                new UpdateDescription(null, new BsonDocument()),
+                rawDoc(new BsonDocument("title", new BsonString("hi"))),
+                PartialEmbedFallbackReason.NO_CHANNELS_REPORTED),
+            new ReasonCase(
+                "unsupported field mapping",
+                new SearchIndexAutoEmbedFieldMapping(
+                    new DynamicDefinition.Boolean(true), ImmutableMap.of(), ImmutableSet.of()),
+                new UpdateDescription(
+                    List.of("body"), new BsonDocument("title", new BsonString("new"))),
+                rawDoc(new BsonDocument("title", new BsonString("new"))),
+                PartialEmbedFallbackReason.UNSUPPORTED_FIELD_MAPPING),
+            new ReasonCase(
+                "destructive indexed touch",
+                autoEmbedMappingWithFields("title", "category"),
+                new UpdateDescription(
+                    List.of("category"), new BsonDocument("title", new BsonString("new"))),
+                rawDoc(new BsonDocument("title", new BsonString("new"))),
+                PartialEmbedFallbackReason.DESTRUCTIVE_INDEXED_TOUCH),
+            new ReasonCase(
+                "ancestor overwrite",
+                mappingOf(List.of("title"), List.of("meta.category")),
+                new UpdateDescription(
+                    null,
+                    new BsonDocument()
+                        .append("meta", new BsonInt32(5))
+                        .append("title", new BsonString("new"))),
+                rawDoc(
+                    new BsonDocument()
+                        .append("title", new BsonString("new"))
+                        .append("meta", new BsonInt32(5))),
+                PartialEmbedFallbackReason.ANCESTOR_OVERWRITE),
+            new ReasonCase(
+                "overlapping embeds",
+                autoEmbedMappingWithFields("a", "a.b"),
+                new UpdateDescription(null, new BsonDocument("a.b", new BsonString("y"))),
+                rawDoc(new BsonDocument("a", new BsonDocument("b", new BsonString("y")))),
+                PartialEmbedFallbackReason.OVERLAPPING_EMBEDS),
+            new ReasonCase(
+                "indirect embed touch",
+                autoEmbedMappingWithFields("items.title"),
+                new UpdateDescription(
+                    null, new BsonDocument("items.0.title", new BsonString("changed"))),
+                rawDoc(new BsonDocument("items", items.clone())),
+                PartialEmbedFallbackReason.INDIRECT_EMBED_TOUCH),
+            new ReasonCase(
+                "array traversal",
+                autoEmbedMappingWithFields("items.title"),
+                new UpdateDescription(null, new BsonDocument("items.title", new BsonString("b"))),
+                rawDoc(new BsonDocument("items", items.clone())),
+                PartialEmbedFallbackReason.ARRAY_TRAVERSAL),
+            new ReasonCase(
+                "empty new value",
+                autoEmbedMappingWithFields("title", "category"),
+                new UpdateDescription(null, new BsonDocument("title", new BsonString(""))),
+                rawDoc(new BsonDocument("title", new BsonString(""))),
+                PartialEmbedFallbackReason.EMPTY_NEW_VALUE));
+
+    for (ReasonCase c : cases) {
+      PartialEmbedClassification result =
+          AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(c.ud, c.fullDoc, c.mapping);
+      assertEquals(
+          c.name + ": expected fallback reason",
+          Optional.of(c.expected),
+          result.fallbackReason());
+      assertFalse(c.name + ": should not be applied", result.changedTexts().isPresent());
+    }
+  }
+
+  private static RawBsonDocument rawDoc(BsonDocument doc) {
+    return new RawBsonDocument(doc, BsonUtils.BSON_DOCUMENT_CODEC);
   }
 
   /** Routing verdict produced by the production gate -> classifier sequence. */
@@ -2287,7 +2392,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     if (!AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(ud, mapping)) {
       return Verdict.FILTER_ONLY;
     }
-    return AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(ud, fullDoc, mapping)
+    return classify(ud, fullDoc, mapping)
             .isPresent()
         ? Verdict.PARTIAL
         : Verdict.FULL_REPLACE;
@@ -2550,6 +2655,16 @@ public class AutoEmbeddingDocumentUtilsTest {
   private static UpdateDescription ud(
       List<String> removed, BsonDocument updated, List<TruncatedArray> truncated) {
     return new UpdateDescription(removed, updated, truncated);
+  }
+
+  /** Classifier result reduced to the changed-text Optional (empty = fell back). */
+  private static Optional<ImmutableMap<FieldPath, String>> classify(
+      UpdateDescription updateDescription,
+      RawBsonDocument fullDocument,
+      AutoEmbedFieldMapping fieldMapping) {
+    return AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(
+            updateDescription, fullDocument, fieldMapping)
+        .changedTexts();
   }
 
   private static AutoEmbedFieldMapping mappingOf(List<String> embeds, List<String> filters) {

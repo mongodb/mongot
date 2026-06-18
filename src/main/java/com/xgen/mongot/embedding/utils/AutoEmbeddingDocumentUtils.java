@@ -331,14 +331,17 @@ public class AutoEmbeddingDocumentUtils {
 
   /**
    * Decides whether a change-stream update can be applied as a partial {@code $set} on the MV
-   * (vs a full document replacement) for an auto-embed index. Returns a {@code path -> chosen
-   * source text} map naming the embed fields that need re-embedding; returns
-   * {@link Optional#empty()} when the caller must fall back to a full replacement.
+   * (vs a full document replacement) for an auto-embed index. Returns a {@link
+   * PartialEmbedClassification}: an {@code applied} result carrying the {@code path -> chosen
+   * source text} map of embed fields to re-embed, or a {@code fellBack} result carrying the
+   * {@link PartialEmbedFallbackReason} when the caller must fall back to a full replacement.
    *
    * <p>Should only be called when {@link #requiresEmbeddingGeneration} already returned true.
-   * The result is non-empty only when all of these hold:
+   * The result is {@code applied} only when all of these hold:
    *
    * <ul>
+   *   <li>The mapping is a {@link VectorAutoEmbedFieldMapping} — the only index type routed here;
+   *       other mappings (e.g. dynamic search) always fall back.
    *   <li>No removed or truncated field touches any declared embed path. A partial {@code $set}
    *       has no way to clear an MV vector or hash that the source removed.
    *   <li>Every updated field is either an exact embed match, an exact passthrough, or
@@ -357,7 +360,7 @@ public class AutoEmbeddingDocumentUtils {
    * scheduler and {@link #buildPartialEmbedUpdateSetBody} can consume them without walking the
    * source document again.
    */
-  public static Optional<ImmutableMap<FieldPath, String>> computePartialEmbedChangedTexts(
+  public static PartialEmbedClassification computePartialEmbedChangedTexts(
       UpdateDescription updateDescription,
       RawBsonDocument fullDocument,
       AutoEmbedFieldMapping fieldMapping) {
@@ -365,22 +368,20 @@ public class AutoEmbeddingDocumentUtils {
       // Mirror requiresEmbeddingGeneration's null handling: when the update description is
       // unavailable we can't reason about what changed, so we can't safely emit a partial-embed
       // update — caller must fall back to a full document replacement.
-      // TODO(CLOUDP-412617): count this fallback reason (null_update_description) in metrics.
-      return Optional.empty();
+      return PartialEmbedClassification.fellBack(
+          PartialEmbedFallbackReason.NULL_UPDATE_DESCRIPTION);
     }
     if (fullDocument == null) {
       // Defensive: mongot configures change streams with fullDocument lookup, so this should not
       // happen in production. Match requiresEmbeddingGeneration's conservatism if the assumption
       // ever breaks — we can't extract embed-field text without the document.
-      // TODO(CLOUDP-412617): count this fallback reason (null_full_document) in metrics.
-      return Optional.empty();
+      return PartialEmbedClassification.fellBack(PartialEmbedFallbackReason.NULL_FULL_DOCUMENT);
     }
     if (affectedFieldPaths(updateDescription).isEmpty()) {
       // Mirror requiresEmbeddingGeneration's "no channels reported anything" branch — that gate
       // returns true (be safe) for this shape, so a correctly-gated caller can still dispatch
       // here. Fall back to a full replace rather than reaching the post-loop precondition.
-      // TODO(CLOUDP-412617): count this fallback reason (no_channels_reported) in metrics.
-      return Optional.empty();
+      return PartialEmbedClassification.fellBack(PartialEmbedFallbackReason.NO_CHANNELS_REPORTED);
     }
     if (!(fieldMapping instanceof VectorAutoEmbedFieldMapping)) {
       // The destructive-touch check below requires fieldMap() to enumerate every indexed path.
@@ -388,7 +389,8 @@ public class AutoEmbeddingDocumentUtils {
       // intentionally under-enumerates, which would let a destructive update misclassify as
       // partial-safe and leave stale values on the MV. Unsupported mappings degrade to a full
       // replace rather than risking staleness.
-      return Optional.empty();
+      return PartialEmbedClassification.fellBack(
+          PartialEmbedFallbackReason.UNSUPPORTED_FIELD_MAPPING);
     }
 
     Set<FieldPath> declaredEmbedPaths = fieldMapping.embedFields().keySet();
@@ -402,11 +404,11 @@ public class AutoEmbeddingDocumentUtils {
     // fields alike (the $set body is built from the post-image, which no longer carries the
     // removed value, so the stale MV value would survive). Any indexed-field touch here forces
     // a full replace.
-    // TODO(CLOUDP-412617): count this fallback reason (destructive_indexed_touch) in metrics.
     // TODO(CLOUDP-412618): extend partial-update body with $unset so these cases stay partial.
     for (String touched : destructivelyAffectedFieldPaths(updateDescription)) {
       if (mayAffectDeclaredField(FieldPath.parse(touched), declaredIndexedPaths)) {
-        return Optional.empty();
+        return PartialEmbedClassification.fellBack(
+            PartialEmbedFallbackReason.DESTRUCTIVE_INDEXED_TOUCH);
       }
     }
 
@@ -425,9 +427,8 @@ public class AutoEmbeddingDocumentUtils {
       // post-image, and the partial $set body — built from the post-image — would then carry
       // nothing to overwrite the stale MV value. Checked before the embed branch so it covers
       // exact-embed paths that are also ancestors of filters.
-      // TODO(CLOUDP-412617): count this fallback reason (ancestor_overwrite) in metrics.
       if (isStrictAncestorOfAny(path, declaredIndexedPaths)) {
-        return Optional.empty();
+        return PartialEmbedClassification.fellBack(PartialEmbedFallbackReason.ANCESTOR_OVERWRITE);
       }
       if (fieldMapping.isEmbed(path)) {
         // Overlapping embed declarations (e.g. "a" and "a.b" — definition validation only rejects
@@ -435,16 +436,15 @@ public class AutoEmbeddingDocumentUtils {
         // $set can't drop the other's now-stale vector + hash. Fall back to a full replace.
         for (FieldPath other : declaredEmbedPaths) {
           if (!other.equals(path) && path.isDirectRelation(other)) {
-            // TODO(CLOUDP-412617): count this fallback reason (overlapping_embeds) in metrics.
-            return Optional.empty();
+            return PartialEmbedClassification.fellBack(
+                PartialEmbedFallbackReason.OVERLAPPING_EMBEDS);
           }
         }
         changedEmbedPathsBuilder.add(path);
         continue;
       }
       if (mayAffectDeclaredField(path, declaredEmbedPaths)) {
-        // TODO(CLOUDP-412617): count this fallback reason (indirect_embed_touch) in metrics.
-        return Optional.empty();
+        return PartialEmbedClassification.fellBack(PartialEmbedFallbackReason.INDIRECT_EMBED_TOUCH);
       }
     }
 
@@ -456,9 +456,8 @@ public class AutoEmbeddingDocumentUtils {
 
     for (FieldPath embedPath : changedEmbedPaths) {
       if (sourcePathTraversesArray(fullDocument, embedPath)) {
-        // TODO(CLOUDP-412617): count this fallback reason (array_traversal) in metrics.
         // TODO(CLOUDP-412619): investigate partial-embed support for nested embeddings.
-        return Optional.empty();
+        return PartialEmbedClassification.fellBack(PartialEmbedFallbackReason.ARRAY_TRAVERSAL);
       }
     }
 
@@ -475,7 +474,7 @@ public class AutoEmbeddingDocumentUtils {
           "Failed to extract embed-field text while classifying partial-embed safety; falling"
               + " back to full replace",
           e);
-      return Optional.empty();
+      return PartialEmbedClassification.fellBack(PartialEmbedFallbackReason.TEXT_EXTRACTION_FAILED);
     }
     ImmutableMap<FieldPath, List<BsonValue>> collectedValues = textCollector.getCollectedValues();
     ImmutableMap.Builder<FieldPath, String> textsBuilder = ImmutableMap.builder();
@@ -489,13 +488,12 @@ public class AutoEmbeddingDocumentUtils {
         // No non-empty text for this changed embed path. A partial $set has no way to $unset the
         // existing MV vector + hash for the field; fall back to a full replace which clears them
         // via the ReplaceOne.
-        // TODO(CLOUDP-412617): count this fallback reason (empty_new_value) in metrics.
         // TODO(CLOUDP-412618): extend partial-update body with $unset so this stays partial.
-        return Optional.empty();
+        return PartialEmbedClassification.fellBack(PartialEmbedFallbackReason.EMPTY_NEW_VALUE);
       }
       textsBuilder.put(embedPath, textOpt.get());
     }
-    return Optional.of(textsBuilder.build());
+    return PartialEmbedClassification.applied(textsBuilder.build());
   }
 
   /**
