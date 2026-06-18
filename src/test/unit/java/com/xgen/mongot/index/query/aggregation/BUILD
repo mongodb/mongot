@@ -5,10 +5,12 @@ java_test_suite(
     srcs = [
         "AccumulatorTest.java",
         "AggregationRegistryTest.java",
+        "AggregationTestSupport.java",
         "PrimitiveArrayTest.java",
         "ResultTest.java",
         "ShardMergePipelineBuilderTest.java",
         "SpecTest.java",
+        "TermsAccumulatorTest.java",
     ],
     tags = ["unit"],
     deps = [

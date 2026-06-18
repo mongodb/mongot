@@ -1,8 +1,9 @@
 package com.xgen.mongot.index.query.aggregation;
 
 import com.xgen.mongot.util.FieldPath;
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * A bucket/ intermediate node in the aggregation spec tree.
@@ -36,14 +37,19 @@ public abstract non-sealed class GroupAggregationSpec implements AggregationSpec
   }
 
   @Override
-  public final Accumulator buildAccumulator(
-      AggregationContext context, Optional<Accumulator> parent) {
-    return createAccumulator(context, parent);
+  public final Accumulator buildAccumulator(AggregationContext context) throws IOException {
+    // Bottom-up: build the children's accumulators first; the derived accumulator's constructor
+    // wires itself as their parent.
+    List<Accumulator> childAccumulators = new ArrayList<>(this.children.size());
+    for (AggregationSpec childSpec : this.children) {
+      childAccumulators.add(childSpec.buildAccumulator(context));
+    }
+    return createAccumulator(context, childAccumulators);
   }
 
   // Derived class should implement to provide the accumulator.
   protected abstract Accumulator createAccumulator(
-      AggregationContext context, Optional<Accumulator> parent);
+      AggregationContext context, List<Accumulator> childAccumulators) throws IOException;
 
   @Override
   public final void buildShardMergePipeline(ShardMergePipelineBuilder builder) {

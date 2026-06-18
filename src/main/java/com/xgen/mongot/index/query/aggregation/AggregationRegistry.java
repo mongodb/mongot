@@ -1,6 +1,5 @@
 package com.xgen.mongot.index.query.aggregation;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.xgen.mongot.util.FieldPath;
 import java.util.List;
 import java.util.Map;
@@ -13,11 +12,11 @@ import java.util.Optional;
  * spec class handles all field types for a given operator; field-type-specific dispatch can be
  * added later if needed.
  *
- * <p>This framework-only registry has empty default {@link #INSTANCE} -- no production specs are
+ * <p>This framework-only registry starts with an empty default instance -- no production specs are
  * wired up here. Concrete aggregation specs (avg, sum, terms, cardinality, ...) are registered by
  * follow-up PRs once the query syntax is finalized.
  *
- * <p>Tests use {@link #install(Map, Map)} to create registries with custom factories.
+ * <p>Startup code (and tests) use {@link #install(Map, Map)} to install the global singleton.
  */
 public class AggregationRegistry {
 
@@ -40,9 +39,11 @@ public class AggregationRegistry {
   }
 
   /**
-   * Global singleton and initialized during mongot startup exactly once.
+   * Global singleton, installed via {@link #install(Map, Map)} during mongot startup exactly once.
+   * Volatile so a registry installed by the startup thread is safely visible to query threads.
    */
-  public static final AggregationRegistry INSTANCE = new AggregationRegistry(Map.of(), Map.of());
+  private static volatile AggregationRegistry instance =
+      new AggregationRegistry(Map.of(), Map.of());
 
   private final Map<String, GroupSpecSupplier> groupRegistry;
   private final Map<String, OperatorSupplier> operatorRegistry;
@@ -54,10 +55,18 @@ public class AggregationRegistry {
     this.operatorRegistry = Map.copyOf(operatorRegistry);
   }
 
-  @VisibleForTesting
-  static AggregationRegistry install(
+  /** Return the installed global registry. */
+  public static AggregationRegistry getInstance() {
+    return instance;
+  }
+
+  /**
+   * Build a registry from the given factories and install it as the global singleton. Expected to
+   * be called exactly once during mongot startup, before any query references the registry.
+   */
+  static void install(
       Map<String, GroupSpecSupplier> groupMap, Map<String, OperatorSupplier> operatorMap) {
-    return new AggregationRegistry(groupMap, operatorMap);
+    instance = new AggregationRegistry(groupMap, operatorMap);
   }
 
   public GroupSpecSupplier getGroupSpecSupplier(String name) {

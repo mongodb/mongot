@@ -9,7 +9,6 @@ import com.xgen.mongot.index.definition.FieldTypeDefinition;
 import com.xgen.mongot.util.FieldPath;
 import java.io.IOException;
 import java.util.List;
-import java.util.Optional;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.junit.Test;
@@ -39,7 +38,7 @@ public class SpecTest {
 
         @Override
         public AggregationRegistry getRegistry() {
-          return AggregationRegistry.INSTANCE;
+          return AggregationRegistry.getInstance();
         }
 
         @Override
@@ -49,6 +48,11 @@ public class SpecTest {
 
         @Override
         public IndexReader getIndexReader() {
+          throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public String resolveLuceneFieldName(FieldPath path) {
           throw new UnsupportedOperationException();
         }
       };
@@ -79,24 +83,23 @@ public class SpecTest {
   }
 
   @Test
-  public void operatorSpecBuildsExpectedAccumulator() {
+  public void operatorSpecBuildsExpectedAccumulator() throws IOException {
     SumSpec spec = new SumSpec("sum_price", PRICE);
     AggregationContext context = STUB_CONTEXT;
-    Accumulator parent =
-        new TopAggregationSpec(List.of(spec)).buildAccumulator(context, Optional.empty());
-    Accumulator childAccumulator = spec.buildAccumulator(context, Optional.of(parent));
+    Accumulator parent = new TopAggregationSpec(List.of(spec)).buildAccumulator(context);
+    Accumulator childAccumulator = parent.children().get(0);
     assertTrue(childAccumulator instanceof SumAccumulator);
     assertEquals("sum_price", childAccumulator.getName());
+    assertSame(parent, childAccumulator.parent().orElseThrow());
   }
 
   @Test
-  public void groupSpecBuildsExpectedAccumulatorWithChildren() {
+  public void groupSpecBuildsExpectedAccumulatorWithChildren() throws IOException {
     AggregationSpec leaf = new SumSpec("sum_price", PRICE);
     TermsSpec spec = new TermsSpec("by_city", CITY, List.of(leaf));
 
     AggregationContext context = STUB_CONTEXT;
-    Accumulator topAccumulator =
-        new TopAggregationSpec(List.of(spec)).buildAccumulator(context, Optional.empty());
+    Accumulator topAccumulator = new TopAggregationSpec(List.of(spec)).buildAccumulator(context);
     Accumulator group = topAccumulator.children().get(0);
 
     assertTrue(group instanceof TermsAccumulator);
@@ -134,8 +137,8 @@ public class SpecTest {
     }
 
     @Override
-    public Accumulator buildAccumulator(AggregationContext context, Optional<Accumulator> parent) {
-      return new SumAccumulator(this.name, context, parent);
+    public Accumulator buildAccumulator(AggregationContext context) {
+      return new SumAccumulator(this.name, context);
     }
 
     @Override
@@ -151,14 +154,14 @@ public class SpecTest {
 
     @Override
     protected Accumulator createAccumulator(
-        AggregationContext context, Optional<Accumulator> parent) {
-      return new TermsAccumulator(this.name, this.children, context, parent);
+        AggregationContext context, List<Accumulator> childAccumulators) {
+      return new TermsAccumulator(this.name, childAccumulators, context);
     }
   }
 
   private static final class SumAccumulator extends Accumulator {
-    SumAccumulator(String name, AggregationContext context, Optional<Accumulator> parent) {
-      super(name, parent, List.of(), context);
+    SumAccumulator(String name, AggregationContext context) {
+      super(name, List.of(), context);
     }
 
     @Override
@@ -173,12 +176,8 @@ public class SpecTest {
   }
 
   private static final class TermsAccumulator extends BucketsAccumulator {
-    TermsAccumulator(
-        String name,
-        List<AggregationSpec> childrenSpecs,
-        AggregationContext context,
-        Optional<Accumulator> parent) {
-      super(name, parent, childrenSpecs, context);
+    TermsAccumulator(String name, List<Accumulator> childAccumulators, AggregationContext context) {
+      super(name, childAccumulators, context);
     }
 
     @Override

@@ -1,8 +1,8 @@
 package com.xgen.mongot.index.query.aggregation;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Root-level aggregation spec.
@@ -15,8 +15,13 @@ public record TopAggregationSpec(List<AggregationSpec> children) implements Aggr
   }
 
   @Override
-  public Accumulator buildAccumulator(AggregationContext context, Optional<Accumulator> parent) {
-    return new TopLevelAccumulator(context, this.children);
+  public Accumulator buildAccumulator(AggregationContext context) throws IOException {
+    // Bottom-up: build the children's accumulators first.
+    List<Accumulator> childAccumulators = new ArrayList<>(this.children.size());
+    for (AggregationSpec childSpec : this.children) {
+      childAccumulators.add(childSpec.buildAccumulator(context));
+    }
+    return new TopLevelAccumulator(context, childAccumulators);
   }
 
   @Override
@@ -30,10 +35,10 @@ public record TopAggregationSpec(List<AggregationSpec> children) implements Aggr
   }
 
   private static final class TopLevelAccumulator extends Accumulator {
-    private final MultiBucketCollector multiBucketCollector;
+    private final BucketCollector multiBucketCollector;
 
-    TopLevelAccumulator(AggregationContext context, List<AggregationSpec> childrenSpecs) {
-      super("_top", Optional.empty(), childrenSpecs, context);
+    TopLevelAccumulator(AggregationContext context, List<Accumulator> childAccumulators) {
+      super("_top", childAccumulators, context);
       this.multiBucketCollector = MultiBucketCollector.of(this.children);
     }
 
@@ -44,15 +49,18 @@ public record TopAggregationSpec(List<AggregationSpec> children) implements Aggr
     }
 
     @Override
-    protected List<AggregationResult> buildResults(LongArray ordsToCollect) {
+    protected List<AggregationResult> buildResults(LongArray ordsToCollect) throws IOException {
       // Since only bucket ordinal 0 is used to collect from root node, we only collect that.
       if (ordsToCollect.size() != 1 || ordsToCollect.get(0) != 0) {
         throw new IllegalStateException(
             "Top-level accumulator expects exactly ordinal 0, got: " + ordsToCollect.size()
                 + " ords");
       }
-      List<AggregationResult> childResults =
-          this.children.stream().map(Accumulator::buildTopLevelResult).toList();
+      // Plain loop instead of stream: buildTopLevelResult throws a checked IOException.
+      List<AggregationResult> childResults = new ArrayList<>(this.children.size());
+      for (Accumulator child : this.children) {
+        childResults.add(child.buildTopLevelResult());
+      }
       return List.of(new TopLevelAggregationResult(childResults));
     }
   }

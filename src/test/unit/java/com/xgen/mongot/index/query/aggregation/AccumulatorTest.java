@@ -3,111 +3,46 @@ package com.xgen.mongot.index.query.aggregation;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
-import com.xgen.mongot.index.definition.FieldTypeDefinition;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.IntFunction;
 import java.util.stream.Collectors;
-import org.apache.lucene.document.Document;
-import org.apache.lucene.document.SortedNumericDocValuesField;
-import org.apache.lucene.document.SortedSetDocValuesField;
-import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.DocValues;
-import org.apache.lucene.index.IndexReader;
-import org.apache.lucene.index.IndexWriter;
-import org.apache.lucene.index.IndexWriterConfig;
-import org.apache.lucene.index.LeafReaderContext;
-import org.apache.lucene.index.SortedNumericDocValues;
 import org.apache.lucene.index.SortedSetDocValues;
-import org.apache.lucene.search.Collector;
-import org.apache.lucene.search.CollectorManager;
-import org.apache.lucene.search.IndexSearcher;
-import org.apache.lucene.search.MatchAllDocsQuery;
-import org.apache.lucene.search.Scorable;
-import org.apache.lucene.store.ByteBuffersDirectory;
-import org.apache.lucene.store.Directory;
 import org.apache.lucene.util.BytesRef;
-import org.jetbrains.annotations.Nullable;
-import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
 /** Integration test driving the accumulator framework against an in-memory Lucene index. */
-public class AccumulatorTest {
-
-  private static final String CITY_FIELD = "city";
-  private static final String PRICE_FIELD = "price";
-
-  private Directory directory;
-  private IndexReader reader;
-  private IndexSearcher searcher;
+public class AccumulatorTest extends AggregationTestSupport {
 
   @Before
   public void setUp() throws Exception {
-    this.directory = new ByteBuffersDirectory();
-    try (IndexWriter writer = new IndexWriter(this.directory, new IndexWriterConfig())) {
-      addDoc(writer, "NYC", 10);
-      addDoc(writer, "NYC", 20);
-      addDoc(writer, "NYC", 30);
-      addDoc(writer, "LA", 5);
-      addDoc(writer, "LA", 15);
-    }
-    this.reader = DirectoryReader.open(this.directory);
-    this.searcher = new IndexSearcher(this.reader);
-  }
-
-  @After
-  public void tearDown() throws Exception {
-    if (this.reader != null) {
-      this.reader.close();
-    }
-    if (this.directory != null) {
-      this.directory.close();
-    }
-  }
-
-  private static void addDoc(IndexWriter writer, String city, long price) throws Exception {
-    Document doc = new Document();
-    doc.add(new SortedSetDocValuesField(CITY_FIELD, new BytesRef(city)));
-    doc.add(new SortedNumericDocValuesField(PRICE_FIELD, price));
-    writer.addDocument(doc);
+    buildIndex(
+        List.of(
+            new TestDoc("NYC", "x", 10),
+            new TestDoc("NYC", "x", 20),
+            new TestDoc("NYC", "x", 30),
+            new TestDoc("LA", "x", 5),
+            new TestDoc("LA", "x", 15)),
+        Integer.MAX_VALUE); // single segment
   }
 
   @Test
   public void groupByCityWithSumPrice() throws Exception {
-    AggregationSpec sumSpec = new SumSpec("sum_price", FieldPath.parse(PRICE_FIELD), PRICE_FIELD);
+    AggregationSpec sumSpec = new SumSpec("sum_price", PRICE_FIELD);
     AggregationSpec termsSpec =
         new TermsSpec("by_city", FieldPath.parse(CITY_FIELD), CITY_FIELD, List.of(sumSpec));
     TopAggregationSpec topSpec = new TopAggregationSpec(List.of(termsSpec));
 
-    AggregationContext context = new TestContext(this.reader, AggregationRegistry.INSTANCE);
-
-    Accumulator topAccumulator = topSpec.buildAccumulator(context, Optional.empty());
-    Collector luceneCollector = topAccumulator.asCollector(context);
-    this.searcher.search(
-        new MatchAllDocsQuery(),
-        new CollectorManager<Collector, Void>() {
-          @Override
-          public Collector newCollector() {
-            // Reuse the same accumulator-backed collector across slices; this test is
-            // single-threaded so a per-slice instance is unnecessary.
-            return luceneCollector;
-          }
-
-          @Override
-          public Void reduce(Collection<Collector> collectors) {
-            return null;
-          }
-        });
+    Accumulator topAccumulator = collectAll(topSpec, newContext());
 
     AggregationResult topResult = topAccumulator.buildTopLevelResult();
     assertNotNull(topResult);
@@ -129,20 +64,9 @@ public class AccumulatorTest {
     assertEquals(20.0, sumByCity.get("LA"), 0.0001);
   }
 
-  // ===== inline test-only spec / accumulator / result fixtures =====
-
-  /** Inline leaf result carrying a single double value. */
-  private record SumResult(String name, double value) implements AggregationResult {
-    @Override
-    public String getName() {
-      return this.name;
-    }
-
-    @Override
-    public AggregationResult mergePartitionResult(AggregationResult other) {
-      return new SumResult(this.name, this.value + ((SumResult) other).value);
-    }
-  }
+  // ===== inline test-only fixtures: a local-ord terms accumulator + result, used to exercise the
+  // framework wiring (BucketsAccumulator / buildSubAggsForBuckets) independently of the real
+  // terms accumulators. =====
 
   /** Inline bucket result for term-style grouping. */
   private static final class TermsResult extends MultiBucketAggregationResult {
@@ -213,31 +137,7 @@ public class AccumulatorTest {
     }
   }
 
-  /** Inline sum spec — uses raw Lucene field name (bypasses field-type resolution). */
-  private static final class SumSpec extends OperatorAggregationSpec {
-    @SuppressWarnings("unused")
-    private final FieldPath path;
-
-    private final String luceneFieldName;
-
-    SumSpec(String name, FieldPath path, String luceneFieldName) {
-      super(Operator.SUM, name);
-      this.path = path;
-      this.luceneFieldName = luceneFieldName;
-    }
-
-    @Override
-    public Accumulator buildAccumulator(AggregationContext context, Optional<Accumulator> parent) {
-      return new SumAccumulator(this.name, this.luceneFieldName, context, parent);
-    }
-
-    @Override
-    public void buildShardMergePipeline(ShardMergePipelineBuilder builder) {
-      throw new UnsupportedOperationException("not exercised in AccumulatorTest");
-    }
-  }
-
-  /** Inline terms spec — uses raw Lucene field name. */
+  /** Inline terms spec -- uses raw Lucene field name. */
   private static final class TermsSpec extends GroupAggregationSpec {
     private final String luceneFieldName;
 
@@ -248,58 +148,9 @@ public class AccumulatorTest {
 
     @Override
     protected Accumulator createAccumulator(
-        AggregationContext context, Optional<Accumulator> parent) {
-      return new TermsAccumulator(
-          this.name, this.path, this.luceneFieldName, this.children, context, parent);
-    }
-  }
-
-  /** Inline leaf metric accumulator. */
-  private static final class SumAccumulator extends Accumulator {
-    private final String luceneFieldName;
-    private final DoubleArray sums;
-
-    SumAccumulator(
-        String name,
-        String luceneFieldName,
-        AggregationContext context,
-        Optional<Accumulator> parent) {
-      super(name, parent, List.of(), context);
-      this.luceneFieldName = luceneFieldName;
-      this.sums = new DoubleArray(8);
-    }
-
-    @Override
-    public LeafBucketCollector getLeafCollector(AggregationContext context) throws IOException {
-      SortedNumericDocValues values =
-          DocValues.getSortedNumeric(context.getLeafReaderContext().reader(), this.luceneFieldName);
-
-      return new LeafBucketCollector() {
-        @Override
-        public void collect(int doc, long owningBucketOrd) throws IOException {
-          if (values.advanceExact(doc)) {
-            int bucketOrd = (int) owningBucketOrd;
-            int count = values.docValueCount();
-            for (int i = 0; i < count; i++) {
-              SumAccumulator.this.sums.increment(bucketOrd, (double) values.nextValue());
-            }
-          }
-        }
-
-        @Override
-        public void setScorer(Scorable scorer) throws IOException {}
-      };
-    }
-
-    @Override
-    protected List<AggregationResult> buildResults(LongArray ordsToCollect) {
-      List<AggregationResult> results = new ArrayList<>();
-      for (int i = 0; i < ordsToCollect.size(); i++) {
-        int bucketOrd = (int) ordsToCollect.get(i);
-        double sum = bucketOrd < this.sums.size() ? this.sums.get(bucketOrd) : 0.0;
-        results.add(new SumResult(this.name, sum));
-      }
-      return results;
+        AggregationContext context, List<Accumulator> childAccumulators) {
+      return new LocalOrdTermsAccumulator(
+          this.name, this.path, this.luceneFieldName, childAccumulators, context);
     }
   }
 
@@ -307,20 +158,19 @@ public class AccumulatorTest {
    * Inline terms accumulator -- simple per-segment local-ord strategy. Intended for single-segment
    * tests; reads the field by Lucene field name directly to avoid relying on field-type resolution.
    */
-  private static final class TermsAccumulator extends BucketsAccumulator {
+  private static final class LocalOrdTermsAccumulator extends BucketsAccumulator {
     private final FieldPath path;
     private final String luceneFieldName;
     private final Map<String, Integer> termToBucketOrd = new HashMap<>();
     private final List<String> bucketOrdToTerm = new ArrayList<>();
 
-    TermsAccumulator(
+    LocalOrdTermsAccumulator(
         String name,
         FieldPath path,
         String luceneFieldName,
-        List<AggregationSpec> childrenSpecs,
-        AggregationContext context,
-        Optional<Accumulator> parent) {
-      super(name, parent, childrenSpecs, context);
+        List<Accumulator> childAccumulators,
+        AggregationContext context) {
+      super(name, childAccumulators, context);
       this.path = path;
       this.luceneFieldName = luceneFieldName;
     }
@@ -343,24 +193,21 @@ public class AccumulatorTest {
             BytesRef termBytes = docValues.lookupOrd(segmentOrd);
             String term = termBytes.utf8ToString();
             int bucketOrd =
-                TermsAccumulator.this.termToBucketOrd.computeIfAbsent(
+                LocalOrdTermsAccumulator.this.termToBucketOrd.computeIfAbsent(
                     term,
                     k -> {
-                      int ord = TermsAccumulator.this.bucketOrdToTerm.size();
-                      TermsAccumulator.this.bucketOrdToTerm.add(k);
+                      int ord = LocalOrdTermsAccumulator.this.bucketOrdToTerm.size();
+                      LocalOrdTermsAccumulator.this.bucketOrdToTerm.add(k);
                       return ord;
                     });
             children.collect(doc, bucketOrd);
           }
         }
-
-        @Override
-        public void setScorer(Scorable scorer) throws IOException {}
       };
     }
 
     @Override
-    protected List<AggregationResult> buildResults(LongArray ordsToCollect) {
+    protected List<AggregationResult> buildResults(LongArray ordsToCollect) throws IOException {
       int totalBuckets = this.bucketOrdToTerm.size();
       try (LongArray allBucketOrds = new LongArray(totalBuckets)) {
         for (int i = 0; i < totalBuckets; i++) {
@@ -380,58 +227,6 @@ public class AccumulatorTest {
         }
         return results;
       }
-    }
-  }
-
-  /**
-   * Minimal inline AggregationContext for the integration test. Threads an IndexReader and the
-   * current LeafReaderContext through to the framework; the field-type resolver is not used here
-   * because the inline specs read Lucene field names directly.
-   */
-  private static final class TestContext implements AggregationContext {
-    private final IndexReader indexReader;
-    private final AggregationRegistry registry;
-    @Nullable private final LeafReaderContext leafReaderContext;
-
-    TestContext(IndexReader indexReader, AggregationRegistry registry) {
-      this(indexReader, registry, null);
-    }
-
-    private TestContext(
-        IndexReader indexReader,
-        AggregationRegistry registry,
-        @Nullable LeafReaderContext leafReaderContext) {
-      this.indexReader = indexReader;
-      this.registry = registry;
-      this.leafReaderContext = leafReaderContext;
-    }
-
-    @Override
-    public AggregationContext withLeafReaderContext(LeafReaderContext context) {
-      return new TestContext(this.indexReader, this.registry, context);
-    }
-
-    @Override
-    public FieldTypeDefinition resolveFieldDefinition(FieldPath path) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public AggregationRegistry getRegistry() {
-      return this.registry;
-    }
-
-    @Override
-    public LeafReaderContext getLeafReaderContext() {
-      if (this.leafReaderContext == null) {
-        throw new IllegalStateException("LeafReaderContext not bound");
-      }
-      return this.leafReaderContext;
-    }
-
-    @Override
-    public IndexReader getIndexReader() {
-      return this.indexReader;
     }
   }
 }

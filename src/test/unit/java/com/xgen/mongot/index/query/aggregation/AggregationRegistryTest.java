@@ -8,10 +8,17 @@ import static org.junit.Assert.assertTrue;
 import com.xgen.mongot.util.FieldPath;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import org.junit.After;
 import org.junit.Test;
 
 public class AggregationRegistryTest {
+
+  @After
+  public void resetGlobalRegistry() {
+    // install() mutates the global singleton; restore the empty default so test order
+    // cannot leak suppliers into other tests.
+    AggregationRegistry.install(Map.of(), Map.of());
+  }
 
   private static final FieldPath PRICE = FieldPath.parse("price");
   private static final FieldPath CITY = FieldPath.parse("city");
@@ -30,7 +37,7 @@ public class AggregationRegistryTest {
     }
 
     @Override
-    public Accumulator buildAccumulator(AggregationContext context, Optional<Accumulator> parent) {
+    public Accumulator buildAccumulator(AggregationContext context) {
       throw new UnsupportedOperationException();
     }
 
@@ -48,7 +55,7 @@ public class AggregationRegistryTest {
 
     @Override
     protected Accumulator createAccumulator(
-        AggregationContext context, Optional<Accumulator> parent) {
+        AggregationContext context, List<Accumulator> childAccumulators) {
       throw new UnsupportedOperationException();
     }
   }
@@ -58,18 +65,18 @@ public class AggregationRegistryTest {
     // The framework-only PR ships with no production specs wired up.
     assertThrows(
         IllegalArgumentException.class,
-        () -> AggregationRegistry.INSTANCE.getGroupSpecSupplier("anything"));
+        () -> AggregationRegistry.getInstance().getGroupSpecSupplier("anything"));
     assertThrows(
         IllegalArgumentException.class,
-        () -> AggregationRegistry.INSTANCE.getOperatorSupplier("anything"));
+        () -> AggregationRegistry.getInstance().getOperatorSupplier("anything"));
   }
 
   @Test
   public void installRegistersGroupSupplier() {
-    AggregationRegistry registry =
-        AggregationRegistry.install(Map.of("group", TestGrpSpec::new), Map.of());
+    AggregationRegistry.install(Map.of("group", TestGrpSpec::new), Map.of());
 
-    AggregationRegistry.GroupSpecSupplier supplier = registry.getGroupSpecSupplier("group");
+    AggregationRegistry.GroupSpecSupplier supplier =
+        AggregationRegistry.getInstance().getGroupSpecSupplier("group");
     assertNotNull(supplier);
 
     GroupAggregationSpec spec = supplier.build("by_city", CITY, List.of());
@@ -80,10 +87,10 @@ public class AggregationRegistryTest {
 
   @Test
   public void installRegistersOperatorSupplier() {
-    AggregationRegistry registry =
-        AggregationRegistry.install(Map.of(), Map.of("op", TestOpSpec::new));
+    AggregationRegistry.install(Map.of(), Map.of("op", TestOpSpec::new));
 
-    AggregationRegistry.OperatorSupplier supplier = registry.getOperatorSupplier("op");
+    AggregationRegistry.OperatorSupplier supplier =
+        AggregationRegistry.getInstance().getOperatorSupplier("op");
     assertNotNull(supplier);
 
     OperatorAggregationSpec spec = supplier.build("avg_price", PRICE);

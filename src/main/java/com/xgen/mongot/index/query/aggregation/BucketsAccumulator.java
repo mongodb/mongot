@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.function.IntFunction;
 
 /**
@@ -14,13 +13,31 @@ public abstract class BucketsAccumulator extends Accumulator {
 
   protected final BucketCollector childrenCollector;
 
+  // Per-bucket document counts, indexed by this accumulator's bucket ordinal. Shared by all
+  // bucket-producing accumulators (terms now, boundary later) for top-N ordering and for
+  // reporting bucket counts in results.
+  private final LongArray docCounts = new LongArray(64);
+
   protected BucketsAccumulator(
-      String name,
-      Optional<Accumulator> parent,
-      List<AggregationSpec> childrenSpecs,
-      AggregationContext context) {
-    super(name, parent, childrenSpecs, context);
+      String name, List<Accumulator> childAccumulators, AggregationContext context) {
+    super(name, childAccumulators, context);
     this.childrenCollector = MultiBucketCollector.of(this.children);
+  }
+
+  /**
+   * Count one document into {@code bucketOrd} and forward the collection to children. This is the
+   * single entry point bucket-producing accumulators should use from their leaf collectors.
+   */
+  protected final void collectBucket(LeafBucketCollector children, int doc, long bucketOrd)
+      throws IOException {
+    this.docCounts.increment(Math.toIntExact(bucketOrd), 1);
+    children.collect(doc, bucketOrd);
+  }
+
+  /** Number of documents collected into {@code bucketOrd}; 0 if the bucket never received docs. */
+  protected final long bucketDocCount(long bucketOrd) {
+    int index = Math.toIntExact(bucketOrd);
+    return index >= this.docCounts.size() ? 0 : this.docCounts.get(index);
   }
 
   @Override
@@ -50,7 +67,7 @@ public abstract class BucketsAccumulator extends Accumulator {
    *     represents one sub accumulator.
    */
   protected final IntFunction<AggregationResults> buildSubAggsForBuckets(
-      LongArray bucketOrdsToCollect) {
+      LongArray bucketOrdsToCollect) throws IOException {
     List<List<AggregationResult>> results = new ArrayList<>();
 
     for (int i = 0; i < this.children.size(); i++) {

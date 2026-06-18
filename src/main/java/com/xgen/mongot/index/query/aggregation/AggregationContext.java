@@ -56,4 +56,9 @@ public interface AggregationContext {
    * (e.g. building a cross-segment ordinal map) before per-segment collection begins.
    */
   IndexReader getIndexReader();
+
+  /**
+  * Resolve the Lucene field name backing the doc-values for {@code path}.
+  */
+  String resolveLuceneFieldName(FieldPath path);
 }

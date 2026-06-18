@@ -1,7 +1,7 @@
 package com.xgen.mongot.index.query.aggregation;
 
+import java.io.IOException;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Leaf spec node.
@@ -32,8 +32,7 @@ public abstract non-sealed class OperatorAggregationSpec implements AggregationS
   }
 
   @Override
-  public abstract Accumulator buildAccumulator(
-      AggregationContext context, Optional<Accumulator> parent);
+  public abstract Accumulator buildAccumulator(AggregationContext context) throws IOException;
 
   @Override
   public abstract void buildShardMergePipeline(ShardMergePipelineBuilder builder);

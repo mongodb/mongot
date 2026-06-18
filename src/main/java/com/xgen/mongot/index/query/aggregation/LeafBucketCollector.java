@@ -2,6 +2,7 @@ package com.xgen.mongot.index.query.aggregation;
 
 import java.io.IOException;
 import org.apache.lucene.search.LeafCollector;
+import org.apache.lucene.search.Scorable;
 
 /**
  * Implemented lucene LuceneCollector to collect for a segment. It provides bucket oriented
@@ -28,4 +29,11 @@ public abstract class LeafBucketCollector implements LeafCollector {
     // Lucene query machinery always collects from root level.
     this.collect(doc, 0);
   }
+
+  /**
+   * No-op implementation. Currently Aggregation doesn't care about scores and require revisit
+   * when support score based sorting.
+   */
+  @Override
+  public void setScorer(Scorable scorer) throws IOException {}
 }

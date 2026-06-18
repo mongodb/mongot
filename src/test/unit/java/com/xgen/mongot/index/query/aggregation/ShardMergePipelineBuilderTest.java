@@ -4,7 +4,6 @@ import static org.junit.Assert.assertEquals;
 
 import com.xgen.mongot.util.FieldPath;
 import java.util.List;
-import java.util.Optional;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.junit.Test;
@@ -153,7 +152,7 @@ public class ShardMergePipelineBuilderTest {
     }
 
     @Override
-    public Accumulator buildAccumulator(AggregationContext context, Optional<Accumulator> parent) {
+    public Accumulator buildAccumulator(AggregationContext context) {
       throw new UnsupportedOperationException("not exercised in pipeline test");
     }
 
@@ -172,7 +171,7 @@ public class ShardMergePipelineBuilderTest {
 
     @Override
     protected Accumulator createAccumulator(
-        AggregationContext context, Optional<Accumulator> parent) {
+        AggregationContext context, List<Accumulator> childAccumulators) {
       throw new UnsupportedOperationException("not exercised in pipeline test");
     }
   }

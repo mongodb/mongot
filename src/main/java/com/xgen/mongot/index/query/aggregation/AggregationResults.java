@@ -46,6 +46,10 @@ public final class AggregationResults implements Iterable<AggregationResult> {
     return (A) result.orElseThrow(() -> new IllegalStateException("Result not found: " + name));
   }
 
+  public Map<String, AggregationResult> getResultsByName() {
+    return this.resultsByName;
+  }
+
   public static AggregationResults from(List<AggregationResult> results) {
     return new AggregationResults(results);
   }

@@ -1,7 +1,7 @@
 package com.xgen.mongot.index.query.aggregation;
 
+import java.io.IOException;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Common interface for every node in an aggregation spec tree.
@@ -26,10 +26,13 @@ public sealed interface AggregationSpec
   /**
    * Create the runtime Accumulator for this spec.
    *
+   * <p>Accumulator trees are built bottom-up: implementations build their children's accumulators
+   * first and pass them into their own accumulator's constructor, which wires itself as the
+   * children's parent backpointer.
+   *
    * @param context provides index reader, index definition, etc.
-   * @param parent the parent accumulator; {@link Optional#empty()} for the top-level spec
    */
-  Accumulator buildAccumulator(AggregationContext context, Optional<Accumulator> parent);
+  Accumulator buildAccumulator(AggregationContext context) throws IOException;
 
   /**
    * Contribute this spec's merge logic to the shared pipeline builder. Called by

@@ -16,7 +16,11 @@ public final class MultiBucketCollector extends BucketCollector {
     this.collectors = collectors;
   }
 
-  public static MultiBucketCollector of(List<? extends BucketCollector> collectors) {
+  public static BucketCollector of(List<? extends BucketCollector> collectors) {
+    if (collectors.size() == 1) {
+      // Optimize for the common case of a single collector.
+      return collectors.get(0);
+    }
     return new MultiBucketCollector(collectors);
   }
 
