@@ -264,4 +264,58 @@ public class DualBlockingQueueTest {
 
     assertThat(queue.peek()).isNull();
   }
+
+  @Test
+  public void testOfferWithTimeout_succeedsImmediately() throws InterruptedException {
+    // The queue is unbounded, so the timed offer never blocks: it returns true at once and enqueues
+    // the task regardless of the timeout.
+    DualBlockingQueue queue = new DualBlockingQueue(4, new SimpleMeterRegistry());
+    PrioritizedTask task = task(true);
+
+    assertThat(queue.offer(task, 1, TimeUnit.HOURS)).isTrue();
+    assertThat(queue.size()).isEqualTo(1);
+    assertThat(queue.take()).isEqualTo(task);
+  }
+
+  @Test
+  public void testPeek_matchesNextServedTaskWhenRatioReached() throws InterruptedException {
+    // With ratio 1, after serving one preferred task the next served task is the regular one;
+    // peek() must report that same task (mirroring selectNext()).
+    DualBlockingQueue queue = new DualBlockingQueue(1, new SimpleMeterRegistry());
+    PrioritizedTask high = task(true);
+    PrioritizedTask low = task(false);
+    queue.offer(high);
+    queue.offer(low);
+
+    assertThat(queue.take()).isEqualTo(high); // ratio reached
+    assertThat(queue.peek()).isEqualTo(low); // regular is served next
+    assertThat(queue.take()).isEqualTo(low);
+  }
+
+  @Test
+  public void testRatio_regularEmptyAtBoundary_resetsCounterAndServesPreferred()
+      throws InterruptedException {
+    // When the ratio is reached but the regular queue is empty, the
+    // counter resets and a preferred task is served. Because the counter reset, a regular task
+    // offered just afterwards waits behind another preferred task rather than being served next.
+    DualBlockingQueue queue = new DualBlockingQueue(2, new SimpleMeterRegistry());
+    PrioritizedTask high1 = task(true);
+    PrioritizedTask high2 = task(true);
+    PrioritizedTask high3 = task(true);
+    PrioritizedTask high4 = task(true);
+    queue.offer(high1);
+    queue.offer(high2);
+    queue.offer(high3);
+    queue.offer(high4);
+
+    assertThat(queue.take()).isEqualTo(high1);
+    assertThat(queue.take()).isEqualTo(high2);
+
+    assertThat(queue.take()).isEqualTo(high3);
+
+    PrioritizedTask low = task(false);
+    queue.offer(low);
+    assertThat(queue.take()).isEqualTo(high4);
+    assertThat(queue.take()).isEqualTo(low);
+  }
 }

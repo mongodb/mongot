@@ -35,6 +35,11 @@ import org.jetbrains.annotations.Nullable;
  * consecutiveHighPriorityCount} resets to 0 whenever the regular queue is chosen, including the
  * empty-queue fallback paths. When a queue intermittently empties, the actual ratio of served
  * tasks can favor preferred tasks more than configured; this is intentional.
+ *
+ * <p>The {@code preferredTasksPerRegularTask} ratio is approximate: {@code
+ * consecutiveHighPriorityCount} resets to 0 whenever the regular queue is chosen, including the
+ * empty-queue fallback paths. When a queue intermittently empties, the actual ratio of served tasks
+ * can favor preferred tasks more than configured; this is intentional.
  */
 public class DualBlockingQueue extends AbstractQueue<Runnable> implements BlockingQueue<Runnable> {
 
@@ -102,6 +107,8 @@ public class DualBlockingQueue extends AbstractQueue<Runnable> implements Blocki
   @Override
   public boolean offer(Runnable r, long timeout, TimeUnit unit) {
     Objects.requireNonNull(unit, "unit");
+    // The queue is unbounded, so a timed offer never needs to wait for capacity; it behaves exactly
+    // like offer(r) and returns without blocking, regardless of the timeout.
     return offer(r);
   }
 
@@ -155,63 +162,44 @@ public class DualBlockingQueue extends AbstractQueue<Runnable> implements Blocki
    * Selects the next task to run.
    *
    * <p>While {@code consecutiveHighPriorityCount} is below {@code preferredTasksPerRegularTask},
-   * tasks are pulled from the preferred queue and the counter is incremented. Once the ratio is
-   * reached, one regular task is served and the counter resets to 0. If the preferred queue is
-   * empty, falls back to the regular queue so a worker is never idle while tasks are waiting.
+   * the preferred queue is served and the counter is incremented; once the ratio is reached, a
+   * regular task is served and the counter resets to 0. When the queue that would normally be
+   * served is empty, the other queue is served as a fallback so a worker is never idle.
    */
   @GuardedBy("lock")
   private Runnable selectNext() {
-    if (this.consecutiveHighPriorityCount < this.preferredTasksPerRegularTask) {
-      Runnable task = this.preferredQueue.poll();
-      if (task != null) {
-        this.consecutiveHighPriorityCount++;
-        this.preferredQueueTasksServed.increment();
-        return task;
-      }
-    } else {
-      Runnable task = this.regularQueue.poll();
-      if (task != null) {
-        this.consecutiveHighPriorityCount = 0;
-        this.regularQueueTasksServed.increment();
-        return task;
-      }
+    if (this.consecutiveHighPriorityCount >= this.preferredTasksPerRegularTask) {
+      // Ratio reached: serve a regular task, resetting the counter. Falls through to a preferred
+      // task when no regular task is waiting.
       this.consecutiveHighPriorityCount = 0;
-    }
-
-    // Fallback: if the preferred queue is empty, serve from whichever queue has work and update
-    // the counter symmetrically: a fallback regular resets it to 0, a fallback preferred increments
-    // it.
-    @Var Runnable task = this.regularQueue.poll();
-    if (task != null) {
+      if (!this.regularQueue.isEmpty()) {
+        this.regularQueueTasksServed.increment();
+        return this.regularQueue.poll();
+      }
+    } else if (this.preferredQueue.isEmpty()) {
+      // Under the ratio but no preferred task waiting: serve a regular task.
       this.consecutiveHighPriorityCount = 0;
       this.regularQueueTasksServed.increment();
-      return task;
+      return this.regularQueue.poll();
     }
-    task = this.preferredQueue.poll();
-    if (task != null) {
-      this.consecutiveHighPriorityCount++;
-      this.preferredQueueTasksServed.increment();
-    }
-    return task;
+
+    // Serve a preferred task: either we are under the ratio, or the regular queue was empty. At
+    // least one queue is non-empty, so the preferred queue is guaranteed to have a task here.
+    this.consecutiveHighPriorityCount++;
+    this.preferredQueueTasksServed.increment();
+    return this.preferredQueue.poll();
   }
 
   @Override
   public @Nullable Runnable peek() {
     this.lock.lock();
     try {
-      if (this.consecutiveHighPriorityCount < this.preferredTasksPerRegularTask) {
-        Runnable task = this.preferredQueue.peek();
-        if (task != null) {
-          return task;
-        }
-      } else {
-        Runnable task = this.regularQueue.peek();
-        if (task != null) {
-          return task;
-        }
+      if (this.consecutiveHighPriorityCount >= this.preferredTasksPerRegularTask) {
+        Runnable regular = this.regularQueue.peek();
+        return regular != null ? regular : this.preferredQueue.peek();
       }
-      Runnable lowTask = this.regularQueue.peek();
-      return lowTask != null ? lowTask : this.preferredQueue.peek();
+      Runnable preferred = this.preferredQueue.peek();
+      return preferred != null ? preferred : this.regularQueue.peek();
     } finally {
       this.lock.unlock();
     }
