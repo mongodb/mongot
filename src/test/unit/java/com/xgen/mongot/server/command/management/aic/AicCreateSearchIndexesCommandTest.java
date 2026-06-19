@@ -32,22 +32,27 @@ import com.xgen.mongot.catalogservice.AuthoritativeIndexKey;
 import com.xgen.mongot.catalogservice.CatalogAccessGuard;
 import com.xgen.mongot.catalogservice.MetadataServiceException;
 import com.xgen.mongot.catalogservice.TopologyMismatchException;
+import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexCapabilities;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexCapabilities;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
+import com.xgen.mongot.index.definition.config.IndexDefinitionConfig;
 import com.xgen.mongot.server.command.management.definition.CreateSearchIndexesCommandDefinition;
 import com.xgen.mongot.server.command.management.definition.common.NamedSearchIndex;
+import com.xgen.mongot.server.command.management.definition.common.UserSearchIndexDefinition;
 import com.xgen.mongot.server.command.management.util.IndexMapper;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.mongodb.CheckedMongoException;
 import com.xgen.mongot.util.mongodb.Errors;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.EmbeddedDocumentsFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.StringFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.config.IndexDefinitionConfigBuilder;
 import com.xgen.testing.mongot.server.command.management.definition.ManageSearchIndexCommandDefinitionBuilder;
 import java.util.List;
 import java.util.Optional;
@@ -75,7 +80,8 @@ public class AicCreateSearchIndexesCommandTest {
             COLLECTION_UUID,
             COLLECTION_NAME,
             Optional.empty(),
-            definition);
+            definition,
+            IndexDefinitionConfig.getDefault());
     var response = command.run();
 
     var indexesCreated = response.getArray("indexesCreated");
@@ -126,7 +132,8 @@ public class AicCreateSearchIndexesCommandTest {
             COLLECTION_UUID,
             COLLECTION_NAME,
             Optional.empty(),
-            definition);
+            definition,
+            IndexDefinitionConfig.getDefault());
     var response = command.run();
 
     var indexesCreated = response.getArray("indexesCreated");
@@ -187,7 +194,8 @@ public class AicCreateSearchIndexesCommandTest {
             COLLECTION_UUID,
             COLLECTION_NAME,
             Optional.empty(),
-            definition);
+            definition,
+            IndexDefinitionConfig.getDefault());
     var response = command.run();
 
     var indexesCreated = response.getArray("indexesCreated");
@@ -233,7 +241,8 @@ public class AicCreateSearchIndexesCommandTest {
             COLLECTION_UUID,
             COLLECTION_NAME,
             Optional.empty(),
-            definition);
+            definition,
+            IndexDefinitionConfig.getDefault());
     var response = command.run();
 
     assertEquals(Errors.INDEX_ALREADY_EXISTS.code, response.getInt32("code").getValue());
@@ -286,7 +295,8 @@ public class AicCreateSearchIndexesCommandTest {
             COLLECTION_UUID,
             COLLECTION_NAME,
             Optional.empty(),
-            definition);
+            definition,
+            IndexDefinitionConfig.getDefault());
     var response = command.run();
 
     var indexesCreated = response.getArray("indexesCreated");
@@ -338,7 +348,8 @@ public class AicCreateSearchIndexesCommandTest {
             COLLECTION_UUID,
             COLLECTION_NAME,
             Optional.empty(),
-            definition);
+            definition,
+            IndexDefinitionConfig.getDefault());
     var response = command.run();
 
     assertEquals(Errors.INDEX_ALREADY_EXISTS.code, response.getInt32("code").getValue());
@@ -369,7 +380,8 @@ public class AicCreateSearchIndexesCommandTest {
             COLLECTION_UUID,
             COLLECTION_NAME,
             Optional.empty(),
-            definition);
+            definition,
+            IndexDefinitionConfig.getDefault());
     var response = command.run();
 
     // Verify that the command fails with COMMAND_FAILED error
@@ -409,7 +421,8 @@ public class AicCreateSearchIndexesCommandTest {
             COLLECTION_UUID,
             COLLECTION_NAME,
             Optional.empty(),
-            definition);
+            definition,
+            IndexDefinitionConfig.getDefault());
     var response = command.run();
 
     // Verify that the command fails with COMMAND_FAILED error
@@ -448,7 +461,8 @@ public class AicCreateSearchIndexesCommandTest {
             COLLECTION_UUID,
             COLLECTION_NAME,
             Optional.empty(),
-            definition);
+            definition,
+            IndexDefinitionConfig.getDefault());
     var response = command.run();
 
     // Verify that the entire command fails (no partial success)
@@ -525,7 +539,8 @@ public class AicCreateSearchIndexesCommandTest {
             COLLECTION_UUID,
             COLLECTION_NAME,
             Optional.empty(),
-            definition);
+            definition,
+            IndexDefinitionConfig.getDefault());
     var response = command.run();
     assertEquals(Errors.COMMAND_FAILED.code, response.getInt32("code").getValue());
     assertEquals(expectedMessage, response.getString("errmsg").getValue());
@@ -547,7 +562,7 @@ public class AicCreateSearchIndexesCommandTest {
     var command =
         new AicCreateSearchIndexesCommand(
             mockAic, mockGuard, DATABASE_NAME, COLLECTION_UUID, COLLECTION_NAME,
-            Optional.empty(), definition);
+            Optional.empty(), definition, IndexDefinitionConfig.getDefault());
     var response = command.run();
 
     assertEquals(Errors.COMMAND_FAILED.code, response.getInt32("code").getValue());
@@ -572,7 +587,7 @@ public class AicCreateSearchIndexesCommandTest {
     var command =
         new AicCreateSearchIndexesCommand(
             mockAic, mockGuard, DATABASE_NAME, COLLECTION_UUID, COLLECTION_NAME,
-            Optional.empty(), definition);
+            Optional.empty(), definition, IndexDefinitionConfig.getDefault());
     var response = command.run();
 
     assertEquals(Errors.COMMAND_FAILED.code, response.getInt32("code").getValue());
@@ -597,7 +612,106 @@ public class AicCreateSearchIndexesCommandTest {
             COLLECTION_UUID,
             COLLECTION_NAME,
             Optional.empty(),
-            definition);
+            definition,
+            IndexDefinitionConfig.getDefault());
     assertFalse(command.maybeLoadShed());
+  }
+
+  @Test
+  public void testCreateSearchIndexExceedingMaxNestingLevelRejected()
+      throws MetadataServiceException {
+    var mockAic = mock(AuthoritativeIndexCatalog.class);
+    var definition = twoLayerEmbeddedDocumentsSearchIndex();
+    var command =
+        new AicCreateSearchIndexesCommand(
+            mockAic,
+            mock(CatalogAccessGuard.class),
+            DATABASE_NAME,
+            COLLECTION_UUID,
+            COLLECTION_NAME,
+            Optional.empty(),
+            definition,
+            IndexDefinitionConfigBuilder.builder().maxEmbeddedDocumentsNestingLevel(1).build());
+
+    var response = command.run();
+
+    assertEquals(Errors.BAD_VALUE.code, response.getInt32("code").getValue());
+    assertEquals(Errors.BAD_VALUE.name, response.getString("codeName").getValue());
+    assertTrue(
+        response
+            .getString("errmsg")
+            .getValue()
+            .contains(
+                "defines 2 layers of embeddedDocuments fields; "
+                    + "indexes may nest a maximum of 1 embeddedDocuments inside one another"));
+    verify(mockAic, never()).createIndex(any(), any(), any());
+  }
+
+  @Test
+  public void testCreateSearchIndexWithinConfiguredMaxNestingLevelAllowed()
+      throws MetadataServiceException {
+    var mockAic = mock(AuthoritativeIndexCatalog.class);
+    var definition = twoLayerEmbeddedDocumentsSearchIndex();
+    // A configured limit of 2 admits the same definition that a limit of 1 rejects, proving the
+    // configured value is honored on the community index-creation path.
+    var command =
+        new AicCreateSearchIndexesCommand(
+            mockAic,
+            mock(CatalogAccessGuard.class),
+            DATABASE_NAME,
+            COLLECTION_UUID,
+            COLLECTION_NAME,
+            Optional.empty(),
+            definition,
+            IndexDefinitionConfigBuilder.builder().maxEmbeddedDocumentsNestingLevel(2).build());
+
+    var response = command.run();
+
+    assertEquals(1, response.getArray("indexesCreated").size());
+    verify(mockAic).createIndex(any(), any(), any());
+  }
+
+  /**
+   * Builds a create command for a single search index whose mappings nest two layers of {@code
+   * embeddedDocuments} fields.
+   */
+  private static CreateSearchIndexesCommandDefinition twoLayerEmbeddedDocumentsSearchIndex() {
+    var mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .field(
+                "foo",
+                FieldDefinitionBuilder.builder()
+                    .embeddedDocuments(
+                        EmbeddedDocumentsFieldDefinitionBuilder.builder()
+                            .dynamic(true)
+                            .field(
+                                "bar",
+                                FieldDefinitionBuilder.builder()
+                                    .embeddedDocuments(
+                                        EmbeddedDocumentsFieldDefinitionBuilder.builder()
+                                            .dynamic(true)
+                                            .build())
+                                    .build())
+                            .build())
+                    .build())
+            .build();
+    var index =
+        new NamedSearchIndex(
+            INDEX_NAME,
+            IndexDefinition.Type.SEARCH,
+            new UserSearchIndexDefinition(
+                Optional.empty(),
+                Optional.empty(),
+                mappings,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                1));
+    return (CreateSearchIndexesCommandDefinition)
+        ManageSearchIndexCommandDefinitionBuilder.createIndexes()
+            .addIndex(index)
+            .buildSearchIndexCommand();
   }
 }

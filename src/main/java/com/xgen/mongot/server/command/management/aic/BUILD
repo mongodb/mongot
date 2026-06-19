@@ -21,6 +21,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/config/provider/community/embedding",
         "//src/main/java/com/xgen/mongot/config/util",
         "//src/main/java/com/xgen/mongot/index/definition",
+        "//src/main/java/com/xgen/mongot/index/definition/config",
         "//src/main/java/com/xgen/mongot/server/command",
         "//src/main/java/com/xgen/mongot/server/command/management",
         "//src/main/java/com/xgen/mongot/server/command/management/definition",

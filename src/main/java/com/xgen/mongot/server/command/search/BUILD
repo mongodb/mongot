@@ -38,6 +38,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index",
         "//src/main/java/com/xgen/mongot/index/autoembedding",
         "//src/main/java/com/xgen/mongot/index/definition",
+        "//src/main/java/com/xgen/mongot/index/definition/config",
         "//src/main/java/com/xgen/mongot/index/definition/quantization",
         "//src/main/java/com/xgen/mongot/index/lucene/explain/explainers",
         "//src/main/java/com/xgen/mongot/index/lucene/explain/tracing",

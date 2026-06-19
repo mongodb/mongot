@@ -292,6 +292,7 @@ public class CommunityMongotBootstrapper {
             metadataService,
             clusterTopologyGuard,
             internalListAllIndexesForTesting,
+            mongotConfigs.indexDefinitionConfig,
             embeddingServiceManagerSupplier,
             mongotConfigs.featureFlags);
 
@@ -839,6 +840,7 @@ public class CommunityMongotBootstrapper {
       MetadataService metadataService,
       CatalogAccessGuard catalogAccessGuard,
       boolean internalListAllIndexesForTesting,
+      IndexDefinitionConfig indexDefinitionConfig,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
       FeatureFlags featureFlags) {
     // Create the ExecutorManager that can serve requests for the tcpServer (and the grpcServer).
@@ -863,6 +865,7 @@ public class CommunityMongotBootstrapper {
             metadataService,
             catalogAccessGuard,
             internalListAllIndexesForTesting,
+            indexDefinitionConfig,
             embeddingServiceManagerSupplier);
 
     return new ServerLifecycles(

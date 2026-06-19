@@ -10,6 +10,7 @@ import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
+import com.xgen.mongot.index.definition.config.IndexDefinitionConfig;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.server.command.CommandFactoryMarker;
 import com.xgen.mongot.server.command.management.aic.AicManageSearchIndexCommandFactory;
@@ -116,14 +117,16 @@ public class SearchCommandsRegister {
       MetadataService metadataService,
       CachedIndexInfoProvider cachedIndexInfoProvider,
       CatalogAccessGuard catalogAccessGuard,
-      boolean internalListAllIndexesForTesting) {
+      boolean internalListAllIndexesForTesting,
+      IndexDefinitionConfig indexDefinitionConfig) {
     var registrationCommand = registrationMode.getRegistrationCommand(commandRegistry);
     var indexManagement =
         new AicManageSearchIndexCommandFactory(
             metadataService,
             cachedIndexInfoProvider,
             catalogAccessGuard,
-            internalListAllIndexesForTesting);
+            internalListAllIndexesForTesting,
+            indexDefinitionConfig);
 
     registrationCommand.register(ManageSearchIndexCommandDefinition.NAME, indexManagement, false);
   }

@@ -18,6 +18,7 @@ import com.xgen.mongot.index.definition.InvalidViewDefinitionException;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.ViewDefinition;
+import com.xgen.mongot.index.definition.config.IndexDefinitionConfig;
 import com.xgen.mongot.server.command.Command;
 import com.xgen.mongot.server.command.management.definition.CreateSearchIndexesCommandDefinition;
 import com.xgen.mongot.server.command.management.definition.CreateSearchIndexesCommandDefinition.CreateSearchIndexesResponse;
@@ -61,6 +62,8 @@ public class AicCreateSearchIndexesCommand implements Command {
 
   private final CreateSearchIndexesCommandDefinition definition;
 
+  private final IndexDefinitionConfig indexDefinitionConfig;
+
   AicCreateSearchIndexesCommand(
       AuthoritativeIndexCatalog authoritativeIndexCatalog,
       CatalogAccessGuard catalogAccessGuard,
@@ -68,7 +71,8 @@ public class AicCreateSearchIndexesCommand implements Command {
       UUID collectionUuid,
       String collectionName,
       Optional<UserViewDefinition> view,
-      CreateSearchIndexesCommandDefinition definition) {
+      CreateSearchIndexesCommandDefinition definition,
+      IndexDefinitionConfig indexDefinitionConfig) {
     this.authoritativeIndexCatalog = authoritativeIndexCatalog;
     this.catalogAccessGuard = catalogAccessGuard;
     this.db = db;
@@ -76,6 +80,7 @@ public class AicCreateSearchIndexesCommand implements Command {
     this.collectionName = collectionName;
     this.view = view;
     this.definition = definition;
+    this.indexDefinitionConfig = indexDefinitionConfig;
   }
 
   @Override
@@ -122,14 +127,18 @@ public class AicCreateSearchIndexesCommand implements Command {
       List<InternalAndExternalDefinition> newIndexes =
           this.definition.indexes().stream().map(i -> toInternalAndExternalDef(i, view)).toList();
 
-      // Validate auto-embedding indexes
+      // Validate index-definition-specific limits and auto-embedding indexes.
       for (InternalAndExternalDefinition newIndex : newIndexes) {
-        if (newIndex.internal.isAutoEmbeddingIndex()) {
-          try {
-            AutoEmbeddingIndexValidator.validate(newIndex.internal);
-          } catch (InvalidIndexDefinitionException e) {
-            return MessageUtils.createError(Errors.BAD_VALUE, e.getMessage());
+        try {
+          if (newIndex.internal instanceof SearchIndexDefinition searchIndex) {
+            searchIndex.validateEmbeddedDocumentsNestingLevel(
+                this.indexDefinitionConfig.getMaxEmbeddedDocumentsNestingLevel());
           }
+          if (newIndex.internal.isAutoEmbeddingIndex()) {
+            AutoEmbeddingIndexValidator.validate(newIndex.internal);
+          }
+        } catch (InvalidIndexDefinitionException e) {
+          return MessageUtils.createError(Errors.BAD_VALUE, e.getMessage());
         }
       }
 

@@ -11,8 +11,10 @@ import com.xgen.mongot.config.provider.community.embedding.AutoEmbeddingIndexVal
 import com.xgen.mongot.config.util.Invariants;
 import com.xgen.mongot.config.util.Invariants.AnalyzerInvariants;
 import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.definition.InvalidIndexDefinitionException;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
+import com.xgen.mongot.index.definition.config.IndexDefinitionConfig;
 import com.xgen.mongot.server.command.Command;
 import com.xgen.mongot.server.command.management.definition.UpdateSearchIndexCommandDefinition;
 import com.xgen.mongot.server.command.management.definition.common.UserViewDefinition;
@@ -50,6 +52,8 @@ public class AicUpdateSearchIndexCommand implements Command {
 
   private final UpdateSearchIndexCommandDefinition definition;
 
+  private final IndexDefinitionConfig indexDefinitionConfig;
+
   AicUpdateSearchIndexCommand(
       AuthoritativeIndexCatalog authoritativeIndexCatalog,
       CatalogAccessGuard catalogAccessGuard,
@@ -57,7 +61,8 @@ public class AicUpdateSearchIndexCommand implements Command {
       UUID collectionUuid,
       String collectionName,
       Optional<UserViewDefinition> view,
-      UpdateSearchIndexCommandDefinition definition) {
+      UpdateSearchIndexCommandDefinition definition,
+      IndexDefinitionConfig indexDefinitionConfig) {
     this.authoritativeIndexCatalog = authoritativeIndexCatalog;
     this.catalogAccessGuard = catalogAccessGuard;
     this.db = db;
@@ -65,6 +70,7 @@ public class AicUpdateSearchIndexCommand implements Command {
     this.collectionName = collectionName;
     this.view = view;
     this.definition = definition;
+    this.indexDefinitionConfig = indexDefinitionConfig;
   }
 
   @Override
@@ -161,6 +167,12 @@ public class AicUpdateSearchIndexCommand implements Command {
       Invariants.validateInvariants(List.of(), searchList, vectorList, allIndexes);
 
       if (newIndex instanceof SearchIndexDefinition searchIndex) {
+        try {
+          searchIndex.validateEmbeddedDocumentsNestingLevel(
+              this.indexDefinitionConfig.getMaxEmbeddedDocumentsNestingLevel());
+        } catch (InvalidIndexDefinitionException e) {
+          return MessageUtils.createError(Errors.BAD_VALUE, e.getMessage());
+        }
         AnalyzerInvariants.validate(searchList, List.of());
         AnalyzerInvariants.validateFieldAnalyzerReferences(searchIndex, Set.of(), Set.of());
       }

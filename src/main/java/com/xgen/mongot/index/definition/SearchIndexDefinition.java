@@ -541,6 +541,25 @@ public final class SearchIndexDefinition implements IndexDefinition {
   }
 
   /**
+   * Validates that this index definition does not nest more layers of {@code embeddedDocuments}
+   * fields than {@code maxEmbeddedDocumentsNestingLevel} permits. See {@link
+   * #getNumEmbeddedDocumentsLayers()} for the definition of an embeddedDocuments "layer".
+   *
+   * @throws InvalidIndexDefinitionException if the definition exceeds the allowed nesting level
+   */
+  public void validateEmbeddedDocumentsNestingLevel(int maxEmbeddedDocumentsNestingLevel)
+      throws InvalidIndexDefinitionException {
+    int numLayers = getNumEmbeddedDocumentsLayers();
+    if (numLayers > maxEmbeddedDocumentsNestingLevel) {
+      throw new InvalidIndexDefinitionException(
+          String.format(
+              "defines %s layers of embeddedDocuments fields; "
+                  + "indexes may nest a maximum of %s embeddedDocuments inside one another",
+              numLayers, maxEmbeddedDocumentsNestingLevel));
+    }
+  }
+
+  /**
    * Returns true if this index definition has an {@link EmbeddedDocumentsFieldDefinition} defined.
    */
   public boolean hasEmbeddedFields() {

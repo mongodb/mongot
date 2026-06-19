@@ -11,6 +11,7 @@ import com.xgen.mongot.config.util.TlsMode;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.index.definition.config.IndexDefinitionConfig;
 import com.xgen.mongot.server.CommandServer;
 import com.xgen.mongot.server.auth.SecurityConfig;
 import com.xgen.mongot.server.command.registry.CommandRegistry;
@@ -73,6 +74,7 @@ public class GrpcStreamingServer implements CommandServer {
       MetadataService metadataService,
       CatalogAccessGuard catalogAccessGuard,
       boolean internalListAllIndexesForTesting,
+      IndexDefinitionConfig indexDefinitionConfig,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier) {
     CommandRegistry commandRegistry =
         registerCommands(
@@ -91,7 +93,8 @@ public class GrpcStreamingServer implements CommandServer {
         metadataService,
         configManager,
         catalogAccessGuard,
-        internalListAllIndexesForTesting);
+        internalListAllIndexesForTesting,
+        indexDefinitionConfig);
 
     return create(
         address,

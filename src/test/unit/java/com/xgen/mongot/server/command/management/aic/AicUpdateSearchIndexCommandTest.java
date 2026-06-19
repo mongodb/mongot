@@ -35,6 +35,7 @@ import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexCapabilities;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
+import com.xgen.mongot.index.definition.config.IndexDefinitionConfig;
 import com.xgen.mongot.server.command.management.definition.UpdateSearchIndexCommandDefinition;
 import com.xgen.mongot.server.command.management.definition.common.NamedSearchIndex;
 import com.xgen.mongot.util.FieldPath;
@@ -43,10 +44,12 @@ import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.mongodb.CheckedMongoException;
 import com.xgen.mongot.util.mongodb.Errors;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.EmbeddedDocumentsFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.StringFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.config.IndexDefinitionConfigBuilder;
 import com.xgen.testing.mongot.server.command.management.definition.ManageSearchIndexCommandDefinitionBuilder;
 import com.xgen.testing.mongot.server.command.management.definition.UserSearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.server.command.management.definition.UserVectorIndexDefinitionBuilder;
@@ -108,7 +111,8 @@ public class AicUpdateSearchIndexCommandTest {
             COLLECTION_UUID,
             COLLECTION_NAME,
             Optional.empty(),
-            updateDefinition);
+            updateDefinition,
+            IndexDefinitionConfig.getDefault());
 
     // Update command succeeds
     BsonDocument updateResponse = command.run();
@@ -185,7 +189,8 @@ public class AicUpdateSearchIndexCommandTest {
             COLLECTION_UUID,
             COLLECTION_NAME,
             Optional.empty(),
-            updateDefinition);
+            updateDefinition,
+            IndexDefinitionConfig.getDefault());
 
     // Update command succeeds
     BsonDocument updateResponse = command.run();
@@ -260,7 +265,8 @@ public class AicUpdateSearchIndexCommandTest {
             COLLECTION_UUID,
             COLLECTION_NAME,
             Optional.empty(),
-            updateDefinition);
+            updateDefinition,
+            IndexDefinitionConfig.getDefault());
 
     // Update command fails
     BsonDocument updateResponse = command.run();
@@ -309,7 +315,8 @@ public class AicUpdateSearchIndexCommandTest {
             COLLECTION_UUID,
             COLLECTION_NAME,
             Optional.empty(),
-            updateDefinition);
+            updateDefinition,
+            IndexDefinitionConfig.getDefault());
 
     // Update command fails
     BsonDocument updateResponse = command.run();
@@ -377,7 +384,8 @@ public class AicUpdateSearchIndexCommandTest {
         COLLECTION_UUID,
         COLLECTION_NAME,
         Optional.empty(),
-        updateDefinition);
+        updateDefinition,
+        IndexDefinitionConfig.getDefault());
   }
 
   @Test
@@ -400,7 +408,7 @@ public class AicUpdateSearchIndexCommandTest {
     var command =
         new AicUpdateSearchIndexCommand(
             mockAic, mockGuard, DATABASE_NAME, COLLECTION_UUID, COLLECTION_NAME,
-            Optional.empty(), definition);
+            Optional.empty(), definition, IndexDefinitionConfig.getDefault());
     var response = command.run();
 
     assertEquals(Errors.COMMAND_FAILED.code, response.getInt32("code").getValue());
@@ -429,7 +437,7 @@ public class AicUpdateSearchIndexCommandTest {
     var command =
         new AicUpdateSearchIndexCommand(
             mockAic, mockGuard, DATABASE_NAME, COLLECTION_UUID, COLLECTION_NAME,
-            Optional.empty(), definition);
+            Optional.empty(), definition, IndexDefinitionConfig.getDefault());
     var response = command.run();
 
     assertEquals(Errors.COMMAND_FAILED.code, response.getInt32("code").getValue());
@@ -458,7 +466,91 @@ public class AicUpdateSearchIndexCommandTest {
             COLLECTION_UUID,
             COLLECTION_NAME,
             Optional.empty(),
-            definition);
+            definition, IndexDefinitionConfig.getDefault());
     assertFalse(command.maybeLoadShed());
+  }
+
+  @Test
+  public void testUpdateSearchIndexExceedingMaxNestingLevelRejected()
+      throws MetadataServiceException {
+    var mockAic = mock(AuthoritativeIndexCatalog.class);
+
+    // Return an existing search index to update.
+    when(mockAic.listIndexDefinitions(COLLECTION_UUID))
+        .thenReturn(
+            List.of(
+                SearchIndexDefinitionBuilder.builder()
+                    .database(DATABASE_NAME)
+                    .collectionUuid(COLLECTION_UUID)
+                    .lastObservedCollectionName(COLLECTION_NAME)
+                    .indexId(new ObjectId())
+                    .name(INDEX_NAME)
+                    .mappings(
+                        DocumentFieldDefinitionBuilder.builder()
+                            .field(
+                                "field",
+                                FieldDefinitionBuilder.builder()
+                                    .string(StringFieldDefinitionBuilder.builder().build())
+                                    .build())
+                            .build())
+                    .definitionVersion(1L)
+                    .definitionVersionCreatedAt(Instant.now())
+                    .build()));
+
+    // Update to a definition that nests two layers of embeddedDocuments fields.
+    var updateDefinition =
+        (UpdateSearchIndexCommandDefinition)
+            ManageSearchIndexCommandDefinitionBuilder.updateIndex()
+                .withIndexName(INDEX_NAME)
+                .withDefinition(
+                    UserSearchIndexDefinitionBuilder.builder()
+                        .mappings(twoLayerEmbeddedDocumentsMappings())
+                        .build())
+                .buildSearchIndexCommand();
+
+    var command =
+        new AicUpdateSearchIndexCommand(
+            mockAic,
+            mock(CatalogAccessGuard.class),
+            DATABASE_NAME,
+            COLLECTION_UUID,
+            COLLECTION_NAME,
+            Optional.empty(),
+            updateDefinition,
+            IndexDefinitionConfigBuilder.builder().maxEmbeddedDocumentsNestingLevel(1).build());
+
+    var response = command.run();
+
+    assertEquals(Errors.BAD_VALUE.code, response.getInt32("code").getValue());
+    assertEquals(Errors.BAD_VALUE.name, response.getString("codeName").getValue());
+    assertTrue(
+        response
+            .getString("errmsg")
+            .getValue()
+            .contains(
+                "defines 2 layers of embeddedDocuments fields; "
+                    + "indexes may nest a maximum of 1 embeddedDocuments inside one another"));
+    verify(mockAic, never()).updateIndex(any(), any(), any());
+  }
+
+  /** Builds mappings that nest two layers of {@code embeddedDocuments} fields. */
+  private static DocumentFieldDefinitionBuilder twoLayerEmbeddedDocumentsMappings() {
+    return DocumentFieldDefinitionBuilder.builder()
+        .field(
+            "foo",
+            FieldDefinitionBuilder.builder()
+                .embeddedDocuments(
+                    EmbeddedDocumentsFieldDefinitionBuilder.builder()
+                        .dynamic(true)
+                        .field(
+                            "bar",
+                            FieldDefinitionBuilder.builder()
+                                .embeddedDocuments(
+                                    EmbeddedDocumentsFieldDefinitionBuilder.builder()
+                                        .dynamic(true)
+                                        .build())
+                                .build())
+                        .build())
+                .build());
   }
 }
