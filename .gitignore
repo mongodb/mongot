@@ -45,8 +45,11 @@ scripts/tests/copybara/test-results/
 .claude/scheduled_tasks.lock
 CLAUDE.local.md
 
+state-*.json
 scripts/enterprise/state-*.json
 scripts/enterprise/manifest-*.yaml
 scripts/enterprise/manifest_*.yaml
 !scripts/enterprise/manifest_template.yaml
+scripts/enterprise/kind/.mongot-enterprise-kind.yaml
 tmp/
+.venv-kind/
