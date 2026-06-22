@@ -253,7 +253,7 @@ public class LuceneIndexFactory implements IndexFactory {
     this.systemInfo = systemInfo;
     this.cacheWarmerTotalMilliseconds =
         this.metricsFactory.timeGauge(
-            "cacheWarmerTotalMilliseconds", new AtomicLong(), AtomicLong::doubleValue);
+            "cacheWarmerTotal", new AtomicLong(), AtomicLong::doubleValue);
     this.cacheWarmerAlreadyDisabled = false;
   }
 
