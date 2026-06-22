@@ -302,10 +302,11 @@ public class SchedulerQueue<T extends SchedulerQueue.SchedulerBatch> {
 
   void updateMetricsForCancelBatches(IndexBatches<T> indexBatches) {
     synchronized (indexBatches) {
-      indexBatches.batches.forEach(batch -> {
-        this.queuedBatchesTotal.decrementAndGet();
-        this.queuedEventsTotal.getAndAdd(-batch.size());
-      });
+      indexBatches.batches.forEach(
+          batch -> {
+            this.queuedBatchesTotal.decrementAndGet();
+            this.queuedEventsTotal.getAndAdd(-batch.size());
+          });
     }
   }
 

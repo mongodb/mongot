@@ -20,12 +20,15 @@ import org.jetbrains.annotations.Nullable;
  * The only changes here are to allow adding hooks to support its child classes. The intended use
  * here is to simply dump the contents of the new version here on Lucene upgrade (or delete this
  * class if no custom hooks are needed). Hence, it's recommended to minimize adding any logical
- * changes here.
- * </p>
- * Logical changes made in this class:
+ * changes here. Logical changes made in this class:
+ *
  * <ol>
- *   <li>Add forceOriginalPruning boolean param to {@link MongotNumericComparator.NumericLeafComparator#bottomAsComparableLong} to allow switching pruning config for different code paths</li>
- *   <li>Move missingValueAsLong from {@link MongotNumericComparator#missingValueAsLong} to {@link MqlLongComparator#missingValueAsLong} due to dependency on {@link MqlLongComparator#nullEmptySortPosition}</li>
+ *   <li>Add forceOriginalPruning boolean param to {@link
+ *       MongotNumericComparator.NumericLeafComparator#bottomAsComparableLong} to allow switching
+ *       pruning config for different code paths
+ *   <li>Move missingValueAsLong from {@link MongotNumericComparator#missingValueAsLong} to {@link
+ *       MqlLongComparator#missingValueAsLong} due to dependency on {@link
+ *       MqlLongComparator#nullEmptySortPosition}
  * </ol>
  */
 public abstract class MongotNumericComparator<T extends Number> extends FieldComparator<T> {
@@ -114,7 +117,8 @@ public abstract class MongotNumericComparator<T extends Number> extends FieldCom
           throw new IllegalStateException(
               "Field "
                   + field
-                  + " doesn't index points according to FieldInfos yet returns non-null PointValues");
+                  + " doesn't index points according to FieldInfos yet returns non-null"
+                  + " PointValues");
         } else if (info.getPointDimensionCount() > 1) {
           throw new IllegalArgumentException(
               "Field " + field + " is indexed with multiple dimensions, sorting is not supported");
@@ -303,10 +307,11 @@ public abstract class MongotNumericComparator<T extends Number> extends FieldCom
     }
 
     /**
-     * If {@link MongotNumericComparator#pruning} equals {@link Pruning#GREATER_THAN_OR_EQUAL_TO}, we
-     * could better tune the {@link MongotNumericComparator.NumericLeafComparator#maxValueAsLong}/{@link
-     * MongotNumericComparator.NumericLeafComparator#minValueAsLong}. For instance, if the sort is ascending and bottom
-     * value is 5, we will use a range on [MIN_VALUE, 4].
+     * If {@link MongotNumericComparator#pruning} equals {@link Pruning#GREATER_THAN_OR_EQUAL_TO},
+     * we could better tune the {@link
+     * MongotNumericComparator.NumericLeafComparator#maxValueAsLong}/{@link
+     * MongotNumericComparator.NumericLeafComparator#minValueAsLong}. For instance, if the sort is
+     * ascending and bottom value is 5, we will use a range on [MIN_VALUE, 4].
      */
     private void encodeBottom() {
       if (reverse == false) {
@@ -323,10 +328,11 @@ public abstract class MongotNumericComparator<T extends Number> extends FieldCom
     }
 
     /**
-     * If {@link MongotNumericComparator#pruning} equals {@link Pruning#GREATER_THAN_OR_EQUAL_TO}, we
-     * could better tune the {@link MongotNumericComparator.NumericLeafComparator#minValueAsLong}/{@link
-     * MongotNumericComparator.NumericLeafComparator#maxValueAsLong}. For instance, if the sort is ascending and top value
-     * is 3, we will use a range on [4, MAX_VALUE].
+     * If {@link MongotNumericComparator#pruning} equals {@link Pruning#GREATER_THAN_OR_EQUAL_TO},
+     * we could better tune the {@link
+     * MongotNumericComparator.NumericLeafComparator#minValueAsLong}/{@link
+     * MongotNumericComparator.NumericLeafComparator#maxValueAsLong}. For instance, if the sort is
+     * ascending and top value is 3, we will use a range on [4, MAX_VALUE].
      */
     private void encodeTop() {
       if (reverse == false) {
@@ -352,7 +358,8 @@ public abstract class MongotNumericComparator<T extends Number> extends FieldCom
       // if queue is full, compare with bottom first,
       // if competitive, then check if we can compare with topValue
       if (queueFull) {
-        int result = Long.compare(missingValueAsComparableLong(), bottomAsComparableLong(COMPARING));
+        int result =
+            Long.compare(missingValueAsComparableLong(), bottomAsComparableLong(COMPARING));
         // in reverse (desc) sort missingValue is competitive when it's greater or equal to bottom,
         // in asc sort missingValue is competitive when it's smaller or equal to bottom
         final boolean competitive =

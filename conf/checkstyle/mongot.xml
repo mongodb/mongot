@@ -127,6 +127,7 @@
     </module>
     <module name="WhitespaceAround">
       <property name="allowEmptyConstructors" value="true"/>
+      <property name="allowEmptySwitchBlockStatements" value="true"/>
       <property name="allowEmptyLambdas" value="true"/>
       <property name="allowEmptyMethods" value="true"/>
       <property name="allowEmptyTypes" value="true"/>
@@ -451,6 +452,15 @@
       <!-- Triggers on any TODO or FIXME comments followed by a space or colon. -->
       <!-- Instead of writing "TODO: ..." write a "TODO(CLOUDP-XXXXXX): ..." comment. -->
       <property name="format" value="(?i)(TODO[ :])|(FIXME[ :])" />
+    </module>
+
+    <!-- Suppress false positives on google-java-format formatting of empty blocks -->
+    <module name="SuppressionXpathSingleFilter">
+      <property name="checks" value="WhitespaceAround"/>
+      <property name="query" value="//SLIST[count(./*) = 0]
+                                 | //RCURLY[parent::SLIST[count(./*) = 0]]
+                                 | //SWITCH_RULE/SLIST[count(./*) = 0]
+                                 | //SWITCH_RULE/SLIST[count(./*) = 0]/RCURLY"/>
     </module>
 
     <!-- Disable this google_check because Errorprone implements this better (exhaustive enums

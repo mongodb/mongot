@@ -70,7 +70,8 @@ public class CursorConfig implements DocumentEncodable {
 
     private static final Field.Optional<IdRange> ID_RANGE =
         Field.builder("idRange")
-            .classField(doc -> Check.unreachable("Deserialization not supported for IdRange"),
+            .classField(
+                doc -> Check.unreachable("Deserialization not supported for IdRange"),
                 IdRange::toBson)
             .disallowUnknownFields()
             .optional()

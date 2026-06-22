@@ -58,7 +58,11 @@ public class DefaultConfigManagerMocks {
       ReplicationManagerFactory replicationManagerFactory,
       Optional<Set<ObjectId>> desiredIndexIds,
       ReplicationStateMonitor replicationStateMonitor) {
-    this(mockedDependencies, replicationManagerFactory, desiredIndexIds, replicationStateMonitor,
+    this(
+        mockedDependencies,
+        replicationManagerFactory,
+        desiredIndexIds,
+        replicationStateMonitor,
         FeatureFlags.getDefault());
   }
 
@@ -110,12 +114,14 @@ public class DefaultConfigManagerMocks {
     wrapped.configState.postInitializationFromConfigJournal();
 
     return new DefaultConfigManagerMocks(
-        wrapped, wrapped.getReplicationManagerFactory(), Optional.empty(),
-        ReplicationStateMonitor.enabled(), featureFlags);
+        wrapped,
+        wrapped.getReplicationManagerFactory(),
+        Optional.empty(),
+        ReplicationStateMonitor.enabled(),
+        featureFlags);
   }
 
-  public static DefaultConfigManagerMocks create(
-      ReplicationStateMonitor replicationStateMonitor)
+  public static DefaultConfigManagerMocks create(ReplicationStateMonitor replicationStateMonitor)
       throws Exception {
     return create(getConfigJournalPath(), Optional.empty(), replicationStateMonitor);
   }

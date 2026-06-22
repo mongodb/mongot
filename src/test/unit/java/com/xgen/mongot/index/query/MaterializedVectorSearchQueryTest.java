@@ -166,4 +166,3 @@ public class MaterializedVectorSearchQueryTest {
     assertThat(materializedQuery.internalPath()).isEqualTo(INTERNAL_PATH);
   }
 }
-

@@ -63,10 +63,7 @@ public record UserSearchIndexDefinition(
             .optional()
             .noDefault();
     static final Field.Optional<Sort> SORT =
-        Field.builder("sort")
-            .classField(Sort::fromBsonAsSort)
-            .optional()
-            .noDefault();
+        Field.builder("sort").classField(Sort::fromBsonAsSort).optional().noDefault();
     static final Field.Optional<List<SynonymMappingDefinition>> SYNONYMS =
         Field.builder("synonyms")
             .classField(SynonymMappingDefinition::fromBson)

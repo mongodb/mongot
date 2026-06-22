@@ -18,9 +18,7 @@ import java.util.OptionalInt;
  * </ul>
  */
 public record RegularBlockingRequestSettings(
-    double threadPoolSizeMultiplier,
-    double queueCapacityMultiplier,
-    boolean virtualQueueCapacity) {
+    double threadPoolSizeMultiplier, double queueCapacityMultiplier, boolean virtualQueueCapacity) {
 
   /** Returns default settings (Unbounded Caching mode - all values are 0/false). */
   public static RegularBlockingRequestSettings defaults() {
@@ -102,4 +100,3 @@ public record RegularBlockingRequestSettings(
     FIXED_POOL_BOUNDED_QUEUE
   }
 }
-

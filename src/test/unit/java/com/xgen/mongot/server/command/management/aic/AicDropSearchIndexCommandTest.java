@@ -148,8 +148,13 @@ public class AicDropSearchIndexCommandTest {
                 .buildSearchIndexCommand();
     var command =
         new AicDropSearchIndexCommand(
-            mockAic, mock(CatalogAccessGuard.class), DATABASE_NAME, COLLECTION_UUID,
-            COLLECTION_NAME, Optional.of(VIEW), definition);
+            mockAic,
+            mock(CatalogAccessGuard.class),
+            DATABASE_NAME,
+            COLLECTION_UUID,
+            COLLECTION_NAME,
+            Optional.of(VIEW),
+            definition);
     assertFalse(command.maybeLoadShed());
   }
 
@@ -168,8 +173,13 @@ public class AicDropSearchIndexCommandTest {
                 .buildSearchIndexCommand();
     var command =
         new AicDropSearchIndexCommand(
-            mockAic, mockGuard, DATABASE_NAME, COLLECTION_UUID, COLLECTION_NAME,
-            Optional.of(VIEW), definition);
+            mockAic,
+            mockGuard,
+            DATABASE_NAME,
+            COLLECTION_UUID,
+            COLLECTION_NAME,
+            Optional.of(VIEW),
+            definition);
     var response = command.run();
 
     assertEquals(Errors.COMMAND_FAILED.code, response.getInt32("code").getValue());
@@ -193,8 +203,13 @@ public class AicDropSearchIndexCommandTest {
                 .buildSearchIndexCommand();
     var command =
         new AicDropSearchIndexCommand(
-            mockAic, mockGuard, DATABASE_NAME, COLLECTION_UUID, COLLECTION_NAME,
-            Optional.of(VIEW), definition);
+            mockAic,
+            mockGuard,
+            DATABASE_NAME,
+            COLLECTION_UUID,
+            COLLECTION_NAME,
+            Optional.of(VIEW),
+            definition);
     var response = command.run();
 
     assertEquals(Errors.COMMAND_FAILED.code, response.getInt32("code").getValue());

@@ -380,8 +380,8 @@ public class PerIndexMetricsFactory {
   /**
    * Export distribution summary with histogram buckets defined by {@code buckets}.
    *
-   * <p>The exported summary supports PromQL queries such as {@code histogram_quantile()} to
-   * compute accurate percentiles aggregated across all instances.
+   * <p>The exported summary supports PromQL queries such as {@code histogram_quantile()} to compute
+   * accurate percentiles aggregated across all instances.
    *
    * <p>NB: to limit prometheus metric growth this method will record both per-index and per-process
    * distribution summaries, but only the latter will be exported.
@@ -398,8 +398,8 @@ public class PerIndexMetricsFactory {
   /**
    * Export distribution summary with histogram buckets defined by {@code buckets}.
    *
-   * <p>The exported summary supports PromQL queries such as {@code histogram_quantile()} to
-   * compute accurate percentiles aggregated across all instances.
+   * <p>The exported summary supports PromQL queries such as {@code histogram_quantile()} to compute
+   * accurate percentiles aggregated across all instances.
    *
    * <p>NB: to limit prometheus metric growth this method will record both per-index and per-process
    * distribution summaries, but only the latter will be exported.
@@ -538,8 +538,8 @@ public class PerIndexMetricsFactory {
                 type -> type,
                 type ->
                     perIndexCounter(Enums.convertNameTo(CaseFormat.LOWER_CAMEL, type), meterTags),
-                (oldCounter, newCounter) -> Check.unreachable(
-                    "Duplicate enum key should not occur"),
+                (oldCounter, newCounter) ->
+                    Check.unreachable("Duplicate enum key should not occur"),
                 () -> new EnumMap<>(enumClass)));
   }
 
@@ -561,8 +561,8 @@ public class PerIndexMetricsFactory {
             Collectors.toMap(
                 type -> type,
                 type -> nameToCounter.apply(Enums.convertNameTo(CaseFormat.LOWER_CAMEL, type)),
-                (oldCounter, newCounter) -> Check.unreachable(
-                    "Duplicate enum key should not occur"),
+                (oldCounter, newCounter) ->
+                    Check.unreachable("Duplicate enum key should not occur"),
                 () -> new EnumMap<>(enumClass)));
   }
 }

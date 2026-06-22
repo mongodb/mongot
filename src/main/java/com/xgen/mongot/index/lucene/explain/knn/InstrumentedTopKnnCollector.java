@@ -2,9 +2,7 @@ package com.xgen.mongot.index.lucene.explain.knn;
 
 import org.apache.lucene.search.TopKnnCollector;
 
-/**
- * A wrapper around TopKnnCollector for query instrumentation.
- */
+/** A wrapper around TopKnnCollector for query instrumentation. */
 public class InstrumentedTopKnnCollector extends TopKnnCollector {
 
   private final int docBase;

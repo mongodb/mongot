@@ -577,12 +577,12 @@ public class InitialSyncQueue {
   }
 
   /**
-   * Returns true if this generationId has an entry in the queue (queued or in-progress).
-   * Used by {@code MaterializedViewManager.refreshStatus()} to defer leadership acquisition until
-   * stale entries from a previous generator's shutdown are fully cleaned up.
+   * Returns true if this generationId has an entry in the queue (queued or in-progress). Used by
+   * {@code MaterializedViewManager.refreshStatus()} to defer leadership acquisition until stale
+   * entries from a previous generator's shutdown are fully cleaned up.
    *
-   * <p>The cancelled set is not checked because cancelled entries remain in the queued map
-   * until the dispatcher processes them.
+   * <p>The cancelled set is not checked because cancelled entries remain in the queued map until
+   * the dispatcher processes them.
    */
   public boolean hasEntry(GenerationId generationId) {
     try (LockGuard ignored = LockGuard.with(this.queueLock)) {

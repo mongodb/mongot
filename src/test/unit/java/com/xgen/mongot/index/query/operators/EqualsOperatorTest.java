@@ -68,11 +68,7 @@ public class EqualsOperatorTest {
   private static BsonDeserializationTestSuite.ValidSpec<EqualsOperator> doesNotAffectString() {
     return BsonDeserializationTestSuite.TestSpec.valid(
         "doesNotAffectString",
-        OperatorBuilder.equals()
-            .path("point")
-            .value(15L)
-            .doesNotAffect("points")
-            .build());
+        OperatorBuilder.equals().path("point").value(15L).doesNotAffect("points").build());
   }
 
   private static BsonDeserializationTestSuite.ValidSpec<EqualsOperator> booleanSimple() {

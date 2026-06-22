@@ -37,7 +37,8 @@ public class ProtoObjectIdCodeGenerator implements CodeGenerator {
         CodeGeneratorUtils.openMergeBsonFromReaderValidatedType(
             this.descriptor, BsonType.OBJECT_ID, this.builderOutput)) {
       mergeBsonFromScope.writeLine(
-          "return setRep(com.google.protobuf.ByteString.copyFrom(reader.readObjectId().toByteArray()));");
+          "return"
+              + " setRep(com.google.protobuf.ByteString.copyFrom(reader.readObjectId().toByteArray()));");
     }
 
     try (var mergeBsonValue =

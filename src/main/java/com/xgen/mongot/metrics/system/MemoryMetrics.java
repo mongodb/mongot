@@ -87,8 +87,7 @@ public class MemoryMetrics {
         .description("The current swap file size")
         .baseUnit(BaseUnits.BYTES)
         .register(meterRegistry);
-    Gauge.builder(
-            "system.memory.virt.swap.available", memoryMetrics.swapAvailable, AtomicLong::get)
+    Gauge.builder("system.memory.virt.swap.available", memoryMetrics.swapAvailable, AtomicLong::get)
         .description("The amount of unallocated swap memory available")
         .baseUnit(BaseUnits.BYTES)
         .register(meterRegistry);
@@ -100,8 +99,7 @@ public class MemoryMetrics {
         .description("The amount of memory committed to the swap file")
         .baseUnit(BaseUnits.OPERATIONS)
         .register(meterRegistry);
-    Gauge.builder(
-            "system.memory.virt.swap.pagesOut", virtualMemory, VirtualMemory::getSwapPagesOut)
+    Gauge.builder("system.memory.virt.swap.pagesOut", virtualMemory, VirtualMemory::getSwapPagesOut)
         .description("The amount of memory committed to the swap file")
         .baseUnit(BaseUnits.OPERATIONS)
         .register(meterRegistry);

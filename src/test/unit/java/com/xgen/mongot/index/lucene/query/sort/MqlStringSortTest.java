@@ -112,7 +112,8 @@ public class MqlStringSortTest {
               FieldName.TypeField.TOKEN,
               new MongotSortField(FieldPath.newRoot("field"), UserFieldSortOptions.DEFAULT_ASC),
               true,
-              Optional.empty(), false);
+              Optional.empty(),
+              false);
       Query query = new MatchAllDocsQuery();
       Sort sort = new Sort(sortFields);
 
@@ -140,7 +141,8 @@ public class MqlStringSortTest {
               new MongotSortField(
                   FieldPath.newRoot("field"), SortPruningTestUtils.DEFAULT_ASC_NULLS_HIGHEST),
               true,
-              Optional.empty(), false);
+              Optional.empty(),
+              false);
       Query query = new MatchAllDocsQuery();
       Sort sort = new Sort(sortFields);
 
@@ -167,7 +169,8 @@ public class MqlStringSortTest {
               FieldName.TypeField.TOKEN,
               new MongotSortField(FieldPath.newRoot("field"), UserFieldSortOptions.DEFAULT_ASC),
               true,
-              Optional.empty(), false);
+              Optional.empty(),
+              false);
       Query query = new MatchAllDocsQuery();
       Sort sort = new Sort(sortFields);
 
@@ -202,7 +205,8 @@ public class MqlStringSortTest {
               new MongotSortField(
                   FieldPath.newRoot("field"), SortPruningTestUtils.DEFAULT_ASC_NULLS_HIGHEST),
               true,
-              Optional.empty(), false);
+              Optional.empty(),
+              false);
       Query query = new MatchAllDocsQuery();
       Sort sort = new Sort(sortFields);
 
@@ -437,7 +441,8 @@ public class MqlStringSortTest {
               new MongotSortField(
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
-              Optional.empty(), false);
+              Optional.empty(),
+              false);
       sortField.setMissingValue(SortPruningTestUtils.MISSING_VALUE_ORDER);
       Sort sort = new Sort(sortField);
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
@@ -467,7 +472,8 @@ public class MqlStringSortTest {
               new MongotSortField(
                   SortPruningTestUtils.FIELD_NAME, SortPruningTestUtils.DEFAULT_ASC_NULLS_HIGHEST),
               enablePruning,
-              Optional.empty(), false);
+              Optional.empty(),
+              false);
       sortField.setMissingValue(SortField.STRING_LAST);
       Sort sort = new Sort(sortField);
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
@@ -496,7 +502,8 @@ public class MqlStringSortTest {
               new MongotSortField(
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_DESC),
               enablePruning,
-              Optional.empty(), false);
+              Optional.empty(),
+              false);
       sortField.setMissingValue(SortPruningTestUtils.MISSING_VALUE_ORDER);
       Sort sort = new Sort(sortField);
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
@@ -526,7 +533,8 @@ public class MqlStringSortTest {
               new MongotSortField(
                   SortPruningTestUtils.FIELD_NAME, SortPruningTestUtils.DEFAULT_DESC_NULLS_HIGHEST),
               enablePruning,
-              Optional.empty(), false);
+              Optional.empty(),
+              false);
       sortField.setMissingValue(SortField.STRING_LAST);
       Sort sort = new Sort(sortField);
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
@@ -556,7 +564,8 @@ public class MqlStringSortTest {
               new MongotSortField(
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
-              Optional.empty(), false);
+              Optional.empty(),
+              false);
       sortField.setMissingValue(SortPruningTestUtils.MISSING_VALUE_ORDER);
       Sort sort = new Sort(sortField);
       BsonValue afterValue = new BsonString(Character.toString((char) afterNum));
@@ -589,7 +598,8 @@ public class MqlStringSortTest {
               new MongotSortField(
                   SortPruningTestUtils.FIELD_NAME, SortPruningTestUtils.DEFAULT_ASC_NULLS_HIGHEST),
               enablePruning,
-              Optional.empty(), false);
+              Optional.empty(),
+              false);
       sortField.setMissingValue(SortField.STRING_LAST);
       Sort sort = new Sort(sortField);
       BsonValue afterValue = new BsonString(Character.toString((char) afterNum));
@@ -621,7 +631,8 @@ public class MqlStringSortTest {
               new MongotSortField(
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
-              Optional.empty(), false);
+              Optional.empty(),
+              false);
       sortField.setMissingValue(SortPruningTestUtils.MISSING_VALUE_ORDER);
       Sort sort = new Sort(SortField.FIELD_SCORE, sortField);
 
@@ -648,7 +659,8 @@ public class MqlStringSortTest {
               new MongotSortField(
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
-              Optional.empty(), false);
+              Optional.empty(),
+              false);
       sortField.setMissingValue(SortPruningTestUtils.MISSING_VALUE_ORDER);
       Sort sort = new Sort(sortField, SortField.FIELD_SCORE);
 
@@ -681,7 +693,8 @@ public class MqlStringSortTest {
               new MongotSortField(
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
-              Optional.empty(), false);
+              Optional.empty(),
+              false);
       sortField.setMissingValue(SortPruningTestUtils.MISSING_VALUE_ORDER);
       Sort sort = new Sort(sortField);
 
@@ -838,7 +851,8 @@ public class MqlStringSortTest {
               new MongotSortField(
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
-              Optional.empty(), false);
+              Optional.empty(),
+              false);
       sortField.setMissingValue(SortPruningTestUtils.MISSING_VALUE_ORDER);
       Sort sort = new Sort(sortField);
       BsonValue afterValue = new BsonString(Character.toString((char) afterNum));
@@ -871,7 +885,8 @@ public class MqlStringSortTest {
               new MongotSortField(
                   SortPruningTestUtils.FIELD_NAME, SortPruningTestUtils.DEFAULT_ASC_NULLS_HIGHEST),
               enablePruning,
-              Optional.empty(), false);
+              Optional.empty(),
+              false);
       sortField.setMissingValue(SortField.STRING_LAST);
       Sort sort = new Sort(sortField);
       BsonValue afterValue = new BsonString(Character.toString((char) afterNum));

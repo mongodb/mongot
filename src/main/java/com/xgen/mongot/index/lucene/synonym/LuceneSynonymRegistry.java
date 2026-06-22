@@ -125,8 +125,9 @@ public class LuceneSynonymRegistry implements SynonymRegistry {
     return new LuceneSynonymRegistry(
         analyzerRegistry,
         synonymDefinitions.entrySet().stream()
-            .collect(CollectionUtils.toConcurrentMapUnsafe(Map.Entry::getKey,
-                     synonymMappingInitializer)),
+            .collect(
+                CollectionUtils.toConcurrentMapUnsafe(
+                    Map.Entry::getKey, synonymMappingInitializer)),
         maxDocumentsPerSynonymCollection);
   }
 

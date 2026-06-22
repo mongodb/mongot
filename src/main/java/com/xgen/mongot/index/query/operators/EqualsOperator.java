@@ -10,8 +10,9 @@ import java.util.List;
 import java.util.Optional;
 import org.bson.BsonValue;
 
-public record EqualsOperator(Score score, FieldPath path, Value value,
-                             Optional<List<String>> doesNotAffect) implements Operator {
+public record EqualsOperator(
+    Score score, FieldPath path, Value value, Optional<List<String>> doesNotAffect)
+    implements Operator {
 
   public static class Fields {
     public static final Field.Required<String> PATH =

@@ -28,12 +28,12 @@ public class IndexMapper {
   /**
    * Builds an internal {@link IndexDefinition} from a user-supplied definition.
    *
-   * <p>{@code existingMaterializedViewNameFormatVersion} is the
-   * materializedViewNameFormatVersion already stored on a pre-existing index, or
-   * {@link Optional#empty()} when none exists. Update callers should pass the value from the
-   * prior on-disk definition so the auto-embedding MV name does not shift; create callers pass
-   * {@link Optional#empty()} and get the v1 stamp applied. Applies to both vector and search
-   * auto-embed indexes, which share the same MV resolver. See CLOUDP-409822.
+   * <p>{@code existingMaterializedViewNameFormatVersion} is the materializedViewNameFormatVersion
+   * already stored on a pre-existing index, or {@link Optional#empty()} when none exists. Update
+   * callers should pass the value from the prior on-disk definition so the auto-embedding MV name
+   * does not shift; create callers pass {@link Optional#empty()} and get the v1 stamp applied.
+   * Applies to both vector and search auto-embed indexes, which share the same MV resolver. See
+   * CLOUDP-409822.
    */
   @SuppressWarnings("checkstyle:MissingJavadocMethod")
   public static IndexDefinition toInternal(
@@ -126,8 +126,8 @@ public class IndexMapper {
   }
 
   /**
-   * Takes the main index status, the staged index status, and if the main and staged indexes are
-   * on the latest index definition to determine the overall status of the index.
+   * Takes the main index status, the staged index status, and if the main and staged indexes are on
+   * the latest index definition to determine the overall status of the index.
    */
   public static StatusCode calculateStatus(
       StatusCode mainIndexStatusCode,

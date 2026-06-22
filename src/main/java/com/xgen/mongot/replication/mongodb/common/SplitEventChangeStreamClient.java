@@ -18,7 +18,7 @@ import org.slf4j.LoggerFactory;
  */
 public class SplitEventChangeStreamClient<E extends Exception>
     implements ChangeStreamMongoClient<E> {
-  
+
   private static final Logger LOG = LoggerFactory.getLogger(SplitEventChangeStreamClient.class);
 
   private final ChangeStreamMongoClient<E> wrapped;
@@ -43,7 +43,7 @@ public class SplitEventChangeStreamClient<E extends Exception>
     // Poll until complete events or empty batch needed
     while (true) {
       ChangeStreamBatch originalBatch = this.wrapped.getNext();
-      
+
       CompletedEventBatch processedResult = processBatch(originalBatch);
 
       if (!processedResult.events().isEmpty()) {

@@ -70,8 +70,7 @@ public class VectorEmbeddedFilterTest {
 
     // Test 1: Validate root vector field (non-embedded)
     try {
-      checks.validateVectorField(
-          FieldPath.parse("root_vector"), Optional.empty(), 5);
+      checks.validateVectorField(FieldPath.parse("root_vector"), Optional.empty(), 5);
       // Should succeed
     } catch (InvalidQueryException e) {
       Assert.fail("Root vector validation should succeed: " + e.getMessage());
@@ -80,9 +79,7 @@ public class VectorEmbeddedFilterTest {
     // Test 2: Validate embedded vector field
     try {
       checks.validateVectorField(
-          FieldPath.parse("sections.section_vector"),
-          Optional.of(FieldPath.parse("sections")),
-          5);
+          FieldPath.parse("sections.section_vector"), Optional.of(FieldPath.parse("sections")), 5);
       // Should succeed
     } catch (InvalidQueryException e) {
       Assert.fail("Embedded vector validation should succeed: " + e.getMessage());
@@ -187,4 +184,3 @@ public class VectorEmbeddedFilterTest {
         checks.indexedAsToken(FieldPath.parse("nonexistent"), Optional.empty()));
   }
 }
-

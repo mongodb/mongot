@@ -1,6 +1,5 @@
 package com.xgen.mongot.index.lucene.similarity;
 
-
 import org.apache.lucene.search.CollectionStatistics;
 import org.apache.lucene.search.Explanation;
 import org.apache.lucene.search.TermStatistics;
@@ -13,7 +12,6 @@ import org.junit.Test;
 public class StableTflSimilarityTest {
 
   private static final float SCORE_EPSILON = 1e-7f;
-  
 
   @Test
   public void scorer_validInput_returnsExpectedScoreAndExplanation() {
@@ -30,7 +28,8 @@ public class StableTflSimilarityTest {
     Explanation explain = scorer.explain(Explanation.match(1, "freq"), norm);
     Assert.assertEquals(explain.getValue().floatValue(), score, SCORE_EPSILON);
 
-    var explainString = """
+    var explainString =
+        """
         1.3955811 = score(freq=1), computed as boost * tr * tf from:
           1.0 = boost
           0.45454544 = tf, computed as freq / (freq + k1)) from:

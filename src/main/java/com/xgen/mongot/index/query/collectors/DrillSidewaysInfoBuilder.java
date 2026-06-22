@@ -637,13 +637,9 @@ public class DrillSidewaysInfoBuilder {
     return switch (operator) {
       case EqualsOperator equalsOperator -> Optional.of(equalsOperator.path().toString());
       case InOperator inOperator ->
-          inOperator.paths().stream()
-              .map(FieldPath::toString)
-              .findFirst();
+          inOperator.paths().stream().map(FieldPath::toString).findFirst();
       case RangeOperator rangeOperator ->
-          rangeOperator.paths().stream()
-              .map(FieldPath::toString)
-              .findFirst();
+          rangeOperator.paths().stream().map(FieldPath::toString).findFirst();
       default -> Optional.empty();
     };
   }

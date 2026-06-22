@@ -68,7 +68,9 @@ class PathTrie<T> {
 
   @Nullable
   private PathTrie<T> getNode(FieldPath key) {
-    @Var @Nullable PathTrie<T> ptr = this;
+    @Var
+    @Nullable
+    PathTrie<T> ptr = this;
 
     for (String next : key.getSegments()) {
       ptr = ptr.children.get(next);

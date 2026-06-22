@@ -205,7 +205,9 @@ public class VectorSearchFilterQueryFactory {
               singleQueryContext);
       case InOperator inOperator ->
           this.inQueryFactory.fromValues(
-              inOperator.values(), inOperator.getNonNullValueType(), List.of(path),
+              inOperator.values(),
+              inOperator.getNonNullValueType(),
+              List.of(path),
               singleQueryContext);
       case NinOperator ninOperator ->
           CompoundQueryFactory.negate(

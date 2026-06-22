@@ -45,9 +45,7 @@ public class IndexDefinitions {
 
   /** generation ids for all the indexes. */
   public static List<GenerationId> indexesGenerationIds(List<IndexGeneration> indexes) {
-    return indexes.stream()
-        .map(i -> i.getGenerationId())
-        .collect(Collectors.toList());
+    return indexes.stream().map(i -> i.getGenerationId()).collect(Collectors.toList());
   }
 
   /** index definitions for generations. */

@@ -37,6 +37,7 @@ public class MongoCredentialsTest {
     @Parameterized.Parameter(1)
     public String expectedKey;
 
+    @SuppressWarnings("checkstyle:all")
     @Parameters(name = "MongoCredentialsTest.SuccessCasesTest {index}:{0}")
     public static List<String[]> args() {
       return List.of(
@@ -49,7 +50,8 @@ public class MongoCredentialsTest {
             """
             white space
             strip\ttest\u000a\u000b\u000c\u000d
-            hellooo""",
+            hellooo\
+            """,
             "whitespacestriptesthellooo"
           });
     }

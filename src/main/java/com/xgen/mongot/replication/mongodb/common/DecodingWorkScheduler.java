@@ -73,7 +73,7 @@ public class DecodingWorkScheduler extends Thread {
 
     this.shutdownFuture = new CompletableFuture<>();
     this.shutdown = false;
-    
+
     Tag replicationTag = ServerStatusDataExtractor.Scope.REPLICATION.getTag();
 
     this.schedulerQueue = new SchedulerQueue<>(type, metricsFactory);

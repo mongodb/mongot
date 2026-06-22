@@ -46,12 +46,9 @@ public class MongodTopologyMonitorTest {
   private static final BsonDocument NOT_SHARDED_RESULT =
       new BsonDocument("parsed", new BsonDocument());
 
-  @Mock
-  private MongoClient mongoClient;
-  @Mock
-  private MongoDatabase mongoDatabase;
-  @Mock
-  private NamedScheduledExecutorService scheduler;
+  @Mock private MongoClient mongoClient;
+  @Mock private MongoDatabase mongoDatabase;
+  @Mock private NamedScheduledExecutorService scheduler;
   private ManuallyUpdatedClock clock;
   private MongodTopologyMonitor monitor;
 
@@ -62,8 +59,9 @@ public class MongodTopologyMonitorTest {
     when(this.scheduler.awaitTermination(anyLong(), any(TimeUnit.class))).thenReturn(true);
     when(this.scheduler.submit(any(Runnable.class))).thenReturn(new CompletableFuture<>());
     this.clock = new ManuallyUpdatedClock(Clock.fixed(INITIAL_INSTANT, ZoneId.of("UTC")));
-    this.monitor = new MongodTopologyMonitor(
-        this.mongoClient, this.scheduler, REFRESH_INTERVAL, EXPIRY, PROBE_WAIT, this.clock);
+    this.monitor =
+        new MongodTopologyMonitor(
+            this.mongoClient, this.scheduler, REFRESH_INTERVAL, EXPIRY, PROBE_WAIT, this.clock);
   }
 
   @After
@@ -83,8 +81,7 @@ public class MongodTopologyMonitorTest {
     // instead of failing until the next periodic refresh.
     assertThat(this.monitor.isShardedCluster()).isTrue();
     verify(this.scheduler, times(1)).submit(any(Runnable.class));
-    verify(this.mongoDatabase, times(1))
-        .runCommand(eq(GET_CMD_LINE_OPTS), eq(BsonDocument.class));
+    verify(this.mongoDatabase, times(1)).runCommand(eq(GET_CMD_LINE_OPTS), eq(BsonDocument.class));
   }
 
   @Test
@@ -116,8 +113,7 @@ public class MongodTopologyMonitorTest {
 
     captor.getValue().run();
 
-    verify(this.mongoDatabase, never())
-        .runCommand(eq(GET_CMD_LINE_OPTS), eq(BsonDocument.class));
+    verify(this.mongoDatabase, never()).runCommand(eq(GET_CMD_LINE_OPTS), eq(BsonDocument.class));
   }
 
   @Test
@@ -129,8 +125,7 @@ public class MongodTopologyMonitorTest {
     // instead of blocking for the full wait window.
     assertThrows(CheckedMongoException.class, this.monitor::isShardedCluster);
     verify(this.scheduler, times(1)).submit(any(Runnable.class));
-    verify(this.mongoDatabase, times(1))
-        .runCommand(eq(GET_CMD_LINE_OPTS), eq(BsonDocument.class));
+    verify(this.mongoDatabase, times(1)).runCommand(eq(GET_CMD_LINE_OPTS), eq(BsonDocument.class));
   }
 
   @Test
@@ -145,8 +140,7 @@ public class MongodTopologyMonitorTest {
     assertThrows(CheckedMongoException.class, this.monitor::isShardedCluster);
 
     verify(this.scheduler, times(2)).submit(any(Runnable.class));
-    verify(this.mongoDatabase, times(2))
-        .runCommand(eq(GET_CMD_LINE_OPTS), eq(BsonDocument.class));
+    verify(this.mongoDatabase, times(2)).runCommand(eq(GET_CMD_LINE_OPTS), eq(BsonDocument.class));
   }
 
   @Test
@@ -188,8 +182,7 @@ public class MongodTopologyMonitorTest {
     for (int i = 0; i < 5; i++) {
       assertThat(this.monitor.isShardedCluster()).isFalse();
     }
-    verify(this.mongoDatabase, times(1))
-        .runCommand(eq(GET_CMD_LINE_OPTS), eq(BsonDocument.class));
+    verify(this.mongoDatabase, times(1)).runCommand(eq(GET_CMD_LINE_OPTS), eq(BsonDocument.class));
   }
 
   @Test
@@ -260,10 +253,10 @@ public class MongodTopologyMonitorTest {
 
   private void runAsyncProbesSynchronously() {
     when(this.scheduler.submit(any(Runnable.class)))
-        .thenAnswer(invocation -> {
-          invocation.<Runnable>getArgument(0).run();
-          return CompletableFuture.completedFuture(null);
-        });
+        .thenAnswer(
+            invocation -> {
+              invocation.<Runnable>getArgument(0).run();
+              return CompletableFuture.completedFuture(null);
+            });
   }
-
 }

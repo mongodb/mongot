@@ -66,8 +66,7 @@ public class LuceneGlobalSettingsTest {
 
   @Test
   public void testNeitherFlagSet_usesLuceneDefault1024() {
-    LuceneConfig config =
-        configWithMaxClauseLimitAndDisable(Optional.empty(), Optional.empty());
+    LuceneConfig config = configWithMaxClauseLimitAndDisable(Optional.empty(), Optional.empty());
 
     int saveValue = IndexSearcher.getMaxClauseCount();
     try {

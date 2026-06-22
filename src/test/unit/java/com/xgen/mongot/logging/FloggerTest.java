@@ -34,10 +34,7 @@ public class FloggerTest {
     testLogBack.info("Second logback");
 
     assertThat(listAppender.list.stream().map(ILoggingEvent::getMessage).toList())
-        .containsExactly(
-            "First logback",
-            "Flogger test: this was logged.",
-            "Second logback")
+        .containsExactly("First logback", "Flogger test: this was logged.", "Second logback")
         .inOrder();
   }
 
@@ -47,7 +44,8 @@ public class FloggerTest {
     listAppender.start();
     testLogBack.addAppender(listAppender);
 
-    flogger.atInfo()
+    flogger
+        .atInfo()
         .with(LOG_INTEGER, 42)
         .with(LOG_BOOLEAN, true)
         .with(LOG_STRING, "string_value")
@@ -60,8 +58,9 @@ public class FloggerTest {
     List<KeyValuePair> keyValuePairs = event.getKeyValuePairs();
     assertThat(keyValuePairs).isNull();
 
-    assertThat(event.getMessage()).isEqualTo(
-        "Flogger test: this was logged. "
-            + "[CONTEXT logInteger=42 logBoolean=true logString=\"string_value\" ]");
+    assertThat(event.getMessage())
+        .isEqualTo(
+            "Flogger test: this was logged. "
+                + "[CONTEXT logInteger=42 logBoolean=true logString=\"string_value\" ]");
   }
 }

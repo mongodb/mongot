@@ -38,8 +38,8 @@ import java.util.Set;
  * query. A generic query is one where the facet defined in doesNotAffect does not match the path
  * being queried (e.g. doesNotAffect specifies multiple facets), in which we must build operator
  * queries for each facet to use at query execution time. Resulting map contains facet names ->
- * corresponding query to obtain counts for this facet. This class performs a single traversal
- * of a generic operator tree in order to simultaneously build operators for all specified facets.
+ * corresponding query to obtain counts for this facet. This class performs a single traversal of a
+ * generic operator tree in order to simultaneously build operators for all specified facets.
  */
 public class GenericDrillSidewaysFacetOperatorBuilder {
   /**
@@ -50,35 +50,37 @@ public class GenericDrillSidewaysFacetOperatorBuilder {
    * @param facetNames the set of facet names for which operators should be constructed.
    * @return a map of facet names to corresponding query to obtain counts for this facet.
    */
-  static Map<String, Optional<Operator>> buildGenericQueryOperatorMap(Operator operator,
-      Set<String> facetNames) {
-    Map<String, Optional<Operator>> facetToOperatorMap = switch (operator) {
-      case CompoundOperator compoundOp -> handleCompoundOperator(compoundOp, facetNames);
-      case EmbeddedDocumentOperator embeddedOp -> handleEmbeddedOperator(embeddedOp, facetNames);
-      case EqualsOperator equalsOp -> handleEqualsOperator(equalsOp, facetNames);
-      case InOperator inOp -> handleInOperator(inOp, facetNames);
-      case RangeOperator rangeOp -> handleRangeOperator(rangeOp, facetNames);
+  static Map<String, Optional<Operator>> buildGenericQueryOperatorMap(
+      Operator operator, Set<String> facetNames) {
+    Map<String, Optional<Operator>> facetToOperatorMap =
+        switch (operator) {
+          case CompoundOperator compoundOp -> handleCompoundOperator(compoundOp, facetNames);
+          case EmbeddedDocumentOperator embeddedOp ->
+              handleEmbeddedOperator(embeddedOp, facetNames);
+          case EqualsOperator equalsOp -> handleEqualsOperator(equalsOp, facetNames);
+          case InOperator inOp -> handleInOperator(inOp, facetNames);
+          case RangeOperator rangeOp -> handleRangeOperator(rangeOp, facetNames);
 
-      // Add any new operators here with explicit handling for doesNotAffect
-      case AllDocumentsOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
-      case AutocompleteOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
-      case ExistsOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
-      case GeoShapeOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
-      case GeoWithinOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
-      case VectorSearchOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
-      case KnnBetaOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
-      case MoreLikeThisOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
-      case NearOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
-      case PhraseOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
-      case QueryStringOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
-      case SearchOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
-      case SpanOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
-      case TermOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
-      case TermLevelOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
-      case TextOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
-      case HasAncestorOperator ignored ->  handleNonDoesNotAffectOperator(ignored, facetNames);
-      case HasRootOperator ignored ->  handleNonDoesNotAffectOperator(ignored, facetNames);
-    };
+          // Add any new operators here with explicit handling for doesNotAffect
+          case AllDocumentsOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
+          case AutocompleteOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
+          case ExistsOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
+          case GeoShapeOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
+          case GeoWithinOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
+          case VectorSearchOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
+          case KnnBetaOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
+          case MoreLikeThisOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
+          case NearOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
+          case PhraseOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
+          case QueryStringOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
+          case SearchOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
+          case SpanOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
+          case TermOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
+          case TermLevelOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
+          case TextOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
+          case HasAncestorOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
+          case HasRootOperator ignored -> handleNonDoesNotAffectOperator(ignored, facetNames);
+        };
     // Default missing facets to Optional.empty()
     facetNames.stream()
         .filter(facet -> !facetToOperatorMap.containsKey(facet))
@@ -88,35 +90,34 @@ public class GenericDrillSidewaysFacetOperatorBuilder {
   }
 
   @VisibleForTesting
-  static Map<String, Optional<Operator>> handleNonDoesNotAffectOperator(Operator operator,
-      Set<String> facetNames) {
+  static Map<String, Optional<Operator>> handleNonDoesNotAffectOperator(
+      Operator operator, Set<String> facetNames) {
     Map<String, Optional<Operator>> result = new HashMap<>();
     facetNames.forEach(facet -> result.put(facet, Optional.of(operator)));
     return result;
   }
 
-  /** Processes an EmbeddedDocumentOperator and filters its inner operator entries based on the
-   * specified facet names.*/
+  /**
+   * Processes an EmbeddedDocumentOperator and filters its inner operator entries based on the
+   * specified facet names.
+   */
   @VisibleForTesting
   static Map<String, Optional<Operator>> handleEmbeddedOperator(
       EmbeddedDocumentOperator embeddedOp, Set<String> facetNames) {
     Map<String, Optional<Operator>> filteredFacetOperatorsMap = new HashMap<>();
     Operator innerOperator = embeddedOp.operator();
 
-    Map<String, Optional<Operator>> innerResult = buildGenericQueryOperatorMap(innerOperator,
-        facetNames);
+    Map<String, Optional<Operator>> innerResult =
+        buildGenericQueryOperatorMap(innerOperator, facetNames);
     for (String facetName : facetNames) {
       // Filter out entries in innerResult where doesNotAffect contains the current facetName
-      Optional<Operator> filteredOp = innerResult.get(facetName)
-          .flatMap(op -> filterOperatorByDoesNotAffect(op, facetName));
+      Optional<Operator> filteredOp =
+          innerResult.get(facetName).flatMap(op -> filterOperatorByDoesNotAffect(op, facetName));
 
       // Add the filtered operator to result if it's present and valid
       if (filteredOp.isPresent()) {
-        EmbeddedDocumentOperator scopedSimpleEmbedded = new EmbeddedDocumentOperator(
-            embeddedOp.score(),
-            embeddedOp.path(),
-            filteredOp.get()
-        );
+        EmbeddedDocumentOperator scopedSimpleEmbedded =
+            new EmbeddedDocumentOperator(embeddedOp.score(), embeddedOp.path(), filteredOp.get());
         filteredFacetOperatorsMap.put(facetName, Optional.of(scopedSimpleEmbedded));
       } else {
         filteredFacetOperatorsMap.put(facetName, Optional.empty());
@@ -126,9 +127,9 @@ public class GenericDrillSidewaysFacetOperatorBuilder {
   }
 
   /**
-   *  Recursively processes and filters a hierarchy of Operator objects based on whether their
-   *  doesNotAffect field contains a specified facetName. Excludes any operators that match the
-   *  field present within doesNotAffect.
+   * Recursively processes and filters a hierarchy of Operator objects based on whether their
+   * doesNotAffect field contains a specified facetName. Excludes any operators that match the field
+   * present within doesNotAffect.
    */
   @VisibleForTesting
   static Optional<Operator> filterOperatorByDoesNotAffect(Operator operator, String facetName) {
@@ -175,7 +176,7 @@ public class GenericDrillSidewaysFacetOperatorBuilder {
   }
 
   /**
-   * Processes a  CompoundOperator by breaking its clauses (filter, must, mustNot, should) down into
+   * Processes a CompoundOperator by breaking its clauses (filter, must, mustNot, should) down into
    * facet-specific mappings. For each clause type, the operators are filtered based on relevance to
    * the provided facet names and recombined into new CompoundOperator instances.
    */
@@ -235,8 +236,9 @@ public class GenericDrillSidewaysFacetOperatorBuilder {
       Set<String> facetNames) {
     for (Operator op : operators) {
       Map<String, Optional<Operator>> facetOps = buildGenericQueryOperatorMap(op, facetNames);
-      facetOps.forEach((facet, operatorOpt) ->
-          operatorOpt.ifPresent(operator -> clauseMap.get(facet).add(operator)));
+      facetOps.forEach(
+          (facet, operatorOpt) ->
+              operatorOpt.ifPresent(operator -> clauseMap.get(facet).add(operator)));
     }
   }
 
@@ -264,7 +266,6 @@ public class GenericDrillSidewaysFacetOperatorBuilder {
       if (shouldIncludeOperator(operator.doesNotAffect(), facet)) {
         result.put(facet, Optional.of(operator));
       }
-
     }
     return result;
   }
@@ -282,18 +283,19 @@ public class GenericDrillSidewaysFacetOperatorBuilder {
   }
 
   /**
-   * Determines whether an operator should be included in a facet's query based on the
-   * doesNotAffect list associated with this operator. The operator should be included if either:
+   * Determines whether an operator should be included in a facet's query based on the doesNotAffect
+   * list associated with this operator. The operator should be included if either:
+   *
    * <ul>
-   *   <li>doesNotAffect list does not contain the given facet name, or</li>
-   *   <li>doesNotAffect list is absent.</li>
+   *   <li>doesNotAffect list does not contain the given facet name, or
+   *   <li>doesNotAffect list is absent.
    * </ul>
-   * If doesNotAffect specifies a facet, this indicates that the associated operator should not
+   *
+   * <p>If doesNotAffect specifies a facet, this indicates that the associated operator should not
    * affect the document set that the facet is computing its counts over.
    */
   @VisibleForTesting
-  static boolean shouldIncludeOperator(
-      Optional<List<String>> doesNotAffect, String facetName) {
+  static boolean shouldIncludeOperator(Optional<List<String>> doesNotAffect, String facetName) {
     return doesNotAffect.map(list -> !list.contains(facetName)).orElse(true);
   }
 }

@@ -163,8 +163,7 @@ public class ScoreDetailsWrappedQueryTest {
             .build();
 
     ScoreDetailsWrappedQuery actual =
-        ScoreDetailsWrappedQuery.wrap(
-            new WrappedToChildBlockJoinQuery(termQuery, parentsFilter));
+        ScoreDetailsWrappedQuery.wrap(new WrappedToChildBlockJoinQuery(termQuery, parentsFilter));
     Assert.assertEquals(expected, actual);
   }
 

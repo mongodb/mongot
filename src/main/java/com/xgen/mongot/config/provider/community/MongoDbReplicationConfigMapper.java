@@ -15,9 +15,9 @@ public final class MongoDbReplicationConfigMapper {
   private MongoDbReplicationConfigMapper() {}
 
   /**
-   * Builds {@link GlobalReplicationConfig} from the {@code replication.mongodb} block,
-   * falling back to the defaults for anything not configured.
-   * The result is shared by both search replication and auto-embedding materialized views.
+   * Builds {@link GlobalReplicationConfig} from the {@code replication.mongodb} block, falling back
+   * to the defaults for anything not configured. The result is shared by both search replication
+   * and auto-embedding materialized views.
    *
    * @param replicationConfig the parsed {@code replication} block, if present
    */
@@ -55,14 +55,11 @@ public final class MongoDbReplicationConfigMapper {
     var numConcurrentInitialSyncs = mongodb.flatMap(m -> m.numConcurrentInitialSyncs());
     var numConcurrentChangeStreams = mongodb.flatMap(m -> m.numConcurrentChangeStreams());
     var numIndexingThreads =
-        mongodb
-            .flatMap(m -> m.numIndexingThreads())
-            .or(() -> Optional.of(runtime.getNumCpus()));
+        mongodb.flatMap(m -> m.numIndexingThreads()).or(() -> Optional.of(runtime.getNumCpus()));
     var numConcurrentSynonymSyncs = mongodb.flatMap(m -> m.numConcurrentSynonymSyncs());
     var changeStreamMaxTimeMs = mongodb.flatMap(m -> m.changeStreamMaxTimeMs());
     var changeStreamCursorMaxTimeSec = mongodb.flatMap(m -> m.changeStreamCursorMaxTimeSec());
-    var numChangeStreamDecodingThreads =
-        mongodb.flatMap(m -> m.numChangeStreamDecodingThreads());
+    var numChangeStreamDecodingThreads = mongodb.flatMap(m -> m.numChangeStreamDecodingThreads());
 
     return MongoDbReplicationConfig.create(
         globalReplicationConfig,

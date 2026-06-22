@@ -17,8 +17,7 @@ public class BackoffPolicyDelayForTest {
 
   @Test
   public void testFixedDelayForWithJitterStaysInRange() {
-    var policy =
-        FixedBackoffPolicy.builder().delay(Duration.ofMillis(100)).jitter(0.2).build();
+    var policy = FixedBackoffPolicy.builder().delay(Duration.ofMillis(100)).jitter(0.2).build();
     for (int i = 0; i < 100; i++) {
       long ms = policy.delayFor(1).toMillis();
       assertTrue("delay " + ms + " out of jitter range", ms >= 80 && ms <= 120);

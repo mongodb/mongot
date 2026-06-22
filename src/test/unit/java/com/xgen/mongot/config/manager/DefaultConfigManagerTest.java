@@ -953,17 +953,14 @@ public class DefaultConfigManagerTest {
   @Test
   public void testFailedInitialSyncIndexWithStagedReplacement_skipsRetry() throws Exception {
     var featureFlags =
-        FeatureFlags.withDefaults()
-            .enable(Feature.RETAIN_FAILED_INITIAL_SYNC_DATA_ON_DISK)
-            .build();
+        FeatureFlags.withDefaults().enable(Feature.RETAIN_FAILED_INITIAL_SYNC_DATA_ON_DISK).build();
     var mocks = DefaultConfigManagerMocks.create(featureFlags);
     var configStateMocks = mocks.mockedDependencies;
 
     // Create v1 and let it reach steady state.
     mocks.configManager.update(
         emptyList(), List.of(MOCK_INDEX_DEFINITION), emptyList(), emptySet());
-    var liveIndex =
-        mocks.indexCatalog.getIndexById(MOCK_INDEX_ID).orElseThrow();
+    var liveIndex = mocks.indexCatalog.getIndexById(MOCK_INDEX_ID).orElseThrow();
     liveIndex.getIndex().setStatus(IndexStatus.steady());
 
     // Future indexes created in initial sync (so v2 won't be immediately swapped in the
@@ -980,10 +977,11 @@ public class DefaultConfigManagerTest {
     var stagedIndex = configStateMocks.staged.getIndex(MOCK_INDEX_ID).orElseThrow();
 
     // Simulate v1 failing with a retryable initial sync failure in the background.
-    liveIndex.getIndex().setStatus(
-        IndexStatus.failed(
-            "initial sync failed",
-            IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY));
+    liveIndex
+        .getIndex()
+        .setStatus(
+            IndexStatus.failed(
+                "initial sync failed", IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY));
 
     configStateMocks.clearInvocations();
 

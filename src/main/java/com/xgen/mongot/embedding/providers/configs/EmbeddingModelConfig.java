@@ -27,9 +27,8 @@ public record EmbeddingModelConfig(
   }
 
   /**
-   * Creates an EmbeddingModelConfig, merging the outer per-model
-   * rpsPerProvider with the inner {@code config.rpsPerProvider}.
-   * When both are present the minimum is used so every configured
+   * Creates an EmbeddingModelConfig, merging the outer per-model rpsPerProvider with the inner
+   * {@code config.rpsPerProvider}. When both are present the minimum is used so every configured
    * value acts as an upper bound.
    */
   public static EmbeddingModelConfig create(
@@ -305,11 +304,10 @@ public record EmbeddingModelConfig(
   }
 
   /**
-   * Returns the minimum of two optional integers. If only one is
-   * present, returns that one. If neither is present, returns empty.
+   * Returns the minimum of two optional integers. If only one is present, returns that one. If
+   * neither is present, returns empty.
    */
-  public static Optional<Integer> optionalMin(
-      Optional<Integer> a, Optional<Integer> b) {
+  public static Optional<Integer> optionalMin(Optional<Integer> a, Optional<Integer> b) {
     if (a.isPresent() && b.isPresent()) {
       return Optional.of(Math.min(a.get(), b.get()));
     }

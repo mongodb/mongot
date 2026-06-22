@@ -53,7 +53,7 @@ public class LuceneIndexMetricsSupplierBuilder {
   private LuceneIndexMetricsSupplierBuilder() {
     when(this.indexBackingStrategy.getDiskStats()).thenReturn(DiskStats.EMPTY);
   }
-  
+
   public static LuceneIndexMetricsSupplierBuilder builder() {
     return new LuceneIndexMetricsSupplierBuilder();
   }

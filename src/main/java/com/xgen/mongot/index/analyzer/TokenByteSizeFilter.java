@@ -51,7 +51,9 @@ public final class TokenByteSizeFilter extends FilteringTokenFilter {
     int len = this.termAtt.getBytesRef().length;
     boolean tooLong = len > this.maxByteSize;
     if (tooLong) {
-      FLOGGER.atWarning().atMostEvery(1, TimeUnit.MINUTES)
+      FLOGGER
+          .atWarning()
+          .atMostEvery(1, TimeUnit.MINUTES)
           .with(FIELD_NAME, this.fieldName)
           .with(MAX_BYTE_SIZE, this.maxByteSize)
           .with(TOKEN_SIZE, len)

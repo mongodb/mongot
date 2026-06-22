@@ -325,8 +325,7 @@ public class SyncChangeStreamManagerTest {
   }
 
   @Test
-  public void testConcurrentEmbeddingGetMoresSemaphoreReleased_batchException()
-      throws Exception {
+  public void testConcurrentEmbeddingGetMoresSemaphoreReleased_batchException() throws Exception {
     testConcurrentEmbeddingGetMoresSemaphore(GetMoreScenario.INDEXING_EXCEPTION);
   }
 

@@ -14,13 +14,17 @@ public class ShingleTokenFilterDefinition extends TokenFilterDefinition
   static class Fields {
     // MIN_SHINGLE_SIZE must be >= 2.
     static final Field.Required<Integer> MIN_SHINGLE_SIZE =
-        Field.builder("minShingleSize").intField()
-            .mustBeWithinBounds(Range.of(2, Integer.MAX_VALUE)).required();
+        Field.builder("minShingleSize")
+            .intField()
+            .mustBeWithinBounds(Range.of(2, Integer.MAX_VALUE))
+            .required();
 
     // MAX_SHINGLE_SIZE must be >= MIN_SHINGLE_SIZE.
     static final Field.Required<Integer> MAX_SHINGLE_SIZE =
-        Field.builder("maxShingleSize").intField()
-            .mustBeWithinBounds(Range.of(2, Integer.MAX_VALUE)).required();
+        Field.builder("maxShingleSize")
+            .intField()
+            .mustBeWithinBounds(Range.of(2, Integer.MAX_VALUE))
+            .required();
   }
 
   public final int minShingleSize;

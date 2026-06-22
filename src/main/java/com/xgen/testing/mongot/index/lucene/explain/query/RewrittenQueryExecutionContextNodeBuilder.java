@@ -10,8 +10,7 @@ import org.apache.lucene.search.Query;
 
 public class RewrittenQueryExecutionContextNodeBuilder {
   private Optional<Query> query = Optional.empty();
-  private Optional<ExplainTimings> timings =
-      Optional.of(ExplainTimings.builder().build());
+  private Optional<ExplainTimings> timings = Optional.of(ExplainTimings.builder().build());
   private Optional<RewrittenChildClauses> childClauses = Optional.empty();
   private Optional<BooleanClause.Occur> clauseOccur = Optional.empty();
 

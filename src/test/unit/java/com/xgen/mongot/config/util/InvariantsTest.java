@@ -557,9 +557,7 @@ public class InvariantsTest {
       VectorIndexDefinition definition =
           VectorIndexDefinitionBuilder.builder()
               .setFields(
-                  List.of(
-                      new VectorDataFieldDefinition(
-                          FieldPath.parse("embedding"), SIMPLE_SPEC)))
+                  List.of(new VectorDataFieldDefinition(FieldPath.parse("embedding"), SIMPLE_SPEC)))
               .build();
 
       // should not throw
@@ -582,8 +580,9 @@ public class InvariantsTest {
               InvalidIndexDefinitionException.class,
               () -> Invariants.validateVectorNestedRootReferences(List.of(definition)));
       Assert.assertTrue(
-          exception.getMessage().contains("nestedRoot \"sections\" does not match "
-              + "any vector field path"));
+          exception
+              .getMessage()
+              .contains("nestedRoot \"sections\" does not match " + "any vector field path"));
     }
 
     @Test

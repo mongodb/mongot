@@ -11,8 +11,8 @@ import org.apache.lucene.util.BytesRef;
 /**
  * Aggregation result for token field.
  *
- * <p>It is an intermediate aggregation result node with multiple buckets. Each bucket has a
- * unique string value</p>
+ * <p>It is an intermediate aggregation result node with multiple buckets. Each bucket has a unique
+ * string value
  */
 public final class TermsAggregationResult extends MultiBucketAggregationResult {
 
@@ -48,8 +48,7 @@ public final class TermsAggregationResult extends MultiBucketAggregationResult {
     }
   }
 
-  public TermsAggregationResult(
-      String name, FieldPath path, int limit, List<TermsBucket> buckets) {
+  public TermsAggregationResult(String name, FieldPath path, int limit, List<TermsBucket> buckets) {
     super(path);
     this.name = name;
     this.limit = limit;
@@ -99,11 +98,15 @@ public final class TermsAggregationResult extends MultiBucketAggregationResult {
       mergedBuckets.put(b.getKey(), b);
     }
     for (TermsBucket b : that.buckets) {
-      mergedBuckets.merge(b.getKey(), b, (b1, b2) -> {
-        AggregationResults mergedChildren =
-            mergeChildren(b1.getChildResults(), b2.getChildResults());
-        return new TermsBucket(b1.getKey(), b1.getDocCount() + b2.getDocCount(), mergedChildren);
-      });
+      mergedBuckets.merge(
+          b.getKey(),
+          b,
+          (b1, b2) -> {
+            AggregationResults mergedChildren =
+                mergeChildren(b1.getChildResults(), b2.getChildResults());
+            return new TermsBucket(
+                b1.getKey(), b1.getDocCount() + b2.getDocCount(), mergedChildren);
+          });
     }
 
     return new TermsAggregationResult(

@@ -95,8 +95,7 @@ public class IndexingWorkSchedulerFactoryTest {
     IndexingWorkScheduler luceneVectorIndexingWorkScheduler =
         indexingWorkSchedulerFactory.getIndexingWorkScheduler(MOCK_VECTOR_DEFINITION);
     IndexingWorkScheduler customVectorEngineIndexingWorkScheduler =
-        indexingWorkSchedulerFactory.getIndexingWorkScheduler(
-            mockCustomVectorEngineDefinition());
+        indexingWorkSchedulerFactory.getIndexingWorkScheduler(mockCustomVectorEngineDefinition());
 
     assertThat(embeddingIndexingWorkScheduler).isInstanceOf(EmbeddingIndexingWorkScheduler.class);
     assertThat(defaultIndexingWorkScheduler).isInstanceOf(DefaultIndexingWorkScheduler.class);

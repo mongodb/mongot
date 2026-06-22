@@ -1,6 +1,5 @@
 package com.xgen.mongot.replication.mongodb.steadystate.changestream;
 
-
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
@@ -94,8 +93,7 @@ class ChangeStreamMongoClientFactory {
 
     if (this.enableSplitLargeChangeStreamEvents) {
       return new SplitEventChangeStreamClient<>(
-          client, SteadyStateException::wrapIfThrows,
-              this.meterMetricsFactory, generationId);
+          client, SteadyStateException::wrapIfThrows, this.meterMetricsFactory, generationId);
     } else {
       return client;
     }
@@ -119,8 +117,7 @@ class ChangeStreamMongoClientFactory {
 
     if (this.enableSplitLargeChangeStreamEvents) {
       return new SplitEventChangeStreamClient<>(
-          client, SteadyStateException::wrapIfThrows,
-              this.meterMetricsFactory, generationId);
+          client, SteadyStateException::wrapIfThrows, this.meterMetricsFactory, generationId);
     } else {
       return client;
     }

@@ -286,15 +286,15 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
 
   /**
    * Default timeout in milliseconds for waiting on each merge thread to terminate during
-   * cancellation of merges for a single index. If a merge thread does not terminate within
-   * this timeout, a warning is logged and cancellation continues without waiting further.
+   * cancellation of merges for a single index. If a merge thread does not terminate within this
+   * timeout, a warning is logged and cancellation continues without waiting further.
    */
   public static final long DEFAULT_CANCEL_MERGE_PER_THREAD_TIMEOUT_MS = 100_000; // 100 seconds
 
   /**
-   * Default timeout in milliseconds for waiting on each merge thread to terminate during
-   * global cancellation of all merges (e.g., during shutdown). If a merge thread does not
-   * terminate within this timeout, a warning is logged and cancellation continues.
+   * Default timeout in milliseconds for waiting on each merge thread to terminate during global
+   * cancellation of all merges (e.g., during shutdown). If a merge thread does not terminate within
+   * this timeout, a warning is logged and cancellation continues.
    */
   public static final long DEFAULT_CANCEL_ALL_MERGES_PER_THREAD_TIMEOUT_MS = 50_000; // 50 seconds
 
@@ -364,9 +364,9 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
   /**
    * Sets the gate used to pause merges when disk usage is high.
    *
-   * <p>When the gate is closed (disk usage is high), ongoing merge operations will block on
-   * {@link Gate#awaitOpen()} during I/O operations. When the gate opens (disk usage drops),
-   * the blocked merges will automatically resume from where they paused.
+   * <p>When the gate is closed (disk usage is high), ongoing merge operations will block on {@link
+   * Gate#awaitOpen()} during I/O operations. When the gate opens (disk usage drops), the blocked
+   * merges will automatically resume from where they paused.
    *
    * @param mergeGate the gate that controls whether merges should be paused
    */
@@ -388,8 +388,8 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
   }
 
   /**
-   * Creates a new InstrumentedConcurrentMergeScheduler with default timeout values and
-   * attribution metrics disabled.
+   * Creates a new InstrumentedConcurrentMergeScheduler with default timeout values and attribution
+   * metrics disabled.
    *
    * @param meterRegistry the meter registry for metrics
    */
@@ -466,8 +466,7 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
     this.mergeCancellationTime =
         this.metricsFactory.timer(LuceneMeterData.MERGE_CANCELLATION_TIME_KEY, Tags.of(luceneTag));
     this.numMergesAborted =
-        this.metricsFactory.counter(
-            LuceneMeterData.NUM_MERGES_ABORTED_KEY, Tags.of(luceneTag));
+        this.metricsFactory.counter(LuceneMeterData.NUM_MERGES_ABORTED_KEY, Tags.of(luceneTag));
     this.numMergePauseEvents =
         this.metricsFactory.counter(LuceneMeterData.MERGE_PAUSE_EVENTS_KEY, Tags.of(luceneTag));
     this.mergeElapsedStopwatches = new WeakHashMap<>();
@@ -505,8 +504,8 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
    * Closes all merge threads associated with the given index partition.
    *
    * <p>The implementation is copied from sync() in ConcurrentMergeScheduler in Lucene code, with
-   * only one additional check:
-   * ((InstrumentedMergeThread) t).getIndexPartitionIdentifier().equals(indexPartitionIdentifier).
+   * only one additional check: ((InstrumentedMergeThread)
+   * t).getIndexPartitionIdentifier().equals(indexPartitionIdentifier).
    */
   public void close(IndexPartitionIdentifier indexPartitionIdentifier) {
     @Var boolean interrupted = false;
@@ -818,9 +817,10 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
    * Wraps the directory for merge operations when cancel merge is enabled.
    *
    * <p>When {@code cancelMergeEnabled} is true, the directory is wrapped with:
+   *
    * <ol>
-   *   <li>PausableDirectory - blocks writes when disk usage is high, resumes when it drops</li>
-   *   <li>AbortableDirectory - throws IOException when merge is aborted</li>
+   *   <li>PausableDirectory - blocks writes when disk usage is high, resumes when it drops
+   *   <li>AbortableDirectory - throws IOException when merge is aborted
    * </ol>
    *
    * <p>When {@code cancelMergeEnabled} is false, the directory is returned unwrapped.
@@ -837,7 +837,8 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
     }
     // Wrap with PausableDirectory for disk-based pause/resume support
     // This allows merges to block when disk usage is high and resume when it drops
-    @Var Directory wrapped =
+    @Var
+    Directory wrapped =
         new PausableDirectory(in, this.mergeGate, this.numMergePauseEvents::increment);
 
     // Then wrap with AbortableDirectory to enable IO-level interruption
@@ -1008,8 +1009,7 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
         // Decrease the counters no matter run() throws error or not to guarantee the correctness.
         InstrumentedConcurrentMergeScheduler.this.runningMerges.decrementAndGet();
         InstrumentedConcurrentMergeScheduler.this.mergingDocs.addAndGet(-this.merge.totalNumDocs());
-        attribution.ifPresent(
-            a -> a.recordEnd(threadId, allocBefore, cpuBefore, indexType));
+        attribution.ifPresent(a -> a.recordEnd(threadId, allocBefore, cpuBefore, indexType));
       }
 
       try {
@@ -1032,10 +1032,9 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
   }
 
   /**
-   * Per-merge ThreadMXBean attribution. Tracks live merge thread ids and lazily registers
-   * per-merge {@code merge.allocatedBytes} / {@code merge.cpuTimeNanos} histograms tagged by
-   * {@code indexType} on first sample. Created only when {@code MERGE_ATTRIBUTION_METRICS} is
-   * enabled.
+   * Per-merge ThreadMXBean attribution. Tracks live merge thread ids and lazily registers per-merge
+   * {@code merge.allocatedBytes} / {@code merge.cpuTimeNanos} histograms tagged by {@code
+   * indexType} on first sample. Created only when {@code MERGE_ATTRIBUTION_METRICS} is enabled.
    */
   static final class MergeAttribution {
 
@@ -1044,9 +1043,7 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
     // Matches IndexTypeData.INDEX_TYPE_TAG_NAME
     private static final String INDEX_TYPE_TAG = "indexType";
 
-    /**
-     * Bucket upper bounds for per-merge heap allocation, in bytes.
-     */
+    /** Bucket upper bounds for per-merge heap allocation, in bytes. */
     private static final double[] ALLOCATED_BYTES_BUCKETS = {
       Bytes.ofMebi(16).toBytes(),
       Bytes.ofMebi(64).toBytes(),
@@ -1057,7 +1054,7 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
       Bytes.ofGibi(64).toBytes()
     };
 
-    /** Bucket upper bounds for per-merge CPU time, in nanoseconds.*/
+    /** Bucket upper bounds for per-merge CPU time, in nanoseconds. */
     private static final double[] CPU_TIME_NANOS_BUCKETS = {
       Duration.ofMillis(100).toNanos(),
       Duration.ofSeconds(1).toNanos(),
@@ -1092,8 +1089,7 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
         return Optional.empty();
       }
       if (!bean.isThreadAllocatedMemorySupported() || !bean.isThreadCpuTimeSupported()) {
-        LOG.warn(
-            "Per-thread allocation or CPU tracking unsupported, merge attribution disabled.");
+        LOG.warn("Per-thread allocation or CPU tracking unsupported, merge attribution disabled.");
         return Optional.empty();
       }
       try {
@@ -1146,8 +1142,7 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
           t ->
               this.metricsFactory.histogram(
                   "merge.allocatedBytes",
-                  Tags.of(ServerStatusDataExtractor.Scope.LUCENE.getTag())
-                      .and(INDEX_TYPE_TAG, t),
+                  Tags.of(ServerStatusDataExtractor.Scope.LUCENE.getTag()).and(INDEX_TYPE_TAG, t),
                   ALLOCATED_BYTES_BUCKETS));
     }
 
@@ -1157,8 +1152,7 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
           t ->
               this.metricsFactory.histogram(
                   "merge.cpuTimeNanos",
-                  Tags.of(ServerStatusDataExtractor.Scope.LUCENE.getTag())
-                      .and(INDEX_TYPE_TAG, t),
+                  Tags.of(ServerStatusDataExtractor.Scope.LUCENE.getTag()).and(INDEX_TYPE_TAG, t),
                   CPU_TIME_NANOS_BUCKETS));
     }
   }

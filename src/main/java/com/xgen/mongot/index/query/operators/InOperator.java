@@ -13,8 +13,11 @@ import java.util.List;
 import java.util.Optional;
 import org.bson.BsonValue;
 
-public record InOperator(Score score, List<FieldPath> paths, List<NonNullValue> values,
-                         Optional<List<String>> doesNotAffect)
+public record InOperator(
+    Score score,
+    List<FieldPath> paths,
+    List<NonNullValue> values,
+    Optional<List<String>> doesNotAffect)
     implements Operator {
 
   public static class Fields {
@@ -44,9 +47,11 @@ public record InOperator(Score score, List<FieldPath> paths, List<NonNullValue> 
             .noDefault();
   }
 
-  public InOperator(Score score, List<FieldPath> paths, List<NonNullValue> values,
-      Optional<List<String>> doesNotAffect
-  ) {
+  public InOperator(
+      Score score,
+      List<FieldPath> paths,
+      List<NonNullValue> values,
+      Optional<List<String>> doesNotAffect) {
     this.score = score;
     this.paths = paths;
     this.values = values;

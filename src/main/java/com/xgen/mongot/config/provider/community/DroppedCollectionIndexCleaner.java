@@ -62,8 +62,7 @@ class DroppedCollectionIndexCleaner {
     try {
       this.catalogAccessGuard.requireTopologyMatch();
     } catch (TopologyMismatchException e) {
-      LOG.error(
-          "Skipping dropped-collection index cleanup due to cluster topology mismatch.", e);
+      LOG.error("Skipping dropped-collection index cleanup due to cluster topology mismatch.", e);
       return;
     } catch (CheckedMongoException e) {
       LOG.warn(

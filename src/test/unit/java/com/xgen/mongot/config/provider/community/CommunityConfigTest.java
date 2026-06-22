@@ -105,15 +105,16 @@ public class CommunityConfigTest {
               Optional.of(new HealthCheckConfig("localhost:8080")),
               Optional.of(new LoggingConfig("DEBUG", Optional.of("/var/log/mongot"))),
               Optional.empty(),
-              Optional.of(new AdvancedConfigs(
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.of(FtdcCommunityConfig.getDefault())))));
+              Optional.of(
+                  new AdvancedConfigs(
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.of(FtdcCommunityConfig.getDefault())))));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig> replicaSetX509() {
@@ -133,8 +134,7 @@ public class CommunityConfigTest {
                 "caFile should be present within x509",
                 replicaSet.x509().get().tlsConfig().caFile().isPresent());
             assertEquals(
-                Path.of("/etc/mongot/ca.pem"),
-                replicaSet.x509().get().tlsConfig().caFile().get());
+                Path.of("/etc/mongot/ca.pem"), replicaSet.x509().get().tlsConfig().caFile().get());
           });
     }
 
@@ -190,15 +190,16 @@ public class CommunityConfigTest {
               Optional.of(new HealthCheckConfig("localhost:8080")),
               Optional.of(new LoggingConfig("DEBUG", Optional.of("/var/log/mongot"))),
               Optional.empty(),
-              Optional.of(new AdvancedConfigs(
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.of(new FtdcCommunityConfig(false, 200, 20, 3000))))));
+              Optional.of(
+                  new AdvancedConfigs(
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.of(new FtdcCommunityConfig(false, 200, 20, 3000))))));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig>
@@ -226,15 +227,16 @@ public class CommunityConfigTest {
               Optional.of(new HealthCheckConfig("localhost:8080")),
               Optional.of(new LoggingConfig("INFO", Optional.of("/var/log/mongot"))),
               Optional.empty(),
-              Optional.of(new AdvancedConfigs(
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.of(FtdcCommunityConfig.getDefault())))));
+              Optional.of(
+                  new AdvancedConfigs(
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.of(FtdcCommunityConfig.getDefault())))));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig> grpcDisabledTls() {
@@ -269,15 +271,16 @@ public class CommunityConfigTest {
               Optional.of(new HealthCheckConfig("localhost:8080")),
               Optional.of(new LoggingConfig("DEBUG", Optional.of("/var/log/mongot"))),
               Optional.empty(),
-              Optional.of(new AdvancedConfigs(
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.of(FtdcCommunityConfig.getDefault())))));
+              Optional.of(
+                  new AdvancedConfigs(
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.of(FtdcCommunityConfig.getDefault())))));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig> grpcTls() {
@@ -312,15 +315,16 @@ public class CommunityConfigTest {
               Optional.of(new HealthCheckConfig("localhost:8080")),
               Optional.of(new LoggingConfig("DEBUG", Optional.of("/var/log/mongot"))),
               Optional.empty(),
-              Optional.of(new AdvancedConfigs(
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.of(FtdcCommunityConfig.getDefault())))));
+              Optional.of(
+                  new AdvancedConfigs(
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.of(FtdcCommunityConfig.getDefault())))));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig> grpcTlsWithPassword() {
@@ -355,15 +359,16 @@ public class CommunityConfigTest {
               Optional.of(new HealthCheckConfig("localhost:8080")),
               Optional.of(new LoggingConfig("DEBUG", Optional.of("/var/log/mongot"))),
               Optional.empty(),
-              Optional.of(new AdvancedConfigs(
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.of(FtdcCommunityConfig.getDefault())))));
+              Optional.of(
+                  new AdvancedConfigs(
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.of(FtdcCommunityConfig.getDefault())))));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig> grpcMtls() {
@@ -398,15 +403,16 @@ public class CommunityConfigTest {
               Optional.of(new HealthCheckConfig("localhost:8080")),
               Optional.of(new LoggingConfig("DEBUG", Optional.of("/var/log/mongot"))),
               Optional.empty(),
-              Optional.of(new AdvancedConfigs(
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.of(FtdcCommunityConfig.getDefault())))));
+              Optional.of(
+                  new AdvancedConfigs(
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.of(FtdcCommunityConfig.getDefault())))));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig>
@@ -437,15 +443,16 @@ public class CommunityConfigTest {
               Optional.of(new HealthCheckConfig("localhost:8080")),
               Optional.of(new LoggingConfig("DEBUG", Optional.of("/var/log/mongot"))),
               Optional.empty(),
-              Optional.of(new AdvancedConfigs(
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.of(FtdcCommunityConfig.getDefault())))));
+              Optional.of(
+                  new AdvancedConfigs(
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.of(FtdcCommunityConfig.getDefault())))));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig>
@@ -478,15 +485,16 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       false)),
-              Optional.of(new AdvancedConfigs(
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.of(FtdcCommunityConfig.getDefault())))));
+              Optional.of(
+                  new AdvancedConfigs(
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.of(FtdcCommunityConfig.getDefault())))));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig>
@@ -514,35 +522,35 @@ public class CommunityConfigTest {
               Optional.of(new HealthCheckConfig("localhost:8080")),
               Optional.of(new LoggingConfig("DEBUG", Optional.of("/var/log/mongot"))),
               Optional.of(
-                  new EmbeddingConfig(
-                      Optional.empty(), Optional.empty(), Optional.empty(), true)),
-              Optional.of(new AdvancedConfigs(
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.of(
-                      new CommunityAutoEmbeddingConfig(
-                          Optional.of(
-                              new CommunityAutoEmbeddingConfig.MaterializedViewConfig(
-                                  Optional.empty(),
-                                  Optional.empty(),
-                                  Optional.empty(),
-                                  Optional.empty(),
-                                  Optional.empty(),
-                                  Optional.empty(),
-                                  Optional.empty(),
-                                  Optional.empty(),
-                                  Optional.empty(),
-                                  Optional.empty(),
-                                  Optional.empty(),
-                                  Optional.of(50),
-                                  Optional.empty(),
-                                  Optional.empty(),
-                                  Optional.empty())))),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.of(FtdcCommunityConfig.getDefault())))));
+                  new EmbeddingConfig(Optional.empty(), Optional.empty(), Optional.empty(), true)),
+              Optional.of(
+                  new AdvancedConfigs(
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.of(
+                          new CommunityAutoEmbeddingConfig(
+                              Optional.of(
+                                  new CommunityAutoEmbeddingConfig.MaterializedViewConfig(
+                                      Optional.empty(),
+                                      Optional.empty(),
+                                      Optional.empty(),
+                                      Optional.empty(),
+                                      Optional.empty(),
+                                      Optional.empty(),
+                                      Optional.empty(),
+                                      Optional.empty(),
+                                      Optional.empty(),
+                                      Optional.empty(),
+                                      Optional.empty(),
+                                      Optional.of(50),
+                                      Optional.empty(),
+                                      Optional.empty(),
+                                      Optional.empty())))),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.of(FtdcCommunityConfig.getDefault())))));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig> ftdcOverrides() {
@@ -569,15 +577,16 @@ public class CommunityConfigTest {
               Optional.of(new HealthCheckConfig("localhost:8080")),
               Optional.of(new LoggingConfig("DEBUG", Optional.of("/var/log/mongot"))),
               Optional.empty(),
-              Optional.of(new AdvancedConfigs(
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.of(new FtdcCommunityConfig(false, 200, 20, 3000))))));
+              Optional.of(
+                  new AdvancedConfigs(
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.of(new FtdcCommunityConfig(false, 200, 20, 3000))))));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig> withReplicationReader() {
@@ -605,15 +614,16 @@ public class CommunityConfigTest {
               Optional.of(new HealthCheckConfig("localhost:8080")),
               Optional.of(new LoggingConfig("DEBUG", Optional.of("/var/log/mongot"))),
               Optional.empty(),
-              Optional.of(new AdvancedConfigs(
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.of(FtdcCommunityConfig.getDefault())))));
+              Optional.of(
+                  new AdvancedConfigs(
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.of(FtdcCommunityConfig.getDefault())))));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig> withDiskMonitor() {
@@ -771,15 +781,16 @@ public class CommunityConfigTest {
               Optional.of(new HealthCheckConfig("localhost:8080")),
               Optional.of(new LoggingConfig("WARNING", Optional.of("/var/log/mongot"))),
               Optional.empty(),
-              Optional.of(new AdvancedConfigs(
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.of(new FtdcCommunityConfig(false, 200, 20, 3000)))));
+              Optional.of(
+                  new AdvancedConfigs(
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.of(new FtdcCommunityConfig(false, 200, 20, 3000)))));
 
       assertEquals(expected, result);
     }
@@ -857,8 +868,7 @@ public class CommunityConfigTest {
     }
 
     @Test
-    public void readFromFile_withTuningConfigs()
-        throws IOException, BsonParseException {
+    public void readFromFile_withTuningConfigs() throws IOException, BsonParseException {
       Path configPath =
           Path.of("src/test/unit/resources/config/provider/community/communityConfigTuning.yaml");
       CommunityConfig result = CommunityConfig.readFromFile(configPath).config();
@@ -894,8 +904,7 @@ public class CommunityConfigTest {
                   new ObjectId("507f1f77bcf86cd799439011"),
                   new ObjectId("507f1f77bcf86cd799439012"))),
           mongodb.pauseInitialSyncOnIndexIds());
-      assertEquals(
-          Optional.of(List.of("lsid", "txnNumber")), mongodb.excludedChangestreamFields());
+      assertEquals(Optional.of(List.of("lsid", "txnNumber")), mongodb.excludedChangestreamFields());
 
       var matView = advanced.autoEmbeddingConfig().get().materializedViewConfig().get();
       assertEquals(Optional.of(10), matView.numConcurrentChangeStreams());
@@ -952,8 +961,7 @@ public class CommunityConfigTest {
       assertEquals(
           Optional.of(500), advanced.indexingConfig().get().luceneConfig().get().fieldLimit());
       assertEquals(
-          Optional.of(1024),
-          advanced.queryingConfig().get().luceneConfig().get().maxClauseLimit());
+          Optional.of(1024), advanced.queryingConfig().get().luceneConfig().get().maxClauseLimit());
     }
 
     @Test

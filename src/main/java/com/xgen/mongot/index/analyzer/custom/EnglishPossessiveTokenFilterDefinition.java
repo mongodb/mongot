@@ -4,7 +4,7 @@ import com.xgen.mongot.index.analyzer.attributes.TokenStreamTransformationStage;
 import java.util.Objects;
 import org.bson.BsonDocument;
 
-public class EnglishPossessiveTokenFilterDefinition  extends TokenFilterDefinition
+public class EnglishPossessiveTokenFilterDefinition extends TokenFilterDefinition
     implements TokenStreamTransformationStage.OutputsSameTypeAsInput {
 
   @Override

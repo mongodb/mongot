@@ -14,17 +14,14 @@ import org.apache.lucene.index.SortedSetDocValues;
 /**
  * TermsAccumulator when it comes to the intermediate level.
  *
- * <p>
- *   It maps a pair of parent owning bucket ordinal and global ordinal to the child owning bucket
- *   ordinal.
- * </p>
+ * <p>It maps a pair of parent owning bucket ordinal and global ordinal to the child owning bucket
+ * ordinal.
  */
 public final class RemapTermsAccumulator extends TermsAccumulator {
   // Maps (parentOwningBucketOrd << 32 | globalOrd) to the child owning bucket ordinal.
   // Note that bucket ord is bounded by Integer.MAX_VALUE.
   private final LongLongHashMap bucketOrds = new LongLongHashMap();
-  @Var
-  private long nextBucketOrd = 0;
+  @Var private long nextBucketOrd = 0;
 
   public RemapTermsAccumulator(
       TermsGroupAggregationSpec spec,
@@ -36,8 +33,9 @@ public final class RemapTermsAccumulator extends TermsAccumulator {
   }
 
   @Override
-  protected void collectGlobalOrd(long owningBucketOrd, int doc, long globalOrd,
-      LeafBucketCollector children) throws IOException {
+  protected void collectGlobalOrd(
+      long owningBucketOrd, int doc, long globalOrd, LeafBucketCollector children)
+      throws IOException {
     long key = encode(owningBucketOrd, globalOrd);
     int slot = this.bucketOrds.indexOf(key);
     long bucketOrd;

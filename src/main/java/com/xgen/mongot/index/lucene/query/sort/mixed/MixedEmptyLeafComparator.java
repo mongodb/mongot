@@ -6,13 +6,13 @@ import org.apache.lucene.search.DocIdSetIterator;
 import org.bson.BsonValue;
 
 /**
- *  This comparator compares all documents as equal, which is not the same as DOC_ID sort in the
- *  case of a compound sort spec. This comparator is used to sort on a field which does not exist
- *  within a segment.
+ * This comparator compares all documents as equal, which is not the same as DOC_ID sort in the case
+ * of a compound sort spec. This comparator is used to sort on a field which does not exist within a
+ * segment.
  */
 @Immutable
 class MixedEmptyLeafComparator implements MixedLeafFieldComparator {
-  
+
   private final NullEmptySortPosition nullPosition;
 
   MixedEmptyLeafComparator(NullEmptySortPosition nullPosition) {

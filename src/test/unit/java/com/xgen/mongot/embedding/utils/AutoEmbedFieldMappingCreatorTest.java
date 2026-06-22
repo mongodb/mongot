@@ -394,8 +394,7 @@ public class AutoEmbedFieldMappingCreatorTest {
     Assert.assertEquals(
         nestedRoot,
         AutoEmbedFieldMappingCreator.getMatViewNestedRoot(
-            nestedRoot,
-            Map.of(FieldPath.parse("title"), FieldPath.parse("_autoEmbed.title"))));
+            nestedRoot, Map.of(FieldPath.parse("title"), FieldPath.parse("_autoEmbed.title"))));
   }
 
   @Test

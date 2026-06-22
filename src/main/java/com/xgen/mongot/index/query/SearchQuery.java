@@ -84,9 +84,7 @@ public sealed interface SearchQuery extends Query permits CollectorQuery, Operat
   }
 
   private static SearchQuery fromBson(
-      DocumentParser parser,
-      QueryOptimizationFlags queryOptimizationFlags,
-      boolean allow10k)
+      DocumentParser parser, QueryOptimizationFlags queryOptimizationFlags, boolean allow10k)
       throws BsonParseException {
     var operator = Operator.atMostOneFromBson(parser);
     var collector = Collector.atMostOneFromBson(parser, allow10k);
@@ -169,9 +167,7 @@ public sealed interface SearchQuery extends Query permits CollectorQuery, Operat
   }
 
   static SearchQuery fromBson(
-      BsonDocument document,
-      QueryOptimizationFlags queryOptimizationFlags,
-      boolean allow10k)
+      BsonDocument document, QueryOptimizationFlags queryOptimizationFlags, boolean allow10k)
       throws BsonParseException {
     try (var guard = Tracing.simpleSpanGuard("Query.fromBson")) {
       try (var parser = BsonDocumentParser.fromRoot(document).build()) {

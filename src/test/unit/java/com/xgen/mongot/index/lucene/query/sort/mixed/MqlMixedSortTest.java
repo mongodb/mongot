@@ -353,9 +353,7 @@ public class MqlMixedSortTest {
         assertThat(reader.leaves()).hasSize(2);
 
         List<LeafReader> leafReaders =
-            reader.leaves().stream()
-                .map(ctx -> ctx.reader())
-                .collect(Collectors.toList());
+            reader.leaves().stream().map(ctx -> ctx.reader()).collect(Collectors.toList());
 
         IndexSorter.ComparableProvider[] providers =
             indexSorter.getComparableProviders(leafReaders);
@@ -444,9 +442,7 @@ public class MqlMixedSortTest {
 
       try (DirectoryReader reader = DirectoryReader.open(dir)) {
         List<LeafReader> leafReaders =
-            reader.leaves().stream()
-                .map(ctx -> ctx.reader())
-                .collect(Collectors.toList());
+            reader.leaves().stream().map(ctx -> ctx.reader()).collect(Collectors.toList());
 
         IndexSorter.ComparableProvider[] providers =
             indexSorter.getComparableProviders(leafReaders);
@@ -635,9 +631,7 @@ public class MqlMixedSortTest {
       try (DirectoryReader reader = DirectoryReader.open(dir)) {
         assertThat(reader.leaves()).hasSize(2);
         List<LeafReader> leafReaders =
-            reader.leaves().stream()
-                .map(ctx -> ctx.reader())
-                .collect(Collectors.toList());
+            reader.leaves().stream().map(ctx -> ctx.reader()).collect(Collectors.toList());
 
         IndexSorter.ComparableProvider[] providers =
             indexSorter.getComparableProviders(leafReaders);
@@ -658,8 +652,9 @@ public class MqlMixedSortTest {
         // BSON ascending order: numbers < strings < uuid < objectId < booleans < dates
         // Doc 0: double 1.5
         Document doc0 = new Document();
-        doc0.add(new SortedNumericDocValuesField(
-            doubleField, LuceneDoubleConversionUtils.toMqlSortableLong(1.5)));
+        doc0.add(
+            new SortedNumericDocValuesField(
+                doubleField, LuceneDoubleConversionUtils.toMqlSortableLong(1.5)));
         writer.addDocument(doc0);
 
         // Doc 1: date 100000
@@ -669,8 +664,9 @@ public class MqlMixedSortTest {
 
         // Doc 2: boolean false
         Document doc2 = new Document();
-        doc2.add(new SortedSetDocValuesField(
-            booleanField, new BytesRef(FieldValue.BOOLEAN_FALSE_FIELD_VALUE)));
+        doc2.add(
+            new SortedSetDocValuesField(
+                booleanField, new BytesRef(FieldValue.BOOLEAN_FALSE_FIELD_VALUE)));
         writer.addDocument(doc2);
 
         // Doc 3: null

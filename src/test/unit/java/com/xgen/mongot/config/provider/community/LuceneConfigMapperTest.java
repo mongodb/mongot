@@ -56,8 +56,7 @@ public class LuceneConfigMapperTest {
   public void toLuceneConfig_honorsConfiguredValues() throws Exception {
     CommunityConfig config = CommunityConfig.readFromFile(TUNING_CONFIG).config();
 
-    LuceneConfig lc =
-        LuceneConfigMapper.toLuceneConfig(config, RUNTIME, Optional.empty());
+    LuceneConfig lc = LuceneConfigMapper.toLuceneConfig(config, RUNTIME, Optional.empty());
 
     assertEquals(Duration.ofMillis(2000), lc.refreshInterval());
     assertEquals(6, lc.numMaxMergeThreads());

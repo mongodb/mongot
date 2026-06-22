@@ -46,9 +46,11 @@ public class BulkheadCommandExecutorTest {
         ExecutionException.class,
         () ->
             this.executor
-                .execute(syncCommand(() -> {
-                  throw new UncheckedIOException(new IOException());
-                }))
+                .execute(
+                    syncCommand(
+                        () -> {
+                          throw new UncheckedIOException(new IOException());
+                        }))
                 .get());
   }
 
@@ -71,9 +73,11 @@ public class BulkheadCommandExecutorTest {
         ExecutionException.class,
         () ->
             this.executor
-                .execute(asyncCommand(() -> {
-                  throw new UncheckedIOException(new IOException());
-                }))
+                .execute(
+                    asyncCommand(
+                        () -> {
+                          throw new UncheckedIOException(new IOException());
+                        }))
                 .get());
   }
 
@@ -96,7 +100,9 @@ public class BulkheadCommandExecutorTest {
 
     try (BulkheadCommandExecutor exec = new BulkheadCommandExecutor(meterRegistry, settings)) {
       Counter rejectedCounter =
-          meterRegistry.find("loadShedding.rejected").tag("executor", "blocking-server-worker")
+          meterRegistry
+              .find("loadShedding.rejected")
+              .tag("executor", "blocking-server-worker")
               .counter();
 
       assertThat(rejectedCounter).isNotNull();
@@ -113,7 +119,8 @@ public class BulkheadCommandExecutorTest {
 
     try (BulkheadCommandExecutor exec = new BulkheadCommandExecutor(meterRegistry, settings)) {
       Counter wouldHaveRejectedCounter =
-          meterRegistry.find("loadShedding.wouldHaveRejected")
+          meterRegistry
+              .find("loadShedding.wouldHaveRejected")
               .tag("executor", "blocking-server-worker")
               .counter();
 
@@ -128,10 +135,13 @@ public class BulkheadCommandExecutorTest {
 
     try (BulkheadCommandExecutor exec = new BulkheadCommandExecutor(meterRegistry, settings)) {
       Counter rejectedCounter =
-          meterRegistry.find("loadShedding.rejected").tag("executor", "blocking-server-worker")
+          meterRegistry
+              .find("loadShedding.rejected")
+              .tag("executor", "blocking-server-worker")
               .counter();
       Counter wouldHaveRejectedCounter =
-          meterRegistry.find("loadShedding.wouldHaveRejected")
+          meterRegistry
+              .find("loadShedding.wouldHaveRejected")
               .tag("executor", "blocking-server-worker")
               .counter();
 
@@ -150,7 +160,8 @@ public class BulkheadCommandExecutorTest {
 
     try (BulkheadCommandExecutor exec = new BulkheadCommandExecutor(meterRegistry, settings)) {
       Counter wouldHaveRejectedCounter =
-          meterRegistry.find("loadShedding.wouldHaveRejected")
+          meterRegistry
+              .find("loadShedding.wouldHaveRejected")
               .tag("executor", "blocking-server-worker")
               .counter();
 
@@ -209,7 +220,9 @@ public class BulkheadCommandExecutorTest {
       }
 
       Counter rejectedCounter =
-          meterRegistry.find("loadShedding.rejected").tag("executor", "blocking-server-worker")
+          meterRegistry
+              .find("loadShedding.rejected")
+              .tag("executor", "blocking-server-worker")
               .counter();
 
       assertThat(rejectedCounter.count()).isEqualTo(1.0);
@@ -238,7 +251,8 @@ public class BulkheadCommandExecutorTest {
       exec.execute(simpleAsyncCommand()); // exceeds virtual capacity
 
       Counter wouldHaveRejectedCounter =
-          meterRegistry.find("loadShedding.wouldHaveRejected")
+          meterRegistry
+              .find("loadShedding.wouldHaveRejected")
               .tag("executor", "blocking-server-worker")
               .counter();
 
@@ -389,8 +403,7 @@ public class BulkheadCommandExecutorTest {
       exec.execute(simpleAsyncCommand()); // fills queue
 
       // Load-sheddable command would be rejected with LoadSheddingRejectedException
-      assertThrows(
-          LoadSheddingRejectedException.class, () -> exec.execute(simpleAsyncCommand()));
+      assertThrows(LoadSheddingRejectedException.class, () -> exec.execute(simpleAsyncCommand()));
 
       // Non-load-sheddable command should still succeed
       exec.execute(simpleNonLoadSheddableAsyncCommand()); // should NOT throw
@@ -499,8 +512,7 @@ public class BulkheadCommandExecutorTest {
       assertTrue(taskStartedLatch.await(5, TimeUnit.SECONDS));
       exec.execute(simpleAsyncCommand());
 
-      assertThrows(
-          LoadSheddingRejectedException.class, () -> exec.execute(simpleAsyncCommand()));
+      assertThrows(LoadSheddingRejectedException.class, () -> exec.execute(simpleAsyncCommand()));
 
       exec.execute(simpleNonLoadSheddableAsyncCommand());
 
@@ -570,8 +582,7 @@ public class BulkheadCommandExecutorTest {
       exec.execute(blockingCommand(blockingLatch, taskStartedLatch));
       assertTrue(taskStartedLatch.await(5, TimeUnit.SECONDS));
 
-      var future =
-          exec.execute(asyncCommand(() -> secondCommandRan.set(true)), cancelled::get);
+      var future = exec.execute(asyncCommand(() -> secondCommandRan.set(true)), cancelled::get);
 
       cancelled.set(true);
       blockingLatch.countDown();

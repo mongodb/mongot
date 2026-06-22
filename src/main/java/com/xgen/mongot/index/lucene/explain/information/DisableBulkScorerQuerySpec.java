@@ -30,8 +30,7 @@ public record DisableBulkScorerQuerySpec(QueryExplainInformation query)
       Equator<QueryExplainInformation> explainInfoEquator,
       Comparator<QueryExplainInformation> childSorter) {
     return other.getType() == getType()
-        && explainInfoEquator.equate(
-            this.query, ((DisableBulkScorerQuerySpec) other).query);
+        && explainInfoEquator.equate(this.query, ((DisableBulkScorerQuerySpec) other).query);
   }
 
   @Override

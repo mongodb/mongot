@@ -55,8 +55,7 @@ public class TlsConfigTest {
         new BsonDocument()
             .append("enabled", BsonBoolean.TRUE)
             .append("tlsCertificateKeyFile", new BsonString("/etc/tls/client.pem"))
-            .append(
-                "tlsCertificateKeyFilePasswordFile", new BsonString("/etc/tls/cert-pass"));
+            .append("tlsCertificateKeyFilePasswordFile", new BsonString("/etc/tls/cert-pass"));
 
     try (var parser = BsonDocumentParser.fromRoot(doc).build()) {
       TlsConfig parsed = TlsConfig.fromBson(parser);
@@ -64,8 +63,7 @@ public class TlsConfigTest {
       assertTrue(parsed.tlsCertificateKeyFile().isPresent());
       assertEquals(Path.of("/etc/tls/client.pem"), parsed.tlsCertificateKeyFile().get());
       assertTrue(parsed.tlsCertificateKeyFilePasswordFile().isPresent());
-      assertEquals(
-          Path.of("/etc/tls/cert-pass"), parsed.tlsCertificateKeyFilePasswordFile().get());
+      assertEquals(Path.of("/etc/tls/cert-pass"), parsed.tlsCertificateKeyFilePasswordFile().get());
     }
   }
 
@@ -75,8 +73,7 @@ public class TlsConfigTest {
         new BsonDocument()
             .append("enabled", BsonBoolean.TRUE)
             .append("tlsCertificateKeyFile", new BsonString("/etc/tls/client.pem"))
-            .append(
-                "tlsCertificateKeyFilePasswordFile", new BsonString("/etc/tls/cert-pass"));
+            .append("tlsCertificateKeyFilePasswordFile", new BsonString("/etc/tls/cert-pass"));
 
     try (var parser = BsonDocumentParser.fromRoot(doc).build()) {
       TlsConfig parsed = TlsConfig.fromBson(parser);
@@ -152,10 +149,7 @@ public class TlsConfigTest {
   public void validate_passwordFile_withoutCertKeyFile_throws() throws BsonParseException {
     TlsConfig tls =
         new TlsConfig(
-            true,
-            Optional.empty(),
-            Optional.of(Path.of("/etc/tls/cert-pass")),
-            Optional.empty());
+            true, Optional.empty(), Optional.of(Path.of("/etc/tls/cert-pass")), Optional.empty());
 
     try (var parser = BsonDocumentParser.fromRoot(new BsonDocument()).build()) {
       BsonParseException e = assertThrows(BsonParseException.class, () -> tls.validate(parser));

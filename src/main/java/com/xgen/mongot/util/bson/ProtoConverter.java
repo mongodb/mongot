@@ -61,9 +61,10 @@ public class ProtoConverter {
       case INT32 -> ProtoValue.newBuilder().setInt32(value.asInt32().getValue()).build();
       case INT64 -> ProtoValue.newBuilder().setInt64(value.asInt64().getValue()).build();
       case DOUBLE -> ProtoValue.newBuilder().setDouble(value.asDouble().getValue()).build();
-      case OBJECT_ID -> ProtoValue.newBuilder()
-          .setObjectId(ByteString.copyFrom(value.asObjectId().getValue().toByteArray()))
-          .build();
+      case OBJECT_ID ->
+          ProtoValue.newBuilder()
+              .setObjectId(ByteString.copyFrom(value.asObjectId().getValue().toByteArray()))
+              .build();
       case STRING -> ProtoValue.newBuilder().setString(value.asString().getValue()).build();
       case BOOLEAN -> ProtoValue.newBuilder().setBool(value.asBoolean().getValue()).build();
       case NULL -> ProtoValue.newBuilder().setValueless(ProtoValueless.NULL).build();
@@ -161,13 +162,15 @@ public class ProtoConverter {
         case STRING -> new BsonString(v.getString());
         case OBJECT_ID -> new BsonObjectId(convertObjectId(v.getObjectId()));
         case BOOL -> new BsonBoolean(v.getBool());
-        case VALUELESS -> switch (v.getValueless()) {
-          case NULL -> BsonNull.VALUE;
-          case MIN_KEY -> BsonUtils.MIN_KEY;
-          case MAX_KEY -> BsonUtils.MAX_KEY;
-          case UNDEFINED -> new BsonUndefined();
-          case UNRECOGNIZED -> throw new TypeConversionException("Unrecognized Valueless entry");
-        };
+        case VALUELESS ->
+            switch (v.getValueless()) {
+              case NULL -> BsonNull.VALUE;
+              case MIN_KEY -> BsonUtils.MIN_KEY;
+              case MAX_KEY -> BsonUtils.MAX_KEY;
+              case UNDEFINED -> new BsonUndefined();
+              case UNRECOGNIZED ->
+                  throw new TypeConversionException("Unrecognized Valueless entry");
+            };
         case BINARY -> {
           if (v.getBinary().getSubTypeValue() > Byte.MAX_VALUE) {
             throw new TypeConversionException(
@@ -184,8 +187,9 @@ public class ProtoConverter {
           }
           yield result;
         }
-        case REGULAR_EXPRESSION -> new BsonRegularExpression(
-            v.getRegularExpression().getPattern(), v.getRegularExpression().getOptions());
+        case REGULAR_EXPRESSION ->
+            new BsonRegularExpression(
+                v.getRegularExpression().getPattern(), v.getRegularExpression().getOptions());
         case JAVA_SCRIPT -> new BsonJavaScript(v.getJavaScript());
         case DECIMAL128 -> {
           ByteBuffer bytes =
@@ -198,12 +202,15 @@ public class ProtoConverter {
           Decimal128 value = Decimal128.fromIEEE754BIDEncoding(high, low);
           yield new BsonDecimal128(value);
         }
-        case DB_POINTER -> new BsonDbPointer(
-            v.getDbPointer().getNamespace(),
-            convertObjectId(v.getDbPointer().getObjectId().getRep()));
+        case DB_POINTER ->
+            new BsonDbPointer(
+                v.getDbPointer().getNamespace(),
+                convertObjectId(v.getDbPointer().getObjectId().getRep()));
         case SYMBOL -> new BsonSymbol(v.getSymbol());
-        case JAVA_SCRIPT_WITH_SCOPE -> new BsonJavaScriptWithScope(
-            v.getJavaScriptWithScope().getCode(), convert(v.getJavaScriptWithScope().getScope()));
+        case JAVA_SCRIPT_WITH_SCOPE ->
+            new BsonJavaScriptWithScope(
+                v.getJavaScriptWithScope().getCode(),
+                convert(v.getJavaScriptWithScope().getScope()));
         case TYPE_NOT_SET -> throw new TypeConversionException("ProtoValue had no type set");
       };
     } catch (RuntimeException e) {

@@ -19,8 +19,8 @@ import org.slf4j.LoggerFactory;
  * {@link MergePolicy.MergeAbortedException}, causing the merge to terminate immediately rather than
  * waiting for the next checkpoint.
  *
- * <p>This is particularly important for long-running operations like HNSW graph building, which
- * may not have frequent checkpoints and could otherwise take hours to abort.
+ * <p>This is particularly important for long-running operations like HNSW graph building, which may
+ * not have frequent checkpoints and could otherwise take hours to abort.
  *
  * <p><b>Design:</b>
  *
@@ -107,8 +107,8 @@ public class AbortableDirectory extends FilterDirectory {
    * An IndexOutput wrapper that periodically checks if the merge has been aborted.
    *
    * <p>This wrapper tracks the number of bytes written and checks {@link
-   * MergePolicy.OneMerge#isAborted()} every {@link #CHECK_ABORT_INTERVAL_BYTES} bytes. If the
-   * merge is aborted, it throws an IOException with a clear message.
+   * MergePolicy.OneMerge#isAborted()} every {@link #CHECK_ABORT_INTERVAL_BYTES} bytes. If the merge
+   * is aborted, it throws an IOException with a clear message.
    */
   static class AbortableIndexOutput extends IndexOutput {
     private final IndexOutput delegate;
@@ -333,4 +333,3 @@ public class AbortableDirectory extends FilterDirectory {
     }
   }
 }
-

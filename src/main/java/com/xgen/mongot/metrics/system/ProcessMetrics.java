@@ -42,9 +42,7 @@ public class ProcessMetrics {
           .baseUnit(BaseUnits.OBJECTS)
           .register(meterRegistry);
     } else {
-      LOG.warn(
-          "Cannot report open file descriptors",
-          openFiles);
+      LOG.warn("Cannot report open file descriptors", openFiles);
     }
     return new ProcessMetrics(self);
   }

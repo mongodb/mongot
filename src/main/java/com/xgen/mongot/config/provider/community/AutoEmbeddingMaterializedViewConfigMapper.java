@@ -14,19 +14,17 @@ public final class AutoEmbeddingMaterializedViewConfigMapper {
   private AutoEmbeddingMaterializedViewConfigMapper() {}
 
   /**
-   * Builds an {@link AutoEmbeddingMaterializedViewConfig} from the parsed {@code
-   * autoEmbedding} block.
+   * Builds an {@link AutoEmbeddingMaterializedViewConfig} from the parsed {@code autoEmbedding}
+   * block.
    *
    * @param globalReplicationConfig global replication settings
    * @param config the community config
    */
   public static AutoEmbeddingMaterializedViewConfig toAutoEmbeddingMaterializedViewConfig(
-      GlobalReplicationConfig globalReplicationConfig,
-      CommunityConfig config) {
+      GlobalReplicationConfig globalReplicationConfig, CommunityConfig config) {
     Optional<CommunityAutoEmbeddingConfig> autoEmbeddingConfig =
         config.advancedConfigs().flatMap(AdvancedConfigs::autoEmbeddingConfig);
-    var matView =
-        autoEmbeddingConfig.flatMap(CommunityAutoEmbeddingConfig::materializedViewConfig);
+    var matView = autoEmbeddingConfig.flatMap(CommunityAutoEmbeddingConfig::materializedViewConfig);
     var allNumConcurrentInitialSyncs =
         config
             .advancedConfigs()
@@ -36,8 +34,9 @@ public final class AutoEmbeddingMaterializedViewConfigMapper {
     var maxConcurrentEmbeddingInitialSyncs =
         matView
             .flatMap(MaterializedViewConfig::numConcurrentInitialSyncs)
-            .or(() -> allNumConcurrentInitialSyncs
-                .map(allInitSync -> Math.max(1, allInitSync / 2)));
+            .or(
+                () ->
+                    allNumConcurrentInitialSyncs.map(allInitSync -> Math.max(1, allInitSync / 2)));
 
     return AutoEmbeddingMaterializedViewConfig.create(
         globalReplicationConfig,

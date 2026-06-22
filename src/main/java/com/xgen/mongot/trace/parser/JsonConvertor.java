@@ -25,17 +25,16 @@ public class JsonConvertor {
   private static final int OTLP_JSON_INDEX_OFFSET = 74;
 
   /**
-   * The main method converts the OTLP JSON input file to Jaeger JSON format manually.
-   * Reads the input log file provided in the command line arguments and parses the file after
-   * fetching the OTLP traces from it. Uses the one-to-one conversion rules mentioned
-   * <a href="https://opentelemetry.io/docs/specs/otel/trace/sdk_exporters/jaeger/">here</a>.
-   * The resulting Jaeger JSON files that are separated and grouped by the traceId are written to
-   * the output folder. These JSON files can be uploaded to the local running instance of
-   * Jaeger UI to visualize the traces.
+   * The main method converts the OTLP JSON input file to Jaeger JSON format manually. Reads the
+   * input log file provided in the command line arguments and parses the file after fetching the
+   * OTLP traces from it. Uses the one-to-one conversion rules mentioned <a
+   * href="https://opentelemetry.io/docs/specs/otel/trace/sdk_exporters/jaeger/">here</a>. The
+   * resulting Jaeger JSON files that are separated and grouped by the traceId are written to the
+   * output folder. These JSON files can be uploaded to the local running instance of Jaeger UI to
+   * visualize the traces.
    *
    * @param args args[0] will be the input file path, and args[1] will be the root directory path
-   * @throws Exception if input file path argument is not provided, or the input file
-   *                   cannot be read
+   * @throws Exception if input file path argument is not provided, or the input file cannot be read
    */
   public static void main(String[] args) throws Exception {
     if (args.length < 2) {
@@ -47,10 +46,8 @@ public class JsonConvertor {
     // write the data objects to files named [traceId].json
     for (String fileTraceId : dataObjects.keySet()) {
       if (!args[1].equals("test")) {
-        try (FileWriter outputFile = new FileWriter(Paths.get(args[1])
-            + "/"
-            + fileTraceId
-            + ".json")) {
+        try (FileWriter outputFile =
+            new FileWriter(Paths.get(args[1]) + "/" + fileTraceId + ".json")) {
           outputFile.write(dataObjects.get(fileTraceId).toJSONString());
         }
       }
@@ -73,7 +70,8 @@ public class JsonConvertor {
   }
 
   private static JaegerSpan generateJaegerSpan(
-      JSONObject span, String parentSpanId,
+      JSONObject span,
+      String parentSpanId,
       List<Reference> references,
       ImmutableList<Tag> spanTags,
       String pid) {
@@ -83,19 +81,24 @@ public class JsonConvertor {
     long startTime = Long.parseLong(span.get("startTimeUnixNano").toString());
     long duration = Long.parseLong(span.get("endTimeUnixNano").toString()) - startTime;
     // start and end times are converted from nanoseconds to microseconds
-    return new JaegerSpan(traceId, spanId, operationName, parentSpanId, references,
-        startTime / 1000, duration / 1000, spanTags, pid);
+    return new JaegerSpan(
+        traceId,
+        spanId,
+        operationName,
+        parentSpanId,
+        references,
+        startTime / 1000,
+        duration / 1000,
+        spanTags,
+        pid);
   }
 
   private static JSONObject createDataObject(
-      String traceId,
-      ArrayList<JaegerSpan> jaegerSpans,
-      JSONObject processes) throws IOException, ParseException {
+      String traceId, ArrayList<JaegerSpan> jaegerSpans, JSONObject processes)
+      throws IOException, ParseException {
     ObjectMapper mapper = new ObjectMapper();
     Data jaegerOutput = new Data(traceId, jaegerSpans, processes);
-    String jsonString = mapper
-        .writerWithDefaultPrettyPrinter()
-        .writeValueAsString(jaegerOutput);
+    String jsonString = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(jaegerOutput);
     JSONObject dataWrapper = new JSONObject();
     ArrayList<JSONObject> jaegerOutputs = new ArrayList<>();
     jaegerOutputs.add((JSONObject) parser.parse(jsonString));
@@ -104,8 +107,8 @@ public class JsonConvertor {
     return dataWrapper;
   }
 
-  public static Map<String, JSONObject> convert(String inputFilePath,
-      String outputFilePath) throws Exception {
+  public static Map<String, JSONObject> convert(String inputFilePath, String outputFilePath)
+      throws Exception {
     File inputFile = Paths.get(inputFilePath).toFile();
     @Var String otlpJsonStr = "";
     if (inputFile.exists()) {
@@ -115,9 +118,9 @@ public class JsonConvertor {
       } else {
         for (String line : allLines) {
           if (line.contains("[BatchSpanProcessor_WorkerThread-1]")) {
-            otlpJsonStr = line.substring(
-                line.indexOf(
-                    "[BatchSpanProcessor_WorkerThread-1]") + OTLP_JSON_INDEX_OFFSET);
+            otlpJsonStr =
+                line.substring(
+                    line.indexOf("[BatchSpanProcessor_WorkerThread-1]") + OTLP_JSON_INDEX_OFFSET);
             break;
           }
         }
@@ -141,17 +144,15 @@ public class JsonConvertor {
 
     // get "process.pid" and "service.name" from resource attributes
     PidAndServiceName pidAndServiceName = getPidAndServiceName(resourceAttributes);
-    String pid = pidAndServiceName.getPid() == null
-        ? "" : pidAndServiceName.getPid();
-    String serviceName = pidAndServiceName.getServiceName() == null
-        ? "" : pidAndServiceName.getServiceName();
+    String pid = pidAndServiceName.getPid() == null ? "" : pidAndServiceName.getPid();
+    String serviceName =
+        pidAndServiceName.getServiceName() == null ? "" : pidAndServiceName.getServiceName();
 
     for (Object spanObject : spans) {
       JSONObject span = (JSONObject) spanObject;
       String traceId = span.get("traceId").toString();
       Object parentSpanIdObject = span.get("parentSpanId");
-      String parentSpanId = parentSpanIdObject == null
-          ? "" : parentSpanIdObject.toString();
+      String parentSpanId = parentSpanIdObject == null ? "" : parentSpanIdObject.toString();
 
       // generate references from the parent span ID
       ArrayList<Reference> references = new ArrayList<>();
@@ -181,8 +182,8 @@ public class JsonConvertor {
 
     // generate data object with spans and processes
     for (Map.Entry<String, ArrayList<JaegerSpan>> entry : allJaegerSpans.entrySet()) {
-      allDataObjects.put(entry.getKey(), createDataObject(entry.getKey(), entry.getValue(),
-          processes));
+      allDataObjects.put(
+          entry.getKey(), createDataObject(entry.getKey(), entry.getValue(), processes));
     }
     return allDataObjects;
   }

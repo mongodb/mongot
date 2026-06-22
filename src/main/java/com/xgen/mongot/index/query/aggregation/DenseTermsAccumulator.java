@@ -10,9 +10,7 @@ import org.apache.lucene.index.SortedSetDocValues;
 /**
  * TermsAccumulator when it comes to the root level.
  *
- * <p>
- *   This is an optimization by saving the cost remapping parent ordinals to children ordinals.
- * </p>
+ * <p>This is an optimization by saving the cost remapping parent ordinals to children ordinals.
  */
 final class DenseTermsAccumulator extends TermsAccumulator {
 
@@ -26,8 +24,9 @@ final class DenseTermsAccumulator extends TermsAccumulator {
   }
 
   @Override
-  protected void collectGlobalOrd(long owningBucketOrd, int doc, long globalOrd,
-      LeafBucketCollector children) throws IOException {
+  protected void collectGlobalOrd(
+      long owningBucketOrd, int doc, long globalOrd, LeafBucketCollector children)
+      throws IOException {
     // Top level only so only expect single parent bucket.
     assert owningBucketOrd == 0;
     // use globalOrd as it is for child owning bucket; doc count tracked per global ord.

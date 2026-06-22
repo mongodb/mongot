@@ -8,7 +8,7 @@ public interface Gate {
    * Whether the gate is open or not.
    *
    * @return true if the gate is open
-  */
+   */
   boolean isOpen();
 
   /**
@@ -24,7 +24,7 @@ public interface Gate {
    * Blocks until the gate is open. This returns immediately if the gate is already open.
    *
    * @throws InterruptedException if the thread was interrupted before the gate opens.
-  */
+   */
   void awaitOpen() throws InterruptedException;
 
   /**

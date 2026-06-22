@@ -1096,9 +1096,7 @@ public class MultiLuceneSearchIndexReaderTest {
 
     // Verify all document IDs are present (0 through numDocs-1)
     Set<Integer> returnedIds =
-        results.stream()
-            .map(doc -> doc.getInt32("_id").getValue())
-            .collect(Collectors.toSet());
+        results.stream().map(doc -> doc.getInt32("_id").getValue()).collect(Collectors.toSet());
     for (int i = 0; i < numDocs; i++) {
       assertTrue("Result should contain document with _id " + i, returnedIds.contains(i));
     }
@@ -1275,9 +1273,7 @@ public class MultiLuceneSearchIndexReaderTest {
     index.getWriter().updateIndex(docEvent);
   }
 
-  /**
-   * Helper method to execute a query with a specific query definition and return all results.
-   */
+  /** Helper method to execute a query with a specific query definition and return all results. */
   private List<BsonDocument> queryWithDefinition(
       InitializedSearchIndex index, OperatorQuery queryDefinition)
       throws IOException, InvalidQueryException, InterruptedException, ReaderClosedException {
@@ -1313,7 +1309,7 @@ public class MultiLuceneSearchIndexReaderTest {
     INTERMEDIATE,
     NON_INTERMEDIATE,
   }
-  
+
   @Test
   public void testConcurrentFacetQueryUsesExecutor() throws Exception {
     // Add some documents with facet values to ensure there are results
@@ -1429,8 +1425,7 @@ public class MultiLuceneSearchIndexReaderTest {
 
     // Both should return the same count
     assertEquals(
-        concurrentResults.count().getTotalOrLower(),
-        sequentialResults.count().getTotalOrLower());
+        concurrentResults.count().getTotalOrLower(), sequentialResults.count().getTotalOrLower());
     assertEquals(1000L, concurrentResults.count().getTotalOrLower().longValue());
 
     // Both should return the same facet buckets
@@ -1554,8 +1549,7 @@ public class MultiLuceneSearchIndexReaderTest {
     Mockito.when(mockReader1.query(any(), any(), any(), any())).thenThrow(originalException);
     // Second reader would succeed but exception should propagate first
     Mockito.when(mockReader2.query(any(), any(), any(), any()))
-        .thenReturn(
-            new SearchProducerAndMetaResults(mock(BatchProducer.class), MetaResults.EMPTY));
+        .thenReturn(new SearchProducerAndMetaResults(mock(BatchProducer.class), MetaResults.EMPTY));
 
     MultiLuceneSearchIndexReader multiReader =
         new MultiLuceneSearchIndexReader(
@@ -1591,8 +1585,7 @@ public class MultiLuceneSearchIndexReaderTest {
 
     Mockito.when(mockReader1.query(any(), any(), any(), any())).thenThrow(originalException);
     Mockito.when(mockReader2.query(any(), any(), any(), any()))
-        .thenReturn(
-            new SearchProducerAndMetaResults(mock(BatchProducer.class), MetaResults.EMPTY));
+        .thenReturn(new SearchProducerAndMetaResults(mock(BatchProducer.class), MetaResults.EMPTY));
 
     MultiLuceneSearchIndexReader multiReader =
         new MultiLuceneSearchIndexReader(
@@ -1628,8 +1621,7 @@ public class MultiLuceneSearchIndexReaderTest {
 
     Mockito.when(mockReader1.query(any(), any(), any(), any())).thenThrow(originalException);
     Mockito.when(mockReader2.query(any(), any(), any(), any()))
-        .thenReturn(
-            new SearchProducerAndMetaResults(mock(BatchProducer.class), MetaResults.EMPTY));
+        .thenReturn(new SearchProducerAndMetaResults(mock(BatchProducer.class), MetaResults.EMPTY));
 
     MultiLuceneSearchIndexReader multiReader =
         new MultiLuceneSearchIndexReader(
@@ -1737,8 +1729,7 @@ public class MultiLuceneSearchIndexReaderTest {
 
     Mockito.when(mockReader1.query(any(), any(), any(), any())).thenThrow(originalException);
     Mockito.when(mockReader2.query(any(), any(), any(), any()))
-        .thenReturn(
-            new SearchProducerAndMetaResults(mock(BatchProducer.class), MetaResults.EMPTY));
+        .thenReturn(new SearchProducerAndMetaResults(mock(BatchProducer.class), MetaResults.EMPTY));
 
     // Pass Optional.empty() for executor to get sequential processing
     MultiLuceneSearchIndexReader multiReader =
@@ -1773,8 +1764,7 @@ public class MultiLuceneSearchIndexReaderTest {
 
     Mockito.when(mockReader1.query(any(), any(), any(), any())).thenThrow(originalException);
     Mockito.when(mockReader2.query(any(), any(), any(), any()))
-        .thenReturn(
-            new SearchProducerAndMetaResults(mock(BatchProducer.class), MetaResults.EMPTY));
+        .thenReturn(new SearchProducerAndMetaResults(mock(BatchProducer.class), MetaResults.EMPTY));
 
     MultiLuceneSearchIndexReader multiReader =
         new MultiLuceneSearchIndexReader(
@@ -1808,8 +1798,7 @@ public class MultiLuceneSearchIndexReaderTest {
 
     Mockito.when(mockReader1.query(any(), any(), any(), any())).thenThrow(originalException);
     Mockito.when(mockReader2.query(any(), any(), any(), any()))
-        .thenReturn(
-            new SearchProducerAndMetaResults(mock(BatchProducer.class), MetaResults.EMPTY));
+        .thenReturn(new SearchProducerAndMetaResults(mock(BatchProducer.class), MetaResults.EMPTY));
 
     MultiLuceneSearchIndexReader multiReader =
         new MultiLuceneSearchIndexReader(
@@ -1844,8 +1833,7 @@ public class MultiLuceneSearchIndexReaderTest {
 
     Mockito.when(mockReader1.query(any(), any(), any(), any())).thenThrow(originalException);
     Mockito.when(mockReader2.query(any(), any(), any(), any()))
-        .thenReturn(
-            new SearchProducerAndMetaResults(mock(BatchProducer.class), MetaResults.EMPTY));
+        .thenReturn(new SearchProducerAndMetaResults(mock(BatchProducer.class), MetaResults.EMPTY));
 
     MultiLuceneSearchIndexReader multiReader =
         new MultiLuceneSearchIndexReader(
@@ -1866,5 +1854,4 @@ public class MultiLuceneSearchIndexReaderTest {
 
     Assert.assertSame(originalException, thrown);
   }
-
 }

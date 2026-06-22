@@ -237,8 +237,8 @@ public class MetricsFactory {
    * Export distribution summary under name: counter, max, sum, and percentiles 50, 75, 90, and 99.
    *
    * <p>These percentiles computed cannot be aggregated to produce fleet-wide percentiles in
-   * Prometheus. If you need fleet-wide aggregation of percentiles across all instances, use
-   * {@link #histogram(String, double...)} with explicit buckets instead.
+   * Prometheus. If you need fleet-wide aggregation of percentiles across all instances, use {@link
+   * #histogram(String, double...)} with explicit buckets instead.
    *
    * @param name name of the variable to export
    * @return a {@link DistributionSummary} that can be used to record samples.
@@ -251,8 +251,8 @@ public class MetricsFactory {
    * Export distribution summary under name: counter, max, sum, and the specified percentiles
    *
    * <p>These percentiles computed cannot be aggregated to produce fleet-wide percentiles in
-   * Prometheus. If you need fleet-wide aggregation of percentiles across all instances, use
-   * {@link #histogram(String, double...)} with explicit buckets instead.
+   * Prometheus. If you need fleet-wide aggregation of percentiles across all instances, use {@link
+   * #histogram(String, double...)} with explicit buckets instead.
    *
    * @param name name of the variable to export
    * @param percentiles a list of percentile values to export.
@@ -266,8 +266,8 @@ public class MetricsFactory {
    * Export distribution summary under name: counter, max, sum, and the specified percentiles.
    *
    * <p>These percentiles computed cannot be aggregated to produce fleet-wide percentiles in
-   * Prometheus. If you need fleet-wide aggregation of percentiles across all instances, use
-   * {@link #histogram(String, double...)} with explicit buckets instead.
+   * Prometheus. If you need fleet-wide aggregation of percentiles across all instances, use {@link
+   * #histogram(String, double...)} with explicit buckets instead.
    *
    * @param name name of the variable to export
    * @param meterTags additional tags to add to the exported histogram variables.
@@ -287,8 +287,8 @@ public class MetricsFactory {
   /**
    * Export distribution summary with histogram buckets defined by {@code buckets}.
    *
-   * <p>The exported summary supports PromQL queries such as {@code histogram_quantile()} to
-   * compute accurate percentiles aggregated across all instances.
+   * <p>The exported summary supports PromQL queries such as {@code histogram_quantile()} to compute
+   * accurate percentiles aggregated across all instances.
    *
    * @param name name of the variable to export
    * @param buckets upper-bound cutoffs for histogram buckets (strictly increasing, non-empty).
@@ -302,8 +302,8 @@ public class MetricsFactory {
   /**
    * Export distribution summary with histogram buckets defined by {@code buckets}.
    *
-   * <p>The exported summary supports PromQL queries such as {@code histogram_quantile()} to
-   * compute accurate percentiles aggregated across all instances.
+   * <p>The exported summary supports PromQL queries such as {@code histogram_quantile()} to compute
+   * accurate percentiles aggregated across all instances.
    *
    * @param name name of the variable to export
    * @param meterTags additional tags to add to the exported histogram variables.
@@ -414,8 +414,8 @@ public class MetricsFactory {
             Collectors.toMap(
                 type -> type,
                 type -> counter(Enums.convertNameTo(CaseFormat.LOWER_CAMEL, type)),
-                (oldCounter, newCounter) -> Check.unreachable(
-                    "Duplicate enum key should not occur"),
+                (oldCounter, newCounter) ->
+                    Check.unreachable("Duplicate enum key should not occur"),
                 () -> new EnumMap<>(enumClass)));
   }
 }

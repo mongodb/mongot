@@ -26,25 +26,25 @@ public class IndexSortValidator {
   }
 
   static void validateNoScoreFields(Sort sort) throws BsonParseException {
-    Set<String> scoreFields = sort.getSortFields().stream()
-        .filter(f -> f.options() instanceof MetaSortOptions)
-        .map(f -> f.field().toString())
-        .collect(Collectors.toSet());
+    Set<String> scoreFields =
+        sort.getSortFields().stream()
+            .filter(f -> f.options() instanceof MetaSortOptions)
+            .map(f -> f.field().toString())
+            .collect(Collectors.toSet());
 
     if (!scoreFields.isEmpty()) {
       throw new BsonParseException(
-          String.format("Cannot sort on score for fields: %s", scoreFields),
-          Optional.empty());
+          String.format("Cannot sort on score for fields: %s", scoreFields), Optional.empty());
     }
   }
 
   static void validateSortFieldsStaticallyDefined(
-      Sort sort,
-      Trie<String, FieldDefinition> staticFields) throws BsonParseException {
-    Set<String> undefinedSortFields = sort.getSortFields().stream()
-        .map(f -> f.field().toString())
-        .filter(f -> !staticFields.containsKey(f))
-        .collect(Collectors.toSet());
+      Sort sort, Trie<String, FieldDefinition> staticFields) throws BsonParseException {
+    Set<String> undefinedSortFields =
+        sort.getSortFields().stream()
+            .map(f -> f.field().toString())
+            .filter(f -> !staticFields.containsKey(f))
+            .collect(Collectors.toSet());
 
     if (!undefinedSortFields.isEmpty()) {
       throw new BsonParseException(
@@ -54,23 +54,22 @@ public class IndexSortValidator {
   }
 
   /**
-   * String-ish types that are not sortable on their own but are acceptable alongside TOKEN.
-   * When TOKEN is present, STRING and AUTOCOMPLETE definitions are filtered out before validation.
+   * String-ish types that are not sortable on their own but are acceptable alongside TOKEN. When
+   * TOKEN is present, STRING and AUTOCOMPLETE definitions are filtered out before validation.
    */
   private static final ImmutableSet<FieldTypeDefinition.Type> STRING_ISH_NON_SORTABLE_TYPES =
       ImmutableSet.of(FieldTypeDefinition.Type.STRING, FieldTypeDefinition.Type.AUTOCOMPLETE);
 
   /**
    * Validates that all sort fields have at least one sortable type definition, and that every type
-   * definition (after string-ish deduplication) is in
-   * {@link FieldDefinition#INDEXING_SORTABLE_TYPES}.
+   * definition (after string-ish deduplication) is in {@link
+   * FieldDefinition#INDEXING_SORTABLE_TYPES}.
    *
    * <p>String-ish deduplication: if TOKEN is present, STRING and AUTOCOMPLETE definitions are
    * ignored because TOKEN subsumes them for sort purposes.
    */
-  static void validateSortFieldsAreSortable(
-      Sort sort,
-      Trie<String, FieldDefinition> staticFields) throws BsonParseException {
+  static void validateSortFieldsAreSortable(Sort sort, Trie<String, FieldDefinition> staticFields)
+      throws BsonParseException {
     // LinkedHashMap preserves insertion order for deterministic error messages.
     Map<String, List<FieldTypeDefinition.Type>> unsortableFields = new LinkedHashMap<>();
 
@@ -78,10 +77,12 @@ public class IndexSortValidator {
       FieldDefinition fieldDefinition =
           Check.isNotNull(staticFields.get(sortField.field().toString()), "fieldDefinition");
 
-      List<FieldTypeDefinition.Type> allTypes = fieldDefinition.getAllDefinitions()
-          .flatMap(Optional::stream)
-          .map(FieldTypeDefinition::getType)
-          .toList();
+      List<FieldTypeDefinition.Type> allTypes =
+          fieldDefinition
+              .getAllDefinitions()
+              .flatMap(Optional::stream)
+              .map(FieldTypeDefinition::getType)
+              .toList();
 
       List<FieldTypeDefinition.Type> effectiveTypes = filterStringishTypes(allTypes);
 
@@ -90,8 +91,8 @@ public class IndexSortValidator {
         continue;
       }
 
-      boolean allSortable = effectiveTypes.stream()
-          .allMatch(FieldDefinition.INDEXING_SORTABLE_TYPES::contains);
+      boolean allSortable =
+          effectiveTypes.stream().allMatch(FieldDefinition.INDEXING_SORTABLE_TYPES::contains);
       if (!allSortable) {
         unsortableFields.put(sortField.field().toString(), effectiveTypes);
       }
@@ -106,13 +107,10 @@ public class IndexSortValidator {
     }
   }
 
-  static List<FieldTypeDefinition.Type> filterStringishTypes(
-      List<FieldTypeDefinition.Type> types) {
+  static List<FieldTypeDefinition.Type> filterStringishTypes(List<FieldTypeDefinition.Type> types) {
     boolean hasToken = types.contains(FieldTypeDefinition.Type.TOKEN);
     if (hasToken) {
-      return types.stream()
-          .filter(t -> !STRING_ISH_NON_SORTABLE_TYPES.contains(t))
-          .toList();
+      return types.stream().filter(t -> !STRING_ISH_NON_SORTABLE_TYPES.contains(t)).toList();
     }
     return types;
   }
@@ -120,8 +118,8 @@ public class IndexSortValidator {
   public static void checkSortedIndexEnabled(
       SearchIndexDefinition index, FeatureFlags featureFlags) {
     if (index.getSort().isPresent() && !featureFlags.isEnabled(Feature.SORTED_INDEX)) {
-      throw new IllegalArgumentException("Sort configuration is not supported, "
-          + "Feature flag SORTED_INDEX is not enabled.");
+      throw new IllegalArgumentException(
+          "Sort configuration is not supported, " + "Feature flag SORTED_INDEX is not enabled.");
     }
   }
 
@@ -132,9 +130,8 @@ public class IndexSortValidator {
    * @param mappings the document field mappings
    * @throws BsonParseException if validation fails
    */
-  public static void validateSort(
-      Optional<Sort> optionalSort,
-      DocumentFieldDefinition mappings) throws BsonParseException {
+  public static void validateSort(Optional<Sort> optionalSort, DocumentFieldDefinition mappings)
+      throws BsonParseException {
     if (optionalSort.isEmpty()) {
       return;
     }
@@ -146,5 +143,4 @@ public class IndexSortValidator {
     validateSortFieldsStaticallyDefined(sort, staticFields);
     validateSortFieldsAreSortable(sort, staticFields);
   }
-
 }

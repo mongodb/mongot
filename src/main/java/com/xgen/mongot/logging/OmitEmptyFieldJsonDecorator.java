@@ -13,26 +13,24 @@ import net.logstash.logback.decorate.JsonGeneratorDecorator;
  */
 public final class OmitEmptyFieldJsonDecorator implements JsonGeneratorDecorator {
 
-  private static final TokenFilter NULL_EXCLUDING_FILTER = new TokenFilter() {
-    // Omit null.
-    @Override
-    public boolean includeNull() {
-      return false;
-    }
+  private static final TokenFilter NULL_EXCLUDING_FILTER =
+      new TokenFilter() {
+        // Omit null.
+        @Override
+        public boolean includeNull() {
+          return false;
+        }
 
-    // Omit empty strings.
-    @Override
-    public boolean includeString(String value) {
-      return value != null && !value.isEmpty();
-    }
-  };
+        // Omit empty strings.
+        @Override
+        public boolean includeString(String value) {
+          return value != null && !value.isEmpty();
+        }
+      };
 
   @Override
   public JsonGenerator decorate(JsonGenerator generator) {
     return new FilteringGeneratorDelegate(
-        generator,
-        NULL_EXCLUDING_FILTER,
-        Inclusion.INCLUDE_ALL_AND_PATH,
-        true);
+        generator, NULL_EXCLUDING_FILTER, Inclusion.INCLUDE_ALL_AND_PATH, true);
   }
 }

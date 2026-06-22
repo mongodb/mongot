@@ -34,8 +34,7 @@ public class CloseablePhantomCleanerTest {
   private static final Counter NO_OP =
       new Counter() {
         @Override
-        public void increment(double amount) {
-        }
+        public void increment(double amount) {}
 
         @Override
         public double count() {
@@ -298,7 +297,6 @@ public class CloseablePhantomCleanerTest {
                 super.decRef(reference);
                 releaseCounter.incrementAndGet();
               }
-
             };
         var metricsUpdater = SearchIndex.mockQueryMetricsUpdater(IndexDefinition.Type.SEARCH);
 
@@ -310,8 +308,8 @@ public class CloseablePhantomCleanerTest {
                 FeatureFlags.withDefaults().enable(Feature.PHANTOM_REFERENCE_CLEANUP).build());
 
         // create a weak ref to track when the searcher is GC'd
-        WeakReference<LuceneIndexSearcher> weakSearcher = new WeakReference<>(
-            searcherReference.getIndexSearcher());
+        WeakReference<LuceneIndexSearcher> weakSearcher =
+            new WeakReference<>(searcherReference.getIndexSearcher());
 
         // Null out current to mimic the index refresh behavior
         Field currentField = ReferenceManager.class.getDeclaredField("current");
@@ -324,10 +322,10 @@ public class CloseablePhantomCleanerTest {
             .atMost(Duration.ofSeconds(10))
             .withPollingInterval(Duration.ofMillis(100))
             .until(
-              () -> {
-                System.gc();
-                return weakSearcher.get() == null;
-              });
+                () -> {
+                  System.gc();
+                  return weakSearcher.get() == null;
+                });
 
         // Make sure the searcher is released
         assertThat(releaseCounter.get()).isEqualTo(1);

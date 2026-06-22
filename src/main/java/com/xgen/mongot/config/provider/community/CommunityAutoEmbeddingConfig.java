@@ -9,11 +9,11 @@ import java.util.Optional;
 import org.bson.BsonDocument;
 
 /**
- * The {@code autoEmbedding} block of the mongot config file. Tunes auto-embedding
- * materialized views.
+ * The {@code autoEmbedding} block of the mongot config file. Tunes auto-embedding materialized
+ * views.
  */
-public record CommunityAutoEmbeddingConfig(
-    Optional<MaterializedViewConfig> materializedViewConfig) implements DocumentEncodable {
+public record CommunityAutoEmbeddingConfig(Optional<MaterializedViewConfig> materializedViewConfig)
+    implements DocumentEncodable {
 
   static class Fields {
     public static final Field.Optional<MaterializedViewConfig> MATERIALIZED_VIEW_CONFIG =
@@ -156,8 +156,7 @@ public record CommunityAutoEmbeddingConfig(
               .noDefault();
     }
 
-    public static MaterializedViewConfig fromBson(DocumentParser parser)
-        throws BsonParseException {
+    public static MaterializedViewConfig fromBson(DocumentParser parser) throws BsonParseException {
       return new MaterializedViewConfig(
           parser.getField(Fields.NUM_CONCURRENT_CHANGE_STREAMS).unwrap(),
           parser.getField(Fields.NUM_INDEXING_THREADS).unwrap(),
@@ -182,9 +181,7 @@ public record CommunityAutoEmbeddingConfig(
           .field(Fields.NUM_CONCURRENT_CHANGE_STREAMS, this.numConcurrentChangeStreams)
           .field(Fields.NUM_INDEXING_THREADS, this.numIndexingThreads)
           .field(Fields.NUM_EMBEDDING_THREADS, this.numEmbeddingThreads)
-          .field(
-              Fields.NUM_CONCURRENT_INITIAL_SYNCS,
-              this.numConcurrentInitialSyncs)
+          .field(Fields.NUM_CONCURRENT_INITIAL_SYNCS, this.numConcurrentInitialSyncs)
           .field(Fields.MAT_VIEW_WRITER_MAX_CONNECTIONS, this.matViewWriterMaxConnections)
           .field(Fields.MAX_IN_FLIGHT_EMBEDDING_GET_MORES, this.maxInFlightEmbeddingGetMores)
           .field(Fields.EMBEDDING_GET_MORE_BATCH_SIZE, this.embeddingGetMoreBatchSize)
@@ -195,8 +192,7 @@ public record CommunityAutoEmbeddingConfig(
           .field(Fields.MV_WRITE_RATE_LIMIT_RPS, this.mvWriteRateLimitRps)
           .field(Fields.EMBEDDING_PROVIDER_RPS_LIMIT, this.embeddingProviderRpsLimit)
           .field(Fields.GLOBAL_MEMORY_BUDGET_HEAP_PERCENT, this.globalMemoryBudgetHeapPercent)
-          .field(
-              Fields.PER_BATCH_MEMORY_BUDGET_HEAP_PERCENT, this.perBatchMemoryBudgetHeapPercent)
+          .field(Fields.PER_BATCH_MEMORY_BUDGET_HEAP_PERCENT, this.perBatchMemoryBudgetHeapPercent)
           .build();
     }
   }

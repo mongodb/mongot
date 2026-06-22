@@ -9,11 +9,12 @@ public class FragmentProcessingExceptionTest {
 
   @Test
   public void testConstructor() {
-    FragmentProcessingException exception = 
-        new FragmentProcessingException("Out-of-order fragment: expected fragment "
-                + "2 but received fragment 4");
-    assertEquals("Out-of-order fragment: expected fragment "
-            + "2 but received fragment 4", exception.getMessage());
+    FragmentProcessingException exception =
+        new FragmentProcessingException(
+            "Out-of-order fragment: expected fragment " + "2 but received fragment 4");
+    assertEquals(
+        "Out-of-order fragment: expected fragment " + "2 but received fragment 4",
+        exception.getMessage());
   }
 
   @Test
@@ -27,5 +28,4 @@ public class FragmentProcessingExceptionTest {
     FragmentProcessingException exception = new FragmentProcessingException(null);
     assertNull(exception.getMessage());
   }
-
 }

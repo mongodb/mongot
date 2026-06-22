@@ -108,8 +108,7 @@ public class Executors {
   public static NamedExecutorService unboundedCachingThreadPool(
       String name, MeterRegistry meterRegistry) {
     CountingNamedThreadFactory threadFactory = new CountingNamedThreadFactory(name);
-    ExecutorService executor =
-        java.util.concurrent.Executors.newCachedThreadPool(threadFactory);
+    ExecutorService executor = java.util.concurrent.Executors.newCachedThreadPool(threadFactory);
 
     return new DefaultNamedExecutorService(
         ExecutorServiceMetrics.monitor(meterRegistry, executor, "executorMetrics", name),

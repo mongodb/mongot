@@ -39,13 +39,15 @@ class MqlDouble {
     return Long.compare(lhs, (long) rhs);
   }
 
-  /** Compares two doubles using the same semantics of as the MQL aggregation pipeline.
-   * This differs from {@link Double#compare(double, double)} in two ways:
+  /**
+   * Compares two doubles using the same semantics of as the MQL aggregation pipeline. This differs
+   * from {@link Double#compare(double, double)} in two ways:
+   *
    * <ol>
-   *   <li> This method considers NaN as less than all other numbers
-   *   <li> This method considers -0.0 and +0.0 equal
+   *   <li>This method considers NaN as less than all other numbers
+   *   <li>This method considers -0.0 and +0.0 equal
    * </ol>
-   * */
+   */
   public static int compare(double lhs, double rhs) {
     if (lhs < rhs) {
       return -1;

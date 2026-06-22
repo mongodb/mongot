@@ -21,9 +21,9 @@ import org.bson.BsonValue;
  *         <li>{ pages: { $not: { $gt: 300}, $eq: 400}}
  *       </ul>
  *   <li>{ pathname: value }
- *      <ul>
- *        <li> { genre: "fiction" }
- *      </ul>
+ *       <ul>
+ *         <li>{ genre: "fiction" }
+ *       </ul>
  * </ol>
  */
 public record SimpleClause(FieldPath path, List<MqlFilterOperator> mqlFilterOperators)

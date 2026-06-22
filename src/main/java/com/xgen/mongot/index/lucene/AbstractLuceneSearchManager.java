@@ -22,9 +22,7 @@ abstract class AbstractLuceneSearchManager<T> implements LuceneSearchManager<T> 
   private final Optional<SequenceToken> searchAfter;
 
   AbstractLuceneSearchManager(
-      Query luceneQuery,
-      Optional<Sort> luceneSort,
-      Optional<SequenceToken> searchAfter) {
+      Query luceneQuery, Optional<Sort> luceneSort, Optional<SequenceToken> searchAfter) {
     this.luceneQuery = luceneQuery;
     this.luceneSort = luceneSort;
     this.searchAfter = searchAfter;
@@ -59,8 +57,7 @@ abstract class AbstractLuceneSearchManager<T> implements LuceneSearchManager<T> 
       createCollectorManager(int batchSize, int hitsThreshold) {
     FieldDoc after = this.searchAfter.map(SequenceToken::fieldDoc).orElse(null);
     return this.luceneSort.isPresent()
-        ? new TopFieldCollectorManager(
-            this.luceneSort.get(), batchSize, after, hitsThreshold)
+        ? new TopFieldCollectorManager(this.luceneSort.get(), batchSize, after, hitsThreshold)
         : new TopScoreDocCollectorManager(batchSize, after, hitsThreshold);
   }
 

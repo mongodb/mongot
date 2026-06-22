@@ -145,8 +145,8 @@ public record FacetCollector(
 
   /**
    * Deserializes collector from BSON with 10k limits when {@link
-   * com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags#ENABLE_10K_BUCKET_LIMIT} is on
-   * (string {@code numBuckets} and number/date {@code boundaries}).
+   * com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags#ENABLE_10K_BUCKET_LIMIT} is on (string
+   * {@code numBuckets} and number/date {@code boundaries}).
    */
   public static FacetCollector fromBson10kAllowed(DocumentParser parser) throws BsonParseException {
     return FacetCollector.create(

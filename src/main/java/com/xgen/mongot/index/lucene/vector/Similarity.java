@@ -38,9 +38,7 @@ public class Similarity {
    */
   public static final boolean I8_ACCELERATION;
 
-  /**
-   * Load native dependencies of this library.
-   */
+  /** Load native dependencies of this library. */
   public static void load() {
     // noop, handled by static block.
   }
@@ -78,8 +76,11 @@ public class Similarity {
               FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN));
       accel = (boolean) i8Accelerated.invokeExact();
     } catch (UnsatisfiedLinkError e) {
-      LOG.atWarn().setCause(e).log(
-          "mongot_vecsim native library unavailable; falling back to non-native vector scoring");
+      LOG.atWarn()
+          .setCause(e)
+          .log(
+              "mongot_vecsim native library unavailable; falling back to non-native vector"
+                  + " scoring");
     } catch (Throwable t) {
       throw new ExceptionInInitializerError(t);
     }

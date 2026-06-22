@@ -129,9 +129,7 @@ public class VoyageClient implements ClientInterface {
     return VOYAGE_MODELS_SUPPORTING_FLEX_TIER.contains(modelId.toLowerCase(Locale.ROOT));
   }
 
-  /**
-   * HTTP headers for Voyage Client API
-   */
+  /** HTTP headers for Voyage Client API */
   @VisibleForTesting public static final String VOYAGE_HEADER_MODEL = "X-Voyage-Model";
 
   @VisibleForTesting public static final String VOYAGE_HEADER_TIER = "X-Voyage-Tier";
@@ -144,9 +142,7 @@ public class VoyageClient implements ClientInterface {
   /** Value for {@link #VOYAGE_HEADER_TIER} for document workloads (non-query, non-flex). */
   private static final String VOYAGE_TIER_HEADER_DOCUMENT = "document";
 
-  /**
-   * Long timeout for flex (any tier) or non-query workloads; short only for query without flex.
-   */
+  /** Long timeout for flex (any tier) or non-query workloads; short only for query without flex. */
   private static Duration resolveVoyageHttpTimeout(
       EmbeddingServiceConfig.ServiceTier tier, boolean useFlexTier) {
     if (useFlexTier) {
@@ -333,8 +329,8 @@ public class VoyageClient implements ClientInterface {
    * when the failure is a Voyage HTTP error response (e.g. 408, 429, 500). When there is no HTTP
    * error response — network errors, client-side request-build failures, or parse errors on
    * otherwise-successful (2xx) responses — it is empty and the {@code errorCode} tag is set to
-   * {@code "none"}. Both server-side HTTP 408 and client-side request timeouts are tagged as
-   * {@code 408}.
+   * {@code "none"}. Both server-side HTTP 408 and client-side request timeouts are tagged as {@code
+   * 408}.
    */
   private void recordProviderErrorMetric(
       EmbeddingProviderTransientException.Reason reason, Optional<Integer> httpStatusCode) {

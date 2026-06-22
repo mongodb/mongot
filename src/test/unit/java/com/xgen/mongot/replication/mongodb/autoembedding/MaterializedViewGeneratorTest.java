@@ -144,11 +144,7 @@ public class MaterializedViewGeneratorTest {
     generator.handleSteadyStateNonInvalidatingResync(exception);
 
     assertEquals(
-        1.0,
-        registry
-            .counter("materializedViewGenerator.oplogFalloffResyncEvents")
-            .count(),
-        0.0);
+        1.0, registry.counter("materializedViewGenerator.oplogFalloffResyncEvents").count(), 0.0);
   }
 
   @Test
@@ -164,11 +160,7 @@ public class MaterializedViewGeneratorTest {
     generator.handleSteadyStateNonInvalidatingResync(exception);
 
     assertEquals(
-        1.0,
-        registry
-            .counter("materializedViewGenerator.oplogFalloffResyncEvents")
-            .count(),
-        0.0);
+        1.0, registry.counter("materializedViewGenerator.oplogFalloffResyncEvents").count(), 0.0);
   }
 
   @Test
@@ -178,17 +170,12 @@ public class MaterializedViewGeneratorTest {
 
     MongoException bsonTooLarge =
         new MongoException(Errors.BSON_OBJECT_TOO_LARGE.code, "bson too large");
-    SteadyStateException exception =
-        SteadyStateException.createNonInvalidatingResync(bsonTooLarge);
+    SteadyStateException exception = SteadyStateException.createNonInvalidatingResync(bsonTooLarge);
 
     generator.handleSteadyStateNonInvalidatingResync(exception);
 
     assertEquals(
-        0.0,
-        registry
-            .counter("materializedViewGenerator.oplogFalloffResyncEvents")
-            .count(),
-        0.0);
+        0.0, registry.counter("materializedViewGenerator.oplogFalloffResyncEvents").count(), 0.0);
   }
 
   @Test
@@ -197,17 +184,12 @@ public class MaterializedViewGeneratorTest {
     MaterializedViewGenerator generator = createGeneratorForMetricsTest(registry);
 
     SteadyStateException exception =
-        SteadyStateException.createNonInvalidatingResync(
-            new RuntimeException("non-mongo error"));
+        SteadyStateException.createNonInvalidatingResync(new RuntimeException("non-mongo error"));
 
     generator.handleSteadyStateNonInvalidatingResync(exception);
 
     assertEquals(
-        0.0,
-        registry
-            .counter("materializedViewGenerator.oplogFalloffResyncEvents")
-            .count(),
-        0.0);
+        0.0, registry.counter("materializedViewGenerator.oplogFalloffResyncEvents").count(), 0.0);
   }
 
   private MaterializedViewGenerator createGeneratorForMetricsTest(SimpleMeterRegistry registry) {
@@ -272,4 +254,3 @@ public class MaterializedViewGeneratorTest {
         false);
   }
 }
-

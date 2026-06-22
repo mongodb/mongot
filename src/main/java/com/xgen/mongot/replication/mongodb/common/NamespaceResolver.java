@@ -29,7 +29,6 @@ public interface NamespaceResolver {
    * <p>If there is an error resolving the namespace, it throws a TRANSIENT
    * NamespaceResolutionException.
    */
-  boolean isCollectionNameChanged(
-      IndexDefinition indexDefinition, String expectedCollectionName)
+  boolean isCollectionNameChanged(IndexDefinition indexDefinition, String expectedCollectionName)
       throws NamespaceResolutionException, InterruptedException, InitialSyncException;
 }

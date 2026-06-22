@@ -60,9 +60,7 @@ public class BinaryQuantizedFlatVectorsScorer implements FlatVectorsScorer {
   // [Changed from Lucene] Copied this function from Lucene99ScalarQuantizedVectorScorer.
   @Override
   public RandomVectorScorer getRandomVectorScorer(
-      VectorSimilarityFunction similarityFunction,
-      KnnVectorValues vectorValues,
-      float[] query)
+      VectorSimilarityFunction similarityFunction, KnnVectorValues vectorValues, float[] query)
       throws IOException {
     if (vectorValues instanceof QuantizedByteVectorValues quantizedByteVectorValues) {
       ScalarQuantizer scalarQuantizer = quantizedByteVectorValues.getScalarQuantizer();
@@ -81,9 +79,7 @@ public class BinaryQuantizedFlatVectorsScorer implements FlatVectorsScorer {
 
   @Override
   public RandomVectorScorer getRandomVectorScorer(
-      VectorSimilarityFunction similarityFunction,
-      KnnVectorValues vectorValues,
-      byte[] target)
+      VectorSimilarityFunction similarityFunction, KnnVectorValues vectorValues, byte[] target)
       throws IOException {
     return nonQuantizedDelegate.getRandomVectorScorer(similarityFunction, vectorValues, target);
   }

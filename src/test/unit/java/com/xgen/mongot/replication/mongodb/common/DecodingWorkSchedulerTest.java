@@ -522,9 +522,8 @@ public class DecodingWorkSchedulerTest {
             Executors.fixedSizeThreadPool("decoding", 2, meterRegistry),
             new MetricsFactory("decodingWorkScheduler", meterRegistry));
 
-    List<RawBsonDocument> documents = IntStream.range(0, 5)
-        .mapToObj(i -> BsonUtils.documentToRaw(new BsonDocument()))
-        .toList();
+    List<RawBsonDocument> documents =
+        IntStream.range(0, 5).mapToObj(i -> BsonUtils.documentToRaw(new BsonDocument())).toList();
 
     GenerationId genId = new GenerationId(new ObjectId(), Generation.CURRENT);
     ObjectId attemptId = new ObjectId();
@@ -556,11 +555,13 @@ public class DecodingWorkSchedulerTest {
             IGNORE_METRICS);
 
     // 3 batches are scheduled and enqueued
-    assertEquals(3.0,
+    assertEquals(
+        3.0,
         meterRegistry.find("decodingWorkScheduler" + ".queuedBatchesTotal").gauge().value(),
         NO_EPSILON);
     // 3 * 5 events are scheduled and enqueued
-    assertEquals(15.0,
+    assertEquals(
+        15.0,
         meterRegistry.find("decodingWorkScheduler" + ".queuedEventsTotal").gauge().value(),
         NO_EPSILON);
 
@@ -569,10 +570,12 @@ public class DecodingWorkSchedulerTest {
     cancelFuture.get(500, TimeUnit.MILLISECONDS);
 
     // the first batch is cancelled
-    assertEquals(2.0,
+    assertEquals(
+        2.0,
         meterRegistry.find("decodingWorkScheduler" + ".queuedBatchesTotal").gauge().value(),
         NO_EPSILON);
-    assertEquals(10.0,
+    assertEquals(
+        10.0,
         meterRegistry.find("decodingWorkScheduler" + ".queuedEventsTotal").gauge().value(),
         NO_EPSILON);
 
@@ -597,10 +600,12 @@ public class DecodingWorkSchedulerTest {
         0.0);
 
     // all batches and events are executed.
-    assertEquals(0.0,
+    assertEquals(
+        0.0,
         meterRegistry.find("decodingWorkScheduler" + ".queuedBatchesTotal").gauge().value(),
         NO_EPSILON);
-    assertEquals(0.0,
+    assertEquals(
+        0.0,
         meterRegistry.find("decodingWorkScheduler" + ".queuedEventsTotal").gauge().value(),
         NO_EPSILON);
   }

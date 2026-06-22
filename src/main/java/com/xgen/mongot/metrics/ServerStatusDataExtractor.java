@@ -568,7 +568,6 @@ public class ServerStatusDataExtractor {
       return new MeterExtractor(meters);
     }
 
-
     /**
      * Some meters are registered twice with the same name but different tags. We group such meters
      * into a set.

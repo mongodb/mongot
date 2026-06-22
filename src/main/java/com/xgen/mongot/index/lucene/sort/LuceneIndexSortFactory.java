@@ -18,8 +18,8 @@ import org.apache.lucene.search.SortField;
 
 /**
  * Factory for creating Lucene {@link org.apache.lucene.search.Sort} objects for index sorting.
- * Assumes sort fields have been pre-validated in
- * {@link com.xgen.mongot.index.definition.IndexSortValidator}
+ * Assumes sort fields have been pre-validated in {@link
+ * com.xgen.mongot.index.definition.IndexSortValidator}
  */
 public class LuceneIndexSortFactory {
   private final SearchFieldDefinitionResolver fieldDefinitionResolver;
@@ -45,9 +45,11 @@ public class LuceneIndexSortFactory {
   }
 
   private List<SortField> createSortFieldsFromMongotField(MongotSortField mongotSortField) {
-    FieldDefinition fieldDefinition = Check.isPresent(
-        this.fieldDefinitionResolver.getFieldDefinition(
-            mongotSortField.field(), Optional.empty()), "fieldDefinition");
+    FieldDefinition fieldDefinition =
+        Check.isPresent(
+            this.fieldDefinitionResolver.getFieldDefinition(
+                mongotSortField.field(), Optional.empty()),
+            "fieldDefinition");
 
     ImmutableSet<FieldName.TypeField> typeFields =
         determineTypeFields(fieldDefinition, mongotSortField);
@@ -66,8 +68,7 @@ public class LuceneIndexSortFactory {
               true);
 
       if (optimized.isEmpty()) {
-        throw new IllegalStateException(
-            "Failed to create sort field " + mongotSortField.field());
+        throw new IllegalStateException("Failed to create sort field " + mongotSortField.field());
       }
 
       SortField sortField = optimized.get();
@@ -99,8 +100,8 @@ public class LuceneIndexSortFactory {
 
     if (fieldDefinition.booleanFieldDefinition().isPresent()
         && this.fieldDefinitionResolver
-        .getIndexCapabilities()
-        .supportsObjectIdAndBooleanDocValues()) {
+            .getIndexCapabilities()
+            .supportsObjectIdAndBooleanDocValues()) {
       typeFields.add(FieldName.TypeField.BOOLEAN);
     }
 
@@ -134,10 +135,11 @@ public class LuceneIndexSortFactory {
 
   private FieldName.TypeField determineNumberTypeField(
       NumericFieldDefinition numberFieldDefinition) {
-    FieldName.TypeField typeField = switch (numberFieldDefinition.options().representation()) {
-      case INT64 -> FieldName.TypeField.NUMBER_INT64_V2;
-      case DOUBLE -> FieldName.TypeField.NUMBER_DOUBLE_V2;
-    };
+    FieldName.TypeField typeField =
+        switch (numberFieldDefinition.options().representation()) {
+          case INT64 -> FieldName.TypeField.NUMBER_INT64_V2;
+          case DOUBLE -> FieldName.TypeField.NUMBER_DOUBLE_V2;
+        };
     return typeField;
   }
 }

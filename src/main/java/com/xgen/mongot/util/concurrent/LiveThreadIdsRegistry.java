@@ -8,8 +8,8 @@ import java.util.stream.Stream;
  * Tracks the IDs of live threads owned by a single source, for {@link
  * com.xgen.mongot.metrics.ThreadPoolResourceMetrics} consumption.
  *
- * <p>Thread-safe: the per-pool metric registration calls {@link #stream()} at scrape time to
- * read the current set of live ids.
+ * <p>Thread-safe: the per-pool metric registration calls {@link #stream()} at scrape time to read
+ * the current set of live ids.
  */
 public final class LiveThreadIdsRegistry {
 
@@ -26,8 +26,8 @@ public final class LiveThreadIdsRegistry {
   }
 
   /**
-   * Returns a stream of currently-live thread ids. The stream is not a defensive copy;
-   * callers that need to retire a thread id should call {@link #remove(long)}.
+   * Returns a stream of currently-live thread ids. The stream is not a defensive copy; callers that
+   * need to retire a thread id should call {@link #remove(long)}.
    */
   public Stream<Long> stream() {
     return this.threadIds.stream();

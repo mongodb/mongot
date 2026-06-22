@@ -18,7 +18,8 @@ public class VerboseRunnableTest {
             () -> {
               taskExecuted.set(true);
               throw expectedException;
-            }, NOPLogger.NOP_LOGGER);
+            },
+            NOPLogger.NOP_LOGGER);
     Error actual = Assert.assertThrows(Error.class, task::run);
 
     Assert.assertEquals(expectedException, actual);

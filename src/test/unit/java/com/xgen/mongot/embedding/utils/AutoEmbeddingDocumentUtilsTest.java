@@ -197,7 +197,7 @@ public class AutoEmbeddingDocumentUtilsTest {
                 ImmutableMap.of(), // no matched vector in embeddings
                 FieldPath.parse("extra"),
                 ImmutableMap.of() // no matched vector in embeddings
-            )),
+                )),
         result);
   }
 
@@ -506,8 +506,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     // The documentId on the event must still carry the full source _id so the upsert filter can
     // address the MV row correctly.
     assertEquals(
-        new BsonDocument("ProfileId", new BsonString("P1"))
-            .append("Tenant", new BsonString("T1")),
+        new BsonDocument("ProfileId", new BsonString("P1")).append("Tenant", new BsonString("T1")),
         result.getDocumentId());
   }
 
@@ -1768,8 +1767,8 @@ public class AutoEmbeddingDocumentUtilsTest {
             new BsonDocument("body", new BsonString("world")), BsonUtils.BSON_DOCUMENT_CODEC);
 
     var result =
-        compareDocuments(sourceDoc, matViewDoc,
-            sourceMapping, matViewMapping, MAT_VIEW_SCHEMA_METADATA);
+        compareDocuments(
+            sourceDoc, matViewDoc, sourceMapping, matViewMapping, MAT_VIEW_SCHEMA_METADATA);
 
     assertFalse(
         "dynamic passthrough field in MV must not trigger spurious reindex",
@@ -1784,8 +1783,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     AutoEmbedFieldMapping mapping = autoEmbedMappingWithFields("items.title");
     com.mongodb.client.model.changestream.TruncatedArray truncated =
         new com.mongodb.client.model.changestream.TruncatedArray("items", 2);
-    UpdateDescription ud =
-        new UpdateDescription(List.of(), new BsonDocument(), List.of(truncated));
+    UpdateDescription ud = new UpdateDescription(List.of(), new BsonDocument(), List.of(truncated));
 
     assertTrue(AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(ud, mapping));
   }
@@ -1796,8 +1794,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     AutoEmbedFieldMapping mapping = autoEmbedMappingWithFields("title");
     com.mongodb.client.model.changestream.TruncatedArray truncated =
         new com.mongodb.client.model.changestream.TruncatedArray("unrelatedArray", 5);
-    UpdateDescription ud =
-        new UpdateDescription(List.of(), new BsonDocument(), List.of(truncated));
+    UpdateDescription ud = new UpdateDescription(List.of(), new BsonDocument(), List.of(truncated));
 
     assertFalse(AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(ud, mapping));
   }
@@ -1818,12 +1815,9 @@ public class AutoEmbeddingDocumentUtilsTest {
         new com.mongodb.client.model.changestream.TruncatedArray("items", 0);
     UpdateDescription ud =
         new UpdateDescription(
-            List.of(),
-            new BsonDocument("title", new BsonString("new title")),
-            List.of(truncated));
+            List.of(), new BsonDocument("title", new BsonString("new title")), List.of(truncated));
 
-    Optional<ImmutableMap<FieldPath, String>> result =
-        classify(ud, fullDoc, mapping);
+    Optional<ImmutableMap<FieldPath, String>> result = classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -1836,8 +1830,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     // the filter-only path and the MV embedding for items.title would go stale.
     AutoEmbedFieldMapping mapping = autoEmbedMappingWithFields("items.title");
     UpdateDescription ud =
-        new UpdateDescription(
-            null, new BsonDocument("items.0.title", new BsonString("changed")));
+        new UpdateDescription(null, new BsonDocument("items.0.title", new BsonString("changed")));
 
     assertTrue(AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(ud, mapping));
   }
@@ -1845,8 +1838,7 @@ public class AutoEmbeddingDocumentUtilsTest {
   @Test
   public void requiresEmbeddingGeneration_arrayIndexedEmbedRemoval_returnsTrue() {
     AutoEmbedFieldMapping mapping = autoEmbedMappingWithFields("items.title");
-    UpdateDescription ud =
-        new UpdateDescription(List.of("items.0.title"), new BsonDocument());
+    UpdateDescription ud = new UpdateDescription(List.of("items.0.title"), new BsonDocument());
 
     assertTrue(AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(ud, mapping));
   }
@@ -1862,8 +1854,7 @@ public class AutoEmbeddingDocumentUtilsTest {
             new BsonDocument().append("title", new BsonString("kept")),
             BsonUtils.BSON_DOCUMENT_CODEC);
 
-    Optional<ImmutableMap<FieldPath, String>> result =
-        classify(null, fullDoc, mapping);
+    Optional<ImmutableMap<FieldPath, String>> result = classify(null, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -1881,8 +1872,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     UpdateDescription ud =
         new UpdateDescription(null, new BsonDocument("title", new BsonString("new title")));
 
-    Optional<ImmutableMap<FieldPath, String>> result =
-        classify(ud, fullDoc, mapping);
+    Optional<ImmutableMap<FieldPath, String>> result = classify(ud, fullDoc, mapping);
 
     assertTrue(result.isPresent());
     assertEquals(Set.of(FieldPath.parse("title")), result.get().keySet());
@@ -1897,8 +1887,7 @@ public class AutoEmbeddingDocumentUtilsTest {
             BsonUtils.BSON_DOCUMENT_CODEC);
     UpdateDescription ud = new UpdateDescription(List.of("title"), new BsonDocument());
 
-    Optional<ImmutableMap<FieldPath, String>> result =
-        classify(ud, fullDoc, mapping);
+    Optional<ImmutableMap<FieldPath, String>> result = classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -1915,8 +1904,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     UpdateDescription ud =
         new UpdateDescription(null, new BsonDocument("items.title", new BsonString("b")));
 
-    Optional<ImmutableMap<FieldPath, String>> result =
-        classify(ud, fullDoc, mapping);
+    Optional<ImmutableMap<FieldPath, String>> result = classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -1939,8 +1927,7 @@ public class AutoEmbeddingDocumentUtilsTest {
         new UpdateDescription(null, new BsonDocument("category", new BsonString("books")));
 
     assertThrows(
-        com.google.common.base.VerifyException.class,
-        () -> classify(ud, fullDoc, mapping));
+        com.google.common.base.VerifyException.class, () -> classify(ud, fullDoc, mapping));
   }
 
   @Test
@@ -1958,8 +1945,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     UpdateDescription ud =
         new UpdateDescription(null, new BsonDocument("title", new BsonString("")));
 
-    Optional<ImmutableMap<FieldPath, String>> result =
-        classify(ud, fullDoc, mapping);
+    Optional<ImmutableMap<FieldPath, String>> result = classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -1981,8 +1967,7 @@ public class AutoEmbeddingDocumentUtilsTest {
                 .append("title", new BsonString("new"))
                 .append("unrelated", new BsonString("noise")));
 
-    Optional<ImmutableMap<FieldPath, String>> result =
-        classify(ud, fullDoc, mapping);
+    Optional<ImmutableMap<FieldPath, String>> result = classify(ud, fullDoc, mapping);
 
     assertTrue(result.isPresent());
     assertEquals(Set.of(FieldPath.parse("title")), result.get().keySet());
@@ -2001,9 +1986,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     items.add(new BsonDocument("title", new BsonString("Element one")));
     RawBsonDocument fullDoc =
         new RawBsonDocument(
-            new BsonDocument()
-                .append("items", items)
-                .append("description", new BsonString("desc")),
+            new BsonDocument().append("items", items).append("description", new BsonString("desc")),
             BsonUtils.BSON_DOCUMENT_CODEC);
     UpdateDescription ud =
         new UpdateDescription(
@@ -2012,8 +1995,7 @@ public class AutoEmbeddingDocumentUtilsTest {
                 .append("items.0.title", new BsonString("Element zero updated"))
                 .append("description", new BsonString("desc updated")));
 
-    Optional<ImmutableMap<FieldPath, String>> result =
-        classify(ud, fullDoc, mapping);
+    Optional<ImmutableMap<FieldPath, String>> result = classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -2027,11 +2009,9 @@ public class AutoEmbeddingDocumentUtilsTest {
     RawBsonDocument fullDoc =
         new RawBsonDocument(
             new BsonDocument().append("items", items), BsonUtils.BSON_DOCUMENT_CODEC);
-    UpdateDescription ud =
-        new UpdateDescription(List.of("items.0.title"), new BsonDocument());
+    UpdateDescription ud = new UpdateDescription(List.of("items.0.title"), new BsonDocument());
 
-    Optional<ImmutableMap<FieldPath, String>> result =
-        classify(ud, fullDoc, mapping);
+    Optional<ImmutableMap<FieldPath, String>> result = classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -2064,10 +2044,8 @@ public class AutoEmbeddingDocumentUtilsTest {
     // Vector entry written at the schema-v1 MV path and the hash under the v1 hash namespace,
     // both as dotted keys so the $set touches only these fields.
     assertEquals(
-        BsonVectorParser.encode(titleVector).asBinary(),
-        result.get("_autoEmbed.title").asBinary());
-    assertEquals(
-        new BsonString(computeTextHash("hello")), result.get("_autoEmbed._hash.title"));
+        BsonVectorParser.encode(titleVector).asBinary(), result.get("_autoEmbed.title").asBinary());
+    assertEquals(new BsonString(computeTextHash("hello")), result.get("_autoEmbed._hash.title"));
     // No entries at the v0-era source-relative paths.
     assertFalse(result.containsKey("title"));
     assertFalse(result.containsKey("title_hash"));
@@ -2118,8 +2096,7 @@ public class AutoEmbeddingDocumentUtilsTest {
                 .append("meta", new BsonInt32(5))
                 .append("title", new BsonString("new")));
 
-    Optional<ImmutableMap<FieldPath, String>> result =
-        classify(ud, fullDoc, mapping);
+    Optional<ImmutableMap<FieldPath, String>> result = classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -2134,11 +2111,9 @@ public class AutoEmbeddingDocumentUtilsTest {
     RawBsonDocument fullDoc =
         new RawBsonDocument(
             new BsonDocument().append("a", new BsonString("y")), BsonUtils.BSON_DOCUMENT_CODEC);
-    UpdateDescription ud =
-        new UpdateDescription(null, new BsonDocument("a", new BsonString("y")));
+    UpdateDescription ud = new UpdateDescription(null, new BsonDocument("a", new BsonString("y")));
 
-    Optional<ImmutableMap<FieldPath, String>> result =
-        classify(ud, fullDoc, mapping);
+    Optional<ImmutableMap<FieldPath, String>> result = classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -2159,8 +2134,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     UpdateDescription ud =
         new UpdateDescription(List.of("body"), new BsonDocument("title", new BsonString("new")));
 
-    Optional<ImmutableMap<FieldPath, String>> result =
-        classify(ud, fullDoc, mapping);
+    Optional<ImmutableMap<FieldPath, String>> result = classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -2175,11 +2149,9 @@ public class AutoEmbeddingDocumentUtilsTest {
     RawBsonDocument fullDoc =
         new RawBsonDocument(
             new BsonDocument().append("a", new BsonString("y")), BsonUtils.BSON_DOCUMENT_CODEC);
-    UpdateDescription ud =
-        new UpdateDescription(null, new BsonDocument("a", new BsonString("y")));
+    UpdateDescription ud = new UpdateDescription(null, new BsonDocument("a", new BsonString("y")));
 
-    Optional<ImmutableMap<FieldPath, String>> result =
-        classify(ud, fullDoc, mapping);
+    Optional<ImmutableMap<FieldPath, String>> result = classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -2199,8 +2171,7 @@ public class AutoEmbeddingDocumentUtilsTest {
         new UpdateDescription(
             List.of("category"), new BsonDocument("title", new BsonString("new")));
 
-    Optional<ImmutableMap<FieldPath, String>> result =
-        classify(ud, fullDoc, mapping);
+    Optional<ImmutableMap<FieldPath, String>> result = classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -2213,8 +2184,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     UpdateDescription ud =
         new UpdateDescription(null, new BsonDocument("title", new BsonString("hi")));
 
-    Optional<ImmutableMap<FieldPath, String>> result =
-        classify(ud, null, mapping);
+    Optional<ImmutableMap<FieldPath, String>> result = classify(ud, null, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -2231,8 +2201,7 @@ public class AutoEmbeddingDocumentUtilsTest {
             BsonUtils.BSON_DOCUMENT_CODEC);
     UpdateDescription ud = new UpdateDescription(null, new BsonDocument());
 
-    Optional<ImmutableMap<FieldPath, String>> result =
-        classify(ud, fullDoc, mapping);
+    Optional<ImmutableMap<FieldPath, String>> result = classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -2249,22 +2218,19 @@ public class AutoEmbeddingDocumentUtilsTest {
             .setFields(
                 List.of(
                     new VectorIndexFilterFieldDefinition(FieldPath.parse("b")),
-                    new VectorAutoEmbedFieldDefinition(
-                        "voyage-3-large", FieldPath.parse("b.c"))))
+                    new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("b.c"))))
             .build();
     AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(def);
 
     RawBsonDocument fullDoc =
         new RawBsonDocument(
-            new BsonDocument()
-                .append("b", new BsonDocument("c", new BsonString("hello"))),
+            new BsonDocument().append("b", new BsonDocument("c", new BsonString("hello"))),
             BsonUtils.BSON_DOCUMENT_CODEC);
     UpdateDescription ud =
         new UpdateDescription(
             null, new BsonDocument("b", new BsonDocument("c", new BsonString("hello"))));
 
-    Optional<ImmutableMap<FieldPath, String>> result =
-        classify(ud, fullDoc, mapping);
+    Optional<ImmutableMap<FieldPath, String>> result = classify(ud, fullDoc, mapping);
 
     assertFalse(result.isPresent());
   }
@@ -2363,9 +2329,7 @@ public class AutoEmbeddingDocumentUtilsTest {
       PartialEmbedClassification result =
           AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(c.ud, c.fullDoc, c.mapping);
       assertEquals(
-          c.name + ": expected fallback reason",
-          Optional.of(c.expected),
-          result.fallbackReason());
+          c.name + ": expected fallback reason", Optional.of(c.expected), result.fallbackReason());
       assertFalse(c.name + ": should not be applied", result.changedTexts().isPresent());
     }
   }
@@ -2383,19 +2347,16 @@ public class AutoEmbeddingDocumentUtilsTest {
 
   /**
    * Mirrors the production dispatch in ChangeStreamDocumentUtils: gate on
-   * requiresEmbeddingGeneration first, then classify. Keeping the sequence identical to
-   * production is what lets this matrix catch gate/classifier inconsistencies (e.g. a shape the
-   * gate passes through but the classifier's precondition rejects).
+   * requiresEmbeddingGeneration first, then classify. Keeping the sequence identical to production
+   * is what lets this matrix catch gate/classifier inconsistencies (e.g. a shape the gate passes
+   * through but the classifier's precondition rejects).
    */
   private static Verdict verdictFor(
       UpdateDescription ud, RawBsonDocument fullDoc, AutoEmbedFieldMapping mapping) {
     if (!AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(ud, mapping)) {
       return Verdict.FILTER_ONLY;
     }
-    return classify(ud, fullDoc, mapping)
-            .isPresent()
-        ? Verdict.PARTIAL
-        : Verdict.FULL_REPLACE;
+    return classify(ud, fullDoc, mapping).isPresent() ? Verdict.PARTIAL : Verdict.FULL_REPLACE;
   }
 
   private record MatrixCase(
@@ -2409,8 +2370,8 @@ public class AutoEmbeddingDocumentUtilsTest {
    * Exhaustive verdict matrix over update channel (updated / removed / truncated) x path relation
    * (exact / ancestor / descendant / array-indexed) x field kind (embed / filter / unindexed) x
    * declaration overlap. Each cell pins the routing verdict of the production gate -> classifier
-   * sequence. The safety invariant behind the expectations: a partial $set must produce the same
-   * MV document a full replace would; anything that removes indexed content or can't be precisely
+   * sequence. The safety invariant behind the expectations: a partial $set must produce the same MV
+   * document a full replace would; anything that removes indexed content or can't be precisely
    * scoped must not classify as PARTIAL.
    */
   @Test
@@ -2464,7 +2425,9 @@ public class AutoEmbeddingDocumentUtilsTest {
             new MatrixCase(
                 "updated filter + exact embed",
                 std,
-                ud(List.of(), doc("category", "y").append("title", new BsonString("new")),
+                ud(
+                    List.of(),
+                    doc("category", "y").append("title", new BsonString("new")),
                     List.of()),
                 withTitle,
                 Verdict.PARTIAL),
@@ -2477,8 +2440,7 @@ public class AutoEmbeddingDocumentUtilsTest {
             new MatrixCase(
                 "updated unindexed + exact embed",
                 std,
-                ud(List.of(), doc("noise", "z").append("title", new BsonString("new")),
-                    List.of()),
+                ud(List.of(), doc("noise", "z").append("title", new BsonString("new")), List.of()),
                 withTitle,
                 Verdict.PARTIAL),
             // ---- removedFields channel ----
@@ -2591,7 +2553,9 @@ public class AutoEmbeddingDocumentUtilsTest {
             new MatrixCase(
                 "filter ancestor of embed, updated filter",
                 filterOverEmbed,
-                ud(List.of(), new BsonDocument("b", new BsonDocument("c", new BsonString("x"))),
+                ud(
+                    List.of(),
+                    new BsonDocument("b", new BsonDocument("c", new BsonString("x"))),
                     List.of()),
                 new BsonDocument("b", new BsonDocument("c", new BsonString("x"))),
                 Verdict.FULL_REPLACE),
@@ -2599,9 +2563,7 @@ public class AutoEmbeddingDocumentUtilsTest {
             new MatrixCase(
                 "updated scalar ancestor of filter + updated embed",
                 std,
-                ud(List.of(),
-                    doc("title", "new").append("meta", new BsonInt32(5)),
-                    List.of()),
+                ud(List.of(), doc("title", "new").append("meta", new BsonInt32(5)), List.of()),
                 withTitle,
                 Verdict.FULL_REPLACE),
             // Conservative: a subdoc overwrite that PRESERVES the filter value would be safe to
@@ -2611,7 +2573,8 @@ public class AutoEmbeddingDocumentUtilsTest {
             new MatrixCase(
                 "updated subdoc ancestor of filter (value preserved) + updated embed",
                 std,
-                ud(List.of(),
+                ud(
+                    List.of(),
                     doc("title", "new")
                         .append("meta", new BsonDocument("category", new BsonString("x"))),
                     List.of()),
@@ -2630,8 +2593,7 @@ public class AutoEmbeddingDocumentUtilsTest {
                 ud(List.of(), new BsonDocument(), List.of()),
                 withTitle,
                 Verdict.FULL_REPLACE),
-            new MatrixCase(
-                "null update description", std, null, withTitle, Verdict.FULL_REPLACE));
+            new MatrixCase("null update description", std, null, withTitle, Verdict.FULL_REPLACE));
 
     List<String> failures = new ArrayList<>();
     for (MatrixCase c : cases) {
@@ -2687,12 +2649,10 @@ public class AutoEmbeddingDocumentUtilsTest {
       if (path.equals("category")) {
         fields.add(new VectorIndexFilterFieldDefinition(FieldPath.parse(path)));
       } else {
-        fields.add(
-            new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse(path)));
+        fields.add(new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse(path)));
       }
     }
-    VectorIndexDefinition def =
-        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
+    VectorIndexDefinition def = VectorIndexDefinitionBuilder.builder().setFields(fields).build();
     return AutoEmbedFieldMappingCreator.createAutoEmbedMapping(def);
   }
 }

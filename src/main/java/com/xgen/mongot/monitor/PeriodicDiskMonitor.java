@@ -32,11 +32,14 @@ public class PeriodicDiskMonitor implements DiskMonitor {
   // being opened means disk write activity is being allowed.
   @GuardedBy("this")
   private final Set<Gate> gates;
+
   // anyGateWasOpened is set to true if any gate was ever open. It remains true even if all gates
   // are currently closed.
   @GuardedBy("this")
   private boolean anyGateWasOpened;
+
   private final double crashThreshold;
+
   @GuardedBy("this")
   private double diskUtilization;
 

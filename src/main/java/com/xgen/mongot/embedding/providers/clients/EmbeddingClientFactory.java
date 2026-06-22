@@ -139,7 +139,7 @@ public class EmbeddingClientFactory {
                 this.mongotMetadata,
                 this.deploymentEnvironment == DeploymentEnvironment.ATLAS,
                 useFlexTier);
-        // Set congestion semaphore only when flex tier is enabled 
+        // Set congestion semaphore only when flex tier is enabled
         // and congestion control semaphore is present
         if (useFlexTier) {
           voyageClient.setCongestionSemaphore(congestionControlSemaphore.get());

@@ -38,9 +38,9 @@ public class DefaultKeyValueLoggerTest {
     assertThat(this.listAppender.list).hasSize(1);
     ILoggingEvent logEvent = this.listAppender.list.getFirst();
     assertThat(logEvent.getFormattedMessage()).isEqualTo("Test message");
-    assertThat(logEvent.getKeyValuePairs()).containsExactly(
-        new KeyValuePair("indexId", 123), new KeyValuePair("indexGeneration", 456)
-    );
+    assertThat(logEvent.getKeyValuePairs())
+        .containsExactly(
+            new KeyValuePair("indexId", 123), new KeyValuePair("indexGeneration", 456));
   }
 
   @Test
@@ -85,16 +85,13 @@ public class DefaultKeyValueLoggerTest {
     defaultKeyValues.put("indexId", 123);
     DefaultKeyValueLogger defaultKeyValueLogger =
         DefaultKeyValueLogger.getLogger(DefaultKeyValueLoggerTest.class, defaultKeyValues);
-    defaultKeyValueLogger.atInfo()
-        .addKeyValue("indexId", 789)
-        .log("Test message");
+    defaultKeyValueLogger.atInfo().addKeyValue("indexId", 789).log("Test message");
 
     assertThat(this.listAppender.list).hasSize(1);
     ILoggingEvent logEvent = this.listAppender.list.getFirst();
     assertThat(logEvent.getFormattedMessage()).isEqualTo("Test message");
-    assertThat(logEvent.getKeyValuePairs()).containsExactly(
-        new KeyValuePair("indexId", 123),
-        new KeyValuePair("indexId", 789));
+    assertThat(logEvent.getKeyValuePairs())
+        .containsExactly(new KeyValuePair("indexId", 123), new KeyValuePair("indexId", 789));
   }
 
   @Test

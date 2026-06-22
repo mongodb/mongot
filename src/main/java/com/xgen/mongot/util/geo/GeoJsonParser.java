@@ -141,17 +141,18 @@ public class GeoJsonParser {
         yield builder.field(Fields.GEOMETRIES, geometries).build();
       }
 
-      case LINE_STRING -> builder
-          .field(Fields.LINE_POSITIONS, ((LineString) geometry).getCoordinates())
-          .build();
+      case LINE_STRING ->
+          builder.field(Fields.LINE_POSITIONS, ((LineString) geometry).getCoordinates()).build();
 
-      case MULTI_LINE_STRING -> builder
-          .field(Fields.MULTILINE_POSITIONS, ((MultiLineString) geometry).getCoordinates())
-          .build();
+      case MULTI_LINE_STRING ->
+          builder
+              .field(Fields.MULTILINE_POSITIONS, ((MultiLineString) geometry).getCoordinates())
+              .build();
 
-      case MULTI_POINT -> builder
-          .field(Fields.MULTIPOINT_POSITIONS, ((MultiPoint) geometry).getCoordinates())
-          .build();
+      case MULTI_POINT ->
+          builder
+              .field(Fields.MULTIPOINT_POSITIONS, ((MultiPoint) geometry).getCoordinates())
+              .build();
 
       case MULTI_POLYGON -> {
         MultiPolygon multiPolygon = (MultiPolygon) geometry;

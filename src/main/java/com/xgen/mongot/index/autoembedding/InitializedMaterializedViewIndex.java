@@ -68,8 +68,9 @@ public class InitializedMaterializedViewIndex implements InitializedAutoEmbedInd
     this.materializedViewWriter = materializedViewWriter;
     this.statusRef = statusRef;
     this.leaseManager = leaseManager;
-    this.wasQueryable = new AtomicBoolean(
-        statusRef.get().canServiceQueries() || isCurrentVersionQueryablePerLease());
+    this.wasQueryable =
+        new AtomicBoolean(
+            statusRef.get().canServiceQueries() || isCurrentVersionQueryablePerLease());
     this.schemaMetadata = schemaMetadata;
     this.matViewDatabaseName = matViewDatabaseName;
     this.leaderStatusGauge =
@@ -139,9 +140,7 @@ public class InitializedMaterializedViewIndex implements InitializedAutoEmbedInd
     try {
       this.leaseManager.updateReplicationStatus(
           this.generationId,
-          this.indexDefinition
-              .getDefinitionVersion()
-              .orElse(DEFAULT_INDEX_DEFINITION_VERSION),
+          this.indexDefinition.getDefinitionVersion().orElse(DEFAULT_INDEX_DEFINITION_VERSION),
           status);
     } catch (MaterializedViewNonTransientException e) {
       // Raw message; AutoEmbeddingCompositeIndex adds the failure prefix and stage
@@ -203,16 +202,14 @@ public class InitializedMaterializedViewIndex implements InitializedAutoEmbedInd
 
   /**
    * Returns true if the current definition version has ever been queryable, as persisted in the
-   * lease. Used to seed both this index's in-memory {@code wasQueryable} ratchet and the
-   * {@code AutoEmbeddingCompositeIndex} ratchet across restarts so the leader's effective status
-   * matches followers (which read the lease directly via {@code StatusResolutionUtils}).
+   * lease. Used to seed both this index's in-memory {@code wasQueryable} ratchet and the {@code
+   * AutoEmbeddingCompositeIndex} ratchet across restarts so the leader's effective status matches
+   * followers (which read the lease directly via {@code StatusResolutionUtils}).
    */
   public boolean isCurrentVersionQueryablePerLease() {
     return this.leaseManager.isCurrentVersionQueryable(
         this.generationId,
-        this.indexDefinition
-            .getDefinitionVersion()
-            .orElse(DEFAULT_INDEX_DEFINITION_VERSION));
+        this.indexDefinition.getDefinitionVersion().orElse(DEFAULT_INDEX_DEFINITION_VERSION));
   }
 
   public UUID getMaterializedViewCollectionUuid() {

@@ -22,12 +22,11 @@ public sealed interface Collector extends DocumentEncodable permits FacetCollect
             .disallowUnknownFields()
             .optional()
             .noDefault();
-            
+
     public static final Field.Optional<FacetCollector> FACET_10K_ALLOWED =
         Field.builder("facet")
             .classField(
-                FacetCollector::fromBson10kAllowed,
-                FacetCollector::collectorToBson10kAllowed)
+                FacetCollector::fromBson10kAllowed, FacetCollector::collectorToBson10kAllowed)
             .disallowUnknownFields()
             .optional()
             .noDefault();

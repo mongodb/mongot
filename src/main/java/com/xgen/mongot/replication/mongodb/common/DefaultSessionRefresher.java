@@ -90,7 +90,8 @@ public class DefaultSessionRefresher implements SessionRefresher, VerboseRunnabl
     BsonDocument sessionId = session.getServerSession().getIdentifier();
     Check.checkState(
         !this.sessionIds.contains(sessionId),
-        "session %s already registered with SessionRefresher", session);
+        "session %s already registered with SessionRefresher",
+        session);
 
     this.sessionIds.add(sessionId);
     this.sessionsGauge.incrementAndGet();
@@ -125,9 +126,7 @@ public class DefaultSessionRefresher implements SessionRefresher, VerboseRunnabl
       return;
     }
 
-    LOG.atInfo()
-        .addKeyValue("numSessions", sessionIdsCopy.size())
-        .log("Refreshing session(s).");
+    LOG.atInfo().addKeyValue("numSessions", sessionIdsCopy.size()).log("Refreshing session(s).");
     this.refreshCounter.increment();
 
     RefreshSessionsCommand command = new RefreshSessionsCommand(sessionIdsCopy);

@@ -29,6 +29,7 @@ class ToggleSampler implements Sampler {
 
   private static final SamplingResult POSITIVE_SAMPLING_RESULT = SamplingResult.recordAndSample();
   private static final SamplingResult NEGATIVE_SAMPLING_RESULT = SamplingResult.drop();
+
   /**
    * A preset span boolean attribute which a ToggleSampler may detect, and correspondingly always
    * sample or never sample.

@@ -24,39 +24,13 @@ import org.jetbrains.annotations.Nullable;
  * }</pre>
  *
  * <p>Stage 1: $group metric field accumulators. _id is always { tag: "$tag", keys: "$keys" } —
- * hardcoded in build(). Stage 2: $facet per-path computation. Stage 3: $replaceWith projections.
- * [
- *    $group: {
- *      _id: { tag: "$tag", keys: "$keys" },
- *      count_value: { $sum: "$count"},
- *      avg_sum_color: { $sum: "$avg_sum_color"}
- *      ...
- *    },
- *    $facet: {
- *      "byDirector": [{ $match: { "_id.tag": "byDirector" } }],
- *      ....,
- *      "count": [{ $match: { "_id.tag": null } }]
- *    },
- *    $replaceWith: {
- *      "count": {
- *        "lowerBound": { $first: "$count.count_value" }
- *      },
- *      "facet": {
- *        "byDirector": {
- *          "buckets": {
- *            "$map": {
- *              "input": "$byDirector",
- *              "as": "b",
- *              "in": {
- *                "director": "$$b._id.keys.director",
- *                "avg_price": {"$divide": ["$$b.avg_sum_avg_price", "$$b.avg_count_avg_price"]}
- *              }
- *            }
- *          }
- *        }
- *      }
- *    }
- * ]
+ * hardcoded in build(). Stage 2: $facet per-path computation. Stage 3: $replaceWith projections. [
+ * $group: { _id: { tag: "$tag", keys: "$keys" }, count_value: { $sum: "$count"}, avg_sum_color: {
+ * $sum: "$avg_sum_color"} ... }, $facet: { "byDirector": [{ $match: { "_id.tag": "byDirector" } }],
+ * ...., "count": [{ $match: { "_id.tag": null } }] }, $replaceWith: { "count": { "lowerBound": {
+ * $first: "$count.count_value" } }, "facet": { "byDirector": { "buckets": { "$map": { "input":
+ * "$byDirector", "as": "b", "in": { "director": "$$b._id.keys.director", "avg_price": {"$divide":
+ * ["$$b.avg_sum_avg_price", "$$b.avg_count_avg_price"]} } } } } } } ]
  */
 public final class ShardMergePipelineBuilder {
 

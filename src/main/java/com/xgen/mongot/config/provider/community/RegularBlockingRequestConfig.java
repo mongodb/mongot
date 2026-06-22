@@ -9,8 +9,8 @@ import java.util.Optional;
 import org.bson.BsonDocument;
 
 /**
- * The {@code searchQueryAdmissionControl} block of the Community mongot config file.
- * So the query load-shedding knobs can be tuned in community.
+ * The {@code searchQueryAdmissionControl} block of the Community mongot config file. So the query
+ * load-shedding knobs can be tuned in community.
  */
 public record RegularBlockingRequestConfig(
     Optional<Double> threadPoolSizeMultiplier,

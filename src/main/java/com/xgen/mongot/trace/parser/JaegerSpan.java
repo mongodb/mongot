@@ -40,8 +40,16 @@ class JaegerSpan {
   @JsonProperty(value = "processID")
   private final String processId;
 
-  JaegerSpan(String traceId, String spanId, String operationName, String parentSpanId,
-      List<Reference> references, long startTime, long duration, List<Tag> tags, String processId) {
+  JaegerSpan(
+      String traceId,
+      String spanId,
+      String operationName,
+      String parentSpanId,
+      List<Reference> references,
+      long startTime,
+      long duration,
+      List<Tag> tags,
+      String processId) {
     this.traceId = traceId;
     this.spanId = spanId;
     this.operationName = operationName;

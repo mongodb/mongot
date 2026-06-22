@@ -39,8 +39,8 @@ class GeoQueryFactory {
   Query geoWithin(GeoWithinOperator operator, SingleQueryContext singleQueryContext)
       throws InvalidQueryException {
     return BooleanComposer.StreamUtils.from(operator.paths())
-        .mapChecked(p -> geoWithinSingle(p, operator, singleQueryContext),
-            BooleanClause.Occur.SHOULD);
+        .mapChecked(
+            p -> geoWithinSingle(p, operator, singleQueryContext), BooleanClause.Occur.SHOULD);
   }
 
   private Query geoWithinSingle(
@@ -109,8 +109,8 @@ class GeoQueryFactory {
   public Query geoShape(GeoShapeOperator operator, SingleQueryContext singleQueryContext)
       throws InvalidQueryException {
     return BooleanComposer.StreamUtils.from(operator.paths())
-        .mapChecked(p -> geoShapeSingle(p, operator, singleQueryContext),
-            BooleanClause.Occur.SHOULD);
+        .mapChecked(
+            p -> geoShapeSingle(p, operator, singleQueryContext), BooleanClause.Occur.SHOULD);
   }
 
   private Query geoShapeSingle(

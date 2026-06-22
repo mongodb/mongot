@@ -88,7 +88,8 @@ public class GenericMessageCodeGenerator implements CodeGenerator {
               .contains(BsonType.ARRAY)) {
         throw new IllegalArgumentException(
             String.format(
-                "allow_single_value may not be set on %s as the value type may contain another array.",
+                "allow_single_value may not be set on %s as the value type may contain another"
+                    + " array.",
                 field.getFullName()));
       }
     }
@@ -103,12 +104,14 @@ public class GenericMessageCodeGenerator implements CodeGenerator {
       if (field.isMapField() && !isDocumentField(field.getMessageType().findFieldByName("value"))) {
         throw new IllegalArgumentException(
             String.format(
-                "allow_unknown_fields may not be set on %s as this only applies to maps with a document value",
+                "allow_unknown_fields may not be set on %s as this only applies to maps with a"
+                    + " document value",
                 field.getFullName()));
       } else if (!isDocumentField(field)) {
         throw new IllegalArgumentException(
             String.format(
-                "allow_unknown_fields may not be set on %s as this only applies to document fields.",
+                "allow_unknown_fields may not be set on %s as this only applies to document"
+                    + " fields.",
                 field.getFullName()));
       }
     }
@@ -143,7 +146,8 @@ public class GenericMessageCodeGenerator implements CodeGenerator {
       if (CodeGeneratorUtils.getMessageType(messageType) == MessageType.DISCRIMINATED_UNION) {
         throw new IllegalArgumentException(
             String.format(
-                "Discriminated union field %s of %s is also a discriminated union (%s); this is disallowed.",
+                "Discriminated union field %s of %s is also a discriminated union (%s); this is"
+                    + " disallowed.",
                 field.getName(), unionType.getFullName(), messageType.getFullName()));
       }
       String overlappingFields =
@@ -154,7 +158,8 @@ public class GenericMessageCodeGenerator implements CodeGenerator {
       if (!overlappingFields.isEmpty()) {
         throw new IllegalArgumentException(
             String.format(
-                "Discrimination union field %s of %s has field(s) of the same name in the base message and variant (%s)",
+                "Discrimination union field %s of %s has field(s) of the same name in the base"
+                    + " message and variant (%s)",
                 field.getName(), unionType.getFullName(), overlappingFields));
       }
     }
@@ -330,7 +335,8 @@ public class GenericMessageCodeGenerator implements CodeGenerator {
           }
           try (var disallowUnknownFieldsScope = defaultScope.openScope("else")) {
             disallowUnknownFieldsScope.writeLine(
-                "throw new com.xgen.proto.BsonProtoParseException(\"Unknown field named \" + reader.getCurrentName());");
+                "throw new com.xgen.proto.BsonProtoParseException(\"Unknown field named \" +"
+                    + " reader.getCurrentName());");
           }
         }
       }
@@ -362,7 +368,9 @@ public class GenericMessageCodeGenerator implements CodeGenerator {
               discriminantCaseScope.openScope(
                   "if (reader.getCurrentBsonType() != org.bson.BsonType.STRING)")) {
             ifScope.writeLine(
-                "throw com.xgen.proto.BsonProtoParseException.createTypeMismatchException(org.bson.BsonType.STRING, reader.getCurrentBsonType(), \"%s.%s\");",
+                "throw"
+                    + " com.xgen.proto.BsonProtoParseException.createTypeMismatchException(org.bson.BsonType.STRING,"
+                    + " reader.getCurrentBsonType(), \"%s.%s\");",
                 this.descriptor.getFullName(), discriminantName);
           }
           discriminantCaseScope.writeLine(
@@ -389,7 +397,8 @@ public class GenericMessageCodeGenerator implements CodeGenerator {
           noDiscriminantScope.openScope(
               "if (unknownFieldName.isPresent() && !allowUnknownFields)")) {
         unknownFieldScope.writeLine(
-            "throw new com.xgen.proto.BsonProtoParseException(\"Unknown field named \" + unknownFieldName.get());");
+            "throw new com.xgen.proto.BsonProtoParseException(\"Unknown field named \" +"
+                + " unknownFieldName.get());");
       }
       noDiscriminantScope.writeLine("reader.readEndDocument();");
       noDiscriminantScope.writeLine("return this;");
@@ -404,7 +413,8 @@ public class GenericMessageCodeGenerator implements CodeGenerator {
       try (var disallowUnknownFieldsScope =
           variantTypeEmptyScope.openScope("if (!allowUnknownFields)")) {
         disallowUnknownFieldsScope.writeLine(
-            "throw new com.xgen.proto.BsonProtoParseException(\"Unknown variant name \" + discriminantName.get());");
+            "throw new com.xgen.proto.BsonProtoParseException(\"Unknown variant name \" +"
+                + " discriminantName.get());");
       }
       variantTypeEmptyScope.writeLine("reader.readEndDocument();");
       variantTypeEmptyScope.writeLine("return this;");
@@ -414,7 +424,8 @@ public class GenericMessageCodeGenerator implements CodeGenerator {
     // This applies unknown field policy for each sub-message.
     fnScope.writeLine("mark.reset();");
     fnScope.writeLine(
-        "reader = com.xgen.proto.DiscriminatedUnionFieldFilteringBsonReader.create(reader, FIELD_NAMES);");
+        "reader = com.xgen.proto.DiscriminatedUnionFieldFilteringBsonReader.create(reader,"
+            + " FIELD_NAMES);");
     try (var switchScope = fnScope.openScope("switch (discriminantName.get())")) {
       for (var field : this.descriptor.getFields()) {
         if (field.getRealContainingOneof() == null) {

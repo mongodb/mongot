@@ -1,6 +1,5 @@
 package com.xgen.testing;
 
-
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.PriorityBlockingQueue;
@@ -98,8 +97,8 @@ public class ControlledPriorityBlockingQueue<T> extends PriorityBlockingQueue<T>
   /**
    * Take an item off this queue.
    *
-   * <p>If this queue is paused, an item is taken off the queue as soon as it becomes available,
-   * any threads listening are notified of the take event, and then the calling thread blocks until
+   * <p>If this queue is paused, an item is taken off the queue as soon as it becomes available, any
+   * threads listening are notified of the take event, and then the calling thread blocks until
    * {@link #resume()} is called. If this queue is not paused, this function acts normally and
    * notifies any threads listening for a take event.
    */
@@ -137,5 +136,4 @@ public class ControlledPriorityBlockingQueue<T> extends PriorityBlockingQueue<T>
     }
     return next;
   }
-
 }

@@ -54,9 +54,7 @@ public class GetMoreCommand implements Command {
 
   @Override
   public BsonDocument run() {
-    LOG.atTrace()
-        .addKeyValue("command", GetMoreCommandDefinition.NAME)
-        .log("Received command");
+    LOG.atTrace().addKeyValue("command", GetMoreCommandDefinition.NAME).log("Received command");
 
     try {
       Optional<ExplainQueryState> prevExplainState =

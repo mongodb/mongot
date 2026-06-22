@@ -105,9 +105,9 @@ public record SearchIndexAutoEmbedFieldMapping(
    * {@code AutoEmbeddingDocumentUtils} that iterate {@code fieldMap()} for stale-MV detection see
    * both embed and passthrough declarations.
    *
-   * <p>When an explicit passthrough path overlaps an embed source field (e.g. a regular text
-   * field named "content" alongside an auto-embed field whose {@code sourceField} is also
-   * "content"), the embed entry wins — the path is owned by the embed pipeline.
+   * <p>When an explicit passthrough path overlaps an embed source field (e.g. a regular text field
+   * named "content" alongside an auto-embed field whose {@code sourceField} is also "content"), the
+   * embed entry wins — the path is owned by the embed pipeline.
    *
    * <p>Dynamic-mode passthroughs are open-ended (anything not embed is passthrough) and cannot be
    * enumerated here, so dynamic mode returns embed-only. See TODO(CLOUDP-384026).
@@ -147,8 +147,6 @@ public record SearchIndexAutoEmbedFieldMapping(
   }
 
   private static ImmutableSet<FieldPath> computeAncestorPaths(Set<FieldPath> paths) {
-    return paths.stream()
-        .flatMap(FieldPath::ancestorPaths)
-        .collect(ImmutableSet.toImmutableSet());
+    return paths.stream().flatMap(FieldPath::ancestorPaths).collect(ImmutableSet.toImmutableSet());
   }
 }

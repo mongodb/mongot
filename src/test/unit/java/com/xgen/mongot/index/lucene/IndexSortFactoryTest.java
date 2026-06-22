@@ -257,8 +257,9 @@ public class IndexSortFactoryTest {
           || this.testSpec.typeField == TypeField.DATE_V2) {
         nullnessOffset = 1;
         Assert.assertTrue(
-            actualSortFields[0].getField().startsWith(
-                FieldName.MetaField.NULLNESS.getLuceneFieldName()));
+            actualSortFields[0]
+                .getField()
+                .startsWith(FieldName.MetaField.NULLNESS.getLuceneFieldName()));
       }
 
       Assert.assertEquals(expectedSortFields.size() + nullnessOffset, actualSortFields.length);
@@ -487,7 +488,7 @@ public class IndexSortFactoryTest {
               MOCK_INDEX_GENERATION_ID,
               0,
               1,
-              false, 
+              false,
               this.directory);
       mergeScheduler.getIn().setMaxMergesAndThreads(10, 4);
 
@@ -1363,8 +1364,7 @@ public class IndexSortFactoryTest {
       Sort sortSpec =
           new Sort(
               ImmutableList.of(
-                  new MongotSortField(
-                      FieldPath.newRoot("f"), UserFieldSortOptions.DEFAULT_ASC)));
+                  new MongotSortField(FieldPath.newRoot("f"), UserFieldSortOptions.DEFAULT_ASC)));
       org.apache.lucene.search.Sort actualSort = sortFactory.createIndexSort(sortSpec);
 
       SortField[] sortFields = actualSort.getSort();
@@ -1389,8 +1389,7 @@ public class IndexSortFactoryTest {
       Sort sortSpec =
           new Sort(
               ImmutableList.of(
-                  new MongotSortField(
-                      FieldPath.newRoot("f"), UserFieldSortOptions.DEFAULT_ASC)));
+                  new MongotSortField(FieldPath.newRoot("f"), UserFieldSortOptions.DEFAULT_ASC)));
       org.apache.lucene.search.Sort actualSort = sortFactory.createIndexSort(sortSpec);
 
       SortField[] sortFields = actualSort.getSort();

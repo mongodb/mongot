@@ -187,7 +187,8 @@ public class HeuristicChangeStreamModeSelector implements ChangeStreamModeSelect
 
       // A $match stage before $sample forces a full collection scan because MongoDB cannot use
       // the fast pseudo-random sampling path. Skip sampling and fall back to ALL_FIELDS.
-      if (context.definition
+      if (context
+          .definition
           .getView()
           .filter(view -> view.exists() && ViewPipeline.hasMatchStage(view))
           .isPresent()) {

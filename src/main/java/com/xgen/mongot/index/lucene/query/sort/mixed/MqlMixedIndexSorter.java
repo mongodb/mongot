@@ -62,9 +62,7 @@ class MqlMixedIndexSorter implements IndexSorter {
     MixedLeafFieldComparator[] leaves = createSortedLeaves(reader);
     for (int i = leaves.length - 1; i >= 0; i--) {
       MixedLeafFieldComparator leaf = leaves[i];
-      for (int doc = leaf.nextDoc();
-          doc != DocIdSetIterator.NO_MORE_DOCS;
-          doc = leaf.nextDoc()) {
+      for (int doc = leaf.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = leaf.nextDoc()) {
         values[doc] = leaf.getCurrentValue();
       }
     }
@@ -89,10 +87,7 @@ class MqlMixedIndexSorter implements IndexSorter {
     BsonValue currentValue;
 
     SegmentCursor(
-        int segmentIndex,
-        MixedLeafFieldComparator[] leaves,
-        int maxDoc,
-        BsonValue missingValue)
+        int segmentIndex, MixedLeafFieldComparator[] leaves, int maxDoc, BsonValue missingValue)
         throws IOException {
       this.segmentIndex = segmentIndex;
       this.leaves = leaves;
@@ -132,12 +127,9 @@ class MqlMixedIndexSorter implements IndexSorter {
     Arrays.sort(
         comparators,
         Comparator.comparingInt(
-            c ->
-                selectMultiplier
-                    * SortUtil.getBracketPriority(c.getBsonType(), this.nullPos)));
+            c -> selectMultiplier * SortUtil.getBracketPriority(c.getBsonType(), this.nullPos)));
 
-    CompositeComparator composite =
-        CompositeComparator.create(comparators, this.userOpts, 1);
+    CompositeComparator composite = CompositeComparator.create(comparators, this.userOpts, 1);
 
     List<MixedLeafFieldComparator> leaves = new ArrayList<>(comparators.length);
     for (MixedFieldComparator c : comparators) {
@@ -150,9 +142,9 @@ class MqlMixedIndexSorter implements IndexSorter {
   /**
    * Builds per-segment rank arrays via K-way merge over already-sorted segments. Each segment's
    * documents are in sort order by docID, so iterating docIDs 0..maxDoc-1 yields values in sort
-   * order. A {@link PriorityQueue} of size K merges these K sorted streams in O(N log K) time.
-   * Uses {@link PriorityQueue#updateTop()} (one sift-down per doc) instead of poll+add. Ranks use
-   * {@link PackedLongValues} for memory efficiency.
+   * order. A {@link PriorityQueue} of size K merges these K sorted streams in O(N log K) time. Uses
+   * {@link PriorityQueue#updateTop()} (one sift-down per doc) instead of poll+add. Ranks use {@link
+   * PackedLongValues} for memory efficiency.
    */
   @Override
   public ComparableProvider[] getComparableProviders(List<? extends LeafReader> readers)
@@ -180,8 +172,7 @@ class MqlMixedIndexSorter implements IndexSorter {
       LeafReader reader = readers.get(i);
       if (reader.maxDoc() > 0) {
         pq.add(
-            new SegmentCursor(
-                i, createSortedLeaves(reader), reader.maxDoc(), this.missingValue));
+            new SegmentCursor(i, createSortedLeaves(reader), reader.maxDoc(), this.missingValue));
       }
     }
 

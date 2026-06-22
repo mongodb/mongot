@@ -4,16 +4,12 @@ import com.xgen.mongot.cursor.CursorConfig;
 import java.time.Duration;
 import java.util.Optional;
 
-/**
- * Maps the {@code cursor} config block onto the runtime {@link CursorConfig}.
- */
+/** Maps the {@code cursor} config block onto the runtime {@link CursorConfig}. */
 public final class CursorConfigMapper {
 
   private CursorConfigMapper() {}
 
-  /**
-   * Builds a {@link CursorConfig} from the parsed {@code cursor} block.
-   */
+  /** Builds a {@link CursorConfig} from the parsed {@code cursor} block. */
   public static CursorConfig toCursorConfig(Optional<CommunityCursorConfig> cursorConfig) {
     return CursorConfig.create(
         cursorConfig

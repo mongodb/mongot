@@ -28,9 +28,7 @@ public class KillCursorsCommandTest {
     BsonDocument mockArgs =
         new BsonDocument()
             .append(KillCursorsCommandDefinition.NAME, new BsonString("test"))
-            .append(
-                "cursors",
-                new BsonArray(List.of(new BsonInt64(MOCK_CURSOR_ID))));
+            .append("cursors", new BsonArray(List.of(new BsonInt64(MOCK_CURSOR_ID))));
 
     CommandFactory commandFactory = new KillCursorsCommand.Factory(cursorManager);
     Command command = commandFactory.create(mockArgs);

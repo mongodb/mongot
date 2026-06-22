@@ -290,9 +290,9 @@ public class AutoEmbeddingIndexDefinitionUtilsTest {
   }
 
   /**
-   * Regression test for CLOUDP-398738: when the source index has a nestedRoot and auto-embed
-   * field paths are remapped to the MV namespace (schema version 1), the derived nestedRoot must
-   * be remapped to the same namespace so that query-time embedded-vector detection matches the
+   * Regression test for CLOUDP-398738: when the source index has a nestedRoot and auto-embed field
+   * paths are remapped to the MV namespace (schema version 1), the derived nestedRoot must be
+   * remapped to the same namespace so that query-time embedded-vector detection matches the
    * remapped field path.
    */
   @Test

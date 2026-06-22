@@ -931,9 +931,7 @@ public class LuceneSearchBatchProducerTest {
     SortField[] sortFields = {valueField};
 
     int numDocs = 1;
-    ScoreDoc[] scoreDocs = {
-      new FieldDoc(0, 1.0f, new Object[] {new BsonInt64(42)})
-    };
+    ScoreDoc[] scoreDocs = {new FieldDoc(0, 1.0f, new Object[] {new BsonInt64(42)})};
 
     TopFieldDocs topDocs =
         new TopFieldDocs(
@@ -989,8 +987,7 @@ public class LuceneSearchBatchProducerTest {
     };
 
     TopFieldDocs topDocs =
-        new TopFieldDocs(
-            new TotalHits(1, TotalHits.Relation.EQUAL_TO), scoreDocs, sortFields);
+        new TopFieldDocs(new TotalHits(1, TotalHits.Relation.EQUAL_TO), scoreDocs, sortFields);
 
     var searcherRef = getSearcherRef();
     @SuppressWarnings("unchecked")

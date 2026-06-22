@@ -173,8 +173,7 @@ public class MetricsFactoryTest {
     MeterRegistry meterRegistry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
     MetricsFactory metricsFactory = new MetricsFactory("testMetricsFactory", meterRegistry);
 
-    DistributionSummary metricsFactoryHistogram =
-        metricsFactory.histogram("histogram", 1, 50, 100);
+    DistributionSummary metricsFactoryHistogram = metricsFactory.histogram("histogram", 1, 50, 100);
 
     for (int i = 0; i < 100; i++) {
       metricsFactoryHistogram.record(i);
@@ -201,8 +200,7 @@ public class MetricsFactoryTest {
     Assert.assertThrows(
         IllegalArgumentException.class, () -> metricsFactory.histogram("histogram"));
     Assert.assertThrows(
-        IllegalArgumentException.class,
-        () -> metricsFactory.histogram("histogram", Tags.empty()));
+        IllegalArgumentException.class, () -> metricsFactory.histogram("histogram", Tags.empty()));
   }
 
   @Test

@@ -225,8 +225,8 @@ public class DualBlockingQueue extends AbstractQueue<Runnable> implements Blocki
    * Returns an iterator over a snapshot of the queue contents at the time of this call. {@code
    * remove()} is unsupported (it would only mutate the snapshot, not the backing queues); use
    * {@link #remove(Object)} to remove an element. Nothing in the executor path relies on
-   * iterator-based removal: {@link AbstractQueue#clear()} is implemented via {@code poll()},
-   * {@code shutdownNow()} drains via {@link #drainTo(Collection)}, and {@link
+   * iterator-based removal: {@link AbstractQueue#clear()} is implemented via {@code poll()}, {@code
+   * shutdownNow()} drains via {@link #drainTo(Collection)}, and {@link
    * java.util.concurrent.ThreadPoolExecutor#purge()} only removes {@code Future}s — which never
    * enter this queue, since {@link #offer(Runnable)} accepts only {@link PrioritizedTask}.
    */

@@ -77,8 +77,7 @@ public class SteadyStateManagerTest {
         RESUME_INFO,
         false);
 
-    ArgumentCaptor<DocumentIndexer> indexerCaptor =
-        ArgumentCaptor.forClass(DocumentIndexer.class);
+    ArgumentCaptor<DocumentIndexer> indexerCaptor = ArgumentCaptor.forClass(DocumentIndexer.class);
     verify(changeStreamManager)
         .add(
             eq(MOCK_INDEX_GENERATION_ID),
@@ -104,8 +103,7 @@ public class SteadyStateManagerTest {
         RESUME_INFO,
         false);
 
-    ArgumentCaptor<DocumentIndexer> indexerCaptor2 =
-        ArgumentCaptor.forClass(DocumentIndexer.class);
+    ArgumentCaptor<DocumentIndexer> indexerCaptor2 = ArgumentCaptor.forClass(DocumentIndexer.class);
     verify(changeStreamManager)
         .add(
             eq(incrementedGeneration),

@@ -67,8 +67,7 @@ public class RangeOperatorTest {
         "doesNotAffect",
         OperatorBuilder.range()
             .path("point")
-            .numericBounds(Optional.empty(), Optional.of(new LongPoint(15L)),
-                false, false)
+            .numericBounds(Optional.empty(), Optional.of(new LongPoint(15L)), false, false)
             .doesNotAffect(List.of("points", "sizes"))
             .build());
   }
@@ -78,8 +77,7 @@ public class RangeOperatorTest {
         "doesNotAffectString",
         OperatorBuilder.range()
             .path("point")
-            .numericBounds(Optional.empty(), Optional.of(new LongPoint(15L)),
-                false, false)
+            .numericBounds(Optional.empty(), Optional.of(new LongPoint(15L)), false, false)
             .doesNotAffect("points")
             .build());
   }

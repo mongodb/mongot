@@ -576,8 +576,7 @@ public class SearchIndexDefinitionTest {
                           "a",
                           FieldDefinitionBuilder.builder()
                               .token(TokenFieldDefinitionBuilder.builder().build())
-                              .number(
-                                  NumericFieldDefinitionBuilder.builder().buildNumberField())
+                              .number(NumericFieldDefinitionBuilder.builder().buildNumberField())
                               .build())
                       .build())
               .sort(

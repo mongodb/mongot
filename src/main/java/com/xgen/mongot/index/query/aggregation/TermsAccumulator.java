@@ -17,9 +17,7 @@ import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.packed.PackedInts;
 
-/**
- * The base class to aggregate on term based doc-value fields (TOKEN, UUID, ObjectID, etc).
- */
+/** The base class to aggregate on term based doc-value fields (TOKEN, UUID, ObjectID, etc). */
 public abstract sealed class TermsAccumulator extends BucketsAccumulator
     permits DenseTermsAccumulator, RemapTermsAccumulator {
   protected final FieldPath path;
@@ -53,7 +51,8 @@ public abstract sealed class TermsAccumulator extends BucketsAccumulator
    */
   protected final long segmentToGlobal(int segmentIndex, long segmentOrd) {
     return this.ordinalMap
-        .map(map -> map.getGlobalOrds(segmentIndex).get(segmentOrd)).orElse(segmentOrd);
+        .map(map -> map.getGlobalOrds(segmentIndex).get(segmentOrd))
+        .orElse(segmentOrd);
   }
 
   /**
@@ -64,8 +63,9 @@ public abstract sealed class TermsAccumulator extends BucketsAccumulator
    * @param globalOrd The global ordinal of the doc's term.
    * @param children The child collector to collect to.
    */
-  protected abstract void collectGlobalOrd(long owningBucketOrd, int doc, long globalOrd,
-      LeafBucketCollector children) throws IOException;
+  protected abstract void collectGlobalOrd(
+      long owningBucketOrd, int doc, long globalOrd, LeafBucketCollector children)
+      throws IOException;
 
   // A pair of (the child bucket ordinal, the global ordinal of the term)
   protected record OrdPair(long childOwningBucketOrd, long globalOrd) {}
@@ -73,11 +73,9 @@ public abstract sealed class TermsAccumulator extends BucketsAccumulator
   /**
    * Strategy-specific iteration over children owning ordinals given parent ordinals.
    *
-   * <p>
-   *   In the collectGlobalOrd it maps from pair (the parent bucket ordinal that owns this doc, the
-   *   global ordinal of the term) to the next-level owning bucket ordinal. This function aggregates
-   *   all child-level owning buckets by parent-level owning bucket.
-   * </p>
+   * <p>In the collectGlobalOrd it maps from pair (the parent bucket ordinal that owns this doc, the
+   * global ordinal of the term) to the next-level owning bucket ordinal. This function aggregates
+   * all child-level owning buckets by parent-level owning bucket.
    */
   protected abstract List<List<OrdPair>> childOwningOrds(LongArray parentOrds);
 
@@ -125,8 +123,8 @@ public abstract sealed class TermsAccumulator extends BucketsAccumulator
    * @return the results for each ordinal, in the same order as the array of ordinals.
    */
   @Override
-  protected final List<AggregationResult> buildResults(
-      LongArray parentOrdsToCollect) throws IOException {
+  protected final List<AggregationResult> buildResults(LongArray parentOrdsToCollect)
+      throws IOException {
     // Collect all children owning buckets. Full cardinality is returned -- no top-N pruning here.
     // The `limit` is carried into the result and applied later during mongot integration (so that
     // segment / partition / shard merges all operate on the complete bucket set).
@@ -149,10 +147,11 @@ public abstract sealed class TermsAccumulator extends BucketsAccumulator
       List<TermsAggregationResult.TermsBucket> buckets = new ArrayList<>(childPairs.size());
       for (OrdPair pair : childPairs) {
         BytesRef key = BytesRef.deepCopyOf(this.topLevelValues.lookupOrd(pair.globalOrd()));
-        buckets.add(new TermsAggregationResult.TermsBucket(
-            key,
-            bucketDocCount(pair.childOwningBucketOrd()),
-            childResultsFor.apply(childOrdIndex++)));
+        buckets.add(
+            new TermsAggregationResult.TermsBucket(
+                key,
+                bucketDocCount(pair.childOwningBucketOrd()),
+                childResultsFor.apply(childOrdIndex++)));
       }
       results.add(new TermsAggregationResult(this.name, this.path, this.limit, buckets));
     }
@@ -160,11 +159,11 @@ public abstract sealed class TermsAccumulator extends BucketsAccumulator
   }
 
   /**
-   * Logic forked from {@Link org.apache.lucene.facet.StringDocValuesReaderState} to build a
-   * global SSDV across all the segments. The global OrdinalMap is included as well.
+   * Logic forked from {@Link org.apache.lucene.facet.StringDocValuesReaderState} to build a global
+   * SSDV across all the segments. The global OrdinalMap is included as well.
    */
-  static SortedSetDocValues buildTopLevelValues(
-      IndexReader reader, String luceneField) throws IOException {
+  static SortedSetDocValues buildTopLevelValues(IndexReader reader, String luceneField)
+      throws IOException {
     List<LeafReaderContext> leaves = reader.leaves();
     int leafCount = leaves.size();
     if (leafCount == 0) {
@@ -201,10 +200,12 @@ public abstract sealed class TermsAccumulator extends BucketsAccumulator
     return multiValues;
   }
 
-  static TermsAccumulator create(TermsGroupAggregationSpec spec,
+  static TermsAccumulator create(
+      TermsGroupAggregationSpec spec,
       AggregationContext context,
       List<Accumulator> childAccumulators,
-      boolean isRoot) throws IOException {
+      boolean isRoot)
+      throws IOException {
     String luceneField = context.resolveLuceneFieldName(spec.getPath());
     SortedSetDocValues values = buildTopLevelValues(context.getIndexReader(), luceneField);
     // None if single segment

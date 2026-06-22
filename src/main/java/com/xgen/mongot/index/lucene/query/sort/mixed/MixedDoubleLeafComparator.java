@@ -20,7 +20,7 @@ class MixedDoubleLeafComparator extends MixedNumericLeafComparator {
    * Create a leaf comparator for a column of toMqlSortableLong-encoded docValues.
    *
    * @param dv - Expected to be instantiated as Type.LONG rather than rely on Lucene's default
-   *           double decoding scheme.
+   *     double decoding scheme.
    */
   MixedDoubleLeafComparator(CompositeComparator parent, NumericDocValues dv) {
     super(parent, dv, DOUBLE_BRACKET_PRIORITY);

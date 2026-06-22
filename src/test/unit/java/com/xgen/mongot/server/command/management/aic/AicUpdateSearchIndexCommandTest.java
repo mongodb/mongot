@@ -330,15 +330,15 @@ public class AicUpdateSearchIndexCommandTest {
         "references non-existent analyzers: non-standard",
         bson(
             """
-        {
-          "name": "some-index",
-          "type": "search",
-          "definition": {
-            "mappings": {"dynamic":  true},
-            "analyzer": "non-standard",
-          }
-        }
-        """));
+            {
+              "name": "some-index",
+              "type": "search",
+              "definition": {
+                "mappings": {"dynamic":  true},
+                "analyzer": "non-standard",
+              }
+            }
+            """));
   }
 
   private void failsWithCommandFailed(String expectedMessage, BsonDocument indexDefinition)
@@ -407,8 +407,14 @@ public class AicUpdateSearchIndexCommandTest {
                 .buildSearchIndexCommand();
     var command =
         new AicUpdateSearchIndexCommand(
-            mockAic, mockGuard, DATABASE_NAME, COLLECTION_UUID, COLLECTION_NAME,
-            Optional.empty(), definition, IndexDefinitionConfig.getDefault());
+            mockAic,
+            mockGuard,
+            DATABASE_NAME,
+            COLLECTION_UUID,
+            COLLECTION_NAME,
+            Optional.empty(),
+            definition,
+            IndexDefinitionConfig.getDefault());
     var response = command.run();
 
     assertEquals(Errors.COMMAND_FAILED.code, response.getInt32("code").getValue());
@@ -436,8 +442,14 @@ public class AicUpdateSearchIndexCommandTest {
                 .buildSearchIndexCommand();
     var command =
         new AicUpdateSearchIndexCommand(
-            mockAic, mockGuard, DATABASE_NAME, COLLECTION_UUID, COLLECTION_NAME,
-            Optional.empty(), definition, IndexDefinitionConfig.getDefault());
+            mockAic,
+            mockGuard,
+            DATABASE_NAME,
+            COLLECTION_UUID,
+            COLLECTION_NAME,
+            Optional.empty(),
+            definition,
+            IndexDefinitionConfig.getDefault());
     var response = command.run();
 
     assertEquals(Errors.COMMAND_FAILED.code, response.getInt32("code").getValue());
@@ -466,7 +478,8 @@ public class AicUpdateSearchIndexCommandTest {
             COLLECTION_UUID,
             COLLECTION_NAME,
             Optional.empty(),
-            definition, IndexDefinitionConfig.getDefault());
+            definition,
+            IndexDefinitionConfig.getDefault());
     assertFalse(command.maybeLoadShed());
   }
 

@@ -97,7 +97,7 @@ public class SynonymManager {
 
     this.queueLock = new ReentrantLock();
     this.shutdown = false;
-    
+
     metricsFactory.collectionSizeGauge("queueDepth", this.requestQueue);
     this.metrics = new SynonymSyncMetrics(metricsFactory);
 
@@ -400,8 +400,7 @@ public class SynonymManager {
       @Var Optional<Runnable> completeFuture = Optional.empty();
       Timer.Sample syncSample = Timer.start();
       try {
-        SynonymMappingHighWaterMark highWaterMark =
-            request.doWork(SynonymManager.this.mongoClient);
+        SynonymMappingHighWaterMark highWaterMark = request.doWork(SynonymManager.this.mongoClient);
 
         completeFuture = Optional.of(() -> request.getFuture().complete(highWaterMark));
       } catch (Throwable e) {

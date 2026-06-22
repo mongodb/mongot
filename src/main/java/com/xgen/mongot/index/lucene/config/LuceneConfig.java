@@ -62,8 +62,8 @@ import org.slf4j.LoggerFactory;
  *     Intended to be set on shared tier clusters.
  * @param maxDocumentsPerSynonymCollection Maximum number of documents allowed in a single synonyms
  *     collection. Intended to be set on shared tier clusters.
- * @param disableMaxClauseLimit Deprecated. Use {@link #maxClauseLimit} instead. When true,
- *     disables the clause limit entirely (Integer.MAX_VALUE). Takes precedence over maxClauseLimit.
+ * @param disableMaxClauseLimit Deprecated. Use {@link #maxClauseLimit} instead. When true, disables
+ *     the clause limit entirely (Integer.MAX_VALUE). Takes precedence over maxClauseLimit.
  * @param deletesPctAllowed The maximum percentage of deleted documents allowed in the index before
  *     triggering merges to reclaim space.
  * @param forceMergeDeletesPctAllowed Percentage threshold of deleted documents that triggers
@@ -170,13 +170,12 @@ public record LuceneConfig(
     private static final Field.Optional<Double> FLOOR_SEGMENT_MB =
         Field.builder("floorSegmentMB").doubleField().optional().noDefault();
 
-    private static final Field.Optional<HysteresisConfig>
-        MERGE_POLICY_DISK_UTILIZATION_CONFIG =
-            Field.builder("mergePolicyDiskUtilizationConfig")
-                .classField(HysteresisConfig::fromBson)
-                .disallowUnknownFields()
-                .optional()
-                .noDefault();
+    private static final Field.Optional<HysteresisConfig> MERGE_POLICY_DISK_UTILIZATION_CONFIG =
+        Field.builder("mergePolicyDiskUtilizationConfig")
+            .classField(HysteresisConfig::fromBson)
+            .disallowUnknownFields()
+            .optional()
+            .noDefault();
 
     private static final Field.Optional<Long> CANCEL_MERGE_PER_THREAD_TIMEOUT_MS =
         Field.builder("cancelMergePerThreadTimeoutMs")
@@ -448,8 +447,7 @@ public record LuceneConfig(
         .field(Fields.MERGE_POLICY_DISK_UTILIZATION_CONFIG, this.mergePolicyDiskUtilizationConfig)
         .field(Fields.CANCEL_MERGE_PER_THREAD_TIMEOUT_MS, this.cancelMergePerThreadTimeoutMs)
         .field(
-            Fields.CANCEL_ALL_MERGES_PER_THREAD_TIMEOUT_MS,
-            this.cancelAllMergesPerThreadTimeoutMs)
+            Fields.CANCEL_ALL_MERGES_PER_THREAD_TIMEOUT_MS, this.cancelAllMergesPerThreadTimeoutMs)
         .build();
   }
 

@@ -19,8 +19,8 @@ public class KnnFloatVectorField extends org.apache.lucene.document.KnnFloatVect
   }
 
   private static FieldType createType(float[] vector, VectorSimilarityFunction similarityFunction) {
-    var type = new FieldType(
-        new KnnFieldType(vector.length, VectorEncoding.FLOAT32, similarityFunction));
+    var type =
+        new FieldType(new KnnFieldType(vector.length, VectorEncoding.FLOAT32, similarityFunction));
     type.freeze();
     return type;
   }

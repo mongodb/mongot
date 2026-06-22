@@ -94,8 +94,7 @@ public class ExplainInformationTestUtil {
     }
   }
 
-  public static class IgnoreTimingExplainInformationEquator<
-          T extends EqualsWithTimingEquator<T>>
+  public static class IgnoreTimingExplainInformationEquator<T extends EqualsWithTimingEquator<T>>
       implements Equator<T> {
     @Override
     public boolean equate(T o1, T o2) {

@@ -84,9 +84,7 @@ public class BsonMessageCallHandlerTest {
     RawBsonDocument result = handler.serializeResponse(toRaw(new BsonDocument()), response);
 
     RawBsonDocument reference = toRaw(response);
-    Assert.assertArrayEquals(
-        getBytes(reference),
-        getBytes(result));
+    Assert.assertArrayEquals(getBytes(reference), getBytes(result));
   }
 
   @Test

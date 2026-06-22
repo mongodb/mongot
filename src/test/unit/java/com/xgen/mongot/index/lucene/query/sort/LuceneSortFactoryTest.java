@@ -364,8 +364,7 @@ public class LuceneSortFactoryTest {
                     Optional.of(token),
                     new FieldToSortableTypesMapping(
                         ImmutableSetMultimap.of(
-                            FieldPath.newRoot("foo"),
-                            FieldName.TypeField.NUMBER_INT64_V2),
+                            FieldPath.newRoot("foo"), FieldName.TypeField.NUMBER_INT64_V2),
                         ImmutableMap.of()),
                     Optional.empty(),
                     Optional.empty()));
@@ -388,10 +387,7 @@ public class LuceneSortFactoryTest {
             .createLuceneSort(
                 sortSpec,
                 Optional.of(
-                    SequenceToken.of(
-                        id,
-                        new FieldDoc(
-                            0, 0.5f, new Object[] {new BsonInt64(5)}))),
+                    SequenceToken.of(id, new FieldDoc(0, 0.5f, new Object[] {new BsonInt64(5)}))),
                 new FieldToSortableTypesMapping(
                     ImmutableSetMultimap.of(),
                     ImmutableMap.of(
@@ -420,15 +416,9 @@ public class LuceneSortFactoryTest {
     Sort indexSort =
         new Sort(
             new SortedNumericSortField(
-                "$meta/nullness/foo",
-                SortField.Type.LONG,
-                false,
-                SortedNumericSelector.Type.MIN),
+                "$meta/nullness/foo", SortField.Type.LONG, false, SortedNumericSelector.Type.MIN),
             new SortedNumericSortField(
-                "$type:int64V2/foo",
-                SortField.Type.LONG,
-                false,
-                SortedNumericSelector.Type.MIN));
+                "$type:int64V2/foo", SortField.Type.LONG, false, SortedNumericSelector.Type.MIN));
 
     Sort sort =
         new LuceneSortFactory(newQueryFactoryContext())
@@ -464,15 +454,9 @@ public class LuceneSortFactoryTest {
     Sort indexSort =
         new Sort(
             new SortedNumericSortField(
-                "$meta/nullness/foo",
-                SortField.Type.LONG,
-                false,
-                SortedNumericSelector.Type.MIN),
+                "$meta/nullness/foo", SortField.Type.LONG, false, SortedNumericSelector.Type.MIN),
             new SortedNumericSortField(
-                "$type:int64V2/foo",
-                SortField.Type.LONG,
-                false,
-                SortedNumericSelector.Type.MIN));
+                "$type:int64V2/foo", SortField.Type.LONG, false, SortedNumericSelector.Type.MIN));
 
     BsonValue id = new BsonString("test");
     Sort sort =
@@ -482,8 +466,7 @@ public class LuceneSortFactoryTest {
                 Optional.of(
                     SequenceToken.of(
                         id,
-                        new FieldDoc(
-                            0, 0.5f, new Object[] {new BsonInt64(1), new BsonInt64(42)}))),
+                        new FieldDoc(0, 0.5f, new Object[] {new BsonInt64(1), new BsonInt64(42)}))),
                 new FieldToSortableTypesMapping(
                     ImmutableSetMultimap.of(
                         FieldPath.newRoot("foo"), FieldName.TypeField.NUMBER_INT64_V2),
@@ -511,15 +494,9 @@ public class LuceneSortFactoryTest {
     Sort indexSort =
         new Sort(
             new SortedNumericSortField(
-                "$meta/nullness/foo",
-                SortField.Type.LONG,
-                false,
-                SortedNumericSelector.Type.MIN),
+                "$meta/nullness/foo", SortField.Type.LONG, false, SortedNumericSelector.Type.MIN),
             new SortedNumericSortField(
-                "$type:int64V2/foo",
-                SortField.Type.LONG,
-                false,
-                SortedNumericSelector.Type.MIN));
+                "$type:int64V2/foo", SortField.Type.LONG, false, SortedNumericSelector.Type.MIN));
 
     BsonValue id = new BsonString("test");
     SequenceToken token =
@@ -555,15 +532,9 @@ public class LuceneSortFactoryTest {
     Sort indexSort =
         new Sort(
             new SortedNumericSortField(
-                "$meta/nullness/ts",
-                SortField.Type.LONG,
-                true,
-                SortedNumericSelector.Type.MIN),
+                "$meta/nullness/ts", SortField.Type.LONG, true, SortedNumericSelector.Type.MIN),
             new SortedNumericSortField(
-                "$type:dateV2/ts",
-                SortField.Type.LONG,
-                true,
-                SortedNumericSelector.Type.MIN));
+                "$type:dateV2/ts", SortField.Type.LONG, true, SortedNumericSelector.Type.MIN));
 
     Sort sort =
         new LuceneSortFactory(newQueryFactoryContext())
@@ -571,8 +542,7 @@ public class LuceneSortFactoryTest {
                 sortSpec,
                 Optional.empty(),
                 new FieldToSortableTypesMapping(
-                    ImmutableSetMultimap.of(
-                        FieldPath.newRoot("ts"), FieldName.TypeField.DATE_V2),
+                    ImmutableSetMultimap.of(FieldPath.newRoot("ts"), FieldName.TypeField.DATE_V2),
                     ImmutableMap.of()),
                 Optional.empty(),
                 Optional.of(indexSort));
@@ -632,8 +602,7 @@ public class LuceneSortFactoryTest {
                 sortSpec,
                 Optional.empty(),
                 new FieldToSortableTypesMapping(
-                    ImmutableSetMultimap.of(
-                        FieldPath.newRoot("name"), FieldName.TypeField.TOKEN),
+                    ImmutableSetMultimap.of(FieldPath.newRoot("name"), FieldName.TypeField.TOKEN),
                     ImmutableMap.of()),
                 Optional.empty(),
                 Optional.of(indexSort));
@@ -649,22 +618,15 @@ public class LuceneSortFactoryTest {
         new UserFieldSortOptions(SortOrder.ASC, NullEmptySortPosition.HIGHEST);
     SortSpec sortSpec =
         SortSpecBuilder.builder()
-            .sortField(
-                SortFieldBuilder.builder().path("foo").sortOption(ascNullsHighest).build())
+            .sortField(SortFieldBuilder.builder().path("foo").sortOption(ascNullsHighest).build())
             .buildSort();
 
     Sort indexSort =
         new Sort(
             new SortedNumericSortField(
-                "$meta/nullness/foo",
-                SortField.Type.LONG,
-                false,
-                SortedNumericSelector.Type.MIN),
+                "$meta/nullness/foo", SortField.Type.LONG, false, SortedNumericSelector.Type.MIN),
             new SortedNumericSortField(
-                "$type:int64V2/foo",
-                SortField.Type.LONG,
-                false,
-                SortedNumericSelector.Type.MIN));
+                "$type:int64V2/foo", SortField.Type.LONG, false, SortedNumericSelector.Type.MIN));
 
     Sort sort =
         new LuceneSortFactory(newQueryFactoryContext())
@@ -698,15 +660,9 @@ public class LuceneSortFactoryTest {
     Sort indexSort =
         new Sort(
             new SortedNumericSortField(
-                "$meta/nullness/foo",
-                SortField.Type.LONG,
-                false,
-                SortedNumericSelector.Type.MIN),
+                "$meta/nullness/foo", SortField.Type.LONG, false, SortedNumericSelector.Type.MIN),
             new SortedNumericSortField(
-                "$type:int64V2/foo",
-                SortField.Type.LONG,
-                false,
-                SortedNumericSelector.Type.MIN));
+                "$type:int64V2/foo", SortField.Type.LONG, false, SortedNumericSelector.Type.MIN));
 
     BsonValue id = new BsonString("test");
     SequenceToken token =
@@ -742,15 +698,9 @@ public class LuceneSortFactoryTest {
     Sort indexSort =
         new Sort(
             new SortedNumericSortField(
-                "$meta/nullness/foo",
-                SortField.Type.LONG,
-                false,
-                SortedNumericSelector.Type.MIN),
+                "$meta/nullness/foo", SortField.Type.LONG, false, SortedNumericSelector.Type.MIN),
             new SortedNumericSortField(
-                "$type:int64V2/foo",
-                SortField.Type.LONG,
-                false,
-                SortedNumericSelector.Type.MIN));
+                "$type:int64V2/foo", SortField.Type.LONG, false, SortedNumericSelector.Type.MIN));
 
     BsonValue id = new BsonString("test");
     SequenceToken token =
@@ -791,15 +741,9 @@ public class LuceneSortFactoryTest {
     Sort indexSort =
         new Sort(
             new SortedNumericSortField(
-                "$meta/nullness/num",
-                SortField.Type.LONG,
-                false,
-                SortedNumericSelector.Type.MIN),
+                "$meta/nullness/num", SortField.Type.LONG, false, SortedNumericSelector.Type.MIN),
             new SortedNumericSortField(
-                "$type:int64V2/num",
-                SortField.Type.LONG,
-                false,
-                SortedNumericSelector.Type.MIN),
+                "$type:int64V2/num", SortField.Type.LONG, false, SortedNumericSelector.Type.MIN),
             new SortField("$type:token/name", SortField.Type.STRING, true));
 
     Sort sort =
@@ -844,25 +788,13 @@ public class LuceneSortFactoryTest {
     Sort indexSort =
         new Sort(
             new SortedNumericSortField(
-                "$meta/nullness/a",
-                SortField.Type.LONG,
-                false,
-                SortedNumericSelector.Type.MIN),
+                "$meta/nullness/a", SortField.Type.LONG, false, SortedNumericSelector.Type.MIN),
             new SortedNumericSortField(
-                "$type:int64V2/a",
-                SortField.Type.LONG,
-                false,
-                SortedNumericSelector.Type.MIN),
+                "$type:int64V2/a", SortField.Type.LONG, false, SortedNumericSelector.Type.MIN),
             new SortedNumericSortField(
-                "$meta/nullness/b",
-                SortField.Type.LONG,
-                false,
-                SortedNumericSelector.Type.MIN),
+                "$meta/nullness/b", SortField.Type.LONG, false, SortedNumericSelector.Type.MIN),
             new SortedNumericSortField(
-                "$type:int64V2/b",
-                SortField.Type.LONG,
-                false,
-                SortedNumericSelector.Type.MIN));
+                "$type:int64V2/b", SortField.Type.LONG, false, SortedNumericSelector.Type.MIN));
 
     Sort sort =
         new LuceneSortFactory(newQueryFactoryContext())
@@ -983,8 +915,7 @@ public class LuceneSortFactoryTest {
   }
 
   @Test
-  public void createLuceneSort_doubleOnlyNoNull_usesOptimizedSort()
-      throws InvalidQueryException {
+  public void createLuceneSort_doubleOnlyNoNull_usesOptimizedSort() throws InvalidQueryException {
     SortSpec sortSpec =
         SortSpecBuilder.builder()
             .sortField(
@@ -1001,8 +932,7 @@ public class LuceneSortFactoryTest {
                 Optional.empty(),
                 new FieldToSortableTypesMapping(
                     ImmutableSetMultimap.of(
-                        FieldPath.newRoot("price"),
-                        FieldName.TypeField.NUMBER_DOUBLE_V2),
+                        FieldPath.newRoot("price"), FieldName.TypeField.NUMBER_DOUBLE_V2),
                     ImmutableMap.of()),
                 Optional.empty(),
                 Optional.empty());
@@ -1026,15 +956,9 @@ public class LuceneSortFactoryTest {
     Sort indexSort =
         new Sort(
             new SortedNumericSortField(
-                "$meta/nullness/foo",
-                SortField.Type.LONG,
-                false,
-                SortedNumericSelector.Type.MIN),
+                "$meta/nullness/foo", SortField.Type.LONG, false, SortedNumericSelector.Type.MIN),
             new SortedNumericSortField(
-                "$type:int64V2/foo",
-                SortField.Type.LONG,
-                false,
-                SortedNumericSelector.Type.MIN));
+                "$type:int64V2/foo", SortField.Type.LONG, false, SortedNumericSelector.Type.MIN));
 
     Sort sort =
         new LuceneSortFactory(newQueryFactoryContext())
@@ -1058,8 +982,7 @@ public class LuceneSortFactoryTest {
   }
 
   @Test
-  public void createLuceneSort_dateWithIndexSort_usesOptimizedSort()
-      throws InvalidQueryException {
+  public void createLuceneSort_dateWithIndexSort_usesOptimizedSort() throws InvalidQueryException {
     SortSpec sortSpec =
         SortSpecBuilder.builder()
             .sortField(
@@ -1072,15 +995,9 @@ public class LuceneSortFactoryTest {
     Sort indexSort =
         new Sort(
             new SortedNumericSortField(
-                "$meta/nullness/ts",
-                SortField.Type.LONG,
-                true,
-                SortedNumericSelector.Type.MAX),
+                "$meta/nullness/ts", SortField.Type.LONG, true, SortedNumericSelector.Type.MAX),
             new SortedNumericSortField(
-                "$type:dateV2/ts",
-                SortField.Type.LONG,
-                true,
-                SortedNumericSelector.Type.MAX));
+                "$type:dateV2/ts", SortField.Type.LONG, true, SortedNumericSelector.Type.MAX));
 
     Sort sort =
         new LuceneSortFactory(newQueryFactoryContext())
@@ -1088,8 +1005,7 @@ public class LuceneSortFactoryTest {
                 sortSpec,
                 Optional.empty(),
                 new FieldToSortableTypesMapping(
-                    ImmutableSetMultimap.of(
-                        FieldPath.newRoot("ts"), FieldName.TypeField.DATE_V2),
+                    ImmutableSetMultimap.of(FieldPath.newRoot("ts"), FieldName.TypeField.DATE_V2),
                     ImmutableMap.of()),
                 Optional.empty(),
                 Optional.of(indexSort));
@@ -1115,48 +1031,37 @@ public class LuceneSortFactoryTest {
     Sort indexSort =
         new Sort(
             new SortedNumericSortField(
-                "$meta/nullness/age",
-                SortField.Type.LONG,
-                false,
-                SortedNumericSelector.Type.MIN),
+                "$meta/nullness/age", SortField.Type.LONG, false, SortedNumericSelector.Type.MIN),
             new SortedNumericSortField(
-                "$type:int64V2/age",
-                SortField.Type.LONG,
-                false,
-                SortedNumericSelector.Type.MIN));
+                "$type:int64V2/age", SortField.Type.LONG, false, SortedNumericSelector.Type.MIN));
 
-    FieldToSortableTypesMapping shardA = new FieldToSortableTypesMapping(
-        ImmutableSetMultimap.of(
-            FieldPath.newRoot("age"),
-            FieldName.TypeField.NUMBER_INT64_V2),
-        ImmutableMap.of());
+    FieldToSortableTypesMapping shardA =
+        new FieldToSortableTypesMapping(
+            ImmutableSetMultimap.of(FieldPath.newRoot("age"), FieldName.TypeField.NUMBER_INT64_V2),
+            ImmutableMap.of());
 
-    FieldToSortableTypesMapping shardB = new FieldToSortableTypesMapping(
-        ImmutableSetMultimap.of(
-            FieldPath.newRoot("age"), FieldName.TypeField.TOKEN),
-        ImmutableMap.of());
+    FieldToSortableTypesMapping shardB =
+        new FieldToSortableTypesMapping(
+            ImmutableSetMultimap.of(FieldPath.newRoot("age"), FieldName.TypeField.TOKEN),
+            ImmutableMap.of());
 
-    FieldToSortableTypesMapping shardC = new FieldToSortableTypesMapping(
-        ImmutableSetMultimap.of(), ImmutableMap.of());
+    FieldToSortableTypesMapping shardC =
+        new FieldToSortableTypesMapping(ImmutableSetMultimap.of(), ImmutableMap.of());
 
-    FieldToSortableTypesMapping shardD = new FieldToSortableTypesMapping(
-        ImmutableSetMultimap.of(
-            FieldPath.newRoot("age"), FieldName.TypeField.NULL),
-        ImmutableMap.of());
+    FieldToSortableTypesMapping shardD =
+        new FieldToSortableTypesMapping(
+            ImmutableSetMultimap.of(FieldPath.newRoot("age"), FieldName.TypeField.NULL),
+            ImmutableMap.of());
 
-    LuceneSortFactory factory =
-        new LuceneSortFactory(newQueryFactoryContext());
+    LuceneSortFactory factory = new LuceneSortFactory(newQueryFactoryContext());
 
-    for (FieldToSortableTypesMapping mapping :
-        List.of(shardA, shardB, shardC, shardD)) {
-      Sort sort = factory.createLuceneSort(
-          sortSpec, Optional.empty(), mapping,
-          Optional.empty(), Optional.of(indexSort));
+    for (FieldToSortableTypesMapping mapping : List.of(shardA, shardB, shardC, shardD)) {
+      Sort sort =
+          factory.createLuceneSort(
+              sortSpec, Optional.empty(), mapping, Optional.empty(), Optional.of(indexSort));
       Truth.assertThat(sort.getSort().length).isEqualTo(2);
-      Truth.assertThat(sort.getSort()[0])
-          .isInstanceOf(MqlNullnessSortField.class);
-      Truth.assertThat(sort.getSort()[0].getField())
-          .isEqualTo("$meta/nullness/age");
+      Truth.assertThat(sort.getSort()[0]).isInstanceOf(MqlNullnessSortField.class);
+      Truth.assertThat(sort.getSort()[0].getField()).isEqualTo("$meta/nullness/age");
     }
   }
 

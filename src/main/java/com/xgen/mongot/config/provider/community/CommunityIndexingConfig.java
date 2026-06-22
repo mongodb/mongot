@@ -9,9 +9,7 @@ import java.util.Optional;
 import org.apache.commons.lang3.Range;
 import org.bson.BsonDocument;
 
-/**
- * The {@code indexing} block of the Community mongot config file.
- */
+/** The {@code indexing} block of the Community mongot config file. */
 public record CommunityIndexingConfig(
     Optional<LuceneConfig> luceneConfig, Optional<IndexDefinitionConfig> definitionConfig)
     implements DocumentEncodable {
@@ -105,8 +103,7 @@ public record CommunityIndexingConfig(
           .build();
     }
 
-    public record RefreshConfig(Optional<Integer> intervalMs)
-        implements DocumentEncodable {
+    public record RefreshConfig(Optional<Integer> intervalMs) implements DocumentEncodable {
 
       static class Fields {
         public static final Field.Optional<Integer> INTERVAL_MS =
@@ -114,15 +111,12 @@ public record CommunityIndexingConfig(
       }
 
       public static RefreshConfig fromBson(DocumentParser parser) throws BsonParseException {
-        return new RefreshConfig(
-            parser.getField(Fields.INTERVAL_MS).unwrap());
+        return new RefreshConfig(parser.getField(Fields.INTERVAL_MS).unwrap());
       }
 
       @Override
       public BsonDocument toBson() {
-        return BsonDocumentBuilder.builder()
-            .field(Fields.INTERVAL_MS, this.intervalMs)
-            .build();
+        return BsonDocumentBuilder.builder().field(Fields.INTERVAL_MS, this.intervalMs).build();
       }
     }
 
@@ -150,8 +144,7 @@ public record CommunityIndexingConfig(
       }
 
       public record TieredMergePolicyConfig(
-          Optional<VectorMergePolicyConfig> vectorMergePolicyConfig)
-          implements DocumentEncodable {
+          Optional<VectorMergePolicyConfig> vectorMergePolicyConfig) implements DocumentEncodable {
 
         static class Fields {
           public static final Field.Optional<VectorMergePolicyConfig> VECTOR_MERGE_POLICY_CONFIG =
@@ -212,8 +205,7 @@ public record CommunityIndexingConfig(
                     .noDefault();
       }
 
-      public static MergeSchedulerConfig fromBson(DocumentParser parser)
-          throws BsonParseException {
+      public static MergeSchedulerConfig fromBson(DocumentParser parser) throws BsonParseException {
         return new MergeSchedulerConfig(
             parser.getField(Fields.CONCURRENT_MERGE_SCHEDULER_CONFIG).unwrap());
       }
@@ -269,8 +261,7 @@ public record CommunityIndexingConfig(
     @Override
     public BsonDocument toBson() {
       return BsonDocumentBuilder.builder()
-          .field(
-              Fields.MAX_EMBEDDED_DOCUMENTS_NESTING_LEVEL, this.maxEmbeddedDocumentsNestingLevel)
+          .field(Fields.MAX_EMBEDDED_DOCUMENTS_NESTING_LEVEL, this.maxEmbeddedDocumentsNestingLevel)
           .build();
     }
   }

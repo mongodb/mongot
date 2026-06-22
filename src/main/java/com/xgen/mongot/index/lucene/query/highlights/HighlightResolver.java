@@ -102,11 +102,9 @@ public class HighlightResolver {
 
     Map<String, String> storedLuceneFieldNameMap =
         resolvedValidatedLuceneFieldNames.stream()
-            .collect(Collectors.toMap(
-                Function.identity(),
-                this::getStoredLuceneField,
-                (a, b) -> a,
-                HashMap::new));
+            .collect(
+                Collectors.toMap(
+                    Function.identity(), this::getStoredLuceneField, (a, b) -> a, HashMap::new));
 
     return Highlight.create(storedLuceneFieldNameMap, unresolvedHighlight);
   }
@@ -314,7 +312,7 @@ public class HighlightResolver {
     FieldPath baseFieldPath = multiFieldPath.getFieldPath();
 
     return this.queryTimeMappingChecks.isHighlightableStringField(
-        new StringFieldPath(baseFieldPath), Optional.empty())
+            new StringFieldPath(baseFieldPath), Optional.empty())
         ? FieldName.TypeField.STRING.getLuceneFieldName(baseFieldPath, Optional.empty())
         : luceneFieldName;
   }

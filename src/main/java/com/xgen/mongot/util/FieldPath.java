@@ -135,9 +135,7 @@ public class FieldPath {
     return false;
   }
 
-  /**
-   * Returns true if `other` is either an ancestor, descendant, or equal to `this` FieldPath.
-   */
+  /** Returns true if `other` is either an ancestor, descendant, or equal to `this` FieldPath. */
   public boolean isDirectRelation(FieldPath other) {
     int numSegments = this.hierarchy.size();
     int otherSegments = other.hierarchy.size();

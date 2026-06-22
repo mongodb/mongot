@@ -9,14 +9,13 @@ import java.util.Optional;
 import org.bson.BsonDocument;
 
 public record LuceneMetadataExplainInformation(
-    Optional<Integer> totalSegments, Optional<Integer> totalDocs)
-    implements DocumentEncodable {
+    Optional<Integer> totalSegments, Optional<Integer> totalDocs) implements DocumentEncodable {
   static class Fields {
     static final Field.Optional<Integer> TOTAL_SEGMENTS =
         Field.builder("totalSegments").intField().optional().noDefault();
 
     static final Field.Optional<Integer> TOTAL_DOCS =
-            Field.builder("totalDocs").intField().optional().noDefault();
+        Field.builder("totalDocs").intField().optional().noDefault();
   }
 
   public static LuceneMetadataExplainInformation fromBson(DocumentParser parser)

@@ -94,7 +94,8 @@ public class InitialSyncExceptionTest {
       InitialSyncException.wrapIfThrows(
           () -> {
             throw new InterruptedException();
-          }, InitialSyncException.Phase.MAIN);
+          },
+          InitialSyncException.Phase.MAIN);
     } catch (InitialSyncException e) {
       Assert.assertTrue(e.isShutdown());
     }
@@ -106,7 +107,8 @@ public class InitialSyncExceptionTest {
       InitialSyncException.wrapIfThrows(
           () -> {
             throw new MongoException("exception");
-          }, InitialSyncException.Phase.MAIN);
+          },
+          InitialSyncException.Phase.MAIN);
       Assert.fail("did not throw exception when MongoException was thrown");
     } catch (InitialSyncException e) {
       Assert.assertTrue(e.isRequiresResync());
@@ -119,7 +121,8 @@ public class InitialSyncExceptionTest {
       InitialSyncException.wrapIfThrows(
           () -> {
             throw mock(MongoSocketException.class);
-          }, InitialSyncException.Phase.MAIN);
+          },
+          InitialSyncException.Phase.MAIN);
       Assert.fail("did not throw exception when MongoSocketException was thrown");
     } catch (InitialSyncException e) {
       Assert.assertTrue(e.isResumableTransient());
@@ -132,7 +135,8 @@ public class InitialSyncExceptionTest {
       InitialSyncException.wrapIfThrows(
           () -> {
             throw new MongoException(9001, "socket exception");
-          }, InitialSyncException.Phase.MAIN);
+          },
+          InitialSyncException.Phase.MAIN);
       Assert.fail("did not throw exception when MongoException was thrown");
     } catch (InitialSyncException e) {
       Assert.assertTrue(e.isResumableTransient());
@@ -144,13 +148,14 @@ public class InitialSyncExceptionTest {
     try {
       InitialSyncException.wrapIfThrowsCollectionScan(
           () -> {
-            throw new MongoException(Errors.BSON_OBJECT_TOO_LARGE.code,
-                "BSONObjectTooLarge exception");
+            throw new MongoException(
+                Errors.BSON_OBJECT_TOO_LARGE.code, "BSONObjectTooLarge exception");
           });
       Assert.fail("did not throw exception when MongoException was thrown");
     } catch (InitialSyncException e) {
       var collectionScanMessage =
-          String.format(InitialSyncException.BSON_TOO_LARGE_MESSAGE,
+          String.format(
+              InitialSyncException.BSON_TOO_LARGE_MESSAGE,
               InitialSyncException.Phase.COLLECTION_SCAN.name());
       Assert.assertEquals(collectionScanMessage, e.getMessage());
       Assert.assertTrue(e.isRequiresResync());
@@ -159,13 +164,14 @@ public class InitialSyncExceptionTest {
     try {
       InitialSyncException.wrapIfThrowsChangeStream(
           () -> {
-            throw new MongoException(Errors.BSON_OBJECT_TOO_LARGE.code,
-                "BSONObjectTooLarge exception");
+            throw new MongoException(
+                Errors.BSON_OBJECT_TOO_LARGE.code, "BSONObjectTooLarge exception");
           });
       Assert.fail("did not throw exception when MongoException was thrown");
     } catch (InitialSyncException e) {
       var changeStreamMessage =
-          String.format(InitialSyncException.BSON_TOO_LARGE_MESSAGE,
+          String.format(
+              InitialSyncException.BSON_TOO_LARGE_MESSAGE,
               InitialSyncException.Phase.CHANGE_STREAM.name());
       Assert.assertEquals(changeStreamMessage, e.getMessage());
       Assert.assertTrue(e.isRequiresResync());
@@ -177,7 +183,8 @@ public class InitialSyncExceptionTest {
       InitialSyncException.wrapIfThrows(
           () -> {
             throw bsonObjectTooLargeException;
-          }, InitialSyncException.Phase.MAIN);
+          },
+          InitialSyncException.Phase.MAIN);
       Assert.fail("did not throw exception when MongoException was thrown");
     } catch (InitialSyncException e) {
       Assert.assertEquals(bsonObjectTooLargeException.toString(), e.getMessage());
@@ -191,7 +198,8 @@ public class InitialSyncExceptionTest {
       InitialSyncException.wrapIfThrows(
           () -> {
             throw NamespaceResolutionException.create();
-          }, InitialSyncException.Phase.MAIN);
+          },
+          InitialSyncException.Phase.MAIN);
       Assert.fail("did not throw exception when NamespaceResolutionException was thrown");
     } catch (InitialSyncException e) {
       Assert.assertTrue(e.isDropped());
@@ -204,7 +212,8 @@ public class InitialSyncExceptionTest {
       InitialSyncException.wrapIfThrows(
           () -> {
             throw InitialSyncException.createDropped();
-          }, InitialSyncException.Phase.MAIN);
+          },
+          InitialSyncException.Phase.MAIN);
       Assert.fail("did not throw exception when InitialSyncException was thrown");
     } catch (InitialSyncException e) {
       Assert.assertTrue(e.isDropped());
@@ -217,7 +226,8 @@ public class InitialSyncExceptionTest {
       InitialSyncException.wrapIfThrows(
           () -> {
             throw new IllegalStateException();
-          }, InitialSyncException.Phase.MAIN);
+          },
+          InitialSyncException.Phase.MAIN);
     } catch (IllegalStateException e) {
       // Expected
       return;
@@ -234,7 +244,8 @@ public class InitialSyncExceptionTest {
             InitialSyncException.wrapIfThrows(
                 () -> {
                   throw new OutOfMemoryError();
-                }, InitialSyncException.Phase.MAIN));
+                },
+                InitialSyncException.Phase.MAIN));
   }
 
   @Test
@@ -246,22 +257,24 @@ public class InitialSyncExceptionTest {
                 InitialSyncException.wrapIfThrows(
                     () -> {
                       throw new FieldExceededLimitsException("reason");
-                    }, InitialSyncException.Phase.MAIN));
+                    },
+                    InitialSyncException.Phase.MAIN));
     Assert.assertSame(InitialSyncException.Type.FIELD_EXCEEDED, e.getType());
     Assert.assertEquals("reason", e.getMessage());
   }
 
   @Test
   public void testWrapIfThrowsIngressRateLimitTransientError() {
-    var e = Assert.assertThrows(
-        InitialSyncException.class,
-        () ->
-            InitialSyncException.wrapIfThrows(
-                () -> {
-                  throw new MongoException(
-                      462 /* IngressRequestRateLimitExceeded */, "server overloaded exception");
-                },
-                InitialSyncException.Phase.MAIN));
+    var e =
+        Assert.assertThrows(
+            InitialSyncException.class,
+            () ->
+                InitialSyncException.wrapIfThrows(
+                    () -> {
+                      throw new MongoException(
+                          462 /* IngressRequestRateLimitExceeded */, "server overloaded exception");
+                    },
+                    InitialSyncException.Phase.MAIN));
 
     Assert.assertEquals(InitialSyncException.Type.RESUMABLE_TRANSIENT, e.getType());
   }
@@ -291,9 +304,10 @@ public class InitialSyncExceptionTest {
   @Test
   public void testGetOrWrapThrowableHandlesMongodbInterruptedException() {
     var future = CompletableFuture.failedFuture(mock(MongoInterruptedException.class));
-    var e = Assert.assertThrows(
-        InitialSyncException.class,
-        () -> InitialSyncException.getOrWrapThrowable(future, InitialSyncException.Phase.MAIN));
+    var e =
+        Assert.assertThrows(
+            InitialSyncException.class,
+            () -> InitialSyncException.getOrWrapThrowable(future, InitialSyncException.Phase.MAIN));
     Assert.assertEquals(InitialSyncException.Type.SHUT_DOWN, e.getType());
   }
 }

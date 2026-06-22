@@ -220,8 +220,7 @@ public class BinaryQuantizedVectorRescorer {
   }
 
   private static BitSet computeChildFilterBitSet(
-      Weight childFilterWeight, LeafReaderContext segment)
-      throws IOException {
+      Weight childFilterWeight, LeafReaderContext segment) throws IOException {
     Scorer filterScorer = childFilterWeight.scorer(segment);
     return filterScorer != null
         ? BitSet.of(filterScorer.iterator(), segment.reader().maxDoc())
@@ -270,7 +269,8 @@ public class BinaryQuantizedVectorRescorer {
       Arrays.sort(topDocsCopy.scoreDocs, Comparator.comparingInt(hit -> hit.doc));
       List<LeafReaderContext> segments = searcher.getIndexReader().leaves();
 
-      @Nullable Weight childFilterWeight =
+      @Nullable
+      Weight childFilterWeight =
           createChildFilterWeight(searcher, this.query, this.parentFilter.isPresent());
 
       @Var int i = 0;
@@ -311,7 +311,8 @@ public class BinaryQuantizedVectorRescorer {
         VectorScorer scorer = vectorValues.scorer(queryVector);
 
         if (this.parentFilter.isPresent()) {
-          @Nullable BitSet childFilterBitSet =
+          @Nullable
+          BitSet childFilterBitSet =
               childFilterWeight != null
                   ? computeChildFilterBitSet(childFilterWeight, segment)
                   : null;
@@ -393,7 +394,8 @@ public class BinaryQuantizedVectorRescorer {
       List<LeafReaderContext> segments = searcher.getIndexReader().leaves();
       List<Callable<Void>> tasks = new ArrayList<>();
 
-      @Nullable Weight childFilterWeight =
+      @Nullable
+      Weight childFilterWeight =
           createChildFilterWeight(searcher, this.query, this.parentFilter.isPresent());
 
       @Var int i = 0;
@@ -416,7 +418,8 @@ public class BinaryQuantizedVectorRescorer {
 
         if (this.parentFilter.isPresent()) {
           BitSetProducer filter = this.parentFilter.get();
-          @Nullable BitSet childFilterBitSet =
+          @Nullable
+          BitSet childFilterBitSet =
               childFilterWeight != null
                   ? computeChildFilterBitSet(childFilterWeight, segment)
                   : null;

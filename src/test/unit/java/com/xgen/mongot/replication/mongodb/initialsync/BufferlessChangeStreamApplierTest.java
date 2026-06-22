@@ -140,11 +140,11 @@ public class BufferlessChangeStreamApplierTest {
 
       Assert.assertTrue(
           indexMetricsUpdater
-          .getReplicationMetricsUpdater()
-          .getInitialSyncMetrics()
-          .getTotalApplicableBytes()
-          .count()
-          > 0);
+                  .getReplicationMetricsUpdater()
+                  .getInitialSyncMetrics()
+                  .getTotalApplicableBytes()
+                  .count()
+              > 0);
     }
   }
 

@@ -1,9 +1,9 @@
 package com.xgen.mongot.index.status;
 
 public interface StatusReason {
-  
+
   String formatMessage(Object... details);
-  
+
   static String getString(String text, Object[] details) {
     int placeholderCount = text.split("%s", -1).length - 1;
     if (placeholderCount == 0) {
@@ -17,5 +17,3 @@ public interface StatusReason {
     return String.format(text, details);
   }
 }
-
-

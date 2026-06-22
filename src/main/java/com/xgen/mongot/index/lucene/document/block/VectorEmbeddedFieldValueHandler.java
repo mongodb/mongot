@@ -73,15 +73,15 @@ class VectorEmbeddedFieldValueHandler implements FieldValueHandler {
       byte[] id,
       ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings) {
     return new VectorEmbeddedFieldValueHandler(
-            wrappedValueHandler,
-            documentBlock,
-            fieldDefinition,
-            mapping,
-            indexingMetricsUpdater,
-            indexCapabilities,
-            path,
-            id,
-            autoEmbeddings);
+        wrappedValueHandler,
+        documentBlock,
+        fieldDefinition,
+        mapping,
+        indexingMetricsUpdater,
+        indexCapabilities,
+        path,
+        id,
+        autoEmbeddings);
   }
 
   /**
@@ -187,16 +187,17 @@ class VectorEmbeddedFieldValueHandler implements FieldValueHandler {
 
   @Override
   public Optional<FieldValueHandler> arrayFieldValueHandler() {
-    return Optional.of(VectorEmbeddedFieldValueHandler.create(
-        this.wrappedFieldValueHandler.flatMap(FieldValueHandler::arrayFieldValueHandler),
-        this.documentBlock,
-        this.fieldDefinition,
-        this.mapping,
-        this.indexingMetricsUpdater,
-        this.indexCapabilities,
-        this.path,
-        this.id,
-        this.autoEmbeddings));
+    return Optional.of(
+        VectorEmbeddedFieldValueHandler.create(
+            this.wrappedFieldValueHandler.flatMap(FieldValueHandler::arrayFieldValueHandler),
+            this.documentBlock,
+            this.fieldDefinition,
+            this.mapping,
+            this.indexingMetricsUpdater,
+            this.indexCapabilities,
+            this.path,
+            this.id,
+            this.autoEmbeddings));
   }
 
   /**
@@ -206,8 +207,8 @@ class VectorEmbeddedFieldValueHandler implements FieldValueHandler {
    * VectorEmbeddedDocumentsFieldDefinition), create a new {@link VectorEmbeddedDocumentBuilder} to
    * build the new embedded document, and return it along with the wrapped sub document handler.
    *
-   * <p>If this handler is for an intermediate ancestor path of the {@code nestedRoot} (i.e.,
-   * {@code fieldDefinition} is null), the sub-document handler is wrapped in a {@link
+   * <p>If this handler is for an intermediate ancestor path of the {@code nestedRoot} (i.e., {@code
+   * fieldDefinition} is null), the sub-document handler is wrapped in a {@link
    * VectorEmbeddedDocumentHandler} so that traversal continues with embedded-root awareness.
    */
   @Override
@@ -270,4 +271,3 @@ class VectorEmbeddedFieldValueHandler implements FieldValueHandler {
     return wrappedSubDocumentHandler;
   }
 }
-

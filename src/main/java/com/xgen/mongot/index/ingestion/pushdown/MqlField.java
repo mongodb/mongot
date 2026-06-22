@@ -3,12 +3,12 @@ package com.xgen.mongot.index.ingestion.pushdown;
 import com.xgen.mongot.util.FieldPath;
 import java.util.Locale;
 
-/** This enum represents field types needed to support MQL semantics for pushdown. Each BSON type
- * has a corresponding field name so that we can preserve type information for project, plus two
- * meta fields FALLBACK_MARKER and PROJECTION.
+/**
+ * This enum represents field types needed to support MQL semantics for pushdown. Each BSON type has
+ * a corresponding field name so that we can preserve type information for project, plus two meta
+ * fields FALLBACK_MARKER and PROJECTION.
  */
 public enum MqlField {
-
   MIN_KEY,
   UNDEFINED,
   NULL,
@@ -46,4 +46,3 @@ public enum MqlField {
     return this.prefix + path;
   }
 }
-

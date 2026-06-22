@@ -25,14 +25,15 @@ public class SafeKeyValuePairsJsonProvider extends AbstractJsonProvider<ILogging
    * Safely writes key-value pairs from the logging event to the JSON generator.
    *
    * <p>This method filters key-value pairs in the following scenarios:
+   *
    * <ul>
-   *   <li>If the key is null or blank</li>
-   *   <li>If the value is an empty {@link Optional}</li>
-   *   <li>If the key has been overridden by a subsequent key value pair</li>
+   *   <li>If the key is null or blank
+   *   <li>If the value is an empty {@link Optional}
+   *   <li>If the key has been overridden by a subsequent key value pair
    * </ul>
    *
    * @param generator the JsonGenerator to write to
-   * @param event     the logging event containing the key-value pairs
+   * @param event the logging event containing the key-value pairs
    */
   @Override
   public void writeTo(JsonGenerator generator, ILoggingEvent event) throws IOException {
@@ -57,10 +58,7 @@ public class SafeKeyValuePairsJsonProvider extends AbstractJsonProvider<ILogging
   // duplicate key.
   private List<KeyValuePair> handleDuplicates(List<KeyValuePair> keyValuePairs) {
     Set<String> keysSeen = new HashSet<>();
-    return keyValuePairs.reversed().stream()
-        .filter(e -> keysSeen.add(e.key))
-        .toList()
-        .reversed();
+    return keyValuePairs.reversed().stream().filter(e -> keysSeen.add(e.key)).toList().reversed();
   }
 
   private boolean shouldPrintValue(Object value) {

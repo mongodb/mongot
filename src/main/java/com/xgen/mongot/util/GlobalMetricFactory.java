@@ -10,8 +10,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Singleton global metric factory for metrics that should exist globally
- * across Mongot, e.g., unreachable code counters.
+ * Singleton global metric factory for metrics that should exist globally across Mongot, e.g.,
+ * unreachable code counters.
  *
  * <p>This version is self-contained and does not depend on MetricsFactory.
  */
@@ -54,11 +54,13 @@ public final class GlobalMetricFactory {
   public static void incrementUnreachable(@CompileTimeConstant String reason) {
     Optional<MeterRegistry> maybeRegistry = meterRegistry;
     if (maybeRegistry.isEmpty()) {
-      LOGGER.atError()
+      LOGGER
+          .atError()
           .setCause(new Throwable("stacktrace"))
           .addKeyValue("reason", reason)
-          .log("Invariant violated (this is a bug). "
-              + "Please file a report with the attached stacktrace");
+          .log(
+              "Invariant violated (this is a bug). "
+                  + "Please file a report with the attached stacktrace");
       return;
     }
 

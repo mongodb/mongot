@@ -287,12 +287,10 @@ public class DefaultIndexingPolicyTest {
 
     // Root document is built last in DocumentBlock.build() (children first, then buildRoot())
     Document rootDocument = block.get(block.size() - 1);
-    String storedSourceFieldName =
-        FieldName.StaticField.STORED_SOURCE.getLuceneFieldName();
+    String storedSourceFieldName = FieldName.StaticField.STORED_SOURCE.getLuceneFieldName();
     assertNotNull(
         "Root document should have stored source field when index has storedSource and nestedRoot "
             + "(RootDocumentBuilder must wrap the root)",
         rootDocument.getField(storedSourceFieldName));
   }
-
 }

@@ -33,11 +33,11 @@ public class MongotKnnByteQuery extends KnnByteVectorQuery {
    * target vector.
    *
    * @param metrics - a metrics updater that holds counters relating to query execution.
-   * @param field   – the lucene field name that has been indexed as a KnnByteVectorField.
-   * @param target  – the target query vector
-   * @param k       – the number of documents to find
-   * @param filter  – an optional filter applied before the vector search, or null if the search is
-   *                unfiltered.
+   * @param field – the lucene field name that has been indexed as a KnnByteVectorField.
+   * @param target – the target query vector
+   * @param k – the number of documents to find
+   * @param filter – an optional filter applied before the vector search, or null if the search is
+   *     unfiltered.
    * @throws IllegalArgumentException – if k is less than 1
    */
   public MongotKnnByteQuery(

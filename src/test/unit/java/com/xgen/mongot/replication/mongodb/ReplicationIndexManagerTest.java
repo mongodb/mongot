@@ -50,7 +50,6 @@ import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.index.version.UserIndexVersion;
 import com.xgen.mongot.metrics.PerIndexMetricsFactory;
-import com.xgen.mongot.replication.mongodb.IndexManager;
 import com.xgen.mongot.replication.mongodb.IndexManager.State;
 import com.xgen.mongot.replication.mongodb.ReplicationIndexManager.FailedIndexAction;
 import com.xgen.mongot.replication.mongodb.common.BufferlessIdOrderInitialSyncResumeInfo;
@@ -146,8 +145,7 @@ public class ReplicationIndexManagerTest {
       assertThat(mocks.index.getStatus().getMessage().orElseThrow())
           .startsWith("replication failed (action=drop): ");
       verifyNoInteractions(mocks.initialSyncQueue, mocks.steadyStateManager);
-      mocks.assertStateTransitions(
-          IndexManager.State.INITIALIZING, IndexManager.State.FAILED);
+      mocks.assertStateTransitions(IndexManager.State.INITIALIZING, IndexManager.State.FAILED);
 
       mocks.assertDropMetric(Reason.INITIALIZATION_FAILED);
     }
@@ -196,8 +194,7 @@ public class ReplicationIndexManagerTest {
       inOrder.verifyNoMoreInteractions();
 
       verifyNoInteractions(mocks.initialSyncQueue, mocks.steadyStateManager);
-      mocks.assertStateTransitions(
-          IndexManager.State.INITIALIZING, IndexManager.State.FAILED);
+      mocks.assertStateTransitions(IndexManager.State.INITIALIZING, IndexManager.State.FAILED);
     }
   }
 
@@ -241,8 +238,7 @@ public class ReplicationIndexManagerTest {
 
       inOrder.verifyNoMoreInteractions();
       mocks.assertStateTransitions(
-          IndexManager.State.INITIAL_SYNC,
-          IndexManager.State.INITIAL_SYNC_BACKOFF);
+          IndexManager.State.INITIAL_SYNC, IndexManager.State.INITIAL_SYNC_BACKOFF);
       mocks.assertMetric(
           InitialSyncException.class,
           InitialSyncException.Type.REQUIRES_RESYNC.name(),
@@ -298,8 +294,7 @@ public class ReplicationIndexManagerTest {
           .enqueue(any(), any(), any(), any(), anyBoolean(), anyBoolean());
 
       mocks.assertStateTransitions(
-          IndexManager.State.INITIAL_SYNC,
-          IndexManager.State.INITIAL_SYNC_BACKOFF);
+          IndexManager.State.INITIAL_SYNC, IndexManager.State.INITIAL_SYNC_BACKOFF);
 
       InOrder inOrder = inOrder(mocks.index);
 
@@ -463,8 +458,7 @@ public class ReplicationIndexManagerTest {
       mocks.manager.shutdown();
       verify(mocks.initialSyncQueue).cancel(eq(MOCK_INDEX_GENERATION_ID));
       verify(mocks.synonymMappingManager).shutdown();
-      mocks.assertStateTransitions(
-          IndexManager.State.INITIAL_SYNC, IndexManager.State.SHUT_DOWN);
+      mocks.assertStateTransitions(IndexManager.State.INITIAL_SYNC, IndexManager.State.SHUT_DOWN);
     }
   }
 
@@ -627,8 +621,7 @@ public class ReplicationIndexManagerTest {
       verify(mocks.index, timeout(1000))
           .setStatus(indexStatusWithCode(IndexStatus.StatusCode.DOES_NOT_EXIST));
 
-      mocks.assertStateTransitions(
-          IndexManager.State.INITIAL_SYNC, IndexManager.State.SHUT_DOWN);
+      mocks.assertStateTransitions(IndexManager.State.INITIAL_SYNC, IndexManager.State.SHUT_DOWN);
 
       mocks.assertDropMetric(Reason.INDEX_DROPPED);
     }
@@ -647,8 +640,7 @@ public class ReplicationIndexManagerTest {
                   IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED));
       assertThat(mocks.index.getStatus().getMessage().orElseThrow())
           .startsWith("replication failed (action=drop): ");
-      mocks.assertStateTransitions(
-          IndexManager.State.INITIAL_SYNC, IndexManager.State.FAILED);
+      mocks.assertStateTransitions(IndexManager.State.INITIAL_SYNC, IndexManager.State.FAILED);
 
       mocks.assertDropMetric(Reason.INITIAL_SYNC_REPLICATION_FAILED);
       mocks.assertFailedIndexMetric(
@@ -664,8 +656,7 @@ public class ReplicationIndexManagerTest {
           .enqueue(any(), any(), any(), any(), anyBoolean(), anyBoolean());
 
       mocks.assertStateTransitions(
-          IndexManager.State.INITIAL_SYNC,
-          IndexManager.State.INITIAL_SYNC_BACKOFF);
+          IndexManager.State.INITIAL_SYNC, IndexManager.State.INITIAL_SYNC_BACKOFF);
     }
   }
 
@@ -680,8 +671,7 @@ public class ReplicationIndexManagerTest {
                   IndexStatus.StatusCode.FAILED,
                   IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED));
 
-      mocks.assertStateTransitions(
-          IndexManager.State.INITIAL_SYNC, IndexManager.State.FAILED);
+      mocks.assertStateTransitions(IndexManager.State.INITIAL_SYNC, IndexManager.State.FAILED);
       mocks.assertFailedIndexMetric(
           FailedIndexAction.DROP, State.INITIAL_SYNC, RuntimeException.class);
     }
@@ -691,9 +681,7 @@ public class ReplicationIndexManagerTest {
   public void testFailedInitialSyncExceptionRetainInitialSyncDataOnDiskFlagEnabled_closeIndex()
       throws Exception {
     var featureFlags =
-        FeatureFlags.withDefaults()
-            .enable(Feature.RETAIN_FAILED_INITIAL_SYNC_DATA_ON_DISK)
-            .build();
+        FeatureFlags.withDefaults().enable(Feature.RETAIN_FAILED_INITIAL_SYNC_DATA_ON_DISK).build();
 
     // Exception type is InitialSyncException.
     try (Mocks mocks =
@@ -711,8 +699,7 @@ public class ReplicationIndexManagerTest {
                   IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED));
       assertThat(mocks.index.getStatus().getMessage().orElseThrow())
           .startsWith("replication failed (action=close): ");
-      mocks.assertStateTransitions(
-          IndexManager.State.INITIAL_SYNC, IndexManager.State.FAILED);
+      mocks.assertStateTransitions(IndexManager.State.INITIAL_SYNC, IndexManager.State.FAILED);
       mocks.assertFailedIndexMetric(
           FailedIndexAction.CLOSE, State.INITIAL_SYNC, InitialSyncException.class);
     }
@@ -741,8 +728,7 @@ public class ReplicationIndexManagerTest {
                   IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED));
       assertThat(mocks.index.getStatus().getMessage().orElseThrow())
           .startsWith("replication failed (action=drop): ");
-      mocks.assertStateTransitions(
-          IndexManager.State.INITIAL_SYNC, IndexManager.State.FAILED);
+      mocks.assertStateTransitions(IndexManager.State.INITIAL_SYNC, IndexManager.State.FAILED);
       mocks.assertFailedIndexMetric(
           FailedIndexAction.DROP, State.INITIAL_SYNC, InitialSyncException.class);
     }
@@ -752,14 +738,12 @@ public class ReplicationIndexManagerTest {
   public void testUnexpectedExceptionRetainInitialSyncDataOnDiskFlagEnabled_closeIndex()
       throws Exception {
     var featureFlags =
-        FeatureFlags.withDefaults()
-            .enable(Feature.RETAIN_FAILED_INITIAL_SYNC_DATA_ON_DISK)
-            .build();
+        FeatureFlags.withDefaults().enable(Feature.RETAIN_FAILED_INITIAL_SYNC_DATA_ON_DISK).build();
 
     // Exception type is not InitialSyncException.
     try (Mocks mocks =
-        Mocks.exceptionalInitialSyncWithFeatureFlag(new RuntimeException("unexpected"),
-                                                    featureFlags)) {
+        Mocks.exceptionalInitialSyncWithFeatureFlag(
+            new RuntimeException("unexpected"), featureFlags)) {
       // Verify index is closed, but NOT dropped
       verify(mocks.index, timeout(5000)).close();
       verify(mocks.index, never()).drop();
@@ -770,8 +754,7 @@ public class ReplicationIndexManagerTest {
                   IndexStatus.StatusCode.FAILED,
                   IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED));
 
-      mocks.assertStateTransitions(
-          IndexManager.State.INITIAL_SYNC, IndexManager.State.FAILED);
+      mocks.assertStateTransitions(IndexManager.State.INITIAL_SYNC, IndexManager.State.FAILED);
       mocks.assertFailedIndexMetric(
           FailedIndexAction.CLOSE, State.INITIAL_SYNC, RuntimeException.class);
     }
@@ -787,8 +770,8 @@ public class ReplicationIndexManagerTest {
 
     // Exception type is not InitialSyncException.
     try (Mocks mocks =
-        Mocks.exceptionalInitialSyncWithFeatureFlag(new RuntimeException("unexpected"),
-                                                    featureFlags)) {
+        Mocks.exceptionalInitialSyncWithFeatureFlag(
+            new RuntimeException("unexpected"), featureFlags)) {
       verify(mocks.index, timeout(5000)).close();
       verify(mocks.index, timeout(5000)).drop();
 
@@ -798,8 +781,7 @@ public class ReplicationIndexManagerTest {
                   IndexStatus.StatusCode.FAILED,
                   IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED));
 
-      mocks.assertStateTransitions(
-          IndexManager.State.INITIAL_SYNC, IndexManager.State.FAILED);
+      mocks.assertStateTransitions(IndexManager.State.INITIAL_SYNC, IndexManager.State.FAILED);
       mocks.assertFailedIndexMetric(
           FailedIndexAction.DROP, State.INITIAL_SYNC, RuntimeException.class);
     }
@@ -833,8 +815,7 @@ public class ReplicationIndexManagerTest {
               indexStatusWithMessage(IndexStatus.StatusCode.FAILED, EXCEEDED_LIMIT_REASON_PREFIX));
       inOrder.verify(mocks.documentIndexer, timeout(1000)).clearIndex(indexCommitUserData);
       mocks.assertStateTransitions(
-          IndexManager.State.INITIAL_SYNC,
-          IndexManager.State.FAILED_EXCEEDED);
+          IndexManager.State.INITIAL_SYNC, IndexManager.State.FAILED_EXCEEDED);
     }
   }
 
@@ -849,8 +830,7 @@ public class ReplicationIndexManagerTest {
                   IndexStatus.StatusCode.FAILED,
                   IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED));
 
-      mocks.assertStateTransitions(
-          IndexManager.State.INITIAL_SYNC, IndexManager.State.FAILED);
+      mocks.assertStateTransitions(IndexManager.State.INITIAL_SYNC, IndexManager.State.FAILED);
       mocks.assertFailedIndexMetric(
           FailedIndexAction.DROP, State.INITIAL_SYNC, AssertionError.class);
     }
@@ -867,8 +847,7 @@ public class ReplicationIndexManagerTest {
       verifyNoInteractions(mocks.steadyStateManager);
       verifyNoInteractions(mocks.synonymManager);
       mocks.assertStateTransitions(
-          IndexManager.State.INITIALIZING,
-          IndexManager.State.FAILED_EXCEEDED);
+          IndexManager.State.INITIALIZING, IndexManager.State.FAILED_EXCEEDED);
     }
   }
 
@@ -894,8 +873,7 @@ public class ReplicationIndexManagerTest {
       mocks.manager.shutdown();
       verify(mocks.steadyStateManager).stop(eq(MOCK_INDEX_GENERATION_ID));
 
-      mocks.assertStateTransitions(
-          IndexManager.State.STEADY_STATE, IndexManager.State.SHUT_DOWN);
+      mocks.assertStateTransitions(IndexManager.State.STEADY_STATE, IndexManager.State.SHUT_DOWN);
     }
   }
 
@@ -908,11 +886,9 @@ public class ReplicationIndexManagerTest {
           .setStatus(indexStatusWithCode(IndexStatus.StatusCode.DOES_NOT_EXIST));
 
       mocks.assertStateTransitions(
-          IndexManager.State.STEADY_STATE,
-          IndexManager.State.STEADY_STATE_SHUT_DOWN);
+          IndexManager.State.STEADY_STATE, IndexManager.State.STEADY_STATE_SHUT_DOWN);
       mocks.assertStateTransitions(
-          IndexManager.State.STEADY_STATE_SHUT_DOWN,
-          IndexManager.State.SHUT_DOWN);
+          IndexManager.State.STEADY_STATE_SHUT_DOWN, IndexManager.State.SHUT_DOWN);
 
       mocks.assertMetric(
           SteadyStateException.class, SteadyStateException.Type.DROPPED.toString(), "None", "None");
@@ -964,8 +940,7 @@ public class ReplicationIndexManagerTest {
               anyBoolean());
 
       mocks.assertStateTransitions(
-          IndexManager.State.STEADY_STATE_SHUT_DOWN,
-          IndexManager.State.INITIAL_SYNC);
+          IndexManager.State.STEADY_STATE_SHUT_DOWN, IndexManager.State.INITIAL_SYNC);
       mocks.assertMetric(
           SteadyStateException.class,
           SteadyStateException.Type.REQUIRES_RESYNC.toString(),
@@ -983,11 +958,9 @@ public class ReplicationIndexManagerTest {
           .add(any(), any(), any(), any(), any(), anyBoolean());
 
       mocks.assertStateTransitions(
-          IndexManager.State.STEADY_STATE,
-          IndexManager.State.STEADY_STATE_SHUT_DOWN);
+          IndexManager.State.STEADY_STATE, IndexManager.State.STEADY_STATE_SHUT_DOWN);
       mocks.assertStateTransitions(
-          IndexManager.State.STEADY_STATE_SHUT_DOWN,
-          IndexManager.State.STEADY_STATE);
+          IndexManager.State.STEADY_STATE_SHUT_DOWN, IndexManager.State.STEADY_STATE);
       mocks.assertMetric(
           SteadyStateException.class,
           SteadyStateException.Type.TRANSIENT.toString(),
@@ -1009,8 +982,7 @@ public class ReplicationIndexManagerTest {
           .setStatus(indexStatusWithCode(IndexStatus.StatusCode.RECOVERING_NON_TRANSIENT));
 
       mocks.assertStateTransitions(
-          IndexManager.State.STEADY_STATE,
-          IndexManager.State.STEADY_STATE_SHUT_DOWN);
+          IndexManager.State.STEADY_STATE, IndexManager.State.STEADY_STATE_SHUT_DOWN);
 
       mocks.assertMetric(
           SteadyStateException.class,
@@ -1046,11 +1018,9 @@ public class ReplicationIndexManagerTest {
       inOrder.verify(mocks.documentIndexer, timeout(1000)).clearIndex(indexCommitUserData);
 
       mocks.assertStateTransitions(
-          IndexManager.State.STEADY_STATE,
-          IndexManager.State.STEADY_STATE_SHUT_DOWN);
+          IndexManager.State.STEADY_STATE, IndexManager.State.STEADY_STATE_SHUT_DOWN);
       mocks.assertStateTransitions(
-          IndexManager.State.STEADY_STATE_SHUT_DOWN,
-          IndexManager.State.FAILED_EXCEEDED);
+          IndexManager.State.STEADY_STATE_SHUT_DOWN, IndexManager.State.FAILED_EXCEEDED);
       mocks.assertMetric(
           SteadyStateException.class,
           SteadyStateException.Type.FIELD_EXCEEDED.name(),
@@ -1081,11 +1051,9 @@ public class ReplicationIndexManagerTest {
           .add(any(), any(), any(), any(), eq(renamedResumeInfo), anyBoolean());
 
       mocks.assertStateTransitions(
-          IndexManager.State.STEADY_STATE,
-          IndexManager.State.STEADY_STATE_SHUT_DOWN);
+          IndexManager.State.STEADY_STATE, IndexManager.State.STEADY_STATE_SHUT_DOWN);
       mocks.assertStateTransitions(
-          IndexManager.State.STEADY_STATE_SHUT_DOWN,
-          IndexManager.State.STEADY_STATE);
+          IndexManager.State.STEADY_STATE_SHUT_DOWN, IndexManager.State.STEADY_STATE);
       mocks.assertMetric(
           SteadyStateException.class, SteadyStateException.Type.RENAMED.name(), "None", "None");
     }
@@ -1113,11 +1081,9 @@ public class ReplicationIndexManagerTest {
           .add(any(), any(), any(), any(), eq(resumeInfo), anyBoolean());
 
       mocks.assertStateTransitions(
-          IndexManager.State.STEADY_STATE,
-          IndexManager.State.STEADY_STATE_SHUT_DOWN);
+          IndexManager.State.STEADY_STATE, IndexManager.State.STEADY_STATE_SHUT_DOWN);
       mocks.assertStateTransitions(
-          IndexManager.State.STEADY_STATE_SHUT_DOWN,
-          IndexManager.State.STEADY_STATE);
+          IndexManager.State.STEADY_STATE_SHUT_DOWN, IndexManager.State.STEADY_STATE);
       mocks.assertMetric(
           SteadyStateException.class, SteadyStateException.Type.INVALIDATED.name(), "None", "None");
     }
@@ -1135,11 +1101,9 @@ public class ReplicationIndexManagerTest {
                   IndexStatus.Reason.STEADY_STATE_REPLICATION_FAILED));
 
       mocks.assertStateTransitions(
-          IndexManager.State.STEADY_STATE,
-          IndexManager.State.STEADY_STATE_SHUT_DOWN);
+          IndexManager.State.STEADY_STATE, IndexManager.State.STEADY_STATE_SHUT_DOWN);
       mocks.assertStateTransitions(
-          IndexManager.State.STEADY_STATE_SHUT_DOWN,
-          IndexManager.State.FAILED);
+          IndexManager.State.STEADY_STATE_SHUT_DOWN, IndexManager.State.FAILED);
       mocks.assertMetric(RuntimeException.class, "None", "None", "None");
       mocks.assertFailedIndexMetric(
           FailedIndexAction.DROP, State.STEADY_STATE_SHUT_DOWN, RuntimeException.class);
@@ -1158,11 +1122,9 @@ public class ReplicationIndexManagerTest {
                   IndexStatus.Reason.STEADY_STATE_REPLICATION_FAILED));
 
       mocks.assertStateTransitions(
-          IndexManager.State.STEADY_STATE,
-          IndexManager.State.STEADY_STATE_SHUT_DOWN);
+          IndexManager.State.STEADY_STATE, IndexManager.State.STEADY_STATE_SHUT_DOWN);
       mocks.assertStateTransitions(
-          IndexManager.State.STEADY_STATE_SHUT_DOWN,
-          IndexManager.State.FAILED);
+          IndexManager.State.STEADY_STATE_SHUT_DOWN, IndexManager.State.FAILED);
       mocks.assertMetric(AssertionError.class, "None", "None", "None");
       mocks.assertFailedIndexMetric(
           FailedIndexAction.DROP, State.STEADY_STATE_SHUT_DOWN, AssertionError.class);
@@ -1190,11 +1152,9 @@ public class ReplicationIndexManagerTest {
                   IndexStatus.StatusCode.STALE, UNEXPECTED_ERROR.formatMessage("")));
 
       mocks.assertStateTransitions(
-          IndexManager.State.STEADY_STATE,
-          IndexManager.State.STEADY_STATE_SHUT_DOWN);
+          IndexManager.State.STEADY_STATE, IndexManager.State.STEADY_STATE_SHUT_DOWN);
       mocks.assertStateTransitions(
-          IndexManager.State.STEADY_STATE_SHUT_DOWN,
-          IndexManager.State.SHUT_DOWN);
+          IndexManager.State.STEADY_STATE_SHUT_DOWN, IndexManager.State.SHUT_DOWN);
 
       // ensure stale transition sets last updated optime
       assertThat(
@@ -1228,11 +1188,9 @@ public class ReplicationIndexManagerTest {
                   IndexStatus.StatusCode.FAILED, "replication failed (action=close): "));
 
       mocks.assertStateTransitions(
-          IndexManager.State.STEADY_STATE,
-          IndexManager.State.STEADY_STATE_SHUT_DOWN);
+          IndexManager.State.STEADY_STATE, IndexManager.State.STEADY_STATE_SHUT_DOWN);
       mocks.assertStateTransitions(
-          IndexManager.State.STEADY_STATE_SHUT_DOWN,
-          IndexManager.State.FAILED);
+          IndexManager.State.STEADY_STATE_SHUT_DOWN, IndexManager.State.FAILED);
       verify(mocks.index, timeout(1000)).close();
       verify(mocks.index, never()).drop();
       mocks.assertFailedIndexMetric(
@@ -1259,11 +1217,9 @@ public class ReplicationIndexManagerTest {
                   IndexStatus.StatusCode.FAILED, "replication failed (action=drop): "));
 
       mocks.assertStateTransitions(
-          IndexManager.State.STEADY_STATE,
-          IndexManager.State.STEADY_STATE_SHUT_DOWN);
+          IndexManager.State.STEADY_STATE, IndexManager.State.STEADY_STATE_SHUT_DOWN);
       mocks.assertStateTransitions(
-          IndexManager.State.STEADY_STATE_SHUT_DOWN,
-          IndexManager.State.FAILED);
+          IndexManager.State.STEADY_STATE_SHUT_DOWN, IndexManager.State.FAILED);
       verify(mocks.index, timeout(1000)).close();
       verify(mocks.index, timeout(1000)).drop();
 
@@ -1385,8 +1341,7 @@ public class ReplicationIndexManagerTest {
               indexStatusWithReason(
                   IndexStatus.StatusCode.FAILED, IndexStatus.Reason.INITIALIZATION_FAILED));
 
-      mocks.assertStateTransitions(
-          IndexManager.State.INITIALIZING, IndexManager.State.FAILED);
+      mocks.assertStateTransitions(IndexManager.State.INITIALIZING, IndexManager.State.FAILED);
 
       mocks.assertDropMetric(Reason.INITIALIZATION_FAILED);
     }
@@ -1412,8 +1367,7 @@ public class ReplicationIndexManagerTest {
       Assert.assertSame(
           IndexStatus.Reason.INITIALIZATION_FAILED,
           mocks.index.getStatus().getReason().orElseThrow());
-      mocks.assertFailedIndexMetric(
-          FailedIndexAction.CLOSE, State.STEADY_STATE, Exception.class);
+      mocks.assertFailedIndexMetric(FailedIndexAction.CLOSE, State.STEADY_STATE, Exception.class);
     }
   }
 
@@ -1442,17 +1396,14 @@ public class ReplicationIndexManagerTest {
           .startsWith("replication failed (action=retain): ");
 
       // Metric should record a RETAIN action.
-      mocks.assertFailedIndexMetric(
-          FailedIndexAction.RETAIN, State.STEADY_STATE, Exception.class);
+      mocks.assertFailedIndexMetric(FailedIndexAction.RETAIN, State.STEADY_STATE, Exception.class);
     }
   }
 
   @Test
   public void testFailRetainOrResync_flagEnabled_retainsIndex() throws Exception {
     var featureFlags =
-        FeatureFlags.withDefaults()
-            .enable(Feature.RETAIN_FAILED_INITIAL_SYNC_DATA_ON_DISK)
-            .build();
+        FeatureFlags.withDefaults().enable(Feature.RETAIN_FAILED_INITIAL_SYNC_DATA_ON_DISK).build();
     try (Mocks mocks = Mocks.validUserData(featureFlags)) {
       await()
           .atMost(Duration.ofSeconds(10))
@@ -1471,8 +1422,7 @@ public class ReplicationIndexManagerTest {
           mocks.index.getStatus().getReason().orElseThrow());
       assertThat(mocks.index.getStatus().getMessage().orElseThrow())
           .startsWith("replication failed (action=retain): ");
-      mocks.assertFailedIndexMetric(
-          FailedIndexAction.RETAIN, State.STEADY_STATE, Exception.class);
+      mocks.assertFailedIndexMetric(FailedIndexAction.RETAIN, State.STEADY_STATE, Exception.class);
     }
   }
 
@@ -1498,8 +1448,7 @@ public class ReplicationIndexManagerTest {
       verify(mocks.index, never()).close();
       verify(mocks.index, never()).drop();
 
-      mocks.assertStateTransitions(
-          State.STEADY_STATE, State.INITIAL_SYNC_BACKOFF);
+      mocks.assertStateTransitions(State.STEADY_STATE, State.INITIAL_SYNC_BACKOFF);
     }
   }
 
@@ -1526,17 +1475,14 @@ public class ReplicationIndexManagerTest {
           .startsWith("replication failed (action=clear): ");
 
       // Metric should record a CLEAR action.
-      mocks.assertFailedIndexMetric(
-          FailedIndexAction.CLEAR, State.STEADY_STATE, Exception.class);
+      mocks.assertFailedIndexMetric(FailedIndexAction.CLEAR, State.STEADY_STATE, Exception.class);
     }
   }
 
   @Test
   public void testFailClearOrResync_flagEnabled_clearsIndex() throws Exception {
     var featureFlags =
-        FeatureFlags.withDefaults()
-            .enable(Feature.RETAIN_FAILED_INITIAL_SYNC_DATA_ON_DISK)
-            .build();
+        FeatureFlags.withDefaults().enable(Feature.RETAIN_FAILED_INITIAL_SYNC_DATA_ON_DISK).build();
     try (Mocks mocks = Mocks.validUserData(featureFlags)) {
       await()
           .atMost(Duration.ofSeconds(10))
@@ -1555,8 +1501,7 @@ public class ReplicationIndexManagerTest {
           mocks.index.getStatus().getReason().orElseThrow());
       assertThat(mocks.index.getStatus().getMessage().orElseThrow())
           .startsWith("replication failed (action=clear): ");
-      mocks.assertFailedIndexMetric(
-          FailedIndexAction.CLEAR, State.STEADY_STATE, Exception.class);
+      mocks.assertFailedIndexMetric(FailedIndexAction.CLEAR, State.STEADY_STATE, Exception.class);
     }
   }
 
@@ -1582,17 +1527,14 @@ public class ReplicationIndexManagerTest {
       verify(mocks.index, never()).close();
       verify(mocks.index, never()).drop();
 
-      mocks.assertStateTransitions(
-          State.STEADY_STATE, State.INITIAL_SYNC_BACKOFF);
+      mocks.assertStateTransitions(State.STEADY_STATE, State.INITIAL_SYNC_BACKOFF);
     }
   }
 
   @Test
   public void testFailCloseOrResync_flagEnabled_closesIndex() throws Exception {
     var featureFlags =
-        FeatureFlags.withDefaults()
-            .enable(Feature.RETAIN_FAILED_INITIAL_SYNC_DATA_ON_DISK)
-            .build();
+        FeatureFlags.withDefaults().enable(Feature.RETAIN_FAILED_INITIAL_SYNC_DATA_ON_DISK).build();
     try (Mocks mocks = Mocks.validUserData(featureFlags)) {
       await()
           .atMost(Duration.ofSeconds(10))
@@ -1611,8 +1553,7 @@ public class ReplicationIndexManagerTest {
           mocks.index.getStatus().getReason().orElseThrow());
       assertThat(mocks.index.getStatus().getMessage().orElseThrow())
           .startsWith("replication failed (action=close): ");
-      mocks.assertFailedIndexMetric(
-          FailedIndexAction.CLOSE, State.STEADY_STATE, Exception.class);
+      mocks.assertFailedIndexMetric(FailedIndexAction.CLOSE, State.STEADY_STATE, Exception.class);
     }
   }
 
@@ -1638,11 +1579,9 @@ public class ReplicationIndexManagerTest {
       verify(mocks.index, never()).close();
       verify(mocks.index, never()).drop();
 
-      mocks.assertStateTransitions(
-          State.STEADY_STATE, State.INITIAL_SYNC_BACKOFF);
+      mocks.assertStateTransitions(State.STEADY_STATE, State.INITIAL_SYNC_BACKOFF);
     }
   }
-
 
   @Test
   public void testValidateReasonForStatus()
@@ -1709,8 +1648,7 @@ public class ReplicationIndexManagerTest {
       verify(mocks.initialSyncQueue, timeout(10000).times(2))
           .enqueue(any(), any(), any(), any(), anyBoolean(), anyBoolean());
       mocks.assertStateTransitions(
-          IndexManager.State.INITIAL_SYNC,
-          IndexManager.State.INITIAL_SYNC_BACKOFF);
+          IndexManager.State.INITIAL_SYNC, IndexManager.State.INITIAL_SYNC_BACKOFF);
       assertEquals(
           1,
           mocks
@@ -2317,8 +2255,7 @@ public class ReplicationIndexManagerTest {
           latch);
     }
 
-    private void assertStateTransitions(
-        IndexManager.State from, IndexManager.State to) {
+    private void assertStateTransitions(IndexManager.State from, IndexManager.State to) {
       assertEquals(
           1.0,
           this.meterRegistry
@@ -2353,8 +2290,7 @@ public class ReplicationIndexManagerTest {
       assertFailedIndexMetric(action, state, errorClass.getSimpleName());
     }
 
-    public void assertFailedIndexMetric(
-        FailedIndexAction action, State state, String error) {
+    public void assertFailedIndexMetric(FailedIndexAction action, State state, String error) {
       assertEquals(
           1.0,
           this.meterRegistry

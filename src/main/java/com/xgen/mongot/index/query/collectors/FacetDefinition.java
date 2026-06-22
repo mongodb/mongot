@@ -84,9 +84,7 @@ public sealed interface FacetDefinition extends DocumentEncodable
         throws BsonParseException {
       this(
           parser.getField(FacetDefinition.Fields.PATH).unwrap(),
-          parser
-              .getField(allow10k ? Fields.NUM_BUCKETS_10K : Fields.NUM_BUCKETS_1K)
-              .unwrap());
+          parser.getField(allow10k ? Fields.NUM_BUCKETS_10K : Fields.NUM_BUCKETS_1K).unwrap());
     }
 
     @Override
@@ -155,9 +153,7 @@ public sealed interface FacetDefinition extends DocumentEncodable
       this(
           parser.getField(FacetDefinition.Fields.PATH).unwrap(),
           parser.getField(BoundaryFacetDefinition.Fields.DEFAULT).unwrap(),
-          parser
-              .getField(allow10k ? Fields.BOUNDARIES_10K : Fields.BOUNDARIES_1K)
-              .unwrap());
+          parser.getField(allow10k ? Fields.BOUNDARIES_10K : Fields.BOUNDARIES_1K).unwrap());
     }
 
     @Override
@@ -207,14 +203,11 @@ public sealed interface FacetDefinition extends DocumentEncodable
               .required();
     }
 
-    private DateFacetDefinition(DocumentParser parser, boolean allow10k)
-        throws BsonParseException {
+    private DateFacetDefinition(DocumentParser parser, boolean allow10k) throws BsonParseException {
       this(
           parser.getField(FacetDefinition.Fields.PATH).unwrap(),
           parser.getField(BoundaryFacetDefinition.Fields.DEFAULT).unwrap(),
-          parser
-              .getField(allow10k ? Fields.BOUNDARIES_10K : Fields.BOUNDARIES_1K)
-              .unwrap());
+          parser.getField(allow10k ? Fields.BOUNDARIES_10K : Fields.BOUNDARIES_1K).unwrap());
     }
 
     @Override

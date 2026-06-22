@@ -410,8 +410,8 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
     }
   }
 
-  private List<ChangeStreamDocument<RawBsonDocument>> processBatch(
-      ChangeStreamBatch batch) throws InitialSyncException {
+  private List<ChangeStreamDocument<RawBsonDocument>> processBatch(ChangeStreamBatch batch)
+      throws InitialSyncException {
     List<ChangeStreamDocument<RawBsonDocument>> documentEventsToApply = new ArrayList<>();
 
     for (ChangeStreamDocument<RawBsonDocument> event :

@@ -43,7 +43,6 @@ public class SamplingInvocationCountingTimer implements InvocationCountingTimer 
     this.timingDataCreator = timingDataCreator;
   }
 
-
   /** Initializes the timer with a custom TimingDataCreator and existing timing data. */
   public SamplingInvocationCountingTimer(
       Ticker ticker,
@@ -54,7 +53,6 @@ public class SamplingInvocationCountingTimer implements InvocationCountingTimer 
     // For initial data, we treat it as if all invocations were measured
     this.measuredNanos.add(initialData.elapsedNanos());
     this.measurementCount.add(initialData.invocationCount());
-
   }
 
   @Override

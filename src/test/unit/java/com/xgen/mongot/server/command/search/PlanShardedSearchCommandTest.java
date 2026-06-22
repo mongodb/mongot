@@ -158,7 +158,6 @@ public class PlanShardedSearchCommandTest {
     BsonDocument facetStage = metaPipeline.get(1).asDocument();
     BsonArray directorPipeline = facetStage.getDocument("$facet").getArray("directorFacet");
     BsonDocument limitStage = directorPipeline.get(2).asDocument();
-    Assert.assertEquals(
-        STRING_FACET_NUM_BUCKETS_2000, limitStage.getInt32("$limit").getValue());
+    Assert.assertEquals(STRING_FACET_NUM_BUCKETS_2000, limitStage.getInt32("$limit").getValue());
   }
 }

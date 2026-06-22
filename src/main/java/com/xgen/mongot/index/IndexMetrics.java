@@ -383,8 +383,8 @@ public record IndexMetrics(
               .field(Fields.SEARCH_GET_MORE_COMMAND_COUNT, this.searchGetMoreCommandCount)
               .field(Fields.SEARCH_GET_RESULT_BATCH_LATENCY, this.searchResultBatchLatencyStats)
               .field(Fields.TOKEN_FACET_STATE_REFRESH_LATENCY, this.tokenFacetsStateRefreshLatency)
-              .field(Fields.STRING_FACET_STATE_REFRESH_LATENCY,
-                  this.stringFacetsStateRefreshLatency)
+              .field(
+                  Fields.STRING_FACET_STATE_REFRESH_LATENCY, this.stringFacetsStateRefreshLatency)
               .build();
 
       queryingStats.putAll(this.queryFeaturesMetrics.toBson());
@@ -636,7 +636,8 @@ public record IndexMetrics(
             .field(
                 Fields.SEARCH_VECTOR_SEARCH_FILTER_OPERATOR_TYPE_COUNT,
                 statsMapToBson(this.searchVectorSearchFilterOperatorTypeCounterMap))
-            .field(Fields.FACET_DRILL_SIDEWAYS_OPTIMIZABLE_COUNT,
+            .field(
+                Fields.FACET_DRILL_SIDEWAYS_OPTIMIZABLE_COUNT,
                 this.facetDrillSidewaysOptimizableCount)
             .field(Fields.FACET_DRILL_SIDEWAYS_GENERIC_COUNT, this.facetDrillSidewaysGenericCount)
             .build();
@@ -717,8 +718,8 @@ public record IndexMetrics(
             Collectors.toMap(
                 entry -> Enums.convertNameTo(CaseFormat.LOWER_CAMEL, entry.getKey()),
                 entry -> new BsonDouble(entry.getValue()),
-                (prevCountBson, newCountBson) -> Check.unreachable(
-                    "Duplicate enum key should not occur"),
+                (prevCountBson, newCountBson) ->
+                    Check.unreachable("Duplicate enum key should not occur"),
                 BsonDocument::new));
   }
 

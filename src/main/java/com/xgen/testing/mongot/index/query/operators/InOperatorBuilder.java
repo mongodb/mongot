@@ -30,14 +30,9 @@ public class InOperatorBuilder extends OperatorBuilder<InOperator, InOperatorBui
     return this;
   }
 
-
   // Allows specifying multiple paths, e.g. ["a", "b", "c"]
   public InOperatorBuilder paths(List<String> paths) {
-    this.path = Optional.of(
-        paths.stream()
-            .map(FieldPath::parse)
-            .toList()
-    );
+    this.path = Optional.of(paths.stream().map(FieldPath::parse).toList());
     return this;
   }
 

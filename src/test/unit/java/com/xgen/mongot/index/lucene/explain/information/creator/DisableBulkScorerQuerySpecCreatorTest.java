@@ -25,8 +25,7 @@ public class DisableBulkScorerQuerySpecCreatorTest {
     TermQuery termQuery = new TermQuery(new Term("$type:string/foo", "bar"));
     QueryExecutionContextNode termNode = new MockQueryExecutionContextNode(termQuery);
     QueryExplainInformation termInfo =
-        QueryExplainInformationCreator.fromNode(
-            termNode, Explain.Verbosity.ALL_PLANS_EXECUTION);
+        QueryExplainInformationCreator.fromNode(termNode, Explain.Verbosity.ALL_PLANS_EXECUTION);
 
     DisableBulkScorerQuerySpec expected = new DisableBulkScorerQuerySpec(termInfo);
 

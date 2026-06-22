@@ -26,10 +26,12 @@ public class IndexSortValidatorTest {
 
   @Test
   public void validateNoScoreFields_withRegularFields_passes() throws BsonParseException {
-    Sort sort = new Sort(ImmutableList.of(
-        new MongotSortField(FieldPath.newRoot("field1"), UserFieldSortOptions.DEFAULT_ASC),
-        new MongotSortField(FieldPath.newRoot("field2"), UserFieldSortOptions.DEFAULT_DESC)
-    ));
+    Sort sort =
+        new Sort(
+            ImmutableList.of(
+                new MongotSortField(FieldPath.newRoot("field1"), UserFieldSortOptions.DEFAULT_ASC),
+                new MongotSortField(
+                    FieldPath.newRoot("field2"), UserFieldSortOptions.DEFAULT_DESC)));
 
     // Should not throw
     IndexSortValidator.validateNoScoreFields(sort);
@@ -37,11 +39,13 @@ public class IndexSortValidatorTest {
 
   @Test
   public void validateNoScoreFields_withScoreField_throwsException() {
-    Sort sort = new Sort(ImmutableList.of(
-        new MongotSortField(FieldPath.newRoot("field1"), UserFieldSortOptions.DEFAULT_ASC),
-        new MongotSortField(FieldPath.newRoot("scoreField"),
-            new MetaSortOptions(SortOrder.DESC, MetaSortField.SEARCH_SCORE))
-    ));
+    Sort sort =
+        new Sort(
+            ImmutableList.of(
+                new MongotSortField(FieldPath.newRoot("field1"), UserFieldSortOptions.DEFAULT_ASC),
+                new MongotSortField(
+                    FieldPath.newRoot("scoreField"),
+                    new MetaSortOptions(SortOrder.DESC, MetaSortField.SEARCH_SCORE))));
 
     try {
       IndexSortValidator.validateNoScoreFields(sort);
@@ -58,10 +62,12 @@ public class IndexSortValidatorTest {
     staticFields.put("field1", createTokenFieldDefinition());
     staticFields.put("field2", createTokenFieldDefinition());
 
-    Sort sort = new Sort(ImmutableList.of(
-        new MongotSortField(FieldPath.newRoot("field1"), UserFieldSortOptions.DEFAULT_ASC),
-        new MongotSortField(FieldPath.newRoot("field2"), UserFieldSortOptions.DEFAULT_DESC)
-    ));
+    Sort sort =
+        new Sort(
+            ImmutableList.of(
+                new MongotSortField(FieldPath.newRoot("field1"), UserFieldSortOptions.DEFAULT_ASC),
+                new MongotSortField(
+                    FieldPath.newRoot("field2"), UserFieldSortOptions.DEFAULT_DESC)));
 
     // Should not throw
     IndexSortValidator.validateSortFieldsStaticallyDefined(sort, staticFields);
@@ -73,10 +79,12 @@ public class IndexSortValidatorTest {
     staticFields.put("field1", createTokenFieldDefinition());
     // field2 is not defined
 
-    Sort sort = new Sort(ImmutableList.of(
-        new MongotSortField(FieldPath.newRoot("field1"), UserFieldSortOptions.DEFAULT_ASC),
-        new MongotSortField(FieldPath.newRoot("field2"), UserFieldSortOptions.DEFAULT_DESC)
-    ));
+    Sort sort =
+        new Sort(
+            ImmutableList.of(
+                new MongotSortField(FieldPath.newRoot("field1"), UserFieldSortOptions.DEFAULT_ASC),
+                new MongotSortField(
+                    FieldPath.newRoot("field2"), UserFieldSortOptions.DEFAULT_DESC)));
 
     try {
       IndexSortValidator.validateSortFieldsStaticallyDefined(sort, staticFields);
@@ -93,10 +101,12 @@ public class IndexSortValidatorTest {
     staticFields.put("field1", createTokenFieldDefinition());
     staticFields.put("field2", createNumberFieldDefinition());
 
-    Sort sort = new Sort(ImmutableList.of(
-        new MongotSortField(FieldPath.newRoot("field1"), UserFieldSortOptions.DEFAULT_ASC),
-        new MongotSortField(FieldPath.newRoot("field2"), UserFieldSortOptions.DEFAULT_DESC)
-    ));
+    Sort sort =
+        new Sort(
+            ImmutableList.of(
+                new MongotSortField(FieldPath.newRoot("field1"), UserFieldSortOptions.DEFAULT_ASC),
+                new MongotSortField(
+                    FieldPath.newRoot("field2"), UserFieldSortOptions.DEFAULT_DESC)));
 
     // Should not throw
     IndexSortValidator.validateSortFieldsAreSortable(sort, staticFields);
@@ -108,9 +118,11 @@ public class IndexSortValidatorTest {
     Trie<String, FieldDefinition> staticFields = new PatriciaTrie<>();
     staticFields.put("field1", createMultiTypeFieldDefinition());
 
-    Sort sort = new Sort(ImmutableList.of(
-        new MongotSortField(FieldPath.newRoot("field1"), UserFieldSortOptions.DEFAULT_ASC)
-    ));
+    Sort sort =
+        new Sort(
+            ImmutableList.of(
+                new MongotSortField(
+                    FieldPath.newRoot("field1"), UserFieldSortOptions.DEFAULT_ASC)));
 
     // Multi-type fields with all sortable types should pass
     IndexSortValidator.validateSortFieldsAreSortable(sort, staticFields);
@@ -121,16 +133,20 @@ public class IndexSortValidatorTest {
     Trie<String, FieldDefinition> staticFields = new PatriciaTrie<>();
     staticFields.put("field1", createStringFieldDefinition()); // String is not sortable
 
-    Sort sort = new Sort(ImmutableList.of(
-        new MongotSortField(FieldPath.newRoot("field1"), UserFieldSortOptions.DEFAULT_ASC)
-    ));
+    Sort sort =
+        new Sort(
+            ImmutableList.of(
+                new MongotSortField(
+                    FieldPath.newRoot("field1"), UserFieldSortOptions.DEFAULT_ASC)));
 
     try {
       IndexSortValidator.validateSortFieldsAreSortable(sort, staticFields);
       fail("Expected BsonParseException");
     } catch (BsonParseException e) {
-      assertEquals("Sort fields are not sortable: {field1=[STRING]}. Sortable types are: "
-          + FieldDefinition.INDEXING_SORTABLE_TYPES, e.getMessage());
+      assertEquals(
+          "Sort fields are not sortable: {field1=[STRING]}. Sortable types are: "
+              + FieldDefinition.INDEXING_SORTABLE_TYPES,
+          e.getMessage());
     }
   }
 
@@ -140,9 +156,11 @@ public class IndexSortValidatorTest {
     Trie<String, FieldDefinition> staticFields = new PatriciaTrie<>();
     staticFields.put("field1", createTokenAndStringFieldDefinition());
 
-    Sort sort = new Sort(ImmutableList.of(
-        new MongotSortField(FieldPath.newRoot("field1"), UserFieldSortOptions.DEFAULT_ASC)
-    ));
+    Sort sort =
+        new Sort(
+            ImmutableList.of(
+                new MongotSortField(
+                    FieldPath.newRoot("field1"), UserFieldSortOptions.DEFAULT_ASC)));
 
     // TOKEN + STRING should pass: STRING is filtered out when TOKEN is present
     IndexSortValidator.validateSortFieldsAreSortable(sort, staticFields);
@@ -154,9 +172,11 @@ public class IndexSortValidatorTest {
     Trie<String, FieldDefinition> staticFields = new PatriciaTrie<>();
     staticFields.put("field1", createTokenAndAutocompleteFieldDefinition());
 
-    Sort sort = new Sort(ImmutableList.of(
-        new MongotSortField(FieldPath.newRoot("field1"), UserFieldSortOptions.DEFAULT_ASC)
-    ));
+    Sort sort =
+        new Sort(
+            ImmutableList.of(
+                new MongotSortField(
+                    FieldPath.newRoot("field1"), UserFieldSortOptions.DEFAULT_ASC)));
 
     // TOKEN + AUTOCOMPLETE should pass: AUTOCOMPLETE is filtered out when TOKEN is present
     IndexSortValidator.validateSortFieldsAreSortable(sort, staticFields);
@@ -164,10 +184,11 @@ public class IndexSortValidatorTest {
 
   @Test
   public void filterStringishTypes_removesStringAndAutocomplete_whenTokenPresent() {
-    List<FieldTypeDefinition.Type> types = List.of(
-        FieldTypeDefinition.Type.TOKEN,
-        FieldTypeDefinition.Type.STRING,
-        FieldTypeDefinition.Type.AUTOCOMPLETE);
+    List<FieldTypeDefinition.Type> types =
+        List.of(
+            FieldTypeDefinition.Type.TOKEN,
+            FieldTypeDefinition.Type.STRING,
+            FieldTypeDefinition.Type.AUTOCOMPLETE);
 
     List<FieldTypeDefinition.Type> result = IndexSortValidator.filterStringishTypes(types);
 
@@ -176,9 +197,8 @@ public class IndexSortValidatorTest {
 
   @Test
   public void filterStringishTypes_keepsAllTypes_whenTokenAbsent() {
-    List<FieldTypeDefinition.Type> types = List.of(
-        FieldTypeDefinition.Type.STRING,
-        FieldTypeDefinition.Type.DATE);
+    List<FieldTypeDefinition.Type> types =
+        List.of(FieldTypeDefinition.Type.STRING, FieldTypeDefinition.Type.DATE);
 
     List<FieldTypeDefinition.Type> result = IndexSortValidator.filterStringishTypes(types);
 

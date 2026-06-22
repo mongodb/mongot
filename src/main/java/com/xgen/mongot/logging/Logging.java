@@ -57,8 +57,7 @@ public class Logging {
         && LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME) instanceof Logger logger
         && logger.iteratorForAppenders().next() instanceof AsyncAppender asyncAppender
         && asyncAppender.iteratorForAppenders().next()
-        instanceof ConsoleAppender<ILoggingEvent> consoleAppender
-    ) {
+            instanceof ConsoleAppender<ILoggingEvent> consoleAppender) {
 
       // Create a file appender with the existing encoder.
       var encoder = consoleAppender.getEncoder();

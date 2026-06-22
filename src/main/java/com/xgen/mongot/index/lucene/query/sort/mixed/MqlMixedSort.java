@@ -49,14 +49,10 @@ public class MqlMixedSort extends SortField {
           TypeField.NUMBER_INT64_V2, BsonType.INT64, this.field, this.embeddedRoot),
       new MixedFieldComparator(
           TypeField.DATE_V2, BsonType.DATE_TIME, this.field, this.embeddedRoot),
-      new MixedFieldComparator(
-          TypeField.TOKEN, BsonType.STRING, this.field, this.embeddedRoot),
-      new MixedFieldComparator(
-          TypeField.BOOLEAN, BsonType.BOOLEAN, this.field, this.embeddedRoot),
-      new MixedFieldComparator(
-          TypeField.UUID, BsonType.BINARY, this.field, this.embeddedRoot),
-      new MixedFieldComparator(
-          TypeField.NULL, BsonType.NULL, this.field, this.embeddedRoot),
+      new MixedFieldComparator(TypeField.TOKEN, BsonType.STRING, this.field, this.embeddedRoot),
+      new MixedFieldComparator(TypeField.BOOLEAN, BsonType.BOOLEAN, this.field, this.embeddedRoot),
+      new MixedFieldComparator(TypeField.UUID, BsonType.BINARY, this.field, this.embeddedRoot),
+      new MixedFieldComparator(TypeField.NULL, BsonType.NULL, this.field, this.embeddedRoot),
       new MixedFieldComparator(
           TypeField.OBJECT_ID, BsonType.OBJECT_ID, this.field, this.embeddedRoot),
     };

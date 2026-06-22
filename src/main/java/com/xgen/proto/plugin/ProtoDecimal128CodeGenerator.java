@@ -18,7 +18,8 @@ public class ProtoDecimal128CodeGenerator implements CodeGenerator {
   public Iterable<PluginProtos.CodeGeneratorResponse.File> generate() {
     try (var bytesToDecimal128Scope =
         this.messageOutput.openScope(
-            "static org.bson.types.Decimal128 bytesToDecimal128(com.google.protobuf.ByteString bytes)")) {
+            "static org.bson.types.Decimal128 bytesToDecimal128(com.google.protobuf.ByteString"
+                + " bytes)")) {
       bytesToDecimal128Scope.writeLine(
           "var buf = bytes.asReadOnlyByteBuffer().order(java.nio.ByteOrder.LITTLE_ENDIAN);");
       bytesToDecimal128Scope.writeLine("var lo = buf.getLong();");

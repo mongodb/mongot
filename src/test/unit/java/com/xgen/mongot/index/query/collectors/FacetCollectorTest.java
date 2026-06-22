@@ -243,24 +243,23 @@ public class FacetCollectorTest {
   public static class RegularSuite {
     @Test
     public void containsDoesNotAffect_whenOperatorWithDoesNotAffectDefined_returnsTrue() {
-      var equalsOperator = OperatorBuilder.equals()
-          .path("field1")
-          .value("value")
-          .doesNotAffect("facet1")
-          .build();
+      var equalsOperator =
+          OperatorBuilder.equals().path("field1").value("value").doesNotAffect("facet1").build();
 
-      var inOperator = OperatorBuilder.in()
-          .path("field2")
-          .strings(Arrays.asList("value1", "value2", "value3"))
-          .doesNotAffect("facet2")
-          .build();
+      var inOperator =
+          OperatorBuilder.in()
+              .path("field2")
+              .strings(Arrays.asList("value1", "value2", "value3"))
+              .doesNotAffect("facet2")
+              .build();
 
-      var rangeOperator = OperatorBuilder.range()
-          .path("field3")
-          .numericBounds(Optional.of(new LongPoint(10)), Optional.of(new LongPoint(20)),
-              true, false)
-          .doesNotAffect("facet3")
-          .build();
+      var rangeOperator =
+          OperatorBuilder.range()
+              .path("field3")
+              .numericBounds(
+                  Optional.of(new LongPoint(10)), Optional.of(new LongPoint(20)), true, false)
+              .doesNotAffect("facet3")
+              .build();
 
       assertThat(FacetCollector.containsDoesNotAffect(equalsOperator)).isTrue();
       assertThat(FacetCollector.containsDoesNotAffect(inOperator)).isTrue();
@@ -270,21 +269,20 @@ public class FacetCollectorTest {
     @Test
     public void containsDoesNotAffect_whenOperatorWithoutDoesNotAffect_returnsFalse() {
       // Create operators without `doesNotAffect`
-      var equalsOperator = OperatorBuilder.equals()
-          .path("field4")
-          .value("value")
-          .build();
+      var equalsOperator = OperatorBuilder.equals().path("field4").value("value").build();
 
-      var inOperator = OperatorBuilder.in()
-          .path("field5")
-          .strings(Arrays.asList("value1", "value2", "value3"))
-          .build();
+      var inOperator =
+          OperatorBuilder.in()
+              .path("field5")
+              .strings(Arrays.asList("value1", "value2", "value3"))
+              .build();
 
-      var rangeOperator = OperatorBuilder.range()
-          .path("field3")
-          .numericBounds(Optional.of(new LongPoint(10)), Optional.of(new LongPoint(20)),
-              true, false)
-          .build();
+      var rangeOperator =
+          OperatorBuilder.range()
+              .path("field3")
+              .numericBounds(
+                  Optional.of(new LongPoint(10)), Optional.of(new LongPoint(20)), true, false)
+              .build();
 
       assertThat(FacetCollector.containsDoesNotAffect(equalsOperator)).isFalse();
       assertThat(FacetCollector.containsDoesNotAffect(inOperator)).isFalse();
@@ -294,25 +292,21 @@ public class FacetCollectorTest {
     @Test
     public void containsDoesNotAffect_whenCompoundOrEmbeddedReturnsTrue() {
       // Create compound and embedded operators
-      var compoundOperator = OperatorBuilder.compound()
-          .should(
-              OperatorBuilder.equals()
-                  .path("field1")
-                  .value("value")
-                  .build()
-          )
-          .build();
+      var compoundOperator =
+          OperatorBuilder.compound()
+              .should(OperatorBuilder.equals().path("field1").value("value").build())
+              .build();
 
-      var embeddedOperator = OperatorBuilder.embeddedDocument()
-          .path("field2")
-          .operator(
-              OperatorBuilder.range()
-                  .path("field3")
-                  .numericBounds(Optional.of(new LongPoint(1)),
-                      Optional.of(new LongPoint(3)), true, false)
-                  .build()
-          )
-          .build();
+      var embeddedOperator =
+          OperatorBuilder.embeddedDocument()
+              .path("field2")
+              .operator(
+                  OperatorBuilder.range()
+                      .path("field3")
+                      .numericBounds(
+                          Optional.of(new LongPoint(1)), Optional.of(new LongPoint(3)), true, false)
+                      .build())
+              .build();
 
       // Verify that these operators always return true
       assertThat(FacetCollector.containsDoesNotAffect(compoundOperator)).isTrue();
@@ -321,10 +315,8 @@ public class FacetCollectorTest {
 
     @Test
     public void containsDoesNotAffect_whenAutocompleteReturnsFalse() {
-      var autocompleteOperator = OperatorBuilder.autocomplete()
-          .path("description")
-          .query("pizza")
-          .build();
+      var autocompleteOperator =
+          OperatorBuilder.autocomplete().path("description").query("pizza").build();
 
       assertThat(FacetCollector.containsDoesNotAffect(autocompleteOperator)).isFalse();
     }
@@ -332,10 +324,7 @@ public class FacetCollectorTest {
     @Test
     public void buildDrillSidewaysInfo_operatorDoesNotContainDoesNotAffect_returnsEmptyOptional() {
       long value = 1;
-      Operator operator = OperatorBuilder.equals()
-          .path("color")
-          .value(value)
-          .build();
+      Operator operator = OperatorBuilder.equals().path("color").value(value).build();
 
       Map<String, FacetDefinition> facetDefinitions = getFacetDefinitions();
 
@@ -410,8 +399,7 @@ public class FacetCollectorTest {
     /** When allow10k is false (DFF off), string facet numBuckets 2000 throws BsonParseException. */
     @Test
     public void stringFacetNumBuckets2000_fromBsonWithAllow10kFalse_throwsBsonParseException() {
-      var definition =
-          FacetDefinitionBuilder.string().numBuckets(2000).path("director").build();
+      var definition = FacetDefinitionBuilder.string().numBuckets(2000).path("director").build();
 
       var parser = BsonDocumentParser.fromRoot(definition.toBson().asDocument()).build();
       TestUtils.assertThrows(
@@ -424,8 +412,7 @@ public class FacetCollectorTest {
     @Test
     public void stringFacetNumBuckets2000_fromBsonWithAllow10kTrue_succeeds()
         throws BsonParseException {
-      var definition =
-          FacetDefinitionBuilder.string().numBuckets(2000).path("director").build();
+      var definition = FacetDefinitionBuilder.string().numBuckets(2000).path("director").build();
 
       var parser = BsonDocumentParser.fromRoot(definition.toBson().asDocument()).build();
       FacetDefinition result = FacetDefinition.fromBson(parser, true);
@@ -450,9 +437,7 @@ public class FacetCollectorTest {
       var parser =
           BsonDocumentParser.fromRoot(facetCollector.collectorToBson().asDocument()).build();
       TestUtils.assertThrows(
-          "must be within bounds",
-          BsonParseException.class,
-          () -> FacetCollector.fromBson(parser));
+          "must be within bounds", BsonParseException.class, () -> FacetCollector.fromBson(parser));
     }
 
     /** When allow10k is false, number facet boundaries length 2000 throws BsonParseException. */
@@ -588,9 +573,7 @@ public class FacetCollectorTest {
           CollectorBuilder.facet()
               .operator(OperatorBuilder.text().path("q").query("x").build())
               .facetDefinitions(
-                  Map.of(
-                      "a",
-                      FacetDefinitionBuilder.string().numBuckets(100).path("f1").build()))
+                  Map.of("a", FacetDefinitionBuilder.string().numBuckets(100).path("f1").build()))
               .build();
       assertThat(oneString.getTotalRequestedFacetBuckets()).isEqualTo(100);
 
@@ -601,9 +584,7 @@ public class FacetCollectorTest {
                   Map.of(
                       "n",
                       FacetDefinitionBuilder.numeric()
-                          .boundaries(
-                              List.of(
-                                  new BsonInt32(1), new BsonInt32(2), new BsonInt32(3)))
+                          .boundaries(List.of(new BsonInt32(1), new BsonInt32(2), new BsonInt32(3)))
                           .path("f2")
                           .build()))
               .build();
@@ -640,9 +621,7 @@ public class FacetCollectorTest {
                       FacetDefinitionBuilder.date()
                           .boundaries(
                               List.of(
-                                  new BsonDateTime(1L),
-                                  new BsonDateTime(2L),
-                                  new BsonDateTime(3L)))
+                                  new BsonDateTime(1L), new BsonDateTime(2L), new BsonDateTime(3L)))
                           .path("f3")
                           .build()))
               .build();

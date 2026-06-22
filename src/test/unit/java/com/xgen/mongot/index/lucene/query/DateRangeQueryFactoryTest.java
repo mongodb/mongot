@@ -367,7 +367,6 @@ public class DateRangeQueryFactoryTest {
                 LongPoint.newRangeQuery("$type:date/" + field, lowerBound, upperBound),
                 NumericDocValuesField.newSlowRangeQuery(
                     "$type:date/" + field, lowerBound, upperBound)),
-            LongPoint.newRangeQuery(
-                "$type:dateMultiple/" + field, lowerBound, upperBound)));
+            LongPoint.newRangeQuery("$type:dateMultiple/" + field, lowerBound, upperBound)));
   }
 }

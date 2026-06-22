@@ -8,9 +8,7 @@ import com.xgen.mongot.util.bson.parser.Field;
 import java.util.Optional;
 import org.bson.BsonDocument;
 
-/**
- * The {@code cursor} block of the mongot config file.
- */
+/** The {@code cursor} block of the mongot config file. */
 public record CommunityCursorConfig(
     Optional<Integer> idleCursorHandlingRateMs, Optional<Integer> cursorIdleTimeMs)
     implements DocumentEncodable {

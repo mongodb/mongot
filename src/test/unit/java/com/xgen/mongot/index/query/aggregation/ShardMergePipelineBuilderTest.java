@@ -9,8 +9,8 @@ import org.bson.BsonString;
 import org.junit.Test;
 
 /**
- * Validates the merge pipeline produced by ShardMergePipelineBuilder for representative spec
- * trees. Pipeline BSON is asserted verbatim so accidental changes are caught.
+ * Validates the merge pipeline produced by ShardMergePipelineBuilder for representative spec trees.
+ * Pipeline BSON is asserted verbatim so accidental changes are caught.
  */
 public class ShardMergePipelineBuilderTest {
 

@@ -149,8 +149,7 @@ public class StaticLeaderLeaseManager implements LeaseManager {
       String defaultDb = this.dbResolver.resolveDefault();
       List<BsonDocument> rawLeases =
           this.operationExecutor.execute(
-              "getLeases",
-              () -> this.getCollection(defaultDb).find().into(new ArrayList<>()));
+              "getLeases", () -> this.getCollection(defaultDb).find().into(new ArrayList<>()));
       for (BsonDocument rawLease : rawLeases) {
         // Populate the database mapping before normalization so that getDatabaseForLease()
         // resolves correctly when normalizedLeaseIfNeeded() calls back into it for UUID resolution.
@@ -161,9 +160,7 @@ public class StaticLeaderLeaseManager implements LeaseManager {
           this.leases.put(lease.id(), lease);
         } else {
           // TODO(CLOUDP-384971): clean up corrupted leases
-          LOG.atError()
-              .addKeyValue("leaseId", parsed.id())
-              .log("Corrupted lease found, skipping");
+          LOG.atError().addKeyValue("leaseId", parsed.id()).log("Corrupted lease found, skipping");
         }
       }
     } catch (Exception e) {
@@ -223,8 +220,7 @@ public class StaticLeaderLeaseManager implements LeaseManager {
         generationId, getIndexDefinitionVersion(indexGeneration));
     this.leaseKeyToDatabase.put(
         getLeaseKey(generationId),
-        this.dbResolver.resolve(
-            indexGeneration.getDefinition().getDatabase()));
+        this.dbResolver.resolve(indexGeneration.getDefinition().getDatabase()));
     if (this.leases.containsKey(getLeaseKey(generationId))) {
       var lease = this.leases.get(getLeaseKey(generationId));
       String versionKey =
@@ -271,10 +267,11 @@ public class StaticLeaderLeaseManager implements LeaseManager {
                     .log("Failed to delete lease entry in Lease table, ignore it for now.");
                 return null;
               })
-          .thenRun(() -> {
-            this.leases.remove(leaseKey);
-            this.leaseKeyToDatabase.remove(leaseKey);
-          });
+          .thenRun(
+              () -> {
+                this.leases.remove(leaseKey);
+                this.leaseKeyToDatabase.remove(leaseKey);
+              });
     } else {
       this.leases.remove(leaseKey);
       this.leaseKeyToDatabase.remove(leaseKey);
@@ -480,8 +477,7 @@ public class StaticLeaderLeaseManager implements LeaseManager {
     try {
       var result =
           this.operationExecutor.execute(
-              "markEligibleForCleanup",
-              () -> this.getCollection(dbName).updateOne(filter, update));
+              "markEligibleForCleanup", () -> this.getCollection(dbName).updateOne(filter, update));
       if (result.getModifiedCount() > 0) {
         this.leases.computeIfPresent(
             leaseKey,
@@ -549,8 +545,7 @@ public class StaticLeaderLeaseManager implements LeaseManager {
       MaterializedViewCollectionMetadata proposedMetadata) {
     this.leaseKeyToDatabase.put(
         proposedMetadata.collectionName(),
-        this.dbResolver.resolve(
-            indexDefinitionGeneration.getIndexDefinition().getDatabase()));
+        this.dbResolver.resolve(indexDefinitionGeneration.getIndexDefinition().getDatabase()));
     @Var var existingLease = this.leases.get(proposedMetadata.collectionName());
     if (existingLease == null) {
       // Try to get lease from database and update in memory state.
@@ -608,9 +603,10 @@ public class StaticLeaderLeaseManager implements LeaseManager {
     BsonDocument rawLease =
         this.operationExecutor.execute(
             "getLease",
-            () -> this.getCollection(getDatabaseForLease(collectionName))
-                .find(new Document("_id", collectionName))
-                .first());
+            () ->
+                this.getCollection(getDatabaseForLease(collectionName))
+                    .find(new Document("_id", collectionName))
+                    .first());
     if (rawLease == null) {
       return null;
     }
@@ -629,8 +625,9 @@ public class StaticLeaderLeaseManager implements LeaseManager {
         var filter = Filters.eq("_id", getLeaseKey(generationId));
         this.operationExecutor.execute(
             "createLease",
-            () -> this.getCollection(getDatabaseForLease(getLeaseKey(generationId)))
-                .replaceOne(filter, updatedLease.toBson(), REPLACE_OPTIONS));
+            () ->
+                this.getCollection(getDatabaseForLease(getLeaseKey(generationId)))
+                    .replaceOne(filter, updatedLease.toBson(), REPLACE_OPTIONS));
         this.leases.put(getLeaseKey(generationId), updatedLease);
       } else {
         // Update with optimistic concurrency control on the lease version to ensure the lease
@@ -659,8 +656,9 @@ public class StaticLeaderLeaseManager implements LeaseManager {
         var result =
             this.operationExecutor.execute(
                 "updateLease",
-                () -> this.getCollection(getDatabaseForLease(getLeaseKey(generationId)))
-                    .replaceOne(filter, updatedLease.toBson()));
+                () ->
+                    this.getCollection(getDatabaseForLease(getLeaseKey(generationId)))
+                        .replaceOne(filter, updatedLease.toBson()));
         if (result.getMatchedCount() == 0) {
           // This means the document was not in one of the two desired states described above.
           // TODO(CLOUDP-364787): We should move the index to failed state as this is not a

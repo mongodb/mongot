@@ -47,12 +47,7 @@ public class IndexEntryTest {
         new BsonDocument("customKey", new BsonString("customValue"));
 
     IndexEntry entry =
-        new IndexEntry(
-            key(),
-            indexId,
-            1,
-            definition,
-            Optional.of(customerDefinitionBson));
+        new IndexEntry(key(), indexId, 1, definition, Optional.of(customerDefinitionBson));
 
     BsonDocument bson = entry.toBson();
     try (var parser = BsonDocumentParser.fromRoot(bson).build()) {
@@ -64,9 +59,7 @@ public class IndexEntryTest {
           "definition should round-trip equivalently",
           definitionEquivalence(entry.definition(), roundTripped.definition()));
       assertTrue(roundTripped.customerDefinition().isPresent());
-      assertEquals(
-          customerDefinitionBson,
-          roundTripped.customerDefinition().get());
+      assertEquals(customerDefinitionBson, roundTripped.customerDefinition().get());
     }
   }
 
@@ -75,8 +68,7 @@ public class IndexEntryTest {
     ObjectId indexId = new ObjectId();
     IndexDefinition definition = minimalDefinition(indexId);
 
-    IndexEntry entry =
-        new IndexEntry(key(), indexId, 1, definition, Optional.empty());
+    IndexEntry entry = new IndexEntry(key(), indexId, 1, definition, Optional.empty());
 
     BsonDocument bson = entry.toBson();
     try (var parser = BsonDocumentParser.fromRoot(bson).build()) {
@@ -103,11 +95,7 @@ public class IndexEntryTest {
 
     IndexEntry entry =
         new IndexEntry(
-            indexKey,
-            new ObjectId(),
-            1,
-            minimalDefinition(new ObjectId()),
-            Optional.empty());
+            indexKey, new ObjectId(), 1, minimalDefinition(new ObjectId()), Optional.empty());
     assertEquals(keyBson, entry.keyBson());
   }
 

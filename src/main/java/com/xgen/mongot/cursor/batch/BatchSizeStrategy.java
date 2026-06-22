@@ -25,9 +25,8 @@ public interface BatchSizeStrategy {
   int MINIMUM_BATCH_SIZE = 10;
 
   /**
-   * Returns the selected next batch size.
-   * This method must be idempotent (repeated calls have to produce the same result
-   * until {@link BatchSizeStrategy#adjust} is invoked).
+   * Returns the selected next batch size. This method must be idempotent (repeated calls have to
+   * produce the same result until {@link BatchSizeStrategy#adjust} is invoked).
    */
   int adviseNextBatchSize();
 

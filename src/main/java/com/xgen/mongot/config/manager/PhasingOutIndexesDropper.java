@@ -23,11 +23,13 @@ class PhasingOutIndexesDropper {
       return;
     }
 
-    IndexDefinitions.indexesGenerationIds(readyToDrop).forEach(e ->
-        LOG.atWarn()
-            .addKeyValue("indexId", e.indexId)
-            .addKeyValue("generationId", e.generation)
-            .log("dropping phasing out index that is no longer used"));
+    IndexDefinitions.indexesGenerationIds(readyToDrop)
+        .forEach(
+            e ->
+                LOG.atWarn()
+                    .addKeyValue("indexId", e.indexId)
+                    .addKeyValue("generationId", e.generation)
+                    .log("dropping phasing out index that is no longer used"));
 
     // the indexes in configState.phasingOut should already be journaled as dropped indexes, we can
     // go ahead and drop them.
@@ -38,7 +40,6 @@ class PhasingOutIndexesDropper {
   }
 
   private static boolean noOpenCursors(ConfigState configState, IndexGeneration index) {
-    return !configState.cursorManager.hasOpenCursors(
-        index.getGenerationId());
+    return !configState.cursorManager.hasOpenCursors(index.getGenerationId());
   }
 }

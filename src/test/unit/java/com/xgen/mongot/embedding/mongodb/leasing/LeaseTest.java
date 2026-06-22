@@ -309,24 +309,20 @@ public class LeaseTest {
               EncodedUserData.EMPTY.asString(),
               "1",
               Map.of(
-                  "1",
-                  new Lease.IndexDefinitionVersionStatus(
-                      true, IndexStatus.StatusCode.STEADY)),
+                  "1", new Lease.IndexDefinitionVersionStatus(true, IndexStatus.StatusCode.STEADY)),
               new MaterializedViewCollectionMetadata(
                   VERSION_ZERO, UUID.fromString(COLLECTION_UUID), COLLECTION_NAME),
               null,
               Lease.CleanupState.NOT_ELIGIBLE);
 
       // skipInitialSync=true (Lucene-only change): isQueryable should be preserved from V1.
-      var v2SkipSync =
-          lease.withNewIndexDefinitionVersion("2", IndexStatus.initialSync(), true);
+      var v2SkipSync = lease.withNewIndexDefinitionVersion("2", IndexStatus.initialSync(), true);
       assertTrue(
           "isQueryable should be preserved from latest version when skipInitialSync=true",
           v2SkipSync.indexDefinitionVersionStatusMap().get("2").isQueryable());
 
       // skipInitialSync=false (schema change): isQueryable should reset to false.
-      var v2NoSkip =
-          lease.withNewIndexDefinitionVersion("2", IndexStatus.initialSync(), false);
+      var v2NoSkip = lease.withNewIndexDefinitionVersion("2", IndexStatus.initialSync(), false);
       assertFalse(
           "isQueryable should be false when skipInitialSync=false",
           v2NoSkip.indexDefinitionVersionStatusMap().get("2").isQueryable());
@@ -359,8 +355,7 @@ public class LeaseTest {
               .append("commitInfo", new BsonString(EncodedUserData.EMPTY.asString()))
               .append("latestIndexDefinitionVersion", new BsonString("1"))
               .append(
-                  "indexDefinitionVersionStatusMap",
-                  new BsonDocument("1", statusWithUnknownField));
+                  "indexDefinitionVersionStatusMap", new BsonDocument("1", statusWithUnknownField));
 
       Lease lease = Lease.fromBson(leaseDoc);
 
@@ -394,8 +389,7 @@ public class LeaseTest {
               .append("commitInfo", new BsonString(EncodedUserData.EMPTY.asString()))
               .append("latestIndexDefinitionVersion", new BsonString("1"))
               .append(
-                  "indexDefinitionVersionStatusMap",
-                  new BsonDocument("1", statusWithUnknownEnum));
+                  "indexDefinitionVersionStatusMap", new BsonDocument("1", statusWithUnknownEnum));
 
       Lease lease = Lease.fromBson(leaseDoc);
 
@@ -598,8 +592,7 @@ public class LeaseTest {
     public void testWithUpdatedStatus_isQueryableIsOneWayRatchet() {
       // Start with a lease at INITIAL_SYNC (not queryable)
       Lease lease = createLeaseWithSteadyPosition(null);
-      assertFalse(
-          lease.indexDefinitionVersionStatusMap().get("1").isQueryable());
+      assertFalse(lease.indexDefinitionVersionStatusMap().get("1").isQueryable());
 
       // Transition to STEADY — isQueryable becomes true
       Lease afterSteady = lease.withUpdatedStatus(IndexStatus.steady(), 1L, null);
@@ -655,8 +648,8 @@ public class LeaseTest {
     /**
      * Legacy documents written before the {@code cleanupState} field existed must parse without
      * error and default to {@link Lease.CleanupState#NOT_ELIGIBLE}. This is the load-bearing
-     * backwards-compat guarantee for the online migration: existing production leases stay
-     * readable after the new code rolls out.
+     * backwards-compat guarantee for the online migration: existing production leases stay readable
+     * after the new code rolls out.
      */
     @Test
     public void testFromBson_missingCleanupState_defaultsToNotEligible() throws Exception {
@@ -684,8 +677,8 @@ public class LeaseTest {
      * After a legacy lease is parsed and re-serialized through {@code toBson} (which is what every
      * write path — heartbeat renewal, status update, ownership change — already does), the
      * persisted document carries the new {@code cleanupState} field. This is the "free backfill"
-     * mechanism: no separate migration code path is needed because any write naturally upgrades
-     * the document.
+     * mechanism: no separate migration code path is needed because any write naturally upgrades the
+     * document.
      */
     @Test
     public void testFromBsonToBson_legacyDocIsUpgradedOnWrite() throws Exception {
@@ -705,12 +698,12 @@ public class LeaseTest {
     }
 
     /**
-     * A legacy lease (no cleanupState field in the persisted doc) can be marked
-     * {@link Lease.CleanupState#ELIGIBLE_FOR_CLEANUP} by {@link Lease#withCleanupState} and the
-     * mark survives the round-trip to BSON and back. This is the case the stale-lease scanner
-     * relies on: legacy/orphan leases — which never had a {@code cleanupState} field on disk — must
-     * still be mark-and-cleanable, because they will never get upgraded by a heartbeat (they have
-     * no heartbeater).
+     * A legacy lease (no cleanupState field in the persisted doc) can be marked {@link
+     * Lease.CleanupState#ELIGIBLE_FOR_CLEANUP} by {@link Lease#withCleanupState} and the mark
+     * survives the round-trip to BSON and back. This is the case the stale-lease scanner relies on:
+     * legacy/orphan leases — which never had a {@code cleanupState} field on disk — must still be
+     * mark-and-cleanable, because they will never get upgraded by a heartbeat (they have no
+     * heartbeater).
      */
     @Test
     public void testFromBsonWithCleanupStateToBson_legacyDocCanBeMarkedEligible() throws Exception {
@@ -732,10 +725,10 @@ public class LeaseTest {
     }
 
     /**
-     * Round-tripping a v1 document through fromBson → toBson upgrades it to include the
-     * status field. This is the durable-upgrade-by-write path: any write that goes through
-     * toBson() (heartbeat renewal, status update, etc.) carries the new field, so older documents
-     * naturally converge to the new shape without any explicit backfill code.
+     * Round-tripping a v1 document through fromBson → toBson upgrades it to include the status
+     * field. This is the durable-upgrade-by-write path: any write that goes through toBson()
+     * (heartbeat renewal, status update, etc.) carries the new field, so older documents naturally
+     * converge to the new shape without any explicit backfill code.
      */
     @Test
     public void testToBson_writesCleanupState() {
@@ -746,9 +739,9 @@ public class LeaseTest {
     }
 
     /**
-     * The {@code with*} builders preserve status when not explicitly changed. Failing any one
-     * of these would let a heartbeat or status update silently drop an ELIGIBLE_FOR_CLEANUP marker
-     * and the scanner would never get a chance to clean the lease up.
+     * The {@code with*} builders preserve status when not explicitly changed. Failing any one of
+     * these would let a heartbeat or status update silently drop an ELIGIBLE_FOR_CLEANUP marker and
+     * the scanner would never get a chance to clean the lease up.
      */
     @Test
     public void testWithBuilders_preserveCleanupState() {
@@ -801,8 +794,8 @@ public class LeaseTest {
     }
 
     /**
-     * Constructing a Lease with a null status must fail at the call site rather than surface as
-     * an NPE deep inside the BSON writer (where toBson() does {@code Optional.of(this.status)}).
+     * Constructing a Lease with a null status must fail at the call site rather than surface as an
+     * NPE deep inside the BSON writer (where toBson() does {@code Optional.of(this.status)}).
      */
     @Test(expected = NullPointerException.class)
     public void testConstructor_nullCleanupState_throws() {

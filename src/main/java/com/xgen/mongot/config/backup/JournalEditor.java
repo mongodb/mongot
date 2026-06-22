@@ -91,5 +91,4 @@ public class JournalEditor {
     this.staged.add(staged);
     return this;
   }
-  
 }

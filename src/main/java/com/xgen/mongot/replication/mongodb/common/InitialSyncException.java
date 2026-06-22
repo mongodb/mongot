@@ -26,8 +26,8 @@ import org.jetbrains.annotations.Nullable;
 public class InitialSyncException extends Exception {
 
   public static final String BSON_TOO_LARGE_MESSAGE =
-      "Unrecoverable replication error due to %s payload exceeding 16MB BSON limit. Rescheduling "
-          + "new initial sync. To avoid the issue see: "
+      "Unrecoverable replication error due to %s payload exceeding 16MB BSON limit. Rescheduling"
+          + " new initial sync. To avoid the issue see: "
           + "https://www.mongodb.com/docs/atlas/atlas-search/manage-indexes/#disk--memory--and-resource-usage.";
 
   public static final String NOTABLE_SCAN_ERROR_MESSAGE =

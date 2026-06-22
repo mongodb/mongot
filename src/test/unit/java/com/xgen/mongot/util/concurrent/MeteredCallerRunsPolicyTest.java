@@ -14,7 +14,7 @@ public class MeteredCallerRunsPolicyTest {
     var counter = registry.counter("executorMetrics.rejectedExecutionCount");
     var policy = new MeteredCallerRunsPolicy(counter);
 
-    policy.rejectedExecution(() -> { }, (ThreadPoolExecutor) Executors.newFixedThreadPool(2));
+    policy.rejectedExecution(() -> {}, (ThreadPoolExecutor) Executors.newFixedThreadPool(2));
     Assert.assertEquals(1, counter.count(), 0.0);
   }
 }

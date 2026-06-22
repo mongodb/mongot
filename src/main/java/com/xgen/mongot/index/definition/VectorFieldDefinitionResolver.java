@@ -44,10 +44,9 @@ public class VectorFieldDefinitionResolver implements FieldDefinitionResolver {
    * The embeddedRoot parameter is provided for context but does not affect path matching for
    * filters.
    *
-   * <p>Examples:
-   * - Index has filter on "sections.section_name"
-   * - Query must use filter: {"sections.section_name": "value"} (full path)
-   * - Query cannot use filter: {"section_name": "value"} (relative path)
+   * <p>Examples: - Index has filter on "sections.section_name" - Query must use filter:
+   * {"sections.section_name": "value"} (full path) - Query cannot use filter: {"section_name":
+   * "value"} (relative path)
    *
    * @param path the field path to check (must be the full absolute path as defined in index)
    * @param embeddedRoot the embedded root context, if any (provided for context, not used for path

@@ -71,7 +71,8 @@ public class ProtoValueCodeGenerator implements CodeGenerator {
     this.messageOutput
         .getRootScope()
         .writeLine(
-            "private static java.util.EnumSet<org.bson.BsonType> BSON_VALUE_TYPES = java.util.EnumSet.allOf(org.bson.BsonType.class);");
+            "private static java.util.EnumSet<org.bson.BsonType> BSON_VALUE_TYPES ="
+                + " java.util.EnumSet.allOf(org.bson.BsonType.class);");
     try (var getBsonValueTypesScope =
         this.messageOutput.openScope(
             "public static java.util.EnumSet<org.bson.BsonType> getBsonValueTypes()")) {
@@ -228,7 +229,8 @@ public class ProtoValueCodeGenerator implements CodeGenerator {
 
       try (var endOfDocument = switchScope.openScope("case %s:", BsonType.END_OF_DOCUMENT)) {
         endOfDocument.writeLine(
-            "throw new java.lang.IllegalStateException(\"reading bson value but received END_OF_DOCUMENT\");");
+            "throw new java.lang.IllegalStateException(\"reading bson value but received"
+                + " END_OF_DOCUMENT\");");
       }
     }
     fnScope.writeLine("throw new AssertionError(\"unreachable\");");

@@ -564,8 +564,7 @@ public class CommunityConfigUpdaterTest {
     var captor = ArgumentCaptor.forClass(SyncSourceConfig.class);
     verify(this.mongoDbMetadataClient, times(5)).maybeUpdateSyncSource(captor.capture());
     for (int i = 0; i < 4; i++) {
-      assertThat(
-              captor.getAllValues().get(i).mongosSingleHostReplicationUri.get().uri().getHosts())
+      assertThat(captor.getAllValues().get(i).mongosSingleHostReplicationUri.get().uri().getHosts())
           .containsExactly("mongos.local:27019");
     }
     assertThat(captor.getAllValues().get(4).mongosSingleHostReplicationUri.get().uri().getHosts())
@@ -668,12 +667,12 @@ public class CommunityConfigUpdaterTest {
     when(this.initialSyncHostProvider.isMongodHostStillValid(any())).thenReturn(true);
     when(this.initialSyncHostProvider.isMongosHostStillValid(any())).thenReturn(false);
     when(this.initialSyncHostProvider.getMongosInitialSyncConnection())
-        .thenReturn(Optional.empty())          // calls 1–4: no fresh host
+        .thenReturn(Optional.empty()) // calls 1–4: no fresh host
         .thenReturn(Optional.empty())
         .thenReturn(Optional.empty())
         .thenReturn(Optional.empty())
         .thenReturn(Optional.of(MONGOS_HOST_2)) // call 5: threshold reached, fresh host found
-        .thenReturn(Optional.empty());          // call 6: single miss after reset
+        .thenReturn(Optional.empty()); // call 6: single miss after reset
     var updater =
         new CommunityConfigUpdater(
             this.authoritativeIndexCatalog,

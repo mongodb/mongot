@@ -50,5 +50,4 @@ abstract class SynonymSyncRequest {
   public CompletableFuture<SynonymMappingHighWaterMark> getFuture() {
     return this.future;
   }
-
 }

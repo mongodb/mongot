@@ -121,8 +121,7 @@ public class ConnectionInfoFactoryTest {
     try {
       RouterConfig config = routerConfig("u", passwordFile, TLS_DISABLED);
 
-      ConnectionInfo info =
-          ConnectionInfoFactory.getClusterConnectionInfo(config, PRIMARY_RP);
+      ConnectionInfo info = ConnectionInfoFactory.getClusterConnectionInfo(config, PRIMARY_RP);
 
       ConnectionString cs = new ConnectionString(info.uri().getConnectionString());
       assertThat(cs.getReadPreference()).isEqualTo(ReadPreference.primary());
@@ -138,8 +137,7 @@ public class ConnectionInfoFactoryTest {
     try {
       RouterConfig config = routerConfig("u", passwordFile, TLS_DISABLED);
 
-      ConnectionInfo info =
-          ConnectionInfoFactory.getSingleHostConnectionInfo(config, HOSTS.get(0));
+      ConnectionInfo info = ConnectionInfoFactory.getSingleHostConnectionInfo(config, HOSTS.get(0));
 
       ConnectionString cs = new ConnectionString(info.uri().getConnectionString());
       assertThat(cs.getHosts()).containsExactly("localhost:27017");
@@ -182,9 +180,7 @@ public class ConnectionInfoFactoryTest {
     IllegalArgumentException e =
         assertThrows(
             IllegalArgumentException.class,
-            () ->
-                ConnectionInfoFactory.getClusterConnectionInfo(
-                    config, SECONDARY_PREFERRED_RP));
+            () -> ConnectionInfoFactory.getClusterConnectionInfo(config, SECONDARY_PREFERRED_RP));
 
     assertThat(e).hasMessageThat().contains("caFile must be set within x509 config");
   }
@@ -196,8 +192,7 @@ public class ConnectionInfoFactoryTest {
     try {
       ReplicaSetConfig config = replicaSetConfig("testuser", passwordFile, TLS_DISABLED);
 
-      ConnectionInfo info =
-          ConnectionInfoFactory.getSingleHostConnectionInfo(config, HOSTS.get(0));
+      ConnectionInfo info = ConnectionInfoFactory.getSingleHostConnectionInfo(config, HOSTS.get(0));
 
       ConnectionString cs = new ConnectionString(info.uri().getConnectionString());
       assertThat(cs.getHosts()).hasSize(1);
@@ -288,8 +283,7 @@ public class ConnectionInfoFactoryTest {
                   new TagSet(List.of(new Tag("dc", "east"), new Tag("rack", "1"))),
                   new TagSet(List.of(new Tag("dc", "west")))));
 
-      ConnectionInfo info =
-          ConnectionInfoFactory.getClusterConnectionInfo(config, rpWithTags);
+      ConnectionInfo info = ConnectionInfoFactory.getClusterConnectionInfo(config, rpWithTags);
 
       String uri = info.uri().getConnectionString();
       assertThat(uri).contains("readPreference=nearest");
@@ -337,8 +331,7 @@ public class ConnectionInfoFactoryTest {
       ScramConfig scram = new ScramConfig("dummy", "__system", passwordFile, tls);
       ReplicaSetConfig config = replicaSetConfig(scram);
 
-      ConnectionInfo info =
-          ConnectionInfoFactory.getSingleHostConnectionInfo(config, HOSTS.get(0));
+      ConnectionInfo info = ConnectionInfoFactory.getSingleHostConnectionInfo(config, HOSTS.get(0));
 
       ConnectionString cs = new ConnectionString(info.uri().getConnectionString());
       assertThat(cs.getCredential()).isNotNull();
@@ -364,8 +357,7 @@ public class ConnectionInfoFactoryTest {
       ScramConfig scram = new ScramConfig(Databases.ADMIN, "__system", passwordFile, tls);
       ReplicaSetConfig config = replicaSetConfig(scram);
 
-      ConnectionInfo info =
-          ConnectionInfoFactory.getSingleHostConnectionInfo(config, HOSTS.get(0));
+      ConnectionInfo info = ConnectionInfoFactory.getSingleHostConnectionInfo(config, HOSTS.get(0));
 
       ConnectionString cs = new ConnectionString(info.uri().getConnectionString());
       assertThat(cs.getCredential()).isNotNull();
@@ -378,5 +370,4 @@ public class ConnectionInfoFactoryTest {
       Files.deleteIfExists(passwordFile);
     }
   }
-
 }

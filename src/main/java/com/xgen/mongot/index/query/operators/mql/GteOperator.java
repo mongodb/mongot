@@ -21,7 +21,7 @@ public final class GteOperator extends OpenRangeBoundComparisonOperator {
   public Point getValue() {
     return this.value;
   }
-  
+
   @Override
   public Category getCategory() {
     return Category.LOWER_BOUND;

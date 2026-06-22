@@ -129,10 +129,10 @@ public class MaterializedViewGenerator extends ReplicationIndexManager {
   }
 
   /**
-   * Clears the cached leader flag and the leader-status gauge in lockstep. Idempotent. Lock
-   * order: manager → generator (caller in {@link MaterializedViewManager} holds the manager
-   * monitor; this method takes the generator monitor briefly), matching the existing
-   * {@link MaterializedViewManager#transitionToFollower} → {@link #shutdown()} path.
+   * Clears the cached leader flag and the leader-status gauge in lockstep. Idempotent. Lock order:
+   * manager → generator (caller in {@link MaterializedViewManager} holds the manager monitor; this
+   * method takes the generator monitor briefly), matching the existing {@link
+   * MaterializedViewManager#transitionToFollower} → {@link #shutdown()} path.
    */
   synchronized void clearLeaderState() {
     this.isLeader = false;

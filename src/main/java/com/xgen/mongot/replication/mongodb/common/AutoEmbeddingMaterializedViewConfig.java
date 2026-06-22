@@ -1020,6 +1020,5 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
             .mustBePositive()
             .optional()
             .withDefault(DEFAULT_MATERIALIZED_VIEW_WRITER_TIMEOUT_MS);
-
   }
 }

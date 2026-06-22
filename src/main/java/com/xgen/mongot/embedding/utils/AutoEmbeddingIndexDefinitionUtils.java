@@ -137,8 +137,7 @@ public class AutoEmbeddingIndexDefinitionUtils {
     for (Map.Entry<String, FieldDefinition> entry : rawMappings.fields().entrySet()) {
       FieldDefinition fieldDef = entry.getValue();
       if (fieldDef.searchAutoEmbedFieldDefinition().isPresent()) {
-        SearchAutoEmbedFieldDefinition autoEmbed =
-            fieldDef.searchAutoEmbedFieldDefinition().get();
+        SearchAutoEmbedFieldDefinition autoEmbed = fieldDef.searchAutoEmbedFieldDefinition().get();
         SearchIndexVectorFieldDefinition vectorField =
             new SearchIndexVectorFieldDefinition(
                 toVectorFieldSpecification(autoEmbed.specification()));

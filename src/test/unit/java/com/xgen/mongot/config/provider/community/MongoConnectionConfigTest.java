@@ -18,8 +18,7 @@ public class MongoConnectionConfigTest {
 
   private static final List<HostAndPort> HOSTS = List.of(HostAndPort.fromParts("localhost", 27017));
 
-  private static ReplicaSetConfig config(
-      Optional<X509Config> x509, Optional<ScramConfig> scram) {
+  private static ReplicaSetConfig config(Optional<X509Config> x509, Optional<ScramConfig> scram) {
     return new ReplicaSetConfig(HOSTS, x509, scram);
   }
 
@@ -69,8 +68,7 @@ public class MongoConnectionConfigTest {
     ReplicaSetConfig cfg = config(Optional.of(x509), Optional.empty());
 
     try (var parser = BsonDocumentParser.fromRoot(new BsonDocument()).build()) {
-      BsonParseException e =
-          assertThrows(BsonParseException.class, () -> cfg.validate(parser));
+      BsonParseException e = assertThrows(BsonParseException.class, () -> cfg.validate(parser));
       assertEquals("tls must be enabled when tlsCertificateKeyFile is configured", e.getMessage());
     }
   }
@@ -80,16 +78,13 @@ public class MongoConnectionConfigTest {
     X509Config x509 = x509(Path.of("/etc/tls/client.pem"));
     TlsConfig tls = new TlsConfig(false, Optional.empty(), Optional.empty(), Optional.empty());
     ScramConfig scram =
-        new ScramConfig(
-            Databases.ADMIN, "__system", Path.of("/etc/mongot/keyfile"), tls);
+        new ScramConfig(Databases.ADMIN, "__system", Path.of("/etc/mongot/keyfile"), tls);
     ReplicaSetConfig cfg = config(Optional.of(x509), Optional.of(scram));
 
     try (var parser = BsonDocumentParser.fromRoot(new BsonDocument()).build()) {
-      BsonParseException e =
-          assertThrows(BsonParseException.class, () -> cfg.validate(parser));
+      BsonParseException e = assertThrows(BsonParseException.class, () -> cfg.validate(parser));
       assertEquals(
-          "Exactly one authentication mechanism must be used (x509 or scram)",
-          e.getMessage());
+          "Exactly one authentication mechanism must be used (x509 or scram)", e.getMessage());
     }
   }
 
@@ -98,11 +93,9 @@ public class MongoConnectionConfigTest {
     ReplicaSetConfig cfg = config(Optional.empty(), Optional.empty());
 
     try (var parser = BsonDocumentParser.fromRoot(new BsonDocument()).build()) {
-      BsonParseException e =
-          assertThrows(BsonParseException.class, () -> cfg.validate(parser));
+      BsonParseException e = assertThrows(BsonParseException.class, () -> cfg.validate(parser));
       assertEquals(
-          "Exactly one authentication mechanism must be used (x509 or scram)",
-          e.getMessage());
+          "Exactly one authentication mechanism must be used (x509 or scram)", e.getMessage());
     }
   }
 

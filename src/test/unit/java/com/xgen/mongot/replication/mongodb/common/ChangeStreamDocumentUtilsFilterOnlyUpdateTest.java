@@ -34,18 +34,22 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
 
   @Test
   public void testFilterOnlyUpdate_TextFieldIndex_NotCreated() {
-    VectorIndexDefinition indexDef = VectorIndexDefinitionBuilder.builder()
-        .withTextField("description")
-        .withFilterPath("category")
-        .build();
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withTextField("description")
+            .withFilterPath("category")
+            .build();
     assertEquals(1, indexDef.getParsedAutoEmbeddingFeatureVersion());
     assertFalse(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
 
     ChangeStreamDocument<RawBsonDocument> changeEvent =
         createFilterOnlyUpdateEvent(indexDef, "category");
-    var batch = ChangeStreamDocumentUtils.handleDocumentEvents(
-        List.of(changeEvent), indexDef,
-        indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT), false);
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false);
 
     assertEquals(1, batch.finalChangeEvents.size());
     assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
@@ -53,18 +57,22 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
 
   @Test
   public void testFilterOnlyUpdate_AutoEmbedFieldIndex_Created() {
-    VectorIndexDefinition indexDef = VectorIndexDefinitionBuilder.builder()
-        .withAutoEmbedField("description")
-        .withFilterPath("category")
-        .build();
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .build();
     assertEquals(2, indexDef.getParsedAutoEmbeddingFeatureVersion());
     assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
 
     ChangeStreamDocument<RawBsonDocument> changeEvent =
         createFilterOnlyUpdateEvent(indexDef, "category");
-    var batch = ChangeStreamDocumentUtils.handleDocumentEvents(
-        List.of(changeEvent), indexDef,
-        indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT), false);
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false);
 
     assertEquals(1, batch.finalChangeEvents.size());
     DocumentEvent event = batch.finalChangeEvents.getFirst();
@@ -74,17 +82,21 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
 
   @Test
   public void testVectorFieldUpdate_TextFieldIndex_NoFilterOnlyUpdate() {
-    VectorIndexDefinition indexDef = VectorIndexDefinitionBuilder.builder()
-        .withTextField("description")
-        .withFilterPath("category")
-        .build();
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withTextField("description")
+            .withFilterPath("category")
+            .build();
     assertFalse(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
 
     ChangeStreamDocument<RawBsonDocument> changeEvent =
         createVectorFieldUpdateEvent(indexDef, "description");
-    var batch = ChangeStreamDocumentUtils.handleDocumentEvents(
-        List.of(changeEvent), indexDef,
-        indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT), false);
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false);
 
     assertEquals(1, batch.finalChangeEvents.size());
     assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
@@ -92,17 +104,21 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
 
   @Test
   public void testVectorFieldUpdate_AutoEmbedFieldIndex_NoFilterOnlyUpdate() {
-    VectorIndexDefinition indexDef = VectorIndexDefinitionBuilder.builder()
-        .withAutoEmbedField("description")
-        .withFilterPath("category")
-        .build();
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .build();
     assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
 
     ChangeStreamDocument<RawBsonDocument> changeEvent =
         createVectorFieldUpdateEvent(indexDef, "description");
-    var batch = ChangeStreamDocumentUtils.handleDocumentEvents(
-        List.of(changeEvent), indexDef,
-        indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT), false);
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false);
 
     assertEquals(1, batch.finalChangeEvents.size());
     assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
@@ -114,21 +130,27 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
     // filter-field-only change may also be a $match transition into the view. The partial
     // update path issues a non-upsert write that silently drops such documents, so the
     // optimization must be disabled and a full update produced instead.
-    VectorIndexDefinition indexDef = VectorIndexDefinitionBuilder.builder()
-        .withAutoEmbedField("description")
-        .withFilterPath("category")
-        .view(ViewDefinition.existing(
-            "myView",
-            List.of(BsonDocument.parse(
-                "{\"$match\": {\"$expr\": {\"$eq\": [\"$category\", \"updated\"]}}}"))))
-        .build();
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .view(
+                ViewDefinition.existing(
+                    "myView",
+                    List.of(
+                        BsonDocument.parse(
+                            "{\"$match\": {\"$expr\": {\"$eq\": [\"$category\", \"updated\"]}}}"))))
+            .build();
     assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
 
     ChangeStreamDocument<RawBsonDocument> changeEvent =
         createFilterOnlyUpdateEvent(indexDef, "category");
-    var batch = ChangeStreamDocumentUtils.handleDocumentEvents(
-        List.of(changeEvent), indexDef,
-        indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT), false);
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false);
 
     assertEquals(1, batch.finalChangeEvents.size());
     assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
@@ -140,61 +162,68 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
     // in which case updateDescription never contains the embed field's name. An update to
     // a base field feeding the computed embed source must produce a full update so the
     // document is re-embedded.
-    VectorIndexDefinition indexDef = VectorIndexDefinitionBuilder.builder()
-        .withAutoEmbedField("description")
-        .withFilterPath("category")
-        .view(ViewDefinition.existing(
-            "myView",
-            List.of(BsonDocument.parse(
-                "{\"$set\": {\"description\": {\"$concat\": [\"$title\", \"$summary\"]}}}"))))
-        .build();
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .view(
+                ViewDefinition.existing(
+                    "myView",
+                    List.of(
+                        BsonDocument.parse(
+                            "{\"$set\": {\"description\": {\"$concat\": [\"$title\","
+                                + " \"$summary\"]}}}"))))
+            .build();
     assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
 
-    UpdateDescription updateDesc = new UpdateDescription(
-        null, new BsonDocument("title", new BsonString("new title")));
-    BsonDocument fullDocument = new BsonDocument()
-        .append("_id", new BsonInt32(0))
-        .append("title", new BsonString("new title"))
-        .append("description", new BsonString("new title computed"))
-        .append("category", new BsonString("updated"))
-        .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    UpdateDescription updateDesc =
+        new UpdateDescription(null, new BsonDocument("title", new BsonString("new title")));
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("title", new BsonString("new title"))
+            .append("description", new BsonString("new title computed"))
+            .append("category", new BsonString("updated"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
     ChangeStreamDocument<RawBsonDocument> changeEvent =
         ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, updateDesc, fullDocument);
 
-    var batch = ChangeStreamDocumentUtils.handleDocumentEvents(
-        List.of(changeEvent), indexDef,
-        indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT), false);
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false);
 
     assertEquals(1, batch.finalChangeEvents.size());
     assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
   }
 
   /**
-   * Creates a change stream update event where only a filter field changed.
-   * The fullDocument must contain the filter field value for extractFilterFieldValues() to work.
+   * Creates a change stream update event where only a filter field changed. The fullDocument must
+   * contain the filter field value for extractFilterFieldValues() to work.
    */
   private ChangeStreamDocument<RawBsonDocument> createFilterOnlyUpdateEvent(
       VectorIndexDefinition indexDef, String filterFieldName) {
-    UpdateDescription updateDesc = new UpdateDescription(
-        null, new BsonDocument(filterFieldName, new BsonString("updated")));
+    UpdateDescription updateDesc =
+        new UpdateDescription(null, new BsonDocument(filterFieldName, new BsonString("updated")));
     // Create fullDocument with filter field value -
     // extractFilterFieldValues reads from fullDocument
-    BsonDocument fullDocument = new BsonDocument()
-        .append("_id", new BsonInt32(0))
-        .append("description", new BsonString("machine learning"))
-        .append(filterFieldName, new BsonString("updated"))
-        .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("machine learning"))
+            .append(filterFieldName, new BsonString("updated"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
     return ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, updateDesc, fullDocument);
   }
 
-  /**
-   * Creates a change stream update event where the vector/text field changed.
-   */
+  /** Creates a change stream update event where the vector/text field changed. */
   private ChangeStreamDocument<RawBsonDocument> createVectorFieldUpdateEvent(
       VectorIndexDefinition indexDef, String vectorFieldName) {
-    UpdateDescription updateDesc = new UpdateDescription(
-        null, new BsonDocument(vectorFieldName, new BsonString("deep learning")));
+    UpdateDescription updateDesc =
+        new UpdateDescription(
+            null, new BsonDocument(vectorFieldName, new BsonString("deep learning")));
     return ChangeStreamUtils.updateEvent(0, updateDesc, indexDef);
   }
 }
-

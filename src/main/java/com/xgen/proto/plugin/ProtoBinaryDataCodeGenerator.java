@@ -23,7 +23,8 @@ public class ProtoBinaryDataCodeGenerator implements CodeGenerator {
     try (var toBsonScope =
         this.messageOutput.openScope("@Override public org.bson.BsonBinary toBson()")) {
       toBsonScope.writeLine(
-          "return new org.bson.BsonBinary((byte)(getSubTypeValue() & 0xff), getData().toByteArray());");
+          "return new org.bson.BsonBinary((byte)(getSubTypeValue() & 0xff),"
+              + " getData().toByteArray());");
     }
 
     CodeGeneratorUtils.generateBsonValueTypes(BsonType.BINARY, this.messageOutput.getRootScope());

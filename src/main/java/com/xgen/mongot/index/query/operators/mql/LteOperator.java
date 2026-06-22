@@ -26,7 +26,7 @@ public final class LteOperator extends OpenRangeBoundComparisonOperator {
   public Category getCategory() {
     return Category.UPPER_BOUND;
   }
-  
+
   @Override
   public BsonValue operatorToBson() {
     return this.value.toBson();

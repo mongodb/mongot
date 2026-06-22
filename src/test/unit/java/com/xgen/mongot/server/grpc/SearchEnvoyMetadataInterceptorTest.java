@@ -80,15 +80,13 @@ public class SearchEnvoyMetadataInterceptorTest {
   }
 
   @SuppressWarnings("unchecked")
-  private void triggerInterceptorAndCheckAttemptCount(
-      Metadata metadata, int expectedAttemptCount) {
+  private void triggerInterceptorAndCheckAttemptCount(Metadata metadata, int expectedAttemptCount) {
     ServerCall<Object, Object> serverCall = mock(ServerCall.class);
     ServerCall.Listener<Object> listener = mock(ServerCall.Listener.class);
     doAnswer(
             invocation -> {
               assertEquals(
-                  Integer.valueOf(expectedAttemptCount),
-                  GrpcContext.ENVOY_ATTEMPT_COUNT_KEY.get());
+                  Integer.valueOf(expectedAttemptCount), GrpcContext.ENVOY_ATTEMPT_COUNT_KEY.get());
               return null;
             })
         .when(listener)

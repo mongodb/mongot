@@ -1,6 +1,5 @@
 package com.xgen.testing.util;
 
-
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertEquals;
 

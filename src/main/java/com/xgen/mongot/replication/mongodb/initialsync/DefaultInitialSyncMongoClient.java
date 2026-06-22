@@ -135,8 +135,7 @@ class DefaultInitialSyncMongoClient implements InitialSyncMongoClient {
       Optional<Integer> batchSize,
       GenerationId generationId)
       throws InitialSyncException {
-    var metricsFactory =
-        new MetricsFactory("indexing.initialSyncChangeStream", this.meterRegistry);
+    var metricsFactory = new MetricsFactory("indexing.initialSyncChangeStream", this.meterRegistry);
     ChangeStreamMongoClient<InitialSyncException> client =
         DefaultChangeStreamMongoClient.createInitialSync(
             aggregateCommand,

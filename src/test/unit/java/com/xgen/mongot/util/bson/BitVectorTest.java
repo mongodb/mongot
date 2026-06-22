@@ -1,6 +1,5 @@
 package com.xgen.mongot.util.bson;
 
-
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -48,7 +47,7 @@ public class BitVectorTest {
   @Test
   public void isZeroVector_zeroVector_returnsTrue() {
     BitVector vector =
-            new BitVector(new byte[] {(byte) 0x00, (byte) 0x00, (byte) 0x00, (byte) 0x00});
+        new BitVector(new byte[] {(byte) 0x00, (byte) 0x00, (byte) 0x00, (byte) 0x00});
     assertTrue(vector.isZeroVector());
   }
 

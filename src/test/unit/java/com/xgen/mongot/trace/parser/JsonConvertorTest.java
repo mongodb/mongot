@@ -19,16 +19,12 @@ public class JsonConvertorTest {
         (JSONObject)
             parser.parse(
                 Files.readString(
-                    Paths.get(
-                        "src/test/unit/resources/trace/parser/"
-                            + "trace-1.json")));
+                    Paths.get("src/test/unit/resources/trace/parser/" + "trace-1.json")));
     JSONObject expectedTrace2 =
         (JSONObject)
             parser.parse(
                 Files.readString(
-                    Paths.get(
-                        "src/test/unit/resources/trace/parser/"
-                            + "trace-2.json")));
+                    Paths.get("src/test/unit/resources/trace/parser/" + "trace-2.json")));
     Map<String, JSONObject> result = JsonConvertor.convert(inputFilePath, "test");
     Assert.assertEquals(expectedTrace1, result.get(traceId1));
     Assert.assertEquals(expectedTrace2, result.get(traceId2));

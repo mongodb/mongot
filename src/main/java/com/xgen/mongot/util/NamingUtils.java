@@ -2,9 +2,7 @@ package com.xgen.mongot.util;
 
 import java.util.Optional;
 
-/**
- * Utility class for naming conventions.
- */
+/** Utility class for naming conventions. */
 public class NamingUtils {
 
   public static String upperToLowerCamelCase(Optional<String> threadName, String defaultName) {

@@ -124,7 +124,8 @@ public class MongotKnnQueryMetricsTest {
     // Verify per-segment histogram was recorded for approximate search
     double unfilteredApproxHistogramCount =
         this.metricsFactory
-            .get("vectorSearchVisitedNodesPerSegment",
+            .get(
+                "vectorSearchVisitedNodesPerSegment",
                 Tags.of("filter", "false", "mode", "approximate"))
             .summary()
             .count();
@@ -176,7 +177,8 @@ public class MongotKnnQueryMetricsTest {
     // Verify per-segment histogram was recorded for approximate search
     double filteredApproxHistogramCount =
         this.metricsFactory
-            .get("vectorSearchVisitedNodesPerSegment",
+            .get(
+                "vectorSearchVisitedNodesPerSegment",
                 Tags.of("filter", "true", "mode", "approximate"))
             .summary()
             .count();
@@ -302,7 +304,8 @@ public class MongotKnnQueryMetricsTest {
     // Verify per-segment histogram count equals number of segments for approximate search
     double histogramCount =
         this.metricsFactory
-            .get("vectorSearchVisitedNodesPerSegment",
+            .get(
+                "vectorSearchVisitedNodesPerSegment",
                 Tags.of("filter", "false", "mode", "approximate"))
             .summary()
             .count();

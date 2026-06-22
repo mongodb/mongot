@@ -20,14 +20,14 @@ import org.slf4j.LoggerFactory;
  * provided collection of thread ids, exposing the totals as Micrometer counters tagged with the
  * pool name.
  *
- * <p>Used to attribute heap allocation rate and CPU consumption to a specific workload
- * ({@code blocking-server-worker} vs {@code guaranteed-blocking-server-worker} vs
- * {@code concurrent-search} for query workloads, and similarly for replication-initialization,
- * Lucene merges, and other thread sources that do not live behind a {@link NamedExecutorService}).
+ * <p>Used to attribute heap allocation rate and CPU consumption to a specific workload ({@code
+ * blocking-server-worker} vs {@code guaranteed-blocking-server-worker} vs {@code concurrent-search}
+ * for query workloads, and similarly for replication-initialization, Lucene merges, and other
+ * thread sources that do not live behind a {@link NamedExecutorService}).
  *
- * <p>Per-thread allocation tracking is a JVM-wide concept that does not include direct
- * {@link java.nio.ByteBuffer} or native (JNI) allocations. It only counts objects allocated into
- * the Java heap.
+ * <p>Per-thread allocation tracking is a JVM-wide concept that does not include direct {@link
+ * java.nio.ByteBuffer} or native (JNI) allocations. It only counts objects allocated into the Java
+ * heap.
  */
 public final class ThreadPoolResourceMetrics {
 
@@ -49,8 +49,8 @@ public final class ThreadPoolResourceMetrics {
   }
 
   /**
-   * Creates an instance backed by the platform {@link java.lang.management.ThreadMXBean}, scoped
-   * by {@code subsystem}. The subsystem is emitted as a meter tag, so two callers using distinct
+   * Creates an instance backed by the platform {@link java.lang.management.ThreadMXBean}, scoped by
+   * {@code subsystem}. The subsystem is emitted as a meter tag, so two callers using distinct
    * subsystems can register pools that share a name without colliding in the meter registry.
    */
   public static ThreadPoolResourceMetrics create(String subsystem) {
@@ -94,8 +94,8 @@ public final class ThreadPoolResourceMetrics {
   /**
    * Registers per-pool allocation and CPU-time counters for an arbitrary thread source. The
    * registry can be mutated by {@link LiveThreadIdsRegistry#register(long)} on thread birth and
-   * {@link LiveThreadIdsRegistry#remove(long)}. The consumer removes ids from the registry when
-   * the JVM MXBean reports them dead, keeping the resulting counters monotonic.
+   * {@link LiveThreadIdsRegistry#remove(long)}. The consumer removes ids from the registry when the
+   * JVM MXBean reports them dead, keeping the resulting counters monotonic.
    */
   public void register(
       String name, LiveThreadIdsRegistry liveThreadIds, MeterRegistry meterRegistry) {
@@ -127,12 +127,9 @@ public final class ThreadPoolResourceMetrics {
   }
 
   private static void logUnsupportedExecutor(NamedExecutorService executor) {
-    FLOGGER
-        .atWarning()
-        .atMostEvery(1, TimeUnit.HOURS)
-        .log(
-            "Per-thread attribution unavailable for executor '%s', counter will report 0.",
-            executor.getName());
+    FLOGGER.atWarning().atMostEvery(1, TimeUnit.HOURS).log(
+        "Per-thread attribution unavailable for executor '%s', counter will report 0.",
+        executor.getName());
   }
 
   /**

@@ -94,10 +94,11 @@ public class GenericValueMessageCodeGenerator implements CodeGenerator {
                   messageDescriptor.getFullName()));
         }
       }
-      default -> throw new IllegalArgumentException(
-          String.format(
-              "Value message %s has multiple oneofs, only one is allowed for type unions.",
-              messageDescriptor.getFullName()));
+      default ->
+          throw new IllegalArgumentException(
+              String.format(
+                  "Value message %s has multiple oneofs, only one is allowed for type unions.",
+                  messageDescriptor.getFullName()));
     }
 
     var fields =
@@ -217,7 +218,8 @@ public class GenericValueMessageCodeGenerator implements CodeGenerator {
       }
       try (var defaultScope = switchScope.openScope("default:")) {
         defaultScope.writeLine(
-            "throw new java.lang.IllegalStateException(\"Value must be set in %s before serializing\");",
+            "throw new java.lang.IllegalStateException(\"Value must be set in %s before"
+                + " serializing\");",
             typeUnion.getFullName());
       }
     }
@@ -263,7 +265,9 @@ public class GenericValueMessageCodeGenerator implements CodeGenerator {
       }
       try (var defaultScope = switchScope.openScope("default:")) {
         defaultScope.writeLine(
-            "throw com.xgen.proto.BsonProtoParseException.createTypeMismatchException(%s.getBsonValueTypes(), reader.getCurrentBsonType(), \"%s\");",
+            "throw"
+                + " com.xgen.proto.BsonProtoParseException.createTypeMismatchException(%s.getBsonValueTypes(),"
+                + " reader.getCurrentBsonType(), \"%s\");",
             getJavaFullName(this.descriptor), typeUnion.getFullName());
       }
     }
@@ -288,9 +292,11 @@ public class GenericValueMessageCodeGenerator implements CodeGenerator {
   private void generateMergeBsonValue() {
     try (var mergeValue =
         this.builderOutput.openScope(
-            "@Override public Builder mergeBsonFrom(org.bson.BsonValue value) throws com.xgen.proto.BsonProtoParseException")) {
+            "@Override public Builder mergeBsonFrom(org.bson.BsonValue value) throws"
+                + " com.xgen.proto.BsonProtoParseException")) {
       mergeValue.writeLine(
-          "var reader = new org.bson.BsonDocumentReader(new org.bson.BsonDocument(\"sentinel\", value));");
+          "var reader = new org.bson.BsonDocumentReader(new org.bson.BsonDocument(\"sentinel\","
+              + " value));");
       mergeValue.writeLine("reader.readStartDocument();");
       mergeValue.writeLine("reader.readName();");
       mergeValue.writeLine("return mergeBsonFrom(reader);");
@@ -298,7 +304,8 @@ public class GenericValueMessageCodeGenerator implements CodeGenerator {
 
     try (var parseValue =
         this.messageOutput.openScope(
-            "public static %s parseBsonFrom(org.bson.BsonValue value) throws com.xgen.proto.BsonProtoParseException",
+            "public static %s parseBsonFrom(org.bson.BsonValue value) throws"
+                + " com.xgen.proto.BsonProtoParseException",
             this.descriptor.getName())) {
       parseValue.writeLine("return newBuilder().mergeBsonFrom(value).build();");
     }

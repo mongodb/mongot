@@ -237,9 +237,7 @@ public class SearchIndexAutoEmbedFieldMappingTest {
     var sharedEmbed = new AutoEmbedField.EmbedField(shared, SPEC);
     var mapping =
         new SearchIndexAutoEmbedFieldMapping(
-            DYNAMIC_DISABLED,
-            ImmutableMap.of(shared, sharedEmbed),
-            ImmutableSet.of(shared));
+            DYNAMIC_DISABLED, ImmutableMap.of(shared, sharedEmbed), ImmutableSet.of(shared));
 
     assertThat(mapping.fieldMap()).hasSize(1);
     assertThat(mapping.fieldMap()).containsEntry(shared, sharedEmbed);
@@ -288,8 +286,7 @@ public class SearchIndexAutoEmbedFieldMappingTest {
   @Test
   public void empty_dynamic_isPassthroughStillTrueForAnyPath() {
     var mapping =
-        new SearchIndexAutoEmbedFieldMapping(
-            DYNAMIC_ENABLED, ImmutableMap.of(), ImmutableSet.of());
+        new SearchIndexAutoEmbedFieldMapping(DYNAMIC_ENABLED, ImmutableMap.of(), ImmutableSet.of());
 
     assertThat(mapping.isPassthrough(UNDECLARED_PATH)).isTrue();
     assertThat(mapping.embedFields()).isEmpty();

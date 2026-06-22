@@ -692,8 +692,7 @@ public class BinaryQuantizedVectorRescorerTest {
     parentA.add(new StringField(NESTED_PARENT_MARKER_FIELD, "T", Field.Store.NO));
 
     Document childB1 = new Document();
-    childB1.add(
-        new KnnFloatVectorField(this.vectorFieldName, new float[] {1, 1}, this.similarity));
+    childB1.add(new KnnFloatVectorField(this.vectorFieldName, new float[] {1, 1}, this.similarity));
     childB1.add(new StringField(childMatchField, "T", Field.Store.NO));
     Document parentB = new Document();
     parentB.add(new StringField(NESTED_PARENT_MARKER_FIELD, "T", Field.Store.NO));
@@ -707,12 +706,7 @@ public class BinaryQuantizedVectorRescorerTest {
         new QueryBitSetProducer(new TermQuery(new Term(NESTED_PARENT_MARKER_FIELD, "T")));
     MongotKnnFloatQuery knnQuery =
         new MongotKnnFloatQuery(
-            metrics,
-            FeatureFlags.getDefault(),
-            this.vectorFieldName,
-            queryVector,
-            10,
-            childFilter);
+            metrics, FeatureFlags.getDefault(), this.vectorFieldName, queryVector, 10, childFilter);
     WrappedToParentBlockJoinQuery blockJoinQuery =
         new WrappedToParentBlockJoinQuery(knnQuery, parentFilter, ScoreMode.Max);
 
@@ -750,8 +744,7 @@ public class BinaryQuantizedVectorRescorerTest {
     parentA.add(new StringField(NESTED_PARENT_MARKER_FIELD, "T", Field.Store.NO));
 
     Document childB1 = new Document();
-    childB1.add(
-        new KnnFloatVectorField(this.vectorFieldName, new float[] {1, 1}, this.similarity));
+    childB1.add(new KnnFloatVectorField(this.vectorFieldName, new float[] {1, 1}, this.similarity));
     childB1.add(new StringField(childMatchField, "T", Field.Store.NO));
     Document parentB = new Document();
     parentB.add(new StringField(NESTED_PARENT_MARKER_FIELD, "T", Field.Store.NO));
@@ -765,12 +758,7 @@ public class BinaryQuantizedVectorRescorerTest {
         new QueryBitSetProducer(new TermQuery(new Term(NESTED_PARENT_MARKER_FIELD, "T")));
     MongotKnnFloatQuery knnQuery =
         new MongotKnnFloatQuery(
-            metrics,
-            FeatureFlags.getDefault(),
-            this.vectorFieldName,
-            queryVector,
-            10,
-            childFilter);
+            metrics, FeatureFlags.getDefault(), this.vectorFieldName, queryVector, 10, childFilter);
     WrappedToParentBlockJoinQuery blockJoinQuery =
         new WrappedToParentBlockJoinQuery(knnQuery, parentFilter, ScoreMode.Max);
 
@@ -810,8 +798,7 @@ public class BinaryQuantizedVectorRescorerTest {
     parentA.add(new StringField(NESTED_PARENT_MARKER_FIELD, "T", Field.Store.NO));
 
     Document childB1 = new Document();
-    childB1.add(
-        new KnnFloatVectorField(this.vectorFieldName, new float[] {1, 1}, this.similarity));
+    childB1.add(new KnnFloatVectorField(this.vectorFieldName, new float[] {1, 1}, this.similarity));
     childB1.add(new StringField(childMatchField, "T", Field.Store.NO));
     Document parentB = new Document();
     parentB.add(new StringField(NESTED_PARENT_MARKER_FIELD, "T", Field.Store.NO));
@@ -825,12 +812,7 @@ public class BinaryQuantizedVectorRescorerTest {
         new QueryBitSetProducer(new TermQuery(new Term(NESTED_PARENT_MARKER_FIELD, "T")));
     MongotKnnFloatQuery knnQuery =
         new MongotKnnFloatQuery(
-            metrics,
-            FeatureFlags.getDefault(),
-            this.vectorFieldName,
-            queryVector,
-            10,
-            childFilter);
+            metrics, FeatureFlags.getDefault(), this.vectorFieldName, queryVector, 10, childFilter);
     WrappedToParentBlockJoinQuery blockJoinQuery =
         new WrappedToParentBlockJoinQuery(knnQuery, parentFilter, ScoreMode.Max);
 
@@ -857,9 +839,7 @@ public class BinaryQuantizedVectorRescorerTest {
             .map(
                 vector -> {
                   Document child = new Document();
-                  child.add(
-                      new KnnFloatVectorField(
-                          this.vectorFieldName, vector, this.similarity));
+                  child.add(new KnnFloatVectorField(this.vectorFieldName, vector, this.similarity));
                   return child;
                 })
             .collect(Collectors.toList());

@@ -85,8 +85,7 @@ class OptimizedDrillSidewaysFactory {
                 DynamicFeatureFlags.DRILL_SIDEWAYS_CONCURRENCY.getName(),
                 DynamicFeatureFlags.DRILL_SIDEWAYS_CONCURRENCY.getFallback());
 
-    Optional<NamedExecutorService> validExecutor =
-        concurrencyEnabled ? executor : Optional.empty();
+    Optional<NamedExecutorService> validExecutor = concurrencyEnabled ? executor : Optional.empty();
 
     // Return DrillSideways instance
     return new MongotDrillSideways(

@@ -72,9 +72,7 @@ public class CustomAnalyzerDefinitionTest {
         CustomAnalyzerDefinitionBuilder.builder(
                 "limit test", TokenizerDefinitionBuilder.StandardTokenizer.builder().build())
             .tokenFilter(
-                TokenFilterDefinitionBuilder
-                    .LimitTokenCountTokenFilter
-                    .builder()
+                TokenFilterDefinitionBuilder.LimitTokenCountTokenFilter.builder()
                     .maxTokenCount(5)
                     .build())
             .build());
@@ -122,9 +120,7 @@ public class CustomAnalyzerDefinitionTest {
           CustomAnalyzerDefinitionBuilder.builder(
                   "limit test", TokenizerDefinitionBuilder.StandardTokenizer.builder().build())
               .tokenFilter(
-                  TokenFilterDefinitionBuilder
-                      .LimitTokenCountTokenFilter
-                      .builder()
+                  TokenFilterDefinitionBuilder.LimitTokenCountTokenFilter.builder()
                       .maxTokenCount(5)
                       .build())
               .build());
@@ -236,9 +232,7 @@ public class CustomAnalyzerDefinitionTest {
           CustomAnalyzerDefinitionBuilder.builder(
                   "myAnalyzer", TokenizerDefinitionBuilder.StandardTokenizer.builder().build())
               .tokenFilter(
-                  TokenFilterDefinitionBuilder
-                      .LimitTokenCountTokenFilter
-                      .builder()
+                  TokenFilterDefinitionBuilder.LimitTokenCountTokenFilter.builder()
                       .maxTokenCount(5)
                       .build())
               .build();

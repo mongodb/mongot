@@ -263,9 +263,7 @@ public class OperatorEmbeddedRootValidator {
       }
       case InOperator inOperator ->
           validateLeafOperatorPaths(
-              inOperator.paths(),
-              inOperator.score().getChildPaths(),
-              context.of(inOperator));
+              inOperator.paths(), inOperator.score().getChildPaths(), context.of(inOperator));
       case VectorSearchOperator vectorSearchOperator ->
           validateLeafOperatorPaths(
               List.of(vectorSearchOperator.criteria().path()),

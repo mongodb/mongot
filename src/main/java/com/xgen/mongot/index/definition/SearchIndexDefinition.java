@@ -626,8 +626,7 @@ public final class SearchIndexDefinition implements IndexDefinition {
     for (FieldDefinition fieldDefinition : mappings.fields().values()) {
       fieldDefinition
           .searchAutoEmbedFieldDefinition()
-          .ifPresent(
-              autoEmbed -> builder.put(autoEmbed.sourceField(), autoEmbed.modelName()));
+          .ifPresent(autoEmbed -> builder.put(autoEmbed.sourceField(), autoEmbed.modelName()));
     }
     return builder.build();
   }

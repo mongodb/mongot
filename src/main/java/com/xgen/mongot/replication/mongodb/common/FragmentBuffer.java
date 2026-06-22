@@ -22,8 +22,8 @@ import org.jetbrains.annotations.TestOnly;
  * <p><b>Usage:</b> Called via #processEvent(RawBsonDocument) when SplitEventChangeStreamClient
  * encounters events with "splitEvent" metadata during batch processing.
  *
- * <p><b>Important:</b> This class only accepts fragment events (events containing a "splitEvent" 
- * field). Complete events should not be sent to this buffer - they will cause a 
+ * <p><b>Important:</b> This class only accepts fragment events (events containing a "splitEvent"
+ * field). Complete events should not be sent to this buffer - they will cause a
  * FragmentProcessingException to be thrown.
  *
  * <p><b>Design:</b> Single buffer approach since fragments arrive sequentially from mongod without
@@ -46,9 +46,7 @@ public class FragmentBuffer {
     this.fragmentOpTimeMismatchCounter = metricsFactory.counter("numFragmentOpTimeMismatches");
   }
 
-  /**
-   * Internal record to store the decoded representation of a fragment.
-   */
+  /** Internal record to store the decoded representation of a fragment. */
   private record Fragment(BsonDocument decoded) {}
 
   /**
@@ -76,27 +74,27 @@ public class FragmentBuffer {
       throws FragmentProcessingException {
     BsonDocument doc = event.decode(CODEC);
     BsonDocument splitEvent = doc.getDocument("splitEvent", null);
-    
+
     if (splitEvent == null) {
       // This should not happen - the client should only send fragments to the buffer
       throw new FragmentProcessingException(
           "Received non-fragment event in FragmentBuffer. This should not happen - "
-          + "the client should only send fragments to the buffer.");
+              + "the client should only send fragments to the buffer.");
     }
-    
+
     // Extract fragment metadata
     int fragment = splitEvent.getInt32("fragment").getValue();
     int of = splitEvent.getInt32("of").getValue();
-    
+
     // Validate fragment metadata
     if (fragment < 1 || fragment > of || of < 1) {
       throw new FragmentProcessingException(
           String.format("Invalid fragment metadata: fragment=%d, of=%d", fragment, of));
     }
-    
+
     // Extract opTime for this event
     BsonTimestamp eventOpTime = extractEventOpTime(doc);
-    
+
     if (!isBuffering()) {
       // Start buffering new event - record split event
       this.splitEventsCounter.increment();
@@ -109,25 +107,27 @@ public class FragmentBuffer {
         throw new FragmentProcessingException(
             "Received fragment from different event while already buffering fragments");
       }
-      
+
       // Verify consistent total fragments
       if (of != this.totalFragments) {
         throw new FragmentProcessingException(
-            String.format("Invalid fragment metadata: inconsistent fragment count. "
-                + "Expected 'of'=%d but got 'of'=%d", this.totalFragments, of));
+            String.format(
+                "Invalid fragment metadata: inconsistent fragment count. "
+                    + "Expected 'of'=%d but got 'of'=%d",
+                this.totalFragments, of));
       }
-      
     }
-    
+
     // Verify fragment sequence, fragments must arrive in order
     if (fragment != this.fragments.size() + 1) {
       throw new FragmentProcessingException(
-          String.format("Expected fragment %d but received fragment %d", 
-                       this.fragments.size() + 1, fragment));
+          String.format(
+              "Expected fragment %d but received fragment %d",
+              this.fragments.size() + 1, fragment));
     }
 
     this.fragments.add(new Fragment(doc));
-    
+
     // Check if all fragments received
     if (this.fragments.size() == this.totalFragments) {
       RawBsonDocument completeEvent = reassemble();
@@ -138,7 +138,7 @@ public class FragmentBuffer {
     // Still waiting for more fragments
     return Optional.empty();
   }
-  
+
   /**
    * Check if currently buffering fragments.
    *
@@ -147,23 +147,21 @@ public class FragmentBuffer {
   public boolean isBuffering() {
     return !this.fragments.isEmpty();
   }
-  
+
   /** Clear the buffer. */
   public void clear() {
     this.fragments.clear();
     this.totalFragments = 0;
     this.currentEventOpTime = Optional.empty();
   }
-  
-  /**
-   * Extract opTime from resume token to identify fragments of the same event.
-   */
+
+  /** Extract opTime from resume token to identify fragments of the same event. */
   private BsonTimestamp extractEventOpTime(BsonDocument doc) throws FragmentProcessingException {
     BsonDocument resumeToken = doc.getDocument("_id", null);
     if (resumeToken == null) {
       throw new FragmentProcessingException("Missing resume token in change stream event");
     }
-    
+
     try {
       return ResumeTokenUtils.opTimeFromResumeToken(resumeToken);
     } catch (DecoderException e) {
@@ -172,16 +170,14 @@ public class FragmentBuffer {
       throw new FragmentProcessingException("Invalid resume token format: " + e.getMessage(), e);
     }
   }
-  
+
   /** Check if event opTime matches current buffered event. */
   private boolean isSameEvent(BsonTimestamp eventOpTime) {
-    return this.currentEventOpTime.isPresent()
-        && this.currentEventOpTime.get().equals(eventOpTime);
+    return this.currentEventOpTime.isPresent() && this.currentEventOpTime.get().equals(eventOpTime);
   }
-  
+
   /**
-   * Reassemble fragments into complete event.
-   * Field merging: first fragment wins for duplicates.
+   * Reassemble fragments into complete event. Field merging: first fragment wins for duplicates.
    * Uses final fragment's resume token.
    */
   private RawBsonDocument reassemble() throws FragmentProcessingException {
@@ -191,7 +187,7 @@ public class FragmentBuffer {
     }
     BsonDocument result = this.fragments.getFirst().decoded().clone();
     result.remove("splitEvent");
-    
+
     // Add fields from other fragments (skipping duplicates)
     for (int i = 1; i < this.fragments.size(); i++) {
       BsonDocument fragment = this.fragments.get(i).decoded();
@@ -208,10 +204,9 @@ public class FragmentBuffer {
 
     if (result.size() == 1 && result.containsKey("_id")) {
       // This should never happen
-      throw new FragmentProcessingException(
-          "Reassembled event contains only _id field");
+      throw new FragmentProcessingException("Reassembled event contains only _id field");
     }
-    
+
     return new RawBsonDocument(result, CODEC);
   }
 

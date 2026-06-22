@@ -46,9 +46,7 @@ public class PlanShardedSearchCommand implements Command {
               .evaluateClusterInvariant(DynamicFeatureFlags.ENABLE_10K_BUCKET_LIMIT);
       SearchQuery queryDefinition =
           SearchQuery.fromBson(
-              this.definition.queryDocument(),
-              QueryOptimizationFlags.DEFAULT_OPTIONS,
-              allow10k);
+              this.definition.queryDocument(), QueryOptimizationFlags.DEFAULT_OPTIONS, allow10k);
       PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan shardedSearchPlan =
           ShardedSearchPlanner.planSearch(queryDefinition, this.definition.searchFeatures());
 

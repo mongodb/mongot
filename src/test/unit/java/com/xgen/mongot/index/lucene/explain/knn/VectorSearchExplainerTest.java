@@ -195,8 +195,7 @@ public class VectorSearchExplainerTest {
     VectorSearchExplainer.TracingTarget targetOne =
         new VectorSearchExplainer.TracingTarget(docIdOne, 1, true);
 
-    VectorSearchExplainer vectorSearchExplainer =
-        new VectorSearchExplainer(List.of(targetOne));
+    VectorSearchExplainer vectorSearchExplainer = new VectorSearchExplainer(List.of(targetOne));
 
     VectorSearchExplainer.TracingInformation tracingInformation =
         vectorSearchExplainer.getTracingInformation(1).get();

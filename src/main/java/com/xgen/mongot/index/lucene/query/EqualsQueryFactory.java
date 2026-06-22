@@ -83,7 +83,8 @@ class EqualsQueryFactory {
 
   private Query dateQuery(DateValue dateValue, FieldPath path, Optional<FieldPath> embeddedRoot)
       throws InvalidQueryException {
-    return this.dateRangeQueryFactory.fromBounds(dateValue.getDateRangeBound())
+    return this.dateRangeQueryFactory
+        .fromBounds(dateValue.getDateRangeBound())
         .apply(path, embeddedRoot);
   }
 

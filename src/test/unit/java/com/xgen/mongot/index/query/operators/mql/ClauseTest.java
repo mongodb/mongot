@@ -73,16 +73,19 @@ public class ClauseTest {
       TEST_SUITE.runTest(this.testSpec);
     }
 
-    private static BsonDeserializationTestSuite.ValidSpec<Clause> not()
-        throws BsonParseException {
+    private static BsonDeserializationTestSuite.ValidSpec<Clause> not() throws BsonParseException {
       return BsonDeserializationTestSuite.TestSpec.valid(
           "simple $not",
           ClauseBuilder.simpleClause()
               .path(FieldPath.parse("path.num"))
               .addOperator(
-                  MqlFilterOperatorBuilder.not().value(
-                          new MqlFilterOperatorList(Arrays.asList(MqlFilterOperatorBuilder.eq()
-                              .value(ValueBuilder.doubleNumber(3)).build()))))
+                  MqlFilterOperatorBuilder.not()
+                      .value(
+                          new MqlFilterOperatorList(
+                              Arrays.asList(
+                                  MqlFilterOperatorBuilder.eq()
+                                      .value(ValueBuilder.doubleNumber(3))
+                                      .build()))))
               .build());
     }
 
@@ -93,11 +96,18 @@ public class ClauseTest {
           ClauseBuilder.simpleClause()
               .path(FieldPath.parse("path.num"))
               .addOperator(
-                  MqlFilterOperatorBuilder.not().value(
-                      new MqlFilterOperatorList(
-                          Arrays.asList(MqlFilterOperatorBuilder.not().value(
-                              new MqlFilterOperatorList(Arrays.asList(MqlFilterOperatorBuilder
-                                  .eq().value(ValueBuilder.doubleNumber(3)).build()))).build()))))
+                  MqlFilterOperatorBuilder.not()
+                      .value(
+                          new MqlFilterOperatorList(
+                              Arrays.asList(
+                                  MqlFilterOperatorBuilder.not()
+                                      .value(
+                                          new MqlFilterOperatorList(
+                                              Arrays.asList(
+                                                  MqlFilterOperatorBuilder.eq()
+                                                      .value(ValueBuilder.doubleNumber(3))
+                                                      .build())))
+                                      .build()))))
               .build());
     }
 
@@ -108,10 +118,16 @@ public class ClauseTest {
           ClauseBuilder.simpleClause()
               .path(FieldPath.parse("path.num"))
               .addOperator(
-                  MqlFilterOperatorBuilder.not().value(
-                      new MqlFilterOperatorList(Arrays.asList(MqlFilterOperatorBuilder.eq()
-                          .value(ValueBuilder.doubleNumber(3)).build(), MqlFilterOperatorBuilder
-                          .ne().value(ValueBuilder.doubleNumber(4)).build()))))
+                  MqlFilterOperatorBuilder.not()
+                      .value(
+                          new MqlFilterOperatorList(
+                              Arrays.asList(
+                                  MqlFilterOperatorBuilder.eq()
+                                      .value(ValueBuilder.doubleNumber(3))
+                                      .build(),
+                                  MqlFilterOperatorBuilder.ne()
+                                      .value(ValueBuilder.doubleNumber(4))
+                                      .build()))))
               .build());
     }
 
@@ -670,16 +686,19 @@ public class ClauseTest {
       TEST_SUITE.runTest(this.testSpec);
     }
 
-    private static BsonSerializationTestSuite.TestSpec<Clause> not()
-        throws BsonParseException {
+    private static BsonSerializationTestSuite.TestSpec<Clause> not() throws BsonParseException {
       return BsonSerializationTestSuite.TestSpec.create(
           "simple $not",
           ClauseBuilder.simpleClause()
               .path(FieldPath.parse("path.num"))
               .addOperator(
-                  MqlFilterOperatorBuilder.not().value(
-                      new MqlFilterOperatorList(Arrays.asList(MqlFilterOperatorBuilder.eq()
-                          .value(ValueBuilder.doubleNumber(3)).build()))))
+                  MqlFilterOperatorBuilder.not()
+                      .value(
+                          new MqlFilterOperatorList(
+                              Arrays.asList(
+                                  MqlFilterOperatorBuilder.eq()
+                                      .value(ValueBuilder.doubleNumber(3))
+                                      .build()))))
               .build());
     }
 
@@ -690,25 +709,37 @@ public class ClauseTest {
           ClauseBuilder.simpleClause()
               .path(FieldPath.parse("path.num"))
               .addOperator(
-                  MqlFilterOperatorBuilder.not().value(
-                      new MqlFilterOperatorList(
-                          Arrays.asList(MqlFilterOperatorBuilder.not().value(
-                              new MqlFilterOperatorList(Arrays.asList(MqlFilterOperatorBuilder
-                                  .eq().value(ValueBuilder.doubleNumber(3)).build()))).build()))))
+                  MqlFilterOperatorBuilder.not()
+                      .value(
+                          new MqlFilterOperatorList(
+                              Arrays.asList(
+                                  MqlFilterOperatorBuilder.not()
+                                      .value(
+                                          new MqlFilterOperatorList(
+                                              Arrays.asList(
+                                                  MqlFilterOperatorBuilder.eq()
+                                                      .value(ValueBuilder.doubleNumber(3))
+                                                      .build())))
+                                      .build()))))
               .build());
     }
 
-    private static BsonSerializationTestSuite.TestSpec<Clause> notEqNe()
-        throws BsonParseException {
+    private static BsonSerializationTestSuite.TestSpec<Clause> notEqNe() throws BsonParseException {
       return BsonSerializationTestSuite.TestSpec.create(
           "eq ne $not",
           ClauseBuilder.simpleClause()
               .path(FieldPath.parse("path.num"))
               .addOperator(
-                  MqlFilterOperatorBuilder.not().value(
-                      new MqlFilterOperatorList(Arrays.asList(MqlFilterOperatorBuilder.eq()
-                          .value(ValueBuilder.doubleNumber(3)).build(), MqlFilterOperatorBuilder
-                          .ne().value(ValueBuilder.doubleNumber(4)).build()))))
+                  MqlFilterOperatorBuilder.not()
+                      .value(
+                          new MqlFilterOperatorList(
+                              Arrays.asList(
+                                  MqlFilterOperatorBuilder.eq()
+                                      .value(ValueBuilder.doubleNumber(3))
+                                      .build(),
+                                  MqlFilterOperatorBuilder.ne()
+                                      .value(ValueBuilder.doubleNumber(4))
+                                      .build()))))
               .build());
     }
 
@@ -744,13 +775,9 @@ public class ClauseTest {
                   ClauseBuilder.simpleClause()
                       .path(FieldPath.parse("path.num"))
                       .addOperator(
-                          MqlFilterOperatorBuilder.gt()
-                              .value(ValueBuilder.doubleNumber(3))
-                              .build())
+                          MqlFilterOperatorBuilder.gt().value(ValueBuilder.doubleNumber(3)).build())
                       .addOperator(
-                          MqlFilterOperatorBuilder.lt()
-                              .value(ValueBuilder.doubleNumber(5))
-                              .build())
+                          MqlFilterOperatorBuilder.lt().value(ValueBuilder.doubleNumber(5)).build())
                       .build())
               .addClause(
                   ClauseBuilder.simpleClause()
@@ -771,13 +798,9 @@ public class ClauseTest {
                   ClauseBuilder.simpleClause()
                       .path(FieldPath.parse("path.num"))
                       .addOperator(
-                          MqlFilterOperatorBuilder.gt()
-                              .value(ValueBuilder.doubleNumber(3))
-                              .build())
+                          MqlFilterOperatorBuilder.gt().value(ValueBuilder.doubleNumber(3)).build())
                       .addOperator(
-                          MqlFilterOperatorBuilder.lt()
-                              .value(ValueBuilder.doubleNumber(5))
-                              .build())
+                          MqlFilterOperatorBuilder.lt().value(ValueBuilder.doubleNumber(5)).build())
                       .build())
               .addClause(
                   ClauseBuilder.simpleClause()
@@ -798,13 +821,9 @@ public class ClauseTest {
                   ClauseBuilder.simpleClause()
                       .path(FieldPath.parse("path.num"))
                       .addOperator(
-                          MqlFilterOperatorBuilder.gt()
-                              .value(ValueBuilder.doubleNumber(3))
-                              .build())
+                          MqlFilterOperatorBuilder.gt().value(ValueBuilder.doubleNumber(3)).build())
                       .addOperator(
-                          MqlFilterOperatorBuilder.lt()
-                              .value(ValueBuilder.doubleNumber(5))
-                              .build())
+                          MqlFilterOperatorBuilder.lt().value(ValueBuilder.doubleNumber(5)).build())
                       .build())
               .addClause(
                   ClauseBuilder.simpleClause()
@@ -935,13 +954,9 @@ public class ClauseTest {
                   ClauseBuilder.simpleClause()
                       .path(FieldPath.parse("path.num"))
                       .addOperator(
-                          MqlFilterOperatorBuilder.gt()
-                              .value(ValueBuilder.doubleNumber(3))
-                              .build())
+                          MqlFilterOperatorBuilder.gt().value(ValueBuilder.doubleNumber(3)).build())
                       .addOperator(
-                          MqlFilterOperatorBuilder.lt()
-                              .value(ValueBuilder.doubleNumber(5))
-                              .build())
+                          MqlFilterOperatorBuilder.lt().value(ValueBuilder.doubleNumber(5)).build())
                       .build())
               .addClause(
                   ClauseBuilder.simpleClause()
@@ -1005,13 +1020,9 @@ public class ClauseTest {
                   ClauseBuilder.simpleClause()
                       .path(FieldPath.parse("path.num"))
                       .addOperator(
-                          MqlFilterOperatorBuilder.gt()
-                              .value(ValueBuilder.doubleNumber(3))
-                              .build())
+                          MqlFilterOperatorBuilder.gt().value(ValueBuilder.doubleNumber(3)).build())
                       .addOperator(
-                          MqlFilterOperatorBuilder.lt()
-                              .value(ValueBuilder.doubleNumber(5))
-                              .build())
+                          MqlFilterOperatorBuilder.lt().value(ValueBuilder.doubleNumber(5)).build())
                       .build())
               .addClause(
                   ClauseBuilder.simpleClause()

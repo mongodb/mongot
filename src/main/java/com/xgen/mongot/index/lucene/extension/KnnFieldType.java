@@ -6,10 +6,9 @@ import org.apache.lucene.index.VectorSimilarityFunction;
 
 /**
  * Custom implementation of Lucene's FieldType class to not be bound by have Lucene's limit on
- * vector dimensions.
- * Since KnnFieldType can only override getters (not internal private fields), we
- * create Lucene's FieldType from it to make sure internal fields are also set in case future
- * Lucene versions would access them directly in FieldType class
+ * vector dimensions. Since KnnFieldType can only override getters (not internal private fields), we
+ * create Lucene's FieldType from it to make sure internal fields are also set in case future Lucene
+ * versions would access them directly in FieldType class
  */
 class KnnFieldType extends FieldType {
 

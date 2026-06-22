@@ -601,8 +601,7 @@ public class FieldName {
     return MetaField.NULLNESS.getLuceneFieldName() + "/" + path;
   }
 
-  private static final String NULLNESS_FIELD_PREFIX =
-      MetaField.NULLNESS.getLuceneFieldName() + "/";
+  private static final String NULLNESS_FIELD_PREFIX = MetaField.NULLNESS.getLuceneFieldName() + "/";
 
   /**
    * Returns true if the given Lucene field name identifies a {@code $meta/nullness} sort field

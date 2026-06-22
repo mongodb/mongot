@@ -50,8 +50,7 @@ public class MultiLuceneVectorIndexReaderTest {
 
     var indexReader = this.testHarness.getReader();
     Assert.assertTrue(
-        ((MeteredVectorIndexReader) indexReader).unwrap()
-            instanceof MultiLuceneVectorIndexReader);
+        ((MeteredVectorIndexReader) indexReader).unwrap() instanceof MultiLuceneVectorIndexReader);
     var multiReader =
         (MultiLuceneVectorIndexReader) ((MeteredVectorIndexReader) indexReader).unwrap();
     Assert.assertEquals(NUM_PARTITIONS, multiReader.numUnderlyingReaders());
@@ -63,8 +62,7 @@ public class MultiLuceneVectorIndexReaderTest {
   }
 
   @Test
-  public void testNoDocumentWithFloatVector()
-      throws Exception {
+  public void testNoDocumentWithFloatVector() throws Exception {
     Vector queryVector = Vector.fromFloats(new float[] {1f, 0f, 0f}, NATIVE);
     this.testHarness.runTest(Collections.emptyList(), queryVector, Collections.emptyList());
   }
@@ -85,23 +83,25 @@ public class MultiLuceneVectorIndexReaderTest {
   public void testMultipleDocumentsWithFloatVectorInAscendingRadians() throws Exception {
     // Unit vectors with ascending radians. Since the query vector lies on the x-axis, the
     // Cosine similarity function will score the vectors in descending order.
-    float[][] singleVector = new float[][] {
-        {1.0000f, 0.0000f, 0f},
-        {0.9969f, 0.0785f, 0f},
-        {0.9877f, 0.1564f, 0f},
-        {0.9724f, 0.2334f, 0f},
-        {0.9511f, 0.3090f, 0f},
-        {0.9239f, 0.3827f, 0f},
-        {0.8910f, 0.4540f, 0f},
-        {0.8526f, 0.5225f, 0f},
-        {0.8090f, 0.5878f, 0f},
-        {0.7604f, 0.6494f, 0f},
-        {0.7071f, 0.7071f, 0f},
-        {0.6494f, 0.7604f, 0f},
-        {0.5878f, 0.8090f, 0f},
-        {0.5225f, 0.8526f, 0f},
-        {0.4540f, 0.8910f, 0f},
-        {0.3827f, 0.9239f, 0f}};
+    float[][] singleVector =
+        new float[][] {
+          {1.0000f, 0.0000f, 0f},
+          {0.9969f, 0.0785f, 0f},
+          {0.9877f, 0.1564f, 0f},
+          {0.9724f, 0.2334f, 0f},
+          {0.9511f, 0.3090f, 0f},
+          {0.9239f, 0.3827f, 0f},
+          {0.8910f, 0.4540f, 0f},
+          {0.8526f, 0.5225f, 0f},
+          {0.8090f, 0.5878f, 0f},
+          {0.7604f, 0.6494f, 0f},
+          {0.7071f, 0.7071f, 0f},
+          {0.6494f, 0.7604f, 0f},
+          {0.5878f, 0.8090f, 0f},
+          {0.5225f, 0.8526f, 0f},
+          {0.4540f, 0.8910f, 0f},
+          {0.3827f, 0.9239f, 0f}
+        };
     var docs =
         this.testHarness.createVectorDocs(
             singleVector, 0, VectorIndexingAndQueryingTestHarness::fromNativeFloats);
@@ -116,23 +116,25 @@ public class MultiLuceneVectorIndexReaderTest {
   public void testMultipleDocumentsWithFloatVectorInDescendingRadians() throws Exception {
     // Unit vectors with descending radians. Since the query vector lies on the x-axis, the
     // Cosine similarity function will score the vectors in ascending order.
-    float[][] singleVector = new float[][] {
-        {0.0000f, 1.0000f, 0f},
-        {0.0784f, 0.9969f, 0f},
-        {0.1564f, 0.9876f, 0f},
-        {0.2334f, 0.9723f, 0f},
-        {0.3090f, 0.9510f, 0f},
-        {0.3826f, 0.9238f, 0f},
-        {0.4539f, 0.8910f, 0f},
-        {0.5224f, 0.8526f, 0f},
-        {0.5877f, 0.8090f, 0f},
-        {0.6494f, 0.7604f, 0f},
-        {0.7071f, 0.7071f, 0f},
-        {0.7604f, 0.6494f, 0f},
-        {0.8090f, 0.5877f, 0f},
-        {0.8526f, 0.5224f, 0f},
-        {0.8910f, 0.4539f, 0f},
-        {0.9238f, 0.3826f, 0f}};
+    float[][] singleVector =
+        new float[][] {
+          {0.0000f, 1.0000f, 0f},
+          {0.0784f, 0.9969f, 0f},
+          {0.1564f, 0.9876f, 0f},
+          {0.2334f, 0.9723f, 0f},
+          {0.3090f, 0.9510f, 0f},
+          {0.3826f, 0.9238f, 0f},
+          {0.4539f, 0.8910f, 0f},
+          {0.5224f, 0.8526f, 0f},
+          {0.5877f, 0.8090f, 0f},
+          {0.6494f, 0.7604f, 0f},
+          {0.7071f, 0.7071f, 0f},
+          {0.7604f, 0.6494f, 0f},
+          {0.8090f, 0.5877f, 0f},
+          {0.8526f, 0.5224f, 0f},
+          {0.8910f, 0.4539f, 0f},
+          {0.9238f, 0.3826f, 0f}
+        };
     var docs =
         this.testHarness.createVectorDocs(
             singleVector, 0, VectorIndexingAndQueryingTestHarness::fromNativeFloats);
@@ -146,27 +148,29 @@ public class MultiLuceneVectorIndexReaderTest {
   @Test
   public void testMultipleDocumentsWithRandomFloatVector() throws Exception {
     // Random unit vectors in the 3d space.
-    float[][] singleVector = new float[][] {
-        {0.0065f, 0.5351f, 0.8447f},
-        {0.7103f, 0.0593f, 0.7013f},
-        {0.6611f, 0.5433f, 0.5173f},
-        {0.7586f, 0.6193f, 0.2022f},
-        {0.0759f, 0.9922f, 0.0983f},
-        {0.9583f, 0.2769f, 0.0694f},
-        {0.1365f, 0.1073f, 0.9848f},
-        {0.9239f, 0.3749f, 0.0751f},
-        {0.6948f, 0.3089f, 0.6494f},
-        {0.3616f, 0.4854f, 0.7959f},
-        {0.6242f, 0.5859f, 0.5166f},
-        {0.6708f, 0.6858f, 0.2821f},
-        {0.8722f, 0.1227f, 0.4734f},
-        {0.7160f, 0.0256f, 0.6975f},
-        {0.1150f, 0.3623f, 0.9249f},
-        {0.6639f, 0.5555f, 0.5005f},
-        {0.6888f, 0.0375f, 0.7239f},
-        {0.5447f, 0.5500f, 0.6329f},
-        {0.7632f, 0.4875f, 0.4239f},
-        {0.4668f, 0.2598f, 0.8452f}};
+    float[][] singleVector =
+        new float[][] {
+          {0.0065f, 0.5351f, 0.8447f},
+          {0.7103f, 0.0593f, 0.7013f},
+          {0.6611f, 0.5433f, 0.5173f},
+          {0.7586f, 0.6193f, 0.2022f},
+          {0.0759f, 0.9922f, 0.0983f},
+          {0.9583f, 0.2769f, 0.0694f},
+          {0.1365f, 0.1073f, 0.9848f},
+          {0.9239f, 0.3749f, 0.0751f},
+          {0.6948f, 0.3089f, 0.6494f},
+          {0.3616f, 0.4854f, 0.7959f},
+          {0.6242f, 0.5859f, 0.5166f},
+          {0.6708f, 0.6858f, 0.2821f},
+          {0.8722f, 0.1227f, 0.4734f},
+          {0.7160f, 0.0256f, 0.6975f},
+          {0.1150f, 0.3623f, 0.9249f},
+          {0.6639f, 0.5555f, 0.5005f},
+          {0.6888f, 0.0375f, 0.7239f},
+          {0.5447f, 0.5500f, 0.6329f},
+          {0.7632f, 0.4875f, 0.4239f},
+          {0.4668f, 0.2598f, 0.8452f}
+        };
     var docs =
         this.testHarness.createVectorDocs(
             singleVector, 0, VectorIndexingAndQueryingTestHarness::fromNativeFloats);
@@ -268,8 +272,7 @@ public class MultiLuceneVectorIndexReaderTest {
 
       // Verify each result has expected structure
       for (var result : results) {
-        Assert.assertTrue(
-            "Result should contain _id", result.asDocument().containsKey("_id"));
+        Assert.assertTrue("Result should contain _id", result.asDocument().containsKey("_id"));
         Assert.assertTrue(
             "Result should contain $vectorSearchScore",
             result.asDocument().containsKey("$vectorSearchScore"));
@@ -562,8 +565,8 @@ public class MultiLuceneVectorIndexReaderTest {
   /**
    * Tests the behavior when a partition reader throws a RuntimeException during concurrent query.
    *
-   * <p>The current implementation catches all exceptions in the Callable and rethrows
-   * non-checked exceptions as RuntimeException from rethrowException().
+   * <p>The current implementation catches all exceptions in the Callable and rethrows non-checked
+   * exceptions as RuntimeException from rethrowException().
    */
   @Test
   public void testConcurrentQueryWithRuntimeException() throws Exception {
@@ -602,9 +605,9 @@ public class MultiLuceneVectorIndexReaderTest {
   }
 
   /**
-   * Tests that when the deadline has already passed, the sequential query path throws
-   * {@link DeadlineExceededException} before querying any partition reader, rather than silently
-   * returning a partial result.
+   * Tests that when the deadline has already passed, the sequential query path throws {@link
+   * DeadlineExceededException} before querying any partition reader, rather than silently returning
+   * a partial result.
    */
   @Test
   public void testExpiredDeadlineThrowsInSequentialQuery() throws Exception {
@@ -630,8 +633,8 @@ public class MultiLuceneVectorIndexReaderTest {
   }
 
   /**
-   * Tests that when the deadline has already passed, the concurrent query path throws
-   * {@link DeadlineExceededException} before submitting any partition work.
+   * Tests that when the deadline has already passed, the concurrent query path throws {@link
+   * DeadlineExceededException} before submitting any partition work.
    */
   @Test
   public void testExpiredDeadlineThrowsBeforeSubmittingConcurrentQuery() throws Exception {
@@ -670,8 +673,7 @@ public class MultiLuceneVectorIndexReaderTest {
    */
   @Test
   public void testConcurrentQueryPropagatesDeadlineExceededException() throws Exception {
-    DeadlineExceededException originalException =
-        new DeadlineExceededException();
+    DeadlineExceededException originalException = new DeadlineExceededException();
     LuceneVectorIndexReader mockReader1 = mock(LuceneVectorIndexReader.class);
     LuceneVectorIndexReader mockReader2 = mock(LuceneVectorIndexReader.class);
 
@@ -732,9 +734,7 @@ public class MultiLuceneVectorIndexReaderTest {
     Mockito.verify(mockReader2).queryResults(any(), any());
   }
 
-  /**
-   * Tests that a query without a deadline queries all partitions (no early exit).
-   */
+  /** Tests that a query without a deadline queries all partitions (no early exit). */
   @Test
   public void testNoDeadlineQueriesAllPartitionsInSequentialQuery() throws Exception {
     LuceneVectorIndexReader mockReader1 = mock(LuceneVectorIndexReader.class);

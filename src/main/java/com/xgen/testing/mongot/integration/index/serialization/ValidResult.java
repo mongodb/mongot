@@ -65,10 +65,7 @@ public class ValidResult extends Result {
         Field.builder("aggregationResults").documentField().asList().optional().noDefault();
 
     static final Field.WithDefault<Boolean> UNORDERED_AGGREGATION_RESULTS =
-        Field.builder("unorderedAggregationResults")
-            .booleanField()
-            .optional()
-            .withDefault(false);
+        Field.builder("unorderedAggregationResults").booleanField().optional().withDefault(false);
 
     static final Field.Optional<MetaResults> META =
         Field.builder("meta")

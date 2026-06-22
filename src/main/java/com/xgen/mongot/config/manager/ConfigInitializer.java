@@ -26,16 +26,15 @@ class ConfigInitializer {
   /**
    * Initializes ConfigState with all the indexes recorded in the config Journal.
    *
-   * @param configState     - Maintain the state of indexes and persist the
-   *                        current state to disk when required.
-   * @param configJournal   - Describing indexes in different generations and states.
+   * @param configState - Maintain the state of indexes and persist the current state to disk when
+   *     required.
+   * @param configJournal - Describing indexes in different generations and states.
    * @param desiredIndexIds - An optional set of index IDs extracted from the initial conf call
-   *                        response. If provided, any index not included in this set will be
-   *                        removed from the config journal. This ensures that only indexes
-   *                        expected to exist are initialized.
-   * @param meterRegistry   - Meter registry to bind.
-   * @throws Invariants.InvariantException      - If journal invariants are violated.
-   * @throws IOException                        - If an I/O error occurs during initialization.
+   *     response. If provided, any index not included in this set will be removed from the config
+   *     journal. This ensures that only indexes expected to exist are initialized.
+   * @param meterRegistry - Meter registry to bind.
+   * @throws Invariants.InvariantException - If journal invariants are violated.
+   * @throws IOException - If an I/O error occurs during initialization.
    * @throws InvalidAnalyzerDefinitionException - If an analyzer definition is invalid during setup.
    */
   public static void initialize(
@@ -48,16 +47,18 @@ class ConfigInitializer {
         .addKeyValue("numExistingIndexes", configJournal.getLiveIndexes().size())
         .addKeyValue("numDeletedIndexes", configJournal.getDeletedIndexes().size())
         .addKeyValue("numStagedIndexes", configJournal.getStagedIndexes().size())
-        .log("Found config journal. "
-            + "Initializing existing indexes, cleaning up deleted indexes, staging indexes");
+        .log(
+            "Found config journal. "
+                + "Initializing existing indexes, cleaning up deleted indexes, staging indexes");
 
     validateJournalInvariants(configJournal);
 
     // remove indexes that are not present in the initial confcall response,
     // but are still present in the config journal.
     if (desiredIndexIds.isPresent()) {
-      configJournal = removeDeletedIndexesFromConfigJournal(
-          configState, desiredIndexIds.get(), configJournal, meterRegistry);
+      configJournal =
+          removeDeletedIndexesFromConfigJournal(
+              configState, desiredIndexIds.get(), configJournal, meterRegistry);
     }
 
     // Drop indexes that were ready for deletion before mongot stopped running.
@@ -107,28 +108,29 @@ class ConfigInitializer {
     List<GenerationId> removedLiveIndexes =
         getRemovedIndexGenerations(configJournal.getLiveIndexes(), desiredIndexIds);
 
-    MetricsFactory metricsFactory =
-        new MetricsFactory("ConfigInitializer", meterRegistry);
+    MetricsFactory metricsFactory = new MetricsFactory("ConfigInitializer", meterRegistry);
 
     if (!removedStagedIndexes.isEmpty()) {
       metricsFactory
           .counter("removedIndexesAtStartup", Tags.of("type", "stage"))
           .increment(removedStagedIndexes.size());
-      removedStagedIndexes.forEach(e ->
-          LOG.atInfo()
-              .addKeyValue("indexId", e.indexId)
-              .addKeyValue("generationId", e)
-              .log("Removed staged index not present in initial conf call"));
+      removedStagedIndexes.forEach(
+          e ->
+              LOG.atInfo()
+                  .addKeyValue("indexId", e.indexId)
+                  .addKeyValue("generationId", e)
+                  .log("Removed staged index not present in initial conf call"));
     }
     if (!removedLiveIndexes.isEmpty()) {
       metricsFactory
           .counter("removedIndexesAtStartup", Tags.of("type", "live"))
           .increment(removedLiveIndexes.size());
-      removedLiveIndexes.forEach(e ->
-          LOG.atInfo()
-              .addKeyValue("indexId", e.indexId)
-              .addKeyValue("generationId", e)
-              .log("Removed live index not present in initial conf call"));
+      removedLiveIndexes.forEach(
+          e ->
+              LOG.atInfo()
+                  .addKeyValue("indexId", e.indexId)
+                  .addKeyValue("generationId", e)
+                  .log("Removed live index not present in initial conf call"));
     }
 
     // transition identified indexes to the dropped state.

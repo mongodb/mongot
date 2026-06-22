@@ -173,7 +173,13 @@ public class BsonVectorParserTest {
 
     @Parameterized.Parameters
     public static Collection<float[]> data() {
-      return Arrays.asList(new float[][] {{/* empty */}, {1f, 2.5f, -0.8f}});
+      return Arrays.asList(
+          new float[][] {
+            {
+              /* empty */
+            },
+            {1f, 2.5f, -0.8f}
+          });
     }
 
     @Test
@@ -233,7 +239,13 @@ public class BsonVectorParserTest {
 
     @Parameterized.Parameters
     public static Collection<byte[]> data() {
-      return Arrays.asList(new byte[][] {{/* empty */}, {(byte) 0x00, (byte) 0xFF, (byte) 0xA0}});
+      return Arrays.asList(
+          new byte[][] {
+            {
+              /* empty */
+            },
+            {(byte) 0x00, (byte) 0xFF, (byte) 0xA0}
+          });
     }
 
     @Test
@@ -242,8 +254,7 @@ public class BsonVectorParserTest {
       assertEquals(BsonVectorParser.VECTOR_SUB_TYPE, encoded.getType());
       // check first byte
       assertEquals(
-              BsonVectorParser.VectorDataType.BYTE_VECTOR_DATA_TYPE.getValue(),
-              encoded.getData()[0]);
+          BsonVectorParser.VectorDataType.BYTE_VECTOR_DATA_TYPE.getValue(), encoded.getData()[0]);
       // check padding byte
       assertEquals(0x00, encoded.getData()[1]);
 
@@ -253,7 +264,6 @@ public class BsonVectorParserTest {
       assertEquals(this.byteVector.length, decodedVector.length);
       assertArrayEquals(this.byteVector, decodedVector);
     }
-
 
     @Test
     public void testDecodeThenEncodeByteVector() {
@@ -274,7 +284,7 @@ public class BsonVectorParserTest {
       assertEquals(size, encoded.getData().length);
       byte[] encodedArray = encoded.getData();
       assertEquals(
-              BsonVectorParser.VectorDataType.BYTE_VECTOR_DATA_TYPE.getValue(), encodedArray[0]);
+          BsonVectorParser.VectorDataType.BYTE_VECTOR_DATA_TYPE.getValue(), encodedArray[0]);
       assertEquals((byte) 0x00, encodedArray[1]);
       @Var int encodedArrayIndex = 2;
       for (byte b : this.byteVector) {
@@ -294,7 +304,13 @@ public class BsonVectorParserTest {
 
     @Parameterized.Parameters
     public static Collection<byte[]> data() {
-      return Arrays.asList(new byte[][] {{/* empty */}, {(byte) 0x00, (byte) 0xFF, (byte) 0xA0}});
+      return Arrays.asList(
+          new byte[][] {
+            {
+              /* empty */
+            },
+            {(byte) 0x00, (byte) 0xFF, (byte) 0xA0}
+          });
     }
 
     @Test
@@ -303,8 +319,7 @@ public class BsonVectorParserTest {
       assertEquals(BsonVectorParser.VECTOR_SUB_TYPE, encoded.getType());
       // check first byte
       assertEquals(
-              BsonVectorParser.VectorDataType.BIT_VECTOR_DATA_TYPE.getValue(),
-              encoded.getData()[0]);
+          BsonVectorParser.VectorDataType.BIT_VECTOR_DATA_TYPE.getValue(), encoded.getData()[0]);
       // check padding byte
       assertEquals(0x00, encoded.getData()[1]);
 
@@ -335,7 +350,7 @@ public class BsonVectorParserTest {
       assertEquals(size, encoded.getData().length);
       byte[] encodedArray = encoded.getData();
       assertEquals(
-              BsonVectorParser.VectorDataType.BIT_VECTOR_DATA_TYPE.getValue(), encodedArray[0]);
+          BsonVectorParser.VectorDataType.BIT_VECTOR_DATA_TYPE.getValue(), encodedArray[0]);
       assertEquals((byte) padding, encodedArray[1]);
       @Var int encodedArrayIndex = 2;
       for (byte b : this.bitVector) {
@@ -400,8 +415,8 @@ public class BsonVectorParserTest {
           new BsonBinary(BsonVectorParser.VECTOR_SUB_TYPE, buffer.array());
       Exception ex =
           assertThrows(BSONException.class, () -> BsonVectorParser.parse(bitBsonBinaryVector));
-      assertTrue(ex.getMessage().contains(
-          "The dimensions of binary vector should be a multiple of 8"));
+      assertTrue(
+          ex.getMessage().contains("The dimensions of binary vector should be a multiple of 8"));
     }
   }
 }

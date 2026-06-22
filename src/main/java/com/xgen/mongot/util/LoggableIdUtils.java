@@ -39,8 +39,8 @@ public final class LoggableIdUtils {
   /**
    * Initializes the loggable document ID feature flag.
    *
-   * <p>This method should be called once at application startup with the value from
-   * {@code FeatureFlags.isEnabled(Feature.LOGGABLE_DOCUMENT_ID)}.
+   * <p>This method should be called once at application startup with the value from {@code
+   * FeatureFlags.isEnabled(Feature.LOGGABLE_DOCUMENT_ID)}.
    *
    * @param enabled whether the loggable document ID feature is enabled
    */
@@ -68,8 +68,8 @@ public final class LoggableIdUtils {
    * BsonBinary.asUuid(), which has inconsistent internal error checking.
    *
    * @param binary the BsonBinary value
-   * @return Optional containing the UUID string if the binary is a valid standard UUID,
-   *     empty otherwise
+   * @return Optional containing the UUID string if the binary is a valid standard UUID, empty
+   *     otherwise
    */
   public static Optional<String> binaryToUuidString(BsonBinary binary) {
     if (binary == null) {

@@ -89,14 +89,12 @@ public class HasAncestorOperatorTest {
                                                 OperatorBuilder.compound()
                                                     .must(
                                                         OperatorBuilder.text()
-                                                            .path(
-                                                                "movies.reviews.comments.author")
+                                                            .path("movies.reviews.comments.author")
                                                             .query("DJT")
                                                             .build())
                                                     .should(
                                                         OperatorBuilder.equals()
-                                                            .path(
-                                                                "movies.reviews.comments.year")
+                                                            .path("movies.reviews.comments.year")
                                                             .value(1999)
                                                             .build())
                                                     .build())

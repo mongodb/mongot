@@ -208,11 +208,11 @@ public class LuceneVectorIndex implements VectorIndex {
   public void throwIfUnavailableForQuerying() throws IndexUnavailableException {
     var status = getStatus().getStatusCode();
     switch (status) {
-      case UNKNOWN, NOT_STARTED, INITIAL_SYNC, FAILED -> throw new IndexUnavailableException(
-          String.format(
-              "cannot query vector index %s while in state %s", this.definition, status));
-      case STEADY, STALE, RECOVERING_TRANSIENT, RECOVERING_NON_TRANSIENT, DOES_NOT_EXIST -> {
-      }
+      case UNKNOWN, NOT_STARTED, INITIAL_SYNC, FAILED ->
+          throw new IndexUnavailableException(
+              String.format(
+                  "cannot query vector index %s while in state %s", this.definition, status));
+      case STEADY, STALE, RECOVERING_TRANSIENT, RECOVERING_NON_TRANSIENT, DOES_NOT_EXIST -> {}
     }
   }
 

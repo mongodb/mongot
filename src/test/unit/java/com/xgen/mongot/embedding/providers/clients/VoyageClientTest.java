@@ -883,9 +883,7 @@ public class VoyageClientTest {
         captor.getValue().timeout());
   }
 
-  /**
-   * CLOUDP-392208: X-Voyage-Model and X-Voyage-Tier for GLB routing (no route-override header).
-   */
+  /** CLOUDP-392208: X-Voyage-Model and X-Voyage-Tier for GLB routing (no route-override header). */
   @Test
   public void voyageLoadBalancerHeaders_modelAndTierMatchWorkload() throws Exception {
     HttpClient mockClient = mock(HttpClient.class);
@@ -1495,8 +1493,7 @@ public class VoyageClientTest {
         assertThrows(
             EmbeddingProviderTransientException.class,
             () -> voyageClient.embed(List.of("hi"), dummyContext()));
-    assertEquals(
-        EmbeddingProviderTransientException.Reason.HTTP_NON_OK_STATUS, ex.getReason());
+    assertEquals(EmbeddingProviderTransientException.Reason.HTTP_NON_OK_STATUS, ex.getReason());
   }
 
   @Test
@@ -1504,8 +1501,7 @@ public class VoyageClientTest {
     HttpClient mockClient = createMockHttpClient();
     // MTM config with no matching tenant credentials
     var config =
-        createMtmClusterConfig(
-            Map.of("other_tenant", createTenantCredentials("other-token")));
+        createMtmClusterConfig(Map.of("other_tenant", createTenantCredentials("other-token")));
     VoyageClient voyageClient = createMockedVoyageClient(config, mockClient);
     // Use a database name with a tenant prefix that doesn't match
     EmbeddingRequestContext mtmContext =
@@ -1520,8 +1516,7 @@ public class VoyageClientTest {
             EmbeddingProviderTransientException.class,
             () -> voyageClient.embed(List.of("hi"), mtmContext));
     assertEquals(
-        EmbeddingProviderTransientException.Reason.TENANT_CREDENTIALS_FAILURE,
-        ex.getReason());
+        EmbeddingProviderTransientException.Reason.TENANT_CREDENTIALS_FAILURE, ex.getReason());
   }
 
   @Test
@@ -1531,14 +1526,12 @@ public class VoyageClientTest {
 
   @Test
   public void embed_429Status_recordsErrorCode429() throws Exception {
-    assertErrorCodeRecorded(
-        httpResponseClient(429, "rate limited"), "rate_limit_exceeded", "429");
+    assertErrorCodeRecorded(httpResponseClient(429, "rate limited"), "rate_limit_exceeded", "429");
   }
 
   @Test
   public void embed_500Status_recordsErrorCode500() throws Exception {
-    assertErrorCodeRecorded(
-        httpResponseClient(500, "server error"), "http_non_ok_status", "500");
+    assertErrorCodeRecorded(httpResponseClient(500, "server error"), "http_non_ok_status", "500");
   }
 
   @Test

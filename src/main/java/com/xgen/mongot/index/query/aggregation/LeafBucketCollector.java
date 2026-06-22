@@ -31,8 +31,8 @@ public abstract class LeafBucketCollector implements LeafCollector {
   }
 
   /**
-   * No-op implementation. Currently Aggregation doesn't care about scores and require revisit
-   * when support score based sorting.
+   * No-op implementation. Currently Aggregation doesn't care about scores and require revisit when
+   * support score based sorting.
    */
   @Override
   public void setScorer(Scorable scorer) throws IOException {}

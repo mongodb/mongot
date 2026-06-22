@@ -62,7 +62,7 @@ import org.bson.types.ObjectId;
 public class IndexableFieldFactory {
 
   /**
-   * Value in the nullness field for documents that have a value for the corresponding sort field.  
+   * Value in the nullness field for documents that have a value for the corresponding sort field.
    */
   static final long NULLNESS_FIELD_PRESENT = 0L;
 
@@ -119,7 +119,6 @@ public class IndexableFieldFactory {
           .stored(false)
           .omitNorms(true)
           .build();
-
 
   /**
    * Adds an IndexableField for the `_id` to the root Lucene document for a BSON document we're
@@ -353,10 +352,7 @@ public class IndexableFieldFactory {
   }
 
   private static void addTokenFieldWithAnalyzer(
-      AbstractDocumentWrapper document,
-      String luceneFieldName,
-      String value)
-      throws IOException {
+      AbstractDocumentWrapper document, String luceneFieldName, String value) throws IOException {
     Analyzer indexAnalyzer = document.getIndexAnalyzer().orElseThrow();
     BytesRef analyzedValue =
         new BytesRef(
@@ -437,8 +433,7 @@ public class IndexableFieldFactory {
    * setting will handle their ordering.
    */
   static void addNullnessField(AbstractDocumentWrapper document, FieldPath path) {
-    String luceneFieldName =
-        FieldName.getNullnessFieldName(path);
+    String luceneFieldName = FieldName.getNullnessFieldName(path);
     document.put(new SortedNumericDocValuesField(luceneFieldName, NULLNESS_FIELD_PRESENT));
   }
 
@@ -872,7 +867,7 @@ public class IndexableFieldFactory {
 
   /**
    * Returns the logging ID of the document wrapper.
-   * 
+   *
    * <p>If the document wrapper does not have a root ID or fails to get the root ID, do not throw
    * and returns "unknown".
    *

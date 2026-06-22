@@ -733,8 +733,8 @@ public class FieldNameTest {
   @Test
   public void getTypeOf_validPrefixes_returnsType() {
     for (FieldName.TypeField typeField : FieldName.TypeField.values()) {
-      String fieldName = typeField.getLuceneFieldName(FieldPath.parse("someField"),
-          Optional.empty());
+      String fieldName =
+          typeField.getLuceneFieldName(FieldPath.parse("someField"), Optional.empty());
       Optional<FieldName.TypeField> result = FieldName.TypeField.getTypeOf(fieldName);
       assertThat(result).hasValue(typeField);
     }
@@ -743,8 +743,9 @@ public class FieldNameTest {
   @Test
   public void getTypeOf_validPrefixesWithEmbeddedRoot_returnsType() {
     for (FieldName.TypeField typeField : FieldName.TypeField.values()) {
-      String luceneFieldName = typeField.getLuceneFieldName(FieldPath.parse("someField"),
-          Optional.of(FieldPath.newRoot("/:$")));
+      String luceneFieldName =
+          typeField.getLuceneFieldName(
+              FieldPath.parse("someField"), Optional.of(FieldPath.newRoot("/:$")));
 
       Optional<FieldName.TypeField> result = FieldName.TypeField.getTypeOf(luceneFieldName);
 
@@ -756,10 +757,9 @@ public class FieldNameTest {
   public void getTypeOf_validPrefixesWithDeeplyNestedEmbeddedRoot_returnsType() {
     for (FieldName.TypeField typeField : FieldName.TypeField.values()) {
       String embeddedRoot = "/nested/root/level/1/2/3";
-      String luceneFieldName = typeField.getLuceneFieldName(
-          FieldPath.parse("nestedField"),
-          Optional.of(FieldPath.newRoot(embeddedRoot))
-      );
+      String luceneFieldName =
+          typeField.getLuceneFieldName(
+              FieldPath.parse("nestedField"), Optional.of(FieldPath.newRoot(embeddedRoot)));
 
       Optional<FieldName.TypeField> result = FieldName.TypeField.getTypeOf(luceneFieldName);
       assertThat(result).hasValue(typeField);
@@ -771,10 +771,9 @@ public class FieldNameTest {
     for (FieldName.TypeField typeField : FieldName.TypeField.values()) {
       // Embedded root with special characters
       String embeddedRoot = "/meta+data~name";
-      String luceneFieldName = typeField.getLuceneFieldName(
-          FieldPath.parse("specialField"),
-          Optional.of(FieldPath.newRoot(embeddedRoot))
-      );
+      String luceneFieldName =
+          typeField.getLuceneFieldName(
+              FieldPath.parse("specialField"), Optional.of(FieldPath.newRoot(embeddedRoot)));
 
       Optional<FieldName.TypeField> result = FieldName.TypeField.getTypeOf(luceneFieldName);
 
@@ -825,8 +824,7 @@ public class FieldNameTest {
 
   @Test
   public void getTypeOf_validPrefixWithContent_returnsType() {
-    Optional<FieldName.TypeField> result = FieldName.TypeField.getTypeOf(
-        "$type:string/someField");
+    Optional<FieldName.TypeField> result = FieldName.TypeField.getTypeOf("$type:string/someField");
     assertThat(result).hasValue(FieldName.TypeField.STRING);
   }
 

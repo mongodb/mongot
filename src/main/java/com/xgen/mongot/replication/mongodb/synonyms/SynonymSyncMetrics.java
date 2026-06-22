@@ -38,9 +38,7 @@ public class SynonymSyncMetrics {
     return this.collScanDurationTimer;
   }
 
-  /**
-   * Returns the counter for tracking exceptions during synonym syncs.
-   */
+  /** Returns the counter for tracking exceptions during synonym syncs. */
   public Counter getExceptionCounter() {
     return this.exceptionCounter;
   }
@@ -62,4 +60,3 @@ public class SynonymSyncMetrics {
     return this.collScansCounter;
   }
 }
-

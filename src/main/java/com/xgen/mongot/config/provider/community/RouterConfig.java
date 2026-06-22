@@ -9,9 +9,7 @@ import java.util.Optional;
 public final class RouterConfig extends MongoConnectionConfig {
 
   public RouterConfig(
-      List<HostAndPort> hostandPorts,
-      Optional<X509Config> x509,
-      Optional<ScramConfig> scram) {
+      List<HostAndPort> hostandPorts, Optional<X509Config> x509, Optional<ScramConfig> scram) {
     super(hostandPorts, x509, scram);
   }
 
@@ -21,7 +19,6 @@ public final class RouterConfig extends MongoConnectionConfig {
             .map(HostAndPort::fromString)
             .toList(),
         parser.getField(Fields.X509).unwrap(),
-        parser.getField(Fields.SCRAM).unwrap()
-    );
+        parser.getField(Fields.SCRAM).unwrap());
   }
 }

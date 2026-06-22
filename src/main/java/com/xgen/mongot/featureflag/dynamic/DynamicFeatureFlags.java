@@ -39,8 +39,8 @@ public enum DynamicFeatureFlags {
   BLOOM_FILTER_IN_STEADY_STATE("mongot.featureFlag.enableBloomFilterInSteadyState", false),
   NUMERIC_V2_SEMANTICS("mongot.featureFlag.numericV2Semantics", false),
   /**
-   * When enabled, wraps the Lucene child query of {@code embeddedDocument} operators so Lucene
-   * uses default bulk scoring instead of specialized bulk scorers for that subtree (mitigation for
+   * When enabled, wraps the Lucene child query of {@code embeddedDocument} operators so Lucene uses
+   * default bulk scoring instead of specialized bulk scorers for that subtree (mitigation for
    * select Lucene 10 perf regressions on dense embedded child queries).
    */
   DISABLE_BULK_SCORER_QUERY_FOR_EMBEDDED_DOCUMENT_CHILD(
@@ -53,8 +53,8 @@ public enum DynamicFeatureFlags {
   VECTOR_SEARCH_QUERY_TIMEOUT("mongot.featureFlag.enableVectorSearchQueryTimeout", false),
   /**
    * When enabled, parks (closes) the change-stream cursor of an index that has seen no change
-   * events for the configured inactivity threshold, and reactivates it when activity resumes.
-   * Gates parking behavior only; inactivity detection and logging are always on.
+   * events for the configured inactivity threshold, and reactivates it when activity resumes. Gates
+   * parking behavior only; inactivity detection and logging are always on.
    */
   INACTIVE_CURSOR_PARKING("mongot.featureFlag.enableInactiveCursorParking", false);
 

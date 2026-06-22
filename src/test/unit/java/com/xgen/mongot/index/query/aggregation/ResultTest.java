@@ -32,8 +32,7 @@ public class ResultTest {
     assertThrows(
         IllegalStateException.class,
         () ->
-            AggregationResults.from(
-                List.of(new SumResult("dup", 1.0), new SumResult("dup", 2.0))));
+            AggregationResults.from(List.of(new SumResult("dup", 1.0), new SumResult("dup", 2.0))));
   }
 
   @Test
@@ -86,11 +85,9 @@ public class ResultTest {
     TopLevelAggregationResult left =
         new TopLevelAggregationResult(List.of(new SumResult("a", 1.0), new SumResult("b", 2.0)));
     TopLevelAggregationResult right =
-        new TopLevelAggregationResult(
-            List.of(new SumResult("a", 10.0), new SumResult("b", 20.0)));
+        new TopLevelAggregationResult(List.of(new SumResult("a", 10.0), new SumResult("b", 20.0)));
 
-    TopLevelAggregationResult merged =
-        (TopLevelAggregationResult) left.mergePartitionResult(right);
+    TopLevelAggregationResult merged = (TopLevelAggregationResult) left.mergePartitionResult(right);
 
     assertEquals(2, merged.childResults().size());
     assertThrows(UnsupportedOperationException.class, merged::getName);

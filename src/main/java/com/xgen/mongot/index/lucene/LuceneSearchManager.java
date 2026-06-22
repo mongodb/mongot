@@ -11,7 +11,7 @@ public interface LuceneSearchManager<T> {
     public final TopDocs topDocs;
     public final boolean luceneExhausted;
 
-    public QueryInfo(TopDocs topDocs, boolean luceneExhausted)  {
+    public QueryInfo(TopDocs topDocs, boolean luceneExhausted) {
       this.topDocs = topDocs;
       this.luceneExhausted = luceneExhausted;
     }

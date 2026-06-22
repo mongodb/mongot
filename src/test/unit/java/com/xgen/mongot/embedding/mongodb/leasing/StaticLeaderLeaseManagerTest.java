@@ -100,8 +100,7 @@ public class StaticLeaderLeaseManagerTest {
 
     // Assert - should return proposed metadata (no existing lease)
     assertThat(result).isEqualTo(proposedMetadata);
-    assertThat(leaseManager.getLeaseKeyToDatabase())
-        .containsKey("mv-collection-name");
+    assertThat(leaseManager.getLeaseKeyToDatabase()).containsKey("mv-collection-name");
     assertThat(leaseManager.getLeaseKeyToDatabase().get("mv-collection-name"))
         .isEqualTo(DATABASE_NAME);
   }
@@ -149,8 +148,7 @@ public class StaticLeaderLeaseManagerTest {
     assertThat(result.schemaMetadata().materializedViewSchemaVersion()).isEqualTo(0L);
     assertThat(leaseManager.getLeases()).containsKey(collectionName);
     assertThat(leaseManager.getLeaseKeyToDatabase()).containsKey(collectionName);
-    assertThat(leaseManager.getLeaseKeyToDatabase().get(collectionName))
-        .isEqualTo(DATABASE_NAME);
+    assertThat(leaseManager.getLeaseKeyToDatabase().get(collectionName)).isEqualTo(DATABASE_NAME);
   }
 
   @Test
@@ -173,10 +171,8 @@ public class StaticLeaderLeaseManagerTest {
 
     // Assert - follower should return proposed metadata when no existing lease
     assertThat(result).isEqualTo(proposedMetadata);
-    assertThat(followerLeaseManager.getLeaseKeyToDatabase())
-        .containsKey("follower-mv-collection");
-    assertThat(
-            followerLeaseManager.getLeaseKeyToDatabase().get("follower-mv-collection"))
+    assertThat(followerLeaseManager.getLeaseKeyToDatabase()).containsKey("follower-mv-collection");
+    assertThat(followerLeaseManager.getLeaseKeyToDatabase().get("follower-mv-collection"))
         .isEqualTo(DATABASE_NAME);
   }
 

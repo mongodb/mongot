@@ -391,9 +391,8 @@ public class IndexActionsTest {
   }
 
   @Test
-  public void
-      addStagedIndex_withUnknownReason_addsUnresolvedStagedIndexWithResolutionRetryStatus()
-          throws Exception {
+  public void addStagedIndex_withUnknownReason_addsUnresolvedStagedIndexWithResolutionRetryStatus()
+      throws Exception {
     var definitionGeneration =
         mockDefinitionGeneration(
             VectorIndex.MOCK_MATERIALIZED_VIEW_AUTO_EMBEDDING_INDEX_DEFINITION);

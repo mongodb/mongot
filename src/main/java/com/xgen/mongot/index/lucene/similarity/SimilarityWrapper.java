@@ -5,11 +5,11 @@ import org.apache.lucene.search.similarities.PerFieldSimilarityWrapper;
 import org.apache.lucene.search.similarities.Similarity;
 
 /**
- * A {@link Similarity} wrapper that delegates to field-specific similarities when available,
- * and falls back to a default similarity otherwise.
+ * A {@link Similarity} wrapper that delegates to field-specific similarities when available, and
+ * falls back to a default similarity otherwise.
  *
- * <p>This class is useful when different fields in the index require different scoring models,
- * such as using {@code BooleanSimilarity} for one field and {@code BM25Similarity} for another.
+ * <p>This class is useful when different fields in the index require different scoring models, such
+ * as using {@code BooleanSimilarity} for one field and {@code BM25Similarity} for another.
  *
  * <p>The field-to-similarity mapping is provided at construction time and is immutable.
  */

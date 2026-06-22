@@ -62,13 +62,15 @@ import org.bson.BsonDocument;
  */
 public class FeatureFlags implements DocumentEncodable {
   private static final FeatureFlags DEFAULT_INSTANCE = withDefaults().build();
+
   /**
-   * Process-wide {@link FeatureFlags} for non-DI code paths. Set exactly once by
-   * {@link #initializeProcessInstance} at bootstrap, read via {@link #getStatic};
-   * all access guarded by the {@code FeatureFlags.class} monitor.
+   * Process-wide {@link FeatureFlags} for non-DI code paths. Set exactly once by {@link
+   * #initializeProcessInstance} at bootstrap, read via {@link #getStatic}; all access guarded by
+   * the {@code FeatureFlags.class} monitor.
    */
   @GuardedBy("FeatureFlags.class")
   private static Optional<FeatureFlags> globalFeatureFlags = Optional.empty();
+
   private final EnumMap<Feature, Feature.State> featureStates;
 
   /**
@@ -279,9 +281,7 @@ public class FeatureFlags implements DocumentEncodable {
         .build();
   }
 
-  /**
-   * Returns the Community mongot feature-flag defaults
-   */
+  /** Returns the Community mongot feature-flag defaults */
   public static FeatureFlags communityDefaults() {
     return FeatureFlags.withDefaults()
         .enable(Feature.FACETING_OVER_TOKEN_FIELDS)
@@ -353,8 +353,8 @@ public class FeatureFlags implements DocumentEncodable {
       link = "https://jira.mongodb.org/browse/CLOUDP-411746",
       allowedOnPath = ".*/index/lucene/(codec|quantization)/.*|.*FeatureFlagsTest\\.java")
   public static synchronized FeatureFlags getStatic() {
-    return globalFeatureFlags.orElseThrow(() -> new IllegalStateException(
-        "global FeatureFlags not initialized or has been reset"));
+    return globalFeatureFlags.orElseThrow(
+        () -> new IllegalStateException("global FeatureFlags not initialized or has been reset"));
   }
 
   @VisibleForTesting

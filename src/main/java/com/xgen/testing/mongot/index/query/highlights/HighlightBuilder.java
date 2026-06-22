@@ -61,10 +61,10 @@ public class HighlightBuilder {
   /** Build the Highlight. */
   public Highlight build() {
     if (this.paths.size() != this.storedPaths.size()) {
-      throw new IllegalStateException(String.format(
-          "Mismatch between paths size (%d) and storedPaths size (%d)",
-          this.paths.size(), this.storedPaths.size()
-      ));
+      throw new IllegalStateException(
+          String.format(
+              "Mismatch between paths size (%d) and storedPaths size (%d)",
+              this.paths.size(), this.storedPaths.size()));
     }
 
     Map<String, String> storedLuceneFieldNameMap = new HashMap<>();

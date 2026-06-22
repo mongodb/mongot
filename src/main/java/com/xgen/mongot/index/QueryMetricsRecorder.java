@@ -197,8 +197,7 @@ public class QueryMetricsRecorder {
     return switch (collector) {
       case FacetCollector facetCollector ->
           Stream.concat(
-              Stream.concat(
-                  getOperatorCounters(facetCollector.operator()), collectorTypeCounter),
+              Stream.concat(getOperatorCounters(facetCollector.operator()), collectorTypeCounter),
               facetCollector
                   .drillSidewaysInfo()
                   .map(DrillSidewaysInfo::optimizationStatus)

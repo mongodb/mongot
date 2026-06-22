@@ -69,10 +69,8 @@ public class CompoundOperatorTest {
     return TestSpec.valid(
         "doesNotAffectFilter",
         OperatorBuilder.compound()
-            .filter(OperatorBuilder.text()
-                .path("size")
-                .query("S").build())
-                .doesNotAffect(List.of("points", "sizes"))
+            .filter(OperatorBuilder.text().path("size").query("S").build())
+            .doesNotAffect(List.of("points", "sizes"))
             .build());
   }
 
@@ -80,9 +78,7 @@ public class CompoundOperatorTest {
     return TestSpec.valid(
         "doesNotAffectShould",
         OperatorBuilder.compound()
-            .should(OperatorBuilder.text()
-                .path("size")
-                .query("S").build())
+            .should(OperatorBuilder.text().path("size").query("S").build())
             .doesNotAffect(List.of("points", "sizes"))
             .build());
   }
@@ -91,9 +87,7 @@ public class CompoundOperatorTest {
     return TestSpec.valid(
         "doesNotAffectMust",
         OperatorBuilder.compound()
-            .must(OperatorBuilder.text()
-                .path("size")
-                .query("S").build())
+            .must(OperatorBuilder.text().path("size").query("S").build())
             .doesNotAffect(List.of("points", "sizes"))
             .build());
   }
@@ -102,9 +96,7 @@ public class CompoundOperatorTest {
     return TestSpec.valid(
         "doesNotAffectMustNot",
         OperatorBuilder.compound()
-            .mustNot(OperatorBuilder.text()
-                .path("size")
-                .query("S").build())
+            .mustNot(OperatorBuilder.text().path("size").query("S").build())
             .doesNotAffect(List.of("points", "sizes"))
             .build());
   }
@@ -113,9 +105,7 @@ public class CompoundOperatorTest {
     return TestSpec.valid(
         "doesNotAffectEmptyArray",
         OperatorBuilder.compound()
-            .should(OperatorBuilder.text()
-                .path("size")
-                .query("S").build())
+            .should(OperatorBuilder.text().path("size").query("S").build())
             .doesNotAffect(List.of())
             .build());
   }
@@ -124,9 +114,7 @@ public class CompoundOperatorTest {
     return TestSpec.valid(
         "doesNotAffectString",
         OperatorBuilder.compound()
-            .should(OperatorBuilder.text()
-                .path("size")
-                .query("S").build())
+            .should(OperatorBuilder.text().path("size").query("S").build())
             .doesNotAffect("sizes")
             .build());
   }
@@ -135,10 +123,12 @@ public class CompoundOperatorTest {
     return TestSpec.valid(
         "doesNotAffectNested",
         OperatorBuilder.compound()
-            .should(OperatorBuilder.equals()
-                .path("size")
-                .value("S")
-                .doesNotAffect(List.of("points", "sizes")).build())
+            .should(
+                OperatorBuilder.equals()
+                    .path("size")
+                    .value("S")
+                    .doesNotAffect(List.of("points", "sizes"))
+                    .build())
             .build());
   }
 
@@ -146,9 +136,7 @@ public class CompoundOperatorTest {
     return TestSpec.valid(
         "doesNotAffectNestedOuterLevel",
         OperatorBuilder.compound()
-            .should(OperatorBuilder.equals()
-                .path("size")
-                .value("S").build())
+            .should(OperatorBuilder.equals().path("size").value("S").build())
             .doesNotAffect(List.of("points", "sizes"))
             .build());
   }
@@ -157,10 +145,12 @@ public class CompoundOperatorTest {
     return TestSpec.valid(
         "doesNotAffectBothLevels",
         OperatorBuilder.compound()
-            .should(OperatorBuilder.equals()
-                .path("size")
-                .value("S")
-                .doesNotAffect(List.of("sizes")).build())
+            .should(
+                OperatorBuilder.equals()
+                    .path("size")
+                    .value("S")
+                    .doesNotAffect(List.of("sizes"))
+                    .build())
             .doesNotAffect(List.of("points", "sizes"))
             .build());
   }
@@ -169,18 +159,26 @@ public class CompoundOperatorTest {
     return TestSpec.valid(
         "doesNotAffectMultiInterior",
         OperatorBuilder.compound()
-            .should(OperatorBuilder.range()
-                .path("rating")
-                .numericBounds(
-                    Optional.of(new DoublePoint(4d)), Optional.of(new DoublePoint(5d)), true, false)
-                .doesNotAffect(List.of("ratings"))
-                .build())
-            .should(OperatorBuilder.range()
-                .path("rating")
-                .numericBounds(
-                    Optional.of(new DoublePoint(6d)), Optional.of(new DoublePoint(7d)), true, false)
-                .doesNotAffect(List.of("ratings"))
-                .build())
+            .should(
+                OperatorBuilder.range()
+                    .path("rating")
+                    .numericBounds(
+                        Optional.of(new DoublePoint(4d)),
+                        Optional.of(new DoublePoint(5d)),
+                        true,
+                        false)
+                    .doesNotAffect(List.of("ratings"))
+                    .build())
+            .should(
+                OperatorBuilder.range()
+                    .path("rating")
+                    .numericBounds(
+                        Optional.of(new DoublePoint(6d)),
+                        Optional.of(new DoublePoint(7d)),
+                        true,
+                        false)
+                    .doesNotAffect(List.of("ratings"))
+                    .build())
             .doesNotAffect(List.of("firmnesses"))
             .build());
   }
@@ -189,31 +187,38 @@ public class CompoundOperatorTest {
     return TestSpec.valid(
         "doesNotAffectOuterCompoundLevel",
         OperatorBuilder.compound()
-            .filter(OperatorBuilder.compound()
-                .should(OperatorBuilder.range()
-                    .path("pricePerNight")
-                    .numericBounds(
-                        Optional.of(new DoublePoint(0d)),
-                        Optional.of(new DoublePoint(100d)),
-                        true, false)
+            .filter(
+                OperatorBuilder.compound()
+                    .should(
+                        OperatorBuilder.range()
+                            .path("pricePerNight")
+                            .numericBounds(
+                                Optional.of(new DoublePoint(0d)),
+                                Optional.of(new DoublePoint(100d)),
+                                true,
+                                false)
+                            .build())
+                    .should(
+                        OperatorBuilder.range()
+                            .path("pricePerNight")
+                            .numericBounds(
+                                Optional.of(new DoublePoint(300d)),
+                                Optional.of(new DoublePoint(400d)),
+                                true,
+                                false)
+                            .build())
+                    .should(
+                        OperatorBuilder.range()
+                            .path("pricePerNight")
+                            .numericBounds(
+                                Optional.of(new DoublePoint(500d)),
+                                Optional.of(new DoublePoint(1000d)),
+                                true,
+                                false)
+                            .build())
+                    .doesNotAffect(List.of("pricePerNightFacet"))
+                    .minimumShouldMatch(1)
                     .build())
-                .should(OperatorBuilder.range()
-                    .path("pricePerNight")
-                    .numericBounds(
-                        Optional.of(new DoublePoint(300d)),
-                        Optional.of(new DoublePoint(400d)),
-                        true, false)
-                    .build())
-                .should(OperatorBuilder.range()
-                    .path("pricePerNight")
-                    .numericBounds(
-                        Optional.of(new DoublePoint(500d)),
-                        Optional.of(new DoublePoint(1000d)),
-                        true, false)
-                    .build())
-                .doesNotAffect(List.of("pricePerNightFacet"))
-                .minimumShouldMatch(1)
-                .build())
             .build());
   }
 
@@ -221,33 +226,40 @@ public class CompoundOperatorTest {
     return TestSpec.valid(
         "doesNotAffectInnerOperatorLevel",
         OperatorBuilder.compound()
-            .filter(OperatorBuilder.compound()
-                .should(OperatorBuilder.range()
-                    .path("pricePerNight")
-                    .numericBounds(
-                        Optional.of(new DoublePoint(0d)),
-                        Optional.of(new DoublePoint(100d)),
-                        true, false)
-                    .doesNotAffect(List.of("pricePerNightFacet"))
+            .filter(
+                OperatorBuilder.compound()
+                    .should(
+                        OperatorBuilder.range()
+                            .path("pricePerNight")
+                            .numericBounds(
+                                Optional.of(new DoublePoint(0d)),
+                                Optional.of(new DoublePoint(100d)),
+                                true,
+                                false)
+                            .doesNotAffect(List.of("pricePerNightFacet"))
+                            .build())
+                    .should(
+                        OperatorBuilder.range()
+                            .path("pricePerNight")
+                            .numericBounds(
+                                Optional.of(new DoublePoint(300d)),
+                                Optional.of(new DoublePoint(400d)),
+                                true,
+                                false)
+                            .doesNotAffect(List.of("pricePerNightFacet"))
+                            .build())
+                    .should(
+                        OperatorBuilder.range()
+                            .path("pricePerNight")
+                            .numericBounds(
+                                Optional.of(new DoublePoint(500d)),
+                                Optional.of(new DoublePoint(1000d)),
+                                true,
+                                false)
+                            .doesNotAffect(List.of("pricePerNightFacet"))
+                            .build())
+                    .minimumShouldMatch(1)
                     .build())
-                .should(OperatorBuilder.range()
-                    .path("pricePerNight")
-                    .numericBounds(
-                        Optional.of(new DoublePoint(300d)),
-                        Optional.of(new DoublePoint(400d)),
-                        true, false)
-                    .doesNotAffect(List.of("pricePerNightFacet"))
-                    .build())
-                .should(OperatorBuilder.range()
-                    .path("pricePerNight")
-                    .numericBounds(
-                        Optional.of(new DoublePoint(500d)),
-                        Optional.of(new DoublePoint(1000d)),
-                        true, false)
-                    .doesNotAffect(List.of("pricePerNightFacet"))
-                    .build())
-                .minimumShouldMatch(1)
-                .build())
             .build());
   }
 

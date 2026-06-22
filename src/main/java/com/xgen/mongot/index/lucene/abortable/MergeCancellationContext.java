@@ -10,8 +10,8 @@ import org.jetbrains.annotations.Nullable;
  *
  * <p>This is used to bridge the gap between Lucene's vector merge code (which receives a {@link
  * org.apache.lucene.index.MergeState} but no {@code OneMerge}) and {@link
- * AbortableRandomVectorScorerSupplier}, which needs both the {@code OneMerge} and the
- * cancellation flag to enable score-level abort detection during HNSW graph building.
+ * AbortableRandomVectorScorerSupplier}, which needs both the {@code OneMerge} and the cancellation
+ * flag to enable score-level abort detection during HNSW graph building.
  *
  * <p>The context is set by the merge scheduler at the start of a merge (on the dedicated merge
  * thread) and cleared in a {@code finally} block when the merge finishes, so the lifecycle is
@@ -19,9 +19,9 @@ import org.jetbrains.annotations.Nullable;
  *
  * <p><b>Threading:</b> values are confined to the thread that set them. Vector formats run with
  * {@code numMergeWorkers == 1} in production, so graph construction executes on the same merge
- * thread and observes the context. If a format ever runs with multiple workers, the context is
- * not propagated to worker threads and abort detection in those threads is simply skipped (the
- * existing IO-level checks in {@link AbortableDirectory} continue to apply).
+ * thread and observes the context. If a format ever runs with multiple workers, the context is not
+ * propagated to worker threads and abort detection in those threads is simply skipped (the existing
+ * IO-level checks in {@link AbortableDirectory} continue to apply).
  */
 public final class MergeCancellationContext {
 
@@ -55,4 +55,3 @@ public final class MergeCancellationContext {
     return CANCEL_ENABLED.get();
   }
 }
-

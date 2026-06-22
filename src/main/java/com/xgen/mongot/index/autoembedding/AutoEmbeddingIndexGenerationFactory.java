@@ -53,7 +53,7 @@ public class AutoEmbeddingIndexGenerationFactory {
     Check.checkArg(
         indexDef.isAutoEmbeddingIndex()
             && indexDef.getParsedAutoEmbeddingFeatureVersion()
-            >= MIN_VERSION_FOR_MATERIALIZED_VIEW_EMBEDDING,
+                >= MIN_VERSION_FOR_MATERIALIZED_VIEW_EMBEDDING,
         "Input definition is not materialized view based auto-embedding index");
     InitializedMaterializedViewIndex matViewIndex;
     try {
@@ -106,13 +106,14 @@ public class AutoEmbeddingIndexGenerationFactory {
       InitializedMaterializedViewIndex matViewIndex) {
     IndexDefinition def = rawDefinitionGeneration.getIndexDefinition();
     return switch (def) {
-      case VectorIndexDefinition vectorDef -> new VectorIndexDefinitionGeneration(
-          getDerivedVectorIndexDefinition(
-              vectorDef,
-              matViewIndex.getMaterializedViewDatabaseName(),
-              matViewIndex.getMaterializedViewCollectionUuid(),
-              matViewIndex.getSchemaMetadata()),
-          rawDefinitionGeneration.generation());
+      case VectorIndexDefinition vectorDef ->
+          new VectorIndexDefinitionGeneration(
+              getDerivedVectorIndexDefinition(
+                  vectorDef,
+                  matViewIndex.getMaterializedViewDatabaseName(),
+                  matViewIndex.getMaterializedViewCollectionUuid(),
+                  matViewIndex.getSchemaMetadata()),
+              rawDefinitionGeneration.generation());
       case SearchIndexDefinition searchDef -> {
         SearchIndexDefinition derivedSearchDef =
             getDerivedSearchIndexDefinition(

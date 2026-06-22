@@ -139,8 +139,7 @@ public class SearchCommand implements Command {
               .dynamicFeatureFlagRegistry()
               .evaluateClusterInvariant(DynamicFeatureFlags.ENABLE_10K_BUCKET_LIMIT);
       SearchQuery queryDefinition =
-          SearchQuery.fromBson(
-              this.definition.queryDocument(), queryOptimizationFlags, allow10k);
+          SearchQuery.fromBson(this.definition.queryDocument(), queryOptimizationFlags, allow10k);
       Optional<InitializedIndex> index = getIndexFromCatalog(queryDefinition);
       QueryCursorOptions queryCursorOptions =
           this.definition

@@ -112,10 +112,7 @@ public class SyncSourceConfigTest {
   @Test
   public void copyWithUpdatedReplicationUris_preservesOtherFields() {
     SyncSourceConfig original =
-        baseBuilder()
-            .mongosClusterReadWriteUri(MONGOS)
-            .isSharded(true)
-            .build();
+        baseBuilder().mongosClusterReadWriteUri(MONGOS).isSharded(true).build();
     SyncSourceConfig copy =
         original.copyWithUpdatedReplicationUris(Optional.of(MONGOD), Optional.of(MONGOS));
     assertEquals(MONGOD, copy.mongodClusterReplicationUri);

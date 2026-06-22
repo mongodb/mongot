@@ -13,8 +13,7 @@ import org.junit.runner.RunWith;
 public class SimilarityTest {
   private static final long SEED = 0xdeadbeefL;
   // Use some dimensionalities that will test tail processing.
-  @DataPoints
-  public static final int[] DIMS = {4, 16, 64, 128, 256, 17, 257, 362, 81};
+  @DataPoints public static final int[] DIMS = {4, 16, 64, 128, 256, 17, 257, 362, 81};
 
   private static byte[] randomBytes(Random rng, int n) {
     byte[] v = new byte[n];
@@ -63,8 +62,7 @@ public class SimilarityTest {
         byte[] b = randomBytes(rng, dim);
         int expected = VectorUtil.squareDistance(a, b);
         int actual =
-            Similarity.l2I8(
-                Similarity.prepareVector(arena, a), Similarity.prepareVector(arena, b));
+            Similarity.l2I8(Similarity.prepareVector(arena, a), Similarity.prepareVector(arena, b));
         Assert.assertEquals("trial=" + trial + " dim=" + dim, expected, actual);
       }
     }

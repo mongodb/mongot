@@ -24,9 +24,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Detects whether the connected mongod is part of a sharded cluster. Consumed by
- * {@link CatalogAccessGuard} to block catalog reads/writes when the mongot's
- * {@code syncSource.router} config does not match the real topology.
+ * Detects whether the connected mongod is part of a sharded cluster. Consumed by {@link
+ * CatalogAccessGuard} to block catalog reads/writes when the mongot's {@code syncSource.router}
+ * config does not match the real topology.
  *
  * <p>The cached value may lag real topology by up to one refresh interval. This is safe for the
  * catalog-access guard because the harmful case (RS-to-sharded conversion) requires moving the
@@ -83,8 +83,8 @@ public class MongodTopologyMonitor implements Closeable {
   }
 
   private static MongoClient buildClient(SyncSourceConfig syncSource, MeterRegistry meterRegistry) {
-    return MongoClientBuilder.buildNonReplicationWithDefaults(syncSource.mongodClusterReadWriteUri,
-        MONGO_CLIENT_NAME, meterRegistry);
+    return MongoClientBuilder.buildNonReplicationWithDefaults(
+        syncSource.mongodClusterReadWriteUri, MONGO_CLIENT_NAME, meterRegistry);
   }
 
   public void start() {
@@ -93,19 +93,16 @@ public class MongodTopologyMonitor implements Closeable {
         .addKeyValue("expiry", this.expiry)
         .log("Starting mongod topology monitor schedule.");
     this.scheduler.scheduleWithFixedDelay(
-        this::refreshCache,
-        0L,
-        this.refreshInterval.toMillis(),
-        TimeUnit.MILLISECONDS);
+        this::refreshCache, 0L, this.refreshInterval.toMillis(), TimeUnit.MILLISECONDS);
   }
 
   /**
    * Returns the cached topology if it is present and not expired.
    *
    * <p>If the cache has not been initialized yet (e.g. mongod started after mongot), this triggers
-   * an on-demand probe and blocks up to {@link #probeWait} for it to complete, so a ready
-   * mongod can be served on the first call instead of failing. If the probe does not populate the
-   * cache in time, {@link CheckedMongoException} is thrown.
+   * an on-demand probe and blocks up to {@link #probeWait} for it to complete, so a ready mongod
+   * can be served on the first call instead of failing. If the probe does not populate the cache in
+   * time, {@link CheckedMongoException} is thrown.
    *
    * <p>If the cache is present but stale, this throws immediately and relies on the periodic
    * refresh to repopulate it.
@@ -126,16 +123,18 @@ public class MongodTopologyMonitor implements Closeable {
    * cache. Returns the probed value if the cache was populated in time, otherwise throws.
    */
   private boolean awaitProbe() throws CheckedMongoException {
-    triggerAsyncProbe().ifPresent(probe -> {
-      try {
-        probe.get(this.probeWait.toMillis(), TimeUnit.MILLISECONDS);
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        LOG.atWarn().setCause(e).log("Interrupted while waiting for the topology probe.");
-      } catch (Exception e) {
-        LOG.atWarn().setCause(e).log("Topology probe did not populate the cache in time.");
-      }
-    });
+    triggerAsyncProbe()
+        .ifPresent(
+            probe -> {
+              try {
+                probe.get(this.probeWait.toMillis(), TimeUnit.MILLISECONDS);
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                LOG.atWarn().setCause(e).log("Interrupted while waiting for the topology probe.");
+              } catch (Exception e) {
+                LOG.atWarn().setCause(e).log("Topology probe did not populate the cache in time.");
+              }
+            });
     CacheEntry entry = this.cache.get();
     if (entry != null) {
       return entry.sharded();
@@ -155,13 +154,16 @@ public class MongodTopologyMonitor implements Closeable {
       return this.inFlightProbe;
     }
     try {
-      this.inFlightProbe = Optional.of(this.scheduler.submit(() -> {
-        // Refresh only if the cache is still empty; a periodic refresh may have already
-        // populated it between scheduling this task and it running.
-        if (this.cache.get() == null) {
-          refreshCache();
-        }
-      }));
+      this.inFlightProbe =
+          Optional.of(
+              this.scheduler.submit(
+                  () -> {
+                    // Refresh only if the cache is still empty; a periodic refresh may have already
+                    // populated it between scheduling this task and it running.
+                    if (this.cache.get() == null) {
+                      refreshCache();
+                    }
+                  }));
       return this.inFlightProbe;
     } catch (RejectedExecutionException e) {
       LOG.atWarn().setCause(e).log("Failed to schedule async topology probe.");
@@ -182,17 +184,15 @@ public class MongodTopologyMonitor implements Closeable {
       boolean sharded = probeShardedCluster();
       updateCache(sharded);
     } catch (Throwable e) {
-      LOG.atError()
-          .setCause(e)
-          .log("Periodic topology refresh failed.");
+      LOG.atError().setCause(e).log("Periodic topology refresh failed.");
     }
   }
 
   /**
-   * Issues {@code getCmdLineOpts} on the dedicated mongod client and parses
-   * {@code parsed.sharding}. Any node started with a {@code clusterRole} (i.e. {@code --shardsvr}
-   * or {@code --configsvr}) has {@code parsed.sharding} populated; a plain replica-set member
-   * does not.
+   * Issues {@code getCmdLineOpts} on the dedicated mongod client and parses {@code
+   * parsed.sharding}. Any node started with a {@code clusterRole} (i.e. {@code --shardsvr} or
+   * {@code --configsvr}) has {@code parsed.sharding} populated; a plain replica-set member does
+   * not.
    */
   private boolean probeShardedCluster() throws CheckedMongoException {
     try {

@@ -109,8 +109,7 @@ public class MongoClientOperationExecutorTest {
             executor.execute(
                 "bulkWrite",
                 () -> {
-                  throw bulkWriteException(
-                      Errors.EXCEEDED_DISK_LIMIT.code, "disk limit exceeded");
+                  throw bulkWriteException(Errors.EXCEEDED_DISK_LIMIT.code, "disk limit exceeded");
                 }));
   }
 
@@ -184,8 +183,7 @@ public class MongoClientOperationExecutorTest {
             executor.execute(
                 "bulkWrite",
                 () -> {
-                  throw bulkWriteException(
-                      Errors.USER_WRITES_BLOCKED.code, "user writes blocked");
+                  throw bulkWriteException(Errors.USER_WRITES_BLOCKED.code, "user writes blocked");
                 }));
   }
 
@@ -305,8 +303,7 @@ public class MongoClientOperationExecutorTest {
             executor.execute(
                 "deleteOne",
                 () -> {
-                  throw writeException(
-                      Errors.USER_WRITES_BLOCKED.code, "user writes blocked");
+                  throw writeException(Errors.USER_WRITES_BLOCKED.code, "user writes blocked");
                 }));
 
     Counter counter = registry.find(PREFIX + ".mongodUserWritesBlockedErrors").counter();
@@ -452,15 +449,16 @@ public class MongoClientOperationExecutorTest {
         "bulkWrite",
         () -> {
           if (attempts.getAndIncrement() < 2) {
-            throw new MongoSocketReadException(
-                "connection reset", new ServerAddress());
+            throw new MongoSocketReadException("connection reset", new ServerAddress());
           }
           return "ok";
         });
 
     Counter retryCounter =
-        registry.find(PREFIX + ".resource.retriedAttempts")
-            .tag("errorReason", "socket_error").counter();
+        registry
+            .find(PREFIX + ".resource.retriedAttempts")
+            .tag("errorReason", "socket_error")
+            .counter();
     assertNotNull("Retry counter should exist", retryCounter);
     assertEquals(2.0, retryCounter.count(), 0.0);
   }
@@ -481,8 +479,7 @@ public class MongoClientOperationExecutorTest {
         });
 
     Counter retryCounter =
-        registry.find(PREFIX + ".resource.retriedAttempts")
-            .tag("errorReason", "timeout").counter();
+        registry.find(PREFIX + ".resource.retriedAttempts").tag("errorReason", "timeout").counter();
     assertNotNull("Retry counter should exist", retryCounter);
     assertEquals(1.0, retryCounter.count(), 0.0);
   }
@@ -504,8 +501,10 @@ public class MongoClientOperationExecutorTest {
         });
 
     Counter retryCounter =
-        registry.find(PREFIX + ".resource.retriedAttempts")
-            .tag("errorReason", "mongo_error_91").counter();
+        registry
+            .find(PREFIX + ".resource.retriedAttempts")
+            .tag("errorReason", "mongo_error_91")
+            .counter();
     assertNotNull("Retry counter should exist", retryCounter);
     assertEquals(1.0, retryCounter.count(), 0.0);
   }
@@ -534,15 +533,13 @@ public class MongoClientOperationExecutorTest {
         "bulkWrite",
         () -> {
           if (attempts.getAndIncrement() < 2) {
-            throw new MongoSocketReadException(
-                "connection reset", new ServerAddress());
+            throw new MongoSocketReadException("connection reset", new ServerAddress());
           }
           return "ok";
         });
 
     Timer perAttemptTimer =
-        registry.find(PREFIX + ".resource.perAttemptLatency")
-            .tag("operation", "bulkWrite").timer();
+        registry.find(PREFIX + ".resource.perAttemptLatency").tag("operation", "bulkWrite").timer();
     assertNotNull("Per-attempt timer should exist", perAttemptTimer);
     // 3 attempts: 2 failures + 1 success
     assertEquals(3, perAttemptTimer.count());
@@ -556,8 +553,10 @@ public class MongoClientOperationExecutorTest {
     executor.execute("readCheckpoint", () -> "ok");
 
     Timer perAttemptTimer =
-        registry.find(PREFIX + ".resource.perAttemptLatency")
-            .tag("operation", "readCheckpoint").timer();
+        registry
+            .find(PREFIX + ".resource.perAttemptLatency")
+            .tag("operation", "readCheckpoint")
+            .timer();
     assertNotNull("Per-attempt timer should exist", perAttemptTimer);
     assertEquals(1, perAttemptTimer.count());
   }

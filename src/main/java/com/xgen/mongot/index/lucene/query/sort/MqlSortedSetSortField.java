@@ -133,8 +133,7 @@ public class MqlSortedSetSortField extends SortedSetSortField {
         };
 
     var fieldName = resolveFieldName(FieldName.TypeField.BOOLEAN, sortField.field(), embeddedRoot);
-    return new MqlSortedSetSortField(
-        fieldName, sortField.options(), converter, true, indexSorted);
+    return new MqlSortedSetSortField(fieldName, sortField.options(), converter, true, indexSorted);
   }
 
   public static MqlSortedSetSortField uuidSort(
@@ -153,8 +152,7 @@ public class MqlSortedSetSortField extends SortedSetSortField {
         };
 
     var fieldName = resolveFieldName(FieldName.TypeField.UUID, sortField.field(), embeddedRoot);
-    return new MqlSortedSetSortField(
-        fieldName, sortField.options(), converter, true, indexSorted);
+    return new MqlSortedSetSortField(fieldName, sortField.options(), converter, true, indexSorted);
   }
 
   public static MqlSortedSetSortField objectIdSort(
@@ -174,8 +172,7 @@ public class MqlSortedSetSortField extends SortedSetSortField {
 
     var fieldName =
         resolveFieldName(FieldName.TypeField.OBJECT_ID, sortField.field(), embeddedRoot);
-    return new MqlSortedSetSortField(
-        fieldName, sortField.options(), converter, true, indexSorted);
+    return new MqlSortedSetSortField(fieldName, sortField.options(), converter, true, indexSorted);
   }
 
   public static MqlSortedSetSortField stringSort(

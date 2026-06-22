@@ -67,9 +67,7 @@ public class NestedAvgVectorRescorerTest {
     //   True avg = (1.0 + 0.5 + 0.2) / 3 = 0.5667
     this.writer.addDocuments(
         createBlock(
-            new float[] {1f, 0f, 0f},
-            new float[] {0.5f, 0f, 0f},
-            new float[] {0.2f, 0f, 0f}));
+            new float[] {1f, 0f, 0f}, new float[] {0.5f, 0f, 0f}, new float[] {0.2f, 0f, 0f}));
     this.writer.commit();
 
     float[] queryVector = new float[] {1f, 0f, 0f};
@@ -105,13 +103,8 @@ public class NestedAvgVectorRescorerTest {
     // After rescore, B (true avg 0.55) should outrank A (true avg 0.4).
     this.writer.addDocuments(
         createBlock(
-            new float[] {1f, 0f, 0f},
-            new float[] {0.1f, 0f, 0f},
-            new float[] {0.1f, 0f, 0f}));
-    this.writer.addDocuments(
-        createBlock(
-            new float[] {0.6f, 0f, 0f},
-            new float[] {0.5f, 0f, 0f}));
+            new float[] {1f, 0f, 0f}, new float[] {0.1f, 0f, 0f}, new float[] {0.1f, 0f, 0f}));
+    this.writer.addDocuments(createBlock(new float[] {0.6f, 0f, 0f}, new float[] {0.5f, 0f, 0f}));
     this.writer.commit();
 
     float[] queryVector = new float[] {1f, 0f, 0f};
@@ -189,8 +182,7 @@ public class NestedAvgVectorRescorerTest {
     WrappedToParentBlockJoinQuery blockJoinQuery =
         new WrappedToParentBlockJoinQuery(
             new MatchAllDocsQuery(),
-            new QueryBitSetProducer(
-                EmbeddedDocumentQueryFactory.parentFilter(Optional.empty())),
+            new QueryBitSetProducer(EmbeddedDocumentQueryFactory.parentFilter(Optional.empty())),
             ScoreMode.Avg);
 
     Optional<WrappedToParentBlockJoinQuery> extracted =
@@ -205,8 +197,7 @@ public class NestedAvgVectorRescorerTest {
     WrappedToParentBlockJoinQuery blockJoinQuery =
         new WrappedToParentBlockJoinQuery(
             new MatchAllDocsQuery(),
-            new QueryBitSetProducer(
-                EmbeddedDocumentQueryFactory.parentFilter(Optional.empty())),
+            new QueryBitSetProducer(EmbeddedDocumentQueryFactory.parentFilter(Optional.empty())),
             ScoreMode.Avg);
 
     BooleanQuery wrapped =
@@ -232,8 +223,7 @@ public class NestedAvgVectorRescorerTest {
 
   @Test
   public void testRescoreWithBlockJoinWrappedInBooleanQuery() throws IOException {
-    this.writer.addDocuments(
-        createBlock(new float[] {1f, 0f, 0f}, new float[] {0.2f, 0f, 0f}));
+    this.writer.addDocuments(createBlock(new float[] {1f, 0f, 0f}, new float[] {0.2f, 0f, 0f}));
     this.writer.commit();
 
     float[] queryVector = new float[] {1f, 0f, 0f};
@@ -246,17 +236,14 @@ public class NestedAvgVectorRescorerTest {
       WrappedToParentBlockJoinQuery blockJoinQuery =
           new WrappedToParentBlockJoinQuery(
               knnQuery,
-              new QueryBitSetProducer(
-                  EmbeddedDocumentQueryFactory.parentFilter(Optional.empty())),
+              new QueryBitSetProducer(EmbeddedDocumentQueryFactory.parentFilter(Optional.empty())),
               ScoreMode.Avg);
 
       // Wrap in BooleanQuery (simulates parentFilter present)
       BooleanQuery wrappedQuery =
           new BooleanQuery.Builder()
               .add(blockJoinQuery, BooleanClause.Occur.MUST)
-              .add(
-                  EmbeddedDocumentQueryFactory.ROOT_DOCUMENTS_QUERY,
-                  BooleanClause.Occur.FILTER)
+              .add(EmbeddedDocumentQueryFactory.ROOT_DOCUMENTS_QUERY, BooleanClause.Occur.FILTER)
               .build();
 
       TopDocs initial = searcher.search(wrappedQuery, 10);

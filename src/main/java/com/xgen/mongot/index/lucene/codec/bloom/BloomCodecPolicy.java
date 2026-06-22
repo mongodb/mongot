@@ -23,8 +23,8 @@ public final class BloomCodecPolicy {
 
   /**
    * Supplier used both by {@link com.xgen.mongot.index.lucene.writer.SingleLuceneIndexWriter}
-   * (whether new and merged segments use bloom-encoded {@code _id}) and by readers when paired
-   * with {@link MongotBloomReadPolicy} (whether bloom payloads load into heap).
+   * (whether new and merged segments use bloom-encoded {@code _id}) and by readers when paired with
+   * {@link MongotBloomReadPolicy} (whether bloom payloads load into heap).
    */
   public static BooleanSupplier getBloomFilterEnabledForIdField(
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
@@ -43,16 +43,16 @@ public final class BloomCodecPolicy {
       if (indexStatus.getStatusCode() == IndexStatus.StatusCode.FAILED) {
         return false;
       }
-      
+
       if (!dynamicFeatureFlagRegistry.evaluateClusterInvariant(
           DynamicFeatureFlags.BLOOM_FILTER_FOR_ID_FIELD)) {
         return false;
       }
-      
+
       if (!indexStatus.canServiceQueries()) {
         return true;
       }
-      
+
       return dynamicFeatureFlagRegistry.evaluateClusterInvariant(
           DynamicFeatureFlags.BLOOM_FILTER_IN_STEADY_STATE);
     };

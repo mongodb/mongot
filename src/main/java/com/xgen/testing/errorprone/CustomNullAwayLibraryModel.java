@@ -106,19 +106,23 @@ public class CustomNullAwayLibraryModel implements LibraryModels {
               "findOneAndDelete(com.mongodb.client.model.Filters)"),
           methodRef(
               "com.mongodb.client.MongoCollection",
-              "findOneAndDelete(com.mongodb.client.model.Filters, com.mongodb.client.model.FindOneAndDeleteOptions)"),
+              "findOneAndDelete(com.mongodb.client.model.Filters,"
+                  + " com.mongodb.client.model.FindOneAndDeleteOptions)"),
           methodRef(
               "com.mongodb.client.MongoCollection",
               "findOneAndReplace(com.mongodb.client.model.Filters, java.lang.Object)"),
           methodRef(
               "com.mongodb.client.MongoCollection",
-              "findOneAndReplace(com.mongodb.client.model.Filters, java.lang.Object, com.mongodb.client.model.FindOneAndReplaceOptions)"),
+              "findOneAndReplace(com.mongodb.client.model.Filters, java.lang.Object,"
+                  + " com.mongodb.client.model.FindOneAndReplaceOptions)"),
           methodRef(
               "com.mongodb.client.MongoCollection",
-              "findOneAndUpdate(com.mongodb.client.model.Filters, com.mongodb.client.model.Updates)"),
+              "findOneAndUpdate(com.mongodb.client.model.Filters,"
+                  + " com.mongodb.client.model.Updates)"),
           methodRef(
               "com.mongodb.client.MongoCollection",
-              "findOneAndUpdate(com.mongodb.client.model.Filters, com.mongodb.client.model.Updates, com.mongodb.client.model.FindOneAndUpdateOptions)"));
+              "findOneAndUpdate(com.mongodb.client.model.Filters, com.mongodb.client.model.Updates,"
+                  + " com.mongodb.client.model.FindOneAndUpdateOptions)"));
 
   @Override
   public ImmutableSet<MethodRef> nonNullReturns() {

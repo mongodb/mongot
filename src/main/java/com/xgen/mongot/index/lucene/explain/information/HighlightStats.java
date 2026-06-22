@@ -87,8 +87,7 @@ public record HighlightStats(
       return pathSizeComparison;
     }
 
-    int offsetComparison =
-        Integer.compare(this.offsetSources.size(), other.offsetSources.size());
+    int offsetComparison = Integer.compare(this.offsetSources.size(), other.offsetSources.size());
     if (offsetComparison != 0) {
       return offsetComparison;
     }

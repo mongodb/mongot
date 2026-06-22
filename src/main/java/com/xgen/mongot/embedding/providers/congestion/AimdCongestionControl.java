@@ -173,8 +173,7 @@ public class AimdCongestionControl implements DynamicSemaphorePolicy {
      */
     public static AimdCongestionControl toAimdCongestionControl(
         Optional<CongestionControlParams> cc) {
-      return cc
-          .map(
+      return cc.map(
               c ->
                   new AimdCongestionControl(
                       c.initialCwnd(),

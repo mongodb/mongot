@@ -581,9 +581,8 @@ public class MaterializedViewWriter implements IndexWriter {
    * <p>All write model types receive a fencing filter that rejects the operation when the existing
    * document already has a higher leaseVersion. In addition, {@link ReplaceOneModel} embeds the
    * leaseVersion in the replacement document, and {@link UpdateOneModel} adds it via {@code $set}.
-   * {@link DeleteOneModel} gets only the filter —
-   * without it a zombie could delete a doc written by the new leader, then reinsert stale data via
-   * a subsequent upsert.
+   * {@link DeleteOneModel} gets only the filter — without it a zombie could delete a doc written by
+   * the new leader, then reinsert stale data via a subsequent upsert.
    *
    * @param documents the original write models
    * @param leaseVersion the current lease version to embed as a fencing token

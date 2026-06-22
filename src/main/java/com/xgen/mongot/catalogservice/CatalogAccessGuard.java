@@ -8,9 +8,9 @@ import org.slf4j.LoggerFactory;
  * Blocks {@code __mdb_internal_search} catalog access when the {@code syncSource.router} config
  * does not match the cluster topology (sharded vs. replica set).
  *
- * <p>Callers should invoke {@link #requireTopologyMatch()} before catalog read or write.
- * Acting on a mismatched topology can cause index loss, duplicated catalog collections, or writes
- * to the wrong shard.
+ * <p>Callers should invoke {@link #requireTopologyMatch()} before catalog read or write. Acting on
+ * a mismatched topology can cause index loss, duplicated catalog collections, or writes to the
+ * wrong shard.
  */
 public class CatalogAccessGuard {
 
@@ -19,8 +19,7 @@ public class CatalogAccessGuard {
   private final MongodTopologyMonitor topologyMonitor;
   private final boolean routerConfigured;
 
-  public CatalogAccessGuard(
-      MongodTopologyMonitor topologyMonitor, boolean routerConfigured) {
+  public CatalogAccessGuard(MongodTopologyMonitor topologyMonitor, boolean routerConfigured) {
     this.topologyMonitor = topologyMonitor;
     this.routerConfigured = routerConfigured;
   }
@@ -29,11 +28,10 @@ public class CatalogAccessGuard {
    * Verifies that the current cluster topology matches the {@code syncSource.router} config.
    *
    * @throws CheckedMongoException if the cluster topology cannot be determined
-   * @throws TopologyMismatchException if the cluster topology does not match
-   *     {@code syncSource.router}
+   * @throws TopologyMismatchException if the cluster topology does not match {@code
+   *     syncSource.router}
    */
-  public void requireTopologyMatch()
-      throws TopologyMismatchException, CheckedMongoException {
+  public void requireTopologyMatch() throws TopologyMismatchException, CheckedMongoException {
     boolean sharded = this.topologyMonitor.isShardedCluster();
     if (sharded != this.routerConfigured) {
       throw mismatchException(sharded);

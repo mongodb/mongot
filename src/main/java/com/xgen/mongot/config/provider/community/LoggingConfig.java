@@ -9,22 +9,18 @@ import java.util.Optional;
 import org.bson.BsonDocument;
 import org.slf4j.event.Level;
 
-public record LoggingConfig(
-    String verbosity, Optional<String> logPath) implements DocumentEncodable {
+public record LoggingConfig(String verbosity, Optional<String> logPath)
+    implements DocumentEncodable {
   private static class Fields {
     public static final Field.WithDefault<String> VERBOSITY =
-        Field.builder("verbosity")
-            .stringField()
-            .optional()
-            .withDefault(Level.INFO.toString());
+        Field.builder("verbosity").stringField().optional().withDefault(Level.INFO.toString());
     public static final Field.Optional<String> LOG_PATH =
         Field.builder("logPath").stringField().optional().noDefault();
   }
 
   public static LoggingConfig fromBson(DocumentParser parser) throws BsonParseException {
     return new LoggingConfig(
-        parser.getField(Fields.VERBOSITY).unwrap(),
-        parser.getField(Fields.LOG_PATH).unwrap());
+        parser.getField(Fields.VERBOSITY).unwrap(), parser.getField(Fields.LOG_PATH).unwrap());
   }
 
   @Override

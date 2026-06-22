@@ -25,8 +25,8 @@ public interface IndexBlobstoreSnapshotter {
   /**
    * Returns index snapshot status if available.
    *
-   * <p>This metadata can potentially lag behind real-time snapshot progress,
-   * as implementations can cache this data.
+   * <p>This metadata can potentially lag behind real-time snapshot progress, as implementations can
+   * cache this data.
    */
   Optional<IndexSnapshotStatus> getIndexSnapshotStatus();
 }

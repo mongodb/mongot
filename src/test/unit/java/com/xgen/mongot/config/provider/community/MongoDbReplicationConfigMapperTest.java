@@ -54,8 +54,7 @@ public class MongoDbReplicationConfigMapperTest {
     assertEquals(4, rc.numChangeStreamDecodingThreads);
     assertTrue(rc.getPauseAllInitialSyncs());
     assertEquals(
-        List.of(
-            new ObjectId("507f1f77bcf86cd799439011"), new ObjectId("507f1f77bcf86cd799439012")),
+        List.of(new ObjectId("507f1f77bcf86cd799439011"), new ObjectId("507f1f77bcf86cd799439012")),
         rc.getPauseInitialSyncOnIndexIds());
   }
 
@@ -63,13 +62,13 @@ public class MongoDbReplicationConfigMapperTest {
   public void toGlobalReplicationConfig_honorsConfiguredPauseKnobs() throws Exception {
     CommunityConfig config = CommunityConfig.readFromFile(TUNING_CONFIG).config();
 
-    var global = MongoDbReplicationConfigMapper.toGlobalReplicationConfig(
-        config.advancedConfigs().flatMap(AdvancedConfigs::replicationConfig));
+    var global =
+        MongoDbReplicationConfigMapper.toGlobalReplicationConfig(
+            config.advancedConfigs().flatMap(AdvancedConfigs::replicationConfig));
 
     assertTrue(global.pauseAllInitialSyncs());
     assertEquals(
-        List.of(
-            new ObjectId("507f1f77bcf86cd799439011"), new ObjectId("507f1f77bcf86cd799439012")),
+        List.of(new ObjectId("507f1f77bcf86cd799439011"), new ObjectId("507f1f77bcf86cd799439012")),
         global.pauseInitialSyncOnIndexIds());
     assertTrue(global.enableSplitLargeChangeStreamEvents());
     assertTrue(global.matchCollectionUuidForUpdateLookup());

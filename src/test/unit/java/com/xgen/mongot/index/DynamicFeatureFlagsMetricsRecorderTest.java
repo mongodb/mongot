@@ -150,8 +150,7 @@ public class DynamicFeatureFlagsMetricsRecorderTest {
       assertEquals(2, tagList.size());
       assertThat(tagList)
           .contains(
-              Tag.of(
-                  DynamicFeatureFlagsMetricsRecorder.FEATURE_FLAG_NAME_TAG, "enabled-feature"));
+              Tag.of(DynamicFeatureFlagsMetricsRecorder.FEATURE_FLAG_NAME_TAG, "enabled-feature"));
       assertThat(tagList)
           .contains(Tag.of(DynamicFeatureFlagsMetricsRecorder.EVALUATION_RESULT_TAG, "true"));
     }

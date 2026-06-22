@@ -34,11 +34,11 @@ import org.junit.Test;
  *       and assertions pass.
  *   <li>Then mutates the same index so the facet counting code switches to the <b>sparse</b>
  *       counting strategy, where incorrect ordinal iteration can emit duplicate ordinals or
- *       non-keys, leading to duplicated facet buckets and/or inflated totals
- *       ({@link #testDenseThenSparseFlipDoesNotDuplicateBuckets()}).
+ *       non-keys, leading to duplicated facet buckets and/or inflated totals ({@link
+ *       #testDenseThenSparseFlipDoesNotDuplicateBuckets()}).
  *   <li>Separately verifies that the sparse ordinal iterator correctly includes {@code ord=0},
- *       which is a valid facet ordinal and must not be skipped or mishandled
- *       ({@link #testSparseIteratorHandlesZeroOrdinalCorrectly()}).
+ *       which is a valid facet ordinal and must not be skipped or mishandled ({@link
+ *       #testSparseIteratorHandlesZeroOrdinalCorrectly()}).
  * </ul>
  */
 public class TokenFacetOrdinalMapMismatchTest {
@@ -48,7 +48,7 @@ public class TokenFacetOrdinalMapMismatchTest {
   @Test
   public void testDenseThenSparseFlipDoesNotDuplicateBuckets() throws Exception {
     try (var directory = new ByteBuffersDirectory();
-         var writer = new IndexWriter(directory, newWriterConfig())) {
+        var writer = new IndexWriter(directory, newWriterConfig())) {
       // Step 1: Create a non-sparse scenario for the query (dense counting expected).
       //
       // totalDocs = 5000, totalHits = 1000 => totalHits >= totalDocs/10 (1000 >= 500) => dense
@@ -101,7 +101,7 @@ public class TokenFacetOrdinalMapMismatchTest {
   @Test
   public void testSparseIteratorHandlesZeroOrdinalCorrectly() throws Exception {
     try (var directory = new ByteBuffersDirectory();
-         var writer = new IndexWriter(directory, newWriterConfig())) {
+        var writer = new IndexWriter(directory, newWriterConfig())) {
 
       // Step 1: Create sparse scenario
       // totalDocs = 2000, totalHits = 100 (< 200) -> sparse
@@ -127,9 +127,9 @@ public class TokenFacetOrdinalMapMismatchTest {
         assertThat(topDocs.totalHits.value()).isEqualTo(100);
 
         // Step 3: Run facets
-        var state = TokenSsdvFacetState.create(searcher.getIndexReader(), FACET_FIELD,
-                Optional.empty())
-            .get();
+        var state =
+            TokenSsdvFacetState.create(searcher.getIndexReader(), FACET_FIELD, Optional.empty())
+                .get();
         var counts = new SortedSetDocValuesFacetCounts(state, collector);
 
         // Step 4: Verify top facet counts
@@ -166,8 +166,7 @@ public class TokenFacetOrdinalMapMismatchTest {
     return doc;
   }
 
-  private record FacetingOutput(long hits, FacetResult result) {
-  }
+  private record FacetingOutput(long hits, FacetResult result) {}
 
   private static FacetingOutput runFacet(IndexSearcher searcher, int topN) throws Exception {
     var fcm = new FacetsCollectorManager();
@@ -175,8 +174,8 @@ public class TokenFacetOrdinalMapMismatchTest {
     var result = FacetsCollectorManager.search(searcher, query, topN, fcm);
     var topDocs = result.topDocs();
     var collector = result.facetsCollector();
-    var state = TokenSsdvFacetState.create(searcher.getIndexReader(), FACET_FIELD,
-        Optional.empty());
+    var state =
+        TokenSsdvFacetState.create(searcher.getIndexReader(), FACET_FIELD, Optional.empty());
     assertThat(state).isPresent();
 
     var facets = new SortedSetDocValuesFacetCounts(state.get(), collector);
@@ -207,5 +206,3 @@ public class TokenFacetOrdinalMapMismatchTest {
     writer.commit();
   }
 }
-
-

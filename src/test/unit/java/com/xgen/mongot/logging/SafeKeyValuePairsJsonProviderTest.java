@@ -24,9 +24,7 @@ public class SafeKeyValuePairsJsonProviderTest {
 
   @Before
   public void setup() throws Exception {
-    this.formatter = new LoggingEventCompositeJsonFormatter(
-        new NOPAppender<>()
-    );
+    this.formatter = new LoggingEventCompositeJsonFormatter(new NOPAppender<>());
     var jsonProviders = new JsonProviders<ILoggingEvent>();
     jsonProviders.addProvider(new SafeKeyValuePairsJsonProvider());
     this.formatter.setProviders(jsonProviders);
@@ -104,8 +102,7 @@ public class SafeKeyValuePairsJsonProviderTest {
     Instant timestamp = Instant.parse("1215-06-15T12:00:00.123Z");
     this.event.addKeyValuePair(new KeyValuePair("time", timestamp));
     this.formatter.writeEvent(this.event, this.resultStream);
-    assertThat(this.resultStream.toString())
-        .isEqualTo("{\"time\":\"1215-06-15T12:00:00.123Z\"}");
+    assertThat(this.resultStream.toString()).isEqualTo("{\"time\":\"1215-06-15T12:00:00.123Z\"}");
   }
 
   @Test
@@ -113,7 +110,6 @@ public class SafeKeyValuePairsJsonProviderTest {
     this.event.addKeyValuePair(new KeyValuePair("key1", "value1"));
     this.event.addKeyValuePair(new KeyValuePair("key2", "value2"));
     this.formatter.writeEvent(this.event, this.resultStream);
-    assertThat(this.resultStream.toString())
-        .isEqualTo("{\"key1\":\"value1\",\"key2\":\"value2\"}");
+    assertThat(this.resultStream.toString()).isEqualTo("{\"key1\":\"value1\",\"key2\":\"value2\"}");
   }
 }

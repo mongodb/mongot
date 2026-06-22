@@ -258,7 +258,7 @@ abstract class AnalyzerWrapperBuilder<T> {
               dynamicAnalyzers,
               defaultAnalyzer,
               defaultNormalizer);
-      case DynamicDefinition.Boolean ignored -> { }
+      case DynamicDefinition.Boolean ignored -> {}
     }
   }
 }

@@ -333,10 +333,7 @@ public class ChangeStreamDocumentUtils {
               if (!filterFieldUpdates.isEmpty()) {
                 return Optional.of(
                     DocumentEvent.createPartialUpdate(
-                        metadata,
-                        event.getFullDocument(),
-                        filterFieldUpdates,
-                        ImmutableMap.of()));
+                        metadata, event.getFullDocument(), filterFieldUpdates, ImmutableMap.of()));
               }
             }
           }

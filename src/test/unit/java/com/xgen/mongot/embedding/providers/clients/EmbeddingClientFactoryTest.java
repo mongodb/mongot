@@ -23,8 +23,7 @@ public class EmbeddingClientFactoryTest {
 
   private static EmbeddingModelConfig voyageModelWithQueryAndCollectionScan() {
     EmbeddingServiceConfig.VoyageEmbeddingCredentials creds =
-        new EmbeddingServiceConfig.VoyageEmbeddingCredentials(
-            "token", "2024-10-15T22:32:20.925Z");
+        new EmbeddingServiceConfig.VoyageEmbeddingCredentials("token", "2024-10-15T22:32:20.925Z");
     EmbeddingServiceConfig.WorkloadParams queryParams =
         new EmbeddingServiceConfig.WorkloadParams(
             Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(creds));
@@ -55,8 +54,7 @@ public class EmbeddingClientFactoryTest {
 
   private static EmbeddingModelConfig voyageModelFlexTierDisabled() {
     EmbeddingServiceConfig.VoyageEmbeddingCredentials creds =
-        new EmbeddingServiceConfig.VoyageEmbeddingCredentials(
-            "token", "2024-10-15T22:32:20.925Z");
+        new EmbeddingServiceConfig.VoyageEmbeddingCredentials("token", "2024-10-15T22:32:20.925Z");
     EmbeddingServiceConfig.WorkloadParams collectionScanParams =
         new EmbeddingServiceConfig.WorkloadParams(
             Optional.empty(), Optional.empty(), Optional.of(creds), Optional.empty());

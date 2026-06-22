@@ -17,7 +17,7 @@ public class VectorTest {
     try {
       Vector fromFloatVector = Vector.fromFloats(new float[] {}, NATIVE);
       assertNotNull(fromFloatVector);
-      Vector fromByteVector = Vector.fromBytes(new byte[]{});
+      Vector fromByteVector = Vector.fromBytes(new byte[] {});
       assertNotNull(fromByteVector);
     } catch (Exception e) {
       fail("Exception thrown when trying to create a VectorWrapper");

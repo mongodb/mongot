@@ -1,8 +1,6 @@
 package com.xgen.mongot.util;
 
-/**
- * Enum for error types to use consistently as metric tags or logs.
- */
+/** Enum for error types to use consistently as metric tags or logs. */
 public enum ErrorType {
   USER_FACING_ERROR("userFacingError"),
   INTERNAL_ERROR("internalError");

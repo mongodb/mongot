@@ -134,8 +134,8 @@ public class ExactVectorSearchQueryTest {
               .build());
     }
 
-    private static BsonDeserializationTestSuite.ValidSpec<VectorSearchQuery>
-        filterAndParentFilter() throws BsonParseException {
+    private static BsonDeserializationTestSuite.ValidSpec<VectorSearchQuery> filterAndParentFilter()
+        throws BsonParseException {
       return BsonDeserializationTestSuite.TestSpec.valid(
           "with-filter-and-parentFilter",
           VectorQueryBuilder.builder()
@@ -361,8 +361,8 @@ public class ExactVectorSearchQueryTest {
               .build());
     }
 
-    private static BsonSerializationTestSuite.TestSpec<VectorSearchQuery>
-        filterAndParentFilter() throws BsonParseException {
+    private static BsonSerializationTestSuite.TestSpec<VectorSearchQuery> filterAndParentFilter()
+        throws BsonParseException {
       return BsonSerializationTestSuite.TestSpec.create(
           "with-filter-and-parentFilter",
           VectorQueryBuilder.builder()

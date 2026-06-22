@@ -137,8 +137,7 @@ public class DiskIndexBackingStrategy implements IndexBackingStrategy {
 
     private final Path indexRoot;
 
-    @Var
-    private OptionalInt currentPartition = OptionalInt.empty();
+    @Var private OptionalInt currentPartition = OptionalInt.empty();
 
     DiskStatsVisitor(Path indexRoot, int numPartitions) {
       this.indexRoot = indexRoot;

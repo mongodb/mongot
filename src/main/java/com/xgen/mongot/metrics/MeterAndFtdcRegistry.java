@@ -25,8 +25,7 @@ public record MeterAndFtdcRegistry(MeterRegistry meterRegistry, MeterRegistry ft
   }
 
   public static MeterAndFtdcRegistry create(
-      MeterRegistry meterRegistry,
-      MeterRegistry ftdcRegistry) {
+      MeterRegistry meterRegistry, MeterRegistry ftdcRegistry) {
     return new MeterAndFtdcRegistry(meterRegistry, ftdcRegistry);
   }
 
@@ -36,5 +35,4 @@ public record MeterAndFtdcRegistry(MeterRegistry meterRegistry, MeterRegistry ft
     }
     return (CompositeMeterRegistry) this.meterRegistry;
   }
-
 }

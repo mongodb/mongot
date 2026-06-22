@@ -35,8 +35,9 @@ import org.bson.BsonValue;
  * @param paths path(s) for this predicate.
  * @param bounds bounds of this range.
  */
-public record RangeOperator(Score score, List<FieldPath> paths, RangeBound<?> bounds,
-                            Optional<List<String>> doesNotAffect) implements Operator {
+public record RangeOperator(
+    Score score, List<FieldPath> paths, RangeBound<?> bounds, Optional<List<String>> doesNotAffect)
+    implements Operator {
 
   public static class Fields {
     private static Field.Optional<Point> pointField(String name) {
@@ -84,7 +85,9 @@ public record RangeOperator(Score score, List<FieldPath> paths, RangeBound<?> bo
         boundsFromDefinition(parser.getContext(), lower, upper, lowerInclusive, upperInclusive);
 
     return new RangeOperator(
-        Operators.parseScore(parser), Operators.parseFieldPath(parser), bounds,
+        Operators.parseScore(parser),
+        Operators.parseFieldPath(parser),
+        bounds,
         parser.getField(Fields.DOES_NOT_AFFECT).unwrap());
   }
 

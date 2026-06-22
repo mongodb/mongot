@@ -423,8 +423,7 @@ public class DynamicFeatureFlagRegistryTest {
     for (int rolloutPercentage = 0; rolloutPercentage <= 100; rolloutPercentage++) {
       boolean resultByteArray =
           registry.isHashedIdWithinPercentage(seed, entityBytes, rolloutPercentage);
-      boolean resultInt =
-          registry.isHashedIdWithinPercentage(seed, entityHash, rolloutPercentage);
+      boolean resultInt = registry.isHashedIdWithinPercentage(seed, entityHash, rolloutPercentage);
       assertEquals(
           "Seed=%d entityHash=%d rollout=%d".formatted(seed, entityHash, rolloutPercentage),
           resultByteArray,
@@ -478,9 +477,7 @@ public class DynamicFeatureFlagRegistryTest {
     assertEquals(
         1.0,
         metricsFactory
-            .get(
-                "clusterInvariantStatus",
-                Tags.of("featureFlagName", "flip-flag", "scope", "ORG"))
+            .get("clusterInvariantStatus", Tags.of("featureFlagName", "flip-flag", "scope", "ORG"))
             .gauge()
             .value(),
         0.0);
@@ -499,9 +496,7 @@ public class DynamicFeatureFlagRegistryTest {
     assertEquals(
         0.0,
         metricsFactory
-            .get(
-                "clusterInvariantStatus",
-                Tags.of("featureFlagName", "flip-flag", "scope", "ORG"))
+            .get("clusterInvariantStatus", Tags.of("featureFlagName", "flip-flag", "scope", "ORG"))
             .gauge()
             .value(),
         0.0);
@@ -521,10 +516,7 @@ public class DynamicFeatureFlagRegistryTest {
 
     var registry =
         new DynamicFeatureFlagRegistry(
-            Optional.of(List.of(config)),
-            Optional.of(org),
-            Optional.empty(),
-            Optional.empty());
+            Optional.of(List.of(config)), Optional.of(org), Optional.empty(), Optional.empty());
 
     assertTrue(registry.evaluateClusterInvariant("transient-flag", false));
 
@@ -580,9 +572,7 @@ public class DynamicFeatureFlagRegistryTest {
     assertEquals(
         1.0,
         metricsFactory
-            .get(
-                "clusterInvariantStatus",
-                Tags.of("featureFlagName", "org-flag", "scope", "ORG"))
+            .get("clusterInvariantStatus", Tags.of("featureFlagName", "org-flag", "scope", "ORG"))
             .gauge()
             .value(),
         0.0);
@@ -655,10 +645,7 @@ public class DynamicFeatureFlagRegistryTest {
 
     var registry =
         new DynamicFeatureFlagRegistry(
-            Optional.of(List.of(config)),
-            Optional.of(org),
-            Optional.empty(),
-            Optional.empty());
+            Optional.of(List.of(config)), Optional.of(org), Optional.empty(), Optional.empty());
 
     assertTrue(registry.evaluateClusterInvariant("flag-no-metrics", false));
   }
@@ -781,18 +768,14 @@ public class DynamicFeatureFlagRegistryTest {
     assertEquals(
         1.0,
         metricsFactory
-            .get(
-                "clusterInvariantStatus",
-                Tags.of("featureFlagName", "flag-a", "scope", "ORG"))
+            .get("clusterInvariantStatus", Tags.of("featureFlagName", "flag-a", "scope", "ORG"))
             .gauge()
             .value(),
         0.0);
     assertEquals(
         1.0,
         metricsFactory
-            .get(
-                "clusterInvariantStatus",
-                Tags.of("featureFlagName", "flag-b", "scope", "ORG"))
+            .get("clusterInvariantStatus", Tags.of("featureFlagName", "flag-b", "scope", "ORG"))
             .gauge()
             .value(),
         0.0);
@@ -802,9 +785,7 @@ public class DynamicFeatureFlagRegistryTest {
     assertEquals(
         1.0,
         metricsFactory
-            .get(
-                "clusterInvariantStatus",
-                Tags.of("featureFlagName", "flag-a", "scope", "ORG"))
+            .get("clusterInvariantStatus", Tags.of("featureFlagName", "flag-a", "scope", "ORG"))
             .gauge()
             .value(),
         0.0);

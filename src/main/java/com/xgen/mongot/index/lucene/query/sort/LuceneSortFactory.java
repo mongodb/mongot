@@ -136,8 +136,7 @@ public class LuceneSortFactory {
       Optional<org.apache.lucene.search.Sort> indexSort)
       throws InvalidQueryException {
 
-    ExpandedSortFields expandedSortFields =
-        expandWithNullnessFields(sortSpec, indexSort);
+    ExpandedSortFields expandedSortFields = expandWithNullnessFields(sortSpec, indexSort);
     List<MongotSortField> expandedFields = expandedSortFields.fields();
 
     if (sequenceToken.isPresent()) {
@@ -196,8 +195,7 @@ public class LuceneSortFactory {
           is ->
               sortFeatureExplainer
                   .get()
-                  .setUsesIndexSort(
-                      IndexSortUtils.usesIndexSort(luceneSort, is)));
+                  .setUsesIndexSort(IndexSortUtils.usesIndexSort(luceneSort, is)));
     }
     return luceneSort;
   }
@@ -211,12 +209,10 @@ public class LuceneSortFactory {
    * unnecessary {@link org.apache.lucene.search.Pruning#NONE} overhead on the nullness comparator.
    */
   private ExpandedSortFields expandWithNullnessFields(
-      SortSpec sortSpec,
-      Optional<org.apache.lucene.search.Sort> indexSort) {
+      SortSpec sortSpec, Optional<org.apache.lucene.search.Sort> indexSort) {
     var mongotFields = sortSpec.getSortFields();
     if (indexSort.isEmpty()
-        || !IndexSortUtils.expandedSortAlignsWithIndexSort(
-            mongotFields, indexSort.get())) {
+        || !IndexSortUtils.expandedSortAlignsWithIndexSort(mongotFields, indexSort.get())) {
       return new ExpandedSortFields(mongotFields, ImmutableSet.of());
     }
 
@@ -238,8 +234,8 @@ public class LuceneSortFactory {
 
   /**
    * Creates a $nullness query sort field that matches the corresponding field in the index sort.
-   * This enables {@link IndexSortUtils#usesIndexSort} prefix matching for early
-   * termination and sort pruning optimizations.
+   * This enables {@link IndexSortUtils#usesIndexSort} prefix matching for early termination and
+   * sort pruning optimizations.
    */
   public static SortField createNullnessSortField(MongotSortField mongotSortField) {
     return new MqlNullnessSortField(mongotSortField);
@@ -251,8 +247,7 @@ public class LuceneSortFactory {
       Optional<Object> afterFieldValue,
       Optional<FieldPath> embeddedRoot,
       boolean indexSorted) {
-    ImmutableSet<FieldName.TypeField> rawTypeFields =
-        typeFields.orElseGet(ImmutableSet::of);
+    ImmutableSet<FieldName.TypeField> rawTypeFields = typeFields.orElseGet(ImmutableSet::of);
     return mongotSortField.options() instanceof MetaSortOptions metaOptions
         ? metaOptions.getMetaSort()
         : createOptimizedSortField(

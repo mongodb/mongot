@@ -122,11 +122,9 @@ public record SearchExplainInformation(
         parser.getField(Fields.DYNAMIC_FEATURE_FLAGS).unwrap());
   }
 
-
   @Override
   public BsonDocument toBson() {
-    var cmp = Comparator.comparing(
-        (QueryExplainInformation sub) -> JsonCodec.toJson(sub.toBson()));
+    var cmp = Comparator.comparing((QueryExplainInformation sub) -> JsonCodec.toJson(sub.toBson()));
 
     Optional<List<QueryExplainInformation>> list =
         this.query.map(lst -> lst.stream().map(q -> q.sortedArgs(cmp)).toList());

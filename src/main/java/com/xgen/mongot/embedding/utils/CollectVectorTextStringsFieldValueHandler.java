@@ -31,8 +31,7 @@ public class CollectVectorTextStringsFieldValueHandler implements FieldValueHand
   private CollectVectorTextStringsFieldValueHandler(
       AutoEmbedFieldMapping mapping,
       FieldPath path,
-      Map<FieldPath, Set<String>> vectorTextPathMap
-  ) {
+      Map<FieldPath, Set<String>> vectorTextPathMap) {
     this.mapping = mapping;
     this.path = path;
     this.vectorTextPathMap = vectorTextPathMap;
@@ -41,50 +40,39 @@ public class CollectVectorTextStringsFieldValueHandler implements FieldValueHand
   public static FieldValueHandler create(
       AutoEmbedFieldMapping mapping,
       FieldPath path,
-      Map<FieldPath, Set<String>> vectorTextPathMap
-  ) {
+      Map<FieldPath, Set<String>> vectorTextPathMap) {
     return new CollectVectorTextStringsFieldValueHandler(mapping, path, vectorTextPathMap);
   }
 
   @Override
-  public void handleBinary(Supplier<Binary> supplier) {
-  }
+  public void handleBinary(Supplier<Binary> supplier) {}
 
   @Override
-  public void handleBoolean(Supplier<Boolean> supplier) {
-  }
+  public void handleBoolean(Supplier<Boolean> supplier) {}
 
   @Override
-  public void handleDateTime(Supplier<Long> supplier) {
-  }
+  public void handleDateTime(Supplier<Long> supplier) {}
 
   @Override
-  public void handleDouble(Supplier<Double> supplier) {
-  }
+  public void handleDouble(Supplier<Double> supplier) {}
 
   @Override
-  public void handleGeometry(Supplier<Optional<Geometry>> supplier) {
-  }
+  public void handleGeometry(Supplier<Optional<Geometry>> supplier) {}
 
   @Override
-  public void handleInt32(Supplier<Integer> supplier) {
-  }
+  public void handleInt32(Supplier<Integer> supplier) {}
 
   @Override
-  public void handleInt64(Supplier<Long> supplier) {
-  }
+  public void handleInt64(Supplier<Long> supplier) {}
 
   @Override
-  public void handleKnnVector(Supplier<Optional<Vector>> supplier) {
-  }
+  public void handleKnnVector(Supplier<Optional<Vector>> supplier) {}
 
   @Override
-  public void handleNull() {
-  }
+  public void handleNull() {}
 
   @Override
-  public void handleObjectId(Supplier<ObjectId> supplier) {
-  }
+  public void handleObjectId(Supplier<ObjectId> supplier) {}
 
   @Override
   public void handleString(Supplier<String> supplier) {
@@ -94,16 +82,13 @@ public class CollectVectorTextStringsFieldValueHandler implements FieldValueHand
   }
 
   @Override
-  public void handleUuid(Supplier<Optional<UUID>> supplier) {
-  }
+  public void handleUuid(Supplier<Optional<UUID>> supplier) {}
 
   @Override
-  public void handleRawBsonValue(Supplier<BsonValue> supplier) {
-  }
+  public void handleRawBsonValue(Supplier<BsonValue> supplier) {}
 
   @Override
-  public void markFieldNameExists() {
-  }
+  public void markFieldNameExists() {}
 
   @Override
   public Optional<FieldValueHandler> arrayFieldValueHandler() {

@@ -40,8 +40,7 @@ class LuceneUnifiedHighlighter {
   private final Optional<HighlightFeatureExplainer> explainer;
 
   @VisibleForTesting
-  static final Comparator<SearchHighlight> BY_PATH =
-      Comparator.comparing(h -> h.path().toString());
+  static final Comparator<SearchHighlight> BY_PATH = Comparator.comparing(h -> h.path().toString());
 
   private LuceneUnifiedHighlighter(
       PublicUnifiedHighlighter luceneHighlighter,

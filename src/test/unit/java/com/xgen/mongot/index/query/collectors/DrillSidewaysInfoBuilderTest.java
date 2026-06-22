@@ -414,14 +414,13 @@ public class DrillSidewaysInfoBuilderTest {
   }
 
   /**
-   * Regression test for extractFacetNameFromOperator with InOperator (CLOUDP-321297).
-   * The path lookup must use the first path's string form, not paths().toString().
+   * Regression test for extractFacetNameFromOperator with InOperator (CLOUDP-321297). The path
+   * lookup must use the first path's string form, not paths().toString().
    */
   @Test
   public void processLeafOperator_InOperator_affectsFacet_addsToOperatorsByFacet() {
     List<Long> values = Arrays.asList(1L, 2L);
-    InOperator operator =
-        OperatorBuilder.in().path("color").longs(values).build();
+    InOperator operator = OperatorBuilder.in().path("color").longs(values).build();
 
     FieldPath embeddedPath = FieldPath.parse("a.b.c").withNewRoot("document");
 
@@ -3639,22 +3638,23 @@ public class DrillSidewaysInfoBuilderTest {
     FacetCollector collector =
         parseFacetCollector(
             """
-        {
-          "operator": {
-            "embeddedDocument": {"path": "outer", "operator":
-                {"embeddedDocument": {"path": "outer.inner", "operator":
-                    {"compound": {"filter": [
-                        {"exists":  {"path": "outer.inner.notes"}},
-                        {"equals":  {"path": "outer.inner.x", "value": "val",
-                                     "doesNotAffect": "xFacet"}}
-                    ]}}
-                }}
-            }
-          },
-          "facets": {
-            "xFacet": {"type": "string", "path": "outer.inner.x"}
-          }
-        }""");
+            {
+              "operator": {
+                "embeddedDocument": {"path": "outer", "operator":
+                    {"embeddedDocument": {"path": "outer.inner", "operator":
+                        {"compound": {"filter": [
+                            {"exists":  {"path": "outer.inner.notes"}},
+                            {"equals":  {"path": "outer.inner.x", "value": "val",
+                                         "doesNotAffect": "xFacet"}}
+                        ]}}
+                    }}
+                }
+              },
+              "facets": {
+                "xFacet": {"type": "string", "path": "outer.inner.x"}
+              }
+            }\
+            """);
 
     DrillSidewaysInfo info = collector.drillSidewaysInfo().get();
 

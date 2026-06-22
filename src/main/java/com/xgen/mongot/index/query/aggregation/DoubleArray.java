@@ -5,8 +5,8 @@ import com.carrotsearch.hppc.DoubleArrayList;
 /**
  * Growable double array backed by HPPC's {@link DoubleArrayList}.
  *
- * <p>This is a thin adapter that preserves auto-grow-on-write semantics: setting or incrementing
- * at an index beyond the current size grows the underlying storage and zero-fills any new slots.
+ * <p>This is a thin adapter that preserves auto-grow-on-write semantics: setting or incrementing at
+ * an index beyond the current size grows the underlying storage and zero-fills any new slots.
  */
 public class DoubleArray implements AutoCloseable {
   private final DoubleArrayList list;

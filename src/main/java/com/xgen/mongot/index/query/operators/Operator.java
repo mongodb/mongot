@@ -211,7 +211,6 @@ public sealed interface Operator extends DocumentEncodable
 
   Type getType();
 
-
   static Operator parseForFacetCollector(DocumentParser parser) throws BsonParseException {
     if (parser.hasField(Fields.VECTOR_SEARCH)) {
       return parser

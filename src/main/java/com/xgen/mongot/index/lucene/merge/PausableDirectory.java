@@ -86,11 +86,12 @@ public class PausableDirectory extends FilterDirectory {
     super(in);
     this.mergeGate = mergeGate;
     AtomicBoolean paused = new AtomicBoolean(false);
-    this.guardedOnPause = () -> {
-      if (paused.compareAndSet(false, true)) {
-        onPause.run();
-      }
-    };
+    this.guardedOnPause =
+        () -> {
+          if (paused.compareAndSet(false, true)) {
+            onPause.run();
+          }
+        };
     this.onResume = () -> paused.set(false);
   }
 
@@ -124,8 +125,7 @@ public class PausableDirectory extends FilterDirectory {
     private final Runnable onResume;
     private long bytesWrittenSinceLastCheck = 0;
 
-    PausableIndexOutput(
-        IndexOutput delegate, Gate mergeGate, Runnable onPause, Runnable onResume) {
+    PausableIndexOutput(IndexOutput delegate, Gate mergeGate, Runnable onPause, Runnable onResume) {
       super("PausableIndexOutput(" + delegate.toString() + ")", delegate.getName());
       this.delegate = delegate;
       this.mergeGate = mergeGate;
@@ -232,4 +232,3 @@ public class PausableDirectory extends FilterDirectory {
     }
   }
 }
-

@@ -97,8 +97,7 @@ public class MongoClientOperationExecutor {
                               errorReason,
                               k ->
                                   metricsFactory.counter(
-                                      retriedAttemptsMetricName,
-                                      Tags.of("errorReason", k)))
+                                      retriedAttemptsMetricName, Tags.of("errorReason", k)))
                           .increment();
                     })
                 .onFailure(
@@ -308,9 +307,9 @@ public class MongoClientOperationExecutor {
    * {@link CheckedMongoException} is a thin wrapper around {@link MongoException} used by helpers
    * like {@link com.xgen.mongot.util.mongodb.MongoDbDatabase#getCollectionInfos}. Returns the
    * underlying cause so retryability classification, error tagging and transient-condition
-   * detection (disk-full / writes-blocked / overloaded) treat the wrapped exception the same as
-   * a directly-thrown one. Returns the input unchanged when not a {@link CheckedMongoException}
-   * or when the cause is null.
+   * detection (disk-full / writes-blocked / overloaded) treat the wrapped exception the same as a
+   * directly-thrown one. Returns the input unchanged when not a {@link CheckedMongoException} or
+   * when the cause is null.
    */
   private static Throwable unwrapCheckedMongoException(Throwable e) {
     if (e instanceof CheckedMongoException && e.getCause() != null) {

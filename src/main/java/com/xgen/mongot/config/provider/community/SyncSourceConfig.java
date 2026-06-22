@@ -49,8 +49,7 @@ public record SyncSourceConfig(
     Optional<ReadPreferenceConfig> replicationReader =
         parser.getField(Fields.REPLICATION_READER).unwrap();
 
-    SyncSourceConfig syncSourceConfig =
-        new SyncSourceConfig(replicaSet, router, replicationReader);
+    SyncSourceConfig syncSourceConfig = new SyncSourceConfig(replicaSet, router, replicationReader);
 
     syncSourceConfig.replicaSet.validate(parser);
     if (syncSourceConfig.router.isPresent()) {

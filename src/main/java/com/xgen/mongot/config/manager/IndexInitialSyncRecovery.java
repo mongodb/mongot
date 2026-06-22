@@ -17,17 +17,14 @@ import java.util.concurrent.TimeUnit;
 import org.bson.types.ObjectId;
 
 /**
- * Responsible for retrying failed initial sync indexes.
- * An index is retryable when:
- * - It has {@code StatusCode.FAILED} with reason {@code INITIAL_SYNC_REPLICATION_FAILED_RETRY}.
- * - It has no staged replacement OR it's staged replacement also has a retryable failure.
- *
+ * Responsible for retrying failed initial sync indexes. An index is retryable when: - It has {@code
+ * StatusCode.FAILED} with reason {@code INITIAL_SYNC_REPLICATION_FAILED_RETRY}. - It has no staged
+ * replacement OR it's staged replacement also has a retryable failure.
  */
 class IndexInitialSyncRecovery {
   private static final FluentLogger FLOGGER = FluentLogger.forEnclosingClass();
 
-  private IndexInitialSyncRecovery() {
-  }
+  private IndexInitialSyncRecovery() {}
 
   /**
    * Fetches indexes whose failed initial sync can be retried.
@@ -58,18 +55,14 @@ class IndexInitialSyncRecovery {
   /**
    * Retries builds for indexes that failed during initial sync, but can be retried.
    *
-   * @param configState:  The current config state.
+   * @param configState: The current config state.
    * @param indexActions: Used to create the new index generations.
-   * @throws Invariants.InvariantException:      If the resulting journal is semantically invalid.
-   * @throws IOException:                        There is an error writing to the config journal.
+   * @throws Invariants.InvariantException: If the resulting journal is semantically invalid.
+   * @throws IOException: There is an error writing to the config journal.
    * @throws InvalidAnalyzerDefinitionException: The new index has an invalid analyzer definition.
    */
-  static void retryFailedInitialSyncIndexes(
-      ConfigState configState, IndexActions indexActions)
-      throws
-      Invariants.InvariantException,
-      IOException,
-      InvalidAnalyzerDefinitionException {
+  static void retryFailedInitialSyncIndexes(ConfigState configState, IndexActions indexActions)
+      throws Invariants.InvariantException, IOException, InvalidAnalyzerDefinitionException {
 
     // Drop any failed staged index that has a healthy, live version.
     dropFailedStagedWithHealthyLive(configState, indexActions);
@@ -116,16 +109,14 @@ class IndexInitialSyncRecovery {
   /**
    * Drops retryable, failed staged indexes that have a healthy, live version.
    *
-   * @param configState  The current config state.
+   * @param configState The current config state.
    * @param indexActions Used to drop the failed staged indexes.
    * @throws Invariants.InvariantException: If the resulting journal is semantically invalid.
-   * @throws IOException:                   There is an error writing to the config journal.
+   * @throws IOException: There is an error writing to the config journal.
    */
   private static void dropFailedStagedWithHealthyLive(
       ConfigState configState, IndexActions indexActions)
-      throws
-      IOException,
-      Invariants.InvariantException {
+      throws IOException, Invariants.InvariantException {
     List<IndexGeneration> toDrop = new ArrayList<>();
     for (IndexGeneration staged : configState.staged.getIndexes()) {
       if (!isRetryableInitialSyncFailure(staged)) {
@@ -154,31 +145,35 @@ class IndexInitialSyncRecovery {
   }
 
   private static void logFailedInitialSyncIndexIds(List<IndexGeneration> failedIndexes) {
-    failedIndexes.forEach(e -> FLOGGER.atSevere().atMostEvery(5, TimeUnit.MINUTES).log(
-        "Initial sync failed: indexId=%s, generationId=%s, reason=%s",
-        e.getGenerationId().indexId, e.getGenerationId(),
-        e.getIndex().getStatus().getReason().map(Enum::name).orElse("none")));
+    failedIndexes.forEach(
+        e ->
+            FLOGGER.atSevere().atMostEvery(5, TimeUnit.MINUTES).log(
+                "Initial sync failed: indexId=%s, generationId=%s, reason=%s",
+                e.getGenerationId().indexId,
+                e.getGenerationId(),
+                e.getIndex().getStatus().getReason().map(Enum::name).orElse("none")));
   }
 
   /**
-   * Logs all generations involved in a retry attempt for a single index.
-   * This log is intended to help developers determine which generations
-   * potentially exist on disk, so they can be dropped if needed.
+   * Logs all generations involved in a retry attempt for a single index. This log is intended to
+   * help developers determine which generations potentially exist on disk, so they can be dropped
+   * if needed.
    *
-   * @param liveIndex     the failed live index being retried.
-   * @param droppedStaged the old failed staged index that was dropped,
-   *                      or empty if there was no prior staged attempt.
-   * @param newAttempt    the new staged attempt being created.
+   * @param liveIndex the failed live index being retried.
+   * @param droppedStaged the old failed staged index that was dropped, or empty if there was no
+   *     prior staged attempt.
+   * @param newAttempt the new staged attempt being created.
    */
   private static void logRetryGenerations(
-      IndexGeneration liveIndex, Optional<IndexGeneration> droppedStaged,
-      IndexDefinitionGeneration newAttempt
-  ) {
+      IndexGeneration liveIndex,
+      Optional<IndexGeneration> droppedStaged,
+      IndexDefinitionGeneration newAttempt) {
     FLOGGER.atInfo().atMostEvery(5, TimeUnit.MINUTES).log(
         "Retrying failed initial sync index; these generations may exist on disk:"
             + " indexId=%s, liveGeneration=%s, droppedStagedGeneration=%s,"
             + " newStagedGeneration=%s",
-        liveIndex.getGenerationId().indexId, liveIndex.getGenerationId(),
+        liveIndex.getGenerationId().indexId,
+        liveIndex.getGenerationId(),
         droppedStaged.map(s -> s.getGenerationId().toString()).orElse("none"),
         newAttempt.getGenerationId());
   }
@@ -192,8 +187,9 @@ class IndexInitialSyncRecovery {
     }
     IndexStatus status = indexGeneration.getIndex().getStatus();
     return status.getStatusCode() == IndexStatus.StatusCode.FAILED
-        && status.getReason()
-        .map(reason -> reason == IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY)
-        .orElse(false);
+        && status
+            .getReason()
+            .map(reason -> reason == IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY)
+            .orElse(false);
   }
 }

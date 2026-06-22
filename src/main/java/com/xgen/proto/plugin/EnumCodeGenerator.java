@@ -26,7 +26,8 @@ public class EnumCodeGenerator implements CodeGenerator {
     }
     try (var fnScope =
         this.output.openScope(
-            "public static %s fromBsonString(String value) throws com.xgen.proto.BsonProtoParseException",
+            "public static %s fromBsonString(String value) throws"
+                + " com.xgen.proto.BsonProtoParseException",
             this.descriptor.getName())) {
       generateFromBsonString(fnScope);
     }
@@ -59,7 +60,8 @@ public class EnumCodeGenerator implements CodeGenerator {
       }
       try (var defaultCase = switchScope.openScope("default:")) {
         defaultCase.writeLine(
-            "throw new com.xgen.proto.BsonProtoParseException(String.format(\"unknown enum value %s\", value));");
+            "throw new com.xgen.proto.BsonProtoParseException(String.format(\"unknown enum value"
+                + " %s\", value));");
       }
     }
   }

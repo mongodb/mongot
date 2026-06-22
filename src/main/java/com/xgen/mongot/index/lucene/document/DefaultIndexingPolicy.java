@@ -224,9 +224,13 @@ public class DefaultIndexingPolicy {
           StoredDocumentBuilder.create(this.vectorIndexDefinition.getStoredSource());
 
       DocumentBuilder rootBuilder =
-          RootDocumentBuilder.create(this.vectorIndexDefinition.getIndexId(), rawBuilder,
-              storedBuilder, Optional.empty(),
-              this.indexCapabilities, this.indexingMetricsUpdater);
+          RootDocumentBuilder.create(
+              this.vectorIndexDefinition.getIndexId(),
+              rawBuilder,
+              storedBuilder,
+              Optional.empty(),
+              this.indexCapabilities,
+              this.indexingMetricsUpdater);
 
       return com.xgen.mongot.index.lucene.document.block.VectorEmbeddedDocumentBuilder.createRoot(
           rootBuilder,

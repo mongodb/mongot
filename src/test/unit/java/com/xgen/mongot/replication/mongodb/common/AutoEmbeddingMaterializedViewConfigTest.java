@@ -164,8 +164,7 @@ public class AutoEmbeddingMaterializedViewConfigTest {
       assertEquals(30_000L, config.materializedViewStatusRefreshIntervalMs);
       assertEquals(10_000L, config.materializedViewOptimeUpdateIntervalMs);
 
-      assertEquals(
-          Duration.ofSeconds(60).toMillis(), config.materializedViewWriterSocketTimeoutMs);
+      assertEquals(Duration.ofSeconds(60).toMillis(), config.materializedViewWriterSocketTimeoutMs);
 
       assertEquals(1L, config.defaultMaterializedViewNameFormatVersion);
     }
@@ -270,8 +269,7 @@ public class AutoEmbeddingMaterializedViewConfigTest {
               Optional.empty());
       BsonDocument bsonWith = configWith.toBson();
       assertTrue(
-          "BSON should contain mvWriteRateLimitRps",
-          bsonWith.containsKey("mvWriteRateLimitRps"));
+          "BSON should contain mvWriteRateLimitRps", bsonWith.containsKey("mvWriteRateLimitRps"));
       assertEquals(75, bsonWith.getInt32("mvWriteRateLimitRps").getValue());
 
       AutoEmbeddingMaterializedViewConfig configWithout =

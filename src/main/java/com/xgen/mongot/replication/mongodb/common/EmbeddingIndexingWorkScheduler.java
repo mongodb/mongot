@@ -130,8 +130,8 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
    * Creates and starts a new EmbeddingIndexingWorkScheduler.
    *
    * @return an EmbeddingIndexingWorkScheduler.
-   * @deprecated use createForMaterializedViewIndex instead.
-   *     This will be removed after type:text index is deprecated.
+   * @deprecated use createForMaterializedViewIndex instead. This will be removed after type:text
+   *     index is deprecated.
    */
   public static EmbeddingIndexingWorkScheduler create(
       NamedExecutorService indexingExecutor,
@@ -846,9 +846,10 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
 
   private static VectorFieldAutoEmbeddingSpecification autoEmbeddingFieldSpecForPath(
       AutoEmbedFieldMapping autoEmbedMapping, FieldPath path) {
-    AutoEmbedField.EmbedField embedField = Optional
-        .ofNullable(autoEmbedMapping.embedFields().get(path))
-        .orElseThrow(() -> new IllegalStateException("missing auto-embed field for path: " + path));
+    AutoEmbedField.EmbedField embedField =
+        Optional.ofNullable(autoEmbedMapping.embedFields().get(path))
+            .orElseThrow(
+                () -> new IllegalStateException("missing auto-embed field for path: " + path));
 
     return embedField.specification();
   }

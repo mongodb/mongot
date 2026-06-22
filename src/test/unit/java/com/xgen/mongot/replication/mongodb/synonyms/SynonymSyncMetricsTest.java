@@ -41,9 +41,7 @@ public class SynonymSyncMetricsTest {
   private SynonymManager synonymManager;
 
   @Before
-  public void setUp()
-      throws
-      SynonymSyncException {
+  public void setUp() throws SynonymSyncException {
     this.meterRegistry = new SimpleMeterRegistry();
     this.metricsFactory = new MetricsFactory("synonymSync", this.meterRegistry);
     this.mockMongoClient = mock(SynonymSyncMongoClient.class);
@@ -110,8 +108,7 @@ public class SynonymSyncMetricsTest {
     changeStreamRequest.doWork(this.mockMongoClient);
 
     assertEquals(
-        1.0,
-        this.metricsFactory.get("collScansTriggeredByChangeStream").counter().count(), 0.01);
+        1.0, this.metricsFactory.get("collScansTriggeredByChangeStream").counter().count(), 0.01);
   }
 
   @Test
@@ -162,8 +159,7 @@ public class SynonymSyncMetricsTest {
   }
 
   private SynonymManager createSynonymManagerWithFailingScanner(MetricsFactory metricsFactory)
-      throws
-      SynonymSyncException {
+      throws SynonymSyncException {
     SynonymCollectionScanner mockScanner = mock(SynonymCollectionScanner.class);
     when(mockScanner.scan())
         .thenThrow(SynonymSyncException.createTransient(new RuntimeException()));
@@ -181,17 +177,14 @@ public class SynonymSyncMetricsTest {
         metricsFactory);
   }
 
-  private SynonymCollectionScanner createMockScanner()
-      throws
-      SynonymSyncException {
+  private SynonymCollectionScanner createMockScanner() throws SynonymSyncException {
     SynonymCollectionScanner mockScanner = mock(SynonymCollectionScanner.class);
     when(mockScanner.scan()).thenReturn(SCAN_OPERATION_TIME);
     return mockScanner;
   }
 
   private SynonymManager createSynonymManagerWithMockScanner(MetricsFactory metricsFactory)
-      throws
-      SynonymSyncException {
+      throws SynonymSyncException {
     SynonymCollectionScanner mockScanner = createMockScanner();
     SynonymCollectionScanner.Factory mockFactory = (mongoClient, request) -> mockScanner;
 
@@ -205,6 +198,4 @@ public class SynonymSyncMetricsTest {
         mockFactory,
         metricsFactory);
   }
-
 }
-

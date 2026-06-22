@@ -141,15 +141,19 @@ public class DocumentWrapper extends AbstractDocumentWrapper {
     }
     ImmutableSet.Builder<FieldPath> builder = ImmutableSet.builder();
     for (MongotSortField field : sort.get().getSortFields()) {
-      resolver.getFieldDefinition(field.field(), Optional.empty()).ifPresent(def -> {
-        boolean isDate = def.dateFieldDefinition().isPresent();
-        boolean isInt64 = def.numberFieldDefinition().isPresent()
-            && def.numberFieldDefinition().get().options().representation()
-                == NumericFieldOptions.Representation.INT64;
-        if (isDate || isInt64) {
-          builder.add(field.field());
-        }
-      });
+      resolver
+          .getFieldDefinition(field.field(), Optional.empty())
+          .ifPresent(
+              def -> {
+                boolean isDate = def.dateFieldDefinition().isPresent();
+                boolean isInt64 =
+                    def.numberFieldDefinition().isPresent()
+                        && def.numberFieldDefinition().get().options().representation()
+                            == NumericFieldOptions.Representation.INT64;
+                if (isDate || isInt64) {
+                  builder.add(field.field());
+                }
+              });
     }
     return builder.build();
   }

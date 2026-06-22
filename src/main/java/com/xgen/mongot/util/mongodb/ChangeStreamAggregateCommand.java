@@ -221,7 +221,7 @@ public class ChangeStreamAggregateCommand {
     public Builder splitLargeEvent(boolean value) {
       if (value) {
         this.splitLargeEventStage =
-                Optional.of(new BsonDocument("$changeStreamSplitLargeEvent", new BsonDocument()));
+            Optional.of(new BsonDocument("$changeStreamSplitLargeEvent", new BsonDocument()));
       }
       return this;
     }

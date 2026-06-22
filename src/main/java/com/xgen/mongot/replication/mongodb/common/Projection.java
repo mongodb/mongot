@@ -149,8 +149,8 @@ public class Projection {
 
           var includes =
               filterPathCollisions(
-                  CollectionUtils.concat(
-                      configuredIncludedPaths, type.getDefaultIncludedPaths(definition)))
+                      CollectionUtils.concat(
+                          configuredIncludedPaths, type.getDefaultIncludedPaths(definition)))
                   .stream()
                   .map(Projections::include)
                   .collect(toList());

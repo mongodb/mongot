@@ -9,7 +9,8 @@ public final class LuceneDocumentUtil {
     // Utility class
   }
 
-  /** Modifies the `left` document by appending fields from `right`.
+  /**
+   * Modifies the `left` document by appending fields from `right`.
    *
    * @return returns the modified `left` argument for chaining calls
    */
@@ -18,5 +19,4 @@ public final class LuceneDocumentUtil {
     right.getFields().forEach(left::add);
     return left;
   }
-
 }

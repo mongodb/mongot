@@ -85,7 +85,7 @@ public class LuceneIndexingFailuresTest {
                 SearchIndex.MOCK_INDEX_GENERATION_ID,
                 0,
                 1,
-                false, 
+                false,
                 directory),
             new TieredMergePolicy(),
             10.0,
@@ -116,11 +116,11 @@ public class LuceneIndexingFailuresTest {
         .doLogIndexingFailure(any(Throwable.class), anyString(), anyString());
 
     // Mock exceptions are thrown from lucene writer
-    doThrow(new TestException())
-        .when(spyLuceneWriter).deleteDocuments(any(Term.class));
+    doThrow(new TestException()).when(spyLuceneWriter).deleteDocuments(any(Term.class));
 
     doThrow(new TestException())
-        .when(spyLuceneWriter).updateDocuments(any(org.apache.lucene.index.Term.class), any());
+        .when(spyLuceneWriter)
+        .updateDocuments(any(org.apache.lucene.index.Term.class), any());
 
     // Very tricky:  since commit() is still ran even with the mock and it failed
     // the lock holding check internally, we need to synchronize to make it work.
@@ -141,57 +141,87 @@ public class LuceneIndexingFailuresTest {
     var rawDoc = BsonUtils.documentToRaw(doc);
 
     // test insert
-    assertThrows(TestException.class, () -> {
-      spyWriter.updateIndex(
-          DocumentEvent.createInsert(
-              DocumentMetadata.fromMetadataNamespace(Optional.of(rawDoc), MOCK_INDEX_ID), rawDoc));
-    });
-    assertEquals(1,
-        (long) metricsFactory
-            .get(counterName)
-            .tag("exceptionName", TestException.class.getSimpleName())
-            .tag("operation", DocumentEvent.EventType.INSERT.name()).counter().count());
+    assertThrows(
+        TestException.class,
+        () -> {
+          spyWriter.updateIndex(
+              DocumentEvent.createInsert(
+                  DocumentMetadata.fromMetadataNamespace(Optional.of(rawDoc), MOCK_INDEX_ID),
+                  rawDoc));
+        });
+    assertEquals(
+        1,
+        (long)
+            metricsFactory
+                .get(counterName)
+                .tag("exceptionName", TestException.class.getSimpleName())
+                .tag("operation", DocumentEvent.EventType.INSERT.name())
+                .counter()
+                .count());
 
     // test delete
-    assertThrows(TestException.class, () -> {
-      spyWriter.updateIndex(
-          DocumentEvent.createDelete(new BsonInt32(0)));
-    });
-    assertEquals(1,
-        (long) metricsFactory
-            .get(counterName)
-            .tag("exceptionName", TestException.class.getSimpleName())
-            .tag("operation", DocumentEvent.EventType.DELETE.name()).counter().count());
+    assertThrows(
+        TestException.class,
+        () -> {
+          spyWriter.updateIndex(DocumentEvent.createDelete(new BsonInt32(0)));
+        });
+    assertEquals(
+        1,
+        (long)
+            metricsFactory
+                .get(counterName)
+                .tag("exceptionName", TestException.class.getSimpleName())
+                .tag("operation", DocumentEvent.EventType.DELETE.name())
+                .counter()
+                .count());
 
     // test commit
-    assertThrows(TestException.class, () -> {
-      spyWriter.commit(EncodedUserData.EMPTY);
-    });
-    assertEquals(1,
-        (long) metricsFactory
-            .get(counterName)
-            .tag("exceptionName", TestException.class.getSimpleName())
-            .tag("operation", "commit").counter().count());
+    assertThrows(
+        TestException.class,
+        () -> {
+          spyWriter.commit(EncodedUserData.EMPTY);
+        });
+    assertEquals(
+        1,
+        (long)
+            metricsFactory
+                .get(counterName)
+                .tag("exceptionName", TestException.class.getSimpleName())
+                .tag("operation", "commit")
+                .counter()
+                .count());
 
     // test close
-    assertThrows(TestException.class, () -> {
-      spyWriter.close();
-    });
-    assertEquals(1,
-        (long) metricsFactory
-            .get(counterName)
-            .tag("exceptionName", TestException.class.getSimpleName())
-            .tag("operation", "close").counter().count());
+    assertThrows(
+        TestException.class,
+        () -> {
+          spyWriter.close();
+        });
+    assertEquals(
+        1,
+        (long)
+            metricsFactory
+                .get(counterName)
+                .tag("exceptionName", TestException.class.getSimpleName())
+                .tag("operation", "close")
+                .counter()
+                .count());
 
     // test deleteAll
-    assertThrows(TestException.class, () -> {
-      spyWriter.deleteAll(EncodedUserData.EMPTY);
-    });
-    assertEquals(1,
-        (long) metricsFactory
-            .get(counterName)
-            .tag("exceptionName", TestException.class.getSimpleName())
-            .tag("operation", "deleteAll").counter().count());
+    assertThrows(
+        TestException.class,
+        () -> {
+          spyWriter.deleteAll(EncodedUserData.EMPTY);
+        });
+    assertEquals(
+        1,
+        (long)
+            metricsFactory
+                .get(counterName)
+                .tag("exceptionName", TestException.class.getSimpleName())
+                .tag("operation", "deleteAll")
+                .counter()
+                .count());
   }
 
   @Test
@@ -210,7 +240,7 @@ public class LuceneIndexingFailuresTest {
                 SearchIndex.MOCK_INDEX_GENERATION_ID,
                 0,
                 1,
-                false, 
+                false,
                 directory),
             new TieredMergePolicy(),
             10.0,
@@ -242,29 +272,29 @@ public class LuceneIndexingFailuresTest {
     // Mock exception thrown from lucene writer updateDocuments to trigger
     // logIndexingFailureWithRateLimited
     doThrow(new TestException())
-        .when(spyLuceneWriter).updateDocuments(any(org.apache.lucene.index.Term.class), any());
+        .when(spyLuceneWriter)
+        .updateDocuments(any(org.apache.lucene.index.Term.class), any());
 
     // Test with BsonInt32 _id
     BsonInt32 int32Id = new BsonInt32(42);
     BsonDocument doc1 = new BsonDocument();
-    doc1.append(
-        MOCK_INDEX_DEFINITION.getIndexId().toString(), new BsonDocument("_id", int32Id));
+    doc1.append(MOCK_INDEX_DEFINITION.getIndexId().toString(), new BsonDocument("_id", int32Id));
     var rawDoc1 = BsonUtils.documentToRaw(doc1);
 
-    assertThrows(TestException.class, () -> {
-      spyWriter.updateIndex(
-          DocumentEvent.createInsert(
-              DocumentMetadata.fromMetadataNamespace(
-                  Optional.of(rawDoc1), MOCK_INDEX_ID),
-              rawDoc1));
-    });
+    assertThrows(
+        TestException.class,
+        () -> {
+          spyWriter.updateIndex(
+              DocumentEvent.createInsert(
+                  DocumentMetadata.fromMetadataNamespace(Optional.of(rawDoc1), MOCK_INDEX_ID),
+                  rawDoc1));
+        });
 
     // Verify that doLogIndexingFailure was called with "unloggable" since BsonInt32 is not
     // ObjectId or UUID
-    verify(spyWriter).doLogIndexingFailure(
-        any(TestException.class),
-        eq("INSERT"),
-        eq(LoggableIdUtils.UNLOGGABLE_ID_TYPE));
+    verify(spyWriter)
+        .doLogIndexingFailure(
+            any(TestException.class), eq("INSERT"), eq(LoggableIdUtils.UNLOGGABLE_ID_TYPE));
   }
 
   @Test
@@ -283,7 +313,7 @@ public class LuceneIndexingFailuresTest {
                 SearchIndex.MOCK_INDEX_GENERATION_ID,
                 0,
                 1,
-                false, 
+                false,
                 directory),
             new TieredMergePolicy(),
             10.0,
@@ -315,29 +345,29 @@ public class LuceneIndexingFailuresTest {
     // Mock exception thrown from lucene writer updateDocuments to trigger
     // logIndexingFailureWithRateLimited
     doThrow(new TestException())
-        .when(spyLuceneWriter).updateDocuments(any(org.apache.lucene.index.Term.class), any());
+        .when(spyLuceneWriter)
+        .updateDocuments(any(org.apache.lucene.index.Term.class), any());
 
     // Test with BsonObjectId _id
     ObjectId objectIdValue = new ObjectId();
     BsonObjectId objectId = new BsonObjectId(objectIdValue);
     BsonDocument doc2 = new BsonDocument();
-    doc2.append(
-        MOCK_INDEX_DEFINITION.getIndexId().toString(), new BsonDocument("_id", objectId));
+    doc2.append(MOCK_INDEX_DEFINITION.getIndexId().toString(), new BsonDocument("_id", objectId));
     var rawDoc2 = BsonUtils.documentToRaw(doc2);
 
-    assertThrows(TestException.class, () -> {
-      spyWriter.updateIndex(
-          DocumentEvent.createInsert(
-              DocumentMetadata.fromMetadataNamespace(
-                  Optional.of(rawDoc2), MOCK_INDEX_ID),
-              rawDoc2));
-    });
+    assertThrows(
+        TestException.class,
+        () -> {
+          spyWriter.updateIndex(
+              DocumentEvent.createInsert(
+                  DocumentMetadata.fromMetadataNamespace(Optional.of(rawDoc2), MOCK_INDEX_ID),
+                  rawDoc2));
+        });
 
     // Verify that doLogIndexingFailure was called with the ObjectId hex string
-    verify(spyWriter).doLogIndexingFailure(
-        any(TestException.class),
-        eq("INSERT"),
-        eq(objectIdValue.toHexString()));
+    verify(spyWriter)
+        .doLogIndexingFailure(
+            any(TestException.class), eq("INSERT"), eq(objectIdValue.toHexString()));
   }
 
   @Test
@@ -356,7 +386,7 @@ public class LuceneIndexingFailuresTest {
                 SearchIndex.MOCK_INDEX_GENERATION_ID,
                 0,
                 1,
-                false, 
+                false,
                 directory),
             new TieredMergePolicy(),
             10.0,
@@ -388,29 +418,29 @@ public class LuceneIndexingFailuresTest {
     // Mock exception thrown from lucene writer updateDocuments to trigger
     // logIndexingFailureWithRateLimited
     doThrow(new TestException())
-        .when(spyLuceneWriter).updateDocuments(any(org.apache.lucene.index.Term.class), any());
+        .when(spyLuceneWriter)
+        .updateDocuments(any(org.apache.lucene.index.Term.class), any());
 
     // Test with BsonString _id
     BsonString stringId = new BsonString("test-id-123");
     BsonDocument doc3 = new BsonDocument();
-    doc3.append(
-        MOCK_INDEX_DEFINITION.getIndexId().toString(), new BsonDocument("_id", stringId));
+    doc3.append(MOCK_INDEX_DEFINITION.getIndexId().toString(), new BsonDocument("_id", stringId));
     var rawDoc3 = BsonUtils.documentToRaw(doc3);
 
-    assertThrows(TestException.class, () -> {
-      spyWriter.updateIndex(
-          DocumentEvent.createInsert(
-              DocumentMetadata.fromMetadataNamespace(
-                  Optional.of(rawDoc3), MOCK_INDEX_ID),
-              rawDoc3));
-    });
+    assertThrows(
+        TestException.class,
+        () -> {
+          spyWriter.updateIndex(
+              DocumentEvent.createInsert(
+                  DocumentMetadata.fromMetadataNamespace(Optional.of(rawDoc3), MOCK_INDEX_ID),
+                  rawDoc3));
+        });
 
     // Verify that doLogIndexingFailure was called with "unloggable" since BsonString is not
     // ObjectId or UUID
-    verify(spyWriter).doLogIndexingFailure(
-        any(TestException.class),
-        eq("INSERT"),
-        eq(LoggableIdUtils.UNLOGGABLE_ID_TYPE));
+    verify(spyWriter)
+        .doLogIndexingFailure(
+            any(TestException.class), eq("INSERT"), eq(LoggableIdUtils.UNLOGGABLE_ID_TYPE));
   }
 
   @Test
@@ -429,7 +459,7 @@ public class LuceneIndexingFailuresTest {
                 SearchIndex.MOCK_INDEX_GENERATION_ID,
                 0,
                 1,
-                false, 
+                false,
                 directory),
             new TieredMergePolicy(),
             10.0,
@@ -465,10 +495,8 @@ public class LuceneIndexingFailuresTest {
 
     // Verify that doLogIndexingFailure was called with "unknown" fallback
     ArgumentCaptor<String> documentIdCaptor = ArgumentCaptor.forClass(String.class);
-    verify(spyWriter).doLogIndexingFailure(
-        eq(testException),
-        eq("INSERT"),
-        documentIdCaptor.capture());
+    verify(spyWriter)
+        .doLogIndexingFailure(eq(testException), eq("INSERT"), documentIdCaptor.capture());
     // Verify the captured documentIdString is "unknown" when decoding fails
     var capturedDocumentId = documentIdCaptor.getValue();
     assertThat(capturedDocumentId).isEqualTo(LoggableIdUtils.UNKNOWN_LOGGABLE_ID);

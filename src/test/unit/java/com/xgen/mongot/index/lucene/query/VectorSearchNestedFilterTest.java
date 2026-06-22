@@ -76,9 +76,7 @@ public class VectorSearchNestedFilterTest {
   private static final int LIMIT = 2;
   private static final int NUM_DIMENSIONS = 3;
   private static final FeatureFlags FLAGS =
-      FeatureFlags.withDefaults()
-          .enable(com.xgen.mongot.featureflag.Feature.NESTED_VECTOR)
-          .build();
+      FeatureFlags.withDefaults().enable(com.xgen.mongot.featureflag.Feature.NESTED_VECTOR).build();
 
   private static final String EMBEDDED_VECTOR_FIELD =
       "$embedded:8/sections/$type:knnVector/sections.section_vector";
@@ -420,8 +418,7 @@ public class VectorSearchNestedFilterTest {
   public void testIsIndexWithEmbeddedFieldsForNestedVectorIndex() {
     VectorIndexDefinition definition = createNestedDefinition();
     var context =
-        new VectorQueryFactoryContext(
-            definition, IndexFormatVersion.CURRENT, FLAGS, METRICS);
+        new VectorQueryFactoryContext(definition, IndexFormatVersion.CURRENT, FLAGS, METRICS);
 
     Assert.assertTrue(
         "isIndexWithEmbeddedFields() should return true for vector indexes with nestedRoot",
@@ -436,8 +433,7 @@ public class VectorSearchNestedFilterTest {
             .withFilterPath("foo.filter")
             .build();
     var context =
-        new VectorQueryFactoryContext(
-            definition, IndexFormatVersion.CURRENT, FLAGS, METRICS);
+        new VectorQueryFactoryContext(definition, IndexFormatVersion.CURRENT, FLAGS, METRICS);
 
     Assert.assertFalse(
         "isIndexWithEmbeddedFields() should return false for vector indexes without nestedRoot",
@@ -522,8 +518,8 @@ public class VectorSearchNestedFilterTest {
    * an auto-embedding + nestedRoot index does not throw "nestedOptions can only be specified for
    * embedded vector fields". Before the fix, the derived definition's {@code nestedRoot} was the
    * user-facing path ({@code sections}) while the materialized query path was the MV-namespaced
-   * path ({@code _autoEmbed.sections.section_vector}), so embedded-vector detection failed. The
-   * fix remaps {@code nestedRoot} into the MV namespace as well.
+   * path ({@code _autoEmbed.sections.section_vector}), so embedded-vector detection failed. The fix
+   * remaps {@code nestedRoot} into the MV namespace as well.
    */
   @Test
   public void testAutoEmbedNestedRootRemappedAcceptsNestedOptions() throws Exception {
@@ -645,8 +641,7 @@ public class VectorSearchNestedFilterTest {
 
     VectorIndexDefinition definition = createNestedDefinition();
     var context =
-        new VectorQueryFactoryContext(
-            definition, IndexFormatVersion.CURRENT, FLAGS, METRICS);
+        new VectorQueryFactoryContext(definition, IndexFormatVersion.CURRENT, FLAGS, METRICS);
     var factory = LuceneVectorQueryFactoryDistributor.create(context);
 
     try (var reader = DirectoryReader.open(this.directory)) {
@@ -676,8 +671,7 @@ public class VectorSearchNestedFilterTest {
 
     VectorIndexDefinition definition = createNestedDefinition();
     var context =
-        new VectorQueryFactoryContext(
-            definition, IndexFormatVersion.CURRENT, FLAGS, METRICS);
+        new VectorQueryFactoryContext(definition, IndexFormatVersion.CURRENT, FLAGS, METRICS);
     var factory = LuceneVectorQueryFactoryDistributor.create(context);
 
     try (var reader = DirectoryReader.open(this.directory)) {
@@ -706,8 +700,7 @@ public class VectorSearchNestedFilterTest {
 
     VectorIndexDefinition definition = createNestedDefinition();
     var context =
-        new VectorQueryFactoryContext(
-            definition, IndexFormatVersion.CURRENT, FLAGS, METRICS);
+        new VectorQueryFactoryContext(definition, IndexFormatVersion.CURRENT, FLAGS, METRICS);
     var factory = LuceneVectorQueryFactoryDistributor.create(context);
 
     try (var reader = DirectoryReader.open(this.directory)) {
@@ -747,8 +740,7 @@ public class VectorSearchNestedFilterTest {
 
     VectorIndexDefinition definition = createNestedDefinition();
     var context =
-        new VectorQueryFactoryContext(
-            definition, IndexFormatVersion.CURRENT, FLAGS, METRICS);
+        new VectorQueryFactoryContext(definition, IndexFormatVersion.CURRENT, FLAGS, METRICS);
     var factory = LuceneVectorQueryFactoryDistributor.create(context);
 
     try (var reader = DirectoryReader.open(this.directory)) {
@@ -858,8 +850,7 @@ public class VectorSearchNestedFilterTest {
   private Query translate(VectorIndexDefinition definition, VectorSearchQuery query)
       throws IOException, InvalidQueryException {
     var context =
-        new VectorQueryFactoryContext(
-            definition, IndexFormatVersion.CURRENT, FLAGS, METRICS);
+        new VectorQueryFactoryContext(definition, IndexFormatVersion.CURRENT, FLAGS, METRICS);
     var factory = LuceneVectorQueryFactoryDistributor.create(context);
     try (var reader = DirectoryReader.open(this.directory)) {
       return factory.createQuery(

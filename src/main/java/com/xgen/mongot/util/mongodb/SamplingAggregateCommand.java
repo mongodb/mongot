@@ -49,7 +49,11 @@ public class SamplingAggregateCommand {
       var collection = Check.isPresent(this.collectionName, "collectionName");
       var limit = Check.isPresent(this.sampleLimit, "sampleLimit");
       return new SamplingAggregateCommand(
-          collection, limit, this.batchSize, this.viewDefinedStages, this.projectStage,
+          collection,
+          limit,
+          this.batchSize,
+          this.viewDefinedStages,
+          this.projectStage,
           this.maxTimeMs);
     }
 

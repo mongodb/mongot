@@ -81,8 +81,7 @@ public sealed interface VectorSearchFilter extends DocumentEncodable
   static Optional<VectorSearchFilter> fromBson(DocumentParser parser, Type type)
       throws BsonParseException {
     return switch (type) {
-      case OPERATOR ->
-          parser.getField(Fields.OPERATOR_FILTER).unwrap().map(OperatorFilter::new);
+      case OPERATOR -> parser.getField(Fields.OPERATOR_FILTER).unwrap().map(OperatorFilter::new);
       case CLAUSE -> parser.getField(Fields.CLAUSE_FILTER).unwrap().map(ClauseFilter::new);
     };
   }
@@ -92,8 +91,7 @@ public sealed interface VectorSearchFilter extends DocumentEncodable
     return switch (type) {
       case OPERATOR ->
           parser.getField(Fields.OPERATOR_PARENT_FILTER).unwrap().map(OperatorFilter::new);
-      case CLAUSE ->
-          parser.getField(Fields.CLAUSE_PARENT_FILTER).unwrap().map(ClauseFilter::new);
+      case CLAUSE -> parser.getField(Fields.CLAUSE_PARENT_FILTER).unwrap().map(ClauseFilter::new);
     };
   }
 }

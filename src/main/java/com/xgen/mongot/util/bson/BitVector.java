@@ -1,6 +1,5 @@
 package com.xgen.mongot.util.bson;
 
-
 import java.util.Arrays;
 import org.bson.BsonValue;
 

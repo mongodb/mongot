@@ -11,9 +11,7 @@ import java.util.Optional;
 import org.bson.BsonDocument;
 import org.bson.types.ObjectId;
 
-/**
- * The {@code replication} block of the Community mongot config file.
- */
+/** The {@code replication} block of the Community mongot config file. */
 public record CommunityReplicationConfig(Optional<MongoDbConfig> mongoDbConfig)
     implements DocumentEncodable {
 

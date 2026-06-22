@@ -293,11 +293,11 @@ public record Lease(
 
     private static class Fields {
       /**
-       * Whether the index definition version is queryable. This field durably tracks the
-       * transition from building to queryable. Once it becomes queryable, it always remains so
-       * (one-way ratchet). A new version may inherit queryable=true from the previous version
-       * when {@code skipInitialSync=true} (Lucene-only or same-version change), since the MV
-       * data is preserved and the index can continue serving queries.
+       * Whether the index definition version is queryable. This field durably tracks the transition
+       * from building to queryable. Once it becomes queryable, it always remains so (one-way
+       * ratchet). A new version may inherit queryable=true from the previous version when {@code
+       * skipInitialSync=true} (Lucene-only or same-version change), since the MV data is preserved
+       * and the index can continue serving queries.
        */
       public static final Field.Required<Boolean> IS_QUERYABLE =
           Field.builder("isQueryable").booleanField().required();
@@ -306,8 +306,8 @@ public record Lease(
        * The status code of the index definition version.
        *
        * <p>Uses {@code UNKNOWN} as a fallback so an older binary can tolerate a newer {@code
-       * StatusCode} value written by a newer binary during rollback or rolling updates. Without
-       * the fallback, an unrecognized status string would throw {@link
+       * StatusCode} value written by a newer binary during rollback or rolling updates. Without the
+       * fallback, an unrecognized status string would throw {@link
        * com.xgen.mongot.util.bson.parser.BsonParseException} and break lease loading for the
        * affected index. See CLOUDP-401373.
        */

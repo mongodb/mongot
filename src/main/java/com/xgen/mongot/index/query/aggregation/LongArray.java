@@ -5,8 +5,8 @@ import com.carrotsearch.hppc.LongArrayList;
 /**
  * Growable long array backed by HPPC's {@link LongArrayList}.
  *
- * <p>This is a thin adapter that preserves auto-grow-on-write semantics: setting or incrementing
- * at an index beyond the current size grows the underlying storage and zero-fills any new slots.
+ * <p>This is a thin adapter that preserves auto-grow-on-write semantics: setting or incrementing at
+ * an index beyond the current size grows the underlying storage and zero-fills any new slots.
  */
 public class LongArray implements AutoCloseable {
   private final LongArrayList list;

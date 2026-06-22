@@ -343,12 +343,10 @@ public class LuceneVectorIndexReaderTest {
       long graphBytes = (long) numVectors * HNSW_GRAPH_BYTES_PER_VECTOR;
       assertEquals(
           24_000_000_000L + graphBytes,
-          LuceneVectorIndexReader.computeRequiredHeapBytes(
-              leafReader, floatFieldInfo, 4, true));
+          LuceneVectorIndexReader.computeRequiredHeapBytes(leafReader, floatFieldInfo, 4, true));
       assertEquals(
           6_000_000_000L + graphBytes,
-          LuceneVectorIndexReader.computeRequiredHeapBytes(
-              leafReader, byteFieldInfo, 1, true));
+          LuceneVectorIndexReader.computeRequiredHeapBytes(leafReader, byteFieldInfo, 1, true));
       assertEquals(
           750_000_000L + graphBytes,
           LuceneVectorIndexReader.computeRequiredHeapBytes(
@@ -618,10 +616,7 @@ public class LuceneVectorIndexReaderTest {
 
       long result = this.indexReader.getRequiredMemoryForVectorData();
       // 12 = 1 vector * 3 dims * 4 bytes (float). No graph bytes for flat index.
-      assertEquals(
-          "Flat index must not include HNSW graph in required memory",
-          12,
-          result);
+      assertEquals("Flat index must not include HNSW graph in required memory", 12, result);
     }
 
     @Test

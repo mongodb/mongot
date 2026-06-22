@@ -112,14 +112,11 @@ public class QueryMetricsRecorderTest {
     QueryFeaturesMetricsUpdater queryFeaturesStatsUpdater =
         IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.QueryFeaturesMetricsUpdaterBuilder
             .empty();
-    QueryMetricsRecorder queryMetricsRecorder =
-        new QueryMetricsRecorder(queryFeaturesStatsUpdater);
+    QueryMetricsRecorder queryMetricsRecorder = new QueryMetricsRecorder(queryFeaturesStatsUpdater);
 
     Operator operator = OperatorBuilder.text().path("path").query("empty").build();
     Map<String, FacetDefinition> facetDefinitions =
-        Map.of(
-            "stringFacet",
-            FacetDefinitionBuilder.string().numBuckets(5).path("path").build());
+        Map.of("stringFacet", FacetDefinitionBuilder.string().numBuckets(5).path("path").build());
     FacetCollector facetCollector =
         new FacetCollector(
             operator,
@@ -129,10 +126,7 @@ public class QueryMetricsRecorderTest {
                     Map.of(), QueryOptimizationStatus.OPTIMIZABLE, Optional.empty())));
 
     SearchQuery query =
-        CollectorQueryBuilder.builder()
-            .collector(facetCollector)
-            .returnStoredSource(false)
-            .build();
+        CollectorQueryBuilder.builder().collector(facetCollector).returnStoredSource(false).build();
 
     queryMetricsRecorder.record(query, QueryCursorOptions.empty());
 
@@ -157,14 +151,11 @@ public class QueryMetricsRecorderTest {
     QueryFeaturesMetricsUpdater queryFeaturesStatsUpdater =
         IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.QueryFeaturesMetricsUpdaterBuilder
             .empty();
-    QueryMetricsRecorder queryMetricsRecorder =
-        new QueryMetricsRecorder(queryFeaturesStatsUpdater);
+    QueryMetricsRecorder queryMetricsRecorder = new QueryMetricsRecorder(queryFeaturesStatsUpdater);
 
     Operator operator = OperatorBuilder.text().path("path").query("empty").build();
     Map<String, FacetDefinition> facetDefinitions =
-        Map.of(
-            "stringFacet",
-            FacetDefinitionBuilder.string().numBuckets(5).path("path").build());
+        Map.of("stringFacet", FacetDefinitionBuilder.string().numBuckets(5).path("path").build());
     FacetCollector facetCollector =
         new FacetCollector(
             operator,
@@ -174,10 +165,7 @@ public class QueryMetricsRecorderTest {
                     Map.of(), QueryOptimizationStatus.GENERIC, Optional.empty())));
 
     SearchQuery query =
-        CollectorQueryBuilder.builder()
-            .collector(facetCollector)
-            .returnStoredSource(false)
-            .build();
+        CollectorQueryBuilder.builder().collector(facetCollector).returnStoredSource(false).build();
 
     queryMetricsRecorder.record(query, QueryCursorOptions.empty());
 
@@ -202,8 +190,7 @@ public class QueryMetricsRecorderTest {
     QueryFeaturesMetricsUpdater queryFeaturesStatsUpdater =
         IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.QueryFeaturesMetricsUpdaterBuilder
             .empty();
-    QueryMetricsRecorder queryMetricsRecorder =
-        new QueryMetricsRecorder(queryFeaturesStatsUpdater);
+    QueryMetricsRecorder queryMetricsRecorder = new QueryMetricsRecorder(queryFeaturesStatsUpdater);
 
     // FacetCollector built without withDrillSideways() has empty drillSidewaysInfo
     SearchQuery query =
@@ -213,10 +200,7 @@ public class QueryMetricsRecorderTest {
                     .facetDefinitions(
                         Map.of(
                             "stringFacet",
-                            FacetDefinitionBuilder.string()
-                                .numBuckets(5)
-                                .path("path")
-                                .build()))
+                            FacetDefinitionBuilder.string().numBuckets(5).path("path").build()))
                     .operator(OperatorBuilder.text().path("path").query("empty").build())
                     .build())
             .returnStoredSource(false)
@@ -983,14 +967,14 @@ public class QueryMetricsRecorderTest {
     RawBsonDocument rawQuery =
         bson(
             """
-        {
-          "index": "default",
-          "path": "vector",
-          "numCandidates": 20,
-          "limit": 10,
-          "queryVector": [2.0,  2.0]
-        }
-        """);
+            {
+              "index": "default",
+              "path": "vector",
+              "numCandidates": 20,
+              "limit": 10,
+              "queryVector": [2.0,  2.0]
+            }
+            """);
     Query query = VectorSearchQuery.fromBson(rawQuery);
     QueryFeaturesMetricsUpdater stats = QueryFeaturesMetricsUpdaterBuilder.empty();
     var recorder = new QueryMetricsRecorder(stats);
@@ -1010,15 +994,15 @@ public class QueryMetricsRecorderTest {
     RawBsonDocument rawQuery =
         bson(
             """
-        {
-          "index": "default",
-          "path": "vector",
-          "numCandidates": 20,
-          "limit": 10,
-          "queryVector": [2.0,  2.0],
-          "filter": {"foo":  5}
-        }
-        """);
+            {
+              "index": "default",
+              "path": "vector",
+              "numCandidates": 20,
+              "limit": 10,
+              "queryVector": [2.0,  2.0],
+              "filter": {"foo":  5}
+            }
+            """);
     Query query = VectorSearchQuery.fromBson(rawQuery);
     QueryFeaturesMetricsUpdater stats = QueryFeaturesMetricsUpdaterBuilder.empty();
     var recorder = new QueryMetricsRecorder(stats);
@@ -1042,15 +1026,15 @@ public class QueryMetricsRecorderTest {
     RawBsonDocument rawQuery =
         bson(
             """
-        {
-          "index": "default",
-          "path": "vector",
-          "numCandidates": 20,
-          "limit": 10,
-          "queryVector": [2.0,  2.0],
-          "filter": {$and: [{"foo":  5}, {"bar": {"$lt":  10}}]}
-        }
-        """);
+            {
+              "index": "default",
+              "path": "vector",
+              "numCandidates": 20,
+              "limit": 10,
+              "queryVector": [2.0,  2.0],
+              "filter": {$and: [{"foo":  5}, {"bar": {"$lt":  10}}]}
+            }
+            """);
     Query query = VectorSearchQuery.fromBson(rawQuery);
     QueryFeaturesMetricsUpdater stats = QueryFeaturesMetricsUpdaterBuilder.empty();
     var recorder = new QueryMetricsRecorder(stats);
@@ -1080,15 +1064,15 @@ public class QueryMetricsRecorderTest {
     RawBsonDocument rawQuery =
         bson(
             """
-        {
-          "index": "default",
-          "path": "vector",
-          "numCandidates": 20,
-          "limit": 10,
-          "queryVector": [2.0,  2.0],
-          "filter": {$and: [{"foo":  {"$not": {"$eq": 5, "$gt": 10}}}]}
-        }
-        """);
+            {
+              "index": "default",
+              "path": "vector",
+              "numCandidates": 20,
+              "limit": 10,
+              "queryVector": [2.0,  2.0],
+              "filter": {$and: [{"foo":  {"$not": {"$eq": 5, "$gt": 10}}}]}
+            }
+            """);
     Query query = VectorSearchQuery.fromBson(rawQuery);
     QueryFeaturesMetricsUpdater stats = QueryFeaturesMetricsUpdaterBuilder.empty();
     var recorder = new QueryMetricsRecorder(stats);
@@ -1123,15 +1107,15 @@ public class QueryMetricsRecorderTest {
     RawBsonDocument rawQuery =
         bson(
             """
-      {
-        "vectorSearch": {
-          "path": "vector",
-          "numCandidates": 20,
-          "limit": 10,
-          "queryVector": [2.0,  2.0],
-        },
-      }
-        """);
+            {
+              "vectorSearch": {
+                "path": "vector",
+                "numCandidates": 20,
+                "limit": 10,
+                "queryVector": [2.0,  2.0],
+              },
+            }
+            """);
     Query query = SearchQuery.fromBson(rawQuery);
     QueryFeaturesMetricsUpdater stats = QueryFeaturesMetricsUpdaterBuilder.empty();
     var recorder = new QueryMetricsRecorder(stats);
@@ -1152,24 +1136,24 @@ public class QueryMetricsRecorderTest {
     RawBsonDocument rawQuery =
         bson(
             """
-        {
-        "vectorSearch": {
-          "path": "vector",
-          "numCandidates": 20,
-          "limit": 10,
-          "queryVector": [2.0,  2.0],
-          "filter": {
-            "text": {
-              "path": "name",
-              "query": "pizzuh",
-              "fuzzy": {
-                "maxEdits": 2
-              }
+              {
+              "vectorSearch": {
+                "path": "vector",
+                "numCandidates": 20,
+                "limit": 10,
+                "queryVector": [2.0,  2.0],
+                "filter": {
+                  "text": {
+                    "path": "name",
+                    "query": "pizzuh",
+                    "fuzzy": {
+                      "maxEdits": 2
+                    }
+                  }
+                }
+              },
             }
-          }
-        },
-      }
-        """);
+            """);
     Query query = SearchQuery.fromBson(rawQuery);
     QueryFeaturesMetricsUpdater stats = QueryFeaturesMetricsUpdaterBuilder.empty();
     var recorder = new QueryMetricsRecorder(stats);

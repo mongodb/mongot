@@ -10,8 +10,8 @@ public interface BackoffPolicy {
 
   /**
    * Returns the delay to wait before the next attempt, given the number of consecutive failures
-   * observed so far. Returns {@link Duration#ZERO} when {@code consecutiveFailures}
-   * is non-positive.
+   * observed so far. Returns {@link Duration#ZERO} when {@code consecutiveFailures} is
+   * non-positive.
    */
   Duration delayFor(int consecutiveFailures);
 

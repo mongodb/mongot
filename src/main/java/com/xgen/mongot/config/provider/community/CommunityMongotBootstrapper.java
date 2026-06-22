@@ -363,8 +363,7 @@ public class CommunityMongotBootstrapper {
     var replicationReadPreference = communitySyncSourceConfig.getReplicationReaderReadPreference();
 
     var mongodClusterReplicationUri =
-        ConnectionInfoFactory.getClusterConnectionInfo(
-            replicaSet, replicationReadPreference);
+        ConnectionInfoFactory.getClusterConnectionInfo(replicaSet, replicationReadPreference);
 
     // Default the read-preference to secondary-preferred. Callers should override to primary where
     // applicable.
@@ -518,8 +517,8 @@ public class CommunityMongotBootstrapper {
    * once and:
    *
    * <ul>
-   *   <li>On {@link TopologyMismatchException}: crashes the process. The mongot's
-   *       {@code syncSource.router} setting does not match the actual cluster topology.
+   *   <li>On {@link TopologyMismatchException}: crashes the process. The mongot's {@code
+   *       syncSource.router} setting does not match the actual cluster topology.
    *   <li>On {@link CheckedMongoException}: logs and continues. The cluster topology could not be
    *       determined (mongod might not be available yet).
    * </ul>
@@ -536,8 +535,9 @@ public class CommunityMongotBootstrapper {
           .withThrowable(e)
           .now();
     } catch (CheckedMongoException e) {
-      LOG.info("Bootstrap topology check skipped. mongod might not be available yet."
-          + "Continuing bootstrap.");
+      LOG.info(
+          "Bootstrap topology check skipped. mongod might not be available yet."
+              + "Continuing bootstrap.");
     }
   }
 
@@ -956,15 +956,17 @@ public class CommunityMongotBootstrapper {
 
     var replicationConfig =
         MongoDbReplicationConfigMapper.toMongoDbReplicationConfig(
-            globalReplicationConfig, Runtime.INSTANCE,
+            globalReplicationConfig,
+            Runtime.INSTANCE,
             config.advancedConfigs().flatMap(AdvancedConfigs::replicationConfig));
 
     var initialSyncConfig = new InitialSyncConfig();
 
     var durabilityConfig = DurabilityConfig.create(Optional.empty(), Optional.empty());
 
-    var cursorConfig = CursorConfigMapper.toCursorConfig(
-        config.advancedConfigs().flatMap(AdvancedConfigs::cursorConfig));
+    var cursorConfig =
+        CursorConfigMapper.toCursorConfig(
+            config.advancedConfigs().flatMap(AdvancedConfigs::cursorConfig));
 
     var indexDefinitionConfig =
         IndexDefinitionConfig.create(

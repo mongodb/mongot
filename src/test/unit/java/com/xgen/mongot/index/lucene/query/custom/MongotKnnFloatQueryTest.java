@@ -76,5 +76,4 @@ public class MongotKnnFloatQueryTest {
     assertEquals(99, (int) MongotKnnFloatQuery.expectedUniqueSamples(100, 1_000));
     assertEquals(999, (int) MongotKnnFloatQuery.expectedUniqueSamples(1_000, 10_000));
   }
-
 }

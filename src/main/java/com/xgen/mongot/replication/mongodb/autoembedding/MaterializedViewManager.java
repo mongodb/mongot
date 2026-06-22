@@ -118,8 +118,7 @@ public class MaterializedViewManager implements ReplicationManager {
   // STEADY_STATE_SHUT_DOWN is intentionally excluded — it is a transient pre-classification
   // state in handleSteadyStateException and the classifier can transition back to non-terminal
   // for recoverable cases (transient errors, renames, invalidates, resyncs).
-  static final Set<IndexManager.State> TERMINAL_STATES =
-      Set.of(SHUT_DOWN, FAILED, FAILED_EXCEEDED);
+  static final Set<IndexManager.State> TERMINAL_STATES = Set.of(SHUT_DOWN, FAILED, FAILED_EXCEEDED);
 
   // ==================== Common Fields ====================
 
@@ -197,8 +196,8 @@ public class MaterializedViewManager implements ReplicationManager {
   /**
    * Whether to create the periodic stale-lease GC scanner thread. Hardcoded off until the GC stack
    * (scanner + cleaner + safeguards) is complete: while off, the scan task is never scheduled, so
-   * no background thread is created and merging this is not a behavior change.
-   * TODO(CLOUDP-409036): replace with a feature flag.
+   * no background thread is created and merging this is not a behavior change. TODO(CLOUDP-409036):
+   * replace with a feature flag.
    */
   private static final boolean STALE_LEASE_SCAN_ENABLED = false;
 
@@ -955,9 +954,9 @@ public class MaterializedViewManager implements ReplicationManager {
 
   /**
    * Tears down this mongot's local state for a dropped generation. When this was the last local
-   * user of the MV collection (UUID ref-count hits 0), it decides whether to clean up the shared
-   * MV collection + lease now, or leave them for the leaderless stale-lease GC. {@code dropIndex}
-   * is only reached via the config-driven removal path, which means either:
+   * user of the MV collection (UUID ref-count hits 0), it decides whether to clean up the shared MV
+   * collection + lease now, or leave them for the leaderless stale-lease GC. {@code dropIndex} is
+   * only reached via the config-driven removal path, which means either:
    *
    * <ul>
    *   <li><b>autoEmbed-field update (supersession)</b> -- a newer lease for the same indexId
@@ -1345,8 +1344,8 @@ public class MaterializedViewManager implements ReplicationManager {
    * #STALE_LEASE_MARK_GRACE_PERIOD} as {@link Lease.CleanupState#ELIGIBLE_FOR_CLEANUP} for the
    * later cleanup pass to drop.
    *
-   * <p>Staleness alone is the trigger: a superseded MV's lease stays renewed until every mongot
-   * has flipped off it (any laggard re-acquires it through re-election), so "lapsed past the grace
+   * <p>Staleness alone is the trigger: a superseded MV's lease stays renewed until every mongot has
+   * flipped off it (any laggard re-acquires it through re-election), so "lapsed past the grace
    * period" is the cluster-wide all-flipped signal. Leaderless and idempotent — safe to run on
    * every mongot concurrently (see {@link LeaseManager#findGcCandidates} and {@link
    * LeaseManager#markEligibleForCleanup}).

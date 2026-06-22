@@ -39,7 +39,6 @@ public class MqlNumberUtilsTest {
     compare(0, Decimal128.NEGATIVE_INFINITY, Decimal128.NEGATIVE_INFINITY);
     compare(-1, Decimal128.NEGATIVE_INFINITY, Decimal128.POSITIVE_INFINITY);
 
-
     compare(1, Decimal128.parse("5"), Decimal128.parse("-5"));
     compare(0, Decimal128.parse("5"), Decimal128.parse("5"));
 

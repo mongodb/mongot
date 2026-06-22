@@ -586,12 +586,13 @@ public class LuceneIndexFactory implements IndexFactory {
             Optional.of(this.cacheWarmerTotalMilliseconds));
     GenerationId generationId = definitionGeneration.getGenerationId();
 
-    BooleanSupplier useIdBloomFilter = BloomCodecPolicy.getBloomFilterEnabledForIdField(
-        this.dynamicFeatureFlagRegistry,
-        this.enableNaturalOrderScan,
-        definitionGeneration.getIndexDefinition(),
-        index::getStatus);
-    
+    BooleanSupplier useIdBloomFilter =
+        BloomCodecPolicy.getBloomFilterEnabledForIdField(
+            this.dynamicFeatureFlagRegistry,
+            this.enableNaturalOrderScan,
+            definitionGeneration.getIndexDefinition(),
+            index::getStatus);
+
     if (definitionGeneration.getType() == Type.VECTOR) {
       VectorIndexDefinition vectorDef =
           definitionGeneration.getIndexDefinition().asVectorDefinition();

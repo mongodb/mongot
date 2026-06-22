@@ -482,37 +482,36 @@ public class AicCreateSearchIndexesCommandTest {
         "references non-existent analyzers: non-standard",
         bson(
             """
-        {
-          "name": "some-index",
-          "type": "search",
-          "definition": {
-            "mappings": {"dynamic":  true},
-            "analyzer": "non-standard",
-          }
-        }
-        """));
+            {
+              "name": "some-index",
+              "type": "search",
+              "definition": {
+                "mappings": {"dynamic":  true},
+                "analyzer": "non-standard",
+              }
+            }
+            """));
   }
 
   @Test
   public void mismatchedNestedRootFailsToCreate()
       throws BsonParseException, MetadataServiceException {
     this.failsWithCommandFailed(
-        "nestedRoot \"sections\" does not match any vector field path "
-            + "in the index definition",
+        "nestedRoot \"sections\" does not match any vector field path " + "in the index definition",
         bson(
             """
-        {
-          "name": "bad-nested-root",
-          "type": "vectorSearch",
-          "definition": {
-            "fields": [
-              {"path": "topLevelVector", "type": "vector", "numDimensions": 128, 
-              "similarity": "cosine"}
-            ],
-            "nestedRoot": "sections"
-          }
-        }
-        """));
+            {
+              "name": "bad-nested-root",
+              "type": "vectorSearch",
+              "definition": {
+                "fields": [
+                  {"path": "topLevelVector", "type": "vector", "numDimensions": 128,
+                  "similarity": "cosine"}
+                ],
+                "nestedRoot": "sections"
+              }
+            }
+            """));
   }
 
   private void failsWithCommandFailed(String expectedMessage, BsonDocument indexDefinition)
@@ -561,8 +560,14 @@ public class AicCreateSearchIndexesCommandTest {
                 .buildSearchIndexCommand();
     var command =
         new AicCreateSearchIndexesCommand(
-            mockAic, mockGuard, DATABASE_NAME, COLLECTION_UUID, COLLECTION_NAME,
-            Optional.empty(), definition, IndexDefinitionConfig.getDefault());
+            mockAic,
+            mockGuard,
+            DATABASE_NAME,
+            COLLECTION_UUID,
+            COLLECTION_NAME,
+            Optional.empty(),
+            definition,
+            IndexDefinitionConfig.getDefault());
     var response = command.run();
 
     assertEquals(Errors.COMMAND_FAILED.code, response.getInt32("code").getValue());
@@ -586,8 +591,14 @@ public class AicCreateSearchIndexesCommandTest {
                 .buildSearchIndexCommand();
     var command =
         new AicCreateSearchIndexesCommand(
-            mockAic, mockGuard, DATABASE_NAME, COLLECTION_UUID, COLLECTION_NAME,
-            Optional.empty(), definition, IndexDefinitionConfig.getDefault());
+            mockAic,
+            mockGuard,
+            DATABASE_NAME,
+            COLLECTION_UUID,
+            COLLECTION_NAME,
+            Optional.empty(),
+            definition,
+            IndexDefinitionConfig.getDefault());
     var response = command.run();
 
     assertEquals(Errors.COMMAND_FAILED.code, response.getInt32("code").getValue());

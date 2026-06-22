@@ -34,9 +34,9 @@ public class AutoEmbeddingMongoClient {
   private final MeterRegistry meterRegistry;
 
   /**
-   * Set to true by {@link #close()} so callers (e.g. retry loops in
-   * {@link com.xgen.mongot.embedding.utils.MongoClientOperationExecutor}) can abort in-flight work
-   * during mongot shutdown rather than burning their full retry budget against torn-down clients.
+   * Set to true by {@link #close()} so callers (e.g. retry loops in {@link
+   * com.xgen.mongot.embedding.utils.MongoClientOperationExecutor}) can abort in-flight work during
+   * mongot shutdown rather than burning their full retry budget against torn-down clients.
    */
   private final AtomicBoolean closed = new AtomicBoolean(false);
 

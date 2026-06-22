@@ -139,16 +139,14 @@ public class IndexMetricsUpdaterTest {
               .indexMetricsSupplier(IndexMetricsSupplier.mockEmptyIndexMetricsSupplier())
               .build();
 
-      Assert.assertEquals(0,
-          indexMetricsUpdater.getMetrics().indexingMetrics().numNestedVectorFields());
+      Assert.assertEquals(
+          0, indexMetricsUpdater.getMetrics().indexingMetrics().numNestedVectorFields());
     }
 
     @Test
     public void testNumNestedVectorFieldsIsZeroForVectorIndexWithoutNestedRoot() {
       var indexDefinition =
-          VectorIndexDefinitionBuilder.builder()
-              .withCosineVectorField("embedding", 128)
-              .build();
+          VectorIndexDefinitionBuilder.builder().withCosineVectorField("embedding", 128).build();
       var indexMetricsUpdater =
           IndexMetricsUpdaterBuilder.builder()
               .metricsFactory(mockMetricsFactory(IndexMetricsUpdater.NAMESPACE))
@@ -156,8 +154,8 @@ public class IndexMetricsUpdaterTest {
               .indexMetricsSupplier(IndexMetricsSupplier.mockEmptyIndexMetricsSupplier())
               .build();
 
-      Assert.assertEquals(0,
-          indexMetricsUpdater.getMetrics().indexingMetrics().numNestedVectorFields());
+      Assert.assertEquals(
+          0, indexMetricsUpdater.getMetrics().indexingMetrics().numNestedVectorFields());
     }
 
     @Test
@@ -179,8 +177,8 @@ public class IndexMetricsUpdaterTest {
               .indexMetricsSupplier(IndexMetricsSupplier.mockEmptyIndexMetricsSupplier())
               .build();
 
-      Assert.assertEquals(2,
-          indexMetricsUpdater.getMetrics().indexingMetrics().numNestedVectorFields());
+      Assert.assertEquals(
+          2, indexMetricsUpdater.getMetrics().indexingMetrics().numNestedVectorFields());
     }
 
     public static class TestIndexingMetricsUpdater {
@@ -447,8 +445,7 @@ public class IndexMetricsUpdaterTest {
                         .build())
                 .returnStoredSource(false)
                 .build();
-        long countBefore =
-            metricsFactory.get("totalFacetBucketsPerQuery").summary().count();
+        long countBefore = metricsFactory.get("totalFacetBucketsPerQuery").summary().count();
         queryingMetricsUpdater.recordTotalFacetBucketsIfApplicable(query, () -> false);
         assertThat(metricsFactory.get("totalFacetBucketsPerQuery").summary().count())
             .isEqualTo(countBefore);
@@ -506,8 +503,7 @@ public class IndexMetricsUpdaterTest {
                         .build())
                 .returnStoredSource(false)
                 .build();
-        long countBefore =
-            metricsFactory.get("totalFacetBucketsPerQuery").summary().count();
+        long countBefore = metricsFactory.get("totalFacetBucketsPerQuery").summary().count();
         queryingMetricsUpdater.recordTotalFacetBucketsIfApplicable(query, () -> true);
         assertThat(metricsFactory.get("totalFacetBucketsPerQuery").summary().count())
             .isEqualTo(countBefore + 1L);
@@ -536,8 +532,7 @@ public class IndexMetricsUpdaterTest {
                         .build())
                 .returnStoredSource(false)
                 .build();
-        long countBefore =
-            metricsFactory.get("totalFacetBucketsPerQuery").summary().count();
+        long countBefore = metricsFactory.get("totalFacetBucketsPerQuery").summary().count();
         queryingMetricsUpdater.recordTotalFacetBucketsIfApplicable(query, () -> true);
         assertThat(metricsFactory.get("totalFacetBucketsPerQuery").summary().count())
             .isEqualTo(countBefore + 1L);

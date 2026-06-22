@@ -94,7 +94,7 @@ public class AutoEmbeddingIndexingStrategyTest {
             .build();
 
     assertFalse(
-            MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(oldPathIndex));
+        MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(oldPathIndex));
 
     // New path (AUTO_EMBED field, version 2) - filter-only updates ARE applicable
     VectorIndexDefinition newPathIndex =
@@ -104,7 +104,7 @@ public class AutoEmbeddingIndexingStrategyTest {
             .build();
 
     assertTrue(
-            MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(newPathIndex));
+        MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(newPathIndex));
   }
 
   @Test
@@ -121,4 +121,3 @@ public class AutoEmbeddingIndexingStrategyTest {
         MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(nonAutoEmbedIndex));
   }
 }
-

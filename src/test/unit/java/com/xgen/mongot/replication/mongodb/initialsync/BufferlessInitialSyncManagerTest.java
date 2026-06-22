@@ -177,14 +177,14 @@ public class BufferlessInitialSyncManagerTest {
     when(context.useNaturalOrderScan()).thenReturn(false);
 
     new BufferlessInitialSyncManager(
-            context,
-            mock(BufferlessCollectionScannerFactory.class),
-            mock(BufferlessChangeStreamApplierFactory.class),
-            mock(ServerClusterTimeProvider.class),
-            Duration.ofMinutes(5),
-            Optional.empty(),
-            metricsFactory,
-            mongoClient);
+        context,
+        mock(BufferlessCollectionScannerFactory.class),
+        mock(BufferlessChangeStreamApplierFactory.class),
+        mock(ServerClusterTimeProvider.class),
+        Duration.ofMinutes(5),
+        Optional.empty(),
+        metricsFactory,
+        mongoClient);
 
     // Timers should be registered but with zero count since fsync won't be called
     Assert.assertEquals(

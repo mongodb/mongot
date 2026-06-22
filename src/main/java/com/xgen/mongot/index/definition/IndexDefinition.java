@@ -158,8 +158,8 @@ public sealed interface IndexDefinition extends DocumentEncodable
   boolean isAutoEmbeddingIndex();
 
   /**
-   * Returns the auto-embedding feature version. Returns 0 if not an auto-embedding index. Returns
-   * 1 for legacy text-type auto-embedding (vector indexes only). Returns 2+ for materialized
+   * Returns the auto-embedding feature version. Returns 0 if not an auto-embedding index. Returns 1
+   * for legacy text-type auto-embedding (vector indexes only). Returns 2+ for materialized
    * view-based auto-embedding.
    */
   int getParsedAutoEmbeddingFeatureVersion();

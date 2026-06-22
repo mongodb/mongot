@@ -35,12 +35,14 @@ public class AnalyzerChangePlan {
 
     Map<String, OverriddenBaseAnalyzerDefinition> desiredDefinitionsByName =
         desiredOverriddenDefinitions.stream()
-            .collect(CollectionUtils.toMapUnsafe(OverriddenBaseAnalyzerDefinition::name,
-                     Function.identity()));
+            .collect(
+                CollectionUtils.toMapUnsafe(
+                    OverriddenBaseAnalyzerDefinition::name, Function.identity()));
     Map<String, OverriddenBaseAnalyzerDefinition> existingDefinitionsByName =
         existingAnalyzers.stream()
-            .collect(CollectionUtils.toMapUnsafe(OverriddenBaseAnalyzerDefinition::name,
-                     Function.identity()));
+            .collect(
+                CollectionUtils.toMapUnsafe(
+                    OverriddenBaseAnalyzerDefinition::name, Function.identity()));
 
     Set<String> desiredNames = desiredDefinitionsByName.keySet();
     Set<String> existingNames = existingDefinitionsByName.keySet();

@@ -141,8 +141,8 @@ class Operators {
       case UnresolvedStringFieldPath fieldPath -> new StringFieldPath(fieldPath.getValue());
       case UnresolvedStringMultiFieldPath multiFieldPath ->
           new StringMultiFieldPath(multiFieldPath.getFieldPath(), multiFieldPath.getMulti());
-      case UnresolvedStringWildcardPath ignored -> Check.unreachable(
-          "UnresolvedStringWildcardPath should not be converted to StringPath");
+      case UnresolvedStringWildcardPath ignored ->
+          Check.unreachable("UnresolvedStringWildcardPath should not be converted to StringPath");
     };
   }
 

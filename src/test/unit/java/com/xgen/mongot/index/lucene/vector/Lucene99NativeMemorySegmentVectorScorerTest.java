@@ -48,8 +48,7 @@ public class Lucene99NativeMemorySegmentVectorScorerTest {
    * returned input implements {@link MemorySegmentAccessInput}. The MMap arena is tied to the
    * input, not the directory, so the directory may be closed immediately after opening.
    */
-  private IndexInput writeVectors(List<byte[]> vectors, String filename)
-      throws IOException {
+  private IndexInput writeVectors(List<byte[]> vectors, String filename) throws IOException {
     Path dirPath = this.tempFolder.newFolder(filename + "_dir").toPath();
     try (MMapDirectory dir = new MMapDirectory(dirPath);
         IndexOutput out = dir.createOutput(filename, IOContext.DEFAULT)) {
@@ -113,8 +112,7 @@ public class Lucene99NativeMemorySegmentVectorScorerTest {
     }
   }
 
-  private static ByteVectorValues asHasIndexSlice(
-      List<byte[]> vectors, int dim, IndexInput slice) {
+  private static ByteVectorValues asHasIndexSlice(List<byte[]> vectors, int dim, IndexInput slice) {
     return new HasSliceByteVectorValues(vectors, dim, slice);
   }
 
@@ -129,8 +127,7 @@ public class Lucene99NativeMemorySegmentVectorScorerTest {
         List<byte[]> vectors = randomVectors(rng, NUM_VECTORS, dim);
         try (IndexInput input = writeVectors(vectors, "sup_" + fn + "_" + dim)) {
           ByteVectorValues values = asHasIndexSlice(vectors, dim, input);
-          RandomVectorScorerSupplier supplier =
-              scorer.getRandomVectorScorerSupplier(fn, values);
+          RandomVectorScorerSupplier supplier = scorer.getRandomVectorScorerSupplier(fn, values);
 
           for (int ord = 0; ord < NUM_VECTORS; ord++) {
             RandomVectorScorer s = supplier.scorer(ord);
@@ -158,8 +155,7 @@ public class Lucene99NativeMemorySegmentVectorScorerTest {
       List<byte[]> vectors = randomVectors(rng, NUM_VECTORS, dim);
       try (IndexInput input = writeVectors(vectors, "copy_" + fn)) {
         ByteVectorValues values = asHasIndexSlice(vectors, dim, input);
-        RandomVectorScorerSupplier copy =
-            scorer.getRandomVectorScorerSupplier(fn, values).copy();
+        RandomVectorScorerSupplier copy = scorer.getRandomVectorScorerSupplier(fn, values).copy();
 
         for (int ord = 0; ord < NUM_VECTORS; ord++) {
           RandomVectorScorer s = copy.scorer(ord);

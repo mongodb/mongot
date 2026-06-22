@@ -29,8 +29,8 @@ public interface ConfigManager extends CachedIndexInfoProvider {
       Set<UUID> directMongodCollectionSet);
 
   /**
-   * Updates the sync source config, shutting down and restarting replication if it has changed.
-   * If the config has not changed, delegates to disk-based replication restart instead.
+   * Updates the sync source config, shutting down and restarting replication if it has changed. If
+   * the config has not changed, delegates to disk-based replication restart instead.
    */
   void handleReplicationAndSyncSourceUpdate(SyncSourceConfig syncSourceConfig);
 

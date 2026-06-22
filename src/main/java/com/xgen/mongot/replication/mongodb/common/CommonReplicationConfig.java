@@ -40,8 +40,10 @@ public abstract sealed class CommonReplicationConfig
    */
   final boolean enableSplitLargeChangeStreamEvents;
 
-  /** Whether to enable support for large change stream events that exceed the 16MB limit
-   *  during initial sync. */
+  /**
+   * Whether to enable support for large change stream events that exceed the 16MB limit during
+   * initial sync.
+   */
   final boolean splitLargeChangeStreamEventsForInitialSync;
 
   /**

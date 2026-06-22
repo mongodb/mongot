@@ -64,8 +64,8 @@ public class MaterializedViewCollectionResolver {
   /**
    * Parent metrics namespace; combined with {@link #METRICS_RESOURCE_NAME} this produces metric
    * names of the form {@code embedding.materializedView.collectionResolver.requestLatency} etc.
-   * Mirrors the namespace used by other auto-embed components such as
-   * {@link com.xgen.mongot.index.autoembedding.MaterializedViewIndexFactory}.
+   * Mirrors the namespace used by other auto-embed components such as {@link
+   * com.xgen.mongot.index.autoembedding.MaterializedViewIndexFactory}.
    */
   private static final String METRICS_NAMESPACE = "embedding.materializedView";
 
@@ -229,8 +229,8 @@ public class MaterializedViewCollectionResolver {
   /**
    * Returns the current resolver mongo client from the {@link AutoEmbeddingMongoClient}'s atomic
    * reference, throwing {@link MaterializedViewTransientException} (retryable) if absent. Called
-   * fresh per-attempt inside retried suppliers so a sync-source rotation during retry picks up
-   * the new client rather than continuing against a closed one.
+   * fresh per-attempt inside retried suppliers so a sync-source rotation during retry picks up the
+   * new client rather than continuing against a closed one.
    */
   private MongoClient requireResolverClient() throws MaterializedViewTransientException {
     return this.autoEmbeddingMongoClient
@@ -266,9 +266,7 @@ public class MaterializedViewCollectionResolver {
     if (matViewNameFormatVersion == 0L) {
       collectionName = uniqueIndexId;
     } else {
-      var hash =
-          computeHash(
-              indexDefinitionGeneration.asMaterializedView().getIndexDefinition());
+      var hash = computeHash(indexDefinitionGeneration.asMaterializedView().getIndexDefinition());
       collectionName =
           uniqueIndexId
               + DELIM
@@ -304,10 +302,7 @@ public class MaterializedViewCollectionResolver {
   }
 
   private MaterializedViewCollectionMetadata createProposedMetadata(
-      String collectionName,
-      UUID uuid,
-      IndexDefinition indexDefinition,
-      int mvSchemaVersion) {
+      String collectionName, UUID uuid, IndexDefinition indexDefinition, int mvSchemaVersion) {
     if (mvSchemaVersion == 0) {
       return new MaterializedViewCollectionMetadata(VERSION_ZERO, uuid, collectionName);
     } else if (mvSchemaVersion == 1) {

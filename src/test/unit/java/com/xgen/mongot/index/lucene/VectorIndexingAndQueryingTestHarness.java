@@ -268,9 +268,7 @@ public class VectorIndexingAndQueryingTestHarness implements AutoCloseable {
             metricsFactory);
     FeatureFlags featureFlags =
         enableConcurrentPartitionSearch
-            ? FeatureFlags.withDefaults()
-                .enable(Feature.CONCURRENT_INDEX_PARTITION_SEARCH)
-                .build()
+            ? FeatureFlags.withDefaults().enable(Feature.CONCURRENT_INDEX_PARTITION_SEARCH).build()
             : FeatureFlags.getDefault();
     InitializedVectorIndex initializedIndex =
         InitializedLuceneVectorIndex.create(

@@ -10,8 +10,7 @@ public class BitRandomVectorScorerSupplier implements RandomVectorScorerSupplier
   protected final ByteVectorValues vectorValues1;
   protected final ByteVectorValues vectorValues2;
 
-  public BitRandomVectorScorerSupplier(ByteVectorValues vectorValues)
-      throws IOException {
+  public BitRandomVectorScorerSupplier(ByteVectorValues vectorValues) throws IOException {
     this.vectorValues = vectorValues.copy();
     this.vectorValues1 = vectorValues.copy();
     this.vectorValues2 = vectorValues.copy();

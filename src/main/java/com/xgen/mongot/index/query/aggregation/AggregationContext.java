@@ -57,8 +57,6 @@ public interface AggregationContext {
    */
   IndexReader getIndexReader();
 
-  /**
-  * Resolve the Lucene field name backing the doc-values for {@code path}.
-  */
+  /** Resolve the Lucene field name backing the doc-values for {@code path}. */
   String resolveLuceneFieldName(FieldPath path);
 }

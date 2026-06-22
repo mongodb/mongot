@@ -99,7 +99,7 @@ public class ChangeStreamMongoCursorClient<E extends Exception>
     switch (this.state) {
       case OPEN_CURSOR:
         this.openCursor();
-        // fall through
+      // fall through
 
       case GET_MORE:
         return this.getMore();

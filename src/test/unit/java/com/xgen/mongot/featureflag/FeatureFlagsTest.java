@@ -316,8 +316,8 @@ public class FeatureFlagsTest {
     @Test
     public void initializeProcessInstance_calledTwice_throwsIllegalStateException() {
       FeatureFlags.initializeProcessInstance(this.flags);
-      assertThrows(IllegalStateException.class,
-          () -> FeatureFlags.initializeProcessInstance(this.flags));
+      assertThrows(
+          IllegalStateException.class, () -> FeatureFlags.initializeProcessInstance(this.flags));
     }
 
     @Test
@@ -334,7 +334,5 @@ public class FeatureFlagsTest {
       FeatureFlags.initializeProcessInstance(this.flags);
       assertNotNull(FeatureFlags.getStatic());
     }
-
   }
-
 }

@@ -8,9 +8,7 @@ import com.xgen.mongot.util.bson.parser.Field;
 import java.util.Optional;
 import org.bson.BsonDocument;
 
-/**
- * The {@code querying} block of the Community mongot config file.
- */
+/** The {@code querying} block of the Community mongot config file. */
 public record CommunityQueryingConfig(Optional<LuceneConfig> luceneConfig)
     implements DocumentEncodable {
 
@@ -32,8 +30,7 @@ public record CommunityQueryingConfig(Optional<LuceneConfig> luceneConfig)
     return BsonDocumentBuilder.builder().field(Fields.LUCENE_CONFIG, this.luceneConfig).build();
   }
 
-  public record LuceneConfig(
-      Optional<Integer> maxClauseLimit, Optional<Double> floorSegmentMB)
+  public record LuceneConfig(Optional<Integer> maxClauseLimit, Optional<Double> floorSegmentMB)
       implements DocumentEncodable {
 
     static class Fields {
@@ -41,11 +38,10 @@ public record CommunityQueryingConfig(Optional<LuceneConfig> luceneConfig)
           Field.builder("maxClauseLimit").intField().mustBePositive().optional().noDefault();
 
       /**
-       * Sets vector FloorSegmentMB in Lucene's {@code TieredMergePolicy}.
-       * Larger values improve query performance at the cost of merging smaller segments more
-       * aggressively. Must be strictly positive. Only consumed by the vector merge policy;
-       * regular search indexes use Lucene's default floor segment size.
-       * Defaults to 64.0 when unset.
+       * Sets vector FloorSegmentMB in Lucene's {@code TieredMergePolicy}. Larger values improve
+       * query performance at the cost of merging smaller segments more aggressively. Must be
+       * strictly positive. Only consumed by the vector merge policy; regular search indexes use
+       * Lucene's default floor segment size. Defaults to 64.0 when unset.
        */
       public static final Field.Optional<Double> FLOOR_SEGMENT_MB =
           Field.builder("vectorFloorSegmentMB")

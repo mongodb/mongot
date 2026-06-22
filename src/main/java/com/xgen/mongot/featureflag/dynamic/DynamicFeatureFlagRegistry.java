@@ -122,8 +122,8 @@ public class DynamicFeatureFlagRegistry {
   }
 
   /**
-   * Evaluates a dynamic feature flag for a cluster-invariant scope (org, group, or mongot
-   * cluster), using the flag's name and default fallback when the flag is absent.
+   * Evaluates a dynamic feature flag for a cluster-invariant scope (org, group, or mongot cluster),
+   * using the flag's name and default fallback when the flag is absent.
    */
   public boolean evaluateClusterInvariant(DynamicFeatureFlags featureFlag) {
     return evaluateClusterInvariant(featureFlag.getName(), featureFlag.getFallback());
@@ -155,8 +155,9 @@ public class DynamicFeatureFlagRegistry {
       case Scope.MONGOT_QUERY, Scope.MONGOT_INDEX, Scope.UNSPECIFIED -> {
         FLOGGER.atWarning().atMostEvery(5, TimeUnit.MINUTES).log(
             """
-                Evaluating Cluster variant DFFs with evaluateClusterInvariant. \
-                Check feature flag definitions.""");
+            Evaluating Cluster variant DFFs with evaluateClusterInvariant. \
+            Check feature flag definitions.\
+            """);
         yield recordAndReturnFallback(featureFlagName, fallback);
       }
       // Cluster-invariant scope but entity ID was Optional.empty(), so not cached
@@ -238,18 +239,15 @@ public class DynamicFeatureFlagRegistry {
   private CachedEvaluation computeEvaluation(
       InternalDynamicFeatureFlagConfig config, ObjectId entityId) {
     return switch (config.phase()) {
-      case ENABLED ->
-          new CachedEvaluation(true, FeatureFlagEvaluationSpec.DecisiveField.PHASE);
+      case ENABLED -> new CachedEvaluation(true, FeatureFlagEvaluationSpec.DecisiveField.PHASE);
       case DISABLED, UNSPECIFIED ->
           new CachedEvaluation(false, FeatureFlagEvaluationSpec.DecisiveField.PHASE);
       case CONTROLLED -> {
         if (config.entityIdBlockList().contains(entityId)) {
-          yield new CachedEvaluation(
-              false, FeatureFlagEvaluationSpec.DecisiveField.BLOCK_LIST);
+          yield new CachedEvaluation(false, FeatureFlagEvaluationSpec.DecisiveField.BLOCK_LIST);
         }
         if (config.entityIdAllowList().contains(entityId)) {
-          yield new CachedEvaluation(
-              true, FeatureFlagEvaluationSpec.DecisiveField.ALLOW_LIST);
+          yield new CachedEvaluation(true, FeatureFlagEvaluationSpec.DecisiveField.ALLOW_LIST);
         }
         if (config.rolloutPercentage() == 0) {
           yield new CachedEvaluation(
@@ -366,8 +364,8 @@ public class DynamicFeatureFlagRegistry {
 
   /**
    * Converts a DTO into an optimized internal config with an eagerly cached evaluation result for
-   * cluster-invariant scopes (ORG, GROUP, MONGOT_CLUSTER). Non-cluster-invariant scopes get
-   * {@code Optional.empty()} for the cached result.
+   * cluster-invariant scopes (ORG, GROUP, MONGOT_CLUSTER). Non-cluster-invariant scopes get {@code
+   * Optional.empty()} for the cached result.
    */
   private InternalDynamicFeatureFlagConfig buildInternalConfig(DynamicFeatureFlagConfig dto) {
     InternalDynamicFeatureFlagConfig base = convertToInternalConfig(dto);
@@ -380,8 +378,7 @@ public class DynamicFeatureFlagRegistry {
           default -> Optional.empty();
         };
 
-    Optional<CachedEvaluation> cached =
-        entityId.map(id -> computeEvaluation(base, id));
+    Optional<CachedEvaluation> cached = entityId.map(id -> computeEvaluation(base, id));
 
     return new InternalDynamicFeatureFlagConfig(
         base.phase(),

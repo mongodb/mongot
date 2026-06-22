@@ -78,8 +78,8 @@ public abstract class BsonConverter<T> {
    * mapping without worrying about the representation of missing values.
    *
    * @param value - This is a value produced by a {@link FieldComparator}. It must be converted into
-   *              a BsonValue so that it can be merge-sorted by MongoS. We also need to ensure we
-   *              can recover the original value for GetMores.
+   *     a BsonValue so that it can be merge-sorted by MongoS. We also need to ensure we can recover
+   *     the original value for GetMores.
    * @return A representation of `value` that preserves its order in the space of BsonValues
    */
   protected abstract BsonValue encodeNonMissingValue(T value);

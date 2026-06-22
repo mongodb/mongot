@@ -79,8 +79,8 @@ public class AutoEmbedFieldMappingCreator {
    * non-embed path so the materialized view carries every source field.
    */
   public static AutoEmbedFieldMapping createAutoEmbedMapping(SearchIndexDefinition searchDef) {
-    ImmutableMap.Builder<FieldPath, AutoEmbedField.EmbedField> embedBuilder
-        = ImmutableMap.builder();
+    ImmutableMap.Builder<FieldPath, AutoEmbedField.EmbedField> embedBuilder =
+        ImmutableMap.builder();
     ImmutableSet.Builder<FieldPath> passthroughBuilder = ImmutableSet.builder();
     for (Map.Entry<String, FieldDefinition> entry : searchDef.getMappings().fields().entrySet()) {
       Optional<SearchAutoEmbedFieldDefinition> autoEmbed =
@@ -224,9 +224,9 @@ public class AutoEmbedFieldMappingCreator {
 
   /**
    * Converts a source {@code nestedRoot} to the materialized view {@code nestedRoot} by mirroring
-   * the path rewrite applied to auto-embed fields that live under it. Returns the original
-   * {@code nestedRoot} if the {@code schemaFieldsMapping} is empty or contains no entry whose
-   * source path is a descendant of {@code nestedRoot}.
+   * the path rewrite applied to auto-embed fields that live under it. Returns the original {@code
+   * nestedRoot} if the {@code schemaFieldsMapping} is empty or contains no entry whose source path
+   * is a descendant of {@code nestedRoot}.
    *
    * <p>The auto-embed field-path remapping (see {@link
    * com.xgen.mongot.embedding.mongodb.MaterializedViewCollectionResolver}) prepends the MV
@@ -240,9 +240,9 @@ public class AutoEmbedFieldMappingCreator {
    *
    * <p><b>Invariant:</b> all auto-embed fields under the same source {@code nestedRoot} are
    * expected to share the same MV-prefix, and therefore produce the same derived root. This method
-   * returns the derived root computed from the first matching entry encountered. If later
-   * matching entries disagree, a warning is logged and the lexicographically smallest derived root
-   * is returned to ensure a deterministic result regardless of map iteration order.
+   * returns the derived root computed from the first matching entry encountered. If later matching
+   * entries disagree, a warning is logged and the lexicographically smallest derived root is
+   * returned to ensure a deterministic result regardless of map iteration order.
    */
   public static Optional<FieldPath> getMatViewNestedRoot(
       Optional<FieldPath> sourceNestedRoot, Map<FieldPath, FieldPath> schemaFieldsMapping) {

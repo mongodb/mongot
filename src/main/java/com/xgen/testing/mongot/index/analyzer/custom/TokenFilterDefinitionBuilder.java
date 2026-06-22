@@ -292,8 +292,8 @@ public class TokenFilterDefinitionBuilder {
 
     public ShingleTokenFilterDefinition build() {
       if (this.minShingleSize > this.maxShingleSize) {
-        throw new
-            IllegalArgumentException("minShingleSize must not be greater than maxShingleSize");
+        throw new IllegalArgumentException(
+            "minShingleSize must not be greater than maxShingleSize");
       }
       return new ShingleTokenFilterDefinition(this.minShingleSize, this.maxShingleSize);
     }

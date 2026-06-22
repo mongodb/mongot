@@ -43,8 +43,7 @@ public class RegularBlockingRequestSettingsTest {
   @Test
   public void resolvedPoolSize_withMultiplier_computesFromMultiplierTimesCpus() {
     RegularBlockingRequestSettings settings =
-        RegularBlockingRequestSettings.create(
-            Optional.of(3.0), Optional.empty(), Optional.empty());
+        RegularBlockingRequestSettings.create(Optional.of(3.0), Optional.empty(), Optional.empty());
 
     assertThat(settings.resolvedPoolSize(4)).isEqualTo(12); // 3.0 * 4 = 12
     assertThat(settings.resolvedPoolSize(8)).isEqualTo(24); // 3.0 * 8 = 24
@@ -62,8 +61,7 @@ public class RegularBlockingRequestSettingsTest {
   @Test
   public void resolvedPoolSize_withZeroOrNegativeCpuCount_treatsAsOneCpu() {
     RegularBlockingRequestSettings settings =
-        RegularBlockingRequestSettings.create(
-            Optional.of(2.0), Optional.empty(), Optional.empty());
+        RegularBlockingRequestSettings.create(Optional.of(2.0), Optional.empty(), Optional.empty());
 
     assertThat(settings.resolvedPoolSize(0)).isEqualTo(2); // 2.0 * 1 = 2
     assertThat(settings.resolvedPoolSize(-1)).isEqualTo(2); // 2.0 * 1 = 2
@@ -72,8 +70,7 @@ public class RegularBlockingRequestSettingsTest {
   @Test
   public void resolvedPoolSize_withSmallMultiplier_returnsMinimumOfOne() {
     RegularBlockingRequestSettings settings =
-        RegularBlockingRequestSettings.create(
-            Optional.of(0.1), Optional.empty(), Optional.empty());
+        RegularBlockingRequestSettings.create(Optional.of(0.1), Optional.empty(), Optional.empty());
 
     assertThat(settings.resolvedPoolSize(1)).isEqualTo(1); // ceil(0.1 * 1) = 1
   }
@@ -81,8 +78,7 @@ public class RegularBlockingRequestSettingsTest {
   @Test
   public void resolvedPoolSize_withFractionalMultiplier_ceilsResult() {
     RegularBlockingRequestSettings settings =
-        RegularBlockingRequestSettings.create(
-            Optional.of(2.5), Optional.empty(), Optional.empty());
+        RegularBlockingRequestSettings.create(Optional.of(2.5), Optional.empty(), Optional.empty());
 
     assertThat(settings.resolvedPoolSize(4)).isEqualTo(10); // 2.5 * 4 = 10
     assertThat(settings.resolvedPoolSize(3)).isEqualTo(8); // ceil(2.5 * 3) = ceil(7.5) = 8
@@ -91,8 +87,7 @@ public class RegularBlockingRequestSettingsTest {
   @Test
   public void resolvedQueueCapacity_withMultiplier_computesFromMultiplierTimesCpus() {
     RegularBlockingRequestSettings settings =
-        RegularBlockingRequestSettings.create(
-            Optional.empty(), Optional.of(4.0), Optional.empty());
+        RegularBlockingRequestSettings.create(Optional.empty(), Optional.of(4.0), Optional.empty());
 
     assertThat(settings.resolvedQueueCapacity(4)).isEqualTo(16); // 4.0 * 4 = 16
     assertThat(settings.resolvedQueueCapacity(8)).isEqualTo(32); // 4.0 * 8 = 32
@@ -109,8 +104,7 @@ public class RegularBlockingRequestSettingsTest {
   @Test
   public void resolvedQueueCapacity_withFractionalMultiplier_ceilsResult() {
     RegularBlockingRequestSettings settings =
-        RegularBlockingRequestSettings.create(
-            Optional.empty(), Optional.of(1.5), Optional.empty());
+        RegularBlockingRequestSettings.create(Optional.empty(), Optional.of(1.5), Optional.empty());
 
     assertThat(settings.resolvedQueueCapacity(4)).isEqualTo(6); // 1.5 * 4 = 6
     assertThat(settings.resolvedQueueCapacity(3)).isEqualTo(5); // ceil(1.5 * 3) = ceil(4.5) = 5
@@ -128,8 +122,7 @@ public class RegularBlockingRequestSettingsTest {
   @Test
   public void maybeResolvedQueueCapacity_withPositiveMultiplier_returnsComputedValue() {
     RegularBlockingRequestSettings settings =
-        RegularBlockingRequestSettings.create(
-            Optional.empty(), Optional.of(3.0), Optional.empty());
+        RegularBlockingRequestSettings.create(Optional.empty(), Optional.of(3.0), Optional.empty());
 
     OptionalInt result = settings.maybeResolvedQueueCapacity(4);
 
@@ -147,8 +140,7 @@ public class RegularBlockingRequestSettingsTest {
   public void getMode_withPoolOnly_returnsUnboundedQueue() {
     // Pool configured but no queue -> Fixed Pool with Unbounded Queue (no wouldHaveRejected)
     RegularBlockingRequestSettings settings =
-        RegularBlockingRequestSettings.create(
-            Optional.of(4.0), Optional.empty(), Optional.empty());
+        RegularBlockingRequestSettings.create(Optional.of(4.0), Optional.empty(), Optional.empty());
 
     assertThat(settings.getMode())
         .isEqualTo(RegularBlockingRequestSettings.Mode.FIXED_POOL_UNBOUNDED_QUEUE);
@@ -157,8 +149,7 @@ public class RegularBlockingRequestSettingsTest {
   @Test
   public void getMode_withQueueOnly_returnsUnboundedCaching() {
     RegularBlockingRequestSettings settings =
-        RegularBlockingRequestSettings.create(
-            Optional.empty(), Optional.of(8.0), Optional.empty());
+        RegularBlockingRequestSettings.create(Optional.empty(), Optional.of(8.0), Optional.empty());
 
     assertThat(settings.getMode()).isEqualTo(RegularBlockingRequestSettings.Mode.UNBOUNDED_CACHING);
   }
@@ -186,8 +177,7 @@ public class RegularBlockingRequestSettingsTest {
   @Test
   public void getMode_withPoolAndQueue_virtualNotSet_defaultsToBoundedQueue() {
     RegularBlockingRequestSettings settings =
-        RegularBlockingRequestSettings.create(
-            Optional.of(4.0), Optional.of(8.0), Optional.empty());
+        RegularBlockingRequestSettings.create(Optional.of(4.0), Optional.of(8.0), Optional.empty());
 
     assertThat(settings.getMode())
         .isEqualTo(RegularBlockingRequestSettings.Mode.FIXED_POOL_BOUNDED_QUEUE);

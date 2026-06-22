@@ -45,8 +45,7 @@ public class FakeStoredFields extends StoredFields {
     for (IndexableField field : doc) {
       FieldInfo info = createFieldInfo(field);
       switch (visitor.needsField(info)) {
-        case YES -> {
-        }
+        case YES -> {}
         case NO -> {
           continue;
         }

@@ -12,9 +12,7 @@ import org.bson.BsonInt32;
 import org.bson.BsonString;
 import org.bson.RawBsonDocument;
 
-/**
- * Run MessageUtilsBenchTest before merging changes to this class.
- */
+/** Run MessageUtilsBenchTest before merging changes to this class. */
 public class MessageUtils {
 
   private MessageUtils() {}

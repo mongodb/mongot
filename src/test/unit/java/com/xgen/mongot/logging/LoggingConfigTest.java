@@ -20,8 +20,7 @@ public class LoggingConfigTest {
   private Logger logger;
   private ListAppender<ILoggingEvent> listAppender;
 
-  @Rule
-  public TestName testName = new TestName();
+  @Rule public TestName testName = new TestName();
 
   @Before
   public void setUp() {
@@ -42,10 +41,7 @@ public class LoggingConfigTest {
     this.logger.info("Second logback");
 
     assertThat(this.listAppender.list.stream().map(ILoggingEvent::getMessage).toList())
-        .containsExactly(
-            "First logback",
-            "JUL logger test",
-            "Second logback")
+        .containsExactly("First logback", "JUL logger test", "Second logback")
         .inOrder();
   }
 }

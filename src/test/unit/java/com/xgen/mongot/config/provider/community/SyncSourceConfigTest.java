@@ -35,5 +35,4 @@ public class SyncSourceConfigTest {
     var config = syncSource(Optional.empty());
     assertEquals(ReadPreference.secondaryPreferred(), config.getReplicationReaderReadPreference());
   }
-
 }

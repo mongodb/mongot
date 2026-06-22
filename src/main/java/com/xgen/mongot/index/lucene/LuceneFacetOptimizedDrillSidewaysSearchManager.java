@@ -21,8 +21,8 @@ import org.apache.lucene.search.TopDocs;
  */
 class LuceneFacetOptimizedDrillSidewaysSearchManager
     extends AbstractLuceneSearchManager<
-    LuceneFacetOptimizedDrillSidewaysSearchManager
-        .OptimizedDrillSidewaysFacetCollectorQueryInfo> {
+        LuceneFacetOptimizedDrillSidewaysSearchManager
+            .OptimizedDrillSidewaysFacetCollectorQueryInfo> {
 
   public static class OptimizedDrillSidewaysFacetCollectorQueryInfo extends QueryInfo {
     public final DrillSidewaysResult drillSidewaysResult;
@@ -47,8 +47,8 @@ class LuceneFacetOptimizedDrillSidewaysSearchManager
 
   @Override
   public OptimizedDrillSidewaysFacetCollectorQueryInfo initialSearch(
-      LuceneIndexSearcherReference searcherReference, int batchSize) throws IOException,
-      InvalidQueryException {
+      LuceneIndexSearcherReference searcherReference, int batchSize)
+      throws IOException, InvalidQueryException {
 
     LuceneIndexSearcher searcher = searcherReference.getIndexSearcher();
 

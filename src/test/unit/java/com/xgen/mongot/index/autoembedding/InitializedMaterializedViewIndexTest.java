@@ -120,8 +120,7 @@ public class InitializedMaterializedViewIndexTest {
 
     IndexStatus status = index.getStatus();
     assertEquals(IndexStatus.StatusCode.FAILED, status.getStatusCode());
-    assertEquals(
-        Optional.of("Corrupted Lease documents for this index."), status.getMessage());
+    assertEquals(Optional.of("Corrupted Lease documents for this index."), status.getMessage());
   }
 
   @Test
@@ -187,18 +186,18 @@ public class InitializedMaterializedViewIndexTest {
         new IndexMetricsUpdater(defGen.getIndexDefinition(), metricValuesSupplier, metricsFactory);
     MaterializedViewWriter writer = mock(MaterializedViewWriter.class);
     LeaseManager leaseManager = mock(LeaseManager.class);
-    doNothing().when(leaseManager).updateReplicationStatus(
-        any(),
-        anyLong(),
-        any());
-    when(leaseManager.isCurrentVersionQueryable(
-            any(), anyLong()))
-        .thenReturn(leaseQueryable);
+    doNothing().when(leaseManager).updateReplicationStatus(any(), anyLong(), any());
+    when(leaseManager.isCurrentVersionQueryable(any(), anyLong())).thenReturn(leaseQueryable);
     AtomicReference<IndexStatus> statusRef = new AtomicReference<>(initialStatus);
     MaterializedViewSchemaMetadata schemaMetadata =
         new MaterializedViewSchemaMetadata(0, java.util.Map.of());
     return new InitializedMaterializedViewIndex(
-        defGen, writer, indexMetricsUpdater, statusRef, leaseManager, schemaMetadata,
+        defGen,
+        writer,
+        indexMetricsUpdater,
+        statusRef,
+        leaseManager,
+        schemaMetadata,
         "__mdb_internal_search");
   }
 
@@ -221,7 +220,12 @@ public class InitializedMaterializedViewIndexTest {
     MaterializedViewSchemaMetadata schemaMetadata =
         new MaterializedViewSchemaMetadata(0, java.util.Map.of());
     return new InitializedMaterializedViewIndex(
-        defGen, writer, indexMetricsUpdater, statusRef, leaseManager, schemaMetadata,
+        defGen,
+        writer,
+        indexMetricsUpdater,
+        statusRef,
+        leaseManager,
+        schemaMetadata,
         "__mdb_internal_search");
   }
 
@@ -251,7 +255,12 @@ public class InitializedMaterializedViewIndexTest {
 
     InitializedMaterializedViewIndex index =
         new InitializedMaterializedViewIndex(
-            defGen, writer, indexMetricsUpdater, statusRef, leaseManager, schemaMetadata,
+            defGen,
+            writer,
+            indexMetricsUpdater,
+            statusRef,
+            leaseManager,
+            schemaMetadata,
             "__mdb_internal_search");
 
     long leaderStatusGaugesBefore =

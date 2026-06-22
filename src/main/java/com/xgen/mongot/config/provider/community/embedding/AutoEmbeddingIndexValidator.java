@@ -136,8 +136,7 @@ public class AutoEmbeddingIndexValidator {
     }
   }
 
-  private static void throwIfFieldsChanged(
-      List<?> oldFields, List<?> newFields, String indexName)
+  private static void throwIfFieldsChanged(List<?> oldFields, List<?> newFields, String indexName)
       throws InvalidIndexDefinitionException {
     if (!oldFields.equals(newFields)) {
       throw new InvalidIndexDefinitionException(

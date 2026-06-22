@@ -168,19 +168,19 @@ public class AutoEmbeddingDocumentUtils {
   }
 
   /**
-   * Removes the top-level {@code _id} field from a materialized-view-shaped BSON document before
-   * it is handed to {@link com.xgen.mongot.index.mongodb.MaterializedViewWriter}.
+   * Removes the top-level {@code _id} field from a materialized-view-shaped BSON document before it
+   * is handed to {@link com.xgen.mongot.index.mongodb.MaterializedViewWriter}.
    *
    * <p>The MV row's {@code _id} is owned by the upsert filter in {@code MaterializedViewWriter}
    * ({@code {_id: event.getDocumentId()}}), which carries the full source {@code _id} value —
-   * including any subdocument structure. Letting an MV-bound document carry its own {@code _id}
-   * is unsafe whenever the index declares a filter on a subfield of {@code _id} (e.g. {@code
+   * including any subdocument structure. Letting an MV-bound document carry its own {@code _id} is
+   * unsafe whenever the index declares a filter on a subfield of {@code _id} (e.g. {@code
    * _id.ProfileId}): {@link MaterializedViewDocumentHandler} treats {@code _id} as a passthrough
    * ancestor and copies only the declared subfield, dropping siblings. The resulting write then
    * either targets the immutable {@code _id} field directly (filter-only {@code $set} path,
    * CLOUDP-406702) or presents a truncated {@code _id} that no longer matches the upsert filter
-   * (full-replace / initial-sync path, CLOUDP-412237). Both are non-retryable errors that FAIL
-   * the index.
+   * (full-replace / initial-sync path, CLOUDP-412237). Both are non-retryable errors that FAIL the
+   * index.
    *
    * <p>Call this on every MV-shaped document produced by this utility before it leaves the
    * embedding pipeline.
@@ -330,29 +330,29 @@ public class AutoEmbeddingDocumentUtils {
       ImmutableMap<FieldPath, ImmutableMap<String, Vector>> reusableEmbeddings) {}
 
   /**
-   * Decides whether a change-stream update can be applied as a partial {@code $set} on the MV
-   * (vs a full document replacement) for an auto-embed index. Returns a {@link
+   * Decides whether a change-stream update can be applied as a partial {@code $set} on the MV (vs a
+   * full document replacement) for an auto-embed index. Returns a {@link
    * PartialEmbedClassification}: an {@code applied} result carrying the {@code path -> chosen
-   * source text} map of embed fields to re-embed, or a {@code fellBack} result carrying the
-   * {@link PartialEmbedFallbackReason} when the caller must fall back to a full replacement.
+   * source text} map of embed fields to re-embed, or a {@code fellBack} result carrying the {@link
+   * PartialEmbedFallbackReason} when the caller must fall back to a full replacement.
    *
-   * <p>Should only be called when {@link #requiresEmbeddingGeneration} already returned true.
-   * The result is {@code applied} only when all of these hold:
+   * <p>Should only be called when {@link #requiresEmbeddingGeneration} already returned true. The
+   * result is {@code applied} only when all of these hold:
    *
    * <ul>
    *   <li>The mapping is a {@link VectorAutoEmbedFieldMapping} — the only index type routed here;
    *       other mappings (e.g. dynamic search) always fall back.
-   *   <li>No removed or truncated field touches any declared embed path. A partial {@code $set}
-   *       has no way to clear an MV vector or hash that the source removed.
-   *   <li>Every updated field is either an exact embed match, an exact passthrough, or
-   *       unrelated to any embed declaration. Indirect touches (e.g. updating an ancestor or
-   *       descendant of an embed path) force a fallback because we can't precisely scope them.
+   *   <li>No removed or truncated field touches any declared embed path. A partial {@code $set} has
+   *       no way to clear an MV vector or hash that the source removed.
+   *   <li>Every updated field is either an exact embed match, an exact passthrough, or unrelated to
+   *       any embed declaration. Indirect touches (e.g. updating an ancestor or descendant of an
+   *       embed path) force a fallback because we can't precisely scope them.
    *   <li>No changed embed source path traverses an array in the source doc — MongoDB rejects
    *       dotted {@code $set} keys (e.g. {@code _autoEmbed.items.title}) when an ancestor is an
    *       array.
-   *   <li>Every changed embed source path resolves to a non-empty source string. An empty new
-   *       value can't be expressed by partial {@code $set}; full replace handles it by dropping
-   *       the MV vector.
+   *   <li>Every changed embed source path resolves to a non-empty source string. An empty new value
+   *       can't be expressed by partial {@code $set}; full replace handles it by dropping the MV
+   *       vector.
    * </ul>
    *
    * <p>Texts in the returned map are document-order first non-empty strings — the same selection
@@ -499,10 +499,10 @@ public class AutoEmbeddingDocumentUtils {
   /**
    * Returns the field paths that could have affected source content for this update, drawn from
    * every {@link UpdateDescription} channel that mongot's change-stream consumer cares about:
-   * {@link UpdateDescription#getUpdatedFields()}, {@link UpdateDescription#getRemovedFields()},
-   * and {@link UpdateDescription#getTruncatedArrays()}. Returned as a flat list of dotted paths;
-   * the channel each entry came from is intentionally discarded — callers that need it should
-   * use {@link #updatedFieldKeys} / {@link #destructivelyAffectedFieldPaths} instead.
+   * {@link UpdateDescription#getUpdatedFields()}, {@link UpdateDescription#getRemovedFields()}, and
+   * {@link UpdateDescription#getTruncatedArrays()}. Returned as a flat list of dotted paths; the
+   * channel each entry came from is intentionally discarded — callers that need it should use
+   * {@link #updatedFieldKeys} / {@link #destructivelyAffectedFieldPaths} instead.
    */
   private static List<String> affectedFieldPaths(UpdateDescription updateDescription) {
     List<String> out = new ArrayList<>();
@@ -520,9 +520,9 @@ public class AutoEmbeddingDocumentUtils {
 
   /**
    * The destructive change channels — {@code removedFields} ($unset) and {@code truncatedArrays}
-   * ($pop / $slice) — combined. A partial {@code $set} body cannot express any of these on the
-   * MV side; if any destructive touch lands on an embed path the partial-embed optimization must
-   * fall back to a full ReplaceOne so the MV vector and hash are correctly cleared.
+   * ($pop / $slice) — combined. A partial {@code $set} body cannot express any of these on the MV
+   * side; if any destructive touch lands on an embed path the partial-embed optimization must fall
+   * back to a full ReplaceOne so the MV vector and hash are correctly cleared.
    */
   private static List<String> destructivelyAffectedFieldPaths(UpdateDescription updateDescription) {
     List<String> out = new ArrayList<>();
@@ -535,9 +535,9 @@ public class AutoEmbeddingDocumentUtils {
   /**
    * True if {@code path} is a strict (non-equal) ancestor of any path in {@code declaredPaths},
    * either literally or after stripping array-index segments. A {@code $set} on such a path can
-   * implicitly delete the declared descendant's value from the post-image (e.g. a scalar
-   * overwrite of a subdocument), which a partial {@code $set} built from the post-image cannot
-   * mirror on the MV.
+   * implicitly delete the declared descendant's value from the post-image (e.g. a scalar overwrite
+   * of a subdocument), which a partial {@code $set} built from the post-image cannot mirror on the
+   * MV.
    */
   private static boolean isStrictAncestorOfAny(FieldPath path, Set<FieldPath> declaredPaths) {
     if (isLiteralStrictAncestorOfAny(path, declaredPaths)) {
@@ -558,16 +558,16 @@ public class AutoEmbeddingDocumentUtils {
   }
 
   /**
-   * True if {@code candidate} might affect the source content of any path in {@code
-   * declaredPaths}. Recognizes three forms of contact, in order of cost:
+   * True if {@code candidate} might affect the source content of any path in {@code declaredPaths}.
+   * Recognizes three forms of contact, in order of cost:
    *
    * <ol>
    *   <li>Exact match (the candidate IS a declared path).
    *   <li>Literal-segment relation — ancestor or descendant under straight segment comparison.
    *   <li>Array-index relation — the same check after stripping numeric segments. Catches
-   *       change-stream paths like {@code "items.0.title"} that target a declared path
-   *       {@code "items.title"}; {@link FieldPath#isDirectRelation} compares literally and would
-   *       otherwise miss them.
+   *       change-stream paths like {@code "items.0.title"} that target a declared path {@code
+   *       "items.title"}; {@link FieldPath#isDirectRelation} compares literally and would otherwise
+   *       miss them.
    * </ol>
    *
    * <p>Callers choose the declared set: embed paths only (re-embed routing) or all indexed paths
@@ -597,8 +597,8 @@ public class AutoEmbeddingDocumentUtils {
   /**
    * Returns {@code path} with numeric segments removed. Empty when {@code path} had no numeric
    * segments (or had only numeric segments) — i.e. there's nothing array-index-related to check.
-   * Numeric segments are how change-stream events address array elements (e.g.
-   * {@code "items.0.title"} for the first element's {@code title} subfield).
+   * Numeric segments are how change-stream events address array elements (e.g. {@code
+   * "items.0.title"} for the first element's {@code title} subfield).
    */
   private static Optional<FieldPath> stripArrayIndexSegments(FieldPath path) {
     List<String> kept = new ArrayList<>();
@@ -722,8 +722,8 @@ public class AutoEmbeddingDocumentUtils {
    *
    * <p>The MV vector and hash entries are written under their dotted MV paths (e.g. {@code
    * "_autoEmbed.ae1"} and {@code "_autoEmbed._hash.ae1"}). The caller is responsible for verifying
-   * — via {@link #computePartialEmbedChangedTexts} — that none of these paths traverses an array
-   * on the source document, since MongoDB would otherwise reject the dotted-key {@code $set}.
+   * — via {@link #computePartialEmbedChangedTexts} — that none of these paths traverses an array on
+   * the source document, since MongoDB would otherwise reject the dotted-key {@code $set}.
    *
    * <p>On MV schema v1+ the vector and hash keys live under the MV-reserved {@code _autoEmbed.*}
    * namespace, and the index-definition layer rejects filter declarations under it — so {@code
@@ -734,17 +734,16 @@ public class AutoEmbeddingDocumentUtils {
    * unification in CLOUDP-409822 orphans the remaining v0 collections).
    *
    * <p>If the embedding service returned no vector for a non-empty changed-path text, this method
-   * throws an {@link IllegalStateException}. Voyage's contract is one vector per non-empty input;
-   * a null vector indicates a contract violation, so the batch is failed loudly rather than
-   * silently writing an inconsistent MV state.
+   * throws an {@link IllegalStateException}. Voyage's contract is one vector per non-empty input; a
+   * null vector indicates a contract violation, so the batch is failed loudly rather than silently
+   * writing an inconsistent MV state.
    *
    * @param filterFieldSetBody the filter-field {@code $set} body produced by {@link
    *     #extractFilterFieldValues} — copied, not mutated.
    * @param changedEmbedTexts source-side declared embed paths whose embeddings changed, mapped to
    *     the chosen non-empty text for each (from {@link #computePartialEmbedChangedTexts}).
    *     Precondition: every value is a non-empty source-side text; the builder does not re-verify.
-   * @param vectorsPerField the embedding service response, keyed by source field path then by
-   *     text
+   * @param vectorsPerField the embedding service response, keyed by source field path then by text
    * @param schemaMetadata the MV schema metadata, used to derive MV and hash paths
    * @return a new {@link BsonDocument} containing the filter-field entries plus vector and hash
    *     entries for each changed embed path. Suitable for use as the body of a {@code $set}.

@@ -144,8 +144,8 @@ public record CommunityConfig(
   }
 
   /**
-   * Returns the FTDC config from {@code advancedConfigs.ftdc}, falling back to
-   * {@link FtdcCommunityConfig#getDefault()} when the block is omitted.
+   * Returns the FTDC config from {@code advancedConfigs.ftdc}, falling back to {@link
+   * FtdcCommunityConfig#getDefault()} when the block is omitted.
    */
   public FtdcCommunityConfig ftdcConfig() {
     return this.advancedConfigs

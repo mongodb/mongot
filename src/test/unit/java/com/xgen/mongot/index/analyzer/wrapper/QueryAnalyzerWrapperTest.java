@@ -53,7 +53,8 @@ public class QueryAnalyzerWrapperTest {
         new QueryAnalyzerWrapper(
             SearchIndexDefinitionBuilder.VALID_INDEX,
             this.analyzerRegistry.getAnalyzerMeta(DEFAULT_FALLBACK_ANALYZER),
-            mapping, Optional.empty());
+            mapping,
+            Optional.empty());
   }
 
   private static AnalyzerRegistry getAnalyzerRegistry() throws InvalidAnalyzerDefinitionException {

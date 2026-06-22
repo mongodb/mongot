@@ -41,37 +41,39 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
 
   @Test
   public void handleNonDoesNotAffectOperator_validOperatorAndFacetNames() {
-    Operator operator = OperatorBuilder.range()
-        .path("category")
-        .numericBounds(Optional.of(new LongPoint(10)), Optional.of(new LongPoint(20)),
-            true, false)
-        .build();
+    Operator operator =
+        OperatorBuilder.range()
+            .path("category")
+            .numericBounds(
+                Optional.of(new LongPoint(10)), Optional.of(new LongPoint(20)), true, false)
+            .build();
 
     Set<String> facetNames = new HashSet<>(Arrays.asList("facet1", "facet2", "facet3"));
 
-    Map<String, Optional<Operator>> result = GenericDrillSidewaysFacetOperatorBuilder
-        .handleNonDoesNotAffectOperator(operator, facetNames);
+    Map<String, Optional<Operator>> result =
+        GenericDrillSidewaysFacetOperatorBuilder.handleNonDoesNotAffectOperator(
+            operator, facetNames);
 
     // Verify all facet names are keys in the result and each key maps to the same operator
     assertThat(result).isNotNull();
     assertThat(result.size()).isEqualTo(facetNames.size());
     facetNames.forEach(facet -> assertThat(result.containsKey(facet)).isTrue());
-    facetNames.forEach(
-        facet -> assertThat(result.get(facet).orElse(null) == operator).isTrue());
+    facetNames.forEach(facet -> assertThat(result.get(facet).orElse(null) == operator).isTrue());
   }
 
   @Test
   public void handleNonDoesNotAffectOperator_emptyFacetNames_returnsEmptyMap() {
-    Operator operator = OperatorBuilder.range()
-        .path("category")
-        .numericBounds(Optional.of(new LongPoint(10)), Optional.empty(),
-            true, false)
-        .build();
+    Operator operator =
+        OperatorBuilder.range()
+            .path("category")
+            .numericBounds(Optional.of(new LongPoint(10)), Optional.empty(), true, false)
+            .build();
 
     Set<String> facetNames = new HashSet<>();
 
-    Map<String, Optional<Operator>> result = GenericDrillSidewaysFacetOperatorBuilder
-        .handleNonDoesNotAffectOperator(operator, facetNames);
+    Map<String, Optional<Operator>> result =
+        GenericDrillSidewaysFacetOperatorBuilder.handleNonDoesNotAffectOperator(
+            operator, facetNames);
 
     assertThat(result).isNotNull();
     assertThat(result.isEmpty()).isTrue();
@@ -79,16 +81,18 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
 
   @Test
   public void handleNonDoesNotAffectOperator_singleFacetName_returnsMapWithSingleEntry() {
-    Operator operator = OperatorBuilder.range()
-        .path("age")
-        .numericBounds(Optional.of(new LongPoint(18)), Optional.of(new LongPoint(65)),
-            true, true)
-        .build();
+    Operator operator =
+        OperatorBuilder.range()
+            .path("age")
+            .numericBounds(
+                Optional.of(new LongPoint(18)), Optional.of(new LongPoint(65)), true, true)
+            .build();
 
     Set<String> facetNames = new HashSet<>(Collections.singletonList("singleFacet"));
 
-    Map<String, Optional<Operator>> result = GenericDrillSidewaysFacetOperatorBuilder
-        .handleNonDoesNotAffectOperator(operator, facetNames);
+    Map<String, Optional<Operator>> result =
+        GenericDrillSidewaysFacetOperatorBuilder.handleNonDoesNotAffectOperator(
+            operator, facetNames);
 
     // Verify result contains one entry with the expected facet name and operator
     assertThat(result).isNotNull();
@@ -102,51 +106,61 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
     Set<String> facetNames = Set.of("colors", "sizes");
 
     // Valid CompoundOperator setup (minimumShouldMatch <= # should clauses)
-    CompoundOperator compoundOperator = OperatorBuilder.compound()
-        .should(
-            OperatorBuilder.range()
-                .path("color")
-                .numericBounds(Optional.of(new LongPoint(1)),
-                    Optional.of(new LongPoint(2)), true, false)
-                .doesNotAffect("colors")
-                .build())
-        .should(
-            OperatorBuilder.range()
-                .path("shade")
-                .numericBounds(Optional.of(new LongPoint(3)),
-                    Optional.of(new LongPoint(4)), true, false)
-                .doesNotAffect("colors")
-                .build())
-        .should(
-            OperatorBuilder.range()
-                .path("size")
-                .numericBounds(Optional.of(new LongPoint(5)),
-                    Optional.of(new LongPoint(6)), true, false)
-                .doesNotAffect("sizes")
-                .build())
-        .should(
-            OperatorBuilder.range()
-                .path("dimension")
-                .numericBounds(Optional.of(new LongPoint(7)),
-                    Optional.of(new LongPoint(8)), true, false)
-                .doesNotAffect("sizes")
-                .build())
-        .minimumShouldMatch(3) // Original minimumShouldMatch is valid
-        .build();
+    CompoundOperator compoundOperator =
+        OperatorBuilder.compound()
+            .should(
+                OperatorBuilder.range()
+                    .path("color")
+                    .numericBounds(
+                        Optional.of(new LongPoint(1)), Optional.of(new LongPoint(2)), true, false)
+                    .doesNotAffect("colors")
+                    .build())
+            .should(
+                OperatorBuilder.range()
+                    .path("shade")
+                    .numericBounds(
+                        Optional.of(new LongPoint(3)), Optional.of(new LongPoint(4)), true, false)
+                    .doesNotAffect("colors")
+                    .build())
+            .should(
+                OperatorBuilder.range()
+                    .path("size")
+                    .numericBounds(
+                        Optional.of(new LongPoint(5)), Optional.of(new LongPoint(6)), true, false)
+                    .doesNotAffect("sizes")
+                    .build())
+            .should(
+                OperatorBuilder.range()
+                    .path("dimension")
+                    .numericBounds(
+                        Optional.of(new LongPoint(7)), Optional.of(new LongPoint(8)), true, false)
+                    .doesNotAffect("sizes")
+                    .build())
+            .minimumShouldMatch(3) // Original minimumShouldMatch is valid
+            .build();
 
-    Map<String, Optional<Operator>> result = GenericDrillSidewaysFacetOperatorBuilder
-        .handleCompoundOperator(compoundOperator, facetNames);
+    Map<String, Optional<Operator>> result =
+        GenericDrillSidewaysFacetOperatorBuilder.handleCompoundOperator(
+            compoundOperator, facetNames);
 
     // Verify the operator for the "colors" facet
-    CompoundOperator colorsFacetOperator = (CompoundOperator) result.get("colors")
-        .orElseThrow(() -> new IllegalStateException("No operator present for facet: colors"));
+    CompoundOperator colorsFacetOperator =
+        (CompoundOperator)
+            result
+                .get("colors")
+                .orElseThrow(
+                    () -> new IllegalStateException("No operator present for facet: colors"));
     assertThat(colorsFacetOperator).isNotNull();
     assertThat(colorsFacetOperator.should().operators().size()).isEqualTo(2);
     assertThat(colorsFacetOperator.minimumShouldMatch()).isEqualTo(2);
 
     // Verify the operator for the "sizes" facet
-    CompoundOperator sizesFacetOperator = (CompoundOperator) result.get("sizes")
-        .orElseThrow(() -> new IllegalStateException("No operator present for facet: sizes"));
+    CompoundOperator sizesFacetOperator =
+        (CompoundOperator)
+            result
+                .get("sizes")
+                .orElseThrow(
+                    () -> new IllegalStateException("No operator present for facet: sizes"));
     assertThat(sizesFacetOperator).isNotNull();
     assertThat(sizesFacetOperator.should().operators().size()).isEqualTo(2);
     assertThat(sizesFacetOperator.minimumShouldMatch()).isEqualTo(2);
@@ -156,30 +170,36 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
   public void handleCompoundOperator_clausesMatchExactly_minimumShouldMatchUnchanged() {
     Set<String> facetNames = Set.of("colors", "sizes");
 
-    CompoundOperator compoundOperator = OperatorBuilder.compound()
-        .should(
-            OperatorBuilder.range()
-                .path("color")
-                .numericBounds(Optional.of(new LongPoint(1)),
-                    Optional.of(new LongPoint(2)), true, false)
-                .doesNotAffect("colors")
-                .build())
-        .should(
-            OperatorBuilder.range()
-                .path("size")
-                .numericBounds(Optional.of(new LongPoint(3)),
-                    Optional.of(new LongPoint(4)), true, false)
-                .doesNotAffect("sizes") // Doesn't affect unrelated "sizes" facet
-                .build())
-        .minimumShouldMatch(2) // Matches the exact number of should clauses
-        .build();
+    CompoundOperator compoundOperator =
+        OperatorBuilder.compound()
+            .should(
+                OperatorBuilder.range()
+                    .path("color")
+                    .numericBounds(
+                        Optional.of(new LongPoint(1)), Optional.of(new LongPoint(2)), true, false)
+                    .doesNotAffect("colors")
+                    .build())
+            .should(
+                OperatorBuilder.range()
+                    .path("size")
+                    .numericBounds(
+                        Optional.of(new LongPoint(3)), Optional.of(new LongPoint(4)), true, false)
+                    .doesNotAffect("sizes") // Doesn't affect unrelated "sizes" facet
+                    .build())
+            .minimumShouldMatch(2) // Matches the exact number of should clauses
+            .build();
 
-    Map<String, Optional<Operator>> result = GenericDrillSidewaysFacetOperatorBuilder
-        .handleCompoundOperator(compoundOperator, facetNames);
+    Map<String, Optional<Operator>> result =
+        GenericDrillSidewaysFacetOperatorBuilder.handleCompoundOperator(
+            compoundOperator, facetNames);
 
     // Validate the resulting facet operator
-    CompoundOperator resultFacetOperator = (CompoundOperator) result.get("colors")
-        .orElseThrow(() -> new IllegalStateException("No operator present for facet: colors"));
+    CompoundOperator resultFacetOperator =
+        (CompoundOperator)
+            result
+                .get("colors")
+                .orElseThrow(
+                    () -> new IllegalStateException("No operator present for facet: colors"));
 
     // Assertions
     assertThat(resultFacetOperator).isNotNull();
@@ -189,24 +209,25 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
 
   @Test
   public void handleEmbeddedOperator_validFacetOperatorsWithDoesNotAffectFiltering() {
-    CompoundOperator compoundOp = OperatorBuilder.compound()
-        .should(OperatorBuilder.equals()
-            .path("teachers.first")
-            .value("John")
-            .doesNotAffect("teachersFirstNameFacet")
-            .build())
-        .should(OperatorBuilder.equals()
-            .path("teachers.last")
-            .value("Smith")
-            .doesNotAffect("teachersLastNameFacet")
-            .build())
-        .minimumShouldMatch(1)
-        .build();
+    CompoundOperator compoundOp =
+        OperatorBuilder.compound()
+            .should(
+                OperatorBuilder.equals()
+                    .path("teachers.first")
+                    .value("John")
+                    .doesNotAffect("teachersFirstNameFacet")
+                    .build())
+            .should(
+                OperatorBuilder.equals()
+                    .path("teachers.last")
+                    .value("Smith")
+                    .doesNotAffect("teachersLastNameFacet")
+                    .build())
+            .minimumShouldMatch(1)
+            .build();
 
-    EmbeddedDocumentOperator embeddedOperator = OperatorBuilder.embeddedDocument()
-        .path("teachers")
-        .operator(compoundOp)
-        .build();
+    EmbeddedDocumentOperator embeddedOperator =
+        OperatorBuilder.embeddedDocument().path("teachers").operator(compoundOp).build();
 
     Set<String> facetNames = Set.of("teachersFirstNameFacet", "teachersLastNameFacet");
 
@@ -231,8 +252,8 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
     EqualsOperator firstNameEqualsOperator = (EqualsOperator) firstNameShouldOperators.get(0);
     assertThat(firstNameEqualsOperator.path().toString()).isEqualTo("teachers.last");
     assertThat(firstNameEqualsOperator.value()).isEqualTo(ValueBuilder.string("Smith"));
-    assertThat(firstNameEqualsOperator.doesNotAffect().get()
-        .contains("teachersLastNameFacet")).isTrue();
+    assertThat(firstNameEqualsOperator.doesNotAffect().get().contains("teachersLastNameFacet"))
+        .isTrue();
 
     // Validate "teachersLastNameFacet"
     assertThat(result).containsKey("teachersLastNameFacet");
@@ -253,23 +274,21 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
     EqualsOperator lastNameEqualsOperator = (EqualsOperator) lastNameShouldOperators.get(0);
     assertThat(lastNameEqualsOperator.path().toString()).isEqualTo("teachers.first");
     assertThat(lastNameEqualsOperator.value()).isEqualTo(ValueBuilder.string("John"));
-    assertThat(lastNameEqualsOperator.doesNotAffect().get()
-        .contains("teachersFirstNameFacet")).isTrue();
+    assertThat(lastNameEqualsOperator.doesNotAffect().get().contains("teachersFirstNameFacet"))
+        .isTrue();
   }
 
   @Test
   public void handleClauseOperators_givenOperatorsAndFacetNames_populatesClauseMapCorrectly() {
     // Arrange: Define sample operators
-    Operator operator1 = OperatorBuilder.range()
-        .path("price")
-        .numericBounds(Optional.of(new LongPoint(100)), Optional.of(new LongPoint(200)),
-            true, false)
-        .build();
+    Operator operator1 =
+        OperatorBuilder.range()
+            .path("price")
+            .numericBounds(
+                Optional.of(new LongPoint(100)), Optional.of(new LongPoint(200)), true, false)
+            .build();
 
-    Operator operator2 = OperatorBuilder.equals()
-        .path("tags")
-        .value("discounted")
-        .build();
+    Operator operator2 = OperatorBuilder.equals().path("tags").value("discounted").build();
 
     List<Operator> operators = Arrays.asList(operator1, operator2);
 
@@ -279,16 +298,17 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
     Map<String, List<Operator>> clauseMap = new HashMap<>();
     facetNames.forEach(facet -> clauseMap.put(facet, new ArrayList<>()));
 
-    GenericDrillSidewaysFacetOperatorBuilder.handleClauseOperators(operators,
-        clauseMap, facetNames);
+    GenericDrillSidewaysFacetOperatorBuilder.handleClauseOperators(
+        operators, clauseMap, facetNames);
 
     assertThat(clauseMap).isNotNull();
     assertThat(clauseMap.size()).isEqualTo(facetNames.size());
-    facetNames.forEach(facet -> {
-      assertThat(clauseMap.get(facet)).isNotNull();
-      assertThat(clauseMap.get(facet).size()).isEqualTo(operators.size());
-      assertThat(clauseMap.get(facet)).containsExactly(operator1, operator2);
-    });
+    facetNames.forEach(
+        facet -> {
+          assertThat(clauseMap.get(facet)).isNotNull();
+          assertThat(clauseMap.get(facet).size()).isEqualTo(operators.size());
+          assertThat(clauseMap.get(facet)).containsExactly(operator1, operator2);
+        });
   }
 
   @Test
@@ -301,29 +321,28 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
     Map<String, List<Operator>> clauseMap = new HashMap<>();
     facetNames.forEach(facet -> clauseMap.put(facet, new ArrayList<>()));
 
-    GenericDrillSidewaysFacetOperatorBuilder.handleClauseOperators(operators, clauseMap,
-        facetNames);
+    GenericDrillSidewaysFacetOperatorBuilder.handleClauseOperators(
+        operators, clauseMap, facetNames);
 
     assertThat(clauseMap).isNotNull();
     assertThat(clauseMap.size()).isEqualTo(facetNames.size());
-    facetNames.forEach(facet -> {
-      assertThat(clauseMap.get(facet)).isNotNull();
-      assertThat(clauseMap.get(facet).isEmpty()).isTrue();
-    });
+    facetNames.forEach(
+        facet -> {
+          assertThat(clauseMap.get(facet)).isNotNull();
+          assertThat(clauseMap.get(facet).isEmpty()).isTrue();
+        });
   }
 
   @Test
   public void handleClauseOperators_givenEmptyFacetNames_doesNotModifyClauseMap() {
-    Operator operator1 = OperatorBuilder.range()
-        .path("price")
-        .numericBounds(Optional.of(new LongPoint(100)), Optional.of(new LongPoint(200)),
-            true, false)
-        .build();
+    Operator operator1 =
+        OperatorBuilder.range()
+            .path("price")
+            .numericBounds(
+                Optional.of(new LongPoint(100)), Optional.of(new LongPoint(200)), true, false)
+            .build();
 
-    Operator operator2 = OperatorBuilder.equals()
-        .path("tags")
-        .value("discounted")
-        .build();
+    Operator operator2 = OperatorBuilder.equals().path("tags").value("discounted").build();
 
     List<Operator> operators = Arrays.asList(operator1, operator2);
 
@@ -332,8 +351,8 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
     // Prepare the clauseMap with no initial entries
     Map<String, List<Operator>> clauseMap = new HashMap<>();
 
-    GenericDrillSidewaysFacetOperatorBuilder.handleClauseOperators(operators, clauseMap,
-        facetNames);
+    GenericDrillSidewaysFacetOperatorBuilder.handleClauseOperators(
+        operators, clauseMap, facetNames);
 
     assertThat(clauseMap).isNotNull();
     assertThat(clauseMap.isEmpty()).isTrue();
@@ -342,16 +361,14 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
   @Test
   public void handleClauseOperators_givenOperatorsAndSingleFacetName_populatesCorrectly() {
     // Arrange: Define sample operators
-    Operator operator1 = OperatorBuilder.range()
-        .path("quantity")
-        .numericBounds(Optional.of(new LongPoint(50)), Optional.of(new LongPoint(100)),
-            false, true)
-        .build();
+    Operator operator1 =
+        OperatorBuilder.range()
+            .path("quantity")
+            .numericBounds(
+                Optional.of(new LongPoint(50)), Optional.of(new LongPoint(100)), false, true)
+            .build();
 
-    Operator operator2 = OperatorBuilder.equals()
-        .path("color")
-        .value("red")
-        .build();
+    Operator operator2 = OperatorBuilder.equals().path("color").value("red").build();
 
     List<Operator> operators = Arrays.asList(operator1, operator2);
 
@@ -361,8 +378,8 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
     Map<String, List<Operator>> clauseMap = new HashMap<>();
     clauseMap.put("singleFacet", new ArrayList<>());
 
-    GenericDrillSidewaysFacetOperatorBuilder.handleClauseOperators(operators, clauseMap,
-        facetNames);
+    GenericDrillSidewaysFacetOperatorBuilder.handleClauseOperators(
+        operators, clauseMap, facetNames);
 
     assertThat(clauseMap).isNotNull();
     assertThat(clauseMap.size()).isEqualTo(1);
@@ -373,16 +390,17 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
 
   @Test
   public void handleEqualsOperator_givenValidOperatorAndFacetNames_includesCorrectFacets() {
-    EqualsOperator operator = OperatorBuilder.equals()
-        .path("field")
-        .value("value")
-        .doesNotAffect("excludedFacet") // This facet will be excluded
-        .build();
+    EqualsOperator operator =
+        OperatorBuilder.equals()
+            .path("field")
+            .value("value")
+            .doesNotAffect("excludedFacet") // This facet will be excluded
+            .build();
 
     Set<String> facetNames = new HashSet<>(Arrays.asList("facet1", "facet2", "excludedFacet"));
 
-    Map<String, Optional<Operator>> result = GenericDrillSidewaysFacetOperatorBuilder
-        .handleEqualsOperator(operator, facetNames);
+    Map<String, Optional<Operator>> result =
+        GenericDrillSidewaysFacetOperatorBuilder.handleEqualsOperator(operator, facetNames);
 
     // Verify only facets that are NOT excluded are included in the result
     assertThat(result).isNotNull();
@@ -396,15 +414,12 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
 
   @Test
   public void handleEqualsOperator_givenEmptyFacetNames_returnsEmptyMap() {
-    EqualsOperator operator = OperatorBuilder.equals()
-        .path("field")
-        .value("value")
-        .build();
+    EqualsOperator operator = OperatorBuilder.equals().path("field").value("value").build();
 
     Set<String> facetNames = new HashSet<>(); // No facets provided
 
-    Map<String, Optional<Operator>> result = GenericDrillSidewaysFacetOperatorBuilder
-        .handleEqualsOperator(operator, facetNames);
+    Map<String, Optional<Operator>> result =
+        GenericDrillSidewaysFacetOperatorBuilder.handleEqualsOperator(operator, facetNames);
 
     assertThat(result).isNotNull();
     assertThat(result.isEmpty()).isTrue();
@@ -416,16 +431,13 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
     values.add((long) 1);
     values.add((long) 2);
 
-    InOperator operator = OperatorBuilder.in()
-        .path("field")
-        .longs(values)
-        .doesNotAffect("excludedFacet")
-        .build();
+    InOperator operator =
+        OperatorBuilder.in().path("field").longs(values).doesNotAffect("excludedFacet").build();
 
     Set<String> facetNames = new HashSet<>(Arrays.asList("facet1", "facet2", "excludedFacet"));
 
-    Map<String, Optional<Operator>> result = GenericDrillSidewaysFacetOperatorBuilder
-        .handleInOperator(operator, facetNames);
+    Map<String, Optional<Operator>> result =
+        GenericDrillSidewaysFacetOperatorBuilder.handleInOperator(operator, facetNames);
 
     assertThat(result).isNotNull();
     assertThat(result.size()).isEqualTo(2); // "facet1" and "facet2" should be included
@@ -442,15 +454,12 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
     values.add((long) 1);
     values.add((long) 2);
 
-    InOperator operator = OperatorBuilder.in()
-        .path("field")
-        .longs(values)
-        .build();
+    InOperator operator = OperatorBuilder.in().path("field").longs(values).build();
 
     Set<String> facetNames = new HashSet<>(); // No facets provided
 
-    Map<String, Optional<Operator>> result = GenericDrillSidewaysFacetOperatorBuilder
-        .handleInOperator(operator, facetNames);
+    Map<String, Optional<Operator>> result =
+        GenericDrillSidewaysFacetOperatorBuilder.handleInOperator(operator, facetNames);
 
     assertThat(result).isNotNull();
     assertThat(result.isEmpty()).isTrue();
@@ -461,16 +470,17 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
     Optional<NumericPoint> lower = Optional.of(new LongPoint(1L));
     Optional<NumericPoint> upper = Optional.of(new LongPoint(2L));
 
-    RangeOperator operator = OperatorBuilder.range()
-        .path("field")
-        .numericBounds(lower, upper, true, false)
-        .doesNotAffect("excludedFacet") // This facet will be excluded
-        .build();
+    RangeOperator operator =
+        OperatorBuilder.range()
+            .path("field")
+            .numericBounds(lower, upper, true, false)
+            .doesNotAffect("excludedFacet") // This facet will be excluded
+            .build();
 
     Set<String> facetNames = new HashSet<>(Arrays.asList("facet1", "facet2", "excludedFacet"));
 
-    Map<String, Optional<Operator>> result = GenericDrillSidewaysFacetOperatorBuilder
-        .handleRangeOperator(operator, facetNames);
+    Map<String, Optional<Operator>> result =
+        GenericDrillSidewaysFacetOperatorBuilder.handleRangeOperator(operator, facetNames);
 
     // Verify only facets that are NOT excluded are included in the result
     assertThat(result).isNotNull();
@@ -487,16 +497,17 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
     Optional<NumericPoint> lower = Optional.of(new LongPoint(1L));
     Optional<NumericPoint> upper = Optional.of(new LongPoint(2L));
 
-    RangeOperator operator = OperatorBuilder.range()
-        .path("field")
-        .numericBounds(lower, upper, true, false)
-        .doesNotAffect("excludedFacet")
-        .build();
+    RangeOperator operator =
+        OperatorBuilder.range()
+            .path("field")
+            .numericBounds(lower, upper, true, false)
+            .doesNotAffect("excludedFacet")
+            .build();
 
     Set<String> facetNames = new HashSet<>(); // No facets provided
 
-    Map<String, Optional<Operator>> result = GenericDrillSidewaysFacetOperatorBuilder
-        .handleRangeOperator(operator, facetNames);
+    Map<String, Optional<Operator>> result =
+        GenericDrillSidewaysFacetOperatorBuilder.handleRangeOperator(operator, facetNames);
 
     assertThat(result).isNotNull();
     assertThat(result.isEmpty()).isTrue();
@@ -507,8 +518,8 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
     Optional<List<String>> doesNotAffect = Optional.empty();
     String facetName = "facet1";
 
-    boolean result = GenericDrillSidewaysFacetOperatorBuilder.shouldIncludeOperator(doesNotAffect,
-        facetName);
+    boolean result =
+        GenericDrillSidewaysFacetOperatorBuilder.shouldIncludeOperator(doesNotAffect, facetName);
 
     assertThat(result).isTrue();
   }
@@ -518,8 +529,8 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
     Optional<List<String>> doesNotAffect = Optional.of(Arrays.asList("facet2", "facet3"));
     String facetName = "facet1"; // Not present in doesNotAffect list
 
-    boolean result = GenericDrillSidewaysFacetOperatorBuilder.shouldIncludeOperator(doesNotAffect,
-        facetName);
+    boolean result =
+        GenericDrillSidewaysFacetOperatorBuilder.shouldIncludeOperator(doesNotAffect, facetName);
 
     assertThat(result).isTrue();
   }
@@ -529,8 +540,8 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
     Optional<List<String>> doesNotAffect = Optional.of(Arrays.asList("facet1", "facet2"));
     String facetName = "facet1"; // Present in doesNotAffect list
 
-    boolean result = GenericDrillSidewaysFacetOperatorBuilder.shouldIncludeOperator(doesNotAffect,
-        facetName);
+    boolean result =
+        GenericDrillSidewaysFacetOperatorBuilder.shouldIncludeOperator(doesNotAffect, facetName);
 
     assertThat(result).isFalse();
   }
@@ -552,11 +563,12 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
     Optional<NumericPoint> lower = Optional.of(new LongPoint(1L));
     Optional<NumericPoint> upper = Optional.of(new LongPoint(2L));
 
-    Operator operator = OperatorBuilder.range()
-        .path("size")
-        .numericBounds(lower, upper, true, false)
-        .doesNotAffect("colors")
-        .build();
+    Operator operator =
+        OperatorBuilder.range()
+            .path("size")
+            .numericBounds(lower, upper, true, false)
+            .doesNotAffect("colors")
+            .build();
 
     Set<String> facetNames = Set.of("colors", "sizes");
 
@@ -636,19 +648,18 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
     Map<String, Optional<Operator>> facetOperators =
         buildFacetOperators(this.sampleQuery, this.facetDefinitions);
 
-    CompoundOperator colorFacetOperator = (CompoundOperator) facetOperators.get("colors")
-        .orElseThrow(() ->
-            new IllegalStateException("No operator present for facet: colors"));
+    CompoundOperator colorFacetOperator =
+        (CompoundOperator)
+            facetOperators
+                .get("colors")
+                .orElseThrow(
+                    () -> new IllegalStateException("No operator present for facet: colors"));
 
-    assertWithMessage("Colors facet operator should exist")
-        .that(colorFacetOperator)
-        .isNotNull();
+    assertWithMessage("Colors facet operator should exist").that(colorFacetOperator).isNotNull();
 
     // First must clause should be present (contains size operators)
     List<? extends Operator> mustClauses = colorFacetOperator.must().operators();
-    assertWithMessage("Should have one must clause")
-        .that(mustClauses.size())
-        .isEqualTo(1);
+    assertWithMessage("Should have one must clause").that(mustClauses.size()).isEqualTo(1);
 
     // Check the size range operators
     CompoundOperator sizeCompound = (CompoundOperator) mustClauses.get(0);
@@ -761,34 +772,37 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
     //    }
     //    }
 
-    CompoundOperator compoundOp = OperatorBuilder.compound()
-        .should(OperatorBuilder.equals()
-            .path("teachers.first")
-            .value("John")
-            .doesNotAffect("teachersFirstNameFacet")
-            .build())
-        .should(OperatorBuilder.equals()
-            .path("teachers.last")
-            .value("Smith")
-            .doesNotAffect("teachersLastNameFacet")
-            .build())
-        .build();
+    CompoundOperator compoundOp =
+        OperatorBuilder.compound()
+            .should(
+                OperatorBuilder.equals()
+                    .path("teachers.first")
+                    .value("John")
+                    .doesNotAffect("teachersFirstNameFacet")
+                    .build())
+            .should(
+                OperatorBuilder.equals()
+                    .path("teachers.last")
+                    .value("Smith")
+                    .doesNotAffect("teachersLastNameFacet")
+                    .build())
+            .build();
 
-    EmbeddedDocumentOperator operator = OperatorBuilder.embeddedDocument()
-        .path("teachers")
-        .operator(compoundOp)
-        .build();
+    EmbeddedDocumentOperator operator =
+        OperatorBuilder.embeddedDocument().path("teachers").operator(compoundOp).build();
 
     Set<String> facetNames = Set.of("teachersFirstNameFacet", "teachersLastNameFacet");
 
-    Map<String, Optional<Operator>> facetOperators = buildGenericQueryOperatorMap(operator,
-        facetNames);
+    Map<String, Optional<Operator>> facetOperators =
+        buildGenericQueryOperatorMap(operator, facetNames);
     assertThat(facetOperators).containsKey("teachersFirstNameFacet");
     assertThat(facetOperators).containsKey("teachersLastNameFacet");
 
     // Validate "teachersFirstNameFacet" operator
-    Operator firstNameOperator = facetOperators.get("teachersFirstNameFacet")
-        .orElseThrow(() -> new IllegalStateException("No operator present for facet."));
+    Operator firstNameOperator =
+        facetOperators
+            .get("teachersFirstNameFacet")
+            .orElseThrow(() -> new IllegalStateException("No operator present for facet."));
     assertThat(firstNameOperator).isInstanceOf(EmbeddedDocumentOperator.class);
 
     EmbeddedDocumentOperator firstNameEmbeddedOp = (EmbeddedDocumentOperator) firstNameOperator;
@@ -799,11 +813,13 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
     assertThat(firstNameCompoundOp.should().isPresent()).isTrue();
 
     // Validate the filtered should clauses for "teachersFirstNameFacet"
-    List<? extends Operator> filteredFirstNameShouldClauses = firstNameCompoundOp.should()
-        .operators().stream()
-        .filter(op -> op instanceof EqualsOperator equalsOperator
-            && !equalsOperator.doesNotAffect().get().contains("teachersFirstNameFacet"))
-        .toList();
+    List<? extends Operator> filteredFirstNameShouldClauses =
+        firstNameCompoundOp.should().operators().stream()
+            .filter(
+                op ->
+                    op instanceof EqualsOperator equalsOperator
+                        && !equalsOperator.doesNotAffect().get().contains("teachersFirstNameFacet"))
+            .toList();
     assertThat(filteredFirstNameShouldClauses).hasSize(1);
     assertThat(filteredFirstNameShouldClauses.get(0)).isInstanceOf(EqualsOperator.class);
     EqualsOperator firstNameClause = (EqualsOperator) filteredFirstNameShouldClauses.get(0);
@@ -812,8 +828,10 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
     assertThat(firstNameClause.doesNotAffect().get()).contains("teachersLastNameFacet");
 
     // Validate "teachersLastNameFacet" operator
-    Operator lastNameOperator = facetOperators.get("teachersLastNameFacet")
-        .orElseThrow(() -> new IllegalStateException("No operator present for facet."));
+    Operator lastNameOperator =
+        facetOperators
+            .get("teachersLastNameFacet")
+            .orElseThrow(() -> new IllegalStateException("No operator present for facet."));
     assertThat(lastNameOperator).isInstanceOf(EmbeddedDocumentOperator.class);
 
     EmbeddedDocumentOperator lastNameEmbeddedOp = (EmbeddedDocumentOperator) lastNameOperator;
@@ -824,11 +842,13 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
     assertThat(lastNameCompoundOp.should().isPresent()).isTrue();
 
     // Validate the filtered should clauses for "teachersLastNameFacet"
-    List<? extends Operator> filteredLastNameShouldClauses = lastNameCompoundOp.should()
-        .operators().stream()
-        .filter(op -> op instanceof EqualsOperator equalsOperator
-            && !equalsOperator.doesNotAffect().get().contains("teachersLastNameFacet"))
-        .toList();
+    List<? extends Operator> filteredLastNameShouldClauses =
+        lastNameCompoundOp.should().operators().stream()
+            .filter(
+                op ->
+                    op instanceof EqualsOperator equalsOperator
+                        && !equalsOperator.doesNotAffect().get().contains("teachersLastNameFacet"))
+            .toList();
     assertThat(filteredLastNameShouldClauses).hasSize(1);
     assertThat(filteredLastNameShouldClauses.get(0)).isInstanceOf(EqualsOperator.class);
     EqualsOperator lastNameClause = (EqualsOperator) filteredLastNameShouldClauses.get(0);
@@ -896,19 +916,18 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
     Map<String, Optional<Operator>> facetOperators =
         buildFacetOperators(this.sampleQuery, this.facetDefinitions);
 
-    CompoundOperator sizeFacetOperator = (CompoundOperator) facetOperators.get("sizes")
-        .orElseThrow(() ->
-            new IllegalStateException("No operator present for facet: sizes"));
+    CompoundOperator sizeFacetOperator =
+        (CompoundOperator)
+            facetOperators
+                .get("sizes")
+                .orElseThrow(
+                    () -> new IllegalStateException("No operator present for facet: sizes"));
 
-    assertWithMessage("Sizes facet operator should exist")
-        .that(sizeFacetOperator)
-        .isNotNull();
+    assertWithMessage("Sizes facet operator should exist").that(sizeFacetOperator).isNotNull();
 
     // Check must clauses (should contain only color compound)
     List<? extends Operator> mustClauses = sizeFacetOperator.must().operators();
-    assertWithMessage("Should have one must clause")
-        .that(mustClauses.size())
-        .isEqualTo(1);
+    assertWithMessage("Should have one must clause").that(mustClauses.size()).isEqualTo(1);
 
     // Check the color range operators
     CompoundOperator colorCompound = (CompoundOperator) mustClauses.getFirst();
@@ -1017,7 +1036,6 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
         .isEmpty();
   }
 
-
   private CompoundOperator buildSampleQuery() {
     Optional<NumericPoint> lower = Optional.of(new LongPoint(1L));
     Optional<NumericPoint> upper = Optional.of(new LongPoint(2L));
@@ -1028,19 +1046,19 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
     CompoundOperator colorCompound =
         OperatorBuilder.compound()
             .score(Score.defaultScore())
-            .should(OperatorBuilder.range()
-                .score(Score.defaultScore())
-                .path("color")
-                .numericBounds(lower, upper, true, false)
-                .doesNotAffect("colors")
-                .build()
-            )
-            .should(OperatorBuilder.range()
-                .path("color")
-                .numericBounds(lower2, upper2, true, false)
-                .doesNotAffect("colors")
-                .build()
-            )
+            .should(
+                OperatorBuilder.range()
+                    .score(Score.defaultScore())
+                    .path("color")
+                    .numericBounds(lower, upper, true, false)
+                    .doesNotAffect("colors")
+                    .build())
+            .should(
+                OperatorBuilder.range()
+                    .path("color")
+                    .numericBounds(lower2, upper2, true, false)
+                    .doesNotAffect("colors")
+                    .build())
             .minimumShouldMatch(0)
             .build();
 
@@ -1052,19 +1070,19 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
     CompoundOperator sizeCompound =
         OperatorBuilder.compound()
             .score(Score.defaultScore())
-            .should(OperatorBuilder.range()
-                .score(Score.defaultScore())
-                .path("size")
-                .numericBounds(lower3, upper3, true, false)
-                .doesNotAffect("sizes")
-                .build()
-            )
-            .should(OperatorBuilder.range()
-                .path("size")
-                .numericBounds(upper3, lower4, true, false)
-                .doesNotAffect(Arrays.asList("colors", "sizes"))
-                .build()
-            )
+            .should(
+                OperatorBuilder.range()
+                    .score(Score.defaultScore())
+                    .path("size")
+                    .numericBounds(lower3, upper3, true, false)
+                    .doesNotAffect("sizes")
+                    .build())
+            .should(
+                OperatorBuilder.range()
+                    .path("size")
+                    .numericBounds(upper3, lower4, true, false)
+                    .doesNotAffect(Arrays.asList("colors", "sizes"))
+                    .build())
             .minimumShouldMatch(0)
             .build();
 
@@ -1110,12 +1128,11 @@ public class GenericDrillSidewaysFacetOperatorBuilderTest {
   private static Map<String, Optional<Operator>> buildFacetOperators(
       Operator operator, Map<String, FacetDefinition> facetDefinitions) {
     Set<String> facetNames = facetDefinitions.keySet();
-    return buildGenericQueryOperatorMap(operator,
-        facetNames);
+    return buildGenericQueryOperatorMap(operator, facetNames);
   }
 
-  private void assertRangeOperator(Operator operator, String expectedPath, long expectedLower,
-      long expectedUpper) {
+  private void assertRangeOperator(
+      Operator operator, String expectedPath, long expectedLower, long expectedUpper) {
     assertThat(operator).isInstanceOf(RangeOperator.class);
     RangeOperator rangeOperator = (RangeOperator) operator;
 

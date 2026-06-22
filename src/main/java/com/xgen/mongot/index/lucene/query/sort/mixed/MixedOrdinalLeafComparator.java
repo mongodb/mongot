@@ -26,14 +26,14 @@ class MixedOrdinalLeafComparator implements MixedLeafFieldComparator {
       CompositeComparator parent,
       SortedDocValues dv,
       int priority,
-      Function<BytesRef, BsonValue> converter) throws IOException {
+      Function<BytesRef, BsonValue> converter)
+      throws IOException {
     this.dv = dv;
     this.priority = priority;
     this.converter = converter;
     // topOrd is never used if top is not in same bracket, so value doesn't matter
-    this.topOrd = parent.getTopBracket() == priority
-        ? dv.lookupTerm(extractTerm(parent.getTop()))
-        : -1;
+    this.topOrd =
+        parent.getTopBracket() == priority ? dv.lookupTerm(extractTerm(parent.getTop())) : -1;
   }
 
   @Override
@@ -77,12 +77,11 @@ class MixedOrdinalLeafComparator implements MixedLeafFieldComparator {
     this.bottomOrd = this.dv.lookupTerm(term);
   }
 
-
   /**
    * Compare `ord` to the current ord.
    *
    * @param ord - The left value to compare to. If the term ord applies to does not exactly match
-   *            anything in this segment, then its value is {@code -insertionPoint - 1}
+   *     anything in this segment, then its value is {@code -insertionPoint - 1}
    * @return negative if `ord` is less than the current ord.
    */
   private int compareWithinBracket(int ord) throws IOException {

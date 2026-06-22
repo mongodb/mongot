@@ -9,7 +9,7 @@ public enum StaleStatusReason implements StatusReason {
   StaleStatusReason(String text) {
     this.text = text;
   }
-  
+
   @Override
   public String formatMessage(Object... details) {
     return StatusReason.getString(this.text, details);

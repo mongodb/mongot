@@ -225,13 +225,8 @@ public class LuceneAnalyzerFactory {
         case LOWERCASE -> input -> new LowerCaseFilter(input);
 
         case LIMIT_TOKEN_COUNT -> {
-          LimitTokenFilterDefinition limitFilter =
-              definition.asLimitTokenFilterDefinition();
-          yield input ->
-              new LimitTokenCountFilter(
-                  input,
-                  limitFilter.getMaxTokenCount(),
-                  false);
+          LimitTokenFilterDefinition limitFilter = definition.asLimitTokenFilterDefinition();
+          yield input -> new LimitTokenCountFilter(input, limitFilter.getMaxTokenCount(), false);
         }
 
         case REGEX -> {

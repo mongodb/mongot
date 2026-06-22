@@ -11,9 +11,7 @@ import org.junit.Test;
 
 public class InstrumentedConcurrentMergeSchedulerTest {
 
-  /**
-   * Test-only wrapper that supplies a fixed {@code "test"} tag.
-   */
+  /** Test-only wrapper that supplies a fixed {@code "test"} tag. */
   static PerIndexPartitionMergeScheduler createMergeScheduler(
       InstrumentedConcurrentMergeScheduler scheduler,
       GenerationId generationId,
@@ -38,14 +36,9 @@ public class InstrumentedConcurrentMergeSchedulerTest {
 
     assertThat(registry.find("mergeScheduler.merge.allocatedBytes").meters()).isEmpty();
     assertThat(registry.find("mergeScheduler.merge.cpuTimeNanos").meters()).isEmpty();
-    assertThat(
-            registry
-                .find("executor.thread.allocatedBytes")
-                .tag("subsystem", "merge")
-                .meters())
+    assertThat(registry.find("executor.thread.allocatedBytes").tag("subsystem", "merge").meters())
         .isEmpty();
-    assertThat(
-            registry.find("executor.thread.cpuTime").tag("subsystem", "merge").meters())
+    assertThat(registry.find("executor.thread.cpuTime").tag("subsystem", "merge").meters())
         .isEmpty();
   }
 

@@ -15,8 +15,7 @@ import org.junit.Test;
 
 public class RegularBlockingRequestConfigTest {
 
-  private static RegularBlockingRequestConfig parse(BsonDocument doc)
-      throws BsonParseException {
+  private static RegularBlockingRequestConfig parse(BsonDocument doc) throws BsonParseException {
     PermissiveBsonParseContext context = PermissiveBsonParseContext.root();
     try (var parser = BsonDocumentParser.withContext(context, doc).build()) {
       return RegularBlockingRequestConfig.fromBson(parser);
@@ -26,16 +25,14 @@ public class RegularBlockingRequestConfigTest {
   @Test
   public void roundTrip_full_preservesAllFields() throws BsonParseException {
     RegularBlockingRequestConfig original =
-        new RegularBlockingRequestConfig(
-            Optional.of(2.0), Optional.of(4.0), Optional.of(true));
+        new RegularBlockingRequestConfig(Optional.of(2.0), Optional.of(4.0), Optional.of(true));
     assertEquals(original, parse(original.toBson()));
   }
 
   @Test
   public void roundTrip_empty_preservesEmptyBlock() throws BsonParseException {
     RegularBlockingRequestConfig original =
-        new RegularBlockingRequestConfig(
-            Optional.empty(), Optional.empty(), Optional.empty());
+        new RegularBlockingRequestConfig(Optional.empty(), Optional.empty(), Optional.empty());
     assertEquals(original, parse(original.toBson()));
   }
 
@@ -54,8 +51,7 @@ public class RegularBlockingRequestConfigTest {
 
   @Test
   public void parse_wrongType_throws() {
-    BsonDocument doc =
-        new BsonDocument("threadPoolSizeMultiplier", new BsonString("not-a-double"));
+    BsonDocument doc = new BsonDocument("threadPoolSizeMultiplier", new BsonString("not-a-double"));
     assertThrows(BsonParseException.class, () -> parse(doc));
   }
 

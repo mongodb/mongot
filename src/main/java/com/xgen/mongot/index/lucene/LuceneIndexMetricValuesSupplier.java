@@ -142,9 +142,9 @@ public abstract class LuceneIndexMetricValuesSupplier implements IndexMetricValu
         indexPartitionMetricsFactory.perIndexObjectValueGauge(
             MetricNames.NUM_LUCENE_FIELDS,
             indexPartitionWriter,
-                indexWriter ->
-                    FunctionalUtils.getOrDefaultIfThrows(
-                        indexWriter::getNumFields, WriterClosedException.class, 0),
+            indexWriter ->
+                FunctionalUtils.getOrDefaultIfThrows(
+                    indexWriter::getNumFields, WriterClosedException.class, 0),
             getIndexPartitionTags(indexPartitionId).and(indexFeatureVersionTag));
         indexPartitionMetricsFactory.perIndexObjectValueGauge(
             MetricNames.NUM_LUCENE_DOCS,

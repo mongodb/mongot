@@ -1,0 +1,11 @@
+"""MODULE.bazel for aspect_rules_lint formatters, evergreen-cli, and prometheus."""
+
+bazel_dep(name = "aspect_rules_lint", version = "2.7.1")
+
+http_jar = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_jar")
+
+http_jar(
+    name = "google-java-format",
+    sha256 = "bfb7f9ead6cd328389bc2da53860443bc0e805dfd08cc889bfdf43b26cb2a6e8",
+    url = "https://github.com/google/google-java-format/releases/download/v1.35.0/google-java-format-1.35.0-all-deps.jar",
+)

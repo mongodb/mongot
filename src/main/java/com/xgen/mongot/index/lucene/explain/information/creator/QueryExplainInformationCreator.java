@@ -94,8 +94,7 @@ public class QueryExplainInformationCreator {
   }
 
   private static Optional<ExplainTimingBreakdown> timingsFor(
-      Map<ExplainTimings.Type, TimingData> timings,
-      Explain.Verbosity verbosity) {
+      Map<ExplainTimings.Type, TimingData> timings, Explain.Verbosity verbosity) {
     return switch (verbosity) {
       case QUERY_PLANNER -> Optional.empty();
       case EXECUTION_STATS, ALL_PLANS_EXECUTION ->
@@ -103,10 +102,8 @@ public class QueryExplainInformationCreator {
     };
   }
 
-  private static ImmutableMap<ExplainTimings.Type, TimingData>
-      mergeKnnQueryTiming(
-          QueryExecutionContextNode node,
-          Map<ExplainTimings.Type, TimingData> originalTimings) {
+  private static ImmutableMap<ExplainTimings.Type, TimingData> mergeKnnQueryTiming(
+      QueryExecutionContextNode node, Map<ExplainTimings.Type, TimingData> originalTimings) {
     var mustChildren = node.getChildren().map(QueryChildren::must);
     var filterChildren = node.getChildren().map(QueryChildren::filter);
     return Streams.concat(

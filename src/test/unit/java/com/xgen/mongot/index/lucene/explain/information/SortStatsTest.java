@@ -75,9 +75,7 @@ public class SortStatsTest {
     /** Test data. */
     @Parameterized.Parameters(name = "{0}")
     public static Iterable<BsonDeserializationTestSuite.TestSpecWrapper<SortStats>> data() {
-      return TEST_SUITE.withExamples(
-          full(),
-          fullWithUsesIndexSort());
+      return TEST_SUITE.withExamples(full(), fullWithUsesIndexSort());
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<SortStats> full() {
@@ -91,8 +89,7 @@ public class SortStatsTest {
               .build());
     }
 
-    private static BsonDeserializationTestSuite.ValidSpec<SortStats>
-        fullWithUsesIndexSort() {
+    private static BsonDeserializationTestSuite.ValidSpec<SortStats> fullWithUsesIndexSort() {
       return BsonDeserializationTestSuite.TestSpec.valid(
           "full-with-uses-index-sort",
           SortStatsBuilder.builder()
@@ -121,9 +118,7 @@ public class SortStatsTest {
     /** Test data. */
     @Parameterized.Parameters(name = "{0}")
     public static Iterable<BsonSerializationTestSuite.TestSpec<SortStats>> data() {
-      return List.of(
-          full(),
-          fullWithUsesIndexSort());
+      return List.of(full(), fullWithUsesIndexSort());
     }
 
     @Test
@@ -142,8 +137,7 @@ public class SortStatsTest {
               .build());
     }
 
-    private static BsonSerializationTestSuite.TestSpec<SortStats>
-        fullWithUsesIndexSort() {
+    private static BsonSerializationTestSuite.TestSpec<SortStats> fullWithUsesIndexSort() {
       return BsonSerializationTestSuite.TestSpec.create(
           "full-with-uses-index-sort",
           SortStatsBuilder.builder()

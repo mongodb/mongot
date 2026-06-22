@@ -16,9 +16,7 @@ public record HysteresisConfig(double openThreshold, double closeThreshold)
         Field.builder("closeThreshold").doubleField().required();
   }
 
-  public static HysteresisConfig fromBson(DocumentParser parser)
-      throws
-      BsonParseException {
+  public static HysteresisConfig fromBson(DocumentParser parser) throws BsonParseException {
     return new HysteresisConfig(
         parser.getField(Fields.OPEN_THRESHOLD).unwrap(),
         parser.getField(Fields.CLOSE_THRESHOLD).unwrap());

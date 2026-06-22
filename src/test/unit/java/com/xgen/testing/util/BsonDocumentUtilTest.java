@@ -26,7 +26,7 @@ public class BsonDocumentUtilTest {
 
     assertEquals(
         "RawBsonDocument(length=14 but wrote 270!: NULL '?oo'=BsonNull, BINARY ''=-- "
-        + "While decoding a BSON document 4 bytes were required, but only 3 remain",
+            + "While decoding a BSON document 4 bytes were required, but only 3 remain",
         BsonDocumentUtil.decodeCorruptDocument(raw));
   }
 }

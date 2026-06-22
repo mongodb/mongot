@@ -38,8 +38,7 @@ public class VectorEmbeddedOptionsTest {
         assertThrows(BsonParseException.class, () -> VectorEmbeddedOptions.fromBson(parser));
     assertThat(e)
         .hasMessageThat()
-        .isEqualTo(
-            "scoreMode: \"sum\" is not supported. Accepted values are \"max\" or \"avg\"");
+        .isEqualTo("scoreMode: \"sum\" is not supported. Accepted values are \"max\" or \"avg\"");
   }
 
   @Test
@@ -70,8 +69,7 @@ public class VectorEmbeddedOptionsTest {
 
   @Test
   public void testRoundTripMax() throws BsonParseException {
-    VectorEmbeddedOptions original =
-        new VectorEmbeddedOptions(VectorEmbeddedOptions.ScoreMode.MAX);
+    VectorEmbeddedOptions original = new VectorEmbeddedOptions(VectorEmbeddedOptions.ScoreMode.MAX);
     BsonDocument doc = original.toBson();
     VectorEmbeddedOptions parsed =
         VectorEmbeddedOptions.fromBson(BsonDocumentParser.fromRoot(doc).build());
@@ -81,8 +79,7 @@ public class VectorEmbeddedOptionsTest {
 
   @Test
   public void testRoundTripAvg() throws BsonParseException {
-    VectorEmbeddedOptions original =
-        new VectorEmbeddedOptions(VectorEmbeddedOptions.ScoreMode.AVG);
+    VectorEmbeddedOptions original = new VectorEmbeddedOptions(VectorEmbeddedOptions.ScoreMode.AVG);
     BsonDocument doc = original.toBson();
     VectorEmbeddedOptions parsed =
         VectorEmbeddedOptions.fromBson(BsonDocumentParser.fromRoot(doc).build());
@@ -90,4 +87,3 @@ public class VectorEmbeddedOptionsTest {
     assertThat(parsed).isEqualTo(original);
   }
 }
-

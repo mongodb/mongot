@@ -1,7 +1,5 @@
 package com.xgen.mongot.util.bson;
 
-
-
 import com.google.common.annotations.VisibleForTesting;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -11,45 +9,36 @@ import org.bson.BSONException;
 import org.bson.BsonBinary;
 
 /**
- * Class to parse bson vector data type. This class assumes the following specification for the
- * byte arrangement of bson vectors
+ * Class to parse bson vector data type. This class assumes the following specification for the byte
+ * arrangement of bson vectors
  *
- * <p>binary  ::= int32 subtype (byte*)       From https://bsonspec.org/spec.html
- *             ^
- *    number of bytes in (byte*)
+ * <p>binary ::= int32 subtype (byte*) From https://bsonspec.org/spec.html ^ number of bytes in
+ * (byte*)
  *
- * <p>subtype ::= unsigned_byte(9)            New bson vector sub-type within bson binary
+ * <p>subtype ::= unsigned_byte(9) New bson vector sub-type within bson binary
  *
  * <p>The first two bytes of the (byte*) indicate the vector data type and any padding added at the
  * end. In the first version, we support vector data types of binary (1 bit), int8 (signed 8 bit
  * int), and float32 (32 bit floating point number).
  *
  * <p>The representation of the first two bytes is shown below
- * +---------------------------------------------------------------+
- * |           1st byte            |           2nd byte            |
- * |---------------------------------------------------------------|
- * | dtype         |element size   | empty             | padding   |
- * |---------------|-----------------------------------|-----------|
- * |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |
- * +---------------------------------------------------------------+
- * The first byte (dtype + element size) is used to determine the data type of the bson vector.
- * The lower 3 bits of the second byte are used for padding.
- * The padding is added in the event of fractional bytes. The padding value indicates the number
- * of elements to ignore at the end.
+ * +---------------------------------------------------------------+ | 1st byte | 2nd byte |
+ * |---------------------------------------------------------------| | dtype |element size | empty |
+ * padding | |---------------|-----------------------------------|-----------| | | | | | | | | | | |
+ * | | | | | | +---------------------------------------------------------------+ The first byte
+ * (dtype + element size) is used to determine the data type of the bson vector. The lower 3 bits of
+ * the second byte are used for padding. The padding is added in the event of fractional bytes. The
+ * padding value indicates the number of elements to ignore at the end.
  *
- * <p>As mentioned above, in the first version we only support 3 data types.
- * The corresponding values of the first byte is listed in the table below
- * +-----------------------------------------------+
- * | binary (1 bit)                   |  0x10      |
- * |-----------------------------------------------|
- * | int8 (signed 8 bit int)          |  0x03      |
- * |-----------------------------------------------|
- * | float32 (32 bit floating point)  |  0x27      |
+ * <p>As mentioned above, in the first version we only support 3 data types. The corresponding
+ * values of the first byte is listed in the table below
+ * +-----------------------------------------------+ | binary (1 bit) | 0x10 |
+ * |-----------------------------------------------| | int8 (signed 8 bit int) | 0x03 |
+ * |-----------------------------------------------| | float32 (32 bit floating point) | 0x27 |
  * +-----------------------------------------------+
  *
- * <p>All bytes are assumed to be in little-endian byte order
- * For more info about the bson vector spec see the doc linked here -
- * https://jira.mongodb.org/browse/WRITING-17964
+ * <p>All bytes are assumed to be in little-endian byte order For more info about the bson vector
+ * spec see the doc linked here - https://jira.mongodb.org/browse/WRITING-17964
  */
 // TODO(CLOUDP-280897): Revisit exception handling/throwing after migrating to new java driver
 // version
@@ -61,8 +50,8 @@ public class BsonVectorParser {
   @SuppressWarnings("checkstyle:MissingJavadocMethod")
   public static Vector parse(BsonBinary bsonBinary) {
     if (bsonBinary.getType() != VECTOR_SUB_TYPE) {
-      throw new BSONException("BSON binary subtype should be vector(0x09) but got "
-          + bsonBinary.getType());
+      throw new BSONException(
+          "BSON binary subtype should be vector(0x09) but got " + bsonBinary.getType());
     }
     byte[] bsonByteArray = bsonBinary.getData();
     if (bsonByteArray == null) {
@@ -103,7 +92,7 @@ public class BsonVectorParser {
     int bufferSize = BSON_VECTOR_HEADER_SIZE + Float.BYTES * vector.numDimensions();
     ByteBuffer buffer = ByteBuffer.allocate(bufferSize).order(ByteOrder.LITTLE_ENDIAN);
     buffer.put(VectorDataType.FLOAT32_VECTOR_DATA_TYPE.getValue());
-    buffer.put((byte) 0x00);  // padding is always 0 in case of float32 vectors
+    buffer.put((byte) 0x00); // padding is always 0 in case of float32 vectors
     if (!vector.isEmpty()) {
       FloatBuffer floatBuffer = FloatBuffer.wrap(vector.asFloatVector().getFloatVector());
       while (floatBuffer.hasRemaining()) {
@@ -117,7 +106,7 @@ public class BsonVectorParser {
     int bufferSize = BSON_VECTOR_HEADER_SIZE + vector.numDimensions();
     ByteBuffer buffer = ByteBuffer.allocate(bufferSize).order(ByteOrder.LITTLE_ENDIAN);
     buffer.put(VectorDataType.BYTE_VECTOR_DATA_TYPE.getValue());
-    buffer.put((byte) 0x00);  // padding is always 0 in case of int8 vectors
+    buffer.put((byte) 0x00); // padding is always 0 in case of int8 vectors
     if (!vector.isEmpty()) {
       buffer.put(vector.asByteVector().getByteVector());
     }
@@ -137,7 +126,7 @@ public class BsonVectorParser {
 
   @VisibleForTesting
   static int getPadding(byte paddingByte) {
-    return paddingByte & 0x07;    // only lower 3 bits are used for padding
+    return paddingByte & 0x07; // only lower 3 bits are used for padding
   }
 
   private static Vector parseFloatVector(ByteBuffer bsonInput, int padding) {

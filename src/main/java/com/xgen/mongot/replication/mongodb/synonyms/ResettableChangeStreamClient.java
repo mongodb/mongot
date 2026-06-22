@@ -14,27 +14,27 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * This class represents a {@link ChangeStreamMongoClient} where the initial
- * {@link SynonymMappingHighWaterMark} can be reset after creation to skip ahead in the change
- * stream.
- * <br>
+ * This class represents a {@link ChangeStreamMongoClient} where the initial {@link
+ * SynonymMappingHighWaterMark} can be reset after creation to skip ahead in the change stream. <br>
  * <br>
  *
  * <p>This class creates a {@link ChangeStreamMongoClient} and keeps re-using it for subsequent
  * requests until {@link #reset(SynonymMappingHighWaterMark)} ()} is called. At that time, the
  * delegate client is closed. After a client is closed, the next call to {@link #getNext()} will
- * open a new cursor using the new {@link SynonymMappingHighWaterMark}.
+ * open a new cursor using the new {@link SynonymMappingHighWaterMark}. <br>
  * <br>
- * <br>
- * <h3> Why can't we re-use a cursor indefinitely? </h3>
- * Once a change is detected, {@link SynonymMappingManager} will do a full collection scan, which
+ *
+ * <h3>Why can't we re-use a cursor indefinitely? </h3>
+ *
+ * <p>Once a change is detected, {@link SynonymMappingManager} will do a full collection scan, which
  * yields a new {@link SynonymMappingHighWaterMark}. We need to close and re-open a new client to
- * skip to the end of the change stream.
+ * skip to the end of the change stream. <br>
  * <br>
- * <br>
- * <h3> Why not just create a client and kill the cursor after each request?</h3>
- * This works correctly, however, there is a race condition on sharded clusters where mongos returns
- * an empty batch and we kill the cursor while a mongod shard is still working. This creates
+ *
+ * <h3>Why not just create a client and kill the cursor after each request?</h3>
+ *
+ * <p>This works correctly, however, there is a race condition on sharded clusters where mongos
+ * returns an empty batch and we kill the cursor while a mongod shard is still working. This creates
  * excessive error messages in mongod logs.
  */
 @ThreadSafe
@@ -66,14 +66,13 @@ public class ResettableChangeStreamClient implements ChangeStreamMongoClient<Syn
    *
    * <p>If the last-used client was invalidated, a new client is created with the latest watermark
    *
-   * <p>Note: On sharded clusters, the first call to {@code getNext()} will only establish a
-   * cursor and never return results. We don't explicitly handle that here because the client is
-   * expected to be reused for many requests.
+   * <p>Note: On sharded clusters, the first call to {@code getNext()} will only establish a cursor
+   * and never return results. We don't explicitly handle that here because the client is expected
+   * to be reused for many requests.
    *
-   * @throws SynonymSyncException if either a client is ready and calling
-   *                              {@link ChangeStreamMongoClient#getNext()} threw a
-   *                              {@link SynonymSyncException} or if no cached client was available
-   *                              and a SynonymSyncException was thrown during creation.
+   * @throws SynonymSyncException if either a client is ready and calling {@link
+   *     ChangeStreamMongoClient#getNext()} threw a {@link SynonymSyncException} or if no cached
+   *     client was available and a SynonymSyncException was thrown during creation.
    */
   public synchronized ChangeStreamBatch getNext() throws SynonymSyncException {
     if (this.client.isEmpty()) {
@@ -122,5 +121,4 @@ public class ResettableChangeStreamClient implements ChangeStreamMongoClient<Syn
         SynonymSyncMongoClient.changeStreamAggregateCommand(this.definition, this.mark);
     return this.mongoClient.getChangeStreamClient(aggregateCommand, this.mongoNamespace);
   }
-
 }

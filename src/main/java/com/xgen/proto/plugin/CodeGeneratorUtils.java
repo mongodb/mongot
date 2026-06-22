@@ -146,7 +146,8 @@ public class CodeGeneratorUtils {
   public static CodeOutput.Scope openMergeBsonFromReader(
       Descriptor messageDescriptor, CodeOutput output) {
     return output.openScope(
-        "@Override public Builder mergeBsonFrom(org.bson.BsonReader reader%s) throws com.xgen.proto.BsonProtoParseException",
+        "@Override public Builder mergeBsonFrom(org.bson.BsonReader reader%s) throws"
+            + " com.xgen.proto.BsonProtoParseException",
         getMessageType(messageDescriptor) != MessageType.VALUE
             ? ", boolean allowUnknownFields"
             : "");
@@ -202,7 +203,8 @@ public class CodeGeneratorUtils {
     String valueClassName = getBsonValueClassName(expectedType);
     try (var mergeFrom =
         builderOutput.openScope(
-            "@Override public Builder mergeBsonFrom(org.bson.BsonValue value) throws com.xgen.proto.BsonProtoParseException")) {
+            "@Override public Builder mergeBsonFrom(org.bson.BsonValue value) throws"
+                + " com.xgen.proto.BsonProtoParseException")) {
       generateValidateType(expectedType, "value.getBsonType()", messageName, mergeFrom);
       mergeFrom.writeLine("return mergeBsonFrom((%s) value);", valueClassName);
     }
@@ -211,7 +213,8 @@ public class CodeGeneratorUtils {
   private static void addMergeFromHelpers(Descriptor messageDescriptor, CodeOutput output) {
     try (var mergeFromReaderScope =
         output.openScope(
-            "@Override public Builder mergeBsonFrom(org.bson.BsonReader reader) throws com.xgen.proto.BsonProtoParseException")) {
+            "@Override public Builder mergeBsonFrom(org.bson.BsonReader reader) throws"
+                + " com.xgen.proto.BsonProtoParseException")) {
       mergeFromReaderScope.writeLine("return mergeBsonFrom(reader, false);");
     }
 
@@ -224,14 +227,16 @@ public class CodeGeneratorUtils {
     } else {
       try (var mergeFromDocScope =
           output.openScope(
-              "@Override public Builder mergeBsonFrom(org.bson.BsonDocument doc) throws com.xgen.proto.BsonProtoParseException")) {
+              "@Override public Builder mergeBsonFrom(org.bson.BsonDocument doc) throws"
+                  + " com.xgen.proto.BsonProtoParseException")) {
         mergeFromDocScope.writeLine("return mergeBsonFrom(new org.bson.BsonDocumentReader(doc));");
       }
     }
 
     try (var mergeFromValueScope =
         output.openScope(
-            "@Override public Builder mergeBsonFrom(org.bson.BsonValue value) throws com.xgen.proto.BsonProtoParseException")) {
+            "@Override public Builder mergeBsonFrom(org.bson.BsonValue value) throws"
+                + " com.xgen.proto.BsonProtoParseException")) {
       generateValidateType(
           BsonType.DOCUMENT,
           "value.getBsonType()",
@@ -242,7 +247,8 @@ public class CodeGeneratorUtils {
 
     try (var mergeFromBufScope =
         output.openScope(
-            "@Override public Builder mergeBsonFrom(java.nio.ByteBuffer buf) throws com.xgen.proto.BsonProtoParseException")) {
+            "@Override public Builder mergeBsonFrom(java.nio.ByteBuffer buf) throws"
+                + " com.xgen.proto.BsonProtoParseException")) {
       mergeFromBufScope.writeLine("return mergeBsonFrom(new org.bson.BsonBinaryReader(buf));");
     }
   }
@@ -250,14 +256,16 @@ public class CodeGeneratorUtils {
   private static void addParseFromHelpers(Descriptor messageDescriptor, CodeOutput output) {
     try (var parseFromReaderScope =
         output.openScope(
-            "public static %s parseBsonFrom(org.bson.BsonReader reader) throws com.xgen.proto.BsonProtoParseException",
+            "public static %s parseBsonFrom(org.bson.BsonReader reader) throws"
+                + " com.xgen.proto.BsonProtoParseException",
             messageDescriptor.getName())) {
       parseFromReaderScope.writeLine("return parseBsonFrom(reader, false);");
     }
 
     try (var parseFromReaderUnknownScope =
         output.openScope(
-            "public static %s parseBsonFrom(org.bson.BsonReader reader, boolean allowUnknownFields) throws com.xgen.proto.BsonProtoParseException",
+            "public static %s parseBsonFrom(org.bson.BsonReader reader, boolean allowUnknownFields)"
+                + " throws com.xgen.proto.BsonProtoParseException",
             messageDescriptor.getName())) {
       parseFromReaderUnknownScope.writeLine(
           "return newBuilder().mergeBsonFrom(reader, allowUnknownFields).build();");
@@ -273,7 +281,8 @@ public class CodeGeneratorUtils {
     } else {
       try (var parseFromDocScope =
           output.openScope(
-              "public static %s parseBsonFrom(org.bson.BsonDocument doc) throws com.xgen.proto.BsonProtoParseException",
+              "public static %s parseBsonFrom(org.bson.BsonDocument doc) throws"
+                  + " com.xgen.proto.BsonProtoParseException",
               messageDescriptor.getName())) {
         parseFromDocScope.writeLine("return parseBsonFrom(new org.bson.BsonDocumentReader(doc));");
       }
@@ -281,7 +290,8 @@ public class CodeGeneratorUtils {
 
     try (var parseFromBinScope =
         output.openScope(
-            "public static %s parseBsonFrom(java.nio.ByteBuffer buf) throws com.xgen.proto.BsonProtoParseException",
+            "public static %s parseBsonFrom(java.nio.ByteBuffer buf) throws"
+                + " com.xgen.proto.BsonProtoParseException",
             messageDescriptor.getName())) {
       parseFromBinScope.writeLine("return parseBsonFrom(new org.bson.BsonBinaryReader(buf));");
     }
@@ -391,7 +401,8 @@ public class CodeGeneratorUtils {
         scope.writeLine("var binValue = reader.readBinaryData();");
         try (var ifScope = scope.openScope("if (binValue.getType() != 0)")) {
           ifScope.writeLine(
-              "throw new com.xgen.proto.BsonProtoParseException(\"non-zero binary sub-type for bytes field %s\");",
+              "throw new com.xgen.proto.BsonProtoParseException(\"non-zero binary sub-type for"
+                  + " bytes field %s\");",
               field.getFullName());
         }
         scope.writeLine("var value = com.google.protobuf.ByteString.copyFrom(binValue.getData());");
@@ -504,7 +515,8 @@ public class CodeGeneratorUtils {
             "if (!%s.getBsonValueTypes().contains(reader.getCurrentBsonType()))",
             messageJavaType)) {
       validateScope.writeLine(
-          "com.xgen.proto.BsonProtoParseException.throwTypeMismatchException(%s.getBsonValueTypes(), reader.getCurrentBsonType(), \"%s\");",
+          "com.xgen.proto.BsonProtoParseException.throwTypeMismatchException(%s.getBsonValueTypes(),"
+              + " reader.getCurrentBsonType(), \"%s\");",
           messageJavaType, message);
     }
   }
@@ -529,7 +541,8 @@ public class CodeGeneratorUtils {
       EnumSet<BsonType> allowedTypes, CodeOutput.Scope messageScope) {
     messageScope.writeLine(
         String.format(
-            "private static java.util.EnumSet<org.bson.BsonType> BSON_VALUE_TYPES = java.util.EnumSet.of(%s);",
+            "private static java.util.EnumSet<org.bson.BsonType> BSON_VALUE_TYPES ="
+                + " java.util.EnumSet.of(%s);",
             allowedTypes.stream()
                 .map(t -> String.format("org.bson.BsonType.%s", t.name()))
                 .collect(Collectors.joining(", "))));

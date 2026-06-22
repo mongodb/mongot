@@ -12,9 +12,9 @@ public final class RegularBlockingRequestConfigMapper {
   private RegularBlockingRequestConfigMapper() {}
 
   /**
-   * Builds {@link RegularBlockingRequestSettings} from the parsed
-   * {@code searchQueryAdmissionControl} block. When the block is absent,
-   * {@link RegularBlockingRequestSettings#create} falls back to the unbounded-caching defaults.
+   * Builds {@link RegularBlockingRequestSettings} from the parsed {@code
+   * searchQueryAdmissionControl} block. When the block is absent, {@link
+   * RegularBlockingRequestSettings#create} falls back to the unbounded-caching defaults.
    */
   public static RegularBlockingRequestSettings createRegularBlockingRequestSettings(
       Optional<RegularBlockingRequestConfig> config) {

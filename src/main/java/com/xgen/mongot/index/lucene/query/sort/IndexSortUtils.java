@@ -10,18 +10,14 @@ import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.search.Sort;
 import org.apache.lucene.search.SortField;
 
-/**
- * Utility class for index sort operation.
- */
+/** Utility class for index sort operation. */
 public class IndexSortUtils {
 
   /**
    * Extracts the index sort metadata from the first leaf reader.
    *
-   * <p>
-   * Since index sort is applied uniformly across all segments in index, checking the first
-   * leaf reader is sufficient. If the first segment has no index sort, then no segment has
-   * index sort.
+   * <p>Since index sort is applied uniformly across all segments in index, checking the first leaf
+   * reader is sufficient. If the first segment has no index sort, then no segment has index sort.
    *
    * @param reader the index reader
    * @return the index sort metadata
@@ -39,8 +35,7 @@ public class IndexSortUtils {
    * <p>this method is the same as TopFieldCollector#canEarlyTerminateOnPrefix.
    */
   public static boolean usesIndexSort(
-      org.apache.lucene.search.Sort querySort,
-      org.apache.lucene.search.Sort indexSort) {
+      org.apache.lucene.search.Sort querySort, org.apache.lucene.search.Sort indexSort) {
     SortField[] querySortFields = querySort.getSort();
     SortField[] indexSortFields = indexSort.getSort();
 
@@ -49,8 +44,8 @@ public class IndexSortUtils {
       return false;
     }
 
-    return Arrays.asList(querySortFields).equals(
-        Arrays.asList(indexSortFields).subList(0, querySortFields.length));
+    return Arrays.asList(querySortFields)
+        .equals(Arrays.asList(indexSortFields).subList(0, querySortFields.length));
   }
 
   /**
@@ -82,22 +77,22 @@ public class IndexSortUtils {
    * that each query field's base field path (stripped of the {@code $type:} prefix) matches the
    * corresponding value field at the same position.
    *
-   * <p>Comparison uses the base field path rather than the full Lucene field name so that
-   * per-shard type differences (e.g., one shard has INT64 data, another has TOKEN data) do not
-   * produce inconsistent expansion decisions across shards.
+   * <p>Comparison uses the base field path rather than the full Lucene field name so that per-shard
+   * type differences (e.g., one shard has INT64 data, another has TOKEN data) do not produce
+   * inconsistent expansion decisions across shards.
    *
    * @return {@code true} if the expanded query sort would be a valid prefix of the index sort
    */
   public static boolean expandedSortAlignsWithIndexSort(
-      List<MongotSortField> queryFields,
-      Sort indexSort) {
+      List<MongotSortField> queryFields, Sort indexSort) {
     SortField[] allIndexFields = indexSort.getSort();
     String nullnessPrefix = FieldName.MetaField.NULLNESS.getLuceneFieldName();
 
-    List<String> indexValueNames = Arrays.stream(allIndexFields)
-        .map(SortField::getField)
-        .filter(name -> name == null || !name.startsWith(nullnessPrefix))
-        .toList();
+    List<String> indexValueNames =
+        Arrays.stream(allIndexFields)
+            .map(SortField::getField)
+            .filter(name -> name == null || !name.startsWith(nullnessPrefix))
+            .toList();
 
     if (queryFields.size() > indexValueNames.size()) {
       return false;
@@ -106,11 +101,9 @@ public class IndexSortUtils {
     for (int i = 0; i < queryFields.size(); i++) {
       MongotSortField field = queryFields.get(i);
       String indexFieldName = indexValueNames.get(i);
-      Optional<FieldName.TypeField> indexType =
-          FieldName.TypeField.getTypeOf(indexFieldName);
+      Optional<FieldName.TypeField> indexType = FieldName.TypeField.getTypeOf(indexFieldName);
       if (indexType.isPresent()) {
-        if (!indexType.get().stripPrefix(indexFieldName)
-            .equals(field.field().toString())) {
+        if (!indexType.get().stripPrefix(indexFieldName).equals(field.field().toString())) {
           return false;
         }
       } else if (!indexFieldName.equals(field.field().toString())) {

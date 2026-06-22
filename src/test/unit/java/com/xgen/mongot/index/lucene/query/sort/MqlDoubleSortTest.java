@@ -210,7 +210,7 @@ public class MqlDoubleSortTest {
               new MongotSortField(FieldPath.newRoot("field"), UserFieldSortOptions.DEFAULT_ASC),
               true,
               Optional.empty(),
-                  false);
+              false);
       Query query = new MatchAllDocsQuery();
       Sort sort = new Sort(sortFields);
 
@@ -260,7 +260,7 @@ public class MqlDoubleSortTest {
                   FieldPath.newRoot("field"), SortPruningTestUtils.DEFAULT_ASC_NULLS_HIGHEST),
               true,
               Optional.empty(),
-                  false);
+              false);
       Query query = new MatchAllDocsQuery();
       Sort sort = new Sort(sortFields);
 
@@ -309,7 +309,7 @@ public class MqlDoubleSortTest {
               new MongotSortField(FieldPath.newRoot("field"), UserFieldSortOptions.DEFAULT_ASC),
               true,
               Optional.empty(),
-                  false);
+              false);
       Query query = new MatchAllDocsQuery();
       Sort sort = new Sort(sortFields);
 
@@ -342,7 +342,7 @@ public class MqlDoubleSortTest {
           new MongotSortField(FieldPath.newRoot("field"), options),
           true,
           Optional.empty(),
-              false);
+          false);
     }
 
     private Object[] runSortQuery(SortField sortField) throws IOException {
@@ -428,8 +428,7 @@ public class MqlDoubleSortTest {
                 .collect(Collectors.toList());
         IndexSearcher searcher = SortPruningTestUtils.indexDocs(docs, writer, 7000);
         SortField sortField =
-            new MqlDoubleSort(FIELD_TYPE, mongotSortField, enablePruning, Optional.empty(),
-                false);
+            new MqlDoubleSort(FIELD_TYPE, mongotSortField, enablePruning, Optional.empty(), false);
         Sort sort = new Sort(new ExplainSortField(sortField, explainer));
         int numHits = 3;
         int totalHitsThreshold = 3;
@@ -476,8 +475,7 @@ public class MqlDoubleSortTest {
                 .collect(Collectors.toList());
         IndexSearcher searcher = SortPruningTestUtils.indexDocs(docs, writer, 7000);
         SortField sortField =
-            new MqlDoubleSort(FIELD_TYPE, mongotSortField, enablePruning, Optional.empty(),
-                false);
+            new MqlDoubleSort(FIELD_TYPE, mongotSortField, enablePruning, Optional.empty(), false);
         Sort sort = new Sort(new ExplainSortField(sortField, explainer));
         int numHits = 3;
         int totalHitsThreshold = 3;
@@ -513,7 +511,7 @@ public class MqlDoubleSortTest {
               new MongotSortField(FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
-                  false);
+              false);
       Sort sort = new Sort(sortField);
       int numHits = 3;
       int totalHitsThreshold = 3;
@@ -556,7 +554,7 @@ public class MqlDoubleSortTest {
               new MongotSortField(FIELD_NAME, SortPruningTestUtils.DEFAULT_ASC_NULLS_HIGHEST),
               enablePruning,
               Optional.empty(),
-                  false);
+              false);
       Sort sort = new Sort(sortField);
       int numHits = 3;
       int totalHitsThreshold = 3;
@@ -600,7 +598,7 @@ public class MqlDoubleSortTest {
               new MongotSortField(FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
-                  false);
+              false);
       Sort sort = new Sort(sortField, FIELD_SCORE);
       int numHits = 3;
       int totalHitsThreshold = 3;
@@ -632,7 +630,7 @@ public class MqlDoubleSortTest {
               new MongotSortField(FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
-                  false);
+              false);
       Sort sort = new Sort(FIELD_SCORE, sortField);
       int numHits = 3;
       int totalHitsThreshold = 3;
@@ -662,7 +660,7 @@ public class MqlDoubleSortTest {
               new MongotSortField(FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
-                  false);
+              false);
       Sort sort = new Sort(sortField);
       int numHits = 3;
       int totalHitsThreshold = 3;
@@ -694,7 +692,7 @@ public class MqlDoubleSortTest {
               new MongotSortField(FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
-                  false);
+              false);
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(new Sort(ascSortField), numHits, null, totalHitsThreshold);
       TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
@@ -735,7 +733,7 @@ public class MqlDoubleSortTest {
               new MongotSortField(FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
-                  false);
+              false);
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(new Sort(ascSortField), numHits, null, totalHitsThreshold);
       TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
@@ -785,7 +783,7 @@ public class MqlDoubleSortTest {
               new MongotSortField(FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
-                  false);
+              false);
       // Compound sort
       Sort sort = new Sort(ascSortField, FIELD_SCORE);
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
@@ -815,7 +813,7 @@ public class MqlDoubleSortTest {
               new MongotSortField(FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
-                  false);
+              false);
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(new Sort(ascSortField), numHits, null, totalHitsThreshold);
       TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
@@ -847,7 +845,7 @@ public class MqlDoubleSortTest {
               new MongotSortField(FIELD_NAME, UserFieldSortOptions.DEFAULT_DESC),
               enablePruning,
               Optional.empty(),
-                  false);
+              false);
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(new Sort(descSortField), numHits, null, totalHitsThreshold);
       TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
@@ -877,7 +875,7 @@ public class MqlDoubleSortTest {
               new MongotSortField(FIELD_NAME, SortPruningTestUtils.DEFAULT_ASC_NULLS_HIGHEST),
               enablePruning,
               Optional.empty(),
-                  false);
+              false);
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(new Sort(descSortField), numHits, null, totalHitsThreshold);
       TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
@@ -942,7 +940,7 @@ public class MqlDoubleSortTest {
               new MongotSortField(FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
-                  false);
+              false);
       Sort sort = new Sort(ascSortField);
       TopDocs topDocs =
           searcher.search(
@@ -994,7 +992,7 @@ public class MqlDoubleSortTest {
               new MongotSortField(FIELD_NAME, SortPruningTestUtils.DEFAULT_ASC_NULLS_HIGHEST),
               enablePruning,
               Optional.empty(),
-                  false);
+              false);
       Sort sort = new Sort(ascSortField);
       TopDocs topDocs =
           searcher.search(
@@ -1074,7 +1072,7 @@ public class MqlDoubleSortTest {
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
-                  false);
+              false);
       Sort sort = new Sort(ascSortField);
       TopDocs topDocs =
           searcher.search(
@@ -1155,7 +1153,7 @@ public class MqlDoubleSortTest {
                   new UserFieldSortOptions(SortOrder.DESC, NullEmptySortPosition.HIGHEST)),
               enablePruning,
               Optional.empty(),
-                  false);
+              false);
       Sort sort = new Sort(descSortField);
       TopDocs topDocs =
           searcher.search(
@@ -1233,7 +1231,7 @@ public class MqlDoubleSortTest {
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
-                  false);
+              false);
       Sort sort = new Sort(ascSortField);
       TopDocs topDocs =
           searcher.search(
@@ -1304,7 +1302,7 @@ public class MqlDoubleSortTest {
                   new UserFieldSortOptions(SortOrder.DESC, NullEmptySortPosition.HIGHEST)),
               enablePruning,
               Optional.empty(),
-                  false);
+              false);
       Sort sort = new Sort(descSortField);
       TopDocs topDocs =
           searcher.search(
@@ -1377,7 +1375,7 @@ public class MqlDoubleSortTest {
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_DESC),
               enablePruning,
               Optional.empty(),
-                  false);
+              false);
       Sort sort = new Sort(descSortField);
       TopDocs topDocs =
           searcher.search(
@@ -1450,7 +1448,7 @@ public class MqlDoubleSortTest {
               new MongotSortField(FIELD_NAME, UserFieldSortOptions.DEFAULT_DESC),
               enablePruning,
               Optional.empty(),
-                  false);
+              false);
       Sort sort = new Sort(descSortField);
 
       TopDocs topDocs =
@@ -1480,7 +1478,7 @@ public class MqlDoubleSortTest {
               new MongotSortField(FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
-                  false);
+              false);
       Sort sort = new Sort(sortField);
 
       // test that sorting on a single field with equal values uses the optimization

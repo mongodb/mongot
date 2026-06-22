@@ -77,7 +77,7 @@ public class IndexableFieldFactoryTest {
           "a".repeat(MAX_CATEGORY_PATH_LENGTH - facetPath.length() - 1), // 1 char, 1 byte
           "å".repeat(MAX_CATEGORY_PATH_LENGTH - facetPath.length() - 1), // 1 char, 2 bytes
           "🤦".repeat((MAX_CATEGORY_PATH_LENGTH - facetPath.length() - 1) / 2) // 2 chars, 4 bytes
-      );
+          );
 
   @DataPoints("invalidFacet")
   public static final ImmutableList<String> invalidFacets =

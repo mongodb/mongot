@@ -15,8 +15,7 @@ class BinaryQuantizationUtils {
 
   /**
    * Compress a vector by packing bits. Bits will be packed in order left-to-right. The final byte
-   * of the compressed vector will contain padding bits if `raw.length` isn't a multiple of
-   * 8.
+   * of the compressed vector will contain padding bits if `raw.length` isn't a multiple of 8.
    *
    * @param raw the original uncompressed vector.
    * @param compressed A buffer to store the compressed result. The buffer size must be exactly

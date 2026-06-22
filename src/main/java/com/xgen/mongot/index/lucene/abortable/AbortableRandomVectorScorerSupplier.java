@@ -54,6 +54,7 @@ public class AbortableRandomVectorScorerSupplier implements CloseableRandomVecto
 
   private final CloseableRandomVectorScorerSupplier delegate;
   private final MergePolicy.OneMerge merge;
+
   /**
    * Shared counter across all {@link AbortableRandomVectorScorer} instances created by this
    * supplier. HNSW graph building creates many short-lived scorers (each via {@code scorer(ord)}),
@@ -163,8 +164,7 @@ public class AbortableRandomVectorScorerSupplier implements CloseableRandomVecto
   private static void checkAborted(MergePolicy.OneMerge merge)
       throws MergePolicy.MergeAbortedException {
     if (merge.isAborted()) {
-      String message =
-          "Merge aborted during HNSW graph building for segments: " + merge.segments;
+      String message = "Merge aborted during HNSW graph building for segments: " + merge.segments;
       LOG.info("HNSW graph building interrupted: merge aborted, segments: {}", merge.segments);
       throw new MergePolicy.MergeAbortedException(message);
     }
@@ -175,10 +175,10 @@ public class AbortableRandomVectorScorerSupplier implements CloseableRandomVecto
    *
    * <p>This wrapper increments a counter shared with its parent supplier on every {@code score()}
    * call and checks {@link MergePolicy.OneMerge#isAborted()} when the counter reaches {@link
-   * #CHECK_ABORT_INTERVAL_SCORE_CALLS}. The counter is shared (rather than per-scorer) because
-   * HNSW graph building creates many short-lived scorers, some of which only issue a handful of
-   * {@code score()} calls; a per-scorer counter could fail to reach the threshold and miss abort
-   * detection entirely.
+   * #CHECK_ABORT_INTERVAL_SCORE_CALLS}. The counter is shared (rather than per-scorer) because HNSW
+   * graph building creates many short-lived scorers, some of which only issue a handful of {@code
+   * score()} calls; a per-scorer counter could fail to reach the threshold and miss abort detection
+   * entirely.
    */
   static class AbortableRandomVectorScorer implements RandomVectorScorer {
     private final RandomVectorScorer delegate;
@@ -237,8 +237,8 @@ public class AbortableRandomVectorScorerSupplier implements CloseableRandomVecto
    * against the (uncommon) case where a {@code copy()} implementation owns resources but does not
    * also implement Lucene's {@link CloseableRandomVectorScorerSupplier}: callers that perform an
    * {@code instanceof Closeable} check on the returned supplier can still release those resources.
-   * Per Lucene's contract, callers are not required to close copies, so most code paths will
-   * simply ignore this.
+   * Per Lucene's contract, callers are not required to close copies, so most code paths will simply
+   * ignore this.
    */
   static class AbortableRandomVectorScorerSupplierAdapter
       implements RandomVectorScorerSupplier, Closeable {
@@ -272,4 +272,3 @@ public class AbortableRandomVectorScorerSupplier implements CloseableRandomVecto
     }
   }
 }
-

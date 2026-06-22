@@ -108,7 +108,6 @@ public class Explain {
       }
     }
 
-
     /**
      * Get a typed FeatureExplainer for this query if it exists.
      *

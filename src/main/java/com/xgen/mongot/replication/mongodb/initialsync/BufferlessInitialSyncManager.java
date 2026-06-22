@@ -259,8 +259,7 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
                   .log("finish fsync successfully");
             } catch (MongoCommandException e) {
               this.fsyncFailureDurationTimer.record(fsyncStopwatch.stop().elapsed());
-              String errorCode =
-                  e.getErrorCodeName() != null ? e.getErrorCodeName() : "unknown";
+              String errorCode = e.getErrorCodeName() != null ? e.getErrorCodeName() : "unknown";
               this.metricsFactory
                   .counter(
                       "fsyncError",

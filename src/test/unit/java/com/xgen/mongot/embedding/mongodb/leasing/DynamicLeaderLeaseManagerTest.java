@@ -1615,8 +1615,7 @@ public class DynamicLeaderLeaseManagerTest {
 
     UpdateResult updateResult = mock(UpdateResult.class);
     when(updateResult.getModifiedCount()).thenReturn(1L);
-    when(this.mockCollection.updateOne(any(Bson.class), any(Bson.class)))
-        .thenReturn(updateResult);
+    when(this.mockCollection.updateOne(any(Bson.class), any(Bson.class))).thenReturn(updateResult);
 
     boolean marked = this.leaseManager.markEligibleForCleanup(collectionName, Instant.now());
 
@@ -1637,8 +1636,7 @@ public class DynamicLeaderLeaseManagerTest {
 
     UpdateResult updateResult = mock(UpdateResult.class);
     when(updateResult.getModifiedCount()).thenReturn(0L);
-    when(this.mockCollection.updateOne(any(Bson.class), any(Bson.class)))
-        .thenReturn(updateResult);
+    when(this.mockCollection.updateOne(any(Bson.class), any(Bson.class))).thenReturn(updateResult);
 
     boolean marked = this.leaseManager.markEligibleForCleanup(collectionName, Instant.now());
 

@@ -29,17 +29,16 @@ import org.bson.codecs.DecoderContext;
 
 public class FtdcDecoder {
 
-  /**
-   * Returns FTDC file paths under {@code ftdcDir} that match the requested file type.
-   */
+  /** Returns FTDC file paths under {@code ftdcDir} that match the requested file type. */
   public static List<Path> getFilePaths(Path ftdcDir, FtdcFileType fileTypes) {
     File root = ftdcDir.toFile();
 
-    Predicate<String> fileFilter = switch (fileTypes) {
-      case INTERIM -> fileName -> fileName.startsWith("metrics.interim");
-      case ARCHIVE -> fileName -> !fileName.startsWith("metrics.interim");
-      case ALL     -> fileName -> true;
-    };
+    Predicate<String> fileFilter =
+        switch (fileTypes) {
+          case INTERIM -> fileName -> fileName.startsWith("metrics.interim");
+          case ARCHIVE -> fileName -> !fileName.startsWith("metrics.interim");
+          case ALL -> fileName -> true;
+        };
 
     return Arrays.stream(Optional.ofNullable(root.list()).orElse(new String[0]))
         .filter(fileFilter)
@@ -48,9 +47,7 @@ public class FtdcDecoder {
         .collect(Collectors.toList());
   }
 
-  /**
-   * Reads all FTDC documents from files matching the requested type under {@code ftdcDir}.
-   */
+  /** Reads all FTDC documents from files matching the requested type under {@code ftdcDir}. */
   public static List<BsonDocument> readDocs(Path ftdcDir, FtdcFileType fileTypes) throws Exception {
     return CheckedStream.from(getFilePaths(ftdcDir, fileTypes))
         .mapAndCollectChecked(FtdcDecoder::readDocsFromFile)

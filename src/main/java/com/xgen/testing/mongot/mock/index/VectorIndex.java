@@ -53,7 +53,7 @@ public class VectorIndex {
       mockMaterializedViewAutoEmbeddingVectorDefinition(MOCK_INDEX_ID);
   public static final VectorIndexDefinitionGeneration
       MOCK_AUTO_EMBEDDING_INDEX_DEFINITION_GENERATION =
-      IndexGeneration.mockDefinitionGeneration(MOCK_AUTO_EMBEDDING_INDEX_DEFINITION);
+          IndexGeneration.mockDefinitionGeneration(MOCK_AUTO_EMBEDDING_INDEX_DEFINITION);
   public static final GenerationId MOCK_AUTO_EMBEDDING_INDEX_GENERATION_ID =
       MOCK_AUTO_EMBEDDING_INDEX_DEFINITION_GENERATION.getGenerationId();
   public static final IndexDefinitionGeneration MOCK_VECTOR_INDEX_DEFINITION_GENERATION_CURRENT =
@@ -66,7 +66,7 @@ public class VectorIndex {
       IndexGeneration.mockDefinitionGeneration(MOCK_BINARY_QUANTIZED_VECTOR_DEFINITION);
   public static final VectorIndexDefinitionGeneration
       MOCK_INDEX_DEFINITION_GENERATION_ALL_QUANTIZATION =
-      IndexGeneration.mockDefinitionGeneration(MOCK_ALL_QUANTIZED_VECTOR_DEFINITION);
+          IndexGeneration.mockDefinitionGeneration(MOCK_ALL_QUANTIZED_VECTOR_DEFINITION);
 
   public static final GenerationId MOCK_INDEX_GENERATION_ID =
       MOCK_INDEX_DEFINITION_GENERATION.getGenerationId();
@@ -76,12 +76,11 @@ public class VectorIndex {
       mockVectorDefinitionBuilder().numPartitions(NUM_PARTITIONS).build();
   public static final VectorIndexDefinitionGeneration
       MOCK_VECTOR_MULTI_INDEX_PARTITION_DEFINITION_GENERATION =
-      IndexGeneration.mockDefinitionGeneration(MOCK_VECTOR_MULTI_INDEX_PARTITION_DEFINITION);
+          IndexGeneration.mockDefinitionGeneration(MOCK_VECTOR_MULTI_INDEX_PARTITION_DEFINITION);
 
   /** Creates mock VectorIndex. */
   public static com.xgen.mongot.index.VectorIndex mockIndex(
-      VectorIndexDefinitionGeneration definitionGeneration
-  ) {
+      VectorIndexDefinitionGeneration definitionGeneration) {
     var index = Mockito.mock(com.xgen.mongot.index.VectorIndex.class);
     var definition = definitionGeneration.getIndexDefinition();
 
@@ -105,16 +104,14 @@ public class VectorIndex {
   }
 
   public static com.xgen.mongot.index.InitializedVectorIndex mockInitializedIndex(
-      VectorIndexDefinitionGeneration definitionGeneration
-  ) {
+      VectorIndexDefinitionGeneration definitionGeneration) {
     return mockInitializedIndex(
         new com.xgen.mongot.index.IndexGeneration(
             mockIndex(definitionGeneration), definitionGeneration));
   }
 
   public static com.xgen.mongot.index.InitializedVectorIndex mockInitializedIndex(
-      com.xgen.mongot.index.IndexGeneration indexGeneration
-  ) {
+      com.xgen.mongot.index.IndexGeneration indexGeneration) {
     return mockInitializedIndex(
         indexGeneration.getIndex().asVectorIndex(), indexGeneration.getGenerationId());
   }
@@ -222,8 +219,7 @@ public class VectorIndex {
   }
 
   public static VectorIndexDefinition mockMaterializedViewAutoEmbeddingVectorDefinition(
-      ObjectId indexId
-  ) {
+      ObjectId indexId) {
     return VectorIndexDefinitionBuilder.builder()
         .indexId(indexId)
         .name(MOCK_INDEX_NAME)

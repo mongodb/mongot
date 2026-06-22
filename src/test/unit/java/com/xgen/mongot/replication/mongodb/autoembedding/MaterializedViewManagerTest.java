@@ -1018,14 +1018,9 @@ public class MaterializedViewManagerTest {
 
     // The other index still got its generator created.
     verify(mocks.materializedViewGeneratorFactory).create(succeedingGen);
-    assertTrue(
-        mocks
-            .manager
-            .getMatViewGenerator(succeedingGen.getGenerationId())
-            .isPresent());
+    assertTrue(mocks.manager.getMatViewGenerator(succeedingGen.getGenerationId()).isPresent());
     // The failing one is absent — caller (next conf push) is expected to retry.
-    assertFalse(
-        mocks.manager.getMatViewGenerator(failingGen.getGenerationId()).isPresent());
+    assertFalse(mocks.manager.getMatViewGenerator(failingGen.getGenerationId()).isPresent());
 
     // createNewGenerator's leaseManager.add() ran before the throw; the catch must roll it back
     // so refreshStatus() doesn't see a follower with no generator and log a warn every heartbeat.
@@ -3145,8 +3140,7 @@ public class MaterializedViewManagerTest {
   public void scanStaleLeases_staleLease_marksEligible() {
     Mocks mocks = Mocks.create();
     Instant longExpired = Instant.now().minus(Duration.ofHours(1));
-    Lease stale =
-        leaseWithExpiration("stale-lease", longExpired, Lease.CleanupState.NOT_ELIGIBLE);
+    Lease stale = leaseWithExpiration("stale-lease", longExpired, Lease.CleanupState.NOT_ELIGIBLE);
     when(mocks.leaseManager.findGcCandidates(any())).thenReturn(List.of(stale));
     when(mocks.leaseManager.markEligibleForCleanup(any(), any())).thenReturn(true);
 
@@ -3575,8 +3569,7 @@ public class MaterializedViewManagerTest {
                 MaterializedViewIndexGeneration matViewIndexGen = invocation.getArgument(0);
                 MaterializedViewGenerator mockGenerator = mock(MaterializedViewGenerator.class);
                 when(mockGenerator.getIndexGeneration()).thenReturn(matViewIndexGen);
-                when(mockGenerator.getState())
-                    .thenReturn(IndexManager.State.INITIAL_SYNC);
+                when(mockGenerator.getState()).thenReturn(IndexManager.State.INITIAL_SYNC);
                 when(mockGenerator.shutdown()).thenReturn(CompletableFuture.completedFuture(null));
                 return mockGenerator;
               });
@@ -3923,7 +3916,6 @@ public class MaterializedViewManagerTest {
                 && id.indexId.equals(matViewGenId.indexId)
                 && id.generation.userIndexVersion == matViewGenId.generation.userIndexVersion;
     when(catalog.getMetadata(argThat(sameUserVersion))).thenReturn(metadata);
-    when(catalog.getMetadataIfPresent(argThat(sameUserVersion)))
-        .thenReturn(Optional.of(metadata));
+    when(catalog.getMetadataIfPresent(argThat(sameUserVersion))).thenReturn(Optional.of(metadata));
   }
 }

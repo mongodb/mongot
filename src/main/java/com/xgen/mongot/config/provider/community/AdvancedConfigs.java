@@ -9,8 +9,8 @@ import java.util.Optional;
 import org.bson.BsonDocument;
 
 /**
- * The {@code advancedConfigs} block of the Community mongot config file. Groups the optional
- * tuning blocks under a single top-level field.
+ * The {@code advancedConfigs} block of the Community mongot config file. Groups the optional tuning
+ * blocks under a single top-level field.
  */
 public record AdvancedConfigs(
     Optional<CommunityIndexingConfig> indexingConfig,
@@ -60,13 +60,12 @@ public record AdvancedConfigs(
             .noDefault();
 
     // The field is mapped to runtime RegularBlockingRequestSettings.
-    public static final Field.Optional<RegularBlockingRequestConfig>
-        REGULAR_BLOCKING_REQUEST =
-            Field.builder("searchQueryAdmissionControl")
-                .classField(RegularBlockingRequestConfig::fromBson)
-                .disallowUnknownFields()
-                .optional()
-                .noDefault();
+    public static final Field.Optional<RegularBlockingRequestConfig> REGULAR_BLOCKING_REQUEST =
+        Field.builder("searchQueryAdmissionControl")
+            .classField(RegularBlockingRequestConfig::fromBson)
+            .disallowUnknownFields()
+            .optional()
+            .noDefault();
 
     public static final Field.Optional<DiskMonitorConfig> DISK_MONITOR =
         Field.builder("diskMonitor")

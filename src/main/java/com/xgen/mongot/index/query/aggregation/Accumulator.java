@@ -8,12 +8,12 @@ import java.util.Optional;
  * Runtime aggregation state that collects data during Lucene search.
  *
  * <p>Accumulator forms a tree through parent-child pointers. A child Accumulator corresponds to a
- * sub-aggregation. e.g. { bySku:  {_id: { $sku: "$sku" }, total: { $count: {}}}} it
- * forms a Accumulator tree as Accumulator("a") -> Accumulator("b") -> CountAccumulator
+ * sub-aggregation. e.g. { bySku: {_id: { $sku: "$sku" }, total: { $count: {}}}} it forms a
+ * Accumulator tree as Accumulator("a") -> Accumulator("b") -> CountAccumulator
  *
  * <p>The tree is constructed bottom-up: children are built first (see {@link
- * AggregationSpec#buildAccumulator}), then passed into the parent's constructor, which wires
- * itself as their parent backpointer. Consequently {@link #parent()} is empty during a node's own
+ * AggregationSpec#buildAccumulator}), then passed into the parent's constructor, which wires itself
+ * as their parent backpointer. Consequently {@link #parent()} is empty during a node's own
  * construction and must not be read there.
  */
 public abstract class Accumulator extends BucketCollector {
@@ -54,8 +54,8 @@ public abstract class Accumulator extends BucketCollector {
    * @param ordsToCollect the ordinals of the buckets that we want to collect from this aggregation.
    * @return the results for each ordinal, in the same order as the array of ordinals.
    */
-  protected abstract List<AggregationResult> buildResults(
-      LongArray ordsToCollect) throws IOException;
+  protected abstract List<AggregationResult> buildResults(LongArray ordsToCollect)
+      throws IOException;
 
   /**
    * Build the result of this aggregation if it is at the root of the accumulator tree. If, instead,

@@ -12,7 +12,7 @@ import java.util.stream.Stream;
 public sealed interface MqlFilterOperator extends DocumentEncodable
     permits ComparisonOperator, NotOperator, ExistsOperator {
 
-  /** Groups operators into categories for metrics reporting.*/
+  /** Groups operators into categories for metrics reporting. */
   enum Category {
     LOWER_BOUND,
     UPPER_BOUND,
@@ -24,7 +24,7 @@ public sealed interface MqlFilterOperator extends DocumentEncodable
     NOT,
   }
 
-  /** Returns the category of the operator for metrics reporting.*/
+  /** Returns the category of the operator for metrics reporting. */
   Category getCategory();
 
   // RedundantSuppression required due to https://youtrack.jetbrains.com/issue/IDEA-284759

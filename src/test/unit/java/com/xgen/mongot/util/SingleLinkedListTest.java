@@ -56,7 +56,6 @@ public class SingleLinkedListTest {
     assertEquals(":123", result);
   }
 
-
   @Test
   public void testEmptyFoldLeft() {
     SingleLinkedList<Integer> list = SingleLinkedList.empty();

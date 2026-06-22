@@ -30,7 +30,8 @@ import com.sun.source.tree.MethodInvocationTree;
     linkType = LinkType.NONE)
 public class UnsafeCollectorsChecker extends BugChecker implements MethodInvocationTreeMatcher {
 
-  @SuppressWarnings("deprecation") // MethodMatchers.MethodMatcher is deprecated but still functional
+  @SuppressWarnings(
+      "deprecation") // MethodMatchers.MethodMatcher is deprecated but still functional
   private static final MethodMatchers.MethodMatcher TO_MAP =
       MethodMatchers.staticMethod()
           .onClass("java.util.stream.Collectors")
@@ -49,22 +50,20 @@ public class UnsafeCollectorsChecker extends BugChecker implements MethodInvocat
 
       // Create suggested fix by adding a merge function parameter
       // Insert the merge function after the last argument
-      SuggestedFix fix = SuggestedFix.builder()
-          .postfixWith(tree.getArguments().getLast(), ", (existing, replacement) -> existing")
-          .setShortDescription("Add merge function to handle duplicate keys safely")
-          .build();
+      SuggestedFix fix =
+          SuggestedFix.builder()
+              .postfixWith(tree.getArguments().getLast(), ", (existing, replacement) -> existing")
+              .setShortDescription("Add merge function to handle duplicate keys safely")
+              .build();
 
-      String message = "Specify a merge function for toMap() to handle duplicate keys safely. "
-          + "Without it, duplicate keys cause runtime IllegalStateException. "
-          + "Common merge functions: "
-          + "(existing, replacement) -> existing (keep first), "
-          + "(existing, replacement) -> replacement (keep last), "
-          + "or (a, b) -> { throw new IllegalStateException(\"Duplicate key: \" + a); } (explicit error).";
+      String message =
+          "Specify a merge function for toMap() to handle duplicate keys safely. Without it,"
+              + " duplicate keys cause runtime IllegalStateException. Common merge functions:"
+              + " (existing, replacement) -> existing (keep first), (existing, replacement) ->"
+              + " replacement (keep last), or (a, b) -> { throw new"
+              + " IllegalStateException(\"Duplicate key: \" + a); } (explicit error).";
 
-      return this.buildDescription(tree)
-          .setMessage(message)
-          .addFix(fix)
-          .build();
+      return this.buildDescription(tree).setMessage(message).addFix(fix).build();
     }
 
     return NO_MATCH;

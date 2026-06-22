@@ -67,9 +67,7 @@ public class PeriodicConfigMonitorTest {
     this.monitor.start();
 
     // Wait for at least one update to be called
-    Condition.await()
-        .atMost(Duration.ofSeconds(5))
-        .until(() -> updateCalled.getCount() == 0);
+    Condition.await().atMost(Duration.ofSeconds(5)).until(() -> updateCalled.getCount() == 0);
 
     verify(this.mockUpdater, atLeastOnce()).update();
   }
@@ -93,9 +91,7 @@ public class PeriodicConfigMonitorTest {
     this.monitor.start();
 
     // Wait for at least 3 update cycles
-    Condition.await()
-        .atMost(Duration.ofSeconds(5))
-        .until(() -> callCount.get() >= 3);
+    Condition.await().atMost(Duration.ofSeconds(5)).until(() -> callCount.get() >= 3);
 
     // Should have been called at least 3 times
     verify(this.mockUpdater, atLeast(3)).update();

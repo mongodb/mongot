@@ -128,8 +128,7 @@ public class AutoEmbeddingMaterializedViewConfigMapperTest {
     CommunityConfig config = CommunityConfig.readFromFile(TUNING_CONFIG).config();
     var global =
         MongoDbReplicationConfigMapper.toGlobalReplicationConfig(
-            config.advancedConfigs()
-                .flatMap(AdvancedConfigs::replicationConfig));
+            config.advancedConfigs().flatMap(AdvancedConfigs::replicationConfig));
 
     AutoEmbeddingMaterializedViewConfig ae =
         AutoEmbeddingMaterializedViewConfigMapper.toAutoEmbeddingMaterializedViewConfig(
@@ -137,8 +136,7 @@ public class AutoEmbeddingMaterializedViewConfigMapperTest {
 
     assertTrue(ae.getPauseAllInitialSyncs());
     assertEquals(
-        List.of(
-            new ObjectId("507f1f77bcf86cd799439011"), new ObjectId("507f1f77bcf86cd799439012")),
+        List.of(new ObjectId("507f1f77bcf86cd799439011"), new ObjectId("507f1f77bcf86cd799439012")),
         ae.getPauseInitialSyncOnIndexIds());
   }
 
@@ -152,15 +150,16 @@ public class AutoEmbeddingMaterializedViewConfigMapperTest {
         base.healthCheckConfig(),
         base.loggingConfig(),
         base.embeddingConfig(),
-        Optional.of(new AdvancedConfigs(
-            Optional.empty(),
-            Optional.empty(),
-            Optional.of(replicationConfig),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty())));
+        Optional.of(
+            new AdvancedConfigs(
+                Optional.empty(),
+                Optional.empty(),
+                Optional.of(replicationConfig),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty())));
   }
 
   private static CommunityConfig withAutoEmbeddingConfig(
@@ -173,14 +172,15 @@ public class AutoEmbeddingMaterializedViewConfigMapperTest {
         base.healthCheckConfig(),
         base.loggingConfig(),
         base.embeddingConfig(),
-        Optional.of(new AdvancedConfigs(
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.of(autoEmbeddingConfig),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty())));
+        Optional.of(
+            new AdvancedConfigs(
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.of(autoEmbeddingConfig),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty())));
   }
 }

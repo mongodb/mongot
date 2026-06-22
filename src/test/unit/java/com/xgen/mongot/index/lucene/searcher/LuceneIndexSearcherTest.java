@@ -290,10 +290,7 @@ public class LuceneIndexSearcherTest {
           Optional.empty(),
           queryingMetricsUpdater);
 
-      assertThat(
-              queryingMetricsUpdater
-                  .getStringFacetsStateRefreshLatencyTimer()
-                  .count())
+      assertThat(queryingMetricsUpdater.getStringFacetsStateRefreshLatencyTimer().count())
           .isGreaterThan(0);
     }
   }

@@ -27,16 +27,17 @@ public class ProcessMetricsTest {
     var processMetrics = ProcessMetrics.create(process, meterRegistry);
     assertEquals(3.0, meterRegistry.get("system.process.majorPageFaults").gauge().value(), 0.0);
     assertEquals(11.0, meterRegistry.get("system.process.minorPageFaults").gauge().value(), 0.0);
-    assertEquals(
-        7.0, meterRegistry.get("system.process.openFileDescriptors").gauge().value(), 0.0);
+    assertEquals(7.0, meterRegistry.get("system.process.openFileDescriptors").gauge().value(), 0.0);
 
     // update must call updateAttributes which ensures the values are refreshed
-    when(process.updateAttributes()).thenAnswer(i -> {
-      majorFaults.set(30);
-      minorFaults.set(110);
-      openFiles.set(70);
-      return true;
-    });
+    when(process.updateAttributes())
+        .thenAnswer(
+            i -> {
+              majorFaults.set(30);
+              minorFaults.set(110);
+              openFiles.set(70);
+              return true;
+            });
     processMetrics.update();
 
     // The reads should reflect the updated values

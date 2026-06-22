@@ -4,9 +4,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Root-level aggregation spec.
- */
+/** Root-level aggregation spec. */
 public record TopAggregationSpec(List<AggregationSpec> children) implements AggregationSpec {
 
   @Override
@@ -53,7 +51,8 @@ public record TopAggregationSpec(List<AggregationSpec> children) implements Aggr
       // Since only bucket ordinal 0 is used to collect from root node, we only collect that.
       if (ordsToCollect.size() != 1 || ordsToCollect.get(0) != 0) {
         throw new IllegalStateException(
-            "Top-level accumulator expects exactly ordinal 0, got: " + ordsToCollect.size()
+            "Top-level accumulator expects exactly ordinal 0, got: "
+                + ordsToCollect.size()
                 + " ords");
       }
       // Plain loop instead of stream: buildTopLevelResult throws a checked IOException.

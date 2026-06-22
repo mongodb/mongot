@@ -544,9 +544,7 @@ public class EmbeddingServiceManagerTest {
                 })
             .getCause();
     assertTrue(ex instanceof EmbeddingProviderTransientException);
-    assertEquals(
-        "Client side rate limit exceeded, retry it later",
-        ex.getMessage());
+    assertEquals("Client side rate limit exceeded, retry it later", ex.getMessage());
   }
 
   @Test

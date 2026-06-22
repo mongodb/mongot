@@ -1458,8 +1458,7 @@ public class SearchCommandTest {
     // We don't actually care about the collection named, since it's just used to populate the "ns"
     // key in the cursor batch response.
     // Only return a cursor batch for the correct cursor id.
-    when(cursorManager.newCursor(
-            any(), any(), any(), any(), any(Query.class), any(), any(), any()))
+    when(cursorManager.newCursor(any(), any(), any(), any(), any(Query.class), any(), any(), any()))
         .then(
             invocation -> {
               String databaseName = invocation.getArgument(0);
@@ -1476,7 +1475,7 @@ public class SearchCommandTest {
             });
 
     when(cursorManager.newIntermediateCursors(
-        any(), any(), any(), any(), any(), anyInt(), any(), any(), any()))
+            any(), any(), any(), any(), any(), anyInt(), any(), any(), any()))
         .then(
             invocation -> {
               String databaseName = invocation.getArgument(0);
@@ -1500,8 +1499,7 @@ public class SearchCommandTest {
               }
 
               return new MongotCursorResultInfo(
-                  batch.getCursorExpected().getCursorId()
-                      == MongotCursorResult.EXHAUSTED_CURSOR_ID,
+                  batch.getCursorExpected().getCursorId() == MongotCursorResult.EXHAUSTED_CURSOR_ID,
                   cursorId == MOCK_SEARCH_CURSOR_ID
                       ? batch.getCursorExpected().getBatch()
                       : metaBatch.getCursorExpected().getBatch(),
@@ -1524,8 +1522,7 @@ public class SearchCommandTest {
     MongotCursorBatch metaBatch = intermediateCursorBatch.cursors().get(0);
     MongotCursorBatch batch = intermediateCursorBatch.cursors().get(1);
 
-    when(cursorManager.newCursor(
-            any(), any(), any(), any(), any(Query.class), any(), any(), any()))
+    when(cursorManager.newCursor(any(), any(), any(), any(), any(Query.class), any(), any(), any()))
         .then(
             invocation -> {
               SearchQuery query = invocation.getArgument(4);
@@ -1542,7 +1539,7 @@ public class SearchCommandTest {
             });
 
     when(cursorManager.newIntermediateCursors(
-        any(), any(), any(), any(), any(), anyInt(), any(), any(), any()))
+            any(), any(), any(), any(), any(), anyInt(), any(), any(), any()))
         .then(
             invocation -> {
               SearchQuery query = invocation.getArgument(4);
@@ -1565,8 +1562,7 @@ public class SearchCommandTest {
                 throw new MongotCursorNotFoundException(cursorId);
               }
               return new MongotCursorResultInfo(
-                  batch.getCursorExpected().getCursorId()
-                      == MongotCursorResult.EXHAUSTED_CURSOR_ID,
+                  batch.getCursorExpected().getCursorId() == MongotCursorResult.EXHAUSTED_CURSOR_ID,
                   cursorId == MOCK_SEARCH_CURSOR_ID
                       ? batch.getCursorExpected().getBatch()
                       : metaBatch.getCursorExpected().getBatch(),
@@ -1574,8 +1570,7 @@ public class SearchCommandTest {
                   batch.getCursorExpected().getNamespace());
             });
 
-    when(cursorManager.getIndexQueryBatchTimerRecorder(anyLong()))
-        .thenReturn((timer) -> {});
+    when(cursorManager.getIndexQueryBatchTimerRecorder(anyLong())).thenReturn((timer) -> {});
 
     return cursorManager;
   }
@@ -1584,18 +1579,16 @@ public class SearchCommandTest {
   private MongotCursorManager getThrowableCursorManager(
       Supplier<? extends Throwable> throwableSupplier) throws Exception {
     MongotCursorManager cursorManager = mock(MongotCursorManager.class);
-    when(cursorManager.newCursor(
-            any(), any(), any(), any(), any(Query.class), any(), any(), any()))
+    when(cursorManager.newCursor(any(), any(), any(), any(), any(Query.class), any(), any(), any()))
         .thenReturn(
             new SearchCursorInfo(
                 MOCK_SEARCH_CURSOR_ID, new MetaResults(CountResult.lowerBoundCount(1000))));
 
     when(cursorManager.newIntermediateCursors(
-        any(), any(), any(), any(), any(), anyInt(), any(), any(), any()))
+            any(), any(), any(), any(), any(), anyInt(), any(), any(), any()))
         .thenReturn(new IntermediateSearchCursorInfo(MOCK_SEARCH_CURSOR_ID, MOCK_META_CURSOR_ID));
 
-    when(cursorManager.getNextBatch(anyLong(), any(), any()))
-        .thenThrow(throwableSupplier.get());
+    when(cursorManager.getNextBatch(anyLong(), any(), any())).thenThrow(throwableSupplier.get());
 
     when(cursorManager.getIndexQueryBatchTimerRecorder(anyLong()))
         .thenReturn(

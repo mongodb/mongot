@@ -57,7 +57,8 @@ public class LuceneGeoTranslator {
   private static org.apache.lucene.geo.Polygon polygonCoordinates(PolygonCoordinates coordinates)
       throws InvalidGeoPosition {
     org.apache.lucene.geo.Polygon[] holes =
-        CheckedStream.from(coordinates.getHoles()).mapAndCollectChecked(Unzipped::positions)
+        CheckedStream.from(coordinates.getHoles())
+            .mapAndCollectChecked(Unzipped::positions)
             .stream()
             .map(cords -> new org.apache.lucene.geo.Polygon(cords.latitude, cords.longitude))
             .toArray(org.apache.lucene.geo.Polygon[]::new);

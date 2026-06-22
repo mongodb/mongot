@@ -59,10 +59,8 @@ public class MultiLuceneIndexWriter implements LuceneIndexWriter {
     // negative integer.
     return (int)
         (Integer.toUnsignedLong(
-            HASH_FUNCTION.hashBytes(
-                bytesRef.bytes,
-                bytesRef.offset,
-                bytesRef.length).asInt()) % numPartitions);
+                HASH_FUNCTION.hashBytes(bytesRef.bytes, bytesRef.offset, bytesRef.length).asInt())
+            % numPartitions);
   }
 
   private int getIndexPartitionId(byte[] encodedDocumentId) {

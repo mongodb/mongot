@@ -53,8 +53,7 @@ public class MongotDrillSideways extends DrillSideways {
       Optional<NamedExecutorService> optimizedDrillSidewaysExecutor) {
     /* Passing taxoReader and state as null here as they are used only in buildFacetsResult(),
     which has been overridden here */
-    super(searcher, config, null, null,
-        optimizedDrillSidewaysExecutor.orElse(null));
+    super(searcher, config, null, null, optimizedDrillSidewaysExecutor.orElse(null));
     this.collector = collector;
     this.facetContext = facetContext;
     this.returnScope = returnScope;

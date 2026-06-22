@@ -43,12 +43,15 @@ public class CommandManagerTest {
 
     manager.onCommandFailure(Status.RESOURCE_EXHAUSTED.withDescription("at capacity"));
 
-    verify(observer).onError(org.mockito.ArgumentMatchers.argThat(t -> {
-      assertThat(t).isInstanceOf(StatusRuntimeException.class);
-      StatusRuntimeException sre = (StatusRuntimeException) t;
-      assertThat(sre.getStatus().getCode()).isEqualTo(Status.Code.RESOURCE_EXHAUSTED);
-      return true;
-    }));
+    verify(observer)
+        .onError(
+            org.mockito.ArgumentMatchers.argThat(
+                t -> {
+                  assertThat(t).isInstanceOf(StatusRuntimeException.class);
+                  StatusRuntimeException sre = (StatusRuntimeException) t;
+                  assertThat(sre.getStatus().getCode()).isEqualTo(Status.Code.RESOURCE_EXHAUSTED);
+                  return true;
+                }));
   }
 
   @SuppressWarnings("unchecked")

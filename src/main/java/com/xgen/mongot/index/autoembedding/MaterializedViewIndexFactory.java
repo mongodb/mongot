@@ -57,9 +57,7 @@ public class MaterializedViewIndexFactory implements IndexFactory {
     this.featureFlags = featureFlags;
     this.materializedViewWriterFactory =
         new MaterializedViewWriter.Factory(
-            autoEmbeddingMongoClient,
-            meterAndFtdcRegistry.meterRegistry(),
-            mvWriteRateLimitRps);
+            autoEmbeddingMongoClient, meterAndFtdcRegistry.meterRegistry(), mvWriteRateLimitRps);
     this.leaseManager = leaseManager;
     this.collectionResolver = collectionResolver;
     this.autoEmbeddingMongoClient = autoEmbeddingMongoClient;
@@ -87,8 +85,9 @@ public class MaterializedViewIndexFactory implements IndexFactory {
         this.collectionResolver.getOrCreateMaterializedViewForIndex(
             matViewIndexDefinitionGeneration);
 
-    String matViewDatabaseName = this.dbResolver.resolve(
-        matViewIndexDefinitionGeneration.getIndexDefinition().getDatabase());
+    String matViewDatabaseName =
+        this.dbResolver.resolve(
+            matViewIndexDefinitionGeneration.getIndexDefinition().getDatabase());
     MaterializedViewWriter writer =
         this.materializedViewWriterFactory.create(
             matViewDatabaseName,

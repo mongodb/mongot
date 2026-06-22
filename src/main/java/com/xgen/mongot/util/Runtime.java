@@ -48,8 +48,8 @@ public abstract class Runtime {
 
     /**
      * Returns the instance's usable physical memory in bytes: the cgroup/container memory limit
-     * when one is set below the host total, otherwise the host's total physical memory.
-     * This mirrors how {@code MemoryMetrics} is computed.
+     * when one is set below the host total, otherwise the host's total physical memory. This
+     * mirrors how {@code MemoryMetrics} is computed.
      */
     @Override
     public long getTotalMemoryBytes() {
@@ -135,8 +135,7 @@ public abstract class Runtime {
               sb.append("\t-  waiting on ").append(threadInfo.getLockInfo());
               sb.append('\n');
             }
-            default -> {
-            }
+            default -> {}
           }
         }
 

@@ -6,7 +6,7 @@ package com.xgen.mongot.index.analyzer.attributes;
  * arc is a token.
  *
  * <p>See this blog post:
- * https://blog.mikemccandless.com/2012/04/lucenes-tokenstreams-are-actually.html</p>
+ * https://blog.mikemccandless.com/2012/04/lucenes-tokenstreams-are-actually.html
  */
 public enum TokenStreamType {
   /**

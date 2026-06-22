@@ -128,12 +128,11 @@ public interface LeaseManager {
       throws MaterializedViewTransientException, MaterializedViewNonTransientException;
 
   /**
-   * Returns every lease whose {@code leaseExpiration} is older than {@code expirationCutoff} —
-   * the stale-lease GC's candidate set. Scans the internal databases known to this manager (see
-   * the implementations for how that set is built).
-   * Reads the database, not the in-memory map: the map only holds leases for generations
-   * currently configured on this mongot, so an orphaned lease (its generation dropped, possibly
-   * before a restart) is visible only through this query.
+   * Returns every lease whose {@code leaseExpiration} is older than {@code expirationCutoff} — the
+   * stale-lease GC's candidate set. Scans the internal databases known to this manager (see the
+   * implementations for how that set is built). Reads the database, not the in-memory map: the map
+   * only holds leases for generations currently configured on this mongot, so an orphaned lease
+   * (its generation dropped, possibly before a restart) is visible only through this query.
    *
    * <p>Leases already marked {@link Lease.CleanupState#ELIGIBLE_FOR_CLEANUP} are deliberately
    * included: the same candidate set serves both GC phases — the mark pass skips them, while the
@@ -145,8 +144,8 @@ public interface LeaseManager {
    *
    * <p>Best effort, never throws: unparseable (corrupted) lease documents are skipped — invisible
    * to GC (CLOUDP-384971 owns their cleanup) — and a failed per-database scan is logged and drops
-   * only that database's candidates, so the result may be incomplete. Callers must not treat it
-   * as a complete census of stale leases; the periodic sweep re-scans every tick, so a candidate
+   * only that database's candidates, so the result may be incomplete. Callers must not treat it as
+   * a complete census of stale leases; the periodic sweep re-scans every tick, so a candidate
    * missed this round is picked up on a later one.
    *
    * @param expirationCutoff only leases that expired before this instant are returned
@@ -160,9 +159,9 @@ public interface LeaseManager {
    * cleanupState field) <em>and</em> its {@code leaseExpiration} is older than {@code
    * expirationCutoff}. Encoding the staleness check in the write makes it self-guarding — a caller
    * acting on a stale in-memory view cannot mark a lease that is still being heartbeated.
-   * Idempotent: a no-op returning {@code false} when already marked or not yet stale —
-   * {@code true} means this call performed the transition, so concurrent leaderless scanners
-   * report each mark exactly once.
+   * Idempotent: a no-op returning {@code false} when already marked or not yet stale — {@code true}
+   * means this call performed the transition, so concurrent leaderless scanners report each mark
+   * exactly once.
    *
    * @param leaseKey the lease document {@code _id}
    * @param expirationCutoff a lease is eligible only if it expired before this instant

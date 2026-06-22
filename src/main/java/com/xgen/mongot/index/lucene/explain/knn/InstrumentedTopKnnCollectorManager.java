@@ -32,8 +32,7 @@ public class InstrumentedTopKnnCollectorManager implements KnnCollectorManager {
   @Override
   public KnnCollector newCollector(int visitedLimit, LeafReaderContext context) throws IOException {
 
-    var knnCollector =
-        this.instrumentationHelper.getKnnCollector(context, this.k, visitedLimit);
+    var knnCollector = this.instrumentationHelper.getKnnCollector(context, this.k, visitedLimit);
     if (this.globalScoreQueue.isEmpty()) {
       return knnCollector;
     }

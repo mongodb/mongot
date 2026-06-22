@@ -24,9 +24,7 @@ import org.junit.Test;
 /** Unit tests for {@link PausableDirectory}. */
 public class TestPausableDirectory {
 
-  /**
-   * Test that PausableDirectory allows normal writes when gate is open (disk usage is low).
-   */
+  /** Test that PausableDirectory allows normal writes when gate is open (disk usage is low). */
   @Test
   public void testWriteBytes_gateOpen_writesImmediately() throws IOException {
     Gate openGate = ToggleGate.opened();
@@ -85,8 +83,7 @@ public class TestPausableDirectory {
 
       executor.shutdown();
       assertTrue(
-          "Write should complete after gate opens",
-          executor.awaitTermination(5, TimeUnit.SECONDS));
+          "Write should complete after gate opens", executor.awaitTermination(5, TimeUnit.SECONDS));
 
       if (writeException.get() != null) {
         throw writeException.get();
@@ -102,9 +99,7 @@ public class TestPausableDirectory {
     pausableDir.close();
   }
 
-  /**
-   * Test that PausableDirectory throws IOException when thread is interrupted while waiting.
-   */
+  /** Test that PausableDirectory throws IOException when thread is interrupted while waiting. */
   @Test
   public void testWriteBytes_interruptedWhileWaiting_throwsIoException() throws Exception {
     ToggleGate gate = ToggleGate.closed();
@@ -136,9 +131,7 @@ public class TestPausableDirectory {
     writeThread.join(5000);
 
     assertTrue("Should have caught an exception", caughtException.get() != null);
-    assertTrue(
-        "Exception should be IOException",
-        caughtException.get() instanceof IOException);
+    assertTrue("Exception should be IOException", caughtException.get() instanceof IOException);
     assertTrue(
         "Exception message should mention interruption",
         caughtException.get().getMessage().contains("Interrupted"));
@@ -147,9 +140,7 @@ public class TestPausableDirectory {
     pausableDir.close();
   }
 
-  /**
-   * Test that PausableDirectory only checks gate status every CHECK_PAUSE_INTERVAL_BYTES.
-   */
+  /** Test that PausableDirectory only checks gate status every CHECK_PAUSE_INTERVAL_BYTES. */
   @Test
   public void testCheckInterval_onlyChecksEvery256KB() throws IOException {
     ToggleGate gate = ToggleGate.opened();
@@ -174,9 +165,7 @@ public class TestPausableDirectory {
     pausableDir.close();
   }
 
-  /**
-   * Test that PausableDirectory works with createTempOutput as well.
-   */
+  /** Test that PausableDirectory works with createTempOutput as well. */
   @Test
   public void testPauseDuringTempOutput() throws Exception {
     ToggleGate gate = ToggleGate.closed();
@@ -210,8 +199,7 @@ public class TestPausableDirectory {
 
       executor.shutdown();
       assertTrue(
-          "Write should complete after gate opens",
-          executor.awaitTermination(5, TimeUnit.SECONDS));
+          "Write should complete after gate opens", executor.awaitTermination(5, TimeUnit.SECONDS));
       assertTrue("Write should have completed", writeCompleted.get());
     } finally {
       gate.open();
@@ -245,19 +233,13 @@ public class TestPausableDirectory {
     output.close();
 
     long expectedSize =
-        1
-            + Short.BYTES
-            + Integer.BYTES
-            + Long.BYTES
-            + PausableDirectory.CHECK_PAUSE_INTERVAL_BYTES;
+        1 + Short.BYTES + Integer.BYTES + Long.BYTES + PausableDirectory.CHECK_PAUSE_INTERVAL_BYTES;
     assertEquals(expectedSize, baseDir.fileLength("test.dat"));
 
     pausableDir.close();
   }
 
-  /**
-   * Test that PausableDirectory properly delegates getFilePointer and getChecksum.
-   */
+  /** Test that PausableDirectory properly delegates getFilePointer and getChecksum. */
   @Test
   public void testDelegationMethods() throws IOException {
     Gate openGate = ToggleGate.opened();
@@ -341,8 +323,7 @@ public class TestPausableDirectory {
       gate.open();
       executor.shutdown();
       assertTrue(
-          "Write should complete after gate opens",
-          executor.awaitTermination(5, TimeUnit.SECONDS));
+          "Write should complete after gate opens", executor.awaitTermination(5, TimeUnit.SECONDS));
 
       if (writeException.get() != null) {
         throw writeException.get();
@@ -515,9 +496,8 @@ public class TestPausableDirectory {
 
   /**
    * Test that if the merge thread is interrupted while blocked in {@code awaitOpen()}, the
-   * resulting IOException propagates, the interrupt flag is preserved, and the pause latch is
-   * reset so a future pause window (on a future output from the same directory) would still fire
-   * onPause.
+   * resulting IOException propagates, the interrupt flag is preserved, and the pause latch is reset
+   * so a future pause window (on a future output from the same directory) would still fire onPause.
    */
   @Test
   public void testOnPauseCallback_interruptedDuringPause_latchReset() throws Exception {
@@ -619,4 +599,3 @@ public class TestPausableDirectory {
     return condition.getAsBoolean();
   }
 }
-

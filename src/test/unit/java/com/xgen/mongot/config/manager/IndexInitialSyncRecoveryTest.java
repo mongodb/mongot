@@ -24,6 +24,7 @@ import org.mockito.ArgumentCaptor;
 public class IndexInitialSyncRecoveryTest {
   /** Counter to ensure each index has a unique name. */
   private final AtomicInteger indexCounter = new AtomicInteger();
+
   /** Mocks for the config state and its dependencies. */
   private ConfigStateMocks mocks;
 
@@ -39,12 +40,13 @@ public class IndexInitialSyncRecoveryTest {
   @Test
   public void getRetryableInitialSyncIndexes_returnsOnlyFailedRetryIndexes() throws Exception {
     // Only FAILED with INITIAL_SYNC_REPLICATION_FAILED_RETRY is retryable.
-    var retryableIndex = failedIndex("initial sync failed retryable",
-        IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY);
+    var retryableIndex =
+        failedIndex(
+            "initial sync failed retryable",
+            IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY);
 
     // FAILED with other reasons should NOT be retryable.
-    failedIndex("initial sync failed",
-        IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED);
+    failedIndex("initial sync failed", IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED);
     failedIndex("init failed", IndexStatus.Reason.INITIALIZATION_FAILED);
     var failedNoReason = addUniqueNamedIndex(ConfigStateMocks.State.LIVE);
     failedNoReason.getIndex().setStatus(IndexStatus.failed("generic failure"));
@@ -57,8 +59,11 @@ public class IndexInitialSyncRecoveryTest {
 
     // Phased out indexes are not in the catalog, so not retryable.
     var phasedOutIndex = addUniqueNamedIndex(ConfigStateMocks.State.PHASE_OUT);
-    phasedOutIndex.getIndex().setStatus(IndexStatus.failed("phased out failed",
-        IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY));
+    phasedOutIndex
+        .getIndex()
+        .setStatus(
+            IndexStatus.failed(
+                "phased out failed", IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY));
 
     List<IndexGeneration> result =
         IndexInitialSyncRecovery.getRetryableInitialSyncIndexes(this.mocks.configState);
@@ -68,10 +73,10 @@ public class IndexInitialSyncRecoveryTest {
   @Test
   public void getRetryableInitialSyncIndexes_multipleRetryableIndexes_returnsAll()
       throws Exception {
-    var retryable1 = failedIndex("fail 1",
-        IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY);
-    var retryable2 = failedIndex("fail 2",
-        IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY);
+    var retryable1 =
+        failedIndex("fail 1", IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY);
+    var retryable2 =
+        failedIndex("fail 2", IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY);
 
     // Non-retryable failed index.
     failedIndex("init failed", IndexStatus.Reason.INITIALIZATION_FAILED);
@@ -101,8 +106,7 @@ public class IndexInitialSyncRecoveryTest {
   }
 
   @Test
-  public void getRetryableInitialSyncIndexes_excludesNonFailedStagedReplacement()
-      throws Exception {
+  public void getRetryableInitialSyncIndexes_excludesNonFailedStagedReplacement() throws Exception {
     var failedIndex = failedInitialSyncRetryIndex();
     var indexId = failedIndex.getDefinition().getIndexId();
 
@@ -122,8 +126,11 @@ public class IndexInitialSyncRecoveryTest {
 
     // Stage a replacement and mark it as a retryable failure too.
     var staged = this.mocks.stageIndex(indexId);
-    staged.getIndex().setStatus(IndexStatus.failed("staged also failed",
-        IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY));
+    staged
+        .getIndex()
+        .setStatus(
+            IndexStatus.failed(
+                "staged also failed", IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY));
 
     List<IndexGeneration> result =
         IndexInitialSyncRecovery.getRetryableInitialSyncIndexes(this.mocks.configState);
@@ -158,8 +165,11 @@ public class IndexInitialSyncRecoveryTest {
 
     // Stage a replacement (with a newer user version), also a retryable failure.
     var staged = this.mocks.stageIndex(indexId);
-    staged.getIndex().setStatus(IndexStatus.failed("staged failed",
-        IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY));
+    staged
+        .getIndex()
+        .setStatus(
+            IndexStatus.failed(
+                "staged failed", IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY));
     this.mocks.clearInvocations();
 
     IndexInitialSyncRecovery.retryFailedInitialSyncIndexes(this.mocks.configState, indexActions());
@@ -216,13 +226,14 @@ public class IndexInitialSyncRecoveryTest {
     verify(this.mocks.configState, times(1)).persist(captor.capture());
 
     ConfigJournalV1 journal = captor.getValue();
-    List<IndexDefinitionGeneration> expectedAttempts = List.of(
-        failed1.getDefinitionGeneration().incrementAttempt(),
-        failed2.getDefinitionGeneration().incrementAttempt());
+    List<IndexDefinitionGeneration> expectedAttempts =
+        List.of(
+            failed1.getDefinitionGeneration().incrementAttempt(),
+            failed2.getDefinitionGeneration().incrementAttempt());
     assertThat(journal.getStagedIndexes()).containsAtLeastElementsIn(expectedAttempts);
     // Live indexes should still be in the journal as live.
-    assertThat(journal.getLiveIndexes()).containsAtLeast(
-        failed1.getDefinitionGeneration(), failed2.getDefinitionGeneration());
+    assertThat(journal.getLiveIndexes())
+        .containsAtLeast(failed1.getDefinitionGeneration(), failed2.getDefinitionGeneration());
   }
 
   @Test
@@ -258,12 +269,17 @@ public class IndexInitialSyncRecoveryTest {
     var matViewIndexGen =
         IndexGenerationFactory.getIndexGeneration(this.mocks.indexFactory, matViewDefGen);
     this.mocks.indexCatalog.addIndex(matViewIndexGen);
-    matViewIndexGen.getIndex().setStatus(IndexStatus.failed("initial sync failed",
-        IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY));
+    matViewIndexGen
+        .getIndex()
+        .setStatus(
+            IndexStatus.failed(
+                "initial sync failed", IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY));
 
     // A regular search index with retryable status SHOULD be returned.
-    var retryableSearchIndex = failedIndex("initial sync failed retryable",
-        IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY);
+    var retryableSearchIndex =
+        failedIndex(
+            "initial sync failed retryable",
+            IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY);
 
     List<IndexGeneration> result =
         IndexInitialSyncRecovery.getRetryableInitialSyncIndexes(this.mocks.configState);
@@ -280,16 +296,27 @@ public class IndexInitialSyncRecoveryTest {
 
     // Stage a replacement that failed with a retryable reason.
     var staged = this.mocks.stageIndex(indexId);
-    staged.getIndex().setStatus(IndexStatus.failed("staged initial sync failed",
-        IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY));
+    staged
+        .getIndex()
+        .setStatus(
+            IndexStatus.failed(
+                "staged initial sync failed",
+                IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY));
     this.mocks.clearInvocations();
 
     IndexInitialSyncRecovery.retryFailedInitialSyncIndexes(this.mocks.configState, indexActions());
 
     // The live index should remain healthy and untouched.
     assertThat(this.mocks.indexCatalog.getIndexById(indexId)).isPresent();
-    assertThat(this.mocks.indexCatalog.getIndexById(indexId).get()
-        .getIndex().getStatus().getStatusCode()).isEqualTo(IndexStatus.StatusCode.STEADY);
+    assertThat(
+            this.mocks
+                .indexCatalog
+                .getIndexById(indexId)
+                .get()
+                .getIndex()
+                .getStatus()
+                .getStatusCode())
+        .isEqualTo(IndexStatus.StatusCode.STEADY);
 
     // The failed staged index should have been dropped with no retry.
     assertThat(this.mocks.configState.staged.getIndex(indexId)).isEmpty();
@@ -314,8 +341,11 @@ public class IndexInitialSyncRecoveryTest {
 
     // Stage a replacement that also failed with a retryable reason.
     var staged = this.mocks.stageIndex(indexId);
-    staged.getIndex().setStatus(IndexStatus.failed("staged also failed",
-        IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY));
+    staged
+        .getIndex()
+        .setStatus(
+            IndexStatus.failed(
+                "staged also failed", IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY));
     this.mocks.clearInvocations();
 
     IndexInitialSyncRecovery.retryFailedInitialSyncIndexes(this.mocks.configState, indexActions());
@@ -338,8 +368,9 @@ public class IndexInitialSyncRecoveryTest {
 
     // Stage a replacement that failed with a NON-retryable reason.
     var staged = this.mocks.stageIndex(indexId);
-    staged.getIndex().setStatus(IndexStatus.failed("init failed",
-        IndexStatus.Reason.INITIALIZATION_FAILED));
+    staged
+        .getIndex()
+        .setStatus(IndexStatus.failed("init failed", IndexStatus.Reason.INITIALIZATION_FAILED));
     this.mocks.clearInvocations();
 
     IndexInitialSyncRecovery.retryFailedInitialSyncIndexes(this.mocks.configState, indexActions());
@@ -352,13 +383,12 @@ public class IndexInitialSyncRecoveryTest {
 
   /** Created an index with retryable initial sync failure reason. */
   private IndexGeneration failedInitialSyncRetryIndex() throws Exception {
-    return failedIndex("initial sync failed",
-        IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY);
+    return failedIndex(
+        "initial sync failed", IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED_RETRY);
   }
 
   /** Adds a live index with a unique name to avoid duplicate-name invariant violations. */
-  private IndexGeneration failedIndex(String message, IndexStatus.Reason reason)
-      throws Exception {
+  private IndexGeneration failedIndex(String message, IndexStatus.Reason reason) throws Exception {
     var index = addUniqueNamedIndex(ConfigStateMocks.State.LIVE);
     index.getIndex().setStatus(IndexStatus.failed(message, reason));
     return index;
@@ -367,15 +397,16 @@ public class IndexInitialSyncRecoveryTest {
   /** Adds a live index with a unique name to avoid duplicate-name invariant violations. */
   private IndexGeneration addUniqueNamedIndex(ConfigStateMocks.State state) throws Exception {
     var indexId = new ObjectId();
-    SearchIndexDefinition definition = SearchIndexDefinitionBuilder.builder()
-        .indexId(indexId)
-        .name("index_" + this.indexCounter.getAndIncrement())
-        .database(SearchIndex.MOCK_INDEX_DATABASE_NAME)
-        .lastObservedCollectionName(SearchIndex.MOCK_INDEX_LAST_OBSERVED_COLLECTION_NAME)
-        .collectionUuid(SearchIndex.MOCK_INDEX_COLLECTION_UUID)
-        .mappings(SearchIndex.MOCK_INDEX_MAPPINGS)
-        .synonyms(SearchIndex.MOCK_SYNONYM_MAPPING_DEFINITIONS)
-        .build();
+    SearchIndexDefinition definition =
+        SearchIndexDefinitionBuilder.builder()
+            .indexId(indexId)
+            .name("index_" + this.indexCounter.getAndIncrement())
+            .database(SearchIndex.MOCK_INDEX_DATABASE_NAME)
+            .lastObservedCollectionName(SearchIndex.MOCK_INDEX_LAST_OBSERVED_COLLECTION_NAME)
+            .collectionUuid(SearchIndex.MOCK_INDEX_COLLECTION_UUID)
+            .mappings(SearchIndex.MOCK_INDEX_MAPPINGS)
+            .synonyms(SearchIndex.MOCK_SYNONYM_MAPPING_DEFINITIONS)
+            .build();
     var defGen =
         com.xgen.testing.mongot.mock.index.IndexGeneration.mockDefinitionGeneration(definition);
     return this.mocks.addIndex(defGen, state);

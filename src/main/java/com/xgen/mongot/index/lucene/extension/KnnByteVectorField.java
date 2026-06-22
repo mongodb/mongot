@@ -13,14 +13,14 @@ import org.apache.lucene.index.VectorSimilarityFunction;
  */
 public class KnnByteVectorField extends org.apache.lucene.document.KnnByteVectorField {
 
-  public KnnByteVectorField(String name, byte[] vector,
-      VectorSimilarityFunction similarityFunction) {
+  public KnnByteVectorField(
+      String name, byte[] vector, VectorSimilarityFunction similarityFunction) {
     super(name, vector, createType(vector, similarityFunction));
   }
 
   private static FieldType createType(byte[] vector, VectorSimilarityFunction similarityFunction) {
-    var type = new FieldType(
-        new KnnFieldType(vector.length, VectorEncoding.BYTE, similarityFunction));
+    var type =
+        new FieldType(new KnnFieldType(vector.length, VectorEncoding.BYTE, similarityFunction));
     type.freeze();
     return type;
   }

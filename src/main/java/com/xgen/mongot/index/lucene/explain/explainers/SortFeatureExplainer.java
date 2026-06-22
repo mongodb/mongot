@@ -100,8 +100,7 @@ public class SortFeatureExplainer implements FeatureExplainer {
     var filteredFieldToTypes = getFilteredFieldToTypes();
 
     if (verbosity.equals(Explain.Verbosity.QUERY_PLANNER)) {
-      builder.sortStats(SortStats.create(
-          filteredFieldToTypes, this.usesIndexSort));
+      builder.sortStats(SortStats.create(filteredFieldToTypes, this.usesIndexSort));
       return;
     }
 

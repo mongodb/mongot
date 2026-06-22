@@ -53,10 +53,8 @@ public record SortStats(
   public static SortStats create(
       ImmutableSetMultimap<FieldPath, FieldName.TypeField> fieldToTypeField,
       Optional<Boolean> usesIndexSort) {
-    return SortStats.create(
-        Optional.empty(), Optional.empty(), fieldToTypeField, usesIndexSort);
+    return SortStats.create(Optional.empty(), Optional.empty(), fieldToTypeField, usesIndexSort);
   }
-
 
   public static SortStats create(
       Optional<QueryExecutionArea> prunedResultIterator,

@@ -48,9 +48,7 @@ public class MeteredSearchIndexReaderTest {
           IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.empty();
       MeteredSearchIndexReader meteredIndexReader =
           new MeteredSearchIndexReader(
-              mock(SearchIndexReader.class),
-              queryingMetricsUpdater,
-              () -> false);
+              mock(SearchIndexReader.class), queryingMetricsUpdater, () -> false);
 
       meteredIndexReader.query(
           QUERY_DEFINITION,
@@ -82,9 +80,7 @@ public class MeteredSearchIndexReaderTest {
           IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.empty();
       MeteredSearchIndexReader meteredIndexReader =
           new MeteredSearchIndexReader(
-              mock(SearchIndexReader.class),
-              queryingMetricsUpdater,
-              () -> false);
+              mock(SearchIndexReader.class), queryingMetricsUpdater, () -> false);
 
       meteredIndexReader.intermediateQuery(
           QUERY_DEFINITION,
@@ -117,9 +113,7 @@ public class MeteredSearchIndexReaderTest {
           IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.empty();
       MeteredSearchIndexReader meteredIndexReader =
           new MeteredSearchIndexReader(
-              mock(SearchIndexReader.class),
-              queryingMetricsUpdater,
-              () -> false);
+              mock(SearchIndexReader.class), queryingMetricsUpdater, () -> false);
 
       meteredIndexReader.query(
           QUERY_DEFINITION,
@@ -144,8 +138,7 @@ public class MeteredSearchIndexReaderTest {
       IndexMetricsUpdater.QueryingMetricsUpdater queryingMetricsUpdater =
           IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.empty();
       MeteredSearchIndexReader meteredIndexReader =
-          new MeteredSearchIndexReader(
-              mockIndexReader, queryingMetricsUpdater, () -> false);
+          new MeteredSearchIndexReader(mockIndexReader, queryingMetricsUpdater, () -> false);
 
       Assert.assertThrows(
           IOException.class,
@@ -175,8 +168,7 @@ public class MeteredSearchIndexReaderTest {
       IndexMetricsUpdater.QueryingMetricsUpdater queryingMetricsUpdater =
           IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.empty();
       MeteredSearchIndexReader meteredIndexReader =
-          new MeteredSearchIndexReader(
-              mockIndexReader, queryingMetricsUpdater, () -> false);
+          new MeteredSearchIndexReader(mockIndexReader, queryingMetricsUpdater, () -> false);
 
       Assert.assertThrows(
           NullPointerException.class,
@@ -207,8 +199,7 @@ public class MeteredSearchIndexReaderTest {
       IndexMetricsUpdater.QueryingMetricsUpdater queryingMetricsUpdater =
           IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.empty();
       MeteredSearchIndexReader meteredIndexReader =
-          new MeteredSearchIndexReader(
-              mockIndexReader, queryingMetricsUpdater, () -> false);
+          new MeteredSearchIndexReader(mockIndexReader, queryingMetricsUpdater, () -> false);
 
       Assert.assertThrows(
           IOException.class,
@@ -238,8 +229,7 @@ public class MeteredSearchIndexReaderTest {
       IndexMetricsUpdater.QueryingMetricsUpdater queryingMetricsUpdater =
           IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.empty();
       MeteredSearchIndexReader meteredIndexReader =
-          new MeteredSearchIndexReader(
-              mockIndexReader, queryingMetricsUpdater, () -> false);
+          new MeteredSearchIndexReader(mockIndexReader, queryingMetricsUpdater, () -> false);
 
       Assert.assertThrows(
           InvalidQueryException.class,

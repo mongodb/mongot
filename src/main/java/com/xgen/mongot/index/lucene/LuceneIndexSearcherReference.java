@@ -40,10 +40,10 @@ public class LuceneIndexSearcherReference implements Closeable {
    * Cleanup handler for releasing IndexSearcher references when the parent
    * LuceneIndexSearcherReference is garbage collected.
    *
-   * <p><b>Uses strong references</b> to prevent resource leaks: When the SearcherManager
-   * refreshes (rotates to a new searcher), the old searcher would become weakly-reachable
-   * and could be GC'd before this cleanup runs. Strong references ensure the searcher
-   * remains alive until {@code manager.release(searcher)} is called, preventing leaks.
+   * <p><b>Uses strong references</b> to prevent resource leaks: When the SearcherManager refreshes
+   * (rotates to a new searcher), the old searcher would become weakly-reachable and could be GC'd
+   * before this cleanup runs. Strong references ensure the searcher remains alive until {@code
+   * manager.release(searcher)} is called, preventing leaks.
    */
   private record Cleaning(
       WeakReference<ReferenceManager<LuceneIndexSearcher>> searcherManager,
@@ -51,8 +51,7 @@ public class LuceneIndexSearcherReference implements Closeable {
       implements CloseablePhantomCleaner.NoRefCloseable {
 
     Cleaning(
-        ReferenceManager<LuceneIndexSearcher> searcherManager,
-        LuceneIndexSearcher indexSearcher) {
+        ReferenceManager<LuceneIndexSearcher> searcherManager, LuceneIndexSearcher indexSearcher) {
       this(new WeakReference<>(searcherManager), indexSearcher);
     }
 
@@ -65,9 +64,8 @@ public class LuceneIndexSearcherReference implements Closeable {
       if (maybeManager.isPresent()) {
         LuceneIndexSearcherReference.releaseSearcher(maybeManager.get(), this.indexSearcher);
       } else {
-        FLOGGER.atWarning()
-            .atMostEvery(10, TimeUnit.SECONDS)
-            .log("Skip releasing searcher because manager or searcher become phantom");
+        FLOGGER.atWarning().atMostEvery(10, TimeUnit.SECONDS).log(
+            "Skip releasing searcher because manager or searcher become phantom");
       }
     }
   }
@@ -76,8 +74,7 @@ public class LuceneIndexSearcherReference implements Closeable {
   private final Closeable cleaning;
 
   private static void releaseSearcher(
-      ReferenceManager<LuceneIndexSearcher> searcherManager,
-      LuceneIndexSearcher indexSearcher)
+      ReferenceManager<LuceneIndexSearcher> searcherManager, LuceneIndexSearcher indexSearcher)
       throws IOException {
     searcherManager.release(indexSearcher);
   }
@@ -90,13 +87,14 @@ public class LuceneIndexSearcherReference implements Closeable {
 
     this.indexSearcher = indexSearcher;
 
-    this.cleaning = featureFlags.isEnabled(Feature.PHANTOM_REFERENCE_CLEANUP)
-        ? CloseablePhantomCleaner.register(
-            this,
-            new CloseablePhantomCleaner.CleanerThreadAction(
-                metricsUpdater.getPhantomSearcherCleanupCounter(),
-                new Cleaning(searcherManager, indexSearcher)))
-        : () -> releaseSearcher(searcherManager, indexSearcher);
+    this.cleaning =
+        featureFlags.isEnabled(Feature.PHANTOM_REFERENCE_CLEANUP)
+            ? CloseablePhantomCleaner.register(
+                this,
+                new CloseablePhantomCleaner.CleanerThreadAction(
+                    metricsUpdater.getPhantomSearcherCleanupCounter(),
+                    new Cleaning(searcherManager, indexSearcher)))
+            : () -> releaseSearcher(searcherManager, indexSearcher);
   }
 
   public static LuceneIndexSearcherReference create(

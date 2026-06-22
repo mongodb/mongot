@@ -1,6 +1,5 @@
 package com.xgen.mongot.util.bson;
 
-
 import com.google.errorprone.annotations.DoNotCall;
 import com.xgen.mongot.util.Check;
 import java.util.Arrays;

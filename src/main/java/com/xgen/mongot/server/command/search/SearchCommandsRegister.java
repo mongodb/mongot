@@ -37,8 +37,7 @@ public class SearchCommandsRegister {
       String mongotHostName,
       MongoDbServerInfoProvider mongoDbServerInfoProvider,
       FeatureFlags featureFlags,
-      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
-  }
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {}
 
   public enum RegistrationMode {
     SECURE {

@@ -180,8 +180,7 @@ public record FieldDefinition(
     @Var
     Optional<EmbeddedDocumentsFieldDefinition> embeddedDocumentsFieldDefinition = Optional.empty();
     @Var Optional<GeoFieldDefinition> geoFieldDefinition = Optional.empty();
-    @Var
-    Optional<SearchAutoEmbedFieldDefinition> searchAutoEmbedFieldDefinition = Optional.empty();
+    @Var Optional<SearchAutoEmbedFieldDefinition> searchAutoEmbedFieldDefinition = Optional.empty();
     @Var
     Optional<SearchIndexVectorFieldDefinition> searchIndexVectorFieldDefinition = Optional.empty();
     @Var Optional<KnnVectorFieldDefinition> knnVectorFieldDefinition = Optional.empty();
@@ -212,8 +211,7 @@ public record FieldDefinition(
         case EmbeddedDocumentsFieldDefinition fd ->
             embeddedDocumentsFieldDefinition = Optional.of(fd);
         case GeoFieldDefinition fd -> geoFieldDefinition = Optional.of(fd);
-        case SearchAutoEmbedFieldDefinition fd ->
-            searchAutoEmbedFieldDefinition = Optional.of(fd);
+        case SearchAutoEmbedFieldDefinition fd -> searchAutoEmbedFieldDefinition = Optional.of(fd);
         case SearchIndexVectorFieldDefinition fd ->
             searchIndexVectorFieldDefinition = Optional.of(fd);
         case KnnVectorFieldDefinition fd -> knnVectorFieldDefinition = Optional.of(fd);

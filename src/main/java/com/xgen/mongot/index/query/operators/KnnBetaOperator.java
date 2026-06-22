@@ -41,10 +41,7 @@ public record KnnBetaOperator(
             .noDefault();
 
     public static final Field.Required<Integer> K =
-        Field.builder("k")
-            .intField()
-            .mustBeWithinBounds(Range.of(1, Integer.MAX_VALUE))
-            .required();
+        Field.builder("k").intField().mustBeWithinBounds(Range.of(1, Integer.MAX_VALUE)).required();
   }
 
   @Override

@@ -241,8 +241,7 @@ public final class MongotBloomFilteringPostingsFormat extends PostingsFormat {
         CodecUtil.checkFooter(bloomIn);
         IOUtils.close(bloomIn);
         for (String fieldName : bloomsByFieldName.keySet()) {
-          registryKeys.add(
-              MongotBloomFieldsProducerRegistry.register(state, fieldName, this));
+          registryKeys.add(MongotBloomFieldsProducerRegistry.register(state, fieldName, this));
         }
         success = true;
       } finally {

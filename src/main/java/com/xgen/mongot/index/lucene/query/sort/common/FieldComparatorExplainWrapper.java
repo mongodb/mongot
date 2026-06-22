@@ -113,9 +113,7 @@ public class FieldComparatorExplainWrapper<T> extends FieldComparator<T> {
         iterator =
             Optional.ofNullable(this.wrappedLeafComparator.competitiveIterator())
                 .map(
-                    iter ->
-                        ProfileDocIdSetIterator.create(
-                            iter, ExplainTimings.builder().build()));
+                    iter -> ProfileDocIdSetIterator.create(iter, ExplainTimings.builder().build()));
       }
 
       this.featureExplainer.maybeAddCompetitiveIterator(iterator);

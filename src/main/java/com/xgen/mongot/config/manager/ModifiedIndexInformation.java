@@ -29,8 +29,9 @@ abstract class ModifiedIndexInformation implements DocumentEncodable {
 
     private static final Field.Required<List<IndexDefinition>> EXISTING_DEFINITIONS =
         Field.builder("existingDefinitions")
-            .classField(ignored -> Check.unreachable(
-                "Deserialization not supported for IndexDefinition"), IndexDefinition::toBson)
+            .classField(
+                ignored -> Check.unreachable("Deserialization not supported for IndexDefinition"),
+                IndexDefinition::toBson)
             .disallowUnknownFields()
             .asList()
             .required();
@@ -38,8 +39,9 @@ abstract class ModifiedIndexInformation implements DocumentEncodable {
     private static final Field.Required<IndexDefinitionGenerationProducer> DESIRED_DEFINITION =
         Field.builder("desiredDefinition")
             .classField(
-                ignored -> Check.unreachable(
-                    "Deserialization not supported for IndexDefinitionGenerationProducer"),
+                ignored ->
+                    Check.unreachable(
+                        "Deserialization not supported for IndexDefinitionGenerationProducer"),
                 (IndexDefinitionGenerationProducer producer) ->
                     producer.getIndexDefinition().toBson())
             .disallowUnknownFields()

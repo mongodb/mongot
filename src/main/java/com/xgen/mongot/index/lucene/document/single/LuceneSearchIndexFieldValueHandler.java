@@ -383,10 +383,7 @@ public class LuceneSearchIndexFieldValueHandler implements FieldValueHandler {
 
   private void handleSortableString(Supplier<String> supplier) throws IOException {
     IndexableFieldFactory.addSortableStringField(
-        this.documentWrapper,
-        this.fieldDefinition,
-        this.path,
-        supplier.get());
+        this.documentWrapper, this.fieldDefinition, this.path, supplier.get());
   }
 
   @Override

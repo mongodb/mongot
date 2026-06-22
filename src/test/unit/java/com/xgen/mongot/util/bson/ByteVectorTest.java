@@ -44,7 +44,7 @@ public class ByteVectorTest {
   @Test
   public void isZeroVector_zeroVector_returnsTrue() {
     ByteVector vector =
-            new ByteVector(new byte[] {(byte) 0x00, (byte) 0x00, (byte) 0x00, (byte) 0x00});
+        new ByteVector(new byte[] {(byte) 0x00, (byte) 0x00, (byte) 0x00, (byte) 0x00});
     assertTrue(vector.isZeroVector());
   }
 

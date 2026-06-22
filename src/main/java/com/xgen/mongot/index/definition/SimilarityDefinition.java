@@ -7,9 +7,7 @@ import com.xgen.mongot.util.bson.parser.DocumentParser;
 import com.xgen.mongot.util.bson.parser.Field;
 import org.bson.BsonDocument;
 
-/**
- * Represents a similarity model configuration for a search field.
- */
+/** Represents a similarity model configuration for a search field. */
 public record SimilarityDefinition(SimilarityType type) implements DocumentEncodable {
 
   public static final SimilarityDefinition BOOLEAN =

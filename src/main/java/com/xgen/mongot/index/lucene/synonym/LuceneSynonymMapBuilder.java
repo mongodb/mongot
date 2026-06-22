@@ -110,8 +110,8 @@ public class LuceneSynonymMapBuilder implements SynonymMapping.Builder {
    * href="https://github.com/10gen/mongot/blob/master/docs/syntax/synonym-collection.md">Synonym
    * Collection Specification</a> for more details.
    */
-  LuceneSynonymMapBuilder addEquivalent(
-      Collection<String> synonyms, Optional<BsonValue> rawDocId) throws SynonymMappingException {
+  LuceneSynonymMapBuilder addEquivalent(Collection<String> synonyms, Optional<BsonValue> rawDocId)
+      throws SynonymMappingException {
     List<CharsRef> analyzedSynonyms = analyze(synonyms, rawDocId);
 
     analyzedSynonyms.forEach(synonym -> add(synonym, analyzedSynonyms));

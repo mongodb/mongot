@@ -84,9 +84,7 @@ public abstract class IndexingWorkScheduler extends Thread {
 
     // TODO(CLOUDP-319970): differentiate metrics for each strategy.
     MetricsFactory metricsFactory =
-        new MetricsFactory(
-            "indexingWorkScheduler",
-            executor.getMeterRegistry());
+        new MetricsFactory("indexingWorkScheduler", executor.getMeterRegistry());
     var replicationTag = ServerStatusDataExtractor.Scope.REPLICATION.getTag();
 
     this.schedulerQueue = new SchedulerQueue<>(metricsFactory);

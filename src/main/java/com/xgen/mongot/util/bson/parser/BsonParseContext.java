@@ -34,8 +34,7 @@ public class BsonParseContext {
       return new BsonParseContext(this.hierarchy.prepend("[" + index + ']'));
     } else {
       String elementPath = this.hierarchy.head() + "[" + index + ']';
-      return new BsonParseContext(
-          this.hierarchy.getTail().prepend(elementPath));
+      return new BsonParseContext(this.hierarchy.getTail().prepend(elementPath));
     }
   }
 

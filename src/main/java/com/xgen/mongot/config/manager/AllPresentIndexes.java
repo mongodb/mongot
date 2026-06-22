@@ -270,21 +270,18 @@ class AllPresentIndexes {
               AutoEmbeddingCompositeIndex composite =
                   Check.instanceOf(indexGeneration.getIndex(), AutoEmbeddingCompositeIndex.class);
               yield new IndexDetailedStatus.Search(
-                  composite
-                      .derivedIndex
-                      .asSearchIndex()
-                      .getSynonymRegistry()
-                      .getDetailedStatuses(),
+                  composite.derivedIndex.asSearchIndex().getSynonymRegistry().getDetailedStatuses(),
                   searchDef,
                   this.indexStatuses.get(indexGeneration),
                   indexGeneration.getGenerationId(),
                   indexMetrics);
             }
-            case VectorIndexDefinition vectorDef -> new IndexDetailedStatus.Vector(
-                vectorDef,
-                this.indexStatuses.get(indexGeneration),
-                indexGeneration.getGenerationId(),
-                indexMetrics);
+            case VectorIndexDefinition vectorDef ->
+                new IndexDetailedStatus.Vector(
+                    vectorDef,
+                    this.indexStatuses.get(indexGeneration),
+                    indexGeneration.getGenerationId(),
+                    indexMetrics);
           };
         }
       };

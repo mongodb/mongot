@@ -94,25 +94,19 @@ public class FloatVectorTest {
 
   @Test
   public void toString_emptyVector_emptyResult() {
-    FloatVector vector =
-            new FloatVector(
-                    new float[] {}, FloatVector.OriginalType.NATIVE);
+    FloatVector vector = new FloatVector(new float[] {}, FloatVector.OriginalType.NATIVE);
     assertEquals("[]", vector.toString());
   }
 
   @Test
   public void toString_singleElementVector_printsSingleElement() {
-    FloatVector vector =
-            new FloatVector(
-                    new float[] {1.0f}, FloatVector.OriginalType.NATIVE);
+    FloatVector vector = new FloatVector(new float[] {1.0f}, FloatVector.OriginalType.NATIVE);
     assertEquals("[1.0]", vector.toString());
   }
 
   @Test
   public void toString_twoElementVector_printsTwoElements() {
-    FloatVector vector =
-            new FloatVector(
-                    new float[] {1.0f, 2.0f}, FloatVector.OriginalType.NATIVE);
+    FloatVector vector = new FloatVector(new float[] {1.0f, 2.0f}, FloatVector.OriginalType.NATIVE);
     assertEquals("[1.0, 2.0]", vector.toString());
   }
 }

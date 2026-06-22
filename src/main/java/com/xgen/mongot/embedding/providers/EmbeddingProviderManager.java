@@ -375,5 +375,4 @@ public class EmbeddingProviderManager {
               }
             });
   }
-
 }

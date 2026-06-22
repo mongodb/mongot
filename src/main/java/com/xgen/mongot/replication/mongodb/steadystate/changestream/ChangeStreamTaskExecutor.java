@@ -9,9 +9,9 @@ interface ChangeStreamTaskExecutor {
 
   /**
    * Enqueues a task for execution and reports whether it was accepted. If the task cannot be
-   * accepted (for example, after {@link #shutdown}), the implementation invokes
-   * {@link EnqueueContext#onDropped()} rather than throwing, so the dispatcher does not need to
-   * handle rejection on the enqueue path.
+   * accepted (for example, after {@link #shutdown}), the implementation invokes {@link
+   * EnqueueContext#onDropped()} rather than throwing, so the dispatcher does not need to handle
+   * rejection on the enqueue path.
    *
    * @param task the work to run
    * @param context per-submission metadata the executor may use to decide how to schedule the task

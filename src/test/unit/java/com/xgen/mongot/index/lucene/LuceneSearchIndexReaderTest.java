@@ -271,9 +271,9 @@ public class LuceneSearchIndexReaderTest {
         .thenAnswer(invocation -> invocation.getArgument(1));
 
     // Always enable drill-sideways, regardless of default
-    Mockito.when(registry.evaluateClusterInvariant(
-            eq(DynamicFeatureFlags.DRILL_SIDEWAYS_FACETING.getName()),
-            anyBoolean()))
+    Mockito.when(
+            registry.evaluateClusterInvariant(
+                eq(DynamicFeatureFlags.DRILL_SIDEWAYS_FACETING.getName()), anyBoolean()))
         .thenReturn(true);
 
     return registry;
@@ -538,8 +538,7 @@ public class LuceneSearchIndexReaderTest {
     doReturn(mock(SearchProducerAndMetaResults.class))
         .when(readerSpy)
         .genericDrillSidewaysQuery(
-            any(), any(), any(), any(), any(), any(), any(),
-            any(), any(), any(), any(), any());
+            any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
 
     doThrow(new AssertionError("unexpected method call"))
         .when(readerSpy)
@@ -560,8 +559,7 @@ public class LuceneSearchIndexReaderTest {
     doReturn(mock(SearchProducerAndMetaResults.class))
         .when(readerSpy)
         .optimizedDrillSidewaysFacetCollectorQuery(
-            any(), any(), any(), any(), any(), any(),
-            any(), any(), any(), any(), any(), any());
+            any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
 
     doThrow(new AssertionError("unexpected method call"))
         .when(readerSpy)
@@ -574,20 +572,20 @@ public class LuceneSearchIndexReaderTest {
   public void testQuery_WhenDrillSidewaysInfoGenericButFlagDisabled_ExecutesFacetCollectorFlow()
       throws Exception {
     Optional<DrillSidewaysInfo> drillSidewaysInfo =
-        Optional.of(new DrillSidewaysInfo(Map.of(), QueryOptimizationStatus.GENERIC,
-            Optional.empty()));
+        Optional.of(
+            new DrillSidewaysInfo(Map.of(), QueryOptimizationStatus.GENERIC, Optional.empty()));
 
     LuceneSearchIndexReader readerSpy = spy(this.reader); // flag disabled by default
 
     doThrow(new AssertionError("unexpected method call"))
         .when(readerSpy)
-        .genericDrillSidewaysQuery(any(), any(), any(), any(), any(), any(), any(), any(), any(),
-            any(), any(), any());
+        .genericDrillSidewaysQuery(
+            any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
 
     doThrow(new AssertionError("unexpected method call"))
         .when(readerSpy)
-        .optimizedDrillSidewaysFacetCollectorQuery(any(), any(), any(), any(), any(), any(), any(),
-            any(), any(), any(), any(), any());
+        .optimizedDrillSidewaysFacetCollectorQuery(
+            any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
 
     doReturn(mock(SearchProducerAndMetaResults.class))
         .when(readerSpy)
@@ -602,8 +600,7 @@ public class LuceneSearchIndexReaderTest {
 
     Optional<DrillSidewaysInfo> drillSidewaysInfo =
         Optional.of(
-            new DrillSidewaysInfo(
-                Map.of(), QueryOptimizationStatus.OPTIMIZABLE, Optional.empty()));
+            new DrillSidewaysInfo(Map.of(), QueryOptimizationStatus.OPTIMIZABLE, Optional.empty()));
 
     // Use reader with default registry (drill-sideways flag disabled)
     LuceneSearchIndexReader readerSpy = spy(this.reader);
@@ -622,8 +619,7 @@ public class LuceneSearchIndexReaderTest {
     // Facet collector path should be taken
     doReturn(mock(SearchProducerAndMetaResults.class))
         .when(readerSpy)
-        .facetCollectorQuery(
-            any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+        .facetCollectorQuery(any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
 
     executeCollectorQueryOnSpy(drillSidewaysInfo, readerSpy);
   }

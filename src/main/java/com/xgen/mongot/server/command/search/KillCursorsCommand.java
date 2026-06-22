@@ -33,9 +33,7 @@ public class KillCursorsCommand implements Command {
 
   @Override
   public BsonDocument run() {
-    LOG.atTrace()
-        .addKeyValue("command", KillCursorsCommandDefinition.NAME)
-        .log("Received command");
+    LOG.atTrace().addKeyValue("command", KillCursorsCommandDefinition.NAME).log("Received command");
     this.definition.cursorIds.forEach(this.cursorManager::killCursor);
 
     return new KillCursorsResponseProxy(

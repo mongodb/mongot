@@ -16,8 +16,8 @@ public class SecretsParser {
 
   /**
    * Reads a secret from a file. Verifies the file has owner-only permissions (on POSIX). Returns
-   * the file content with leading and trailing whitespace trimmed, so common formats (e.g. a
-   * single line saved with a trailing newline) work as intended.
+   * the file content with leading and trailing whitespace trimmed, so common formats (e.g. a single
+   * line saved with a trailing newline) work as intended.
    */
   public static String readSecretFile(Path filePath) throws IOException {
     Check.checkArg(filePath.toFile().exists(), "Secret file %s does not exist", filePath);

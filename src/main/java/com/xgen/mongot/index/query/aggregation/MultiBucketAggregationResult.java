@@ -7,8 +7,8 @@ import java.util.List;
  * The intermediate node for the result tree.
  *
  * <p>Each instance contains a set of buckets, representing the result given a certain grouping key.
- * e.g. group by term "city", it will have buckets: "New York", "San Francisco",
- * or group by range "price", it will have buckets: "[0, 100)", "[100, 200)", "[200, 300)"
+ * e.g. group by term "city", it will have buckets: "New York", "San Francisco", or group by range
+ * "price", it will have buckets: "[0, 100)", "[100, 200)", "[200, 300)"
  */
 public abstract class MultiBucketAggregationResult implements AggregationResult {
 

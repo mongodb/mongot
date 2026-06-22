@@ -8,8 +8,8 @@ import java.time.Duration;
 import java.util.Optional;
 
 /**
- * Maps the Community {@code indexing} and {@code querying} config blocks onto the runtime
- * {@link LuceneConfig}.
+ * Maps the Community {@code indexing} and {@code querying} config blocks onto the runtime {@link
+ * LuceneConfig}.
  */
 public final class LuceneConfigMapper {
   private static final int DOCS_LIMIT = LuceneConfig.MAX_DOCS_LIMIT;
@@ -64,9 +64,7 @@ public final class LuceneConfigMapper {
             .flatMap(v -> v.mergeBudgetMb());
     var vectorMergePolicyConfig = getVectorMergePolicy(runtime, configuredMergeBudgetMb);
 
-    var fieldLimit =
-        indexingLucene
-            .flatMap(l -> l.fieldLimit());
+    var fieldLimit = indexingLucene.flatMap(l -> l.fieldLimit());
 
     var queryingLucene =
         config
@@ -128,9 +126,11 @@ public final class LuceneConfigMapper {
         configuredMergeBudgetMb.orElseGet(() -> (int) (0.10 * instanceMemorySize.toMebi()));
     int maxVectorInputMb = (int) Math.ceil(MAX_VECTOR_INPUT_TO_MERGE_BUDGET_RATIO * mergeBudgetMb);
     int maxCompoundDataMb =
-        (int) Math.ceil(MAX_COMPOUND_DATA_TO_MAX_VECTOR_INPUT_RATIO
-            * MAX_VECTOR_INPUT_TO_MERGE_BUDGET_RATIO
-            * mergeBudgetMb);
+        (int)
+            Math.ceil(
+                MAX_COMPOUND_DATA_TO_MAX_VECTOR_INPUT_RATIO
+                    * MAX_VECTOR_INPUT_TO_MERGE_BUDGET_RATIO
+                    * mergeBudgetMb);
 
     long heapMb = runtime.getMaxHeapSize().toMebi();
     int segmentHeapBudgetMb = (int) Math.ceil(0.2 * heapMb);

@@ -1,11 +1,11 @@
 package com.xgen.mongot.embedding.utils;
 
 /**
- * Why an auto-embed index did a full document re-index instead of a partial-embed {@code $set}.
- * All values except {@link #REPLACE_EVENT} come from {@link
+ * Why an auto-embed index did a full document re-index instead of a partial-embed {@code $set}. All
+ * values except {@link #REPLACE_EVENT} come from {@link
  * AutoEmbeddingDocumentUtils#computePartialEmbedChangedTexts}; {@link #REPLACE_EVENT} is recorded
- * for REPLACE ops at the routing layer. Exported as the snake_case {@code reason} tag on the
- * {@code partialEmbedFallback} counter.
+ * for REPLACE ops at the routing layer. Exported as the snake_case {@code reason} tag on the {@code
+ * partialEmbedFallback} counter.
  */
 public enum PartialEmbedFallbackReason {
   /** The update description was unavailable, so we can't reason about what changed. */

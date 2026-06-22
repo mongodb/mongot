@@ -253,12 +253,12 @@ public class VectorMergePolicyTest {
     public static Collection<PruneTestSpec> testCases() {
       return List.of(
           new PruneTestSpec(
-              "simple", List.of(List.of(makeSegment("_a", 100000, 100, 10))),
-                  List.of(List.of("_a"))),
+              "simple",
+              List.of(List.of(makeSegment("_a", 100000, 100, 10))),
+              List.of(List.of("_a"))),
           new PruneTestSpec(
               "pruneSegmentToSingle",
-              List.of(
-                  List.of(makeSegment("_a", 100000, 1, 900), makeSegment("_b", 10000, 0, 125))),
+              List.of(List.of(makeSegment("_a", 100000, 1, 900), makeSegment("_b", 10000, 0, 125))),
               List.of(List.of("_a")),
               0,
               1,
@@ -296,8 +296,7 @@ public class VectorMergePolicyTest {
               0),
           new PruneTestSpec(
               "pruneSegmentToEmpty",
-              List.of(
-                  List.of(makeSegment("_a", 100000, 0, 900), makeSegment("_b", 10000, 0, 125))),
+              List.of(List.of(makeSegment("_a", 100000, 0, 900), makeSegment("_b", 10000, 0, 125))),
               List.of(),
               1,
               0,
@@ -336,8 +335,7 @@ public class VectorMergePolicyTest {
           new PruneTestSpec(
               "prorateDeletes",
               List.of(
-                  List.of(
-                      makeSegment("_a", 100000, 0, 900), makeSegment("_b", 10000, 5000, 150))),
+                  List.of(makeSegment("_a", 100000, 0, 900), makeSegment("_b", 10000, 5000, 150))),
               List.of(List.of("_a", "_b")),
               0,
               0,
@@ -346,10 +344,8 @@ public class VectorMergePolicyTest {
           new PruneTestSpec(
               "globalBudget",
               List.of(
-                  List.of(
-                      makeSegment("_a", 100000, 0, 900), makeSegment("_b", 10000, 5000, 150)),
-                  List.of(
-                      makeSegment("_c", 100000, 0, 900), makeSegment("_d", 10000, 5000, 150))),
+                  List.of(makeSegment("_a", 100000, 0, 900), makeSegment("_b", 10000, 5000, 150)),
+                  List.of(makeSegment("_c", 100000, 0, 900), makeSegment("_d", 10000, 5000, 150))),
               List.of(List.of("_a", "_b")),
               1,
               0,
@@ -358,10 +354,8 @@ public class VectorMergePolicyTest {
           new PruneTestSpec(
               "globalBudgetGreedy",
               List.of(
-                  List.of(
-                      makeSegment("_a", 100000, 0, 900), makeSegment("_b", 10000, 5000, 150)),
-                  List.of(
-                      makeSegment("_c", 100000, 0, 900), makeSegment("_d", 10000, 5000, 150)),
+                  List.of(makeSegment("_a", 100000, 0, 900), makeSegment("_b", 10000, 5000, 150)),
+                  List.of(makeSegment("_c", 100000, 0, 900), makeSegment("_d", 10000, 5000, 150)),
                   List.of(makeSegment("_e", 10000, 0, 90), makeSegment("_f", 10000, 5000, 150))),
               List.of(List.of("_a", "_b"), List.of("_e", "_f")),
               1,
@@ -390,8 +384,7 @@ public class VectorMergePolicyTest {
               0),
           new PruneTestSpec(
               "jumboSelectDeleted",
-              List.of(
-                  List.of(makeSegment("_a", 1000, 0, 1536), makeSegment("_b", 1000, 1, 1536))),
+              List.of(List.of(makeSegment("_a", 1000, 0, 1536), makeSegment("_b", 1000, 1, 1536))),
               List.of(List.of("_b")),
               0,
               1,
@@ -424,10 +417,7 @@ public class VectorMergePolicyTest {
               0),
           new PruneTestSpec(
               "heapPruneSegmentOneDelete",
-              List.of(
-                  List.of(
-                      makeSegment("_a", 100, 1, 10),
-                      makeSegment("_b", 800000, 0, 10))),
+              List.of(List.of(makeSegment("_a", 100, 1, 10), makeSegment("_b", 800000, 0, 10))),
               List.of(List.of("_a")),
               0,
               1,
@@ -435,10 +425,7 @@ public class VectorMergePolicyTest {
               1),
           new PruneTestSpec(
               "heapPruneMerge",
-              List.of(
-                  List.of(
-                      makeSegment("_a", 800000, 0, 10),
-                      makeSegment("_b", 800000, 0, 10))),
+              List.of(List.of(makeSegment("_a", 800000, 0, 10), makeSegment("_b", 800000, 0, 10))),
               List.of(),
               1,
               0,

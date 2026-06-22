@@ -1,6 +1,5 @@
 package com.xgen.mongot.config.manager;
 
-
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Streams;
 import com.google.errorprone.annotations.Var;

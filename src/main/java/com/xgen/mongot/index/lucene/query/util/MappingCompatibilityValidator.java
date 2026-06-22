@@ -70,9 +70,7 @@ public class MappingCompatibilityValidator {
    * additional check is needed.
    */
   public static void validateExists(
-      FieldPath path,
-      Optional<FieldPath> embeddedRoot,
-      QueryTimeMappingChecks mappingChecks)
+      FieldPath path, Optional<FieldPath> embeddedRoot, QueryTimeMappingChecks mappingChecks)
       throws InvalidQueryException {
     boolean hasFilter = mappingChecks.supportsFilter();
     InvalidQueryException.validate(

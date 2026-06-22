@@ -48,8 +48,8 @@ class ModeAwareChangeStreamClient implements TimeableChangeStreamMongoClient<Ste
   }
 
   /**
-   * Proxies {@link ChangeStreamMongoClient#getNext} call to the wrapped client and restarts it
-   * with a different command when the change stream mode needs to be switched based on {@link
+   * Proxies {@link ChangeStreamMongoClient#getNext} call to the wrapped client and restarts it with
+   * a different command when the change stream mode needs to be switched based on {@link
    * ChangeStreamModeSelector} decision.
    */
   @Override

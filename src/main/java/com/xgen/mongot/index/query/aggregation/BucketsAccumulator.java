@@ -6,9 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.IntFunction;
 
-/**
- * Represent an intermediate node in the accumulator tree.
- * */
+/** Represent an intermediate node in the accumulator tree. */
 public abstract class BucketsAccumulator extends Accumulator {
 
   protected final BucketCollector childrenCollector;

@@ -722,10 +722,10 @@ public class BufferlessCollectionScannerTest {
 
     Assert.assertTrue(
         indexMetricsUpdater
-            .getReplicationMetricsUpdater()
-            .getInitialSyncMetrics()
-            .getTotalApplicableBytes()
-            .count()
+                .getReplicationMetricsUpdater()
+                .getInitialSyncMetrics()
+                .getTotalApplicableBytes()
+                .count()
             > 0);
   }
 }

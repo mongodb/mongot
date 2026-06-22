@@ -373,9 +373,7 @@ public class StreamingMessageHandlerTest {
   public void invalidFactoryType() {
     String testSessionCommandName = "saslStart";
     this.commandRegistry.registerInsecureCommand(
-        testSessionCommandName,
-        () -> CommandFactoryMarker.Type.SESSION_COMMAND_FACTORY,
-        true);
+        testSessionCommandName, () -> CommandFactoryMarker.Type.SESSION_COMMAND_FACTORY, true);
     BsonDocument document =
         new BsonDocument().append(testSessionCommandName, new BsonString("foo"));
     this.messageHandler.onNext(createOpMsgFromBsonDocument(document));
@@ -582,8 +580,7 @@ public class StreamingMessageHandlerTest {
     RegularBlockingRequestSettings settings =
         RegularBlockingRequestSettings.create(
             Optional.of(0.001), Optional.of(0.001), Optional.of(false));
-    ExecutorManager boundedExecutorManager =
-        new ExecutorManager(boundedMeterRegistry, settings);
+    ExecutorManager boundedExecutorManager = new ExecutorManager(boundedMeterRegistry, settings);
 
     StreamObserver<MessageMessage> boundedResponseObserver =
         mock(MessageMessageStreamObserver.class);
@@ -666,8 +663,7 @@ public class StreamingMessageHandlerTest {
             && bsonDocument.getInt32("ok").getValue() == 0
             && bsonDocument.containsKey("errmsg")) {
           String errorMsg = bsonDocument.getString("errmsg").getValue();
-          if (errorMsg.contains("Query rejected")
-              && errorMsg.contains("currently at capacity")) {
+          if (errorMsg.contains("Query rejected") && errorMsg.contains("currently at capacity")) {
             rejectionErrorDoc = bsonDocument;
             break;
           }
@@ -680,8 +676,11 @@ public class StreamingMessageHandlerTest {
       Assert.assertTrue(
           "Expected code field in rejection response", rejectionErrorDoc.containsKey("code"));
       Assert.assertEquals(
-          "Expected error code " + Errors.SEARCH_REQUEST_REJECTED_DUE_TO_OVERLOAD.code
-              + " (" + Errors.SEARCH_REQUEST_REJECTED_DUE_TO_OVERLOAD.name + ")",
+          "Expected error code "
+              + Errors.SEARCH_REQUEST_REJECTED_DUE_TO_OVERLOAD.code
+              + " ("
+              + Errors.SEARCH_REQUEST_REJECTED_DUE_TO_OVERLOAD.name
+              + ")",
           Errors.SEARCH_REQUEST_REJECTED_DUE_TO_OVERLOAD.code,
           rejectionErrorDoc.getInt32("code").getValue());
       Assert.assertTrue(
@@ -716,8 +715,7 @@ public class StreamingMessageHandlerTest {
       }
       Assert.assertTrue(
           "Expected SystemOverloadedError label in rejection response", hasSystemOverloadedError);
-      Assert.assertTrue(
-          "Expected RetryableError label in rejection response", hasRetryableError);
+      Assert.assertTrue("Expected RetryableError label in rejection response", hasRetryableError);
     } finally {
       blockingLatch.countDown();
       boundedExecutorManager.commandExecutor.close();
@@ -732,8 +730,7 @@ public class StreamingMessageHandlerTest {
     RegularBlockingRequestSettings settings =
         RegularBlockingRequestSettings.create(
             Optional.of(0.001), Optional.of(0.001), Optional.of(false));
-    ExecutorManager boundedExecutorManager =
-        new ExecutorManager(boundedMeterRegistry, settings);
+    ExecutorManager boundedExecutorManager = new ExecutorManager(boundedMeterRegistry, settings);
     StreamObserver<MessageMessage> boundedResponseObserver =
         mock(MessageMessageStreamObserver.class);
 
@@ -784,28 +781,35 @@ public class StreamingMessageHandlerTest {
         true);
 
     try {
-      boundedHandler.onNext(createOpMsgFromBsonDocument(
-          new BsonDocument().append("blockingCommand", BsonBoolean.TRUE)));
+      boundedHandler.onNext(
+          createOpMsgFromBsonDocument(
+              new BsonDocument().append("blockingCommand", BsonBoolean.TRUE)));
       taskStartedLatch.await(5, TimeUnit.SECONDS);
-      boundedHandler.onNext(createOpMsgFromBsonDocument(
-          new BsonDocument().append(IdentityCommand.Name, BsonBoolean.TRUE)));
+      boundedHandler.onNext(
+          createOpMsgFromBsonDocument(
+              new BsonDocument().append(IdentityCommand.Name, BsonBoolean.TRUE)));
       Thread.sleep(50);
-      boundedHandler.onNext(createOpMsgFromBsonDocument(
-          new BsonDocument().append(IdentityCommand.Name, new BsonString("rejected"))));
+      boundedHandler.onNext(
+          createOpMsgFromBsonDocument(
+              new BsonDocument().append(IdentityCommand.Name, new BsonString("rejected"))));
 
       // Should get BSON error via onNext, not gRPC error via onError
       ArgumentCaptor<MessageMessage> captor = ArgumentCaptor.forClass(MessageMessage.class);
       verify(boundedResponseObserver, timeout(5000).atLeast(1)).onNext(captor.capture());
       verify(boundedResponseObserver, after(1000).never()).onError(any());
 
-      boolean foundBsonError = captor.getAllValues().stream().anyMatch(msg -> {
-        BsonDocument doc = ((MessageSectionBody) msg.sections().get(0)).body;
-        return doc.containsKey("code")
-            && doc.getInt32("code").getValue()
-                == Errors.SEARCH_REQUEST_REJECTED_DUE_TO_OVERLOAD.code;
-      });
+      boolean foundBsonError =
+          captor.getAllValues().stream()
+              .anyMatch(
+                  msg -> {
+                    BsonDocument doc = ((MessageSectionBody) msg.sections().get(0)).body;
+                    return doc.containsKey("code")
+                        && doc.getInt32("code").getValue()
+                            == Errors.SEARCH_REQUEST_REJECTED_DUE_TO_OVERLOAD.code;
+                  });
       Assert.assertTrue(
-          "Expected BSON error with code " + Errors.SEARCH_REQUEST_REJECTED_DUE_TO_OVERLOAD.code
+          "Expected BSON error with code "
+              + Errors.SEARCH_REQUEST_REJECTED_DUE_TO_OVERLOAD.code
               + " when flag is off",
           foundBsonError);
     } finally {
@@ -822,8 +826,7 @@ public class StreamingMessageHandlerTest {
     RegularBlockingRequestSettings settings =
         RegularBlockingRequestSettings.create(
             Optional.of(0.001), Optional.of(0.001), Optional.of(false));
-    ExecutorManager boundedExecutorManager =
-        new ExecutorManager(boundedMeterRegistry, settings);
+    ExecutorManager boundedExecutorManager = new ExecutorManager(boundedMeterRegistry, settings);
     StreamObserver<MessageMessage> boundedResponseObserver =
         mock(MessageMessageStreamObserver.class);
 
@@ -875,28 +878,33 @@ public class StreamingMessageHandlerTest {
         true);
 
     try {
-      boundedHandler.onNext(createOpMsgFromBsonDocument(
-          new BsonDocument().append("blockingCommand", BsonBoolean.TRUE)));
+      boundedHandler.onNext(
+          createOpMsgFromBsonDocument(
+              new BsonDocument().append("blockingCommand", BsonBoolean.TRUE)));
       taskStartedLatch.await(5, TimeUnit.SECONDS);
-      boundedHandler.onNext(createOpMsgFromBsonDocument(
-          new BsonDocument().append(IdentityCommand.Name, BsonBoolean.TRUE)));
+      boundedHandler.onNext(
+          createOpMsgFromBsonDocument(
+              new BsonDocument().append(IdentityCommand.Name, BsonBoolean.TRUE)));
       Thread.sleep(50);
-      boundedHandler.onNext(createOpMsgFromBsonDocument(
-          new BsonDocument().append(IdentityCommand.Name, new BsonString("rejected"))));
+      boundedHandler.onNext(
+          createOpMsgFromBsonDocument(
+              new BsonDocument().append(IdentityCommand.Name, new BsonString("rejected"))));
 
       // Should get gRPC RESOURCE_EXHAUSTED via onError
       ArgumentCaptor<Throwable> errorCaptor = ArgumentCaptor.forClass(Throwable.class);
       verify(boundedResponseObserver, timeout(5000).atLeastOnce()).onError(errorCaptor.capture());
 
-      boolean foundResourceExhausted = errorCaptor.getAllValues().stream().anyMatch(t -> {
-        if (t instanceof StatusRuntimeException sre) {
-          return sre.getStatus().getCode() == Status.Code.RESOURCE_EXHAUSTED;
-        }
-        return false;
-      });
+      boolean foundResourceExhausted =
+          errorCaptor.getAllValues().stream()
+              .anyMatch(
+                  t -> {
+                    if (t instanceof StatusRuntimeException sre) {
+                      return sre.getStatus().getCode() == Status.Code.RESOURCE_EXHAUSTED;
+                    }
+                    return false;
+                  });
       Assert.assertTrue(
-          "Expected gRPC RESOURCE_EXHAUSTED when flag on and attempt < 3",
-          foundResourceExhausted);
+          "Expected gRPC RESOURCE_EXHAUSTED when flag on and attempt < 3", foundResourceExhausted);
     } finally {
       blockingLatch.countDown();
       boundedExecutorManager.commandExecutor.close();
@@ -911,8 +919,7 @@ public class StreamingMessageHandlerTest {
     RegularBlockingRequestSettings settings =
         RegularBlockingRequestSettings.create(
             Optional.of(0.001), Optional.of(0.001), Optional.of(false));
-    ExecutorManager boundedExecutorManager =
-        new ExecutorManager(boundedMeterRegistry, settings);
+    ExecutorManager boundedExecutorManager = new ExecutorManager(boundedMeterRegistry, settings);
     StreamObserver<MessageMessage> boundedResponseObserver =
         mock(MessageMessageStreamObserver.class);
 
@@ -964,28 +971,35 @@ public class StreamingMessageHandlerTest {
         true);
 
     try {
-      boundedHandler.onNext(createOpMsgFromBsonDocument(
-          new BsonDocument().append("blockingCommand", BsonBoolean.TRUE)));
+      boundedHandler.onNext(
+          createOpMsgFromBsonDocument(
+              new BsonDocument().append("blockingCommand", BsonBoolean.TRUE)));
       taskStartedLatch.await(5, TimeUnit.SECONDS);
-      boundedHandler.onNext(createOpMsgFromBsonDocument(
-          new BsonDocument().append(IdentityCommand.Name, BsonBoolean.TRUE)));
+      boundedHandler.onNext(
+          createOpMsgFromBsonDocument(
+              new BsonDocument().append(IdentityCommand.Name, BsonBoolean.TRUE)));
       Thread.sleep(50);
-      boundedHandler.onNext(createOpMsgFromBsonDocument(
-          new BsonDocument().append(IdentityCommand.Name, new BsonString("rejected"))));
+      boundedHandler.onNext(
+          createOpMsgFromBsonDocument(
+              new BsonDocument().append(IdentityCommand.Name, new BsonString("rejected"))));
 
       // Should get BSON error via onNext, not gRPC error
       ArgumentCaptor<MessageMessage> captor = ArgumentCaptor.forClass(MessageMessage.class);
       verify(boundedResponseObserver, timeout(5000).atLeast(1)).onNext(captor.capture());
       verify(boundedResponseObserver, after(1000).never()).onError(any());
 
-      boolean foundBsonError = captor.getAllValues().stream().anyMatch(msg -> {
-        BsonDocument doc = ((MessageSectionBody) msg.sections().get(0)).body;
-        return doc.containsKey("code")
-            && doc.getInt32("code").getValue()
-                == Errors.SEARCH_REQUEST_REJECTED_DUE_TO_OVERLOAD.code;
-      });
+      boolean foundBsonError =
+          captor.getAllValues().stream()
+              .anyMatch(
+                  msg -> {
+                    BsonDocument doc = ((MessageSectionBody) msg.sections().get(0)).body;
+                    return doc.containsKey("code")
+                        && doc.getInt32("code").getValue()
+                            == Errors.SEARCH_REQUEST_REJECTED_DUE_TO_OVERLOAD.code;
+                  });
       Assert.assertTrue(
-          "Expected BSON error with code " + Errors.SEARCH_REQUEST_REJECTED_DUE_TO_OVERLOAD.code
+          "Expected BSON error with code "
+              + Errors.SEARCH_REQUEST_REJECTED_DUE_TO_OVERLOAD.code
               + " when attempt >= 3",
           foundBsonError);
     } finally {

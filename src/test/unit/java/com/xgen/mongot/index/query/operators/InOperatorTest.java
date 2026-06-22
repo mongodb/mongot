@@ -275,7 +275,9 @@ public class InOperatorTest {
   private static BsonDeserializationTestSuite.ValidSpec<InOperator> multiplePath() {
     return BsonDeserializationTestSuite.TestSpec.valid(
         "multiple-path",
-        OperatorBuilder.in().paths(List.of("a", "b")).strings(List.of("example1", "example2"))
+        OperatorBuilder.in()
+            .paths(List.of("a", "b"))
+            .strings(List.of("example1", "example2"))
             .build());
   }
 }

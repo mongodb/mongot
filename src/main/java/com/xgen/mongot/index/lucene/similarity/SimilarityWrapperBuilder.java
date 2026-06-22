@@ -15,14 +15,15 @@ import org.apache.lucene.search.similarities.BooleanSimilarity;
 import org.apache.lucene.search.similarities.Similarity;
 
 /**
- * Constructs a mapping from Lucene field names to {@link Similarity} instances,
- * based on similarity definitions specified in a {@link SearchIndexDefinition}.
+ * Constructs a mapping from Lucene field names to {@link Similarity} instances, based on similarity
+ * definitions specified in a {@link SearchIndexDefinition}.
  *
  * <p>This builder recursively processes all fields in the index mapping, including:
+ *
  * <ul>
- *   <li>Top-level string and autocomplete fields</li>
- *   <li>Multi-field variants of string fields</li>
- *   <li>Fields nested under embedded documents</li>
+ *   <li>Top-level string and autocomplete fields
+ *   <li>Multi-field variants of string fields
+ *   <li>Fields nested under embedded documents
  * </ul>
  *
  * <p>Each field that declares a {@link SimilarityDefinition} is associated with a corresponding
@@ -96,23 +97,16 @@ public class SimilarityWrapperBuilder {
       ImmutableMap.Builder<String, Similarity> similarityMap) {
     fields.forEach(
         (path, fieldDefinition) ->
-            addSimilarityForFieldDefinition(
-                fieldDefinition,
-                path,
-                embeddedRoot,
-                similarityMap));
+            addSimilarityForFieldDefinition(fieldDefinition, path, embeddedRoot, similarityMap));
   }
 
-  ImmutableMap<String, Similarity> build(
-      SearchIndexDefinition indexDefinition) {
+  ImmutableMap<String, Similarity> build(SearchIndexDefinition indexDefinition) {
     ImmutableMap.Builder<String, Similarity> similarities = ImmutableMap.builder();
 
     // Add similarities for all fields that are not children of an embeddedDocuments field
     // definition.
     addSimilarityForMappings(
-        indexDefinition.getFieldHierarchyContext().getRootFields(),
-        Optional.empty(),
-        similarities);
+        indexDefinition.getFieldHierarchyContext().getRootFields(), Optional.empty(), similarities);
 
     // Add similarities for all fields that are children of an embeddedDocuments field definition.
     indexDefinition
@@ -120,10 +114,7 @@ public class SimilarityWrapperBuilder {
         .getFieldsByEmbeddedRoot()
         .forEach(
             (embeddedRoot, embeddedFields) ->
-                addSimilarityForMappings(
-                    embeddedFields,
-                    Optional.of(embeddedRoot),
-                    similarities));
+                addSimilarityForMappings(embeddedFields, Optional.of(embeddedRoot), similarities));
 
     // NOTE: build() would throw an exception with duplicate keys. This shouldn't ever be the case,
     // but if a customer managed to upload an invalid index, throwing would cause a crash loop.

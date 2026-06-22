@@ -67,11 +67,10 @@ public class GlobalMetricsFactoryTest {
     GlobalMetricFactory.incrementUnreachable("IndexOutOfBounds");
 
     Counter nullPointerCounter =
-        this.registry.find("mongot.unreachable_code_paths")
-            .tags("reason", "NullPointer")
-            .counter();
+        this.registry.find("mongot.unreachable_code_paths").tags("reason", "NullPointer").counter();
     Counter indexOutOfBoundsCounter =
-        this.registry.find("mongot.unreachable_code_paths")
+        this.registry
+            .find("mongot.unreachable_code_paths")
             .tags("reason", "IndexOutOfBounds")
             .counter();
     Counter ioErrorCounter =

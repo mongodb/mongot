@@ -424,13 +424,11 @@ public class JsonCodecTest {
       assertThat(pipeline.size()).isEqualTo(2);
 
       // First match with subtype 04
-      BsonBinary binary1 =
-          pipeline.get(0).asDocument().getDocument("$match").getBinary("id");
+      BsonBinary binary1 = pipeline.get(0).asDocument().getDocument("$match").getBinary("id");
       assertThat(binary1.getType()).isEqualTo((byte) 4);
 
       // Second match with subtype 03
-      BsonBinary binary2 =
-          pipeline.get(1).asDocument().getDocument("$match").getBinary("domain");
+      BsonBinary binary2 = pipeline.get(1).asDocument().getDocument("$match").getBinary("domain");
       assertThat(binary2.getType()).isEqualTo((byte) 3);
 
       // Convert back to JSON

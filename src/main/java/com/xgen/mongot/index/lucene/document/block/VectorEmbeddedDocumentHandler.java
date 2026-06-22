@@ -131,16 +131,17 @@ class VectorEmbeddedDocumentHandler implements DocumentHandler {
           VectorEmbeddedDocumentsFieldDefinition.create(fieldValueHandlerAbsolutePath, mapping);
 
       // Create a VectorEmbeddedFieldValueHandler that will handle the embedded documents
-      return Optional.of(VectorEmbeddedFieldValueHandler.create(
-              documentHandler.valueHandler(leafPath),
-              documentBlock,
-              embeddedDefinition,
-              mapping,
-              indexingMetricsUpdater,
-              indexCapabilities,
-              fieldValueHandlerAbsolutePath,
-              id,
-              autoEmbeddings))
+      return Optional.of(
+              VectorEmbeddedFieldValueHandler.create(
+                  documentHandler.valueHandler(leafPath),
+                  documentBlock,
+                  embeddedDefinition,
+                  mapping,
+                  indexingMetricsUpdater,
+                  indexCapabilities,
+                  fieldValueHandlerAbsolutePath,
+                  id,
+                  autoEmbeddings))
           .or(() -> documentHandler.valueHandler(leafPath));
     }
 
@@ -170,16 +171,17 @@ class VectorEmbeddedDocumentHandler implements DocumentHandler {
     }
 
     if (field != null) {
-      return Optional.of(VectorEmbeddedFieldValueHandler.create(
-              documentHandler.valueHandler(leafPath),
-              documentBlock,
-              field,
-              mapping,
-              indexingMetricsUpdater,
-              indexCapabilities,
-              fieldValueHandlerAbsolutePath,
-              id,
-              autoEmbeddings))
+      return Optional.of(
+              VectorEmbeddedFieldValueHandler.create(
+                  documentHandler.valueHandler(leafPath),
+                  documentBlock,
+                  field,
+                  mapping,
+                  indexingMetricsUpdater,
+                  indexCapabilities,
+                  fieldValueHandlerAbsolutePath,
+                  id,
+                  autoEmbeddings))
           .or(() -> documentHandler.valueHandler(leafPath));
     }
     return documentHandler.valueHandler(leafPath);

@@ -80,16 +80,16 @@ public record TypeSetDefinition(String name, List<FieldTypeDefinition> types)
             type ->
                 switch (type) {
                   case AUTO_EMBED_VECTOR,
-                          DATE_FACET,
-                          DOCUMENT,
-                          EMBEDDED_DOCUMENTS,
-                          VECTOR,
-                          KNN_VECTOR,
-                          NUMBER_FACET,
-                          SORTABLE_DATE_BETA_V1,
-                          SORTABLE_NUMBER_BETA_V1,
-                          SORTABLE_STRING_BETA_V1,
-                          STRING_FACET ->
+                      DATE_FACET,
+                      DOCUMENT,
+                      EMBEDDED_DOCUMENTS,
+                      VECTOR,
+                      KNN_VECTOR,
+                      NUMBER_FACET,
+                      SORTABLE_DATE_BETA_V1,
+                      SORTABLE_NUMBER_BETA_V1,
+                      SORTABLE_STRING_BETA_V1,
+                      STRING_FACET ->
                       true;
 
                   case AUTOCOMPLETE, BOOLEAN, DATE, GEO, NUMBER, OBJECT_ID, STRING, TOKEN, UUID ->

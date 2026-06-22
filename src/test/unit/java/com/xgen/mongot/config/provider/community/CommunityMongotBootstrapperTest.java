@@ -232,9 +232,7 @@ public class CommunityMongotBootstrapperTest {
   @Crash.TestOnlyHaltHandler
   public void failFastOnTopologyMismatch_crashesWhenMismatched() throws Exception {
     var guard = mock(CatalogAccessGuard.class);
-    doThrow(new TopologyMismatchException("mismatch for test"))
-        .when(guard)
-        .requireTopologyMatch();
+    doThrow(new TopologyMismatchException("mismatch for test")).when(guard).requireTopologyMatch();
 
     AtomicInteger exitCode = new AtomicInteger(-1);
     Crash.setHaltHandlerForTesting(
@@ -245,8 +243,7 @@ public class CommunityMongotBootstrapperTest {
 
     try {
       assertThrows(
-          HaltError.class,
-          () -> CommunityMongotBootstrapper.failFastOnTopologyMismatch(guard));
+          HaltError.class, () -> CommunityMongotBootstrapper.failFastOnTopologyMismatch(guard));
       assertEquals("expected fail-exit code 1", 1, exitCode.get());
     } finally {
       Crash.clearHaltHandlerForTesting();
@@ -362,15 +359,16 @@ public class CommunityMongotBootstrapperTest {
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
-        Optional.of(new AdvancedConfigs(
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            ftdcConfig)));
+        Optional.of(
+            new AdvancedConfigs(
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                ftdcConfig)));
   }
 
   private SyncSourceConfig createMinimalSyncSourceConfig() {

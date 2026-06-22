@@ -20,7 +20,7 @@ public class LuceneDocumentUtilTest {
     right.add(rightField);
 
     Document result = LuceneDocumentUtil.add(left, right);
-    
+
     assertSame(left, result);
     assertThat(left).containsExactly(leftField, rightField);
     assertThat(right).containsExactly(rightField);

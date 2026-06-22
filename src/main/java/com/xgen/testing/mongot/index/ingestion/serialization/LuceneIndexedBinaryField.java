@@ -131,7 +131,7 @@ public class LuceneIndexedBinaryField extends LuceneIndexedFieldSpec {
       return true;
     }
 
-    if (!(o instanceof LuceneIndexedBinaryField that))  {
+    if (!(o instanceof LuceneIndexedBinaryField that)) {
       return false;
     }
 

@@ -29,8 +29,7 @@ public class CommunityCursorConfigTest {
 
   @Test
   public void roundTrip_empty_preservesEmptyBlock() throws BsonParseException {
-    CommunityCursorConfig original =
-        new CommunityCursorConfig(Optional.empty(), Optional.empty());
+    CommunityCursorConfig original = new CommunityCursorConfig(Optional.empty(), Optional.empty());
     assertEquals(original, parse(original.toBson()));
   }
 

@@ -84,8 +84,8 @@ public class VectorAutoEmbedFieldSpecificationTest {
 
   /**
    * A model-config similarity value mongot doesn't recognize must not fail the index: the field
-   * falls back to the hardcoded quantization default, and the skipped config value is surfaced as
-   * a WARN carrying the model, quantization, and offending value an operator needs to find the bad
+   * falls back to the hardcoded quantization default, and the skipped config value is surfaced as a
+   * WARN carrying the model, quantization, and offending value an operator needs to find the bad
    * conf-call config.
    */
   @Test
@@ -106,8 +106,7 @@ public class VectorAutoEmbedFieldSpecificationTest {
       ILoggingEvent warning =
           listAppender.list.stream()
               .filter(event -> event.getLevel() == Level.WARN)
-              .filter(
-                  event -> event.getFormattedMessage().contains("Unrecognized model-config"))
+              .filter(event -> event.getFormattedMessage().contains("Unrecognized model-config"))
               .findFirst()
               .orElseThrow(
                   () -> new AssertionError("expected a WARN for the unrecognized similarity"));

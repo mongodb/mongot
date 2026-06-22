@@ -92,10 +92,10 @@ public class AbortableRandomVectorScorerSupplierTest {
    * score() calls) could individually never trigger an abort check.
    *
    * <p>The merge's aborted state is driven by an external counter that increments only on {@code
-   * score()} calls. {@code isAborted()} returns {@code true} exclusively after that counter
-   * reaches the per-supplier threshold, so any abort observed by the {@code scorer()} path would
-   * be impossible — the only way the exception can be thrown is via the shared score()-counter
-   * check, which is precisely the behavior under test.
+   * score()} calls. {@code isAborted()} returns {@code true} exclusively after that counter reaches
+   * the per-supplier threshold, so any abort observed by the {@code scorer()} path would be
+   * impossible — the only way the exception can be thrown is via the shared score()-counter check,
+   * which is precisely the behavior under test.
    */
   @Test
   public void testAbortThresholdAccumulatesAcrossShortLivedScorers() throws IOException {
@@ -464,4 +464,3 @@ public class AbortableRandomVectorScorerSupplierTest {
     assertEquals(100, scorer.ordToDoc(42));
   }
 }
-

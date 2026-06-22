@@ -214,6 +214,4 @@ public abstract class AbstractDocumentWrapper {
   BsonValue getRootId() {
     return LuceneDocumentIdEncoder.documentIdFromLuceneDocument(this.luceneDocument);
   }
-
-  
 }

@@ -96,8 +96,7 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
                   handlingContext.commandRegistration.ifPresent(
                       registration -> registration.failureCounter.increment());
                   this.commandManager.onCommandFailure(
-                      Status.RESOURCE_EXHAUSTED.withDescription(
-                          "Search server at capacity"));
+                      Status.RESOURCE_EXHAUSTED.withDescription("Search server at capacity"));
                 } else {
                   this.commandManager.onCommandComplete(
                       getErrorMessage(requestMsg, cause),
@@ -195,8 +194,7 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
 
     // Load shedding rejection should include error code and labels for client retry handling
     if (cause instanceof LoadSheddingRejectedException) {
-      String message =
-          cause.getMessage() == null ? "Server is at capacity" : cause.getMessage();
+      String message = cause.getMessage() == null ? "Server is at capacity" : cause.getMessage();
       BsonDocument error =
           MessageUtils.createErrorBodyWithLabels(
               message, LOAD_SHEDDING_ERROR_LABELS, Errors.SEARCH_REQUEST_REJECTED_DUE_TO_OVERLOAD);

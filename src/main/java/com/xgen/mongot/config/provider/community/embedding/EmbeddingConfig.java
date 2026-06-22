@@ -11,12 +11,10 @@ import java.util.Optional;
 import org.bson.BsonDocument;
 
 /**
- * Basic embedding configuration for community edition.
- * Supports:
- * - Overriding the provider endpoint URL
- * - Specifying file paths for Voyage API credentials
- * - Configuring whether this instance is the auto-embedding view writer (leader).
- * The advanced embedding configs are defined in {@code CommunityAutoEmbeddingConfig}
+ * Basic embedding configuration for community edition. Supports: - Overriding the provider endpoint
+ * URL - Specifying file paths for Voyage API credentials - Configuring whether this instance is the
+ * auto-embedding view writer (leader). The advanced embedding configs are defined in {@code
+ * CommunityAutoEmbeddingConfig}
  */
 public record EmbeddingConfig(
     Optional<String> providerEndpoint,
@@ -63,4 +61,3 @@ public record EmbeddingConfig(
         .build();
   }
 }
-

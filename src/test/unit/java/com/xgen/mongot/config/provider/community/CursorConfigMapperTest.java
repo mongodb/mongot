@@ -16,8 +16,9 @@ public class CursorConfigMapperTest {
   public void toCursorConfig_honorsConfiguredValues() throws Exception {
     CommunityConfig config = CommunityConfig.readFromFile(TUNING_CONFIG).config();
 
-    CursorConfig cursorConfig = CursorConfigMapper.toCursorConfig(
-        config.advancedConfigs().flatMap(AdvancedConfigs::cursorConfig));
+    CursorConfig cursorConfig =
+        CursorConfigMapper.toCursorConfig(
+            config.advancedConfigs().flatMap(AdvancedConfigs::cursorConfig));
 
     var bson = cursorConfig.toBson();
     assertEquals(1800000, bson.getInt32("idleCursorHandlingRateMs").getValue());

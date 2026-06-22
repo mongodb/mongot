@@ -53,9 +53,7 @@ public class AbortableDirectoryTest {
     abortableDir.close();
   }
 
-  /**
-   * Test that AbortableDirectory allows normal writes when merge is not aborted.
-   */
+  /** Test that AbortableDirectory allows normal writes when merge is not aborted. */
   @Test
   public void testNormalWriteWhenNotAborted() throws IOException {
     // Create a mock merge that is never aborted
@@ -87,9 +85,7 @@ public class AbortableDirectoryTest {
     abortableDir.close();
   }
 
-  /**
-   * Test that AbortableDirectory checks abort status periodically based on bytes written.
-   */
+  /** Test that AbortableDirectory checks abort status periodically based on bytes written. */
   @Test
   public void testPeriodicAbortCheck() throws IOException {
     // Create a mock merge that becomes aborted after the second check
@@ -123,9 +119,7 @@ public class AbortableDirectoryTest {
     abortableDir.close();
   }
 
-  /**
-   * Test that AbortableDirectory works with createTempOutput as well.
-   */
+  /** Test that AbortableDirectory works with createTempOutput as well. */
   @Test
   public void testAbortDuringTempOutput() throws IOException {
     // Create a mock merge that will be aborted
@@ -194,9 +188,7 @@ public class AbortableDirectoryTest {
     abortableDir.close();
   }
 
-  /**
-   * Test that AbortableDirectory properly delegates getFilePointer and getChecksum.
-   */
+  /** Test that AbortableDirectory properly delegates getFilePointer and getChecksum. */
   @Test
   public void testDelegationMethods() throws IOException {
     // Create a mock merge that is never aborted
@@ -228,9 +220,7 @@ public class AbortableDirectoryTest {
     abortableDir.close();
   }
 
-  /**
-   * Test that AbortableDirectory wraps IndexInput for .vec files with abort detection.
-   */
+  /** Test that AbortableDirectory wraps IndexInput for .vec files with abort detection. */
   @Test
   public void testAbortDuringReadVecFile() throws IOException {
     // Create a mock merge that will be aborted
@@ -256,9 +246,7 @@ public class AbortableDirectoryTest {
     abortableDir.close();
   }
 
-  /**
-   * Test that AbortableDirectory wraps IndexInput for .vex files with abort detection.
-   */
+  /** Test that AbortableDirectory wraps IndexInput for .vex files with abort detection. */
   @Test
   public void testAbortDuringReadVexFile() throws IOException {
     // Create a mock merge that will be aborted
@@ -285,9 +273,7 @@ public class AbortableDirectoryTest {
     abortableDir.close();
   }
 
-  /**
-   * Test that AbortableDirectory does NOT wrap IndexInput for non-vector files.
-   */
+  /** Test that AbortableDirectory does NOT wrap IndexInput for non-vector files. */
   @Test
   public void testNoAbortCheckForNonVectorFiles() throws IOException {
     // Create a mock merge that is aborted
@@ -321,9 +307,7 @@ public class AbortableDirectoryTest {
     abortableDir.close();
   }
 
-  /**
-   * Test that AbortableDirectory allows normal reads when merge is not aborted.
-   */
+  /** Test that AbortableDirectory allows normal reads when merge is not aborted. */
   @Test
   public void testNormalReadWhenNotAborted() throws IOException {
     // Create a mock merge that is never aborted
@@ -357,9 +341,7 @@ public class AbortableDirectoryTest {
     abortableDir.close();
   }
 
-  /**
-   * Test that AbortableIndexInput checks abort status periodically based on bytes read.
-   */
+  /** Test that AbortableIndexInput checks abort status periodically based on bytes read. */
   @Test
   public void testPeriodicAbortCheckOnRead() throws IOException {
     // Create a mock merge that becomes aborted after the second check
@@ -396,9 +378,7 @@ public class AbortableDirectoryTest {
     abortableDir.close();
   }
 
-  /**
-   * Test that AbortableIndexInput properly delegates getFilePointer, seek, and length.
-   */
+  /** Test that AbortableIndexInput properly delegates getFilePointer, seek, and length. */
   @Test
   public void testIndexInputDelegationMethods() throws IOException {
     // Create a mock merge that is never aborted
@@ -446,9 +426,7 @@ public class AbortableDirectoryTest {
     abortableDir.close();
   }
 
-  /**
-   * Test that AbortableIndexInput clone() preserves abort detection.
-   */
+  /** Test that AbortableIndexInput clone() preserves abort detection. */
   @Test
   public void testIndexInputClone() throws IOException {
     // Create a mock merge that will be aborted
@@ -487,9 +465,7 @@ public class AbortableDirectoryTest {
     abortableDir.close();
   }
 
-  /**
-   * Test that AbortableIndexInput slice() preserves abort detection.
-   */
+  /** Test that AbortableIndexInput slice() preserves abort detection. */
   @Test
   public void testIndexInputSlice() throws IOException {
     // Create a mock merge that will be aborted
@@ -529,9 +505,7 @@ public class AbortableDirectoryTest {
     abortableDir.close();
   }
 
-  /**
-   * Test that readByte() also triggers abort check after enough bytes are read.
-   */
+  /** Test that readByte() also triggers abort check after enough bytes are read. */
   @Test
   public void testAbortCheckOnReadByte() throws IOException {
     // Create a mock merge that will be aborted
@@ -570,4 +544,3 @@ public class AbortableDirectoryTest {
     abortableDir.close();
   }
 }
-

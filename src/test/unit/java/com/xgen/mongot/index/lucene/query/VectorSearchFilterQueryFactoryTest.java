@@ -56,7 +56,8 @@ public class VectorSearchFilterQueryFactoryTest {
     VectorQueryFactoryContext context =
         new VectorQueryFactoryContext(
             new VectorFieldDefinitionResolver(indexDefinition, IndexFormatVersion.CURRENT),
-            FeatureFlags.getDefault(), metrics);
+            FeatureFlags.getDefault(),
+            metrics);
 
     assertTrue(context.isAutoEmbedField(textPath));
     assertTrue(context.isAutoEmbedField(autoEmbedPath));
@@ -65,9 +66,7 @@ public class VectorSearchFilterQueryFactoryTest {
   }
 
   @Test
-  public void filterOnNonAutoEmbedField_success()
-      throws
-      Exception {
+  public void filterOnNonAutoEmbedField_success() throws Exception {
     // Index with vector data field and separate filter field
     FieldPath vectorPath = FieldPath.parse("embedding");
     FieldPath filterPath = FieldPath.parse("category");
@@ -95,21 +94,19 @@ public class VectorSearchFilterQueryFactoryTest {
 
     // filtering on regular field works fine
     new LuceneVectorTranslation(
-        List.of(
-            VectorDataFieldDefinitionBuilder.builder()
-                .path(vectorPath)
-                .numDimensions(3)
-                .similarity(VectorSimilarity.EUCLIDEAN)
-                .quantization(VectorQuantization.NONE)
-                .build(),
-            VectorIndexFilterFieldDefinition.create(filterPath)))
+            List.of(
+                VectorDataFieldDefinitionBuilder.builder()
+                    .path(vectorPath)
+                    .numDimensions(3)
+                    .similarity(VectorSimilarity.EUCLIDEAN)
+                    .quantization(VectorQuantization.NONE)
+                    .build(),
+                VectorIndexFilterFieldDefinition.create(filterPath)))
         .translate(query);
   }
 
   @Test
-  public void filterOnAutoEmbedField_throwsException()
-      throws
-      Exception {
+  public void filterOnAutoEmbedField_throwsException() throws Exception {
     // Index with TEXT auto-embedding field and separate vector data field
     FieldPath textPath = FieldPath.parse("description");
     FieldPath vectorPath = FieldPath.parse("embedding");
@@ -141,14 +138,14 @@ public class VectorSearchFilterQueryFactoryTest {
             InvalidQueryException.class,
             () ->
                 new LuceneVectorTranslation(
-                    List.of(
-                        new VectorTextFieldDefinition("voyage-3-large", textPath),
-                        VectorDataFieldDefinitionBuilder.builder()
-                            .path(vectorPath)
-                            .numDimensions(3)
-                            .similarity(VectorSimilarity.EUCLIDEAN)
-                            .quantization(VectorQuantization.NONE)
-                            .build()))
+                        List.of(
+                            new VectorTextFieldDefinition("voyage-3-large", textPath),
+                            VectorDataFieldDefinitionBuilder.builder()
+                                .path(vectorPath)
+                                .numDimensions(3)
+                                .similarity(VectorSimilarity.EUCLIDEAN)
+                                .quantization(VectorQuantization.NONE)
+                                .build()))
                     .translate(query));
 
     assertTrue(
@@ -177,8 +174,7 @@ public class VectorSearchFilterQueryFactoryTest {
                         new ClauseFilter(
                             ClauseBuilder.simpleClause()
                                 .path(filterPath)
-                                .addOperator(
-                                    MqlFilterOperatorBuilder.exists().value(true).build())
+                                .addOperator(MqlFilterOperatorBuilder.exists().value(true).build())
                                 .build()))
                     .build())
             .build();
@@ -211,8 +207,7 @@ public class VectorSearchFilterQueryFactoryTest {
                         new ClauseFilter(
                             ClauseBuilder.simpleClause()
                                 .path(unindexedPath)
-                                .addOperator(
-                                    MqlFilterOperatorBuilder.exists().value(true).build())
+                                .addOperator(MqlFilterOperatorBuilder.exists().value(true).build())
                                 .build()))
                     .build())
             .build();

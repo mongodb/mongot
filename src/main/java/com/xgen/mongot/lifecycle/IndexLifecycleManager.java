@@ -66,6 +66,7 @@ public class IndexLifecycleManager {
 
   private final InitializedIndexCatalog initializedIndexCatalog;
   private final Metrics metrics;
+
   @GuardedBy("this")
   private CompletableFuture<Void> initFuture;
 

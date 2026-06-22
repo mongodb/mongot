@@ -125,11 +125,10 @@ public class DocumentEvent {
    * Creates an UPDATE event whose MV write is a partial {@code $set} rather than a full document
    * replacement.
    *
-   * <p>{@code changedEmbedTexts} carries the source-side declared embed paths whose embeddings
-   * need to be regenerated and the chosen non-empty text for each. An empty map describes a
-   * filter-only update (no embedding work pending); a non-empty map describes a partial-embed
-   * update that the embedding scheduler will augment via {@link #withFilterFieldUpdates} once it
-   * has the vectors.
+   * <p>{@code changedEmbedTexts} carries the source-side declared embed paths whose embeddings need
+   * to be regenerated and the chosen non-empty text for each. An empty map describes a filter-only
+   * update (no embedding work pending); a non-empty map describes a partial-embed update that the
+   * embedding scheduler will augment via {@link #withFilterFieldUpdates} once it has the vectors.
    */
   public static DocumentEvent createPartialUpdate(
       DocumentMetadata metadata,
@@ -149,8 +148,8 @@ public class DocumentEvent {
    * augmentedFilterFieldUpdates} and {@code changedEmbedTexts} cleared. Used by the embedding
    * scheduler after merging vector + hash entries for the changed embed paths into the original
    * filter-field {@code $set} body — once that augmentation completes, the event has no further
-   * embedding work to do, so it should be indistinguishable from a filter-only update to
-   * downstream code.
+   * embedding work to do, so it should be indistinguishable from a filter-only update to downstream
+   * code.
    */
   public DocumentEvent withFilterFieldUpdates(BsonDocument augmentedFilterFieldUpdates) {
     return new DocumentEvent(
@@ -209,8 +208,8 @@ public class DocumentEvent {
    * partial-embed updates after embeddings are applied.
    *
    * <p>Presence is <b>not</b> a reliable proxy for "filter-only" — both filter-only updates and
-   * partial-embed updates carry a body. Callers needing to distinguish "no embedding work
-   * pending" should use {@link #isFilterOnlyUpdate()} instead.
+   * partial-embed updates carry a body. Callers needing to distinguish "no embedding work pending"
+   * should use {@link #isFilterOnlyUpdate()} instead.
    */
   public Optional<BsonDocument> getFilterFieldUpdates() {
     return this.filterFieldUpdates;
@@ -228,8 +227,8 @@ public class DocumentEvent {
   /**
    * Returns {@code true} if this is a filter-only update — i.e. it carries a {@code $set} body to
    * apply verbatim and needs no embedding work. Partial-embed updates also carry a {@code $set}
-   * body but still need embeddings for {@link #getChangedEmbedTexts()} and therefore are
-   * <b>not</b> filter-only.
+   * body but still need embeddings for {@link #getChangedEmbedTexts()} and therefore are <b>not</b>
+   * filter-only.
    */
   public boolean isFilterOnlyUpdate() {
     return this.filterFieldUpdates.isPresent() && this.changedEmbedTexts.isEmpty();
@@ -284,5 +283,4 @@ public class DocumentEvent {
         + this.customVectorEngineId
         + '}';
   }
-
 }

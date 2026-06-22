@@ -84,9 +84,8 @@ public class AtomicDirectoryRemover {
 
   /**
    * Deletes all immediate children (files and subdirectories) in a directory. Each child is
-   * atomically renamed to the trash directory before being deleted, so the child disappears
-   * from the source directory in a single atomic operation. The parent directory itself is
-   * preserved.
+   * atomically renamed to the trash directory before being deleted, so the child disappears from
+   * the source directory in a single atomic operation. The parent directory itself is preserved.
    */
   public synchronized void deleteChildrenInDirectory(Path dir) throws IOException {
     if (!dir.toFile().exists()) {

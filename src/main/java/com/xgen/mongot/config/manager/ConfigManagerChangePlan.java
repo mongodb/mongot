@@ -25,8 +25,9 @@ record ConfigManagerChangePlan(
   private static class Fields {
     private static final Field.Required<List<IndexDefinition>> ADDED_INDEX_DEFINITIONS =
         Field.builder("addedIndexDefinitions")
-            .classField(d -> Check.unreachable(
-                "Deserialization not supported for IndexDefinition"), IndexDefinition::toBson)
+            .classField(
+                d -> Check.unreachable("Deserialization not supported for IndexDefinition"),
+                IndexDefinition::toBson)
             .disallowUnknownFields()
             .asList()
             .required();
@@ -40,8 +41,9 @@ record ConfigManagerChangePlan(
              * We only need the encoder for ModifiedIndexInformation, so use classField() to get
              * at one. This should be cleaned up when converting parsers/encoders to Codecs.
              */
-            .classField(d -> Check.unreachable(
-                "Deserialization not supported for ModifiedIndexInformation"),
+            .classField(
+                d ->
+                    Check.unreachable("Deserialization not supported for ModifiedIndexInformation"),
                 ModifiedIndexInformation::toBson)
             .disallowUnknownFields()
             .asList()

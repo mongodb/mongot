@@ -140,8 +140,7 @@ public interface LuceneQuerySpecification extends DocumentEncodable {
       case BOOLEAN_QUERY -> builder.classField(BooleanQuerySpec::fromBson);
       case BOOST_QUERY -> builder.classField(BoostQuerySpec::fromBson);
       case CONSTANT_SCORE_QUERY -> builder.classField(ConstantScoreQuerySpec::fromBson);
-      case DISABLE_BULK_SCORER_QUERY ->
-          builder.classField(DisableBulkScorerQuerySpec::fromBson);
+      case DISABLE_BULK_SCORER_QUERY -> builder.classField(DisableBulkScorerQuerySpec::fromBson);
       case DISJUNCTION_MAX_QUERY -> builder.classField(DisjunctionMaxQuerySpec::fromBson);
       case DOC_AND_SCORE_QUERY -> builder.classField(DocAndScoreQuerySpec::fromBson);
       case DRILL_SIDEWAYS_QUERY -> builder.classField(DrillSidewaysQuerySpec::fromBson);

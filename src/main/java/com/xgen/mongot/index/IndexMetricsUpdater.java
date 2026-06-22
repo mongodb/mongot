@@ -177,8 +177,8 @@ public class IndexMetricsUpdater implements Closeable {
         indexDefinition,
         this.indexMetricValuesSupplier.getIndexStatus(),
         getIndexingMetricsUpdater()
-            .getMetrics(this.indexMetricValuesSupplier,
-                computeNumNestedVectorFields(indexDefinition)),
+            .getMetrics(
+                this.indexMetricValuesSupplier, computeNumNestedVectorFields(indexDefinition)),
         getQueryingMetricsUpdater().getMetrics());
   }
 
@@ -191,9 +191,10 @@ public class IndexMetricsUpdater implements Closeable {
       return 0;
     }
     var nestedRoot = vectorDef.getNestedRoot().get();
-    return (int) vectorDef.getFields().stream()
-        .filter(field -> field.isVectorField() && field.getPath().isChildOf(nestedRoot))
-        .count();
+    return (int)
+        vectorDef.getFields().stream()
+            .filter(field -> field.isVectorField() && field.getPath().isChildOf(nestedRoot))
+            .count();
   }
 
   /** De-registers all metrics for the index. */
@@ -383,7 +384,7 @@ public class IndexMetricsUpdater implements Closeable {
     public Counter getLucene99IdPostingCreatedCounter() {
       return this.lucene99IdPostingCreatedCounter;
     }
-    
+
     public Timer getCommitTimer() {
       return this.commitTimer;
     }
@@ -778,8 +779,8 @@ public class IndexMetricsUpdater implements Closeable {
     }
 
     /**
-     * Records total requested facet buckets for facet queries when {@code enabled} returns true
-     * and the query has positive bucket demand (string {@code numBuckets} plus number/date
+     * Records total requested facet buckets for facet queries when {@code enabled} returns true and
+     * the query has positive bucket demand (string {@code numBuckets} plus number/date
      * boundary-derived buckets). Called from the search execution path after a successful query
      * (e.g. {@link MeteredSearchIndexReader}), consistent with other query-time distribution
      * metrics.

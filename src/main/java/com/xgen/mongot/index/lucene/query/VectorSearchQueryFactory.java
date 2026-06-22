@@ -76,8 +76,7 @@ class VectorSearchQueryFactory {
 
     if (embeddedRoot.isPresent()
         && !this.factoryContext.getFeatureFlags().isEnabled(Feature.NESTED_VECTOR)) {
-      throw new InvalidQueryException(
-          "Nested vector search is not supported on this cluster");
+      throw new InvalidQueryException("Nested vector search is not supported on this cluster");
     }
 
     // nestedOptions is optional for embedded vector fields; defaults to scoreMode=max
@@ -107,9 +106,7 @@ class VectorSearchQueryFactory {
 
     // Create query context with embedded root if this is an embedded vector query
     SingleQueryContext effectiveQueryContext =
-        embeddedRoot.isPresent()
-            ? queryContext.withEmbeddedRoot(embeddedRoot.get())
-            : queryContext;
+        embeddedRoot.isPresent() ? queryContext.withEmbeddedRoot(embeddedRoot.get()) : queryContext;
 
     // Create filter query (applies at leaf/embedded document level)
     Optional<Query> luceneFilter =
@@ -171,28 +168,30 @@ class VectorSearchQueryFactory {
                 effectiveQueryContext.getIndexReader(),
                 this.factoryContext.getFeatureFlags(),
                 this.factoryContext.getMetrics());
-        childQuery = switch (queryVector) {
-          case FloatVector floatVector ->
-              queryCreator.query(floatVector, fieldName, numCandidates, limit, luceneFilter);
-          case ByteVector byteVector ->
-              queryCreator.query(byteVector, fieldName, numCandidates, limit, luceneFilter);
-          case BitVector bitVector ->
-              queryCreator.query(bitVector, fieldName, numCandidates, limit, luceneFilter);
-        };
+        childQuery =
+            switch (queryVector) {
+              case FloatVector floatVector ->
+                  queryCreator.query(floatVector, fieldName, numCandidates, limit, luceneFilter);
+              case ByteVector byteVector ->
+                  queryCreator.query(byteVector, fieldName, numCandidates, limit, luceneFilter);
+              case BitVector bitVector ->
+                  queryCreator.query(bitVector, fieldName, numCandidates, limit, luceneFilter);
+            };
         break;
 
       case ExactVectorSearchCriteria unused:
         Query vectorFieldExistsQuery = new FieldExistsQuery(fieldName);
-        childQuery = new com.xgen.mongot.index.lucene.query.custom.ExactVectorSearchQuery(
-            fieldName,
-            queryVector,
-            indexedVectorSimilarity.getLuceneSimilarityFunction(),
-            luceneFilter.isPresent()
-                ? new BooleanQuery.Builder()
-                    .add(vectorFieldExistsQuery, BooleanClause.Occur.FILTER)
-                    .add(luceneFilter.get(), BooleanClause.Occur.FILTER)
-                    .build()
-                : vectorFieldExistsQuery);
+        childQuery =
+            new com.xgen.mongot.index.lucene.query.custom.ExactVectorSearchQuery(
+                fieldName,
+                queryVector,
+                indexedVectorSimilarity.getLuceneSimilarityFunction(),
+                luceneFilter.isPresent()
+                    ? new BooleanQuery.Builder()
+                        .add(vectorFieldExistsQuery, BooleanClause.Occur.FILTER)
+                        .add(luceneFilter.get(), BooleanClause.Occur.FILTER)
+                        .build()
+                    : vectorFieldExistsQuery);
         break;
     }
 
@@ -203,9 +202,8 @@ class VectorSearchQueryFactory {
     // - Child documents have $meta/embeddedPath: "<path>" (via addEmbeddedPathField)
     // - Documents are written as Lucene blocks with children preceding the parent
     if (embeddedRoot.isPresent()) {
-      ScoreMode scoreMode = criteria.embeddedOptions()
-          .map(this::getScoreMode)
-          .orElse(ScoreMode.Max);
+      ScoreMode scoreMode =
+          criteria.embeddedOptions().map(this::getScoreMode).orElse(ScoreMode.Max);
       BitSetProducer parentFilterBitSet = new QueryBitSetProducer(parentFilter());
 
       Query blockJoinQuery =

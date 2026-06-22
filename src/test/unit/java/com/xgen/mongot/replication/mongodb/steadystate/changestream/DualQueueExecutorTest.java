@@ -16,8 +16,7 @@ import org.junit.Test;
 public class DualQueueExecutorTest {
 
   private static EnqueueContext contextWithNoPreviousBatch() {
-    return new EnqueueContext(
-        SearchIndexDefinitionBuilder.VALID_INDEX, Optional.empty(), () -> {});
+    return new EnqueueContext(SearchIndexDefinitionBuilder.VALID_INDEX, Optional.empty(), () -> {});
   }
 
   private static EnqueueContext contextWithPreviousBatch(boolean hadDocuments) {

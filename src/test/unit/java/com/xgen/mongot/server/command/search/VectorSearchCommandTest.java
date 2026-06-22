@@ -278,9 +278,7 @@ public class VectorSearchCommandTest {
   public void testDeadlineExceededIsReturnedAsErrorToUser() throws Exception {
     var mocks = new Mocks();
 
-    when(mocks.reader.query(any(), any()))
-        .thenThrow(
-            new DeadlineExceededException());
+    when(mocks.reader.query(any(), any())).thenThrow(new DeadlineExceededException());
 
     VectorSearchCommand command =
         new VectorSearchCommand(
