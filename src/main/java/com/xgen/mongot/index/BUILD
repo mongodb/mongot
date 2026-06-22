@@ -86,6 +86,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/lucene/explain/tracing",
         "//src/main/java/com/xgen/mongot/index/lucene/field",
+        "//src/main/java/com/xgen/mongot/index/lucene/query/sort/mixed",
         "//src/main/java/com/xgen/mongot/index/path/string",
         "//src/main/java/com/xgen/mongot/index/query",
         "//src/main/java/com/xgen/mongot/index/query/collectors",

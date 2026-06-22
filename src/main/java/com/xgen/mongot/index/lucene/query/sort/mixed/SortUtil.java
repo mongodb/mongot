@@ -75,7 +75,8 @@ public final class SortUtil {
       case TIMESTAMP -> 130;
       case REGULAR_EXPRESSION -> 140;
       case MAX_KEY -> NullEmptySortPosition.HIGHEST.nullMissingPriority;
-      case DB_POINTER, JAVASCRIPT, JAVASCRIPT_WITH_SCOPE ->
+      case JAVASCRIPT -> 160;
+      case DB_POINTER, JAVASCRIPT_WITH_SCOPE ->
           throw new UnsupportedOperationException(
               String.format("The following BsonType cannot be sorted: %s", type));
     };
