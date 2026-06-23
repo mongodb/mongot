@@ -10,6 +10,8 @@ import com.mongodb.client.model.changestream.OperationType;
 import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
 import com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator;
 import com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils;
+import com.xgen.mongot.embedding.utils.PartialEmbedClassification;
+import com.xgen.mongot.embedding.utils.PartialEmbedFallbackReason;
 import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.DocumentMetadata;
 import com.xgen.mongot.index.definition.FieldDefinitionResolver;
@@ -19,11 +21,14 @@ import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.Crash;
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.LazyTransformationList;
 import com.xgen.mongot.util.LazyTransformationList.Transformer;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -57,6 +62,10 @@ public class ChangeStreamDocumentUtils {
     public final int skippedDocumentsWithoutMetadataNamespace;
     public final int applicableDocumentsTotal;
     public final long applicableDocumentsTotalBytes;
+    // Partial-embed observability (CLOUDP-412617): partial-embeds applied, and per-reason
+    // full-re-index fallback counts.
+    public final int partialEmbedApplied;
+    public final Map<PartialEmbedFallbackReason, Integer> partialEmbedFallbacks;
 
     private DocumentEventBatch(
         List<DocumentEvent> finalChangeEvents,
@@ -64,13 +73,17 @@ public class ChangeStreamDocumentUtils {
         int updatesApplicable,
         int skippedDocumentsWithoutMetadataNamespace,
         int applicableDocumentsTotal,
-        long applicableDocumentsTotalBytes) {
+        long applicableDocumentsTotalBytes,
+        int partialEmbedApplied,
+        Map<PartialEmbedFallbackReason, Integer> partialEmbedFallbacks) {
       this.finalChangeEvents = finalChangeEvents;
       this.updatesWitnessed = updatesWitnessed;
       this.updatesApplicable = updatesApplicable;
       this.skippedDocumentsWithoutMetadataNamespace = skippedDocumentsWithoutMetadataNamespace;
       this.applicableDocumentsTotal = applicableDocumentsTotal;
       this.applicableDocumentsTotalBytes = applicableDocumentsTotalBytes;
+      this.partialEmbedApplied = partialEmbedApplied;
+      this.partialEmbedFallbacks = partialEmbedFallbacks;
     }
   }
 
@@ -80,6 +93,9 @@ public class ChangeStreamDocumentUtils {
     private int skippedDocumentWithoutMetadataNamespaceCounter;
     private int applicableDocumentsTotalCounter;
     private long applicableDocumentsTotalBytesCounter;
+    private int partialEmbedAppliedCounter;
+    private final EnumMap<PartialEmbedFallbackReason, Integer> partialEmbedFallbackCounters =
+        new EnumMap<>(PartialEmbedFallbackReason.class);
 
     public ChangeStreamBatchMetrics() {
       this.witnessedUpdatesCounter = 0;
@@ -87,10 +103,21 @@ public class ChangeStreamDocumentUtils {
       this.skippedDocumentWithoutMetadataNamespaceCounter = 0;
       this.applicableDocumentsTotalCounter = 0;
       this.applicableDocumentsTotalBytesCounter = 0;
+      this.partialEmbedAppliedCounter = 0;
     }
 
     public void updateWitnessed() {
       this.witnessedUpdatesCounter++;
+    }
+
+    /** An UPDATE was classified partial-embed-safe and handled without a full re-index. */
+    public void partialEmbedApplied() {
+      this.partialEmbedAppliedCounter++;
+    }
+
+    /** A change fell back to a full document re-index, tagged with why. */
+    public void partialEmbedFallback(PartialEmbedFallbackReason reason) {
+      this.partialEmbedFallbackCounters.merge(reason, 1, Integer::sum);
     }
 
     public void updateApplicable() {
@@ -127,6 +154,14 @@ public class ChangeStreamDocumentUtils {
 
     public long getApplicableDocumentsTotalBytes() {
       return this.applicableDocumentsTotalBytesCounter;
+    }
+
+    public int getPartialEmbedApplied() {
+      return this.partialEmbedAppliedCounter;
+    }
+
+    public Map<PartialEmbedFallbackReason, Integer> getPartialEmbedFallbacks() {
+      return this.partialEmbedFallbackCounters;
     }
   }
 
@@ -254,7 +289,9 @@ public class ChangeStreamDocumentUtils {
         metrics.getApplicableUpdates(),
         metrics.getSkippedDocumentsWithoutMetadataNamespace(),
         metrics.getApplicableDocumentsTotal(),
-        metrics.getApplicableDocumentsTotalBytes());
+        metrics.getApplicableDocumentsTotalBytes(),
+        metrics.getPartialEmbedApplied(),
+        metrics.getPartialEmbedFallbacks());
   }
 
   /**
@@ -312,9 +349,12 @@ public class ChangeStreamDocumentUtils {
           metrics.updateApplicable();
           incrementApplicableDocumentMetrics(metrics, event);
 
-          // For materialized view based auto-embedding indexes, skip embedding and use partial
-          // updates when only filter fields changed. The old EMBEDDING strategy (TEXT fields,
-          // version 1) writes directly to Lucene and does not support partial updates.
+          // For materialized view based auto-embedding indexes (AUTO_EMBED fields, version >= 2),
+          // check if embedding generation is required. If not (only filter fields changed), we can
+          // skip embedding and use partial updates. When only a subset of embed fields changed, we
+          // partial-update those embeddings without re-embedding the others. The old EMBEDDING
+          // strategy (TEXT fields, version 1) writes directly to Lucene and does not support
+          // partial updates.
           // Partial updates are not supported on view-based indexes: detection of which base
           // fields the indexed document depends on is missing, so every update re-embeds
           // (HELP-94834: partial updates silently dropped documents transitioning into the view).
@@ -322,20 +362,50 @@ public class ChangeStreamDocumentUtils {
           // optimization.
           if (autoEmbedMapping.isPresent() && indexDefinition.getView().isEmpty()) {
             AutoEmbedFieldMapping mapping = autoEmbedMapping.get();
-            if (!AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(
-                event.getUpdateDescription(), mapping)) {
-              BsonDocument filterFieldUpdates =
+            // Decide between a partial $set and a full ReplaceOne. The partial-embed metrics
+            // (CLOUDP-412617) are recorded at the *committed* outcome below, never at the
+            // classifier verdict, so a post-classification fall-back (e.g. filter extraction
+            // failing) can't overcount partialEmbedApplied.
+            boolean embedFieldChanged =
+                AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(
+                    event.getUpdateDescription(), mapping);
+            @Var ImmutableMap<FieldPath, String> changedEmbedTexts = ImmutableMap.of();
+            @Var Optional<PartialEmbedFallbackReason> fallbackReason = Optional.empty();
+            if (embedFieldChanged) {
+              PartialEmbedClassification classification =
+                  AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(
+                      event.getUpdateDescription(), event.getFullDocument(), mapping);
+              changedEmbedTexts = classification.changedTexts().orElse(ImmutableMap.of());
+              fallbackReason = classification.fallbackReason();
+            }
+            if (fallbackReason.isEmpty()) {
+              // Empty Optional = extraction failed; fall back to a full replace rather than issue a
+              // partial $set that would silently drop filter fields. A present-but-empty body is
+              // valid (index has no filter fields) and still supports a partial embed. The
+              // filter-only path additionally needs a non-empty body to be worth a partial update.
+              Optional<BsonDocument> filterFieldUpdates =
                   AutoEmbeddingDocumentUtils.extractFilterFieldValues(
                       event.getFullDocument(), mapping);
-              // Use partial update if filter fields were extracted successfully.
-              // If empty (extraction failed or only non-indexed fields changed), fall back to full
-              // document replacement to ensure data correctness.
-              if (!filterFieldUpdates.isEmpty()) {
+              if (filterFieldUpdates.isPresent()
+                  && (!changedEmbedTexts.isEmpty() || !filterFieldUpdates.get().isEmpty())) {
+                if (embedFieldChanged) {
+                  metrics.partialEmbedApplied();
+                }
                 return Optional.of(
                     DocumentEvent.createPartialUpdate(
-                        metadata, event.getFullDocument(), filterFieldUpdates, ImmutableMap.of()));
+                        metadata,
+                        event.getFullDocument(),
+                        filterFieldUpdates.get(),
+                        changedEmbedTexts));
+              }
+              // Couldn't issue a partial $set. For an embed-changing update the only way here is a
+              // filter-extraction failure (changedEmbedTexts is non-empty), so it's a full re-index
+              // fallback. A filter-only update with an empty body just isn't worth a partial $set.
+              if (embedFieldChanged) {
+                fallbackReason = Optional.of(PartialEmbedFallbackReason.FILTER_EXTRACTION_FAILED);
               }
             }
+            fallbackReason.ifPresent(metrics::partialEmbedFallback);
           }
           // Full document replacement
           return Optional.of(DocumentEvent.createUpdate(metadata, event.getFullDocument()));
@@ -348,6 +418,11 @@ public class ChangeStreamDocumentUtils {
       }
       case REPLACE -> {
         incrementApplicableDocumentMetrics(metrics, event);
+        // A REPLACE re-embeds the whole document; count it as a full-re-index fallback
+        // (CLOUDP-412617), gated to the same MV-backed non-view population as the UPDATE path.
+        if (autoEmbedMapping.isPresent() && indexDefinition.getView().isEmpty()) {
+          metrics.partialEmbedFallback(PartialEmbedFallbackReason.REPLACE_EVENT);
+        }
         return Optional.of(DocumentEvent.createUpdate(metadata, event.getFullDocument()));
       }
       case DELETE -> {

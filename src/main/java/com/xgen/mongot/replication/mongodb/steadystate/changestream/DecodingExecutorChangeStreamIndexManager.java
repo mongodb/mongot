@@ -171,10 +171,7 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
                             this.generationId.generation.indexFormatVersion),
                         false /* areUpdateEventsPrefiltered */);
 
-                metricsUpdater.accept(
-                    documentEventBatch.updatesWitnessed,
-                    documentEventBatch.updatesApplicable,
-                    documentEventBatch.skippedDocumentsWithoutMetadataNamespace);
+                metricsUpdater.accept(documentEventBatch);
 
                 // Schedule the given batch for indexing if not shut down or lifecycle future is
                 // not completed. this.scheduleIndexing, ChangeStreamIndexManager#failLifecycle,

@@ -103,7 +103,7 @@ public class ChangeStreamIndexManagerTest {
           .indexMetricsSupplier(IndexMetricsSupplier.mockEmptyIndexMetricsSupplier())
           .build();
 
-  private static final DocumentMetricsUpdater NOOP_DOCUMENT_METRICS_UPDATER = (x, y, z) -> {};
+  private static final DocumentMetricsUpdater NOOP_DOCUMENT_METRICS_UPDATER = batch -> {};
 
   private static final Timer NOOP_TIMER =
       Timer.builder("dummy").register(new SimpleMeterRegistry());

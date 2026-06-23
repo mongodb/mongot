@@ -695,9 +695,13 @@ public class AutoEmbeddingDocumentUtils {
    *
    * @param fullDocument the full document from the change stream event
    * @param fieldMapping the vector index field mapping
-   * @return a BsonDocument containing only the filter field values for use with $set
+   * @return the filter-field {@code $set} body on success — possibly empty when the index declares
+   *     no filter fields — or {@link Optional#empty()} if extraction failed, in which case the
+   *     caller must fall back to a full document replacement rather than issue a partial {@code
+   *     $set} that would silently drop filter fields. The empty-Optional and empty-body cases are
+   *     deliberately distinct so callers don't conflate "no filter fields" with "extraction broke".
    */
-  public static BsonDocument extractFilterFieldValues(
+  public static Optional<BsonDocument> extractFilterFieldValues(
       RawBsonDocument fullDocument, AutoEmbedFieldMapping fieldMapping) {
     try {
       BsonDocument bsonDoc = new BsonDocument();
@@ -705,11 +709,11 @@ public class AutoEmbeddingDocumentUtils {
           MaterializedViewDocumentHandler.create(fieldMapping, Optional.empty(), bsonDoc);
       BsonDocumentProcessor.process(fullDocument, handler);
       stripIdForMaterializedViewWrite(bsonDoc);
-      return bsonDoc;
+      return Optional.of(bsonDoc);
     } catch (Exception e) {
       LOG.warn(
-          "Failed to extract filter field values, falling back to full document processing", e);
-      return new BsonDocument();
+          "Failed to extract filter field values; caller must fall back to a full replacement", e);
+      return Optional.empty();
     }
   }
 

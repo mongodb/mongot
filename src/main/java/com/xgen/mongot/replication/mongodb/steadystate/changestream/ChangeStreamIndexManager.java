@@ -343,7 +343,6 @@ abstract class ChangeStreamIndexManager {
   @FunctionalInterface
   public interface DocumentMetricsUpdater {
 
-    void accept(
-        int updatesWitnessed, int updatesApplicable, int skippedDocumentsWithoutMetadataNamespace);
+    void accept(DocumentEventBatch batch);
   }
 }

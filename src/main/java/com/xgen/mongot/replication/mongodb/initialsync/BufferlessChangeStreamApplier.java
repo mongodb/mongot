@@ -23,6 +23,7 @@ import com.xgen.mongot.replication.mongodb.common.ChangeStreams;
 import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncResumeInfo;
+import com.xgen.mongot.replication.mongodb.common.PartialEmbedMetricCounters;
 import com.xgen.mongot.replication.mongodb.common.SchedulerQueue;
 import com.xgen.mongot.replication.mongodb.initialsync.config.InitialSyncConfig;
 import com.xgen.mongot.util.Check;
@@ -69,6 +70,7 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
   private final Counter applicableUpdatesCounter;
   private final Counter witnessedUpdatesCounter;
   private final Counter skippedDocumentsWithoutMetadataNamespaceCounter;
+  private final PartialEmbedMetricCounters partialEmbedMetricCounters;
 
   /* Tracks duration of preprocessing a batch */
   private final Timer preprocessingBatchTimer;
@@ -147,6 +149,8 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
             replicationTag);
     this.skippedDocumentsWithoutMetadataNamespaceCounter =
         metricsFactory.counter(SKIPPED_DOCUMENTS_WITHOUT_METADATA_NAMESPACE);
+    this.partialEmbedMetricCounters =
+        new PartialEmbedMetricCounters(metricsFactory, replicationTag);
     this.preprocessingBatchTimer = metricsFactory.timer(PREPROCESSING_BATCH_DURATIONS);
     this.totalDocumentsCounter = metricsFactory.counter("changeStreamTotalDocuments");
     this.avoidNaturalOrderScanSyncSourceChangeResync = avoidNaturalOrderScanSyncSourceChangeResync;
@@ -391,6 +395,7 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
     this.witnessedUpdatesCounter.increment(documentEventBatch.updatesWitnessed);
     this.skippedDocumentsWithoutMetadataNamespaceCounter.increment(
         documentEventBatch.skippedDocumentsWithoutMetadataNamespace);
+    this.partialEmbedMetricCounters.recordBatch(documentEventBatch);
 
     if (documentEventBatch.applicableDocumentsTotal > 0) {
       this.context

@@ -54,6 +54,7 @@ java_library(
         "NamespaceResolutionException.java",
         "NamespaceResolver.java",
         "NoShardFoundException.java",
+        "PartialEmbedMetricCounters.java",
         "PauseInitialSyncException.java",
         "PeriodicIndexCommitter.java",
         "Projection.java",
@@ -74,6 +75,7 @@ java_library(
     visibility = ["//visibility:public"],
     exports = [
         "//src/main/java/com/xgen/mongot/embedding",
+        "//src/main/java/com/xgen/mongot/embedding/utils",
         "//src/main/java/com/xgen/mongot/index",
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/status",

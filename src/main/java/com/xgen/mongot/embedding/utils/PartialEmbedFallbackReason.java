@@ -1,11 +1,10 @@
 package com.xgen.mongot.embedding.utils;
 
 /**
- * Why an auto-embed index did a full document re-index instead of a partial-embed {@code $set}. All
- * values except {@link #REPLACE_EVENT} come from {@link
- * AutoEmbeddingDocumentUtils#computePartialEmbedChangedTexts}; {@link #REPLACE_EVENT} is recorded
- * for REPLACE ops at the routing layer. Exported as the snake_case {@code reason} tag on the {@code
- * partialEmbedFallback} counter.
+ * Why an auto-embed index did a full document re-index instead of a partial-embed {@code $set}.
+ * Most values come from {@link AutoEmbeddingDocumentUtils#computePartialEmbedChangedTexts}; {@link
+ * #REPLACE_EVENT} and {@link #FILTER_EXTRACTION_FAILED} are recorded at the change-stream routing
+ * layer. Exported as the snake_case {@code reason} tag on the {@code partialEmbedFallback} counter.
  */
 public enum PartialEmbedFallbackReason {
   /** The update description was unavailable, so we can't reason about what changed. */
@@ -31,5 +30,7 @@ public enum PartialEmbedFallbackReason {
   /** A changed embed path has no non-empty new text; a {@code $set} can't clear the MV vector. */
   EMPTY_NEW_VALUE,
   /** A REPLACE operation: a full document replacement, recorded at the routing layer. */
-  REPLACE_EVENT
+  REPLACE_EVENT,
+  /** Filter-field extraction threw at the routing layer; falls back to a full replace. */
+  FILTER_EXTRACTION_FAILED
 }

@@ -15,9 +15,11 @@ import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.metrics.ServerStatusDataExtractor.ReplicationMeterData.ChangeStreamMeterData;
 import com.xgen.mongot.metrics.ServerStatusDataExtractor.Scope;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
+import com.xgen.mongot.replication.mongodb.common.ChangeStreamDocumentUtils.DocumentEventBatch;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoClient;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
+import com.xgen.mongot.replication.mongodb.common.PartialEmbedMetricCounters;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
 import com.xgen.mongot.util.concurrent.Executors;
 import com.xgen.mongot.util.concurrent.NamedScheduledExecutorService;
@@ -49,6 +51,7 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
   private final Counter applicableUpdatesCounter;
   private final Counter witnessedUpdatesCounter;
   private final Counter skippedDocumentsWithoutMetadataNamespaceCounter;
+  private final PartialEmbedMetricCounters partialEmbedMetricCounters;
   private final AtomicLong syncClientUp;
   /* Tracks count and duration of in progress getMore operations (server calls only) */
   private final AtomicLong getMoresInFlight;
@@ -146,6 +149,8 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
         metricsFactory.counter(ChangeStreamMeterData.APPLICABLE_UPDATES, replicationTag);
     this.skippedDocumentsWithoutMetadataNamespaceCounter =
         metricsFactory.counter("skippedChangeStreamDocumentsWithoutMetadataNamespace");
+    this.partialEmbedMetricCounters =
+        new PartialEmbedMetricCounters(metricsFactory, replicationTag);
     this.syncClientUp =
         metricsFactory.numGauge(
             "dispatcher",
@@ -359,12 +364,12 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
         : throwable;
   }
 
-  private void updateBatchCounters(
-      int updatesWitnessed, int updatesApplicable, int skippedDocumentsWithoutMetadataNamespace) {
-    this.applicableUpdatesCounter.increment(updatesApplicable);
-    this.witnessedUpdatesCounter.increment(updatesWitnessed);
+  private void updateBatchCounters(DocumentEventBatch batch) {
+    this.applicableUpdatesCounter.increment(batch.updatesApplicable);
+    this.witnessedUpdatesCounter.increment(batch.updatesWitnessed);
     this.skippedDocumentsWithoutMetadataNamespaceCounter.increment(
-        skippedDocumentsWithoutMetadataNamespace);
+        batch.skippedDocumentsWithoutMetadataNamespace);
+    this.partialEmbedMetricCounters.recordBatch(batch);
   }
 
   private ChangeStreamBatch withMeasurement(

@@ -56,6 +56,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import net.jodah.failsafe.FailsafeException;
+import org.bson.BsonDocument;
 
 /**
  * The embedding indexing work scheduler accepts embedding and indexing work and schedules it to be
@@ -273,7 +274,7 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
         // within the budget, fall through to the parallel path to preserve the original behavior.
         long embeddableDocCount =
             batch.events.stream()
-                .filter(e -> containsValidDocument(e) && e.getFilterFieldUpdates().isEmpty())
+                .filter(e -> containsValidDocument(e) && !e.isFilterOnlyUpdate())
                 .count();
         long bytesPerDoc = embeddableDocCount > 0 ? estimatedBatchBytes / embeddableDocCount : 0;
         int subBatchSize = computeSubBatchSize(bytesPerDoc, this.perBatchBudgetBytes);
@@ -571,10 +572,25 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
         continue;
       }
 
-      // For filter-only updates, skip embedding transformation and pass through
-      // unchanged. The event already has filterFieldUpdates set, which
-      // MaterializedViewWriter will use for partial update.
-      if (event.getFilterFieldUpdates().isPresent()) {
+      // For filter-only updates, skip embedding transformation and pass through unchanged. The
+      // event already has filterFieldUpdates set, which MaterializedViewWriter will use for the
+      // partial update.
+      if (event.isFilterOnlyUpdate()) {
+        continue;
+      }
+
+      // For partial-embed updates, augment the existing filter-field $set body with vector + hash
+      // entries for the embed paths that actually changed, then emit the augmented event. Other
+      // embed fields remain untouched on the MV document because the $set only references the
+      // changed paths.
+      if (!event.getChangedEmbedTexts().isEmpty()) {
+        BsonDocument augmentedSetBody =
+            AutoEmbeddingDocumentUtils.buildPartialEmbedUpdateSetBody(
+                event.getFilterFieldUpdates().get(),
+                event.getChangedEmbedTexts(),
+                embeddingMapPerField,
+                Check.isPresent(matViewSchemaMetadata, "matViewSchemaMetadata"));
+        events.set(i, event.withFilterFieldUpdates(augmentedSetBody));
         continue;
       }
 
@@ -615,12 +631,27 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
         events.stream()
             .map(
                 event -> {
-                  // Skip text extraction for filter-only updates - they don't need embeddings
-                  if (!containsValidDocument(event) || event.getFilterFieldUpdates().isPresent()) {
+                  // Skip text extraction for filter-only updates - they don't need embeddings.
+                  if (!containsValidDocument(event) || event.isFilterOnlyUpdate()) {
                     return new DocumentTexts(event, HashMultimap.create());
                   }
                   SetMultimap<EmbedConfigurationForBatch, String> textsPerBatchKey =
                       HashMultimap.create();
+                  if (!event.getChangedEmbedTexts().isEmpty()) {
+                    // Partial-embed updates already carry the chosen text per changed path from
+                    // classify-time; bundle those directly without re-walking the source document.
+                    // Full-replace events take the walk path below because they don't have a
+                    // precomputed map.
+                    for (Map.Entry<FieldPath, String> e : event.getChangedEmbedTexts().entrySet()) {
+                      EmbedConfigurationForBatch batchKey = embedBatchKeyPerPath.get(e.getKey());
+                      Check.checkState(
+                          batchKey != null,
+                          "missing embed batch key for auto-embed path: %s",
+                          e.getKey());
+                      textsPerBatchKey.put(batchKey, e.getValue());
+                    }
+                    return new DocumentTexts(event, textsPerBatchKey);
+                  }
                   try {
                     var autoEmbeddingTextPathMap =
                         AutoEmbeddingDocumentUtils.getVectorTextPathMap(
@@ -783,12 +814,14 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
     long embeddingBytesPerDoc = estimateBytesPerDoc(autoEmbedMapping);
     @Var long totalBytes = 0;
     for (DocumentEvent event : events) {
-      if (!containsValidDocument(event) || event.getFilterFieldUpdates().isPresent()) {
+      if (!containsValidDocument(event) || event.isFilterOnlyUpdate()) {
         continue;
       }
       // Input document bytes (held in memory throughout the embedding call).
       totalBytes += event.getDocument().get().getByteBuffer().remaining();
-      // Embedding output bytes (one float[] per auto-embed field).
+      // Embedding output bytes (one float[] per auto-embed field; over-estimates for partial-embed
+      // updates which only re-embed a subset, but over-estimation is safe: we'd rather split
+      // batches conservatively than risk OOM).
       totalBytes += embeddingBytesPerDoc;
     }
     return totalBytes;

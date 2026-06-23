@@ -1385,7 +1385,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
 
     BsonDocument result =
-        AutoEmbeddingDocumentUtils.extractFilterFieldValues(
+        extractFilterValues(
             rawBsonDoc, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef));
 
     assertEquals(new BsonDocument("color", new BsonString("red")), result);
@@ -1412,7 +1412,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
 
     BsonDocument result =
-        AutoEmbeddingDocumentUtils.extractFilterFieldValues(
+        extractFilterValues(
             rawBsonDoc, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef));
 
     assertEquals(
@@ -1438,7 +1438,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
 
     BsonDocument result =
-        AutoEmbeddingDocumentUtils.extractFilterFieldValues(
+        extractFilterValues(
             rawBsonDoc, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef));
 
     // Should return empty document when filter field is missing
@@ -1468,7 +1468,7 @@ public class AutoEmbeddingDocumentUtilsTest {
 
     // Act
     BsonDocument result =
-        AutoEmbeddingDocumentUtils.extractFilterFieldValues(
+        extractFilterValues(
             rawBsonDoc, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef));
 
     // Assert
@@ -1499,7 +1499,7 @@ public class AutoEmbeddingDocumentUtilsTest {
 
     // Act
     BsonDocument result =
-        AutoEmbeddingDocumentUtils.extractFilterFieldValues(
+        extractFilterValues(
             rawBsonDoc, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef));
 
     // Assert
@@ -1529,7 +1529,7 @@ public class AutoEmbeddingDocumentUtilsTest {
 
     // Act
     BsonDocument result =
-        AutoEmbeddingDocumentUtils.extractFilterFieldValues(
+        extractFilterValues(
             rawBsonDoc, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef));
 
     // Assert
@@ -1568,7 +1568,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
 
     BsonDocument result =
-        AutoEmbeddingDocumentUtils.extractFilterFieldValues(
+        extractFilterValues(
             rawBsonDoc, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef));
 
     assertThat(result)
@@ -1611,7 +1611,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
 
     BsonDocument result =
-        AutoEmbeddingDocumentUtils.extractFilterFieldValues(
+        extractFilterValues(
             rawBsonDoc, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef));
 
     // "score" is not in the index definition so it must be dropped, but id/type stay paired.
@@ -1649,7 +1649,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
 
     BsonDocument result =
-        AutoEmbeddingDocumentUtils.extractFilterFieldValues(
+        extractFilterValues(
             rawBsonDoc, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef));
 
     assertThat(result)
@@ -1675,7 +1675,7 @@ public class AutoEmbeddingDocumentUtilsTest {
     RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
 
     BsonDocument result =
-        AutoEmbeddingDocumentUtils.extractFilterFieldValues(
+        extractFilterValues(
             rawBsonDoc, AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef));
 
     assertThat(result.containsKey("_id")).isFalse();
@@ -2627,6 +2627,13 @@ public class AutoEmbeddingDocumentUtilsTest {
     return AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(
             updateDescription, fullDocument, fieldMapping)
         .changedTexts();
+  }
+
+  /** Filter-field {@code $set} body, unwrapped — these tests all exercise the success path. */
+  private static BsonDocument extractFilterValues(
+      RawBsonDocument fullDocument, AutoEmbedFieldMapping fieldMapping) {
+    return AutoEmbeddingDocumentUtils.extractFilterFieldValues(fullDocument, fieldMapping)
+        .orElseThrow();
   }
 
   private static AutoEmbedFieldMapping mappingOf(List<String> embeds, List<String> filters) {
