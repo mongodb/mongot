@@ -44,7 +44,7 @@ java_library(
     ],
     visibility = ["//visibility:public"],
     exports = [
-        "//src/main/java/com/xgen/mongot/catalogservice",
+        "//src/main/java/com/xgen/mongot/catalogservice/schema",
         "//src/main/java/com/xgen/mongot/config/util",
         "//src/main/java/com/xgen/mongot/cursor",
         "//src/main/java/com/xgen/mongot/embedding/providers",
@@ -61,6 +61,7 @@ java_library(
     deps = [
         "//src/main/java/com/xgen/mongot/catalog",
         "//src/main/java/com/xgen/mongot/catalogservice",
+        "//src/main/java/com/xgen/mongot/catalogservice/schema",
         "//src/main/java/com/xgen/mongot/config/manager",
         "//src/main/java/com/xgen/mongot/config/provider",
         "//src/main/java/com/xgen/mongot/config/provider/community/embedding",

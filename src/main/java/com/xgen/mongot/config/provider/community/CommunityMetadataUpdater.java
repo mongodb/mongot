@@ -10,8 +10,8 @@ import com.xgen.mongot.catalogservice.IndexStatsEntry;
 import com.xgen.mongot.catalogservice.IndexStatsEntryMapper;
 import com.xgen.mongot.catalogservice.MetadataService;
 import com.xgen.mongot.catalogservice.MetadataServiceException;
-import com.xgen.mongot.catalogservice.ServerStateEntry;
 import com.xgen.mongot.catalogservice.TopologyMismatchException;
+import com.xgen.mongot.catalogservice.schema.ServerStateEntry;
 import com.xgen.mongot.config.manager.CachedIndexInfoProvider;
 import com.xgen.mongot.index.IndexInformation;
 import com.xgen.mongot.util.Crash;
@@ -91,7 +91,8 @@ public class CommunityMetadataUpdater {
     LOG.info("Beginning periodic community metadata updater");
 
     this.executorService.scheduleWithFixedDelay(
-        () -> Crash.because("community metadata updater failed").ifThrows(this::run),
+        () -> Crash.because("community metadata updater failed")
+                .ifThrowsExceptionOrError(this::run),
         0,
         this.runFrequency.toMillis(),
         TimeUnit.MILLISECONDS);

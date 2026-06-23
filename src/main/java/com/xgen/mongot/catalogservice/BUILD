@@ -19,16 +19,17 @@ java_library(
         "MetadataServiceException.java",
         "MongodTopologyMonitor.java",
         "ServerState.java",
-        "ServerStateEntry.java",
         "TopologyMismatchException.java",
     ],
     visibility = ["//visibility:public"],
     exports = [
+        "//src/main/java/com/xgen/mongot/catalogservice/schema",
         "//src/main/java/com/xgen/mongot/index/definition",
         "@maven//:org_mongodb_bson",
         "@maven//:org_mongodb_mongodb_driver_core",
     ],
     deps = [
+        "//src/main/java/com/xgen/mongot/catalogservice/schema",
         "//src/main/java/com/xgen/mongot/index",
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/status",

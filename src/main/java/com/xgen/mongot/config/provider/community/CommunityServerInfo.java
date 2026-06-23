@@ -1,6 +1,6 @@
 package com.xgen.mongot.config.provider.community;
 
-import com.xgen.mongot.catalogservice.ServerStateEntry;
+import com.xgen.mongot.catalogservice.schema.ServerStateEntry;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;

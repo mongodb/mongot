@@ -1,4 +1,4 @@
-package com.xgen.mongot.catalogservice;
+package com.xgen.mongot.catalogservice.schema;
 
 import static com.xgen.testing.BsonDeserializationTestSuite.fromDocument;
 import static com.xgen.testing.BsonSerializationTestSuite.fromEncodable;
@@ -24,7 +24,7 @@ import org.junit.runners.Suite;
       ServerStateEntryTest.ReadinessStateTest.class
     })
 public class ServerStateEntryTest {
-  private static final String RESOURCE_PATH = "src/test/unit/resources/catalogservice";
+  private static final String RESOURCE_PATH = "src/test/unit/resources/catalogservice/schema";
 
   @RunWith(Parameterized.class)
   public static class DeserializationTest {

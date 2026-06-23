@@ -1,5 +1,6 @@
 package com.xgen.mongot.catalogservice;
 
+import com.xgen.mongot.catalogservice.schema.ServerStateEntry;
 import java.util.List;
 import java.util.Optional;
 import org.bson.BsonDocument;
