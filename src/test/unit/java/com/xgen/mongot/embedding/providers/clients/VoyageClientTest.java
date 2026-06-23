@@ -23,6 +23,7 @@ import static org.mockito.Mockito.verify;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.embedding.EmbeddingRequestContext;
 import com.xgen.mongot.embedding.VectorOrError;
+import com.xgen.mongot.embedding.exceptions.EmbeddingProviderRateLimitException;
 import com.xgen.mongot.embedding.exceptions.EmbeddingProviderTransientException;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
@@ -30,6 +31,7 @@ import com.xgen.mongot.embedding.providers.congestion.AimdCongestionControl;
 import com.xgen.mongot.embedding.providers.congestion.DynamicSemaphore;
 import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.metrics.MetricsFactory;
+import com.xgen.mongot.util.UserFacingException;
 import com.xgen.mongot.util.bson.Vector;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -1527,6 +1529,29 @@ public class VoyageClientTest {
   @Test
   public void embed_429Status_recordsErrorCode429() throws Exception {
     assertErrorCodeRecorded(httpResponseClient(429, "rate limited"), "rate_limit_exceeded", "429");
+  }
+
+  @Test
+  public void embed_429Status_throwsUserFacingRateLimitException() throws Exception {
+    VoyageClient voyageClient =
+        new VoyageClient(
+            VOYAGE_3_LARGE,
+            EmbeddingServiceConfig.ServiceTier.QUERY,
+            VOYAGE_3_LARGE.query(),
+            new MetricsFactory("test", new SimpleMeterRegistry()),
+            Optional.empty(),
+            false,
+            false);
+    VoyageClient.injectVoyageClient(
+        voyageClient, httpResponseClient(429, "raw voyage internal detail"));
+
+    EmbeddingProviderRateLimitException ex =
+        assertThrows(
+            EmbeddingProviderRateLimitException.class,
+            () -> voyageClient.embed(List.of("hi"), dummyContext()));
+    assertTrue(UserFacingException.isUserFacing(ex));
+    // Message is user-facing — must not contain the raw provider response body.
+    assertEquals("Embedding provider rate limit exceeded, retry later", ex.getMessage());
   }
 
   @Test

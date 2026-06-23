@@ -11,4 +11,7 @@ java_library(
         "MaterializedViewTransientException.java",
     ],
     visibility = ["//:__subpackages__"],
+    deps = [
+        "//src/main/java/com/xgen/mongot/util",
+    ],
 )

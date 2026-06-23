@@ -18,11 +18,13 @@ import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.embedding.EmbeddingRequestContext;
 import com.xgen.mongot.embedding.VectorOrError;
 import com.xgen.mongot.embedding.exceptions.EmbeddingProviderNonTransientException;
+import com.xgen.mongot.embedding.exceptions.EmbeddingProviderRateLimitException;
 import com.xgen.mongot.embedding.exceptions.EmbeddingProviderTransientException;
 import com.xgen.mongot.embedding.providers.clients.ClientInterface;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
 import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
+import com.xgen.mongot.util.UserFacingException;
 import com.xgen.mongot.util.bson.Vector;
 import com.xgen.mongot.util.concurrent.Executors;
 import com.xgen.mongot.util.concurrent.NamedScheduledExecutorService;
@@ -483,7 +485,8 @@ public class EmbeddingServiceManagerTest {
                   }
                 })
             .getCause();
-    assertTrue(ex instanceof EmbeddingProviderTransientException);
+    assertTrue(ex instanceof EmbeddingProviderRateLimitException);
+    assertTrue(UserFacingException.isUserFacing(ex));
     assertEquals("Client side rate limit exceeded, retry it later", ex.getMessage());
   }
 
@@ -543,7 +546,8 @@ public class EmbeddingServiceManagerTest {
                   }
                 })
             .getCause();
-    assertTrue(ex instanceof EmbeddingProviderTransientException);
+    assertTrue(ex instanceof EmbeddingProviderRateLimitException);
+    assertTrue(UserFacingException.isUserFacing(ex));
     assertEquals("Client side rate limit exceeded, retry it later", ex.getMessage());
   }
 

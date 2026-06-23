@@ -13,6 +13,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/embedding/providers/clients",
         "//src/main/java/com/xgen/mongot/embedding/providers/configs",
         "//src/main/java/com/xgen/mongot/index/definition/quantization",
+        "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/bson",
         "//src/main/java/com/xgen/mongot/util/concurrent",
         "//src/main/java/com/xgen/testing/mongot/embedding/providers",

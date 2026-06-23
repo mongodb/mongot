@@ -1,5 +1,7 @@
 package com.xgen.mongot.embedding.exceptions;
 
+import com.xgen.mongot.util.UserFacingException;
+
 /**
  * Exception thrown when the embedding provider returns a rate limit error (HTTP 429).
  *
@@ -7,9 +9,12 @@ package com.xgen.mongot.embedding.exceptions;
  * other transient exceptions which may warrant immediate retry, rate limit exceptions should
  * trigger a multiplicative decrease in the congestion window before retrying.
  *
+ * <p>Implements {@link UserFacingException} so the rate-limit failure is surfaced to the customer.
+ *
  * @see com.xgen.mongot.embedding.providers.congestion.AimdCongestionControl
  */
-public class EmbeddingProviderRateLimitException extends EmbeddingProviderTransientException {
+public class EmbeddingProviderRateLimitException extends EmbeddingProviderTransientException
+    implements UserFacingException {
 
   public EmbeddingProviderRateLimitException(String message) {
     super(message, Reason.RATE_LIMIT_EXCEEDED);

@@ -12,6 +12,7 @@ import com.xgen.mongot.embedding.EmbeddingRequestContext;
 import com.xgen.mongot.embedding.VectorOrError;
 import com.xgen.mongot.embedding.exceptions.EmbeddingProviderBatchingException;
 import com.xgen.mongot.embedding.exceptions.EmbeddingProviderNonTransientException;
+import com.xgen.mongot.embedding.exceptions.EmbeddingProviderRateLimitException;
 import com.xgen.mongot.embedding.exceptions.EmbeddingProviderTransientException;
 import com.xgen.mongot.embedding.providers.clients.ClientInterface;
 import com.xgen.mongot.embedding.providers.clients.EmbeddingClientFactory;
@@ -345,9 +346,8 @@ public class EmbeddingProviderManager {
                       this.embeddingModelConfig.name(),
                       serviceTier,
                       context.database());
-                  throw new EmbeddingProviderTransientException(
-                      "Client side rate limit exceeded, retry it later",
-                      EmbeddingProviderTransientException.Reason.RATE_LIMIT_EXCEEDED);
+                  throw new EmbeddingProviderRateLimitException(
+                      "Client side rate limit exceeded, retry it later");
                 }
               }
               this.batchSizeDistributions.get(serviceTier).record(texts.size());

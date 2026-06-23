@@ -283,8 +283,8 @@ public class VoyageClient implements ClientInterface {
         // extractVectorsFromResponse, so the status code is always 429.
         recordProviderErrorMetric(
             EmbeddingProviderTransientException.Reason.RATE_LIMIT_EXCEEDED, Optional.of(429));
-        throw new EmbeddingProviderTransientException(
-            e, EmbeddingProviderTransientException.Reason.RATE_LIMIT_EXCEEDED);
+        // Rethrow the original subclass to preserve the UserFacingException marker.
+        throw e;
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         LOG.error("Got an error when sending voyage API request", e);
@@ -720,8 +720,10 @@ public class VoyageClient implements ClientInterface {
       }
     }
     if (statusCode == 429) {
+      // Message is user-facing; keep it free of raw provider response bodies.
+      LOG.warn("Voyage 429 response body: {}", response.body());
       throw new EmbeddingProviderRateLimitException(
-          String.format("Rate limit exceeded (HTTP 429). Response body: %s", response.body()));
+          "Embedding provider rate limit exceeded, retry later");
     }
     if (statusCode == 408) {
       throw new HttpTimeoutException(
