@@ -6,6 +6,7 @@ java_test_suite(
         "AccumulatorTest.java",
         "AggregationRegistryTest.java",
         "AggregationTestSupport.java",
+        "BoundaryAggregationTest.java",
         "PrimitiveArrayTest.java",
         "ResultTest.java",
         "ShardMergePipelineBuilderTest.java",
