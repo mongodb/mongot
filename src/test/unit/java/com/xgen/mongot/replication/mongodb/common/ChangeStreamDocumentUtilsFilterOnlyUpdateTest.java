@@ -116,23 +116,27 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
     // An index with no filter fields: extractFilterFieldValues succeeds with an empty body. That's
     // distinct from extraction failing (empty Optional → full replace), so an embed-field change
     // must still produce a partial-embed update, not fall back to a full re-index.
-    VectorIndexDefinition indexDef = VectorIndexDefinitionBuilder.builder()
-        .withAutoEmbedField("description")
-        .build();
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder().withAutoEmbedField("description").build();
     assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
 
-    BsonDocument fullDocument = new BsonDocument()
-        .append("_id", new BsonInt32(0))
-        .append("description", new BsonString("deep learning"))
-        .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
-    UpdateDescription updateDesc = new UpdateDescription(
-        null, new BsonDocument("description", new BsonString("deep learning")));
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("deep learning"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    UpdateDescription updateDesc =
+        new UpdateDescription(
+            null, new BsonDocument("description", new BsonString("deep learning")));
     ChangeStreamDocument<RawBsonDocument> changeEvent =
         ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, updateDesc, fullDocument);
 
-    var batch = ChangeStreamDocumentUtils.handleDocumentEvents(
-        List.of(changeEvent), indexDef,
-        indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT), false);
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false);
 
     assertEquals(1, batch.finalChangeEvents.size());
     DocumentEvent event = batch.finalChangeEvents.getFirst();
@@ -150,27 +154,33 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
     // produces a partial-embed update — still does an embedding call (only for the changed field),
     // and the writer issues a $set instead of a full replacement so the unchanged embed fields
     // (if any) and unrelated MV fields are preserved verbatim.
-    VectorIndexDefinition indexDef = VectorIndexDefinitionBuilder.builder()
-        .withAutoEmbedField("description")
-        .withFilterPath("category")
-        .build();
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .build();
     assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
 
     // fullDocument must carry the new embed text — classifier rejects partial-embed when the new
     // value is empty (would leave a stale MV vector).
-    BsonDocument fullDocument = new BsonDocument()
-        .append("_id", new BsonInt32(0))
-        .append("description", new BsonString("deep learning"))
-        .append("category", new BsonString("books"))
-        .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
-    UpdateDescription updateDesc = new UpdateDescription(
-        null, new BsonDocument("description", new BsonString("deep learning")));
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("deep learning"))
+            .append("category", new BsonString("books"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    UpdateDescription updateDesc =
+        new UpdateDescription(
+            null, new BsonDocument("description", new BsonString("deep learning")));
     ChangeStreamDocument<RawBsonDocument> changeEvent =
         ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, updateDesc, fullDocument);
 
-    var batch = ChangeStreamDocumentUtils.handleDocumentEvents(
-        List.of(changeEvent), indexDef,
-        indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT), false);
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false);
 
     assertEquals(1, batch.finalChangeEvents.size());
     DocumentEvent event = batch.finalChangeEvents.getFirst();
@@ -186,24 +196,29 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
   public void testPartialEmbedUpdate_FallsBackWhenNewEmbedValueIsEmpty() {
     // When the new value for the changed embed field is empty, the optimization can't $unset the
     // existing MV vector — fall back to full ReplaceOne.
-    VectorIndexDefinition indexDef = VectorIndexDefinitionBuilder.builder()
-        .withAutoEmbedField("description")
-        .withFilterPath("category")
-        .build();
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .build();
 
-    BsonDocument fullDocument = new BsonDocument()
-        .append("_id", new BsonInt32(0))
-        .append("description", new BsonString(""))
-        .append("category", new BsonString("books"))
-        .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
-    UpdateDescription updateDesc = new UpdateDescription(
-        null, new BsonDocument("description", new BsonString("")));
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString(""))
+            .append("category", new BsonString("books"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    UpdateDescription updateDesc =
+        new UpdateDescription(null, new BsonDocument("description", new BsonString("")));
     ChangeStreamDocument<RawBsonDocument> changeEvent =
         ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, updateDesc, fullDocument);
 
-    var batch = ChangeStreamDocumentUtils.handleDocumentEvents(
-        List.of(changeEvent), indexDef,
-        indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT), false);
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false);
 
     DocumentEvent event = batch.finalChangeEvents.getFirst();
     assertFalse(event.getFilterFieldUpdates().isPresent());
@@ -212,27 +227,32 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
 
   @Test
   public void testPartialEmbedUpdate_OnlyOneAutoEmbedFieldChanged() {
-    VectorIndexDefinition indexDef = VectorIndexDefinitionBuilder.builder()
-        .withAutoEmbedField("title")
-        .withAutoEmbedField("description")
-        .withFilterPath("category")
-        .build();
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("title")
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .build();
     assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
 
-    BsonDocument fullDocument = new BsonDocument()
-        .append("_id", new BsonInt32(0))
-        .append("title", new BsonString("changed title"))
-        .append("description", new BsonString("unchanged description"))
-        .append("category", new BsonString("books"))
-        .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
-    UpdateDescription updateDesc = new UpdateDescription(
-        null, new BsonDocument("title", new BsonString("changed title")));
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("title", new BsonString("changed title"))
+            .append("description", new BsonString("unchanged description"))
+            .append("category", new BsonString("books"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    UpdateDescription updateDesc =
+        new UpdateDescription(null, new BsonDocument("title", new BsonString("changed title")));
     ChangeStreamDocument<RawBsonDocument> changeEvent =
         ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, updateDesc, fullDocument);
 
-    var batch = ChangeStreamDocumentUtils.handleDocumentEvents(
-        List.of(changeEvent), indexDef,
-        indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT), false);
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false);
 
     assertEquals(1, batch.finalChangeEvents.size());
     DocumentEvent event = batch.finalChangeEvents.getFirst();
@@ -246,29 +266,34 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
 
   @Test
   public void testPartialEmbedUpdate_NotCreatedForTextFieldIndex() {
-    VectorIndexDefinition indexDef = VectorIndexDefinitionBuilder.builder()
-        .withTextField("title")
-        .withTextField("description")
-        .withFilterPath("category")
-        .build();
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withTextField("title")
+            .withTextField("description")
+            .withFilterPath("category")
+            .build();
     // version 1 → not MV-based, optimization disabled.
     assertEquals(1, indexDef.getParsedAutoEmbeddingFeatureVersion());
     assertFalse(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
 
-    BsonDocument fullDocument = new BsonDocument()
-        .append("_id", new BsonInt32(0))
-        .append("title", new BsonString("changed"))
-        .append("description", new BsonString("unchanged"))
-        .append("category", new BsonString("books"))
-        .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
-    UpdateDescription updateDesc = new UpdateDescription(
-        null, new BsonDocument("title", new BsonString("changed")));
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("title", new BsonString("changed"))
+            .append("description", new BsonString("unchanged"))
+            .append("category", new BsonString("books"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    UpdateDescription updateDesc =
+        new UpdateDescription(null, new BsonDocument("title", new BsonString("changed")));
     ChangeStreamDocument<RawBsonDocument> changeEvent =
         ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, updateDesc, fullDocument);
 
-    var batch = ChangeStreamDocumentUtils.handleDocumentEvents(
-        List.of(changeEvent), indexDef,
-        indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT), false);
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false);
 
     DocumentEvent event = batch.finalChangeEvents.getFirst();
     assertFalse(event.getFilterFieldUpdates().isPresent());
@@ -277,25 +302,29 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
 
   @Test
   public void testPartialEmbedUpdate_FallsBackToFullReplaceWhenEmbedFieldRemoved() {
-    VectorIndexDefinition indexDef = VectorIndexDefinitionBuilder.builder()
-        .withAutoEmbedField("title")
-        .withAutoEmbedField("description")
-        .withFilterPath("category")
-        .build();
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("title")
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .build();
 
-    BsonDocument fullDocument = new BsonDocument()
-        .append("_id", new BsonInt32(0))
-        .append("description", new BsonString("kept"))
-        .append("category", new BsonString("books"))
-        .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
-    UpdateDescription updateDesc =
-        new UpdateDescription(List.of("title"), new BsonDocument());
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("kept"))
+            .append("category", new BsonString("books"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    UpdateDescription updateDesc = new UpdateDescription(List.of("title"), new BsonDocument());
     ChangeStreamDocument<RawBsonDocument> changeEvent =
         ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, updateDesc, fullDocument);
 
-    var batch = ChangeStreamDocumentUtils.handleDocumentEvents(
-        List.of(changeEvent), indexDef,
-        indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT), false);
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false);
 
     DocumentEvent event = batch.finalChangeEvents.getFirst();
     // Removed embed field → fall back to full ReplaceOne, no $set, no pending embed paths.
@@ -313,27 +342,32 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
     // Declared embed path is "items.title"; source doc has items as an array.
     // Dotted-key $set against _autoEmbed.items.title would fail on arrays, so the classifier
     // should refuse partial-embed and fall back to a full ReplaceOne.
-    VectorIndexDefinition indexDef = VectorIndexDefinitionBuilder.builder()
-        .withAutoEmbedField("items.title")
-        .withFilterPath("category")
-        .build();
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("items.title")
+            .withFilterPath("category")
+            .build();
 
     BsonArray itemsArray = new BsonArray();
     itemsArray.add(new BsonDocument("title", new BsonString("a")));
     itemsArray.add(new BsonDocument("title", new BsonString("b")));
-    BsonDocument fullDocument = new BsonDocument()
-        .append("_id", new BsonInt32(0))
-        .append("items", itemsArray)
-        .append("category", new BsonString("books"))
-        .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
-    UpdateDescription updateDesc = new UpdateDescription(
-        null, new BsonDocument("items.title", new BsonString("b")));
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("items", itemsArray)
+            .append("category", new BsonString("books"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    UpdateDescription updateDesc =
+        new UpdateDescription(null, new BsonDocument("items.title", new BsonString("b")));
     ChangeStreamDocument<RawBsonDocument> changeEvent =
         ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, updateDesc, fullDocument);
 
-    var batch = ChangeStreamDocumentUtils.handleDocumentEvents(
-        List.of(changeEvent), indexDef,
-        indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT), false);
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false);
 
     DocumentEvent event = batch.finalChangeEvents.getFirst();
     assertFalse(event.getFilterFieldUpdates().isPresent());
@@ -421,21 +455,26 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
     // optimization avoids on UPDATE. It's counted under REPLACE_EVENT so the metric captures every
     // full re-index, and the PartialEmbedMetricCounters holder surfaces it as a process-wide
     // Prometheus counter tagged by reason (CLOUDP-412617).
-    VectorIndexDefinition indexDef = VectorIndexDefinitionBuilder.builder()
-        .withAutoEmbedField("description")
-        .withFilterPath("category")
-        .build();
-    BsonDocument fullDocument = new BsonDocument()
-        .append("_id", new BsonInt32(0))
-        .append("description", new BsonString("deep learning"))
-        .append("category", new BsonString("books"))
-        .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .build();
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("deep learning"))
+            .append("category", new BsonString("books"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
     ChangeStreamDocument<RawBsonDocument> changeEvent =
         ChangeStreamUtils.dataEvent(OperationType.REPLACE, 0, null, fullDocument);
 
-    var batch = ChangeStreamDocumentUtils.handleDocumentEvents(
-        List.of(changeEvent), indexDef,
-        indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT), false);
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false);
 
     // REPLACE always produces a full update, never a partial $set.
     assertEquals(1, batch.finalChangeEvents.size());

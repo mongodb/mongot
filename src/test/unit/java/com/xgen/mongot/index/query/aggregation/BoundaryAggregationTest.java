@@ -135,8 +135,7 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
 
   @Test
   public void noDefaultDropsOutOfRangeDocs() throws Exception {
-    buildPriceIndex(
-        List.of(new long[] {10}, new long[] {350}, new long[] {-5}, new long[] {}), 4);
+    buildPriceIndex(List.of(new long[] {10}, new long[] {350}, new long[] {-5}, new long[] {}), 4);
     Accumulator top = collectAll(priceBoundary(Optional.empty(), false), newContext());
 
     BoundaryAggregationResult byPrice = firstBoundary(top);
@@ -231,8 +230,7 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
             boundaryBucket(new BsonInt32(100), 0, 0.0),
             boundaryBucket(new BsonInt32(200), 3, 900.0));
 
-    BoundaryAggregationResult merged =
-        (BoundaryAggregationResult) left.mergePartitionResult(right);
+    BoundaryAggregationResult merged = (BoundaryAggregationResult) left.mergePartitionResult(right);
 
     assertEquals(3, merged.getBuckets().size());
     assertEquals(new BsonInt32(0), keyAt(merged, 0));
@@ -319,8 +317,7 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
 
   private static BoundaryAggregationResult.BoundaryBucket boundaryBucket(
       BsonValue key, long docCount, double sum) {
-    AggregationResults children =
-        AggregationResults.from(List.of(new SumResult("sum_price", sum)));
+    AggregationResults children = AggregationResults.from(List.of(new SumResult("sum_price", sum)));
     return new BoundaryAggregationResult.BoundaryBucket(key, docCount, children);
   }
 

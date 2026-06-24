@@ -91,8 +91,8 @@ public class CommunityMetadataUpdater {
     LOG.info("Beginning periodic community metadata updater");
 
     this.executorService.scheduleWithFixedDelay(
-        () -> Crash.because("community metadata updater failed")
-                .ifThrowsExceptionOrError(this::run),
+        () ->
+            Crash.because("community metadata updater failed").ifThrowsExceptionOrError(this::run),
         0,
         this.runFrequency.toMillis(),
         TimeUnit.MILLISECONDS);

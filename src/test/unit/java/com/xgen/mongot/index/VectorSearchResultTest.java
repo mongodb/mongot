@@ -306,12 +306,14 @@ public class VectorSearchResultTest {
       VectorSearchResult stringResult =
           VectorSearchResultBuilder.builder().id(new BsonString("a")).score(0.8f).build();
 
-      assertTrue(VectorSearchResult.VECTOR_SEARCH_RESULT_COMPARATOR.compare(
-          minKeyResult, intResult) < 0);
-      assertTrue(VectorSearchResult.VECTOR_SEARCH_RESULT_COMPARATOR.compare(
-          minKeyResult, maxKeyResult) < 0);
-      assertTrue(VectorSearchResult.VECTOR_SEARCH_RESULT_COMPARATOR.compare(
-          minKeyResult, stringResult) < 0);
+      assertTrue(
+          VectorSearchResult.VECTOR_SEARCH_RESULT_COMPARATOR.compare(minKeyResult, intResult) < 0);
+      assertTrue(
+          VectorSearchResult.VECTOR_SEARCH_RESULT_COMPARATOR.compare(minKeyResult, maxKeyResult)
+              < 0);
+      assertTrue(
+          VectorSearchResult.VECTOR_SEARCH_RESULT_COMPARATOR.compare(minKeyResult, stringResult)
+              < 0);
     }
 
     @Test
@@ -323,24 +325,22 @@ public class VectorSearchResultTest {
       VectorSearchResult stringResult =
           VectorSearchResultBuilder.builder().id(new BsonString("z")).score(0.8f).build();
 
-      assertTrue(VectorSearchResult.VECTOR_SEARCH_RESULT_COMPARATOR
-          .compare(maxKeyResult, intResult) > 0);
-      assertTrue(VectorSearchResult.VECTOR_SEARCH_RESULT_COMPARATOR
-          .compare(maxKeyResult, stringResult) > 0);
+      assertTrue(
+          VectorSearchResult.VECTOR_SEARCH_RESULT_COMPARATOR.compare(maxKeyResult, intResult) > 0);
+      assertTrue(
+          VectorSearchResult.VECTOR_SEARCH_RESULT_COMPARATOR.compare(maxKeyResult, stringResult)
+              > 0);
     }
 
     @Test
     public void testComparatorWithMixedIdTypes() {
       List<VectorSearchResult> results = new ArrayList<VectorSearchResult>();
       VectorSearchResult result1 =
-          VectorSearchResultBuilder.builder().id(
-              new BsonDouble(1.0)).score(0.8f).build();
+          VectorSearchResultBuilder.builder().id(new BsonDouble(1.0)).score(0.8f).build();
       VectorSearchResult result2 =
-          VectorSearchResultBuilder.builder().id(
-              new BsonString("abc")).score(0.8f).build();
+          VectorSearchResultBuilder.builder().id(new BsonString("abc")).score(0.8f).build();
       VectorSearchResult result3 =
-          VectorSearchResultBuilder.builder().id(
-              new BsonInt32(42)).score(0.8f).build();
+          VectorSearchResultBuilder.builder().id(new BsonInt32(42)).score(0.8f).build();
 
       results.add(result1);
       results.add(result2);

@@ -50,32 +50,23 @@ public record VectorSearchResult(
       case DOUBLE, INT32, INT64, DECIMAL128 ->
           compareNumbers((BsonNumber) first, (BsonNumber) second);
 
-      case STRING ->
-          first.asString().getValue().compareTo(second.asString().getValue());
+      case STRING -> first.asString().getValue().compareTo(second.asString().getValue());
 
-      case BINARY ->
-          SortUtil.compare(first.asBinary(), second.asBinary());
+      case BINARY -> SortUtil.compare(first.asBinary(), second.asBinary());
 
-      case OBJECT_ID ->
-          first.asObjectId().compareTo(second.asObjectId());
+      case OBJECT_ID -> first.asObjectId().compareTo(second.asObjectId());
 
-      case BOOLEAN ->
-          first.asBoolean().compareTo(second.asBoolean());
+      case BOOLEAN -> first.asBoolean().compareTo(second.asBoolean());
 
-      case DATE_TIME ->
-          Long.compare(first.asDateTime().getValue(), second.asDateTime().getValue());
+      case DATE_TIME -> Long.compare(first.asDateTime().getValue(), second.asDateTime().getValue());
 
-      case TIMESTAMP ->
-          first.asTimestamp().compareTo(second.asTimestamp());
+      case TIMESTAMP -> first.asTimestamp().compareTo(second.asTimestamp());
 
-      case NULL, MIN_KEY, MAX_KEY ->
-          0;
+      case NULL, MIN_KEY, MAX_KEY -> 0;
 
-      case JAVASCRIPT ->
-          first.asJavaScript().getCode().compareTo(second.asJavaScript().getCode());
+      case JAVASCRIPT -> first.asJavaScript().getCode().compareTo(second.asJavaScript().getCode());
 
-      case DOCUMENT ->
-          compareDocuments(first.asDocument(), second.asDocument());
+      case DOCUMENT -> compareDocuments(first.asDocument(), second.asDocument());
 
       default ->
           throw new UnsupportedOperationException(
@@ -92,7 +83,9 @@ public record VectorSearchResult(
     }
 
     if (firstType == BsonType.DECIMAL128 || secondType == BsonType.DECIMAL128) {
-      return first.decimal128Value().bigDecimalValue()
+      return first
+          .decimal128Value()
+          .bigDecimalValue()
           .compareTo(second.decimal128Value().bigDecimalValue());
     }
 
@@ -134,7 +127,6 @@ public record VectorSearchResult(
 
     return Boolean.compare(firstIt.hasNext(), secondIt.hasNext());
   }
-
 
   private static class Fields {
     private static final Field.Required<BsonValue> ID =
