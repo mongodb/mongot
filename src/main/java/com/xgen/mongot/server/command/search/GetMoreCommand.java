@@ -17,6 +17,7 @@ import com.xgen.mongot.server.command.search.definition.request.BatchOptionsDefi
 import com.xgen.mongot.server.command.search.definition.request.GetMoreCommandDefinition;
 import com.xgen.mongot.server.message.MessageUtils;
 import com.xgen.mongot.util.Bytes;
+import com.xgen.mongot.util.ErrorType;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import io.micrometer.core.instrument.Tags;
@@ -94,10 +95,16 @@ public class GetMoreCommand implements Command {
       LOG.error("Unexpected error", e);
       return MessageUtils.createErrorBody(e);
     } catch (Throwable e) {
+      // Tag with exceptionName + errorType for consistency with the other *InternalFailures
+      // metrics. A raw Throwable is always an internal error.
       this.metricsFactory
           .counter(
               "GetMoreCommandInternalFailures",
-              Tags.of("throwableName", e.getClass().getSimpleName()))
+              Tags.of(
+                  "exceptionName",
+                  e.getClass().getSimpleName(),
+                  ErrorType.METRIC_TAG_KEY,
+                  ErrorType.INTERNAL_ERROR.toString()))
           .increment();
       throw e;
     }

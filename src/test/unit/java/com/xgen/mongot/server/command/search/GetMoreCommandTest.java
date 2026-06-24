@@ -26,6 +26,7 @@ import com.xgen.mongot.server.command.Command;
 import com.xgen.mongot.server.command.CommandFactory;
 import com.xgen.mongot.server.command.search.definition.request.GetMoreCommandDefinition;
 import com.xgen.mongot.util.Check;
+import com.xgen.mongot.util.ErrorType;
 import com.xgen.testing.mongot.index.lucene.explain.information.QueryExplainInformationBuilder;
 import com.xgen.testing.mongot.index.lucene.explain.information.TermQueryBuilder;
 import com.xgen.testing.mongot.index.lucene.explain.tracing.FakeExplain;
@@ -279,7 +280,11 @@ public class GetMoreCommandTest {
             metricsFactory
                 .counter(
                     "GetMoreCommandInternalFailures",
-                    Tags.of("throwableName", AssertionError.class.getSimpleName()))
+                    Tags.of(
+                        "exceptionName",
+                        AssertionError.class.getSimpleName(),
+                        ErrorType.METRIC_TAG_KEY,
+                        ErrorType.INTERNAL_ERROR.toString()))
                 .count())
         .isEqualTo(1.0);
   }

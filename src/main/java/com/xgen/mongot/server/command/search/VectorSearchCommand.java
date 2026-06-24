@@ -325,10 +325,17 @@ public class VectorSearchCommand implements Command {
 
       return MessageUtils.createErrorBody(e);
     } catch (Throwable e) {
+      // Use the same tag keys as the Exception branch above so all registrations of
+      // vectorSearchCommandInternalFailures share one tag-key set (Prometheus requirement). A raw
+      // Throwable is not a UserFacingException, so it is always an internal error.
       this.metricsFactory
           .counter(
               "vectorSearchCommandInternalFailures",
-              Tags.of("throwableName", e.getClass().getSimpleName()))
+              Tags.of(
+                  "exceptionName",
+                  e.getClass().getSimpleName(),
+                  ErrorType.METRIC_TAG_KEY,
+                  ErrorType.INTERNAL_ERROR.toString()))
           .increment();
       throw e;
     } finally {

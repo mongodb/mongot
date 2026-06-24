@@ -30,6 +30,7 @@ import io.micrometer.core.instrument.Timer;
 import java.io.Closeable;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -280,7 +281,7 @@ public class IndexMetricsUpdater implements Closeable {
       this.documentEventTypeCounterMap =
           metricsFactory.getPerIndexEnumCounterMap(
               DocumentEvent.EventType.class,
-              Tags.of(INDEX_TYPE_TAG_NAME, indexType.name().toLowerCase()));
+              Tags.of(INDEX_TYPE_TAG_NAME, indexType.name().toLowerCase(Locale.ROOT)));
       this.initialSyncExceptionCounter =
           metricsFactory.perIndexCounter(
               INITIAL_SYNC_EXCEPTION_COUNTER_NAME, indexFeatureVersionTag);
@@ -334,7 +335,7 @@ public class IndexMetricsUpdater implements Closeable {
           this.metricsFactory.timer(
               ServerStatusDataExtractor.ReplicationMeterData.IndexingMeterData
                   .INDEXING_BATCH_DURATIONS,
-              Tags.of("indexType", indexType.name().toLowerCase()));
+              Tags.of("indexType", indexType.name().toLowerCase(Locale.ROOT)));
 
       this.changeStreamEventSizeCounters = new HashMap<>();
       for (Bytes threshold : CHANGE_STREAM_EVENT_SIZE_THRESHOLDS) {
@@ -1016,7 +1017,6 @@ public class IndexMetricsUpdater implements Closeable {
       private static final String EXPLAIN_COUNTER_NAME = "explain";
       private static final String FACET_DRILL_SIDEWAYS_COUNTER_NAME =
           "query_collector_facet_drill_sideways";
-      private static final String FACET_DRILL_SIDEWAYS_TYPE_TAG = "type";
 
       private final PerIndexMetricsFactory metricsFactory;
       private final Map<Collector.Type, Counter> collectorTypeCounterMap;
@@ -1078,22 +1078,19 @@ public class IndexMetricsUpdater implements Closeable {
             createCounter(metricsFactory, RETURN_STORED_SOURCE_COUNTER_NAME);
         this.returnScopeCounter = createCounter(metricsFactory, RETURN_SCOPE_COUNTER_NAME);
         this.explainCounter = createCounter(metricsFactory, EXPLAIN_COUNTER_NAME);
+        // Encode the optimization status in the "name" tag value rather than a separate "type" tag,
+        // so every registration of the "feature" metric shares the single [name] tag-key set that
+        // Prometheus requires.
         this.facetDrillSidewaysCounterMap =
             Map.of(
                 QueryOptimizationStatus.OPTIMIZABLE,
-                metricsFactory.counter(
-                    METRIC_NAME,
-                    Tags.of(NAME_TAG, FACET_DRILL_SIDEWAYS_COUNTER_NAME)
-                        .and(
-                            FACET_DRILL_SIDEWAYS_TYPE_TAG,
-                            QueryOptimizationStatus.OPTIMIZABLE.name().toLowerCase())),
+                createCounter(
+                    metricsFactory,
+                    facetDrillSidewaysCounterName(QueryOptimizationStatus.OPTIMIZABLE)),
                 QueryOptimizationStatus.GENERIC,
-                metricsFactory.counter(
-                    METRIC_NAME,
-                    Tags.of(NAME_TAG, FACET_DRILL_SIDEWAYS_COUNTER_NAME)
-                        .and(
-                            FACET_DRILL_SIDEWAYS_TYPE_TAG,
-                            QueryOptimizationStatus.GENERIC.name().toLowerCase())));
+                createCounter(
+                    metricsFactory,
+                    facetDrillSidewaysCounterName(QueryOptimizationStatus.GENERIC)));
         this.collectorTypeCounterMap = createEnumCounterMap(metricsFactory, Collector.Type.class);
         this.operatorTypeCounterMap = createEnumCounterMap(metricsFactory, Operator.Type.class);
         this.scoreTypeCounterMap = createEnumCounterMap(metricsFactory, Score.Type.class);
@@ -1114,6 +1111,11 @@ public class IndexMetricsUpdater implements Closeable {
                 metricsFactory, MqlFilterOperator.Category.class, VECTOR_SEARCH_FILTER_TAG_PREFIX);
         this.vectorSearchFilterCounter =
             createCounter(metricsFactory, VECTOR_SEARCH_FILTER_COUNTER_NAME);
+      }
+
+      private static String facetDrillSidewaysCounterName(QueryOptimizationStatus status) {
+        return String.format(
+            "%s_%s", FACET_DRILL_SIDEWAYS_COUNTER_NAME, status.name().toLowerCase(Locale.ROOT));
       }
 
       private static Counter createCounter(PerIndexMetricsFactory metricsFactory, String tagValue) {

@@ -55,6 +55,7 @@ import com.xgen.mongot.index.query.collectors.FacetDefinition;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.util.Check;
+import com.xgen.mongot.util.ErrorType;
 import com.xgen.mongot.util.mongodb.MongoDbServerInfo;
 import com.xgen.mongot.util.mongodb.MongoDbVersion;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
@@ -929,7 +930,11 @@ public class SearchCommandTest {
             metricsFactory
                 .counter(
                     "searchCommandInternalFailures",
-                    Tags.of("throwableName", AssertionError.class.getSimpleName()))
+                    Tags.of(
+                        "exceptionName",
+                        AssertionError.class.getSimpleName(),
+                        ErrorType.METRIC_TAG_KEY,
+                        ErrorType.INTERNAL_ERROR.toString()))
                 .count())
         .isEqualTo(1.0);
   }
@@ -958,7 +963,46 @@ public class SearchCommandTest {
             metricsFactory
                 .counter(
                     "searchCommandInternalFailures",
-                    Tags.of("throwableName", AssertionError.class.getSimpleName()))
+                    Tags.of(
+                        "exceptionName",
+                        AssertionError.class.getSimpleName(),
+                        ErrorType.METRIC_TAG_KEY,
+                        ErrorType.INTERNAL_ERROR.toString()))
+                .count())
+        .isEqualTo(1.0);
+  }
+
+  // The Exception branch and the Throwable branch must register searchCommandInternalFailures with
+  // the SAME tag keys (exceptionName + errorType), otherwise Prometheus rejects the second
+  // registration. See CLOUDP-397618.
+  @Test
+  public void internalException_metricIncrementedWithExceptionNameAndErrorType() throws Exception {
+    var metricsFactory = mockMetricsFactory();
+    SearchCommand command =
+        new SearchCommand(
+            new SearchCommand.Metrics(metricsFactory),
+            getThrowableCursorManager(() -> new IOException("IO error")),
+            new DefaultIndexCatalog(),
+            new InitializedIndexCatalog(),
+            SearchCommandDefinitionBuilder.builder()
+                .db(DATABASE_NAME)
+                .collectionName(COLLECTION_NAME)
+                .collectionUuid(COLLECTION_UUID)
+                .query(VALID_OPERATOR_QUERY)
+                .build(),
+            BOOTSTRAPPER_METADATA,
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+
+    command.run();
+    Truth.assertThat(
+            metricsFactory
+                .counter(
+                    "searchCommandInternalFailures",
+                    Tags.of(
+                        "exceptionName",
+                        IOException.class.getSimpleName(),
+                        ErrorType.METRIC_TAG_KEY,
+                        ErrorType.INTERNAL_ERROR.toString()))
                 .count())
         .isEqualTo(1.0);
   }

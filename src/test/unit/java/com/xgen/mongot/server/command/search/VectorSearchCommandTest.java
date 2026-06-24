@@ -59,6 +59,7 @@ import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.searchenvoy.grpc.SearchEnvoyMetadata;
 import com.xgen.mongot.util.Check;
+import com.xgen.mongot.util.ErrorType;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.FloatVector;
 import com.xgen.mongot.util.bson.Vector;
@@ -1905,7 +1906,11 @@ public class VectorSearchCommandTest {
             metricsFactory
                 .counter(
                     "vectorSearchCommandInternalFailures",
-                    Tags.of("throwableName", AssertionError.class.getSimpleName()))
+                    Tags.of(
+                        "exceptionName",
+                        AssertionError.class.getSimpleName(),
+                        ErrorType.METRIC_TAG_KEY,
+                        ErrorType.INTERNAL_ERROR.toString()))
                 .count())
         .isEqualTo(1.0);
   }
