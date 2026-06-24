@@ -110,11 +110,13 @@ public record Lease(
 
   /**
    * GC cleanup state of the lease (and its 1:1 materialized view collection). {@link
-   * CleanupState#NOT_ELIGIBLE} is the steady state; {@link CleanupState#ELIGIBLE_FOR_CLEANUP} is a
-   * one-way terminal state set by the stale-lease scanner when a superseded lease's heartbeat has
-   * gone stale beyond the cleanup window. The scanner subsequently drops the materialized view
-   * collection and the lease document. It is named for its narrow GC scope — it is not a general
-   * lease lifecycle status.
+   * CleanupState#NOT_ELIGIBLE} is the steady state; the stale-lease scanner marks a superseded
+   * lease {@link CleanupState#ELIGIBLE_FOR_CLEANUP} once its heartbeat has gone stale beyond the
+   * cleanup window, after which it drops the materialized view collection and the lease document.
+   * The mark is not terminal: any active-use write that extends the lease's expiration
+   * (renewal/acquisition, checkpoint, status update, new index-definition version) clears it back
+   * to {@code NOT_ELIGIBLE}, so a lease that returns to service is never cleaned up. It is named
+   * for its narrow GC scope — it is not a general lease lifecycle status.
    *
    * <p>This field was added after the lease document was already in use in production. For
    * backwards compatibility, documents missing this field are treated as {@code NOT_ELIGIBLE} on
@@ -389,7 +391,7 @@ public record Lease(
         this.indexDefinitionVersionStatusMap,
         this.materializedViewCollectionMetadata,
         this.steadyAsOfOplogPosition,
-        this.cleanupState);
+        CleanupState.NOT_ELIGIBLE);
   }
 
   /**
@@ -454,7 +456,7 @@ public record Lease(
         newVersionStatus,
         this.materializedViewCollectionMetadata,
         skipInitialSync ? this.steadyAsOfOplogPosition : null,
-        this.cleanupState);
+        CleanupState.NOT_ELIGIBLE);
   }
 
   /**
@@ -496,7 +498,7 @@ public record Lease(
         newVersionStatus,
         this.materializedViewCollectionMetadata,
         newSteadyPosition,
-        this.cleanupState);
+        CleanupState.NOT_ELIGIBLE);
   }
 
   /**
@@ -520,7 +522,7 @@ public record Lease(
         this.indexDefinitionVersionStatusMap,
         this.materializedViewCollectionMetadata,
         this.steadyAsOfOplogPosition,
-        this.cleanupState);
+        CleanupState.NOT_ELIGIBLE);
   }
 
   public Lease withResolvedMatViewUuid(UUID matViewCollectionUuid) {
@@ -569,16 +571,17 @@ public record Lease(
 
   /**
    * Returns a copy of this lease with the GC cleanup state changed. Used by the stale-lease scanner
-   * to transition {@link CleanupState#NOT_ELIGIBLE} to {@link CleanupState#ELIGIBLE_FOR_CLEANUP} (a
-   * one-way move by design).
+   * to mark a lease {@link CleanupState#ELIGIBLE_FOR_CLEANUP}.
    *
    * <p>Does not bump {@code leaseVersion}: this is a cleanupState-only change and must not
    * invalidate concurrent OCC updates on other fields. Race coordination between the resolver
    * (which checks {@code cleanupState != ELIGIBLE_FOR_CLEANUP} before reusing) and the scanner is
    * via the conditional filter on the update, not via OCC on {@code leaseVersion}.
    *
-   * <p>The one-way invariant is not enforced here; the scanner is the sole writer and is
-   * responsible for never moving back to NOT_ELIGIBLE.
+   * <p>The mark is not terminal: this method only sets it, but the active-use lease builders that
+   * extend the lease's expiration (renewal, checkpoint, status update, new index-definition
+   * version) clear it back to {@code NOT_ELIGIBLE}, so a lease still in active use is never left a
+   * cleanup target.
    */
   public Lease withCleanupState(CleanupState newCleanupState) {
     return new Lease(

@@ -739,33 +739,49 @@ public class LeaseTest {
     }
 
     /**
-     * The {@code with*} builders preserve status when not explicitly changed. Failing any one of
-     * these would let a heartbeat or status update silently drop an ELIGIBLE_FOR_CLEANUP marker and
-     * the scanner would never get a chance to clean the lease up.
+     * Active-use builders — any write that extends the lease's expiration (renewal/acquisition,
+     * checkpoint, status update, new index-definition version) — clear an {@code
+     * ELIGIBLE_FOR_CLEANUP} mark back to {@code NOT_ELIGIBLE} (CLOUDP-411009): a lease being
+     * renewed or written to is in active replication use, so it must never remain a stale-cleanup
+     * target. A genuinely abandoned lease receives none of these writes, so the scanner's mark
+     * survives to the delete pass.
      */
     @Test
-    public void testWithBuilders_preserveCleanupState() {
+    public void testActiveUseBuilders_clearCleanupState() {
+      Lease eligibleLease =
+          createLeaseWithSteadyPosition(null)
+              .withCleanupState(Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+
+      assertEquals(
+          Lease.CleanupState.NOT_ELIGIBLE,
+          eligibleLease.withUpdatedCheckpoint(EncodedUserData.EMPTY).cleanupState());
+      assertEquals(
+          Lease.CleanupState.NOT_ELIGIBLE,
+          eligibleLease.withRenewedOwnership("new-owner").cleanupState());
+      assertEquals(
+          Lease.CleanupState.NOT_ELIGIBLE,
+          eligibleLease.withUpdatedStatus(IndexStatus.steady(), 1L, null).cleanupState());
+      assertEquals(
+          Lease.CleanupState.NOT_ELIGIBLE,
+          eligibleLease
+              .withNewIndexDefinitionVersion("2", IndexStatus.initialSync(), false)
+              .cleanupState());
+    }
+
+    /**
+     * Builders that do not extend the lease's expiration leave the cleanup mark untouched: {@code
+     * withReleasedOwnership} (giving up the lease — it should stay a cleanup target if marked) and
+     * {@code withResolvedMatViewUuid} (a metadata-only update that is not a liveness signal).
+     */
+    @Test
+    public void testNonLivenessBuilders_preserveCleanupState() {
       Lease eligibleLease =
           createLeaseWithSteadyPosition(null)
               .withCleanupState(Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
 
       assertEquals(
           Lease.CleanupState.ELIGIBLE_FOR_CLEANUP,
-          eligibleLease.withUpdatedCheckpoint(EncodedUserData.EMPTY).cleanupState());
-      assertEquals(
-          Lease.CleanupState.ELIGIBLE_FOR_CLEANUP,
-          eligibleLease.withRenewedOwnership("new-owner").cleanupState());
-      assertEquals(
-          Lease.CleanupState.ELIGIBLE_FOR_CLEANUP,
           eligibleLease.withReleasedOwnership().cleanupState());
-      assertEquals(
-          Lease.CleanupState.ELIGIBLE_FOR_CLEANUP,
-          eligibleLease.withUpdatedStatus(IndexStatus.steady(), 1L, null).cleanupState());
-      assertEquals(
-          Lease.CleanupState.ELIGIBLE_FOR_CLEANUP,
-          eligibleLease
-              .withNewIndexDefinitionVersion("2", IndexStatus.initialSync(), false)
-              .cleanupState());
       assertEquals(
           Lease.CleanupState.ELIGIBLE_FOR_CLEANUP,
           eligibleLease.withResolvedMatViewUuid(UUID.randomUUID()).cleanupState());
