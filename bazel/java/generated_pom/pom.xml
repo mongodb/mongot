@@ -669,27 +669,27 @@
 <dependency>
   <groupId>io.micrometer</groupId>
   <artifactId>micrometer-commons</artifactId>
-  <version>1.15.3</version>
+  <version>1.15.12</version>
 </dependency>
 <dependency>
   <groupId>io.micrometer</groupId>
   <artifactId>micrometer-core</artifactId>
-  <version>1.15.3</version>
+  <version>1.15.12</version>
 </dependency>
 <dependency>
   <groupId>io.micrometer</groupId>
   <artifactId>micrometer-observation</artifactId>
-  <version>1.15.3</version>
+  <version>1.15.12</version>
 </dependency>
 <dependency>
   <groupId>io.micrometer</groupId>
   <artifactId>micrometer-registry-otlp</artifactId>
-  <version>1.15.3</version>
+  <version>1.15.12</version>
 </dependency>
 <dependency>
   <groupId>io.micrometer</groupId>
   <artifactId>micrometer-registry-prometheus</artifactId>
-  <version>1.15.3</version>
+  <version>1.15.12</version>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>

@@ -29,10 +29,10 @@ maven.install(
         "com.fasterxml.jackson.datatype:jackson-datatype-jdk8:2.18.6",
         "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.18.6",
         "com.fasterxml.jackson.module:jackson-module-parameter-names:2.18.6",
-        # METRICS_ARTIFACTS (1.15.3)
-        "io.micrometer:micrometer-core:1.15.3",
-        "io.micrometer:micrometer-registry-prometheus:1.15.3",
-        "io.micrometer:micrometer-registry-otlp:1.15.3",
+        # METRICS_ARTIFACTS (1.15.12)
+        "io.micrometer:micrometer-core:1.15.12",
+        "io.micrometer:micrometer-registry-prometheus:1.15.12",
+        "io.micrometer:micrometer-registry-otlp:1.15.12",
         # OPEN_TELEMETRY_ARTIFACTS (1.62.0)
         "io.opentelemetry:opentelemetry-api:1.62.0",
         "io.opentelemetry:opentelemetry-context:1.62.0",
