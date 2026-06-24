@@ -82,7 +82,8 @@ public enum Feature {
   QUERY_MEMORY_ATTRIBUTION_METRICS("queryMemoryAttributionMetrics", State.DISABLED),
   METRICS_CACHE("metricsCache", State.DISABLED),
   MERGE_ATTRIBUTION_METRICS("mergeAttributionMetrics", State.DISABLED),
-  LIFECYCLE_ATTRIBUTION_METRICS("lifecycleAttributionMetrics", State.DISABLED);
+  LIFECYCLE_ATTRIBUTION_METRICS("lifecycleAttributionMetrics", State.DISABLED),
+  FCIS_CONSISTENT_SNAPSHOTS_LEADERSHIP("fcisConsistentSnapshotsLeadership", State.DISABLED);
 
   private final String name;
   private final State defaultState;

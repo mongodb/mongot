@@ -39,7 +39,8 @@
         "queryMemoryAttributionMetrics": false,
         "metricsCache": false,
         "mergeAttributionMetrics": false,
-        "lifecycleAttributionMetrics": false
+        "lifecycleAttributionMetrics": false,
+        "fcisConsistentSnapshotsLeadership": false
       }
     },
     {
@@ -81,7 +82,8 @@
         "queryMemoryAttributionMetrics": false,
         "metricsCache": false,
         "mergeAttributionMetrics": false,
-        "lifecycleAttributionMetrics": false
+        "lifecycleAttributionMetrics": false,
+        "fcisConsistentSnapshotsLeadership": false
       }
     },
     {
@@ -123,7 +125,8 @@
         "queryMemoryAttributionMetrics": true,
         "metricsCache": true,
         "mergeAttributionMetrics": true,
-        "lifecycleAttributionMetrics": true
+        "lifecycleAttributionMetrics": true,
+        "fcisConsistentSnapshotsLeadership": true
       }
     },
     {
@@ -165,7 +168,8 @@
         "queryMemoryAttributionMetrics": false,
         "metricsCache": false,
         "mergeAttributionMetrics": false,
-        "lifecycleAttributionMetrics": false
+        "lifecycleAttributionMetrics": false,
+        "fcisConsistentSnapshotsLeadership": false
       }
     }
   ]
