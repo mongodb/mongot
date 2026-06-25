@@ -55,7 +55,8 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
             List.of(changeEvent),
             indexDef,
             indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            false);
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
 
     assertEquals(1, batch.finalChangeEvents.size());
     assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
@@ -78,7 +79,8 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
             List.of(changeEvent),
             indexDef,
             indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            false);
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
 
     assertEquals(1, batch.finalChangeEvents.size());
     DocumentEvent event = batch.finalChangeEvents.getFirst();
@@ -105,7 +107,8 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
             List.of(changeEvent),
             indexDef,
             indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            false);
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
 
     assertEquals(1, batch.finalChangeEvents.size());
     assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
@@ -136,7 +139,8 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
             List.of(changeEvent),
             indexDef,
             indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            false);
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
 
     assertEquals(1, batch.finalChangeEvents.size());
     DocumentEvent event = batch.finalChangeEvents.getFirst();
@@ -180,7 +184,8 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
             List.of(changeEvent),
             indexDef,
             indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            false);
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
 
     assertEquals(1, batch.finalChangeEvents.size());
     DocumentEvent event = batch.finalChangeEvents.getFirst();
@@ -218,7 +223,8 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
             List.of(changeEvent),
             indexDef,
             indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            false);
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
 
     DocumentEvent event = batch.finalChangeEvents.getFirst();
     assertFalse(event.getFilterFieldUpdates().isPresent());
@@ -252,7 +258,8 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
             List.of(changeEvent),
             indexDef,
             indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            false);
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
 
     assertEquals(1, batch.finalChangeEvents.size());
     DocumentEvent event = batch.finalChangeEvents.getFirst();
@@ -293,7 +300,8 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
             List.of(changeEvent),
             indexDef,
             indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            false);
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
 
     DocumentEvent event = batch.finalChangeEvents.getFirst();
     assertFalse(event.getFilterFieldUpdates().isPresent());
@@ -324,7 +332,8 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
             List.of(changeEvent),
             indexDef,
             indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            false);
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
 
     DocumentEvent event = batch.finalChangeEvents.getFirst();
     // Removed embed field → fall back to full ReplaceOne, no $set, no pending embed paths.
@@ -367,7 +376,8 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
             List.of(changeEvent),
             indexDef,
             indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            false);
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
 
     DocumentEvent event = batch.finalChangeEvents.getFirst();
     assertFalse(event.getFilterFieldUpdates().isPresent());
@@ -376,10 +386,9 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
 
   @Test
   public void testFilterOnlyUpdate_AutoEmbedFieldIndexOnView_NotCreated() {
-    // For view-based indexes, updateDescription reflects base-collection fields, so a
-    // filter-field-only change may also be a $match transition into the view. The partial
-    // update path issues a non-upsert write that silently drops such documents, so the
-    // optimization must be disabled and a full update produced instead.
+    // The changed filter field is referenced by the view's $match, so the update may move the
+    // document into the view. The partial-update path issues a non-upsert write that would
+    // silently drop such documents; a full update must be produced instead.
     VectorIndexDefinition indexDef =
         VectorIndexDefinitionBuilder.builder()
             .withAutoEmbedField("description")
@@ -400,7 +409,8 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
             List.of(changeEvent),
             indexDef,
             indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            false);
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
 
     assertEquals(1, batch.finalChangeEvents.size());
     assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
@@ -443,7 +453,8 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
             List.of(changeEvent),
             indexDef,
             indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            false);
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
 
     assertEquals(1, batch.finalChangeEvents.size());
     assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
@@ -474,7 +485,8 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
             List.of(changeEvent),
             indexDef,
             indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            false);
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
 
     // REPLACE always produces a full update, never a partial $set.
     assertEquals(1, batch.finalChangeEvents.size());
@@ -495,6 +507,165 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
             .counter()
             .count(),
         0.0);
+  }
+
+  @Test
+  public void testFilterOnlyUpdate_AutoEmbedFieldIndexOnView_UnrelatedField_Created() {
+    // The changed filter field is neither referenced by the view's $match nor feeds the embed
+    // source, so the view-resolved document's membership and embed source are unaffected and
+    // the filter-only partial update is retained.
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .withFilterPath("isPublished")
+            .view(
+                ViewDefinition.existing(
+                    "myView",
+                    List.of(
+                        BsonDocument.parse(
+                            "{\"$match\": {\"$expr\": {\"$eq\": [\"$isPublished\", true]}}}"))))
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    ChangeStreamDocument<RawBsonDocument> changeEvent =
+        createFilterOnlyUpdateEvent(indexDef, "category");
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    DocumentEvent event = batch.finalChangeEvents.getFirst();
+    assertTrue(event.getFilterFieldUpdates().isPresent());
+    assertEquals(new BsonString("updated"), event.getFilterFieldUpdates().get().get("category"));
+  }
+
+  @Test
+  public void textEmbedFeederUpdate_AutoEmbedFieldIndexOnView_NotCreated() {
+    // A v2 mat-view index may contain a TEXT field alongside an AUTO_EMBED field; both are embed
+    // sources (AutoEmbedFieldMappingCreator maps TEXT -> EmbedField). When the TEXT field's value
+    // is computed by the view, an update to its base feeder must re-embed; otherwise the TEXT
+    // embedding goes stale (under-collection).
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("title")
+            .withTextField("combined")
+            .withFilterPath("category")
+            .view(
+                ViewDefinition.existing(
+                    "myView",
+                    List.of(
+                        BsonDocument.parse(
+                            "{\"$set\": {\"combined\": {\"$concat\": [\"$bodyA\","
+                                + " \"$bodyB\"]}}}"))))
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    UpdateDescription updateDesc =
+        new UpdateDescription(null, new BsonDocument("bodyA", new BsonString("new body")));
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("title", new BsonString("t"))
+            .append("combined", new BsonString("new body and b"))
+            .append("category", new BsonString("updated"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> changeEvent =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, updateDesc, fullDocument);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+  }
+
+  @Test
+  public void computedFilterFieldCanVanish_AutoEmbedFieldIndexOnView_NotCreated() {
+    // The view computes a declared FILTER field that can evaluate to $$REMOVE (disappear). A base
+    // update that makes it vanish must take the full path; the partial $set path cannot delete a
+    // now-absent filter field, leaving a stale value in the materialized view (under-collection).
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("flag")
+            .withFilterPath("category")
+            .view(
+                ViewDefinition.existing(
+                    "myView",
+                    List.of(
+                        BsonDocument.parse(
+                            "{\"$set\": {\"flag\": {\"$cond\": [{\"$gt\": [\"$score\", 5]},"
+                                + " \"$$REMOVE\", \"low\"]}}}"))))
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    // score 3 -> flag="low" was in the MV; now score 9 -> flag vanishes. `category` (an unrelated,
+    // always-present filter field) keeps extractFilterFieldValues non-empty, so the partial $set
+    // path is taken and cannot delete the now-absent `flag`.
+    UpdateDescription updateDesc =
+        new UpdateDescription(null, new BsonDocument("score", new BsonInt32(9)));
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("d"))
+            .append("score", new BsonInt32(9))
+            .append("category", new BsonString("c"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> changeEvent =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, updateDesc, fullDocument);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+  }
+
+  @Test
+  public void unsupportedViewStage_AutoEmbedFieldIndexOnView_NotCreated() {
+    // The view pipeline contains a stage the analyzer cannot interpret ($project), so
+    // ViewFieldDependencies bails to dependsOnEverything=true. Every update — even one touching
+    // a field that has no relation to the embed source or any $match — must take the full path.
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .view(
+                ViewDefinition.existing(
+                    "myView",
+                    List.of(
+                        BsonDocument.parse(
+                            "{\"$project\": {\"description\": 1, \"category\": 1}}"))))
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    ChangeStreamDocument<RawBsonDocument> changeEvent =
+        createFilterOnlyUpdateEvent(indexDef, "category");
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
   }
 
   /**

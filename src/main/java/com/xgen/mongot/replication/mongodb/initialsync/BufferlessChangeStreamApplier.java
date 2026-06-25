@@ -6,6 +6,8 @@ import static com.xgen.mongot.util.Check.checkState;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.errorprone.annotations.Var;
 import com.mongodb.MongoNamespace;
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
@@ -25,6 +27,7 @@ import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.PartialEmbedMetricCounters;
 import com.xgen.mongot.replication.mongodb.common.SchedulerQueue;
+import com.xgen.mongot.replication.mongodb.common.ViewFieldDependencies;
 import com.xgen.mongot.replication.mongodb.initialsync.config.InitialSyncConfig;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FutureUtils;
@@ -63,6 +66,9 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
   private final DefaultKeyValueLogger logger;
   private final Clock clock;
   private final InitialSyncContext context;
+  // View-pipeline field dependencies are a pure function of the immutable index definition, so
+  // they are derived once and reused across change-stream batches.
+  private final Supplier<Optional<ViewFieldDependencies>> viewFieldDependencies;
   private final InitialSyncMongoClient mongoClient;
   private final ServerClusterTimeProvider clusterTimeProvider;
   private final MongoNamespace namespace;
@@ -127,6 +133,11 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
     this.matchCollectionUuidForUpdateLookup = matchCollectionUuidForUpdateLookup;
     this.splitLargeChangeStreamEvents = splitLargeChangeStreamEvents;
     this.context = context;
+    this.viewFieldDependencies =
+        Suppliers.memoize(
+            () ->
+                ChangeStreamDocumentUtils.deriveViewFieldDependencies(
+                    context.getIndexDefinition()));
     this.mongoClient = mongoClient;
     this.clusterTimeProvider = mongoClient::getMaxValidMajorityReadOptime;
     this.namespace = namespace;
@@ -382,7 +393,8 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
             this.context
                 .getIndexDefinition()
                 .createFieldDefinitionResolver(this.context.getIndexFormatVersion()),
-            true /* areUpdateEventsPrefiltered */);
+            true /* areUpdateEventsPrefiltered */,
+            this.viewFieldDependencies.get());
 
     this.totalDocumentsCounter.increment(batch.getRawEvents().size());
     this.preprocessingBatchTimer.record(preprocessingBatchTimer.stop().elapsed());

@@ -69,6 +69,7 @@ java_library(
         "SynonymSyncException.java",
         "TimeableChangeStreamMongoClient.java",
         "UnsupportedMongoDbVersionException.java",
+        "ViewFieldDependencies.java",
         "ViewPipeline.java",
         "WrapIfThrows.java",
     ],

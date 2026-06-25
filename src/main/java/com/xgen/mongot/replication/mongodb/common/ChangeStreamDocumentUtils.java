@@ -18,6 +18,7 @@ import com.xgen.mongot.index.definition.FieldDefinitionResolver;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
+import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.Crash;
@@ -33,6 +34,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import org.bson.BsonBinaryWriter;
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
@@ -245,7 +247,10 @@ public class ChangeStreamDocumentUtils {
       FieldDefinitionResolver fieldDefinitionResolver,
       // TODO(CLOUDP-324852): Remove this parameter once initial sync and steady state logic are
       //  aligned.
-      boolean areUpdateEventsPrefiltered) {
+      boolean areUpdateEventsPrefiltered,
+      // Derived once per index definition by the caller (see deriveViewFieldDependencies); empty
+      // for non-view or non-auto-embedding indexes.
+      Optional<ViewFieldDependencies> viewFieldDependencies) {
 
     ChangeStreamBatchMetrics metrics = new ChangeStreamBatchMetrics();
     Set<BsonDocument> processedDocs = new HashSet<>();
@@ -274,7 +279,8 @@ public class ChangeStreamDocumentUtils {
                 fieldDefinitionResolver,
                 metrics,
                 areUpdateEventsPrefiltered,
-                autoEmbedMapping);
+                autoEmbedMapping,
+                viewFieldDependencies);
         if (docEvent.isPresent()) {
           finalChangeEvents.add(docEvent.get());
 
@@ -304,7 +310,8 @@ public class ChangeStreamDocumentUtils {
       FieldDefinitionResolver fieldDefinitionResolver,
       ChangeStreamBatchMetrics metrics,
       boolean areUpdateEventsPrefiltered,
-      Optional<AutoEmbedFieldMapping> autoEmbedMapping) {
+      Optional<AutoEmbedFieldMapping> autoEmbedMapping,
+      Optional<ViewFieldDependencies> viewFieldDependencies) {
 
     DocumentMetadata metadata = createMetadata(event, indexDefinition);
 
@@ -350,62 +357,97 @@ public class ChangeStreamDocumentUtils {
           incrementApplicableDocumentMetrics(metrics, event);
 
           // For materialized view based auto-embedding indexes (AUTO_EMBED fields, version >= 2),
-          // check if embedding generation is required. If not (only filter fields changed), we can
-          // skip embedding and use partial updates. When only a subset of embed fields changed, we
-          // partial-update those embeddings without re-embedding the others. The old EMBEDDING
-          // strategy (TEXT fields, version 1) writes directly to Lucene and does not support
-          // partial updates.
-          // Partial updates are not supported on view-based indexes: detection of which base
-          // fields the indexed document depends on is missing, so every update re-embeds
-          // (HELP-94834: partial updates silently dropped documents transitioning into the view).
-          // TODO(CLOUDP-412469): derive view-pipeline field dependencies to restore the
-          // optimization.
-          if (autoEmbedMapping.isPresent() && indexDefinition.getView().isEmpty()) {
+          // decide between a partial $set and a full ReplaceOne.
+          //
+          // For NON-VIEW indexes: classify the update (CLOUDP-412617). When only filter fields
+          // changed, emit a filter-only $set; when only a subset of embed fields changed, emit a
+          // partial-embed $set carrying just the changed embed texts; otherwise fall back to a
+          // full re-index. Partial-embed metrics are recorded at the *committed* outcome below.
+          //
+          // For VIEW-BASED indexes: ViewFieldDependencies statically derives which base fields
+          // can affect view membership or any embed source (CLOUDP-412469). If none of the
+          // changed base fields are triggers, a filter-only $set is safe; otherwise full
+          // (embed + upsert) (HELP-94834: partial updates silently dropped documents
+          // transitioning into the view). Unknown dependencies fall back to full processing.
+          // Views do not yet exercise the partial-embed path — its changedEmbedTexts is keyed by
+          // view-resolved embed paths but updateDescription only carries base-collection paths.
+          //
+          // The old EMBEDDING strategy (TEXT fields, version 1) writes directly to Lucene and
+          // does not support partial updates.
+          //
+          // TODO(CLOUDP-413687): this decision only sees the surviving (last) event's
+          // updateDescription; an earlier same-doc embed-source update collapsed out of the
+          // batch is missed when the last update is filter-only.
+          if (autoEmbedMapping.isPresent()) {
             AutoEmbedFieldMapping mapping = autoEmbedMapping.get();
-            // Decide between a partial $set and a full ReplaceOne. The partial-embed metrics
-            // (CLOUDP-412617) are recorded at the *committed* outcome below, never at the
-            // classifier verdict, so a post-classification fall-back (e.g. filter extraction
-            // failing) can't overcount partialEmbedApplied.
-            boolean embedFieldChanged =
-                AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(
-                    event.getUpdateDescription(), mapping);
-            @Var ImmutableMap<FieldPath, String> changedEmbedTexts = ImmutableMap.of();
-            @Var Optional<PartialEmbedFallbackReason> fallbackReason = Optional.empty();
-            if (embedFieldChanged) {
-              PartialEmbedClassification classification =
-                  AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(
-                      event.getUpdateDescription(), event.getFullDocument(), mapping);
-              changedEmbedTexts = classification.changedTexts().orElse(ImmutableMap.of());
-              fallbackReason = classification.fallbackReason();
-            }
-            if (fallbackReason.isEmpty()) {
-              // Empty Optional = extraction failed; fall back to a full replace rather than issue a
-              // partial $set that would silently drop filter fields. A present-but-empty body is
-              // valid (index has no filter fields) and still supports a partial embed. The
-              // filter-only path additionally needs a non-empty body to be worth a partial update.
-              Optional<BsonDocument> filterFieldUpdates =
-                  AutoEmbeddingDocumentUtils.extractFilterFieldValues(
-                      event.getFullDocument(), mapping);
-              if (filterFieldUpdates.isPresent()
-                  && (!changedEmbedTexts.isEmpty() || !filterFieldUpdates.get().isEmpty())) {
-                if (embedFieldChanged) {
-                  metrics.partialEmbedApplied();
+            if (indexDefinition.getView().isPresent()) {
+              // TODO(CLOUDP-416422): extend partial-embed to view-based AE indexes — today an
+              // embed-feeder change forces a full re-embed of every embed source, not just the
+              // one whose computed value changed.
+              boolean requiresFullProcessing =
+                  viewFieldDependencies
+                      .map(deps -> deps.requiresFullProcessing(event.getUpdateDescription()))
+                      .orElse(true);
+              if (!requiresFullProcessing) {
+                Optional<BsonDocument> filterFieldUpdates =
+                    AutoEmbeddingDocumentUtils.extractFilterFieldValues(
+                        event.getFullDocument(), mapping);
+                if (filterFieldUpdates.isPresent() && !filterFieldUpdates.get().isEmpty()) {
+                  // TODO(CLOUDP-416417): increment a partial-embed metric on this view-based
+                  // filter-only path so it's visible alongside the non-view partial-embed
+                  // observability.
+                  return Optional.of(
+                      DocumentEvent.createPartialUpdate(
+                          metadata,
+                          event.getFullDocument(),
+                          filterFieldUpdates.get(),
+                          ImmutableMap.of()));
                 }
-                return Optional.of(
-                    DocumentEvent.createPartialUpdate(
-                        metadata,
-                        event.getFullDocument(),
-                        filterFieldUpdates.get(),
-                        changedEmbedTexts));
               }
-              // Couldn't issue a partial $set. For an embed-changing update the only way here is a
-              // filter-extraction failure (changedEmbedTexts is non-empty), so it's a full re-index
-              // fallback. A filter-only update with an empty body just isn't worth a partial $set.
+            } else {
+              boolean embedFieldChanged =
+                  AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(
+                      event.getUpdateDescription(), mapping);
+              @Var ImmutableMap<FieldPath, String> changedEmbedTexts = ImmutableMap.of();
+              @Var Optional<PartialEmbedFallbackReason> fallbackReason = Optional.empty();
               if (embedFieldChanged) {
-                fallbackReason = Optional.of(PartialEmbedFallbackReason.FILTER_EXTRACTION_FAILED);
+                PartialEmbedClassification classification =
+                    AutoEmbeddingDocumentUtils.computePartialEmbedChangedTexts(
+                        event.getUpdateDescription(), event.getFullDocument(), mapping);
+                changedEmbedTexts = classification.changedTexts().orElse(ImmutableMap.of());
+                fallbackReason = classification.fallbackReason();
               }
+              if (fallbackReason.isEmpty()) {
+                // Empty Optional = extraction failed; fall back to a full replace rather than
+                // issue a partial $set that would silently drop filter fields. A present-but-empty
+                // body is valid (index has no filter fields) and still supports a partial embed.
+                // The filter-only path additionally needs a non-empty body to be worth a partial
+                // update.
+                Optional<BsonDocument> filterFieldUpdates =
+                    AutoEmbeddingDocumentUtils.extractFilterFieldValues(
+                        event.getFullDocument(), mapping);
+                if (filterFieldUpdates.isPresent()
+                    && (!changedEmbedTexts.isEmpty() || !filterFieldUpdates.get().isEmpty())) {
+                  if (embedFieldChanged) {
+                    metrics.partialEmbedApplied();
+                  }
+                  return Optional.of(
+                      DocumentEvent.createPartialUpdate(
+                          metadata,
+                          event.getFullDocument(),
+                          filterFieldUpdates.get(),
+                          changedEmbedTexts));
+                }
+                // Couldn't issue a partial $set. For an embed-changing update the only way here is
+                // a filter-extraction failure (changedEmbedTexts is non-empty), so it's a full
+                // re-index fallback. A filter-only update with an empty body just isn't worth a
+                // partial $set.
+                if (embedFieldChanged) {
+                  fallbackReason = Optional.of(PartialEmbedFallbackReason.FILTER_EXTRACTION_FAILED);
+                }
+              }
+              fallbackReason.ifPresent(metrics::partialEmbedFallback);
             }
-            fallbackReason.ifPresent(metrics::partialEmbedFallback);
           }
           // Full document replacement
           return Optional.of(DocumentEvent.createUpdate(metadata, event.getFullDocument()));
@@ -445,6 +487,57 @@ public class ChangeStreamDocumentUtils {
         Optional.ofNullable(event.getFullDocument())
             .map(rawDocument -> rawDocument.getByteBuffer().remaining())
             .orElse(0));
+  }
+
+  /**
+   * Derives the view-pipeline field dependencies for a materialized-view auto-embedding index, or
+   * empty for any other index. This is a pure function of the immutable index definition, so
+   * callers should compute it once per index (e.g. memoized) rather than per change-stream batch.
+   */
+  public static Optional<ViewFieldDependencies> deriveViewFieldDependencies(
+      IndexDefinition indexDefinition) {
+    if (!(indexDefinition instanceof VectorIndexDefinition)
+        || !MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(
+            indexDefinition)) {
+      return Optional.empty();
+    }
+    return indexDefinition
+        .getView()
+        .flatMap(view -> view.getEffectivePipeline())
+        .map(
+            pipeline ->
+                ViewFieldDependencies.derive(
+                    pipeline,
+                    embedSourcePaths(indexDefinition),
+                    fieldPathsOfType(indexDefinition, VectorIndexFieldDefinition.Type.FILTER)));
+  }
+
+  /**
+   * Returns the source paths of the index's embed fields. Both AUTO_EMBED and TEXT fields are embed
+   * sources (see AutoEmbedFieldMappingCreator), so both must be tracked — omitting TEXT would
+   * under-collect and serve stale embeddings on a mixed index.
+   */
+  private static Set<FieldPath> embedSourcePaths(IndexDefinition indexDefinition) {
+    // TODO(CLOUDP-353553): handle SearchIndexDefinition once auto-embedding is supported there.
+    if (!(indexDefinition instanceof VectorIndexDefinition vectorDef)) {
+      return Set.of();
+    }
+    return vectorDef.getFields().stream()
+        .filter(VectorIndexFieldDefinition::isAutoEmbedField)
+        .map(VectorIndexFieldDefinition::getPath)
+        .collect(Collectors.toSet());
+  }
+
+  /** Returns the paths of the index's fields of the given type. */
+  private static Set<FieldPath> fieldPathsOfType(
+      IndexDefinition indexDefinition, VectorIndexFieldDefinition.Type type) {
+    if (!(indexDefinition instanceof VectorIndexDefinition vectorDef)) {
+      return Set.of();
+    }
+    return vectorDef.getFields().stream()
+        .filter(field -> field.getType() == type)
+        .map(VectorIndexFieldDefinition::getPath)
+        .collect(Collectors.toSet());
   }
 
   private static DocumentMetadata createMetadata(

@@ -215,7 +215,8 @@ public class ChangeStreamDocumentUtilsTest {
             List.of(inapplicableUpdate, applicableUpdate),
             indexDefinition,
             indexDefinition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            false /* areUpdateEventsPrefiltered */);
+            false /* areUpdateEventsPrefiltered */,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDefinition));
     // Only the applicable update should be present if we indicate that the batch has not been
     // prefiltered.
     assertThat(batch.finalChangeEvents).hasSize(1);
@@ -235,7 +236,8 @@ public class ChangeStreamDocumentUtilsTest {
             List.of(inapplicableUpdate, applicableUpdate),
             indexDefinition,
             indexDefinition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            true /* areUpdateEventsPrefiltered */);
+            true /* areUpdateEventsPrefiltered */,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDefinition));
     // Both updates should be present if we indicate that the batch has been prefiltered.
     assertThat(batch.finalChangeEvents).hasSize(2);
     assertThat(batch.finalChangeEvents.getFirst().getDocument()).isPresent();
@@ -304,7 +306,8 @@ public class ChangeStreamDocumentUtilsTest {
             List.of(nonIndexedFieldUpdate),
             autoEmbedIndexDefinition,
             autoEmbedIndexDefinition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            false /* areUpdateEventsPrefiltered */);
+            false /* areUpdateEventsPrefiltered */,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(autoEmbedIndexDefinition));
 
     // The update should be skipped entirely since only non-indexed fields changed
     assertThat(batch.finalChangeEvents).isEmpty();

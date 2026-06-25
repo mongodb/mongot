@@ -105,7 +105,7 @@ public class ChangeStreams {
    * returned with a value from IndexDefinition::getField. That is, if the root mapping is dynamic,
    * "a.b.c" would return as configured to be indexed.
    */
-  private static FieldPath filterFieldPath(FieldPath fieldPath) {
+  static FieldPath filterFieldPath(FieldPath fieldPath) {
     // Get the path elements up to but not including the first integer path element.
     ImmutableList<FieldPath> integerPrefix =
         fieldPath.getPathHierarchy().stream()

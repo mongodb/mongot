@@ -5,6 +5,8 @@ import static com.xgen.mongot.replication.mongodb.common.ChangeStreamDocumentUti
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.mongodb.MongoChangeStreamException;
 import com.mongodb.MongoNamespace;
@@ -26,6 +28,7 @@ import com.xgen.mongot.replication.mongodb.common.IndexingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.SchedulerQueue;
 import com.xgen.mongot.replication.mongodb.common.SchedulerQueue.Priority;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
+import com.xgen.mongot.replication.mongodb.common.ViewFieldDependencies;
 import io.micrometer.core.instrument.Timer;
 import java.util.HashMap;
 import java.util.List;
@@ -39,6 +42,10 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
 
   /* In-order decoding per generation id. */
   private final DecodingWorkScheduler decodingScheduler;
+
+  /* View-pipeline field dependencies are a pure function of the immutable index definition, so
+   * they are derived once and reused across change-stream batches. */
+  private final Supplier<Optional<ViewFieldDependencies>> viewFieldDependencies;
 
   @GuardedBy("this")
   private Optional<Throwable> lifecycleException;
@@ -66,6 +73,9 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
         generationId);
     this.decodingScheduler = decodingScheduler;
     this.lifecycleException = Optional.empty();
+    this.viewFieldDependencies =
+        Suppliers.memoize(
+            () -> ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDefinition));
   }
 
   static DecodingExecutorChangeStreamIndexManager createWithDecodingScheduler(
@@ -169,7 +179,8 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
                         this.indexDefinition,
                         this.indexDefinition.createFieldDefinitionResolver(
                             this.generationId.generation.indexFormatVersion),
-                        false /* areUpdateEventsPrefiltered */);
+                        false /* areUpdateEventsPrefiltered */,
+                        this.viewFieldDependencies.get());
 
                 metricsUpdater.accept(documentEventBatch);
 

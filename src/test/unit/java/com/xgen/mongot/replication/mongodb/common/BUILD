@@ -34,6 +34,7 @@ java_test_suite(
         "SchedulerQueueTest.java",
         "SplitEventChangeStreamClientTest.java",
         "SteadyStateExceptionTest.java",
+        "ViewFieldDependenciesTest.java",
     ],
     data = ["//src/test/unit/resources/replication/mongodb/common:srcs"],
     tags = ["unit"],
