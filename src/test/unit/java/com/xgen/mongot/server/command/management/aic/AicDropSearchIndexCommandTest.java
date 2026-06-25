@@ -17,10 +17,10 @@ import static org.mockito.Mockito.when;
 
 import com.mongodb.MongoException;
 import com.xgen.mongot.catalogservice.AuthoritativeIndexCatalog;
-import com.xgen.mongot.catalogservice.AuthoritativeIndexKey;
 import com.xgen.mongot.catalogservice.CatalogAccessGuard;
 import com.xgen.mongot.catalogservice.MetadataServiceException;
 import com.xgen.mongot.catalogservice.TopologyMismatchException;
+import com.xgen.mongot.catalogservice.schema.AuthoritativeIndexKey;
 import com.xgen.mongot.server.command.management.definition.DropSearchIndexCommandDefinition;
 import com.xgen.mongot.util.mongodb.CheckedMongoException;
 import com.xgen.mongot.util.mongodb.Errors;

@@ -1,4 +1,4 @@
-package com.xgen.mongot.catalogservice;
+package com.xgen.mongot.catalogservice.schema;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -11,6 +11,7 @@ import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import java.util.Optional;
 import java.util.UUID;
+import org.bson.BsonBinary;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.bson.types.ObjectId;
@@ -97,6 +98,16 @@ public class IndexEntryTest {
         new IndexEntry(
             indexKey, new ObjectId(), 1, minimalDefinition(new ObjectId()), Optional.empty());
     assertEquals(keyBson, entry.keyBson());
+  }
+
+  @Test
+  public void testCollectionUuidFilter() {
+    BsonDocument filter = IndexEntry.collectionUuidFilter(COLLECTION_UUID);
+
+    assertEquals(1, filter.size());
+    assertTrue(filter.containsKey("_id.collectionUuid"));
+    BsonBinary binary = filter.getBinary("_id.collectionUuid");
+    assertEquals(COLLECTION_UUID, binary.asUuid());
   }
 
   @Test

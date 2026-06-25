@@ -1,11 +1,11 @@
 package com.xgen.mongot.config.provider.community;
 
-import com.xgen.mongot.catalogservice.AuthoritativeIndexKey;
 import com.xgen.mongot.catalogservice.CatalogAccessGuard;
 import com.xgen.mongot.catalogservice.IndexStatsEntry;
 import com.xgen.mongot.catalogservice.MetadataService;
 import com.xgen.mongot.catalogservice.MetadataServiceException;
 import com.xgen.mongot.catalogservice.TopologyMismatchException;
+import com.xgen.mongot.catalogservice.schema.AuthoritativeIndexKey;
 import com.xgen.mongot.catalogservice.schema.ServerStateEntry;
 import com.xgen.mongot.index.IndexInformation;
 import com.xgen.mongot.index.status.IndexStatus;

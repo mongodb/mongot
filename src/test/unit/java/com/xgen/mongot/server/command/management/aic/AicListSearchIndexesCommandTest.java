@@ -18,15 +18,15 @@ import static org.mockito.Mockito.when;
 
 import com.mongodb.MongoException;
 import com.xgen.mongot.catalogservice.AuthoritativeIndexCatalog;
-import com.xgen.mongot.catalogservice.AuthoritativeIndexKey;
 import com.xgen.mongot.catalogservice.CatalogAccessGuard;
-import com.xgen.mongot.catalogservice.IndexEntry;
 import com.xgen.mongot.catalogservice.IndexStats;
 import com.xgen.mongot.catalogservice.IndexStatsEntry;
 import com.xgen.mongot.catalogservice.MetadataService;
 import com.xgen.mongot.catalogservice.MetadataServiceException;
 import com.xgen.mongot.catalogservice.ServerState;
 import com.xgen.mongot.catalogservice.TopologyMismatchException;
+import com.xgen.mongot.catalogservice.schema.AuthoritativeIndexKey;
+import com.xgen.mongot.catalogservice.schema.IndexEntry;
 import com.xgen.mongot.catalogservice.schema.ServerStateEntry;
 import com.xgen.mongot.config.manager.CachedIndexInfoProvider;
 import com.xgen.mongot.index.AggregatedIndexMetrics;

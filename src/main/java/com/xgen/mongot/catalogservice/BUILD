@@ -4,13 +4,11 @@ java_library(
     name = "catalogservice",
     srcs = [
         "AuthoritativeIndexCatalog.java",
-        "AuthoritativeIndexKey.java",
         "CatalogAccessGuard.java",
         "DefaultAuthoritativeIndexCatalog.java",
         "DefaultIndexStats.java",
         "DefaultMetadataService.java",
         "DefaultServerState.java",
-        "IndexEntry.java",
         "IndexStats.java",
         "IndexStatsEntry.java",
         "IndexStatsEntryMapper.java",

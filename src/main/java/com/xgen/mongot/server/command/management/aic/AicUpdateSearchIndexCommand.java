@@ -3,10 +3,10 @@ package com.xgen.mongot.server.command.management.aic;
 import static com.xgen.mongot.server.command.management.definition.common.CommonDefinitions.OK_RESPONSE;
 
 import com.xgen.mongot.catalogservice.AuthoritativeIndexCatalog;
-import com.xgen.mongot.catalogservice.AuthoritativeIndexKey;
 import com.xgen.mongot.catalogservice.CatalogAccessGuard;
 import com.xgen.mongot.catalogservice.MetadataServiceException;
 import com.xgen.mongot.catalogservice.TopologyMismatchException;
+import com.xgen.mongot.catalogservice.schema.AuthoritativeIndexKey;
 import com.xgen.mongot.config.provider.community.embedding.AutoEmbeddingIndexValidator;
 import com.xgen.mongot.config.util.Invariants;
 import com.xgen.mongot.config.util.Invariants.AnalyzerInvariants;

@@ -2,7 +2,8 @@ package com.xgen.mongot.catalogservice;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.mongodb.client.MongoClient;
-import com.xgen.mongot.catalogservice.IndexEntry.Fields;
+import com.xgen.mongot.catalogservice.schema.AuthoritativeIndexKey;
+import com.xgen.mongot.catalogservice.schema.IndexEntry;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
@@ -10,7 +11,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
-import org.bson.BsonBinary;
 import org.bson.BsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -70,12 +70,7 @@ public class DefaultAuthoritativeIndexCatalog implements AuthoritativeIndexCatal
 
   @Override
   public List<IndexEntry> listIndexes(UUID collectionUuid) throws MetadataServiceException {
-    String dottedFieldName =
-        String.join(
-            ".",
-            Fields.INDEX_KEY.getName(),
-            AuthoritativeIndexKey.Fields.COLLECTION_UUID.getName());
-    return listIndexes(new BsonDocument(dottedFieldName, new BsonBinary(collectionUuid)));
+    return listIndexes(IndexEntry.collectionUuidFilter(collectionUuid));
   }
 
   @Override

@@ -1,5 +1,7 @@
 package com.xgen.mongot.catalogservice;
 
+import com.xgen.mongot.catalogservice.schema.AuthoritativeIndexKey;
+import com.xgen.mongot.catalogservice.schema.IndexEntry;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import java.util.List;
 import java.util.UUID;

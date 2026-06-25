@@ -1,4 +1,4 @@
-package com.xgen.mongot.catalogservice;
+package com.xgen.mongot.catalogservice.schema;
 
 import com.mongodb.client.model.Updates;
 import com.xgen.mongot.index.definition.IndexDefinition;
@@ -9,6 +9,8 @@ import com.xgen.mongot.util.bson.parser.DocumentParser;
 import com.xgen.mongot.util.bson.parser.Field;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
+import org.bson.BsonBinary;
 import org.bson.BsonDocument;
 import org.bson.types.ObjectId;
 
@@ -70,6 +72,15 @@ public record IndexEntry(
 
   public static BsonDocument keyAsBson(AuthoritativeIndexKey indexKey) {
     return BsonDocumentBuilder.builder().field(Fields.INDEX_KEY, indexKey).build();
+  }
+
+  public static BsonDocument collectionUuidFilter(UUID collectionUuid) {
+    String dottedField =
+        String.join(
+            ".",
+            Fields.INDEX_KEY.getName(),
+            AuthoritativeIndexKey.Fields.COLLECTION_UUID.getName());
+    return new BsonDocument(dottedField, new BsonBinary(collectionUuid));
   }
 
   public static BsonDocument updateDefinition(IndexDefinition definition) {
