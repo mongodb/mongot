@@ -26,6 +26,7 @@ import org.bson.BsonMinKey;
 import org.bson.BsonNull;
 import org.bson.BsonObjectId;
 import org.bson.BsonString;
+import org.bson.BsonSymbol;
 import org.bson.BsonTimestamp;
 import org.bson.types.Decimal128;
 import org.bson.types.ObjectId;
@@ -142,8 +143,14 @@ public class VectorSearchResultTest {
               .id(new BsonDecimal128(Decimal128.parse("2.5")))
               .score(0.8f)
               .build();
+      VectorSearchResult result3 =
+          VectorSearchResultBuilder.builder()
+              .id(new BsonDecimal128(Decimal128.parse("1.5")))
+              .score(0.8f)
+              .build();
 
       assertTrue(VectorSearchResult.VECTOR_SEARCH_RESULT_COMPARATOR.compare(result1, result2) < 0);
+      assertEquals(0, VectorSearchResult.VECTOR_SEARCH_RESULT_COMPARATOR.compare(result1, result3));
     }
 
     @Test
@@ -330,6 +337,18 @@ public class VectorSearchResultTest {
       assertTrue(
           VectorSearchResult.VECTOR_SEARCH_RESULT_COMPARATOR.compare(maxKeyResult, stringResult)
               > 0);
+    }
+
+    @Test
+    public void testComparatorStringVsSymbolIds() {
+      VectorSearchResult stringResult =
+          VectorSearchResultBuilder.builder().id(new BsonString("abc")).score(0.8f).build();
+      VectorSearchResult symbolResult =
+          VectorSearchResultBuilder.builder().id(new BsonSymbol("xyz")).score(0.8f).build();
+
+      assertTrue(
+          VectorSearchResult.VECTOR_SEARCH_RESULT_COMPARATOR.compare(stringResult, symbolResult)
+              < 0);
     }
 
     @Test
