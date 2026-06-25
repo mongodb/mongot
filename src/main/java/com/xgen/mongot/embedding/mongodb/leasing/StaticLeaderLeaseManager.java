@@ -7,6 +7,7 @@ import static com.xgen.mongot.util.mongodb.MongoDbDatabase.getCollectionInfo;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.errorprone.annotations.Var;
+import com.mongodb.MongoNamespace;
 import com.mongodb.ReadConcern;
 import com.mongodb.ReadPreference;
 import com.mongodb.client.MongoClient;
@@ -490,6 +491,99 @@ public class StaticLeaderLeaseManager implements LeaseManager {
           .addKeyValue("leaseKey", leaseKey)
           .setCause(e)
           .log("Failed to mark lease eligible for cleanup");
+      return false;
+    }
+  }
+
+  @Override
+  public Optional<MongoNamespace> resolveStaleMatViewNamespace(
+      String leaseKey, Instant expirationCutoff) {
+    // See DynamicLeaderLeaseManager#resolveStaleMatViewNamespace: re-read the lease and surface the
+    // namespace only while it is still marked and still stale; the materialized-view manager drops
+    // the collection and deleteStaleLease removes the lease document afterwards.
+    String dbName;
+    try {
+      dbName = getDatabaseForLease(leaseKey);
+    } catch (IllegalStateException e) {
+      LOG.atWarn()
+          .addKeyValue("leaseKey", leaseKey)
+          .setCause(e)
+          .log("No database mapping for lease during stale mat view resolve, skipping");
+      return Optional.empty();
+    }
+    try {
+      BsonDocument rawLease =
+          this.operationExecutor.execute(
+              "readStaleLease",
+              () -> this.getCollection(dbName).find(Filters.eq("_id", leaseKey)).first());
+      if (rawLease == null) {
+        LOG.atInfo()
+            .addKeyValue("leaseKey", leaseKey)
+            .log("Stale lease already deleted, skipping mat view resolve");
+        return Optional.empty();
+      }
+      Lease lease = Lease.fromBson(rawLease);
+      if (lease.cleanupState() != Lease.CleanupState.ELIGIBLE_FOR_CLEANUP
+          || !lease.leaseExpiration().isBefore(expirationCutoff)) {
+        LOG.atInfo()
+            .addKeyValue("leaseKey", leaseKey)
+            .addKeyValue("cleanupState", lease.cleanupState())
+            .addKeyValue("leaseExpiration", lease.leaseExpiration())
+            .log("Lease no longer eligible for cleanup at resolve time, skipping");
+        return Optional.empty();
+      }
+      return Optional.of(
+          new MongoNamespace(dbName, lease.materializedViewCollectionMetadata().collectionName()));
+    } catch (Exception e) {
+      // Re-read failed; the next sweep re-evaluates.
+      LOG.atWarn()
+          .addKeyValue("leaseKey", leaseKey)
+          .setCause(e)
+          .log("Failed to re-read lease while resolving stale mat view, skipping");
+      return Optional.empty();
+    }
+  }
+
+  @Override
+  public boolean deleteStaleLease(String leaseKey, Instant expirationCutoff) {
+    // OCC delete: see DynamicLeaderLeaseManager#deleteStaleLease. Only commits while the lease is
+    // still marked and still stale, so a lease resurrected after the collection drop cannot be
+    // deleted.
+    String dbName;
+    try {
+      dbName = getDatabaseForLease(leaseKey);
+    } catch (IllegalStateException e) {
+      LOG.atWarn()
+          .addKeyValue("leaseKey", leaseKey)
+          .setCause(e)
+          .log("No database mapping for lease during stale lease delete, skipping");
+      return false;
+    }
+    var filter =
+        Filters.and(
+            Filters.eq("_id", leaseKey),
+            Filters.eq(
+                Lease.Fields.CLEANUP_STATE.getName(),
+                Lease.CleanupState.ELIGIBLE_FOR_CLEANUP.name()),
+            Filters.lt(
+                Lease.Fields.LEASE_EXPIRATION.getName(),
+                new BsonDateTime(expirationCutoff.toEpochMilli())));
+    try {
+      var result =
+          this.operationExecutor.execute(
+              "deleteStaleLease", () -> this.getCollection(dbName).deleteOne(filter));
+      if (result.getDeletedCount() > 0) {
+        this.leases.remove(leaseKey);
+        this.leaseKeyToDatabase.remove(leaseKey);
+        return true;
+      }
+      return false;
+    } catch (Exception e) {
+      // Best effort: the next sweep re-evaluates this lease.
+      LOG.atWarn()
+          .addKeyValue("leaseKey", leaseKey)
+          .setCause(e)
+          .log("Failed to delete stale lease");
       return false;
     }
   }

@@ -14,6 +14,7 @@ import static com.xgen.mongot.util.FutureUtils.COMPLETED_FUTURE;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
+import com.mongodb.MongoNamespace;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
@@ -1500,6 +1501,49 @@ public class MaterializedViewManager implements ReplicationManager {
           .addKeyValue("leaderIndexCount", leaderIndexIds.size())
           .addKeyValue("leaderIndexIds", leaderIndexIds)
           .log("Auto-embedding leader heartbeat");
+    }
+  }
+
+  /**
+   * Drops the materialized view collection of a stale lease — the first step of cleaning it up,
+   * before {@link LeaseManager#deleteStaleLease} removes the lease document. The lease manager
+   * re-reads the lease and resolves the collection only while it is still eligible for cleanup, so
+   * a lease reused in the meantime is left untouched. Best effort, never throws, and idempotent: an
+   * already-absent collection is a no-op, so a retry after a half-finished cleanup still returns
+   * true and lets the lease be deleted.
+   *
+   * @return true if the collection is gone and the lease is still eligible — the caller should
+   *     proceed to {@link LeaseManager#deleteStaleLease}; false otherwise
+   */
+  @VisibleForTesting
+  boolean dropStaleMatViewCollection(String leaseKey, Instant expirationCutoff) {
+    Optional<MongoNamespace> namespace =
+        this.leaseManager.resolveStaleMatViewNamespace(leaseKey, expirationCutoff);
+    if (namespace.isEmpty()) {
+      return false;
+    }
+    String database = namespace.get().getDatabaseName();
+    String collectionName = namespace.get().getCollectionName();
+    try {
+      var mongoClient =
+          Check.isPresent(
+              this.autoEmbeddingMongoClient.getMaterializedViewWriterMongoClient(),
+              "materializedViewWriterMongoClient");
+      mongoClient.getDatabase(database).getCollection(collectionName).drop();
+      LOG.atInfo()
+          .addKeyValue("leaseKey", leaseKey)
+          .addKeyValue("collectionName", collectionName)
+          .addKeyValue("database", database)
+          .log("Dropped stale materialized view collection");
+      return true;
+    } catch (Exception | AssertionError e) {
+      // Best effort: the next sweep re-evaluates this lease.
+      LOG.atWarn()
+          .addKeyValue("leaseKey", leaseKey)
+          .addKeyValue("collectionName", collectionName)
+          .setCause(e)
+          .log("Failed to drop stale materialized view collection");
+      return false;
     }
   }
 

@@ -31,6 +31,10 @@ import static org.mockito.Mockito.when;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.google.errorprone.annotations.Keep;
+import com.mongodb.MongoNamespace;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
@@ -91,6 +95,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
+import org.bson.Document;
 import org.bson.types.ObjectId;
 import org.junit.Assert;
 import org.junit.Test;
@@ -3243,6 +3248,66 @@ public class MaterializedViewManagerTest {
     verify(mocks.leaseManager, never()).markEligibleForCleanup(any(), any());
   }
 
+  // ==================== dropStaleMatViewCollection ====================
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void dropStaleMatViewCollection_resolvedNamespace_dropsCollection() {
+    Mocks mocks = Mocks.create();
+    Instant cutoff = Instant.now();
+    when(mocks.leaseManager.resolveStaleMatViewNamespace("lease-key", cutoff))
+        .thenReturn(Optional.of(new MongoNamespace("test-db", "mv-collection")));
+    MongoClient writerClient = mock(MongoClient.class);
+    MongoDatabase database = mock(MongoDatabase.class);
+    MongoCollection<Document> collection = mock(MongoCollection.class);
+    when(mocks.autoEmbeddingMongoClient.getMaterializedViewWriterMongoClient())
+        .thenReturn(Optional.of(writerClient));
+    when(writerClient.getDatabase("test-db")).thenReturn(database);
+    when(database.getCollection("mv-collection")).thenReturn(collection);
+
+    assertTrue(mocks.manager.dropStaleMatViewCollection("lease-key", cutoff));
+    verify(collection).drop();
+  }
+
+  @Test
+  public void dropStaleMatViewCollection_notResolved_returnsFalse() {
+    Mocks mocks = Mocks.create();
+    when(mocks.leaseManager.resolveStaleMatViewNamespace(any(), any()))
+        .thenReturn(Optional.empty());
+
+    assertFalse(mocks.manager.dropStaleMatViewCollection("lease-key", Instant.now()));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void dropStaleMatViewCollection_dropThrows_returnsFalse() {
+    Mocks mocks = Mocks.create();
+    when(mocks.leaseManager.resolveStaleMatViewNamespace(any(), any()))
+        .thenReturn(Optional.of(new MongoNamespace("test-db", "mv-collection")));
+    MongoClient writerClient = mock(MongoClient.class);
+    MongoDatabase database = mock(MongoDatabase.class);
+    MongoCollection<Document> collection = mock(MongoCollection.class);
+    when(mocks.autoEmbeddingMongoClient.getMaterializedViewWriterMongoClient())
+        .thenReturn(Optional.of(writerClient));
+    when(writerClient.getDatabase("test-db")).thenReturn(database);
+    when(database.getCollection("mv-collection")).thenReturn(collection);
+    doThrow(new RuntimeException("drop failed")).when(collection).drop();
+
+    assertFalse(mocks.manager.dropStaleMatViewCollection("lease-key", Instant.now()));
+  }
+
+  @Test
+  public void dropStaleMatViewCollection_missingWriterClient_returnsFalse() {
+    Mocks mocks = Mocks.create();
+    when(mocks.leaseManager.resolveStaleMatViewNamespace(any(), any()))
+        .thenReturn(Optional.of(new MongoNamespace("test-db", "mv-collection")));
+    // Writer client absent: Check.isPresent throws AssertionError, swallowed as a false return.
+    when(mocks.autoEmbeddingMongoClient.getMaterializedViewWriterMongoClient())
+        .thenReturn(Optional.empty());
+
+    assertFalse(mocks.manager.dropStaleMatViewCollection("lease-key", Instant.now()));
+  }
+
   static class Mocks {
     final NamedExecutorService executorService;
     @Keep final IndexingWorkSchedulerFactory indexingWorkSchedulerFactory;
@@ -3256,6 +3321,7 @@ public class MaterializedViewManagerTest {
     final DecodingWorkScheduler decodingScheduler;
     final MeterRegistry meterRegistry;
     final LeaseManager leaseManager;
+    final AutoEmbeddingMongoClient autoEmbeddingMongoClient;
     final NamedScheduledExecutorService statusRefreshExecutor;
     final NamedScheduledExecutorService optimeUpdaterExecutor;
     final IndexStatus expectedStatus; // For follower mode tests
@@ -3308,11 +3374,14 @@ public class MaterializedViewManagerTest {
               .mongodClusterReadWriteUri(
                   ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://newString"))
               .build();
-      AutoEmbeddingMongoClient autoEmbeddingMongoClient =
-          new AutoEmbeddingMongoClient(
-              Optional.of(syncSourceConfig),
-              new SimpleMeterRegistry(),
-              AutoEmbeddingMaterializedViewConfig.getDefault());
+      AutoEmbeddingMongoClient autoEmbeddingMongoClient = mock(AutoEmbeddingMongoClient.class);
+      when(autoEmbeddingMongoClient.getSyncSourceConfig())
+          .thenReturn(Optional.of(syncSourceConfig));
+      when(autoEmbeddingMongoClient.getMaterializedViewResolverMongoClient())
+          .thenReturn(Optional.empty());
+      when(autoEmbeddingMongoClient.getMaterializedViewWriterMongoClient())
+          .thenReturn(Optional.empty());
+      this.autoEmbeddingMongoClient = autoEmbeddingMongoClient;
 
       this.managerSupplier =
           () ->

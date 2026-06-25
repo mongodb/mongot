@@ -9,6 +9,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.mongodb.MongoClientSettings;
+import com.mongodb.MongoNamespace;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
@@ -30,7 +32,10 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import org.bson.BsonArray;
+import org.bson.BsonDateTime;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.bson.Document;
@@ -38,6 +43,7 @@ import org.bson.conversions.Bson;
 import org.bson.types.ObjectId;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 
 /**
  * Unit tests for {@link StaticLeaderLeaseManager}.
@@ -450,6 +456,191 @@ public class StaticLeaderLeaseManagerTest {
   /** Returns the lease key (collection name) for the given generation from the catalog. */
   private String getLeaseKeyFromCatalog(MaterializedViewGenerationId generationId) {
     return this.mvMetadataCatalog.getMetadata(generationId).collectionName();
+  }
+
+  // ==================== resolveStaleMatViewNamespace / deleteStaleLease ====================
+
+  /** A lease already marked {@code ELIGIBLE_FOR_CLEANUP} whose heartbeat lapsed long ago. */
+  private Lease markedStaleLease(String collectionName) {
+    return markedLease(collectionName, Instant.now().minusSeconds(7200));
+  }
+
+  private Lease markedLease(String collectionName, Instant leaseExpiration) {
+    return new Lease(
+        collectionName,
+        Lease.SCHEMA_VERSION,
+        UUID.randomUUID().toString(),
+        "source-collection",
+        HOSTNAME,
+        leaseExpiration,
+        1L,
+        "",
+        "0",
+        Map.of("0", new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.UNKNOWN)),
+        new MaterializedViewCollectionMetadata(VERSION_ZERO, UUID.randomUUID(), collectionName),
+        null,
+        Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+  }
+
+  /** Seeds the lease→database mapping (as the GC scan would) for the given lease. */
+  private void registerViaGcScan(StaticLeaderLeaseManager leaseManager, Lease lease) {
+    ArrayList<BsonDocument> leaseList = new ArrayList<>();
+    leaseList.add(lease.toBson());
+    when(this.mockFindIterable.into(any())).thenReturn(leaseList);
+    leaseManager.findGcCandidates(Instant.now());
+  }
+
+  @Test
+  public void resolveStaleMatViewNamespace_stillEligible_returnsNamespace() {
+    StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
+    String collectionName = "cleanup-collection";
+    Lease lease = markedStaleLease(collectionName);
+    registerViaGcScan(leaseManager, lease);
+    // The re-read returns the still-eligible lease.
+    when(this.mockFindIterable.first()).thenReturn(lease.toBson());
+
+    Optional<MongoNamespace> namespace =
+        leaseManager.resolveStaleMatViewNamespace(collectionName, Instant.now());
+
+    assertThat(namespace).isPresent();
+    assertThat(namespace.get().getDatabaseName()).isEqualTo(DATABASE_NAME);
+    assertThat(namespace.get().getCollectionName()).isEqualTo(collectionName);
+  }
+
+  @Test
+  public void resolveStaleMatViewNamespace_noLongerEligible_returnsEmpty() {
+    StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
+    String collectionName = "fresh-collection";
+    registerViaGcScan(leaseManager, markedStaleLease(collectionName));
+    // The re-read sees an unmarked lease: it must be vetoed.
+    Lease unmarked =
+        createLeaseWithMetadata(
+            collectionName,
+            new MaterializedViewCollectionMetadata(
+                VERSION_ZERO, UUID.randomUUID(), collectionName));
+    when(this.mockFindIterable.first()).thenReturn(unmarked.toBson());
+
+    assertThat(leaseManager.resolveStaleMatViewNamespace(collectionName, Instant.now())).isEmpty();
+  }
+
+  @Test
+  public void resolveStaleMatViewNamespace_renewedPastCutoff_returnsEmpty() {
+    StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
+    Instant now = Instant.now();
+    String collectionName = "renewed-collection";
+    registerViaGcScan(leaseManager, markedStaleLease(collectionName));
+    // By resolve time the lease was renewed past the cutoff: still marked, but no longer stale.
+    Lease renewed = markedLease(collectionName, now.plusSeconds(60));
+    when(this.mockFindIterable.first()).thenReturn(renewed.toBson());
+
+    assertThat(leaseManager.resolveStaleMatViewNamespace(collectionName, now)).isEmpty();
+  }
+
+  @Test
+  public void deleteStaleLease_deleted_returnsTrueAndForgetsLease() {
+    StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
+    String collectionName = "deleted-collection";
+    Lease lease = markedStaleLease(collectionName);
+    registerViaGcScan(leaseManager, lease);
+    leaseManager.getLeases().put(collectionName, lease);
+    DeleteResult deleteResult = mock(DeleteResult.class);
+    when(deleteResult.getDeletedCount()).thenReturn(1L);
+    when(this.mockCollection.deleteOne(any(Bson.class))).thenReturn(deleteResult);
+
+    assertThat(leaseManager.deleteStaleLease(collectionName, Instant.now())).isTrue();
+    assertThat(leaseManager.getLeases()).doesNotContainKey(collectionName);
+    assertThat(leaseManager.getLeaseKeyToDatabase()).doesNotContainKey(collectionName);
+  }
+
+  @Test
+  public void deleteStaleLease_occFilterMiss_returnsFalseAndKeepsMapping() {
+    StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
+    String collectionName = "kept-collection";
+    registerViaGcScan(leaseManager, markedStaleLease(collectionName));
+    DeleteResult deleteResult = mock(DeleteResult.class);
+    when(deleteResult.getDeletedCount()).thenReturn(0L);
+    when(this.mockCollection.deleteOne(any(Bson.class))).thenReturn(deleteResult);
+
+    assertThat(leaseManager.deleteStaleLease(collectionName, Instant.now())).isFalse();
+    assertThat(leaseManager.getLeaseKeyToDatabase()).containsKey(collectionName);
+  }
+
+  @Test
+  public void resolveStaleMatViewNamespace_leaseAlreadyDeleted_returnsEmpty() {
+    StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
+    String collectionName = "already-gone-collection";
+    registerViaGcScan(leaseManager, markedStaleLease(collectionName));
+    when(this.mockFindIterable.first()).thenReturn(null);
+
+    assertThat(leaseManager.resolveStaleMatViewNamespace(collectionName, Instant.now())).isEmpty();
+  }
+
+  @Test
+  public void resolveStaleMatViewNamespace_unknownLease_returnsEmpty() {
+    StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
+    assertThat(leaseManager.resolveStaleMatViewNamespace("never-seen", Instant.now())).isEmpty();
+  }
+
+  @Test
+  public void resolveStaleMatViewNamespace_reReadThrows_returnsEmpty() {
+    StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
+    String collectionName = "reread-error-collection";
+    registerViaGcScan(leaseManager, markedStaleLease(collectionName));
+    when(this.mockFindIterable.first()).thenThrow(new RuntimeException("read failed"));
+
+    assertThat(leaseManager.resolveStaleMatViewNamespace(collectionName, Instant.now())).isEmpty();
+  }
+
+  @Test
+  public void deleteStaleLease_unknownLease_returnsFalseWithoutDbWrite() {
+    StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
+    assertThat(leaseManager.deleteStaleLease("never-seen-lease", Instant.now())).isFalse();
+    verify(this.mockCollection, never()).deleteOne(any(Bson.class));
+  }
+
+  @Test
+  public void deleteStaleLease_deleteFailure_returnsFalse() {
+    StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
+    String collectionName = "error-delete-collection";
+    registerViaGcScan(leaseManager, markedStaleLease(collectionName));
+    when(this.mockCollection.deleteOne(any(Bson.class)))
+        .thenThrow(new RuntimeException("delete failed"));
+
+    assertThat(leaseManager.deleteStaleLease(collectionName, Instant.now())).isFalse();
+  }
+
+  @Test
+  public void deleteStaleLease_filtersOnMarkedStateAndExpiration() {
+    StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
+    String collectionName = "filtered-collection";
+    registerViaGcScan(leaseManager, markedStaleLease(collectionName));
+    Instant cutoff = Instant.parse("2026-01-01T00:00:00Z");
+    DeleteResult deleteResult = mock(DeleteResult.class);
+    when(deleteResult.getDeletedCount()).thenReturn(0L);
+    when(this.mockCollection.deleteOne(any(Bson.class))).thenReturn(deleteResult);
+
+    leaseManager.deleteStaleLease(collectionName, cutoff);
+
+    ArgumentCaptor<Bson> filterCaptor = ArgumentCaptor.forClass(Bson.class);
+    verify(this.mockCollection).deleteOne(filterCaptor.capture());
+    BsonDocument filter =
+        filterCaptor
+            .getValue()
+            .toBsonDocument(BsonDocument.class, MongoClientSettings.getDefaultCodecRegistry());
+    BsonArray clauses = filter.getArray("$and");
+    assertThat(clauses.contains(new BsonDocument("_id", new BsonString(collectionName)))).isTrue();
+    assertThat(
+            clauses.contains(
+                new BsonDocument(
+                    "cleanupState",
+                    new BsonString(Lease.CleanupState.ELIGIBLE_FOR_CLEANUP.name()))))
+        .isTrue();
+    assertThat(
+            clauses.contains(
+                new BsonDocument(
+                    "leaseExpiration",
+                    new BsonDocument("$lt", new BsonDateTime(cutoff.toEpochMilli())))))
+        .isTrue();
   }
 
   private Lease createLeaseWithMetadata(

@@ -1,5 +1,6 @@
 package com.xgen.mongot.embedding.mongodb.leasing;
 
+import com.mongodb.MongoNamespace;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewNonTransientException;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
@@ -168,6 +169,40 @@ public interface LeaseManager {
    * @return true if this call flipped the lease to {@code ELIGIBLE_FOR_CLEANUP}
    */
   boolean markEligibleForCleanup(String leaseKey, Instant expirationCutoff);
+
+  /**
+   * Resolves the materialized view collection to drop when cleaning up {@code leaseKey}'s stale
+   * lease, re-reading the lease so a namespace is returned only while it is still {@link
+   * Lease.CleanupState#ELIGIBLE_FOR_CLEANUP} and expired before {@code expirationCutoff}. A lease
+   * reused in the meantime yields {@link Optional#empty()}.
+   *
+   * <p>The caller drops the returned collection and then removes the lease via {@link
+   * #deleteStaleLease} — dropping the materialized view collection is the materialized-view
+   * manager's responsibility, not the lease manager's. Best effort, never throws.
+   *
+   * @param leaseKey the lease document {@code _id}
+   * @param expirationCutoff the delete-grace cutoff; the lease must have expired before this
+   * @return the namespace of the materialized view collection to drop, or {@link Optional#empty()}
+   *     if the lease is no longer eligible, already gone, its database is unknown, or the re-read
+   *     failed
+   */
+  Optional<MongoNamespace> resolveStaleMatViewNamespace(String leaseKey, Instant expirationCutoff);
+
+  /**
+   * Removes the lease document {@code leaseKey} — the final step of cleaning up a stale lease, run
+   * only after its materialized view collection has been dropped (see {@link
+   * #resolveStaleMatViewNamespace}).
+   *
+   * <p>Deletes only while the lease is still {@link Lease.CleanupState#ELIGIBLE_FOR_CLEANUP} and
+   * expired before {@code expirationCutoff}, so a lease reused after its collection was dropped is
+   * left in place. Best effort, never throws.
+   *
+   * @param leaseKey the lease document {@code _id}
+   * @param expirationCutoff the delete-grace cutoff; the lease must have expired before this
+   * @return {@code true} if this call removed the lease; {@code false} if its database is unknown,
+   *     it was already gone, is no longer eligible, or the delete did not complete
+   */
+  boolean deleteStaleLease(String leaseKey, Instant expirationCutoff);
 
   /**
    * Returns all generation IDs where this instance is the leader.

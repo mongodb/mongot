@@ -13,6 +13,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.mongodb.MongoClientSettings;
+import com.mongodb.MongoNamespace;
 import com.mongodb.MongoWriteException;
 import com.mongodb.ServerAddress;
 import com.mongodb.WriteError;
@@ -48,6 +49,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import org.bson.BsonArray;
+import org.bson.BsonDateTime;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.bson.BsonTimestamp;
@@ -1665,6 +1668,230 @@ public class DynamicLeaderLeaseManagerTest {
         .thenThrow(new RuntimeException("update failed"));
 
     assertThat(this.leaseManager.markEligibleForCleanup(collectionName, Instant.now())).isFalse();
+  }
+
+  // ==================== resolveStaleMatViewNamespace / deleteStaleLease ====================
+
+  /** A lease already marked {@code ELIGIBLE_FOR_CLEANUP} with the given heartbeat expiration. */
+  private static Lease markedLease(String collectionName, Instant leaseExpiration) {
+    return new Lease(
+        collectionName,
+        Lease.SCHEMA_VERSION,
+        UUID.randomUUID().toString(),
+        collectionName,
+        "some-other-mongot",
+        leaseExpiration,
+        1L,
+        "",
+        "0",
+        Map.of(),
+        new MaterializedViewCollectionMetadata(
+            new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(0, Map.of()),
+            UUID.randomUUID(),
+            collectionName),
+        null,
+        Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+  }
+
+  private static Lease unmarkedLease(String collectionName, Instant leaseExpiration) {
+    return new Lease(
+        collectionName,
+        Lease.SCHEMA_VERSION,
+        UUID.randomUUID().toString(),
+        collectionName,
+        "some-other-mongot",
+        leaseExpiration,
+        1L,
+        "",
+        "0",
+        Map.of(),
+        new MaterializedViewCollectionMetadata(
+            new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(0, Map.of()),
+            UUID.randomUUID(),
+            collectionName),
+        null,
+        Lease.CleanupState.NOT_ELIGIBLE);
+  }
+
+  /** Seeds the lease→database mapping (as the GC scan would) for the given lease. */
+  private void registerViaGcScan(Lease lease) {
+    ArrayList<BsonDocument> leaseList = new ArrayList<>();
+    leaseList.add(lease.toBson());
+    when(this.mockFindIterable.into(any())).thenReturn(leaseList);
+    this.leaseManager.findGcCandidates(Instant.now());
+  }
+
+  @Test
+  public void resolveStaleMatViewNamespace_stillEligible_returnsNamespace() {
+    String collectionName = "cleanup-collection";
+    Lease lease = markedLease(collectionName, Instant.now().minusSeconds(7200));
+    registerViaGcScan(lease);
+    // The re-read returns the still-eligible lease.
+    when(this.mockFindIterable.first()).thenReturn(lease.toBson());
+
+    Optional<MongoNamespace> namespace =
+        this.leaseManager.resolveStaleMatViewNamespace(collectionName, Instant.now());
+
+    assertThat(namespace).isPresent();
+    assertThat(namespace.get().getDatabaseName()).isEqualTo(DATABASE_NAME);
+    assertThat(namespace.get().getCollectionName()).isEqualTo(collectionName);
+  }
+
+  @Test
+  public void resolveStaleMatViewNamespace_invalidMvCollectionName_returnsEmpty() {
+    String leaseKey = "bad-ns-lease";
+    // Eligible and stale, but its MV metadata carries an empty collection name, so the
+    // MongoNamespace construction throws. The method must swallow it and return empty rather than
+    // propagate — the best-effort / never-throw contract.
+    Lease lease =
+        new Lease(
+            leaseKey,
+            Lease.SCHEMA_VERSION,
+            UUID.randomUUID().toString(),
+            leaseKey,
+            "some-other-mongot",
+            Instant.now().minusSeconds(7200),
+            1L,
+            "",
+            "0",
+            Map.of(),
+            new MaterializedViewCollectionMetadata(
+                new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(0, Map.of()),
+                UUID.randomUUID(),
+                ""),
+            null,
+            Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+    registerViaGcScan(lease);
+    when(this.mockFindIterable.first()).thenReturn(lease.toBson());
+
+    assertThat(this.leaseManager.resolveStaleMatViewNamespace(leaseKey, Instant.now())).isEmpty();
+  }
+
+  @Test
+  public void resolveStaleMatViewNamespace_resurrectedLease_returnsEmpty() {
+    Instant now = Instant.now();
+    String collectionName = "resurrected-collection";
+    registerViaGcScan(markedLease(collectionName, now.minusSeconds(7200)));
+    // By resolve time the lease was renewed past the cutoff: the re-read must veto it.
+    Lease renewed = markedLease(collectionName, now.plusSeconds(60));
+    when(this.mockFindIterable.first()).thenReturn(renewed.toBson());
+
+    assertThat(this.leaseManager.resolveStaleMatViewNamespace(collectionName, now)).isEmpty();
+  }
+
+  @Test
+  public void resolveStaleMatViewNamespace_unmarkedLease_returnsEmpty() {
+    String collectionName = "unmarked-collection";
+    registerViaGcScan(markedLease(collectionName, Instant.now().minusSeconds(7200)));
+    // By resolve time the cleanup mark was reverted (e.g. the lease was reused, CLOUDP-412595):
+    // the re-read must veto it even though it is still expired.
+    Lease unmarked = unmarkedLease(collectionName, Instant.now().minusSeconds(7200));
+    when(this.mockFindIterable.first()).thenReturn(unmarked.toBson());
+
+    assertThat(this.leaseManager.resolveStaleMatViewNamespace(collectionName, Instant.now()))
+        .isEmpty();
+  }
+
+  @Test
+  public void resolveStaleMatViewNamespace_leaseAlreadyDeleted_returnsEmpty() {
+    String collectionName = "already-gone-collection";
+    registerViaGcScan(markedLease(collectionName, Instant.now().minusSeconds(7200)));
+    when(this.mockFindIterable.first()).thenReturn(null);
+
+    assertThat(this.leaseManager.resolveStaleMatViewNamespace(collectionName, Instant.now()))
+        .isEmpty();
+  }
+
+  @Test
+  public void resolveStaleMatViewNamespace_unknownLease_returnsEmpty() {
+    assertThat(this.leaseManager.resolveStaleMatViewNamespace("never-seen", Instant.now()))
+        .isEmpty();
+  }
+
+  @Test
+  public void deleteStaleLease_deleted_returnsTrueAndForgetsLease() {
+    String collectionName = "deleted-collection";
+    Lease lease = markedLease(collectionName, Instant.now().minusSeconds(7200));
+    registerViaGcScan(lease);
+    this.leaseManager.putLease(collectionName, lease);
+    DeleteResult deleteResult = mock(DeleteResult.class);
+    when(deleteResult.getDeletedCount()).thenReturn(1L);
+    when(this.mockCollection.deleteOne(any(Bson.class))).thenReturn(deleteResult);
+
+    assertThat(this.leaseManager.deleteStaleLease(collectionName, Instant.now())).isTrue();
+    assertThat(this.leaseManager.getLeases()).doesNotContainKey(collectionName);
+    assertThat(this.leaseManager.getLeaseKeyToDatabase()).doesNotContainKey(collectionName);
+  }
+
+  @Test
+  public void deleteStaleLease_occFilterMiss_returnsFalseAndKeepsMapping() {
+    String collectionName = "kept-collection";
+    registerViaGcScan(markedLease(collectionName, Instant.now().minusSeconds(7200)));
+    DeleteResult deleteResult = mock(DeleteResult.class);
+    when(deleteResult.getDeletedCount()).thenReturn(0L);
+    when(this.mockCollection.deleteOne(any(Bson.class))).thenReturn(deleteResult);
+
+    assertThat(this.leaseManager.deleteStaleLease(collectionName, Instant.now())).isFalse();
+    assertThat(this.leaseManager.getLeaseKeyToDatabase()).containsKey(collectionName);
+  }
+
+  @Test
+  public void deleteStaleLease_filtersOnMarkedStateAndExpiration() {
+    String collectionName = "filtered-collection";
+    registerViaGcScan(markedLease(collectionName, Instant.now().minusSeconds(7200)));
+    Instant cutoff = Instant.parse("2026-01-01T00:00:00Z");
+    DeleteResult deleteResult = mock(DeleteResult.class);
+    when(deleteResult.getDeletedCount()).thenReturn(0L);
+    when(this.mockCollection.deleteOne(any(Bson.class))).thenReturn(deleteResult);
+
+    this.leaseManager.deleteStaleLease(collectionName, cutoff);
+
+    ArgumentCaptor<Bson> filterCaptor = ArgumentCaptor.forClass(Bson.class);
+    verify(this.mockCollection).deleteOne(filterCaptor.capture());
+    BsonDocument filter =
+        filterCaptor
+            .getValue()
+            .toBsonDocument(BsonDocument.class, MongoClientSettings.getDefaultCodecRegistry());
+    BsonArray clauses = filter.getArray("$and");
+    assertThat(clauses.contains(new BsonDocument("_id", new BsonString(collectionName)))).isTrue();
+    assertThat(
+            clauses.contains(
+                new BsonDocument(
+                    "cleanupState",
+                    new BsonString(Lease.CleanupState.ELIGIBLE_FOR_CLEANUP.name()))))
+        .isTrue();
+    assertThat(
+            clauses.contains(
+                new BsonDocument(
+                    "leaseExpiration",
+                    new BsonDocument("$lt", new BsonDateTime(cutoff.toEpochMilli())))))
+        .isTrue();
+  }
+
+  @Test
+  public void deleteStaleLease_unknownLease_returnsFalseWithoutDbWrite() {
+    assertThat(this.leaseManager.deleteStaleLease("never-seen-lease", Instant.now())).isFalse();
+    verify(this.mockCollection, never()).deleteOne(any(Bson.class));
+  }
+
+  @Test
+  public void deleteStaleLease_deleteFailure_returnsFalse() {
+    String collectionName = "error-delete-collection";
+    registerViaGcScan(markedLease(collectionName, Instant.now().minusSeconds(7200)));
+    when(this.mockCollection.deleteOne(any(Bson.class)))
+        .thenThrow(new RuntimeException("delete failed"));
+
+    assertThat(this.leaseManager.deleteStaleLease(collectionName, Instant.now())).isFalse();
+  }
+
+  @Test
+  public void resolveStaleMatViewNamespace_reReadThrows_returnsEmpty() {
+    String collectionName = "reread-error-collection";
+    registerViaGcScan(markedLease(collectionName, Instant.now().minusSeconds(7200)));
+    when(this.mockFindIterable.first()).thenThrow(new RuntimeException("read failed"));
+
+    assertThat(this.leaseManager.resolveStaleMatViewNamespace(collectionName, Instant.now()))
+        .isEmpty();
   }
 
   // ==================== Helper Methods ====================

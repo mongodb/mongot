@@ -9,6 +9,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
 import com.google.errorprone.annotations.Var;
 import com.mongodb.ErrorCategory;
+import com.mongodb.MongoNamespace;
 import com.mongodb.MongoWriteException;
 import com.mongodb.ReadConcern;
 import com.mongodb.ReadPreference;
@@ -757,6 +758,121 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
           .addKeyValue("leaseKey", leaseKey)
           .setCause(e)
           .log("Failed to mark lease eligible for cleanup");
+      return false;
+    }
+  }
+
+  @Override
+  public Optional<MongoNamespace> resolveStaleMatViewNamespace(
+      String leaseKey, Instant expirationCutoff) {
+    String dbName;
+    try {
+      dbName = getDatabaseForLease(leaseKey);
+    } catch (IllegalStateException e) {
+      LOG.atWarn()
+          .addKeyValue("leaseKey", leaseKey)
+          .setCause(e)
+          .log("No database mapping for lease during stale mat view resolve, skipping");
+      return Optional.empty();
+    }
+    try {
+      // The eligibility re-read AND the namespace construction both run inside this try: a missing
+      // materializedViewCollectionMetadata or an invalid collection name must still yield empty,
+      // not throw out of this best-effort method.
+      Optional<Lease> lease = readLeaseIfStillEligible(dbName, leaseKey, expirationCutoff);
+      if (lease.isEmpty()) {
+        return Optional.empty();
+      }
+      return Optional.of(
+          new MongoNamespace(
+              dbName, lease.get().materializedViewCollectionMetadata().collectionName()));
+    } catch (Exception e) {
+      // Re-read or namespace resolution failed; the next sweep re-evaluates.
+      LOG.atWarn()
+          .addKeyValue("leaseKey", leaseKey)
+          .setCause(e)
+          .log("Failed to resolve stale mat view namespace, skipping");
+      return Optional.empty();
+    }
+  }
+
+  /**
+   * Re-reads {@code leaseKey} and returns it only if it is still {@code ELIGIBLE_FOR_CLEANUP} and
+   * expired past {@code expirationCutoff}. A collection drop cannot be made conditional
+   * server-side, so this fresh read just before cleanup narrows the race with a lease resurrected
+   * after the sweep's snapshot.
+   */
+  private Optional<Lease> readLeaseIfStillEligible(
+      String dbName, String leaseKey, Instant expirationCutoff) throws Exception {
+    BsonDocument rawLease =
+        this.operationExecutor.execute(
+            "readStaleLease",
+            () -> this.getCollection(dbName).find(Filters.eq("_id", leaseKey)).first());
+    if (rawLease == null) {
+      LOG.atInfo()
+          .addKeyValue("leaseKey", leaseKey)
+          .log("Stale lease already deleted, skipping mat view drop");
+      return Optional.empty();
+    }
+    Lease lease = parseLeaseOrThrow(rawLease);
+    if (lease.cleanupState() != Lease.CleanupState.ELIGIBLE_FOR_CLEANUP
+        || !lease.leaseExpiration().isBefore(expirationCutoff)) {
+      LOG.atInfo()
+          .addKeyValue("leaseKey", leaseKey)
+          .addKeyValue("cleanupState", lease.cleanupState())
+          .addKeyValue("leaseExpiration", lease.leaseExpiration())
+          .log("Lease no longer eligible for cleanup at drop time, skipping");
+      return Optional.empty();
+    }
+    return Optional.of(lease);
+  }
+
+  @Override
+  public boolean deleteStaleLease(String leaseKey, Instant expirationCutoff) {
+    String dbName;
+    try {
+      dbName = getDatabaseForLease(leaseKey);
+    } catch (IllegalStateException e) {
+      LOG.atWarn()
+          .addKeyValue("leaseKey", leaseKey)
+          .setCause(e)
+          .log("No database mapping for lease during stale lease delete, skipping");
+      return false;
+    }
+    // OCC delete: only commits while the lease is still marked and still stale, so a lease reused
+    // after the collection drop cannot be deleted. A reused lease is reverted to NOT_ELIGIBLE on
+    // the re-acquire path (CLOUDP-412595) and its leaseExpiration is bumped, so either predicate
+    // vetoes the delete; renewLease never revives a marked lease (it drops to follower on expiry).
+    var filter =
+        Filters.and(
+            Filters.eq("_id", leaseKey),
+            Filters.eq(
+                Lease.Fields.CLEANUP_STATE.getName(),
+                Lease.CleanupState.ELIGIBLE_FOR_CLEANUP.name()),
+            Filters.lt(
+                Lease.Fields.LEASE_EXPIRATION.getName(),
+                new BsonDateTime(expirationCutoff.toEpochMilli())));
+    try {
+      var result =
+          this.operationExecutor.execute(
+              "deleteStaleLease", () -> this.getCollection(dbName).deleteOne(filter));
+      if (result.getDeletedCount() > 0) {
+        // A GC-eligible lease is orphaned (no local generation), so only the leaseKey-keyed state
+        // needs clearing. The generation-keyed maps (leader/followerGenerationIds,
+        // matViewGenerationIdToDefinitionVersion) track locally configured generations and are
+        // cleared by drop(); a still-configured generation either renews its lease (never stale)
+        // or is stopped by the cleaner's local-generation guard, so none leak here.
+        this.leases.remove(leaseKey);
+        this.leaseKeyToDatabase.remove(leaseKey);
+        return true;
+      }
+      return false;
+    } catch (Exception e) {
+      // Best effort: the next sweep re-evaluates this lease.
+      LOG.atWarn()
+          .addKeyValue("leaseKey", leaseKey)
+          .setCause(e)
+          .log("Failed to delete stale lease");
       return false;
     }
   }
