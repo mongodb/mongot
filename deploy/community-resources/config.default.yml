@@ -1,27 +1,353 @@
-# This is a sample configuration file. Please modify to match your mongod configuration and
-# environment.
+---
+# =====================================================================
+# mongot Configuration File
+# =====================================================================
+#
+# This file is designed to work out of the box for a localhost
+# deployment where mongod and mongot run on the same machine.
+# Uncommented (active) settings below are the minimum required to
+# start mongot. All other options are commented out with
+# descriptions so you can enable them as needed.
+#
+# Platform support:
+#   mongot runs on Linux only (same architectures as mongod).
+#   macOS and Windows users must run mongot via Docker.
+#
+# Quick Start (localhost):
+#   1. Start mongod as a replica set with keyfile access control
+#   2. Configure mongod to communicate with mongot by adding these
+#      setParameter options to your mongod config (then restart
+#      mongod):
+#        setParameter:
+#          searchIndexManagementHostAndPort: localhost:27028
+#          mongotHost: localhost:27028
+#          skipAuthenticationToSearchIndexManagementServer: false
+#          useGrpcForSearch: true
+#   3. Create a mongot user with the "searchCoordinator" role
+#   4. Create a password file and update the path below
+#   5. Start mongot:
+#        ./mongot --config config.default.yml
+#   6. Verify health:
+#        curl localhost:8080/health
+#      Expected response: {"status":"SERVING"}
+#
+# !! DEFAULT SECURITY POSTURE !!
+# This configuration ships with TLS DISABLED. All traffic between
+# mongot and mongod is UNENCRYPTED and vulnerable to interception.
+# This default is NOT SECURE unless mongot and mongod are running
+# on the same host (localhost). If you are deploying across a
+# network or in production, you MUST enable TLS before starting
+# mongot. See the sections marked !! SECURITY WARNING !! below.
+#
+# To harden for production or networked deployments, review every
+# section marked !! SECURITY WARNING !! and enable TLS and
+# authentication as described.
+#
+# Full reference:
+#   https://www.mongodb.com/docs/upcoming/self-managed/search/configuration/reference/
+#
+# =====================================================================
+
+
+# =====================================================================
+# syncSource: How mongot connects to your MongoDB deployment
+# =====================================================================
+#
+# !! SECURITY WARNING !!
+# By default, TLS is DISABLED. Traffic between mongot and mongod is
+# UNENCRYPTED. This is acceptable ONLY when both processes run on
+# the same host (localhost). If mongot connects to mongod across a
+# network, you MUST enable TLS and authentication to prevent
+# eavesdropping and unauthorized access.
+# =====================================================================
 syncSource:
+
+  # -------------------------------------------------------------------
+  # replicaSet: Connection to a mongod replica set (Required)
+  #
+  # You must configure this section for mongot to sync data from
+  # mongod for search indexing.
+  # -------------------------------------------------------------------
   replicaSet:
-    hostAndPort: "localhost:27017" # Replace with the mongod host and port.
-    username: mongotUser # Replace with mongod username enabled with "searchCoordinator" role.
-    passwordFile: "/etc/mongot/secrets/passwordFile" # Replace with path to password file for the above user.
-    tls: false
+
+    # Host and port of your mongod instance(s).
+    # For multi-member replica sets, provide an array:
+    #   hostAndPort:
+    #     - "host1:27017"
+    #     - "host2:27017"
+    #     - "host3:27017"
+    hostAndPort: "localhost:27017"
+
+    # --- Authentication (Required) ---
+    # Exactly one of scramAuth (password) or x509 (certificate)
+    # must be configured. The user must have the
+    # "searchCoordinator" role on the admin database.
+    #
+    # To create this user in mongosh:
+    #   use admin
+    #   db.createUser({
+    #     user: "mongotUser",
+    #     pwd: "securePassword",
+    #     roles: [{ role: "searchCoordinator", db: "admin" }]
+    #   })
+    #
+    # !! SECURITY WARNING !!
+    # Authentication is required so mongod can authorize mongot
+    # through the searchCoordinator role. Change the username and
+    # password immediately for any deployment beyond local
+    # evaluation.
+    #
+    # --- X.509 Authentication (alternative to scramAuth) ---
+    # Use X.509 certificates instead of username/password.
+    # caFile and tlsCertificateKeyFile are both required for x509.
+    #
+    # x509:
+    #   tlsCertificateKeyFile: "/path/to/mongot-client-cert.pem"
+    #   caFile: "/path/to/ca.pem"
+    #   # Optional: decrypt the certificate key file
+    #   # tlsCertificateKeyFilePasswordFile: "/path/to/key-password"
+    scramAuth:
+      username: mongotUser
+      authSource: admin
+
+      # Path to the password file for the above user.
+      # IMPORTANT: The file must NOT contain trailing newlines.
+      # File permissions should be set to 400 (read-only by owner).
+      #
+      # To create the password file:
+      #   echo -n "yourPassword" > /etc/mongot/secrets/passwordFile
+      #   chmod 400 /etc/mongot/secrets/passwordFile
+      passwordFile: /etc/mongot/secrets/passwordFile
+
+      # TLS for the mongot-to-mongod connection.
+      # !! SECURITY WARNING !!
+      # When enabled is false, traffic between mongot and mongod is
+      # UNENCRYPTED. Not secure unless both processes run on the
+      # same host. Set to true for networked or production
+      # deployments. Requires mongod to also have TLS configured.
+      tls:
+        enabled: false
+        # Optional: client certificate for mTLS on top of SCRAM.
+        # tlsCertificateKeyFile: "/path/to/mongot-client-cert.pem"
+        # Optional: decrypt the certificate key file.
+        # tlsCertificateKeyFilePasswordFile: "/path/to/key-password"
+        # Optional: CA for server certificate verification.
+        # If omitted, the JVM default trust store is used.
+        # caFile: "/path/to/ca.pem"
+
+# --- Optional syncSource entries (place these under syncSource:) ---
+
+# -------------------------------------------------------------------
+# syncSource.replicationReader: Read preference for data sync
+#
+# Controls which replica set member mongot reads from during
+# replication (initial sync and change stream).
+#
+# Valid values: primary, primaryPreferred, secondary,
+#               secondaryPreferred, nearest
+# Default: secondaryPreferred
+#
+# To target members with specific labels, add tagSets:
+#   replicationReader:
+#     readPreference: secondaryPreferred
+#     tagSets:
+#       - - name: "region"
+#           value: "us-east"
+# -------------------------------------------------------------------
+#   replicationReader:
+#     readPreference: secondaryPreferred
+
+# -------------------------------------------------------------------
+# syncSource.router: mongos connection for sharded clusters
+#
+# Required if mongot is running in a sharded environment, in
+# addition to replicaSet (which is always required).
+#
+# In a sharded cluster, each shard is its own replica set and
+# requires a dedicated mongot instance. The replicaSet block maps
+# this mongot to its specific shard; the router block provides the
+# mongos connection used for cluster-wide coordination.
+# -------------------------------------------------------------------
+#   router:
+#     hostAndPort: "localhost:27017"
+#     scramAuth:
+#       username: mongotUser
+#       authSource: admin
+#       passwordFile: /etc/mongot/secrets/passwordFile
+#       tls:
+#         enabled: false
+#     # X.509 authentication (alternative to scramAuth):
+#     # x509:
+#     #   tlsCertificateKeyFile: "/path/to/mongot-client-cert.pem"
+#     #   tlsCertificateKeyFilePasswordFile: "/path/to/key-password"
+#     #   caFile: "/path/to/ca.pem"
+
+
+# =====================================================================
+# storage: Where mongot stores search index data
+# =====================================================================
 storage:
-  dataPath: "/var/lib/mongot"  # Replace with the path where you want mongot to store search data.
+
+  # Directory for search index data and the local index catalog.
+  # Ensure the mongot process has read/write permissions to this
+  # path.
+  dataPath: "/var/lib/mongot"
+
+
+# =====================================================================
+# server: Network interfaces for incoming connections
+# =====================================================================
+#
+# !! SECURITY WARNING !!
+# The gRPC interface below is used for mongod-to-mongot
+# communication. By default, TLS is DISABLED on this interface.
+# If mongot is exposed on a network interface beyond localhost
+# (e.g., binding to 0.0.0.0), you MUST enable mTLS to
+# prevent unauthorized access and eavesdropping.
+# =====================================================================
 server:
+
+  # --- gRPC Listen Server (Required for mongod communication) ---
   grpc:
-    address: "localhost:27028" # Replace with the address and port for mongot listen server
+
+    # Address and port for the gRPC server.
+    # IMPORTANT: This must match the mongotHost and
+    # searchIndexManagementHostAndPort values in your mongod
+    # config.
+    #
+    # !! SECURITY WARNING !!
+    # Binding to 0.0.0.0 exposes this server to ALL network
+    # interfaces. Only do this if you have network-layer controls
+    # (firewalls, security groups) in place. Prefer localhost or
+    # a specific trusted interface.
+    address: "localhost:27028"
+
+    # --- gRPC TLS ---
+    # !! SECURITY WARNING !!
+    # When mode is "disabled", gRPC traffic between mongod and
+    # mongot is UNENCRYPTED. Not secure unless both processes run
+    # on the same host. Set to "TLS" or "mTLS" for any networked
+    # or production deployment.
+    #
+    # mode must be one of: "disabled", "tls", "mtls"
+    #   - "tls":  Server-side TLS; requires certificateKeyFile
+    #   - "mtls": Mutual TLS; requires certificateKeyFile and
+    #             caFile
     tls:
       mode: "disabled"
+      # certificateKeyFile: "/path/to/mongot-server.pem"  # TLS/mTLS
+      # certificateKeyFilePasswordFile: "/path/to/key-pw" # optional
+      # caFile: "/path/to/ca.pem"                         # mTLS only
+
+
+# Optional name to identify this mongot instance across
+# programmatic interfaces such as $listSearchIndexes.
+# If omitted, MongoDB generates a name automatically.
+# name: "mongot-1"
+
+
+# =====================================================================
+# embedding: Automatic embedding generation for vector search
+#            (Optional)
+#
+# Configure this section ONLY if you are using automatic embedding
+# generation with Voyage AI models for MongoDB Vector Search.
+# Requires valid API keys from Atlas UI or directly from Voyage AI.
+#
+# To set up API key files (Linux):
+#   sudo mkdir -p /etc/mongot/secrets
+#   sudo chmod 700 /etc/mongot/secrets
+#   echo -n "<your-query-api-key>" \
+#     | sudo tee /etc/mongot/secrets/voyage-api-query-key > /dev/null
+#   echo -n "<your-index-api-key>" \
+#     | sudo tee /etc/mongot/secrets/voyage-api-indexing-key \
+#     > /dev/null
+#   sudo chmod 400 /etc/mongot/secrets/voyage-api-*
+#
+# We recommend using separate API keys from different Atlas
+# projects for query-time and index-time embedding generation.
+# =====================================================================
+# embedding:
+#   # Path to the Voyage AI API key file used at query time.
+#   queryKeyFile: "/etc/mongot/secrets/voyage-api-query-key"
+#
+#   # Path to the Voyage AI API key file used during indexing.
+#   indexingKeyFile: "/etc/mongot/secrets/voyage-api-indexing-key"
+#
+#   # Embedding provider endpoint URL.
+#   #   - Atlas UI keys:  https://ai.mongodb.com/v1/embeddings
+#   #                     (default)
+#   #   - Voyage AI keys: https://api.voyageai.com/v1/embeddings
+#   # providerEndpoint: "https://ai.mongodb.com/v1/embeddings"
+#
+#   # Designate this instance as the leader responsible for
+#   # writing the automated embeddings View. In replica set or
+#   # sharded deployments with multiple mongot instances, set to
+#   # true on exactly ONE instance to prevent conflicts.
+#   isAutoEmbeddingViewWriter: true
+
+
+# =====================================================================
+# metrics: Prometheus-compatible metrics endpoint (Optional)
+#
+# Exposes operational metrics at /metrics for monitoring tools.
+# =====================================================================
 metrics:
   enabled: true
+  # Address for the Prometheus metrics endpoint.
+  # Default: localhost:9946
   address: "localhost:9946"
+
+
+# =====================================================================
+# healthCheck: Health check endpoint (Optional)
+#
+# Exposes an HTTP health probe. Useful for container orchestrators
+# (Docker, Kubernetes) or load balancer health checks. The health
+# check endpoint cannot be disabled, but you can change its
+# address.
+#
+# To verify mongot is running:
+#   curl localhost:8080/health
+# Responds with JSON, e.g. {"status":"SERVING"} (HTTP 200) or
+# {"status":"NOT_SERVING"} (HTTP 503)
+# =====================================================================
 healthCheck:
+  # Default: localhost:8080
   address: "localhost:8080"
+
+
+# =====================================================================
+# logging: Log verbosity and output (Optional)
+#
+# Controls mongot log output. By default, logs are written to
+# stdout.
+# =====================================================================
 logging:
+  # Valid values (Logback levels): TRACE, DEBUG, INFO, WARN, ERROR
+  # Default: INFO
   verbosity: INFO
 
-#embedding: # Optional Auto-embedding configuration for Voyage AI
-#  queryKeyFile: /etc/mongot/voyage-api-query-key
-#  indexingKeyFile: /etc/mongot/voyage-api-indexing-key
-#  providerEndpoint: https://ai.mongodb.com/v1/embeddings
+  # Uncomment to write logs to a file instead of (or in addition
+  # to) stdout. Ensure mongot has write permissions to this path.
+  # logPath: "/var/log/mongot/mongot.log"
+
+
+# =====================================================================
+# advancedConfigs: Fine-grained performance tuning (Optional)
+#
+# Provides low-level control over indexing, querying, replication,
+# auto-embedding, and FTDC diagnostics. Not intended for routine
+# use — incorrect values can degrade performance or destabilize
+# mongot. Only adjust with guidance from MongoDB Support or the
+# reference documentation.
+#
+# For available keys and their defaults, see:
+#   https://www.mongodb.com/docs/upcoming/self-managed/search/configuration/reference/
+# =====================================================================
+# advancedConfigs:
+#   indexing: ...
+#   querying: ...
+#   replication: ...
+#   autoEmbedding: ...
+#   ftdc: ...
