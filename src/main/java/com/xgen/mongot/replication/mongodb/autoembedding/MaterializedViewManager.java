@@ -381,7 +381,6 @@ public class MaterializedViewManager implements ReplicationManager {
     }
   }
 
-  // TODO(CLOUDP-360913): Investigate whether we need customized disk monitor
   /** Creates a new MaterializedViewManager. */
   @VisibleForTesting
   public static MaterializedViewManager create(
