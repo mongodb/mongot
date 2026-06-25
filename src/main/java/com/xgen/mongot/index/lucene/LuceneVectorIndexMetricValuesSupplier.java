@@ -2,7 +2,6 @@ package com.xgen.mongot.index.lucene;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.xgen.mongot.index.DocCounts;
-import com.xgen.mongot.index.VectorIndexReader;
 import com.xgen.mongot.index.lucene.backing.IndexBackingStrategy;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.writer.LuceneIndexWriter;
@@ -19,23 +18,21 @@ public final class LuceneVectorIndexMetricValuesSupplier extends LuceneIndexMetr
   private LuceneVectorIndexMetricValuesSupplier(
       Supplier<IndexStatus> indexStatusSupplier,
       IndexBackingStrategy indexBackingStrategy,
-      VectorIndexReader indexReader,
       LuceneIndexWriter luceneIndexWriter) {
-    super(indexStatusSupplier, indexBackingStrategy, indexReader, luceneIndexWriter);
+    super(indexStatusSupplier, indexBackingStrategy, luceneIndexWriter);
   }
 
   /** Static factory method that constructs the supplier and registers all gauges. */
   public static LuceneVectorIndexMetricValuesSupplier create(
       Supplier<IndexStatus> indexStatusSupplier,
       IndexBackingStrategy indexBackingStrategy,
-      VectorIndexReader indexReader,
       LuceneIndexWriter luceneIndexWriter,
       PerIndexMetricsFactory metricsFactory,
       int indexFeatureVersion,
       boolean isIndexFeatureVersionFourEnabled) {
     LuceneVectorIndexMetricValuesSupplier supplier =
         new LuceneVectorIndexMetricValuesSupplier(
-            indexStatusSupplier, indexBackingStrategy, indexReader, luceneIndexWriter);
+            indexStatusSupplier, indexBackingStrategy, luceneIndexWriter);
 
     // Register common gauges after construction is complete
     supplier.registerCommonGauges(

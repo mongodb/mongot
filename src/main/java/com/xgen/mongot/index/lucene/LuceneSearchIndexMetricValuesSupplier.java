@@ -84,7 +84,7 @@ public final class LuceneSearchIndexMetricValuesSupplier extends LuceneIndexMetr
       Duration numFieldsCacheDuration,
       Executor asyncRefreshExecutor,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
-    super(indexStatusSupplier, indexBackingStrategy, searchIndexReader, luceneIndexWriter);
+    super(indexStatusSupplier, indexBackingStrategy, luceneIndexWriter);
 
     this.indexReader = searchIndexReader;
     this.hasEmbeddedFields = hasEmbeddedFields;

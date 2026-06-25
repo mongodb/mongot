@@ -170,7 +170,6 @@ public class LuceneIndexMetricsSupplierBuilder {
         yield LuceneVectorIndexMetricValuesSupplier.create(
             this.indexStatusSupplier,
             this.indexBackingStrategy,
-            vectorIndexReader,
             this.indexWriter.get(),
             new PerIndexMetricsFactory(
                 METRICS_NAMESPACE,

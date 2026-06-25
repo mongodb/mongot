@@ -557,11 +557,6 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
     }
   }
 
-  @Override
-  public long getRequiredMemoryForVectorData() throws ReaderClosedException {
-    return 0L;
-  }
-
   private SearchProducerAndMetaResults vectorSearchQuery(
       VectorSearchQuery query,
       org.apache.lucene.search.Query luceneQuery,

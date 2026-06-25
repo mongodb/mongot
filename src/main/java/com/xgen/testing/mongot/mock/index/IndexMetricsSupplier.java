@@ -40,11 +40,6 @@ public class IndexMetricsSupplier {
 
       @Override
       public void close() {}
-
-      @Override
-      public long getRequiredMemoryForVectorData() {
-        return 0;
-      }
     };
   }
 

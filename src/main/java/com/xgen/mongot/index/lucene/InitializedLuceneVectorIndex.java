@@ -230,7 +230,6 @@ class InitializedLuceneVectorIndex implements InitializedVectorIndex {
         LuceneVectorIndexMetricValuesSupplier.create(
             index.getStatusRef(),
             vectorIndexProperties.indexBackingStrategy,
-            vectorIndexReader,
             indexResources.luceneIndexWriter,
             vectorIndexProperties.metricsFactory,
             definition.getParsedIndexFeatureVersion(),

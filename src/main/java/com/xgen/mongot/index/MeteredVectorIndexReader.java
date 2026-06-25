@@ -81,9 +81,4 @@ public class MeteredVectorIndexReader implements VectorIndexReader {
   public VectorIndexReader unwrap() {
     return this.indexReader;
   }
-
-  @Override
-  public long getRequiredMemoryForVectorData() throws ReaderClosedException {
-    return this.indexReader.getRequiredMemoryForVectorData();
-  }
 }

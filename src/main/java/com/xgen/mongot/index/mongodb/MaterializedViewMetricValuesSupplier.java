@@ -84,12 +84,6 @@ public class MaterializedViewMetricValuesSupplier implements IndexMetricValuesSu
   @Override
   public void close() {}
 
-  @Override
-  public long getRequiredMemoryForVectorData() {
-    // TODO(CLOUDP-370298): Implement properly estimating MV size based on quantization options
-    return 0;
-  }
-
   /** Fetches collection stats from MongoDB using the collStats command */
   private CollectionStats fetchCollectionStats() {
     try {

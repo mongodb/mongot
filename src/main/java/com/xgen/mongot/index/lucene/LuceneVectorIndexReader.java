@@ -1,10 +1,7 @@
 package com.xgen.mongot.index.lucene;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
-import com.google.common.collect.ImmutableList;
 import com.google.errorprone.annotations.MustBeClosed;
-import com.google.errorprone.annotations.Var;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.xgen.mongot.cursor.batch.BatchSizeStrategy;
 import com.xgen.mongot.cursor.batch.QueryCursorOptions;
@@ -14,12 +11,7 @@ import com.xgen.mongot.index.MetaResults;
 import com.xgen.mongot.index.ReaderClosedException;
 import com.xgen.mongot.index.VectorIndexReader;
 import com.xgen.mongot.index.VectorSearchResult;
-import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
-import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
-import com.xgen.mongot.index.definition.VectorIndexVectorFieldDefinition;
-import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
-import com.xgen.mongot.index.definition.quantization.VectorQuantization;
 import com.xgen.mongot.index.lucene.LuceneSearchManager.QueryInfo;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.field.FieldName;
@@ -36,9 +28,7 @@ import com.xgen.mongot.index.query.MaterializedVectorSearchQuery;
 import com.xgen.mongot.index.query.QueryExecutionContext;
 import com.xgen.mongot.index.query.QueryOptimizationFlags;
 import com.xgen.mongot.trace.Tracing;
-import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.BsonArrayBuilder;
-import com.xgen.mongot.util.bson.Vector;
 import com.xgen.mongot.util.concurrent.LockGuard;
 import com.xgen.mongot.util.concurrent.NamedExecutorService;
 import java.io.IOException;
@@ -47,32 +37,16 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import org.apache.lucene.index.ByteVectorValues;
-import org.apache.lucene.index.FieldInfo;
-import org.apache.lucene.index.FieldInfos;
-import org.apache.lucene.index.FloatVectorValues;
-import org.apache.lucene.index.LeafReader;
-import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.TopDocs;
 import org.bson.BsonArray;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 @SuppressWarnings("GuardedBy") // Uses LockGuard instead
 public class LuceneVectorIndexReader implements VectorIndexReader {
 
-  private static final Logger LOGGER = LoggerFactory.getLogger(LuceneVectorIndexReader.class);
-
   private static final Set<String> LUCENE_ID_FIELD_NAME_SET =
       Set.of(FieldName.MetaField.ID.getLuceneFieldName());
   private static final int VECTOR_SEARCH_BATCH_SIZE = 10_000;
-
-  /**
-   * Conservative HNSW graph size estimate: 8 * M * num_vectors bytes Using minimum M=16 so the
-   * estimate is a lower bound
-   */
-  private static final long HNSW_GRAPH_BYTES_PER_VECTOR = 8L * 16;
 
   private final VectorIndexDefinition indexDefinition;
 
@@ -306,118 +280,5 @@ public class LuceneVectorIndexReader implements VectorIndexReader {
 
       return vectorSearchResults;
     }
-  }
-
-  @Override
-  public long getRequiredMemoryForVectorData() throws ReaderClosedException {
-    try (LockGuard ignored = LockGuard.with(this.shutdownSharedLock)) {
-      ensureOpen("getRequiredMemory");
-
-      ImmutableList<VectorIndexVectorFieldDefinition> vectorFieldDefinition =
-          this.queryFactory.getDefinitionResolver().getFields().stream()
-              .filter(VectorIndexFieldDefinition::isVectorField)
-              .map(VectorIndexFieldDefinition::asVectorField)
-              .collect(ImmutableList.toImmutableList());
-
-      try (var searcherReference = createSearcherReference(false)) {
-        List<LeafReaderContext> leaves =
-            searcherReference.getIndexSearcher().getIndexReader().leaves();
-        @Var long requiredMemory = 0L;
-        for (VectorIndexVectorFieldDefinition vectorField : vectorFieldDefinition) {
-          VectorFieldSpecification specification = vectorField.specification();
-          boolean includeGraphBytes =
-              !(specification.indexingAlgorithm()
-                  instanceof VectorIndexingAlgorithm.FlatIndexingAlgorithm);
-          VectorQuantization quantizationType = specification.quantization();
-          for (Vector.VectorType vectorType : Vector.VectorType.values()) {
-            String luceneFieldName =
-                getLuceneFieldName(vectorField.getPath(), quantizationType, vectorType);
-
-            // Get field metadata from first segment with non-empty data
-            Optional<FieldInfo> fieldInfoOpt =
-                leaves.stream()
-                    .map(LeafReaderContext::reader)
-                    .flatMap(r -> resolveFieldInfo(r, luceneFieldName).stream())
-                    .findAny();
-
-            if (fieldInfoOpt.isEmpty()) {
-              continue;
-            }
-
-            FieldInfo fieldInfo = fieldInfoOpt.get();
-            double bytesPerDim =
-                switch (vectorType) {
-                  // only float vectors can be quantized
-                  case FLOAT ->
-                      switch (quantizationType) {
-                        case NONE -> 4;
-                        case SCALAR -> 1;
-                        case BINARY -> 1 / 8.0;
-                      };
-                  case BYTE -> 1;
-                  case BIT -> 1 / 8.0;
-                };
-
-            for (LeafReaderContext leafContext : leaves) {
-              LeafReader reader = leafContext.reader();
-              requiredMemory +=
-                  computeRequiredHeapBytes(reader, fieldInfo, bytesPerDim, includeGraphBytes);
-            }
-          }
-        }
-        return Math.max(requiredMemory, 0);
-      } catch (IOException e) {
-        LOGGER.warn("Unable to compute requiredMemory due to unexpected Exception", e);
-        return 0;
-      }
-    }
-  }
-
-  private Optional<FieldInfo> resolveFieldInfo(LeafReader reader, String fieldName) {
-    FieldInfos fieldInfos = reader.getFieldInfos();
-    return Optional.ofNullable(fieldInfos.fieldInfo(fieldName));
-  }
-
-  /**
-   * Returns the amount of heap space needed in bytes to accommodate the specified vector field for
-   * a single segment.
-   *
-   * @param reader - a reader over a single Lucene segment
-   * @param fieldInfo - the metadata for the field, assumed to be a knn field
-   * @param bytesPerDim - the amount of space required to store a single element of a vector. For
-   *     example, this would be 0.125 for a bit vector field.
-   */
-  @VisibleForTesting
-  static long computeRequiredHeapBytes(
-      LeafReader reader, FieldInfo fieldInfo, double bytesPerDim, boolean includeGraphBytes)
-      throws IOException {
-    String fieldName = fieldInfo.getName();
-    long count =
-        switch (fieldInfo.getVectorEncoding()) {
-          case null -> 0;
-          case FLOAT32 ->
-              Optional.ofNullable(reader.getFloatVectorValues(fieldName))
-                  .map(FloatVectorValues::size)
-                  .orElse(0);
-          case BYTE ->
-              Optional.ofNullable(reader.getByteVectorValues(fieldName))
-                  .map(ByteVectorValues::size)
-                  .orElse(0);
-        };
-    long vectorBytes = (long) Math.ceil(count * bytesPerDim * fieldInfo.getVectorDimension());
-    long graphBytes = includeGraphBytes ? count * HNSW_GRAPH_BYTES_PER_VECTOR : 0L;
-    return vectorBytes + graphBytes;
-  }
-
-  // TODO(CLOUDP-333374): try to extract it from here to some utility class to unify this logic
-  private String getLuceneFieldName(
-      FieldPath fieldPath, VectorQuantization quantization, Vector.VectorType vectorType) {
-    Optional<FieldPath> nestedRoot =
-        this.queryFactory.getDefinitionResolver().getNestedRoot().filter(fieldPath::isChildOf);
-    return switch (vectorType) {
-      case FLOAT -> quantization.toTypeField().getLuceneFieldName(fieldPath, nestedRoot);
-      case BYTE -> FieldName.TypeField.KNN_BYTE.getLuceneFieldName(fieldPath, nestedRoot);
-      case BIT -> FieldName.TypeField.KNN_BIT.getLuceneFieldName(fieldPath, nestedRoot);
-    };
   }
 }

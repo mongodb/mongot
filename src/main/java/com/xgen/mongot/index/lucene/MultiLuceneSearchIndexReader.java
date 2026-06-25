@@ -10,7 +10,6 @@ import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.BatchProducer;
 import com.xgen.mongot.index.CountMergingBatchProducer;
 import com.xgen.mongot.index.CountMetaBatchProducer;
-import com.xgen.mongot.index.IndexReader;
 import com.xgen.mongot.index.MetaResults;
 import com.xgen.mongot.index.MeteredBatchProducer;
 import com.xgen.mongot.index.ReaderClosedException;
@@ -25,7 +24,6 @@ import com.xgen.mongot.index.query.SearchQuery;
 import com.xgen.mongot.index.query.VectorSearchQuery;
 import com.xgen.mongot.util.Bytes;
 import com.xgen.mongot.util.Check;
-import com.xgen.mongot.util.CheckedStream;
 import com.xgen.mongot.util.concurrent.NamedExecutorService;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
@@ -242,14 +240,6 @@ public class MultiLuceneSearchIndexReader implements SearchIndexReader {
   @VisibleForTesting
   int numUnderlyingReaders() {
     return this.readers.size();
-  }
-
-  @Override
-  public long getRequiredMemoryForVectorData() throws ReaderClosedException {
-    return CheckedStream.from(this.readers)
-        .mapAndCollectChecked(IndexReader::getRequiredMemoryForVectorData)
-        .stream()
-        .reduce(0L, Long::sum);
   }
 
   /**

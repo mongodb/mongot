@@ -49,9 +49,12 @@ public interface IndexMetricValuesSupplier {
   void close();
 
   /**
-   * Calls getRequiredMemoryForVectorData on the associated IndexReader object.
+   * Returns the estimated bytes of memory required to hold vector data for this index.
    *
-   * @return long value representing the required memory of a vector index in bytes
+   * <p>Computed from on-disk vector file sizes (.vex, .veq, .vec). Returns 0 for non-vector or
+   * non-Lucene indexes.
    */
-  long getRequiredMemoryForVectorData();
+  default long getRequiredMemoryForVectorData() {
+    return 0L;
+  }
 }

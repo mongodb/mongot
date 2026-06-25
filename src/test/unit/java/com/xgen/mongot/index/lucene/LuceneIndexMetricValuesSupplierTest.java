@@ -755,7 +755,7 @@ public class LuceneIndexMetricValuesSupplierTest {
     Mockito.doReturn(1000).when(indexWriter).getNumFields();
     Mockito.doReturn(1).when(indexWriter).getNumWriters();
     IndexBackingStrategy indexBackingStrategy = mock(IndexBackingStrategy.class);
-    when(indexBackingStrategy.getDiskStats()).thenReturn(new DiskStats(1234L, 1111L, 1112));
+    when(indexBackingStrategy.getDiskStats()).thenReturn(new DiskStats(1234L, 1111L, 1112, 24L));
 
     for (IndexDefinition.Type type : IndexDefinition.Type.values()) {
       @Var IndexReader indexReader = Mockito.mock(LuceneVectorIndexReader.class);
@@ -765,7 +765,6 @@ public class LuceneIndexMetricValuesSupplierTest {
             .when((LuceneSearchIndexReader) indexReader)
             .getNumEmbeddedRootDocuments();
       }
-      Mockito.doReturn(24L).when(indexReader).getRequiredMemoryForVectorData();
       MeterRegistry meterRegistry = new SimpleMeterRegistry();
       LuceneIndexMetricsSupplierBuilder luceneIndexMetricsSupplierBuilder =
           LuceneIndexMetricsSupplierBuilder.builder()
@@ -848,7 +847,6 @@ public class LuceneIndexMetricValuesSupplierTest {
     Mockito.doReturn(24L).when(indexWriter).getNumLuceneMaxDocs();
     Mockito.doReturn(18).when(indexWriter).getMaxLuceneMaxDocs();
     Mockito.doReturn(23L).when(indexWriter).getNumDocs();
-    Mockito.doReturn(24L).when(indexReader).getRequiredMemoryForVectorData();
     MeterRegistry meterRegistry = new SimpleMeterRegistry();
     LuceneIndexMetricValuesSupplier luceneIndexMetricsSupplier =
         LuceneIndexMetricsSupplierBuilder.builder()
@@ -866,7 +864,6 @@ public class LuceneIndexMetricValuesSupplierTest {
     Assert.assertEquals(24, docCounts.numLuceneMaxDocs);
     Assert.assertEquals(18, docCounts.maxLuceneMaxDocs);
     Assert.assertEquals(23, docCounts.numDocs);
-    Assert.assertEquals(24, luceneIndexMetricsSupplier.getRequiredMemoryForVectorData());
     Assert.assertEquals(
         25,
         getPerIndexGaugeMetricsValue(
@@ -889,14 +886,13 @@ public class LuceneIndexMetricValuesSupplierTest {
     Mockito.doReturn(13L).when(indexPartitionWriter2).getNumLuceneMaxDocs();
     Mockito.doReturn(12L).when(indexPartitionWriter2).getNumDocs();
     Mockito.doReturn(950).when(indexPartitionWriter2).getNumFields();
-    Mockito.doReturn(24L).when(indexReader).getRequiredMemoryForVectorData();
     var indexWriter = Mockito.mock(MultiLuceneIndexWriter.class);
     when(indexWriter.getSingleLuceneIndexWriters())
         .thenReturn(List.of(indexPartitionWriter1, indexPartitionWriter2));
     Mockito.doReturn(2).when(indexWriter).getNumWriters();
     Mockito.doReturn(24L).when(indexWriter).getNumLuceneMaxDocs();
     IndexBackingStrategy indexBackingStrategy = mock(IndexBackingStrategy.class);
-    when(indexBackingStrategy.getDiskStats()).thenReturn(new DiskStats(1234, 1, 1));
+    when(indexBackingStrategy.getDiskStats()).thenReturn(new DiskStats(1234, 1, 1, 0));
     when(indexBackingStrategy.getIndexSizeForIndexPartition(0)).thenReturn(610L);
     when(indexBackingStrategy.getIndexSizeForIndexPartition(1)).thenReturn(611L);
     MeterRegistry meterRegistry = new SimpleMeterRegistry();

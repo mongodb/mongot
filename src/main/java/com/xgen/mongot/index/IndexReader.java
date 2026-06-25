@@ -14,14 +14,4 @@ public interface IndexReader {
   void open();
 
   void close();
-
-  /**
-   * If the index read by the IndexReader is a vector index, the required memory is calculated based
-   * on the vector type and the quantization type. This value is used to generate the required
-   * memory metric.
-   *
-   * @return long value representing the required memory of the vector index in bytes
-   * @throws ReaderClosedException if IndexReader is closed
-   */
-  long getRequiredMemoryForVectorData() throws ReaderClosedException;
 }

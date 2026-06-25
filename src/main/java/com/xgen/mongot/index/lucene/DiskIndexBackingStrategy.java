@@ -18,7 +18,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Supplier;
 import org.apache.lucene.search.ReferenceManager;
@@ -134,6 +138,12 @@ public class DiskIndexBackingStrategy implements IndexBackingStrategy {
     private long totalSizeBytes = 0L;
     private long largestFileByteSize = 0L;
     private long numFiles = 0;
+    private long graphAndQuantizedBytes = 0L;
+    private long cfsBytes = 0L;
+    // A quantized field writes both a .veq and a sibling .vec under the same prefix, but only the
+    // .veq is heap-resident, so a .vec counts only when no same-prefix .veq exists.
+    private final Map<String, Long> rawVecBytesByPrefix = new HashMap<>();
+    private final Set<String> quantizedFieldPrefixes = new HashSet<>();
 
     private final Path indexRoot;
 
@@ -145,8 +155,25 @@ public class DiskIndexBackingStrategy implements IndexBackingStrategy {
     }
 
     public PartitionStats getPartitionStats() {
+      @Var long vectorDataBytes = this.graphAndQuantizedBytes;
+      for (Map.Entry<String, Long> entry : this.rawVecBytesByPrefix.entrySet()) {
+        if (!this.quantizedFieldPrefixes.contains(entry.getKey())) {
+          vectorDataBytes += entry.getValue();
+        }
+      }
+
+      // Estimate vector bytes inside .cfs compound files by assuming they contain the same
+      // proportion of vector data as the non-.cfs files we could inspect directly. When there are
+      // no non-.cfs files (e.g. an all-compound index) there is no basis to extrapolate, so .cfs
+      // contributes nothing. vectorDataBytes only counts non-.cfs files, so it is 0 whenever
+      // nonCfsTotal is 0.
+      long nonCfsTotal = this.totalSizeBytes - this.cfsBytes;
+      long estimatedCfsRequired =
+          nonCfsTotal > 0 ? (long) (this.cfsBytes * ((double) vectorDataBytes / nonCfsTotal)) : 0L;
+      long totalRequiredMemory = vectorDataBytes + estimatedCfsRequired;
       DiskStats totalStats =
-          new DiskStats(this.totalSizeBytes, this.largestFileByteSize, this.numFiles);
+          new DiskStats(
+              this.totalSizeBytes, this.largestFileByteSize, this.numFiles, totalRequiredMemory);
       return new PartitionStats(this.partitionSizeBytes, totalStats);
     }
 
@@ -157,7 +184,31 @@ public class DiskIndexBackingStrategy implements IndexBackingStrategy {
       this.largestFileByteSize = Math.max(this.largestFileByteSize, size);
       this.totalSizeBytes += size;
       this.currentPartition.ifPresent(slot -> this.partitionSizeBytes[slot] += size);
+      String fileName = file.getFileName().toString();
+      if (fileName.endsWith(".vex")) {
+        // .vex = HNSW graph
+        this.graphAndQuantizedBytes += size;
+      } else if (fileName.endsWith(".veq")) {
+        // .veq = quantized vectors
+        this.graphAndQuantizedBytes += size;
+        this.quantizedFieldPrefixes.add(stripVectorExtension(file));
+      } else if (fileName.endsWith(".vec")) {
+        // .vec = raw float vectors
+        this.rawVecBytesByPrefix.merge(stripVectorExtension(file), size, Long::sum);
+      } else if (fileName.endsWith(".cfs")) {
+        this.cfsBytes += size;
+      }
       return FileVisitResult.CONTINUE;
+    }
+
+    /**
+     * Returns the full file path with its trailing vector extension removed, used to pair a field's
+     * .veq and .vec siblings. The full path is used so identically-named files in different
+     * partition subdirectories do not collide. Only called for .veq/.vec
+     */
+    private static String stripVectorExtension(Path file) {
+      String path = file.toString();
+      return path.substring(0, path.length() - ".vec".length());
     }
 
     @Override

@@ -102,9 +102,4 @@ public class MeteredSearchIndexReader implements SearchIndexReader {
   public SearchIndexReader unwrap() {
     return this.indexReader;
   }
-
-  @Override
-  public long getRequiredMemoryForVectorData() throws ReaderClosedException {
-    return this.indexReader.getRequiredMemoryForVectorData();
-  }
 }

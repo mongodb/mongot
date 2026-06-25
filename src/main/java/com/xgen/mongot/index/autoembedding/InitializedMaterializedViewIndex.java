@@ -251,10 +251,5 @@ public class InitializedMaterializedViewIndex implements InitializedAutoEmbedInd
 
     @Override
     public void close() {}
-
-    @Override
-    public long getRequiredMemoryForVectorData() throws ReaderClosedException {
-      return 0;
-    }
   }
 }
