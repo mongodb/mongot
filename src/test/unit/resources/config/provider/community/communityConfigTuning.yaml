@@ -49,6 +49,9 @@ advancedConfigs:
       excludedChangestreamFields:
         - "lsid"
         - "txnNumber"
+    initialSync:
+      bufferless:
+        enableNaturalOrderScan: true
   autoEmbedding:
     materializedView:
       numConcurrentChangeStreams: 10

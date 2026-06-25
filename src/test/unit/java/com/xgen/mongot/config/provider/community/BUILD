@@ -20,6 +20,7 @@ java_test_suite(
         "CursorConfigMapperTest.java",
         "DiskMonitorConfigTest.java",
         "DroppedCollectionIndexCleanerTest.java",
+        "InitialSyncConfigMapperTest.java",
         "InitialSyncHostProviderTest.java",
         "LuceneConfigMapperTest.java",
         "MongoConnectionConfigTest.java",

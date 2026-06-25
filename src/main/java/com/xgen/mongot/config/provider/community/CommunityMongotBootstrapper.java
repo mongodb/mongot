@@ -60,7 +60,6 @@ import com.xgen.mongot.monitor.PeriodicDiskMonitor;
 import com.xgen.mongot.monitor.ReplicationStateMonitor;
 import com.xgen.mongot.replication.mongodb.DurabilityConfig;
 import com.xgen.mongot.replication.mongodb.autoembedding.AutoEmbeddingMaterializedViewManagerFactory;
-import com.xgen.mongot.replication.mongodb.initialsync.config.InitialSyncConfig;
 import com.xgen.mongot.server.CommandServer;
 import com.xgen.mongot.server.auth.SecurityConfig;
 import com.xgen.mongot.server.command.search.SearchCommandsRegister;
@@ -960,7 +959,9 @@ public class CommunityMongotBootstrapper {
             Runtime.INSTANCE,
             config.advancedConfigs().flatMap(AdvancedConfigs::replicationConfig));
 
-    var initialSyncConfig = new InitialSyncConfig();
+    var initialSyncConfig =
+        InitialSyncConfigMapper.toInitialSyncConfig(
+            config.advancedConfigs().flatMap(AdvancedConfigs::replicationConfig));
 
     var durabilityConfig = DurabilityConfig.create(Optional.empty(), Optional.empty());
 

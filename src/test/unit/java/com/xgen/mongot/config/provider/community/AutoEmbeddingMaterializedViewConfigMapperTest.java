@@ -78,7 +78,8 @@ public class AutoEmbeddingMaterializedViewConfigMapperTest {
                     Optional.empty(),
                     Optional.empty(),
                     Optional.empty(),
-                    Optional.empty())));
+                    Optional.empty())),
+            Optional.empty());
     CommunityConfig config = withReplicationConfig(base, replicationConfig);
 
     AutoEmbeddingMaterializedViewConfig ae =

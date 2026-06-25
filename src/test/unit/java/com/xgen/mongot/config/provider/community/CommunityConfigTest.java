@@ -906,6 +906,9 @@ public class CommunityConfigTest {
           mongodb.pauseInitialSyncOnIndexIds());
       assertEquals(Optional.of(List.of("lsid", "txnNumber")), mongodb.excludedChangestreamFields());
 
+      var initialSync = advanced.replicationConfig().get().initialSyncConfig().get();
+      assertTrue(initialSync.bufferlessConfig().get().enableNaturalOrderScan().get());
+
       var matView = advanced.autoEmbeddingConfig().get().materializedViewConfig().get();
       assertEquals(Optional.of(10), matView.numConcurrentChangeStreams());
       assertEquals(Optional.of(5), matView.numIndexingThreads());

@@ -27,6 +27,9 @@ public class CommunityReplicationConfigTest {
 
   @Test
   public void roundTrip_full_preservesAllFields() throws BsonParseException {
+    var bufferless =
+        new CommunityReplicationConfig.InitialSyncConfig.BufferlessInitialSyncConfig(
+            Optional.of(true));
     CommunityReplicationConfig original =
         new CommunityReplicationConfig(
             Optional.of(
@@ -40,14 +43,48 @@ public class CommunityReplicationConfigTest {
                     Optional.of(4),
                     Optional.of(true),
                     Optional.of(List.of(new ObjectId("507f1f77bcf86cd799439011"))),
-                    Optional.of(List.of("lsid", "txnNumber")))));
+                    Optional.of(List.of("lsid", "txnNumber")))),
+            Optional.of(new CommunityReplicationConfig.InitialSyncConfig(Optional.of(bufferless))));
     assertEquals(original, parse(original.toBson()));
   }
 
   @Test
   public void roundTrip_empty_preservesEmptyBlock() throws BsonParseException {
-    CommunityReplicationConfig original = new CommunityReplicationConfig(Optional.empty());
+    CommunityReplicationConfig original =
+        new CommunityReplicationConfig(Optional.empty(), Optional.empty());
     assertEquals(original, parse(original.toBson()));
+  }
+
+  @Test
+  public void parse_exposesEnableNaturalOrderScan() throws BsonParseException {
+    BsonDocument doc =
+        new BsonDocument(
+            "initialSync",
+            new BsonDocument(
+                "bufferless", new BsonDocument("enableNaturalOrderScan", new BsonBoolean(true))));
+    var bufferless = parse(doc).initialSyncConfig().get().bufferlessConfig().get();
+    assertEquals(Optional.of(true), bufferless.enableNaturalOrderScan());
+  }
+
+  @Test
+  public void parse_enableNaturalOrderScanAbsent_isEmpty() throws BsonParseException {
+    BsonDocument doc =
+        new BsonDocument("initialSync", new BsonDocument("bufferless", new BsonDocument()));
+    var bufferless = parse(doc).initialSyncConfig().get().bufferlessConfig().get();
+    assertEquals(Optional.empty(), bufferless.enableNaturalOrderScan());
+  }
+
+  @Test
+  public void parse_unknownFieldInBufferlessBlock_isIgnored() throws BsonParseException {
+    BsonDocument doc =
+        new BsonDocument(
+            "initialSync",
+            new BsonDocument(
+                "bufferless",
+                new BsonDocument("enableNaturalOrderScan", new BsonBoolean(true))
+                    .append("notARealField", new BsonInt32(1))));
+    var bufferless = parse(doc).initialSyncConfig().get().bufferlessConfig().get();
+    assertEquals(Optional.of(true), bufferless.enableNaturalOrderScan());
   }
 
   @Test

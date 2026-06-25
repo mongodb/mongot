@@ -12,7 +12,8 @@ import org.bson.BsonDocument;
 import org.bson.types.ObjectId;
 
 /** The {@code replication} block of the Community mongot config file. */
-public record CommunityReplicationConfig(Optional<MongoDbConfig> mongoDbConfig)
+public record CommunityReplicationConfig(
+    Optional<MongoDbConfig> mongoDbConfig, Optional<InitialSyncConfig> initialSyncConfig)
     implements DocumentEncodable {
 
   static class Fields {
@@ -22,16 +23,28 @@ public record CommunityReplicationConfig(Optional<MongoDbConfig> mongoDbConfig)
             .disallowUnknownFields()
             .optional()
             .noDefault();
+
+    public static final Field.Optional<InitialSyncConfig> INITIAL_SYNC_CONFIG =
+        Field.builder("initialSync")
+            .classField(InitialSyncConfig::fromBson)
+            .disallowUnknownFields()
+            .optional()
+            .noDefault();
   }
 
   public static CommunityReplicationConfig fromBson(DocumentParser parser)
       throws BsonParseException {
-    return new CommunityReplicationConfig(parser.getField(Fields.MONGODB_CONFIG).unwrap());
+    return new CommunityReplicationConfig(
+        parser.getField(Fields.MONGODB_CONFIG).unwrap(),
+        parser.getField(Fields.INITIAL_SYNC_CONFIG).unwrap());
   }
 
   @Override
   public BsonDocument toBson() {
-    return BsonDocumentBuilder.builder().field(Fields.MONGODB_CONFIG, this.mongoDbConfig).build();
+    return BsonDocumentBuilder.builder()
+        .field(Fields.MONGODB_CONFIG, this.mongoDbConfig)
+        .field(Fields.INITIAL_SYNC_CONFIG, this.initialSyncConfig)
+        .build();
   }
 
   public record MongoDbConfig(
@@ -133,6 +146,55 @@ public record CommunityReplicationConfig(Optional<MongoDbConfig> mongoDbConfig)
           .field(Fields.PAUSE_INITIAL_SYNC_ON_INDEX_IDS, this.pauseInitialSyncOnIndexIds)
           .field(Fields.EXCLUDED_CHANGESTREAM_FIELDS, this.excludedChangestreamFields)
           .build();
+    }
+  }
+
+  /** The {@code initialSync} block of the Community {@code replication} config. */
+  public record InitialSyncConfig(Optional<BufferlessInitialSyncConfig> bufferlessConfig)
+      implements DocumentEncodable {
+
+    static class Fields {
+      public static final Field.Optional<BufferlessInitialSyncConfig> BUFFERLESS_CONFIG =
+          Field.builder("bufferless")
+              .classField(BufferlessInitialSyncConfig::fromBson)
+              .disallowUnknownFields()
+              .optional()
+              .noDefault();
+    }
+
+    public static InitialSyncConfig fromBson(DocumentParser parser) throws BsonParseException {
+      return new InitialSyncConfig(parser.getField(Fields.BUFFERLESS_CONFIG).unwrap());
+    }
+
+    @Override
+    public BsonDocument toBson() {
+      return BsonDocumentBuilder.builder()
+          .field(Fields.BUFFERLESS_CONFIG, this.bufferlessConfig)
+          .build();
+    }
+
+    /** The {@code bufferless} block of the Community {@code initialSync} config. */
+    public record BufferlessInitialSyncConfig(Optional<Boolean> enableNaturalOrderScan)
+        implements DocumentEncodable {
+
+      static class Fields {
+        // TODO(CLOUDP-416372) Remove the config once it is fully rolled out.
+        public static final Field.Optional<Boolean> ENABLE_NATURAL_ORDER_SCAN =
+            Field.builder("enableNaturalOrderScan").booleanField().optional().noDefault();
+      }
+
+      public static BufferlessInitialSyncConfig fromBson(DocumentParser parser)
+          throws BsonParseException {
+        return new BufferlessInitialSyncConfig(
+            parser.getField(Fields.ENABLE_NATURAL_ORDER_SCAN).unwrap());
+      }
+
+      @Override
+      public BsonDocument toBson() {
+        return BsonDocumentBuilder.builder()
+            .field(Fields.ENABLE_NATURAL_ORDER_SCAN, this.enableNaturalOrderScan)
+            .build();
+      }
     }
   }
 }
