@@ -3,6 +3,7 @@ package com.xgen.mongot.config.manager;
 import static com.google.common.truth.Truth.assertThat;
 import static com.xgen.mongot.index.status.IndexStatus.Reason.AUTO_EMBEDDING_RESOLUTION_FAILED;
 import static com.xgen.mongot.index.status.IndexStatus.Reason.AUTO_EMBEDDING_RESOLUTION_RETRY;
+import static com.xgen.mongot.index.status.IndexStatus.Reason.COLLECTION_NOT_FOUND;
 import static com.xgen.testing.mongot.mock.index.IndexGeneration.mockDefinitionGeneration;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -309,6 +310,74 @@ public class IndexRecoveryStagerTest {
     assertTrue(
         "Unresolved index should NOT be staged before updateSyncSource is called",
         stagedIndex.isEmpty());
+  }
+
+  @Test
+  public void unresolvedAutoEmbeddingIndex_collectionNotFound_isStagedWhenCollectionReappears()
+      throws Exception {
+    var mocks = getEmptyMocks();
+
+    // Gate: source collection absent on this shard, so getAutoEmbeddingIndexGeneration short-
+    // circuits to UnresolvedAutoEmbeddingIndexGeneration.createCollectionNotFound(...): no
+    // materialized view collection, lease, or leaderStatus gauge is created (verified by
+    // AutoEmbeddingIndexGenerationFactoryTest). This is the DOES_NOT_EXIST/COLLECTION_NOT_FOUND
+    // generation whose recovery the ConfigState reset-skip relies on.
+    when(mocks
+            .configState
+            .materializedViewIndexFactory
+            .get()
+            .isSourceCollectionAbsentOnMongod(any()))
+        .thenReturn(true);
+
+    var definitionGeneration =
+        mockDefinitionGeneration(
+            VectorIndex.MOCK_MATERIALIZED_VIEW_AUTO_EMBEDDING_INDEX_DEFINITION);
+    IndexActions.withReplication(mocks.configState).addNewIndexes(List.of(definitionGeneration));
+
+    var unresolvedIndex = mocks.indexCatalog.getIndexById(VectorIndex.MOCK_INDEX_ID).orElseThrow();
+    assertTrue(
+        "Absent source collection must yield an unresolved auto-embedding generation",
+        unresolvedIndex instanceof UnresolvedAutoEmbeddingIndexGeneration);
+    assertEquals(
+        IndexStatus.StatusCode.DOES_NOT_EXIST,
+        unresolvedIndex.getIndex().getStatus().getStatusCode());
+    assertThat(unresolvedIndex.getIndex().getStatus().getReason())
+        .isEqualTo(Optional.of(COLLECTION_NOT_FOUND));
+    mocks.clearInvocations();
+
+    // The COLLECTION_NOT_FOUND generation must carry the *source* collection UUID so the recovery
+    // stager can match it against directMongodCollectionSet when the collection reappears.
+    UUID sourceCollectionUuid = unresolvedIndex.getDefinition().getCollectionUuid();
+
+    // Scenario 1: source collection still absent on mongod → not staged for recovery.
+    stageIndexes(mocks, Set.of());
+    assertTrue(mocks.staged.getIndex(VectorIndex.MOCK_INDEX_ID).isEmpty());
+    mocks.assertNoIndexActivity();
+
+    // Scenario 2: source collection reappears on this shard (its UUID is now in
+    // directMongodCollectionSet). Restore the factory so the re-staged attempt resolves to a real
+    // composite (isSourceCollectionAbsentOnMongod defaults to false after reset).
+    reset(mocks.configState.materializedViewIndexFactory.get());
+    when(mocks
+            .configState
+            .materializedViewIndexFactory
+            .get()
+            .getIndex(any(IndexDefinitionGeneration.class)))
+        .thenAnswer(
+            invocation ->
+                MaterializedViewIndex.mockIndex(
+                    (MaterializedViewIndexDefinitionGeneration) invocation.getArgument(0)));
+
+    stageIndexes(mocks, Set.of(sourceCollectionUuid));
+
+    var stagedIndex = mocks.staged.getIndex(VectorIndex.MOCK_INDEX_ID);
+    assertTrue(
+        "Auto-embedding COLLECTION_NOT_FOUND index should be staged for recovery when its source "
+            + "collection reappears (same reappearance path regular search indexes use)",
+        stagedIndex.isPresent());
+    assertEquals(
+        definitionGeneration.generation().nextAttempt(),
+        stagedIndex.get().getGenerationId().generation);
   }
 
   private void stageIndexes(ConfigStateMocks mocks, Set<UUID> directMongodCollectionSet)

@@ -34,10 +34,22 @@ public class UnresolvedAutoEmbeddingIndexGenerationTest {
         Optional.of(IndexStatus.Reason.AUTO_EMBEDDING_RESOLUTION_RETRY), status.getReason());
   }
 
+  @Test
+  public void createCollectionNotFound_reportsDoesNotExist() {
+    MaterializedViewIndexDefinitionGeneration definitionGeneration =
+        MaterializedViewIndex.mockMatViewDefinitionGeneration(new ObjectId());
+    IndexStatus status =
+        UnresolvedAutoEmbeddingIndexGeneration.createCollectionNotFound(definitionGeneration)
+            .getIndex()
+            .getStatus();
+    assertEquals(IndexStatus.StatusCode.DOES_NOT_EXIST, status.getStatusCode());
+    assertEquals(Optional.of(IndexStatus.Reason.COLLECTION_NOT_FOUND), status.getReason());
+  }
+
   private IndexStatus createStatus(MaterializedViewTransientException.Reason reason) {
     MaterializedViewIndexDefinitionGeneration definitionGeneration =
         MaterializedViewIndex.mockMatViewDefinitionGeneration(new ObjectId());
-    return UnresolvedAutoEmbeddingIndexGeneration.create(definitionGeneration, reason)
+    return UnresolvedAutoEmbeddingIndexGeneration.createFailed(definitionGeneration, reason)
         .getIndex()
         .getStatus();
   }

@@ -8,11 +8,13 @@ java_test_suite(
         "AutoEmbeddingIndexGenerationFactoryTest.java",
         "InitializedMaterializedViewIndexTest.java",
         "MaterializedViewGenerationIdTest.java",
+        "MaterializedViewIndexFactoryTest.java",
         "MaterializedViewIndexGenerationUtilTest.java",
         "UnresolvedAutoEmbeddingIndexGenerationTest.java",
     ],
     tags = ["unit"],
     deps = [
+        "//src/main/java/com/xgen/mongot/catalog",
         "//src/main/java/com/xgen/mongot/embedding/config",
         "//src/main/java/com/xgen/mongot/embedding/exceptions",
         "//src/main/java/com/xgen/mongot/embedding/mongodb/leasing",
@@ -27,6 +29,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/replication/mongodb/common",
         "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/functionalinterfaces",
+        "//src/main/java/com/xgen/mongot/util/mongodb",
         "//src/main/java/com/xgen/testing/mongot/index/definition",
         "//src/main/java/com/xgen/testing/mongot/index/version",
         "//src/main/java/com/xgen/testing/mongot/mock/index",
@@ -37,5 +40,6 @@ java_test_suite(
         "@maven//:org_mockito_mockito_core",
         "@maven//:org_mongodb_bson",
         "@maven//:org_mongodb_mongodb_driver_core",
+        "@maven//:org_mongodb_mongodb_driver_sync",
     ],
 )

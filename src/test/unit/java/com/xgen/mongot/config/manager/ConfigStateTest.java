@@ -2,7 +2,12 @@ package com.xgen.mongot.config.manager;
 
 import com.xgen.mongot.config.backup.ConfigJournalV1;
 import com.xgen.mongot.config.util.Invariants;
+import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
+import com.xgen.mongot.index.autoembedding.UnresolvedAutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.VectorIndexDefinition;
+import com.xgen.mongot.index.definition.VectorIndexDefinitionGeneration;
+import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.index.version.IndexFormatVersion;
@@ -14,6 +19,7 @@ import com.xgen.mongot.util.mongodb.ConnectionStringUtil;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import com.xgen.testing.mongot.config.backup.ConfigJournalV1Builder;
 import com.xgen.testing.mongot.config.manager.ConfigStateMocks;
+import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.version.GenerationIdBuilder;
 import com.xgen.testing.mongot.mock.index.IndexGeneration;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
@@ -25,6 +31,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.bson.types.ObjectId;
@@ -90,6 +97,61 @@ public class ConfigStateTest {
             .get()
             .equals(newSyncSourceConfig));
     Assert.assertFalse(mocks.configState.getLifecycleManager().isReplicationSupported());
+  }
+
+  @Test
+  public void testUpdateSyncSourceResetsTransientUnresolvedButKeepsCollectionNotFound()
+      throws Exception {
+    var mocks = ConfigStateMocks.create();
+
+    // Transient resolution failure: should be reset to AUTO_EMBEDDING_RESOLUTION_RETRY so
+    // IndexRecoveryStager retries it.
+    UnresolvedAutoEmbeddingIndexGeneration transientGen =
+        UnresolvedAutoEmbeddingIndexGeneration.createFailed(
+            autoEmbedVectorGen(),
+            MaterializedViewTransientException.Reason.MONGO_CLIENT_NOT_AVAILABLE);
+    // Source collection absent on this shard: must stay a quiet COLLECTION_NOT_FOUND.
+    UnresolvedAutoEmbeddingIndexGeneration collectionNotFoundGen =
+        UnresolvedAutoEmbeddingIndexGeneration.createCollectionNotFound(autoEmbedVectorGen());
+    mocks.indexCatalog.addIndex(transientGen);
+    mocks.staged.addIndex(collectionNotFoundGen);
+
+    SyncSourceConfig newSyncSourceConfig =
+        SyncSourceConfig.builder()
+            .mongodSingleHostReplicationUri(
+                ConnectionStringUtil.toConnectionInfo("mongodb://newString"))
+            .mongodClusterReplicationUri(
+                ConnectionStringUtil.toConnectionInfo("mongodb://newString"))
+            .mongodClusterReadWriteUri(ConnectionStringUtil.toConnectionInfo("mongodb://newString"))
+            .build();
+    mocks.configState.updateSyncSource(newSyncSourceConfig);
+
+    // The transient failure is reset so the recovery stager retries it.
+    Assert.assertEquals(
+        IndexStatus.StatusCode.FAILED, transientGen.getIndex().getStatus().getStatusCode());
+    Assert.assertEquals(
+        Optional.of(IndexStatus.Reason.AUTO_EMBEDDING_RESOLUTION_RETRY),
+        transientGen.getIndex().getStatus().getReason());
+    // The collection-not-found generation is left untouched (no spurious failure overwrite).
+    Assert.assertEquals(
+        IndexStatus.StatusCode.DOES_NOT_EXIST,
+        collectionNotFoundGen.getIndex().getStatus().getStatusCode());
+    Assert.assertEquals(
+        Optional.of(IndexStatus.Reason.COLLECTION_NOT_FOUND),
+        collectionNotFoundGen.getIndex().getStatus().getReason());
+  }
+
+  private static VectorIndexDefinitionGeneration autoEmbedVectorGen() {
+    VectorIndexDefinition def =
+        VectorIndexDefinitionBuilder.builder()
+            .indexId(new ObjectId())
+            .name("mock")
+            .database("mock")
+            .lastObservedCollectionName("mock")
+            .collectionUuid(UUID.randomUUID())
+            .withAutoEmbedField("title")
+            .build();
+    return new VectorIndexDefinitionGeneration(def, Generation.CURRENT);
   }
 
   @Test

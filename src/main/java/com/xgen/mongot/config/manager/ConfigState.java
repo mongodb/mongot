@@ -442,12 +442,19 @@ public class ConfigState {
   }
 
   /**
-   * Resets index status for unresolved auto embedding indexes, IndexRecoverStager will pick them up
-   * and retry.
+   * Resets index status for unresolved auto embedding indexes so IndexRecoveryStager picks them up
+   * and retries. Generations already reporting {@code DOES_NOT_EXIST} (source collection absent on
+   * this shard) are left untouched -- they are not transient resolution failures and recover via
+   * the collection-reappearance path, so resetting them would replace the intended quiet {@code
+   * COLLECTION_NOT_FOUND} status with a spurious failure.
    */
   private void resetUnresolvedAutoEmbeddingIndexes() {
     Stream.concat(this.staged.getIndexes().stream(), this.indexCatalog.getIndexes().stream())
         .filter(AutoEmbeddingIndexGenerationFactory::isAutoEmbeddingResolutionFailed)
+        // COLLECTION_NOT_FOUND (source collection absent on this shard) is unresolved by type
+        // but is not a transient failure: keep it a quiet DOES_NOT_EXIST and let it recover via
+        // the collection-reappearance path (IndexRecoveryStager), not this transient-retry reset.
+        .filter(indexGeneration -> !indexGeneration.getIndex().getStatus().isCollectionNotFound())
         .forEach(
             unresolvedIndexGeneration ->
                 unresolvedIndexGeneration

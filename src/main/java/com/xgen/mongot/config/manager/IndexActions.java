@@ -81,13 +81,22 @@ public class IndexActions {
     // let config manager decide whether to retry on each update cycle.
     this.configState.indexCatalog.addIndex(indexGeneration);
     if (isAutoEmbeddingResolutionFailed(indexGeneration)) {
-      // Skips lifecycle for this unresolved indexGeneration,
-      LOG.atWarn()
-          .addKeyValue("indexId", generationId.indexId)
-          .addKeyValue("generationId", generationId)
-          .log(
-              "Unable to create auto-embedding index, "
-                  + "Skips replication for this definition at this time.");
+      // Skips lifecycle for this unresolved indexGeneration.
+      if (indexGeneration.getIndex().getStatus().isCollectionNotFound()) {
+        // Expected, quiet steady state on a shard that does not host the source collection (e.g.
+        // an unsharded collection on a non-owner shard) -- not a failure, so don't WARN.
+        LOG.atDebug()
+            .addKeyValue("indexId", generationId.indexId)
+            .addKeyValue("generationId", generationId)
+            .log("Source collection not found on this shard; skipping replication.");
+      } else {
+        LOG.atWarn()
+            .addKeyValue("indexId", generationId.indexId)
+            .addKeyValue("generationId", generationId)
+            .log(
+                "Unable to create auto-embedding index, "
+                    + "Skips replication for this definition at this time.");
+      }
       return;
     }
 
@@ -122,13 +131,22 @@ public class IndexActions {
     IndexGeneration indexGeneration = getIndexGenerationByDefinitionType(definitionGeneration);
     this.configState.staged.addIndex(indexGeneration);
     if (isAutoEmbeddingResolutionFailed(indexGeneration)) {
-      // Skips lifecycle for this unresolved indexGeneration,
-      LOG.atWarn()
-          .addKeyValue("indexId", generationId.indexId)
-          .addKeyValue("generationId", generationId)
-          .log(
-              "Unable to create auto-embedding stage index, "
-                  + "Skips replication for this definition at this time.");
+      // Skips lifecycle for this unresolved indexGeneration.
+      if (indexGeneration.getIndex().getStatus().isCollectionNotFound()) {
+        // Expected, quiet steady state on a shard that does not host the source collection (e.g.
+        // an unsharded collection on a non-owner shard) -- not a failure, so don't WARN.
+        LOG.atDebug()
+            .addKeyValue("indexId", generationId.indexId)
+            .addKeyValue("generationId", generationId)
+            .log("Source collection not found on this shard; skipping staged replication.");
+      } else {
+        LOG.atWarn()
+            .addKeyValue("indexId", generationId.indexId)
+            .addKeyValue("generationId", generationId)
+            .log(
+                "Unable to create auto-embedding stage index, "
+                    + "Skips replication for this definition at this time.");
+      }
       return;
     }
     if (this.withReplication) {

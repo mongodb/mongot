@@ -50,6 +50,7 @@ java_library(
         "@maven//:commons_codec_commons_codec",
         "@maven//:org_mongodb_bson",
         "@maven//:org_mongodb_mongodb_driver_core",
+        "@maven//:org_mongodb_mongodb_driver_sync",
         "@maven//:org_slf4j_slf4j_api",
     ],
 )

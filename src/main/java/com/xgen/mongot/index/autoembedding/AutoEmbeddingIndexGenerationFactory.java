@@ -55,6 +55,27 @@ public class AutoEmbeddingIndexGenerationFactory {
             && indexDef.getParsedAutoEmbeddingFeatureVersion()
                 >= MIN_VERSION_FOR_MATERIALIZED_VIEW_EMBEDDING,
         "Input definition is not materialized view based auto-embedding index");
+
+    // Source collection not on this node's mongod (e.g. unsharded collection on a non-owner
+    // shard): skip the MV collection, lease, and leaderStatus gauge, and report
+    // COLLECTION_NOT_FOUND so the recovery loop re-stages the index when the collection appears
+    // on this shard.
+    if (matViewIndexFactory.isSourceCollectionAbsentOnMongod(indexDef)) {
+      // Debug, not info: this fires whenever the index is (re)added/staged (e.g. on every restart)
+      // for non-owner shards that don't host the collection — the steady-state case this PR
+      // targets — so keep it quiet. The COLLECTION_NOT_FOUND index status is the durable signal;
+      // the index add itself is already logged by the caller (IndexActions).
+      LOG.atDebug()
+          .addKeyValue("generationId", rawDefinitionGeneration.getGenerationId())
+          .addKeyValue("database", indexDef.getDatabase())
+          .addKeyValue("collectionUuid", indexDef.getCollectionUuid())
+          .log(
+              "Source collection not found on this shard; skipping materialized view setup and "
+                  + "reporting COLLECTION_NOT_FOUND");
+      return UnresolvedAutoEmbeddingIndexGeneration.createCollectionNotFound(
+          rawDefinitionGeneration);
+    }
+
     InitializedMaterializedViewIndex matViewIndex;
     try {
       matViewIndex =
@@ -67,7 +88,8 @@ public class AutoEmbeddingIndexGenerationFactory {
           .log(
               "Failed to create materialized view index, "
                   + "creates unresolved index instead, will retry it when sync source is updated.");
-      return UnresolvedAutoEmbeddingIndexGeneration.create(rawDefinitionGeneration, e.getReason());
+      return UnresolvedAutoEmbeddingIndexGeneration.createFailed(
+          rawDefinitionGeneration, e.getReason());
     }
 
     IndexDefinitionGeneration derivedDefGen =
