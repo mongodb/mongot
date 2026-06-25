@@ -84,6 +84,7 @@ public enum Feature {
   MERGE_ATTRIBUTION_METRICS("mergeAttributionMetrics", State.DISABLED),
   LIFECYCLE_ATTRIBUTION_METRICS("lifecycleAttributionMetrics", State.DISABLED),
   FCIS_CONSISTENT_SNAPSHOTS_LEADERSHIP("fcisConsistentSnapshotsLeadership", State.DISABLED),
+  FCIS_CONSISTENT_SNAPSHOTS_DOWNLOAD("fcisConsistentSnapshotsDownload", State.DISABLED),
   SEARCH_AGGREGATION("searchAggregation", State.DISABLED);
 
   private final String name;

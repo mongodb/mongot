@@ -57,6 +57,7 @@
         "mergeAttributionMetrics": true,
         "lifecycleAttributionMetrics": true,
         "fcisConsistentSnapshotsLeadership": true,
+        "fcisConsistentSnapshotsDownload": true,
         "searchAggregation": true
       }
     },
@@ -101,6 +102,7 @@
         "mergeAttributionMetrics": false,
         "lifecycleAttributionMetrics": false,
         "fcisConsistentSnapshotsLeadership": false,
+        "fcisConsistentSnapshotsDownload": false,
         "searchAggregation": false
       }
     }
