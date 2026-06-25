@@ -17,6 +17,7 @@ import java.util.stream.Collectors;
 import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.util.BytesRef;
+import org.bson.BsonString;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -37,9 +38,9 @@ public class AccumulatorTest extends AggregationTestSupport {
 
   @Test
   public void groupByCityWithSumPrice() throws Exception {
-    AggregationSpec sumSpec = new SumSpec("sum_price", PRICE_FIELD);
+    AggregationSpec sumSpec = new SumSpec("sum_price", PRICE_LUCENE_FIELD);
     AggregationSpec termsSpec =
-        new TermsSpec("by_city", FieldPath.parse(CITY_FIELD), CITY_FIELD, List.of(sumSpec));
+        new TermsSpec("by_city", FieldPath.parse(CITY_FIELD), CITY_LUCENE_FIELD, List.of(sumSpec));
     TopAggregationSpec topSpec = new TopAggregationSpec(List.of(termsSpec));
 
     Accumulator topAccumulator = collectAll(topSpec, newContext());
@@ -57,7 +58,7 @@ public class AccumulatorTest extends AggregationTestSupport {
     Map<String, Double> sumByCity = new HashMap<>();
     for (TermsResult.TermsBucket bucket : byCity.getBuckets()) {
       SumResult sum = (SumResult) bucket.getChildResults().get("sum_price");
-      sumByCity.put(bucket.getKey(), sum.value());
+      sumByCity.put(bucket.getKey().getValue(), sum.value());
     }
 
     assertEquals(60.0, sumByCity.get("NYC"), 0.0001);
@@ -96,14 +97,14 @@ public class AccumulatorTest extends AggregationTestSupport {
           this.buckets.stream()
               .collect(
                   Collectors.toMap(
-                      TermsBucket::getKey,
+                      b -> b.getKey().getValue(),
                       Function.identity(),
                       (a, b) -> {
                         throw new IllegalStateException("dup: " + a.getKey());
                       },
                       LinkedHashMap::new));
       for (TermsBucket otherBucket : that.buckets) {
-        merged.merge(otherBucket.getKey(), otherBucket, TermsBucket::merge);
+        merged.merge(otherBucket.getKey().getValue(), otherBucket, TermsBucket::merge);
       }
       return new TermsResult(this.name, this.path, new ArrayList<>(merged.values()));
     }
@@ -118,8 +119,8 @@ public class AccumulatorTest extends AggregationTestSupport {
       }
 
       @Override
-      public String getKey() {
-        return this.key;
+      public BsonString getKey() {
+        return new BsonString(this.key);
       }
 
       @Override

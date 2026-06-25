@@ -1,11 +1,13 @@
 package com.xgen.mongot.index.query.aggregation;
 
-import com.xgen.mongot.index.definition.FieldTypeDefinition;
+import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
+import com.xgen.mongot.index.query.aggregation.TermsAggregationResult.TermsBucket;
 import com.xgen.mongot.util.FieldPath;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.lucene.document.Document;
@@ -27,6 +29,8 @@ import org.apache.lucene.search.Query;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.util.BytesRef;
+import org.bson.BsonString;
+import org.bson.BsonValue;
 import org.jetbrains.annotations.Nullable;
 import org.junit.After;
 
@@ -40,6 +44,14 @@ public abstract class AggregationTestSupport {
   protected static final String CITY_FIELD = "city";
   protected static final String COLOR_FIELD = "color";
   protected static final String PRICE_FIELD = "price";
+
+  // Prefixed Lucene field names matching the TypeField encoding the accumulators use.
+  protected static final String CITY_LUCENE_FIELD =
+      TypeField.TOKEN.getLuceneFieldName(FieldPath.parse(CITY_FIELD), Optional.empty());
+  protected static final String COLOR_LUCENE_FIELD =
+      TypeField.TOKEN.getLuceneFieldName(FieldPath.parse(COLOR_FIELD), Optional.empty());
+  protected static final String PRICE_LUCENE_FIELD =
+      TypeField.NUMBER_INT64_V2.getLuceneFieldName(FieldPath.parse(PRICE_FIELD), Optional.empty());
 
   protected Directory directory;
   protected IndexReader reader;
@@ -70,9 +82,9 @@ public abstract class AggregationTestSupport {
       for (int i = 0; i < docs.size(); i++) {
         TestDoc doc = docs.get(i);
         Document luceneDoc = new Document();
-        luceneDoc.add(new SortedSetDocValuesField(CITY_FIELD, new BytesRef(doc.city())));
-        luceneDoc.add(new SortedSetDocValuesField(COLOR_FIELD, new BytesRef(doc.color())));
-        luceneDoc.add(new SortedNumericDocValuesField(PRICE_FIELD, doc.price()));
+        luceneDoc.add(new SortedSetDocValuesField(CITY_LUCENE_FIELD, new BytesRef(doc.city())));
+        luceneDoc.add(new SortedSetDocValuesField(COLOR_LUCENE_FIELD, new BytesRef(doc.color())));
+        luceneDoc.add(new SortedNumericDocValuesField(PRICE_LUCENE_FIELD, doc.price()));
         writer.addDocument(luceneDoc);
         if ((i + 1) % docsPerSegment == 0) {
           writer.commit();
@@ -119,31 +131,29 @@ public abstract class AggregationTestSupport {
 
   protected static List<String> bucketKeysInOrder(TermsAggregationResult result) {
     return result.getBuckets().stream()
-        .map(bucket -> ((BytesRef) bucket.getKey()).utf8ToString())
+        .map(bucket -> ((BsonString) bucket.getKey()).getValue())
         .collect(Collectors.toList());
   }
 
   protected static Set<String> bucketKeys(TermsAggregationResult result) {
     return result.getBuckets().stream()
-        .map(bucket -> ((BytesRef) bucket.getKey()).utf8ToString())
+        .map(bucket -> ((BsonString) bucket.getKey()).getValue())
         .collect(Collectors.toSet());
   }
 
-  protected static TermsAggregationResult.TermsBucket bucket(
-      TermsAggregationResult result, String key) {
+  protected static TermsBucket bucket(TermsAggregationResult result, String key) {
     return result.getBuckets().stream()
-        .map(b -> (TermsAggregationResult.TermsBucket) b)
-        .filter(b -> b.getKey().utf8ToString().equals(key))
+        .map(b -> (TermsBucket) b)
+        .filter(b -> b.getKey().getValue().equals(key))
         .findFirst()
         .orElseThrow(() -> new AssertionError("no bucket for key: " + key));
   }
 
-  protected static double sumOf(TermsAggregationResult.TermsBucket bucket, String childName) {
+  protected static double sumOf(TermsBucket bucket, String childName) {
     return ((SumResult) bucket.getChildResults().get(childName)).value();
   }
 
-  protected static TermsAggregationResult childTerms(
-      TermsAggregationResult.TermsBucket bucket, String childName) {
+  protected static TermsAggregationResult childTerms(TermsBucket bucket, String childName) {
     return (TermsAggregationResult) bucket.getChildResults().get(childName);
   }
 
@@ -159,6 +169,11 @@ public abstract class AggregationTestSupport {
     @Override
     public AggregationResult mergePartitionResult(AggregationResult other) {
       return new SumResult(this.name, this.value + ((SumResult) other).value);
+    }
+
+    @Override
+    public BsonValue toStandaloneBson() {
+      return new org.bson.BsonDouble(this.value);
     }
   }
 
@@ -227,8 +242,6 @@ public abstract class AggregationTestSupport {
 
   /**
    * Minimal {@link AggregationContext} threading an IndexReader and the current LeafReaderContext.
-   * {@link #resolveLuceneFieldName} is the identity (path string == Lucene field name), so the real
-   * terms accumulators read the same fields the index was written with.
    */
   protected static final class TestContext implements AggregationContext {
     private final IndexReader indexReader;
@@ -246,16 +259,6 @@ public abstract class AggregationTestSupport {
     @Override
     public AggregationContext withLeafReaderContext(LeafReaderContext context) {
       return new TestContext(this.indexReader, context);
-    }
-
-    @Override
-    public FieldTypeDefinition resolveFieldDefinition(FieldPath path) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public String resolveLuceneFieldName(FieldPath path) {
-      return path.toString();
     }
 
     @Override

@@ -2,6 +2,8 @@ package com.xgen.mongot.index.query.aggregation;
 
 import static com.xgen.mongot.util.Check.checkArg;
 
+import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
+import com.xgen.mongot.index.query.aggregation.AggregationRegistry.GroupingArgs.BoundaryArgs;
 import com.xgen.mongot.util.FieldPath;
 import java.util.List;
 import java.util.Optional;
@@ -26,15 +28,17 @@ public final class BoundaryGroupAggregationSpec extends GroupAggregationSpec {
   // The top-most range's upper edge is inclusive only in the INT64-overflow case (a double boundary
   // > Long.MAX_VALUE), so huge / +Inf values land in the top bucket.
   private final boolean lastEdgeInclusive;
+  private final TypeField typeField;
 
+  /** Constructs a boundary group spec with pre-encoded edges and metadata from {@code args}. */
   public BoundaryGroupAggregationSpec(
       String name,
       FieldPath path,
       List<AggregationSpec> children,
       long[] boundaryEdges,
       List<BsonValue> rangeKeys,
-      Optional<BsonValue> defaultBucketKey,
-      boolean lastEdgeInclusive) {
+      boolean lastEdgeInclusive,
+      BoundaryArgs args) {
     super(path, name, children);
     checkArg(
         boundaryEdges.length >= 2,
@@ -53,8 +57,9 @@ public final class BoundaryGroupAggregationSpec extends GroupAggregationSpec {
         boundaryEdges.length - 1);
     this.boundaryEdges = boundaryEdges.clone();
     this.rangeKeys = List.copyOf(rangeKeys);
-    this.defaultBucketKey = defaultBucketKey;
+    this.defaultBucketKey = args.defaultKey();
     this.lastEdgeInclusive = lastEdgeInclusive;
+    this.typeField = args.typeField();
   }
 
   // Package-private accessors consumed once by BoundaryAccumulator's constructor.
@@ -77,6 +82,6 @@ public final class BoundaryGroupAggregationSpec extends GroupAggregationSpec {
   @Override
   protected Accumulator createAccumulator(
       AggregationContext context, List<Accumulator> childAccumulators) {
-    return new BoundaryAccumulator(this, context, childAccumulators);
+    return new BoundaryAccumulator(this, context, childAccumulators, this.typeField);
   }
 }

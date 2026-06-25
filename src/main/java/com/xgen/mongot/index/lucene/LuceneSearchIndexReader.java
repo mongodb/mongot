@@ -23,6 +23,7 @@ import com.xgen.mongot.index.VectorSearchResult;
 import com.xgen.mongot.index.analyzer.AnalyzerRegistry;
 import com.xgen.mongot.index.definition.SearchFieldDefinitionResolver;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
+import com.xgen.mongot.index.lucene.LuceneAggregationSearchManager.AggregationQueryInfo;
 import com.xgen.mongot.index.lucene.LuceneFacetCollectorSearchManager.FacetCollectorQueryInfo;
 import com.xgen.mongot.index.lucene.LuceneSearchManager.QueryInfo;
 import com.xgen.mongot.index.lucene.explain.explainers.FacetFeatureExplainer;
@@ -46,6 +47,7 @@ import com.xgen.mongot.index.query.QueryOptimizationFlags;
 import com.xgen.mongot.index.query.ReturnScope;
 import com.xgen.mongot.index.query.SearchQuery;
 import com.xgen.mongot.index.query.VectorSearchQuery;
+import com.xgen.mongot.index.query.collectors.AggregationCollector;
 import com.xgen.mongot.index.query.collectors.Collector;
 import com.xgen.mongot.index.query.collectors.DrillSidewaysInfoBuilder;
 import com.xgen.mongot.index.query.collectors.DrillSidewaysInfoBuilder.DrillSidewaysInfo;
@@ -682,6 +684,20 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
           }
         }
       }
+      case AggregationCollector aggregationCollector -> {
+        return aggregationCollectorQuery(
+            aggregationCollector,
+            query,
+            luceneQuery,
+            searcherReference,
+            batchSizeStrategy,
+            unifiedHighlighter,
+            scoreDetailsManager,
+            luceneSort,
+            searchAfter,
+            queryCursorOptions,
+            queryOptimizationFlags);
+      }
     }
 
     return facetCollectorQuery(
@@ -901,6 +917,52 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
             query.concurrent()));
   }
 
+  @VisibleForTesting
+  SearchProducerAndMetaResults aggregationCollectorQuery(
+      AggregationCollector aggregationCollector,
+      CollectorQuery query,
+      org.apache.lucene.search.Query luceneQuery,
+      LuceneIndexSearcherReference searcherReference,
+      BatchSizeStrategy batchSizeStrategy,
+      Optional<LuceneUnifiedHighlighter> unifiedHighlighter,
+      Optional<LuceneScoreDetailsManager> scoreDetailsManager,
+      Optional<Sort> luceneSort,
+      Optional<SequenceToken> searchAfter,
+      QueryCursorOptions queryCursorOptions,
+      QueryOptimizationFlags queryOptimizationFlags)
+      throws IOException, InterruptedException, InvalidQueryException {
+    if (!this.featureFlags.isEnabled(Feature.SEARCH_AGGREGATION)) {
+      throw new InvalidQueryException(
+          "Aggregation is not enabled. Please contact support.", InvalidQueryException.Type.STRICT);
+    }
+    LuceneSearchManager<AggregationQueryInfo> aggregationSearchManager =
+        this.luceneSearchManagerFactory.newAggregationManager(
+            luceneQuery, luceneSort, searchAfter, this.facetContext, aggregationCollector);
+
+    AggregationQueryInfo collectorQueryInfo =
+        aggregationSearchManager.initialSearch(
+            searcherReference, batchSizeStrategy.adviseNextBatchSize());
+
+    return new SearchProducerAndMetaResults(
+        searchBatchProducer(
+            query,
+            aggregationSearchManager,
+            collectorQueryInfo.topDocs,
+            collectorQueryInfo.luceneExhausted,
+            batchSizeStrategy,
+            searcherReference,
+            unifiedHighlighter,
+            scoreDetailsManager,
+            queryCursorOptions,
+            queryOptimizationFlags),
+        this.metaResultsBuilder.buildAggregationMetaResults(
+            searcherReference,
+            collectorQueryInfo.topDocs,
+            collectorQueryInfo.getAggregationResult(),
+            query,
+            query.concurrent()));
+  }
+
   private SearchProducerAndMetaProducer intermediateOperatorQuery(
       OperatorQuery query,
       org.apache.lucene.search.Query luceneQuery,
@@ -998,6 +1060,9 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
           }
         }
       }
+      case AggregationCollector aggregationCollector ->
+          throw new UnsupportedOperationException(
+              "Aggregation is not supported in intermediate queries");
     }
     return intermediateFacetCollectorQuery(
         query,
@@ -1365,6 +1430,7 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
   private static Operator getCollectorOperator(Collector collector) {
     return switch (collector) {
       case FacetCollector facetCollector -> facetCollector.operator();
+      case AggregationCollector aggregationCollector -> aggregationCollector.operator();
     };
   }
 

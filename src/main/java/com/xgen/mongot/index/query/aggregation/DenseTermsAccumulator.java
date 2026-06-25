@@ -19,8 +19,9 @@ final class DenseTermsAccumulator extends TermsAccumulator {
       AggregationContext context,
       List<Accumulator> childAccumulators,
       SortedSetDocValues topLevelValues,
-      Optional<OrdinalMap> ordinalMap) {
-    super(spec, context, childAccumulators, topLevelValues, ordinalMap);
+      Optional<OrdinalMap> ordinalMap,
+      String luceneField) {
+    super(spec, context, childAccumulators, topLevelValues, ordinalMap, luceneField);
   }
 
   @Override

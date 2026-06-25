@@ -11,6 +11,7 @@ import com.xgen.mongot.index.lucene.searcher.LuceneIndexSearcher;
 import com.xgen.mongot.index.query.CollectorQuery;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.ReturnScope;
+import com.xgen.mongot.index.query.collectors.AggregationCollector;
 import com.xgen.mongot.index.query.collectors.FacetCollector;
 import com.xgen.mongot.index.query.collectors.FacetDefinition;
 import com.xgen.mongot.util.FieldPath;
@@ -80,6 +81,9 @@ public class LuceneFacetCollectorMetaBatchProducerFactory {
 
         return new LuceneFacetCollectorMetaBatchProducer(
             topDocs.totalHits.value(), bucketProducers, facetCollector);
+      case AggregationCollector aggregationCollector:
+        throw new UnsupportedOperationException(
+            "Aggregation is not supported for intermediate query yet");
     }
   }
 

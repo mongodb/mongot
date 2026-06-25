@@ -11,6 +11,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.bson.BsonString;
+import org.bson.BsonValue;
 import org.junit.Test;
 
 public class ResultTest {
@@ -71,7 +73,7 @@ public class ResultTest {
 
     for (TermsResult.TermsBucket bucket : merged.getBuckets()) {
       double sum = ((SumResult) bucket.getChildResults().get("sum")).value();
-      switch (bucket.getKey()) {
+      switch (bucket.getKey().getValue()) {
         case "NYC" -> assertEquals(30.0, sum, 0.0001);
         case "LA" -> assertEquals(5.0, sum, 0.0001);
         case "SF" -> assertEquals(7.0, sum, 0.0001);
@@ -119,6 +121,11 @@ public class ResultTest {
     public AggregationResult mergePartitionResult(AggregationResult other) {
       return new SumResult(this.name, this.value + ((SumResult) other).value);
     }
+
+    @Override
+    public BsonValue toStandaloneBson() {
+      return null;
+    }
   }
 
   private static final class TermsResult extends MultiBucketAggregationResult {
@@ -148,14 +155,14 @@ public class ResultTest {
           this.buckets.stream()
               .collect(
                   Collectors.toMap(
-                      TermsBucket::getKey,
+                      b -> b.getKey().getValue(),
                       Function.identity(),
                       (a, b) -> {
                         throw new IllegalStateException("dup: " + a.getKey());
                       },
                       LinkedHashMap::new));
       for (TermsBucket otherBucket : that.buckets) {
-        merged.merge(otherBucket.getKey(), otherBucket, TermsBucket::merge);
+        merged.merge(otherBucket.getKey().getValue(), otherBucket, TermsBucket::merge);
       }
       return new TermsResult(this.name, this.path, new ArrayList<>(merged.values()));
     }
@@ -170,8 +177,8 @@ public class ResultTest {
       }
 
       @Override
-      public String getKey() {
-        return this.key;
+      public BsonString getKey() {
+        return new BsonString(this.key);
       }
 
       @Override

@@ -24,6 +24,9 @@ public abstract class Accumulator extends BucketCollector {
   // Wired by the parent's constructor after this node is fully built; empty for the root.
   private Optional<Accumulator> parent = Optional.empty();
 
+  // Note: it is safe to pass this pointer to child accumulator since children Accumulators
+  // won't access the parent pointer until after the constructor returns.
+  @SuppressWarnings("this-escape")
   public Accumulator(String name, List<Accumulator> children, AggregationContext context) {
     this.name = name;
     this.children = List.copyOf(children);

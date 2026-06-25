@@ -1,5 +1,6 @@
 package com.xgen.mongot.index;
 
+import com.xgen.mongot.index.query.aggregation.AggregationResult;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
@@ -19,7 +20,10 @@ import org.bson.BsonDocument;
  *
  * @param facet Keyed by facet name.
  */
-public record MetaResults(CountResult count, Optional<Map<String, FacetInfo>> facet)
+public record MetaResults(
+    CountResult count,
+    Optional<Map<String, FacetInfo>> facet,
+    Optional<AggregationResult> aggregation)
     implements DocumentEncodable {
 
   private static class Fields {
@@ -37,7 +41,7 @@ public record MetaResults(CountResult count, Optional<Map<String, FacetInfo>> fa
   public static final MetaResults EMPTY = new MetaResults(CountResult.totalCount(0));
 
   public MetaResults(CountResult count) {
-    this(count, Optional.empty());
+    this(count, Optional.empty(), Optional.empty());
   }
 
   /**
@@ -61,13 +65,24 @@ public record MetaResults(CountResult count, Optional<Map<String, FacetInfo>> fa
   }
 
   public static MetaResults fromBson(DocumentParser parser) throws BsonParseException {
+    // TODO(CLOUDP-413102) provide AggregationResult fromBson
     return new MetaResults(
         parser.getField(Fields.COUNT_RESULT).unwrap(),
-        parser.getField(Fields.FACET_RESULTS).unwrap());
+        parser.getField(Fields.FACET_RESULTS).unwrap(),
+        Optional.empty());
   }
 
   @Override
   public BsonDocument toBson() {
+    if (this.aggregation().isPresent()) {
+      BsonDocument result =
+          BsonDocumentBuilder.builder().field(Fields.COUNT_RESULT, this.count).build();
+
+      // TODO(CLOUDP-413102) provide aggregation result toBson
+      result.append("facet", this.aggregation().get().toStandaloneBson());
+      return result;
+    }
+
     return BsonDocumentBuilder.builder()
         .field(Fields.COUNT_RESULT, this.count)
         .field(Fields.FACET_RESULTS, this.facet)

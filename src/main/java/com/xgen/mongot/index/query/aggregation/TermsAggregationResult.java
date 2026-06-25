@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.lucene.util.BytesRef;
+import org.bson.BsonString;
 
 /**
  * Aggregation result for token field.
@@ -34,7 +35,11 @@ public final class TermsAggregationResult extends MultiBucketAggregationResult {
     }
 
     @Override
-    public BytesRef getKey() {
+    public BsonString getKey() {
+      return new BsonString(this.key.utf8ToString());
+    }
+
+    public BytesRef getBytesRefKey() {
       return this.key;
     }
 
@@ -95,17 +100,17 @@ public final class TermsAggregationResult extends MultiBucketAggregationResult {
     // LinkedHashMap keeps the iteration order deterministic.
     LinkedHashMap<BytesRef, TermsBucket> mergedBuckets = new LinkedHashMap<>();
     for (TermsBucket b : this.buckets) {
-      mergedBuckets.put(b.getKey(), b);
+      mergedBuckets.put(b.getBytesRefKey(), b);
     }
     for (TermsBucket b : that.buckets) {
       mergedBuckets.merge(
-          b.getKey(),
+          b.getBytesRefKey(),
           b,
           (b1, b2) -> {
             AggregationResults mergedChildren =
                 mergeChildren(b1.getChildResults(), b2.getChildResults());
             return new TermsBucket(
-                b1.getKey(), b1.getDocCount() + b2.getDocCount(), mergedChildren);
+                b1.getBytesRefKey(), b1.getDocCount() + b2.getDocCount(), mergedChildren);
           });
     }
 

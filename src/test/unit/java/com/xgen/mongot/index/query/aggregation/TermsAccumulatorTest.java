@@ -3,6 +3,8 @@ package com.xgen.mongot.index.query.aggregation;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
+import com.xgen.mongot.index.query.aggregation.AggregationRegistry.GroupingArgs.TermsArgs;
 import com.xgen.mongot.util.FieldPath;
 import java.io.IOException;
 import java.util.List;
@@ -27,10 +29,13 @@ public class TermsAccumulatorTest extends AggregationTestSupport {
           new TestDoc("SF", "green", 7));
 
   private static TopAggregationSpec cityTermsWithSum(boolean isRoot, int limit) {
-    AggregationSpec sum = new SumSpec("sum_price", PRICE_FIELD);
+    AggregationSpec sum = new SumSpec("sum_price", PRICE_LUCENE_FIELD);
     AggregationSpec byCity =
         new TermsGroupAggregationSpec(
-            "by_city", FieldPath.parse(CITY_FIELD), List.of(sum), isRoot, limit);
+            "by_city",
+            FieldPath.parse(CITY_FIELD),
+            List.of(sum),
+            new TermsArgs(isRoot, TypeField.TOKEN, limit));
     return new TopAggregationSpec(List.of(byCity));
   }
 
@@ -126,13 +131,19 @@ public class TermsAccumulatorTest extends AggregationTestSupport {
   public void twoFieldTerms_denseOuterRemapInner() throws Exception {
     buildIndex(DATASET, DATASET.size());
 
-    AggregationSpec sum = new SumSpec("sum_price", PRICE_FIELD);
+    AggregationSpec sum = new SumSpec("sum_price", PRICE_LUCENE_FIELD);
     AggregationSpec byColor =
         new TermsGroupAggregationSpec(
-            "by_color", FieldPath.parse(COLOR_FIELD), List.of(sum), false, 100);
+            "by_color",
+            FieldPath.parse(COLOR_FIELD),
+            List.of(sum),
+            new TermsArgs(false, TypeField.TOKEN, 100));
     AggregationSpec byCity =
         new TermsGroupAggregationSpec(
-            "by_city", FieldPath.parse(CITY_FIELD), List.of(byColor), true, 100);
+            "by_city",
+            FieldPath.parse(CITY_FIELD),
+            List.of(byColor),
+            new TermsArgs(true, TypeField.TOKEN, 100));
     Accumulator top = collectAll(new TopAggregationSpec(List.of(byCity)), newContext());
 
     Accumulator outer = top.children().get(0);

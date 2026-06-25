@@ -13,7 +13,7 @@ public abstract class BucketCollector {
       throws IOException;
 
   /** Return the Lucene Collector used by Lucene query machinery. */
-  public final Collector asCollector(AggregationContext context) throws IOException {
+  public final BucketCollectorWrapper asCollector(AggregationContext context) throws IOException {
     return new BucketCollectorWrapper(this, context);
   }
 

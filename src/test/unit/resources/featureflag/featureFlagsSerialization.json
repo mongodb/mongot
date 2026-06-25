@@ -40,7 +40,8 @@
         "metricsCache": false,
         "mergeAttributionMetrics": false,
         "lifecycleAttributionMetrics": false,
-        "fcisConsistentSnapshotsLeadership": false
+        "fcisConsistentSnapshotsLeadership": false,
+        "searchAggregation": false
       }
     },
     {
@@ -83,7 +84,8 @@
         "metricsCache": false,
         "mergeAttributionMetrics": false,
         "lifecycleAttributionMetrics": false,
-        "fcisConsistentSnapshotsLeadership": false
+        "fcisConsistentSnapshotsLeadership": false,
+        "searchAggregation": false
       }
     },
     {
@@ -126,7 +128,8 @@
         "metricsCache": true,
         "mergeAttributionMetrics": true,
         "lifecycleAttributionMetrics": true,
-        "fcisConsistentSnapshotsLeadership": true
+        "fcisConsistentSnapshotsLeadership": true,
+        "searchAggregation": true
       }
     },
     {
@@ -169,7 +172,8 @@
         "metricsCache": false,
         "mergeAttributionMetrics": false,
         "lifecycleAttributionMetrics": false,
-        "fcisConsistentSnapshotsLeadership": false
+        "fcisConsistentSnapshotsLeadership": false,
+        "searchAggregation": false
       }
     }
   ]

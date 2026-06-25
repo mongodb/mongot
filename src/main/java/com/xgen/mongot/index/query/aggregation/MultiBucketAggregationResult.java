@@ -2,6 +2,9 @@ package com.xgen.mongot.index.query.aggregation;
 
 import com.xgen.mongot.util.FieldPath;
 import java.util.List;
+import org.bson.BsonArray;
+import org.bson.BsonDocument;
+import org.bson.BsonValue;
 
 /**
  * The intermediate node for the result tree.
@@ -31,11 +34,29 @@ public abstract class MultiBucketAggregationResult implements AggregationResult 
    */
   public interface Bucket {
     /** The key associated with this bucket. */
-    Object getKey();
+    BsonValue getKey();
 
     /** Return immediate child results for this bucket. */
     AggregationResults getChildResults();
   }
 
   public abstract List<? extends Bucket> getBuckets();
+
+  @Override
+  public BsonValue toStandaloneBson() {
+    // Build bson document with the `buckets` array field.
+    BsonArray bucketsBson = new BsonArray();
+    for (Bucket bucket : this.getBuckets()) {
+      BsonDocument bucketDoc = new BsonDocument();
+      bucketDoc.append("_id", bucket.getKey());
+
+      // DFS into next levels
+      AggregationResults childResults = bucket.getChildResults();
+      for (AggregationResult child : childResults) {
+        bucketDoc.append(child.getName(), child.toStandaloneBson());
+      }
+      bucketsBson.add(bucketDoc);
+    }
+    return new BsonDocument("buckets", bucketsBson);
+  }
 }

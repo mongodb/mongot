@@ -5,7 +5,6 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
-import com.xgen.mongot.index.definition.FieldTypeDefinition;
 import com.xgen.mongot.util.FieldPath;
 import java.io.IOException;
 import java.util.List;
@@ -32,11 +31,6 @@ public class SpecTest {
         }
 
         @Override
-        public FieldTypeDefinition resolveFieldDefinition(FieldPath path) {
-          throw new UnsupportedOperationException();
-        }
-
-        @Override
         public AggregationRegistry getRegistry() {
           return AggregationRegistry.getInstance();
         }
@@ -48,11 +42,6 @@ public class SpecTest {
 
         @Override
         public IndexReader getIndexReader() {
-          throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public String resolveLuceneFieldName(FieldPath path) {
           throw new UnsupportedOperationException();
         }
       };

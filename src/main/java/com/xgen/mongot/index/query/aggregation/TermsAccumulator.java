@@ -1,6 +1,7 @@
 package com.xgen.mongot.index.query.aggregation;
 
 import com.google.errorprone.annotations.Var;
+import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
 import com.xgen.mongot.util.FieldPath;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -29,19 +30,22 @@ public abstract sealed class TermsAccumulator extends BucketsAccumulator
   protected final Optional<OrdinalMap> ordinalMap;
   // global ordinal count.
   protected final long valueCount;
+  protected final String luceneField;
 
   protected TermsAccumulator(
       TermsGroupAggregationSpec spec,
       AggregationContext context,
       List<Accumulator> childAccumulators,
       SortedSetDocValues topLevelValues,
-      Optional<OrdinalMap> ordinalMap) {
+      Optional<OrdinalMap> ordinalMap,
+      String luceneField) {
     super(spec.name(), childAccumulators, context);
     this.path = spec.getPath();
     this.limit = spec.getLimit();
     this.topLevelValues = topLevelValues;
     this.ordinalMap = ordinalMap;
     this.valueCount = topLevelValues.getValueCount();
+    this.luceneField = luceneField;
   }
 
   /**
@@ -83,8 +87,7 @@ public abstract sealed class TermsAccumulator extends BucketsAccumulator
   protected final LeafBucketCollector getLeafCollector(
       AggregationContext context, LeafBucketCollector children) throws IOException {
     LeafReaderContext leaf = context.getLeafReaderContext();
-    SortedSetDocValues segmentValues =
-        DocValues.getSortedSet(leaf.reader(), context.resolveLuceneFieldName(this.path));
+    SortedSetDocValues segmentValues = DocValues.getSortedSet(leaf.reader(), this.luceneField);
     int segmentIndex = leaf.ord;
 
     // Single-value unwrap to avoid wrapping class overhead.
@@ -204,9 +207,10 @@ public abstract sealed class TermsAccumulator extends BucketsAccumulator
       TermsGroupAggregationSpec spec,
       AggregationContext context,
       List<Accumulator> childAccumulators,
-      boolean isRoot)
+      boolean isRoot,
+      TypeField typeField)
       throws IOException {
-    String luceneField = context.resolveLuceneFieldName(spec.getPath());
+    String luceneField = typeField.getLuceneFieldName(spec.getPath(), Optional.empty());
     SortedSetDocValues values = buildTopLevelValues(context.getIndexReader(), luceneField);
     // None if single segment
     @Var Optional<OrdinalMap> ordinalMap = Optional.empty();
@@ -214,9 +218,11 @@ public abstract sealed class TermsAccumulator extends BucketsAccumulator
       ordinalMap = Optional.of(multiValues.mapping);
     }
     if (isRoot) {
-      return new DenseTermsAccumulator(spec, context, childAccumulators, values, ordinalMap);
+      return new DenseTermsAccumulator(
+          spec, context, childAccumulators, values, ordinalMap, luceneField);
     } else {
-      return new RemapTermsAccumulator(spec, context, childAccumulators, values, ordinalMap);
+      return new RemapTermsAccumulator(
+          spec, context, childAccumulators, values, ordinalMap, luceneField);
     }
   }
 }

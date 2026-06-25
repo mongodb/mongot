@@ -9,11 +9,13 @@ import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.FieldDefinitionResolver;
 import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.quantization.VectorQuantization;
+import com.xgen.mongot.index.lucene.LuceneAggregationSearchManager.AggregationQueryInfo;
 import com.xgen.mongot.index.lucene.LuceneFacetCollectorSearchManager.FacetCollectorQueryInfo;
 import com.xgen.mongot.index.lucene.LuceneFacetGenericDrillSidewaysSearchManager.GenericDrillSidewaysResultFacetCollectorQueryInfo;
 import com.xgen.mongot.index.lucene.quantization.BinaryQuantizedVectorRescorer;
 import com.xgen.mongot.index.lucene.query.NestedAvgVectorRescorer;
 import com.xgen.mongot.index.query.OperatorQuery;
+import com.xgen.mongot.index.query.collectors.AggregationCollector;
 import com.xgen.mongot.index.query.counts.Count;
 import com.xgen.mongot.index.query.operators.VectorEmbeddedOptions;
 import com.xgen.mongot.index.query.operators.VectorSearchCriteria;
@@ -47,6 +49,18 @@ class LuceneSearchManagerFactory {
       Query query, Optional<Sort> luceneSort, Optional<SequenceToken> searchAfter) {
     return new MeteredLuceneSearchManager<>(
         this.metricsUpdater, new LuceneFacetCollectorSearchManager(query, luceneSort, searchAfter));
+  }
+
+  LuceneSearchManager<AggregationQueryInfo> newAggregationManager(
+      Query query,
+      Optional<Sort> luceneSort,
+      Optional<SequenceToken> searchAfter,
+      LuceneFacetContext facetContext,
+      AggregationCollector aggregationCollector) {
+    return new MeteredLuceneSearchManager<>(
+        this.metricsUpdater,
+        new LuceneAggregationSearchManager(
+            query, luceneSort, searchAfter, facetContext, aggregationCollector));
   }
 
   LuceneSearchManager<QueryInfo> newOperatorManager(

@@ -4,6 +4,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
+import com.xgen.mongot.index.query.aggregation.AggregationRegistry.GroupingArgs.BoundaryArgs;
+import com.xgen.mongot.index.query.aggregation.AggregationRegistry.GroupingArgs.TermsArgs;
 import com.xgen.mongot.util.FieldPath;
 import java.io.IOException;
 import java.util.List;
@@ -39,7 +42,7 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
 
   private static TopAggregationSpec priceBoundary(
       Optional<BsonValue> defaultKey, boolean lastEdgeInclusive) {
-    AggregationSpec sum = new SumSpec("sum_price", PRICE_FIELD);
+    AggregationSpec sum = new SumSpec("sum_price", PRICE_LUCENE_FIELD);
     AggregationSpec byPrice =
         new BoundaryGroupAggregationSpec(
             "by_price",
@@ -47,8 +50,8 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
             List.of(sum),
             EDGES,
             RANGE_KEYS,
-            defaultKey,
-            lastEdgeInclusive);
+            lastEdgeInclusive,
+            new BoundaryArgs(RANGE_KEYS, defaultKey, TypeField.NUMBER_INT64_V2, null));
     return new TopAggregationSpec(List.of(byPrice));
   }
 
@@ -175,7 +178,7 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
             new TestDoc("SF", "green", 350)); // SF  default
     buildIndex(data, 2); // 3 segments: terms parent builds a global OrdinalMap
 
-    AggregationSpec sum = new SumSpec("sum_price", PRICE_FIELD);
+    AggregationSpec sum = new SumSpec("sum_price", PRICE_LUCENE_FIELD);
     AggregationSpec byPrice =
         new BoundaryGroupAggregationSpec(
             "by_price",
@@ -183,11 +186,15 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
             List.of(sum),
             EDGES,
             RANGE_KEYS,
-            Optional.of(DEFAULT_KEY),
-            false);
+            false,
+            new BoundaryArgs(
+                RANGE_KEYS, Optional.of(DEFAULT_KEY), TypeField.NUMBER_INT64_V2, null));
     AggregationSpec byCity =
         new TermsGroupAggregationSpec(
-            "by_city", FieldPath.parse(CITY_FIELD), List.of(byPrice), true, 100);
+            "by_city",
+            FieldPath.parse(CITY_FIELD),
+            List.of(byPrice),
+            new TermsArgs(true, TypeField.TOKEN, 100));
     Accumulator top = collectAll(new TopAggregationSpec(List.of(byCity)), newContext());
 
     assertTrue(top.children().get(0) instanceof DenseTermsAccumulator);
@@ -269,8 +276,12 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
                 List.of(),
                 new long[] {0, 100, 50},
                 List.of(new BsonInt32(0), new BsonInt32(100)),
-                Optional.empty(),
-                false));
+                false,
+                new BoundaryArgs(
+                    List.of(new BsonInt32(0), new BsonInt32(100)),
+                    Optional.empty(),
+                    TypeField.NUMBER_INT64_V2,
+                    null)));
   }
 
   @Test
@@ -284,8 +295,9 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
                 List.of(),
                 new long[] {0, 100, 200}, // 2 ranges
                 List.of(new BsonInt32(0)), // only 1 key
-                Optional.empty(),
-                false));
+                false,
+                new BoundaryArgs(
+                    List.of(new BsonInt32(0)), Optional.empty(), TypeField.NUMBER_INT64_V2, null)));
   }
 
   private static BoundaryAggregationResult firstBoundary(Accumulator top) throws IOException {
@@ -340,7 +352,7 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
       for (int i = 0; i < pricesPerDoc.size(); i++) {
         Document doc = new Document();
         for (long value : pricesPerDoc.get(i)) {
-          doc.add(new SortedNumericDocValuesField(PRICE_FIELD, value));
+          doc.add(new SortedNumericDocValuesField(PRICE_LUCENE_FIELD, value));
         }
         writer.addDocument(doc);
         if ((i + 1) % docsPerSegment == 0) {

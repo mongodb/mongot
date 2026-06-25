@@ -3,6 +3,8 @@ load("//bazel/java:package.bzl", "java_library")
 java_library(
     name = "collectors",
     srcs = [
+        "AggDefinition.java",
+        "AggregationCollector.java",
         "Collector.java",
         "DrillSidewaysInfoBuilder.java",
         "FacetCollector.java",

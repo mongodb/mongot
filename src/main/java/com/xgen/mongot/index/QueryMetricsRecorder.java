@@ -11,6 +11,7 @@ import com.xgen.mongot.index.query.OperatorQuery;
 import com.xgen.mongot.index.query.Query;
 import com.xgen.mongot.index.query.SearchQuery;
 import com.xgen.mongot.index.query.VectorSearchQuery;
+import com.xgen.mongot.index.query.collectors.AggregationCollector;
 import com.xgen.mongot.index.query.collectors.Collector;
 import com.xgen.mongot.index.query.collectors.DrillSidewaysInfoBuilder.DrillSidewaysInfo;
 import com.xgen.mongot.index.query.collectors.DrillSidewaysInfoBuilder.DrillSidewaysInfo.QueryOptimizationStatus;
@@ -204,6 +205,9 @@ public class QueryMetricsRecorder {
                   .filter(status -> status != QueryOptimizationStatus.NON_DRILL_SIDEWAYS)
                   .map(this.queryFeaturesMetricsUpdater::getFacetDrillSidewaysCounter)
                   .stream());
+      case AggregationCollector aggregationCollector ->
+          // Aggregation is not supported yet
+          Stream.empty();
     };
   }
 

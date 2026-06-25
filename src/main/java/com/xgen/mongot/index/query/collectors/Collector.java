@@ -13,7 +13,8 @@ import java.util.Optional;
 import org.bson.BsonDocument;
 import org.bson.BsonValue;
 
-public sealed interface Collector extends DocumentEncodable permits FacetCollector {
+public sealed interface Collector extends DocumentEncodable
+    permits FacetCollector, AggregationCollector {
 
   class Fields {
     public static final Field.Optional<FacetCollector> FACET =
@@ -32,8 +33,13 @@ public sealed interface Collector extends DocumentEncodable permits FacetCollect
             .noDefault();
   }
 
+  // Aggregation isn't ready: so it is not user-selectable yet and is excluded from this
+  // user-facing list of valid collectors.
   public static final String ALL_COLLECTORS =
-      Arrays.stream(Type.values()).map(Type::getName).collect(joining(", "));
+      Arrays.stream(Type.values())
+          .filter(type -> type != Type.AGGREGATION)
+          .map(Type::getName)
+          .collect(joining(", "));
 
   /**
    * Collector Type Enumeration.
@@ -45,7 +51,10 @@ public sealed interface Collector extends DocumentEncodable permits FacetCollect
    */
   enum Type {
     /** All collector types (with their associated name in MQL) */
-    FACET("facet");
+    FACET("facet"),
+
+    /** Aggregation collector type */
+    AGGREGATION("aggregation");
 
     private final String name;
 
@@ -79,6 +88,9 @@ public sealed interface Collector extends DocumentEncodable permits FacetCollect
     return switch (this) {
       case FacetCollector facetCollector ->
           builder.field(Fields.FACET_10K_ALLOWED, Optional.of(facetCollector)).build();
+      case AggregationCollector aggregationCollector ->
+          throw new UnsupportedOperationException(
+              "AggregationCollector BSON serialization is not implemented");
     };
   }
 

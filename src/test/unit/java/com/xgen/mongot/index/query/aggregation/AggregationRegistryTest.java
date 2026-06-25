@@ -8,6 +8,7 @@ import static org.junit.Assert.assertTrue;
 import com.xgen.mongot.util.FieldPath;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.After;
 import org.junit.Test;
 
@@ -25,15 +26,15 @@ public class AggregationRegistryTest {
 
   /** Minimal inline operator spec used only to verify supplier wiring. */
   private static final class TestOpSpec extends OperatorAggregationSpec {
-    private final FieldPath path;
+    private final Optional<FieldPath> path;
 
-    TestOpSpec(String name, FieldPath path) {
+    TestOpSpec(String name, Optional<FieldPath> path) {
       super(Operator.SUM, name);
       this.path = path;
     }
 
     public FieldPath getPath() {
-      return this.path;
+      return this.path.orElseThrow();
     }
 
     @Override
@@ -73,13 +74,17 @@ public class AggregationRegistryTest {
 
   @Test
   public void installRegistersGroupSupplier() {
-    AggregationRegistry.install(Map.of("group", TestGrpSpec::new), Map.of());
+    AggregationRegistry.install(
+        Map.of(
+            "group",
+            (name, path, children, args, context) -> new TestGrpSpec(name, path, children)),
+        Map.of());
 
     AggregationRegistry.GroupSpecSupplier supplier =
         AggregationRegistry.getInstance().getGroupSpecSupplier("group");
     assertNotNull(supplier);
 
-    GroupAggregationSpec spec = supplier.build("by_city", CITY, List.of());
+    GroupAggregationSpec spec = supplier.build("by_city", CITY, List.of(), null, null);
     assertEquals("by_city", spec.name());
     assertEquals(CITY, spec.getPath());
     assertTrue(spec.children().isEmpty());
@@ -93,7 +98,7 @@ public class AggregationRegistryTest {
         AggregationRegistry.getInstance().getOperatorSupplier("op");
     assertNotNull(supplier);
 
-    OperatorAggregationSpec spec = supplier.build("avg_price", PRICE);
+    OperatorAggregationSpec spec = supplier.build("avg_price", Optional.of(PRICE));
     assertEquals("avg_price", spec.name());
     assertEquals(PRICE, ((TestOpSpec) spec).getPath());
     assertEquals(Operator.SUM, spec.getOperator());

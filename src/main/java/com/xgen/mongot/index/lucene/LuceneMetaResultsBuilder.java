@@ -17,6 +17,8 @@ import com.xgen.mongot.index.lucene.searcher.LuceneIndexSearcher;
 import com.xgen.mongot.index.query.CollectorQuery;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.ReturnScope;
+import com.xgen.mongot.index.query.aggregation.AggregationResult;
+import com.xgen.mongot.index.query.collectors.AggregationCollector;
 import com.xgen.mongot.index.query.collectors.FacetCollector;
 import com.xgen.mongot.index.query.collectors.FacetDefinition;
 import com.xgen.mongot.index.query.counts.Count;
@@ -107,7 +109,39 @@ class LuceneMetaResultsBuilder {
         yield new MetaResults(
             LuceneFacetResultUtil.getCount(
                 topDocs.totalHits.value(), collectorQuery.count().type()),
-            Optional.of(facets));
+            Optional.of(facets),
+            Optional.empty());
+      }
+      case AggregationCollector aggregationCollector -> {
+        throw new UnsupportedOperationException(
+            "AggregationCollector is not supported in legacy search facet");
+      }
+    };
+  }
+
+  public MetaResults buildAggregationMetaResults(
+      LuceneIndexSearcherReference searcherReference,
+      TopDocs topDocs,
+      AggregationResult aggregationResult,
+      CollectorQuery collectorQuery,
+      boolean concurrentSearch)
+      throws IOException, InterruptedException, InvalidQueryException {
+
+    // Ensure that we have an exact count.
+    checkState(
+        topDocs.totalHits.relation() == TotalHits.Relation.EQUAL_TO,
+        "FacetsCollector did not provide an exact count");
+    return switch (collectorQuery.collector()) {
+      case AggregationCollector aggregationCollector -> {
+        yield new MetaResults(
+            LuceneFacetResultUtil.getCount(
+                topDocs.totalHits.value(), collectorQuery.count().type()),
+            Optional.empty(),
+            Optional.of(aggregationResult));
+      }
+      case FacetCollector facetCollector -> {
+        throw new UnsupportedOperationException(
+            "FacetCollector is not supported in aggregation search");
       }
     };
   }
@@ -159,7 +193,12 @@ class LuceneMetaResultsBuilder {
         yield new MetaResults(
             LuceneFacetResultUtil.getCount(
                 topDocs.totalHits.value(), collectorQuery.count().type()),
-            Optional.of(facets));
+            Optional.of(facets),
+            Optional.empty());
+      }
+      case AggregationCollector aggregationCollector -> {
+        throw new UnsupportedOperationException(
+            "AggregationCollector is not supported in drill sideways facet");
       }
     };
   }

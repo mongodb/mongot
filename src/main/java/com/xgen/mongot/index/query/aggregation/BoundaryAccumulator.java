@@ -1,6 +1,7 @@
 package com.xgen.mongot.index.query.aggregation;
 
 import com.google.errorprone.annotations.Var;
+import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
 import com.xgen.mongot.util.FieldPath;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -34,10 +35,11 @@ final class BoundaryAccumulator extends BucketsAccumulator {
   BoundaryAccumulator(
       BoundaryGroupAggregationSpec spec,
       AggregationContext context,
-      List<Accumulator> childAccumulators) {
+      List<Accumulator> childAccumulators,
+      TypeField typeField) {
     super(spec.name(), childAccumulators, context);
     this.path = spec.getPath();
-    this.luceneField = context.resolveLuceneFieldName(this.path);
+    this.luceneField = typeField.getLuceneFieldName(this.path, Optional.empty());
     this.edges = spec.boundaryEdges();
     this.numRanges = this.edges.length - 1;
     this.lastEdgeInclusive = spec.lastEdgeInclusive();

@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.bson.BsonDocument;
 
 /**
  * Result produced by the top-level aggregation. Wraps the child results (one per top-level
@@ -46,5 +47,14 @@ public record TopLevelAggregationResult(List<AggregationResult> childResults)
       merged.add(child.mergePartitionResult(otherByName.get(child.getName())));
     }
     return new TopLevelAggregationResult(merged);
+  }
+
+  @Override
+  public BsonDocument toStandaloneBson() {
+    var result = new BsonDocument();
+    for (AggregationResult child : this.childResults) {
+      result.append(child.getName(), child.toStandaloneBson());
+    }
+    return result;
   }
 }

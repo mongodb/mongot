@@ -6,6 +6,7 @@ import com.google.common.collect.ImmutableList;
 import com.xgen.mongot.index.query.CollectorQuery;
 import com.xgen.mongot.index.query.OperatorQuery;
 import com.xgen.mongot.index.query.SearchQuery;
+import com.xgen.mongot.index.query.collectors.AggregationCollector;
 import com.xgen.mongot.index.query.collectors.FacetCollector;
 import com.xgen.mongot.index.query.collectors.FacetDefinition;
 import com.xgen.mongot.index.query.counts.Count;
@@ -91,6 +92,10 @@ public class ShardedSearchPlanner {
           case FacetCollector facetCollector -> {
             Map<String, FacetDefinition> facetDefinitions = facetCollector.facetDefinitions();
             yield buildMetaPipeline(countType, Optional.of(facetDefinitions));
+          }
+          case AggregationCollector aggregationCollector -> {
+            throw new UnsupportedOperationException(
+                "Aggregation is not supported for intermediate query yet");
           }
         }
       }

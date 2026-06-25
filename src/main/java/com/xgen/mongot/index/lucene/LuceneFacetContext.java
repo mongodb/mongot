@@ -33,7 +33,7 @@ import org.bson.BsonValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-class LuceneFacetContext {
+public class LuceneFacetContext {
   private static final Logger logger = LoggerFactory.getLogger(LuceneFacetContext.class);
 
   private final SearchFieldDefinitionResolver fieldDefinitionResolver;
@@ -98,11 +98,12 @@ class LuceneFacetContext {
       Optional<FieldPath> returnScope)
       throws InvalidQueryException {
     FieldPath fieldPath = FieldPath.parse(facetDefinition.path());
-    FieldName.TypeField type = getFacetFieldType(facetDefinition, returnScope);
+    FieldName.TypeField type = getBoundaryFacetFieldType(facetDefinition, returnScope);
     return type.getLuceneFieldName(fieldPath, returnScope);
   }
 
-  FieldName.TypeField getFacetFieldType(
+  /** Returns the {@link FieldName.TypeField} for a boundary facet field (e.g. V2 number/date). */
+  public FieldName.TypeField getBoundaryFacetFieldType(
       FacetDefinition.BoundaryFacetDefinition<? extends BsonValue> facetDefinition,
       Optional<FieldPath> returnScope)
       throws InvalidQueryException {
@@ -141,12 +142,16 @@ class LuceneFacetContext {
     }
   }
 
+  public SearchFieldDefinitionResolver getFieldDefinitionResolver() {
+    return this.fieldDefinitionResolver;
+  }
+
   LongRange[] getRanges(
       FacetDefinition.BoundaryFacetDefinition<? extends BsonValue> boundaryFacetDefinition,
       Optional<FieldPath> returnScope)
       throws InvalidQueryException {
     List<? extends BsonValue> boundaries = boundaryFacetDefinition.boundaries();
-    FieldName.TypeField typeField = getFacetFieldType(boundaryFacetDefinition, returnScope);
+    FieldName.TypeField typeField = getBoundaryFacetFieldType(boundaryFacetDefinition, returnScope);
     checkState(boundaries.size() > 1, "facet boundaries must have at least 2 boundaries.");
     LongRange[] result = new LongRange[boundaries.size() - 1];
     for (int i = 1; i < boundaries.size(); i++) {
@@ -290,7 +295,7 @@ class LuceneFacetContext {
       throws InvalidQueryException {
     NumericFieldOptions.Representation numericRepresentation =
         getNumberFacetFieldDefinition(facetDefinition, returnScope).options().representation();
-    FieldName.TypeField typeField = getFacetFieldType(facetDefinition, returnScope);
+    FieldName.TypeField typeField = getBoundaryFacetFieldType(facetDefinition, returnScope);
     List<Long> resolvedBoundaries =
         facetDefinition.boundaries().stream()
             .map((val) -> getNumericRangeValue(val, numericRepresentation, typeField))

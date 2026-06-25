@@ -240,7 +240,7 @@ public class FacetMergingBatchProducer implements BatchProducer {
     }
     // Explicitly calling close() from this class, which throws no exception.
     this.close();
-    return new MetaResults(countResult, Optional.of(facetNameToInfo));
+    return new MetaResults(countResult, Optional.of(facetNameToInfo), Optional.empty());
   }
 
   @Override

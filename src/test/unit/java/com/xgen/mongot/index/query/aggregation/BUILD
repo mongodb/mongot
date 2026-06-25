@@ -7,6 +7,7 @@ java_test_suite(
         "AggregationRegistryTest.java",
         "AggregationTestSupport.java",
         "BoundaryAggregationTest.java",
+        "BoundaryEncoderTest.java",
         "PrimitiveArrayTest.java",
         "ResultTest.java",
         "ShardMergePipelineBuilderTest.java",
@@ -16,6 +17,8 @@ java_test_suite(
     tags = ["unit"],
     deps = [
         "//src/main/java/com/xgen/mongot/index/definition",
+        "//src/main/java/com/xgen/mongot/index/lucene/field",
+        "//src/main/java/com/xgen/mongot/index/lucene/util",
         "//src/main/java/com/xgen/mongot/index/query/aggregation",
         "//src/main/java/com/xgen/mongot/util",
         "@maven//:junit_junit",

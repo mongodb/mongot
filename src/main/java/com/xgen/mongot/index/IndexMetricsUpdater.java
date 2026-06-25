@@ -4,6 +4,7 @@ import static com.xgen.mongot.index.IndexTypeData.INDEX_TYPE_TAG_NAME;
 import static com.xgen.mongot.index.IndexTypeData.getIndexTypeTag;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.CaseFormat;
 import com.google.common.flogger.FluentLogger;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexCapabilities;
@@ -23,11 +24,14 @@ import com.xgen.mongot.index.query.sort.NullEmptySortPosition;
 import com.xgen.mongot.metrics.PerIndexMetricsFactory;
 import com.xgen.mongot.metrics.ServerStatusDataExtractor;
 import com.xgen.mongot.util.Bytes;
+import com.xgen.mongot.util.Enums;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
 import java.io.Closeable;
+import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -1091,7 +1095,7 @@ public class IndexMetricsUpdater implements Closeable {
                 createCounter(
                     metricsFactory,
                     facetDrillSidewaysCounterName(QueryOptimizationStatus.GENERIC)));
-        this.collectorTypeCounterMap = createEnumCounterMap(metricsFactory, Collector.Type.class);
+        this.collectorTypeCounterMap = createReportedCollectorTypeCounterMap(metricsFactory);
         this.operatorTypeCounterMap = createEnumCounterMap(metricsFactory, Operator.Type.class);
         this.scoreTypeCounterMap = createEnumCounterMap(metricsFactory, Score.Type.class);
         this.textMatchCriteriaCounterMap =
@@ -1135,6 +1139,21 @@ public class IndexMetricsUpdater implements Closeable {
                 metricsFactory.counter(
                     METRIC_NAME,
                     Tags.of(NAME_TAG, String.format("%s%s", featureNameTagPrefix, featureName))));
+      }
+
+      // Aggregation isn't ready: it is intentionally excluded from the reported
+      // `collectorTypeCount` metric.
+      private static Map<Collector.Type, Counter> createReportedCollectorTypeCounterMap(
+          PerIndexMetricsFactory metricsFactory) {
+        Map<Collector.Type, Counter> counters = new EnumMap<>(Collector.Type.class);
+        for (Collector.Type type : EnumSet.complementOf(EnumSet.of(Collector.Type.AGGREGATION))) {
+          counters.put(
+              type,
+              metricsFactory.counter(
+                  METRIC_NAME,
+                  Tags.of(NAME_TAG, Enums.convertNameTo(CaseFormat.LOWER_CAMEL, type))));
+        }
+        return counters;
       }
 
       public Counter getSynonymsCounter() {

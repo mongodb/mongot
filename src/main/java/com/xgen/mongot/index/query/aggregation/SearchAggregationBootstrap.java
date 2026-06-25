@@ -1,0 +1,79 @@
+package com.xgen.mongot.index.query.aggregation;
+
+import com.xgen.mongot.index.definition.FieldDefinition;
+import com.xgen.mongot.index.definition.FieldTypeDefinition;
+import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
+import com.xgen.mongot.index.query.aggregation.AggregationRegistry.GroupSpecSupplier;
+import com.xgen.mongot.index.query.aggregation.AggregationRegistry.GroupingArgs;
+import com.xgen.mongot.util.Check;
+import com.xgen.mongot.util.FieldPath;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import org.bson.BsonValue;
+
+/** All AggregationSpec registration should be done in this class at startup. */
+public class SearchAggregationBootstrap {
+  // Internal operator and grouping keys
+  public static final String TERMS = "terms";
+  public static final String NUMBER_BOUNDARY = "numberBoundary";
+  public static final String DATE_BOUNDARY = "dateBoundary";
+
+  private SearchAggregationBootstrap() {}
+
+  public static void installRegistry() {
+    // TODO(CLOUDP-413102) Add operator registry
+    AggregationRegistry.install(groupSuppliers(), Map.of());
+  }
+
+  private static Map<String, GroupSpecSupplier> groupSuppliers() {
+    return Map.of(
+        TERMS,
+        (name, path, children, args, context) -> {
+          GroupingArgs.TermsArgs termsArgs = Check.instanceOf(args, GroupingArgs.TermsArgs.class);
+          return new TermsGroupAggregationSpec(name, path, children, termsArgs);
+        },
+        NUMBER_BOUNDARY,
+        (name, path, children, args, context) ->
+            SearchAggregationBootstrap.boundary(name, path, children, args, NUMBER_BOUNDARY),
+        DATE_BOUNDARY,
+        (name, path, children, args, context) ->
+            SearchAggregationBootstrap.boundary(name, path, children, args, DATE_BOUNDARY));
+  }
+
+  private static GroupAggregationSpec boundary(
+      String name,
+      FieldPath path,
+      List<AggregationSpec> children,
+      GroupingArgs args,
+      String boundaryType) {
+    GroupingArgs.BoundaryArgs boundaryArgs =
+        Check.instanceOf(args, GroupingArgs.BoundaryArgs.class);
+    TypeField typeField = boundaryArgs.typeField();
+    FieldDefinition fieldDef = boundaryArgs.fieldDefinition();
+    // We only expect V2 number and date field indexing definition.
+    FieldTypeDefinition fieldTypeDefinition =
+        switch (boundaryType) {
+          case NUMBER_BOUNDARY -> fieldDef.numberFieldDefinition().orElseThrow();
+          case DATE_BOUNDARY -> fieldDef.dateFieldDefinition().orElseThrow();
+          default ->
+              throw new IllegalArgumentException("Unsupported boundary type: " + boundaryType);
+        };
+
+    List<? extends BsonValue> boundaries = boundaryArgs.boundaries();
+    int n = boundaries.size();
+    long[] edges = new long[n];
+    // Since boundaries is right exclusive, so minus one for number of ranges.
+    List<BsonValue> rangeKeys = new ArrayList<>(n - 1);
+    for (int i = 0; i < n; i++) {
+      edges[i] = BoundaryEncoder.encode(boundaries.get(i), fieldTypeDefinition, typeField);
+      if (i < n - 1) {
+        rangeKeys.add(boundaries.get(i));
+      }
+    }
+    boolean lastEdgeInclusive =
+        BoundaryEncoder.lastEdgeInclusive(boundaries.get(n - 1), fieldTypeDefinition);
+    return new BoundaryGroupAggregationSpec(
+        name, path, children, edges, rangeKeys, lastEdgeInclusive, boundaryArgs);
+  }
+}

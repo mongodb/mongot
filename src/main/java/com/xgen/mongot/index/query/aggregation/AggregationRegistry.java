@@ -1,9 +1,14 @@
 package com.xgen.mongot.index.query.aggregation;
 
+import com.xgen.mongot.index.definition.FieldDefinition;
+import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
+import com.xgen.mongot.index.query.aggregation.AggregationRegistry.GroupingArgs.BoundaryArgs;
+import com.xgen.mongot.index.query.aggregation.AggregationRegistry.GroupingArgs.TermsArgs;
 import com.xgen.mongot.util.FieldPath;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.bson.BsonValue;
 
 /**
  * Registry for aggregation type name to their spec factories.
@@ -21,12 +26,32 @@ import java.util.Optional;
 public class AggregationRegistry {
 
   /**
+   * Group-level arguments to describe level-specific configuration such as max number of buckets.
+   */
+  public sealed interface GroupingArgs permits TermsArgs, BoundaryArgs {
+
+    record TermsArgs(boolean isRoot, TypeField typeField, int numBuckets) implements GroupingArgs {}
+
+    record BoundaryArgs(
+        List<? extends BsonValue> boundaries,
+        Optional<BsonValue> defaultKey,
+        TypeField typeField,
+        FieldDefinition fieldDefinition)
+        implements GroupingArgs {}
+  }
+
+  /**
    * Factory for bucket (group) aggregation specs. Receives the user-assigned aggregation name, the
    * resolved field path, and the list of already-parsed child specs.
    */
   @FunctionalInterface
   public interface GroupSpecSupplier {
-    GroupAggregationSpec build(String name, FieldPath path, List<AggregationSpec> children);
+    GroupAggregationSpec build(
+        String name,
+        FieldPath path,
+        List<AggregationSpec> children,
+        GroupingArgs args,
+        AggregationContext context);
   }
 
   /**
@@ -35,7 +60,8 @@ public class AggregationRegistry {
    */
   @FunctionalInterface
   public interface OperatorSupplier {
-    OperatorAggregationSpec build(String name, FieldPath path);
+    // path is empty when the operator doesn't require a value field such as count.
+    OperatorAggregationSpec build(String name, Optional<FieldPath> path);
   }
 
   /**

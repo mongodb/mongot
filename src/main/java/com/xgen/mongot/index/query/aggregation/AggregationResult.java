@@ -1,5 +1,7 @@
 package com.xgen.mongot.index.query.aggregation;
 
+import org.bson.BsonValue;
+
 /** The interface for the result of any aggregation query. */
 public interface AggregationResult {
 
@@ -16,4 +18,7 @@ public interface AggregationResult {
    * for merging results from different partitions/ segments.
    */
   AggregationResult mergePartitionResult(AggregationResult other);
+
+  /** Result for non-intermediate query path. */
+  BsonValue toStandaloneBson();
 }
