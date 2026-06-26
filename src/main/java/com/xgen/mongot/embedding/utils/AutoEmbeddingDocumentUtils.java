@@ -151,6 +151,20 @@ public class AutoEmbeddingDocumentUtils {
             consolidatedEmbeddingMap,
             schemaMetadata);
 
+    // CLOUDP-402522: collect filter fields whose source path is a strict descendant of the
+    // source nestedRoot, so they can be co-located with the embedded vector under the
+    // materialized-view nestedRoot (e.g. _autoEmbed.sections). Without this, those filters end
+    // up indexed at the root document while the vector lives at the embedded child level,
+    // breaking nested $vectorSearch queries that combine `filter` with a path under the source
+    // nestedRoot. Top-level filters and other passthrough fields are unaffected — the schema
+    // mapping has no entry for them, so the helper is a no-op for those paths.
+    ImmutableMap<FieldPath, BsonValue> remappedFilterValuesPerMatViewPath =
+        buildRemappedFilterValuesPerMatViewPath(
+            rawDocumentEvent.getDocument().get(),
+            fieldMapping,
+            consolidatedEmbeddingMap,
+            schemaMetadata);
+
     BsonDocument bsonDoc = new BsonDocument();
     MaterializedViewDocumentHandler handler =
         MaterializedViewDocumentHandler.create(fieldMapping, Optional.empty(), bsonDoc);
@@ -159,6 +173,9 @@ public class AutoEmbeddingDocumentUtils {
     for (var embeddingOrHashEntry : collectedEmbeddingsPerMatViewPath.entrySet()) {
       addBsonValueToBsonDocument(
           bsonDoc, embeddingOrHashEntry.getKey(), embeddingOrHashEntry.getValue());
+    }
+    for (var filterEntry : remappedFilterValuesPerMatViewPath.entrySet()) {
+      addBsonValueToBsonDocument(bsonDoc, filterEntry.getKey(), filterEntry.getValue());
     }
 
     stripIdForMaterializedViewWrite(bsonDoc);
@@ -187,6 +204,128 @@ public class AutoEmbeddingDocumentUtils {
    */
   static void stripIdForMaterializedViewWrite(BsonDocument bsonDoc) {
     bsonDoc.remove("_id");
+  }
+
+  /**
+   * Collects filter-field values whose source path is a strict descendant of the source {@code
+   * nestedRoot}, keyed by their materialized-view path (e.g. {@code sections.section_name = ["s1",
+   * "s2"]} -> {@code _autoEmbed.sections.section_name = "s1"}).
+   *
+   * <p>Row alignment: the selected value must come from the same child array element as the
+   * embedded vector, else nested {@code $vectorSearch} colocates vector and filter from different
+   * elements and misses matches. We mirror {@link #buildEmbeddingsPerMatViewPath}'s index choice
+   * (first non-empty {@link BsonString} with a vector) and skip filters for any nestedRoot whose
+   * embed wrote nothing.
+   */
+  private static ImmutableMap<FieldPath, BsonValue> buildRemappedFilterValuesPerMatViewPath(
+      RawBsonDocument rawBsonDocument,
+      AutoEmbedFieldMapping mappings,
+      Map<FieldPath, Map<String, Vector>> consolidatedEmbeddingMap,
+      MaterializedViewSchemaMetadata schemaMetadata)
+      throws IOException {
+    Map<FieldPath, FieldPath> schemaFieldsMapping = schemaMetadata.autoEmbeddingFieldsMapping();
+    if (schemaFieldsMapping.isEmpty()) {
+      return ImmutableMap.of();
+    }
+    // Single pass collects both the embed text values (for index selection) and the remapped
+    // filter values. AUTO_EMBED writes are still owned by buildEmbeddingsPerMatViewPath; the
+    // embed branch here is read-only and used only to pick the array index.
+    CollectFieldValueDocumentHandler collectValuesHandler =
+        CollectFieldValueDocumentHandler.create(
+            mappings,
+            Optional.empty(),
+            path ->
+                schemaFieldsMapping.containsKey(path)
+                    && (mappings.isPassthrough(path)
+                        || (mappings.isEmbed(path) && consolidatedEmbeddingMap.containsKey(path))),
+            true);
+    BsonDocumentProcessor.process(rawBsonDocument, collectValuesHandler);
+    ImmutableMap<FieldPath, List<BsonValue>> collected = collectValuesHandler.getCollectedValues();
+
+    // For each remapped embed source path, find the document-order index of the value
+    // buildEmbeddingsPerMatViewPath will pick (first non-empty BsonString with a vector). If no
+    // such index exists, the embed will write nothing for that path and we must skip its filters
+    // too — otherwise the MV would carry filter values pointing at no vector.
+    Map<FieldPath, Integer> chosenIndexPerEmbedSource = new HashMap<>();
+    for (var entry : collected.entrySet()) {
+      FieldPath sourcePath = entry.getKey();
+      if (!mappings.isEmbed(sourcePath)) {
+        continue;
+      }
+      Map<String, Vector> vectors = consolidatedEmbeddingMap.get(sourcePath);
+      List<BsonValue> values = entry.getValue();
+      for (int i = 0; i < values.size(); i++) {
+        BsonValue v = values.get(i);
+        if (v.isString()
+            && !v.asString().getValue().isEmpty()
+            && vectors.containsKey(v.asString().getValue())) {
+          chosenIndexPerEmbedSource.put(sourcePath, i);
+          break;
+        }
+      }
+    }
+
+    ImmutableMap.Builder<FieldPath, BsonValue> resultBuilder = ImmutableMap.builder();
+    for (var entry : collected.entrySet()) {
+      FieldPath sourcePath = entry.getKey();
+      if (!mappings.isPassthrough(sourcePath)) {
+        continue;
+      }
+      List<BsonValue> values = entry.getValue();
+      if (values.isEmpty()) {
+        continue;
+      }
+      Optional<FieldPath> governingEmbed =
+          findGoverningEmbedSource(sourcePath, chosenIndexPerEmbedSource.keySet());
+      if (governingEmbed.isEmpty()) {
+        // No embed in the same nestedRoot subtree produced a vector — skip so we don't write a
+        // filter value without a corresponding vector on the same MV child document.
+        continue;
+      }
+      @Var int index = chosenIndexPerEmbedSource.get(governingEmbed.get());
+      if (index >= values.size()) {
+        // Defensive: the embed and filter lists have diverged (missing values in some array
+        // elements shifted the indices). Fall back to the first value rather than dropping the
+        // filter entirely — this preserves pre-CLOUDP-402522 behavior for the divergent case.
+        LOG.warn(
+            "Filter list shorter than embed-chosen index for {}; falling back to first value."
+                + " embedSource={} chosenIndex={} filterSize={}",
+            sourcePath,
+            governingEmbed.get(),
+            index,
+            values.size());
+        index = 0;
+      }
+      resultBuilder.put(schemaFieldsMapping.get(sourcePath), values.get(index));
+    }
+    return resultBuilder.build();
+  }
+
+  /**
+   * Returns the embed source governing {@code filterSource}'s row-index choice: the one sharing the
+   * deepest common ancestor with it — in practice the auto-embed under the same nestedRoot.
+   */
+  private static Optional<FieldPath> findGoverningEmbedSource(
+      FieldPath filterSource, Set<FieldPath> embedSources) {
+    @Var FieldPath best = null;
+    @Var int bestDepth = -1;
+    for (FieldPath embedSource : embedSources) {
+      Optional<FieldPath> commonAncestor = deepestCommonAncestor(filterSource, embedSource);
+      if (commonAncestor.isEmpty()) {
+        continue;
+      }
+      int depth = commonAncestor.get().getPathHierarchy().size();
+      if (depth > bestDepth) {
+        bestDepth = depth;
+        best = embedSource;
+      }
+    }
+    return Optional.ofNullable(best);
+  }
+
+  private static Optional<FieldPath> deepestCommonAncestor(FieldPath a, FieldPath b) {
+    ImmutableSet<FieldPath> ancestorsOfA = a.ancestorPaths().collect(ImmutableSet.toImmutableSet());
+    return b.ancestorPaths().filter(ancestorsOfA::contains).findFirst();
   }
 
   /**
@@ -230,6 +369,25 @@ public class AutoEmbeddingDocumentUtils {
       var sourceDocValues = sourceFilterValuesCollector.getCollectedValues();
       var matViewValues = matViewFilterValuesCollector.getCollectedValues();
 
+      // CLOUDP-402522: for filters remapped under a nestedRoot, the MV holds the value from the
+      // embed-chosen array index (the first non-empty embed element), which is not necessarily
+      // index 0. Recompute the expected MV filter values with the SAME selection logic the writer
+      // uses (buildRemappedFilterValuesPerMatViewPath) so the comparison aligns with that index
+      // instead of assuming index 0 — otherwise docs whose chosen index > 0 re-index forever. A
+      // filter-only resync generates no embeddings, so mark every embed text present in the source
+      // as "embedded" (map values are unused; only key presence drives the index selection).
+      Map<FieldPath, Map<String, Vector>> embedTextSelectionMap = new HashMap<>();
+      for (var textEntry : getVectorTextPathMap(sourceDoc, mappings).entrySet()) {
+        Map<String, Vector> textsAsKeys = new HashMap<>();
+        for (String text : textEntry.getValue()) {
+          textsAsKeys.put(text, null);
+        }
+        embedTextSelectionMap.put(textEntry.getKey(), textsAsKeys);
+      }
+      ImmutableMap<FieldPath, BsonValue> expectedRemappedFilterValues =
+          buildRemappedFilterValuesPerMatViewPath(
+              sourceDoc, mappings, embedTextSelectionMap, schemaMetadata);
+
       for (Map.Entry<FieldPath, AutoEmbedField> entry : mappings.fieldMap().entrySet()) {
         FieldPath sourceFieldPath = entry.getKey();
         FieldPath matViewFieldPath =
@@ -240,10 +398,28 @@ public class AutoEmbeddingDocumentUtils {
 
         // Check filter values = here we do a simple equality check.
         if (field instanceof AutoEmbedField.PassthroughField) {
-          // Still use matViewFieldPath for filter as we store filter field as is.
-          if (!Objects.equals(
-              sourceDocValues.get(sourceFieldPath), matViewValues.get(matViewFieldPath))) {
-            needsReIndexing = true;
+          if (sourceFieldPath.equals(matViewFieldPath)) {
+            // Top-level filter (no remapping): compare the full collected lists.
+            if (!Objects.equals(
+                sourceDocValues.get(sourceFieldPath), matViewValues.get(matViewFieldPath))) {
+              needsReIndexing = true;
+            }
+          } else {
+            // CLOUDP-402522: filter field under source nestedRoot is stored in the MV at the
+            // remapped path, carrying the value from the embed-chosen array index (mirrors the
+            // single-vector limit in buildEmbeddingsPerMatViewPath). Compare the value the writer
+            // would have picked (expectedRemappedFilterValues) against the MV's stored value so the
+            // comparison aligns with that index rather than assuming index 0. A skipped filter
+            // (no governing vector) is absent from both maps, so null == null avoids re-indexing.
+            BsonValue expectedValue = expectedRemappedFilterValues.get(matViewFieldPath);
+            List<BsonValue> matViewValuesList = matViewValues.get(matViewFieldPath);
+            BsonValue storedMatViewValue =
+                (matViewValuesList == null || matViewValuesList.isEmpty())
+                    ? null
+                    : matViewValuesList.get(0);
+            if (!Objects.equals(expectedValue, storedMatViewValue)) {
+              needsReIndexing = true;
+            }
           }
         }
 
@@ -677,6 +853,27 @@ public class AutoEmbeddingDocumentUtils {
       }
     }
     return false;
+  }
+
+  /**
+   * Returns true when the index declares a filter field strictly under {@code sourceNestedRoot}.
+   * The MV co-locates such filters with the embedded vector under the MV nestedRoot, which the
+   * filter-only partial-update path ({@link #extractFilterFieldValues}) cannot reproduce — a
+   * partial {@code $set} would leave the co-located {@code _autoEmbed.*} filter stale and break
+   * nested {@code $vectorSearch}. Callers must fall back to a full replacement when this returns
+   * true.
+   */
+  public static boolean hasFilterUnderNestedRoot(
+      AutoEmbedFieldMapping fieldMapping, Optional<FieldPath> sourceNestedRoot) {
+    if (sourceNestedRoot.isEmpty()) {
+      return false;
+    }
+    return fieldMapping.fieldMap().values().stream()
+        .filter(field -> field instanceof AutoEmbedField.PassthroughField)
+        .anyMatch(
+            field ->
+                AutoEmbedFieldMappingCreator.isFilterUnderSourceNestedRoot(
+                    field.path(), sourceNestedRoot));
   }
 
   // TODO(CLOUDP-363302): Supports stored source.

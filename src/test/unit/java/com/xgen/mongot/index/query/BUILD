@@ -25,6 +25,8 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/index/query",
         "//src/main/java/com/xgen/mongot/index/query/counts",
         "//src/main/java/com/xgen/mongot/index/query/operators",
+        "//src/main/java/com/xgen/mongot/index/query/operators/mql",
+        "//src/main/java/com/xgen/mongot/index/query/operators/value",
         "//src/main/java/com/xgen/mongot/index/query/sort",
         "//src/main/java/com/xgen/mongot/index/version",
         "//src/main/java/com/xgen/mongot/util",

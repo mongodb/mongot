@@ -92,6 +92,99 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
   }
 
   @Test
+  public void testFilterOnlyUpdate_NestedFilterUnderNestedRoot_NotCreated() {
+    // CLOUDP-402522: filter fields under a nestedRoot are co-located with the embedded vector in
+    // the materialized view (e.g. _autoEmbed.sections.section_name). The filter-only partial-update
+    // path writes filters at their source paths only, so a partial $set would leave the co-located
+    // filter stale and break nested $vectorSearch queries that combine `filter` with a path under
+    // the nestedRoot. The optimization must be disabled and a full update produced instead.
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("sections.section_content")
+            .withFilterPath("sections.section_name")
+            .nestedRoot("sections")
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    UpdateDescription updateDesc =
+        new UpdateDescription(
+            null, new BsonDocument("sections.0.section_name", new BsonString("updated")));
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append(
+                "sections",
+                new BsonArray(
+                    List.of(
+                        new BsonDocument()
+                            .append("section_content", new BsonString("machine learning"))
+                            .append("section_name", new BsonString("updated")))))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> changeEvent =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, updateDesc, fullDocument);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+    // The skipped partial update is tracked as a NESTED_FILTER_REMAPPING full-replace fallback.
+    assertEquals(
+        Integer.valueOf(1),
+        batch.partialEmbedFallbacks.get(PartialEmbedFallbackReason.NESTED_FILTER_REMAPPING));
+  }
+
+  @Test
+  public void testFilterOnlyUpdate_TopLevelFilterWithNestedRoot_Created() {
+    // A top-level filter is not co-located under the MV nestedRoot, so the partial-update
+    // optimization stays safe even when the index has a nestedRoot for its embed field. The guard
+    // must only disable the optimization for filters that live under the nestedRoot.
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("sections.section_content")
+            .withFilterPath("category")
+            .nestedRoot("sections")
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    UpdateDescription updateDesc =
+        new UpdateDescription(null, new BsonDocument("category", new BsonString("updated")));
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append(
+                "sections",
+                new BsonArray(
+                    List.of(
+                        new BsonDocument()
+                            .append("section_content", new BsonString("machine learning")))))
+            .append("category", new BsonString("updated"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> changeEvent =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, updateDesc, fullDocument);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    DocumentEvent event = batch.finalChangeEvents.getFirst();
+    assertTrue(event.getFilterFieldUpdates().isPresent());
+    assertEquals(new BsonString("updated"), event.getFilterFieldUpdates().get().get("category"));
+    // A top-level filter stays partial, so no NESTED_FILTER_REMAPPING fallback is recorded.
+    assertTrue(batch.partialEmbedFallbacks.isEmpty());
+  }
+
+  @Test
   public void testVectorFieldUpdate_TextFieldIndex_NoFilterOnlyUpdate() {
     VectorIndexDefinition indexDef =
         VectorIndexDefinitionBuilder.builder()

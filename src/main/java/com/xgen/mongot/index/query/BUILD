@@ -40,6 +40,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/query/counts",
         "//src/main/java/com/xgen/mongot/index/query/highlights",
         "//src/main/java/com/xgen/mongot/index/query/operators",
+        "//src/main/java/com/xgen/mongot/index/query/operators/mql",
         "//src/main/java/com/xgen/mongot/index/query/sort",
         "//src/main/java/com/xgen/mongot/trace",
         "//src/main/java/com/xgen/mongot/util",

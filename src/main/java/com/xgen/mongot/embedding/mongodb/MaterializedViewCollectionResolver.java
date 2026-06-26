@@ -1,6 +1,5 @@
 package com.xgen.mongot.embedding.mongodb;
 
-import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.CURRENT_MAT_VIEW_SCHEMA_VERSION;
 import static com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata.VERSION_ZERO;
 import static com.xgen.mongot.util.mongodb.MongoDbDatabase.getCollectionInfo;
@@ -24,6 +23,8 @@ import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.VectorAutoEmbedFieldSpecification;
+import com.xgen.mongot.index.definition.VectorIndexDefinition;
+import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
 import com.xgen.mongot.index.definition.VectorTextFieldSpecification;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
@@ -36,8 +37,10 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -308,16 +311,25 @@ public class MaterializedViewCollectionResolver {
     } else if (mvSchemaVersion == 1) {
       AutoEmbedFieldMapping mapping =
           AutoEmbedFieldMappingCreator.createAutoEmbedMapping(indexDefinition);
-      ImmutableMap<FieldPath, FieldPath> schemaFieldsMapping =
-          mapping.embedFields().entrySet().stream()
-              .collect(
-                  toImmutableMap(
-                      Map.Entry::getKey,
-                      entry ->
-                          FieldPath.parse(
-                              MV_COLLECTION_SCHEMA_NAMESPACE
-                                  + FieldPath.DELIMITER
-                                  + entry.getKey().toString())));
+      // AUTO_EMBED (and legacy TEXT) source paths are always remapped into the MV namespace. Use a
+      // map so vector FILTER remapping below can be layered on without duplicate-key conflicts.
+      Map<FieldPath, FieldPath> schemaFields = new LinkedHashMap<>();
+      mapping
+          .embedFields()
+          .keySet()
+          .forEach(path -> schemaFields.put(path, toMvNamespacePath(path)));
+      // CLOUDP-402522: for vector auto-embed indexes with a nestedRoot, also remap FILTER fields
+      // whose path is a strict descendant of the source nestedRoot. They must live in the same MV
+      // namespace as the auto-embedded vector so block-join indexing places them on the same
+      // Lucene child documents. Top-level filters and fields outside the nestedRoot keep their
+      // source path.
+      if (indexDefinition instanceof VectorIndexDefinition vectorDef) {
+        Optional<FieldPath> sourceNestedRoot = vectorDef.getNestedRoot();
+        vectorDef.getMappings().fieldMap().entrySet().stream()
+            .filter(entry -> shouldRemapFieldToMvNamespace(entry.getValue(), sourceNestedRoot))
+            .forEach(entry -> schemaFields.put(entry.getKey(), toMvNamespacePath(entry.getKey())));
+      }
+      ImmutableMap<FieldPath, FieldPath> schemaFieldsMapping = ImmutableMap.copyOf(schemaFields);
       return new MaterializedViewCollectionMetadata(
           new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(
               mvSchemaVersion, schemaFieldsMapping),
@@ -326,6 +338,30 @@ public class MaterializedViewCollectionResolver {
     }
     throw new IllegalArgumentException(
         "Unsupported materialized view schema version: " + mvSchemaVersion);
+  }
+
+  /**
+   * Returns true when the given field's path must be remapped into the {@link
+   * #MV_COLLECTION_SCHEMA_NAMESPACE} namespace in the materialized view. AUTO_EMBED fields are
+   * always remapped (vectors are written to the MV at the prefixed path). FILTER fields are
+   * remapped only when their path is a strict descendant of the source {@code nestedRoot}, so that
+   * they live alongside the embedded vector in the Lucene block structure (CLOUDP-402522).
+   */
+  private static boolean shouldRemapFieldToMvNamespace(
+      VectorIndexFieldDefinition field, Optional<FieldPath> sourceNestedRoot) {
+    return switch (field.getType()) {
+      case AUTO_EMBED -> true;
+      case FILTER ->
+          AutoEmbedFieldMappingCreator.isFilterUnderSourceNestedRoot(
+              field.getPath(), sourceNestedRoot);
+      default -> false;
+    };
+  }
+
+  /** Prefixes a source field path with the materialized-view schema namespace. */
+  private static FieldPath toMvNamespacePath(FieldPath sourcePath) {
+    return FieldPath.parse(
+        MV_COLLECTION_SCHEMA_NAMESPACE + FieldPath.DELIMITER + sourcePath.toString());
   }
 
   /**

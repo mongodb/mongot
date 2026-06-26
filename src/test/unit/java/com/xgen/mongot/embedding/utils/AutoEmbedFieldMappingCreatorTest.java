@@ -366,6 +366,82 @@ public class AutoEmbedFieldMappingCreatorTest {
         mapping.isPassthrough(FieldPath.parse("declared_key")));
   }
 
+  /**
+   * CLOUDP-402522: when the schema mapping remaps a filter field under the source nestedRoot, the
+   * MV mapping must reflect the same MV path so that compareDocuments and downstream readers locate
+   * the filter at its actual MV location instead of its (no-longer-present) source path.
+   */
+  @Test
+  public void createMatViewAutoEmbedMapping_filterUnderNestedRoot_remappedToMvPath() {
+    var schemaMetadata =
+        new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(
+            1,
+            Map.of(
+                FieldPath.parse("sections.section_content"),
+                FieldPath.parse("_autoEmbed.sections.section_content"),
+                FieldPath.parse("sections.section_name"),
+                FieldPath.parse("_autoEmbed.sections.section_name")));
+    var autoEmbedUnderNested =
+        new VectorAutoEmbedFieldDefinition(
+            "voyage-3-large",
+            "text",
+            FieldPath.parse("sections.section_content"),
+            1024,
+            VectorSimilarity.COSINE,
+            VectorAutoEmbedQuantization.FLOAT);
+    var nestedFilter =
+        new VectorIndexFilterFieldDefinition(FieldPath.parse("sections.section_name"));
+    var topLevelFilter = new VectorIndexFilterFieldDefinition(FieldPath.parse("name"));
+    var indexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(List.of(autoEmbedUnderNested, nestedFilter, topLevelFilter))
+            .nestedRoot("sections")
+            .build();
+
+    var matViewMapping =
+        AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(indexDefinition, schemaMetadata);
+
+    FieldPath remappedFilterPath = FieldPath.parse("_autoEmbed.sections.section_name");
+    Assert.assertTrue(
+        "Filter under source nestedRoot must be remapped to the MV path.",
+        matViewMapping.fieldMap().containsKey(remappedFilterPath));
+    Assert.assertTrue(
+        "Top-level filter must keep its source path (no schema mapping entry).",
+        matViewMapping.fieldMap().containsKey(FieldPath.parse("name")));
+    Assert.assertFalse(
+        "Source filter path must not be present after remap.",
+        matViewMapping.fieldMap().containsKey(FieldPath.parse("sections.section_name")));
+  }
+
+  @Test
+  public void isFilterUnderSourceNestedRoot_descendantPath_returnsTrue() {
+    Assert.assertTrue(
+        AutoEmbedFieldMappingCreator.isFilterUnderSourceNestedRoot(
+            FieldPath.parse("sections.section_name"), Optional.of(FieldPath.parse("sections"))));
+  }
+
+  @Test
+  public void isFilterUnderSourceNestedRoot_topLevelPath_returnsFalse() {
+    Assert.assertFalse(
+        AutoEmbedFieldMappingCreator.isFilterUnderSourceNestedRoot(
+            FieldPath.parse("name"), Optional.of(FieldPath.parse("sections"))));
+  }
+
+  @Test
+  public void isFilterUnderSourceNestedRoot_noNestedRoot_returnsFalse() {
+    Assert.assertFalse(
+        AutoEmbedFieldMappingCreator.isFilterUnderSourceNestedRoot(
+            FieldPath.parse("sections.section_name"), Optional.empty()));
+  }
+
+  @Test
+  public void isFilterUnderSourceNestedRoot_pathEqualToNestedRoot_returnsFalse() {
+    Assert.assertFalse(
+        "isChildOf is strict; the nestedRoot itself is not a child of itself.",
+        AutoEmbedFieldMappingCreator.isFilterUnderSourceNestedRoot(
+            FieldPath.parse("sections"), Optional.of(FieldPath.parse("sections"))));
+  }
+
   // ---- getMatViewNestedRoot ----
 
   @Test

@@ -96,6 +96,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 import org.bson.BsonArray;
 import org.bson.BsonDocument;
 import org.bson.BsonValue;
@@ -822,7 +823,8 @@ public class VectorSearchCommand implements Command {
     return new MaterializedVectorSearchQuery(
         vectorSearchQuery,
         reconcileUserQueryVector(vectorSearchQuery, embedRequestInfo),
-        findAutoEmbeddingFieldsMapping(vectorSearchQuery));
+        findAutoEmbeddingFieldsMapping(vectorSearchQuery),
+        findAutoEmbedVectorSourcePaths(embedRequestInfo));
   }
 
   // Reconciles a user-supplied queryVector against the index's autoEmbed encoding: returns it
@@ -918,7 +920,8 @@ public class VectorSearchCommand implements Command {
     return new MaterializedVectorSearchQuery(
         vectorSearchQuery,
         Check.isPresent(result.vector, "vector"),
-        findAutoEmbeddingFieldsMapping(vectorSearchQuery));
+        findAutoEmbeddingFieldsMapping(vectorSearchQuery),
+        findAutoEmbedVectorSourcePaths(embedRequestInfo));
   }
 
   /** AutoEmbed quantization for the path; empty for non-autoEmbed fields (no reconciliation). */
@@ -974,6 +977,24 @@ public class VectorSearchCommand implements Command {
         spec.numDimensions(),
         VectorAutoEmbedQuantization.FLOAT // type:TEXT → always float32 provider output
         );
+  }
+
+  // All auto-embed (vector) source paths declared by the index, used to keep filter clauses from
+  // being remapped into a vector field's MV path. The schema mapping conflates AUTO_EMBED and
+  // FILTER remap entries, so MaterializedVectorSearchQuery needs the embed source paths to tell
+  // them apart when an index declares more than one auto-embed field (CLOUDP-402522).
+  private Set<FieldPath> findAutoEmbedVectorSourcePaths(
+      Optional<EmbedRequestInfo> embedRequestInfo) {
+    return embedRequestInfo
+        .filter(info -> info.sourceDefinition().isAutoEmbeddingIndex())
+        .map(info -> info.sourceDefinition().asVectorDefinition())
+        .map(
+            definition ->
+                definition.getFields().stream()
+                    .filter(VectorIndexFieldDefinition::isVectorField)
+                    .map(VectorIndexFieldDefinition::getPath)
+                    .collect(Collectors.toUnmodifiableSet()))
+        .orElse(Set.of());
   }
 
   private Map<FieldPath, FieldPath> findAutoEmbeddingFieldsMapping(

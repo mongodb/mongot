@@ -3,8 +3,9 @@ package com.xgen.mongot.embedding.utils;
 /**
  * Why an auto-embed index did a full document re-index instead of a partial-embed {@code $set}.
  * Most values come from {@link AutoEmbeddingDocumentUtils#computePartialEmbedChangedTexts}; {@link
- * #REPLACE_EVENT} and {@link #FILTER_EXTRACTION_FAILED} are recorded at the change-stream routing
- * layer. Exported as the snake_case {@code reason} tag on the {@code partialEmbedFallback} counter.
+ * #REPLACE_EVENT}, {@link #FILTER_EXTRACTION_FAILED} and {@link #NESTED_FILTER_REMAPPING} are
+ * recorded at the change-stream routing layer. Exported as the snake_case {@code reason} tag on the
+ * {@code partialEmbedFallback} counter.
  */
 public enum PartialEmbedFallbackReason {
   /** The update description was unavailable, so we can't reason about what changed. */
@@ -32,5 +33,11 @@ public enum PartialEmbedFallbackReason {
   /** A REPLACE operation: a full document replacement, recorded at the routing layer. */
   REPLACE_EVENT,
   /** Filter-field extraction threw at the routing layer; falls back to a full replace. */
-  FILTER_EXTRACTION_FAILED
+  FILTER_EXTRACTION_FAILED,
+  /**
+   * The index co-locates filter fields under a {@code nestedRoot} (CLOUDP-402522): a partial
+   * filter-only {@code $set} writes filters at their source paths and cannot reproduce the {@code
+   * _autoEmbed.*} co-location, so the routing layer falls back to a full replace.
+   */
+  NESTED_FILTER_REMAPPING
 }

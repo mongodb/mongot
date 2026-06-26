@@ -405,6 +405,25 @@ public class ChangeStreamDocumentUtils {
                 }
               }
             } else {
+              // CLOUDP-402522: when the index declares filter fields under a nestedRoot, the
+              // materialized view co-locates those filter values with the embedded vector under the
+              // MV nestedRoot (e.g. _autoEmbed.sections.section_name). The filter-only
+              // partial-update path writes filters at their source paths only and cannot reproduce
+              // that co-location, so a partial $set would leave the co-located _autoEmbed.* filter
+              // stale and break nested $vectorSearch queries that combine `filter` with a path
+              // under the nestedRoot. Fall back to a full replacement for these indexes, tracked
+              // via NESTED_FILTER_REMAPPING below. (Embed-changing updates on nested indexes
+              // already fall back via ARRAY_TRAVERSAL.)
+              // Follow-up (PR #6679): restore the partial-update optimization for nested indexes by
+              // emitting array-positional $set keys for the co-located _autoEmbed.* filter values
+              // (mirroring buildRemappedFilterValuesPerMatViewPath in the partial path); the
+              // NESTED_FILTER_REMAPPING fallback count should drop to zero once that lands.
+              Optional<FieldPath> sourceNestedRoot =
+                  indexDefinition instanceof VectorIndexDefinition vectorIndexDefinition
+                      ? vectorIndexDefinition.getNestedRoot()
+                      : Optional.empty();
+              boolean hasNestedFilterRemapping =
+                  AutoEmbeddingDocumentUtils.hasFilterUnderNestedRoot(mapping, sourceNestedRoot);
               boolean embedFieldChanged =
                   AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(
                       event.getUpdateDescription(), mapping);
@@ -417,7 +436,7 @@ public class ChangeStreamDocumentUtils {
                 changedEmbedTexts = classification.changedTexts().orElse(ImmutableMap.of());
                 fallbackReason = classification.fallbackReason();
               }
-              if (fallbackReason.isEmpty()) {
+              if (fallbackReason.isEmpty() && !hasNestedFilterRemapping) {
                 // Empty Optional = extraction failed; fall back to a full replace rather than
                 // issue a partial $set that would silently drop filter fields. A present-but-empty
                 // body is valid (index has no filter fields) and still supports a partial embed.
@@ -445,6 +464,13 @@ public class ChangeStreamDocumentUtils {
                 if (embedFieldChanged) {
                   fallbackReason = Optional.of(PartialEmbedFallbackReason.FILTER_EXTRACTION_FAILED);
                 }
+              } else if (fallbackReason.isEmpty() && hasNestedFilterRemapping) {
+                // We skipped the partial path purely because of nested filter co-location. Record
+                // it so the full re-indexes this limitation causes are observable (and so we can
+                // confirm they vanish once the PR #6679 partial-update optimization lands).
+                // Embed-changing updates on nested indexes already carry a more specific reason
+                // (ARRAY_TRAVERSAL), so they don't reach this branch.
+                fallbackReason = Optional.of(PartialEmbedFallbackReason.NESTED_FILTER_REMAPPING);
               }
               fallbackReason.ifPresent(metrics::partialEmbedFallback);
             }

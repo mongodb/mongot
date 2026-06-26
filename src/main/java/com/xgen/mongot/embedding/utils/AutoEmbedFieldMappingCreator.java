@@ -17,6 +17,7 @@ import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldMapping;
+import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
 import java.util.Map;
 import java.util.Optional;
@@ -29,6 +30,10 @@ public class AutoEmbedFieldMappingCreator {
   private static final Logger LOG = LoggerFactory.getLogger(AutoEmbedFieldMappingCreator.class);
 
   private static final String HASH_FIELD_PREFIX = "_autoEmbed._hash";
+
+  // Mirrors {@code MaterializedViewCollectionResolver.MV_COLLECTION_SCHEMA_NAMESPACE} +
+  // {@link FieldPath#DELIMITER}. Inlined to avoid a util → mongodb package dependency.
+  private static final String MV_NAMESPACE_PREFIX = "_autoEmbed" + FieldPath.DELIMITER;
 
   /**
    * Creates an {@code AutoEmbedFieldMapping} from a source {@link IndexDefinition}, dispatching to
@@ -129,6 +134,7 @@ public class AutoEmbedFieldMappingCreator {
   public static AutoEmbedFieldMapping createMatViewAutoEmbedMapping(
       VectorIndexDefinition indexDefinition, MaterializedViewSchemaMetadata schemaMetadata) {
     VectorIndexFieldMapping mappings = indexDefinition.getMappings();
+    Optional<FieldPath> sourceNestedRoot = indexDefinition.getNestedRoot();
     ImmutableMap.Builder<FieldPath, AutoEmbedField> builder = ImmutableMap.builder();
     for (Map.Entry<FieldPath, VectorIndexFieldDefinition> entry : mappings.fieldMap().entrySet()) {
       FieldPath path = entry.getKey();
@@ -147,7 +153,16 @@ public class AutoEmbedFieldMappingCreator {
           var spec = field.asVectorTextField().specification();
           builder.put(path, new AutoEmbedField.EmbedField(path, spec));
         }
-        case FILTER -> builder.put(path, new AutoEmbedField.PassthroughField(path));
+        case FILTER -> {
+          // CLOUDP-402522: filter fields under the source nestedRoot must be remapped into the MV
+          // namespace so they live alongside the auto-embedded vector at the embedded child
+          // level. Top-level filters keep their source path.
+          FieldPath matViewPath =
+              isFilterUnderSourceNestedRoot(path, sourceNestedRoot)
+                  ? getMatViewFieldPath(path, schemaMetadata.autoEmbeddingFieldsMapping())
+                  : path;
+          builder.put(matViewPath, new AutoEmbedField.PassthroughField(matViewPath));
+        }
         case VECTOR -> {
           // Output field written by the embedding provider, not a source field.
         }
@@ -220,6 +235,35 @@ public class AutoEmbedFieldMappingCreator {
       return schemaFieldsMapping.get(sourceFieldPath);
     }
     return sourceFieldPath;
+  }
+
+  /**
+   * Computes the MV path for a filter field strictly under {@code sourceNestedRoot} by prepending
+   * the {@code _autoEmbed.} namespace (mirrors {@code
+   * MaterializedViewCollectionResolver.MV_COLLECTION_SCHEMA_NAMESPACE}). This colocates the filter
+   * with the auto-embedded vector under the MV nestedRoot so block-join indexing places both on the
+   * same Lucene child; otherwise the filter is indexed at the root while the vector lives at the
+   * child level, and nested $vectorSearch with such filters silently matches nothing
+   * (CLOUDP-402522).
+   */
+  public static FieldPath getMatViewFilterPathUnderNestedRoot(
+      FieldPath sourceFilterPath, FieldPath sourceNestedRoot) {
+    Check.checkArg(
+        sourceFilterPath.isChildOf(sourceNestedRoot),
+        "sourceFilterPath %s must be a strict descendant of sourceNestedRoot %s",
+        sourceFilterPath,
+        sourceNestedRoot);
+    return FieldPath.parse(MV_NAMESPACE_PREFIX + sourceFilterPath.toString());
+  }
+
+  /**
+   * Returns true when {@code sourceFilterPath} is a strict descendant of {@code sourceNestedRoot}
+   * (when present). Filter fields under the nestedRoot must be remapped into the MV namespace so
+   * that they live at the embedded child level alongside the auto-embedded vector.
+   */
+  public static boolean isFilterUnderSourceNestedRoot(
+      FieldPath sourceFilterPath, Optional<FieldPath> sourceNestedRoot) {
+    return sourceNestedRoot.isPresent() && sourceFilterPath.isChildOf(sourceNestedRoot.get());
   }
 
   /**

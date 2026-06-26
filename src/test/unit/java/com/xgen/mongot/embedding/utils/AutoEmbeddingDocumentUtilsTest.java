@@ -2338,6 +2338,46 @@ public class AutoEmbeddingDocumentUtilsTest {
     return new RawBsonDocument(doc, BsonUtils.BSON_DOCUMENT_CODEC);
   }
 
+  // Shared fixtures for the CLOUDP-402522 nested-filter remap tests below.
+  private static final FieldPath SECTION_CONTENT = FieldPath.parse("sections.section_content");
+  private static final FieldPath SECTION_NAME = FieldPath.parse("sections.section_name");
+  private static final Vector SAMPLE_VECTOR =
+      Vector.fromFloats(new float[] {0.1f, 0.2f}, FloatVector.OriginalType.NATIVE);
+
+  private static MaterializedViewSchemaMetadata nestedSchemaMetadata() {
+    return new MaterializedViewSchemaMetadata(
+        1,
+        Map.of(
+            SECTION_CONTENT, FieldPath.parse("_autoEmbed.sections.section_content"),
+            SECTION_NAME, FieldPath.parse("_autoEmbed.sections.section_name")));
+  }
+
+  private static VectorIndexDefinition nestedIndexDefinition() {
+    return VectorIndexDefinitionBuilder.builder()
+        .setFields(
+            List.of(
+                new VectorAutoEmbedFieldDefinition("voyage-3-large", SECTION_CONTENT),
+                new VectorIndexFilterFieldDefinition(SECTION_NAME)))
+        .nestedRoot("sections")
+        .build();
+  }
+
+  private static BsonDocument section(String name, String content) {
+    return new BsonDocument()
+        .append("section_name", new BsonString(name))
+        .append("section_content", new BsonString(content));
+  }
+
+  private static DocumentEvent insertEventOf(RawBsonDocument rawSource) {
+    return DocumentEvent.createInsert(
+        DocumentMetadata.fromOriginalDocument(Optional.of(rawSource)), rawSource);
+  }
+
+  private static ImmutableMap<FieldPath, ImmutableMap<String, Vector>> sectionEmbeddings(
+      String text, Vector vector) {
+    return ImmutableMap.of(SECTION_CONTENT, ImmutableMap.of(text, vector));
+  }
+
   /** Routing verdict produced by the production gate -> classifier sequence. */
   private enum Verdict {
     FILTER_ONLY,
@@ -2661,5 +2701,234 @@ public class AutoEmbeddingDocumentUtilsTest {
     }
     VectorIndexDefinition def = VectorIndexDefinitionBuilder.builder().setFields(fields).build();
     return AutoEmbedFieldMappingCreator.createAutoEmbedMapping(def);
+  }
+
+  /**
+   * CLOUDP-402522: when an auto-embed index has a nestedRoot and the schema mapping remaps a filter
+   * field under that root, {@link AutoEmbeddingDocumentUtils#buildMaterializedViewDocumentEvent}
+   * must write the first source value of that filter at the materialized-view path so it lands in
+   * the same Lucene child documents as the embedding vector. Without this, filtered nested
+   * $vectorSearch returns no results.
+   */
+  @Test
+  public void buildMaterializedViewDocumentEvent_remapsFilterUnderNestedRootIntoMvNamespace()
+      throws IOException {
+    var schemaMetadata = nestedSchemaMetadata();
+    VectorIndexDefinition indexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(
+                List.of(
+                    new VectorAutoEmbedFieldDefinition("voyage-3-large", SECTION_CONTENT),
+                    new VectorIndexFilterFieldDefinition(SECTION_NAME),
+                    new VectorIndexFilterFieldDefinition(FieldPath.parse("name"))))
+            .nestedRoot("sections")
+            .build();
+
+    BsonDocument source =
+        new BsonDocument()
+            .append("_id", new BsonString("book_12"))
+            .append("name", new BsonString("book_12"))
+            .append(
+                "sections",
+                new BsonArray(
+                    List.of(
+                        section("book_12_section_1", "content for book_12, s1"),
+                        section("book_12_section_2", "content for book_12, s2"))));
+    DocumentEvent rawEvent = insertEventOf(rawDoc(source));
+
+    DocumentEvent result =
+        buildMaterializedViewDocumentEvent(
+            rawEvent,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(indexDefinition),
+            sectionEmbeddings("content for book_12, s1", SAMPLE_VECTOR),
+            schemaMetadata);
+
+    BsonDocument matViewDoc = result.getDocument().get();
+    BsonDocument autoEmbedSubtree = matViewDoc.getDocument("_autoEmbed");
+    BsonDocument autoEmbedSections = autoEmbedSubtree.getDocument("sections");
+    assertEquals(
+        "Filter value must be written at the MV path so it lands in the same Lucene child"
+            + " document as the vector. We mirror the buildEmbeddingsPerMatViewPath findFirst()"
+            + " policy and only persist the first source value.",
+        new BsonString("book_12_section_1"),
+        autoEmbedSections.getString("section_name"));
+    assertThat(autoEmbedSections.containsKey("section_content")).isTrue();
+    assertEquals(
+        "Top-level filters must keep their source path so they continue to be indexed at the"
+            + " root document level.",
+        new BsonString("book_12"),
+        matViewDoc.getString("name"));
+  }
+
+  /**
+   * CLOUDP-402522: top-level filter fields must not be remapped, and the MV doc must continue to
+   * carry the entire filter list at the source path. Without this guard, schema mapping changes
+   * could regress simple non-nested auto-embed indexes.
+   */
+  @Test
+  public void buildMaterializedViewDocumentEvent_topLevelFilter_keepsSourcePath()
+      throws IOException {
+    var autoEmbedField =
+        new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("body"));
+    var topLevelFilter = new VectorIndexFilterFieldDefinition(FieldPath.parse("color"));
+    VectorIndexDefinition indexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(List.of(autoEmbedField, topLevelFilter))
+            .build();
+
+    var schemaMetadata =
+        new MaterializedViewSchemaMetadata(
+            1, Map.of(FieldPath.parse("body"), FieldPath.parse("_autoEmbed.body")));
+
+    BsonDocument source =
+        new BsonDocument()
+            .append("_id", new BsonString("d1"))
+            .append("color", new BsonString("red"))
+            .append("body", new BsonString("hello"));
+    DocumentEvent rawEvent = insertEventOf(rawDoc(source));
+
+    ImmutableMap<FieldPath, ImmutableMap<String, Vector>> embeddings =
+        ImmutableMap.of(FieldPath.parse("body"), ImmutableMap.of("hello", SAMPLE_VECTOR));
+
+    DocumentEvent result =
+        buildMaterializedViewDocumentEvent(
+            rawEvent,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(indexDefinition),
+            embeddings,
+            schemaMetadata);
+
+    BsonDocument matViewDoc = result.getDocument().get();
+    assertEquals(new BsonString("red"), matViewDoc.getString("color"));
+    assertFalse(
+        "No nested-filter remap should happen when the source has no nestedRoot match.",
+        matViewDoc.containsKey("_autoEmbed")
+            && matViewDoc.getDocument("_autoEmbed").containsKey("color"));
+  }
+
+  /**
+   * CLOUDP-402522 row alignment: when the first nested element has empty embed text and the vector
+   * is embedded from a later element, the remapped filter value must come from the same later
+   * element so that the MV child document colocates the vector with its sibling filter. Otherwise
+   * filtered nested $vectorSearch misses matches.
+   */
+  @Test
+  public void buildMaterializedViewDocumentEvent_remappedFilter_alignsWithChosenEmbedIndex()
+      throws IOException {
+    var schemaMetadata = nestedSchemaMetadata();
+    VectorIndexDefinition indexDefinition = nestedIndexDefinition();
+
+    // First element has empty embed text but a valid filter value; second element is the one
+    // that will actually be embedded.
+    BsonDocument source =
+        new BsonDocument()
+            .append("_id", new BsonString("book_skew"))
+            .append(
+                "sections",
+                new BsonArray(
+                    List.of(
+                        section("name_for_empty_section", ""),
+                        section("name_for_real_section", "real content"))));
+    DocumentEvent rawEvent = insertEventOf(rawDoc(source));
+
+    DocumentEvent result =
+        buildMaterializedViewDocumentEvent(
+            rawEvent,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(indexDefinition),
+            sectionEmbeddings("real content", SAMPLE_VECTOR),
+            schemaMetadata);
+
+    BsonDocument autoEmbedSections =
+        result.getDocument().get().getDocument("_autoEmbed").getDocument("sections");
+    assertEquals(
+        "Filter value must come from the same array element whose embed text produced the"
+            + " written vector — not from the first array element when it has empty embed text.",
+        new BsonString("name_for_real_section"),
+        autoEmbedSections.getString("section_name"));
+  }
+
+  /**
+   * CLOUDP-402522 regression: compareDocuments must align the remapped-filter comparison with the
+   * embed-chosen array index, not index 0. When the first element has empty embed text, the MV
+   * stores the second element's filter (the embed-chosen index). A faithful MV must therefore NOT
+   * be flagged for re-indexing; comparing against source element 0 would re-index forever.
+   */
+  @Test
+  public void compareDocuments_remappedFilter_chosenIndexNonZero_doesNotReindex()
+      throws IOException {
+    var schemaMetadata = nestedSchemaMetadata();
+    VectorIndexDefinition indexDefinition = nestedIndexDefinition();
+    var sourceMapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(indexDefinition);
+    var matViewMapping =
+        AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(indexDefinition, schemaMetadata);
+
+    // First element has empty embed text (chosen embed index = 1); the MV stores element 1's
+    // filter co-located with the vector.
+    BsonDocument source =
+        new BsonDocument()
+            .append("_id", new BsonString("book_skew"))
+            .append(
+                "sections",
+                new BsonArray(
+                    List.of(
+                        section("name_for_empty_section", ""),
+                        section("name_for_real_section", "real content"))));
+    RawBsonDocument rawSource = rawDoc(source);
+    DocumentEvent rawEvent = insertEventOf(rawSource);
+
+    RawBsonDocument matViewDoc =
+        rawDoc(
+            buildMaterializedViewDocumentEvent(
+                    rawEvent,
+                    sourceMapping,
+                    sectionEmbeddings("real content", SAMPLE_VECTOR),
+                    schemaMetadata)
+                .getDocument()
+                .get());
+
+    var comparison =
+        compareDocuments(rawSource, matViewDoc, sourceMapping, matViewMapping, schemaMetadata);
+
+    assertFalse(
+        "A faithful MV whose co-located filter came from a non-zero embed-chosen index must not be"
+            + " re-indexed.",
+        comparison.needsReIndexing());
+  }
+
+  /**
+   * CLOUDP-402522: when no embed source has a vector to write (e.g. all candidate texts are empty
+   * or unknown to the embedding map), the remapped filter values must also be skipped. Otherwise
+   * the MV would carry filter values without a colocated vector, which still breaks filtered nested
+   * $vectorSearch.
+   */
+  @Test
+  public void buildMaterializedViewDocumentEvent_remappedFilter_skippedWhenNoVectorChosen()
+      throws IOException {
+    var schemaMetadata = nestedSchemaMetadata();
+    VectorIndexDefinition indexDefinition = nestedIndexDefinition();
+
+    BsonDocument source =
+        new BsonDocument()
+            .append("_id", new BsonString("book_no_vec"))
+            .append(
+                "sections", new BsonArray(List.of(section("name_a", ""), section("name_b", ""))));
+    DocumentEvent rawEvent = insertEventOf(rawDoc(source));
+
+    // Embedding map is keyed by source path but empty for any candidate text — no vector wins.
+    ImmutableMap<FieldPath, ImmutableMap<String, Vector>> embeddings =
+        ImmutableMap.of(SECTION_CONTENT, ImmutableMap.of());
+
+    DocumentEvent result =
+        buildMaterializedViewDocumentEvent(
+            rawEvent,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(indexDefinition),
+            embeddings,
+            schemaMetadata);
+
+    BsonDocument matViewDoc = result.getDocument().get();
+    assertFalse(
+        "When no embed vector is chosen, the remapped filter must not be written under the"
+            + " materialized-view nestedRoot.",
+        matViewDoc.containsKey("_autoEmbed")
+            && matViewDoc.getDocument("_autoEmbed").containsKey("sections"));
   }
 }

@@ -338,6 +338,55 @@ public class AutoEmbeddingIndexDefinitionUtilsTest {
         derivedVectorField.getPath().isChildOf(derivedIndexDefinition.getNestedRoot().get()));
   }
 
+  /**
+   * CLOUDP-402522: when the schema mapping includes a filter field under the source nestedRoot, the
+   * derived index definition must reflect that filter at the remapped MV path. Without this, Lucene
+   * indexes filters at the source path while the vector lives at the embedded child level, silently
+   * breaking filtered nested $vectorSearch.
+   */
+  @Test
+  public void
+      testGetDerivedVectorIndexDefinition_filterUnderNestedRootRemapsToMvNamespace_version1() {
+    var schemaMetadata =
+        new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(
+            1,
+            Map.of(
+                FieldPath.parse("sections.section_content"),
+                FieldPath.parse("_autoEmbed.sections.section_content"),
+                FieldPath.parse("sections.section_name"),
+                FieldPath.parse("_autoEmbed.sections.section_name")));
+    var autoEmbedFieldUnderNested =
+        new VectorAutoEmbedFieldDefinition(
+            "voyage-3-large",
+            "text",
+            FieldPath.parse("sections.section_content"),
+            1024,
+            VectorSimilarity.COSINE,
+            VectorAutoEmbedQuantization.FLOAT);
+    var nestedFilter =
+        new VectorIndexFilterFieldDefinition(FieldPath.parse("sections.section_name"));
+    var topLevelFilter = new VectorIndexFilterFieldDefinition(FieldPath.parse("name"));
+    var indexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(List.of(autoEmbedFieldUnderNested, nestedFilter, topLevelFilter))
+            .nestedRoot("sections")
+            .build();
+
+    var derivedIndexDefinition =
+        AutoEmbeddingIndexDefinitionUtils.getDerivedVectorIndexDefinition(
+            indexDefinition, MV_DATABASE_NAME, UUID.randomUUID(), schemaMetadata);
+
+    var derivedFilter =
+        getVectorFieldDefinition("_autoEmbed.sections.section_name", derivedIndexDefinition);
+    Assert.assertEquals(VectorIndexFieldDefinition.Type.FILTER, derivedFilter.getType());
+
+    var derivedTopLevelFilter = getVectorFieldDefinition("name", derivedIndexDefinition);
+    Assert.assertEquals(
+        "Top-level filters without a mapping entry must keep their source path.",
+        VectorIndexFieldDefinition.Type.FILTER,
+        derivedTopLevelFilter.getType());
+  }
+
   @Test
   public void fromBson_withoutHnswOptions_usesDefaults() throws BsonParseException {
     var bsonDoc =

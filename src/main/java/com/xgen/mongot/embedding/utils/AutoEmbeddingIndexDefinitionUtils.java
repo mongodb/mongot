@@ -16,6 +16,7 @@ import com.xgen.mongot.index.definition.VectorDataFieldDefinition;
 import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
+import com.xgen.mongot.index.definition.VectorIndexFilterFieldDefinition;
 import com.xgen.mongot.util.FieldPath;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -125,6 +126,17 @@ public class AutoEmbeddingIndexDefinitionUtils {
                     getMatViewFieldPath(
                         field.getPath(), schemaMetadata.autoEmbeddingFieldsMapping()),
                     toVectorFieldSpecification(autoEmbedField.specification()));
+              }
+              if (field.getType() == VectorIndexFieldDefinition.Type.FILTER) {
+                // CLOUDP-402522: filter fields under the source nestedRoot are remapped into the
+                // MV namespace via schemaMetadata.autoEmbeddingFieldsMapping. The remapping is a
+                // no-op for top-level filters (no entry in the mapping).
+                FieldPath matViewPath =
+                    getMatViewFieldPath(
+                        field.getPath(), schemaMetadata.autoEmbeddingFieldsMapping());
+                if (!matViewPath.equals(field.getPath())) {
+                  return new VectorIndexFilterFieldDefinition(matViewPath);
+                }
               }
               return field;
             })
