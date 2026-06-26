@@ -1,5 +1,8 @@
 package com.xgen.mongot.featureflag.dynamic;
 
+import static com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags.BLOOM_FILTER_FOR_ID_FIELD;
+import static com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags.BLOOM_FILTER_IN_STEADY_STATE;
+import static com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags.DISABLE_BULK_SCORER_QUERY_FOR_EMBEDDED_DOCUMENT_CHILD;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -754,6 +757,24 @@ public class DynamicFeatureFlagRegistryTest {
               .gauge()
               .value(),
           0.0);
+    }
+
+    @Test
+    public void communityDefault_bloomForIdEnabled_otherFlagsAtFallback() {
+      var registry = DynamicFeatureFlagRegistry.communityDefault();
+
+      assertTrue(
+          "communityDefault should enable BLOOM_FILTER_FOR_ID_FIELD",
+          registry.evaluateClusterInvariant(BLOOM_FILTER_FOR_ID_FIELD));
+
+      assertFalse(
+          "communityDefault should leave BLOOM_FILTER_IN_STEADY_STATE at its false fallback",
+          registry.evaluateClusterInvariant(BLOOM_FILTER_IN_STEADY_STATE));
+
+      assertTrue(
+          "communityDefault should preserve the true fallback of"
+              + " DISABLE_BULK_SCORER_QUERY_FOR_EMBEDDED_DOCUMENT_CHILD",
+          registry.evaluateClusterInvariant(DISABLE_BULK_SCORER_QUERY_FOR_EMBEDDED_DOCUMENT_CHILD));
     }
 
     @Test

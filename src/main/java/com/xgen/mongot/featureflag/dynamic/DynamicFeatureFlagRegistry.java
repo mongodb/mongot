@@ -124,12 +124,45 @@ public class DynamicFeatureFlagRegistry {
   }
 
   /**
+   * Synthetic cluster id for {@link #communityDefault()}. Supplying this id caches the {@code true}
+   * result and ensure the evaluation returns true. The synthetic value are irrelevant (ENABLED
+   * short-circuits the rollout hash); all-zero is a deterministic synthetic value.
+   */
+  static final ObjectId COMMUNITY_SENTINEL_CLUSTER_ID = new ObjectId(new byte[12]);
+
+  /**
    * Registry with no flags configured; {@link #evaluateClusterInvariant(DynamicFeatureFlags)}
    * returns each flag's defined fallback.
    */
   public static DynamicFeatureFlagRegistry empty() {
     return new DynamicFeatureFlagRegistry(
         Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+  }
+
+  /**
+   * Community has no DFF, so this factory seeds {@link
+   * DynamicFeatureFlags#BLOOM_FILTER_FOR_ID_FIELD} as {@code ENABLED} while leaving every other
+   * flag unregistered (falling through to its declared fallback, identical to {@link #empty()}).
+   *
+   * <p>A synthetic cluster id ({@link #COMMUNITY_SENTINEL_CLUSTER_ID}) is supplied so that the
+   * bloom flag's evaluation is eagerly cached by {@code buildInternalConfig}. Without a cluster id
+   * the {@code MONGOT_CLUSTER}-scoped flag would not be cached and {@code evaluateClusterInvariant}
+   * would fall back to the flag's declared {@code false} default.
+   */
+  public static DynamicFeatureFlagRegistry communityDefault() {
+    var bloomForIdField =
+        new DynamicFeatureFlagConfig(
+            DynamicFeatureFlags.BLOOM_FILTER_FOR_ID_FIELD.getName(),
+            Phase.ENABLED,
+            List.of(),
+            List.of(),
+            100,
+            Scope.MONGOT_CLUSTER);
+    return new DynamicFeatureFlagRegistry(
+        Optional.of(List.of(bloomForIdField)),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.of(COMMUNITY_SENTINEL_CLUSTER_ID));
   }
 
   /**

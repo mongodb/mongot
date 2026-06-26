@@ -228,8 +228,10 @@ public class CommunityMongotBootstrapper {
     // If mongod is unreachable, continue.
     failFastOnTopologyMismatch(clusterTopologyGuard);
 
-    // Community Edition doesn't have dynamic feature flags from a conf call, so use empty defaults
-    var dynamicFeatureFlagRegistry = DynamicFeatureFlagRegistry.empty();
+    // Community Edition doesn't use DFF; seed bloom-for-id on so it activates whenever
+    // enableNaturalOrderScan=true (default false).
+    // This instance should be created only once during bootstrap.
+    var dynamicFeatureFlagRegistry = DynamicFeatureFlagRegistry.communityDefault();
     // Initialize global DynamicFeatureFlagRegistry for non-DI paths
     DynamicFeatureFlagRegistry.initializeProcessInstance(dynamicFeatureFlagRegistry);
 
