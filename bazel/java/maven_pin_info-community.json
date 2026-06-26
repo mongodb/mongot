@@ -103,52 +103,52 @@
     },
     "com.fasterxml.jackson.core:jackson-annotations": {
       "shasums": {
-        "jar": "face5c37bee1f0768f5f198d077fc29d163becca95de9e0f13962c84d1047662",
-        "sources": "8129975145545216c101bc7fba3f6805ef12159eb92bf78d11798c504e1bb3cf"
+        "jar": "b21889d334ff04b8a3efe54473613ec79e7eed080a28e98abbc3997b46901a54",
+        "sources": "04248d72e73138973b1900284dc9c5ff987951d413c86d3099a1bd9e5c670038"
       },
-      "version": "2.18.6"
+      "version": "2.18.8"
     },
     "com.fasterxml.jackson.core:jackson-core": {
       "shasums": {
-        "jar": "e7e1bfa50f0a79db37e6aa37db111cf03aebf4a484b359d21127ab43ab2398c6",
-        "sources": "d6e3d6a4f379a1761a99cf59d8e706ef6fa225bb5207dcba54e78a3cc7f9fb74"
+        "jar": "ab865e39f01403598748b090a3bf528616e701913a71afc37a227daa0fabb4ae",
+        "sources": "83acd36562d1c83eb65fb8f9ebf5632a672a7c4c7a7c975e530c8e4f970a5b39"
       },
-      "version": "2.18.6"
+      "version": "2.18.8"
     },
     "com.fasterxml.jackson.core:jackson-databind": {
       "shasums": {
-        "jar": "45d124736ea29dc374171fc1a8a9958e0f44407c1e0aae0297d8eee267fb592e",
-        "sources": "f8dcda84fc1ed6d730a48ccdb2fd80fde8b40fcfc5824e2c4aeb51a8c27b2db6"
+        "jar": "06ea5950905263fac3e1730de6a21a023151626af6bb3cb099f88644a0fa04f0",
+        "sources": "ca01c2dff776626e4815dbba66709770219ede4fbc6730f43b67c0325eb00120"
       },
-      "version": "2.18.6"
+      "version": "2.18.8"
     },
     "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml": {
       "shasums": {
-        "jar": "5ccff29fb15d49ffa0d920a78d085eefb8b56c9ebe70d14a26e69c90f4acf43c",
-        "sources": "a497fb7759e5560bedde6c8ccaa5e24fd155e06d22b0fad9fca1bc6c0c5a3a78"
+        "jar": "f2ce4ce2f9d6dacf926fe6cef1fdfc3933608d1a83913c2903bd2ec06b4dcde9",
+        "sources": "2da1ffb980ccf33cc7de76dc97c0771a40da2e3f9944e261ba71d0a21fc6bc37"
       },
-      "version": "2.18.6"
+      "version": "2.18.8"
     },
     "com.fasterxml.jackson.datatype:jackson-datatype-jdk8": {
       "shasums": {
-        "jar": "b3287d74a95741b95295922f64e35e9204825fdd950606613a706d045bdc7443",
-        "sources": "918456f8144a8e182da66067a0df38e6731f9dac6f6914844f01154016141e90"
+        "jar": "1e72d2d7e1849a68819359ec0058222ed47a9c61e78b6699cea81adfb36250b0",
+        "sources": "b5137fb78c96a7b5e1e7adbfdd3fe7665ef3620f36e862033fa04b98e69ad1ee"
       },
-      "version": "2.18.6"
+      "version": "2.18.8"
     },
     "com.fasterxml.jackson.datatype:jackson-datatype-jsr310": {
       "shasums": {
-        "jar": "d600821e90b08353425d3fa31d6a5e08f38b190be93ed284097e6fa66cac1bb4",
-        "sources": "e73063807d982fbf1d1ef1a64187f3eca46b1ebb6bf2fbf139444d148ad8d63f"
+        "jar": "299010ea6dd1496abc4e51659904cdf51bb15f1f8ee6d2169b9348f74d24e2de",
+        "sources": "26511f09bf555bbb7494c17e18d108f80f45039cecaed21675ba15818259e329"
       },
-      "version": "2.18.6"
+      "version": "2.18.8"
     },
     "com.fasterxml.jackson.module:jackson-module-parameter-names": {
       "shasums": {
-        "jar": "b27d06526c11dedb94e25eb129c6420156dcdb6b753556a9ee2388dbae1242d9",
-        "sources": "90f278585d08c27837b629232e9401da07d44786fafd187a6d0cbe42c4f83ca1"
+        "jar": "259917265224518ff8073d477c5f995b434135df5f6f1f5c76046712bfe5d135",
+        "sources": "24d48b211596bd059b8f110d9ac7da4a4de530a1d687f859ee19ff1475ea3cda"
       },
-      "version": "2.18.6"
+      "version": "2.18.8"
     },
     "com.github.ben-manes.caffeine:caffeine": {
       "shasums": {
@@ -4088,7 +4088,7 @@
       "com.fasterxml.jackson.core.exc",
       "com.fasterxml.jackson.core.filter",
       "com.fasterxml.jackson.core.format",
-      "com.fasterxml.jackson.core.internal.shaded.fdp.v2_18_6",
+      "com.fasterxml.jackson.core.internal.shaded.fdp.v2_18_8",
       "com.fasterxml.jackson.core.io",
       "com.fasterxml.jackson.core.io.schubfach",
       "com.fasterxml.jackson.core.json",
