@@ -1,0 +1,18 @@
+load("//bazel/java:test.bzl", "java_test_suite")
+
+java_test_suite(
+    name = "cache",
+    srcs = ["EmbeddingRetryCacheTest.java"],
+    tags = ["unit"],
+    deps = [
+        "//src/main/java/com/xgen/mongot/embedding/cache",
+        "//src/main/java/com/xgen/mongot/embedding/utils",
+        "//src/main/java/com/xgen/mongot/index/definition/quantization",
+        "//src/main/java/com/xgen/mongot/util/bson",
+        "@maven//:com_github_ben_manes_caffeine_caffeine",  # keep: Ticker in test constructor
+        "@maven//:com_google_guava_guava_testlib",
+        "@maven//:com_google_truth_truth",
+        "@maven//:io_micrometer_micrometer_core",
+        "@maven//:junit_junit",
+    ],
+)
