@@ -37,7 +37,8 @@ public class NumaInfoMetricsTest {
     var meterRegistry = new SimpleMeterRegistry();
     var processor = processorWith(List.of(lp(0, 0, 0), lp(1, 0, 0)), 1);
 
-    NumaInfoMetrics.create(processor, meterRegistry, "0", "1");
+    // Micrometer holds the gauge state via WeakReference; keep a strong ref or GC returns NaN.
+    var unused = NumaInfoMetrics.create(processor, meterRegistry, "0", "1");
 
     Gauge gauge = meterRegistry.get("system.numa.info").gauge();
     assertNotNull(gauge);
@@ -49,7 +50,7 @@ public class NumaInfoMetricsTest {
     var meterRegistry = new SimpleMeterRegistry();
     var processor = processorWith(List.of(lp(0, 0, 0), lp(1, 0, 0), lp(2, 0, 0)), 1);
 
-    NumaInfoMetrics.create(processor, meterRegistry, "0", "0");
+    var unused = NumaInfoMetrics.create(processor, meterRegistry, "0", "0");
 
     var meterId = meterRegistry.get("system.numa.info").gauge().getId();
     assertEquals("1", meterId.getTag("nodes"));
@@ -65,7 +66,7 @@ public class NumaInfoMetricsTest {
     var lps = List.of(lp(0, 0, 0), lp(1, 0, 0), lp(2, 1, 1), lp(3, 1, 1));
     var processor = processorWith(lps, 2);
 
-    NumaInfoMetrics.create(processor, meterRegistry, "0-1", "1");
+    var unused = NumaInfoMetrics.create(processor, meterRegistry, "0-1", "1");
 
     var meterId = meterRegistry.get("system.numa.info").gauge().getId();
     assertEquals("2", meterId.getTag("nodes"));
