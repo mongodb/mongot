@@ -27,6 +27,7 @@ public class MongoDbReplicationConfigBuilder {
   private Optional<Boolean> enableSplitLargeChangeStreamEvents = Optional.empty();
   private Optional<Boolean> splitLargeChangeStreamEventsForInitialSync = Optional.empty();
   private Optional<Integer> optionalRequestRateLimitBackoffMs = Optional.empty();
+  private Optional<Boolean> enableChangeStreamPriorityScheduling = Optional.empty();
 
   public static MongoDbReplicationConfigBuilder builder() {
     return new MongoDbReplicationConfigBuilder();
@@ -139,6 +140,12 @@ public class MongoDbReplicationConfigBuilder {
     return this;
   }
 
+  public MongoDbReplicationConfigBuilder enableChangeStreamPriorityScheduling(
+      Optional<Boolean> enableChangeStreamPriorityScheduling) {
+    this.enableChangeStreamPriorityScheduling = enableChangeStreamPriorityScheduling;
+    return this;
+  }
+
   public MongoDbReplicationConfig build() {
     return MongoDbReplicationConfig.create(
         this.runtime,
@@ -160,6 +167,7 @@ public class MongoDbReplicationConfigBuilder {
         this.optionalMaxInFlightEmbeddingGetMores,
         this.optionalMaxConcurrentEmbeddingInitialSyncs,
         this.embeddingGetMoreBatchSize,
-        this.optionalRequestRateLimitBackoffMs);
+        this.optionalRequestRateLimitBackoffMs,
+        this.enableChangeStreamPriorityScheduling);
   }
 }

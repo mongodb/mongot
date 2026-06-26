@@ -90,6 +90,12 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
    */
   public final int requestRateLimitBackoffMs;
 
+  /**
+   * Whether to enable priority scheduling for change stream indexing tasks. When enabled, the
+   * DualQueueExecutor routes high-priority tasks to a preferred queue to reduce indexing lag.
+   */
+  public final boolean enableChangeStreamPriorityScheduling;
+
   private MongoDbReplicationConfig(
       int numConcurrentInitialSyncs,
       int numConcurrentChangeStreams,
@@ -109,7 +115,8 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
       boolean matchCollectionUuidForUpdateLookup,
       boolean enableSplitLargeChangeStreamEvents,
       boolean splitLargeChangeStreamEventsForInitialSync,
-      int requestRateLimitBackoffMs) {
+      int requestRateLimitBackoffMs,
+      Optional<Boolean> enableChangeStreamPriorityScheduling) {
     super(
         pauseAllInitialSyncs,
         pauseInitialSyncOnIndexIds,
@@ -129,6 +136,7 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
     this.maxConcurrentEmbeddingInitialSyncs = maxConcurrentEmbeddingInitialSyncs;
     this.embeddingGetMoreBatchSize = embeddingGetMoreBatchSize;
     this.requestRateLimitBackoffMs = requestRateLimitBackoffMs;
+    this.enableChangeStreamPriorityScheduling = enableChangeStreamPriorityScheduling.orElse(false);
   }
 
   /**
@@ -149,7 +157,8 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
       Optional<Integer> optionalMaxInFlightEmbeddingGetMores,
       Optional<Integer> optionalMaxConcurrentEmbeddingInitialSyncs,
       Optional<Integer> embeddingGetMoreBatchSize,
-      Optional<Integer> requestRateLimitBackoffMs) {
+      Optional<Integer> requestRateLimitBackoffMs,
+      Optional<Boolean> enableChangeStreamPriorityScheduling) {
     return create(
         Runtime.INSTANCE,
         globalReplicationConfig,
@@ -164,7 +173,8 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
         optionalMaxInFlightEmbeddingGetMores,
         optionalMaxConcurrentEmbeddingInitialSyncs,
         embeddingGetMoreBatchSize,
-        requestRateLimitBackoffMs);
+        requestRateLimitBackoffMs,
+        enableChangeStreamPriorityScheduling);
   }
 
   /** Used for testing. The above create() method should be called instead. */
@@ -183,7 +193,8 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
       Optional<Integer> optionalMaxInFlightEmbeddingGetMores,
       Optional<Integer> optionalMaxConcurrentEmbeddingInitialSyncs,
       Optional<Integer> embeddingGetMoreBatchSize,
-      Optional<Integer> optionalRequestRateLimitBackoffMs) {
+      Optional<Integer> optionalRequestRateLimitBackoffMs,
+      Optional<Boolean> enableChangeStreamPriorityScheduling) {
     int numConcurrentInitialSyncs =
         getNumConcurrentInitialSyncsWithDefault(runtime, optionalNumConcurrentInitialSyncs);
     Check.argIsPositive(numConcurrentInitialSyncs, "numConcurrentInitialSyncs");
@@ -246,13 +257,15 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
         globalReplicationConfig.matchCollectionUuidForUpdateLookup(),
         globalReplicationConfig.enableSplitLargeChangeStreamEvents(),
         globalReplicationConfig.splitLargeChangeStreamEventsForInitialSync(),
-        requestRateLimitBackoffMs);
+        requestRateLimitBackoffMs,
+        enableChangeStreamPriorityScheduling);
   }
 
   /** Creates a new MongoDbReplicationConfig, defaulting to empty options for everything. */
   public static MongoDbReplicationConfig getDefault() {
     return create(
         defaultGlobalReplicationConfig(),
+        Optional.empty(),
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
@@ -391,6 +404,9 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
             Fields.SPLIT_LARGE_CHANGE_STREAM_EVENTS_FOR_INITIAL_SYNC,
             this.splitLargeChangeStreamEventsForInitialSync)
         .field(Fields.REQUEST_RATE_LIMIT_BACKOFF_MS, Optional.of(this.requestRateLimitBackoffMs))
+        .field(
+            Fields.ENABLE_CHANGE_STREAM_PRIORITY_SCHEDULING,
+            this.enableChangeStreamPriorityScheduling)
         .build();
   }
 
@@ -505,6 +521,9 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
 
     private static final Field.Required<Boolean> SPLIT_LARGE_CHANGE_STREAM_EVENTS_FOR_INITIAL_SYNC =
         Field.builder("splitLargeChangeStreamEventsForInitialSync").booleanField().required();
+
+    private static final Field.Required<Boolean> ENABLE_CHANGE_STREAM_PRIORITY_SCHEDULING =
+        Field.builder("enableChangeStreamPriorityScheduling").booleanField().required();
 
     private static final Field.Optional<Integer> REQUEST_RATE_LIMIT_BACKOFF_MS =
         Field.builder("requestRateLimitBackoffMs")

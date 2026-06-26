@@ -72,7 +72,8 @@ public class MongoDbReplicationConfigTest {
               Optional.of(8),
               Optional.of(9),
               Optional.of(10),
-              Optional.of(11)));
+              Optional.of(11),
+              Optional.empty()));
     }
 
     @Test
