@@ -228,13 +228,18 @@ public class CommunityMongotBootstrapper {
     // If mongod is unreachable, continue.
     failFastOnTopologyMismatch(clusterTopologyGuard);
 
+    // Community Edition doesn't have dynamic feature flags from a conf call, so use empty defaults
+    var dynamicFeatureFlagRegistry = DynamicFeatureFlagRegistry.empty();
+    // Initialize global DynamicFeatureFlagRegistry for non-DI paths
+    DynamicFeatureFlagRegistry.initializeProcessInstance(dynamicFeatureFlagRegistry);
+
     var commandRegisterMetadata =
         new SearchCommandsRegister.BootstrapperMetadata(
             mongotVersion,
             "mongot-community",
             mongoDbMetadataClient,
             mongotConfigs.featureFlags,
-            DynamicFeatureFlagRegistry.empty());
+            dynamicFeatureFlagRegistry);
 
     // Initialize the community metadata service
     var metadataService = initializeMetadataService(syncSourceConfig, meterRegistry);
@@ -247,8 +252,6 @@ public class CommunityMongotBootstrapper {
     // replication.
     boolean isAutoEmbeddingViewWriter =
         config.embeddingConfig().map(ec -> ec.isAutoEmbeddingViewWriter()).orElse(false);
-    // Community Edition doesn't have dynamic feature flags from a conf call, so use empty defaults
-    var dynamicFeatureFlagRegistry = DynamicFeatureFlagRegistry.empty();
 
     var configManager =
         configManager(

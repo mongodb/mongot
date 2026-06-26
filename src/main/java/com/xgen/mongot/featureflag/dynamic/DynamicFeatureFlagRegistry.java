@@ -5,6 +5,8 @@ import static com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig.Scope
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.flogger.FluentLogger;
+import com.google.errorprone.annotations.RestrictedApi;
+import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.xgen.mongot.index.DynamicFeatureFlagsMetricsRecorder;
 import com.xgen.mongot.index.lucene.explain.explainers.DynamicFeatureFlagFeatureExplainer;
 import com.xgen.mongot.index.lucene.explain.information.FeatureFlagEvaluationSpec;
@@ -34,6 +36,15 @@ import org.bson.types.ObjectId;
  */
 public class DynamicFeatureFlagRegistry {
   private static final FluentLogger FLOGGER = FluentLogger.forEnclosingClass();
+
+  /**
+   * Process-wide {@link DynamicFeatureFlagRegistry} for non-DI code paths. Set exactly once by
+   * {@link #initializeProcessInstance(DynamicFeatureFlagRegistry)} at bootstrap, read via {@link
+   * #getStatic}; all access guarded by the {@code DynamicFeatureFlagRegistry.class} monitor.
+   */
+  @GuardedBy("DynamicFeatureFlagRegistry.class")
+  private static Optional<DynamicFeatureFlagRegistry> globalDynamicFeatureFlagRegistry =
+      Optional.empty();
 
   private volatile Map<String, DynamicFeatureFlagConfig> registeredDynamicFeatureFlagConfigs =
       new ConcurrentHashMap<>();
@@ -507,5 +518,70 @@ public class DynamicFeatureFlagRegistry {
     return this.registeredDynamicFeatureFlagConfigs.values().stream()
         .sorted(DynamicFeatureFlagConfig.FEATURE_FLAG_SORTER)
         .toList();
+  }
+
+  /**
+   * Installs the process-wide {@link DynamicFeatureFlagRegistry} for code that cannot receive it
+   * via dependency injection (the Lucene SPI/codec layer).
+   *
+   * <p><b>Lifecycle contract:</b> mongot's bootstrapper calls this exactly once, early in process
+   * startup, before any code path that calls {@link #getStatic()} runs. Once this method returns,
+   * every subsequent {@link #getStatic()} call is guaranteed to return the populated instance
+   * supplied here for the remainder of the process's lifetime. It must never be called more than
+   * once per process.
+   *
+   * @param dynamicFeatureFlagRegistry the instance to publish as the process-wide static
+   *     configuration
+   * @throws IllegalStateException if the process instance has already been initialized; mongot
+   *     processes must never initialize the global configuration twice
+   * @see #getStatic()
+   */
+  public static synchronized void initializeProcessInstance(
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
+    if (globalDynamicFeatureFlagRegistry.isPresent()) {
+      throw new IllegalStateException("global DynamicFeatureFlagRegistry already initialized");
+    }
+    globalDynamicFeatureFlagRegistry = Optional.of(dynamicFeatureFlagRegistry);
+  }
+
+  /**
+   * Returns the globally configured {@link DynamicFeatureFlagRegistry} installed by {@link
+   * #initializeProcessInstance}.
+   *
+   * <p><b>Contract:</b> once the bootstrapper has called {@link #initializeProcessInstance} during
+   * startup, this method is guaranteed to return a non-null, populated instance for the rest of the
+   * process's lifetime. It throws only when that precondition is unmet — i.e. it is called before
+   * initialization (ordering bug) or after {@link #resetForTest()} (which happens only in tests).
+   *
+   * <p>Use only from code that cannot receive {@link DynamicFeatureFlagRegistry} via dependency
+   * injection (the Lucene SPI/codec layer); prefer injection everywhere else. Tests relying on the
+   * global instance can be order-sensitive because its scope is process-wide. Injection avoids this
+   * by scoping the configuration to the individual test.
+   *
+   * @return the globally configured {@link DynamicFeatureFlagRegistry} instance
+   * @throws IllegalStateException if called before {@link #initializeProcessInstance} or after
+   *     {@link #resetForTest()}
+   * @see #initializeProcessInstance(DynamicFeatureFlagRegistry)
+   */
+  @RestrictedApi(
+      explanation =
+          "DynamicFeatureFlagRegistry.getStatic() should only be used in the Lucene"
+              + " codec/quantization layer or in DynamicFeatureFlagRegistryTest.java."
+              + " If you're in the Lucene SPI/codec layer where"
+              + " injection is impossible add the path to allowedOnPath"
+              + " in the @RestrictedApi annotation of DynamicFeatureFlagRegistry.getStatic().",
+      link = "https://jira.mongodb.org/browse/CLOUDP-412425",
+      allowedOnPath =
+          ".*/index/lucene/(codec|quantization)/.*|.*DynamicFeatureFlagRegistryTest\\.java")
+  public static synchronized DynamicFeatureFlagRegistry getStatic() {
+    return globalDynamicFeatureFlagRegistry.orElseThrow(
+        () ->
+            new IllegalStateException(
+                "global DynamicFeatureFlagRegistry not initialized or has been reset"));
+  }
+
+  @VisibleForTesting
+  static synchronized void resetForTest() {
+    globalDynamicFeatureFlagRegistry = Optional.empty();
   }
 }

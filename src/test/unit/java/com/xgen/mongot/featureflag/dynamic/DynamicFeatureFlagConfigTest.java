@@ -1,11 +1,10 @@
-package com.xgen.mongot.featureflag;
+package com.xgen.mongot.featureflag.dynamic;
 
 import static com.xgen.testing.BsonDeserializationTestSuite.fromDocument;
 import static com.xgen.testing.BsonSerializationTestSuite.fromEncodable;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig;
 import com.xgen.testing.BsonDeserializationTestSuite;
 import com.xgen.testing.BsonSerializationTestSuite;
 import java.util.ArrayList;
