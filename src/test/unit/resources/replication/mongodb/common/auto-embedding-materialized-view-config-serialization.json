@@ -32,7 +32,10 @@
         "perBatchMemoryBudgetHeapPercent": 60,
         "leaseManagerHeartbeatIntervalMs": 1000,
         "materializedViewStatusRefreshIntervalMs": 2000,
-        "materializedViewOptimeUpdateIntervalMs": 3000
+        "materializedViewOptimeUpdateIntervalMs": 3000,
+        "staleLeaseScanIntervalMs": 300000,
+        "staleLeaseMarkGracePeriodMs": 1800000,
+        "staleLeaseDeleteGracePeriodMs": 432000000
       },
       "bson": {
         "pauseAllInitialSyncs": false,
@@ -72,7 +75,10 @@
         "perBatchMemoryBudgetHeapPercent": 60,
         "leaseManagerHeartbeatIntervalMs": { "$numberLong": "1000" },
         "materializedViewStatusRefreshIntervalMs": { "$numberLong": "2000" },
-        "materializedViewOptimeUpdateIntervalMs": { "$numberLong": "3000" }
+        "materializedViewOptimeUpdateIntervalMs": { "$numberLong": "3000" },
+        "staleLeaseScanIntervalMs": { "$numberLong": "300000" },
+        "staleLeaseMarkGracePeriodMs": { "$numberLong": "1800000" },
+        "staleLeaseDeleteGracePeriodMs": { "$numberLong": "432000000" }
       }
     }
   ]

@@ -40,6 +40,14 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
       Duration.ofSeconds(30).toMillis();
   private static final long DEFAULT_MATERIALIZED_VIEW_OPTIME_UPDATE_INTERVAL_MS =
       Duration.ofSeconds(10).toMillis();
+  private static final long DEFAULT_STALE_LEASE_SCAN_INTERVAL_MS = Duration.ofMinutes(5).toMillis();
+  private static final long DEFAULT_STALE_LEASE_MARK_GRACE_PERIOD_MS =
+      Duration.ofMinutes(30).toMillis();
+  // Conservative on purpose: a marked lease waits 5 days before its MV collection is dropped, so a
+  // long weekend / holiday can't elapse the grace before anyone notices a misfire. Deletion is
+  // irreversible; the wait is cheap. Must stay >= the mark grace (validated below).
+  private static final long DEFAULT_STALE_LEASE_DELETE_GRACE_PERIOD_MS =
+      Duration.ofDays(5).toMillis();
   private static final long DEFAULT_MATERIALIZED_VIEW_WRITER_TIMEOUT_MS =
       Duration.ofSeconds(60).toMillis();
 
@@ -184,6 +192,22 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
   /** The interval in milliseconds at which the materialized view index optime is updated. */
   public final long materializedViewOptimeUpdateIntervalMs;
 
+  /** The interval in milliseconds at which the stale-lease GC sweep runs. */
+  public final long staleLeaseScanIntervalMs;
+
+  /**
+   * How long (milliseconds) a lease's heartbeat must have lapsed before the GC sweep marks it
+   * eligible for cleanup.
+   */
+  public final long staleLeaseMarkGracePeriodMs;
+
+  /**
+   * How long (milliseconds) a lease's heartbeat must have lapsed before the GC sweep drops its MV
+   * collection and deletes the lease. Always {@code >=} {@link #staleLeaseMarkGracePeriodMs} (a
+   * lease must be marked before it can be cleaned up); enforced at construction.
+   */
+  public final long staleLeaseDeleteGracePeriodMs;
+
   /**
    * Socket read timeout (milliseconds) for the materialized view writer MongoClient (see {@link
    * com.xgen.mongot.embedding.mongodb.common.AutoEmbeddingMongoClient}). Stored as {@code long}
@@ -223,7 +247,10 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
       long leaseManagerHeartbeatIntervalMs,
       long materializedViewStatusRefreshIntervalMs,
       long materializedViewOptimeUpdateIntervalMs,
-      long materializedViewWriterSocketTimeoutMs) {
+      long materializedViewWriterSocketTimeoutMs,
+      long staleLeaseScanIntervalMs,
+      long staleLeaseMarkGracePeriodMs,
+      long staleLeaseDeleteGracePeriodMs) {
     super(
         pauseAllInitialSyncs,
         pauseInitialSyncOnIndexIds,
@@ -256,6 +283,9 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
     this.materializedViewStatusRefreshIntervalMs = materializedViewStatusRefreshIntervalMs;
     this.materializedViewOptimeUpdateIntervalMs = materializedViewOptimeUpdateIntervalMs;
     this.materializedViewWriterSocketTimeoutMs = materializedViewWriterSocketTimeoutMs;
+    this.staleLeaseScanIntervalMs = staleLeaseScanIntervalMs;
+    this.staleLeaseMarkGracePeriodMs = staleLeaseMarkGracePeriodMs;
+    this.staleLeaseDeleteGracePeriodMs = staleLeaseDeleteGracePeriodMs;
   }
 
   /**
@@ -288,7 +318,10 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
       Optional<Long> optionalLeaseManagerHeartbeatIntervalMs,
       Optional<Long> optionalMaterializedViewStatusRefreshIntervalMs,
       Optional<Long> optionalMaterializedViewOptimeUpdateIntervalMs,
-      Optional<Long> optionalMaterializedViewWriterSocketTimeoutMs) {
+      Optional<Long> optionalMaterializedViewWriterSocketTimeoutMs,
+      Optional<Long> optionalStaleLeaseScanIntervalMs,
+      Optional<Long> optionalStaleLeaseMarkGracePeriodMs,
+      Optional<Long> optionalStaleLeaseDeleteGracePeriodMs) {
     return create(
         Runtime.INSTANCE,
         globalReplicationConfig,
@@ -316,7 +349,10 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
         optionalLeaseManagerHeartbeatIntervalMs,
         optionalMaterializedViewStatusRefreshIntervalMs,
         optionalMaterializedViewOptimeUpdateIntervalMs,
-        optionalMaterializedViewWriterSocketTimeoutMs);
+        optionalMaterializedViewWriterSocketTimeoutMs,
+        optionalStaleLeaseScanIntervalMs,
+        optionalStaleLeaseMarkGracePeriodMs,
+        optionalStaleLeaseDeleteGracePeriodMs);
   }
 
   /** Used for testing. The above create() method should be called instead. */
@@ -348,7 +384,10 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
       Optional<Long> optionalLeaseManagerHeartbeatIntervalMs,
       Optional<Long> optionalMaterializedViewStatusRefreshIntervalMs,
       Optional<Long> optionalMaterializedViewOptimeUpdateIntervalMs,
-      Optional<Long> optionalMaterializedViewWriterSocketTimeoutMs) {
+      Optional<Long> optionalMaterializedViewWriterSocketTimeoutMs,
+      Optional<Long> optionalStaleLeaseScanIntervalMs,
+      Optional<Long> optionalStaleLeaseMarkGracePeriodMs,
+      Optional<Long> optionalStaleLeaseDeleteGracePeriodMs) {
 
     int maxConcurrentEmbeddingInitialSyncs =
         getMaxConcurrentEmbeddingInitialSyncsWithDefault(
@@ -470,6 +509,44 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
         "materializedViewWriterSocketTimeoutMs must be in (0, Integer.MAX_VALUE], got %s",
         materializedViewWriterSocketTimeoutMs);
 
+    long staleLeaseScanIntervalMs =
+        getIntervalMsWithDefault(
+            optionalStaleLeaseScanIntervalMs,
+            "staleLeaseScanIntervalMs",
+            DEFAULT_STALE_LEASE_SCAN_INTERVAL_MS);
+    long requestedMarkGracePeriodMs =
+        getIntervalMsWithDefault(
+            optionalStaleLeaseMarkGracePeriodMs,
+            "staleLeaseMarkGracePeriodMs",
+            DEFAULT_STALE_LEASE_MARK_GRACE_PERIOD_MS);
+    long requestedDeleteGracePeriodMs =
+        getIntervalMsWithDefault(
+            optionalStaleLeaseDeleteGracePeriodMs,
+            "staleLeaseDeleteGracePeriodMs",
+            DEFAULT_STALE_LEASE_DELETE_GRACE_PERIOD_MS);
+    // The delete grace must be >= the mark grace: a lease must be marked ELIGIBLE_FOR_CLEANUP
+    // before the cleanup pass can drop it, and both passes key off the same leaseExpiration. A
+    // config that violates this could make a lease delete-eligible before it is ever marked, so
+    // fall back to defaults for both graces rather than risk premature deletion.
+    boolean invalidGraceOrdering = requestedDeleteGracePeriodMs < requestedMarkGracePeriodMs;
+    if (invalidGraceOrdering) {
+      LOG.warn(
+          "staleLeaseDeleteGracePeriodMs ({}ms) must be >= staleLeaseMarkGracePeriodMs ({}ms); "
+              + "falling back to defaults ({}ms mark, {}ms delete).",
+          requestedDeleteGracePeriodMs,
+          requestedMarkGracePeriodMs,
+          DEFAULT_STALE_LEASE_MARK_GRACE_PERIOD_MS,
+          DEFAULT_STALE_LEASE_DELETE_GRACE_PERIOD_MS);
+    }
+    long staleLeaseMarkGracePeriodMs =
+        invalidGraceOrdering
+            ? DEFAULT_STALE_LEASE_MARK_GRACE_PERIOD_MS
+            : requestedMarkGracePeriodMs;
+    long staleLeaseDeleteGracePeriodMs =
+        invalidGraceOrdering
+            ? DEFAULT_STALE_LEASE_DELETE_GRACE_PERIOD_MS
+            : requestedDeleteGracePeriodMs;
+
     return new AutoEmbeddingMaterializedViewConfig(
         globalReplicationConfig.pauseAllInitialSyncs(),
         globalReplicationConfig.pauseInitialSyncOnIndexIds(),
@@ -501,7 +578,10 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
         leaseManagerHeartbeatIntervalMs,
         materializedViewStatusRefreshIntervalMs,
         materializedViewOptimeUpdateIntervalMs,
-        materializedViewWriterSocketTimeoutMs);
+        materializedViewWriterSocketTimeoutMs,
+        staleLeaseScanIntervalMs,
+        staleLeaseMarkGracePeriodMs,
+        staleLeaseDeleteGracePeriodMs);
   }
 
   private static long getIntervalMsWithDefault(
@@ -551,6 +631,9 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -560,6 +643,9 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
     return create(
         runtime,
         defaultGlobalReplicationConfig(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
@@ -639,6 +725,9 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
         .fieldOmitDefaultValue(
             Fields.MATERIALIZED_VIEW_WRITER_SOCKET_TIMEOUT_MS,
             this.materializedViewWriterSocketTimeoutMs)
+        .field(Fields.STALE_LEASE_SCAN_INTERVAL_MS, this.staleLeaseScanIntervalMs)
+        .field(Fields.STALE_LEASE_MARK_GRACE_PERIOD_MS, this.staleLeaseMarkGracePeriodMs)
+        .field(Fields.STALE_LEASE_DELETE_GRACE_PERIOD_MS, this.staleLeaseDeleteGracePeriodMs)
         .build();
   }
 
@@ -1020,5 +1109,26 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
             .mustBePositive()
             .optional()
             .withDefault(DEFAULT_MATERIALIZED_VIEW_WRITER_TIMEOUT_MS);
+
+    private static final Field.WithDefault<Long> STALE_LEASE_SCAN_INTERVAL_MS =
+        Field.builder("staleLeaseScanIntervalMs")
+            .longField()
+            .mustBePositive()
+            .optional()
+            .withDefault(DEFAULT_STALE_LEASE_SCAN_INTERVAL_MS);
+
+    private static final Field.WithDefault<Long> STALE_LEASE_MARK_GRACE_PERIOD_MS =
+        Field.builder("staleLeaseMarkGracePeriodMs")
+            .longField()
+            .mustBePositive()
+            .optional()
+            .withDefault(DEFAULT_STALE_LEASE_MARK_GRACE_PERIOD_MS);
+
+    private static final Field.WithDefault<Long> STALE_LEASE_DELETE_GRACE_PERIOD_MS =
+        Field.builder("staleLeaseDeleteGracePeriodMs")
+            .longField()
+            .mustBePositive()
+            .optional()
+            .withDefault(DEFAULT_STALE_LEASE_DELETE_GRACE_PERIOD_MS);
   }
 }

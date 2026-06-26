@@ -64,6 +64,9 @@ public final class AutoEmbeddingMaterializedViewConfigMapper {
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
         Optional.empty());
   }
 }

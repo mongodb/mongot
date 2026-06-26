@@ -363,6 +363,9 @@ public class CommonUtilsTest {
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
             Optional.empty());
 
     DefaultInternalDatabaseResolver dbResolver = new DefaultInternalDatabaseResolver();
@@ -434,6 +437,9 @@ public class CommonUtilsTest {
             Optional.empty(),
             Optional.empty(),
             Optional.of(100),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
@@ -518,6 +524,9 @@ public class CommonUtilsTest {
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
             Optional.empty());
     Assert.assertEquals(
         "Config should have defaultMaterializedViewNameFormatVersion=0 when explicitly set",
@@ -530,6 +539,9 @@ public class CommonUtilsTest {
     AutoEmbeddingMaterializedViewConfig config =
         AutoEmbeddingMaterializedViewConfig.create(
             CommonReplicationConfig.defaultGlobalReplicationConfig(),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
