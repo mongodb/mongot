@@ -5,14 +5,18 @@ java_test_suite(
     srcs = [
         "ByteReadCollectorTest.java",
         "FileSystemDirectoryTest.java",
+        "IndexDirectoryHelperTest.java",
     ],
     tags = ["unit"],
     deps = [
         "//src/main/java/com/xgen/mongot/index/lucene/directory",
+        "//src/main/java/com/xgen/mongot/index/version",
         "//src/main/java/com/xgen/mongot/metrics",
+        "//src/main/java/com/xgen/mongot/util",
         "@maven//:io_micrometer_micrometer_core",
         "@maven//:junit_junit",
         "@maven//:org_apache_lucene_lucene_core",
         "@maven//:org_mockito_mockito_core",
+        "@maven//:org_mongodb_bson",
     ],
 )

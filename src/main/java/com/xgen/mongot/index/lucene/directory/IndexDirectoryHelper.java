@@ -30,6 +30,7 @@ public class IndexDirectoryHelper {
   private final Counter incompatibleIndexFormatCounter;
   private final Counter corruptIndexCounter;
   private final Counter incompatibleCodecCounter;
+  private final Counter incompatibleSpiFormatCounter;
 
   /** Tracks the count of unreadable indexes that occurred on dropped indexes. */
   private final Counter unreadableDroppedIndexCounter;
@@ -43,6 +44,7 @@ public class IndexDirectoryHelper {
     this.corruptIndexCounter = getUnreadableIndexCounter("corruptIndex");
     this.incompatibleIndexFormatCounter = getUnreadableIndexCounter("incompatibleIndexFormat");
     this.incompatibleCodecCounter = getUnreadableIndexCounter("incompatibleCodec");
+    this.incompatibleSpiFormatCounter = getUnreadableIndexCounter("incompatibleSpiFormat");
     // Track a separate metric if index was dropped, as it need not be alertable.
     this.unreadableDroppedIndexCounter = this.metricsFactory.counter("unreadableDroppedIndexes");
   }
@@ -166,6 +168,31 @@ public class IndexDirectoryHelper {
           directory,
           cause,
           this.incompatibleCodecCounter,
+          isRetainFailedIndexDataOnDiskEnabled);
+    }
+
+    // SPI format lookup failures (e.g. an older binary reading a segment written in a newer
+    // KnnVectorsFormat/PostingsFormat) surface as an IllegalArgumentException with a distinct
+    // message. Match it so the recovery attempt fires and unreadableIndexRecoveries increments,
+    // which is what the downgrade test's assert_no_index_rebuild() keys off of.
+    //
+    // This match depends on the exact wording Lucene's NamedSPILoader produces. It is asserted
+    // against a real Lucene-generated message in
+    // IndexDirectoryHelperTest
+    // #attemptToRecoverUnreadableIndex_spiFormatNotFound_recoversAndIncrementsSpiCounter
+    // -- if a Lucene upgrade changes the message, that test fails. Keep them in sync.
+    if (ExceptionUtils.getThrowableList(cause).stream()
+        .filter(e -> IllegalArgumentException.class.equals(e.getClass()))
+        .map(Throwable::getMessage)
+        .map(Optional::ofNullable)
+        .flatMap(Optional::stream)
+        .anyMatch(s -> s.contains("An SPI class of type") && s.contains("does not exist"))) {
+      return handleIndexError(
+          generationId,
+          "SPI format not found",
+          directory,
+          cause,
+          this.incompatibleSpiFormatCounter,
           isRetainFailedIndexDataOnDiskEnabled);
     }
 
