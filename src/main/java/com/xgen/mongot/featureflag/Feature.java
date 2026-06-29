@@ -85,6 +85,7 @@ public enum Feature {
   LIFECYCLE_ATTRIBUTION_METRICS("lifecycleAttributionMetrics", State.DISABLED),
   FCIS_CONSISTENT_SNAPSHOTS_LEADERSHIP("fcisConsistentSnapshotsLeadership", State.DISABLED),
   FCIS_CONSISTENT_SNAPSHOTS_DOWNLOAD("fcisConsistentSnapshotsDownload", State.DISABLED),
+  FCIS_INDEX_DATA_CONDITIONAL_WRITES("fcisIndexDataConditionalWrites", State.DISABLED),
   SEARCH_AGGREGATION("searchAggregation", State.DISABLED);
 
   private final String name;
