@@ -27,19 +27,26 @@ final class DualQueueExecutor implements ChangeStreamTaskExecutor {
 
   private final ThreadPoolExecutor rawExecutor;
   private final NamedExecutorService delegate;
+  private final ChangeStreamPriorityStrategy strategy;
 
-  DualQueueExecutor(String name, int numThreads, MeterRegistry meterRegistry) {
+  DualQueueExecutor(
+      String name,
+      int numThreads,
+      MeterRegistry meterRegistry,
+      ChangeStreamPriorityStrategy strategy) {
     Objects.requireNonNull(name, "name");
     Objects.requireNonNull(meterRegistry, "meterRegistry");
+    Objects.requireNonNull(strategy, "strategy");
     if (numThreads <= 0) {
       throw new IllegalArgumentException("numThreads must be positive, got: " + numThreads);
     }
     DualBlockingQueue queue =
-        new DualBlockingQueue(PREFERRED_TASKS_PER_REGULAR_TASK, meterRegistry);
+        new DualBlockingQueue(PREFERRED_TASKS_PER_REGULAR_TASK, name, meterRegistry);
     ThreadFactory threadFactory = Executors.countingNamedThreadFactory(name);
     this.rawExecutor =
         new ThreadPoolExecutor(numThreads, numThreads, 0L, TimeUnit.SECONDS, queue, threadFactory);
     this.delegate = Executors.namedExecutor(name, this.rawExecutor, meterRegistry);
+    this.strategy = strategy;
   }
 
   @Override
@@ -47,7 +54,7 @@ final class DualQueueExecutor implements ChangeStreamTaskExecutor {
     // No previous batch = first submission for this index; default to high priority so it starts
     // draining promptly instead of waiting behind the regular queue.
     boolean isHighPriority =
-        context.previousBatch().map(PreviousBatchInfo::hadDocuments).orElse(true);
+        context.previousBatch().map(this.strategy::isHighPriority).orElse(true);
     try {
       this.rawExecutor.execute(new PrioritizedTask(task, isHighPriority));
       return true;

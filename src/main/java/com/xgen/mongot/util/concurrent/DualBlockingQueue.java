@@ -58,18 +58,22 @@ public class DualBlockingQueue extends AbstractQueue<Runnable> implements Blocki
 
   private final Counter preferredQueueTasksServed;
   private final Counter regularQueueTasksServed;
+  private final Counter tasksRoutedToPreferredQueue;
+  private final Counter tasksRoutedToRegularQueue;
 
-  public DualBlockingQueue(int preferredTasksPerRegularTask, MeterRegistry meterRegistry) {
+  public DualBlockingQueue(
+      int preferredTasksPerRegularTask, String name, MeterRegistry meterRegistry) {
+    Objects.requireNonNull(name, "name");
     Objects.requireNonNull(meterRegistry);
     if (preferredTasksPerRegularTask <= 0) {
       throw new IllegalArgumentException(
           "preferredTasksPerRegularTask must be positive, got: " + preferredTasksPerRegularTask);
     }
     this.preferredTasksPerRegularTask = preferredTasksPerRegularTask;
-    this.preferredQueueTasksServed =
-        meterRegistry.counter("indexing.steadyStateChangeStream.preferredQueueTasksServed");
-    this.regularQueueTasksServed =
-        meterRegistry.counter("indexing.steadyStateChangeStream.regularQueueTasksServed");
+    this.preferredQueueTasksServed = meterRegistry.counter(name + ".preferredQueueTasksServed");
+    this.regularQueueTasksServed = meterRegistry.counter(name + ".regularQueueTasksServed");
+    this.tasksRoutedToPreferredQueue = meterRegistry.counter(name + ".tasksRoutedToPreferredQueue");
+    this.tasksRoutedToRegularQueue = meterRegistry.counter(name + ".tasksRoutedToRegularQueue");
   }
 
   @Override
@@ -90,8 +94,10 @@ public class DualBlockingQueue extends AbstractQueue<Runnable> implements Blocki
       }
       if (prioritized.isHighPriority()) {
         this.preferredQueue.add(r);
+        this.tasksRoutedToPreferredQueue.increment();
       } else {
         this.regularQueue.add(r);
+        this.tasksRoutedToRegularQueue.increment();
       }
       this.notEmpty.signal();
       return true;
