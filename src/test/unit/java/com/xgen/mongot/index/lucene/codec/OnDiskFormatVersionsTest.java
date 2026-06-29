@@ -40,6 +40,19 @@ import org.junit.Test;
  *       customers on the previous mongot release cannot roll back without re-indexing the affected
  *       indexes.
  * </ol>
+ *
+ * <p>This is one of three layered guards enforcing mongot's codec rollback-safety contract, each
+ * locking a different axis:
+ *
+ * <ul>
+ *   <li>{@code LuceneForkVersionTest} — which jar each Lucene module loads from.
+ *   <li>{@code CodecSubformatChangeDetectorTest} — per-field dispatch and the class of every
+ *       sub-format slot.
+ *   <li>{@code OnDiskFormatVersionsTest} — the on-disk version each format writes.
+ * </ul>
+ *
+ * <p>See the codec sub-format rollout policy:
+ * docs/internal/development/codec-subformat-rollout-policy.md.
  */
 public class OnDiskFormatVersionsTest {
 

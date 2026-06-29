@@ -6,6 +6,7 @@ java_test_suite(
     # applies timeout uniformly, so setting moderate for the suite.
     timeout = "moderate",
     srcs = [
+        "CodecSubformatChangeDetectorTest.java",
         "LuceneCodecBloomFilterTest.java",
         "LuceneCodecTest.java",
         "LuceneStoredFieldsFormatTest.java",
@@ -36,6 +37,7 @@ java_test_suite(
         "//src/main/java/com/xgen/testing/mongot/mock/index",
         "@lucene_fork//:org_apache_lucene_lucene_codecs",
         "@maven//:com_google_flogger_flogger_system_backend",
+        "@maven//:com_google_guava_guava",
         "@maven//:com_google_truth_truth",
         "@maven//:io_micrometer_micrometer_core",
         "@maven//:junit_junit",
