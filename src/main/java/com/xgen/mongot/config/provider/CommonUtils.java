@@ -16,6 +16,7 @@ import com.xgen.mongot.embedding.mongodb.leasing.StaticLeaderLeaseManager;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.index.IndexFactory;
 import com.xgen.mongot.index.autoembedding.MaterializedViewIndexFactory;
 import com.xgen.mongot.index.blobstore.BlobstoreSnapshotterManager;
@@ -168,7 +169,8 @@ public class CommonUtils {
           Optional<Supplier<EmbeddingServiceManager>> embeddingServiceManagerSupplier,
           LeaseManager leaseManager,
           MaterializedViewCollectionMetadataCatalog mvMetadataCatalog,
-          AutoEmbeddingMongoClient autoEmbeddingMongoClient) {
+          AutoEmbeddingMongoClient autoEmbeddingMongoClient,
+          DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
 
     return (Optional<SyncSourceConfig> syncSourceConfig) -> {
       // Create a no-op replication manager factory if replication mode is disabled.
@@ -202,7 +204,8 @@ public class CommonUtils {
               meterAndFtdcRegistry,
               leaseManager,
               mvMetadataCatalog,
-              autoEmbeddingMongoClient);
+              autoEmbeddingMongoClient,
+              dynamicFeatureFlagRegistry);
       syncSourceConfig.ifPresent(
           syncSource -> {
             if (matViewManager.updateSyncSource(syncSource)) {

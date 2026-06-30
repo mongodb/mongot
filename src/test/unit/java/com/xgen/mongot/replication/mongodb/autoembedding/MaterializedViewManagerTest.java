@@ -46,6 +46,8 @@ import com.xgen.mongot.embedding.mongodb.leasing.Lease;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
 import com.xgen.mongot.embedding.mongodb.leasing.StaticLeaderLeaseManager;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.InitializedSearchIndex;
 import com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGeneration;
@@ -3110,8 +3112,21 @@ public class MaterializedViewManagerTest {
 
   // ==================== Stale-Lease GC Scanner Tests ====================
 
+  // A lease expired this long ago is past the GC delete grace the manager uses. Derived from the
+  // same config default the manager reads, so cleanup tests stay correct if that
+  // default changes.
+  private static final Duration PAST_DELETE_GRACE =
+      Duration.ofMillis(
+              AutoEmbeddingMaterializedViewConfig.getDefault().staleLeaseDeleteGracePeriodMs)
+          .plus(Duration.ofHours(1));
+
   private static Lease leaseWithExpiration(
       String leaseKey, Instant leaseExpiration, Lease.CleanupState cleanupState) {
+    return leaseWithExpiration(leaseKey, leaseExpiration, cleanupState, UUID.randomUUID());
+  }
+
+  private static Lease leaseWithExpiration(
+      String leaseKey, Instant leaseExpiration, Lease.CleanupState cleanupState, UUID matViewUuid) {
     return new Lease(
         leaseKey,
         Lease.SCHEMA_VERSION,
@@ -3125,20 +3140,158 @@ public class MaterializedViewManagerTest {
         Map.of(),
         new MaterializedViewCollectionMetadata(
             new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(0, Map.of()),
-            UUID.randomUUID(),
+            matViewUuid,
             leaseKey),
         null,
         cleanupState);
   }
 
   @Test
-  public void scanStaleLeases_disabledByDefault_threadNotScheduled() {
+  public void scanStaleLeases_threadAlwaysScheduled() {
     Mocks mocks = Mocks.create();
 
-    // The GC scanner thread is gated off (STALE_LEASE_SCAN_ENABLED = false): the periodic scan task
-    // is never scheduled on its executor, so no background thread is created.
-    verify(mocks.staleLeaseScannerExecutor, never())
+    // The GC scanner thread is always scheduled; the MV_GC_ENABLED dynamic flag gates the work per
+    // tick (not the scheduling), so cleanup can be toggled at runtime without a restart.
+    verify(mocks.staleLeaseScannerExecutor)
         .scheduleWithFixedDelay(any(), anyLong(), anyLong(), any());
+  }
+
+  @Test
+  public void scanStaleLeases_flagDisabled_doesNothing() {
+    Mocks mocks = Mocks.create();
+    when(mocks.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+            DynamicFeatureFlags.MV_GC_ENABLED))
+        .thenReturn(false);
+
+    mocks.manager.scanStaleLeasesForCleanup();
+
+    // Flag off: the sweep short-circuits before it ever queries for candidates.
+    verify(mocks.leaseManager, never()).findGcCandidates(any());
+  }
+
+  @Test
+  public void scanStaleLeases_flagEvaluationThrows_containedNotPropagated() {
+    Mocks mocks = Mocks.create();
+    when(mocks.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+            DynamicFeatureFlags.MV_GC_ENABLED))
+        .thenThrow(new RuntimeException("transient registry error"));
+
+    // Must not throw: a flag-evaluation failure has to be contained, otherwise VerboseRunnable
+    // rethrows and scheduleWithFixedDelay cancels the scanner for the life of the process.
+    mocks.manager.scanStaleLeasesForCleanup();
+
+    // Contained before the sweep touched the lease manager; the task keeps ticking next interval.
+    verify(mocks.leaseManager, never()).findGcCandidates(any());
+  }
+
+  @Test
+  public void scanStaleLeases_scannerAliveGauge_tracksDynamicFlag() {
+    Mocks mocks = Mocks.create();
+    when(mocks.leaseManager.findGcCandidates(any())).thenReturn(List.of());
+
+    // Flag on (Mocks default): A is registered at construction and reads 1 (GC running) once the
+    // sweep has run with the flag on.
+    mocks.manager.scanStaleLeasesForCleanup();
+    assertEquals(
+        1.0,
+        mocks
+            .meterRegistry
+            .get("replication.mongodb." + MaterializedViewManager.MAT_VIEW_GC_SCANNER_ALIVE_GAUGE)
+            .gauge()
+            .value(),
+        0.0);
+
+    // Control plane turns the flag off: the bound gauge re-evaluates the flag on scrape and drops
+    // to 0 in lockstep — no restart, no re-registration, even though the scanner thread is still
+    // scheduled.
+    when(mocks.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+            DynamicFeatureFlags.MV_GC_ENABLED))
+        .thenReturn(false);
+    assertEquals(
+        0.0,
+        mocks
+            .meterRegistry
+            .get("replication.mongodb." + MaterializedViewManager.MAT_VIEW_GC_SCANNER_ALIVE_GAUGE)
+            .gauge()
+            .value(),
+        0.0);
+  }
+
+  /** Current value of the single aggregate overdue gauge (matViewGcLeasesOverdue). */
+  private static double overdueGaugeValue(Mocks mocks) {
+    return mocks
+        .meterRegistry
+        .get("replication.mongodb." + MaterializedViewManager.MAT_VIEW_GC_LEASES_OVERDUE_GAUGE)
+        .gauge()
+        .value();
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void scanStaleLeases_overdueGauge_countsBlockedNotWithinGrace() {
+    Mocks mocks = Mocks.create();
+    // "blocked": past the delete grace, but its MV drop fails, so the cleanup pass can't delete it.
+    Lease blocked =
+        leaseWithExpiration(
+            "blocked",
+            Instant.now().minus(PAST_DELETE_GRACE),
+            Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+    // "within-grace": marked but not yet past the delete grace — not overdue, so not counted.
+    Lease withinGrace =
+        leaseWithExpiration(
+            "within-grace",
+            Instant.now().minus(Duration.ofMinutes(35)),
+            Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+    when(mocks.leaseManager.findGcCandidates(any())).thenReturn(List.of(blocked, withinGrace));
+    when(mocks.leaseManager.resolveStaleMatViewNamespace(eq("blocked"), any()))
+        .thenReturn(Optional.of(new MongoNamespace("test-db", "mv-collection")));
+    MongoClient writerClient = mock(MongoClient.class);
+    MongoDatabase database = mock(MongoDatabase.class);
+    MongoCollection<Document> collection = mock(MongoCollection.class);
+    when(mocks.autoEmbeddingMongoClient.getMaterializedViewWriterMongoClient())
+        .thenReturn(Optional.of(writerClient));
+    when(writerClient.getDatabase("test-db")).thenReturn(database);
+    when(database.getCollection("mv-collection")).thenReturn(collection);
+    doThrow(new RuntimeException("drop failed")).when(collection).drop();
+
+    mocks.manager.scanStaleLeasesForCleanup();
+
+    // Only the blocked overdue lease is counted; the within-grace one isn't overdue, and the count
+    // is a single aggregate (no per-lease series).
+    assertEquals(1.0, overdueGaugeValue(mocks), 0.0);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void scanStaleLeases_overdueGauge_resetsWhenFlagDisabled() {
+    Mocks mocks = Mocks.create();
+    Lease blocked =
+        leaseWithExpiration(
+            "blocked",
+            Instant.now().minus(PAST_DELETE_GRACE),
+            Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+    when(mocks.leaseManager.findGcCandidates(any())).thenReturn(List.of(blocked));
+    when(mocks.leaseManager.resolveStaleMatViewNamespace(eq("blocked"), any()))
+        .thenReturn(Optional.of(new MongoNamespace("test-db", "mv-collection")));
+    MongoClient writerClient = mock(MongoClient.class);
+    MongoDatabase database = mock(MongoDatabase.class);
+    MongoCollection<Document> collection = mock(MongoCollection.class);
+    when(mocks.autoEmbeddingMongoClient.getMaterializedViewWriterMongoClient())
+        .thenReturn(Optional.of(writerClient));
+    when(writerClient.getDatabase("test-db")).thenReturn(database);
+    when(database.getCollection("mv-collection")).thenReturn(collection);
+    doThrow(new RuntimeException("drop failed")).when(collection).drop();
+
+    mocks.manager.scanStaleLeasesForCleanup();
+    assertEquals(1.0, overdueGaugeValue(mocks), 0.0);
+
+    // Control plane disables GC: the sweep early-returns but resets the push-based gauge to 0,
+    // rather than holding the stale 1 while GC is off.
+    when(mocks.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+            DynamicFeatureFlags.MV_GC_ENABLED))
+        .thenReturn(false);
+    mocks.manager.scanStaleLeasesForCleanup();
+    assertEquals(0.0, overdueGaugeValue(mocks), 0.0);
   }
 
   @Test
@@ -3308,6 +3461,248 @@ public class MaterializedViewManagerTest {
     assertFalse(mocks.manager.dropStaleMatViewCollection("lease-key", Instant.now()));
   }
 
+  // ==================== Cleanup pass (cleaner) ====================
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void scanStaleLeases_markedPastDeleteGrace_dropsCollectionThenLease() {
+    Mocks mocks = Mocks.create();
+    // Marked in an earlier sweep, lapsed far past the delete grace.
+    Lease marked =
+        leaseWithExpiration(
+            "clean-me",
+            Instant.now().minus(PAST_DELETE_GRACE),
+            Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+    when(mocks.leaseManager.findGcCandidates(any())).thenReturn(List.of(marked));
+    // Drive the real MaterializedViewManager.dropStaleMatViewCollection: resolve the namespace,
+    // then drop the collection through the writer client.
+    when(mocks.leaseManager.resolveStaleMatViewNamespace(eq("clean-me"), any()))
+        .thenReturn(Optional.of(new MongoNamespace("test-db", "mv-collection")));
+    MongoClient writerClient = mock(MongoClient.class);
+    MongoDatabase database = mock(MongoDatabase.class);
+    MongoCollection<Document> collection = mock(MongoCollection.class);
+    when(mocks.autoEmbeddingMongoClient.getMaterializedViewWriterMongoClient())
+        .thenReturn(Optional.of(writerClient));
+    when(writerClient.getDatabase("test-db")).thenReturn(database);
+    when(database.getCollection("mv-collection")).thenReturn(collection);
+    when(mocks.leaseManager.deleteStaleLease(eq("clean-me"), any())).thenReturn(true);
+
+    mocks.manager.scanStaleLeasesForCleanup();
+
+    // Collection first, lease second: the lease is the GC source of truth.
+    InOrder inOrder = Mockito.inOrder(collection, mocks.leaseManager);
+    inOrder.verify(collection).drop();
+    inOrder.verify(mocks.leaseManager).deleteStaleLease(eq("clean-me"), any());
+    // Already-marked leases are not re-marked.
+    verify(mocks.leaseManager, never()).markEligibleForCleanup(any(), any());
+    // The namespace resolve (inside the drop) and the OCC delete receive the SAME cutoff, and it
+    // is the delete grace (now − delete grace), not the mark grace — that cutoff drives the
+    // pre-drop re-read veto and the OCC delete filter, the last defenses against cleaning up a
+    // resurrected lease.
+    ArgumentCaptor<Instant> resolveCutoff = ArgumentCaptor.forClass(Instant.class);
+    ArgumentCaptor<Instant> deleteCutoff = ArgumentCaptor.forClass(Instant.class);
+    verify(mocks.leaseManager)
+        .resolveStaleMatViewNamespace(eq("clean-me"), resolveCutoff.capture());
+    verify(mocks.leaseManager).deleteStaleLease(eq("clean-me"), deleteCutoff.capture());
+    assertEquals(resolveCutoff.getValue(), deleteCutoff.getValue());
+    Instant expectedDeleteCutoff =
+        Instant.now()
+            .minus(
+                Duration.ofMillis(
+                    AutoEmbeddingMaterializedViewConfig.getDefault()
+                        .staleLeaseDeleteGracePeriodMs));
+    assertTrue(
+        "delete cutoff should be ~now − the delete grace, not the mark grace",
+        Duration.between(deleteCutoff.getValue(), expectedDeleteCutoff).abs().toMinutes() < 5);
+    // The overdue lease was cleaned this sweep, so it is not counted as blocked.
+    assertEquals(0.0, overdueGaugeValue(mocks), 0.0);
+  }
+
+  @Test
+  public void scanStaleLeases_markedThisSweep_notCleanedUpInSameSweep() {
+    Mocks mocks = Mocks.create();
+    // Ancient lease, but NOT_ELIGIBLE in this sweep's snapshot: the mark pass marks it, and the
+    // cleanup pass must wait for a later sweep — mark and cleanup always span two sweeps.
+    Lease stale =
+        leaseWithExpiration(
+            "just-marked",
+            Instant.now().minus(Duration.ofDays(1)),
+            Lease.CleanupState.NOT_ELIGIBLE);
+    when(mocks.leaseManager.findGcCandidates(any())).thenReturn(List.of(stale));
+    when(mocks.leaseManager.markEligibleForCleanup(eq("just-marked"), any())).thenReturn(true);
+
+    mocks.manager.scanStaleLeasesForCleanup();
+
+    verify(mocks.leaseManager).markEligibleForCleanup(eq("just-marked"), any());
+    // cleanUpStaleLease returns at the cleanupState check before touching the collection.
+    verify(mocks.leaseManager, never()).resolveStaleMatViewNamespace(any(), any());
+    verify(mocks.leaseManager, never()).deleteStaleLease(any(), any());
+    // The two-sweep guarantee rests on a single candidate fetch per sweep: both passes act on
+    // the same snapshot, so a lease the mark pass just flipped is still NOT_ELIGIBLE to the
+    // cleanup pass. A re-fetch here would re-read it as ELIGIBLE and clean it up same-sweep.
+    verify(mocks.leaseManager, times(1)).findGcCandidates(any());
+  }
+
+  @Test
+  public void scanStaleLeases_markedWithinDeleteGrace_notCleanedUp() {
+    Mocks mocks = Mocks.create();
+    // Past the 30-minute mark grace (so it is a candidate) but not the (much longer) delete grace.
+    Lease marked =
+        leaseWithExpiration(
+            "too-fresh",
+            Instant.now().minus(Duration.ofMinutes(35)),
+            Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+    when(mocks.leaseManager.findGcCandidates(any())).thenReturn(List.of(marked));
+
+    mocks.manager.scanStaleLeasesForCleanup();
+
+    // cleanUpStaleLease returns at the delete-grace check before touching the collection.
+    verify(mocks.leaseManager, never()).resolveStaleMatViewNamespace(any(), any());
+    verify(mocks.leaseManager, never()).deleteStaleLease(any(), any());
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void scanStaleLeases_collectionDropFails_leaseKept() {
+    Mocks mocks = Mocks.create();
+    Lease marked =
+        leaseWithExpiration(
+            "drop-fails",
+            Instant.now().minus(PAST_DELETE_GRACE),
+            Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+    when(mocks.leaseManager.findGcCandidates(any())).thenReturn(List.of(marked));
+    when(mocks.leaseManager.resolveStaleMatViewNamespace(eq("drop-fails"), any()))
+        .thenReturn(Optional.of(new MongoNamespace("test-db", "mv-collection")));
+    MongoClient writerClient = mock(MongoClient.class);
+    MongoDatabase database = mock(MongoDatabase.class);
+    MongoCollection<Document> collection = mock(MongoCollection.class);
+    when(mocks.autoEmbeddingMongoClient.getMaterializedViewWriterMongoClient())
+        .thenReturn(Optional.of(writerClient));
+    when(writerClient.getDatabase("test-db")).thenReturn(database);
+    when(database.getCollection("mv-collection")).thenReturn(collection);
+    doThrow(new RuntimeException("drop failed")).when(collection).drop();
+
+    mocks.manager.scanStaleLeasesForCleanup();
+
+    // dropStaleMatViewCollection swallows the failure and returns false; the lease survives so the
+    // next sweep can rediscover and retry.
+    verify(mocks.leaseManager, never()).deleteStaleLease(any(), any());
+    // matViewGcCollectionDropFailures: the drop failure is counted (alert source for GC blocked on
+    // MV deletion).
+    assertEquals(
+        1.0,
+        mocks
+            .meterRegistry
+            .counter(MaterializedViewManager.MAT_VIEW_GC_COLLECTION_DROP_FAILURE_COUNTER_NAME)
+            .count(),
+        0.0);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void scanStaleLeases_cleanupThrows_continuesToNextLease() {
+    Mocks mocks = Mocks.create();
+    Lease throwing =
+        leaseWithExpiration(
+            "throwing-cleanup",
+            Instant.now().minus(PAST_DELETE_GRACE),
+            Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+    Lease second =
+        leaseWithExpiration(
+            "second-cleanup",
+            Instant.now().minus(PAST_DELETE_GRACE.plusHours(1)),
+            Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+    when(mocks.leaseManager.findGcCandidates(any())).thenReturn(List.of(throwing, second));
+    // The first lease's cleanup blows up (resolve runs before the drop's try/catch, so it
+    // propagates); the per-lease catch must contain it and move on.
+    when(mocks.leaseManager.resolveStaleMatViewNamespace(eq("throwing-cleanup"), any()))
+        .thenThrow(new RuntimeException("simulated cleanup failure"));
+    when(mocks.leaseManager.resolveStaleMatViewNamespace(eq("second-cleanup"), any()))
+        .thenReturn(Optional.of(new MongoNamespace("test-db", "mv-collection")));
+    MongoClient writerClient = mock(MongoClient.class);
+    MongoDatabase database = mock(MongoDatabase.class);
+    MongoCollection<Document> collection = mock(MongoCollection.class);
+    when(mocks.autoEmbeddingMongoClient.getMaterializedViewWriterMongoClient())
+        .thenReturn(Optional.of(writerClient));
+    when(writerClient.getDatabase("test-db")).thenReturn(database);
+    when(database.getCollection("mv-collection")).thenReturn(collection);
+    when(mocks.leaseManager.deleteStaleLease(eq("second-cleanup"), any())).thenReturn(true);
+
+    mocks.manager.scanStaleLeasesForCleanup();
+
+    // The first lease's failure is contained per-iteration; the second is still cleaned up.
+    verify(mocks.leaseManager).deleteStaleLease(eq("second-cleanup"), any());
+  }
+
+  @Test
+  public void scanStaleLeases_matViewUsedByLocalGeneration_refusesCleanup() {
+    Mocks mocks = Mocks.create();
+    UUID matViewUuid = UUID.randomUUID();
+    Lease marked =
+        leaseWithExpiration(
+            "in-use",
+            Instant.now().minus(PAST_DELETE_GRACE),
+            Lease.CleanupState.ELIGIBLE_FOR_CLEANUP,
+            matViewUuid);
+    when(mocks.leaseManager.findGcCandidates(any())).thenReturn(List.of(marked));
+    // A local generation still reads this collection (e.g. extreme outage marked a live lease).
+    synchronized (mocks.manager) {
+      mocks.manager.activeGenerationIdCatalog.genIdByMatViewCollection.put(matViewUuid, Set.of());
+    }
+
+    mocks.manager.scanStaleLeasesForCleanup();
+
+    // cleanUpStaleLease refuses at the local-generation guard before touching the collection.
+    verify(mocks.leaseManager, never()).resolveStaleMatViewNamespace(any(), any());
+    verify(mocks.leaseManager, never()).deleteStaleLease(any(), any());
+    // matViewGcLeaseInUseRefusals: the refusal is counted — a non-zero value warrants
+    // investigation.
+    assertEquals(
+        1.0,
+        mocks
+            .meterRegistry
+            .counter(MaterializedViewManager.MAT_VIEW_GC_LEASE_IN_USE_REFUSAL_COUNTER_NAME)
+            .count(),
+        0.0);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void scanStaleLeases_dropSucceedsButLeaseDeleteMisses_noErrorAndMovesOn() {
+    Mocks mocks = Mocks.create();
+    // Marked + past the delete grace, so the collection is dropped — but the OCC lease delete
+    // misses: the lease was reused/renewed in the drop→delete window, so it no longer matches
+    // (cleanupState == ELIGIBLE_FOR_CLEANUP && expired). deleteStaleLease returns false. The
+    // cleaner must simply move on — no throw, no retry, no re-mark. A later sweep won't re-clean
+    // it either: a reused lease's expiration is now in the future, so it is no longer a candidate.
+    Lease marked =
+        leaseWithExpiration(
+            "delete-misses",
+            Instant.now().minus(PAST_DELETE_GRACE),
+            Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+    when(mocks.leaseManager.findGcCandidates(any())).thenReturn(List.of(marked));
+    when(mocks.leaseManager.resolveStaleMatViewNamespace(eq("delete-misses"), any()))
+        .thenReturn(Optional.of(new MongoNamespace("test-db", "mv-collection")));
+    MongoClient writerClient = mock(MongoClient.class);
+    MongoDatabase database = mock(MongoDatabase.class);
+    MongoCollection<Document> collection = mock(MongoCollection.class);
+    when(mocks.autoEmbeddingMongoClient.getMaterializedViewWriterMongoClient())
+        .thenReturn(Optional.of(writerClient));
+    when(writerClient.getDatabase("test-db")).thenReturn(database);
+    when(database.getCollection("mv-collection")).thenReturn(collection);
+    // Collection drop succeeds; the OCC lease delete misses.
+    when(mocks.leaseManager.deleteStaleLease(eq("delete-misses"), any())).thenReturn(false);
+
+    // Must not throw.
+    mocks.manager.scanStaleLeasesForCleanup();
+
+    // The collection was dropped and the delete was attempted exactly once; the cleaner then moves
+    // on without re-marking or retrying.
+    verify(collection).drop();
+    verify(mocks.leaseManager).deleteStaleLease(eq("delete-misses"), any());
+    verify(mocks.leaseManager, never()).markEligibleForCleanup(any(), any());
+  }
+
   static class Mocks {
     final NamedExecutorService executorService;
     @Keep final IndexingWorkSchedulerFactory indexingWorkSchedulerFactory;
@@ -3328,6 +3723,7 @@ public class MaterializedViewManagerTest {
     final Optional<ArgumentCaptor<Runnable>> runnableCaptor; // For follower mode tests
     final MaterializedViewCollectionMetadataCatalog metadataCatalog;
     final NamedScheduledExecutorService staleLeaseScannerExecutor;
+    final DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry;
 
     MaterializedViewManager manager;
 
@@ -3364,6 +3760,11 @@ public class MaterializedViewManagerTest {
       this.leaseManager = leaseManager;
       this.metadataCatalog = metadataCatalog;
       this.staleLeaseScannerExecutor = mockScheduledExecutor("mat-view-stale-lease-scanner");
+      // GC sweep enabled by default for these tests; the flag-disabled path is covered separately.
+      this.dynamicFeatureFlagRegistry = mock(DynamicFeatureFlagRegistry.class);
+      when(this.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+              DynamicFeatureFlags.MV_GC_ENABLED))
+          .thenReturn(true);
 
       SyncSourceConfig syncSourceConfig =
           SyncSourceConfig.builder()
@@ -3398,7 +3799,8 @@ public class MaterializedViewManagerTest {
                   this.meterRegistry,
                   leaseManager,
                   metadataCatalog,
-                  AutoEmbeddingMaterializedViewConfig.getDefault());
+                  AutoEmbeddingMaterializedViewConfig.getDefault(),
+                  this.dynamicFeatureFlagRegistry);
       this.manager = this.managerSupplier.get();
       this.manager.setIsReplicationEnabled(true);
     }

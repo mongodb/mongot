@@ -800,7 +800,8 @@ public class CommunityMongotBootstrapper {
             Optional.of(embeddingServiceManagerSupplier),
             leaseManager,
             mvMetadataCatalog,
-            autoEmbeddingMongoClient);
+            autoEmbeddingMongoClient,
+            dynamicFeatureFlagRegistry);
 
     var lifecycleManager =
         CommonUtils.getLifecycleManager(

@@ -56,7 +56,14 @@ public enum DynamicFeatureFlags {
    * events for the configured inactivity threshold, and reactivates it when activity resumes. Gates
    * parking behavior only; inactivity detection and logging are always on.
    */
-  INACTIVE_CURSOR_PARKING("mongot.featureFlag.enableInactiveCursorParking", false);
+  INACTIVE_CURSOR_PARKING("mongot.featureFlag.enableInactiveCursorParking", false),
+  /**
+   * When enabled, runs the auto-embedding stale lease / materialized-view garbage collection sweep:
+   * marks superseded MV leases eligible for cleanup, then drops the MV collection and deletes the
+   * lease once the grace periods lapse. Evaluated per sweep tick so cleanup can be turned on or off
+   * at runtime; the scanner thread itself is always scheduled. Off by default.
+   */
+  MV_GC_ENABLED("mongot.featureFlag.enableMvGc", false);
 
   private final String name;
   private final boolean fallback;

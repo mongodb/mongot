@@ -16,6 +16,7 @@ import com.xgen.mongot.embedding.mongodb.common.DefaultInternalDatabaseResolver;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.index.autoembedding.MaterializedViewIndexFactory;
 import com.xgen.mongot.index.mongodb.MaterializedViewWriter;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
@@ -231,7 +232,8 @@ public class CommonUtilsTest {
             Optional.of(() -> mock(EmbeddingServiceManager.class)),
             mocks.leaseManager,
             mocks.mvMetadataCatalog,
-            mocks.autoEmbeddingMongoClient);
+            mocks.autoEmbeddingMongoClient,
+            DynamicFeatureFlagRegistry.empty());
 
     var configWithMissingUri =
         SyncSourceConfig.builder()
@@ -264,7 +266,8 @@ public class CommonUtilsTest {
             Optional.of(() -> mock(EmbeddingServiceManager.class)),
             mocks.leaseManager,
             mocks.mvMetadataCatalog,
-            mocks.autoEmbeddingMongoClient);
+            mocks.autoEmbeddingMongoClient,
+            DynamicFeatureFlagRegistry.empty());
 
     var configWithValidUri =
         SyncSourceConfig.builder()
@@ -298,7 +301,8 @@ public class CommonUtilsTest {
             mocks.embeddingServiceManagerSupplier,
             mocks.leaseManager,
             mocks.mvMetadataCatalog,
-            mocks.autoEmbeddingMongoClient);
+            mocks.autoEmbeddingMongoClient,
+            DynamicFeatureFlagRegistry.empty());
     var noOpManager = factory.create(Optional.of(mocks.syncSourceConfig));
     Assert.assertTrue(noOpManager.isEmpty());
   }
@@ -318,7 +322,8 @@ public class CommonUtilsTest {
             mocks.embeddingServiceManagerSupplier,
             mocks.leaseManager,
             mocks.mvMetadataCatalog,
-            mocks.autoEmbeddingMongoClient);
+            mocks.autoEmbeddingMongoClient,
+            DynamicFeatureFlagRegistry.empty());
 
     // With empty embeddingServiceManagerSupplier should throw IllegalArgumentException.
     IllegalArgumentException exception =
@@ -480,7 +485,8 @@ public class CommonUtilsTest {
             Optional.of(() -> mock(EmbeddingServiceManager.class)),
             mocks.leaseManager,
             mocks.mvMetadataCatalog,
-            mocks.autoEmbeddingMongoClient);
+            mocks.autoEmbeddingMongoClient,
+            DynamicFeatureFlagRegistry.empty());
     var noOpManager = factory.create(Optional.empty());
     Assert.assertTrue(noOpManager.isPresent());
   }

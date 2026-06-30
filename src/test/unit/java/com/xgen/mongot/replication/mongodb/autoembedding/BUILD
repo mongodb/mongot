@@ -15,6 +15,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/embedding/mongodb/common",
         "//src/main/java/com/xgen/mongot/embedding/mongodb/leasing",
         "//src/main/java/com/xgen/mongot/featureflag",
+        "//src/main/java/com/xgen/mongot/featureflag/dynamic",
         "//src/main/java/com/xgen/mongot/index",
         "//src/main/java/com/xgen/mongot/index/autoembedding",
         "//src/main/java/com/xgen/mongot/index/definition",
