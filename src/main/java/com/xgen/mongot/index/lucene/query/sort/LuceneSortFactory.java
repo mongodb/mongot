@@ -409,6 +409,7 @@ public class LuceneSortFactory {
           KNN_BIT,
           KNN_F32_Q7,
           KNN_F32_Q1,
+          KNN_BYTE_Q1,
           NUMBER_DOUBLE,
           NUMBER_DOUBLE_MULTIPLE,
           NUMBER_DOUBLE_FACET,

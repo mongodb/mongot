@@ -86,7 +86,8 @@ public enum Feature {
   FCIS_CONSISTENT_SNAPSHOTS_LEADERSHIP("fcisConsistentSnapshotsLeadership", State.DISABLED),
   FCIS_CONSISTENT_SNAPSHOTS_DOWNLOAD("fcisConsistentSnapshotsDownload", State.DISABLED),
   FCIS_INDEX_DATA_CONDITIONAL_WRITES("fcisIndexDataConditionalWrites", State.DISABLED),
-  SEARCH_AGGREGATION("searchAggregation", State.DISABLED);
+  SEARCH_AGGREGATION("searchAggregation", State.DISABLED),
+  BYTE_BINARY_QUANTIZATION("byteBinaryQuantization", State.DISABLED);
 
   private final String name;
   private final State defaultState;

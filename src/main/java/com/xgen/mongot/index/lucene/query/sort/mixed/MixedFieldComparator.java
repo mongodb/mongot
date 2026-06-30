@@ -86,6 +86,7 @@ public class MixedFieldComparator {
           KNN_BIT,
           KNN_F32_Q7,
           KNN_F32_Q1,
+          KNN_BYTE_Q1,
           GEO_SHAPE,
           GEO_POINT,
           DATE_FACET,

@@ -128,6 +128,8 @@ public class FieldName {
     KNN_F32_Q7("knnF32Q7"),
     /** KNN Float Vector field with binary quantization */
     KNN_F32_Q1("knnF32Q1"),
+    /** KNN Byte Vector field with binary quantization */
+    KNN_BYTE_Q1("knnByteQ1"),
     /**
      * Indexes array and non-array fields as StringField and SortedDocValuesField.
      *

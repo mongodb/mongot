@@ -43,7 +43,8 @@
         "fcisConsistentSnapshotsLeadership": false,
         "fcisConsistentSnapshotsDownload": false,
         "fcisIndexDataConditionalWrites": false,
-        "searchAggregation": false
+        "searchAggregation": false,
+        "byteBinaryQuantization" : false
       }
     },
     {
@@ -89,7 +90,8 @@
         "fcisConsistentSnapshotsLeadership": false,
         "fcisConsistentSnapshotsDownload": false,
         "fcisIndexDataConditionalWrites": false,
-        "searchAggregation": false
+        "searchAggregation": false,
+        "byteBinaryQuantization" : false
       }
     },
     {
@@ -135,7 +137,8 @@
         "fcisConsistentSnapshotsLeadership": true,
         "fcisConsistentSnapshotsDownload": true,
         "fcisIndexDataConditionalWrites": true,
-        "searchAggregation": true
+        "searchAggregation": true,
+        "byteBinaryQuantization" : true
       }
     },
     {
@@ -181,7 +184,8 @@
         "fcisConsistentSnapshotsLeadership": false,
         "fcisConsistentSnapshotsDownload": false,
         "fcisIndexDataConditionalWrites": false,
-        "searchAggregation": false
+        "searchAggregation": false,
+        "byteBinaryQuantization" : false
       }
     }
   ]
