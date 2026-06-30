@@ -21,6 +21,7 @@ import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.List;
 import org.bson.BsonArray;
+import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonString;
@@ -759,6 +760,378 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
 
     assertEquals(1, batch.finalChangeEvents.size());
     assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+  }
+
+  @Test
+  public void intraBatchCollapse_EmbedSourceThenFilterOnly_RequiresFullUpdate_NonView() {
+    // Two events on the same doc in one batch: an embed-source update followed by a filter-only
+    // update. Without the batch-aware decision, dedup would keep only the filter-only event and
+    // emit a partial $set, leaving the MV vector encoding the old text (stale embedding).
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    // Event 1 (older): update the embed source.
+    UpdateDescription embedUpdateDesc =
+        new UpdateDescription(
+            null, new BsonDocument("description", new BsonString("new description")));
+    BsonDocument embedFullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("new description"))
+            .append("category", new BsonString("old"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> embedSourceEvent =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, embedUpdateDesc, embedFullDocument);
+
+    // Event 2 (newer, surviving): filter-only update on the same doc.
+    ChangeStreamDocument<RawBsonDocument> filterOnlyEvent =
+        createFilterOnlyUpdateEvent(indexDef, "category");
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(embedSourceEvent, filterOnlyEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+  }
+
+  @Test
+  public void intraBatchCollapse_MatchTransitionThenFilterOnly_RequiresFullUpdate_View() {
+    // Two events on the same doc: a $match-transition update (isPublished false -> true,
+    // entering the view) followed by a filter-only update. Without the batch-aware decision,
+    // dedup would keep the filter-only event and emit a non-upsert partial $set, silently
+    // dropping the transitioned-in document (HELP-94834 class).
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .view(
+                ViewDefinition.existing(
+                    "myView",
+                    List.of(
+                        BsonDocument.parse(
+                            "{\"$match\": {\"$expr\": {\"$eq\": [\"$isPublished\", true]}}}"))))
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    // Event 1 (older): matchField transition into the view.
+    UpdateDescription matchTransitionDesc =
+        new UpdateDescription(null, new BsonDocument("isPublished", BsonBoolean.TRUE));
+    BsonDocument matchFullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("d"))
+            .append("isPublished", BsonBoolean.TRUE)
+            .append("category", new BsonString("old"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> matchTransitionEvent =
+        ChangeStreamUtils.dataEvent(
+            OperationType.UPDATE, 0, matchTransitionDesc, matchFullDocument);
+
+    // Event 2 (newer, surviving): filter-only update on the same doc.
+    ChangeStreamDocument<RawBsonDocument> filterOnlyEvent =
+        createFilterOnlyUpdateEvent(indexDef, "category");
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(matchTransitionEvent, filterOnlyEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+  }
+
+  @Test
+  public void intraBatchCollapse_AllFilterOnly_OptimizationRetained_AggregatesIntoSurvivor() {
+    // Two filter-only updates on the same doc, touching different filter fields. Neither event
+    // requires full processing, so the surviving event must take the partial path. Additionally,
+    // the predecessor's filter change must be aggregated into the survivor's $set: the survivor's
+    // fullDocument reflects the post-batch state of every field (via updateLookup), and
+    // extractFilterFieldValues reads all declared filter values from that fullDocument — not just
+    // the ones in the survivor's updateDescription.
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .withFilterPath("isPublished")
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    // Event 1 (older): filter-only update on isPublished.
+    UpdateDescription firstFilterDesc =
+        new UpdateDescription(null, new BsonDocument("isPublished", BsonBoolean.TRUE));
+    BsonDocument firstFullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("d"))
+            .append("isPublished", BsonBoolean.TRUE)
+            .append("category", new BsonString("old"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> firstFilterEvent =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, firstFilterDesc, firstFullDocument);
+
+    // Event 2 (newer, surviving): filter-only update on category. Its fullDocument mirrors what
+    // updateLookup would produce — the post-batch state of every field, including isPublished
+    // from event 1.
+    UpdateDescription secondFilterDesc =
+        new UpdateDescription(null, new BsonDocument("category", new BsonString("updated")));
+    BsonDocument secondFullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("d"))
+            .append("isPublished", BsonBoolean.TRUE)
+            .append("category", new BsonString("updated"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> secondFilterEvent =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, secondFilterDesc, secondFullDocument);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(firstFilterEvent, secondFilterEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    DocumentEvent event = batch.finalChangeEvents.getFirst();
+    assertTrue(event.getFilterFieldUpdates().isPresent());
+    BsonDocument filterFieldUpdates = event.getFilterFieldUpdates().get();
+    // The survivor's $set carries BOTH the survivor's own filter change AND the predecessor's.
+    assertEquals(new BsonString("updated"), filterFieldUpdates.get("category"));
+    assertEquals(BsonBoolean.TRUE, filterFieldUpdates.get("isPublished"));
+  }
+
+  @Test
+  public void intraBatchCollapse_InsertThenFilterOnly_RequiresFullUpdate() {
+    // INSERT followed by a filter-only update on the same doc. Without the batch-aware decision,
+    // dedup would keep the filter-only event and emit a non-upsert partial $set against a row
+    // that does not yet exist in the MV, silently dropping the inserted document.
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    // Event 1 (older): INSERT.
+    ChangeStreamDocument<RawBsonDocument> insertEvent =
+        ChangeStreamUtils.dataEvent(OperationType.INSERT, 0, null, indexDef);
+
+    // Event 2 (newer, surviving): filter-only update on the same doc.
+    ChangeStreamDocument<RawBsonDocument> filterOnlyEvent =
+        createFilterOnlyUpdateEvent(indexDef, "category");
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(insertEvent, filterOnlyEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+  }
+
+  @Test
+  public void intraBatchCollapse_ReplaceThenFilterOnly_RequiresFullUpdate() {
+    // REPLACE followed by a filter-only update on the same doc. Without the batch-aware decision,
+    // dedup would keep the filter-only event and emit a partial $set that would not reflect the
+    // full-document replacement, silently corrupting the MV row.
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    // Event 1 (older): REPLACE.
+    ChangeStreamDocument<RawBsonDocument> replaceEvent =
+        ChangeStreamUtils.dataEvent(OperationType.REPLACE, 0, null, indexDef);
+
+    // Event 2 (newer, surviving): filter-only update on the same doc.
+    ChangeStreamDocument<RawBsonDocument> filterOnlyEvent =
+        createFilterOnlyUpdateEvent(indexDef, "category");
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(replaceEvent, filterOnlyEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+  }
+
+  @Test
+  public void intraBatchCollapse_NonApplicableSurvivor_PredecessorRequiredFull_FullEmitted() {
+    // The surviving event's updateDescription touches no index-relevant field, so on its own it
+    // would return Optional.empty() (no DocumentEvent). But an earlier same-doc event required
+    // full processing; without an emission here, dedup silently drops the predecessor's embed
+    // change. (CLOUDP-413687, same class as HELP-94834.) Verify a full replacement is emitted.
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    // Event 1 (older): embed-source UPDATE (applies to index, requires full processing).
+    UpdateDescription embedUpdateDesc =
+        new UpdateDescription(
+            null, new BsonDocument("description", new BsonString("new description")));
+    BsonDocument embedFullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("new description"))
+            .append("category", new BsonString("c"))
+            .append("foo", new BsonString("old"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> embedSourceEvent =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, embedUpdateDesc, embedFullDocument);
+
+    // Event 2 (newer, surviving): UPDATE touching only "foo", which is not in the index.
+    // updateDescriptionAppliesToIndex returns false for this event in isolation.
+    UpdateDescription nonApplicableDesc =
+        new UpdateDescription(null, new BsonDocument("foo", new BsonString("new")));
+    BsonDocument survivorFullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("new description"))
+            .append("category", new BsonString("c"))
+            .append("foo", new BsonString("new"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> nonApplicableSurvivor =
+        ChangeStreamUtils.dataEvent(
+            OperationType.UPDATE, 0, nonApplicableDesc, survivorFullDocument);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(embedSourceEvent, nonApplicableSurvivor),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    // A full replacement is emitted (not a filter-only partial update).
+    assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+  }
+
+  @Test
+  public void intraBatchCollapse_DistantPredecessor_ThreeEvents_RequiresFullUpdate() {
+    // 3 same-doc events: embed-source UPDATE, then two filter-only UPDATEs. The predecessor
+    // requiring full is not adjacent to the survivor — verifies the pre-pass scans the entire
+    // batch, not just the event immediately before the survivor.
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    UpdateDescription embedUpdateDesc =
+        new UpdateDescription(
+            null, new BsonDocument("description", new BsonString("new description")));
+    BsonDocument embedFullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("new description"))
+            .append("category", new BsonString("c"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> embedSourceEvent =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, embedUpdateDesc, embedFullDocument);
+    ChangeStreamDocument<RawBsonDocument> middleFilterEvent =
+        createFilterOnlyUpdateEvent(indexDef, "category");
+    ChangeStreamDocument<RawBsonDocument> survivingFilterEvent =
+        createFilterOnlyUpdateEvent(indexDef, "category");
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(embedSourceEvent, middleFilterEvent, survivingFilterEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+  }
+
+  @Test
+  public void intraBatchCollapse_PerDocumentIsolation() {
+    // Two distinct docs in one batch: doc 0 has [embed-source UPDATE, filter-only UPDATE] and
+    // must take full; doc 1 has [filter-only UPDATE] only and must keep the partial-update
+    // optimization. Verifies the per-doc decision is keyed per documentKey and doesn't bleed.
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    // Doc 0 predecessor: embed-source UPDATE.
+    UpdateDescription doc0EmbedDesc =
+        new UpdateDescription(
+            null, new BsonDocument("description", new BsonString("new description")));
+    BsonDocument doc0EmbedFullDoc =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("new description"))
+            .append("category", new BsonString("c"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> doc0EmbedEvent =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, doc0EmbedDesc, doc0EmbedFullDoc);
+
+    // Doc 0 survivor: filter-only UPDATE.
+    ChangeStreamDocument<RawBsonDocument> doc0FilterEvent =
+        createFilterOnlyUpdateEvent(indexDef, "category");
+
+    // Doc 1: filter-only UPDATE only (no predecessor).
+    UpdateDescription doc1FilterDesc =
+        new UpdateDescription(null, new BsonDocument("category", new BsonString("updated")));
+    BsonDocument doc1FullDoc =
+        new BsonDocument()
+            .append("_id", new BsonInt32(1))
+            .append("description", new BsonString("d"))
+            .append("category", new BsonString("updated"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(1)));
+    ChangeStreamDocument<RawBsonDocument> doc1FilterEvent =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 1, doc1FilterDesc, doc1FullDoc);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(doc0EmbedEvent, doc0FilterEvent, doc1FilterEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(2, batch.finalChangeEvents.size());
+    // finalChangeEvents are appended in Lists.reverse(batch) order, so doc 1 (last in batch) is
+    // emitted first.
+    DocumentEvent doc1Event = batch.finalChangeEvents.get(0);
+    DocumentEvent doc0Event = batch.finalChangeEvents.get(1);
+    // Doc 1 retains the filter-only partial update.
+    assertTrue(doc1Event.getFilterFieldUpdates().isPresent());
+    assertEquals(
+        new BsonString("updated"), doc1Event.getFilterFieldUpdates().get().get("category"));
+    // Doc 0 takes the full path because of its embed-source predecessor.
+    assertFalse(doc0Event.getFilterFieldUpdates().isPresent());
   }
 
   /**

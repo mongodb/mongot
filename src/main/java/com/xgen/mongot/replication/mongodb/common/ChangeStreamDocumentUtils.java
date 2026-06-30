@@ -262,6 +262,22 @@ public class ChangeStreamDocumentUtils {
             ? Optional.of(AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef))
             : Optional.empty();
 
+    // Identify docs whose collapsed-away predecessors required full processing.
+    Set<BsonDocument> autoEmbedDocsRequiringFullUpdate = new HashSet<>();
+    if (autoEmbedMapping.isPresent()) {
+      Set<BsonDocument> seenSurvivor = new HashSet<>();
+      for (var event : Lists.reverse(batch)) {
+        BsonDocument key = event.getDocumentKey();
+        if (seenSurvivor.add(key)) {
+          continue;
+        }
+        if (eventRequiresAutoEmbedFullUpdate(
+            event, indexDefinition, autoEmbedMapping.get(), viewFieldDependencies)) {
+          autoEmbedDocsRequiringFullUpdate.add(key);
+        }
+      }
+    }
+
     List<DocumentEvent> finalChangeEvents = new ArrayList<>();
 
     for (var event : Lists.reverse(batch)) {
@@ -280,7 +296,8 @@ public class ChangeStreamDocumentUtils {
                 metrics,
                 areUpdateEventsPrefiltered,
                 autoEmbedMapping,
-                viewFieldDependencies);
+                viewFieldDependencies,
+                autoEmbedDocsRequiringFullUpdate.contains(event.getDocumentKey()));
         if (docEvent.isPresent()) {
           finalChangeEvents.add(docEvent.get());
 
@@ -311,7 +328,8 @@ public class ChangeStreamDocumentUtils {
       ChangeStreamBatchMetrics metrics,
       boolean areUpdateEventsPrefiltered,
       Optional<AutoEmbedFieldMapping> autoEmbedMapping,
-      Optional<ViewFieldDependencies> viewFieldDependencies) {
+      Optional<ViewFieldDependencies> viewFieldDependencies,
+      boolean docRequiresFullUpdate) {
 
     DocumentMetadata metadata = createMetadata(event, indexDefinition);
 
@@ -348,6 +366,13 @@ public class ChangeStreamDocumentUtils {
 
         metrics.updateWitnessed();
 
+        // A collapsed-away predecessor required full processing; the survivor must too.
+        if (docRequiresFullUpdate) {
+          metrics.updateApplicable();
+          incrementApplicableDocumentMetrics(metrics, event);
+          return Optional.of(DocumentEvent.createUpdate(metadata, event.getFullDocument()));
+        }
+
         // We can skip the updateDescriptionAppliesToIndex check if the updates have already been
         // filtered at an earlier iteration.
         if (areUpdateEventsPrefiltered
@@ -374,10 +399,6 @@ public class ChangeStreamDocumentUtils {
           //
           // The old EMBEDDING strategy (TEXT fields, version 1) writes directly to Lucene and
           // does not support partial updates.
-          //
-          // TODO(CLOUDP-413687): this decision only sees the surviving (last) event's
-          // updateDescription; an earlier same-doc embed-source update collapsed out of the
-          // batch is missed when the last update is filter-only.
           if (autoEmbedMapping.isPresent()) {
             AutoEmbedFieldMapping mapping = autoEmbedMapping.get();
             if (indexDefinition.getView().isPresent()) {
@@ -504,6 +525,35 @@ public class ChangeStreamDocumentUtils {
     }
     logger.error("Unhandled OperationType: {}", event.getOperationType());
     return Check.unreachable("Unhandled OperationType");
+  }
+
+  /**
+   * Returns true if the given change-stream event, considered alone, must take the full (embed +
+   * upsert) write path on a materialized-view auto-embedding index. Used by the batch-aware
+   * pre-pass in {@link #handleDocumentEvents} to detect events that would be lost behind a
+   * filter-only survivor after intra-batch dedup.
+   *
+   * <p>INSERT and REPLACE always require full processing (they are full writes by definition);
+   * UPDATE delegates to {@link ViewFieldDependencies#requiresFullProcessing} for view-based indexes
+   * and {@link AutoEmbeddingDocumentUtils#requiresEmbeddingGeneration} otherwise. Other operation
+   * types (DELETE, INVALIDATE, etc.) do not interact with the partial-update path.
+   */
+  private static boolean eventRequiresAutoEmbedFullUpdate(
+      ChangeStreamDocument<RawBsonDocument> event,
+      IndexDefinition indexDefinition,
+      AutoEmbedFieldMapping autoEmbedMapping,
+      Optional<ViewFieldDependencies> viewFieldDependencies) {
+    return switch (event.getOperationType()) {
+      case INSERT, REPLACE -> true;
+      case UPDATE ->
+          indexDefinition.getView().isPresent()
+              ? viewFieldDependencies
+                  .map(deps -> deps.requiresFullProcessing(event.getUpdateDescription()))
+                  .orElse(true)
+              : AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(
+                  event.getUpdateDescription(), autoEmbedMapping);
+      default -> false;
+    };
   }
 
   private static void incrementApplicableDocumentMetrics(
