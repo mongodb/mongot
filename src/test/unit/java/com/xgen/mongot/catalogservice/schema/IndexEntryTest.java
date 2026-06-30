@@ -48,7 +48,7 @@ public class IndexEntryTest {
         new BsonDocument("customKey", new BsonString("customValue"));
 
     IndexEntry entry =
-        new IndexEntry(key(), indexId, 1, definition, Optional.of(customerDefinitionBson));
+        new IndexEntry(key(), indexId, 1, definition.toBson(), Optional.of(customerDefinitionBson));
 
     BsonDocument bson = entry.toBson();
     try (var parser = BsonDocumentParser.fromRoot(bson).build()) {
@@ -56,9 +56,7 @@ public class IndexEntryTest {
       assertEquals(entry.indexKey(), roundTripped.indexKey());
       assertEquals(entry.indexId(), roundTripped.indexId());
       assertEquals(entry.schemaVersion(), roundTripped.schemaVersion());
-      assertTrue(
-          "definition should round-trip equivalently",
-          definitionEquivalence(entry.definition(), roundTripped.definition()));
+      assertEquals(entry.definitionBson(), roundTripped.definitionBson());
       assertTrue(roundTripped.customerDefinition().isPresent());
       assertEquals(customerDefinitionBson, roundTripped.customerDefinition().get());
     }
@@ -69,7 +67,7 @@ public class IndexEntryTest {
     ObjectId indexId = new ObjectId();
     IndexDefinition definition = minimalDefinition(indexId);
 
-    IndexEntry entry = new IndexEntry(key(), indexId, 1, definition, Optional.empty());
+    IndexEntry entry = new IndexEntry(key(), indexId, 1, definition.toBson(), Optional.empty());
 
     BsonDocument bson = entry.toBson();
     try (var parser = BsonDocumentParser.fromRoot(bson).build()) {
@@ -77,9 +75,7 @@ public class IndexEntryTest {
       assertEquals(entry.indexKey(), roundTripped.indexKey());
       assertEquals(entry.indexId(), roundTripped.indexId());
       assertEquals(entry.schemaVersion(), roundTripped.schemaVersion());
-      assertTrue(
-          "definition should round-trip equivalently",
-          definitionEquivalence(entry.definition(), roundTripped.definition()));
+      assertEquals(entry.definitionBson(), roundTripped.definitionBson());
       assertTrue(
           "customerDefinition should be empty after round-trip",
           roundTripped.customerDefinition().isEmpty());
@@ -96,7 +92,11 @@ public class IndexEntryTest {
 
     IndexEntry entry =
         new IndexEntry(
-            indexKey, new ObjectId(), 1, minimalDefinition(new ObjectId()), Optional.empty());
+            indexKey,
+            new ObjectId(),
+            1,
+            minimalDefinition(new ObjectId()).toBson(),
+            Optional.empty());
     assertEquals(keyBson, entry.keyBson());
   }
 
@@ -121,9 +121,5 @@ public class IndexEntryTest {
     BsonDocument setDoc = updateDoc.getDocument("$set");
     assertTrue(setDoc.containsKey("definition"));
     assertEquals(definition.toBson(), setDoc.getDocument("definition"));
-  }
-
-  private static boolean definitionEquivalence(IndexDefinition a, IndexDefinition b) {
-    return a.toBson().equals(b.toBson());
   }
 }

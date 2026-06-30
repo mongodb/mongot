@@ -7,6 +7,7 @@ import com.xgen.mongot.catalogservice.CatalogAccessGuard;
 import com.xgen.mongot.catalogservice.MetadataServiceException;
 import com.xgen.mongot.catalogservice.TopologyMismatchException;
 import com.xgen.mongot.catalogservice.schema.AuthoritativeIndexKey;
+import com.xgen.mongot.catalogservice.schema.IndexEntry;
 import com.xgen.mongot.config.provider.community.embedding.AutoEmbeddingIndexValidator;
 import com.xgen.mongot.config.util.Invariants;
 import com.xgen.mongot.config.util.Invariants.AnalyzerInvariants;
@@ -21,6 +22,8 @@ import com.xgen.mongot.server.command.management.definition.common.UserViewDefin
 import com.xgen.mongot.server.command.management.util.IndexMapper;
 import com.xgen.mongot.server.message.MessageUtils;
 import com.xgen.mongot.util.Check;
+import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
+import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.mongodb.CheckedMongoException;
 import com.xgen.mongot.util.mongodb.Errors;
 import java.time.Instant;
@@ -109,15 +112,15 @@ public class AicUpdateSearchIndexCommand implements Command {
       Optional<String> viewName = this.view.map(UserViewDefinition::name);
       Optional<ObjectId> indexId = this.definition.id();
       Optional<String> indexName = this.definition.name();
-      Optional<IndexDefinition> matchingIndex =
-          this.authoritativeIndexCatalog.listIndexDefinitions(this.collectionUuid).stream()
+      Optional<IndexEntry> matchingEntry =
+          this.authoritativeIndexCatalog.listIndexes(this.collectionUuid).stream()
               .filter(
-                  index ->
-                      indexName.map(index.getName()::equals).orElse(true)
-                          && indexId.map(index.getIndexId()::equals).orElse(true))
+                  entry ->
+                      indexName.map(entry.indexKey().indexName()::equals).orElse(true)
+                          && indexId.map(entry.indexId()::equals).orElse(true))
               .findAny();
 
-      if (matchingIndex.isEmpty()) {
+      if (matchingEntry.isEmpty()) {
         String idType = this.definition.name().isPresent() ? "name" : "id";
         Object idValue =
             this.definition.name().map(Object.class::cast).or(this.definition::id).orElseThrow();
@@ -128,7 +131,18 @@ public class AicUpdateSearchIndexCommand implements Command {
                 idType, idValue, this.db, viewName.orElse(this.collectionName)));
       }
 
-      IndexDefinition oldIndex = matchingIndex.get();
+      IndexDefinition oldIndex;
+      try (var parser = BsonDocumentParser.fromRoot(matchingEntry.get().definitionBson()).build()) {
+        oldIndex = IndexDefinition.fromBson(parser);
+      } catch (BsonParseException e) {
+        LOG.atWarn()
+            .addKeyValue("indexEntry", matchingEntry.get())
+            .setCause(e)
+            .log("Index definition is stored in an unrecognized format and cannot be updated");
+        return MessageUtils.createError(
+            Errors.COMMAND_FAILED,
+            "Index definition is stored in an unrecognized format and cannot be updated.");
+      }
       IndexDefinition newIndex =
           IndexMapper.toInternal(
               oldIndex.getName(),
@@ -151,7 +165,7 @@ public class AicUpdateSearchIndexCommand implements Command {
       List<IndexDefinition> allIndexes = this.authoritativeIndexCatalog.listIndexDefinitions();
       var searchList = new ArrayList<SearchIndexDefinition>();
       var vectorList = new ArrayList<VectorIndexDefinition>();
-      this.authoritativeIndexCatalog.listIndexDefinitions().stream()
+      allIndexes.stream()
           .filter(definition -> !definition.getIndexId().equals(oldIndex.getIndexId()))
           .forEach(
               definition -> {

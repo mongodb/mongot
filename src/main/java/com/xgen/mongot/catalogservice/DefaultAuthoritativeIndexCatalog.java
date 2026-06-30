@@ -32,12 +32,8 @@ public class DefaultAuthoritativeIndexCatalog implements AuthoritativeIndexCatal
       AuthoritativeIndexKey indexKey, IndexDefinition definition, BsonDocument customerDefinition)
       throws MetadataServiceException {
     this.aicMongoClient.insert(
-        new IndexEntry(
-            indexKey,
-            definition.getIndexId(),
-            CURRENT_WRITTEN_VERSION,
-            definition,
-            Optional.of(customerDefinition)));
+        IndexEntry.create(
+            indexKey, definition, CURRENT_WRITTEN_VERSION, Optional.of(customerDefinition)));
   }
 
   @Override
@@ -45,12 +41,8 @@ public class DefaultAuthoritativeIndexCatalog implements AuthoritativeIndexCatal
       AuthoritativeIndexKey indexKey, IndexDefinition definition, BsonDocument customerDefinition)
       throws MetadataServiceException {
     IndexEntry entry =
-        new IndexEntry(
-            indexKey,
-            definition.getIndexId(),
-            CURRENT_WRITTEN_VERSION,
-            definition,
-            Optional.of(customerDefinition));
+        IndexEntry.create(
+            indexKey, definition, CURRENT_WRITTEN_VERSION, Optional.of(customerDefinition));
     this.aicMongoClient.replace(entry.keyBson(), entry, false);
   }
 
@@ -86,13 +78,29 @@ public class DefaultAuthoritativeIndexCatalog implements AuthoritativeIndexCatal
 
   @Override
   public List<IndexDefinition> listIndexDefinitions() throws MetadataServiceException {
-    return listIndexes().stream().map(IndexEntry::definition).toList();
+    return listIndexes().stream()
+        .flatMap(DefaultAuthoritativeIndexCatalog::parseDefinitionToStream)
+        .toList();
   }
 
   @Override
   public List<IndexDefinition> listIndexDefinitions(UUID collectionUuid)
       throws MetadataServiceException {
-    return listIndexes(collectionUuid).stream().map(IndexEntry::definition).toList();
+    return listIndexes(collectionUuid).stream()
+        .flatMap(DefaultAuthoritativeIndexCatalog::parseDefinitionToStream)
+        .toList();
+  }
+
+  private static Stream<IndexDefinition> parseDefinitionToStream(IndexEntry entry) {
+    try (var parser = BsonDocumentParser.fromRoot(entry.definitionBson()).build()) {
+      return Stream.of(IndexDefinition.fromBson(parser));
+    } catch (BsonParseException e) {
+      LOG.atWarn()
+          .addKeyValue("entry", entry)
+          .setCause(e)
+          .log("Ignoring unparsable IndexDefinition in Authoritative Index Catalog");
+      return Stream.empty();
+    }
   }
 
   private static Stream<IndexEntry> parseToStream(BsonDocument document) {

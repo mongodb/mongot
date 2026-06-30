@@ -6,8 +6,7 @@ import com.xgen.mongot.catalogservice.AuthoritativeIndexCatalog;
 import com.xgen.mongot.catalogservice.CatalogAccessGuard;
 import com.xgen.mongot.catalogservice.MetadataServiceException;
 import com.xgen.mongot.catalogservice.TopologyMismatchException;
-import com.xgen.mongot.catalogservice.schema.AuthoritativeIndexKey;
-import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.catalogservice.schema.IndexEntry;
 import com.xgen.mongot.server.command.Command;
 import com.xgen.mongot.server.command.management.definition.DropSearchIndexCommandDefinition;
 import com.xgen.mongot.server.command.management.definition.common.UserViewDefinition;
@@ -94,12 +93,12 @@ public class AicDropSearchIndexCommand implements Command {
     }
 
     try {
-      List<IndexDefinition> indexesToDrop =
-          this.authoritativeIndexCatalog.listIndexDefinitions(this.collectionUuid).stream()
+      List<IndexEntry> indexesToDrop =
+          this.authoritativeIndexCatalog.listIndexes(this.collectionUuid).stream()
               .filter(
-                  index ->
-                      this.definition.name().map(index.getName()::equals).orElse(true)
-                          && this.definition.id().map(index.getIndexId()::equals).orElse(true))
+                  entry ->
+                      this.definition.name().map(entry.indexKey().indexName()::equals).orElse(true)
+                          && this.definition.id().map(entry.indexId()::equals).orElse(true))
               .toList();
 
       if (indexesToDrop.isEmpty()) {
@@ -114,10 +113,7 @@ public class AicDropSearchIndexCommand implements Command {
       }
 
       CheckedStream.from(indexesToDrop)
-          .forEachChecked(
-              idx ->
-                  this.authoritativeIndexCatalog.deleteIndex(
-                      new AuthoritativeIndexKey(this.collectionUuid, idx.getName())));
+          .forEachChecked(entry -> this.authoritativeIndexCatalog.deleteIndex(entry.indexKey()));
     } catch (MetadataServiceException e) {
       return MessageUtils.createError(Errors.COMMAND_FAILED, e.getMessage());
     } catch (Exception e) {

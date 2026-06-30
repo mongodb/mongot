@@ -28,6 +28,8 @@ import com.xgen.mongot.catalogservice.CatalogAccessGuard;
 import com.xgen.mongot.catalogservice.MetadataServiceException;
 import com.xgen.mongot.catalogservice.TopologyMismatchException;
 import com.xgen.mongot.catalogservice.schema.AuthoritativeIndexKey;
+import com.xgen.mongot.catalogservice.schema.IndexEntry;
+import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexCapabilities;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorDataFieldDefinition;
@@ -71,26 +73,27 @@ public class AicUpdateSearchIndexCommandTest {
     // Return an existing search index.
     var indexId = new ObjectId();
     Instant now = Instant.now();
-    when(mockAic.listIndexDefinitions(COLLECTION_UUID))
+    when(mockAic.listIndexes(COLLECTION_UUID))
         .thenReturn(
             List.of(
-                SearchIndexDefinitionBuilder.builder()
-                    .database(DATABASE_NAME)
-                    .collectionUuid(COLLECTION_UUID)
-                    .lastObservedCollectionName(COLLECTION_NAME)
-                    .indexId(indexId)
-                    .name(INDEX_NAME)
-                    .mappings(
-                        DocumentFieldDefinitionBuilder.builder()
-                            .field(
-                                "field",
-                                FieldDefinitionBuilder.builder()
-                                    .string(StringFieldDefinitionBuilder.builder().build())
-                                    .build())
-                            .build())
-                    .definitionVersion(1L)
-                    .definitionVersionCreatedAt(now)
-                    .build()));
+                toIndexEntry(
+                    SearchIndexDefinitionBuilder.builder()
+                        .database(DATABASE_NAME)
+                        .collectionUuid(COLLECTION_UUID)
+                        .lastObservedCollectionName(COLLECTION_NAME)
+                        .indexId(indexId)
+                        .name(INDEX_NAME)
+                        .mappings(
+                            DocumentFieldDefinitionBuilder.builder()
+                                .field(
+                                    "field",
+                                    FieldDefinitionBuilder.builder()
+                                        .string(StringFieldDefinitionBuilder.builder().build())
+                                        .build())
+                                .build())
+                        .definitionVersion(1L)
+                        .definitionVersionCreatedAt(now)
+                        .build())));
 
     // Make the index dynamic, don't specify index type
     var updateDefinition =
@@ -150,21 +153,22 @@ public class AicUpdateSearchIndexCommandTest {
     // Return an existing vector index.
     var indexId = new ObjectId();
     Instant now = Instant.now();
-    when(mockAic.listIndexDefinitions(COLLECTION_UUID))
+    when(mockAic.listIndexes(COLLECTION_UUID))
         .thenReturn(
             List.of(
-                VectorIndexDefinitionBuilder.builder()
-                    .database(DATABASE_NAME)
-                    .collectionUuid(COLLECTION_UUID)
-                    .lastObservedCollectionName(COLLECTION_NAME)
-                    .indexId(indexId)
-                    .name(VECTOR_INDEX_NAME)
-                    .indexFeatureVersion(VectorIndexCapabilities.CURRENT_FEATURE_VERSION)
-                    .withVectorFieldDefaultOptions(
-                        VECTOR_PATH, VECTOR_DIMENSIONS, VECTOR_SIMILARITY, VECTOR_QUANTIZATION)
-                    .withDefinitionVersion(Optional.of(1L))
-                    .withDefinitionVersionCreatedAt(Optional.of(now))
-                    .build()));
+                toIndexEntry(
+                    VectorIndexDefinitionBuilder.builder()
+                        .database(DATABASE_NAME)
+                        .collectionUuid(COLLECTION_UUID)
+                        .lastObservedCollectionName(COLLECTION_NAME)
+                        .indexId(indexId)
+                        .name(VECTOR_INDEX_NAME)
+                        .indexFeatureVersion(VectorIndexCapabilities.CURRENT_FEATURE_VERSION)
+                        .withVectorFieldDefaultOptions(
+                            VECTOR_PATH, VECTOR_DIMENSIONS, VECTOR_SIMILARITY, VECTOR_QUANTIZATION)
+                        .withDefinitionVersion(Optional.of(1L))
+                        .withDefinitionVersionCreatedAt(Optional.of(now))
+                        .build())));
 
     // Try to increase the number of dimensions, don't specify index type
     var updateDefinition =
@@ -234,18 +238,19 @@ public class AicUpdateSearchIndexCommandTest {
 
     // Return an existing vector index.
     var indexId = new ObjectId();
-    when(mockAic.listIndexDefinitions(COLLECTION_UUID))
+    when(mockAic.listIndexes(COLLECTION_UUID))
         .thenReturn(
             List.of(
-                VectorIndexDefinitionBuilder.builder()
-                    .database(DATABASE_NAME)
-                    .collectionUuid(COLLECTION_UUID)
-                    .lastObservedCollectionName(COLLECTION_NAME)
-                    .indexId(indexId)
-                    .name(VECTOR_INDEX_NAME)
-                    .withVectorFieldDefaultOptions(
-                        VECTOR_PATH, VECTOR_DIMENSIONS, VECTOR_SIMILARITY, VECTOR_QUANTIZATION)
-                    .build()));
+                toIndexEntry(
+                    VectorIndexDefinitionBuilder.builder()
+                        .database(DATABASE_NAME)
+                        .collectionUuid(COLLECTION_UUID)
+                        .lastObservedCollectionName(COLLECTION_NAME)
+                        .indexId(indexId)
+                        .name(VECTOR_INDEX_NAME)
+                        .withVectorFieldDefaultOptions(
+                            VECTOR_PATH, VECTOR_DIMENSIONS, VECTOR_SIMILARITY, VECTOR_QUANTIZATION)
+                        .build())));
 
     // Try to update to a search index
     var updateDefinition =
@@ -283,18 +288,19 @@ public class AicUpdateSearchIndexCommandTest {
 
     // Return some existing index.
     var indexId = new ObjectId();
-    when(mockAic.listIndexDefinitions(COLLECTION_UUID))
+    when(mockAic.listIndexes(COLLECTION_UUID))
         .thenReturn(
             List.of(
-                VectorIndexDefinitionBuilder.builder()
-                    .database(DATABASE_NAME)
-                    .collectionUuid(COLLECTION_UUID)
-                    .lastObservedCollectionName(COLLECTION_NAME)
-                    .indexId(indexId)
-                    .name(VECTOR_INDEX_NAME)
-                    .withVectorFieldDefaultOptions(
-                        VECTOR_PATH, VECTOR_DIMENSIONS, VECTOR_SIMILARITY, VECTOR_QUANTIZATION)
-                    .build()));
+                toIndexEntry(
+                    VectorIndexDefinitionBuilder.builder()
+                        .database(DATABASE_NAME)
+                        .collectionUuid(COLLECTION_UUID)
+                        .lastObservedCollectionName(COLLECTION_NAME)
+                        .indexId(indexId)
+                        .name(VECTOR_INDEX_NAME)
+                        .withVectorFieldDefaultOptions(
+                            VECTOR_PATH, VECTOR_DIMENSIONS, VECTOR_SIMILARITY, VECTOR_QUANTIZATION)
+                        .build())));
 
     // Try to update to a search index with a vector definition
     var updateDefinition =
@@ -350,17 +356,18 @@ public class AicUpdateSearchIndexCommandTest {
 
     var objectId = new ObjectId();
     var mockAic = mock(AuthoritativeIndexCatalog.class);
-    when(mockAic.listIndexDefinitions(COLLECTION_UUID))
+    when(mockAic.listIndexes(COLLECTION_UUID))
         .thenReturn(
             List.of(
-                SearchIndexDefinitionBuilder.builder()
-                    .database(DATABASE_NAME)
-                    .collectionUuid(COLLECTION_UUID)
-                    .lastObservedCollectionName(COLLECTION_NAME)
-                    .indexId(objectId)
-                    .name(index.name())
-                    .mappings(DocumentFieldDefinitionBuilder.builder().dynamic(true).build())
-                    .build()));
+                toIndexEntry(
+                    SearchIndexDefinitionBuilder.builder()
+                        .database(DATABASE_NAME)
+                        .collectionUuid(COLLECTION_UUID)
+                        .lastObservedCollectionName(COLLECTION_NAME)
+                        .indexId(objectId)
+                        .name(index.name())
+                        .mappings(DocumentFieldDefinitionBuilder.builder().dynamic(true).build())
+                        .build())));
 
     var updateDefinition =
         (UpdateSearchIndexCommandDefinition)
@@ -386,6 +393,15 @@ public class AicUpdateSearchIndexCommandTest {
         Optional.empty(),
         updateDefinition,
         IndexDefinitionConfig.getDefault());
+  }
+
+  private static IndexEntry toIndexEntry(IndexDefinition def) {
+    return new IndexEntry(
+        new AuthoritativeIndexKey(COLLECTION_UUID, def.getName()),
+        def.getIndexId(),
+        1,
+        def.toBson(),
+        Optional.empty());
   }
 
   @Test
@@ -489,26 +505,27 @@ public class AicUpdateSearchIndexCommandTest {
     var mockAic = mock(AuthoritativeIndexCatalog.class);
 
     // Return an existing search index to update.
-    when(mockAic.listIndexDefinitions(COLLECTION_UUID))
+    when(mockAic.listIndexes(COLLECTION_UUID))
         .thenReturn(
             List.of(
-                SearchIndexDefinitionBuilder.builder()
-                    .database(DATABASE_NAME)
-                    .collectionUuid(COLLECTION_UUID)
-                    .lastObservedCollectionName(COLLECTION_NAME)
-                    .indexId(new ObjectId())
-                    .name(INDEX_NAME)
-                    .mappings(
-                        DocumentFieldDefinitionBuilder.builder()
-                            .field(
-                                "field",
-                                FieldDefinitionBuilder.builder()
-                                    .string(StringFieldDefinitionBuilder.builder().build())
-                                    .build())
-                            .build())
-                    .definitionVersion(1L)
-                    .definitionVersionCreatedAt(Instant.now())
-                    .build()));
+                toIndexEntry(
+                    SearchIndexDefinitionBuilder.builder()
+                        .database(DATABASE_NAME)
+                        .collectionUuid(COLLECTION_UUID)
+                        .lastObservedCollectionName(COLLECTION_NAME)
+                        .indexId(new ObjectId())
+                        .name(INDEX_NAME)
+                        .mappings(
+                            DocumentFieldDefinitionBuilder.builder()
+                                .field(
+                                    "field",
+                                    FieldDefinitionBuilder.builder()
+                                        .string(StringFieldDefinitionBuilder.builder().build())
+                                        .build())
+                                .build())
+                        .definitionVersion(1L)
+                        .definitionVersionCreatedAt(Instant.now())
+                        .build())));
 
     // Update to a definition that nests two layers of embeddedDocuments fields.
     var updateDefinition =
@@ -565,5 +582,40 @@ public class AicUpdateSearchIndexCommandTest {
                                 .build())
                         .build())
                 .build());
+  }
+
+  @Test
+  public void testUnparsableDefinitionReturnsCommandFailed() throws MetadataServiceException {
+    var mockAic = mock(AuthoritativeIndexCatalog.class);
+
+    var indexId = new ObjectId();
+    // Store a definitionBson that cannot be parsed as an IndexDefinition (missing required fields)
+    BsonDocument unparsableBson = new BsonDocument();
+    when(mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(
+            List.of(
+                new IndexEntry(
+                    new AuthoritativeIndexKey(COLLECTION_UUID, INDEX_NAME),
+                    indexId,
+                    1,
+                    unparsableBson,
+                    Optional.empty())));
+
+    var updateDefinition =
+        (UpdateSearchIndexCommandDefinition)
+            ManageSearchIndexCommandDefinitionBuilder.updateIndex()
+                .withIndexName(INDEX_NAME)
+                .withDefinition(
+                    UserSearchIndexDefinitionBuilder.builder()
+                        .mappings(DocumentFieldDefinitionBuilder.builder().dynamic(true))
+                        .build())
+                .buildSearchIndexCommand();
+
+    var command = makeTarget(mockAic, updateDefinition);
+    var response = command.run();
+
+    assertEquals(Errors.COMMAND_FAILED.code, response.getInt32("code").getValue());
+    assertTrue(response.getString("errmsg").getValue().contains("unrecognized format"));
+    verify(mockAic, never()).updateIndex(any(), any(), any());
   }
 }

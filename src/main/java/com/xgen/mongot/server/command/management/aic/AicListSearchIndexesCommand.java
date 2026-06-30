@@ -21,6 +21,8 @@ import com.xgen.mongot.server.command.management.util.IndexEntryMapper;
 import com.xgen.mongot.server.message.MessageUtils;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.CollectionUtils;
+import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
+import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.mongodb.CheckedMongoException;
 import com.xgen.mongot.util.mongodb.Errors;
 import java.util.ArrayList;
@@ -165,12 +167,22 @@ public class AicListSearchIndexesCommand implements Command {
 
     List<IndexAndStats> resultList = new ArrayList<>();
     for (IndexEntry indexEntry : matchingIndexes) {
+      IndexDefinition indexDefinition;
+      try (var parser = BsonDocumentParser.fromRoot(indexEntry.definitionBson()).build()) {
+        indexDefinition = IndexDefinition.fromBson(parser);
+      } catch (BsonParseException e) {
+        LOG.atWarn()
+            .addKeyValue("indexEntry", indexEntry)
+            .setCause(e)
+            .log("Skipping index with unparsable definition in listSearchIndexes");
+        continue;
+      }
       resultList.add(
           new IndexAndStats(
-              indexEntry.definition(),
-              indexEntry.customerDefinition().orElse(indexEntry.definition().toBson()),
-              getIndexStatsPerServer(indexEntry.definition().getIndexId(), activeServers),
-              getNumDocs(indexEntry.definition().getIndexId(), numDocsByIndex)));
+              indexDefinition,
+              indexEntry.customerDefinition().orElse(indexEntry.definitionBson()),
+              getIndexStatsPerServer(indexEntry.indexId(), activeServers),
+              getNumDocs(indexEntry.indexId(), numDocsByIndex)));
     }
 
     return resultList;
@@ -190,15 +202,11 @@ public class AicListSearchIndexesCommand implements Command {
 
     Predicate<IndexEntry> indexesMatchingTarget =
         idx ->
-            this.definition
-                    .target()
-                    .indexId()
-                    .map(idx.definition().getIndexId()::equals)
-                    .orElse(true)
+            this.definition.target().indexId().map(idx.indexId()::equals).orElse(true)
                 && this.definition
                     .target()
                     .indexName()
-                    .map(idx.definition().getName()::equals)
+                    .map(idx.indexKey().indexName()::equals)
                     .orElse(true);
     return this.metadataService
         .getAuthoritativeIndexCatalog()

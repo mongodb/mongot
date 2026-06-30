@@ -92,7 +92,7 @@ public class AicListSearchIndexesCommandTest {
         new AuthoritativeIndexKey(COLLECTION_UUID, def.getName()),
         def.getIndexId(),
         1,
-        def,
+        def.toBson(),
         Optional.empty());
   }
 
@@ -101,7 +101,7 @@ public class AicListSearchIndexesCommandTest {
         new AuthoritativeIndexKey(COLLECTION_UUID, def.getName()),
         def.getIndexId(),
         1,
-        def,
+        def.toBson(),
         customerDefinition);
   }
 
@@ -662,5 +662,35 @@ public class AicListSearchIndexesCommandTest {
     var definition = createListDefinition();
     var command = createCommand(definition);
     assertFalse(command.maybeLoadShed());
+  }
+
+  @Test
+  public void testUnparsableDefinitionIsSkipped() throws Exception {
+    // One valid index and one with an unparsable definitionBson
+    var validIndex = createIndexDefinition(INDEX_NAME);
+    BsonDocument unparsableBson = new BsonDocument();
+    var unparsableEntry =
+        new IndexEntry(
+            new AuthoritativeIndexKey(COLLECTION_UUID, "unparsable-index"),
+            new ObjectId(),
+            1,
+            unparsableBson,
+            Optional.empty());
+
+    when(this.mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(List.of(toIndexEntry(validIndex), unparsableEntry));
+    when(this.mockIndexStats.list(any(BsonDocument.class))).thenReturn(List.of());
+    when(this.mockServerState.list(any(BsonDocument.class))).thenReturn(List.of());
+
+    var definition = createListDefinition();
+    var command = createCommand(definition);
+
+    BsonDocument response = command.run();
+    BsonArray batch = response.getDocument("cursor").getArray("firstBatch");
+
+    // Only the parseable index should appear; the unparsable one is silently skipped
+    assertEquals(1, response.getInt32("ok").getValue());
+    assertEquals(1, batch.size());
+    assertEquals(INDEX_NAME, batch.getFirst().asDocument().getString("name").getValue());
   }
 }

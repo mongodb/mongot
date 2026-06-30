@@ -18,14 +18,14 @@ public record IndexEntry(
     AuthoritativeIndexKey indexKey,
     ObjectId indexId,
     int schemaVersion,
-    IndexDefinition definition,
+    BsonDocument definitionBson,
     Optional<BsonDocument> customerDefinition)
     implements DocumentEncodable {
 
   public IndexEntry {
     Objects.requireNonNull(indexKey);
     Objects.requireNonNull(indexId);
-    Objects.requireNonNull(definition);
+    Objects.requireNonNull(definitionBson);
     Objects.requireNonNull(customerDefinition);
   }
 
@@ -40,12 +40,8 @@ public record IndexEntry(
     static final Field.Required<Integer> VERSION =
         Field.builder("schemaVersion").intField().required();
 
-    // The serialized internal representation of the index definition
-    static final Field.Required<IndexDefinition> DEFINITION =
-        Field.builder("definition")
-            .classField(IndexDefinition::fromBson)
-            .disallowUnknownFields()
-            .required();
+    static final Field.Required<BsonDocument> DEFINITION =
+        Field.builder("definition").documentField().required();
 
     // The exact index definition document provided by the customer when creating/updating the
     // index. The internal definition is built using this document but we explicitly store the
@@ -61,7 +57,7 @@ public record IndexEntry(
         .field(Fields.INDEX_KEY, this.indexKey())
         .field(Fields.ID, this.indexId())
         .field(Fields.VERSION, this.schemaVersion())
-        .field(Fields.DEFINITION, this.definition())
+        .field(Fields.DEFINITION, this.definitionBson())
         .field(Fields.CUSTOMER_DEFINITION, this.customerDefinition)
         .build();
   }
@@ -81,6 +77,15 @@ public record IndexEntry(
             Fields.INDEX_KEY.getName(),
             AuthoritativeIndexKey.Fields.COLLECTION_UUID.getName());
     return new BsonDocument(dottedField, new BsonBinary(collectionUuid));
+  }
+
+  public static IndexEntry create(
+      AuthoritativeIndexKey indexKey,
+      IndexDefinition definition,
+      int schemaVersion,
+      Optional<BsonDocument> customerDefinition) {
+    return new IndexEntry(
+        indexKey, definition.getIndexId(), schemaVersion, definition.toBson(), customerDefinition);
   }
 
   public static BsonDocument updateDefinition(IndexDefinition definition) {

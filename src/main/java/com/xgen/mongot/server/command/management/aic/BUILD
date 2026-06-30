@@ -31,6 +31,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/server/command/management/util",
         "//src/main/java/com/xgen/mongot/server/message",
         "//src/main/java/com/xgen/mongot/util",
+        "//src/main/java/com/xgen/mongot/util/bson/parser",
         "//src/main/java/com/xgen/mongot/util/mongodb",
         "@maven//:org_mongodb_bson",
         "@maven//:org_mongodb_mongodb_driver_core",
