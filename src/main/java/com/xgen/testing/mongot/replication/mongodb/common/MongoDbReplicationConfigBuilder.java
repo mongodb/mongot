@@ -80,12 +80,6 @@ public class MongoDbReplicationConfigBuilder {
     return this;
   }
 
-  public MongoDbReplicationConfigBuilder enableSteadyStateChangeStreamProjection(
-      Optional<Boolean> enableSteadyStateChangeStreamProjection) {
-    this.enableSteadyStateChangeStreamProjection = enableSteadyStateChangeStreamProjection;
-    return this;
-  }
-
   public MongoDbReplicationConfigBuilder pauseAllInitialSyncs(
       Optional<Boolean> optionalPauseAllInitialSyncs) {
     this.optionalPauseAllInitialSyncs = optionalPauseAllInitialSyncs;
@@ -113,24 +107,6 @@ public class MongoDbReplicationConfigBuilder {
   public MongoDbReplicationConfigBuilder embeddingGetMoreBatchSize(
       Optional<Integer> embeddingGetMoreBatchSize) {
     this.embeddingGetMoreBatchSize = embeddingGetMoreBatchSize;
-    return this;
-  }
-
-  public MongoDbReplicationConfigBuilder excludedChangestreamFields(
-      List<String> excludedChangestreamFields) {
-    this.excludedChangestreamFields = excludedChangestreamFields;
-    return this;
-  }
-
-  public MongoDbReplicationConfigBuilder optionalMatchCollectionUuidForUpdateLookup(
-      Optional<Boolean> optionalMatchCollectionUuidForUpdateLookup) {
-    this.optionalMatchCollectionUuidForUpdateLookup = optionalMatchCollectionUuidForUpdateLookup;
-    return this;
-  }
-
-  public MongoDbReplicationConfigBuilder enableSplitLargeChangeStreamEvents(
-      Optional<Boolean> enableSplitLargeChangeStreamEvents) {
-    this.enableSplitLargeChangeStreamEvents = enableSplitLargeChangeStreamEvents;
     return this;
   }
 
