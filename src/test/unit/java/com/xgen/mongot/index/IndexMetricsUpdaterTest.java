@@ -358,6 +358,45 @@ public class IndexMetricsUpdaterTest {
       }
 
       @Test
+      @SuppressWarnings("unused")
+      public void testLuceneVisibleOpTimeGaugeNaNBeforeUpdate() {
+        var factory = mockMetricsFactory(IndexingMetricsUpdater.NAMESPACE);
+        var indexingMetricsUpdater =
+            IndexMetricsUpdaterBuilder.IndexingMetricsUpdaterBuilder.builder()
+                .metricsFactory(factory)
+                .build();
+
+        Assert.assertTrue(
+            Double.isNaN(
+                factory
+                    .get(IndexingMetricsUpdater.LUCENE_VISIBLE_OPTIME_NAME)
+                    .tag(INDEX_TYPE_TAG_NAME, "search")
+                    .gauge()
+                    .value()));
+      }
+
+      @Test
+      public void testLuceneVisibleOpTimeGaugeAfterUpdate() {
+        var factory = mockMetricsFactory(IndexingMetricsUpdater.NAMESPACE);
+        var indexingMetricsUpdater =
+            IndexMetricsUpdaterBuilder.IndexingMetricsUpdaterBuilder.builder()
+                .metricsFactory(factory)
+                .build();
+
+        long opTime = new BsonTimestamp(42, 0).getValue();
+        indexingMetricsUpdater.getReplicationOpTimeInfo().updateVisible(opTime);
+
+        Assert.assertEquals(
+            (double) opTime,
+            factory
+                .get(IndexingMetricsUpdater.LUCENE_VISIBLE_OPTIME_NAME)
+                .tag(INDEX_TYPE_TAG_NAME, "search")
+                .gauge()
+                .value(),
+            0.0);
+      }
+
+      @Test
       public void testRecordDocumentSizeBytes() {
         int mb = 1024 * 1024;
         var metricsFactory = mockMetricsFactory(IndexingMetricsUpdater.NAMESPACE);

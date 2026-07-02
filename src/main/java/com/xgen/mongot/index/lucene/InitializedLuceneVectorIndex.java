@@ -193,6 +193,11 @@ class InitializedLuceneVectorIndex implements InitializedVectorIndex {
                     vectorIndexProperties.metricsFactory,
                     useIdBloomFilter));
 
+    indexMetricsUpdaterBuilder
+        .getIndexingMetricsUpdater()
+        .getReplicationOpTimeInfo()
+        .registerRefreshListeners(indexResources.luceneSearcherManagers);
+
     IndexMetricsUpdater.QueryingMetricsUpdater metricsUpdater =
         indexMetricsUpdaterBuilder.getQueryingMetricsUpdater();
     VectorFieldDefinitionResolver definitionResolver =

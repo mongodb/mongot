@@ -199,6 +199,11 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
                     searchIndexProperties.metricsFactory,
                     useIdBloomFilter));
 
+    indexMetricsUpdaterBuilder
+        .getIndexingMetricsUpdater()
+        .getReplicationOpTimeInfo()
+        .registerRefreshListeners(indexResources.luceneSearcherManagers);
+
     List<LuceneSearchIndexReader> searchIndexReaders =
         new ArrayList<>(indexResources.luceneSearcherManagers.size());
     for (int i = 0; i < indexResources.luceneSearcherManagers.size(); i++) {

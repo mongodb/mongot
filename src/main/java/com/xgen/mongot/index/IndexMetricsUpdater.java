@@ -219,6 +219,7 @@ public class IndexMetricsUpdater implements Closeable {
     static final String OPTIME_GAUGE_NAME = "replicationOpTime";
     static final String MAX_POSSIBLE_OPTIME_NAME = "maxPossibleReplicationOpTime";
     static final String REPLICATION_LAG_MILLISECONDS_NAME = "replicationLagMs";
+    static final String LUCENE_VISIBLE_OPTIME_NAME = "luceneVisibleOpTime";
     static final String COMMIT_TIMER_NAME = "commitDurations";
     static final String INITIAL_SYNC_EXCEPTION_COUNTER_NAME = "initialSyncExceptions";
     static final String CONSECUTIVE_INITIAL_SYNC_RESYNC_EXCEPTIONS_NAME =
@@ -361,6 +362,15 @@ public class IndexMetricsUpdater implements Closeable {
                   .map(ReplicationOpTimeInfo.Snapshot::replicationLagMs)
                   .map(Long::doubleValue)
                   .orElse(Double.NaN),
+          Tags.of(INDEX_TYPE_TAG_NAME, indexTypeTag.tagValue));
+
+      this.metricsFactory.perIndexObjectValueGauge(
+          LUCENE_VISIBLE_OPTIME_NAME,
+          this.replicationOpTimeInfo,
+          opTimeInfo ->
+              opTimeInfo.visibleOpTime().isPresent()
+                  ? (double) opTimeInfo.visibleOpTime().getAsLong()
+                  : Double.NaN,
           Tags.of(INDEX_TYPE_TAG_NAME, indexTypeTag.tagValue));
 
       this.batchIndexingTimer =

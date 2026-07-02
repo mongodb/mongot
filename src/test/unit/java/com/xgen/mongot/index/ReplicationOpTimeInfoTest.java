@@ -137,4 +137,49 @@ public class ReplicationOpTimeInfoTest {
       assertTrue(opTimeInfo.snapshot().isEmpty());
     }
   }
+
+  @Test
+  public void testVisibleOpTimeEmptyBeforeUpdate() {
+    ReplicationOpTimeInfo opTimeInfo = new ReplicationOpTimeInfo();
+    assertTrue(opTimeInfo.visibleOpTime().isEmpty());
+  }
+
+  @Test
+  public void testUpdateVisibleStoresOpTime() {
+    ReplicationOpTimeInfo opTimeInfo = new ReplicationOpTimeInfo();
+    long opTime = new BsonTimestamp(42, 0).getValue();
+
+    opTimeInfo.updateVisible(opTime);
+
+    Assert.assertTrue(opTimeInfo.visibleOpTime().isPresent());
+    Assert.assertEquals(opTime, opTimeInfo.visibleOpTime().getAsLong());
+  }
+
+  @Test
+  public void testUpdateVisibleIsIndependentOfWriteState() {
+    ReplicationOpTimeInfo opTimeInfo = new ReplicationOpTimeInfo();
+    var writeOpTime = new BsonTimestamp(10, 0).getValue();
+    var maxOpTime = new BsonTimestamp(20, 0).getValue();
+    var visibleOpTime = new BsonTimestamp(5, 0).getValue();
+
+    opTimeInfo.update(writeOpTime, maxOpTime);
+    opTimeInfo.updateVisible(visibleOpTime);
+
+    Assert.assertEquals(
+        ReplicationOpTimeInfo.Snapshot.create(writeOpTime, maxOpTime),
+        opTimeInfo.snapshotOrThrow());
+    Assert.assertEquals(visibleOpTime, opTimeInfo.visibleOpTime().getAsLong());
+  }
+
+  @Test
+  public void testUpdateVisibleOverwritesPreviousValue() {
+    ReplicationOpTimeInfo opTimeInfo = new ReplicationOpTimeInfo();
+    var first = new BsonTimestamp(10, 0).getValue();
+    var second = new BsonTimestamp(20, 0).getValue();
+
+    opTimeInfo.updateVisible(first);
+    opTimeInfo.updateVisible(second);
+
+    Assert.assertEquals(second, opTimeInfo.visibleOpTime().getAsLong());
+  }
 }

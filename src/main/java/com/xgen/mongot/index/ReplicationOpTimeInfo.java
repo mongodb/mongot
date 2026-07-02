@@ -6,8 +6,11 @@ import com.google.common.annotations.VisibleForTesting;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.OptionalLong;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
+import org.apache.lucene.search.ReferenceManager;
 import org.bson.BsonTimestamp;
 import org.jetbrains.annotations.TestOnly;
 
@@ -27,6 +30,8 @@ import org.jetbrains.annotations.TestOnly;
 public class ReplicationOpTimeInfo {
   private final AtomicReference<Optional<Snapshot>> opTimeSnapshot =
       new AtomicReference<>(Optional.empty());
+
+  private final AtomicLong luceneVisibleOpTime = new AtomicLong(-1L);
 
   private final Object unsetLock = new Object();
 
@@ -108,6 +113,51 @@ public class ReplicationOpTimeInfo {
       }
       return false;
     }
+  }
+
+  /**
+   * Registers a {@link ReferenceManager.RefreshListener} on each manager in {@code managers} that
+   * snapshots the current replication optime before each refresh and, if the refresh promoted a new
+   * reader, records that optime as visible.
+   */
+  public void registerRefreshListeners(Iterable<? extends ReferenceManager<?>> managers) {
+    // This accepts multiple ReferenceManagers to handle partitioned indexes where we subshard the
+    // index to allow > 2B documents. In this case the last write wins so the visible time may be
+    // optimistic as it reflects the the visibility of the last manager's captured optime. This
+    // is tricky to fix without introducing substantial synchronization so we optimize for the more
+    // common single index case.
+    for (var manager : managers) {
+      manager.addListener(
+          new ReferenceManager.RefreshListener() {
+            private volatile long pendingOpTime = -1L;
+
+            @Override
+            public void beforeRefresh() {
+              this.pendingOpTime = snapshot().map(s -> s.replicationOpTime()).orElse(-1L);
+            }
+
+            @Override
+            public void afterRefresh(boolean didRefresh) {
+              if (didRefresh && this.pendingOpTime >= 0) {
+                updateVisible(this.pendingOpTime);
+              }
+            }
+          });
+    }
+  }
+
+  /** Records the replication optime that became visible when an NRT reader was last promoted. */
+  public void updateVisible(long opTime) {
+    this.luceneVisibleOpTime.set(opTime);
+  }
+
+  /**
+   * Returns the replication optime visible to IndexReaders after the most recent NRT refresh, or
+   * empty if no refresh has promoted a new reader yet.
+   */
+  public OptionalLong visibleOpTime() {
+    long val = this.luceneVisibleOpTime.get();
+    return val < 0 ? OptionalLong.empty() : OptionalLong.of(val);
   }
 
   public Optional<Snapshot> snapshot() {
