@@ -19,12 +19,15 @@ import com.xgen.mongot.index.ReaderClosedException;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.lucene.directory.IndexDirectoryFactory;
 import com.xgen.mongot.index.lucene.directory.IndexDirectoryHelper;
+import com.xgen.mongot.index.lucene.field.FieldName;
+import com.xgen.mongot.index.lucene.field.FieldValue;
 import com.xgen.mongot.index.lucene.merge.InstrumentedConcurrentMergeScheduler;
 import com.xgen.mongot.index.lucene.query.LuceneVectorQueryFactoryDistributor;
 import com.xgen.mongot.index.lucene.query.context.VectorQueryFactoryContext;
 import com.xgen.mongot.index.lucene.searcher.LuceneSearcherFactory;
 import com.xgen.mongot.index.lucene.searcher.LuceneSearcherManager;
 import com.xgen.mongot.index.lucene.searcher.QueryCacheProvider;
+import com.xgen.mongot.index.lucene.util.LuceneDocumentIdEncoder;
 import com.xgen.mongot.index.lucene.writer.SingleLuceneIndexWriter;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.MaterializedVectorSearchQuery;
@@ -47,10 +50,16 @@ import com.xgen.testing.mongot.mock.index.VectorIndex;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
 import java.util.Optional;
+import org.apache.lucene.document.Document;
+import org.apache.lucene.document.Field;
+import org.apache.lucene.document.StringField;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
+import org.apache.lucene.index.NoMergePolicy;
 import org.apache.lucene.index.TieredMergePolicy;
 import org.bson.BsonArray;
+import org.bson.BsonDocument;
+import org.bson.BsonInt32;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -184,6 +193,56 @@ public class LuceneVectorIndexReaderTest {
               this.queryFactory,
               Optional.of(this.concurrentSearchExecutor),
               Optional.of(this.concurrentSearchExecutor));
+    }
+
+    @Test
+    public void testGetNumEmbeddedRootDocuments_countsRootsAndDecrementsOnDelete()
+        throws Exception {
+      // Use NoMergePolicy so a deleted root doc is not physically merged away; the accurate
+      // term-count path must still exclude it (the collectionStatistics fallback would not).
+      this.writer.getConfig().setMergePolicy(NoMergePolicy.INSTANCE);
+
+      // Two parent (root) docs marked EMBEDDED_ROOT, plus three child (vector) docs without it.
+      byte[] rootId1 = addRootDoc(1);
+      addRootDoc(2);
+      for (int i = 0; i < 3; i++) {
+        addChildDoc(100 + i);
+      }
+      this.writer.commit();
+      this.reader.refresh();
+
+      // Only the two root docs are counted; the child (vector) docs are excluded.
+      Assert.assertEquals(2, this.reader.getNumEmbeddedRootDocuments());
+
+      // Deleting a parent decrements the count immediately, even without a merge — the delete-aware
+      // behavior the vector count relies on (always-accurate path, no feature flag).
+      this.writer.deleteDocuments(LuceneDocumentIdEncoder.documentIdTerm(rootId1));
+      this.writer.commit();
+      this.reader.refresh();
+      Assert.assertEquals(1, this.reader.getNumEmbeddedRootDocuments());
+    }
+
+    private byte[] addRootDoc(int id) throws IOException {
+      BsonDocument bson = new BsonDocument().append("_id", new BsonInt32(id));
+      byte[] docId = LuceneDocumentIdEncoder.encodeDocumentId(bson);
+      Document doc = new Document();
+      doc.add(LuceneDocumentIdEncoder.documentIdField(docId));
+      doc.add(
+          new StringField(
+              FieldName.MetaField.EMBEDDED_ROOT.getLuceneFieldName(),
+              FieldValue.EMBEDDED_ROOT_FIELD_VALUE,
+              Field.Store.NO));
+      this.writer.addDocument(doc);
+      return docId;
+    }
+
+    private void addChildDoc(int id) throws IOException {
+      BsonDocument bson = new BsonDocument().append("_id", new BsonInt32(id));
+      byte[] docId = LuceneDocumentIdEncoder.encodeDocumentId(bson);
+      Document doc = new Document();
+      doc.add(LuceneDocumentIdEncoder.documentIdField(docId));
+      doc.add(new StringField("name", "child", Field.Store.NO));
+      this.writer.addDocument(doc);
     }
 
     @Test

@@ -81,4 +81,9 @@ public class MeteredVectorIndexReader implements VectorIndexReader {
   public VectorIndexReader unwrap() {
     return this.indexReader;
   }
+
+  @Override
+  public long getNumEmbeddedRootDocuments() throws IOException, ReaderClosedException {
+    return this.indexReader.getNumEmbeddedRootDocuments();
+  }
 }

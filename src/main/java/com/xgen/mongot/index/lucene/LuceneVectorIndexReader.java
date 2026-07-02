@@ -15,6 +15,7 @@ import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.lucene.LuceneSearchManager.QueryInfo;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.field.FieldName;
+import com.xgen.mongot.index.lucene.field.FieldValue;
 import com.xgen.mongot.index.lucene.quantization.BinaryQuantizedVectorRescorer;
 import com.xgen.mongot.index.lucene.query.LuceneVectorQueryFactoryDistributor;
 import com.xgen.mongot.index.lucene.query.context.VectorQueryFactoryContext;
@@ -37,7 +38,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import org.apache.lucene.index.Term;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TopDocs;
 import org.bson.BsonArray;
 
@@ -279,6 +282,22 @@ public class LuceneVectorIndexReader implements VectorIndexReader {
           .setAttribute("time", stopwatch.toString());
 
       return vectorSearchResults;
+    }
+  }
+
+  @Override
+  public long getNumEmbeddedRootDocuments() throws IOException, ReaderClosedException {
+    try (LockGuard ignored = LockGuard.with(this.shutdownSharedLock)) {
+      ensureOpen("getNumEmbeddedRootDocuments");
+      try (var searcherReference = createSearcherReference(false)) {
+        return searcherReference
+            .getIndexSearcher()
+            .count(
+                new TermQuery(
+                    new Term(
+                        FieldName.MetaField.EMBEDDED_ROOT.getLuceneFieldName(),
+                        FieldValue.EMBEDDED_ROOT_FIELD_VALUE)));
+      }
     }
   }
 }

@@ -40,6 +40,7 @@ public class LuceneIndexMetricsSupplierBuilder {
   private Optional<LuceneIndexWriter> indexWriter = Optional.empty();
   private IndexDefinition.Type type = IndexDefinition.Type.SEARCH;
   private boolean isEmbedded = false;
+  private boolean hasNestedVectorFields = false;
   private Optional<SearchFieldDefinitionResolver> resolver = Optional.empty();
   private final List<CustomAnalyzerDefinition> customAnalyzers = new ArrayList<>();
   private MeterRegistry meterRegistry = new SimpleMeterRegistry();
@@ -87,6 +88,11 @@ public class LuceneIndexMetricsSupplierBuilder {
 
   public LuceneIndexMetricsSupplierBuilder isEmbedded(boolean isEmbedded) {
     this.isEmbedded = isEmbedded;
+    return this;
+  }
+
+  public LuceneIndexMetricsSupplierBuilder hasNestedVectorFields(boolean hasNestedVectorFields) {
+    this.hasNestedVectorFields = hasNestedVectorFields;
     return this;
   }
 
@@ -171,6 +177,8 @@ public class LuceneIndexMetricsSupplierBuilder {
             this.indexStatusSupplier,
             this.indexBackingStrategy,
             this.indexWriter.get(),
+            vectorIndexReader,
+            this.hasNestedVectorFields,
             new PerIndexMetricsFactory(
                 METRICS_NAMESPACE,
                 MeterAndFtdcRegistry.createWithMeterRegistry(this.meterRegistry),

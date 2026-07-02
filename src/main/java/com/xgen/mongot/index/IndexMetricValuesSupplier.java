@@ -21,6 +21,7 @@ public interface IndexMetricValuesSupplier {
     public static final String REQUIRED_MEMORY = "requiredMemoryBytes";
     public static final String NUM_LUCENE_FIELDS = "numLuceneFields";
     public static final String NUM_LUCENE_DOCS = "numLuceneDocs";
+    public static final String NUM_VECTORS = "numVectors";
     public static final String NUM_LUCENE_MAX_DOCS = "numLuceneMaxDocs";
     public static final String INDEX_STATUS_CODE = "indexStatusCode";
     public static final String MAX_STRING_FACET_CARDINALITY = "maxStringFacetCardinality";

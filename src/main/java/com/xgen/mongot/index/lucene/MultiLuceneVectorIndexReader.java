@@ -3,6 +3,7 @@ package com.xgen.mongot.index.lucene;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
+import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.cursor.batch.BatchSizeStrategy;
 import com.xgen.mongot.cursor.batch.QueryCursorOptions;
 import com.xgen.mongot.index.IndexMetricsUpdater;
@@ -167,6 +168,15 @@ public class MultiLuceneVectorIndexReader implements VectorIndexReader {
   @VisibleForTesting
   int numUnderlyingReaders() {
     return this.readers.size();
+  }
+
+  @Override
+  public long getNumEmbeddedRootDocuments() throws IOException, ReaderClosedException {
+    @Var long total = 0L;
+    for (var reader : this.readers) {
+      total += reader.getNumEmbeddedRootDocuments();
+    }
+    return total;
   }
 
   private List<VectorSearchResult> mergeVectorSearchResults(

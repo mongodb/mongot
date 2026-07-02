@@ -236,6 +236,8 @@ class InitializedLuceneVectorIndex implements InitializedVectorIndex {
             index.getStatusRef(),
             vectorIndexProperties.indexBackingStrategy,
             indexResources.luceneIndexWriter,
+            vectorIndexReader,
+            definition.getNestedRoot().isPresent(),
             vectorIndexProperties.metricsFactory,
             definition.getParsedIndexFeatureVersion(),
             featureFlags.isEnabled(Feature.INDEX_FEATURE_VERSION_FOUR));

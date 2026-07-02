@@ -985,4 +985,98 @@ public class LuceneIndexMetricValuesSupplierTest {
         LuceneIndexMetricValuesSupplier.getIndexPartitionTags(indexPartitionId).and(additionalTags);
     return (long) metricsFactory.get(metricName, tags).gauge().value();
   }
+
+  @Test
+  public void testNumVectorsGauge_flatVectorIndex_reportsLiveDocCount()
+      throws WriterClosedException {
+    var indexWriter = Mockito.mock(SingleLuceneIndexWriter.class);
+    Mockito.doReturn(5L).when(indexWriter).getNumDocs();
+    Mockito.doReturn(7L).when(indexWriter).getNumLuceneMaxDocs();
+    Mockito.doReturn(7).when(indexWriter).getMaxLuceneMaxDocs();
+    Mockito.doReturn(1).when(indexWriter).getNumWriters();
+    var indexReader = Mockito.mock(LuceneVectorIndexReader.class);
+    IndexBackingStrategy indexBackingStrategy = mock(IndexBackingStrategy.class);
+    when(indexBackingStrategy.getDiskStats()).thenReturn(DiskStats.EMPTY);
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+
+    LuceneIndexMetricsSupplierBuilder.builder()
+        .type(IndexDefinition.Type.VECTOR_SEARCH)
+        .hasNestedVectorFields(false)
+        .indexWriter(indexWriter)
+        .indexReader(indexReader)
+        .indexStatusSupplier(IndexStatus::steady)
+        .indexBackingStrategy(indexBackingStrategy)
+        .meterRegistry(meterRegistry)
+        .build();
+
+    // Flat vector index: every Lucene doc is a vector, read without acquiring a searcher. The
+    // count decrements on delete unlike a counter.
+    Assert.assertEquals(
+        5L,
+        getPerIndexGaugeMetricsValue(
+            meterRegistry, IndexMetricValuesSupplier.MetricNames.NUM_VECTORS));
+  }
+
+  @Test
+  public void testNumVectorsGauge_nestedVectorIndex_subtractsRootDocs()
+      throws WriterClosedException, ReaderClosedException, IOException {
+    // Nested index: 3 MongoDB docs × 2 vectors each = 6 vector docs + 3 root docs = 9 total
+    var indexWriter = Mockito.mock(SingleLuceneIndexWriter.class);
+    Mockito.doReturn(9L).when(indexWriter).getNumDocs();
+    Mockito.doReturn(9L).when(indexWriter).getNumLuceneMaxDocs();
+    Mockito.doReturn(9).when(indexWriter).getMaxLuceneMaxDocs();
+    Mockito.doReturn(1).when(indexWriter).getNumWriters();
+    var indexReader = Mockito.mock(LuceneVectorIndexReader.class);
+    Mockito.doReturn(3L).when(indexReader).getNumEmbeddedRootDocuments();
+    IndexBackingStrategy indexBackingStrategy = mock(IndexBackingStrategy.class);
+    when(indexBackingStrategy.getDiskStats()).thenReturn(DiskStats.EMPTY);
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+
+    LuceneIndexMetricsSupplierBuilder.builder()
+        .type(IndexDefinition.Type.VECTOR_SEARCH)
+        .hasNestedVectorFields(true)
+        .indexWriter(indexWriter)
+        .indexReader(indexReader)
+        .indexStatusSupplier(IndexStatus::steady)
+        .indexBackingStrategy(indexBackingStrategy)
+        .meterRegistry(meterRegistry)
+        .build();
+
+    // Root docs (1 per MongoDB doc) are subtracted to get the true vector count.
+    Assert.assertEquals(
+        6L,
+        getPerIndexGaugeMetricsValue(
+            meterRegistry, IndexMetricValuesSupplier.MetricNames.NUM_VECTORS));
+  }
+
+  @Test
+  public void testNumVectorsGauge_rootDocsExceedNumDocs_clampedToZero()
+      throws WriterClosedException, ReaderClosedException, IOException {
+    // A transient overestimate of root docs (e.g. stale stats) must not produce a negative count.
+    var indexWriter = Mockito.mock(SingleLuceneIndexWriter.class);
+    Mockito.doReturn(2L).when(indexWriter).getNumDocs();
+    Mockito.doReturn(2L).when(indexWriter).getNumLuceneMaxDocs();
+    Mockito.doReturn(2).when(indexWriter).getMaxLuceneMaxDocs();
+    Mockito.doReturn(1).when(indexWriter).getNumWriters();
+    var indexReader = Mockito.mock(LuceneVectorIndexReader.class);
+    Mockito.doReturn(5L).when(indexReader).getNumEmbeddedRootDocuments();
+    IndexBackingStrategy indexBackingStrategy = mock(IndexBackingStrategy.class);
+    when(indexBackingStrategy.getDiskStats()).thenReturn(DiskStats.EMPTY);
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+
+    LuceneIndexMetricsSupplierBuilder.builder()
+        .type(IndexDefinition.Type.VECTOR_SEARCH)
+        .hasNestedVectorFields(true)
+        .indexWriter(indexWriter)
+        .indexReader(indexReader)
+        .indexStatusSupplier(IndexStatus::steady)
+        .indexBackingStrategy(indexBackingStrategy)
+        .meterRegistry(meterRegistry)
+        .build();
+
+    Assert.assertEquals(
+        0L,
+        getPerIndexGaugeMetricsValue(
+            meterRegistry, IndexMetricValuesSupplier.MetricNames.NUM_VECTORS));
+  }
 }

@@ -28,6 +28,15 @@ public interface VectorIndexReader extends IndexReader {
     }
   }
 
+  /**
+   * Returns the number of root (parent) Lucene documents in a nested vector index. For non-nested
+   * indexes, returns 0. This is used to compute an accurate vector count: {@code numDocs -
+   * numEmbeddedRootDocuments} equals the number of actual vectors.
+   */
+  default long getNumEmbeddedRootDocuments() throws IOException, ReaderClosedException {
+    return 0L;
+  }
+
   /** Returns a bson array of {@link VectorSearchResult} (single-batch results with no cursor). */
   BsonArray query(MaterializedVectorSearchQuery materializedQuery, QueryExecutionContext context)
       throws ReaderClosedException, IOException, InvalidQueryException;

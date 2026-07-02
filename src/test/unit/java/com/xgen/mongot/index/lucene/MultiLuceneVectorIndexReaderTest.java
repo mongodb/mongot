@@ -416,6 +416,23 @@ public class MultiLuceneVectorIndexReaderTest {
 
   private static final QueryExecutionContext EMPTY_CONTEXT = QueryExecutionContext.empty();
 
+  @Test
+  public void testGetNumEmbeddedRootDocuments_sumsAcrossPartitions() throws Exception {
+    LuceneVectorIndexReader mockReader1 = mock(LuceneVectorIndexReader.class);
+    LuceneVectorIndexReader mockReader2 = mock(LuceneVectorIndexReader.class);
+    Mockito.when(mockReader1.getNumEmbeddedRootDocuments()).thenReturn(3L);
+    Mockito.when(mockReader2.getNumEmbeddedRootDocuments()).thenReturn(4L);
+
+    MultiLuceneVectorIndexReader multiReader =
+        new MultiLuceneVectorIndexReader(
+            List.of(mockReader1, mockReader2),
+            mock(IndexMetricsUpdater.QueryingMetricsUpdater.class),
+            Optional.empty());
+
+    // The multi reader sums the embedded-root-doc count across all partition readers.
+    Assert.assertEquals(7L, multiReader.getNumEmbeddedRootDocuments());
+  }
+
   /**
    * Tests that ReaderClosedException thrown by a partition reader is correctly propagated through
    * the concurrent query path without being wrapped or modified.
