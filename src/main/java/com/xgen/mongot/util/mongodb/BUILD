@@ -50,6 +50,7 @@ java_library(
     deps = [
         "//src/main/java/com/xgen/mongot/metrics",
         "//src/main/java/com/xgen/mongot/util",
+        "//src/main/java/com/xgen/mongot/util/bson/parser",
         "//src/main/java/com/xgen/mongot/util/functionalinterfaces",
         "//src/main/java/com/xgen/mongot/util/mongodb/serialization",
         "@maven//:com_fasterxml_jackson_core_jackson_databind",
