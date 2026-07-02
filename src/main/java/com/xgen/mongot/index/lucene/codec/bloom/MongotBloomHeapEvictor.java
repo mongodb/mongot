@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.lucene.codec.bloom;
 
+import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.index.lucene.codec.bloom.MongotBloomFilteringPostingsFormat.MongotBloomFilteredFieldsProducer;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import java.util.Optional;
@@ -27,13 +28,46 @@ public final class MongotBloomHeapEvictor {
 
   private MongotBloomHeapEvictor() {}
 
-  public static void evictHeapBloomFromReader(DirectoryReader reader) {
+  /**
+   * Heap footprint of the {@code _id} bloom bitsets currently resident across a reader's segments.
+   */
+  public record BloomHeapStats(int loadedSegments, long heapBytes) {}
+
+  /**
+   * Clears heap-resident {@code _id} bloom bitsets from each segment of {@code reader}.
+   *
+   * @return the number of segments that held bloom bitsets on heap before eviction
+   */
+  public static int evictHeapBloomFromReader(DirectoryReader reader) {
+    @Var int evicted = 0;
     for (LeafReaderContext leaf : reader.leaves()) {
       if (leaf.reader() instanceof SegmentReader segmentReader) {
-        findIdBloomFieldsProducer(segmentReader.getPostingsReader(), segmentReader)
-            .ifPresent(MongotBloomFilteredFieldsProducer::evictHeapBloom);
+        Optional<MongotBloomFilteredFieldsProducer> producer =
+            findIdBloomFieldsProducer(segmentReader.getPostingsReader(), segmentReader);
+        if (producer.isPresent() && producer.get().hasHeapLoadedBloom()) {
+          producer.get().evictHeapBloom();
+          evicted++;
+        }
       }
     }
+    return evicted;
+  }
+
+  /** Counts segments with heap-loaded {@code _id} bloom and sums their estimated heap bytes. */
+  public static BloomHeapStats bloomHeapStats(DirectoryReader reader) {
+    @Var int loadedSegments = 0;
+    @Var long heapBytes = 0;
+    for (LeafReaderContext leaf : reader.leaves()) {
+      if (leaf.reader() instanceof SegmentReader segmentReader) {
+        Optional<MongotBloomFilteredFieldsProducer> producer =
+            findIdBloomFieldsProducer(segmentReader.getPostingsReader(), segmentReader);
+        if (producer.isPresent() && producer.get().hasHeapLoadedBloom()) {
+          loadedSegments++;
+          heapBytes += producer.get().heapBloomRamBytesUsed();
+        }
+      }
+    }
+    return new BloomHeapStats(loadedSegments, heapBytes);
   }
 
   private static Optional<MongotBloomFilteredFieldsProducer> findIdBloomFieldsProducer(

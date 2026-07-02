@@ -83,6 +83,23 @@ public class PerIndexMetricsFactory {
     this.perProcessFactory = perProcessFactory;
   }
 
+  /**
+   * Returns the underlying per-process {@link MetricsFactory}, which creates a single process-wide
+   * timeseries per (metric, tags) tuple with no per-index counterpart.
+   *
+   * <p>Counters, histograms, and gauges should be created per-process by default — i.e. via this
+   * factory — to limit the number of prometheus timeseries we export, which is the primary lever on
+   * prometheus scalability. Only reach for the per-index variants ({@link #perIndexCounter}, {@link
+   * #perIndexObjectValueGauge}, etc.) when the per-index breakdown is genuinely needed: it is
+   * consumed in perf testing, it is reported to MMS in a {@code ConfCallRequest}, or there is some
+   * other specific motivation that justifies the per-index fanout.
+   *
+   * @return the per-process {@link MetricsFactory}.
+   */
+  public MetricsFactory getProcessMetricsFactory() {
+    return this.perProcessFactory;
+  }
+
   private static class PerProcessAndIndexCounter implements Counter {
     private final Counter perIndex;
     private final Counter perProcess;
@@ -254,6 +271,9 @@ public class PerIndexMetricsFactory {
    *
    * @param name the name of the metric
    * @return a {@link Counter} that can be incremented.
+   * @apiNote - All metrics should be created per-process by default (see {@link
+   *     PerIndexMetricsFactory#getProcessMetricsFactory()}) unless they are needed in perf testing,
+   *     are reported to MMS in ConfCallRequest, or have some other specific motivation
    */
   public Counter counter(String name) {
     return counter(name, Tags.empty());

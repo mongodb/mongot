@@ -48,7 +48,7 @@ public final class MongotBloomReadPolicy {
   }
 
   /** Returns the delegate at the end of a {@link FilterDirectory} chain. */
-  private static Directory unwrapFilterDirectory(Directory directory) {
+  static Directory unwrapFilterDirectory(Directory directory) {
     if (directory instanceof FilterDirectory filterDirectory) {
       return unwrapFilterDirectory(filterDirectory.getDelegate());
     }

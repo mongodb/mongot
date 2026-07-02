@@ -1,6 +1,8 @@
 package com.xgen.mongot.index.lucene.codec.bloom;
 
+import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.index.lucene.codec.bloom.MongotBloomFilteringPostingsFormat.MongotBloomFilteredFieldsProducer;
+import com.xgen.mongot.index.lucene.codec.bloom.MongotBloomHeapEvictor.BloomHeapStats;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
@@ -17,7 +19,7 @@ import org.apache.lucene.store.Directory;
  * Registration lets {@link MongotBloomHeapEvictor} reach the {@code _id} bloom producer without
  * reflection.
  */
-final class MongotBloomFieldsProducerRegistry {
+public final class MongotBloomFieldsProducerRegistry {
 
   private static final ConcurrentHashMap<Key, MongotBloomFilteredFieldsProducer> PRODUCERS =
       new ConcurrentHashMap<>();
@@ -38,6 +40,31 @@ final class MongotBloomFieldsProducerRegistry {
   static Optional<MongotBloomFilteredFieldsProducer> lookup(
       SegmentReader reader, String fieldName) {
     return Optional.ofNullable(PRODUCERS.get(Key.from(reader, fieldName)));
+  }
+
+  /**
+   * Sums the heap-resident {@code _id} bloom footprint across <em>every</em> registered producer on
+   * the process, regardless of index. Backs the process-wide bloom heap gauges: bloom is a
+   * feature-level concern (see PR discussion on this metric being process- rather than
+   * index-scoped) and aggregating here keeps the exported timeseries count independent of the
+   * number of indexes.
+   *
+   * <p>Reading from this registry rather than a {@link org.apache.lucene.index.DirectoryReader}
+   * lets the heap gauges report resident bloom during initial sync, when the searcher's reader is
+   * not refreshed and therefore never opens the bloom segments. The scan is {@code O(registered
+   * producers)} but the gauges cache it (see {@code LuceneSearcherManager}), so it runs at most a
+   * couple times a minute off any hot path.
+   */
+  public static BloomHeapStats bloomHeapStats() {
+    @Var int loadedSegments = 0;
+    @Var long heapBytes = 0;
+    for (MongotBloomFilteredFieldsProducer producer : PRODUCERS.values()) {
+      if (producer.hasHeapLoadedBloom()) {
+        loadedSegments++;
+        heapBytes += producer.heapBloomRamBytesUsed();
+      }
+    }
+    return new BloomHeapStats(loadedSegments, heapBytes);
   }
 
   static final class Key {

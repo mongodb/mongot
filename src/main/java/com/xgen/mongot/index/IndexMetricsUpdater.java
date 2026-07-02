@@ -232,6 +232,19 @@ public class IndexMetricsUpdater implements Closeable {
     static final String BLOOM_FILTER_ID_POSTING_CREATED = "bloomFilterIdPostingCreated";
     static final String LUCENE_99_ID_POSTING_CREATED = "lucene99IdPostingCreated";
 
+    /**
+     * Counts per-field bloom filters dropped at segment-write time because the FuzzySet was
+     * saturated -- too full to yield a useful false-positive rate (see
+     * BloomFilterFactory#isSaturated). Such blooms are omitted from the segment's .blm file.
+     * Incremented per write by the number dropped; with only the _id field bloom-enabled this is
+     * effectively one per segment that dropped its bloom.
+     */
+    static final String BLOOM_FILTER_SATURATED_DROPPED = "bloomFilterSaturatedDropped";
+
+    static final String BLOOM_FILTER_ID_LOOKUP_SKIPPED = "bloomFilterIdLookupSkipped";
+    static final String BLOOM_FILTER_ID_LOOKUP_PROBED = "bloomFilterIdLookupProbed";
+    static final String BLOOM_FILTER_ID_LOOKUP_FALSE_POSITIVE = "bloomFilterIdLookupFalsePositive";
+
     @VisibleForTesting
     public static final List<Bytes> CHANGE_STREAM_EVENT_SIZE_THRESHOLDS =
         List.of(Bytes.ofMebi(10), Bytes.ofMebi(12), Bytes.ofMebi(14), Bytes.ofMebi(15));
@@ -251,6 +264,10 @@ public class IndexMetricsUpdater implements Closeable {
     private final Map<Bytes, Counter> changeStreamEventSizeCounters;
     private final Counter bloomFilterIdPostingCreatedCounter;
     private final Counter lucene99IdPostingCreatedCounter;
+    private final Counter bloomFilterSaturatedDroppedCounter;
+    private final Counter bloomFilterIdLookupSkippedCounter;
+    private final Counter bloomFilterIdLookupProbedCounter;
+    private final Counter bloomFilterIdLookupFalsePositiveCounter;
 
     @VisibleForTesting
     public IndexingMetricsUpdater(
@@ -300,6 +317,17 @@ public class IndexMetricsUpdater implements Closeable {
       this.bloomFilterIdPostingCreatedCounter =
           metricsFactory.counter(BLOOM_FILTER_ID_POSTING_CREATED);
       this.lucene99IdPostingCreatedCounter = metricsFactory.counter(LUCENE_99_ID_POSTING_CREATED);
+      this.bloomFilterSaturatedDroppedCounter =
+          metricsFactory.getProcessMetricsFactory().counter(BLOOM_FILTER_SATURATED_DROPPED);
+      // Read-path lookup counters are recorded from the Lucene codec read path, which is reached
+      // via SPI instantiation with no index context, so they have no meaningful per-index
+      // attribution. Record them as process-wide counters only.
+      this.bloomFilterIdLookupSkippedCounter =
+          metricsFactory.getProcessMetricsFactory().counter(BLOOM_FILTER_ID_LOOKUP_SKIPPED);
+      this.bloomFilterIdLookupProbedCounter =
+          metricsFactory.getProcessMetricsFactory().counter(BLOOM_FILTER_ID_LOOKUP_PROBED);
+      this.bloomFilterIdLookupFalsePositiveCounter =
+          metricsFactory.getProcessMetricsFactory().counter(BLOOM_FILTER_ID_LOOKUP_FALSE_POSITIVE);
 
       this.replicationOpTimeInfo = new ReplicationOpTimeInfo();
       this.metricsFactory.perIndexObjectValueGauge(
@@ -388,6 +416,22 @@ public class IndexMetricsUpdater implements Closeable {
 
     public Counter getLucene99IdPostingCreatedCounter() {
       return this.lucene99IdPostingCreatedCounter;
+    }
+
+    public Counter getBloomFilterSaturatedDroppedCounter() {
+      return this.bloomFilterSaturatedDroppedCounter;
+    }
+
+    public Counter getBloomFilterIdLookupSkippedCounter() {
+      return this.bloomFilterIdLookupSkippedCounter;
+    }
+
+    public Counter getBloomFilterIdLookupProbedCounter() {
+      return this.bloomFilterIdLookupProbedCounter;
+    }
+
+    public Counter getBloomFilterIdLookupFalsePositiveCounter() {
+      return this.bloomFilterIdLookupFalsePositiveCounter;
     }
 
     public Timer getCommitTimer() {

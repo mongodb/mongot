@@ -17,8 +17,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
+import org.apache.lucene.backward_codecs.lucene99.Lucene99Codec;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.CompoundDirectory;
+import org.apache.lucene.codecs.FilterCodec;
+import org.apache.lucene.codecs.PostingsFormat;
+import org.apache.lucene.codecs.bloom.DefaultBloomFilterFactory;
+import org.apache.lucene.codecs.bloom.FuzzySet;
 import org.apache.lucene.codecs.perfield.PerFieldPostingsFormat;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
@@ -239,6 +244,88 @@ public class LuceneCodecBloomFilterTest {
         assertAllSegmentsHaveBlmFiles(dir, false);
       }
     }
+
+    @Test
+    public void readWithBloomOnHeap_absentIdSkips_presentIdProbes() throws IOException {
+      IndexMetricsUpdater.IndexingMetricsUpdater metricsUpdater =
+          SearchIndex.mockIndexingMetricsUpdater(IndexDefinition.Type.SEARCH);
+
+      try (Directory dir = new ByteBuffersDirectory()) {
+        // Writing with a metrics-carrying codec installs the static read-path metrics bridge that
+        // the lookup counters below rely on.
+        IndexWriterConfig config =
+            new IndexWriterConfig()
+                .setCodec(
+                    LuceneCodec.Factory.forIndexWithBloomFilter(
+                        Map.of(), () -> DFF_ENABLED, Optional.of(metricsUpdater)))
+                .setUseCompoundFile(false);
+        try (IndexWriter writer = new IndexWriter(dir, config)) {
+          addDoc(writer, DOC_1);
+          writer.commit();
+        }
+
+        double skipsBefore = metricsUpdater.getBloomFilterIdLookupSkippedCounter().count();
+        double probesBefore = metricsUpdater.getBloomFilterIdLookupProbedCounter().count();
+        double falsePositivesBefore =
+            metricsUpdater.getBloomFilterIdLookupFalsePositiveCounter().count();
+
+        MongotBloomReadPolicy.setLoadBloomOnHeap(dir, true);
+        try (DirectoryReader reader = DirectoryReader.open(dir)) {
+          IndexSearcher searcher = new IndexSearcher(reader);
+          assertThat(searcher.count(new TermQuery(new Term(ID_FIELD, DOC_1)))).isEqualTo(1);
+          assertThat(searcher.count(new TermQuery(new Term(ID_FIELD, "missing")))).isEqualTo(0);
+        } finally {
+          MongotBloomReadPolicy.setLoadBloomOnHeap(dir, false);
+        }
+
+        double skipDelta =
+            metricsUpdater.getBloomFilterIdLookupSkippedCounter().count() - skipsBefore;
+        double probeDelta =
+            metricsUpdater.getBloomFilterIdLookupProbedCounter().count() - probesBefore;
+        double falsePositiveDelta =
+            metricsUpdater.getBloomFilterIdLookupFalsePositiveCounter().count()
+                - falsePositivesBefore;
+
+        // The present id passes the filter and seeks the delegate (a probe, never a false
+        // positive).
+        assertThat(probeDelta).isAtLeast(1.0);
+        // The absent id is normally ruled out in-heap (a skip). A bloom false positive for it is
+        // rare but legal and depends on hashing/sizing, so accept either outcome rather than
+        // pinning
+        // an exact count that could drift across Lucene or bloom-parameter changes: the absent
+        // lookup is either skipped or probed and recorded as a false positive.
+        assertThat(skipDelta + falsePositiveDelta).isAtLeast(1.0);
+        assertThat(falsePositiveDelta).isAtMost(1.0);
+      }
+    }
+
+    @Test
+    public void saturatedBloom_onClose_recordsDropped() throws IOException {
+      IndexMetricsUpdater.IndexingMetricsUpdater metricsUpdater =
+          SearchIndex.mockIndexingMetricsUpdater(IndexDefinition.Type.SEARCH);
+      // A factory that always reports saturation forces close() to drop every accumulated filter.
+      DefaultBloomFilterFactory alwaysSaturated =
+          new DefaultBloomFilterFactory() {
+            @Override
+            public boolean isSaturated(FuzzySet bloomFilter, FieldInfo fieldInfo) {
+              return true;
+            }
+          };
+      PostingsFormat delegateId = new Lucene99Codec().getPostingsFormatForField(ID_FIELD);
+      PostingsFormat bloomFormat =
+          new MongotBloomFilteringPostingsFormat(
+              delegateId, alwaysSaturated, Optional.of(metricsUpdater));
+
+      try (Directory dir = new ByteBuffersDirectory()) {
+        IndexWriterConfig config =
+            new IndexWriterConfig().setCodec(perFieldCodec(bloomFormat)).setUseCompoundFile(false);
+        try (IndexWriter writer = new IndexWriter(dir, config)) {
+          addDoc(writer, DOC_1);
+          writer.commit();
+        }
+        assertThat(metricsUpdater.getBloomFilterSaturatedDroppedCounter().count()).isAtLeast(1.0);
+      }
+    }
   }
 
   @RunWith(Parameterized.class)
@@ -341,6 +428,26 @@ public class LuceneCodecBloomFilterTest {
     Document doc = new Document();
     doc.add(new StringField(ID_FIELD, id, Field.Store.YES));
     writer.addDocument(doc);
+  }
+
+  /** Per-field codec that routes the {@code _id} field to the supplied postings format. */
+  private static Codec perFieldCodec(PostingsFormat idPostingsFormat) {
+    Lucene99Codec delegateCodec = new Lucene99Codec();
+    PerFieldPostingsFormat perField =
+        new PerFieldPostingsFormat() {
+          @Override
+          public PostingsFormat getPostingsFormatForField(String field) {
+            return ID_FIELD.equals(field)
+                ? idPostingsFormat
+                : delegateCodec.getPostingsFormatForField(field);
+          }
+        };
+    return new FilterCodec(LUCENE99_FORMAT, delegateCodec) {
+      @Override
+      public PostingsFormat postingsFormat() {
+        return perField;
+      }
+    };
   }
 
   private static List<String> getIdPostingsFormatNames(Directory dir) throws IOException {

@@ -3,11 +3,14 @@ package com.xgen.mongot.index.lucene.searcher;
 import static com.xgen.mongot.util.Check.checkArg;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Suppliers;
 import com.google.errorprone.annotations.Var;
+import com.xgen.mongot.index.lucene.codec.bloom.MongotBloomFieldsProducerRegistry;
 import com.xgen.mongot.index.lucene.codec.bloom.MongotBloomHeapEvictor;
 import com.xgen.mongot.index.lucene.codec.bloom.MongotBloomReadPolicy;
 import com.xgen.mongot.metrics.CachedGauge;
 import com.xgen.mongot.metrics.PerIndexMetricsFactory;
+import io.micrometer.core.instrument.Counter;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.Optional;
@@ -31,11 +34,25 @@ public class LuceneSearcherManager extends ReferenceManager<LuceneIndexSearcher>
 
   @VisibleForTesting static final String SEGMENT_COUNT_METRIC = "segment_count";
 
+  @VisibleForTesting public static final String BLOOM_HEAP_BYTES_METRIC = "bloomFilterHeapBytes";
+
+  @VisibleForTesting
+  public static final String BLOOM_HEAP_LOADED_SEGMENTS_METRIC = "bloomFilterHeapLoadedSegments";
+
+  @VisibleForTesting
+  public static final String BLOOM_HEAP_EVICTIONS_METRIC = "bloomFilterHeapEvictions";
+
   private static final Logger LOG = LoggerFactory.getLogger(LuceneSearcherManager.class);
 
   private final LuceneSearcherFactory factory;
   private final IndexWriter indexWriter;
   private final BooleanSupplier useIdBloomFilter;
+
+  /**
+   * Counts segments whose heap-resident bloom bitsets were evicted at the initial-sync → steady
+   * state transition.
+   */
+  private final Counter bloomHeapEvictionCounter;
 
   /**
    * Tracks whether bloom bitsets were loaded on the last reader open. Used to detect the
@@ -47,15 +64,21 @@ public class LuceneSearcherManager extends ReferenceManager<LuceneIndexSearcher>
   private volatile boolean lastBloomLoadState;
 
   /**
-   * Protected constructor - does not register gauges. Use {@link #create} to construct instances.
-   * Protected to allow test subclasses.
+   * Constructs the manager and its bloom eviction counter, but does not register gauges: those hold
+   * a reference to the fully-constructed instance, so {@link #create} registers them after this
+   * returns. Protected to allow test subclasses.
    */
   protected LuceneSearcherManager(
-      IndexWriter writer, LuceneSearcherFactory factory, BooleanSupplier useIdBloomFilter)
+      IndexWriter writer,
+      LuceneSearcherFactory factory,
+      BooleanSupplier useIdBloomFilter,
+      PerIndexMetricsFactory metrics)
       throws IOException {
     this.factory = factory;
     this.indexWriter = writer;
     this.useIdBloomFilter = useIdBloomFilter;
+    this.bloomHeapEvictionCounter =
+        metrics.getProcessMetricsFactory().counter(BLOOM_HEAP_EVICTIONS_METRIC);
 
     boolean initialBloomLoad = useIdBloomFilter.getAsBoolean();
     this.lastBloomLoadState = initialBloomLoad;
@@ -72,13 +95,31 @@ public class LuceneSearcherManager extends ReferenceManager<LuceneIndexSearcher>
       BooleanSupplier useIdBloomFilter)
       throws IOException {
 
-    LuceneSearcherManager manager = new LuceneSearcherManager(writer, factory, useIdBloomFilter);
+    LuceneSearcherManager manager =
+        new LuceneSearcherManager(writer, factory, useIdBloomFilter, metrics);
 
     // Register gauges after construction is complete
     metrics.perIndexObjectValueGauge(
         SEGMENT_COUNT_METRIC,
         manager,
         CachedGauge.of(LuceneSearcherManager::getSegmentCount, Duration.ofMinutes(1)));
+
+    // Bloom heap footprint changes on every refresh (segments open/merge, policy flips), and
+    // summing FuzzySet.ramBytesUsed walks every registered producer. Cache one stats snapshot
+    // shared by both gauges so the walk runs at most once a minute, not once per gauge.
+    var cachedBloomHeapStats =
+        Suppliers.memoizeWithExpiration(
+            MongotBloomFieldsProducerRegistry::bloomHeapStats, Duration.ofMinutes(1));
+    metrics
+        .getProcessMetricsFactory()
+        .objectValueGauge(
+            BLOOM_HEAP_BYTES_METRIC, cachedBloomHeapStats, s -> (double) s.get().heapBytes());
+    metrics
+        .getProcessMetricsFactory()
+        .objectValueGauge(
+            BLOOM_HEAP_LOADED_SEGMENTS_METRIC,
+            cachedBloomHeapStats,
+            s -> (double) s.get().loadedSegments());
 
     return manager;
   }
@@ -118,7 +159,10 @@ public class LuceneSearcherManager extends ReferenceManager<LuceneIndexSearcher>
       // ReferenceManager swaps to the returned searcher and release()s the previous one, which
       // decRefs and closes the old DirectoryReader. That closes bloom FieldsProducers and clears
       // their in-heap bitsets (see MongotBloomFilteredFieldsProducer#close).
-      MongotBloomHeapEvictor.evictHeapBloomFromReader(oldDirectoryReader);
+      int evicted = MongotBloomHeapEvictor.evictHeapBloomFromReader(oldDirectoryReader);
+      if (evicted > 0) {
+        this.bloomHeapEvictionCounter.increment(evicted);
+      }
       newReader = DirectoryReader.openIfChanged(oldDirectoryReader, this.indexWriter);
       if (newReader == null) {
         newReader = DirectoryReader.open(this.indexWriter);

@@ -291,7 +291,8 @@ public class CloseablePhantomCleanerTest {
                     new DefaultQueryCacheProvider(),
                     Optional.empty(),
                     SearchIndex.mockQueryMetricsUpdater(IndexDefinition.Type.SEARCH)),
-                () -> false) {
+                () -> false,
+                SearchIndex.mockMetricsFactory()) {
               @Override
               protected void decRef(LuceneIndexSearcher reference) throws IOException {
                 super.decRef(reference);
