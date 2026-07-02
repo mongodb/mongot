@@ -970,13 +970,13 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
           .addKeyValue("fetchedCount", fetchedLeases.size())
           .log("Batch fetched follower leases");
     } catch (Exception e) {
-      LOG.warn("Failed to batch fetch follower leases, falling back to UNKNOWN status", e);
-      // On failure, mark all followers as UNKNOWN.
-      for (MaterializedViewGenerationId generationId :
-          new ArrayList<>(this.followerGenerationIds)) {
-        statuses.put(generationId, new IndexStatus(IndexStatus.StatusCode.UNKNOWN));
-      }
-      return new LeaseManager.FollowerPollResult(statuses, acquirableLeases);
+      LOG.warn(
+          "Failed to batch fetch follower leases, preserving existing statuses until next poll", e);
+      // Return without updating statuses so callers preserve whatever status was last known
+      // (e.g. STEADY). Setting UNKNOWN here would cause isTransient()=true in the confcall,
+      // which filters the index before processReplicationStatus() can transition it to STALE
+      // when replication stops (cluster pause / disk-full).
+      return new LeaseManager.FollowerPollResult(Collections.emptyMap(), Collections.emptySet());
     }
 
     // Process each follower generation ID.

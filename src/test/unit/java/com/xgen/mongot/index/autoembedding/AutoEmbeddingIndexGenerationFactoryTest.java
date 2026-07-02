@@ -122,7 +122,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
 
     IndexGeneration result =
         AutoEmbeddingIndexGenerationFactory.getAutoEmbeddingIndexGeneration(
-            indexFactory, matViewIndexFactory, rawGen, catalog);
+            indexFactory, matViewIndexFactory, rawGen, catalog, () -> false);
 
     assertTrue(
         "Absent source collection must yield an unresolved generation",
@@ -160,7 +160,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
 
     IndexGeneration result =
         AutoEmbeddingIndexGenerationFactory.getAutoEmbeddingIndexGeneration(
-            indexFactory, matViewIndexFactory, rawGen, catalog);
+            indexFactory, matViewIndexFactory, rawGen, catalog, () -> false);
 
     assertTrue(
         "Present source collection must build a composite auto-embedding generation",

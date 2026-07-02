@@ -226,8 +226,10 @@ public interface LeaseManager {
    * acquisition (expired leases, leases we own, or new indexes without leases).
    *
    * @return a {@link FollowerPollResult} containing the status map and the set of acquirable
-   *     leases. Returns {@link FollowerPollResult#EMPTY} if this instance is the leader or if there
-   *     are no follower generation IDs.
+   *     leases. Returns {@link FollowerPollResult#EMPTY} in three cases: (1) this instance is the
+   *     leader, (2) there are no follower generation IDs, or (3) a transient DB failure prevented
+   *     the batch fetch. Callers MUST treat an empty result as "no new information" and preserve
+   *     whatever status they last applied — never reset to UNKNOWN on an empty return.
    */
   FollowerPollResult pollFollowerStatuses();
 

@@ -338,7 +338,8 @@ public class IndexActions {
           Check.isPresent(
               this.configState.materializedViewIndexFactory, "materializedViewIndexFactory"),
           definitionGeneration,
-          this.configState.initializedIndexCatalog);
+          this.configState.initializedIndexCatalog,
+          () -> !this.configState.getLifecycleManager().isReplicationSupported());
     } else {
       return IndexGenerationFactory.getIndexGeneration(
           this.configState.indexFactory, definitionGeneration);

@@ -55,10 +55,14 @@ public class AutoEmbeddingCompositeIndexTest {
     assertConsolidatedStatus(
         StatusCode.NOT_STARTED, StatusCode.INITIAL_SYNC, StatusCode.INITIAL_SYNC);
 
-    // UNKNOWN or NOT_STARTED propagates (MV takes precedence)
+    // UNKNOWN or NOT_STARTED propagates when Lucene is not STEADY
     assertConsolidatedStatus(StatusCode.STEADY, StatusCode.NOT_STARTED, StatusCode.NOT_STARTED);
-    assertConsolidatedStatus(StatusCode.UNKNOWN, StatusCode.STEADY, StatusCode.UNKNOWN);
-    assertConsolidatedStatus(StatusCode.NOT_STARTED, StatusCode.STEADY, StatusCode.NOT_STARTED);
+    // MV UNKNOWN/NOT_STARTED + Lucene STEADY -> STEADY: allows MMS processReplicationStatus()
+    // to apply the STEADY->STALE transition when replication is stopped (e.g. after a restart
+    // with forceDisableReplication). Returning UNKNOWN here would cause isTransient()=true,
+    // filtering the index before processReplicationStatus() can fire.
+    assertConsolidatedStatus(StatusCode.UNKNOWN, StatusCode.STEADY, StatusCode.STEADY);
+    assertConsolidatedStatus(StatusCode.NOT_STARTED, StatusCode.STEADY, StatusCode.STEADY);
 
     // RECOVERING_TRANSIENT or RECOVERING_NON_TRANSIENT propagates
     assertConsolidatedStatus(
@@ -116,9 +120,13 @@ public class AutoEmbeddingCompositeIndexTest {
 
         // Guard against unhandled StatusCode values: if a new status is added
         // but not handled in consolidateStatuses(), it will fall through to STEADY.
-        // This assertion catches that by verifying STEADY output requires STEADY inputs.
+        // Valid STEADY outputs: (STEADY,STEADY) or (UNKNOWN/NOT_STARTED,STEADY).
         if (result.getStatusCode() == StatusCode.STEADY) {
-          assertEquals(context + " unexpectedly returned STEADY", StatusCode.STEADY, mvStatus);
+          boolean mvAllowsSteadyOutput =
+              mvStatus == StatusCode.STEADY
+                  || mvStatus == StatusCode.UNKNOWN
+                  || mvStatus == StatusCode.NOT_STARTED;
+          assertEquals(context + " unexpectedly returned STEADY", true, mvAllowsSteadyOutput);
           assertEquals(context + " unexpectedly returned STEADY", StatusCode.STEADY, luceneStatus);
         }
       }
@@ -247,6 +255,111 @@ public class AutoEmbeddingCompositeIndexTest {
     assertEquals(StatusCode.STEADY, index.getStatus().getStatusCode());
   }
 
+  @Test
+  public void testMvUnknownSteadyDoesNotLatchRatchet() {
+    var luceneBehind = new BsonTimestamp(500, 1);
+    var steadyPosition = new BsonTimestamp(1000, 1);
+
+    // Step 1: MV UNKNOWN, Lucene STEADY, no steadyAsOfOplogPosition yet.
+    // calculateEffectiveLuceneStatus passes through STEADY (position empty).
+    // computeConsolidatedStatus(UNKNOWN, STEADY) returns STEADY via the fallthrough.
+    // compositeWasQueryable must NOT be latched: mvStatus is not STEADY.
+    AutoEmbeddingCompositeIndex index =
+        createIndexWithPositionsAndSupplier(
+            StatusCode.UNKNOWN,
+            StatusCode.STEADY,
+            Optional.empty(),
+            Optional.of(luceneBehind),
+            /* includeSupplier= */ true,
+            /* wasQueryablePerLease= */ false);
+    assertEquals(StatusCode.STEADY, index.getStatus().getStatusCode());
+
+    // Step 2: steadyAsOfOplogPosition is now set to T1, ahead of Lucene's T0.5.
+    // If compositeWasQueryable were latched in step 1, calculateEffectiveLuceneStatus would
+    // bypass the lag check and return STEADY → consolidated STEADY (incorrect).
+    // With the ratchet correctly un-latched, the lag check fires → INITIAL_SYNC.
+    when(index.matViewIndex.getSteadyAsOfOplogPosition()).thenReturn(Optional.of(steadyPosition));
+    assertEquals(StatusCode.INITIAL_SYNC, index.getStatus().getStatusCode());
+  }
+
+  @Test
+  public void testMvUnknownWithSteadyLuceneReturnsSteady_replicationStoppedAfterRestart() {
+    // When replication is stopped (e.g. forceDisableReplication) and mongot restarts, the
+    // mat view is never initialized so its status stays UNKNOWN. The Lucene component is set
+    // to STEADY by MongoDbNoOpReplicationManager reading local segment files. Without this
+    // behaviour, computeConsolidatedStatus(UNKNOWN, STEADY) = UNKNOWN, which causes
+    // isTransient()=true in MMS, filtering the index before processReplicationStatus() can
+    // apply the STEADY->STALE transition.
+
+    // Case 1: no steadyAsOfOplogPosition in lease (mat view never ran in this session)
+    AutoEmbeddingCompositeIndex indexNoPosition =
+        createIndexWithPositions(
+            StatusCode.UNKNOWN, StatusCode.STEADY, Optional.empty(), Optional.empty());
+    assertEquals(StatusCode.STEADY, indexNoPosition.getStatus().getStatusCode());
+
+    // Case 2: steadyAsOfOplogPosition present from a previous run (synced from lease at startup),
+    // and Lucene has caught up — the realistic forceDisableReplication+restart scenario.
+    var steadyPosition = new BsonTimestamp(1000, 1);
+    var luceneCaughtUp = new BsonTimestamp(1000, 1);
+    AutoEmbeddingCompositeIndex indexCaughtUp =
+        createIndexWithPositions(
+            StatusCode.UNKNOWN,
+            StatusCode.STEADY,
+            Optional.of(steadyPosition),
+            Optional.of(luceneCaughtUp));
+    assertEquals(StatusCode.STEADY, indexCaughtUp.getStatus().getStatusCode());
+  }
+
+  @Test
+  public void testMvUnknownWithSteadyLuceneReturnsUnknown_replicationNotStopped() {
+    // The (UNKNOWN MV, STEADY Lucene) → synthetic STEADY fallthrough must only fire when
+    // replication is actually stopped (cluster pause / disk-full / forceDisableReplication).
+    // Without the gate this fallthrough also fires for followers at normal startup — their MV
+    // is legitimately UNKNOWN because the leader owns it. Reporting STEADY there breaks
+    // host-failover takeover by signalling "this index is already steady" before the follower
+    // has done any MV work, causing the takeover path to skip creating a MongoDbReplicationManager
+    // (CLOUDP-405298).
+
+    // Case 1: no steadyAsOfOplogPosition (follower has never been a leader for this generation).
+    AutoEmbeddingCompositeIndex followerNoPosition =
+        createIndexWithPositionsAndSupplier(
+            StatusCode.UNKNOWN,
+            StatusCode.STEADY,
+            Optional.empty(),
+            Optional.empty(),
+            /* includeSupplier= */ true,
+            /* wasQueryablePerLease= */ false,
+            /* isReplicationStopped= */ false);
+    assertEquals(StatusCode.UNKNOWN, followerNoPosition.getStatus().getStatusCode());
+
+    // Case 2: steadyAsOfOplogPosition present and Lucene caught up — the same shape as the
+    // forceDisableReplication+restart test above, but without the replication-stopped signal.
+    var steadyPosition = new BsonTimestamp(1000, 1);
+    var luceneCaughtUp = new BsonTimestamp(1000, 1);
+    AutoEmbeddingCompositeIndex followerCaughtUp =
+        createIndexWithPositionsAndSupplier(
+            StatusCode.UNKNOWN,
+            StatusCode.STEADY,
+            Optional.of(steadyPosition),
+            Optional.of(luceneCaughtUp),
+            /* includeSupplier= */ true,
+            /* wasQueryablePerLease= */ false,
+            /* isReplicationStopped= */ false);
+    assertEquals(StatusCode.UNKNOWN, followerCaughtUp.getStatus().getStatusCode());
+
+    // Same shape with NOT_STARTED for symmetry (production fallthrough covers both states).
+    AutoEmbeddingCompositeIndex followerNotStarted =
+        createIndexWithPositionsAndSupplier(
+            StatusCode.NOT_STARTED,
+            StatusCode.STEADY,
+            Optional.empty(),
+            Optional.empty(),
+            /* includeSupplier= */ true,
+            /* wasQueryablePerLease= */ false,
+            /* isReplicationStopped= */ false);
+    assertEquals(StatusCode.NOT_STARTED, followerNotStarted.getStatus().getStatusCode());
+  }
+
   private void assertConsolidatedStatus(
       StatusCode mvStatus, StatusCode luceneStatus, StatusCode expected) {
     AutoEmbeddingCompositeIndex index = createIndexWithStatuses(mvStatus, luceneStatus);
@@ -298,7 +411,7 @@ public class AutoEmbeddingCompositeIndexTest {
       Optional<BsonTimestamp> lucenePosition,
       boolean includeSupplier) {
     return createIndexWithPositionsAndSupplier(
-        mvStatus, luceneStatus, steadyAsOfPosition, lucenePosition, includeSupplier, false);
+        mvStatus, luceneStatus, steadyAsOfPosition, lucenePosition, includeSupplier, false, true);
   }
 
   private AutoEmbeddingCompositeIndex createIndexWithPositionsAndSupplier(
@@ -308,6 +421,24 @@ public class AutoEmbeddingCompositeIndexTest {
       Optional<BsonTimestamp> lucenePosition,
       boolean includeSupplier,
       boolean wasQueryablePerLease) {
+    return createIndexWithPositionsAndSupplier(
+        mvStatus,
+        luceneStatus,
+        steadyAsOfPosition,
+        lucenePosition,
+        includeSupplier,
+        wasQueryablePerLease,
+        true);
+  }
+
+  private AutoEmbeddingCompositeIndex createIndexWithPositionsAndSupplier(
+      StatusCode mvStatus,
+      StatusCode luceneStatus,
+      Optional<BsonTimestamp> steadyAsOfPosition,
+      Optional<BsonTimestamp> lucenePosition,
+      boolean includeSupplier,
+      boolean wasQueryablePerLease,
+      boolean isReplicationStopped) {
 
     InitializedMaterializedViewIndex mockMvIndex = mock(InitializedMaterializedViewIndex.class);
     when(mockMvIndex.getStatus()).thenReturn(new IndexStatus(mvStatus));
@@ -330,7 +461,8 @@ public class AutoEmbeddingCompositeIndexTest {
 
     Supplier<Optional<InitializedIndex>> supplier =
         includeSupplier ? () -> Optional.of(mockLuceneIndex) : Optional::empty;
-    return new AutoEmbeddingCompositeIndex(mockMvIndex, mockLuceneIndex, supplier);
+    return new AutoEmbeddingCompositeIndex(
+        mockMvIndex, mockLuceneIndex, supplier, () -> isReplicationStopped);
   }
 
   private EncodedUserData createCommitInfoWithPosition(Optional<BsonTimestamp> position) {

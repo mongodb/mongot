@@ -16,6 +16,7 @@ import com.xgen.mongot.replication.mongodb.common.ResumeTokenUtils;
 import java.io.IOException;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import org.apache.commons.codec.DecoderException;
 import org.bson.BsonTimestamp;
@@ -35,24 +36,43 @@ public class AutoEmbeddingCompositeIndex implements Index {
 
   // Track previous status to log only on transitions
   @Nullable private StatusCode previousConsolidatedStatus = null;
-  // One-way ratchet: true once the composite can service queries.
-  // Initialized from the persisted lease so restarts don't reset the ratchet.
+  // One-way ratchet: set to true at runtime only when the MV itself is STEADY and the
+  // composite canServiceQueries(). Also pre-initialized from the persisted lease at
+  // construction, so a previously-queryable index is not regressed by an MV initialization
+  // gap on restart (e.g. forceDisableReplication) — the path where MV is UNKNOWN but
+  // Lucene is STEADY does not flip this ratchet; the lease handles it instead.
   private final AtomicBoolean compositeWasQueryable;
+
+  // Live check for whether replication is currently stopped (cluster pause / disk-full /
+  // forceDisableReplication). Gates the (UNKNOWN/NOT_STARTED MV, STEADY Lucene) → synthetic STEADY
+  // fallthrough in computeConsolidatedStatus: without this gate the fallthrough also fires for
+  // followers at startup (whose MV is legitimately UNKNOWN because the leader owns it), which
+  // breaks host-failover takeover by reporting STEADY before the follower has any MV state.
+  private final BooleanSupplier isReplicationStoppedSupplier;
 
   public AutoEmbeddingCompositeIndex(
       InitializedMaterializedViewIndex matViewIndex,
       Index derivedIndex,
-      Supplier<Optional<InitializedIndex>> initializedIndexSupplier) {
+      Supplier<Optional<InitializedIndex>> initializedIndexSupplier,
+      BooleanSupplier isReplicationStoppedSupplier) {
     this.matViewIndex = matViewIndex;
     this.derivedIndex = derivedIndex;
     this.initializedIndexSupplier = initializedIndexSupplier;
+    this.isReplicationStoppedSupplier = isReplicationStoppedSupplier;
     this.compositeWasQueryable =
         new AtomicBoolean(matViewIndex.isCurrentVersionQueryablePerLease());
   }
 
   public AutoEmbeddingCompositeIndex(
+      InitializedMaterializedViewIndex matViewIndex,
+      Index derivedIndex,
+      Supplier<Optional<InitializedIndex>> initializedIndexSupplier) {
+    this(matViewIndex, derivedIndex, initializedIndexSupplier, () -> false);
+  }
+
+  public AutoEmbeddingCompositeIndex(
       InitializedMaterializedViewIndex matViewIndex, Index derivedIndex) {
-    this(matViewIndex, derivedIndex, Optional::empty);
+    this(matViewIndex, derivedIndex, Optional::empty, () -> false);
   }
 
   @Override
@@ -176,7 +196,10 @@ public class AutoEmbeddingCompositeIndex implements Index {
     IndexStatus result = computeConsolidatedStatus(mvStatus, luceneStatus);
     StatusCode newStatus = result.getStatusCode();
 
-    if (result.canServiceQueries()) {
+    // Only set compositeWasQueryable when both MV and Lucene statuses are STEADY. The
+    // (UNKNOWN/NOT_STARTED, STEADY) fallthrough in computeConsolidatedStatus() returns a
+    // synthetic STEADY so that processReplicationStatus() can apply the STEADY→STALE transition.
+    if (result.canServiceQueries() && mvStatus == StatusCode.STEADY) {
       this.compositeWasQueryable.set(true);
     }
 
@@ -228,9 +251,26 @@ public class AutoEmbeddingCompositeIndex implements Index {
       return new IndexStatus(StatusCode.INITIAL_SYNC);
     }
 
-    // UNKNOWN or NOT_STARTED on any component propagates
+    // UNKNOWN or NOT_STARTED on the MV component propagates, except when Lucene is STEADY AND
+    // replication is currently stopped. When Lucene is STEADY but MV hasn't (re-)initialized
+    // because replication is disabled (e.g. forceDisableReplication on restart), returning UNKNOWN
+    // causes isTransient()=true in MMS, which filters the index before processReplicationStatus()
+    // can apply the STEADY→STALE transition. Falling through to STEADY in that specific case lets
+    // MMS correctly mark the index STALE. The replication-stopped gate is required to avoid the
+    // same fallthrough firing for followers at normal startup (MV legitimately UNKNOWN because the
+    // leader owns it) — without the gate, followers would report a synthetic STEADY before they
+    // had any MV state, breaking host-failover takeover (CLOUDP-405298).
     if (mvStatus == StatusCode.UNKNOWN || mvStatus == StatusCode.NOT_STARTED) {
-      return new IndexStatus(mvStatus);
+      if (luceneStatus != StatusCode.STEADY || !this.isReplicationStoppedSupplier.getAsBoolean()) {
+        return new IndexStatus(mvStatus);
+      }
+      LOG.atInfo()
+          .addKeyValue("generationId", this.matViewIndex.getGenerationId())
+          .addKeyValue("mvStatus", mvStatus)
+          .addKeyValue("luceneStatus", luceneStatus)
+          .log(
+              "Status fallthrough: returning synthetic STEADY because replication is stopped;"
+                  + " lets MMS apply the STEADY→STALE transition");
     }
     if (luceneStatus == StatusCode.UNKNOWN || luceneStatus == StatusCode.NOT_STARTED) {
       return new IndexStatus(luceneStatus);

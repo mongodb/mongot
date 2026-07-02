@@ -23,6 +23,7 @@ import com.xgen.mongot.index.version.MaterializedViewGeneration;
 import com.xgen.mongot.util.Check;
 import java.io.IOException;
 import java.util.Optional;
+import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,7 +48,8 @@ public class AutoEmbeddingIndexGenerationFactory {
       IndexFactory indexFactory,
       MaterializedViewIndexFactory matViewIndexFactory,
       IndexDefinitionGeneration rawDefinitionGeneration,
-      InitializedIndexCatalog initializedIndexCatalog)
+      InitializedIndexCatalog initializedIndexCatalog,
+      BooleanSupplier isReplicationStoppedSupplier)
       throws IOException, InvalidAnalyzerDefinitionException {
     IndexDefinition indexDef = rawDefinitionGeneration.getIndexDefinition();
     Check.checkArg(
@@ -102,7 +104,8 @@ public class AutoEmbeddingIndexGenerationFactory {
         .addKeyValue("generationId", rawDefinitionGeneration.getGenerationId())
         .log("Created auto-embedding composite index generation");
     return new AutoEmbeddingIndexGeneration(
-        new AutoEmbeddingCompositeIndex(matViewIndex, derivedIndex, initializedIndexSupplier),
+        new AutoEmbeddingCompositeIndex(
+            matViewIndex, derivedIndex, initializedIndexSupplier, isReplicationStoppedSupplier),
         rawDefinitionGeneration,
         derivedDefGen);
   }

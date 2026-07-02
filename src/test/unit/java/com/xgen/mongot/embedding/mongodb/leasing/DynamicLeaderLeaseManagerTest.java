@@ -881,6 +881,69 @@ public class DynamicLeaderLeaseManagerTest {
     assertThat(result.acquirableLeases()).contains(generationId);
   }
 
+  @Test
+  @SuppressWarnings("unchecked")
+  public void pollFollowerStatuses_batchFetchThrows_returnsEmptyStatusesNotUnknown() {
+    // Verify that a DB failure (e.g. mongod unreachable during cluster pause) does NOT force
+    // followers to UNKNOWN. Returning empty statuses lets callers preserve whatever status was
+    // last known (e.g. STEADY), which allows processReplicationStatus() in MMS to correctly
+    // transition the auto-embedding index to STALE rather than filtering it as transient.
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    this.leaseManager.add(indexGeneration);
+
+    // Make the batch find throw to simulate mongod being unreachable.
+    FindIterable<BsonDocument> failingIterable = mock(FindIterable.class);
+    when(this.mockCollection.find(any(Bson.class))).thenReturn(failingIterable);
+    when(failingIterable.into(any())).thenThrow(new RuntimeException("mongod unreachable"));
+
+    LeaseManager.FollowerPollResult result = this.leaseManager.pollFollowerStatuses();
+
+    // Statuses must be empty (not UNKNOWN) so the caller's existing status is preserved.
+    assertThat(result.statuses()).isEmpty();
+    // No acquirable leases on failure — avoid spurious leadership acquisition attempts.
+    assertThat(result.acquirableLeases()).isEmpty();
+    // The generation should still be tracked as a follower (not silently dropped).
+    assertThat(this.leaseManager.getFollowerGenerationIds()).contains(generationId);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void pollFollowerStatuses_batchFetchThrows_preservesPreviousStatus() {
+    // 3-step test verifying the end-to-end preservation contract:
+    // a successful STEADY status must survive a subsequent failed poll.
+    // If the failed poll returned UNKNOWN instead of EMPTY, a caller that applied that result
+    // would silently regress the index — this test guards against that regression.
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    this.leaseManager.add(indexGeneration);
+
+    // Step 1: successful poll — DB returns a STEADY lease.
+    Lease steadyLease =
+        createLeaseWithStatus(
+            generationId,
+            OTHER_HOSTNAME,
+            Instant.now().plusSeconds(60),
+            IndexStatus.StatusCode.STEADY);
+    setupFindLeaseFromDatabase(steadyLease);
+    LeaseManager.FollowerPollResult successResult = this.leaseManager.pollFollowerStatuses();
+    assertThat(successResult.statuses()).containsKey(generationId);
+    assertThat(successResult.statuses().get(generationId).getStatusCode())
+        .isEqualTo(IndexStatus.StatusCode.STEADY);
+
+    // Step 2: next poll throws (e.g. mongod temporarily unreachable).
+    FindIterable<BsonDocument> failingIterable = mock(FindIterable.class);
+    when(this.mockCollection.find(any(Bson.class))).thenReturn(failingIterable);
+    when(failingIterable.into(any())).thenThrow(new RuntimeException("mongod unreachable"));
+    LeaseManager.FollowerPollResult failResult = this.leaseManager.pollFollowerStatuses();
+
+    // Step 3: EMPTY is returned — not {generationId: UNKNOWN}. A caller that treats EMPTY as
+    // "no new information" will retain its existing STEADY status rather than resetting to UNKNOWN.
+    assertThat(failResult.statuses()).isEmpty();
+    assertThat(failResult.acquirableLeases()).isEmpty();
+    assertThat(this.leaseManager.getFollowerGenerationIds()).contains(generationId);
+  }
+
   // ==================== Edge Cases ====================
 
   @Test
@@ -1961,6 +2024,28 @@ public class DynamicLeaderLeaseManagerTest {
         "",
         "0",
         Map.of("0", new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.UNKNOWN)),
+        new MaterializedViewCollectionMetadata(VERSION_ZERO, UUID.randomUUID(), "collection-name"),
+        null,
+        Lease.CleanupState.NOT_ELIGIBLE);
+  }
+
+  private Lease createLeaseWithStatus(
+      MaterializedViewGenerationId generationId,
+      String owner,
+      Instant expiration,
+      IndexStatus.StatusCode statusCode) {
+    boolean isQueryable = statusCode == IndexStatus.StatusCode.STEADY;
+    return new Lease(
+        getLeaseKeyFromCatalog(generationId),
+        Lease.SCHEMA_VERSION,
+        "fa41efe9-dd13-4976-a6ce-009682ec4257",
+        "collection-name",
+        owner,
+        expiration,
+        1L,
+        "",
+        "0",
+        Map.of("0", new Lease.IndexDefinitionVersionStatus(isQueryable, statusCode)),
         new MaterializedViewCollectionMetadata(VERSION_ZERO, UUID.randomUUID(), "collection-name"),
         null,
         Lease.CleanupState.NOT_ELIGIBLE);
