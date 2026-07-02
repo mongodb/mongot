@@ -17,6 +17,8 @@ import com.google.errorprone.annotations.Var;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.mongodb.MongoNamespace;
 import com.xgen.mongot.cursor.MongotCursorManager;
+import com.xgen.mongot.embedding.cache.EmbeddingRetryCache;
+import com.xgen.mongot.embedding.cache.EmbeddingRetryCache.ReleaseTrigger;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
@@ -85,6 +87,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 import org.bson.types.ObjectId;
 import org.slf4j.Logger;
@@ -169,6 +172,12 @@ public class MaterializedViewManager implements ReplicationManager {
   private final MaterializedViewGeneratorFactory matViewGeneratorFactory;
 
   private final MaterializedViewCollectionMetadataCatalog matViewMetadataCatalog;
+
+  /**
+   * Same instance wired into the embedding scheduler. Held here so the drop path can release a
+   * dropped generation's claims, evicting its retained embeddings.
+   */
+  private final EmbeddingRetryCache embeddingRetryCache;
 
   // ==================== Index Leader Fields ====================
 
@@ -260,7 +269,8 @@ public class MaterializedViewManager implements ReplicationManager {
       LeaseManager leaseManager,
       MaterializedViewCollectionMetadataCatalog matViewMetadataCatalog,
       AutoEmbeddingMaterializedViewConfig materializedViewConfig,
-      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
+      EmbeddingRetryCache embeddingRetryCache) {
     this(
         lifecycleExecutor,
         indexingWorkSchedulerFactory,
@@ -276,6 +286,7 @@ public class MaterializedViewManager implements ReplicationManager {
         matViewMetadataCatalog,
         materializedViewConfig,
         dynamicFeatureFlagRegistry,
+        embeddingRetryCache,
         true); // registerGauges = true for backward compatibility
   }
 
@@ -298,6 +309,7 @@ public class MaterializedViewManager implements ReplicationManager {
       MaterializedViewCollectionMetadataCatalog matViewMetadataCatalog,
       AutoEmbeddingMaterializedViewConfig materializedViewConfig,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
+      EmbeddingRetryCache embeddingRetryCache,
       boolean registerGauges) {
     this.lifecycleExecutor = lifecycleExecutor;
     this.indexingWorkSchedulerFactory = indexingWorkSchedulerFactory;
@@ -320,6 +332,7 @@ public class MaterializedViewManager implements ReplicationManager {
     this.staleLeaseScannerExecutor = staleLeaseScannerExecutor;
     this.leaseManager = leaseManager;
     this.matViewMetadataCatalog = matViewMetadataCatalog;
+    this.embeddingRetryCache = embeddingRetryCache;
     this.isReplicationEnabled = false;
     this.materializedViewConfig = materializedViewConfig;
     this.dynamicFeatureFlagRegistry = dynamicFeatureFlagRegistry;
@@ -440,6 +453,18 @@ public class MaterializedViewManager implements ReplicationManager {
       ThreadPoolResourceMetrics.create("autoembedding").register(lifecycleExecutor, meterRegistry);
     }
 
+    // Constructed here, not in the factory, so the drop path below can release claims on the same
+    // instance the scheduler caches into. The cache is always created, but the scheduler only
+    // consults it when the EMBEDDING_RETRY_CACHE flag is enabled — evaluated per batch (not once
+    // here) so the flag toggles at runtime without recreating the manager. Disabled (default)
+    // leaves
+    // master behavior unchanged: nothing is cached or claimed.
+    var embeddingRetryCache = EmbeddingRetryCache.create(meterRegistry);
+    BooleanSupplier embeddingRetryCacheEnabled =
+        () ->
+            dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+                DynamicFeatureFlags.EMBEDDING_RETRY_CACHE);
+
     var indexingWorkSchedulerFactory =
         IndexingWorkSchedulerFactory.createEmbeddingIndexingSchedulerOnly(
             materializedViewConfig.numIndexingThreads,
@@ -448,7 +473,9 @@ public class MaterializedViewManager implements ReplicationManager {
             meterRegistry,
             materializedViewConfig.globalMemoryBudgetHeapPercent,
             materializedViewConfig.perBatchMemoryBudgetHeapPercent,
-            enableLifecycleAttributionMetrics);
+            enableLifecycleAttributionMetrics,
+            embeddingRetryCache,
+            embeddingRetryCacheEnabled);
 
     var decodingWorkScheduler =
         DecodingWorkScheduler.create(
@@ -498,6 +525,7 @@ public class MaterializedViewManager implements ReplicationManager {
             matViewMetadataCatalog,
             materializedViewConfig,
             dynamicFeatureFlagRegistry,
+            embeddingRetryCache,
             false); // Don't register gauges/tasks in constructor to avoid this-escape
 
     // Register gauges after construction is complete
@@ -987,6 +1015,9 @@ public class MaterializedViewManager implements ReplicationManager {
     this.pendingShutdowns.remove(matViewGenerationId);
     this.activeGenerationIdCatalog.genIdByMatViewGenId.remove(matViewGeneratorId);
     this.matViewMetadataCatalog.removeMetadata(matViewGenerationId);
+    // The generator is fully gone (last attempt dropped): release any embeddings its generation
+    // still held. matViewGeneratorId is the same canonicalKey the claims are keyed on.
+    this.embeddingRetryCache.releaseClaims(matViewGeneratorId, ReleaseTrigger.DROP);
   }
 
   /**

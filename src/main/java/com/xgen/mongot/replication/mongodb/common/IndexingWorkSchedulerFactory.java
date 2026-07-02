@@ -4,6 +4,7 @@ import static com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGe
 
 import com.google.common.base.Supplier;
 import com.xgen.mongot.embedding.AutoEmbeddingMemoryBudget;
+import com.xgen.mongot.embedding.cache.EmbeddingRetryCache;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
 import com.xgen.mongot.index.definition.IndexDefinition;
@@ -13,6 +14,7 @@ import com.xgen.mongot.util.Runtime;
 import com.xgen.mongot.util.concurrent.Executors;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.Map;
+import java.util.function.BooleanSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -127,7 +129,9 @@ public class IndexingWorkSchedulerFactory {
         registry,
         globalMemoryBudgetHeapPercent,
         perBatchMemoryBudgetHeapPercent,
-        false);
+        false,
+        EmbeddingRetryCache.noOp(),
+        () -> false);
   }
 
   /**
@@ -146,7 +150,9 @@ public class IndexingWorkSchedulerFactory {
       MeterRegistry registry,
       int globalMemoryBudgetHeapPercent,
       int perBatchMemoryBudgetHeapPercent,
-      boolean enableLifecycleAttributionMetrics) {
+      boolean enableLifecycleAttributionMetrics,
+      EmbeddingRetryCache embeddingRetryCache,
+      BooleanSupplier cacheEnabled) {
     log.info("Creating IndexingWorkSchedulerFactory with EmbeddingIndexingWorkScheduler only");
     var executor =
         Executors.fixedSizeThreadPool("indexing-auto-embedding", numIndexingThreads, registry);
@@ -167,7 +173,9 @@ public class IndexingWorkSchedulerFactory {
             embeddingServiceManagerSupplier,
             matViewCollectionMetadataCatalog,
             globalBudget,
-            perBatchBudgetBytes);
+            perBatchBudgetBytes,
+            embeddingRetryCache,
+            cacheEnabled);
     return new IndexingWorkSchedulerFactory(
         Map.of(
             IndexingStrategy.EMBEDDING_MATERIALIZED_VIEW,

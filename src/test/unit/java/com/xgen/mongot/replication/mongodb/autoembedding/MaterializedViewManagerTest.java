@@ -14,6 +14,7 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
@@ -37,6 +38,8 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
 import com.xgen.mongot.cursor.MongotCursorManager;
+import com.xgen.mongot.embedding.cache.EmbeddingRetryCache;
+import com.xgen.mongot.embedding.cache.EmbeddingRetryCache.ReleaseTrigger;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
@@ -789,6 +792,21 @@ public class MaterializedViewManagerTest {
     // Leader drops the shared MV collection, then the lease document.
     verify(gen.getIndex().getWriter()).dropMaterializedViewCollection();
     verify(mocks.leaseManager).dropLease("test_" + INDEX_ID.toHexString());
+  }
+
+  @Test
+  public void dropIndex_releasesEmbeddingRetryCacheClaims() throws Exception {
+    Mocks mocks = Mocks.create();
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+
+    mocks.manager.dropIndex(MOCK_GENERATION_ID).get(5, TimeUnit.SECONDS);
+
+    // cleanUpGenerationIdStates releases the dropped generation's claims so any embeddings it still
+    // held are evicted. The key is the generator's canonical key; assert the DROP-triggered call.
+    verify(mocks.embeddingRetryCache).releaseClaims(anyString(), eq(ReleaseTrigger.DROP));
   }
 
   @Test
@@ -3724,6 +3742,7 @@ public class MaterializedViewManagerTest {
     final MaterializedViewCollectionMetadataCatalog metadataCatalog;
     final NamedScheduledExecutorService staleLeaseScannerExecutor;
     final DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry;
+    final EmbeddingRetryCache embeddingRetryCache;
 
     MaterializedViewManager manager;
 
@@ -3765,6 +3784,7 @@ public class MaterializedViewManagerTest {
       when(this.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
               DynamicFeatureFlags.MV_GC_ENABLED))
           .thenReturn(true);
+      this.embeddingRetryCache = mock(EmbeddingRetryCache.class);
 
       SyncSourceConfig syncSourceConfig =
           SyncSourceConfig.builder()
@@ -3800,7 +3820,8 @@ public class MaterializedViewManagerTest {
                   leaseManager,
                   metadataCatalog,
                   AutoEmbeddingMaterializedViewConfig.getDefault(),
-                  this.dynamicFeatureFlagRegistry);
+                  this.dynamicFeatureFlagRegistry,
+                  this.embeddingRetryCache);
       this.manager = this.managerSupplier.get();
       this.manager.setIsReplicationEnabled(true);
     }

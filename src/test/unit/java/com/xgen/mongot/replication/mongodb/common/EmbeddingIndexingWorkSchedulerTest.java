@@ -19,6 +19,7 @@ import com.google.common.collect.ImmutableSet;
 import com.mongodb.MongoNamespace;
 import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
 import com.xgen.mongot.embedding.AutoEmbeddingMemoryBudget;
+import com.xgen.mongot.embedding.cache.EmbeddingRetryCache;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
 import com.xgen.mongot.embedding.exceptions.EmbeddingProviderNonTransientException;
@@ -70,6 +71,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.BooleanSupplier;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonString;
@@ -405,6 +407,159 @@ public class EmbeddingIndexingWorkSchedulerTest {
     Throwable cause = e.getCause();
     assertThat(cause).isInstanceOf(SteadyStateException.class);
     assertThat(cause.getCause()).isInstanceOf(MaterializedViewTransientException.class);
+  }
+
+  @Test
+  public void testMaterializedViewReusesEmbeddingsAfterCommitFailure() throws Exception {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    ObjectId indexId = new ObjectId();
+    var generationId =
+        new MaterializedViewGenerationId(
+            indexId, new MaterializedViewGeneration(Generation.CURRENT));
+    EmbeddingServiceManager serviceManager =
+        spy(
+            new EmbeddingServiceManager(
+                List.of(TEST_EMBEDDING_CONFIG_V3_LARGE, TEST_EMBEDDING_CONFIG_V3_LITE),
+                new FakeEmbeddingClientFactory(),
+                Executors.singleThreadScheduledExecutor("indexing", meterRegistry),
+                meterRegistry,
+                Optional.empty()));
+    EmbeddingIndexingWorkScheduler scheduler =
+        schedulerForMaterializedViewIndex(
+            Suppliers.ofInstance(serviceManager),
+            generationId,
+            EmbeddingRetryCache.create(meterRegistry));
+
+    VectorIndexDefinition vectorIndexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField(indexId + ".a")
+            .withAutoEmbedField(indexId + ".b")
+            .build();
+    DocumentIndexer indexer = mockDocumentRequiresAutoEmbedding(vectorIndexDefinition);
+    // The first commit fails transiently; the retry commit succeeds.
+    doThrow(new MaterializedViewTransientException("mocked commit failure"))
+        .doNothing()
+        .when(indexer)
+        .commit();
+    RawBsonDocument rawBsonDoc =
+        BsonUtils.documentToRaw(new BsonDocument(indexId.toString(), createBasicBson()));
+    DocumentEvent event =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromMetadataNamespace(Optional.of(rawBsonDoc), indexId), rawBsonDoc);
+
+    // First attempt fails at commit, so the batch keeps its claims on the cached embeddings.
+    assertThrows(
+        ExecutionException.class,
+        () -> schedule(scheduler, event, indexer, generationId).get(5, TimeUnit.SECONDS));
+    // Retrying the same events serves every embedding from the cache: no second provider call.
+    schedule(scheduler, event, indexer, generationId).get(5, TimeUnit.SECONDS);
+
+    verify(serviceManager, times(1)).embedAsync(any(), any(), any(), any());
+  }
+
+  @Test
+  public void testMaterializedViewReEmbedsAfterSuccessfulCommit() throws Exception {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    ObjectId indexId = new ObjectId();
+    var generationId =
+        new MaterializedViewGenerationId(
+            indexId, new MaterializedViewGeneration(Generation.CURRENT));
+    EmbeddingServiceManager serviceManager =
+        spy(
+            new EmbeddingServiceManager(
+                List.of(TEST_EMBEDDING_CONFIG_V3_LARGE, TEST_EMBEDDING_CONFIG_V3_LITE),
+                new FakeEmbeddingClientFactory(),
+                Executors.singleThreadScheduledExecutor("indexing", meterRegistry),
+                meterRegistry,
+                Optional.empty()));
+    EmbeddingIndexingWorkScheduler scheduler =
+        schedulerForMaterializedViewIndex(
+            Suppliers.ofInstance(serviceManager),
+            generationId,
+            EmbeddingRetryCache.create(meterRegistry));
+
+    VectorIndexDefinition vectorIndexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField(indexId + ".a")
+            .withAutoEmbedField(indexId + ".b")
+            .build();
+    DocumentIndexer indexer = mockDocumentRequiresAutoEmbedding(vectorIndexDefinition);
+    RawBsonDocument rawBsonDoc =
+        BsonUtils.documentToRaw(new BsonDocument(indexId.toString(), createBasicBson()));
+    DocumentEvent event =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromMetadataNamespace(Optional.of(rawBsonDoc), indexId), rawBsonDoc);
+
+    // A successful commit releases the generation's claims, evicting the cached embeddings, so the
+    // same events embed again on the next batch.
+    schedule(scheduler, event, indexer, generationId).get(5, TimeUnit.SECONDS);
+    schedule(scheduler, event, indexer, generationId).get(5, TimeUnit.SECONDS);
+
+    verify(serviceManager, times(2)).embedAsync(any(), any(), any(), any());
+  }
+
+  @Test
+  public void testMaterializedViewWithCacheDisabledReEmbedsOnRetry() throws Exception {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    ObjectId indexId = new ObjectId();
+    var generationId =
+        new MaterializedViewGenerationId(
+            indexId, new MaterializedViewGeneration(Generation.CURRENT));
+    EmbeddingServiceManager serviceManager =
+        spy(
+            new EmbeddingServiceManager(
+                List.of(TEST_EMBEDDING_CONFIG_V3_LARGE, TEST_EMBEDDING_CONFIG_V3_LITE),
+                new FakeEmbeddingClientFactory(),
+                Executors.singleThreadScheduledExecutor("indexing", meterRegistry),
+                meterRegistry,
+                Optional.empty()));
+    // A real cache is wired, but the feature flag is off, so the scheduler must bypass it entirely.
+    EmbeddingIndexingWorkScheduler scheduler =
+        schedulerForMaterializedViewIndex(
+            Suppliers.ofInstance(serviceManager),
+            generationId,
+            EmbeddingRetryCache.create(meterRegistry),
+            () -> false);
+
+    VectorIndexDefinition vectorIndexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField(indexId + ".a")
+            .withAutoEmbedField(indexId + ".b")
+            .build();
+    DocumentIndexer indexer = mockDocumentRequiresAutoEmbedding(vectorIndexDefinition);
+    doThrow(new MaterializedViewTransientException("mocked commit failure"))
+        .doNothing()
+        .when(indexer)
+        .commit();
+    RawBsonDocument rawBsonDoc =
+        BsonUtils.documentToRaw(new BsonDocument(indexId.toString(), createBasicBson()));
+    DocumentEvent event =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromMetadataNamespace(Optional.of(rawBsonDoc), indexId), rawBsonDoc);
+
+    // First attempt fails at commit. With the cache disabled nothing was cached or claimed, so the
+    // retry re-embeds — proving the flag gates caching at runtime, not just at construction.
+    assertThrows(
+        ExecutionException.class,
+        () -> schedule(scheduler, event, indexer, generationId).get(5, TimeUnit.SECONDS));
+    schedule(scheduler, event, indexer, generationId).get(5, TimeUnit.SECONDS);
+
+    verify(serviceManager, times(2)).embedAsync(any(), any(), any(), any());
+  }
+
+  private CompletableFuture<Void> schedule(
+      EmbeddingIndexingWorkScheduler scheduler,
+      DocumentEvent event,
+      DocumentIndexer indexer,
+      GenerationId generationId) {
+    return scheduler.schedule(
+        new ArrayList<>(List.of(event)),
+        SchedulerQueue.Priority.STEADY_STATE_CHANGE_STREAM,
+        indexer,
+        generationId,
+        Optional.of(new ObjectId()),
+        Optional.of(COMMIT_USER_DATA),
+        IGNORE_METRICS);
   }
 
   @Test
@@ -1107,6 +1262,77 @@ public class EmbeddingIndexingWorkSchedulerTest {
   }
 
   @Test
+  public void testSubBatchCommitReleasesClaimsSoNextBatchReEmbeds() throws Exception {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    ObjectId indexId = new ObjectId();
+    var generationId =
+        new MaterializedViewGenerationId(
+            indexId, new MaterializedViewGeneration(Generation.CURRENT));
+    // Per-batch budget of 4096 → subBatchSize = 1, so each doc is its own sub-batch.
+    long perBatchBudget = 4096;
+    EmbeddingServiceManager serviceManager =
+        spy(
+            new EmbeddingServiceManager(
+                List.of(TEST_EMBEDDING_CONFIG_V3_LARGE),
+                new FakeEmbeddingClientFactory(),
+                Executors.singleThreadScheduledExecutor("indexing", meterRegistry),
+                meterRegistry,
+                Optional.empty()));
+    EmbeddingIndexingWorkScheduler scheduler =
+        schedulerForMaterializedViewIndexWithBudgetAndCache(
+            Suppliers.ofInstance(serviceManager),
+            generationId,
+            perBatchBudget,
+            EmbeddingRetryCache.create(meterRegistry),
+            () -> true);
+
+    VectorIndexDefinition vectorIndexDefinition =
+        VectorIndexDefinitionBuilder.builder().withAutoEmbedField(indexId + ".a").build();
+    DocumentIndexer indexer = mockDocumentRequiresAutoEmbedding(vectorIndexDefinition);
+
+    // Two distinct-text docs → 2 sequential sub-batches, each embedded once per batch.
+    BsonDocument inner1 =
+        new BsonDocument("_id", new BsonString("id1")).append("a", new BsonString("text1"));
+    BsonDocument inner2 =
+        new BsonDocument("_id", new BsonString("id2")).append("a", new BsonString("text2"));
+    RawBsonDocument rawDoc1 = BsonUtils.documentToRaw(new BsonDocument(indexId.toString(), inner1));
+    RawBsonDocument rawDoc2 = BsonUtils.documentToRaw(new BsonDocument(indexId.toString(), inner2));
+    DocumentEvent event1 =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromMetadataNamespace(Optional.of(rawDoc1), indexId), rawDoc1);
+    DocumentEvent event2 =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromMetadataNamespace(Optional.of(rawDoc2), indexId), rawDoc2);
+
+    // Each sub-batch's successful commit releases that sub-batch's claims, so re-processing the
+    // same
+    // events re-embeds (2 embed calls per batch × 2 batches = 4). If the sub-batch release did not
+    // fire, the second batch would serve both texts from the cache and embed nothing.
+    scheduleSubBatched(scheduler, List.of(event1, event2), indexer, generationId);
+    scheduleSubBatched(scheduler, List.of(event1, event2), indexer, generationId);
+
+    verify(serviceManager, times(4)).embedAsync(any(), any(), any(), any());
+  }
+
+  private void scheduleSubBatched(
+      EmbeddingIndexingWorkScheduler scheduler,
+      List<DocumentEvent> events,
+      DocumentIndexer indexer,
+      GenerationId generationId)
+      throws Exception {
+    scheduler
+        .schedule(
+            new ArrayList<>(events),
+            SchedulerQueue.Priority.STEADY_STATE_CHANGE_STREAM,
+            indexer,
+            generationId,
+            Optional.of(new ObjectId()),
+            Optional.of(COMMIT_USER_DATA),
+            IGNORE_METRICS)
+        .get(5, TimeUnit.SECONDS);
+  }
+
+  @Test
   public void testPerBatchBudgetUsesParallelPathWhenBatchFitsWithinBudget() throws Exception {
     MeterRegistry meterRegistry = new SimpleMeterRegistry();
     ObjectId indexId = new ObjectId();
@@ -1296,6 +1522,36 @@ public class EmbeddingIndexingWorkSchedulerTest {
         executor, supplier, matViewCollectionMetadataCatalog);
   }
 
+  private EmbeddingIndexingWorkScheduler schedulerForMaterializedViewIndex(
+      Supplier<EmbeddingServiceManager> supplier,
+      MaterializedViewGenerationId generationId,
+      EmbeddingRetryCache embeddingRetryCache) {
+    return schedulerForMaterializedViewIndex(
+        supplier, generationId, embeddingRetryCache, () -> true);
+  }
+
+  private EmbeddingIndexingWorkScheduler schedulerForMaterializedViewIndex(
+      Supplier<EmbeddingServiceManager> supplier,
+      MaterializedViewGenerationId generationId,
+      EmbeddingRetryCache embeddingRetryCache,
+      BooleanSupplier cacheEnabled) {
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    NamedExecutorService executor = Executors.fixedSizeThreadPool("indexing", 2, meterRegistry);
+    var matViewCollectionMetadataCatalog = new MaterializedViewCollectionMetadataCatalog();
+    matViewCollectionMetadataCatalog.addMetadata(
+        generationId,
+        new MaterializedViewCollectionMetadata(
+            VERSION_ZERO, UUID.randomUUID(), generationId.indexId.toHexString()));
+    return EmbeddingIndexingWorkScheduler.createForMaterializedViewIndex(
+        executor,
+        supplier,
+        matViewCollectionMetadataCatalog,
+        AutoEmbeddingMemoryBudget.createDefault(),
+        EmbeddingIndexingWorkScheduler.PER_BATCH_AUTO_EMBEDDING_MEMORY_BUDGET_BYTES,
+        embeddingRetryCache,
+        cacheEnabled);
+  }
+
   private EmbeddingIndexingWorkScheduler schedulerForMaterializedViewIndexWithBudget(
       Supplier<EmbeddingServiceManager> supplier,
       MaterializedViewGenerationId generationId,
@@ -1310,6 +1566,29 @@ public class EmbeddingIndexingWorkSchedulerTest {
             VERSION_ZERO, UUID.randomUUID(), generationId.indexId.toHexString()));
     return EmbeddingIndexingWorkScheduler.createForMaterializedViewIndex(
         executor, supplier, matViewCollectionMetadataCatalog, globalBudget, perBatchBudgetBytes);
+  }
+
+  private EmbeddingIndexingWorkScheduler schedulerForMaterializedViewIndexWithBudgetAndCache(
+      Supplier<EmbeddingServiceManager> supplier,
+      MaterializedViewGenerationId generationId,
+      long perBatchBudgetBytes,
+      EmbeddingRetryCache embeddingRetryCache,
+      BooleanSupplier cacheEnabled) {
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    NamedExecutorService executor = Executors.fixedSizeThreadPool("indexing", 2, meterRegistry);
+    var matViewCollectionMetadataCatalog = new MaterializedViewCollectionMetadataCatalog();
+    matViewCollectionMetadataCatalog.addMetadata(
+        generationId,
+        new MaterializedViewCollectionMetadata(
+            VERSION_ZERO, UUID.randomUUID(), generationId.indexId.toHexString()));
+    return EmbeddingIndexingWorkScheduler.createForMaterializedViewIndex(
+        executor,
+        supplier,
+        matViewCollectionMetadataCatalog,
+        AutoEmbeddingMemoryBudget.createDefault(),
+        perBatchBudgetBytes,
+        embeddingRetryCache,
+        cacheEnabled);
   }
 
   private static IndexCommitUserData getCommitUserData(MongoNamespace namespace, int token) {

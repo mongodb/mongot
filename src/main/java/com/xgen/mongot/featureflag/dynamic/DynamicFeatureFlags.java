@@ -63,7 +63,13 @@ public enum DynamicFeatureFlags {
    * lease once the grace periods lapse. Evaluated per sweep tick so cleanup can be turned on or off
    * at runtime; the scanner thread itself is always scheduled. Off by default.
    */
-  MV_GC_ENABLED("mongot.featureFlag.enableMvGc", false);
+  MV_GC_ENABLED("mongot.featureFlag.enableMvGc", false),
+  /**
+   * When enabled, the materialized-view embedding indexing path uses the in-memory {@code
+   * EmbeddingRetryCache} to reuse vectors across write retries. When disabled (default), it uses
+   * the no-op cache, so behavior is unchanged.
+   */
+  EMBEDDING_RETRY_CACHE("mongot.featureFlag.enableEmbeddingRetryCache", false);
 
   private final String name;
   private final boolean fallback;

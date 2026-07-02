@@ -16,6 +16,9 @@ import com.xgen.mongot.embedding.AutoEmbedFieldMapping.AutoEmbedField;
 import com.xgen.mongot.embedding.AutoEmbeddingMemoryBudget;
 import com.xgen.mongot.embedding.EmbeddingRequestContext;
 import com.xgen.mongot.embedding.VectorOrError;
+import com.xgen.mongot.embedding.cache.EmbeddingCacheKey;
+import com.xgen.mongot.embedding.cache.EmbeddingRetryCache;
+import com.xgen.mongot.embedding.cache.EmbeddingRetryCache.ReleaseTrigger;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
@@ -52,8 +55,10 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 import net.jodah.failsafe.FailsafeException;
 import org.bson.BsonDocument;
@@ -110,19 +115,38 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
 
   private final long perBatchBudgetBytes;
 
+  /**
+   * Reuses embeddings across materialized-view write retries. The real cache is wired for the
+   * materialized-view strategy but consulted only when {@link #cacheEnabled} is true; the legacy
+   * {@code EMBEDDING} strategy gets a no-op instance.
+   */
+  private final EmbeddingRetryCache embeddingRetryCache;
+
+  /**
+   * Evaluated per batch to decide whether to route embeddings through {@link #embeddingRetryCache}.
+   * Backed by the {@code EMBEDDING_RETRY_CACHE} dynamic feature flag so the cache can be toggled at
+   * runtime without restarting the manager. When false, embeddings are fetched directly and nothing
+   * is cached or claimed — identical to the pre-cache behavior.
+   */
+  private final BooleanSupplier cacheEnabled;
+
   EmbeddingIndexingWorkScheduler(
       NamedExecutorService indexingExecutor,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
       MaterializedViewCollectionMetadataCatalog materializedViewCollectionMetadataCatalog,
       IndexingStrategy indexingStrategy,
       AutoEmbeddingMemoryBudget globalBudget,
-      long perBatchBudgetBytes) {
+      long perBatchBudgetBytes,
+      EmbeddingRetryCache embeddingRetryCache,
+      BooleanSupplier cacheEnabled) {
     super(indexingExecutor, indexingStrategy);
     this.embeddingServiceManagerSupplier = embeddingServiceManagerSupplier;
     this.materializedViewCollectionMetadataCatalog = materializedViewCollectionMetadataCatalog;
     this.indexingStrategy = indexingStrategy;
     this.globalBudget = globalBudget;
     this.perBatchBudgetBytes = perBatchBudgetBytes;
+    this.embeddingRetryCache = embeddingRetryCache;
+    this.cacheEnabled = cacheEnabled;
     this.metricsFactory =
         new MetricsFactory("embeddingIndexingWorkScheduler", indexingExecutor.getMeterRegistry());
   }
@@ -155,7 +179,10 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
             new MaterializedViewCollectionMetadataCatalog(),
             IndexingStrategy.EMBEDDING,
             globalBudget,
-            PER_BATCH_AUTO_EMBEDDING_MEMORY_BUDGET_BYTES);
+            PER_BATCH_AUTO_EMBEDDING_MEMORY_BUDGET_BYTES,
+            // Legacy type:text indexing has no per-batch MV commit to drive eviction.
+            EmbeddingRetryCache.noOp(),
+            () -> false);
     scheduler.start();
     return scheduler;
   }
@@ -196,6 +223,24 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
       MaterializedViewCollectionMetadataCatalog matViewCollectionMetadataCatalog,
       AutoEmbeddingMemoryBudget globalBudget,
       long perBatchBudgetBytes) {
+    return createForMaterializedViewIndex(
+        indexingExecutor,
+        embeddingServiceManagerSupplier,
+        matViewCollectionMetadataCatalog,
+        globalBudget,
+        perBatchBudgetBytes,
+        EmbeddingRetryCache.noOp(),
+        () -> false);
+  }
+
+  static EmbeddingIndexingWorkScheduler createForMaterializedViewIndex(
+      NamedExecutorService indexingExecutor,
+      Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
+      MaterializedViewCollectionMetadataCatalog matViewCollectionMetadataCatalog,
+      AutoEmbeddingMemoryBudget globalBudget,
+      long perBatchBudgetBytes,
+      EmbeddingRetryCache embeddingRetryCache,
+      BooleanSupplier cacheEnabled) {
     EmbeddingIndexingWorkScheduler scheduler =
         new EmbeddingIndexingWorkScheduler(
             indexingExecutor,
@@ -203,7 +248,9 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
             matViewCollectionMetadataCatalog,
             IndexingStrategy.EMBEDDING_MATERIALIZED_VIEW,
             globalBudget,
-            perBatchBudgetBytes);
+            perBatchBudgetBytes,
+            embeddingRetryCache,
+            cacheEnabled);
     scheduler.start();
     return scheduler;
   }
@@ -253,6 +300,21 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
     ImmutableMap<FieldPath, EmbedConfigurationForBatch> embedBatchKeyPerPath =
         computeEmbedBatchKeyPerPath(autoEmbedMapping, modelConfigPerPath);
 
+    // Cache keys this batch claimed, released on its successful commit. Releasing only this batch's
+    // keys (not the whole generation) is essential: a generation lives across many batches, and the
+    // steady stream of empty change-stream batches also reach finalize() — releasing the whole
+    // generation on every such commit would evict a different, still-in-flight batch's claims.
+    String generationKey =
+        MaterializedViewCollectionMetadataCatalog.canonicalKey(batch.generationId);
+    Set<EmbeddingCacheKey> batchClaimedKeys = ConcurrentHashMap.newKeySet();
+    // batch.future completes normally only after a successful commit in the base class finalize(),
+    // and exceptionally on any failure, so a failed batch keeps its claims for the retry. The
+    // sub-batch path releases per sub-batch instead and leaves this set empty (a harmless no-op).
+    batch.future.thenRun(
+        () ->
+            this.embeddingRetryCache.releaseClaims(
+                generationKey, batchClaimedKeys, ReleaseTrigger.COMMIT));
+
     // Check global memory budget before proceeding. If exceeded, fast-fail with a transient
     // exception so the batch can be retried when memory becomes available.
     long estimatedBatchBytes = estimateBatchMemoryBytes(batch.events, autoEmbedMapping);
@@ -285,7 +347,8 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
                 autoEmbedMapping,
                 embedBatchKeyPerPath,
                 matViewCollectionMetadataOpt,
-                subBatchSize);
+                subBatchSize,
+                generationKey);
       } else {
         // No per-batch budget: process all bundles in parallel.
         List<CompletableFuture<List<DocumentEvent>>> indexingBundles =
@@ -295,7 +358,9 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
                 autoEmbedMapping,
                 batch.priority,
                 embedBatchKeyPerPath,
-                matViewCollectionMetadataOpt);
+                matViewCollectionMetadataOpt,
+                generationKey,
+                batchClaimedKeys);
 
         batchFuture =
             FutureUtils.allOf(
@@ -341,7 +406,8 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
       AutoEmbedFieldMapping autoEmbedMapping,
       ImmutableMap<FieldPath, EmbedConfigurationForBatch> embedBatchKeyPerPath,
       Optional<MaterializedViewSchemaMetadata> matViewSchemaMetadata,
-      int subBatchSize) {
+      int subBatchSize,
+      String generationKey) {
     List<EmbedBundle> bundles;
     try {
       bundles =
@@ -366,6 +432,8 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
       List<DocumentEvent> events = new ArrayList<>(bundle.events());
       SetMultimap<EmbedConfigurationForBatch, String> textsPerModel = bundle.textsPerBatchKey();
       int subBatchNumber = bundleIndex + 1;
+      // Keys this sub-batch claims, released on its own commit below.
+      Set<EmbeddingCacheKey> subBatchClaimedKeys = ConcurrentHashMap.newKeySet();
 
       chain =
           chain
@@ -380,7 +448,12 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
                         bundles.size(),
                         events.size(),
                         textsPerModel.size());
-                    return getEmbeddings(textsPerModel, batch.priority, indexDefinition)
+                    return getEmbeddings(
+                            textsPerModel,
+                            batch.priority,
+                            indexDefinition,
+                            generationKey,
+                            subBatchClaimedKeys)
                         .thenApplyAsync(
                             embeddingsPerModel ->
                                 applyEmbeddingsToEvents(
@@ -416,6 +489,11 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
                       throw new MaterializedViewTransientException(
                           "Failed intermediate sub-batch commit", e);
                     }
+                    // This sub-batch is durable: release exactly its claimed keys so its committed
+                    // entries are evicted without waiting for the whole batch to finish, and
+                    // without disturbing other sub-batches' (or a failed round's) claims.
+                    this.embeddingRetryCache.releaseClaims(
+                        generationKey, subBatchClaimedKeys, ReleaseTrigger.COMMIT);
                   },
                   this.executor);
     }
@@ -512,7 +590,9 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
       AutoEmbedFieldMapping autoEmbedMapping,
       SchedulerQueue.Priority priority,
       ImmutableMap<FieldPath, EmbedConfigurationForBatch> embedBatchKeyPerPath,
-      Optional<MaterializedViewSchemaMetadata> matViewSchemaMetadata) {
+      Optional<MaterializedViewSchemaMetadata> matViewSchemaMetadata,
+      String generationKey,
+      Set<EmbeddingCacheKey> claimedKeys) {
     List<EmbedBundle> embedBundles =
         getTextValueBundles(
             allEventsInBatch,
@@ -526,7 +606,8 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
       // memory leak.
       var events = new ArrayList<>(bundle.events());
       CompletableFuture<Map<EmbedConfigurationForBatch, Map<String, Vector>>> embeddingsFuture =
-          getEmbeddings(bundle.textsPerBatchKey(), priority, indexDefinition);
+          getEmbeddings(
+              bundle.textsPerBatchKey(), priority, indexDefinition, generationKey, claimedKeys);
       resultFutures.add(
           // Change executor to use indexing executor here for better chaining with indexer.
           embeddingsFuture.thenApplyAsync(
@@ -716,7 +797,9 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
   private CompletableFuture<Map<EmbedConfigurationForBatch, Map<String, Vector>>> getEmbeddings(
       SetMultimap<EmbedConfigurationForBatch, String> stringsToEmbedPerBatchKey,
       Priority priority,
-      IndexDefinition indexDefinition) {
+      IndexDefinition indexDefinition,
+      String generationKey,
+      Set<EmbeddingCacheKey> claimedKeys) {
     if (stringsToEmbedPerBatchKey.isEmpty()) {
       FLOGGER.atFine().log(
           "No strings to embed for index %s, skipping embedding call", indexDefinition.getName());
@@ -753,7 +836,6 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
         continue;
       }
 
-      List<String> orderedStrings = new ArrayList<>(stringsToEmbed);
       EmbeddingRequestContext context =
           new EmbeddingRequestContext(
               indexDefinition.getDatabase(),
@@ -761,31 +843,137 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
               indexDefinition.getLastObservedCollectionName(),
               batchKey.numDimensions(),
               batchKey.quantization());
-      CompletableFuture<Map<String, Vector>> embeddingsFuture =
-          serviceManager
-              .embedAsync(orderedStrings, batchKey.modelConfig(), tier, context)
-              .thenApply(
-                  embeddingList -> {
-                    Map<String, Vector> embeddings = new HashMap<>();
-                    Check.checkState(
-                        embeddingList.size() == orderedStrings.size(),
-                        "Result vectors size doesn't match input text size");
-                    for (int i = 0; i < embeddingList.size(); i++) {
-                      VectorOrError result = embeddingList.get(i);
-                      if (result.vector.isPresent()) {
-                        embeddings.put(orderedStrings.get(i), result.vector.get());
-                      } else if (result != VectorOrError.EMPTY_INPUT_ERROR
-                          && result.errorMessage.isPresent()) {
-                        FLOGGER.atWarning().atMostEvery(1, TimeUnit.MINUTES).log(
-                            "No embedding for %s due to error: %s",
-                            orderedStrings.get(i), result.errorMessage.get());
-                      }
-                    }
-                    return embeddings;
-                  });
-      futuresPerBatchKey.put(batchKey, embeddingsFuture);
+      // Evaluated per batch so the EMBEDDING_RETRY_CACHE flag toggles at runtime. When off, embed
+      // directly without caching or claiming — identical to the pre-cache behavior.
+      futuresPerBatchKey.put(
+          batchKey,
+          this.cacheEnabled.getAsBoolean()
+              ? getEmbeddingsThroughCache(
+                  batchKey,
+                  stringsToEmbed,
+                  generationKey,
+                  claimedKeys,
+                  serviceManager,
+                  tier,
+                  context)
+              : embedWithoutCache(batchKey, stringsToEmbed, serviceManager, tier, context));
     }
     return FutureUtils.transposeMap(futuresPerBatchKey);
+  }
+
+  /**
+   * Embeds the batch key's strings directly, bypassing the retry cache (the {@code
+   * EMBEDDING_RETRY_CACHE} flag is off). Mirrors the pre-cache behavior: no key is cached and no
+   * claim is taken, so a failed batch's retry re-embeds.
+   */
+  private CompletableFuture<Map<String, Vector>> embedWithoutCache(
+      EmbedConfigurationForBatch batchKey,
+      Set<String> stringsToEmbed,
+      EmbeddingServiceManager serviceManager,
+      ServiceTier tier,
+      EmbeddingRequestContext context) {
+    List<String> orderedStrings = new ArrayList<>(stringsToEmbed);
+    return serviceManager
+        .embedAsync(orderedStrings, batchKey.modelConfig(), tier, context)
+        .thenApply(
+            embeddingList -> {
+              Check.checkState(
+                  embeddingList.size() == orderedStrings.size(),
+                  "Result vectors size doesn't match input text size");
+              Map<String, Vector> embeddings = new HashMap<>();
+              for (int i = 0; i < embeddingList.size(); i++) {
+                VectorOrError result = embeddingList.get(i);
+                if (result.vector.isPresent()) {
+                  embeddings.put(orderedStrings.get(i), result.vector.get());
+                } else if (result != VectorOrError.EMPTY_INPUT_ERROR
+                    && result.errorMessage.isPresent()) {
+                  FLOGGER.atWarning().atMostEvery(1, TimeUnit.MINUTES).log(
+                      "No embedding for %s due to error: %s",
+                      orderedStrings.get(i), result.errorMessage.get());
+                }
+              }
+              return embeddings;
+            });
+  }
+
+  /**
+   * Serves the batch key's embeddings from the retry cache, calling the embedding service once for
+   * the keys it does not already hold, then claims every key for {@code generationKey} so the
+   * vectors survive until the generation commits or its index is dropped. The claimed keys are also
+   * added to {@code claimedKeys} so the caller can release exactly this batch's keys on commit.
+   */
+  private CompletableFuture<Map<String, Vector>> getEmbeddingsThroughCache(
+      EmbedConfigurationForBatch batchKey,
+      Set<String> stringsToEmbed,
+      String generationKey,
+      Set<EmbeddingCacheKey> claimedKeys,
+      EmbeddingServiceManager serviceManager,
+      ServiceTier tier,
+      EmbeddingRequestContext context) {
+    Map<EmbeddingCacheKey, String> textByCacheKey = new HashMap<>();
+    for (String text : stringsToEmbed) {
+      textByCacheKey.put(
+          EmbeddingCacheKey.forDocument(
+              batchKey.modelConfig().name(),
+              batchKey.numDimensions(),
+              batchKey.quantization(),
+              text),
+          text);
+    }
+    Set<EmbeddingCacheKey> cacheKeys = textByCacheKey.keySet();
+
+    CompletableFuture<Map<EmbeddingCacheKey, Vector>> vectorsByKey =
+        this.embeddingRetryCache.getAll(
+            cacheKeys,
+            missingKeys ->
+                embedMissingKeys(
+                    missingKeys, textByCacheKey, batchKey, serviceManager, tier, context));
+    // Claim every key — hits, freshly-loaded keys, and failed embeds alike. A hit loaded by another
+    // batch still needs to be held under this generation so it is not evicted before this batch
+    // commits; a failed embed simply has no cached entry, so its claim is released as a no-op.
+    this.embeddingRetryCache.claim(generationKey, cacheKeys);
+    claimedKeys.addAll(cacheKeys);
+    return vectorsByKey.thenApply(
+        keyedVectors -> {
+          Map<String, Vector> embeddings = new HashMap<>();
+          keyedVectors.forEach((key, vector) -> embeddings.put(textByCacheKey.get(key), vector));
+          return embeddings;
+        });
+  }
+
+  /** Embeds exactly the cache-missing keys and maps the results back by cache key. */
+  private CompletableFuture<Map<EmbeddingCacheKey, Vector>> embedMissingKeys(
+      Set<EmbeddingCacheKey> missingKeys,
+      Map<EmbeddingCacheKey, String> textByCacheKey,
+      EmbedConfigurationForBatch batchKey,
+      EmbeddingServiceManager serviceManager,
+      ServiceTier tier,
+      EmbeddingRequestContext context) {
+    List<EmbeddingCacheKey> orderedKeys = new ArrayList<>(missingKeys);
+    List<String> orderedStrings =
+        orderedKeys.stream().map(textByCacheKey::get).collect(Collectors.toList());
+    return serviceManager
+        .embedAsync(orderedStrings, batchKey.modelConfig(), tier, context)
+        .thenApply(
+            embeddingList -> {
+              Check.checkState(
+                  embeddingList.size() == orderedStrings.size(),
+                  "Result vectors size doesn't match input text size");
+              Map<EmbeddingCacheKey, Vector> vectors = new HashMap<>();
+              for (int i = 0; i < embeddingList.size(); i++) {
+                VectorOrError result = embeddingList.get(i);
+                if (result.vector.isPresent()) {
+                  // Omitting failed keys from the result leaves them uncached (no negative cache).
+                  vectors.put(orderedKeys.get(i), result.vector.get());
+                } else if (result != VectorOrError.EMPTY_INPUT_ERROR
+                    && result.errorMessage.isPresent()) {
+                  FLOGGER.atWarning().atMostEvery(1, TimeUnit.MINUTES).log(
+                      "No embedding for %s due to error: %s",
+                      orderedStrings.get(i), result.errorMessage.get());
+                }
+              }
+              return vectors;
+            });
   }
 
   /**

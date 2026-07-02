@@ -91,6 +91,7 @@ java_library(
         "//bazel/java:netty-tcnative",  # keep: native netty
         "//src/main/java/com/xgen/mongot/catalog",
         "//src/main/java/com/xgen/mongot/embedding",
+        "//src/main/java/com/xgen/mongot/embedding/cache",
         "//src/main/java/com/xgen/mongot/embedding/config",
         "//src/main/java/com/xgen/mongot/embedding/exceptions",
         "//src/main/java/com/xgen/mongot/embedding/providers",
