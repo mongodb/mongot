@@ -119,16 +119,15 @@ public class MaterializedViewManager implements ReplicationManager {
 
   public static final String STATE_LABEL = "state";
 
-  // Stale-lease GC metrics. Gauges go through metricsFactory (prefixed); counters use the meter
-  // registry directly, matching the surrounding generator metrics. All are created lazily (never in
-  // the constructor) so clusters that never run GC do not register them. Project/cluster tags come
-  // from the registry's common tags.
   public static final String MAT_VIEW_GC_SCANNER_ALIVE_GAUGE = "matViewGcScannerAlive";
   public static final String MAT_VIEW_GC_LEASES_OVERDUE_GAUGE = "matViewGcLeasesOverdue";
-  public static final String MAT_VIEW_GC_COLLECTION_DROP_FAILURE_COUNTER_NAME =
-      "matViewGcCollectionDropFailures";
   public static final String MAT_VIEW_GC_LEASE_IN_USE_REFUSAL_COUNTER_NAME =
       "matViewGcLeaseInUseRefusals";
+  public static final String MAT_VIEW_COLLECTION_DROP_COUNTER_NAME = "matViewCollectionDrop";
+  public static final String DROP_SCENARIO_TAG = "scenario";
+  public static final String DROP_OUTCOME_TAG = "outcome";
+  public static final String DROP_SCENARIO_GC = "gc";
+  public static final String DROP_SCENARIO_INDEX_DELETION = "indexDeletion";
 
   // Sticky terminal states that disqualify a generator from holding a matview lease. Shared
   // by emitHeartbeat (release these leases), refreshStatus (skip acquisition for these), and
@@ -1146,6 +1145,9 @@ public class MaterializedViewManager implements ReplicationManager {
                     .getIndex()
                     .getWriter()
                     .dropMaterializedViewCollection()
+                    .whenComplete(
+                        (unusedResult, dropError) ->
+                            recordCollectionDrop(DROP_SCENARIO_INDEX_DELETION, dropError == null))
                     .exceptionally(
                         throwable -> {
                           LOG.error(
@@ -1520,6 +1522,21 @@ public class MaterializedViewManager implements ReplicationManager {
   }
 
   /**
+   * Records one MV-collection drop attempt on the shared {@code matViewCollectionDrop} counter,
+   * tagged by scenario ({@code gc} / {@code indexDeletion}) and outcome. Replaces the GC-only
+   * failure counter so drop success/failure is comparable across paths. Each tag combination is
+   * registered lazily on first emission, and the dropped collection/lease identity stays in the
+   * structured drop logs rather than a (unbounded) label.
+   */
+  private void recordCollectionDrop(String scenario, boolean success) {
+    this.metricsFactory
+        .counter(
+            MAT_VIEW_COLLECTION_DROP_COUNTER_NAME,
+            Tags.of(DROP_SCENARIO_TAG, scenario, DROP_OUTCOME_TAG, success ? "success" : "failure"))
+        .increment();
+  }
+
+  /**
    * 1 only while GC is actually running: the scanner thread is scheduled and alive, the manager is
    * up, AND {@link DynamicFeatureFlags#MV_GC_ENABLED} is on. The thread is always scheduled (gating
    * is per tick), so the flag has to be part of the value — re-evaluated on every scrape, this
@@ -1734,6 +1751,7 @@ public class MaterializedViewManager implements ReplicationManager {
               this.autoEmbeddingMongoClient.getMaterializedViewWriterMongoClient(),
               "materializedViewWriterMongoClient");
       mongoClient.getDatabase(database).getCollection(collectionName).drop();
+      recordCollectionDrop(DROP_SCENARIO_GC, true);
       LOG.atInfo()
           .addKeyValue("leaseKey", leaseKey)
           .addKeyValue("collectionName", collectionName)
@@ -1741,9 +1759,10 @@ public class MaterializedViewManager implements ReplicationManager {
           .log("Dropped stale materialized view collection");
       return true;
     } catch (Exception | AssertionError e) {
-      // Best effort: the next sweep re-evaluates this lease. The matViewGcCollectionDropFailures
-      // counter flags, via a sustained non-zero value, GC blocked on MV deletion failures.
-      this.meterRegistry.counter(MAT_VIEW_GC_COLLECTION_DROP_FAILURE_COUNTER_NAME).increment();
+      // Best effort: the next sweep re-evaluates this lease. The matViewCollectionDrop counter
+      // (scenario=gc, outcome=failure) flags, via a sustained non-zero value, GC blocked on MV
+      // deletion failures.
+      recordCollectionDrop(DROP_SCENARIO_GC, false);
       LOG.atWarn()
           .addKeyValue("leaseKey", leaseKey)
           .addKeyValue("collectionName", collectionName)

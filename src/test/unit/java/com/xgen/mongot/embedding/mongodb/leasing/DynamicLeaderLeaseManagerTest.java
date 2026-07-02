@@ -1022,6 +1022,17 @@ public class DynamicLeaderLeaseManagerTest {
     // Assert - lease is removed from local cache
     assertThat(this.leaseManager.getLeases()).doesNotContainKey(leaseKey);
     assertThat(this.leaseManager.getLeaseKeyToDatabase()).doesNotContainKey(leaseKey);
+    // The index-deletion lease delete goes through the op-executor, which emits the
+    // leaseTableCollection success counter tagged operation="dropLease" (vs the GC delete's
+    // operation="deleteStaleLease" on the same series).
+    assertThat(
+            this.metricsFactory
+                .meterRegistry
+                .find(this.metricsFactory.namespace + ".leaseTableCollection.successfulRequests")
+                .tag("operation", "dropLease")
+                .counter()
+                .count())
+        .isEqualTo(1.0);
   }
 
   @Test

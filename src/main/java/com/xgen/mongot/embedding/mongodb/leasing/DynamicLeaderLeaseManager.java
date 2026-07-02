@@ -513,12 +513,17 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
       this.leaseKeyToDatabase.remove(leaseKey);
       return CompletableFuture.runAsync(
           () -> {
+            var filter =
+                Filters.and(
+                    Filters.eq("_id", leaseKey),
+                    Filters.eq(Lease.Fields.LEASE_OWNER.getName(), this.hostname));
             try {
-              var filter =
-                  Filters.and(
-                      Filters.eq("_id", leaseKey),
-                      Filters.eq(Lease.Fields.LEASE_OWNER.getName(), this.hostname));
-              var deleteResult = this.getCollection(dbName).deleteOne(filter);
+              // Routed through the operationExecutor to stay consistent with every other
+              // lease-table op; it retries transient failures and emits
+              // successfulRequests/failedRequests tagged operation="dropLease".
+              var deleteResult =
+                  this.operationExecutor.execute(
+                      "dropLease", () -> this.getCollection(dbName).deleteOne(filter));
               if (deleteResult.getDeletedCount() > 0) {
                 LOG.atInfo()
                     .addKeyValue("leaseKey", leaseKey)

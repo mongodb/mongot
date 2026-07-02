@@ -259,14 +259,21 @@ public class StaticLeaderLeaseManager implements LeaseManager {
     if (this.isLeader) {
       String dbName = getDatabaseForLease(leaseKey);
       return CompletableFuture.runAsync(
-              () -> this.getCollection(dbName).deleteOne(new Document("_id", leaseKey)))
-          .exceptionally(
-              throwable -> {
-                LOG.atWarn()
-                    .setCause(throwable)
-                    .addKeyValue("leaseKey", leaseKey)
-                    .log("Failed to delete lease entry in Lease table, ignore it for now.");
-                return null;
+              () -> {
+                try {
+                  // Routed through the operationExecutor to stay consistent with every other
+                  // lease-table op; it retries transient failures and emits
+                  // successfulRequests/failedRequests tagged operation="dropLease".
+                  this.operationExecutor.execute(
+                      "dropLease",
+                      () -> this.getCollection(dbName).deleteOne(new Document("_id", leaseKey)));
+                } catch (Exception e) {
+                  // Best effort cleanup. The lease will expire naturally if we can't delete it.
+                  LOG.atWarn()
+                      .setCause(e)
+                      .addKeyValue("leaseKey", leaseKey)
+                      .log("Failed to delete lease entry in Lease table, ignore it for now.");
+                }
               })
           .thenRun(
               () -> {

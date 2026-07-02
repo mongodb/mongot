@@ -248,6 +248,37 @@ public class StaticLeaderLeaseManagerTest {
   }
 
   @Test
+  public void dropLease_asLeader_metersLeaseDrop() {
+    // Hold the metrics factory so we can read the lease-drop counter (createLeaseManager hides it).
+    SimpleMetricsFactory metricsFactory = new SimpleMetricsFactory();
+    StaticLeaderLeaseManager leaseManager =
+        new StaticLeaderLeaseManager(
+            this.mockMongoClient,
+            metricsFactory,
+            HOSTNAME,
+            DB_RESOLVER,
+            true,
+            this.mvMetadataCatalog);
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    leaseManager.add(indexGeneration, false);
+    DeleteResult deleteResult = mock(DeleteResult.class);
+    when(this.mockCollection.deleteOne(any(Document.class))).thenReturn(deleteResult);
+
+    leaseManager.dropLease(getLeaseKeyFromCatalog(generationId)).join();
+
+    // Same series as the GC delete, distinguished by operation="dropLease" (vs "deleteStaleLease").
+    assertThat(
+            metricsFactory
+                .meterRegistry
+                .find(metricsFactory.namespace + ".leaseTableCollection.successfulRequests")
+                .tag("operation", "dropLease")
+                .counter()
+                .count())
+        .isEqualTo(1.0);
+  }
+
+  @Test
   public void dropLease_asFollower_removesFromMemoryOnly() {
     // Arrange
     StaticLeaderLeaseManager leaseManager = createLeaseManager(false);

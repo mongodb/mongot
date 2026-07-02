@@ -792,6 +792,36 @@ public class MaterializedViewManagerTest {
     // Leader drops the shared MV collection, then the lease document.
     verify(gen.getIndex().getWriter()).dropMaterializedViewCollection();
     verify(mocks.leaseManager).dropLease("test_" + INDEX_ID.toHexString());
+    // matViewCollectionDrop{scenario=indexDeletion, outcome=success} is recorded for the drop.
+    assertEquals(
+        1.0,
+        collectionDropCount(mocks, MaterializedViewManager.DROP_SCENARIO_INDEX_DELETION, "success"),
+        0.0);
+  }
+
+  @Test
+  public void dropIndex_indexDeletion_dropFails_countsIndexDeletionFailure() throws Exception {
+    Mocks mocks = Mocks.create();
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+    // The leader's MV-collection drop fails; dropIndex swallows it (exceptionally) and still drops
+    // the lease, but the failure is recorded.
+    when(gen.getIndex().getWriter().dropMaterializedViewCollection())
+        .thenReturn(CompletableFuture.failedFuture(new RuntimeException("drop failed")));
+
+    mocks.manager.dropIndex(MOCK_GENERATION_ID).get(5, TimeUnit.SECONDS);
+
+    verify(mocks.leaseManager).dropLease("test_" + INDEX_ID.toHexString());
+    assertEquals(
+        1.0,
+        collectionDropCount(mocks, MaterializedViewManager.DROP_SCENARIO_INDEX_DELETION, "failure"),
+        0.0);
+    assertEquals(
+        0.0,
+        collectionDropCount(mocks, MaterializedViewManager.DROP_SCENARIO_INDEX_DELETION, "success"),
+        0.0);
   }
 
   @Test
@@ -3244,6 +3274,19 @@ public class MaterializedViewManagerTest {
         .value();
   }
 
+  /** Count of the shared matViewCollectionDrop counter for one scenario+outcome tag combination. */
+  private static double collectionDropCount(Mocks mocks, String scenario, String outcome) {
+    return mocks
+        .meterRegistry
+        .counter(
+            "replication.mongodb." + MaterializedViewManager.MAT_VIEW_COLLECTION_DROP_COUNTER_NAME,
+            MaterializedViewManager.DROP_SCENARIO_TAG,
+            scenario,
+            MaterializedViewManager.DROP_OUTCOME_TAG,
+            outcome)
+        .count();
+  }
+
   @Test
   @SuppressWarnings("unchecked")
   public void scanStaleLeases_overdueGauge_countsBlockedNotWithinGrace() {
@@ -3605,15 +3648,44 @@ public class MaterializedViewManagerTest {
     // dropStaleMatViewCollection swallows the failure and returns false; the lease survives so the
     // next sweep can rediscover and retry.
     verify(mocks.leaseManager, never()).deleteStaleLease(any(), any());
-    // matViewGcCollectionDropFailures: the drop failure is counted (alert source for GC blocked on
-    // MV deletion).
+    // matViewCollectionDrop{scenario=gc, outcome=failure}: the GC drop failure is counted (alert
+    // source for GC blocked on MV deletion).
     assertEquals(
-        1.0,
-        mocks
-            .meterRegistry
-            .counter(MaterializedViewManager.MAT_VIEW_GC_COLLECTION_DROP_FAILURE_COUNTER_NAME)
-            .count(),
-        0.0);
+        1.0, collectionDropCount(mocks, MaterializedViewManager.DROP_SCENARIO_GC, "failure"), 0.0);
+    assertEquals(
+        0.0, collectionDropCount(mocks, MaterializedViewManager.DROP_SCENARIO_GC, "success"), 0.0);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void scanStaleLeases_collectionDropSucceeds_countsGcSuccess() {
+    Mocks mocks = Mocks.create();
+    Lease marked =
+        leaseWithExpiration(
+            "drop-ok",
+            Instant.now().minus(PAST_DELETE_GRACE),
+            Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+    when(mocks.leaseManager.findGcCandidates(any())).thenReturn(List.of(marked));
+    when(mocks.leaseManager.resolveStaleMatViewNamespace(eq("drop-ok"), any()))
+        .thenReturn(Optional.of(new MongoNamespace("test-db", "mv-collection")));
+    MongoClient writerClient = mock(MongoClient.class);
+    MongoDatabase database = mock(MongoDatabase.class);
+    MongoCollection<Document> collection = mock(MongoCollection.class);
+    when(mocks.autoEmbeddingMongoClient.getMaterializedViewWriterMongoClient())
+        .thenReturn(Optional.of(writerClient));
+    when(writerClient.getDatabase("test-db")).thenReturn(database);
+    when(database.getCollection("mv-collection")).thenReturn(collection);
+    when(mocks.leaseManager.deleteStaleLease(eq("drop-ok"), any())).thenReturn(true);
+
+    mocks.manager.scanStaleLeasesForCleanup();
+
+    // The drop (a void no-op on the mock) succeeds, so the lease is deleted.
+    verify(mocks.leaseManager).deleteStaleLease(eq("drop-ok"), any());
+    // matViewCollectionDrop{scenario=gc, outcome=success}, and no failure recorded.
+    assertEquals(
+        1.0, collectionDropCount(mocks, MaterializedViewManager.DROP_SCENARIO_GC, "success"), 0.0);
+    assertEquals(
+        0.0, collectionDropCount(mocks, MaterializedViewManager.DROP_SCENARIO_GC, "failure"), 0.0);
   }
 
   @Test
