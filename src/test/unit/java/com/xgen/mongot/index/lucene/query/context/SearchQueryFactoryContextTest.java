@@ -10,16 +10,20 @@ import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.analyzer.AnalyzerMeta;
 import com.xgen.mongot.index.analyzer.AnalyzerRegistry;
 import com.xgen.mongot.index.analyzer.wrapper.LuceneAnalyzer;
+import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.StringFieldDefinition;
 import com.xgen.mongot.index.definition.SynonymMappingDefinition;
+import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.index.lucene.synonym.LuceneSynonymRegistry;
 import com.xgen.mongot.index.path.string.StringFieldPath;
 import com.xgen.mongot.index.path.string.StringPath;
+import com.xgen.mongot.index.query.AutoEmbedQueryVectorReconciler;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.synonym.SynonymRegistry;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.util.FieldPath;
+import com.xgen.mongot.util.bson.Vector;
 import com.xgen.testing.mongot.index.analyzer.AnalyzerRegistryBuilder;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
@@ -35,6 +39,7 @@ import java.util.UUID;
 import org.apache.lucene.analysis.Analyzer;
 import org.bson.types.ObjectId;
 import org.junit.Assert;
+import org.junit.Test;
 import org.junit.experimental.theories.DataPoints;
 import org.junit.experimental.theories.Theories;
 import org.junit.experimental.theories.Theory;
@@ -288,6 +293,56 @@ public class SearchQueryFactoryContextTest {
     }
 
     Assert.fail("this should be unreachable - this test should throw, catch, and exit");
+  }
+
+  @Test
+  public void testGetAutoEmbedQuantization_returnsIndexedEncodingForAutoEmbedField() {
+    SearchQueryFactoryContext context = autoEmbedQueryContext("embedding");
+
+    assertThat(context.getAutoEmbedQuantization(FieldPath.parse("embedding")))
+        .hasValue(VectorAutoEmbedQuantization.FLOAT);
+  }
+
+  @Test
+  public void testMismatchedQueryVectorAgainstAutoEmbedFieldIsRejected() {
+    SearchQueryFactoryContext context = autoEmbedQueryContext("embedding");
+    FieldPath path = FieldPath.parse("embedding");
+
+    // The context now surfaces the field's indexed float32 encoding, so the reconciler rejects an
+    // int8 queryVector with a clear error instead of letting it route to an empty Lucene field and
+    // silently return no results.
+    Optional<VectorAutoEmbedQuantization> quantization = context.getAutoEmbedQuantization(path);
+    assertThat(quantization).isPresent();
+    Vector byteQueryVector = Vector.fromBytes(new byte[] {1, -2, 3});
+
+    assertThrows(
+        InvalidQueryException.class,
+        () -> AutoEmbedQueryVectorReconciler.reconcile(byteQueryVector, quantization.get(), path));
+  }
+
+  private static SearchQueryFactoryContext autoEmbedQueryContext(String fieldName) {
+    SearchIndexDefinition indexDefinition =
+        SearchIndexDefinitionBuilder.builder()
+            .defaultMetadata()
+            .mappings(
+                DocumentFieldDefinitionBuilder.builder()
+                    .field(
+                        fieldName,
+                        FieldDefinitionBuilder.builder()
+                            .searchAutoEmbed(
+                                new SearchAutoEmbedFieldDefinition(
+                                    "voyage-3-large", FieldPath.parse("content")))
+                            .build())
+                    .build())
+            .build();
+
+    return new SearchQueryFactoryContext(
+        AnalyzerRegistryBuilder.empty(),
+        LuceneAnalyzer.queryAnalyzer(indexDefinition, AnalyzerRegistryBuilder.empty()),
+        indexDefinition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+        SynonymRegistryBuilder.empty(),
+        new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory()),
+        FeatureFlags.getDefault());
   }
 
   private static SearchQueryFactoryContext synonymQueryContext(

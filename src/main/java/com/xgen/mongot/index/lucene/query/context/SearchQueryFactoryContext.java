@@ -20,8 +20,10 @@ import com.xgen.mongot.index.definition.SortableNumberBetaV1FieldDefinition;
 import com.xgen.mongot.index.definition.SortableStringBetaV1FieldDefinition;
 import com.xgen.mongot.index.definition.TokenFieldDefinition;
 import com.xgen.mongot.index.definition.UuidFieldDefinition;
+import com.xgen.mongot.index.definition.VectorAutoEmbedFieldSpecification;
 import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.VectorSimilarity;
+import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.index.definition.quantization.VectorQuantization;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.query.util.SafeQueryBuilder;
@@ -204,6 +206,18 @@ public class SearchQueryFactoryContext implements QueryFactoryContext {
     }
 
     return fieldDefinition.get().vectorFieldSpecification().get().quantization();
+  }
+
+  @Override
+  public Optional<VectorAutoEmbedQuantization> getAutoEmbedQuantization(FieldPath fieldPath) {
+    Optional<VectorFieldSpecification> specification =
+        this.fieldDefinitionResolver
+            .getFieldDefinition(fieldPath, Optional.empty())
+            .flatMap(FieldDefinition::vectorFieldSpecification);
+    return specification.isPresent()
+            && specification.get() instanceof VectorAutoEmbedFieldSpecification autoEmbed
+        ? Optional.of(autoEmbed.autoEmbedQuantization())
+        : Optional.empty();
   }
 
   /**

@@ -14,6 +14,8 @@ import com.xgen.mongot.index.InitializedVectorIndex;
 import com.xgen.mongot.index.MetaResults;
 import com.xgen.mongot.index.ReaderClosedException;
 import com.xgen.mongot.index.SearchIndexReader;
+import com.xgen.mongot.index.VectorIndexReader;
+import com.xgen.mongot.index.autoembedding.InitializedMaterializedViewIndex;
 import com.xgen.mongot.index.lucene.EmptySearchBatchProducer;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.QueryOptimizationFlags;
@@ -88,10 +90,9 @@ class CursorFactory {
                 .formatted(cursorQuery.getQuery().index()),
             InvalidQueryException.Type.STRICT);
       }
-      // TODO(CLOUDP-353553): widen this check to also accept InitializedMaterializedViewIndex
-      // when MV-backed cursors are exercised;
-      // mirrors the VectorSearchCommand.getExhaustedBatch fix.
-      if (cursorQuery instanceof CursorQuery.Vector && !(index instanceof InitializedVectorIndex)) {
+      if (cursorQuery instanceof CursorQuery.Vector
+          && !(index instanceof InitializedVectorIndex)
+          && !(index instanceof InitializedMaterializedViewIndex)) {
         throw new InvalidQueryException(
             "Cannot execute $vectorSearch over search index '%s'"
                 .formatted(cursorQuery.getQuery().index()),
@@ -111,16 +112,16 @@ class CursorFactory {
           metaResults = r.metaResults;
         }
         case CursorQuery.Vector(var query, var context) -> {
+          VectorIndexReader reader;
+          if (index instanceof InitializedVectorIndex vectorIndex) {
+            reader = vectorIndex.getReader();
+          } else {
+            // Guard above narrows this to InitializedMaterializedViewIndex.
+            reader = ((InitializedMaterializedViewIndex) index).getReader();
+          }
           var r =
-              index
-                  .asVectorIndex()
-                  .getReader()
-                  .query(
-                      query,
-                      context,
-                      queryCursorOptions,
-                      batchSizeStrategy,
-                      queryOptimizationFlags);
+              reader.query(
+                  query, context, queryCursorOptions, batchSizeStrategy, queryOptimizationFlags);
           batchProducer = r.vectorBatchProducer;
           metaResults = r.metaResults;
         }

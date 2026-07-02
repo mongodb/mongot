@@ -91,12 +91,8 @@ public interface QueryFactoryContext {
    * Returns the auto-embedding quantization of the field's autoEmbed specification, which
    * determines the indexed embedding encoding; empty for non-autoEmbed fields.
    */
-  // TODO(CLOUDP-353553): search-index contexts must override this to support autoEmbed fields in
-  // lexical prefilters; the default returns empty, so their queryVectors are not yet reconciled.
-  default Optional<VectorAutoEmbedQuantization> getAutoEmbedQuantization(FieldPath fieldPath)
-      throws InvalidQueryException {
-    return Optional.empty();
-  }
+  Optional<VectorAutoEmbedQuantization> getAutoEmbedQuantization(FieldPath fieldPath)
+      throws InvalidQueryException;
 
   /**
    * Returns the nested root path for embedded vector documents, if specified at the index level.

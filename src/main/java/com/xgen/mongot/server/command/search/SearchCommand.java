@@ -3,6 +3,7 @@ package com.xgen.mongot.server.command.search;
 import static com.xgen.mongot.util.Check.checkState;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Supplier;
 import com.google.common.flogger.FluentLogger;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.catalog.IndexCatalog;
@@ -17,6 +18,7 @@ import com.xgen.mongot.cursor.batch.QueryCursorOptions;
 import com.xgen.mongot.cursor.serialization.MongotCursorBatch;
 import com.xgen.mongot.cursor.serialization.MongotCursorResult;
 import com.xgen.mongot.cursor.serialization.MongotIntermediateCursorBatch;
+import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.DynamicFeatureFlagsMetricsRecorder;
 import com.xgen.mongot.index.IndexGeneration;
@@ -24,6 +26,8 @@ import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.ReaderClosedException;
 import com.xgen.mongot.index.Variables;
+import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.lucene.explain.explainers.MetadataFeatureExplainer;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.explain.tracing.ExplainQueryState;
@@ -32,7 +36,9 @@ import com.xgen.mongot.index.query.OperatorQuery;
 import com.xgen.mongot.index.query.Query;
 import com.xgen.mongot.index.query.QueryOptimizationFlags;
 import com.xgen.mongot.index.query.SearchQuery;
+import com.xgen.mongot.index.query.operators.VectorSearchCriteria;
 import com.xgen.mongot.index.query.operators.VectorSearchOperator;
+import com.xgen.mongot.index.query.operators.VectorSearchQueryInput;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.searchenvoy.grpc.SearchEnvoyMetadata;
 import com.xgen.mongot.server.command.Command;
@@ -75,6 +81,7 @@ public class SearchCommand implements Command {
   private final SearchCommandDefinition definition;
   private final SearchCommandsRegister.BootstrapperMetadata metadata;
   private final Bytes bsonSizeSoftLimit;
+  private final Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier;
   private final List<Long> createdCursorIds;
   private @Var Optional<SearchEnvoyMetadata> searchEnvoyMetadata;
 
@@ -85,7 +92,8 @@ public class SearchCommand implements Command {
       InitializedIndexCatalog initializedIndexCatalog,
       SearchCommandDefinition definition,
       SearchCommandsRegister.BootstrapperMetadata metadata,
-      Bytes bsonSizeSoftLimit) {
+      Bytes bsonSizeSoftLimit,
+      Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier) {
     this.metricsFactory = metrics.metricsFactory;
     this.metrics = metrics;
     this.cursorManager = cursorManager;
@@ -94,6 +102,7 @@ public class SearchCommand implements Command {
     this.definition = definition;
     this.metadata = metadata;
     this.bsonSizeSoftLimit = bsonSizeSoftLimit;
+    this.embeddingServiceManagerSupplier = embeddingServiceManagerSupplier;
     this.createdCursorIds = new ArrayList<>();
     this.searchEnvoyMetadata = Optional.empty();
   }
@@ -138,9 +147,15 @@ public class SearchCommand implements Command {
           this.metadata
               .dynamicFeatureFlagRegistry()
               .evaluateClusterInvariant(DynamicFeatureFlags.ENABLE_10K_BUCKET_LIMIT);
+      @Var
       SearchQuery queryDefinition =
           SearchQuery.fromBson(this.definition.queryDocument(), queryOptimizationFlags, allow10k);
       Optional<InitializedIndex> index = getIndexFromCatalog(queryDefinition);
+
+      if (index.isPresent()) {
+        queryDefinition = maybeEmbedSearchQuery(queryDefinition, index.get().getDefinition());
+      }
+
       QueryCursorOptions queryCursorOptions =
           this.definition
               .cursorOptions()
@@ -246,6 +261,62 @@ public class SearchCommand implements Command {
     FLOGGER.atWarning().atMostEvery(1, TimeUnit.HOURS).withCause(e).log(
         "searchCommand query is invalid. queryDocument: %s", this.definition.queryDocument());
     return MessageUtils.createErrorBody(e);
+  }
+
+  /**
+   * If the search query contains a vectorSearch operator with text input, embeds that text into a
+   * query vector using the queried field's auto-embedding model.
+   *
+   * <p>For auto-embedding composite indexes the initialized index exposes the derived definition
+   * (auto-embed fields replaced with regular vector fields); the raw definition carrying the
+   * auto-embed model metadata is resolved from the catalog.
+   */
+  @VisibleForTesting
+  SearchQuery maybeEmbedSearchQuery(SearchQuery queryDefinition, IndexDefinition indexDefinition)
+      throws InvalidQueryException {
+    if (!(queryDefinition instanceof OperatorQuery operatorQuery)) {
+      return queryDefinition;
+    }
+    if (!(operatorQuery.operator() instanceof VectorSearchOperator vecOp)) {
+      return queryDefinition;
+    }
+    VectorSearchCriteria criteria = vecOp.criteria();
+    Optional<String> textToEmbed = criteria.query().flatMap(VectorSearchQueryInput::getText);
+    if (textToEmbed.isEmpty()) {
+      return queryDefinition;
+    }
+
+    Optional<IndexDefinition> effectiveDef =
+        SearchAutoEmbeddingHelper.resolveAutoEmbeddingDefinition(
+            this.indexCatalog,
+            this.definition.db(),
+            this.definition.collectionUuid(),
+            this.definition.viewName(),
+            queryDefinition.index(),
+            indexDefinition);
+    if (effectiveDef.isEmpty()
+        || !(effectiveDef.get() instanceof SearchIndexDefinition searchDef)) {
+      return queryDefinition;
+    }
+
+    Optional<String> queryModel = criteria.query().flatMap(VectorSearchQueryInput::getModel);
+    var autoEmbeddingFieldsMapping =
+        SearchAutoEmbeddingHelper.resolveAutoEmbeddingFieldsMapping(
+            this.indexCatalog,
+            this.definition.db(),
+            this.definition.collectionUuid(),
+            this.definition.viewName(),
+            queryDefinition.index());
+    VectorSearchCriteria embeddedCriteria =
+        SearchAutoEmbeddingHelper.embedAndReplaceCriteria(
+            criteria,
+            textToEmbed.get(),
+            queryModel,
+            searchDef,
+            autoEmbeddingFieldsMapping,
+            this.embeddingServiceManagerSupplier);
+    VectorSearchOperator embeddedOp = new VectorSearchOperator(vecOp.score(), embeddedCriteria);
+    return operatorQuery.withOperator(embeddedOp);
   }
 
   private void validateQueryAndCursorOptions(
@@ -481,6 +552,7 @@ public class SearchCommand implements Command {
     private final Bytes bsonSizeSoftLimit;
     private final SearchCommandsRegister.BootstrapperMetadata metadata;
     private final SearchCommand.Metrics metrics;
+    private final Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier;
 
     public Factory(
         MongotCursorManager cursorManager,
@@ -488,13 +560,15 @@ public class SearchCommand implements Command {
         InitializedIndexCatalog initializedIndexCatalog,
         Bytes bsonSizeSoftLimit,
         SearchCommandsRegister.BootstrapperMetadata metadata,
-        MetricsFactory metricsFactory) {
+        MetricsFactory metricsFactory,
+        Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier) {
       this.cursorManager = cursorManager;
       this.indexCatalog = indexCatalog;
       this.initializedIndexCatalog = initializedIndexCatalog;
       this.bsonSizeSoftLimit = bsonSizeSoftLimit;
       this.metadata = metadata;
       this.metrics = new SearchCommand.Metrics(metricsFactory);
+      this.embeddingServiceManagerSupplier = embeddingServiceManagerSupplier;
     }
 
     @Override
@@ -508,7 +582,8 @@ public class SearchCommand implements Command {
             this.initializedIndexCatalog,
             definition,
             this.metadata,
-            this.bsonSizeSoftLimit);
+            this.bsonSizeSoftLimit,
+            this.embeddingServiceManagerSupplier);
       } catch (BsonParseException e) {
         // we have no way of throwing checked exceptions beyond this method
         // (called directly by opmsg)

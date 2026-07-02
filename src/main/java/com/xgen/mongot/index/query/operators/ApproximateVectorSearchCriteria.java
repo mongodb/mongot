@@ -80,6 +80,36 @@ public record ApproximateVectorSearchCriteria(
   }
 
   @Override
+  public VectorSearchCriteria withQueryVector(Vector vector) {
+    return new ApproximateVectorSearchCriteria(
+        this.path,
+        Optional.of(vector),
+        Optional.empty(),
+        this.filter,
+        this.parentFilter,
+        this.limit,
+        this.numCandidates,
+        this.explainOptions,
+        this.returnStoredSource,
+        this.embeddedOptions);
+  }
+
+  @Override
+  public VectorSearchCriteria withPath(FieldPath path) {
+    return new ApproximateVectorSearchCriteria(
+        path,
+        this.queryVector,
+        this.query,
+        this.filter,
+        this.parentFilter,
+        this.limit,
+        this.numCandidates,
+        this.explainOptions,
+        this.returnStoredSource,
+        this.embeddedOptions);
+  }
+
+  @Override
   public BsonDocument toBson() {
     BsonDocument filterDocument =
         this.filter.map(DocumentEncodable::toBson).orElse(new BsonDocument());

@@ -236,7 +236,8 @@ public class SearchCommandTest {
                 .query(VALID_OPERATOR_QUERY)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     BsonDocument result = command.run();
     BsonDocument expected = mockInitialMongotCursorBatch().toBson();
@@ -260,7 +261,8 @@ public class SearchCommandTest {
                 .intermediate(1)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     BsonDocument result = command.run();
     BsonDocument expected = mockIntermediateMongotCursorBatch().toBson();
@@ -306,7 +308,8 @@ public class SearchCommandTest {
                 () -> new MongoDbServerInfo(Optional.of(mdbVersion), Optional.of(RSID)),
                 FeatureFlags.getDefault(),
                 DynamicFeatureFlagRegistry.empty()),
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     try (var unused =
         FakeExplain.setup(
@@ -370,7 +373,8 @@ public class SearchCommandTest {
                         .build())
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     try (var unused =
         FakeExplain.setup(
@@ -404,7 +408,8 @@ public class SearchCommandTest {
                 .query(VALID_OPERATOR_QUERY)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     command.run();
     checkState(
@@ -432,7 +437,8 @@ public class SearchCommandTest {
                 .intermediate(1)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     command.run();
     checkState(
@@ -456,7 +462,8 @@ public class SearchCommandTest {
                 .intermediate(1)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     BsonDocument result = command.run();
     Assert.assertEquals(INVALID_INDEX_RESPONSE, result);
@@ -477,7 +484,8 @@ public class SearchCommandTest {
                 .query(VALID_OPERATOR_QUERY)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     BsonDocument result = command.run();
     Assert.assertEquals(INVALID_INDEX_RESPONSE, result);
@@ -499,7 +507,8 @@ public class SearchCommandTest {
                 .intermediate(1)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     BsonDocument result = command.run();
     Assert.assertEquals(INVALID_INDEX_RESPONSE, result);
@@ -520,7 +529,8 @@ public class SearchCommandTest {
                 .query(INVALID_INDEX_QUERY)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     BsonDocument result = command.run();
     Assert.assertEquals(INVALID_INDEX_RESPONSE, result);
@@ -542,7 +552,8 @@ public class SearchCommandTest {
                 .intermediate(1)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     BsonDocument result = command.run();
     Assert.assertEquals(INVALID_INDEX_RESPONSE, result);
@@ -563,7 +574,8 @@ public class SearchCommandTest {
                 .query(INVALID_OPERATOR_QUERY)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     Assert.assertEquals(0, (int) command.getSearchCommandsTotalCount().count());
     Assert.assertEquals(0, (int) command.getSearchCommandInvalidQueries().count());
@@ -590,7 +602,8 @@ public class SearchCommandTest {
                 .intermediate(1)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     Assert.assertEquals(0, (int) command.getSearchCommandsTotalCount().count());
     Assert.assertEquals(0, (int) command.getSearchCommandInvalidQueries().count());
@@ -616,7 +629,8 @@ public class SearchCommandTest {
                 .query(INVALID_COLLECTOR_QUERY)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     BsonDocument result = command.run();
     Assert.assertEquals(0, result.getInt32("ok").getValue());
@@ -639,7 +653,8 @@ public class SearchCommandTest {
                 .intermediate(1)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     BsonDocument result = command.run();
     Assert.assertEquals(0, result.getInt32("ok").getValue());
@@ -661,7 +676,8 @@ public class SearchCommandTest {
                 .query(UNKNOWN_QUERY)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     BsonDocument result = command.run();
     Assert.assertEquals(0, result.getInt32("ok").getValue());
@@ -689,7 +705,8 @@ public class SearchCommandTest {
                 .intermediate(1)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     BsonDocument result = command.run();
     Assert.assertEquals(0, result.getInt32("ok").getValue());
@@ -716,7 +733,8 @@ public class SearchCommandTest {
                 .query(QUERY_WITH_VALID_COUNT)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     Assert.assertEquals(0, (int) command.getSearchCommandsTotalCount().count());
     Assert.assertEquals(0, (int) command.getSearchCommandInvalidQueries().count());
@@ -743,7 +761,8 @@ public class SearchCommandTest {
                 .intermediate(1)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     Assert.assertEquals(0, (int) command.getSearchCommandsTotalCount().count());
     Assert.assertEquals(0, (int) command.getSearchCommandInvalidQueries().count());
@@ -769,7 +788,8 @@ public class SearchCommandTest {
                 .query(QUERY_WITH_INVALID_COUNT)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     Assert.assertEquals(0, (int) command.getSearchCommandsTotalCount().count());
     Assert.assertEquals(0, (int) command.getSearchCommandInvalidQueries().count());
@@ -797,7 +817,8 @@ public class SearchCommandTest {
                 .intermediate(1)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     Assert.assertEquals(0, (int) command.getSearchCommandsTotalCount().count());
     Assert.assertEquals(0, (int) command.getSearchCommandInvalidQueries().count());
@@ -826,7 +847,8 @@ public class SearchCommandTest {
                 .cursorOptions(CursorOptionsDefinitionBuilder.builder().docsRequested(25).build())
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
     BsonDocument result = command.run();
     Assert.assertEquals(1, result.getInt32("ok").getValue());
     Assert.assertFalse(result.containsKey("errmsg"));
@@ -847,7 +869,8 @@ public class SearchCommandTest {
                 .query(VALID_OPERATOR_QUERY)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     BsonDocument result = command.run();
     Assert.assertEquals(IO_ERROR_RESPONSE, result);
@@ -869,7 +892,8 @@ public class SearchCommandTest {
                 .intermediate(1)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     BsonDocument result = command.run();
     Assert.assertEquals(IO_ERROR_RESPONSE, result);
@@ -895,7 +919,8 @@ public class SearchCommandTest {
                 .query(VALID_OPERATOR_QUERY)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     BsonDocument result = command.run();
 
@@ -923,7 +948,8 @@ public class SearchCommandTest {
                 .query(VALID_OPERATOR_QUERY)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     Assert.assertThrows(AssertionError.class, command::run);
     Truth.assertThat(
@@ -956,7 +982,8 @@ public class SearchCommandTest {
                 .intermediate(1)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     Assert.assertThrows(AssertionError.class, command::run);
     Truth.assertThat(
@@ -991,7 +1018,8 @@ public class SearchCommandTest {
                 .query(VALID_OPERATOR_QUERY)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     command.run();
     Truth.assertThat(
@@ -1043,7 +1071,8 @@ public class SearchCommandTest {
                 () -> new MongoDbServerInfo(Optional.of(mdbVersion), Optional.of(RSID)),
                 FeatureFlags.getDefault(),
                 DynamicFeatureFlagRegistry.empty()),
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     try (var unused = FakeExplain.setup(Explain.Verbosity.EXECUTION_STATS, 0, explainInformation)) {
       BsonDocument result = command.run();
@@ -1092,7 +1121,8 @@ public class SearchCommandTest {
                         .build())
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     try (var unused = FakeExplain.setup(Explain.Verbosity.QUERY_PLANNER, 0, explainInformation)) {
       BsonDocument result = command.run();
@@ -1125,7 +1155,8 @@ public class SearchCommandTest {
                 .cursorOptions(CursorOptionsDefinitionBuilder.builder().batchSize(5).build())
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     try (var unused =
         Explain.setup(
@@ -1206,7 +1237,8 @@ public class SearchCommandTest {
                         .build())
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     try (var unused = FakeExplain.setup(Explain.Verbosity.EXECUTION_STATS, 2, explainInformation)) {
       BsonDocument result = command.run();
@@ -1232,7 +1264,8 @@ public class SearchCommandTest {
                 .query(VALID_COLLECTOR_QUERY)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     BsonDocument result = command.run();
     Assert.assertEquals(1, result.getInt32("ok").getValue());
@@ -1268,7 +1301,8 @@ public class SearchCommandTest {
                         .build())
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     try (var unused =
         FakeExplain.setup(
@@ -1298,7 +1332,8 @@ public class SearchCommandTest {
                 .intermediate(1)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     BsonDocument result = command.run();
     Assert.assertEquals(1, result.getInt32("ok").getValue());
@@ -1321,7 +1356,8 @@ public class SearchCommandTest {
                 .query(COLLECTOR_QUERY_NUM_BUCKETS_2000)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     BsonDocument result = command.run();
     Assert.assertEquals(0, result.getInt32("ok").getValue());
@@ -1363,7 +1399,8 @@ public class SearchCommandTest {
                 .query(COLLECTOR_QUERY_NUM_BUCKETS_2000)
                 .build(),
             metadataWithDffOn,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     BsonDocument result = command.run();
     Assert.assertEquals(1, result.getInt32("ok").getValue());
@@ -1413,7 +1450,8 @@ public class SearchCommandTest {
                 .query(queryWith500Buckets)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     BsonDocument result = command.run();
     Assert.assertEquals(1, result.getInt32("ok").getValue());
@@ -1458,7 +1496,8 @@ public class SearchCommandTest {
                 .query(VALID_OPERATOR_QUERY)
                 .build(),
             BOOTSTRAPPER_METADATA,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
 
     BsonDocument result = command.run();
     Assert.assertEquals(0, result.getInt32("ok").getValue());

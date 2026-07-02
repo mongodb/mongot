@@ -1120,11 +1120,17 @@ public class VectorSearchCommandAutoEmbedTest {
                 PATH.toString(), "voyage-3-large", 1024, quantization, VectorSimilarity.DOT_PRODUCT)
             .build();
 
-    // InitializedMaterializedViewIndex - the actual index that gets queried
+    // InitializedMaterializedViewIndex - used in the AutoEmbeddingIndexGeneration chain
     var matViewIndex = Mockito.mock(InitializedMaterializedViewIndex.class);
     when(matViewIndex.getSchemaMetadata()).thenReturn(schemaMetadata);
-    when(matViewIndex.getReader()).thenReturn(mocks.reader);
-    when(matViewIndex.getDefinition()).thenReturn(vectorDef);
+    lenient().when(matViewIndex.getDefinition()).thenReturn(vectorDef);
+
+    // InitializedVectorIndex - the index returned by InitializedIndexCatalog for querying
+    var initializedVectorIndex = Mockito.mock(InitializedVectorIndex.class);
+    when(initializedVectorIndex.getDefinition()).thenReturn(vectorDef);
+    when(initializedVectorIndex.getReader()).thenReturn(mocks.reader);
+    lenient().when(initializedVectorIndex.asVectorIndex()).thenCallRealMethod();
+    when(initializedVectorIndex.getMetricsUpdater()).thenReturn(mocks.metricsUpdater);
 
     // MaterializedViewIndexGeneration - wraps the initialized index
     var matViewIndexGeneration = Mockito.mock(MaterializedViewIndexGeneration.class);
@@ -1142,7 +1148,7 @@ public class VectorSearchCommandAutoEmbedTest {
     when(mocks.catalog.getIndex(DATABASE_NAME, COLLECTION_UUID, Optional.empty(), INDEX_NAME))
         .thenReturn(Optional.of(autoEmbeddingIndexGeneration));
     when(mocks.initializedIndexCatalog.getIndex(matViewGenId))
-        .thenReturn(Optional.of(matViewIndex));
+        .thenReturn(Optional.of(initializedVectorIndex));
   }
 
   /**

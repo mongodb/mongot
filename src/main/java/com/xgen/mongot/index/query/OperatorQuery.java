@@ -27,6 +27,21 @@ public record OperatorQuery(
     Check.argNotNull(operator, "operator");
   }
 
+  public OperatorQuery withOperator(Operator newOperator) {
+    return new OperatorQuery(
+        newOperator,
+        this.index,
+        this.count,
+        this.highlight,
+        this.pagination,
+        this.returnStoredSource,
+        this.scoreDetails,
+        this.concurrent,
+        this.rawSortSpec,
+        this.tracking,
+        this.returnScope);
+  }
+
   @Override
   public BsonDocument queryToBson() {
     return this.operator.toBson();

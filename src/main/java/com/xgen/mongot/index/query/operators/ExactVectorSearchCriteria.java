@@ -63,6 +63,32 @@ public record ExactVectorSearchCriteria(
   }
 
   @Override
+  public VectorSearchCriteria withQueryVector(Vector vector) {
+    return new ExactVectorSearchCriteria(
+        this.path,
+        Optional.of(vector),
+        Optional.empty(),
+        this.filter,
+        this.parentFilter,
+        this.limit,
+        this.returnStoredSource,
+        this.embeddedOptions);
+  }
+
+  @Override
+  public VectorSearchCriteria withPath(FieldPath path) {
+    return new ExactVectorSearchCriteria(
+        path,
+        this.queryVector,
+        this.query,
+        this.filter,
+        this.parentFilter,
+        this.limit,
+        this.returnStoredSource,
+        this.embeddedOptions);
+  }
+
+  @Override
   public BsonDocument toBson() {
     BsonDocument filterDocument =
         this.filter.map(DocumentEncodable::toBson).orElse(new BsonDocument());

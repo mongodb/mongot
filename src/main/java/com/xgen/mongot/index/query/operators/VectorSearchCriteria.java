@@ -42,6 +42,18 @@ public sealed interface VectorSearchCriteria extends DocumentEncodable
 
   Type getVectorSearchType();
 
+  /**
+   * Returns a copy of this criteria with the given query vector set (replacing any text query).
+   * Used by auto-embedding to replace a text query with its embedded vector.
+   */
+  VectorSearchCriteria withQueryVector(Vector vector);
+
+  /**
+   * Returns a copy of this criteria with the given path. Used by auto-embedding to retarget the
+   * query at the materialized-view field path that holds the embedded vector.
+   */
+  VectorSearchCriteria withPath(FieldPath path);
+
   enum Type {
     EXACT,
     APPROXIMATE,

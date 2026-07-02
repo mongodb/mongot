@@ -661,42 +661,12 @@ public class VectorSearchCommand implements Command {
               .formatted(fieldPath, vectorSearchQuery.index()));
     }
     String indexModelName = vectorIndexDef.getModelNamePerPath().get(fieldPath);
-
     Optional<String> queryModel =
         vectorSearchQuery.criteria().query().flatMap(VectorSearchQueryInput::getModel);
-
-    // If the user didn't specify a model, use the indexing model.
-    if (queryModel.isEmpty()) {
-      LOG.atDebug()
-          .addKeyValue("indexModel", indexModelName)
-          .addKeyValue("fieldPath", fieldPath.toString())
-          .log("Using indexing model for embedding query (no query model specified)");
-      return Optional.of(new EmbedRequestInfo(Optional.of(indexModelName), vectorIndexDef));
-    }
-
-    // Check if the query model is allowed
-    if (!EmbeddingModelCatalog.isQueryModelAllowed(queryModel.get())) {
-      throw new InvalidQueryException(
-          String.format(
-              "model '%s' is not allowed. Allowed models are: %s",
-              queryModel.get(), EmbeddingModelCatalog.getAllowedQueryModels()));
-    }
-
-    // Then, check if the query model is compatible with the index's model
-    Set<String> compatibleIndexModels =
-        EmbeddingModelCatalog.getCompatibleIndexModels(queryModel.get());
-    if (!compatibleIndexModels.contains(indexModelName)) {
-      throw new InvalidQueryException(
-          String.format(
-              "query model '%s' is not compatible with the index model '%s'",
-              queryModel.get(), indexModelName));
-    }
-    LOG.atDebug()
-        .addKeyValue("queryModel", queryModel.get())
-        .addKeyValue("indexModel", indexModelName)
-        .addKeyValue("fieldPath", fieldPath.toString())
-        .log("Using user-specified model for embedding (compatible with indexing model)");
-    return Optional.of(new EmbedRequestInfo(queryModel, vectorIndexDef));
+    // Shared with the $search path: resolves to the index model when no query model is supplied,
+    // otherwise the query model after validating it is allowed and compatible with the index model.
+    String resolvedModel = SearchAutoEmbeddingHelper.resolveQueryModel(indexModelName, queryModel);
+    return Optional.of(new EmbedRequestInfo(Optional.of(resolvedModel), vectorIndexDef));
   }
 
   private MongotCursorBatch createExhaustedCursorBatch(BsonArray results)
