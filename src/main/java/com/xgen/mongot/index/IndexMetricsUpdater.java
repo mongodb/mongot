@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import org.apache.lucene.search.TotalHits;
@@ -1414,7 +1415,7 @@ public class IndexMetricsUpdater implements Closeable {
       static final String TOTAL_APPLICABLE_BYTES = "totalApplicableBytes";
 
       private final PerIndexMetricsFactory metricsFactory;
-      private final Tags tags;
+      private final IdFieldTypeGauge idFieldTypeGauge;
       private final DistributionSummary collScanBatchTotalApplicableDocuments;
       private final DistributionSummary collScanBatchTotalApplicableBytes;
       private final DistributionSummary changeStreamBatchTotalApplicableDocuments;
@@ -1425,7 +1426,7 @@ public class IndexMetricsUpdater implements Closeable {
 
       InitialSyncMetrics(PerIndexMetricsFactory metricsFactory, Tags tags) {
         this.metricsFactory = metricsFactory;
-        this.tags = tags;
+        this.idFieldTypeGauge = new IdFieldTypeGauge(metricsFactory, tags);
         this.collScanBatchTotalApplicableDocuments =
             this.metricsFactory.summary(
                 COLL_SCAN_BATCH_TOTAL_APPLICABLE_DOCUMENTS,
@@ -1488,7 +1489,12 @@ public class IndexMetricsUpdater implements Closeable {
       }
 
       public void reportIdKeyFieldType(String idFieldTypeName) {
-        reportIdKeyFieldTypeGauge(this.metricsFactory, this, idFieldTypeName, this.tags);
+        this.idFieldTypeGauge.report(idFieldTypeName);
+      }
+
+      /** Resets the {@code _id} field type gauge to 0 when the index leaves initial sync. */
+      public void resetIdKeyFieldType() {
+        this.idFieldTypeGauge.reset();
       }
 
       @Override
@@ -1505,7 +1511,7 @@ public class IndexMetricsUpdater implements Closeable {
       static final String BATCH_DECODING_TIMER = "decodingBatchDurations";
 
       private final PerIndexMetricsFactory metricsFactory;
-      private final Tags tags;
+      private final IdFieldTypeGauge idFieldTypeGauge;
       private final DistributionSummary batchTotalApplicableDocuments;
       private final DistributionSummary batchTotalApplicableBytes;
       private final Timer batchGetMoreTimer;
@@ -1513,7 +1519,7 @@ public class IndexMetricsUpdater implements Closeable {
 
       SteadyStateMetrics(PerIndexMetricsFactory metricsFactory, Tags tags) {
         this.metricsFactory = metricsFactory;
-        this.tags = tags;
+        this.idFieldTypeGauge = new IdFieldTypeGauge(metricsFactory, tags);
         this.batchTotalApplicableDocuments =
             this.metricsFactory.summary(
                 BATCH_TOTAL_APPLICABLE_DOCUMENTS,
@@ -1547,7 +1553,12 @@ public class IndexMetricsUpdater implements Closeable {
       }
 
       public void reportIdKeyFieldType(String idFieldTypeName) {
-        reportIdKeyFieldTypeGauge(this.metricsFactory, this, idFieldTypeName, this.tags);
+        this.idFieldTypeGauge.report(idFieldTypeName);
+      }
+
+      /** Resets the {@code _id} field type gauge to 0 when the index leaves steady state. */
+      public void resetIdKeyFieldType() {
+        this.idFieldTypeGauge.reset();
       }
 
       @Override
@@ -1557,14 +1568,45 @@ public class IndexMetricsUpdater implements Closeable {
     }
 
     /**
-     * Records the BSON type name of the collection's {@code _id} field as an info gauge fixed at
-     * 1.0, with the type encoded in the {@code bsonType} tag. Safe to call more than once —
-     * Micrometer returns the same gauge on repeated calls with identical tags.
+     * Tracks the BSON type of the collection's {@code _id} field for a single replication phase as
+     * an info gauge. The gauge is registered lazily on the first observed document (with the type
+     * encoded in the {@code bsonType} tag) and reads {@code 1.0} while the index is actively
+     * indexing in this phase. {@link #reset()} flips it to {@code 0.0} when the index leaves the
+     * phase (initial sync completed, resync, or teardown) so completed / discarded generations do
+     * not count.
+     *
+     * <p>Thread-safe: {@link #report(String)} runs on indexing threads while {@link #reset()} runs
+     * on the lifecycle thread.
      */
-    private static void reportIdKeyFieldTypeGauge(
-        PerIndexMetricsFactory metricsFactory, Object owner, String idFieldTypeName, Tags tags) {
-      metricsFactory.perIndexObjectValueGauge(
-          "idFieldType", owner, ignored -> 1.0, tags.and("bsonType", idFieldTypeName));
+    private static final class IdFieldTypeGauge {
+      static final String GAUGE_NAME = "idFieldType";
+      static final String BSON_TYPE_TAG_NAME = "bsonType";
+
+      private final PerIndexMetricsFactory metricsFactory;
+      private final Tags tags;
+      private final AtomicBoolean registered = new AtomicBoolean(false);
+      private final AtomicLong active = new AtomicLong(0L);
+
+      IdFieldTypeGauge(PerIndexMetricsFactory metricsFactory, Tags tags) {
+        this.metricsFactory = metricsFactory;
+        this.tags = tags;
+      }
+
+      void report(String idFieldTypeName) {
+        // Register once with the observed type; the gauge then just reads the mutable holder.
+        if (this.registered.compareAndSet(false, true)) {
+          this.metricsFactory.perIndexObjectValueGauge(
+              GAUGE_NAME,
+              this.active,
+              AtomicLong::doubleValue,
+              this.tags.and(BSON_TYPE_TAG_NAME, idFieldTypeName));
+        }
+        this.active.set(1L);
+      }
+
+      void reset() {
+        this.active.set(0L);
+      }
     }
 
     private static Tags extractTagsFromIndexDefinition(IndexDefinition indexDefinition) {

@@ -44,6 +44,7 @@ import com.xgen.testing.mongot.metrics.micrometer.SerializableTimerBuilder;
 import com.xgen.testing.mongot.mock.index.IndexMetricsSupplier;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.search.MeterNotFoundException;
 import java.time.Duration;
 import java.util.List;
@@ -65,6 +66,7 @@ import org.mockito.Mockito;
     value = {
       IndexMetricsUpdaterTest.TestClass.class,
       IndexMetricsUpdaterTest.TestClass.TestIndexingMetricsUpdater.class,
+      IndexMetricsUpdaterTest.TestClass.TestReplicationMetricsUpdater.class,
       IndexMetricsUpdaterTest.TestClass.TestQueryingMetricsUpdater.class,
       IndexMetricsUpdaterTest.TestClass.TestQueryingMetricsUpdater.TestQueryFeaturesMetricsUpdater
           .class,
@@ -446,6 +448,84 @@ public class IndexMetricsUpdaterTest {
                 .counter()
                 .count(),
             0);
+      }
+    }
+
+    public static class TestReplicationMetricsUpdater {
+      private static final String ID_FIELD_TYPE_GAUGE = "idFieldType";
+      private static final String BSON_TYPE_TAG = "bsonType";
+
+      @Test
+      public void initialSyncIdFieldTypeReportsOneThenResetsToZero() {
+        var factory =
+            mockMetricsFactory(
+                IndexMetricsUpdater.ReplicationMetricsUpdater.InitialSyncMetrics.NAMESPACE);
+        var initialSyncMetrics =
+            new IndexMetricsUpdater.ReplicationMetricsUpdater.InitialSyncMetrics(
+                factory, Tags.empty());
+
+        initialSyncMetrics.reportIdKeyFieldType("OBJECT_ID");
+        assertThat(gaugeValue(factory, "OBJECT_ID")).isEqualTo(1.0);
+
+        initialSyncMetrics.resetIdKeyFieldType();
+        assertThat(gaugeValue(factory, "OBJECT_ID")).isEqualTo(0.0);
+      }
+
+      @Test
+      public void steadyStateIdFieldTypeReportsOneThenResetsToZero() {
+        var factory =
+            mockMetricsFactory(
+                IndexMetricsUpdater.ReplicationMetricsUpdater.SteadyStateMetrics.NAMESPACE);
+        var steadyStateMetrics =
+            new IndexMetricsUpdater.ReplicationMetricsUpdater.SteadyStateMetrics(
+                factory, Tags.empty());
+
+        steadyStateMetrics.reportIdKeyFieldType("STRING");
+        assertThat(gaugeValue(factory, "STRING")).isEqualTo(1.0);
+
+        steadyStateMetrics.resetIdKeyFieldType();
+        assertThat(gaugeValue(factory, "STRING")).isEqualTo(0.0);
+      }
+
+      @Test
+      public void resetBeforeReportIsNoOpAndLaterReportStillRegistersGauge() {
+        var factory =
+            mockMetricsFactory(
+                IndexMetricsUpdater.ReplicationMetricsUpdater.InitialSyncMetrics.NAMESPACE);
+        var initialSyncMetrics =
+            new IndexMetricsUpdater.ReplicationMetricsUpdater.InitialSyncMetrics(
+                factory, Tags.empty());
+
+        // Reset before any document is observed must not register a gauge or throw.
+        initialSyncMetrics.resetIdKeyFieldType();
+        Assert.assertThrows(
+            MeterNotFoundException.class, () -> factory.get(ID_FIELD_TYPE_GAUGE).gauge());
+
+        // A subsequent report still lazily registers the gauge at 1.
+        initialSyncMetrics.reportIdKeyFieldType("OBJECT_ID");
+        assertThat(gaugeValue(factory, "OBJECT_ID")).isEqualTo(1.0);
+      }
+
+      @Test
+      public void reportAfterResetFlipsSameGaugeBackToOne() {
+        var factory =
+            mockMetricsFactory(
+                IndexMetricsUpdater.ReplicationMetricsUpdater.SteadyStateMetrics.NAMESPACE);
+        var steadyStateMetrics =
+            new IndexMetricsUpdater.ReplicationMetricsUpdater.SteadyStateMetrics(
+                factory, Tags.empty());
+
+        steadyStateMetrics.reportIdKeyFieldType("OBJECT_ID");
+        steadyStateMetrics.resetIdKeyFieldType();
+        assertThat(gaugeValue(factory, "OBJECT_ID")).isEqualTo(0.0);
+
+        // Re-entering the phase reports again and flips the same series back to 1.
+        steadyStateMetrics.reportIdKeyFieldType("OBJECT_ID");
+        assertThat(gaugeValue(factory, "OBJECT_ID")).isEqualTo(1.0);
+      }
+
+      private static double gaugeValue(PerIndexMetricsFactory factory, String bsonType) {
+        return factory.get(ID_FIELD_TYPE_GAUGE).tag(BSON_TYPE_TAG, bsonType).gauge().value();
       }
     }
 

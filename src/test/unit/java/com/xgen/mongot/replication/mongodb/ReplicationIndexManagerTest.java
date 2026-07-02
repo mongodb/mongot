@@ -39,6 +39,7 @@ import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricValuesSupplier;
+import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.IndexWriter;
 import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.definition.ViewDefinition;
@@ -1676,6 +1677,80 @@ public class ReplicationIndexManagerTest {
               .getConsecutiveInitialSyncResyncExceptions()
               .get());
     }
+  }
+
+  @Test
+  public void testIdFieldTypeGaugeResetsWhenLeavingInitialSync() throws Exception {
+    try (Mocks mocks = Mocks.noCommitUserData()) {
+      // The hanging initial sync queue keeps the index parked in INITIAL_SYNC.
+      await()
+          .atMost(Duration.ofSeconds(5))
+          .until(() -> mocks.manager.getState() == State.INITIAL_SYNC);
+
+      // Simulate the observing indexer reporting the _id type of the first indexed document.
+      mocks
+          .index
+          .getMetricsUpdater()
+          .getReplicationMetricsUpdater()
+          .getInitialSyncMetrics()
+          .reportIdKeyFieldType("OBJECT_ID");
+      assertEquals(1.0, initialSyncIdFieldTypeGauge(mocks, "OBJECT_ID"), 0.0);
+
+      // Leaving INITIAL_SYNC (here via shutdown) must flip the gauge back to 0.
+      assertSuccess(mocks.manager.shutdown());
+      await()
+          .atMost(Duration.ofSeconds(5))
+          .until(() -> initialSyncIdFieldTypeGauge(mocks, "OBJECT_ID") == 0.0);
+    }
+  }
+
+  @Test
+  public void testIdFieldTypeGaugeResetsWhenLeavingSteadyState() throws Exception {
+    try (Mocks mocks = Mocks.successfulInitialSync()) {
+      // The hanging steady state manager keeps the index parked in STEADY_STATE.
+      await()
+          .atMost(Duration.ofSeconds(5))
+          .until(() -> mocks.manager.getState() == State.STEADY_STATE);
+
+      // Simulate the observing indexer reporting the _id type of the first indexed document.
+      mocks
+          .index
+          .getMetricsUpdater()
+          .getReplicationMetricsUpdater()
+          .getSteadyStateMetrics()
+          .reportIdKeyFieldType("OBJECT_ID");
+      assertEquals(1.0, steadyStateIdFieldTypeGauge(mocks, "OBJECT_ID"), 0.0);
+
+      // Leaving STEADY_STATE (here via shutdown) must flip the gauge back to 0.
+      assertSuccess(mocks.manager.shutdown());
+      await()
+          .atMost(Duration.ofSeconds(5))
+          .until(() -> steadyStateIdFieldTypeGauge(mocks, "OBJECT_ID") == 0.0);
+    }
+  }
+
+  private static double initialSyncIdFieldTypeGauge(Mocks mocks, String bsonType) {
+    return idFieldTypeGauge(
+        mocks,
+        IndexMetricsUpdater.ReplicationMetricsUpdater.InitialSyncMetrics.NAMESPACE,
+        bsonType);
+  }
+
+  private static double steadyStateIdFieldTypeGauge(Mocks mocks, String bsonType) {
+    return idFieldTypeGauge(
+        mocks,
+        IndexMetricsUpdater.ReplicationMetricsUpdater.SteadyStateMetrics.NAMESPACE,
+        bsonType);
+  }
+
+  private static double idFieldTypeGauge(Mocks mocks, String phaseNamespace, String bsonType) {
+    return mocks
+        .metricsFactory
+        .childMetricsFactory(IndexMetricsUpdater.ReplicationMetricsUpdater.NAMESPACE)
+        .childMetricsFactory(phaseNamespace)
+        .get("idFieldType", Tags.of("bsonType", bsonType))
+        .gauge()
+        .value();
   }
 
   private void assertSuccess(CompletableFuture<Void> future) throws Exception {

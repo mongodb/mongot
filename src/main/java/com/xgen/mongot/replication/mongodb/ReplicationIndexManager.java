@@ -1051,6 +1051,22 @@ public class ReplicationIndexManager implements IndexManager {
           .set(0);
     }
 
+    // Reset the per-phase _id field type gauge when leaving a replication phase so it reflects only
+    // the _id type of indexes currently active in that phase (not completed / discarded ones).
+    if (this.state.equals(State.INITIAL_SYNC)) {
+      this.index
+          .getMetricsUpdater()
+          .getReplicationMetricsUpdater()
+          .getInitialSyncMetrics()
+          .resetIdKeyFieldType();
+    } else if (this.state.equals(State.STEADY_STATE)) {
+      this.index
+          .getMetricsUpdater()
+          .getReplicationMetricsUpdater()
+          .getSteadyStateMetrics()
+          .resetIdKeyFieldType();
+    }
+
     this.metricsFactory
         .counter(
             "transitionState",
