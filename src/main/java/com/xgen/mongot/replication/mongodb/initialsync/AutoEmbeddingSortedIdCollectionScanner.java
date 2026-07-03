@@ -17,6 +17,7 @@ import com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils;
 import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.DocumentMetadata;
 import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.lucene.query.pushdown.ArrayComparator;
 import com.xgen.mongot.index.lucene.query.pushdown.MqlComparator;
 import com.xgen.mongot.logging.DefaultKeyValueLogger;
@@ -24,6 +25,7 @@ import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.replication.mongodb.common.CollectionScanMongoClient;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
 import com.xgen.mongot.util.Check;
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.mongodb.CollectionScanFindCommand;
 import io.micrometer.core.instrument.Timer;
 import java.time.Clock;
@@ -52,6 +54,7 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
   private final AutoEmbedFieldMapping autoEmbedMapping;
   private final AutoEmbedFieldMapping matViewAutoEmbedMapping;
   private final MaterializedViewCollectionMetadata matViewCollectionMetadata;
+  private final Optional<FieldPath> sourceNestedRoot;
 
   private final Timer preprocessingBatchTimer;
   private boolean firstPage = true;
@@ -94,6 +97,10 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
     this.matViewAutoEmbedMapping =
         AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(
             indexDef, this.matViewCollectionMetadata.schemaMetadata());
+    this.sourceNestedRoot =
+        indexDef instanceof VectorIndexDefinition vectorIndexDefinition
+            ? vectorIndexDefinition.getNestedRoot()
+            : Optional.empty();
   }
 
   @Override
@@ -200,7 +207,8 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
                 matViewDoc,
                 this.autoEmbedMapping,
                 this.matViewAutoEmbedMapping,
-                this.matViewCollectionMetadata.schemaMetadata());
+                this.matViewCollectionMetadata.schemaMetadata(),
+                this.sourceNestedRoot);
         if (comparisonResult.needsReIndexing()) {
           var rawDocumentEvent = DocumentEvent.createUpdate(sourceDocMetadata, sourceDoc);
           // Check if we have any re-usable embeddings to pass in.

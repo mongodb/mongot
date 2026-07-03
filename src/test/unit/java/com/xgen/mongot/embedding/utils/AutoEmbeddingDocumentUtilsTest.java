@@ -2704,14 +2704,13 @@ public class AutoEmbeddingDocumentUtilsTest {
   }
 
   /**
-   * CLOUDP-402522: when an auto-embed index has a nestedRoot and the schema mapping remaps a filter
-   * field under that root, {@link AutoEmbeddingDocumentUtils#buildMaterializedViewDocumentEvent}
-   * must write the first source value of that filter at the materialized-view path so it lands in
-   * the same Lucene child documents as the embedding vector. Without this, filtered nested
-   * $vectorSearch returns no results.
+   * Multi-vector nested auto-embed: every source array element under the nestedRoot is embedded
+   * into its own MV child under {@code _autoEmbed.<nestedRoot>}, co-located with that element's
+   * filter value, with a parallel per-element hash array. This makes every element independently
+   * searchable, matching how regular pre-computed nested vectors index each array element.
    */
   @Test
-  public void buildMaterializedViewDocumentEvent_remapsFilterUnderNestedRootIntoMvNamespace()
+  public void buildMaterializedViewDocumentEvent_nestedRoot_writesPerElementVectors()
       throws IOException {
     var schemaMetadata = nestedSchemaMetadata();
     VectorIndexDefinition indexDefinition =
@@ -2732,32 +2731,464 @@ public class AutoEmbeddingDocumentUtilsTest {
                 "sections",
                 new BsonArray(
                     List.of(
-                        section("book_12_section_1", "content for book_12, s1"),
-                        section("book_12_section_2", "content for book_12, s2"))));
-    DocumentEvent rawEvent = insertEventOf(rawDoc(source));
+                        new BsonDocument()
+                            .append("section_name", new BsonString("book_12_section_1"))
+                            .append("section_content", new BsonString("content s1")),
+                        new BsonDocument()
+                            .append("section_name", new BsonString("book_12_section_2"))
+                            .append("section_content", new BsonString("content s2")))));
+    RawBsonDocument rawSource = new RawBsonDocument(source, BsonUtils.BSON_DOCUMENT_CODEC);
+    DocumentEvent rawEvent =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromOriginalDocument(Optional.of(rawSource)), rawSource);
+
+    Vector v1 = Vector.fromFloats(new float[] {0.1f, 0.2f}, FloatVector.OriginalType.NATIVE);
+    Vector v2 = Vector.fromFloats(new float[] {0.3f, 0.4f}, FloatVector.OriginalType.NATIVE);
+    ImmutableMap<FieldPath, ImmutableMap<String, Vector>> embeddings =
+        ImmutableMap.of(
+            FieldPath.parse("sections.section_content"),
+            ImmutableMap.of("content s1", v1, "content s2", v2));
 
     DocumentEvent result =
         buildMaterializedViewDocumentEvent(
             rawEvent,
             AutoEmbedFieldMappingCreator.createAutoEmbedMapping(indexDefinition),
-            sectionEmbeddings("content for book_12, s1", SAMPLE_VECTOR),
-            schemaMetadata);
+            embeddings,
+            schemaMetadata,
+            indexDefinition.getNestedRoot());
 
     BsonDocument matViewDoc = result.getDocument().get();
-    BsonDocument autoEmbedSubtree = matViewDoc.getDocument("_autoEmbed");
-    BsonDocument autoEmbedSections = autoEmbedSubtree.getDocument("sections");
+    BsonArray sections = matViewDoc.getDocument("_autoEmbed").getArray("sections");
     assertEquals(
-        "Filter value must be written at the MV path so it lands in the same Lucene child"
-            + " document as the vector. We mirror the buildEmbeddingsPerMatViewPath findFirst()"
-            + " policy and only persist the first source value.",
+        "Every source element must be embedded into its own index-aligned MV child.",
+        2,
+        sections.size());
+    assertEquals(
         new BsonString("book_12_section_1"),
-        autoEmbedSections.getString("section_name"));
-    assertThat(autoEmbedSections.containsKey("section_content")).isTrue();
+        sections.get(0).asDocument().getString("section_name"));
+    assertThat(sections.get(0).asDocument().containsKey("section_content")).isTrue();
+    assertEquals(
+        new BsonString("book_12_section_2"),
+        sections.get(1).asDocument().getString("section_name"));
+    assertThat(sections.get(1).asDocument().containsKey("section_content")).isTrue();
+
+    BsonArray hashes =
+        matViewDoc
+            .getDocument("_autoEmbed")
+            .getDocument("_hash")
+            .getDocument("sections")
+            .getArray("section_content");
+    assertEquals("Per-element hash array must align 1:1 with the element array.", 2, hashes.size());
+    assertEquals(new BsonString(computeTextHash("content s1")), hashes.get(0));
+    assertEquals(new BsonString(computeTextHash("content s2")), hashes.get(1));
     assertEquals(
         "Top-level filters must keep their source path so they continue to be indexed at the"
             + " root document level.",
         new BsonString("book_12"),
         matViewDoc.getString("name"));
+  }
+
+  /**
+   * Multi-segment nestedRoot regression (writer side): a deep nestedRoot like {@code
+   * metadata.sections} lives under an intermediate subdocument, so its element array must be
+   * resolved by walking the path. Otherwise the writer builds an empty {@code
+   * _autoEmbed.metadata.sections} array and drops every nested vector/filter for deep nested roots.
+   */
+  @Test
+  public void buildMaterializedViewDocumentEvent_multiSegmentNestedRoot_writesPerElementVectors()
+      throws IOException {
+    FieldPath embedSource = FieldPath.parse("metadata.sections.section_content");
+    FieldPath filterSource = FieldPath.parse("metadata.sections.section_name");
+    var schemaMetadata =
+        new MaterializedViewSchemaMetadata(
+            1,
+            Map.of(
+                embedSource, FieldPath.parse("_autoEmbed.metadata.sections.section_content"),
+                filterSource, FieldPath.parse("_autoEmbed.metadata.sections.section_name")));
+    VectorIndexDefinition indexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(
+                List.of(
+                    new VectorAutoEmbedFieldDefinition("voyage-3-large", embedSource),
+                    new VectorIndexFilterFieldDefinition(filterSource)))
+            .nestedRoot("metadata.sections")
+            .build();
+
+    BsonDocument source =
+        new BsonDocument()
+            .append("_id", new BsonString("book_deep"))
+            .append(
+                "metadata",
+                new BsonDocument(
+                    "sections",
+                    new BsonArray(
+                        List.of(
+                            new BsonDocument()
+                                .append("section_name", new BsonString("name_a"))
+                                .append("section_content", new BsonString("content a")),
+                            new BsonDocument()
+                                .append("section_name", new BsonString("name_b"))
+                                .append("section_content", new BsonString("content b"))))));
+    RawBsonDocument rawSource = new RawBsonDocument(source, BsonUtils.BSON_DOCUMENT_CODEC);
+    DocumentEvent rawEvent = insertEventOf(rawSource);
+
+    Vector v1 = Vector.fromFloats(new float[] {0.1f, 0.2f}, FloatVector.OriginalType.NATIVE);
+    Vector v2 = Vector.fromFloats(new float[] {0.3f, 0.4f}, FloatVector.OriginalType.NATIVE);
+    ImmutableMap<FieldPath, ImmutableMap<String, Vector>> embeddings =
+        ImmutableMap.of(embedSource, ImmutableMap.of("content a", v1, "content b", v2));
+
+    DocumentEvent result =
+        buildMaterializedViewDocumentEvent(
+            rawEvent,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(indexDefinition),
+            embeddings,
+            schemaMetadata,
+            indexDefinition.getNestedRoot());
+
+    BsonDocument matViewDoc = result.getDocument().get();
+    BsonArray sections =
+        matViewDoc.getDocument("_autoEmbed").getDocument("metadata").getArray("sections");
+    assertEquals(
+        "A multi-segment nestedRoot must resolve through the intermediate subdocument and embed"
+            + " every element into its own index-aligned MV child.",
+        2,
+        sections.size());
+    assertEquals(new BsonString("name_a"), sections.get(0).asDocument().getString("section_name"));
+    assertThat(sections.get(0).asDocument().containsKey("section_content")).isTrue();
+    assertEquals(new BsonString("name_b"), sections.get(1).asDocument().getString("section_name"));
+    assertThat(sections.get(1).asDocument().containsKey("section_content")).isTrue();
+
+    BsonArray hashes =
+        matViewDoc
+            .getDocument("_autoEmbed")
+            .getDocument("_hash")
+            .getDocument("metadata")
+            .getDocument("sections")
+            .getArray("section_content");
+    assertEquals("Per-element hash array must align 1:1 with the element array.", 2, hashes.size());
+    assertEquals(new BsonString(computeTextHash("content a")), hashes.get(0));
+    assertEquals(new BsonString(computeTextHash("content b")), hashes.get(1));
+  }
+
+  /**
+   * Mixed nested + non-nested auto-embed index: an index may declare embed fields both under the
+   * nestedRoot and at the root level. The nested fields are written per-element under {@code
+   * _autoEmbed.<nestedRoot>}, while the root-level embed field must still get its own standard
+   * single vector + hash so it stays searchable.
+   */
+  @Test
+  public void buildMaterializedViewDocumentEvent_mixedNestedAndNonNestedEmbed_writesBoth()
+      throws IOException {
+    FieldPath nestedEmbed = FieldPath.parse("sections.section_content");
+    FieldPath nestedFilter = FieldPath.parse("sections.section_name");
+    FieldPath rootEmbed = FieldPath.parse("title");
+    var schemaMetadata =
+        new MaterializedViewSchemaMetadata(
+            1,
+            Map.of(
+                nestedEmbed, FieldPath.parse("_autoEmbed.sections.section_content"),
+                nestedFilter, FieldPath.parse("_autoEmbed.sections.section_name"),
+                rootEmbed, FieldPath.parse("_autoEmbed.title")));
+    VectorIndexDefinition indexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(
+                List.of(
+                    new VectorAutoEmbedFieldDefinition("voyage-3-large", nestedEmbed),
+                    new VectorIndexFilterFieldDefinition(nestedFilter),
+                    new VectorAutoEmbedFieldDefinition("voyage-3-large", rootEmbed)))
+            .nestedRoot("sections")
+            .build();
+
+    BsonDocument source =
+        new BsonDocument()
+            .append("_id", new BsonString("book_mixed"))
+            .append("title", new BsonString("the title text"))
+            .append(
+                "sections",
+                new BsonArray(
+                    List.of(
+                        new BsonDocument()
+                            .append("section_name", new BsonString("n1"))
+                            .append("section_content", new BsonString("content a")),
+                        new BsonDocument()
+                            .append("section_name", new BsonString("n2"))
+                            .append("section_content", new BsonString("content b")))));
+    RawBsonDocument rawSource = new RawBsonDocument(source, BsonUtils.BSON_DOCUMENT_CODEC);
+    DocumentEvent rawEvent = insertEventOf(rawSource);
+
+    Vector sectionVector1 =
+        Vector.fromFloats(new float[] {0.1f, 0.2f}, FloatVector.OriginalType.NATIVE);
+    Vector sectionVector2 =
+        Vector.fromFloats(new float[] {0.3f, 0.4f}, FloatVector.OriginalType.NATIVE);
+    Vector titleVector =
+        Vector.fromFloats(new float[] {0.5f, 0.6f}, FloatVector.OriginalType.NATIVE);
+    ImmutableMap<FieldPath, ImmutableMap<String, Vector>> embeddings =
+        ImmutableMap.of(
+            nestedEmbed, ImmutableMap.of("content a", sectionVector1, "content b", sectionVector2),
+            rootEmbed, ImmutableMap.of("the title text", titleVector));
+
+    DocumentEvent result =
+        buildMaterializedViewDocumentEvent(
+            rawEvent,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(indexDefinition),
+            embeddings,
+            schemaMetadata,
+            indexDefinition.getNestedRoot());
+
+    BsonDocument matViewDoc = result.getDocument().get();
+
+    // Nested embeds: one index-aligned child per source element.
+    BsonArray sections = matViewDoc.getDocument("_autoEmbed").getArray("sections");
+    assertEquals(2, sections.size());
+
+    // Root-level embed: standard single vector + hash, not dropped by the nested path.
+    assertEquals(
+        "A root-level embed field on a mixed index must still get its vector written.",
+        BsonVectorParser.encode(titleVector),
+        matViewDoc.getDocument("_autoEmbed").get("title"));
+    assertEquals(
+        "A root-level embed field on a mixed index must still get its hash written.",
+        new BsonString(computeTextHash("the title text")),
+        matViewDoc.getDocument("_autoEmbed").getDocument("_hash").getString("title"));
+  }
+
+  /**
+   * CLOUDP-402522 (partial-update optimization): a filter-only {@code $set} on a nested index must
+   * patch the co-located {@code _autoEmbed.*} filter in place via an array-positional key, so the
+   * MV's indexed filter stays consistent with the embedded vector without forcing a full re-index.
+   * The source-path copy produced by {@link AutoEmbeddingDocumentUtils#extractFilterFieldValues} is
+   * preserved untouched.
+   */
+  @Test
+  public void buildNestedFilterPartialSetBody_addsPositionalCoLocatedFilter() {
+    var schemaMetadata =
+        new MaterializedViewSchemaMetadata(
+            1,
+            Map.of(
+                FieldPath.parse("sections.section_content"),
+                FieldPath.parse("_autoEmbed.sections.section_content"),
+                FieldPath.parse("sections.section_name"),
+                FieldPath.parse("_autoEmbed.sections.section_name")));
+
+    var autoEmbedField =
+        new VectorAutoEmbedFieldDefinition(
+            "voyage-3-large", FieldPath.parse("sections.section_content"));
+    var nestedFilter =
+        new VectorIndexFilterFieldDefinition(FieldPath.parse("sections.section_name"));
+    VectorIndexDefinition indexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(List.of(autoEmbedField, nestedFilter))
+            .nestedRoot("sections")
+            .build();
+    var mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(indexDefinition);
+
+    BsonDocument source =
+        new BsonDocument()
+            .append("_id", new BsonString("book_12"))
+            .append(
+                "sections",
+                new BsonArray(
+                    List.of(
+                        new BsonDocument()
+                            .append("section_name", new BsonString("updated_name"))
+                            .append("section_content", new BsonString("content s1")))));
+    RawBsonDocument rawSource = new RawBsonDocument(source, BsonUtils.BSON_DOCUMENT_CODEC);
+
+    // The filter-only $set body as produced by ChangeStreamDocumentUtils: source-path copy only.
+    BsonDocument filterOnlySetBody =
+        AutoEmbeddingDocumentUtils.extractFilterFieldValues(rawSource, mapping).get();
+
+    BsonDocument augmented =
+        AutoEmbeddingDocumentUtils.buildNestedFilterPartialSetBody(
+            filterOnlySetBody, rawSource, mapping, indexDefinition.getNestedRoot(), schemaMetadata);
+
+    assertEquals(
+        "Co-located filter must be patched via an array-positional $set key so the MV's indexed"
+            + " filter stays aligned with the existing vector.",
+        new BsonString("updated_name"),
+        augmented.getString("_autoEmbed.sections.0.section_name"));
+    assertEquals(
+        "The source-path copy must be preserved in the augmented body.",
+        new BsonString("updated_name"),
+        augmented.getArray("sections").get(0).asDocument().getString("section_name"));
+  }
+
+  /**
+   * Guard against a MongoDB path conflict: when the MV nestedRoot resolves to the source nestedRoot
+   * (no _autoEmbed.* remapping, e.g. an empty autoEmbeddingFieldsMapping), extractFilterFieldValues
+   * already wrote the filter at the source path. The augmenter must NOT add array-positional keys
+   * under the same root (e.g. "sections.0.section_name" alongside "sections"), which MongoDB
+   * rejects.
+   */
+  @Test
+  public void buildNestedFilterPartialSetBody_mvRootEqualsSourceRoot_noPositionalKeys() {
+    // Empty fields mapping => getMatViewNestedRoot returns the source nestedRoot unchanged.
+    var schemaMetadata = new MaterializedViewSchemaMetadata(1, Map.of());
+
+    var autoEmbedField =
+        new VectorAutoEmbedFieldDefinition(
+            "voyage-3-large", FieldPath.parse("sections.section_content"));
+    var nestedFilter =
+        new VectorIndexFilterFieldDefinition(FieldPath.parse("sections.section_name"));
+    VectorIndexDefinition indexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(List.of(autoEmbedField, nestedFilter))
+            .nestedRoot("sections")
+            .build();
+    var mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(indexDefinition);
+
+    BsonDocument source =
+        new BsonDocument()
+            .append("_id", new BsonString("book_13"))
+            .append(
+                "sections",
+                new BsonArray(
+                    List.of(
+                        new BsonDocument()
+                            .append("section_name", new BsonString("updated_name"))
+                            .append("section_content", new BsonString("content s1")))));
+    RawBsonDocument rawSource = new RawBsonDocument(source, BsonUtils.BSON_DOCUMENT_CODEC);
+
+    BsonDocument filterOnlySetBody =
+        AutoEmbeddingDocumentUtils.extractFilterFieldValues(rawSource, mapping).get();
+
+    BsonDocument augmented =
+        AutoEmbeddingDocumentUtils.buildNestedFilterPartialSetBody(
+            filterOnlySetBody, rawSource, mapping, indexDefinition.getNestedRoot(), schemaMetadata);
+
+    assertFalse(
+        "No array-positional key may be emitted when the MV root equals the source root, else the"
+            + " $set conflicts with the source-path 'sections' entry.",
+        augmented.containsKey("sections.0.section_name"));
+    assertEquals(
+        "The body must be unchanged from the source-path-only filter body.",
+        filterOnlySetBody,
+        augmented);
+  }
+
+  /**
+   * Multi-vector partial-$set: a filter-only update emits one array-positional key per source
+   * element straight from the post-image, each carrying that element's own filter value. Because
+   * the MV array is index-aligned with the source array, MV child {@code i} is patched from source
+   * element {@code i} — no "chosen element" selection — so the result matches what a full replace
+   * would produce.
+   */
+  @Test
+  public void buildNestedFilterPartialSetBody_emitsPositionalKeyPerElement() {
+    var schemaMetadata =
+        new MaterializedViewSchemaMetadata(
+            1,
+            Map.of(
+                FieldPath.parse("sections.section_content"),
+                FieldPath.parse("_autoEmbed.sections.section_content"),
+                FieldPath.parse("sections.section_name"),
+                FieldPath.parse("_autoEmbed.sections.section_name")));
+
+    var autoEmbedField =
+        new VectorAutoEmbedFieldDefinition(
+            "voyage-3-large", FieldPath.parse("sections.section_content"));
+    var nestedFilter =
+        new VectorIndexFilterFieldDefinition(FieldPath.parse("sections.section_name"));
+    VectorIndexDefinition indexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(List.of(autoEmbedField, nestedFilter))
+            .nestedRoot("sections")
+            .build();
+    var mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(indexDefinition);
+
+    BsonDocument source =
+        new BsonDocument()
+            .append("_id", new BsonString("book_skew"))
+            .append(
+                "sections",
+                new BsonArray(
+                    List.of(
+                        new BsonDocument()
+                            .append("section_name", new BsonString("name_a"))
+                            .append("section_content", new BsonString("")),
+                        new BsonDocument()
+                            .append("section_name", new BsonString("name_b"))
+                            .append("section_content", new BsonString("real content")))));
+    RawBsonDocument rawSource = new RawBsonDocument(source, BsonUtils.BSON_DOCUMENT_CODEC);
+
+    BsonDocument filterOnlySetBody =
+        AutoEmbeddingDocumentUtils.extractFilterFieldValues(rawSource, mapping).get();
+
+    BsonDocument augmented =
+        AutoEmbeddingDocumentUtils.buildNestedFilterPartialSetBody(
+            filterOnlySetBody, rawSource, mapping, indexDefinition.getNestedRoot(), schemaMetadata);
+
+    assertEquals(
+        "Element 0's filter must be patched at its own positional key.",
+        new BsonString("name_a"),
+        augmented.getString("_autoEmbed.sections.0.section_name"));
+    assertEquals(
+        "Element 1's filter must be patched at its own positional key.",
+        new BsonString("name_b"),
+        augmented.getString("_autoEmbed.sections.1.section_name"));
+  }
+
+  /**
+   * Multi-segment nestedRoot regression: a deep nestedRoot like {@code metadata.sections} lives
+   * under an intermediate subdocument, so its element array must be resolved by walking the path
+   * rather than read as a single literal top-level key. Otherwise the post-image lookup returns
+   * nothing and the co-located {@code _autoEmbed.*} filters are silently left stale, breaking
+   * filtered nested $vectorSearch.
+   */
+  @Test
+  public void buildNestedFilterPartialSetBody_multiSegmentNestedRoot_resolvesDeepPath() {
+    FieldPath embedSource = FieldPath.parse("metadata.sections.section_content");
+    FieldPath filterSource = FieldPath.parse("metadata.sections.section_name");
+    var schemaMetadata =
+        new MaterializedViewSchemaMetadata(
+            1,
+            Map.of(
+                embedSource, FieldPath.parse("_autoEmbed.metadata.sections.section_content"),
+                filterSource, FieldPath.parse("_autoEmbed.metadata.sections.section_name")));
+
+    VectorIndexDefinition indexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(
+                List.of(
+                    new VectorAutoEmbedFieldDefinition("voyage-3-large", embedSource),
+                    new VectorIndexFilterFieldDefinition(filterSource)))
+            .nestedRoot("metadata.sections")
+            .build();
+    var mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(indexDefinition);
+
+    BsonDocument source =
+        new BsonDocument()
+            .append("_id", new BsonString("book_deep"))
+            .append(
+                "metadata",
+                new BsonDocument(
+                    "sections",
+                    new BsonArray(
+                        List.of(
+                            new BsonDocument()
+                                .append("section_name", new BsonString("name_a"))
+                                .append("section_content", new BsonString("content a")),
+                            new BsonDocument()
+                                .append("section_name", new BsonString("name_b"))
+                                .append("section_content", new BsonString("content b"))))));
+    RawBsonDocument rawSource = new RawBsonDocument(source, BsonUtils.BSON_DOCUMENT_CODEC);
+
+    BsonDocument filterOnlySetBody =
+        AutoEmbeddingDocumentUtils.extractFilterFieldValues(rawSource, mapping).get();
+
+    BsonDocument augmented =
+        AutoEmbeddingDocumentUtils.buildNestedFilterPartialSetBody(
+            filterOnlySetBody, rawSource, mapping, indexDefinition.getNestedRoot(), schemaMetadata);
+
+    assertEquals(
+        "A multi-segment nestedRoot must resolve through the intermediate subdocument and patch"
+            + " element 0's co-located filter.",
+        new BsonString("name_a"),
+        augmented.getString("_autoEmbed.metadata.sections.0.section_name"));
+    assertEquals(
+        "Element 1's co-located filter must also be patched at its positional key.",
+        new BsonString("name_b"),
+        augmented.getString("_autoEmbed.metadata.sections.1.section_name"));
   }
 
   /**
@@ -2806,19 +3237,18 @@ public class AutoEmbeddingDocumentUtilsTest {
   }
 
   /**
-   * CLOUDP-402522 row alignment: when the first nested element has empty embed text and the vector
-   * is embedded from a later element, the remapped filter value must come from the same later
-   * element so that the MV child document colocates the vector with its sibling filter. Otherwise
-   * filtered nested $vectorSearch misses matches.
+   * Multi-vector nested construction with an empty element: an element whose embed text is empty
+   * still produces a child carrying its filter value (but no vector) and an empty hash slot, so the
+   * MV array stays index-aligned with the source array — which keeps {@code compareDocuments} and
+   * the partial-{@code $set} path positionally consistent.
    */
   @Test
-  public void buildMaterializedViewDocumentEvent_remappedFilter_alignsWithChosenEmbedIndex()
+  public void buildMaterializedViewDocumentEvent_nestedEmptyElement_keepsAlignment()
       throws IOException {
     var schemaMetadata = nestedSchemaMetadata();
     VectorIndexDefinition indexDefinition = nestedIndexDefinition();
 
-    // First element has empty embed text but a valid filter value; second element is the one
-    // that will actually be embedded.
+    // First element has empty embed text but a valid filter value; only the second is embedded.
     BsonDocument source =
         new BsonDocument()
             .append("_id", new BsonString("book_skew"))
@@ -2835,73 +3265,43 @@ public class AutoEmbeddingDocumentUtilsTest {
             rawEvent,
             AutoEmbedFieldMappingCreator.createAutoEmbedMapping(indexDefinition),
             sectionEmbeddings("real content", SAMPLE_VECTOR),
-            schemaMetadata);
+            schemaMetadata,
+            indexDefinition.getNestedRoot());
 
-    BsonDocument autoEmbedSections =
-        result.getDocument().get().getDocument("_autoEmbed").getDocument("sections");
+    BsonDocument matViewDoc = result.getDocument().get();
+    BsonArray sections = matViewDoc.getDocument("_autoEmbed").getArray("sections");
+    assertEquals("Both elements must produce a child to keep alignment.", 2, sections.size());
     assertEquals(
-        "Filter value must come from the same array element whose embed text produced the"
-            + " written vector — not from the first array element when it has empty embed text.",
-        new BsonString("name_for_real_section"),
-        autoEmbedSections.getString("section_name"));
-  }
-
-  /**
-   * CLOUDP-402522 regression: compareDocuments must align the remapped-filter comparison with the
-   * embed-chosen array index, not index 0. When the first element has empty embed text, the MV
-   * stores the second element's filter (the embed-chosen index). A faithful MV must therefore NOT
-   * be flagged for re-indexing; comparing against source element 0 would re-index forever.
-   */
-  @Test
-  public void compareDocuments_remappedFilter_chosenIndexNonZero_doesNotReindex()
-      throws IOException {
-    var schemaMetadata = nestedSchemaMetadata();
-    VectorIndexDefinition indexDefinition = nestedIndexDefinition();
-    var sourceMapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(indexDefinition);
-    var matViewMapping =
-        AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(indexDefinition, schemaMetadata);
-
-    // First element has empty embed text (chosen embed index = 1); the MV stores element 1's
-    // filter co-located with the vector.
-    BsonDocument source =
-        new BsonDocument()
-            .append("_id", new BsonString("book_skew"))
-            .append(
-                "sections",
-                new BsonArray(
-                    List.of(
-                        section("name_for_empty_section", ""),
-                        section("name_for_real_section", "real content"))));
-    RawBsonDocument rawSource = rawDoc(source);
-    DocumentEvent rawEvent = insertEventOf(rawSource);
-
-    RawBsonDocument matViewDoc =
-        rawDoc(
-            buildMaterializedViewDocumentEvent(
-                    rawEvent,
-                    sourceMapping,
-                    sectionEmbeddings("real content", SAMPLE_VECTOR),
-                    schemaMetadata)
-                .getDocument()
-                .get());
-
-    var comparison =
-        compareDocuments(rawSource, matViewDoc, sourceMapping, matViewMapping, schemaMetadata);
-
+        new BsonString("name_for_empty_section"),
+        sections.get(0).asDocument().getString("section_name"));
     assertFalse(
-        "A faithful MV whose co-located filter came from a non-zero embed-chosen index must not be"
-            + " re-indexed.",
-        comparison.needsReIndexing());
+        "Empty-text element must not carry a vector.",
+        sections.get(0).asDocument().containsKey("section_content"));
+    assertEquals(
+        new BsonString("name_for_real_section"),
+        sections.get(1).asDocument().getString("section_name"));
+    assertThat(sections.get(1).asDocument().containsKey("section_content")).isTrue();
+
+    BsonArray hashes =
+        matViewDoc
+            .getDocument("_autoEmbed")
+            .getDocument("_hash")
+            .getDocument("sections")
+            .getArray("section_content");
+    assertEquals(2, hashes.size());
+    assertEquals(
+        "Empty-text element must have an empty hash slot.", new BsonString(""), hashes.get(0));
+    assertEquals(new BsonString(computeTextHash("real content")), hashes.get(1));
   }
 
   /**
-   * CLOUDP-402522: when no embed source has a vector to write (e.g. all candidate texts are empty
-   * or unknown to the embedding map), the remapped filter values must also be skipped. Otherwise
-   * the MV would carry filter values without a colocated vector, which still breaks filtered nested
-   * $vectorSearch.
+   * Multi-vector nested construction when no element has embed text: each element still becomes a
+   * child carrying its filter value (no vector), with an all-empty hash array. The children remain
+   * so filter-only nested reads stay consistent and the array stays aligned with the source; they
+   * simply won't match vector queries.
    */
   @Test
-  public void buildMaterializedViewDocumentEvent_remappedFilter_skippedWhenNoVectorChosen()
+  public void buildMaterializedViewDocumentEvent_nestedAllEmpty_writesChildrenWithoutVectors()
       throws IOException {
     var schemaMetadata = nestedSchemaMetadata();
     VectorIndexDefinition indexDefinition = nestedIndexDefinition();
@@ -2913,7 +3313,7 @@ public class AutoEmbeddingDocumentUtilsTest {
                 "sections", new BsonArray(List.of(section("name_a", ""), section("name_b", ""))));
     DocumentEvent rawEvent = insertEventOf(rawDoc(source));
 
-    // Embedding map is keyed by source path but empty for any candidate text — no vector wins.
+    // Embedding map is keyed by source path but empty for any candidate text — no vectors exist.
     ImmutableMap<FieldPath, ImmutableMap<String, Vector>> embeddings =
         ImmutableMap.of(SECTION_CONTENT, ImmutableMap.of());
 
@@ -2922,13 +3322,280 @@ public class AutoEmbeddingDocumentUtilsTest {
             rawEvent,
             AutoEmbedFieldMappingCreator.createAutoEmbedMapping(indexDefinition),
             embeddings,
-            schemaMetadata);
+            schemaMetadata,
+            indexDefinition.getNestedRoot());
 
     BsonDocument matViewDoc = result.getDocument().get();
+    BsonArray sections = matViewDoc.getDocument("_autoEmbed").getArray("sections");
+    assertEquals(2, sections.size());
+    assertEquals(new BsonString("name_a"), sections.get(0).asDocument().getString("section_name"));
+    assertFalse(sections.get(0).asDocument().containsKey("section_content"));
+    assertEquals(new BsonString("name_b"), sections.get(1).asDocument().getString("section_name"));
+    assertFalse(sections.get(1).asDocument().containsKey("section_content"));
+
+    BsonArray hashes =
+        matViewDoc
+            .getDocument("_autoEmbed")
+            .getDocument("_hash")
+            .getDocument("sections")
+            .getArray("section_content");
+    assertEquals(List.of(new BsonString(""), new BsonString("")), hashes.getValues());
+  }
+
+  /**
+   * Element-wise resync comparison for multi-vector nested indexes: when the source matches the MV
+   * produced by a full replace, no re-index is required and every element's vector is reused.
+   */
+  @Test
+  public void compareDocuments_nestedMultiElement_noReindexAndReusesAllVectors()
+      throws IOException {
+    var schemaMetadata =
+        new MaterializedViewSchemaMetadata(
+            1,
+            Map.of(
+                FieldPath.parse("sections.section_content"),
+                FieldPath.parse("_autoEmbed.sections.section_content"),
+                FieldPath.parse("sections.section_name"),
+                FieldPath.parse("_autoEmbed.sections.section_name")));
+    var autoEmbedField =
+        new VectorAutoEmbedFieldDefinition(
+            "voyage-3-large", FieldPath.parse("sections.section_content"));
+    var nestedFilter =
+        new VectorIndexFilterFieldDefinition(FieldPath.parse("sections.section_name"));
+    VectorIndexDefinition indexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(List.of(autoEmbedField, nestedFilter))
+            .nestedRoot("sections")
+            .build();
+    var sourceMapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(indexDefinition);
+    var matViewMapping =
+        AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(indexDefinition, schemaMetadata);
+
+    BsonDocument source =
+        new BsonDocument()
+            .append("_id", new BsonString("book_1"))
+            .append(
+                "sections",
+                new BsonArray(
+                    List.of(
+                        new BsonDocument()
+                            .append("section_name", new BsonString("n1"))
+                            .append("section_content", new BsonString("c1")),
+                        new BsonDocument()
+                            .append("section_name", new BsonString("n2"))
+                            .append("section_content", new BsonString("c2")))));
+    RawBsonDocument rawSource = new RawBsonDocument(source, BsonUtils.BSON_DOCUMENT_CODEC);
+    DocumentEvent rawEvent =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromOriginalDocument(Optional.of(rawSource)), rawSource);
+
+    Vector v1 = Vector.fromFloats(new float[] {0.1f, 0.2f}, FloatVector.OriginalType.NATIVE);
+    Vector v2 = Vector.fromFloats(new float[] {0.3f, 0.4f}, FloatVector.OriginalType.NATIVE);
+    ImmutableMap<FieldPath, ImmutableMap<String, Vector>> embeddings =
+        ImmutableMap.of(
+            FieldPath.parse("sections.section_content"), ImmutableMap.of("c1", v1, "c2", v2));
+
+    RawBsonDocument matViewDoc =
+        new RawBsonDocument(
+            buildMaterializedViewDocumentEvent(
+                    rawEvent,
+                    sourceMapping,
+                    embeddings,
+                    schemaMetadata,
+                    indexDefinition.getNestedRoot())
+                .getDocument()
+                .get(),
+            BsonUtils.BSON_DOCUMENT_CODEC);
+
+    var comparison =
+        compareDocuments(
+            rawSource,
+            matViewDoc,
+            sourceMapping,
+            matViewMapping,
+            schemaMetadata,
+            indexDefinition.getNestedRoot());
+
     assertFalse(
-        "When no embed vector is chosen, the remapped filter must not be written under the"
-            + " materialized-view nestedRoot.",
-        matViewDoc.containsKey("_autoEmbed")
-            && matViewDoc.getDocument("_autoEmbed").containsKey("sections"));
+        "An unchanged multi-element nested doc must not be re-indexed.",
+        comparison.needsReIndexing());
+    var reusable = comparison.reusableEmbeddings().get(FieldPath.parse("sections.section_content"));
+    assertEquals("Every element's vector must be reusable.", 2, reusable.size());
+    assertEquals(v1, reusable.get("c1"));
+    assertEquals(v2, reusable.get("c2"));
+  }
+
+  /**
+   * Element-wise resync regression: multiple nested elements can carry identical embed text (e.g.
+   * repeated content). The reuse map is keyed by text, so the duplicate must be deduped rather than
+   * letting the builder throw on a duplicate key — which would otherwise force a spurious re-index.
+   */
+  @Test
+  public void compareDocuments_nestedMultiElement_duplicateText_noReindex() throws IOException {
+    var schemaMetadata =
+        new MaterializedViewSchemaMetadata(
+            1,
+            Map.of(
+                FieldPath.parse("sections.section_content"),
+                FieldPath.parse("_autoEmbed.sections.section_content"),
+                FieldPath.parse("sections.section_name"),
+                FieldPath.parse("_autoEmbed.sections.section_name")));
+    var autoEmbedField =
+        new VectorAutoEmbedFieldDefinition(
+            "voyage-3-large", FieldPath.parse("sections.section_content"));
+    var nestedFilter =
+        new VectorIndexFilterFieldDefinition(FieldPath.parse("sections.section_name"));
+    VectorIndexDefinition indexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(List.of(autoEmbedField, nestedFilter))
+            .nestedRoot("sections")
+            .build();
+    var sourceMapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(indexDefinition);
+    var matViewMapping =
+        AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(indexDefinition, schemaMetadata);
+
+    // Both elements carry identical embed text "dup" (different filter names).
+    BsonDocument source =
+        new BsonDocument()
+            .append("_id", new BsonString("book_dup"))
+            .append(
+                "sections",
+                new BsonArray(
+                    List.of(
+                        new BsonDocument()
+                            .append("section_name", new BsonString("n1"))
+                            .append("section_content", new BsonString("dup")),
+                        new BsonDocument()
+                            .append("section_name", new BsonString("n2"))
+                            .append("section_content", new BsonString("dup")))));
+    RawBsonDocument rawSource = new RawBsonDocument(source, BsonUtils.BSON_DOCUMENT_CODEC);
+    DocumentEvent rawEvent =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromOriginalDocument(Optional.of(rawSource)), rawSource);
+
+    Vector v1 = Vector.fromFloats(new float[] {0.1f, 0.2f}, FloatVector.OriginalType.NATIVE);
+    ImmutableMap<FieldPath, ImmutableMap<String, Vector>> embeddings =
+        ImmutableMap.of(FieldPath.parse("sections.section_content"), ImmutableMap.of("dup", v1));
+
+    RawBsonDocument matViewDoc =
+        new RawBsonDocument(
+            buildMaterializedViewDocumentEvent(
+                    rawEvent,
+                    sourceMapping,
+                    embeddings,
+                    schemaMetadata,
+                    indexDefinition.getNestedRoot())
+                .getDocument()
+                .get(),
+            BsonUtils.BSON_DOCUMENT_CODEC);
+
+    var comparison =
+        compareDocuments(
+            rawSource,
+            matViewDoc,
+            sourceMapping,
+            matViewMapping,
+            schemaMetadata,
+            indexDefinition.getNestedRoot());
+
+    assertFalse(
+        "Duplicate embed text across elements must not force a re-index.",
+        comparison.needsReIndexing());
+    var reusable = comparison.reusableEmbeddings().get(FieldPath.parse("sections.section_content"));
+    assertEquals(
+        "The duplicate text must collapse to a single reusable entry.", 1, reusable.size());
+    assertEquals(v1, reusable.get("dup"));
+  }
+
+  /**
+   * Element-wise resync comparison for multi-vector nested indexes: a change to any element's embed
+   * text triggers a re-index (the ordered per-element hashes diverge from the MV's).
+   */
+  @Test
+  public void compareDocuments_nestedMultiElement_elementTextChange_triggersReindex()
+      throws IOException {
+    var schemaMetadata =
+        new MaterializedViewSchemaMetadata(
+            1,
+            Map.of(
+                FieldPath.parse("sections.section_content"),
+                FieldPath.parse("_autoEmbed.sections.section_content"),
+                FieldPath.parse("sections.section_name"),
+                FieldPath.parse("_autoEmbed.sections.section_name")));
+    var autoEmbedField =
+        new VectorAutoEmbedFieldDefinition(
+            "voyage-3-large", FieldPath.parse("sections.section_content"));
+    var nestedFilter =
+        new VectorIndexFilterFieldDefinition(FieldPath.parse("sections.section_name"));
+    VectorIndexDefinition indexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(List.of(autoEmbedField, nestedFilter))
+            .nestedRoot("sections")
+            .build();
+    var sourceMapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(indexDefinition);
+    var matViewMapping =
+        AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(indexDefinition, schemaMetadata);
+
+    BsonDocument oldSource =
+        new BsonDocument()
+            .append("_id", new BsonString("book_1"))
+            .append(
+                "sections",
+                new BsonArray(
+                    List.of(
+                        new BsonDocument()
+                            .append("section_name", new BsonString("n1"))
+                            .append("section_content", new BsonString("c1")),
+                        new BsonDocument()
+                            .append("section_name", new BsonString("n2"))
+                            .append("section_content", new BsonString("c2")))));
+    RawBsonDocument rawOldSource = new RawBsonDocument(oldSource, BsonUtils.BSON_DOCUMENT_CODEC);
+    DocumentEvent rawOldEvent =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromOriginalDocument(Optional.of(rawOldSource)), rawOldSource);
+    Vector v1 = Vector.fromFloats(new float[] {0.1f, 0.2f}, FloatVector.OriginalType.NATIVE);
+    Vector v2 = Vector.fromFloats(new float[] {0.3f, 0.4f}, FloatVector.OriginalType.NATIVE);
+    ImmutableMap<FieldPath, ImmutableMap<String, Vector>> embeddings =
+        ImmutableMap.of(
+            FieldPath.parse("sections.section_content"), ImmutableMap.of("c1", v1, "c2", v2));
+    RawBsonDocument matViewDoc =
+        new RawBsonDocument(
+            buildMaterializedViewDocumentEvent(
+                    rawOldEvent,
+                    sourceMapping,
+                    embeddings,
+                    schemaMetadata,
+                    indexDefinition.getNestedRoot())
+                .getDocument()
+                .get(),
+            BsonUtils.BSON_DOCUMENT_CODEC);
+
+    // Second element's embed text changed; the MV is stale and must be re-indexed.
+    BsonDocument newSource =
+        new BsonDocument()
+            .append("_id", new BsonString("book_1"))
+            .append(
+                "sections",
+                new BsonArray(
+                    List.of(
+                        new BsonDocument()
+                            .append("section_name", new BsonString("n1"))
+                            .append("section_content", new BsonString("c1")),
+                        new BsonDocument()
+                            .append("section_name", new BsonString("n2"))
+                            .append("section_content", new BsonString("c2_changed")))));
+    RawBsonDocument rawNewSource = new RawBsonDocument(newSource, BsonUtils.BSON_DOCUMENT_CODEC);
+
+    var comparison =
+        compareDocuments(
+            rawNewSource,
+            matViewDoc,
+            sourceMapping,
+            matViewMapping,
+            schemaMetadata,
+            indexDefinition.getNestedRoot());
+
+    assertTrue(
+        "Changing any element's embed text must trigger a re-index.", comparison.needsReIndexing());
   }
 }

@@ -35,6 +35,7 @@ import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.FieldExceededLimitsException;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.VectorFieldAutoEmbeddingSpecification;
+import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory.IndexingStrategy;
@@ -460,6 +461,7 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
                                     events,
                                     embeddingsPerModel,
                                     embedBatchKeyPerPath,
+                                    indexDefinition,
                                     autoEmbedMapping,
                                     matViewSchemaMetadata),
                             this.executor);
@@ -616,6 +618,7 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
                       events,
                       embeddingsPerModel,
                       embedBatchKeyPerPath,
+                      indexDefinition,
                       autoEmbedMapping,
                       matViewSchemaMetadata),
               this.executor));
@@ -631,6 +634,7 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
       List<DocumentEvent> events,
       Map<EmbedConfigurationForBatch, Map<String, Vector>> embeddingsPerBatchKey,
       ImmutableMap<FieldPath, EmbedConfigurationForBatch> embedBatchKeyPerPath,
+      IndexDefinition indexDefinition,
       AutoEmbedFieldMapping autoEmbedMapping,
       Optional<MaterializedViewSchemaMetadata> matViewSchemaMetadata) {
     FLOGGER.atFine().log(
@@ -647,16 +651,35 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
                     e ->
                         ImmutableMap.copyOf(
                             embeddingsPerBatchKey.getOrDefault(e.getValue(), ImmutableMap.of()))));
+    Optional<FieldPath> sourceNestedRoot =
+        indexDefinition instanceof VectorIndexDefinition vectorIndexDefinition
+            ? vectorIndexDefinition.getNestedRoot()
+            : Optional.empty();
+
     for (int i = 0; i < events.size(); i++) {
       DocumentEvent event = events.get(i);
       if (!containsValidDocument(event)) {
         continue;
       }
 
-      // For filter-only updates, skip embedding transformation and pass through unchanged. The
-      // event already has filterFieldUpdates set, which MaterializedViewWriter will use for the
-      // partial update.
+      // Filter-only updates have no embedding work; the $set body is used as-is — except for nested
+      // indexes. CLOUDP-402522: nested indexes co-locate filters with the vector under the MV
+      // nestedRoot (e.g. _autoEmbed.sections.<i>.section_name), but the filter-only path only wrote
+      // the source-path copies, so augment the $set with those co-located _autoEmbed.* values here;
+      // otherwise a nested $vectorSearch combining `filter` with a nestedRoot path reads stale.
       if (event.isFilterOnlyUpdate()) {
+        if (event.getDocument().isPresent()
+            && AutoEmbeddingDocumentUtils.hasFilterUnderNestedRoot(
+                autoEmbedMapping, sourceNestedRoot)) {
+          BsonDocument augmentedSetBody =
+              AutoEmbeddingDocumentUtils.buildNestedFilterPartialSetBody(
+                  event.getFilterFieldUpdates().get(),
+                  event.getDocument().get(),
+                  autoEmbedMapping,
+                  sourceNestedRoot,
+                  Check.isPresent(matViewSchemaMetadata, "matViewSchemaMetadata"));
+          events.set(i, event.withFilterFieldUpdates(augmentedSetBody));
+        }
         continue;
       }
 
@@ -684,7 +707,8 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
                   event,
                   autoEmbedMapping,
                   embeddingMapPerField,
-                  Check.isPresent(matViewSchemaMetadata, "matViewSchemaMetadata"));
+                  Check.isPresent(matViewSchemaMetadata, "matViewSchemaMetadata"),
+                  sourceNestedRoot);
         } else {
           autoEmbeddingDocumentEvent =
               buildAutoEmbeddingDocumentEvent(event, autoEmbedMapping, embeddingMapPerField);

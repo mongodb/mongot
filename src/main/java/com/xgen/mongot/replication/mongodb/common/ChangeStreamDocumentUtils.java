@@ -7,6 +7,7 @@ import com.google.errorprone.annotations.Var;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.client.model.changestream.OperationType;
+import com.mongodb.client.model.changestream.UpdateDescription;
 import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
 import com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator;
 import com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils;
@@ -426,25 +427,6 @@ public class ChangeStreamDocumentUtils {
                 }
               }
             } else {
-              // CLOUDP-402522: when the index declares filter fields under a nestedRoot, the
-              // materialized view co-locates those filter values with the embedded vector under the
-              // MV nestedRoot (e.g. _autoEmbed.sections.section_name). The filter-only
-              // partial-update path writes filters at their source paths only and cannot reproduce
-              // that co-location, so a partial $set would leave the co-located _autoEmbed.* filter
-              // stale and break nested $vectorSearch queries that combine `filter` with a path
-              // under the nestedRoot. Fall back to a full replacement for these indexes, tracked
-              // via NESTED_FILTER_REMAPPING below. (Embed-changing updates on nested indexes
-              // already fall back via ARRAY_TRAVERSAL.)
-              // Follow-up (PR #6679): restore the partial-update optimization for nested indexes by
-              // emitting array-positional $set keys for the co-located _autoEmbed.* filter values
-              // (mirroring buildRemappedFilterValuesPerMatViewPath in the partial path); the
-              // NESTED_FILTER_REMAPPING fallback count should drop to zero once that lands.
-              Optional<FieldPath> sourceNestedRoot =
-                  indexDefinition instanceof VectorIndexDefinition vectorIndexDefinition
-                      ? vectorIndexDefinition.getNestedRoot()
-                      : Optional.empty();
-              boolean hasNestedFilterRemapping =
-                  AutoEmbeddingDocumentUtils.hasFilterUnderNestedRoot(mapping, sourceNestedRoot);
               boolean embedFieldChanged =
                   AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(
                       event.getUpdateDescription(), mapping);
@@ -457,7 +439,7 @@ public class ChangeStreamDocumentUtils {
                 changedEmbedTexts = classification.changedTexts().orElse(ImmutableMap.of());
                 fallbackReason = classification.fallbackReason();
               }
-              if (fallbackReason.isEmpty() && !hasNestedFilterRemapping) {
+              if (fallbackReason.isEmpty()) {
                 // Empty Optional = extraction failed; fall back to a full replace rather than
                 // issue a partial $set that would silently drop filter fields. A present-but-empty
                 // body is valid (index has no filter fields) and still supports a partial embed.
@@ -466,7 +448,17 @@ public class ChangeStreamDocumentUtils {
                 Optional<BsonDocument> filterFieldUpdates =
                     AutoEmbeddingDocumentUtils.extractFilterFieldValues(
                         event.getFullDocument(), mapping);
-                if (filterFieldUpdates.isPresent()
+                // CLOUDP-402522: buildNestedFilterPartialSetBody patches co-located _autoEmbed.*
+                // filters with an additive positional $set that can't clear a removed value, so a
+                // destructive ($unset/$pop) change forces a full replace when the index declares a
+                // filter under the nestedRoot (rebuilding the MV element clears stale filters).
+                boolean destructiveNestedFilter =
+                    hasDestructiveChange(event.getUpdateDescription())
+                        && indexDefinition instanceof VectorIndexDefinition vectorDef
+                        && AutoEmbeddingDocumentUtils.hasFilterUnderNestedRoot(
+                            mapping, vectorDef.getNestedRoot());
+                if (!destructiveNestedFilter
+                    && filterFieldUpdates.isPresent()
                     && (!changedEmbedTexts.isEmpty() || !filterFieldUpdates.get().isEmpty())) {
                   if (embedFieldChanged) {
                     metrics.partialEmbedApplied();
@@ -478,20 +470,14 @@ public class ChangeStreamDocumentUtils {
                           filterFieldUpdates.get(),
                           changedEmbedTexts));
                 }
-                // Couldn't issue a partial $set. For an embed-changing update the only way here is
-                // a filter-extraction failure (changedEmbedTexts is non-empty), so it's a full
-                // re-index fallback. A filter-only update with an empty body just isn't worth a
-                // partial $set.
-                if (embedFieldChanged) {
+                // Couldn't issue a partial $set. A destructive nested-filter touch falls back to a
+                // full replace so the co-located _autoEmbed.* filter is rebuilt; for an embed-
+                // changing update the only other way here is a filter-extraction failure.
+                if (destructiveNestedFilter) {
+                  fallbackReason = Optional.of(PartialEmbedFallbackReason.NESTED_FILTER_REMAPPING);
+                } else if (embedFieldChanged) {
                   fallbackReason = Optional.of(PartialEmbedFallbackReason.FILTER_EXTRACTION_FAILED);
                 }
-              } else if (fallbackReason.isEmpty() && hasNestedFilterRemapping) {
-                // We skipped the partial path purely because of nested filter co-location. Record
-                // it so the full re-indexes this limitation causes are observable (and so we can
-                // confirm they vanish once the PR #6679 partial-update optimization lands).
-                // Embed-changing updates on nested indexes already carry a more specific reason
-                // (ARRAY_TRAVERSAL), so they don't reach this branch.
-                fallbackReason = Optional.of(PartialEmbedFallbackReason.NESTED_FILTER_REMAPPING);
               }
               fallbackReason.ifPresent(metrics::partialEmbedFallback);
             }
@@ -554,6 +540,14 @@ public class ChangeStreamDocumentUtils {
                   event.getUpdateDescription(), autoEmbedMapping);
       default -> false;
     };
+  }
+
+  // True when the update has a destructive channel ($unset removedFields or $pop/$slice
+  // truncatedArrays). A partial $set can't express a remove/shorten on the MV side.
+  private static boolean hasDestructiveChange(UpdateDescription ud) {
+    return ud != null
+        && (!Optional.ofNullable(ud.getRemovedFields()).orElse(List.of()).isEmpty()
+            || !Optional.ofNullable(ud.getTruncatedArrays()).orElse(List.of()).isEmpty());
   }
 
   private static void incrementApplicableDocumentMetrics(
