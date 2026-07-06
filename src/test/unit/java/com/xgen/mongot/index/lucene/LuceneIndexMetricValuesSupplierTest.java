@@ -1079,4 +1079,35 @@ public class LuceneIndexMetricValuesSupplierTest {
         getPerIndexGaugeMetricsValue(
             meterRegistry, IndexMetricValuesSupplier.MetricNames.NUM_VECTORS));
   }
+
+  @Test
+  public void testGetDocCounts_nestedVectorIndex_reportsParentDocsAsNumMongoDbDocs()
+      throws WriterClosedException, ReaderClosedException, IOException {
+    // Nested index: 9 Lucene docs = 3 root (parent) docs + 6 vector docs.
+    var indexWriter = Mockito.mock(SingleLuceneIndexWriter.class);
+    Mockito.doReturn(9L).when(indexWriter).getNumDocs();
+    Mockito.doReturn(9L).when(indexWriter).getNumLuceneMaxDocs();
+    Mockito.doReturn(9).when(indexWriter).getMaxLuceneMaxDocs();
+    Mockito.doReturn(1).when(indexWriter).getNumWriters();
+    var indexReader = Mockito.mock(LuceneVectorIndexReader.class);
+    Mockito.doReturn(3L).when(indexReader).getNumEmbeddedRootDocuments();
+    IndexBackingStrategy indexBackingStrategy = mock(IndexBackingStrategy.class);
+    when(indexBackingStrategy.getDiskStats()).thenReturn(DiskStats.EMPTY);
+
+    LuceneIndexMetricValuesSupplier supplier =
+        LuceneIndexMetricsSupplierBuilder.builder()
+            .type(IndexDefinition.Type.VECTOR_SEARCH)
+            .hasNestedVectorFields(true)
+            .indexWriter(indexWriter)
+            .indexReader(indexReader)
+            .indexStatusSupplier(IndexStatus::steady)
+            .indexBackingStrategy(indexBackingStrategy)
+            .meterRegistry(new SimpleMeterRegistry())
+            .build();
+
+    DocCounts docCounts = supplier.getDocCounts();
+    // numMongoDbDocs is the parent (root) doc count, not the raw Lucene doc count.
+    Assert.assertEquals(3L, docCounts.numMongoDbDocs);
+    Assert.assertEquals(9L, docCounts.numDocs);
+  }
 }

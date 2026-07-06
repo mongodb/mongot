@@ -74,7 +74,10 @@ public final class LuceneVectorIndexMetricValuesSupplier extends LuceneIndexMetr
   @Override
   public DocCounts getDocCounts() {
     var numDocs = getNumDocs();
-    return new DocCounts(numDocs, getNumLuceneMaxDocs(), getMaxLuceneMaxDocs(), numDocs);
+    // Nested vector indexes store one root doc per MongoDB document, so the MongoDB-doc count is
+    // the root-doc count.
+    long numMongoDbDocs = this.hasNestedVectorFields ? getNumEmbeddedRootDocs() : numDocs;
+    return new DocCounts(numDocs, getNumLuceneMaxDocs(), getMaxLuceneMaxDocs(), numMongoDbDocs);
   }
 
   /**
