@@ -287,6 +287,37 @@ public class CommonUtilsTest {
   }
 
   @Test
+  public void testGetAutoEmbeddingMaterializedViewManagerFactory_closedGateDisablesReplication()
+      throws Exception {
+    var mocks = Mocks.create();
+    var factory =
+        CommonUtils.getAutoEmbeddingMaterializedViewManagerFactory(
+            this.tmpFolder.getRoot().toPath(),
+            mocks.autoEmbeddingMaterializedViewConfig,
+            mocks.initialSyncConfig,
+            mocks.featureFlags,
+            mocks.mongotCursorManager,
+            MeterAndFtdcRegistry.create(mocks.meterRegistry, mocks.ftdcRegistry),
+            DefaultConfigManager.ReplicationMode.DISK_UTILIZATION_BASED,
+            Optional.of(() -> mock(EmbeddingServiceManager.class)),
+            mocks.leaseManager,
+            mocks.mvMetadataCatalog,
+            mocks.autoEmbeddingMongoClient,
+            ReplicationStateMonitor.builder()
+                .setReplicationGate(ToggleGate.opened())
+                .setInitialSyncGate(ToggleGate.opened())
+                .setAutoEmbeddingReplicationGate(ToggleGate.closed())
+                .build(),
+            DynamicFeatureFlagRegistry.empty());
+
+    var manager = factory.create(Optional.of(mocks.syncSourceConfig));
+
+    Assert.assertTrue(manager.isPresent());
+    Assert.assertFalse(manager.get().isReplicationSupported());
+    manager.get().shutdown().get(10, TimeUnit.SECONDS);
+  }
+
+  @Test
   public void testGetMaterializedViewManager_disableMode() {
     var mocks = Mocks.create();
     var factory =

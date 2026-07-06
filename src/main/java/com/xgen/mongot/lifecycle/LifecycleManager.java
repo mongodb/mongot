@@ -54,6 +54,14 @@ public interface LifecycleManager {
    */
   CompletableFuture<Void> shutdownReplication();
 
+  /** Shuts down only auto-embedding materialized-view replication. */
+  default CompletableFuture<Void> shutdownAutoEmbeddingReplication() {
+    return CompletableFuture.completedFuture(null);
+  }
+
+  /** Restarts only auto-embedding materialized-view replication using the supplied sync source. */
+  default void restartAutoEmbeddingReplication(SyncSourceConfig syncSourceConfig) {}
+
   /** Get the associated ReplicationManager for the LifecycleManager. Only used for testing. */
   ReplicationManager getReplicationManager();
 
@@ -68,4 +76,14 @@ public interface LifecycleManager {
    * and normal ReplicationManager will always return true
    */
   boolean isReplicationSupported();
+
+  /** Return whether auto-embedding materialized-view replication is currently supported. */
+  default boolean isAutoEmbeddingReplicationSupported() {
+    return true;
+  }
+
+  /** Return whether this node runs auto-embedding materialized-view replication to manage. */
+  default boolean hasAutoEmbeddingReplication() {
+    return false;
+  }
 }

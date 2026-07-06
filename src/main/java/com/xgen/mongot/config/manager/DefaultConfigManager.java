@@ -89,6 +89,7 @@ public class DefaultConfigManager implements ConfigManager {
 
   protected final Gate initialSyncGate;
   protected final Gate replicationGate;
+  private final Gate autoEmbeddingReplicationGate;
 
   final FeatureFlags featureFlags;
 
@@ -113,6 +114,7 @@ public class DefaultConfigManager implements ConfigManager {
     this.replicationInitialized = false;
     this.initialSyncGate = replicationStateMonitor.getInitialSyncGate();
     this.replicationGate = replicationStateMonitor.getReplicationGate();
+    this.autoEmbeddingReplicationGate = replicationStateMonitor.getAutoEmbeddingReplicationGate();
     this.featureFlags = featureFlags;
     this.replicationStatusChangeTimestamp = Instant.now();
 
@@ -510,6 +512,19 @@ public class DefaultConfigManager implements ConfigManager {
             });
   }
 
+  private void shutdownAutoEmbeddingReplication() {
+    Crash.because("failed waiting for materialized view manager to shut down replication")
+        .ifThrows(
+            () -> {
+              synchronized (this) {
+                Crash.because("failed to shut down materialized view replication")
+                    .ifCompletesExceptionally(
+                        this.configState.getLifecycleManager().shutdownAutoEmbeddingReplication())
+                    .get(REPLICATION_MANAGER_SHUTDOWN_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+              }
+            });
+  }
+
   private void shutdown() {
     Crash.because("failed waiting for lifecycle manager to shut down")
         .ifThrows(
@@ -526,17 +541,40 @@ public class DefaultConfigManager implements ConfigManager {
 
   /** Determines whether disk usage should trigger a replication restart. */
   protected final synchronized void handleDiskBasedReplicationRestart() {
-    // Restart replication if intended pause value changes.
-    var isReplicationPaused = !this.configState.getLifecycleManager().isReplicationSupported();
-    var shouldRestartReplication = this.shouldReplicationBePaused() != isReplicationPaused;
-
     Optional<SyncSourceConfig> currentConfig =
         this.configState.getLifecycleManager().getSyncSourceConfig();
-    if (currentConfig.isPresent() && shouldRestartReplication) {
+    if (currentConfig.isEmpty()) {
+      return;
+    }
+    SyncSourceConfig syncSourceConfig = currentConfig.get();
+
+    var shouldPauseReplication = this.shouldReplicationBePaused();
+    var isReplicationPaused = !this.configState.getLifecycleManager().isReplicationSupported();
+    if (shouldPauseReplication != isReplicationPaused) {
       LOG.atInfo()
           .addKeyValue("replicationGate", this.replicationGate.toString())
           .log("Disk usage crossed pause or resume threshold, restarting replication");
-      shutdownAndRestartReplication(currentConfig.get());
+      // A full replication restart already shuts down MaterializedViewManager through
+      // shutdownReplication(); restartReplication() will also apply the auto-embedding gate.
+      shutdownAndRestartReplication(syncSourceConfig);
+      return;
+    }
+
+    var lifecycleManager = this.configState.getLifecycleManager();
+    var shouldPauseAutoEmbeddingReplication = this.shouldAutoEmbeddingReplicationBePaused();
+    var isAutoEmbeddingReplicationPaused = !lifecycleManager.isAutoEmbeddingReplicationSupported();
+    // Only reconcile when this node actually runs auto-embedding replication; otherwise there is
+    // nothing to pause or resume and a closed gate would re-trigger this every cycle.
+    if (lifecycleManager.hasAutoEmbeddingReplication()
+        && shouldPauseAutoEmbeddingReplication != isAutoEmbeddingReplicationPaused) {
+      LOG.atInfo()
+          .addKeyValue("autoEmbeddingReplicationGate", this.autoEmbeddingReplicationGate.toString())
+          .log("Disk usage crossed auto-embedding pause or resume threshold");
+      if (shouldPauseAutoEmbeddingReplication) {
+        shutdownAutoEmbeddingReplication();
+      } else {
+        lifecycleManager.restartAutoEmbeddingReplication(syncSourceConfig);
+      }
     }
   }
 
@@ -557,6 +595,10 @@ public class DefaultConfigManager implements ConfigManager {
 
   protected final boolean shouldReplicationBePaused() {
     return this.replicationGate.isClosed();
+  }
+
+  protected final boolean shouldAutoEmbeddingReplicationBePaused() {
+    return this.autoEmbeddingReplicationGate.isClosed();
   }
 
   /**

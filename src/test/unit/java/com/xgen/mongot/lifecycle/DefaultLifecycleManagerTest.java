@@ -15,6 +15,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -446,6 +447,21 @@ public class DefaultLifecycleManagerTest {
 
   private DefaultLifecycleManager createLifecycleManagerWithMatViewManager(
       MaterializedViewManager matViewManager) throws Exception {
+    return createLifecycleManagerWithMatViewManager(
+        matViewManager, ToggleGate.opened(), ToggleGate.opened());
+  }
+
+  private DefaultLifecycleManager createLifecycleManagerWithMatViewManager(
+      MaterializedViewManager matViewManager, Gate autoEmbeddingReplicationGate) throws Exception {
+    return createLifecycleManagerWithMatViewManager(
+        matViewManager, ToggleGate.opened(), autoEmbeddingReplicationGate);
+  }
+
+  private DefaultLifecycleManager createLifecycleManagerWithMatViewManager(
+      MaterializedViewManager matViewManager,
+      Gate replicationGate,
+      Gate autoEmbeddingReplicationGate)
+      throws Exception {
     MeterRegistry meterRegistry = new SimpleMeterRegistry();
     ReplicationManagerFactory replicationManagerFactory =
         (Optional<SyncSourceConfig> syncSourceConfig) -> {
@@ -465,7 +481,8 @@ public class DefaultLifecycleManagerTest {
         Optional.empty(),
         (syncConfig) -> Optional.of(matViewManager),
         meterRegistry,
-        ToggleGate.opened(),
+        replicationGate,
+        autoEmbeddingReplicationGate,
         Executors.fixedSizeThreadPool("init", 1, meterRegistry),
         Executors.fixedSizeThreadPool("lifecycle", 1, meterRegistry),
         Executors.fixedSizeThreadPool("blobstore", 1, meterRegistry),
@@ -494,6 +511,86 @@ public class DefaultLifecycleManagerTest {
     lifecycleManager.restartReplication();
 
     verify(matViewManager).restartReplication();
+  }
+
+  @Test
+  public void testRestartReplication_skipsMaterializedViewManagerWhenReplicationGateClosed()
+      throws Exception {
+    MaterializedViewManager matViewManager = mock(MaterializedViewManager.class);
+    DefaultLifecycleManager lifecycleManager =
+        createLifecycleManagerWithMatViewManager(
+            matViewManager, ToggleGate.closed(), ToggleGate.opened());
+
+    lifecycleManager.restartReplication();
+
+    verify(matViewManager, never()).restartReplication();
+  }
+
+  @Test
+  public void testRestartReplication_skipsMaterializedViewManagerWhenAutoEmbeddingGateClosed()
+      throws Exception {
+    MaterializedViewManager matViewManager = mock(MaterializedViewManager.class);
+    DefaultLifecycleManager lifecycleManager =
+        createLifecycleManagerWithMatViewManager(matViewManager, ToggleGate.closed());
+
+    lifecycleManager.restartReplication();
+
+    verify(matViewManager, never()).restartReplication();
+  }
+
+  @Test
+  public void testShutdownAutoEmbeddingReplication_onlyShutsDownMaterializedViewManager()
+      throws Exception {
+    MaterializedViewManager matViewManager = mock(MaterializedViewManager.class);
+    when(matViewManager.shutdownReplication()).thenReturn(CompletableFuture.completedFuture(null));
+    DefaultLifecycleManager lifecycleManager =
+        createLifecycleManagerWithMatViewManager(matViewManager);
+    ReplicationManager replicationManager = lifecycleManager.getReplicationManager();
+
+    lifecycleManager.shutdownAutoEmbeddingReplication().get(5, TimeUnit.SECONDS);
+
+    verify(matViewManager).shutdownReplication();
+    verify(replicationManager, never()).shutdown();
+  }
+
+  @Test
+  public void testRestartAutoEmbeddingReplication_updatesSyncSourceAndRestarts() throws Exception {
+    MaterializedViewManager matViewManager = mock(MaterializedViewManager.class);
+    when(matViewManager.updateSyncSource(MOCK_SYNC_SOURCE_CONFIG)).thenReturn(true);
+    DefaultLifecycleManager lifecycleManager =
+        createLifecycleManagerWithMatViewManager(matViewManager);
+
+    lifecycleManager.restartAutoEmbeddingReplication(MOCK_SYNC_SOURCE_CONFIG);
+
+    verify(matViewManager).updateSyncSource(MOCK_SYNC_SOURCE_CONFIG);
+    verify(matViewManager).restartReplication();
+  }
+
+  @Test
+  public void testRestartAutoEmbeddingReplication_skipsWhenReplicationGateClosed()
+      throws Exception {
+    MaterializedViewManager matViewManager = mock(MaterializedViewManager.class);
+    DefaultLifecycleManager lifecycleManager =
+        createLifecycleManagerWithMatViewManager(
+            matViewManager, ToggleGate.closed(), ToggleGate.opened());
+
+    lifecycleManager.restartAutoEmbeddingReplication(MOCK_SYNC_SOURCE_CONFIG);
+
+    verify(matViewManager, never()).updateSyncSource(any());
+    verify(matViewManager, never()).restartReplication();
+  }
+
+  @Test
+  public void testRestartAutoEmbeddingReplication_skipsWhenAutoEmbeddingGateClosed()
+      throws Exception {
+    MaterializedViewManager matViewManager = mock(MaterializedViewManager.class);
+    DefaultLifecycleManager lifecycleManager =
+        createLifecycleManagerWithMatViewManager(matViewManager, ToggleGate.closed());
+
+    lifecycleManager.restartAutoEmbeddingReplication(MOCK_SYNC_SOURCE_CONFIG);
+
+    verify(matViewManager, never()).updateSyncSource(any());
+    verify(matViewManager, never()).restartReplication();
   }
 
   @Test

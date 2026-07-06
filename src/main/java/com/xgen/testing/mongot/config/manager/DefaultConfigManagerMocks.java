@@ -18,6 +18,7 @@ import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.analyzer.AnalyzerRegistryFactory;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.lifecycle.LifecycleManager;
+import com.xgen.mongot.monitor.Gate;
 import com.xgen.mongot.monitor.ReplicationStateMonitor;
 import com.xgen.mongot.replication.ReplicationManagerFactory;
 import com.xgen.mongot.util.FileUtils;
@@ -126,6 +127,19 @@ public class DefaultConfigManagerMocks {
     return create(getConfigJournalPath(), Optional.empty(), replicationStateMonitor);
   }
 
+  public static DefaultConfigManagerMocks create(
+      ReplicationStateMonitor replicationStateMonitor, Gate autoEmbeddingReplicationGate)
+      throws Exception {
+    return create(
+        getConfigJournalPath(),
+        Optional.empty(),
+        ReplicationStateMonitor.builder()
+            .setInitialSyncGate(replicationStateMonitor.getInitialSyncGate())
+            .setReplicationGate(replicationStateMonitor.getReplicationGate())
+            .setAutoEmbeddingReplicationGate(autoEmbeddingReplicationGate)
+            .build());
+  }
+
   public static DefaultConfigManagerMocks create(Path configJournalPath) throws Exception {
     return create(configJournalPath, Optional.empty());
   }
@@ -159,7 +173,11 @@ public class DefaultConfigManagerMocks {
     wrapped.configState.postInitializationFromConfigJournal();
 
     return new DefaultConfigManagerMocks(
-        wrapped, wrapped.getReplicationManagerFactory(), desiredIndexIds, replicationStateMonitor);
+        wrapped,
+        wrapped.getReplicationManagerFactory(),
+        desiredIndexIds,
+        replicationStateMonitor,
+        FeatureFlags.getDefault());
   }
 
   public void assertOneIndexInstantiated() throws Exception {

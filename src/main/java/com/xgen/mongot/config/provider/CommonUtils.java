@@ -25,6 +25,7 @@ import com.xgen.mongot.lifecycle.LifecycleConfig;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.monitor.Gate;
 import com.xgen.mongot.monitor.ReplicationStateMonitor;
+import com.xgen.mongot.monitor.ToggleGate;
 import com.xgen.mongot.replication.ReplicationManagerFactory;
 import com.xgen.mongot.replication.mongodb.DurabilityConfig;
 import com.xgen.mongot.replication.mongodb.MongoDbNoOpReplicationManager;
@@ -153,6 +154,30 @@ public class CommonUtils {
         featureFlags.isEnabled(Feature.LIFECYCLE_ATTRIBUTION_METRICS));
   }
 
+  public static DefaultLifecycleManager getLifecycleManager(
+      LifecycleConfig lifecycleConfig,
+      Optional<SyncSourceConfig> syncConfig,
+      ReplicationManagerFactory factory,
+      InitializedIndexCatalog initializedIndexCatalog,
+      IndexFactory indexFactory,
+      Optional<? extends BlobstoreSnapshotterManager> snapshotterManager,
+      AutoEmbeddingMaterializedViewManagerFactory autoEmbeddingMatViewManagerFactory,
+      MeterRegistry meterRegistry,
+      ReplicationStateMonitor replicationStateMonitor,
+      FeatureFlags featureFlags) {
+    return new DefaultLifecycleManager(
+        factory,
+        syncConfig,
+        initializedIndexCatalog,
+        indexFactory,
+        snapshotterManager,
+        autoEmbeddingMatViewManagerFactory,
+        meterRegistry,
+        replicationStateMonitor,
+        lifecycleConfig,
+        featureFlags.isEnabled(Feature.LIFECYCLE_ATTRIBUTION_METRICS));
+  }
+
   /**
    * Creates an AutoEmbeddingMaterializedViewManager for Materialized View based auto-embedding
    * index. Leadership for each index is determined dynamically via the LeaseManager.
@@ -171,7 +196,68 @@ public class CommonUtils {
           MaterializedViewCollectionMetadataCatalog mvMetadataCatalog,
           AutoEmbeddingMongoClient autoEmbeddingMongoClient,
           DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
+    return getAutoEmbeddingMaterializedViewManagerFactory(
+        dataPath,
+        autoEmbeddingMaterializedViewConfig,
+        initialSyncConfig,
+        featureFlags,
+        cursorManager,
+        meterAndFtdcRegistry,
+        replicationMode,
+        embeddingServiceManagerSupplier,
+        leaseManager,
+        mvMetadataCatalog,
+        autoEmbeddingMongoClient,
+        ToggleGate.opened(),
+        dynamicFeatureFlagRegistry);
+  }
 
+  public static AutoEmbeddingMaterializedViewManagerFactory
+      getAutoEmbeddingMaterializedViewManagerFactory(
+          Path dataPath,
+          AutoEmbeddingMaterializedViewConfig autoEmbeddingMaterializedViewConfig,
+          InitialSyncConfig initialSyncConfig,
+          FeatureFlags featureFlags,
+          MongotCursorManager cursorManager,
+          MeterAndFtdcRegistry meterAndFtdcRegistry,
+          DefaultConfigManager.ReplicationMode replicationMode,
+          Optional<Supplier<EmbeddingServiceManager>> embeddingServiceManagerSupplier,
+          LeaseManager leaseManager,
+          MaterializedViewCollectionMetadataCatalog mvMetadataCatalog,
+          AutoEmbeddingMongoClient autoEmbeddingMongoClient,
+          ReplicationStateMonitor replicationStateMonitor,
+          DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
+    return getAutoEmbeddingMaterializedViewManagerFactory(
+        dataPath,
+        autoEmbeddingMaterializedViewConfig,
+        initialSyncConfig,
+        featureFlags,
+        cursorManager,
+        meterAndFtdcRegistry,
+        replicationMode,
+        embeddingServiceManagerSupplier,
+        leaseManager,
+        mvMetadataCatalog,
+        autoEmbeddingMongoClient,
+        replicationStateMonitor.getAutoEmbeddingReplicationGate(),
+        dynamicFeatureFlagRegistry);
+  }
+
+  private static AutoEmbeddingMaterializedViewManagerFactory
+      getAutoEmbeddingMaterializedViewManagerFactory(
+          Path dataPath,
+          AutoEmbeddingMaterializedViewConfig autoEmbeddingMaterializedViewConfig,
+          InitialSyncConfig initialSyncConfig,
+          FeatureFlags featureFlags,
+          MongotCursorManager cursorManager,
+          MeterAndFtdcRegistry meterAndFtdcRegistry,
+          DefaultConfigManager.ReplicationMode replicationMode,
+          Optional<Supplier<EmbeddingServiceManager>> embeddingServiceManagerSupplier,
+          LeaseManager leaseManager,
+          MaterializedViewCollectionMetadataCatalog mvMetadataCatalog,
+          AutoEmbeddingMongoClient autoEmbeddingMongoClient,
+          Gate autoEmbeddingReplicationGate,
+          DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
     return (Optional<SyncSourceConfig> syncSourceConfig) -> {
       // Create a no-op replication manager factory if replication mode is disabled.
       if (replicationMode.equals(DefaultConfigManager.ReplicationMode.DISABLE)) {
@@ -182,17 +268,7 @@ public class CommonUtils {
         return Optional.empty();
       }
 
-      if (replicationMode.equals(DefaultConfigManager.ReplicationMode.DISK_UTILIZATION_BASED)) {
-        // Note: DISK_UTILIZATION_BASED mode is treated as ENABLE for auto-embedding because
-        // auto-embedding writes to the MongoDB materialized view collection (not local disk),
-        // so local disk utilization concerns don't apply.
-        // TODO(CLOUDP-360913): Implement customized disk monitor for mat view.
-        LOG.atWarn()
-            .log(
-                "Disk utilization based replication is not supported for auto-embedding, "
-                    + "create MaterializedViewManager anyway.");
-      }
-
+      // Auto-embedding treats DISK_UTILIZATION_BASED as ENABLE; lifecycle gates pause work.
       var matViewManager =
           MaterializedViewManager.create(
               dataPath,
@@ -208,7 +284,8 @@ public class CommonUtils {
               dynamicFeatureFlagRegistry);
       syncSourceConfig.ifPresent(
           syncSource -> {
-            if (matViewManager.updateSyncSource(syncSource)) {
+            if (matViewManager.updateSyncSource(syncSource)
+                && autoEmbeddingReplicationGate.isOpen()) {
               matViewManager.setIsReplicationEnabled(true);
             }
           });

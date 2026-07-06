@@ -922,12 +922,7 @@ public class DefaultConfigManagerTest {
   public void testHandleReplicationAndSyncSourceUpdate_unchangedSyncSourceAndDiskPressure_restarts()
       throws Exception {
     var replicationGate = ToggleGate.opened();
-    var replicationStateMonitor =
-        ReplicationStateMonitor.builder()
-            .setReplicationGate(replicationGate)
-            .setInitialSyncGate(ToggleGate.opened())
-            .build();
-    var mocks = DefaultConfigManagerMocks.create(replicationStateMonitor);
+    var mocks = DefaultConfigManagerMocks.create(replicationStateMonitor(replicationGate));
     mocks.clearInvocations();
 
     // Simulate disk pressure crossing the pause threshold.
@@ -938,6 +933,118 @@ public class DefaultConfigManagerTest {
         ConfigStateMocks.MOCK_SYNC_SOURCE_CONFIG);
 
     verify(mocks.lifecycleManager).updateSyncSource(ConfigStateMocks.MOCK_SYNC_SOURCE_CONFIG);
+  }
+
+  @Test
+  public void
+      testHandleReplicationAndSyncSourceUpdate_autoEmbeddingGateCloses_pausesOnlyMaterializedView()
+          throws Exception {
+    var replicationGate = ToggleGate.opened();
+    var autoEmbeddingReplicationGate = ToggleGate.opened();
+    var mocks =
+        DefaultConfigManagerMocks.create(
+            replicationStateMonitor(replicationGate), autoEmbeddingReplicationGate);
+    Mockito.doReturn(true).when(mocks.lifecycleManager).hasAutoEmbeddingReplication();
+    mocks.clearInvocations();
+
+    autoEmbeddingReplicationGate.close();
+
+    mocks.configManager.handleReplicationAndSyncSourceUpdate(
+        ConfigStateMocks.MOCK_SYNC_SOURCE_CONFIG);
+
+    verify(mocks.lifecycleManager).shutdownAutoEmbeddingReplication();
+    verify(mocks.lifecycleManager, never()).updateSyncSource(any());
+  }
+
+  @Test
+  public void
+      testHandleReplicationAndSyncSourceUpdate_autoEmbeddingGateCloses_noManager_doesNothing()
+          throws Exception {
+    var replicationGate = ToggleGate.opened();
+    var autoEmbeddingReplicationGate = ToggleGate.opened();
+    var mocks =
+        DefaultConfigManagerMocks.create(
+            replicationStateMonitor(replicationGate), autoEmbeddingReplicationGate);
+    // No auto-embedding replication on this node (hasAutoEmbeddingReplication() is false), so a
+    // closed gate must not trigger a pause action or its logging on every cycle.
+    mocks.clearInvocations();
+
+    autoEmbeddingReplicationGate.close();
+
+    mocks.configManager.handleReplicationAndSyncSourceUpdate(
+        ConfigStateMocks.MOCK_SYNC_SOURCE_CONFIG);
+
+    verify(mocks.lifecycleManager, never()).shutdownAutoEmbeddingReplication();
+    verify(mocks.lifecycleManager, never()).restartAutoEmbeddingReplication(any());
+  }
+
+  @Test
+  public void
+      testHandleReplicationAndSyncSourceUpdate_autoEmbeddingGateOpens_resumesOnlyMaterializedView()
+          throws Exception {
+    var replicationGate = ToggleGate.opened();
+    var autoEmbeddingReplicationGate = ToggleGate.closed();
+    var mocks =
+        DefaultConfigManagerMocks.create(
+            replicationStateMonitor(replicationGate), autoEmbeddingReplicationGate);
+    Mockito.doReturn(true).when(mocks.lifecycleManager).hasAutoEmbeddingReplication();
+    Mockito.doReturn(false).when(mocks.lifecycleManager).isAutoEmbeddingReplicationSupported();
+    mocks.clearInvocations();
+
+    autoEmbeddingReplicationGate.open();
+
+    mocks.configManager.handleReplicationAndSyncSourceUpdate(
+        ConfigStateMocks.MOCK_SYNC_SOURCE_CONFIG);
+
+    verify(mocks.lifecycleManager)
+        .restartAutoEmbeddingReplication(ConfigStateMocks.MOCK_SYNC_SOURCE_CONFIG);
+    verify(mocks.lifecycleManager, never()).updateSyncSource(any());
+  }
+
+  @Test
+  public void
+      testHandleReplicationAndSyncSourceUpdate_coupledGateCloses_usesFullReplicationRestart()
+          throws Exception {
+    var replicationGate = ToggleGate.opened();
+    var mocks =
+        DefaultConfigManagerMocks.create(replicationStateMonitor(replicationGate), replicationGate);
+    mocks.clearInvocations();
+
+    replicationGate.close();
+
+    mocks.configManager.handleReplicationAndSyncSourceUpdate(
+        ConfigStateMocks.MOCK_SYNC_SOURCE_CONFIG);
+
+    verify(mocks.lifecycleManager).updateSyncSource(ConfigStateMocks.MOCK_SYNC_SOURCE_CONFIG);
+    verify(mocks.lifecycleManager, never()).shutdownAutoEmbeddingReplication();
+  }
+
+  @Test
+  public void testHandleReplicationAndSyncSourceUpdate_bothGatesClose_usesSingleFullRestart()
+      throws Exception {
+    var replicationGate = ToggleGate.opened();
+    var autoEmbeddingReplicationGate = ToggleGate.opened();
+    var mocks =
+        DefaultConfigManagerMocks.create(
+            replicationStateMonitor(replicationGate), autoEmbeddingReplicationGate);
+    mocks.clearInvocations();
+
+    replicationGate.close();
+    autoEmbeddingReplicationGate.close();
+
+    mocks.configManager.handleReplicationAndSyncSourceUpdate(
+        ConfigStateMocks.MOCK_SYNC_SOURCE_CONFIG);
+
+    verify(mocks.lifecycleManager).updateSyncSource(ConfigStateMocks.MOCK_SYNC_SOURCE_CONFIG);
+    verify(mocks.lifecycleManager, never()).shutdownAutoEmbeddingReplication();
+    verify(mocks.lifecycleManager, never()).restartAutoEmbeddingReplication(any());
+  }
+
+  private static ReplicationStateMonitor replicationStateMonitor(ToggleGate replicationGate) {
+    return ReplicationStateMonitor.builder()
+        .setReplicationGate(replicationGate)
+        .setInitialSyncGate(ToggleGate.opened())
+        .build();
   }
 
   /**
