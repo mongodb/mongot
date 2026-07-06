@@ -6,12 +6,12 @@ import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
+import com.xgen.mongot.index.definition.quantization.VectorTypeFieldResolver;
 import com.xgen.mongot.index.lucene.explain.knn.InstrumentableKnnByteVectorQuery;
 import com.xgen.mongot.index.lucene.explain.knn.InstrumentableKnnFloatVectorQuery;
 import com.xgen.mongot.index.lucene.explain.knn.KnnInstrumentationHelper;
 import com.xgen.mongot.index.lucene.explain.knn.VectorSearchExplainer;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
-import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.query.context.QueryFactoryContext;
 import com.xgen.mongot.index.lucene.query.custom.MongotKnnByteQuery;
 import com.xgen.mongot.index.lucene.query.custom.MongotKnnFloatQuery;
@@ -406,15 +406,9 @@ class VectorSearchQueryFactory {
   private String getLuceneFieldName(
       FieldPath fieldPath, Optional<FieldPath> embeddedRoot, Vector.VectorType vectorType)
       throws InvalidQueryException {
-    return switch (vectorType) {
-      case FLOAT ->
-          this.factoryContext
-              .getIndexedQuantization(fieldPath, embeddedRoot)
-              .toTypeField()
-              .getLuceneFieldName(fieldPath, embeddedRoot);
-      case BYTE -> FieldName.TypeField.KNN_BYTE.getLuceneFieldName(fieldPath, embeddedRoot);
-      case BIT -> FieldName.TypeField.KNN_BIT.getLuceneFieldName(fieldPath, embeddedRoot);
-    };
+    return VectorTypeFieldResolver.resolveTypeField(
+            this.factoryContext.getIndexedQuantization(fieldPath, embeddedRoot), vectorType)
+        .getLuceneFieldName(fieldPath, embeddedRoot);
   }
 
   /**
