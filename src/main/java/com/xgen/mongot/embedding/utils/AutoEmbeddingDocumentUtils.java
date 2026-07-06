@@ -894,6 +894,60 @@ public class AutoEmbeddingDocumentUtils {
                     field.path(), sourceNestedRoot));
   }
 
+  /**
+   * Returns a fallback reason when a filter-only partial $set would leave a stale MV filter value
+   * it can't clear (else empty): a filter $unset/$pop/$slice'd away, or a sub-field dropped when a
+   * $set overwrites its parent object. Covers co-located nested filters and top-level filters.
+   *
+   * <p>TODO(CLOUDP-412618): $unset support in the partial body would keep these updates partial.
+   */
+  public static Optional<PartialEmbedFallbackReason> filterOnlyPartialUpdateFallbackReason(
+      UpdateDescription updateDescription,
+      AutoEmbedFieldMapping mapping,
+      Optional<FieldPath> sourceNestedRoot) {
+    if (updateDescription == null) {
+      return Optional.empty();
+    }
+    Set<FieldPath> nestedFilters = new HashSet<>();
+    Set<FieldPath> topLevelFilters = new HashSet<>();
+    for (var entry : mapping.fieldMap().entrySet()) {
+      if (!(entry.getValue() instanceof AutoEmbedField.PassthroughField)) {
+        continue;
+      }
+      FieldPath path = entry.getKey();
+      if (sourceNestedRoot.isPresent() && path.isChildOf(sourceNestedRoot.get())) {
+        nestedFilters.add(path);
+      } else {
+        topLevelFilters.add(path);
+      }
+    }
+    if (nestedFilters.isEmpty() && topLevelFilters.isEmpty()) {
+      return Optional.empty();
+    }
+
+    // Destructive channels ($unset / $pop|$slice) that remove or shorten a declared filter.
+    for (String touched : destructivelyAffectedFieldPaths(updateDescription)) {
+      FieldPath path = FieldPath.parse(touched);
+      if (mayAffectDeclaredField(path, nestedFilters)) {
+        return Optional.of(PartialEmbedFallbackReason.NESTED_FILTER_REMAPPING);
+      }
+      if (mayAffectDeclaredField(path, topLevelFilters)) {
+        return Optional.of(PartialEmbedFallbackReason.DESTRUCTIVE_INDEXED_TOUCH);
+      }
+    }
+    // A $set on a strict ancestor of a filter overwrites the parent object and drops the sub-field.
+    for (String updated : updatedFieldKeys(updateDescription)) {
+      FieldPath path = FieldPath.parse(updated);
+      if (isStrictAncestorOfAny(path, nestedFilters)) {
+        return Optional.of(PartialEmbedFallbackReason.NESTED_FILTER_REMAPPING);
+      }
+      if (isStrictAncestorOfAny(path, topLevelFilters)) {
+        return Optional.of(PartialEmbedFallbackReason.ANCESTOR_OVERWRITE);
+      }
+    }
+    return Optional.empty();
+  }
+
   // TODO(CLOUDP-363302): Supports stored source.
   /**
    * Extracts filter field values from the full document to build a $set document for partial

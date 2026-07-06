@@ -7,7 +7,6 @@ import com.google.errorprone.annotations.Var;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.client.model.changestream.OperationType;
-import com.mongodb.client.model.changestream.UpdateDescription;
 import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
 import com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator;
 import com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils;
@@ -448,16 +447,14 @@ public class ChangeStreamDocumentUtils {
                 Optional<BsonDocument> filterFieldUpdates =
                     AutoEmbeddingDocumentUtils.extractFilterFieldValues(
                         event.getFullDocument(), mapping);
-                // CLOUDP-402522: buildNestedFilterPartialSetBody patches co-located _autoEmbed.*
-                // filters with an additive positional $set that can't clear a removed value, so a
-                // destructive ($unset/$pop) change forces a full replace when the index declares a
-                // filter under the nestedRoot (rebuilding the MV element clears stale filters).
-                boolean destructiveNestedFilter =
-                    hasDestructiveChange(event.getUpdateDescription())
-                        && indexDefinition instanceof VectorIndexDefinition vectorDef
-                        && AutoEmbeddingDocumentUtils.hasFilterUnderNestedRoot(
-                            mapping, vectorDef.getNestedRoot());
-                if (!destructiveNestedFilter
+                // A partial $set can't clear a filter removed ($unset/$pop/$slice) or dropped by a
+                // $set overwriting its parent; those fall back to a full replace (CLOUDP-402522).
+                Optional<PartialEmbedFallbackReason> filterOnlyUnsafe =
+                    indexDefinition instanceof VectorIndexDefinition vectorDef
+                        ? AutoEmbeddingDocumentUtils.filterOnlyPartialUpdateFallbackReason(
+                            event.getUpdateDescription(), mapping, vectorDef.getNestedRoot())
+                        : Optional.empty();
+                if (filterOnlyUnsafe.isEmpty()
                     && filterFieldUpdates.isPresent()
                     && (!changedEmbedTexts.isEmpty() || !filterFieldUpdates.get().isEmpty())) {
                   if (embedFieldChanged) {
@@ -470,11 +467,10 @@ public class ChangeStreamDocumentUtils {
                           filterFieldUpdates.get(),
                           changedEmbedTexts));
                 }
-                // Couldn't issue a partial $set. A destructive nested-filter touch falls back to a
-                // full replace so the co-located _autoEmbed.* filter is rebuilt; for an embed-
-                // changing update the only other way here is a filter-extraction failure.
-                if (destructiveNestedFilter) {
-                  fallbackReason = Optional.of(PartialEmbedFallbackReason.NESTED_FILTER_REMAPPING);
+                // Couldn't issue a partial $set: a filter it can't maintain forces a full replace;
+                // for an embed-changing update the only other cause is a filter-extraction failure.
+                if (filterOnlyUnsafe.isPresent()) {
+                  fallbackReason = filterOnlyUnsafe;
                 } else if (embedFieldChanged) {
                   fallbackReason = Optional.of(PartialEmbedFallbackReason.FILTER_EXTRACTION_FAILED);
                 }
@@ -540,14 +536,6 @@ public class ChangeStreamDocumentUtils {
                   event.getUpdateDescription(), autoEmbedMapping);
       default -> false;
     };
-  }
-
-  // True when the update has a destructive channel ($unset removedFields or $pop/$slice
-  // truncatedArrays). A partial $set can't express a remove/shorten on the MV side.
-  private static boolean hasDestructiveChange(UpdateDescription ud) {
-    return ud != null
-        && (!Optional.ofNullable(ud.getRemovedFields()).orElse(List.of()).isEmpty()
-            || !Optional.ofNullable(ud.getTruncatedArrays()).orElse(List.of()).isEmpty());
   }
 
   private static void incrementApplicableDocumentMetrics(

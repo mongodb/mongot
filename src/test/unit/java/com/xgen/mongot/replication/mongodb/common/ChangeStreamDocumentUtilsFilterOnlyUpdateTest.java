@@ -191,6 +191,148 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
   }
 
   @Test
+  public void testFilterOnlyUpdate_NestedFilterAncestorOverwrite_FallsBackToFullReplace() {
+    // Filter lives one level below the array element (sections.meta.tag). A plain $set that
+    // overwrites the intermediate "meta" object drops "tag" from the post-image — reported as an
+    // updatedField, not a removedField. The additive positional $set would then write nothing for
+    // that element, leaving _autoEmbed.sections.0.meta.tag stale. Falls back to a full replace,
+    // recorded under NESTED_FILTER_REMAPPING.
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("sections.content")
+            .withFilterPath("sections.meta.tag")
+            .nestedRoot("sections")
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    UpdateDescription updateDesc =
+        new UpdateDescription(
+            null,
+            new BsonDocument("sections.0.meta", new BsonDocument("color", new BsonString("blue"))));
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append(
+                "sections",
+                new BsonArray(
+                    List.of(
+                        new BsonDocument()
+                            .append("content", new BsonString("hello"))
+                            .append("meta", new BsonDocument("color", new BsonString("blue"))))))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> changeEvent =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, updateDesc, fullDocument);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    DocumentEvent event = batch.finalChangeEvents.getFirst();
+    assertFalse(event.getFilterFieldUpdates().isPresent());
+    assertTrue(event.getChangedEmbedTexts().isEmpty());
+    assertEquals(0, batch.partialEmbedApplied);
+    assertEquals(
+        Integer.valueOf(1),
+        batch.partialEmbedFallbacks.get(PartialEmbedFallbackReason.NESTED_FILTER_REMAPPING));
+  }
+
+  @Test
+  public void testFilterOnlyUpdate_TopLevelFilterAncestorOverwrite_FallsBackToFullReplace() {
+    // Same ancestor-overwrite hazard for a top-level filter: $set of "meta" drops the co-located
+    // "meta.tag" from the post-image, so the rebuilt filter $set body carries nothing to overwrite
+    // the stale MV value. Must fall back to a full replace, recorded under ANCESTOR_OVERWRITE.
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("body")
+            .withFilterPath("meta.tag")
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    UpdateDescription updateDesc =
+        new UpdateDescription(
+            null, new BsonDocument("meta", new BsonDocument("color", new BsonString("blue"))));
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("body", new BsonString("hello"))
+            .append("meta", new BsonDocument("color", new BsonString("blue")))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> changeEvent =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, updateDesc, fullDocument);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    DocumentEvent event = batch.finalChangeEvents.getFirst();
+    assertFalse(event.getFilterFieldUpdates().isPresent());
+    assertTrue(event.getChangedEmbedTexts().isEmpty());
+    assertEquals(0, batch.partialEmbedApplied);
+    assertEquals(
+        Integer.valueOf(1),
+        batch.partialEmbedFallbacks.get(PartialEmbedFallbackReason.ANCESTOR_OVERWRITE));
+  }
+
+  @Test
+  public void testFilterOnlyUpdate_UnrelatedDestructiveChange_StaysPartial() {
+    // The destructive-change guard is scoped to the nestedRoot subtree: an $unset of a field that
+    // is neither under the nestedRoot nor otherwise indexed must NOT force a full replace, even
+    // when the index declares a filter under the nestedRoot. The concurrent nested-filter $set
+    // should still be applied as a partial update.
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("sections.section_content")
+            .withFilterPath("sections.section_name")
+            .nestedRoot("sections")
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    UpdateDescription updateDesc =
+        new UpdateDescription(
+            List.of("unrelatedField"),
+            new BsonDocument("sections.0.section_name", new BsonString("updated")));
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append(
+                "sections",
+                new BsonArray(
+                    List.of(
+                        new BsonDocument()
+                            .append("section_content", new BsonString("machine learning"))
+                            .append("section_name", new BsonString("updated")))))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> changeEvent =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, updateDesc, fullDocument);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    DocumentEvent event = batch.finalChangeEvents.getFirst();
+    assertTrue(event.getFilterFieldUpdates().isPresent());
+    BsonArray sections = event.getFilterFieldUpdates().get().getArray("sections");
+    assertEquals(new BsonString("updated"), sections.get(0).asDocument().getString("section_name"));
+    assertEquals(0, batch.partialEmbedApplied);
+    assertTrue(batch.partialEmbedFallbacks.isEmpty());
+  }
+
+  @Test
   public void testFilterOnlyUpdate_TopLevelFilterWithNestedRoot_Created() {
     // A top-level filter is not co-located under the MV nestedRoot, so the partial-update
     // optimization stays safe even when the index has a nestedRoot for its embed field. The guard

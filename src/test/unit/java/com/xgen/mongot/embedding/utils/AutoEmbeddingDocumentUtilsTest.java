@@ -2334,6 +2334,103 @@ public class AutoEmbeddingDocumentUtilsTest {
     }
   }
 
+  @Test
+  public void testFilterOnlyPartialUpdateFallbackReason_TopLevelFilters() {
+    AutoEmbedFieldMapping mapping = mappingOf(List.of("body"), List.of("meta.tag", "category"));
+    Optional<FieldPath> noNestedRoot = Optional.empty();
+
+    // $set overwriting an ancestor drops the co-located filter sub-field → ANCESTOR_OVERWRITE.
+    assertEquals(
+        Optional.of(PartialEmbedFallbackReason.ANCESTOR_OVERWRITE),
+        AutoEmbeddingDocumentUtils.filterOnlyPartialUpdateFallbackReason(
+            new UpdateDescription(
+                null, new BsonDocument("meta", new BsonDocument("color", new BsonString("blue")))),
+            mapping,
+            noNestedRoot));
+
+    // $unset of a filter can't be cleared by a partial $set → DESTRUCTIVE_INDEXED_TOUCH.
+    assertEquals(
+        Optional.of(PartialEmbedFallbackReason.DESTRUCTIVE_INDEXED_TOUCH),
+        AutoEmbeddingDocumentUtils.filterOnlyPartialUpdateFallbackReason(
+            new UpdateDescription(List.of("category"), new BsonDocument()), mapping, noNestedRoot));
+
+    // Setting a filter directly, or touching unrelated fields, stays on the partial path.
+    assertEquals(
+        Optional.empty(),
+        AutoEmbeddingDocumentUtils.filterOnlyPartialUpdateFallbackReason(
+            new UpdateDescription(null, new BsonDocument("category", new BsonString("x"))),
+            mapping,
+            noNestedRoot));
+    assertEquals(
+        Optional.empty(),
+        AutoEmbeddingDocumentUtils.filterOnlyPartialUpdateFallbackReason(
+            new UpdateDescription(null, new BsonDocument("unrelated", new BsonString("x"))),
+            mapping,
+            noNestedRoot));
+    assertEquals(
+        Optional.empty(),
+        AutoEmbeddingDocumentUtils.filterOnlyPartialUpdateFallbackReason(
+            new UpdateDescription(List.of("unrelated"), new BsonDocument()),
+            mapping,
+            noNestedRoot));
+  }
+
+  @Test
+  public void testFilterOnlyPartialUpdateFallbackReason_NestedFilters() {
+    AutoEmbedFieldMapping mapping =
+        AutoEmbedFieldMappingCreator.createAutoEmbedMapping(
+            VectorIndexDefinitionBuilder.builder()
+                .setFields(
+                    List.of(
+                        new VectorAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("sections.content")),
+                        new VectorIndexFilterFieldDefinition(FieldPath.parse("sections.meta.tag"))))
+                .nestedRoot("sections")
+                .build());
+    Optional<FieldPath> nestedRoot = Optional.of(FieldPath.parse("sections"));
+
+    // Reviewer's case: $set overwrites sections.0.meta, dropping the co-located sections.meta.tag.
+    // The additive positional $set can't clear it → NESTED_FILTER_REMAPPING.
+    assertEquals(
+        Optional.of(PartialEmbedFallbackReason.NESTED_FILTER_REMAPPING),
+        AutoEmbeddingDocumentUtils.filterOnlyPartialUpdateFallbackReason(
+            new UpdateDescription(
+                null,
+                new BsonDocument(
+                    "sections.0.meta", new BsonDocument("color", new BsonString("blue")))),
+            mapping,
+            nestedRoot));
+
+    // $unset of a nested filter is also unclearable by a partial $set.
+    assertEquals(
+        Optional.of(PartialEmbedFallbackReason.NESTED_FILTER_REMAPPING),
+        AutoEmbeddingDocumentUtils.filterOnlyPartialUpdateFallbackReason(
+            new UpdateDescription(List.of("sections.0.meta.tag"), new BsonDocument()),
+            mapping,
+            nestedRoot));
+
+    // A $pop/$slice on the nestedRoot array shortens the co-located element list.
+    assertEquals(
+        Optional.of(PartialEmbedFallbackReason.NESTED_FILTER_REMAPPING),
+        AutoEmbeddingDocumentUtils.filterOnlyPartialUpdateFallbackReason(
+            new UpdateDescription(
+                List.of(), new BsonDocument(), List.of(new TruncatedArray("sections", 2))),
+            mapping,
+            nestedRoot));
+
+    // Destructive/overwrite on an unrelated field stays on the partial path.
+    assertEquals(
+        Optional.empty(),
+        AutoEmbeddingDocumentUtils.filterOnlyPartialUpdateFallbackReason(
+            new UpdateDescription(List.of("unrelatedField"), new BsonDocument()),
+            mapping,
+            nestedRoot));
+    assertEquals(
+        Optional.empty(),
+        AutoEmbeddingDocumentUtils.filterOnlyPartialUpdateFallbackReason(
+            null, mapping, nestedRoot));
+  }
+
   private static RawBsonDocument rawDoc(BsonDocument doc) {
     return new RawBsonDocument(doc, BsonUtils.BSON_DOCUMENT_CODEC);
   }
