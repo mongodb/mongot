@@ -17,9 +17,15 @@ import org.junit.Test;
 public class MongoConnectionConfigTest {
 
   private static final List<HostAndPort> HOSTS = List.of(HostAndPort.fromParts("localhost", 27017));
+  private static final String SRV_HOST = "srv.example.com";
 
   private static ReplicaSetConfig config(Optional<X509Config> x509, Optional<ScramConfig> scram) {
-    return new ReplicaSetConfig(HOSTS, x509, scram);
+    return new ReplicaSetConfig(HOSTS, Optional.empty(), x509, scram);
+  }
+
+  private static ReplicaSetConfig srvConfig(
+      Optional<X509Config> x509, Optional<ScramConfig> scram) {
+    return new ReplicaSetConfig(List.of(), Optional.of(SRV_HOST), x509, scram);
   }
 
   private static X509Config x509(Path certKeyFile) {
@@ -119,6 +125,50 @@ public class MongoConnectionConfigTest {
   public void testToBson_X509Configured_roundTrips() throws BsonParseException {
     ReplicaSetConfig cfg =
         config(Optional.of(x509(Path.of("/etc/tls/client.pem"))), Optional.empty());
+
+    BsonDocument encoded = cfg.toBson();
+
+    try (var parser = BsonDocumentParser.fromRoot(encoded).build()) {
+      ReplicaSetConfig roundTripped = ReplicaSetConfig.fromBson(parser);
+      assertEquals(cfg, roundTripped);
+      roundTripped.validate(parser);
+    }
+  }
+
+  @Test
+  public void testValidate_bothHostAndPortsAndSrvHost_ThrowsError() throws BsonParseException {
+    ReplicaSetConfig cfg =
+        new ReplicaSetConfig(
+            HOSTS,
+            Optional.of("srv.example.com"),
+            Optional.of(x509(Path.of("/etc/tls/client.pem"))),
+            Optional.empty());
+
+    try (var parser = BsonDocumentParser.fromRoot(new BsonDocument()).build()) {
+      BsonParseException e = assertThrows(BsonParseException.class, () -> cfg.validate(parser));
+      assertEquals("HostAndPorts and SrvHost are mutually exclusive", e.getMessage());
+    }
+  }
+
+  @Test
+  public void testValidate_neitherHostAndPortsNorSrvHost_ThrowsError() throws BsonParseException {
+    ReplicaSetConfig cfg =
+        new ReplicaSetConfig(
+            List.of(),
+            Optional.empty(),
+            Optional.of(x509(Path.of("/etc/tls/client.pem"))),
+            Optional.empty());
+
+    try (var parser = BsonDocumentParser.fromRoot(new BsonDocument()).build()) {
+      BsonParseException e = assertThrows(BsonParseException.class, () -> cfg.validate(parser));
+      assertEquals("HostAndPorts or SrvHost must be specified", e.getMessage());
+    }
+  }
+
+  @Test
+  public void testValidate_srvHostOnly_Passes() throws BsonParseException {
+    ReplicaSetConfig cfg =
+        srvConfig(Optional.of(x509(Path.of("/etc/tls/client.pem"))), Optional.empty());
 
     BsonDocument encoded = cfg.toBson();
 

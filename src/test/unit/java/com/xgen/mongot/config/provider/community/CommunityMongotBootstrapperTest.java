@@ -376,6 +376,7 @@ public class CommunityMongotBootstrapperTest {
         new ReplicaSetConfig(
             List.of(com.google.common.net.HostAndPort.fromParts("localhost", 27017)),
             Optional.empty(),
+            Optional.empty(),
             Optional.of(
                 new ScramConfig(
                     Databases.ADMIN,

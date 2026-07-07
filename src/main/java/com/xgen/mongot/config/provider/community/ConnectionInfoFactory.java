@@ -1,5 +1,6 @@
 package com.xgen.mongot.config.provider.community;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.net.HostAndPort;
 import com.mongodb.ConnectionString;
 import com.mongodb.ReadConcernLevel;
@@ -72,11 +73,16 @@ public class ConnectionInfoFactory {
 
   private static ConnectionString getClusterConnectionString(
       MongoConnectionConfig config, ReadPreference readPreference) {
-    ConnectionStringBuilder connectionStringBuilder =
-        ConnectionStringBuilder.standard()
-            .withHostAndPorts(config.hostandPorts())
-            .withOption("readPreference", readPreference.getName())
-            .withOption("directConnection", "false");
+    ConnectionStringBuilder connectionStringBuilder;
+    if (config.srvHost().isPresent()) {
+      connectionStringBuilder = ConnectionStringBuilder.srv().withHost(config.srvHost().get());
+    } else {
+      connectionStringBuilder =
+          ConnectionStringBuilder.standard().withHostAndPorts(config.hostandPorts());
+    }
+    connectionStringBuilder
+        .withOption("readPreference", readPreference.getName())
+        .withOption("directConnection", "false");
     addTagSets(connectionStringBuilder, readPreference);
     return getConnectionString(config, connectionStringBuilder);
   }
@@ -131,7 +137,7 @@ public class ConnectionInfoFactory {
         .withAuthenticationDatabase(scramConfig.authSource());
 
     return Crash.because("failed to construct connection string")
-        .ifThrowsExceptionOrError(connectionStringBuilder::build);
+        .ifThrowsExceptionOrError(() -> connectionStringBuilder.build());
   }
 
   private static ConnectionString buildx509ConnectionString(
@@ -144,10 +150,11 @@ public class ConnectionInfoFactory {
     connectionStringBuilder.withX509Config();
 
     return Crash.because("failed to construct connection string")
-        .ifThrowsExceptionOrError(connectionStringBuilder::build);
+        .ifThrowsExceptionOrError(() -> connectionStringBuilder.build());
   }
 
-  private static Optional<SSLContext> getSslContext(MongoConnectionConfig connectionConfig) {
+  @VisibleForTesting
+  public static Optional<SSLContext> getSslContext(MongoConnectionConfig connectionConfig) {
 
     if (connectionConfig.scram().isPresent()) {
       return getScramSslContext(connectionConfig.scram().get());

@@ -23,6 +23,7 @@ public class ConnectionInfoFactoryTest {
 
   private static final List<HostAndPort> HOSTS =
       List.of(HostAndPort.fromParts("localhost", 27017), HostAndPort.fromParts("localhost", 27018));
+  private static final String SRV_HOST = "srv.example.com";
 
   private static final ReadPreference SECONDARY_PREFERRED_RP = ReadPreference.secondaryPreferred();
   private static final ReadPreference PRIMARY_RP = ReadPreference.primary();
@@ -42,20 +43,32 @@ public class ConnectionInfoFactoryTest {
     return new ReplicaSetConfig(
         hosts,
         Optional.empty(),
+        Optional.empty(),
         Optional.of(new ScramConfig(Databases.ADMIN, username, passwordFile, tls)));
   }
 
   private static ReplicaSetConfig replicaSetConfig(X509Config x509) {
-    return new ReplicaSetConfig(HOSTS, Optional.of(x509), Optional.empty());
+    return new ReplicaSetConfig(HOSTS, Optional.empty(), Optional.of(x509), Optional.empty());
   }
 
   private static ReplicaSetConfig replicaSetConfig(ScramConfig scramConfig) {
-    return new ReplicaSetConfig(HOSTS, Optional.empty(), Optional.of(scramConfig));
+    return new ReplicaSetConfig(
+        HOSTS, Optional.empty(), Optional.empty(), Optional.of(scramConfig));
+  }
+
+  private static ReplicaSetConfig replicaSetConfigSrv(
+      String username, Path passwordFile, TlsConfig tls) {
+    return new ReplicaSetConfig(
+        List.of(),
+        Optional.of(SRV_HOST),
+        Optional.empty(),
+        Optional.of(new ScramConfig(Databases.ADMIN, username, passwordFile, tls)));
   }
 
   private static RouterConfig routerConfig(String username, Path passwordFile, TlsConfig tls) {
     return new RouterConfig(
         HOSTS,
+        Optional.empty(),
         Optional.empty(),
         Optional.of(new ScramConfig(Databases.ADMIN, username, passwordFile, tls)));
   }
@@ -150,7 +163,8 @@ public class ConnectionInfoFactoryTest {
 
   @Test
   public void getClusterConnectionInfo_noAuthConfig_throwsAssertionError() {
-    ReplicaSetConfig config = new ReplicaSetConfig(HOSTS, Optional.empty(), Optional.empty());
+    ReplicaSetConfig config =
+        new ReplicaSetConfig(HOSTS, Optional.empty(), Optional.empty(), Optional.empty());
 
     assertThrows(
         AssertionError.class,
@@ -159,7 +173,8 @@ public class ConnectionInfoFactoryTest {
 
   @Test
   public void getSingleHostConnectionInfo_noAuthConfig_throwsAssertionError() {
-    ReplicaSetConfig config = new ReplicaSetConfig(HOSTS, Optional.empty(), Optional.empty());
+    ReplicaSetConfig config =
+        new ReplicaSetConfig(HOSTS, Optional.empty(), Optional.empty(), Optional.empty());
 
     assertThrows(
         AssertionError.class,
@@ -365,6 +380,33 @@ public class ConnectionInfoFactoryTest {
       assertThat(cs.getCredential().getSource()).isEqualTo("admin");
       assertThat(new String(cs.getCredential().getPassword())).isEqualTo("hunter2");
 
+      assertThat(info.sslContext()).isEmpty();
+    } finally {
+      Files.deleteIfExists(passwordFile);
+    }
+  }
+
+  @Test
+  public void getClusterConnectionInfo_srvReplicaSet_usernamePassword_parsesAsExpected()
+      throws IOException {
+    Path passwordFile = createPasswordFile("secret"); // kingfisher:ignore
+    try {
+      ReplicaSetConfig config = replicaSetConfigSrv("testuser", passwordFile, TLS_DISABLED);
+
+      ConnectionInfo info =
+          ConnectionInfoFactory.getClusterConnectionInfo(config, SECONDARY_PREFERRED_RP);
+
+      ConnectionString cs = new ConnectionString(info.uri().getConnectionString());
+      assertThat(cs.getHosts()).containsExactly(SRV_HOST);
+      assertThat(cs.getHosts()).hasSize(1);
+      assertThat(cs.getCredential()).isNotNull();
+      assertThat(cs.getCredential().getUserName()).isEqualTo("testuser");
+      assertThat(cs.getCredential().getSource()).isEqualTo("admin");
+      String raw = info.uri().getConnectionString();
+      assertThat(raw).startsWith("mongodb+srv://");
+      assertThat(raw).contains("tls=false");
+      assertThat(raw).contains("directConnection=false");
+      assertThat(raw).contains("readConcernLevel=majority");
       assertThat(info.sslContext()).isEmpty();
     } finally {
       Files.deleteIfExists(passwordFile);

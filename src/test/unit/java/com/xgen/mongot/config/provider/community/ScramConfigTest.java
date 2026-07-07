@@ -32,7 +32,7 @@ public class ScramConfigTest {
   @Test
   public void parse_valid_defaultAuthSource() throws BsonParseException {
     try (var parser = BsonDocumentParser.fromRoot(minimalScramDoc()).build()) {
-      ScramConfig parsed = ScramConfig.fromBson(parser);
+      ScramConfig parsed = ScramConfig.fromBson(parser, false);
       assertEquals("admin", parsed.authSource());
       assertEquals("__system", parsed.username());
       assertEquals(Path.of("/etc/mongot/keyfile"), parsed.passwordFile());
@@ -52,7 +52,7 @@ public class ScramConfigTest {
                     .append("tlsCertificateKeyFile", new BsonString("/etc/tls/client.pem")));
 
     try (var parser = BsonDocumentParser.fromRoot(doc).build()) {
-      ScramConfig parsed = ScramConfig.fromBson(parser);
+      ScramConfig parsed = ScramConfig.fromBson(parser, false);
       assertEquals("local", parsed.authSource());
       assertEquals("__system", parsed.username());
       assertEquals(Path.of("/etc/mongot/keyfile"), parsed.passwordFile());
@@ -72,7 +72,7 @@ public class ScramConfigTest {
     var parser = BsonDocumentParser.fromRoot(doc).build();
     @Var BsonParseException caught = null;
     try {
-      ScramConfig.fromBson(parser);
+      ScramConfig.fromBson(parser, false);
     } catch (BsonParseException e) {
       caught = e;
     }
@@ -99,7 +99,7 @@ public class ScramConfigTest {
     var parser = BsonDocumentParser.fromRoot(doc).build();
     @Var BsonParseException caught = null;
     try {
-      ScramConfig.fromBson(parser);
+      ScramConfig.fromBson(parser, false);
     } catch (BsonParseException e) {
       caught = e;
     }
@@ -124,7 +124,7 @@ public class ScramConfigTest {
             .append("passwordFile", new BsonString("/etc/mongot/keyfile"));
 
     try (var parser = BsonDocumentParser.fromRoot(doc).build()) {
-      ScramConfig parsed = ScramConfig.fromBson(parser);
+      ScramConfig parsed = ScramConfig.fromBson(parser, false);
       assertFalse("tls should default to disabled when omitted", parsed.tls().enabled());
       assertTrue(
           "tlsCertificateKeyFile should be empty when tls is omitted",
@@ -150,11 +150,11 @@ public class ScramConfigTest {
                         "tlsCertificateKeyFilePasswordFile", new BsonString("/etc/tls/cert-pass")));
 
     try (var parser = BsonDocumentParser.fromRoot(doc).build()) {
-      ScramConfig parsed = ScramConfig.fromBson(parser);
+      ScramConfig parsed = ScramConfig.fromBson(parser, false);
       BsonDocument encoded = parsed.toBson();
 
       try (var parser2 = BsonDocumentParser.fromRoot(encoded).build()) {
-        ScramConfig roundTripped = ScramConfig.fromBson(parser2);
+        ScramConfig roundTripped = ScramConfig.fromBson(parser2, false);
         assertEquals(parsed.authSource(), roundTripped.authSource());
         assertEquals(parsed.username(), roundTripped.username());
         assertEquals(parsed.passwordFile(), roundTripped.passwordFile());
@@ -245,11 +245,11 @@ public class ScramConfigTest {
   @Test
   public void roundTrip_defaultAuthSource_preservesValue() throws BsonParseException {
     try (var parser = BsonDocumentParser.fromRoot(minimalScramDoc()).build()) {
-      ScramConfig parsed = ScramConfig.fromBson(parser);
+      ScramConfig parsed = ScramConfig.fromBson(parser, false);
       BsonDocument encoded = parsed.toBson();
 
       try (var parser2 = BsonDocumentParser.fromRoot(encoded).build()) {
-        ScramConfig roundTripped = ScramConfig.fromBson(parser2);
+        ScramConfig roundTripped = ScramConfig.fromBson(parser2, false);
         assertEquals("admin", roundTripped.authSource());
         assertEquals(parsed.username(), roundTripped.username());
         assertEquals(parsed.passwordFile(), roundTripped.passwordFile());

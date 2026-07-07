@@ -13,7 +13,7 @@ public class SyncSourceConfigTest {
   private static final List<HostAndPort> HOSTS = List.of(HostAndPort.fromParts("localhost", 27017));
 
   private static ReplicaSetConfig replicaSet() {
-    return new ReplicaSetConfig(HOSTS, Optional.empty(), Optional.empty());
+    return new ReplicaSetConfig(HOSTS, Optional.empty(), Optional.empty(), Optional.empty());
   }
 
   private static SyncSourceConfig syncSource(Optional<ReadPreferenceConfig> replicationReader) {

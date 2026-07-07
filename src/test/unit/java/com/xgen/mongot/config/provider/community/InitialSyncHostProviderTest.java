@@ -63,6 +63,7 @@ public class InitialSyncHostProviderTest {
                 HostAndPort.fromParts("rs1.local", 27017),
                 HostAndPort.fromParts("rs2.local", 27018)),
             Optional.empty(),
+            Optional.empty(),
             Optional.of(
                 new ScramConfig(
                     "admin",
@@ -73,6 +74,7 @@ public class InitialSyncHostProviderTest {
     this.routerConfig =
         new RouterConfig(
             List.of(HostAndPort.fromParts("mongos.local", 27019)),
+            Optional.empty(),
             Optional.empty(),
             Optional.of(
                 new ScramConfig(
@@ -146,6 +148,7 @@ public class InitialSyncHostProviderTest {
             List.of(
                 HostAndPort.fromParts("rs1.local", 27017),
                 HostAndPort.fromParts("rs2.local", 27018)),
+            Optional.empty(),
             Optional.empty(),
             Optional.of(
                 new ScramConfig(

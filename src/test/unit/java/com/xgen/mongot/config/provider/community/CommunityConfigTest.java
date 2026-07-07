@@ -73,7 +73,10 @@ public class CommunityConfigTest {
           ftdcOverrides(),
           withReplicationReader(),
           withReplicationReaderTagSets(),
-          withDiskMonitor());
+          withDiskMonitor(),
+          srvHostReplicaSet(),
+          srvScramNoTlsDefaultsTlsEnabled(),
+          hostPortScramNoTlsDefaultsTlsDisabled());
     }
 
     @Test
@@ -88,6 +91,7 @@ public class CommunityConfigTest {
               new SyncSourceConfig(
                   new ReplicaSetConfig(
                       List.of(HostAndPort.fromParts("mongod", 27017)),
+                      Optional.empty(),
                       Optional.empty(),
                       Optional.of(
                           new ScramConfig(
@@ -148,6 +152,7 @@ public class CommunityConfigTest {
                           HostAndPort.fromParts("mongod1", 27017),
                           HostAndPort.fromParts("mongod2", 27017)),
                       Optional.empty(),
+                      Optional.empty(),
                       Optional.of(
                           new ScramConfig(
                               Databases.LOCAL,
@@ -163,6 +168,7 @@ public class CommunityConfigTest {
                           List.of(
                               HostAndPort.fromParts("mongos1", 27017),
                               HostAndPort.fromParts("mongos2", 27017)),
+                          Optional.empty(),
                           Optional.empty(),
                           Optional.of(
                               new ScramConfig(
@@ -211,6 +217,7 @@ public class CommunityConfigTest {
                   new ReplicaSetConfig(
                       List.of(HostAndPort.fromParts("mongod", 27017)),
                       Optional.empty(),
+                      Optional.empty(),
                       Optional.of(
                           new ScramConfig(
                               Databases.ADMIN,
@@ -246,6 +253,7 @@ public class CommunityConfigTest {
               new SyncSourceConfig(
                   new ReplicaSetConfig(
                       List.of(HostAndPort.fromParts("mongod", 27017)),
+                      Optional.empty(),
                       Optional.empty(),
                       Optional.of(
                           new ScramConfig(
@@ -291,6 +299,7 @@ public class CommunityConfigTest {
                   new ReplicaSetConfig(
                       List.of(HostAndPort.fromParts("mongod", 27017)),
                       Optional.empty(),
+                      Optional.empty(),
                       Optional.of(
                           new ScramConfig(
                               Databases.ADMIN,
@@ -335,6 +344,7 @@ public class CommunityConfigTest {
                   new ReplicaSetConfig(
                       List.of(HostAndPort.fromParts("mongod", 27017)),
                       Optional.empty(),
+                      Optional.empty(),
                       Optional.of(
                           new ScramConfig(
                               Databases.ADMIN,
@@ -378,6 +388,7 @@ public class CommunityConfigTest {
               new SyncSourceConfig(
                   new ReplicaSetConfig(
                       List.of(HostAndPort.fromParts("mongod", 27017)),
+                      Optional.empty(),
                       Optional.empty(),
                       Optional.of(
                           new ScramConfig(
@@ -424,6 +435,7 @@ public class CommunityConfigTest {
                   new ReplicaSetConfig(
                       List.of(HostAndPort.fromParts("mongod", 27017)),
                       Optional.empty(),
+                      Optional.empty(),
                       Optional.of(
                           new ScramConfig(
                               Databases.ADMIN,
@@ -463,6 +475,7 @@ public class CommunityConfigTest {
               new SyncSourceConfig(
                   new ReplicaSetConfig(
                       List.of(HostAndPort.fromParts("mongod", 27017)),
+                      Optional.empty(),
                       Optional.empty(),
                       Optional.of(
                           new ScramConfig(
@@ -505,6 +518,7 @@ public class CommunityConfigTest {
               new SyncSourceConfig(
                   new ReplicaSetConfig(
                       List.of(HostAndPort.fromParts("mongod", 27017)),
+                      Optional.empty(),
                       Optional.empty(),
                       Optional.of(
                           new ScramConfig(
@@ -561,6 +575,7 @@ public class CommunityConfigTest {
                   new ReplicaSetConfig(
                       List.of(HostAndPort.fromParts("mongod", 27017)),
                       Optional.empty(),
+                      Optional.empty(),
                       Optional.of(
                           new ScramConfig(
                               Databases.ADMIN,
@@ -596,6 +611,7 @@ public class CommunityConfigTest {
               new SyncSourceConfig(
                   new ReplicaSetConfig(
                       List.of(HostAndPort.fromParts("mongod", 27017)),
+                      Optional.empty(),
                       Optional.empty(),
                       Optional.of(
                           new ScramConfig(
@@ -658,6 +674,46 @@ public class CommunityConfigTest {
                 tagSets.get(1).containsAll(new TagSet(new Tag("dc", "west"))));
           });
     }
+
+    private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig> srvHostReplicaSet() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "srvHost replicaSet",
+          (CommunityConfig config) -> {
+            var replicaSet = config.syncSourceConfig().replicaSet();
+            assertTrue("srvHost should be present", replicaSet.srvHost().isPresent());
+            assertEquals("mongod.example.com", replicaSet.srvHost().get());
+            assertTrue(
+                "hostAndPorts should be empty when srvHost is set",
+                replicaSet.hostandPorts().isEmpty());
+            assertTrue("replicaSet should use scram auth", replicaSet.scram().isPresent());
+            assertEquals("user", replicaSet.scram().get().username());
+            assertEquals(
+                Path.of("/etc/mongot/replicaSet.passwd"), replicaSet.scram().get().passwordFile());
+          });
+    }
+
+    private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig>
+        srvScramNoTlsDefaultsTlsEnabled() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "scram no tls with srvHost defaults to tls enabled",
+          (CommunityConfig config) -> {
+            ScramConfig scram = config.syncSourceConfig().replicaSet().scram().get();
+            assertTrue(
+                "scram tls should default to enabled when srvHost is set", scram.tls().enabled());
+          });
+    }
+
+    private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig>
+        hostPortScramNoTlsDefaultsTlsDisabled() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "scram no tls with hostPort defaults to tls disabled",
+          (CommunityConfig config) -> {
+            ScramConfig scram = config.syncSourceConfig().replicaSet().scram().get();
+            assertFalse(
+                "scram tls should default to disabled when hostAndPort is set",
+                scram.tls().enabled());
+          });
+    }
   }
 
   @RunWith(Parameterized.class)
@@ -690,6 +746,7 @@ public class CommunityConfigTest {
               new SyncSourceConfig(
                   new ReplicaSetConfig(
                       List.of(HostAndPort.fromParts("mongod", 27017)),
+                      Optional.empty(),
                       Optional.empty(),
                       Optional.of(
                           new ScramConfig(
@@ -744,6 +801,7 @@ public class CommunityConfigTest {
                           HostAndPort.fromParts("mongod1", 27017),
                           HostAndPort.fromParts("mongod2", 27017)),
                       Optional.empty(),
+                      Optional.empty(),
                       Optional.of(
                           new ScramConfig(
                               Databases.ADMIN,
@@ -754,6 +812,7 @@ public class CommunityConfigTest {
                   Optional.of(
                       new RouterConfig(
                           List.of(HostAndPort.fromParts("mongos", 27017)),
+                          Optional.empty(),
                           Optional.empty(),
                           Optional.of(
                               new ScramConfig(
@@ -986,6 +1045,24 @@ public class CommunityConfigTest {
       CommunityConfig.ParsedCommunityConfig parsedConfig = CommunityConfig.readFromFile(configPath);
       assertEquals("data/mongot", parsedConfig.config().storageConfig().dataPath().toString());
       assertFalse(parsedConfig.unknownFieldExceptions().isEmpty());
+    }
+
+    @Test
+    public void readFromFile_withSrvHost_replicaSetHasSrvHost()
+        throws IOException, BsonParseException {
+      Path configPath =
+          Path.of("src/test/unit/resources/config/provider/community/communityConfigSrvHost.yaml");
+      CommunityConfig result = CommunityConfig.readFromFile(configPath).config();
+
+      var replicaSet = result.syncSourceConfig().replicaSet();
+      assertTrue("replicaSet should have srvHost", replicaSet.srvHost().isPresent());
+      assertEquals("mongod.example.com", replicaSet.srvHost().get());
+      assertTrue(
+          "hostAndPorts should be empty when srvHost is set", replicaSet.hostandPorts().isEmpty());
+      assertTrue("replicaSet should use scram auth", replicaSet.scram().isPresent());
+      assertEquals("user", replicaSet.scram().get().username());
+      assertEquals(
+          Path.of("/etc/mongot/replicaSet.passwd"), replicaSet.scram().get().passwordFile());
     }
   }
 }

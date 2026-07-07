@@ -1,6 +1,8 @@
 package com.xgen.mongot.util.mongodb;
 
 import com.mongodb.ConnectionString;
+import com.mongodb.spi.dns.DnsClient;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,8 +18,15 @@ public class ConnectionStringUtil {
 
   public static ConnectionString toConnectionString(String string)
       throws InvalidConnectionStringException {
+    return toConnectionString(string, Optional.empty());
+  }
+
+  public static ConnectionString toConnectionString(String string, Optional<DnsClient> dnsClient)
+      throws InvalidConnectionStringException {
     try {
-      return new ConnectionString(string);
+      return dnsClient
+          .map(client -> new ConnectionString(string, client))
+          .orElseGet(() -> new ConnectionString(string));
     } catch (Exception e) {
       throw new InvalidConnectionStringException(e);
     }

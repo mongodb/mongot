@@ -1,0 +1,20 @@
+syncSource:
+  replicaSet:
+    hostAndPort: []
+    srvHost: "mongod.example.com"
+    scramAuth:
+      username: "user"
+      passwordFile: "/etc/mongot/replicaSet.passwd"
+storage:
+  dataPath: "data/mongot"
+server:
+  grpc:
+    address: "localhost:27028"
+metrics:
+  enabled: true
+  address: "localhost:9946"
+healthCheck:
+  address: "localhost:8080"
+logging:
+  verbosity: "DEBUG"
+  logPath: "/var/log/mongot"

@@ -4,6 +4,7 @@ import com.google.common.net.HostAndPort;
 import com.google.errorprone.annotations.Var;
 import com.mongodb.ConnectionString;
 import com.mongodb.lang.Nullable;
+import com.mongodb.spi.dns.DnsClient;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.mongodb.ConnectionStringUtil.InvalidConnectionStringException;
 import java.net.URLEncoder;
@@ -112,6 +113,11 @@ public class ConnectionStringBuilder {
   }
 
   public ConnectionString build() throws InvalidConnectionStringException {
+    return build(Optional.empty());
+  }
+
+  public ConnectionString build(Optional<DnsClient> dnsClient)
+      throws InvalidConnectionStringException {
     Check.stateNotNull(this.hostAndPorts, "At least one host must be provided");
     Check.checkState(!this.hostAndPorts.isEmpty(), "At least one host must be provided");
 
@@ -130,14 +136,14 @@ public class ConnectionStringBuilder {
         this.options.stream().map(e -> e.name() + "=" + e.value()).collect(Collectors.joining("&"));
     String optionsPrefix = options.isEmpty() ? "" : "?";
 
-    return ConnectionStringUtil.toConnectionString(
+    String uri =
         String.format(
             "%s://%s%s/%s%s%s",
-            scheme,
-            authenticationPrefix,
-            hostList,
-            authenticationDatabase,
-            optionsPrefix,
-            options));
+            scheme, authenticationPrefix, hostList, authenticationDatabase, optionsPrefix, options);
+
+    if (dnsClient.isPresent()) {
+      return ConnectionStringUtil.toConnectionString(uri, dnsClient);
+    }
+    return ConnectionStringUtil.toConnectionString(uri);
   }
 }

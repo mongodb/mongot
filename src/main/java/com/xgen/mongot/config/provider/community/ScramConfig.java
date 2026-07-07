@@ -6,6 +6,7 @@ import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
 import com.xgen.mongot.util.bson.parser.DocumentParser;
 import com.xgen.mongot.util.bson.parser.Field;
+import com.xgen.mongot.util.bson.parser.ParsedField;
 import com.xgen.mongot.util.mongodb.Databases;
 import java.nio.file.Path;
 import java.util.Optional;
@@ -37,12 +38,26 @@ public record ScramConfig(String authSource, String username, Path passwordFile,
                 new TlsConfig(false, Optional.empty(), Optional.empty(), Optional.empty()));
   }
 
-  public static ScramConfig fromBson(DocumentParser parser) throws BsonParseException {
+  public static ScramConfig fromBson(DocumentParser parser, boolean isSrvConfig)
+      throws BsonParseException {
+    // If TLS is missing, generate a default TLS config based on isSrvConfig
+    // If isSrvConfig is true, generate a default enabled TLS
+    // Otherwise, disable TLS by providing default field definition
+    ParsedField.WithDefault<TlsConfig> parsedTlsConfig = parser.getField(Fields.TLS);
+    TlsConfig tlsConfig =
+        (parsedTlsConfig.isEmpty() && isSrvConfig)
+            ? getDefaultSevTlsConfig()
+            : parsedTlsConfig.unwrap();
+
     return new ScramConfig(
         parser.getField(Fields.AUTH_SOURCE).unwrap(),
         parser.getField(Fields.USERNAME).unwrap(),
         parser.getField(Fields.PASSWORD_FILE).unwrap(),
-        parser.getField(Fields.TLS).unwrap());
+        tlsConfig);
+  }
+
+  private static TlsConfig getDefaultSevTlsConfig() {
+    return new TlsConfig(true, Optional.empty(), Optional.empty(), Optional.empty());
   }
 
   /**
