@@ -65,6 +65,13 @@ public enum DynamicFeatureFlags {
    */
   MV_GC_ENABLED("mongot.featureFlag.enableMvGc", false),
   /**
+   * Gates only the destructive step of the auto-embedding GC sweep — dropping the superseded MV
+   * collection and deleting its lease — separately from {@link #MV_GC_ENABLED}. With GC on but this
+   * off, the sweep runs mark-only: it flags stale leases eligible for cleanup (for observability)
+   * but deletes nothing. Both on means full GC. Off by default.
+   */
+  MV_GC_DELETION_ENABLED("mongot.featureFlag.enableMvGcDeletion", false),
+  /**
    * When enabled, the materialized-view embedding indexing path uses the in-memory {@code
    * EmbeddingRetryCache} to reuse vectors across write retries. When disabled (default), it uses
    * the no-op cache, so behavior is unchanged.

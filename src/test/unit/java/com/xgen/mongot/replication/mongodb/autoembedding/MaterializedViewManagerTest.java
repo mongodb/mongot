@@ -3233,6 +3233,37 @@ public class MaterializedViewManagerTest {
   }
 
   @Test
+  public void scanStaleLeases_deletionFlagDisabled_marksButDoesNotDelete() {
+    Mocks mocks = Mocks.create();
+    // GC on, deletion off: mark-only mode.
+    when(mocks.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+            DynamicFeatureFlags.MV_GC_DELETION_ENABLED))
+        .thenReturn(false);
+    // A never-marked stale lease (the mark pass should flag it) and an already-marked overdue lease
+    // (the cleanup pass must NOT delete it while deletion is disabled).
+    Lease toMark =
+        leaseWithExpiration(
+            "to-mark", Instant.now().minus(Duration.ofHours(1)), Lease.CleanupState.NOT_ELIGIBLE);
+    Lease overdue =
+        leaseWithExpiration(
+            "overdue",
+            Instant.now().minus(PAST_DELETE_GRACE),
+            Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+    when(mocks.leaseManager.findGcCandidates(any())).thenReturn(List.of(toMark, overdue));
+    when(mocks.leaseManager.markEligibleForCleanup(eq("to-mark"), any())).thenReturn(true);
+
+    mocks.manager.scanStaleLeasesForCleanup();
+
+    // Mark pass still runs ...
+    verify(mocks.leaseManager).markEligibleForCleanup(eq("to-mark"), any());
+    // ... but nothing is dropped or deleted.
+    verify(mocks.leaseManager, never()).resolveStaleMatViewNamespace(any(), any());
+    verify(mocks.leaseManager, never()).deleteStaleLease(any(), any());
+    // Deletion deliberately off: the overdue gauge resets to 0 (nothing is blocked).
+    assertEquals(0.0, overdueGaugeValue(mocks), 0.0);
+  }
+
+  @Test
   public void scanStaleLeases_scannerAliveGauge_tracksDynamicFlag() {
     Mocks mocks = Mocks.create();
     when(mocks.leaseManager.findGcCandidates(any())).thenReturn(List.of());
@@ -3350,6 +3381,40 @@ public class MaterializedViewManagerTest {
     // rather than holding the stale 1 while GC is off.
     when(mocks.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
             DynamicFeatureFlags.MV_GC_ENABLED))
+        .thenReturn(false);
+    mocks.manager.scanStaleLeasesForCleanup();
+    assertEquals(0.0, overdueGaugeValue(mocks), 0.0);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void scanStaleLeases_overdueGauge_resetsWhenDeletionFlagDisabled() {
+    Mocks mocks = Mocks.create();
+    // Deletion on, one blocked overdue lease (its MV drop fails): the gauge reads 1.
+    Lease blocked =
+        leaseWithExpiration(
+            "blocked",
+            Instant.now().minus(PAST_DELETE_GRACE),
+            Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+    when(mocks.leaseManager.findGcCandidates(any())).thenReturn(List.of(blocked));
+    when(mocks.leaseManager.resolveStaleMatViewNamespace(eq("blocked"), any()))
+        .thenReturn(Optional.of(new MongoNamespace("test-db", "mv-collection")));
+    MongoClient writerClient = mock(MongoClient.class);
+    MongoDatabase database = mock(MongoDatabase.class);
+    MongoCollection<Document> collection = mock(MongoCollection.class);
+    when(mocks.autoEmbeddingMongoClient.getMaterializedViewWriterMongoClient())
+        .thenReturn(Optional.of(writerClient));
+    when(writerClient.getDatabase("test-db")).thenReturn(database);
+    when(database.getCollection("mv-collection")).thenReturn(collection);
+    doThrow(new RuntimeException("drop failed")).when(collection).drop();
+
+    mocks.manager.scanStaleLeasesForCleanup();
+    assertEquals(1.0, overdueGaugeValue(mocks), 0.0);
+
+    // Deletion turned off (GC stays on, mark-only): the next sweep resets the gauge to 0 even
+    // though the blocked lease is still a candidate.
+    when(mocks.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+            DynamicFeatureFlags.MV_GC_DELETION_ENABLED))
         .thenReturn(false);
     mocks.manager.scanStaleLeasesForCleanup();
     assertEquals(0.0, overdueGaugeValue(mocks), 0.0);
@@ -3851,10 +3916,14 @@ public class MaterializedViewManagerTest {
       this.leaseManager = leaseManager;
       this.metadataCatalog = metadataCatalog;
       this.staleLeaseScannerExecutor = mockScheduledExecutor("mat-view-stale-lease-scanner");
-      // GC sweep enabled by default for these tests; the flag-disabled path is covered separately.
+      // GC sweep + deletion both enabled by default for these tests; the flag-disabled paths are
+      // covered separately.
       this.dynamicFeatureFlagRegistry = mock(DynamicFeatureFlagRegistry.class);
       when(this.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
               DynamicFeatureFlags.MV_GC_ENABLED))
+          .thenReturn(true);
+      when(this.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+              DynamicFeatureFlags.MV_GC_DELETION_ENABLED))
           .thenReturn(true);
       this.embeddingRetryCache = mock(EmbeddingRetryCache.class);
 

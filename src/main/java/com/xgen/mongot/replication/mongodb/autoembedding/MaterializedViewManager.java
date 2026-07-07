@@ -1479,6 +1479,13 @@ public class MaterializedViewManager implements ReplicationManager {
               .log("Failed to mark stale lease eligible for cleanup, continuing sweep");
         }
       }
+      // Deletion kill switch: with GC on but this off, the sweep is mark-only and deletes nothing.
+      // Gauge reset to 0 as above — with deletion deliberately off, nothing is "blocked".
+      if (!this.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+          DynamicFeatureFlags.MV_GC_DELETION_ENABLED)) {
+        setOverdueGauge(0);
+        return;
+      }
       // Reclamation pass: only leases that were already marked when this sweep read them, so a
       // lease marked by the pass above is never cleaned up in the same sweep.
       Instant deleteCutoff =
