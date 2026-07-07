@@ -87,7 +87,10 @@ public enum Feature {
   FCIS_CONSISTENT_SNAPSHOTS_DOWNLOAD("fcisConsistentSnapshotsDownload", State.DISABLED),
   FCIS_INDEX_DATA_CONDITIONAL_WRITES("fcisIndexDataConditionalWrites", State.DISABLED),
   SEARCH_AGGREGATION("searchAggregation", State.DISABLED),
-  BYTE_BINARY_QUANTIZATION("byteBinaryQuantization", State.DISABLED);
+  BYTE_BINARY_QUANTIZATION("byteBinaryQuantization", State.DISABLED),
+  // Kill-switch for the CLOUDP-416232 one-time stale-internal-search-checkpoint reset guard in
+  // ReplicationIndexManager. Enabled by default; disable to skip the reset without a rollback.
+  RESET_STALE_INTERNAL_SEARCH_CHECKPOINT("resetStaleInternalSearchCheckpoint", State.ENABLED);
 
   private final String name;
   private final State defaultState;

@@ -42,6 +42,7 @@ import com.xgen.mongot.index.IndexMetricValuesSupplier;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.IndexWriter;
 import com.xgen.mongot.index.InitializedIndex;
+import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.ViewDefinition;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.status.IndexStatus.Reason;
@@ -69,6 +70,7 @@ import com.xgen.mongot.replication.mongodb.synonyms.SynonymMappingHighWaterMark;
 import com.xgen.mongot.replication.mongodb.synonyms.SynonymMappingManager;
 import com.xgen.mongot.replication.mongodb.synonyms.SynonymMappingManagerFactory;
 import com.xgen.testing.mongot.index.IndexMetricsUpdaterBuilder;
+import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.mock.index.IndexMetricsSupplier;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils;
@@ -863,6 +865,55 @@ public class ReplicationIndexManagerTest {
 
       mocks.assertStateTransitions(
           IndexManager.State.INITIALIZING, IndexManager.State.STEADY_STATE);
+    }
+  }
+
+  @Test
+  public void testStaleInternalSearchNamespaceResyncs() throws Exception {
+    // Committed change-stream namespace database is the un-prefixed internal-search base, while the
+    // resolved definition database is tenant-prefixed. This is the CLOUDP-416232 wedge: a pre-fix
+    // resolution persisted the wrong internal database in the checkpoint. Expect the stale
+    // checkpoint to be discarded and a fresh initial sync enqueued, not a steady-state resume.
+    try (Mocks mocks =
+        Mocks.internalSearchNamespace(
+            Mocks.PREFIXED_INTERNAL_SEARCH_DB, Mocks.UNPREFIXED_INTERNAL_SEARCH_DB)) {
+      verify(mocks.initialSyncQueue, timeout(5000))
+          .enqueue(any(), any(), any(), any(), anyBoolean(), anyBoolean());
+      verify(mocks.steadyStateManager, never())
+          .add(any(), any(), any(), any(), any(), anyBoolean());
+    }
+  }
+
+  @Test
+  public void testStaleInternalSearchNamespaceResyncDisabledByFeatureFlag() throws Exception {
+    // Same wedged state as testStaleInternalSearchNamespaceResyncs, but with the kill-switch
+    // disabled: the guard is bypassed and the (stale) checkpoint is resumed as-is, so a normal
+    // steady-state resume happens and no fresh initial sync is enqueued.
+    FeatureFlags featureFlags =
+        FeatureFlags.withDefaults().disable(Feature.RESET_STALE_INTERNAL_SEARCH_CHECKPOINT).build();
+    try (Mocks mocks =
+        Mocks.internalSearchNamespace(
+            Mocks.PREFIXED_INTERNAL_SEARCH_DB,
+            Mocks.UNPREFIXED_INTERNAL_SEARCH_DB,
+            Optional.of(featureFlags))) {
+      verify(mocks.steadyStateManager, timeout(5000))
+          .add(any(), any(), any(), any(), any(), anyBoolean());
+      verify(mocks.initialSyncQueue, never())
+          .enqueue(any(), any(), any(), any(), anyBoolean(), anyBoolean());
+    }
+  }
+
+  @Test
+  public void testMatchingInternalSearchNamespaceResumes() throws Exception {
+    // Committed namespace database matches the resolved (tenant-prefixed) definition database, so
+    // the checkpoint is valid: resume steady state normally, no false-positive resync.
+    try (Mocks mocks =
+        Mocks.internalSearchNamespace(
+            Mocks.PREFIXED_INTERNAL_SEARCH_DB, Mocks.PREFIXED_INTERNAL_SEARCH_DB)) {
+      verify(mocks.steadyStateManager, timeout(5000))
+          .add(any(), any(), any(), any(), any(), anyBoolean());
+      verify(mocks.initialSyncQueue, never())
+          .enqueue(any(), any(), any(), any(), anyBoolean(), anyBoolean());
     }
   }
 
@@ -1957,6 +2008,48 @@ public class ReplicationIndexManagerTest {
           Optional.empty(),
           Optional.empty(),
           Optional.of(featureFlags));
+    }
+
+    static final String PREFIXED_INTERNAL_SEARCH_DB =
+        "6a1d8bee3c6725e1b057660f___mdb_internal_search";
+    static final String UNPREFIXED_INTERNAL_SEARCH_DB = "__mdb_internal_search";
+
+    // Builds a manager whose derived-index definition lives in an internal-search database
+    // (defDatabase) but whose committed change-stream resume namespace was persisted under a
+    // different internal-search database (committedNamespaceDatabase). Used to exercise the
+    // stale-checkpoint namespace guard in determineInitAction.
+    static Mocks internalSearchNamespace(String defDatabase, String committedNamespaceDatabase)
+        throws Exception {
+      return internalSearchNamespace(defDatabase, committedNamespaceDatabase, Optional.empty());
+    }
+
+    static Mocks internalSearchNamespace(
+        String defDatabase, String committedNamespaceDatabase, Optional<FeatureFlags> featureFlags)
+        throws Exception {
+      SearchIndexDefinition definition =
+          SearchIndexDefinitionBuilder.builder()
+              .indexId(SearchIndex.MOCK_INDEX_ID)
+              .name(SearchIndex.MOCK_INDEX_NAME)
+              .database(defDatabase)
+              .lastObservedCollectionName(SearchIndex.MOCK_INDEX_LAST_OBSERVED_COLLECTION_NAME)
+              .collectionUuid(SearchIndex.MOCK_INDEX_COLLECTION_UUID)
+              .mappings(SearchIndex.MOCK_INDEX_MAPPINGS)
+              .build();
+      ChangeStreamResumeInfo committedResume =
+          ChangeStreamResumeInfo.create(
+              new MongoNamespace(committedNamespaceDatabase, "collection"),
+              ChangeStreamUtils.POST_BATCH_RESUME_TOKEN);
+      return create(
+          Optional.of(
+              IndexCommitUserData.createChangeStreamResume(
+                  committedResume, IndexFormatVersion.CURRENT)),
+          HANGING_INITIAL_SYNC_QUEUE,
+          HANGING_STEADY_STATE_MANAGER,
+          HANGING_SYNONYM_MANAGER,
+          Optional.empty(),
+          mockIndexGeneration(mockIndex(definition)),
+          Optional.empty(),
+          featureFlags);
     }
 
     static Mocks initialSyncResumeCurrentIndexVersion(InitialSyncResumeInfo initialSyncResumeInfo)

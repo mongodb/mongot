@@ -60,7 +60,8 @@
         "fcisConsistentSnapshotsDownload": true,
         "fcisIndexDataConditionalWrites": true,
         "searchAggregation": true,
-        "byteBinaryQuantization" : true
+        "byteBinaryQuantization": true,
+        "resetStaleInternalSearchCheckpoint": true
       }
     },
     {
@@ -107,7 +108,8 @@
         "fcisConsistentSnapshotsDownload": false,
         "fcisIndexDataConditionalWrites": false,
         "searchAggregation": false,
-        "byteBinaryQuantization" : false
+        "byteBinaryQuantization": false,
+        "resetStaleInternalSearchCheckpoint": false
       }
     }
   ],

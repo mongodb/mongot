@@ -77,6 +77,11 @@ public class ReplicationIndexManager implements IndexManager {
 
   private static final String EMPTY_EXCEPTION_METRIC_FIELD = "None";
   private static final String INDEX_DROPPED_COUNTER_UNKNOWN_TAG = "unknown";
+  // Base name of the auto-embedding internal-search database. Kept in sync with
+  // InternalDatabaseResolver.DEFAULT_BASE_NAME (duplicated here to avoid coupling the core
+  // replication manager to the embedding package for a single constant). On multi-tenant clusters
+  // the resolved database is "<tenant>___mdb_internal_search"; on dedicated it is the base name.
+  private static final String INTERNAL_SEARCH_DB_BASE_NAME = "__mdb_internal_search";
   @VisibleForTesting static final String EXCEEDED_LIMIT_REASON_PREFIX = "Exceeded max limit: ";
 
   /** The action taken when an index fails. */
@@ -489,9 +494,45 @@ public class ReplicationIndexManager implements IndexManager {
     // This shouldn't happen since we commit resume info while an initial sync is in progress; it's
     // only omitted after an initial sync has completed, at which point we should have this
     // information.
-    if (userData.getResumeInfo().isEmpty()) {
+    Optional<ChangeStreamResumeInfo> resumeInfo = userData.getResumeInfo();
+    if (resumeInfo.isEmpty()) {
       this.logger.error(
           "No resumeToken or initial sync minValidOpTime found for index, resyncing.");
+      return InitAction.RUN_INITIAL_SYNC;
+    }
+
+    // TODO(CLOUDP-420697): This is a one-time healing shim, not steady-state logic. mongot 1.69.1
+    // stopped new bad checkpoints from being created, and this guard rewrites each wedged
+    // checkpoint on a single resume/restart. Remove it (and INTERNAL_SEARCH_DB_BASE_NAME, the
+    // RESET_STALE_INTERNAL_SEARCH_CHECKPOINT feature flag, the staleInternalSearchNamespaceResync
+    // counter, and the associated tests) once the release carrying this guard has fully rolled out
+    // and the counter is zero fleet-wide.
+    //
+    // Guard against a stale internal-search namespace baked into the checkpoint. An auto-embedding
+    // derived index tails its materialized-view collection in the internal-search database. On a
+    // pre-fix mongot (CLOUDP-407569), a failed initial conf call defaulted isDedicatedCluster=true,
+    // so the resolver produced the un-prefixed base name "__mdb_internal_search" instead of the
+    // tenant-prefixed "<tenant>___mdb_internal_search". The derived index initial-synced against
+    // that wrong collection and persisted its namespace in the resume info. Because the resume path
+    // trusts the persisted namespace and never re-resolves, such an index keeps tailing the wrong
+    // (never-dropped) collection indefinitely -- surviving the upgrade that fixed resolution. If
+    // the
+    // committed namespace's database no longer matches the (now correctly resolved) definition
+    // database, the checkpoint is stale: discard it and resync against the correct namespace.
+    // Scoped
+    // to internal-search databases so non-auto-embedding indexes are unaffected.
+    String resolvedDatabase = this.index.getDefinition().getDatabase();
+    String committedDatabase = resumeInfo.get().getNamespace().getDatabaseName();
+    if (this.featureFlags.isEnabled(Feature.RESET_STALE_INTERNAL_SEARCH_CHECKPOINT)
+        && resolvedDatabase.endsWith(INTERNAL_SEARCH_DB_BASE_NAME)
+        && !committedDatabase.equals(resolvedDatabase)) {
+      this.logger.warn(
+          "Committed change-stream namespace database [{}] does not match the resolved index "
+              + "database [{}]; checkpoint was written against a stale internal-search namespace "
+              + "(CLOUDP-416232). Discarding checkpoint and resyncing.",
+          committedDatabase,
+          resolvedDatabase);
+      this.metricsFactory.counter("staleInternalSearchNamespaceResync").increment();
       return InitAction.RUN_INITIAL_SYNC;
     }
 
