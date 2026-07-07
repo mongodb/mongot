@@ -2,12 +2,12 @@ package com.xgen.mongot.server.command.management.aic;
 
 import com.xgen.mongot.catalogservice.AuthoritativeIndexCatalog;
 import com.xgen.mongot.catalogservice.CatalogAccessGuard;
-import com.xgen.mongot.catalogservice.IndexStatsEntry;
 import com.xgen.mongot.catalogservice.MetadataClient;
 import com.xgen.mongot.catalogservice.MetadataService;
 import com.xgen.mongot.catalogservice.MetadataServiceException;
 import com.xgen.mongot.catalogservice.TopologyMismatchException;
 import com.xgen.mongot.catalogservice.schema.IndexEntry;
+import com.xgen.mongot.catalogservice.schema.IndexStatsEntry;
 import com.xgen.mongot.catalogservice.schema.ServerStateEntry;
 import com.xgen.mongot.config.manager.CachedIndexInfoProvider;
 import com.xgen.mongot.index.definition.IndexDefinition;

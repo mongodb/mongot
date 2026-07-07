@@ -1,6 +1,6 @@
 package com.xgen.mongot.server.command.management.util;
 
-import com.xgen.mongot.catalogservice.IndexStatsEntry;
+import com.xgen.mongot.catalogservice.schema.IndexStatsEntry;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.status.SynonymStatus;

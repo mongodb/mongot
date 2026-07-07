@@ -1,5 +1,6 @@
 package com.xgen.mongot.catalogservice;
 
+import com.xgen.mongot.catalogservice.schema.IndexStatsEntry;
 import com.xgen.mongot.index.IndexDetailedStatus;
 import com.xgen.mongot.index.IndexInformation;
 import java.util.Optional;

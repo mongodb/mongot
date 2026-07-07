@@ -11,7 +11,6 @@ java_library(
     ],
     visibility = ["//:__subpackages__"],
     exports = [
-        "//src/main/java/com/xgen/mongot/catalogservice",
         "//src/main/java/com/xgen/mongot/catalogservice/schema",
         "//src/main/java/com/xgen/mongot/server/command",
         "@maven//:org_mongodb_bson",

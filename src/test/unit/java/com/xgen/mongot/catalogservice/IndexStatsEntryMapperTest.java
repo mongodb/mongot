@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.xgen.mongot.catalogservice.schema.IndexStatsEntry;
 import com.xgen.mongot.index.AggregatedIndexMetrics;
 import com.xgen.mongot.index.IndexDetailedStatus;
 import com.xgen.mongot.index.IndexInformation;

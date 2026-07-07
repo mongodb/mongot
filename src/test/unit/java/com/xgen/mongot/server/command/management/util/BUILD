@@ -8,7 +8,7 @@ java_test_suite(
     ],
     tags = ["unit"],
     deps = [
-        "//src/main/java/com/xgen/mongot/catalogservice",
+        "//src/main/java/com/xgen/mongot/catalogservice/schema",
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/definition/quantization",
         "//src/main/java/com/xgen/mongot/index/status",

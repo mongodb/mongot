@@ -1,4 +1,4 @@
-package com.xgen.mongot.catalogservice;
+package com.xgen.mongot.catalogservice.schema;
 
 import com.mongodb.client.model.Filters;
 import com.xgen.mongot.index.definition.IndexDefinition;

@@ -4,6 +4,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Indexes;
+import com.xgen.mongot.catalogservice.schema.IndexStatsEntry;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import java.util.List;

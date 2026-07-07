@@ -7,6 +7,9 @@ mongot_java_unit_test_suite(
     resources = True,
     deps = [
         "//src/main/java/com/xgen/mongot/catalogservice/schema",
+        "//src/main/java/com/xgen/mongot/index/definition",
+        "//src/main/java/com/xgen/mongot/index/status",
+        "//src/main/java/com/xgen/mongot/index/synonym",
         "//src/main/java/com/xgen/mongot/util/bson/parser",
         "//src/main/java/com/xgen/testing",
         "//src/main/java/com/xgen/testing/mongot/index/definition",
