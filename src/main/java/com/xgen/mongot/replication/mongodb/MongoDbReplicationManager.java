@@ -149,6 +149,12 @@ public class MongoDbReplicationManager implements ReplicationManager {
   /** A flag indicating whether natural order scan is enabled for initial sync */
   private final boolean enableNaturalOrderScan;
 
+  /**
+   * Wires a {@link RecyclableReplicationIndexManager}'s leadership sink to its native engine. Empty
+   * in builds without a custom vector engine (e.g. community).
+   */
+  private final Optional<LeaderStatusRegistrar> leaderStatusRegistrar;
+
   /** private constructor - Use static factory methods to construct instances. */
   private MongoDbReplicationManager(
       NamedExecutorService lifecycleExecutor,
@@ -172,7 +178,8 @@ public class MongoDbReplicationManager implements ReplicationManager {
       InitializedIndexCatalog initializedIndexCatalog,
       Duration commitInterval,
       Duration requestRateLimitBackoffDuration,
-      boolean enableNaturalOrderScan) {
+      boolean enableNaturalOrderScan,
+      Optional<LeaderStatusRegistrar> leaderStatusRegistrar) {
     this.lifecycleExecutor = lifecycleExecutor;
     this.indexingWorkSchedulerFactory = indexingWorkSchedulerFactory;
     this.cursorManager = cursorManager;
@@ -195,6 +202,7 @@ public class MongoDbReplicationManager implements ReplicationManager {
     this.initializedIndexCatalog = initializedIndexCatalog;
     this.requestRateLimitBackoffDuration = requestRateLimitBackoffDuration;
     this.enableNaturalOrderScan = enableNaturalOrderScan;
+    this.leaderStatusRegistrar = leaderStatusRegistrar;
     this.shutdown = false;
     this.metricsFactory = new MetricsFactory("replication.mongodb", meterRegistry);
     this.managerUp = this.metricsFactory.numGauge("manager", Tags.of("type", "normal"));
@@ -224,7 +232,8 @@ public class MongoDbReplicationManager implements ReplicationManager {
       InitializedIndexCatalog initializedIndexCatalog,
       Duration commitInterval,
       Duration requestRateLimitBackoffDuration,
-      boolean enableNaturalOrderScan) {
+      boolean enableNaturalOrderScan,
+      Optional<LeaderStatusRegistrar> leaderStatusRegistrar) {
     MongoDbReplicationManager manager =
         new MongoDbReplicationManager(
             lifecycleExecutor,
@@ -248,7 +257,8 @@ public class MongoDbReplicationManager implements ReplicationManager {
             initializedIndexCatalog,
             commitInterval,
             requestRateLimitBackoffDuration,
-            enableNaturalOrderScan);
+            enableNaturalOrderScan,
+            leaderStatusRegistrar);
 
     // Register gauges after construction is complete
     createStateGauges(manager, manager.metricsFactory);
@@ -272,7 +282,8 @@ public class MongoDbReplicationManager implements ReplicationManager {
       MeterAndFtdcRegistry meterAndFtdcRegistry,
       Duration replicationOptimeUpdaterInterval,
       BatchMongoClient syncBatchMongoClient,
-      Optional<Supplier<EmbeddingServiceManager>> embeddingServiceManagerSupplier) {
+      Optional<Supplier<EmbeddingServiceManager>> embeddingServiceManagerSupplier,
+      Optional<LeaderStatusRegistrar> leaderStatusRegistrar) {
     if (syncSourceConfig.isEmpty()) {
       throw new IllegalArgumentException("syncSourceConfig must be provided");
     }
@@ -437,7 +448,8 @@ public class MongoDbReplicationManager implements ReplicationManager {
         initializedIndexCatalog,
         durabilityConfig.commitInterval,
         Duration.ofMillis(replicationConfig.requestRateLimitBackoffMs),
-        initialSyncConfig.enableNaturalOrderScan());
+        initialSyncConfig.enableNaturalOrderScan(),
+        leaderStatusRegistrar);
   }
 
   @VisibleForTesting
@@ -454,7 +466,8 @@ public class MongoDbReplicationManager implements ReplicationManager {
       InitializedIndexCatalog initializedIndexCatalog,
       MeterAndFtdcRegistry meterAndFtdcRegistry,
       Duration replicationOptimeUpdaterInterval,
-      Optional<Supplier<EmbeddingServiceManager>> embeddingServiceManagerSupplier) {
+      Optional<Supplier<EmbeddingServiceManager>> embeddingServiceManagerSupplier,
+      Optional<LeaderStatusRegistrar> leaderStatusRegistrar) {
     if (syncSourceConfig.isEmpty()) {
       throw new IllegalArgumentException("syncSourceConfig must be provided");
     }
@@ -482,7 +495,8 @@ public class MongoDbReplicationManager implements ReplicationManager {
         meterAndFtdcRegistry,
         replicationOptimeUpdaterInterval,
         syncBatchMongoClient,
-        embeddingServiceManagerSupplier);
+        embeddingServiceManagerSupplier,
+        leaderStatusRegistrar);
   }
 
   public static MongoDbReplicationManager create(
@@ -497,7 +511,8 @@ public class MongoDbReplicationManager implements ReplicationManager {
       InitializedIndexCatalog initializedIndexCatalog,
       MeterAndFtdcRegistry meterAndFtdcRegistry,
       Gate initialSyncGate,
-      Optional<Supplier<EmbeddingServiceManager>> embeddingServiceManagerSupplier) {
+      Optional<Supplier<EmbeddingServiceManager>> embeddingServiceManagerSupplier,
+      Optional<LeaderStatusRegistrar> leaderStatusRegistrar) {
     return create(
         dataPath,
         initialSyncGate,
@@ -511,7 +526,8 @@ public class MongoDbReplicationManager implements ReplicationManager {
         initializedIndexCatalog,
         meterAndFtdcRegistry,
         ReplicationOptimeUpdater.DEFAULT_UPDATE_INTERVAL,
-        embeddingServiceManagerSupplier);
+        embeddingServiceManagerSupplier,
+        leaderStatusRegistrar);
   }
 
   /** Creates gauges to track the number of index replication managers by state */
@@ -721,7 +737,7 @@ public class MongoDbReplicationManager implements ReplicationManager {
 
     IndexManager indexManager =
         ReplicationIndexManagerFactory.forIndexGeneration(
-                indexGeneration, this.replicationIndexManagerFactory)
+                indexGeneration, this.replicationIndexManagerFactory, this.leaderStatusRegistrar)
             .create(
                 this.lifecycleExecutor,
                 this.cursorManager,

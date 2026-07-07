@@ -675,6 +675,7 @@ public class MongoDbReplicationManagerTest {
                 MeterAndFtdcRegistry.createWithSimpleRegistries(),
                 Duration.ofSeconds(1),
                 mock(BatchMongoClient.class),
+                Optional.empty(),
                 Optional.empty()));
   }
 
@@ -713,6 +714,7 @@ public class MongoDbReplicationManagerTest {
                 MeterAndFtdcRegistry.createWithSimpleRegistries(),
                 Duration.ofSeconds(1),
                 mock(BatchMongoClient.class),
+                Optional.empty(),
                 Optional.empty()));
   }
 
@@ -853,7 +855,8 @@ public class MongoDbReplicationManagerTest {
                   initializedIndexCatalog,
                   commitInterval,
                   requestRateLimitBackoffMs,
-                  false);
+                  false,
+                  Optional.empty());
       this.manager = this.managerSupplier.get();
     }
 

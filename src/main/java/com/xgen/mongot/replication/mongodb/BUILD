@@ -5,6 +5,7 @@ java_library(
     srcs = [
         "DurabilityConfig.java",
         "IndexManager.java",
+        "LeaderStatusRegistrar.java",
         "MongoDbNoOpReplicationManager.java",
         "MongoDbReplicationManager.java",
         "RecyclableReplicationIndexManager.java",

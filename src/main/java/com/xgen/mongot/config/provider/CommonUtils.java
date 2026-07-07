@@ -28,6 +28,7 @@ import com.xgen.mongot.monitor.ReplicationStateMonitor;
 import com.xgen.mongot.monitor.ToggleGate;
 import com.xgen.mongot.replication.ReplicationManagerFactory;
 import com.xgen.mongot.replication.mongodb.DurabilityConfig;
+import com.xgen.mongot.replication.mongodb.LeaderStatusRegistrar;
 import com.xgen.mongot.replication.mongodb.MongoDbNoOpReplicationManager;
 import com.xgen.mongot.replication.mongodb.MongoDbReplicationManager;
 import com.xgen.mongot.replication.mongodb.autoembedding.AutoEmbeddingMaterializedViewManagerFactory;
@@ -59,7 +60,8 @@ public class CommonUtils {
       MeterAndFtdcRegistry meterAndFtdcRegistry,
       DefaultConfigManager.ReplicationMode replicationMode,
       ReplicationStateMonitor replicationStateMonitor,
-      Optional<Supplier<EmbeddingServiceManager>> embeddingServiceManagerSupplier) {
+      Optional<Supplier<EmbeddingServiceManager>> embeddingServiceManagerSupplier,
+      Optional<LeaderStatusRegistrar> leaderStatusRegistrar) {
 
     return (Optional<SyncSourceConfig> syncConfig) -> {
       var pauseReplication = replicationStateMonitor.getReplicationGate().isClosed();
@@ -126,7 +128,8 @@ public class CommonUtils {
           initializedIndexCatalog,
           meterAndFtdcRegistry,
           replicationStateMonitor.getInitialSyncGate(),
-          embeddingServiceManagerSupplier);
+          embeddingServiceManagerSupplier,
+          leaderStatusRegistrar);
     };
   }
 

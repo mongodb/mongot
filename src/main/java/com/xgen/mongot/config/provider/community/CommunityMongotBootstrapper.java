@@ -786,7 +786,8 @@ public class CommunityMongotBootstrapper {
             meterAndFtdcRegistry,
             DefaultConfigManager.ReplicationMode.DISK_UTILIZATION_BASED,
             replicationStateMonitor,
-            Optional.of(embeddingServiceManagerSupplier));
+            Optional.of(embeddingServiceManagerSupplier),
+            Optional.empty());
 
     AutoEmbeddingMaterializedViewManagerFactory autoEmbeddingMaterializedViewManagerFactory =
         CommonUtils.getAutoEmbeddingMaterializedViewManagerFactory(

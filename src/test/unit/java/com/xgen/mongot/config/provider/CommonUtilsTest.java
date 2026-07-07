@@ -114,7 +114,8 @@ public class CommonUtilsTest {
             MeterAndFtdcRegistry.create(mocks.meterRegistry, mocks.ftdcRegistry),
             DefaultConfigManager.ReplicationMode.DISABLE,
             ReplicationStateMonitor.disabled(),
-            mocks.embeddingServiceManagerSupplier);
+            mocks.embeddingServiceManagerSupplier,
+            Optional.empty());
     var noOpReplicationManager = factory.create(Optional.of(mocks.syncSourceConfig));
     Assert.assertTrue(noOpReplicationManager instanceof MongoDbNoOpReplicationManager);
   }
@@ -135,7 +136,8 @@ public class CommonUtilsTest {
             MeterAndFtdcRegistry.create(mocks.meterRegistry, mocks.ftdcRegistry),
             DefaultConfigManager.ReplicationMode.ENABLE,
             ReplicationStateMonitor.enabled(),
-            mocks.embeddingServiceManagerSupplier);
+            mocks.embeddingServiceManagerSupplier,
+            Optional.empty());
 
     // Verify that creation of a normal replication manager is attempted but fails due to mocked
     // configs
@@ -170,7 +172,8 @@ public class CommonUtilsTest {
             MeterAndFtdcRegistry.create(mocks.meterRegistry, mocks.ftdcRegistry),
             DefaultConfigManager.ReplicationMode.DISK_UTILIZATION_BASED,
             replicationStateMonitor,
-            mocks.embeddingServiceManagerSupplier);
+            mocks.embeddingServiceManagerSupplier,
+            Optional.empty());
     var noOpReplicationManager = factory.create(Optional.of(mocks.syncSourceConfig));
     Assert.assertTrue(noOpReplicationManager instanceof MongoDbNoOpReplicationManager);
 
@@ -202,7 +205,8 @@ public class CommonUtilsTest {
             MeterAndFtdcRegistry.create(mocks.meterRegistry, mocks.ftdcRegistry),
             DefaultConfigManager.ReplicationMode.ENABLE,
             ReplicationStateMonitor.enabled(),
-            mocks.embeddingServiceManagerSupplier);
+            mocks.embeddingServiceManagerSupplier,
+            Optional.empty());
 
     var configWithMissingUri =
         SyncSourceConfig.builder()

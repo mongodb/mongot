@@ -154,7 +154,7 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   }
 
   @VisibleForTesting
-  static RecyclableReplicationIndexManager createForTesting(
+  public static RecyclableReplicationIndexManager createForTesting(
       Supplier<ReplicationIndexManager> wrappedFactory) {
     return new RecyclableReplicationIndexManager(wrappedFactory);
   }
