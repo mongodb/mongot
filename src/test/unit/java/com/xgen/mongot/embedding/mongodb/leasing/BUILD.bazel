@@ -5,6 +5,7 @@ java_test_suite(
     srcs = [
         "DynamicLeaderLeaseManagerTest.java",
         "LeaseManagerOpsCommandsTest.java",
+        "LeaseRepairUtilTest.java",
         "LeaseTest.java",
         "StaticLeaderLeaseManagerTest.java",
         "StatusResolutionUtilsTest.java",

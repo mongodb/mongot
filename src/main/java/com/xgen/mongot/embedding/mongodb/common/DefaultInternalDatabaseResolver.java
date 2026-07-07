@@ -28,4 +28,10 @@ public class DefaultInternalDatabaseResolver implements InternalDatabaseResolver
   public String resolveDefault() {
     return this.baseName;
   }
+
+  /** This resolver is single-tenant by definition — never emits a tenant-prefixed namespace. */
+  @Override
+  public boolean isDedicatedCluster() {
+    return true;
+  }
 }

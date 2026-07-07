@@ -48,6 +48,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -59,6 +60,7 @@ import org.bson.conversions.Bson;
 import org.jetbrains.annotations.TestOnly;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.spi.LoggingEventBuilder;
 
 /**
  * A lease manager that dynamically elects leaders at the index level. Leadership is determined
@@ -83,6 +85,10 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
 
   static final String OPS_GIVE_UP_LEASE_SUCCESS_COUNTER_NAME = "opsGiveUpLeaseSuccess";
   static final String OPS_GIVE_UP_LEASE_FAILURE_COUNTER_NAME = "opsGiveUpLeaseFailure";
+  static final String POST_RESTORE_LEASE_REPAIR_SUCCESS_COUNTER_NAME =
+      "postRestoreLeaseRepairSuccess";
+  static final String POST_RESTORE_LEASE_REPAIR_FAILURE_COUNTER_NAME =
+      "postRestoreLeaseRepairFailure";
 
   private final MongoClientOperationExecutor operationExecutor;
   private final String hostname;
@@ -101,6 +107,10 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
   // End of give-up blackout (epoch ms). While now < this, do not acquire leadership.
   private final AtomicLong giveUpBlackoutEndTimeMs = new AtomicLong(0);
   private final Counter corruptedLeaseCounter;
+  private final Counter postRestoreLeaseRepairSuccessCounter;
+  private final Counter postRestoreLeaseRepairFailureCounter;
+  private final boolean isDedicatedCluster;
+  private final LeaseRepairUtil.CollectionUuidResolver uuidResolver;
   private final MetricsFactory metricsFactory;
   // Ops commands. Populated at construction but not executed until the source mongod is ready.
   private final LeaseManagerOpsCommands opsCommands;
@@ -132,6 +142,10 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     this.operationExecutor =
         new MongoClientOperationExecutor(metricsFactory, "leaseTableCollection");
     this.corruptedLeaseCounter = metricsFactory.counter("corruptedLeases");
+    this.postRestoreLeaseRepairSuccessCounter =
+        metricsFactory.counter(POST_RESTORE_LEASE_REPAIR_SUCCESS_COUNTER_NAME);
+    this.postRestoreLeaseRepairFailureCounter =
+        metricsFactory.counter(POST_RESTORE_LEASE_REPAIR_FAILURE_COUNTER_NAME);
     this.hostname = hostname;
     this.mvMetadataCatalog = mvMetadataCatalog;
     this.leases = new ConcurrentHashMap<>();
@@ -142,6 +156,8 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     this.leaseKeyToDatabase = new ConcurrentHashMap<>();
     this.autoEmbeddingMongoClient = autoEmbeddingMongoClient;
     this.opsCommands = opsCommands;
+    this.isDedicatedCluster = dbResolver.isDedicatedCluster();
+    this.uuidResolver = buildUuidResolver();
   }
 
   public static DynamicLeaderLeaseManager create(
@@ -366,36 +382,105 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
   // version since it's only meant for backward compatibility and lease state is unchanged.
   @Nullable
   private Lease normalizeLeaseIfNeeded(Lease lease) {
-    if (!lease.materializedViewCollectionMetadata().collectionUuid().equals(NIL)) {
-      // No need to normalize it by resolving mat view collection UUID.
+    @Var Lease normalized = lease;
+    if (lease.materializedViewCollectionMetadata().collectionUuid().equals(NIL)) {
+      try {
+        normalized =
+            lease.withResolvedMatViewUuid(
+                Check.instanceOf(
+                        getCollectionInfo(
+                            Check.isPresent(
+                                this.autoEmbeddingMongoClient.getLeaseManagerMongoClient(),
+                                "leaseManagerMongoClient"),
+                            getDatabaseForLease(lease.id()),
+                            lease.materializedViewCollectionMetadata().collectionName()),
+                        MongoDbCollectionInfo.Collection.class)
+                    .info()
+                    .uuid());
+      } catch (Exception | AssertionError e) {
+        LOG.atWarn()
+            .addKeyValue("leaseId", lease.id())
+            .addKeyValue("leaseOwner", lease.leaseOwner())
+            .addKeyValue(
+                "matViewCollectionName",
+                lease.materializedViewCollectionMetadata().collectionName())
+            .setCause(e)
+            .log(
+                "Unable to normalize or validate lease, "
+                    + "could be caused by dangling lease or corrupted lease");
+        // TODO(CLOUDP-384971): We should have a way to clean up corrupted leases to avoid blocking
+        // Lease creation.
+        return null;
+      }
+    }
+    return postRestoreSanitizeIfNeeded(normalized);
+  }
+
+  // Sanitizes a stale flex→dedicated migration lease in-memory so downstream consumers see
+  // cleared commitInfo + refreshed UUIDs before any replication starts. The persistent rewrite
+  // happens naturally via the next leadership-acquisition replaceOne. On repair failure the lease
+  // is dropped (null return) so downstream code doesn't start replication against a stale
+  // namespace; repair is retried on the next lease load.
+  @Nullable
+  private Lease postRestoreSanitizeIfNeeded(Lease lease) {
+    if (!LeaseRepairUtil.requiresPostRestoreRepair(lease, this.isDedicatedCluster)) {
       return lease;
     }
     try {
-      return lease.withResolvedMatViewUuid(
-          Check.instanceOf(
-                  getCollectionInfo(
-                      Check.isPresent(
-                          this.autoEmbeddingMongoClient.getLeaseManagerMongoClient(),
-                          "leaseManagerMongoClient"),
-                      getDatabaseForLease(lease.id()),
-                      lease.materializedViewCollectionMetadata().collectionName()),
-                  MongoDbCollectionInfo.Collection.class)
-              .info()
-              .uuid());
-    } catch (Exception | AssertionError e) {
-      LOG.atWarn()
-          .addKeyValue("leaseId", lease.id())
-          .addKeyValue("leaseOwner", lease.leaseOwner())
-          .addKeyValue(
-              "matViewCollectionName", lease.materializedViewCollectionMetadata().collectionName())
+      Lease repaired =
+          LeaseRepairUtil.repairLeaseForPostRestoreMigration(
+              lease, this.uuidResolver, this.dbResolver.resolveDefault());
+      if (repaired == lease) {
+        // Customer database literally named with a 24-hex-char prefix — prefix regex matched
+        // but UUIDs are already current, so there's nothing to repair.
+        return lease;
+      }
+      this.postRestoreLeaseRepairSuccessCounter.increment();
+      logRepair(lease)
+          .addKeyValue("oldSourceUuid", lease.collectionUuid())
+          .addKeyValue("newSourceUuid", repaired.collectionUuid())
+          .addKeyValue("oldMvUuid", lease.materializedViewCollectionMetadata().collectionUuid())
+          .addKeyValue("newMvUuid", repaired.materializedViewCollectionMetadata().collectionUuid())
+          .log("Repaired post-restore stale lease (flex→dedicated migration artifact)");
+      return repaired;
+    } catch (LeaseRepairUtil.LeaseRepairException e) {
+      this.postRestoreLeaseRepairFailureCounter.increment();
+      logRepair(lease)
           .setCause(e)
           .log(
-              "Unable to normalize or validate lease, "
-                  + "could be caused by dangling lease or corrupted lease");
-      // TODO(CLOUDP-384971): We should have a way to clean up corrupted leases to avoid blocking
-      // Lease creation.
+              "Post-restore lease repair failed at load; dropping lease to prevent replication on"
+                  + " stale namespace");
       return null;
     }
+  }
+
+  private LoggingEventBuilder logRepair(Lease lease) {
+    return LOG.atWarn()
+        .addKeyValue("leaseId", lease.id())
+        .addKeyValue("hostname", this.hostname)
+        .addKeyValue("oldNamespace", LeaseRepairUtil.extractNamespace(lease).orElse(null));
+  }
+
+  // Rewrites the in-memory lease's MV UUID to the fresh one from proposedMetadata when the two
+  // disagree — signals a flex→dedicated migration where the lease had no commitInfo namespace to
+  // prefix-check (still in INITIAL_SYNC). No listCollections needed; the fresh UUID is supplied
+  // by the caller.
+  private Lease repairStaleMvUuidIfNeeded(Lease existing, UUID freshMvUuid) {
+    if (!this.isDedicatedCluster) {
+      return existing;
+    }
+    UUID stored = existing.materializedViewCollectionMetadata().collectionUuid();
+    if (freshMvUuid.equals(stored)) {
+      return existing;
+    }
+    Lease repaired = LeaseRepairUtil.repairMvUuidOnly(existing, freshMvUuid);
+    this.leases.put(repaired.id(), repaired);
+    this.postRestoreLeaseRepairSuccessCounter.increment();
+    logRepair(existing)
+        .addKeyValue("oldMvUuid", stored)
+        .addKeyValue("newMvUuid", freshMvUuid)
+        .log("Repaired post-restore stale MV UUID (empty-commitInfo migration case)");
+    return repaired;
   }
 
   /**
@@ -960,8 +1045,13 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
                         .into(new ArrayList<>()));
         for (BsonDocument rawLease : rawLeases) {
           try {
-            Lease lease = parseLeaseOrThrow(rawLease);
-            fetchedLeases.put(lease.id(), lease);
+            Lease parsed = parseLeaseOrThrow(rawLease);
+            Lease normalized = normalizeLeaseIfNeeded(parsed);
+            if (normalized != null) {
+              fetchedLeases.put(normalized.id(), normalized);
+            } else {
+              this.corruptedLeaseCounter.increment();
+            }
           } catch (BsonParseException parseEx) {
             LOG.atError()
                 .addKeyValue("leaseId", extractLeaseId(rawLease))
@@ -1192,8 +1282,14 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
       existingLease = refreshLeaseFromDatabase(proposedMetadata.collectionName());
     }
     if (existingLease != null) {
-      // If another Mongot already created the initial lease before this mongot calls method
-      // syncLeasesFromMongod in the constructor, just reuse, no need to make another network call.
+      // Catches the flex→dedicated migration case where the persisted lease is still in
+      // INITIAL_SYNC (no commitInfo namespace to prefix-check) but its stored MV UUID no longer
+      // matches the live restored MV. proposedMetadata.collectionUuid() comes from a fresh
+      // getCollectionInfo() call in MaterializedViewCollectionResolver, so in ordinary
+      // (non-migration) races both mongots resolve the same live MV collection to the same UUID
+      // and this compare is a no-op. Only a stale snapshot-restored lease produces a mismatch.
+      existingLease = repairStaleMvUuidIfNeeded(existingLease, proposedMetadata.collectionUuid());
+      // If another Mongot already created the initial lease, just reuse, no extra network call.
       return existingLease.materializedViewCollectionMetadata();
     }
     // Fails to refresh from database, so we should be good to create a new entry in lease table.
@@ -1768,6 +1864,35 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
               + " key.");
     }
     return db;
+  }
+
+  private LeaseRepairUtil.CollectionUuidResolver buildUuidResolver() {
+    return (db, coll) -> {
+      MongoDbCollectionInfo info;
+      try {
+        info =
+            getCollectionInfo(
+                Check.isPresent(
+                    this.autoEmbeddingMongoClient.getLeaseManagerMongoClient(),
+                    "leaseManagerMongoClient"),
+                db,
+                coll);
+      } catch (Throwable t) {
+        // Broad on purpose: repair must never crash leadership acquisition.
+        throw new LeaseRepairUtil.LeaseRepairException(
+            "failed to resolve UUID for " + db + "." + coll, t);
+      }
+      if (info instanceof MongoDbCollectionInfo.Collection collection) {
+        return collection.info().uuid();
+      }
+      throw new LeaseRepairUtil.LeaseRepairException(
+          "expected collection but found "
+              + info.getClass().getSimpleName()
+              + " at "
+              + db
+              + "."
+              + coll);
+    };
   }
 
   private MongoCollection<BsonDocument> getCollection(String databaseName)

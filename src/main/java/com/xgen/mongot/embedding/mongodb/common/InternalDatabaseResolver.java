@@ -23,6 +23,11 @@ public interface InternalDatabaseResolver {
    */
   String resolveDefault();
 
+  /** Returns true if this resolver runs on a dedicated (single-tenant) cluster. */
+  default boolean isDedicatedCluster() {
+    return false;
+  }
+
   static String defaultBaseName() {
     return DEFAULT_BASE_NAME;
   }

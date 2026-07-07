@@ -7,6 +7,7 @@ java_library(
         "Lease.java",
         "LeaseManager.java",
         "LeaseManagerOpsCommands.java",
+        "LeaseRepairUtil.java",
         "StaticLeaderLeaseManager.java",
         "StatusResolutionUtils.java",
     ],
