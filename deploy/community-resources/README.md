@@ -4,11 +4,6 @@ MongoDB Search Community Edition introduces powerful search and vector search ca
 MongoDB on-prem deployment. The `mongot` process runs alongside `mongod` to handle search queries
 and index management.
 
-> **Note:** The Community Edition of MongoDB Search is currently in Public Preview. It is available
-> for testing and feedback purposes only.
-> 
-> **Do not use the `mongot` public preview edition for production deployments.**
-
 ## Setup
 
 To install MongoDB Search Community Edition, please refer to the latest installation instructions
