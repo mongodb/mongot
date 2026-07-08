@@ -49,8 +49,7 @@ class HybridPostingsFormat extends PerFieldPostingsFormat {
     this.bloomFilterForIdFieldEnabledSupplier = bloomFilterForIdFieldEnabledSupplier;
     this.indexingMetricsUpdater = indexingMetricsUpdater;
     this.defaultIdPostingsFormat = defaultIdPostingsFormat;
-    this.bloomIdPostingsFormat =
-        new MongotBloomFilteringPostingsFormat(defaultIdPostingsFormat, indexingMetricsUpdater);
+    this.bloomIdPostingsFormat = new MongotBloomFilteringPostingsFormat(defaultIdPostingsFormat);
     this.delegateCodec = delegateCodec;
   }
 

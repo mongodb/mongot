@@ -105,4 +105,37 @@ public class GlobalMetricsFactoryTest {
   public void testInitializeWithNullRegistry() {
     GlobalMetricFactory.initialize(null);
   }
+
+  @Test
+  public void testBloomFilterCountersRegisteredEagerlyAtZero() {
+    GlobalMetricFactory.initialize(this.registry);
+
+    // Present as 0 immediately after init, before any increment, so dashboards/alerts see a series
+    // instead of "no data".
+    assertBloomCounter("bloom_filter_id_lookup_skipped", 0.0);
+    assertBloomCounter("bloom_filter_id_lookup_probed", 0.0);
+    assertBloomCounter("bloom_filter_id_lookup_false_positive", 0.0);
+    assertBloomCounter("bloom_filter_saturated_dropped", 0.0);
+  }
+
+  @Test
+  public void testBloomFilterCountersEmitExpectedNames() {
+    GlobalMetricFactory.initialize(this.registry);
+
+    GlobalMetricFactory.incrementBloomFilterIdLookupSkipped();
+    GlobalMetricFactory.incrementBloomFilterIdLookupProbed();
+    GlobalMetricFactory.incrementBloomFilterIdLookupFalsePositive();
+    GlobalMetricFactory.incrementBloomFilterSaturatedDropped(3);
+
+    assertBloomCounter("bloom_filter_id_lookup_skipped", 1.0);
+    assertBloomCounter("bloom_filter_id_lookup_probed", 1.0);
+    assertBloomCounter("bloom_filter_id_lookup_false_positive", 1.0);
+    assertBloomCounter("bloom_filter_saturated_dropped", 3.0);
+  }
+
+  private void assertBloomCounter(String name, double expected) {
+    Counter counter = this.registry.find(name).counter();
+    assertNotNull("Expected counter " + name + " to be registered", counter);
+    assertEquals(expected, counter.count(), 0.0);
+  }
 }

@@ -8,7 +8,11 @@ import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.lucene.codec.bloom.MongotBloomFilteringPostingsFormat;
 import com.xgen.mongot.index.lucene.codec.bloom.MongotBloomReadPolicy;
 import com.xgen.mongot.index.lucene.field.FieldName;
+import com.xgen.mongot.util.GlobalMetricFactory;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -247,27 +251,28 @@ public class LuceneCodecBloomFilterTest {
 
     @Test
     public void readWithBloomOnHeap_absentIdSkips_presentIdProbes() throws IOException {
-      IndexMetricsUpdater.IndexingMetricsUpdater metricsUpdater =
-          SearchIndex.mockIndexingMetricsUpdater(IndexDefinition.Type.SEARCH);
+      // Bloom lookup counters are published process-wide via GlobalMetricFactory; install a fresh
+      // registry so this test observes only its own increments.
+      SimpleMeterRegistry registry = new SimpleMeterRegistry();
+      GlobalMetricFactory.resetForTest();
+      GlobalMetricFactory.initialize(registry);
 
       try (Directory dir = new ByteBuffersDirectory()) {
-        // Writing with a metrics-carrying codec installs the static read-path metrics bridge that
-        // the lookup counters below rely on.
         IndexWriterConfig config =
             new IndexWriterConfig()
                 .setCodec(
                     LuceneCodec.Factory.forIndexWithBloomFilter(
-                        Map.of(), () -> DFF_ENABLED, Optional.of(metricsUpdater)))
+                        Map.of(), () -> DFF_ENABLED, Optional.empty()))
                 .setUseCompoundFile(false);
         try (IndexWriter writer = new IndexWriter(dir, config)) {
           addDoc(writer, DOC_1);
           writer.commit();
         }
 
-        double skipsBefore = metricsUpdater.getBloomFilterIdLookupSkippedCounter().count();
-        double probesBefore = metricsUpdater.getBloomFilterIdLookupProbedCounter().count();
+        double skipsBefore = counterCount(registry, "bloom_filter_id_lookup_skipped");
+        double probesBefore = counterCount(registry, "bloom_filter_id_lookup_probed");
         double falsePositivesBefore =
-            metricsUpdater.getBloomFilterIdLookupFalsePositiveCounter().count();
+            counterCount(registry, "bloom_filter_id_lookup_false_positive");
 
         MongotBloomReadPolicy.setLoadBloomOnHeap(dir, true);
         try (DirectoryReader reader = DirectoryReader.open(dir)) {
@@ -278,13 +283,10 @@ public class LuceneCodecBloomFilterTest {
           MongotBloomReadPolicy.setLoadBloomOnHeap(dir, false);
         }
 
-        double skipDelta =
-            metricsUpdater.getBloomFilterIdLookupSkippedCounter().count() - skipsBefore;
-        double probeDelta =
-            metricsUpdater.getBloomFilterIdLookupProbedCounter().count() - probesBefore;
+        double skipDelta = counterCount(registry, "bloom_filter_id_lookup_skipped") - skipsBefore;
+        double probeDelta = counterCount(registry, "bloom_filter_id_lookup_probed") - probesBefore;
         double falsePositiveDelta =
-            metricsUpdater.getBloomFilterIdLookupFalsePositiveCounter().count()
-                - falsePositivesBefore;
+            counterCount(registry, "bloom_filter_id_lookup_false_positive") - falsePositivesBefore;
 
         // The present id passes the filter and seeks the delegate (a probe, never a false
         // positive).
@@ -301,8 +303,10 @@ public class LuceneCodecBloomFilterTest {
 
     @Test
     public void saturatedBloom_onClose_recordsDropped() throws IOException {
-      IndexMetricsUpdater.IndexingMetricsUpdater metricsUpdater =
-          SearchIndex.mockIndexingMetricsUpdater(IndexDefinition.Type.SEARCH);
+      // Saturated-dropped is published process-wide via GlobalMetricFactory.
+      SimpleMeterRegistry registry = new SimpleMeterRegistry();
+      GlobalMetricFactory.resetForTest();
+      GlobalMetricFactory.initialize(registry);
       // A factory that always reports saturation forces close() to drop every accumulated filter.
       DefaultBloomFilterFactory alwaysSaturated =
           new DefaultBloomFilterFactory() {
@@ -313,8 +317,7 @@ public class LuceneCodecBloomFilterTest {
           };
       PostingsFormat delegateId = new Lucene99Codec().getPostingsFormatForField(ID_FIELD);
       PostingsFormat bloomFormat =
-          new MongotBloomFilteringPostingsFormat(
-              delegateId, alwaysSaturated, Optional.of(metricsUpdater));
+          new MongotBloomFilteringPostingsFormat(delegateId, alwaysSaturated);
 
       try (Directory dir = new ByteBuffersDirectory()) {
         IndexWriterConfig config =
@@ -323,9 +326,14 @@ public class LuceneCodecBloomFilterTest {
           addDoc(writer, DOC_1);
           writer.commit();
         }
-        assertThat(metricsUpdater.getBloomFilterSaturatedDroppedCounter().count()).isAtLeast(1.0);
+        assertThat(counterCount(registry, "bloom_filter_saturated_dropped")).isAtLeast(1.0);
       }
     }
+  }
+
+  private static double counterCount(MeterRegistry registry, String name) {
+    Counter counter = registry.find(name).counter();
+    return counter == null ? 0.0 : counter.count();
   }
 
   @RunWith(Parameterized.class)

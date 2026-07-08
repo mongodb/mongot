@@ -7,8 +7,7 @@ package com.xgen.mongot.index.lucene.codec.bloom;
 import com.google.auto.service.AutoService;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.errorprone.annotations.Var;
-import com.xgen.mongot.index.IndexMetricsUpdater.IndexingMetricsUpdater;
-import io.micrometer.core.instrument.Counter;
+import com.xgen.mongot.util.GlobalMetricFactory;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -16,9 +15,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Function;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.FieldsConsumer;
 import org.apache.lucene.codecs.FieldsProducer;
@@ -129,52 +126,24 @@ public final class MongotBloomFilteringPostingsFormat extends PostingsFormat {
   private final PostingsFormat delegatePostingsFormat;
 
   /**
-   * Process-level bloom read/write metrics updater.
-   *
-   * <p>This is intentionally {@code static} (not an instance field) because the read path reaches
-   * this format through Lucene's Service Provider Interface, which instantiates it via the no-arg
-   * constructor ({@link #MongotBloomFilteringPostingsFormat()}) and therefore cannot be handed an
-   * updater. The flow is:
-   *
-   * <ol>
-   *   <li>On index open, the format is constructed via the full constructor with a present {@code
-   *       processMetricsUpdater}, which populates this static field.
-   *   <li>On index read, SPI constructs a separate instance via the no-arg constructor; it reads
-   *       the updater from this static field, already set in step 1.
-   * </ol>
-   *
-   * <p>Because the field is shared across all instances and overwritten on each open, it must only
-   * back <em>process-level</em> metrics — it carries no per-index attribution. It is {@code
-   * volatile} so the read-path instances see the value published at open.
-   */
-  private static volatile Optional<IndexingMetricsUpdater> processMetricsUpdater = Optional.empty();
-
-  /**
    * Creates Bloom filters for a selection of fields created in the index. This is recorded as a set
    * of Bitsets held as a segment summary in an additional "blm" file. This PostingsFormat delegates
    * to a choice of delegate PostingsFormat for encoding all other postings data.
+   *
+   * <p>Read/write bloom counters are published process-wide via {@link GlobalMetricFactory}, so no
+   * metrics context needs to be threaded through this format or its Service Provider read-path
+   * instances.
    *
    * @param delegatePostingsFormat The PostingsFormat that records all the non-bloom filter data
    *     i.e. postings info.
    * @param bloomFilterFactory The {@link BloomFilterFactory} responsible for sizing BloomFilters
    *     appropriately
-   * @param processMetricsUpdater per-index metrics updater for bloom write/read counters, or empty
    */
   public MongotBloomFilteringPostingsFormat(
-      PostingsFormat delegatePostingsFormat,
-      BloomFilterFactory bloomFilterFactory,
-      Optional<IndexingMetricsUpdater> processMetricsUpdater) {
+      PostingsFormat delegatePostingsFormat, BloomFilterFactory bloomFilterFactory) {
     super(BLOOM_CODEC_NAME);
     this.delegatePostingsFormat = delegatePostingsFormat;
     this.bloomFilterFactory = bloomFilterFactory;
-    if (processMetricsUpdater.isPresent()) {
-      MongotBloomFilteringPostingsFormat.processMetricsUpdater = processMetricsUpdater;
-    }
-  }
-
-  public MongotBloomFilteringPostingsFormat(
-      PostingsFormat delegatePostingsFormat, BloomFilterFactory bloomFilterFactory) {
-    this(delegatePostingsFormat, bloomFilterFactory, Optional.empty());
   }
 
   /**
@@ -186,18 +155,15 @@ public final class MongotBloomFilteringPostingsFormat extends PostingsFormat {
    *
    * @param delegatePostingsFormat The PostingsFormat that records all the non-bloom filter data
    *     i.e. postings info.
-   * @param processMetricsUpdater per-index metrics updater for bloom write/read counters, or empty
    */
-  public MongotBloomFilteringPostingsFormat(
-      PostingsFormat delegatePostingsFormat,
-      Optional<IndexingMetricsUpdater> processMetricsUpdater) {
-    this(delegatePostingsFormat, new DefaultBloomFilterFactory(), processMetricsUpdater);
+  public MongotBloomFilteringPostingsFormat(PostingsFormat delegatePostingsFormat) {
+    this(delegatePostingsFormat, new DefaultBloomFilterFactory());
   }
 
   // Used only at read-time via Service Provider instantiation -
   // do not use at Write-time in application code.
   public MongotBloomFilteringPostingsFormat() {
-    this(null, new DefaultBloomFilterFactory(), Optional.empty());
+    this(null, new DefaultBloomFilterFactory());
   }
 
   @Override
@@ -465,21 +431,21 @@ public final class MongotBloomFilteringPostingsFormat extends PostingsFormat {
         // that may occasionally give a false positive but guaranteed no false
         // negatives
         if (filter.contains(text) == ContainsResult.NO) {
-          incrementCounter(IndexingMetricsUpdater::getBloomFilterIdLookupSkippedCounter);
+          GlobalMetricFactory.incrementBloomFilterIdLookupSkipped();
           return null;
         }
-        incrementCounter(IndexingMetricsUpdater::getBloomFilterIdLookupProbedCounter);
+        GlobalMetricFactory.incrementBloomFilterIdLookupProbed();
         IOBooleanSupplier delegateSupplier = delegate().prepareSeekExact(text);
         if (delegateSupplier == null) {
           // Bloom admitted the term but the delegate has no matching term: a bloom false positive.
           // Mirror the seekExact path so false positives are not undercounted here.
-          incrementCounter(IndexingMetricsUpdater::getBloomFilterIdLookupFalsePositiveCounter);
+          GlobalMetricFactory.incrementBloomFilterIdLookupFalsePositive();
           return null;
         }
         return () -> {
           boolean found = delegateSupplier.get();
           if (!found) {
-            incrementCounter(IndexingMetricsUpdater::getBloomFilterIdLookupFalsePositiveCounter);
+            GlobalMetricFactory.incrementBloomFilterIdLookupFalsePositive();
           }
           return found;
         };
@@ -489,13 +455,13 @@ public final class MongotBloomFilteringPostingsFormat extends PostingsFormat {
       public boolean seekExact(BytesRef text) throws IOException {
         // See #prepareSeekExact
         if (filter.contains(text) == ContainsResult.NO) {
-          incrementCounter(IndexingMetricsUpdater::getBloomFilterIdLookupSkippedCounter);
+          GlobalMetricFactory.incrementBloomFilterIdLookupSkipped();
           return false;
         }
-        incrementCounter(IndexingMetricsUpdater::getBloomFilterIdLookupProbedCounter);
+        GlobalMetricFactory.incrementBloomFilterIdLookupProbed();
         boolean found = delegate().seekExact(text);
         if (!found) {
-          incrementCounter(IndexingMetricsUpdater::getBloomFilterIdLookupFalsePositiveCounter);
+          GlobalMetricFactory.incrementBloomFilterIdLookupFalsePositive();
         }
         return found;
       }
@@ -567,11 +533,6 @@ public final class MongotBloomFilteringPostingsFormat extends PostingsFormat {
           + delegateFieldsProducer
           + ")";
     }
-  }
-
-  private static void incrementCounter(Function<IndexingMetricsUpdater, Counter> counterSupplier) {
-    MongotBloomFilteringPostingsFormat.processMetricsUpdater.ifPresent(
-        u -> counterSupplier.apply(u).increment());
   }
 
   class MongotBloomFilteredFieldsConsumer extends FieldsConsumer {
@@ -651,8 +612,7 @@ public final class MongotBloomFilteringPostingsFormat extends PostingsFormat {
       }
       int saturatedDropped = bloomFilters.size() - nonSaturatedBlooms.size();
       if (saturatedDropped > 0) {
-        processMetricsUpdater.ifPresent(
-            u -> u.getBloomFilterSaturatedDroppedCounter().increment(saturatedDropped));
+        GlobalMetricFactory.incrementBloomFilterSaturatedDropped(saturatedDropped);
       }
       String bloomFileName =
           IndexFileNames.segmentFileName(
