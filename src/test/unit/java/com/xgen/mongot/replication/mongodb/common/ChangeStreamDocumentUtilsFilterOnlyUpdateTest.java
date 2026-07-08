@@ -144,6 +144,74 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
   }
 
   @Test
+  public void testFilterOnlyUpdate_MultiElementArray_OneElementFilterChanged_PatchesThatElement() {
+    // Reviewer question (PR6764): a change-stream filter-only update that touches one of N array
+    // elements. Here `sections` has three elements and only element 1's filter (`section_name`) is
+    // updated; the embed source (`section_content`) is unchanged, so the update must take the
+    // filter-only partial path (not a re-embed). The $set body is built from the whole post-image
+    // sections array index-aligned, so MV child i is rebuilt from source element i: element 1 gets
+    // the new name while elements 0 and 2 keep their originals (no clobbering of siblings).
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("sections.section_content")
+            .withFilterPath("sections.section_name")
+            .nestedRoot("sections")
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    UpdateDescription updateDesc =
+        new UpdateDescription(
+            null, new BsonDocument("sections.1.section_name", new BsonString("name_b_updated")));
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append(
+                "sections",
+                new BsonArray(
+                    List.of(
+                        new BsonDocument()
+                            .append("section_content", new BsonString("machine learning"))
+                            .append("section_name", new BsonString("name_a")),
+                        new BsonDocument()
+                            .append("section_content", new BsonString("vector search"))
+                            .append("section_name", new BsonString("name_b_updated")),
+                        new BsonDocument()
+                            .append("section_content", new BsonString("graph databases"))
+                            .append("section_name", new BsonString("name_c")))))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> changeEvent =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, updateDesc, fullDocument);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    DocumentEvent event = batch.finalChangeEvents.getFirst();
+    // Filter-only change: a $set body is produced and no embedding work is required.
+    assertTrue(event.getFilterFieldUpdates().isPresent());
+    assertTrue(event.getChangedEmbedTexts().isEmpty());
+    assertEquals(0, batch.partialEmbedApplied);
+    assertTrue(batch.partialEmbedFallbacks.isEmpty());
+
+    // Every element is present in the body, index-aligned with the source array: element 1 has the
+    // new filter value; elements 0 and 2 keep their originals.
+    BsonArray updatedSections = event.getFilterFieldUpdates().get().getArray("sections");
+    assertEquals(3, updatedSections.size());
+    assertEquals(
+        new BsonString("name_a"), updatedSections.get(0).asDocument().getString("section_name"));
+    assertEquals(
+        new BsonString("name_b_updated"),
+        updatedSections.get(1).asDocument().getString("section_name"));
+    assertEquals(
+        new BsonString("name_c"), updatedSections.get(2).asDocument().getString("section_name"));
+  }
+
+  @Test
   public void testFilterOnlyUpdate_DestructiveNestedFilter_FallsBackToFullReplace() {
     // CLOUDP-402522: the co-located _autoEmbed.* filter is patched with an additive per-element
     // positional $set that can't clear a removed value. An $unset of a nested filter would leave a
