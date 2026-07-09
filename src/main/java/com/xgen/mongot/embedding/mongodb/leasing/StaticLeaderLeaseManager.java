@@ -275,16 +275,17 @@ public class StaticLeaderLeaseManager implements LeaseManager {
                       .log("Failed to delete lease entry in Lease table, ignore it for now.");
                 }
               })
-          .thenRun(
-              () -> {
-                this.leases.remove(leaseKey);
-                this.leaseKeyToDatabase.remove(leaseKey);
-              });
+          .thenRun(() -> evictCachedLease(leaseKey));
     } else {
-      this.leases.remove(leaseKey);
-      this.leaseKeyToDatabase.remove(leaseKey);
+      evictCachedLease(leaseKey);
       return COMPLETED_FUTURE;
     }
+  }
+
+  @Override
+  public void evictCachedLease(String leaseKey) {
+    this.leases.remove(leaseKey);
+    this.leaseKeyToDatabase.remove(leaseKey);
   }
 
   @Override
@@ -580,8 +581,7 @@ public class StaticLeaderLeaseManager implements LeaseManager {
           this.operationExecutor.execute(
               "deleteStaleLease", () -> this.getCollection(dbName).deleteOne(filter));
       if (result.getDeletedCount() > 0) {
-        this.leases.remove(leaseKey);
-        this.leaseKeyToDatabase.remove(leaseKey);
+        evictCachedLease(leaseKey);
         return true;
       }
       return false;

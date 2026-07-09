@@ -296,6 +296,23 @@ public class StaticLeaderLeaseManagerTest {
     assertThat(leaseManager.getLeases()).doesNotContainKey(leaseKey);
   }
 
+  @Test
+  public void evictCachedLease_removesCachedStateOnly() {
+    StaticLeaderLeaseManager leaseManager = createLeaseManager(true);
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    leaseManager.add(indexGeneration, false);
+    String leaseKey = getLeaseKeyFromCatalog(generationId);
+    assertThat(leaseManager.getLeases()).containsKey(leaseKey);
+
+    leaseManager.evictCachedLease(leaseKey);
+
+    // In-memory lease cache and database mapping are gone; the lease document is untouched.
+    assertThat(leaseManager.getLeases()).doesNotContainKey(leaseKey);
+    assertThat(leaseManager.getLeaseKeyToDatabase()).doesNotContainKey(leaseKey);
+    verify(this.mockCollection, never()).deleteOne(any(Bson.class));
+  }
+
   // ==================== updateCommitInfo Tests ====================
 
   @Test

@@ -1279,6 +1279,25 @@ public class DynamicLeaderLeaseManagerTest {
     assertThat(this.leaseManager.getLeaseKeyToDatabase()).doesNotContainKey(leaseKey);
   }
 
+  @Test
+  public void evictCachedLease_removesCachedStateOnly() {
+    // Arrange - a superseded generation left its lease behind for the stale-lease GC
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    this.leaseManager.add(indexGeneration);
+    String leaseKey = getLeaseKeyFromCatalog(generationId);
+    assertThat(this.leaseManager.getLeases()).containsKey(leaseKey);
+
+    this.leaseManager.evictCachedLease(leaseKey);
+
+    // In-memory lease cache and database mapping are gone; the lease document is untouched, so a
+    // later initializeLease for the same definition re-reads the database instead of stale
+    // metadata.
+    assertThat(this.leaseManager.getLeases()).doesNotContainKey(leaseKey);
+    assertThat(this.leaseManager.getLeaseKeyToDatabase()).doesNotContainKey(leaseKey);
+    verify(this.mockCollection, never()).deleteOne(any(Bson.class));
+  }
+
   // ==================== initializeLease ====================
 
   @Test

@@ -581,7 +581,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
               + "Lease document may remain in database.",
           leaseKey,
           e);
-      this.leases.remove(leaseKey);
+      evictCachedLease(leaseKey);
       return COMPLETED_FUTURE;
     }
     // Only delete the lease from the database if we own the lease.
@@ -594,8 +594,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
           .log("Dropping index - deleting lease from database (we own it)");
       // Remove the lease from memory first, then delete it from DB.
       // This ensures we stop considering ourselves the leader immediately.
-      this.leases.remove(leaseKey);
-      this.leaseKeyToDatabase.remove(leaseKey);
+      evictCachedLease(leaseKey);
       return CompletableFuture.runAsync(
           () -> {
             var filter =
@@ -643,9 +642,14 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
           .addKeyValue("hostname", this.hostname)
           .log("Dropping index - no lease found in memory");
     }
+    evictCachedLease(leaseKey);
+    return COMPLETED_FUTURE;
+  }
+
+  @Override
+  public void evictCachedLease(String leaseKey) {
     this.leases.remove(leaseKey);
     this.leaseKeyToDatabase.remove(leaseKey);
-    return COMPLETED_FUTURE;
   }
 
   @Override
@@ -950,8 +954,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
         // matViewGenerationIdToDefinitionVersion) track locally configured generations and are
         // cleared by drop(); a still-configured generation either renews its lease (never stale)
         // or is stopped by the cleaner's local-generation guard, so none leak here.
-        this.leases.remove(leaseKey);
-        this.leaseKeyToDatabase.remove(leaseKey);
+        evictCachedLease(leaseKey);
         return true;
       }
       return false;

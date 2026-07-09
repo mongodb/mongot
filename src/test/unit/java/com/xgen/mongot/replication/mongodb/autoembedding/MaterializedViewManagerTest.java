@@ -775,6 +775,10 @@ public class MaterializedViewManagerTest {
     // The shared MV collection + lease are left for the stale-lease GC, not dropped here.
     verify(gen.getIndex().getWriter(), never()).dropMaterializedViewCollection();
     verify(mocks.leaseManager, never()).dropLease(any(String.class));
+    // The cached lease copy is evicted so it cannot outlive the document once the GC deletes
+    // it: a later re-initialization of the same definition must re-read the database (a
+    // recreated MV collection keeps its name but gets a new UUID).
+    verify(mocks.leaseManager).evictCachedLease("test_" + INDEX_ID.toHexString());
   }
 
   @Test
@@ -792,6 +796,9 @@ public class MaterializedViewManagerTest {
     // Leader drops the shared MV collection, then the lease document.
     verify(gen.getIndex().getWriter()).dropMaterializedViewCollection();
     verify(mocks.leaseManager).dropLease("test_" + INDEX_ID.toHexString());
+    // No manager-level eviction on the deletion branch: dropLease needs the in-memory lease for
+    // its ownership check and performs its own local cleanup.
+    verify(mocks.leaseManager, never()).evictCachedLease(any(String.class));
     // matViewCollectionDrop{scenario=indexDeletion, outcome=success} is recorded for the drop.
     assertEquals(
         1.0,

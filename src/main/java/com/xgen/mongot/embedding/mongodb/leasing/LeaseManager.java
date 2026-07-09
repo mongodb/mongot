@@ -78,7 +78,9 @@ public interface LeaseManager {
   void add(IndexGeneration indexGeneration, boolean skipInitialSync);
 
   /**
-   * Drops the given index generation from the tracking list in LeaseManager.
+   * Drops the given index generation from the tracking list in LeaseManager. Local generation
+   * tracking only: touches neither the lease document nor the leaseKey-keyed local state (see
+   * {@link #evictCachedLease} and {@link #dropLease} for those).
    *
    * @param generationId the generation id to remove the lease for
    */
@@ -86,13 +88,29 @@ public interface LeaseManager {
 
   /**
    * Deletes the lease entirely in both database and memory, only call this when corresponding
-   * materialized view collection is GC'd or user deletes the whole index.
+   * materialized view collection is GC'd or user deletes the whole index. For forgetting the local
+   * state without deleting the document, see {@link #evictCachedLease}.
    *
    * @param leaseKey the string lease key for lease to be removed, should be same as collection
    *     name.
    * @return a future that completes when the lease has been dropped
    */
   CompletableFuture<Void> dropLease(String leaseKey);
+
+  /**
+   * Evicts this mongot's cached copy of the lease (in-memory lease entry and database mapping)
+   * without touching the lease document in the database — the cache is rebuilt from the database
+   * when needed. The database-deleting paths ({@link #dropLease}, {@link #deleteStaleLease}) call
+   * this as their local-cleanup tail. The supersession path calls it directly: there the lease
+   * document deliberately stays behind for the stale-lease GC, and the cached copy would otherwise
+   * outlive it — a later re-initialization of the same definition would then read stale
+   * materialized-view metadata (a recreated MV collection keeps its name but gets a new UUID). The
+   * GC path is unaffected by the eviction: it re-registers the database mapping from the database
+   * on every sweep.
+   *
+   * @param leaseKey the string lease key, same as the materialized view collection name
+   */
+  void evictCachedLease(String leaseKey);
 
   /**
    * Returns true if the current mongot is the leader for the given generation id.

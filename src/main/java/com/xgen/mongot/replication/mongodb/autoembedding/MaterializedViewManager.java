@@ -1128,7 +1128,11 @@ public class MaterializedViewManager implements ReplicationManager {
           .log(
               "Index has an active generation on a newer MV collection; leaving this MV "
                   + "collection and lease for the stale-lease GC instead of dropping now");
-      return generatorShutdownFuture;
+      // The lease document stays for the GC, but this node is done with the lease: evict the
+      // local copy after the generator finishes shutting down, so a later re-initialization of
+      // the same definition re-reads the database instead of stale metadata (a recreated MV
+      // collection keeps its name but gets a new UUID).
+      return generatorShutdownFuture.thenRun(() -> this.leaseManager.evictCachedLease(leaseKey));
     }
 
     // No other active generation for this index: a genuine deletion. Safe to drop the shared MV
