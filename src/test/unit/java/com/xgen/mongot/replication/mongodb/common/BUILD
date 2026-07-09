@@ -31,6 +31,7 @@ java_test_suite(
         "MongoViewExceptionUtilsTest.java",
         "PeriodicIndexCommitterTest.java",
         "ProjectionTest.java",
+        "QueryRejectedBySettingsExceptionUtilsTest.java",
         "SchedulerQueueTest.java",
         "SplitEventChangeStreamClientTest.java",
         "SteadyStateExceptionTest.java",

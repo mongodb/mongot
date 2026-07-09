@@ -35,6 +35,7 @@ import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.MongoViewExceptionUtils;
 import com.xgen.mongot.replication.mongodb.common.PeriodicIndexCommitter;
+import com.xgen.mongot.replication.mongodb.common.QueryRejectedBySettingsExceptionUtils;
 import com.xgen.mongot.replication.mongodb.common.ResumeTokenUtils;
 import com.xgen.mongot.replication.mongodb.common.StaleStateInfo;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
@@ -733,10 +734,24 @@ public class ReplicationIndexManager implements IndexManager {
           return;
         }
 
+        Optional<Throwable> cause = Optional.ofNullable(initialSyncException.getCause());
+        if (QueryRejectedBySettingsExceptionUtils.isQueryRejectedBySettingsError(cause)) {
+          this.metricsFactory.counter("queryRejectedBySettingsInitialSyncRetry").increment();
+
+          IndexStatus status =
+              IndexStatus.initialSync(
+                  QueryRejectedBySettingsExceptionUtils.getQueryRejectedBySettingsErrorMessage(
+                      Check.isPresent(cause, "cause")));
+
+          // Set the index status so the error message is exposed to the user during backoff. The
+          // index keeps resyncing (message is re-set on each retry) until the operation rejection
+          // filter is removed, at which point the error clears on the next successful sync.
+          this.index.setStatus(status);
+          scheduleResync(throwable, status);
+          return;
+        }
+
         if (this.indexGeneration.getDefinition().getView().isPresent()) {
-
-          Optional<Throwable> cause = Optional.ofNullable(initialSyncException.getCause());
-
           if (MongoViewExceptionUtils.isViewPipelineRelated(cause)) {
             this.metricsFactory.counter("viewPipelineRelatedInitialSyncRetry").increment();
 
@@ -1010,6 +1025,18 @@ public class ReplicationIndexManager implements IndexManager {
             // Set index status so that the error message is exposed to the user during the backoff
             this.index.setStatus(status);
           }
+        }
+
+        if (QueryRejectedBySettingsExceptionUtils.isQueryRejectedBySettingsError(cause)) {
+          this.metricsFactory.counter("queryRejectedBySettingsSteadyStateRetry").increment();
+
+          IndexStatus status =
+              IndexStatus.recoveringTransient(
+                  QueryRejectedBySettingsExceptionUtils.getQueryRejectedBySettingsErrorMessage(
+                      Check.isPresent(cause, "cause")));
+
+          // Set index status so that the error message is exposed to the user during the backoff.
+          this.index.setStatus(status);
         }
 
         // By default, we assume that the matchCollectionUuidForUpdateLookup is supported. If the

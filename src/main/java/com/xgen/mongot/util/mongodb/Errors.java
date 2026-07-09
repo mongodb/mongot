@@ -77,6 +77,13 @@ public class Errors {
   public static final Error IDL_UNKNOWN_FIELD = new Error(40415, "IDLUnknownField");
 
   public static final Error IDL_FAILED_TO_PARSE = new Error(40414, "IDLFailedToParse");
+
+  // Returned by mongod when a replication command (e.g. the collection scan or change stream
+  // aggregate) is blocked because it matches an operation rejection filter configured via
+  // setQuerySettings (reject: true). Resyncing keeps hitting the same rejection until the filter
+  // is removed.
+  public static final Error QUERY_REJECTED_BY_SETTINGS = new Error(411, "QueryRejectedBySettings");
+
   public static final Error INITIAL_SYNC_ID_MISMATCH = new Error(8132701, "InitialSyncIdMismatch");
   public static final Error NO_QUERY_EXECUTION_PLANS = new Error(291, "NoQueryExecutionPlans");
 

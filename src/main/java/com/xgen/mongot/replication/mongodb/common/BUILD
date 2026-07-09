@@ -58,6 +58,7 @@ java_library(
         "PauseInitialSyncException.java",
         "PeriodicIndexCommitter.java",
         "Projection.java",
+        "QueryRejectedBySettingsExceptionUtils.java",
         "RefreshingClientSession.java",
         "ReplicationOptimeUpdater.java",
         "ResumeTokenUtils.java",

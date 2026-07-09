@@ -337,6 +337,47 @@ public class ReplicationIndexManagerTest {
   }
 
   @Test
+  public void testInitialSyncResyncsAfterQueryRejectedBySettingsAndKeepsTheErrorMessageInStatus()
+      throws Exception {
+    var cause =
+        new MongoQueryException(new ServerAddress("host"), 411, "Query rejected by admin settings");
+    try (Mocks mocks =
+        Mocks.exceptionalInitialSync(InitialSyncException.createRequiresResync(cause))) {
+
+      // The index keeps resyncing (enqueued at least twice) rather than failing.
+      verify(mocks.initialSyncQueue, timeout(10000).atLeast(2))
+          .enqueue(any(), any(), any(), any(), anyBoolean(), anyBoolean());
+
+      mocks.assertStateTransitions(
+          IndexManager.State.INITIAL_SYNC, IndexManager.State.INITIAL_SYNC_BACKOFF);
+
+      InOrder inOrder = inOrder(mocks.index);
+
+      // initial status, no message
+      inOrder
+          .verify(mocks.index, timeout(1000))
+          .setStatus(
+              argThat(
+                  status ->
+                      status.getStatusCode() == IndexStatus.StatusCode.INITIAL_SYNC
+                          && status.getMessage().isEmpty()));
+
+      // status set on error, carrying the query-settings rejection guidance and driver detail
+      inOrder
+          .verify(mocks.index, timeout(1000))
+          .setStatus(
+              argThat(
+                  status ->
+                      status.getStatusCode() == IndexStatus.StatusCode.INITIAL_SYNC
+                          && status.getMessage().orElse("").contains("removeQuerySettings")
+                          && status
+                              .getMessage()
+                              .orElse("")
+                              .contains("Query rejected by admin settings")));
+    }
+  }
+
+  @Test
   public void testInitialSyncDoesRetryAfterDoesNotExistException() throws Exception {
     try (Mocks mocks =
         Mocks.exceptionalInitialSync(
