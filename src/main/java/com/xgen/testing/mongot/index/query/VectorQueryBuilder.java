@@ -9,6 +9,7 @@ public class VectorQueryBuilder {
   private Optional<String> index = Optional.empty();
   private Optional<VectorSearchCriteria> criteria = Optional.empty();
   private Optional<Boolean> returnStoredSource = Optional.empty();
+  private Optional<Boolean> concurrent = Optional.empty();
 
   public static VectorQueryBuilder builder() {
     return new VectorQueryBuilder();
@@ -33,10 +34,19 @@ public class VectorQueryBuilder {
     return this;
   }
 
+  public VectorQueryBuilder concurrent(boolean concurrent) {
+    this.concurrent = Optional.of(concurrent);
+    return this;
+  }
+
   public VectorSearchQuery build() {
     Check.isPresent(this.index, "index");
     Check.isPresent(this.criteria, "criteria");
     return new VectorSearchQuery(
-        this.index.get(), this.criteria.get(), this.returnStoredSource.orElse(false), true);
+        this.index.get(),
+        this.criteria.get(),
+        this.returnStoredSource.orElse(false),
+        true,
+        this.concurrent);
   }
 }

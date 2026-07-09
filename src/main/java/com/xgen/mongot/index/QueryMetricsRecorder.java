@@ -107,9 +107,13 @@ public class QueryMetricsRecorder {
   private Stream<Counter> getQueryCounters(Query query) {
     return switch (query) {
       case SearchQuery searchQuery -> getQueryCounters(searchQuery);
-      case VectorSearchQuery vectorSearchQuery ->
-          getVectorSearchOperatorCounters(vectorSearchQuery.criteria());
+      case VectorSearchQuery vectorSearchQuery -> getQueryCounters(vectorSearchQuery);
     };
+  }
+
+  private Stream<Counter> getQueryCounters(VectorSearchQuery query) {
+    return Streams.concat(
+        getVectorSearchOperatorCounters(query.criteria()), getConcurrentCounter(query));
   }
 
   private Stream<Counter> getQueryCounters(SearchQuery query) {

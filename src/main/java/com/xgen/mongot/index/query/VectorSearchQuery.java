@@ -25,7 +25,9 @@ public record VectorSearchQuery(
     String index,
     VectorSearchCriteria criteria,
     boolean userReturnStoredSource, // NOTE(corecursion): this field is not visible to users
-    boolean vectorStoredSourceEnabled) // NOTE(corecursion): this field is not visible to users
+    boolean vectorStoredSourceEnabled, // NOTE(corecursion): this field is not visible to users
+    // Per-query override for Lucene concurrent segment search; absent means "engine default".
+    Optional<Boolean> concurrentOverride)
     implements Query {
 
   public VectorSearchQuery {
@@ -41,6 +43,9 @@ public record VectorSearchQuery(
 
     static final Field.WithDefault<Boolean> STORED_SOURCE =
         Field.builder("returnStoredSource").booleanField().optional().withDefault(false);
+
+    static final Field.Optional<Boolean> CONCURRENT =
+        Field.builder("concurrent").booleanField().optional().noDefault();
   }
 
   public static VectorSearchQuery fromBson(DocumentParser parser, boolean vectorStoredSourceEnabled)
@@ -53,7 +58,8 @@ public record VectorSearchQuery(
         VectorSearchCriteria.fromBson(
             parser, parser.getField(Fields.PATH).unwrap(), VectorSearchFilter.Type.CLAUSE),
         parser.getField(Fields.STORED_SOURCE).unwrap(), // userReturnStoredSource!
-        vectorStoredSourceEnabled);
+        vectorStoredSourceEnabled,
+        parser.getField(Fields.CONCURRENT).unwrap());
   }
 
   // Only used for testing.
@@ -73,13 +79,14 @@ public record VectorSearchQuery(
         .field(Fields.INDEX, this.index())
         .field(Fields.PATH, this.criteria().path())
         .field(Fields.STORED_SOURCE, this.userReturnStoredSource()) // TODO(CLOUDP-368066) see above
+        .field(Fields.CONCURRENT, this.concurrentOverride())
         .join(criteriaBson)
         .build();
   }
 
   @Override
   public boolean concurrent() {
-    return true;
+    return this.concurrentOverride.orElse(true);
   }
 
   @Override

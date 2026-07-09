@@ -15,6 +15,7 @@ java_test_suite(
         "TrackingTest.java",
         "VectorEmbeddedFilterTest.java",
         "VectorQueryTimeMappingChecksTest.java",
+        "VectorSearchConcurrentKnobTest.java",
     ],
     data = ["//src/test/unit/resources/index/query:srcs"],
     tags = ["unit"],

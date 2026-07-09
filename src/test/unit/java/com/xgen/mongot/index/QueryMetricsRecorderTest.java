@@ -934,6 +934,55 @@ public class QueryMetricsRecorderTest {
   }
 
   @Test
+  public void record_vectorSearchWithConcurrentAbsent_incrementsConcurrentCounter() {
+    var queryFeaturesStatsUpdater =
+        IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.QueryFeaturesMetricsUpdaterBuilder
+            .empty();
+    var queryMetricsRecorder = new QueryMetricsRecorder(queryFeaturesStatsUpdater);
+
+    VectorSearchQuery query =
+        VectorQueryBuilder.builder()
+            .index("testIndex")
+            .criteria(
+                ApproximateVectorQueryCriteriaBuilder.builder()
+                    .path(FieldPath.newRoot("test"))
+                    .queryVector(Vector.fromFloats(new float[] {1.f, 2.f}, NATIVE))
+                    .numCandidates(100)
+                    .limit(10)
+                    .build())
+            .build();
+
+    queryMetricsRecorder.record(query);
+
+    Assert.assertEquals(1, queryFeaturesStatsUpdater.getConcurrentCounter().count(), EPSILON);
+  }
+
+  @Test
+  public void record_vectorSearchWithConcurrentFalse_doesNotIncrementConcurrentCounter() {
+    var queryFeaturesStatsUpdater =
+        IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.QueryFeaturesMetricsUpdaterBuilder
+            .empty();
+    var queryMetricsRecorder = new QueryMetricsRecorder(queryFeaturesStatsUpdater);
+
+    VectorSearchQuery query =
+        VectorQueryBuilder.builder()
+            .index("testIndex")
+            .criteria(
+                ApproximateVectorQueryCriteriaBuilder.builder()
+                    .path(FieldPath.newRoot("test"))
+                    .queryVector(Vector.fromFloats(new float[] {1.f, 2.f}, NATIVE))
+                    .numCandidates(100)
+                    .limit(10)
+                    .build())
+            .concurrent(false)
+            .build();
+
+    queryMetricsRecorder.record(query);
+
+    Assert.assertEquals(0, queryFeaturesStatsUpdater.getConcurrentCounter().count(), EPSILON);
+  }
+
+  @Test
   public void testGetAllLeafOperators() {
     CompoundOperator compoundOperator =
         OperatorBuilder.compound()

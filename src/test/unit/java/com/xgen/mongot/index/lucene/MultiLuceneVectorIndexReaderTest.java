@@ -233,6 +233,47 @@ public class MultiLuceneVectorIndexReaderTest {
   }
 
   @Test
+  public void testPerQueryConcurrentFalseOverridesExecutorPresence() throws Exception {
+    // Index-level concurrent search is enabled (executor present), but the per-query
+    // `concurrent: false` knob should force the serial path anyway.
+    VectorIndexingAndQueryingTestHarness concurrentHarness =
+        new VectorIndexingAndQueryingTestHarness();
+    concurrentHarness.setUp(MOCK_VECTOR_MULTI_INDEX_PARTITION_DEFINITION, true);
+
+    try {
+      float[][] vectors =
+          new float[][] {
+            {1.0f, 0.0f, 0.0f},
+            {0.9f, 0.1f, 0.0f},
+            {0.8f, 0.2f, 0.0f},
+            {0.7f, 0.3f, 0.0f},
+            {0.6f, 0.4f, 0.0f}
+          };
+      var docs =
+          concurrentHarness.createVectorDocs(
+              vectors, 0, VectorIndexingAndQueryingTestHarness::fromNativeFloats);
+      Vector queryVector = Vector.fromFloats(new float[] {1.0f, 0.0f, 0.0f}, NATIVE);
+
+      for (var doc : docs) {
+        concurrentHarness.addDocument(doc);
+      }
+
+      BsonArray results =
+          concurrentHarness.runVectorSearchQuery(queryVector, false, Optional.of(false));
+
+      Assert.assertTrue(
+          "Concurrent search executor should be present",
+          concurrentHarness.getConcurrentSearchExecutor().isPresent());
+      Mockito.verify(concurrentHarness.getConcurrentSearchExecutor().get(), Mockito.never())
+          .execute(any());
+
+      Assert.assertEquals(5, results.size());
+    } finally {
+      concurrentHarness.close();
+    }
+  }
+
+  @Test
   public void testNonConcurrentQueryDoesNotUseExecutor() throws Exception {
     // Set up a new harness without concurrent search over partitions
     VectorIndexingAndQueryingTestHarness nonConcurrentHarness =
@@ -397,8 +438,8 @@ public class MultiLuceneVectorIndexReaderTest {
   // Exception Handling Tests for Concurrent Partition Execution
   // ============================================================================
 
-  // VectorSearchQuery.concurrent() always returns true, so any MaterializedVectorSearchQuery
-  // is always concurrent. This query is used for all exception handling tests.
+  // Leaves the concurrent knob unset, so VectorSearchQuery.concurrent() resolves to the engine
+  // default (true) and this query is always concurrent. Used for all exception handling tests.
   private static final VectorSearchQuery TEST_QUERY_DEFINITION =
       VectorQueryBuilder.builder()
           .index(MOCK_INDEX_NAME)
