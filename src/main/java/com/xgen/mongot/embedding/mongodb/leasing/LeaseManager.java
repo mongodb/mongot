@@ -11,10 +11,15 @@ import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.MaterializedViewGenerationId;
 import java.io.IOException;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import org.bson.BsonTimestamp;
@@ -129,30 +134,15 @@ public interface LeaseManager {
       throws MaterializedViewTransientException, MaterializedViewNonTransientException;
 
   /**
-   * Returns every lease whose {@code leaseExpiration} is older than {@code expirationCutoff} — the
-   * stale-lease GC's candidate set. Scans the internal databases known to this manager (see the
-   * implementations for how that set is built). Reads the database, not the in-memory map: the map
-   * only holds leases for generations currently configured on this mongot, so an orphaned lease
-   * (its generation dropped, possibly before a restart) is visible only through this query.
+   * Returns every lease in the internal databases known to this manager — the single scan both GC
+   * passes work from. Reads the database (not the in-memory map) so orphaned leases are visible,
+   * and registers each lease's database mapping for the mark/delete that may follow.
    *
-   * <p>Leases already marked {@link Lease.CleanupState#ELIGIBLE_FOR_CLEANUP} are deliberately
-   * included: the same candidate set serves both GC phases — the mark pass skips them, while the
-   * cleaner pass (CLOUDP-384018) consumes exactly those.
-   *
-   * <p>Side effect: registers the lease→database mapping for each returned lease, so a subsequent
-   * {@link #markEligibleForCleanup} resolves the database even when no configured generation ever
-   * registered the lease on this mongot.
-   *
-   * <p>Best effort, never throws: unparseable (corrupted) lease documents are skipped — invisible
-   * to GC (CLOUDP-384971 owns their cleanup) — and a failed per-database scan is logged and drops
-   * only that database's candidates, so the result may be incomplete. Callers must not treat it as
-   * a complete census of stale leases; the periodic sweep re-scans every tick, so a candidate
-   * missed this round is picked up on a later one.
-   *
-   * @param expirationCutoff only leases that expired before this instant are returned
-   * @return the stale leases found by the scan, possibly partial on query failure; never null
+   * <p>Best effort, never throws: corrupted leases are skipped (CLOUDP-384971) and a failed
+   * per-database scan drops that database's leases. Partial results are safe — marking requires a
+   * returned higher-version sibling, and databases scan all-or-nothing.
    */
-  List<Lease> findGcCandidates(Instant expirationCutoff);
+  List<Lease> findGcCandidates();
 
   /**
    * Conditionally marks a lease {@link Lease.CleanupState#ELIGIBLE_FOR_CLEANUP} via an OCC update:
@@ -171,38 +161,20 @@ public interface LeaseManager {
   boolean markEligibleForCleanup(String leaseKey, Instant expirationCutoff);
 
   /**
-   * Resolves the materialized view collection to drop when cleaning up {@code leaseKey}'s stale
-   * lease, re-reading the lease so a namespace is returned only while it is still {@link
-   * Lease.CleanupState#ELIGIBLE_FOR_CLEANUP} and expired before {@code expirationCutoff}. A lease
-   * reused in the meantime yields {@link Optional#empty()}.
-   *
-   * <p>The caller drops the returned collection and then removes the lease via {@link
-   * #deleteStaleLease} — dropping the materialized view collection is the materialized-view
-   * manager's responsibility, not the lease manager's. Best effort, never throws.
-   *
-   * @param leaseKey the lease document {@code _id}
-   * @param expirationCutoff the delete-grace cutoff; the lease must have expired before this
-   * @return the namespace of the materialized view collection to drop, or {@link Optional#empty()}
-   *     if the lease is no longer eligible, already gone, its database is unknown, or the re-read
-   *     failed
+   * Re-reads {@code leaseKey} and returns its materialized view collection to drop, but only while
+   * the lease is still eligible, stale past {@code expirationCutoff}, and at {@code
+   * expectedLeaseVersion} — so a lease reused (and version-bumped) since the sweep is left alone.
+   * Best effort, never throws.
    */
-  Optional<MongoNamespace> resolveStaleMatViewNamespace(String leaseKey, Instant expirationCutoff);
+  Optional<MongoNamespace> resolveStaleMatViewNamespace(
+      String leaseKey, long expectedLeaseVersion, Instant expirationCutoff);
 
   /**
-   * Removes the lease document {@code leaseKey} — the final step of cleaning up a stale lease, run
-   * only after its materialized view collection has been dropped (see {@link
-   * #resolveStaleMatViewNamespace}).
-   *
-   * <p>Deletes only while the lease is still {@link Lease.CleanupState#ELIGIBLE_FOR_CLEANUP} and
-   * expired before {@code expirationCutoff}, so a lease reused after its collection was dropped is
-   * left in place. Best effort, never throws.
-   *
-   * @param leaseKey the lease document {@code _id}
-   * @param expirationCutoff the delete-grace cutoff; the lease must have expired before this
-   * @return {@code true} if this call removed the lease; {@code false} if its database is unknown,
-   *     it was already gone, is no longer eligible, or the delete did not complete
+   * Deletes the lease {@code leaseKey} — the final cleanup step, after its collection is dropped.
+   * Commits only while the lease is still eligible, stale past {@code expirationCutoff}, and at
+   * {@code expectedLeaseVersion}, so a reused lease is left in place. Best effort, never throws.
    */
-  boolean deleteStaleLease(String leaseKey, Instant expirationCutoff);
+  boolean deleteStaleLease(String leaseKey, long expectedLeaseVersion, Instant expirationCutoff);
 
   /**
    * Returns all generation IDs where this instance is the leader.
@@ -333,5 +305,55 @@ public interface LeaseManager {
    */
   default boolean isInLeaseAcquisitionBlackout() {
     return false;
+  }
+
+  /**
+   * Groups {@code leases} by {@link Lease#indexId()} and returns the key(s) at the highest version
+   * per index — the set the GC mark pass must never mark (the current version is the live index).
+   * Safe over a partial {@link #findGcCandidates()} result: exposing a lease as non-current
+   * requires a present higher-version sibling; absence only protects.
+   */
+  static Set<String> currentVersionLeaseKeys(Collection<Lease> leases) {
+    Map<String, List<Lease>> leasesByIndexId = new HashMap<>();
+    for (Lease lease : leases) {
+      leasesByIndexId.computeIfAbsent(lease.indexId(), key -> new ArrayList<>()).add(lease);
+    }
+    Set<String> currentVersionKeys = new HashSet<>();
+    for (List<Lease> group : leasesByIndexId.values()) {
+      boolean anyUnparseable =
+          group.stream()
+              .anyMatch(
+                  lease -> parseDefinitionVersion(lease.latestIndexDefinitionVersion()).isEmpty());
+      if (anyUnparseable) {
+        // Cannot tell which lease is current; conservatively protect every lease of this index.
+        group.forEach(lease -> currentVersionKeys.add(lease.id()));
+        continue;
+      }
+      long highestVersion =
+          group.stream()
+              .mapToLong(
+                  lease -> parseDefinitionVersion(lease.latestIndexDefinitionVersion()).getAsLong())
+              .max()
+              .orElseThrow();
+      group.stream()
+          .filter(
+              lease ->
+                  parseDefinitionVersion(lease.latestIndexDefinitionVersion()).getAsLong()
+                      == highestVersion)
+          .forEach(lease -> currentVersionKeys.add(lease.id()));
+    }
+    return currentVersionKeys;
+  }
+
+  private static OptionalLong parseDefinitionVersion(String version) {
+    if (version == null) {
+      // Treat a missing version as unparseable so the index is conservatively protected.
+      return OptionalLong.empty();
+    }
+    try {
+      return OptionalLong.of(Long.parseLong(version));
+    } catch (NumberFormatException e) {
+      return OptionalLong.empty();
+    }
   }
 }

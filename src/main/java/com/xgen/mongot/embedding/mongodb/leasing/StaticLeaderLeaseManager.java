@@ -418,42 +418,37 @@ public class StaticLeaderLeaseManager implements LeaseManager {
   }
 
   @Override
-  public List<Lease> findGcCandidates(Instant expirationCutoff) {
+  public List<Lease> findGcCandidates() {
     // Scans only the default internal database — static deployments are single-tenant (see
     // DynamicLeaderLeaseManager#findGcCandidates for the multi-database variant). A healthy
     // leader keeps its lease fresh on every PeriodicIndexCommitter tick (the commit refreshes
     // leaseExpiration even with no source writes), well within the lease TTL, so an idle index
     // does not expire; a lapsed lease means the generator is not running.
-    List<Lease> candidates = new ArrayList<>();
+    List<Lease> leases = new ArrayList<>();
     try {
       String defaultDb = this.dbResolver.resolveDefault();
       List<BsonDocument> rawLeases =
           this.operationExecutor.execute(
               "findGcCandidates",
-              () ->
-                  this.getCollection(defaultDb)
-                      .find(
-                          Filters.lt(
-                              Lease.Fields.LEASE_EXPIRATION.getName(),
-                              new BsonDateTime(expirationCutoff.toEpochMilli())))
-                      .into(new ArrayList<>()));
+              () -> this.getCollection(defaultDb).find().into(new ArrayList<>()));
       for (BsonDocument rawLease : rawLeases) {
         try {
           Lease lease = Lease.fromBson(rawLease);
           this.leaseKeyToDatabase.putIfAbsent(lease.id(), defaultDb);
-          candidates.add(lease);
+          leases.add(lease);
         } catch (BsonParseException e) {
+          // Corrupted leases are invisible to GC (CLOUDP-384971).
           LOG.atError()
               .addKeyValue("leaseId", extractLeaseId(rawLease))
               .setCause(e)
-              .log("Failed to parse lease document during GC candidate scan, skipping");
+              .log("Failed to parse lease document during GC lease scan, skipping");
         }
       }
     } catch (Exception e) {
-      // Best effort: the periodic GC sweep retries on a later tick.
-      LOG.atWarn().setCause(e).log("Failed to scan database for GC candidate leases");
+      // Safe per the interface contract; the periodic sweep retries on a later tick.
+      LOG.atWarn().setCause(e).log("Failed to scan database for GC leases");
     }
-    return candidates;
+    return leases;
   }
 
   @Override
@@ -504,10 +499,10 @@ public class StaticLeaderLeaseManager implements LeaseManager {
 
   @Override
   public Optional<MongoNamespace> resolveStaleMatViewNamespace(
-      String leaseKey, Instant expirationCutoff) {
+      String leaseKey, long expectedLeaseVersion, Instant expirationCutoff) {
     // See DynamicLeaderLeaseManager#resolveStaleMatViewNamespace: re-read the lease and surface the
-    // namespace only while it is still marked and still stale; the materialized-view manager drops
-    // the collection and deleteStaleLease removes the lease document afterwards.
+    // namespace only while it is still marked, still stale, and still at the sweep's version. The
+    // materialized-view manager then drops the collection and deleteStaleLease removes the lease.
     String dbName;
     try {
       dbName = getDatabaseForLease(leaseKey);
@@ -531,11 +526,14 @@ public class StaticLeaderLeaseManager implements LeaseManager {
       }
       Lease lease = Lease.fromBson(rawLease);
       if (lease.cleanupState() != Lease.CleanupState.ELIGIBLE_FOR_CLEANUP
-          || !lease.leaseExpiration().isBefore(expirationCutoff)) {
+          || !lease.leaseExpiration().isBefore(expirationCutoff)
+          || lease.leaseVersion() != expectedLeaseVersion) {
         LOG.atInfo()
             .addKeyValue("leaseKey", leaseKey)
             .addKeyValue("cleanupState", lease.cleanupState())
             .addKeyValue("leaseExpiration", lease.leaseExpiration())
+            .addKeyValue("leaseVersion", lease.leaseVersion())
+            .addKeyValue("expectedLeaseVersion", expectedLeaseVersion)
             .log("Lease no longer eligible for cleanup at resolve time, skipping");
         return Optional.empty();
       }
@@ -552,10 +550,11 @@ public class StaticLeaderLeaseManager implements LeaseManager {
   }
 
   @Override
-  public boolean deleteStaleLease(String leaseKey, Instant expirationCutoff) {
+  public boolean deleteStaleLease(
+      String leaseKey, long expectedLeaseVersion, Instant expirationCutoff) {
     // OCC delete: see DynamicLeaderLeaseManager#deleteStaleLease. Only commits while the lease is
-    // still marked and still stale, so a lease resurrected after the collection drop cannot be
-    // deleted.
+    // still marked, still stale, and still at the sweep's version, so a lease resurrected (and thus
+    // version-bumped) after the collection drop cannot be deleted.
     String dbName;
     try {
       dbName = getDatabaseForLease(leaseKey);
@@ -572,6 +571,7 @@ public class StaticLeaderLeaseManager implements LeaseManager {
             Filters.eq(
                 Lease.Fields.CLEANUP_STATE.getName(),
                 Lease.CleanupState.ELIGIBLE_FOR_CLEANUP.name()),
+            Filters.eq(Lease.Fields.LEASE_VERSION.getName(), expectedLeaseVersion),
             Filters.lt(
                 Lease.Fields.LEASE_EXPIRATION.getName(),
                 new BsonDateTime(expirationCutoff.toEpochMilli())));

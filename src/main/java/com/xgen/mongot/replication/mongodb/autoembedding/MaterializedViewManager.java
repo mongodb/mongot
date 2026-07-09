@@ -123,6 +123,7 @@ public class MaterializedViewManager implements ReplicationManager {
   public static final String MAT_VIEW_GC_LEASES_OVERDUE_GAUGE = "matViewGcLeasesOverdue";
   public static final String MAT_VIEW_GC_LEASE_IN_USE_REFUSAL_COUNTER_NAME =
       "matViewGcLeaseInUseRefusals";
+  public static final String MAT_VIEW_GC_SWEEP_FAILURE_COUNTER_NAME = "matViewGcSweepFailures";
   public static final String MAT_VIEW_COLLECTION_DROP_COUNTER_NAME = "matViewCollectionDrop";
   public static final String DROP_SCENARIO_TAG = "scenario";
   public static final String DROP_OUTCOME_TAG = "outcome";
@@ -395,9 +396,8 @@ public class MaterializedViewManager implements ReplicationManager {
             TimeUnit.MILLISECONDS);
 
     // Periodic stale-lease GC scan. Always scheduled; each tick is a no-op unless the
-    // MV_GC_ENABLED dynamic feature flag is on (see scanStaleLeasesForCleanup), so cleanup can be
-    // turned on or off per cluster at runtime without a restart. First run is deferred by one
-    // interval.
+    // MV_GC_ENABLED dynamic feature flag is on, so cleanup toggles at runtime without a restart.
+    // The first run is deferred by firstScanDelayMs (see its javadoc).
     this.staleLeaseScannerFuture =
         staleLeaseScannerExecutor.scheduleWithFixedDelay(
             new VerboseRunnable() {
@@ -411,7 +411,7 @@ public class MaterializedViewManager implements ReplicationManager {
                 return LOG;
               }
             },
-            this.materializedViewConfig.staleLeaseScanIntervalMs,
+            firstScanDelayMs(this.materializedViewConfig),
             this.materializedViewConfig.staleLeaseScanIntervalMs,
             TimeUnit.MILLISECONDS);
 
@@ -1408,25 +1408,12 @@ public class MaterializedViewManager implements ReplicationManager {
   }
 
   /**
-   * Periodic stale-lease GC sweep. Pass 1 (detection) marks leases whose heartbeat has lapsed by
-   * more than {@link AutoEmbeddingMaterializedViewConfig#staleLeaseMarkGracePeriodMs} as {@link
-   * Lease.CleanupState#ELIGIBLE_FOR_CLEANUP}. Pass 2 (cleanup) drops the MV collection and then the
-   * lease document for leases that were already marked when this sweep read them and have lapsed
-   * past {@link AutoEmbeddingMaterializedViewConfig#staleLeaseDeleteGracePeriodMs} — acting on the
-   * sweep-start snapshot means mark and cleanup always span at least two sweeps.
-   *
-   * <p>Staleness alone is the trigger: a superseded MV's lease stays renewed until every mongot has
-   * flipped off it (any laggard re-acquires it through re-election), so "lapsed past the grace
-   * period" is the cluster-wide all-flipped signal. Leaderless and idempotent — safe to run on
-   * every mongot concurrently (see {@link LeaseManager#findGcCandidates} and {@link
-   * LeaseManager#markEligibleForCleanup}).
-   *
-   * <p>The mark is a hint, not a verdict: the cleanup pass re-validates eligibility against the
-   * database immediately before each destructive step ({@link #dropStaleMatViewCollection}'s fresh
-   * read, {@link LeaseManager#deleteStaleLease}'s OCC filter). TODO(CLOUDP-411009): add the "never
-   * clean up the only lease of a still-configured index" safeguard — a fleet-wide
-   * embedding-provider outage longer than the grace periods fails every generator and would
-   * otherwise expose a live index's only MV to cleanup.
+   * Periodic stale-lease GC sweep. Pass 1 marks leases stale past the mark grace {@link
+   * Lease.CleanupState#ELIGIBLE_FOR_CLEANUP}; pass 2 drops the collection and lease for those
+   * already marked and stale past the delete grace, so mark and cleanup span at least two sweeps.
+   * Leaderless and idempotent — safe to run on every mongot concurrently. Safeguards: never act on
+   * an index's current (highest) version, nor on a lease whose MV a local generation still uses;
+   * the deletion phase adds OCC re-reads on top.
    */
   @VisibleForTesting
   void scanStaleLeasesForCleanup() {
@@ -1456,29 +1443,18 @@ public class MaterializedViewManager implements ReplicationManager {
       Instant markCutoff =
           sweepStart.minus(
               Duration.ofMillis(this.materializedViewConfig.staleLeaseMarkGracePeriodMs));
-      List<Lease> candidates = this.leaseManager.findGcCandidates(markCutoff);
-      for (Lease lease : candidates) {
-        // Contain per-lease failures too: one bad lease must not starve the rest of the sweep.
-        try {
-          if (lease.cleanupState() == Lease.CleanupState.ELIGIBLE_FOR_CLEANUP) {
-            continue;
-          }
-          if (this.leaseManager.markEligibleForCleanup(lease.id(), markCutoff)) {
-            LOG.atInfo()
-                .addKeyValue("leaseKey", lease.id())
-                .addKeyValue("leaseExpiration", lease.leaseExpiration())
-                .addKeyValue(
-                    "gracePeriod",
-                    Duration.ofMillis(this.materializedViewConfig.staleLeaseMarkGracePeriodMs))
-                .log("Marked stale lease eligible for cleanup");
-          }
-        } catch (Exception e) {
-          LOG.atWarn()
-              .addKeyValue("leaseKey", lease.id())
-              .setCause(e)
-              .log("Failed to mark stale lease eligible for cleanup, continuing sweep");
-        }
-      }
+      // One scan drives both passes: candidates are the leases expired past the mark grace, and
+      // the never-mark set comes from the same snapshot, so the two can never disagree.
+      List<Lease> scannedLeases = this.leaseManager.findGcCandidates();
+      List<Lease> candidates =
+          scannedLeases.stream()
+              .filter(lease -> lease.leaseExpiration().isBefore(markCutoff))
+              .toList();
+      // Safeguard: never mark or delete an index's current (highest-version) lease — it is the
+      // live index, even if its heartbeat went stale (e.g. a fleet-wide outage). Partial scans are
+      // safe: marking needs a scanned higher-version sibling, so a missing lease can only protect.
+      Set<String> currentVersionLeaseKeys = LeaseManager.currentVersionLeaseKeys(scannedLeases);
+      markStaleLeases(candidates, currentVersionLeaseKeys, markCutoff);
       // Deletion kill switch: with GC on but this off, the sweep is mark-only and deletes nothing.
       // Gauge reset to 0 as above — with deletion deliberately off, nothing is "blocked".
       if (!this.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
@@ -1495,7 +1471,7 @@ public class MaterializedViewManager implements ReplicationManager {
       for (Lease lease : candidates) {
         boolean overdue = isOverdueForCleanup(lease, deleteCutoff);
         try {
-          boolean cleaned = cleanUpStaleLease(lease, deleteCutoff);
+          boolean cleaned = cleanUpStaleLease(lease, currentVersionLeaseKeys, deleteCutoff);
           if (overdue && !cleaned) {
             overdueNotCleaned++;
           }
@@ -1515,7 +1491,46 @@ public class MaterializedViewManager implements ReplicationManager {
       // failing, guard refusing, ...). Identify which from the logs.
       setOverdueGauge(overdueNotCleaned);
     } catch (Exception e) {
+      // The one failure path without its own metric: an exception aborting the tick is otherwise
+      // invisible (scannerAlive stays 1). Registered lazily, on first failure.
+      this.meterRegistry.counter(MAT_VIEW_GC_SWEEP_FAILURE_COUNTER_NAME).increment();
       LOG.atWarn().setCause(e).log("Stale-lease GC sweep failed, will retry on next tick");
+    }
+  }
+
+  /**
+   * Marks each stale candidate {@link Lease.CleanupState#ELIGIBLE_FOR_CLEANUP} unless it is its
+   * index's current (highest) version or its materialized view is still used by a local generation.
+   */
+  private void markStaleLeases(
+      List<Lease> candidates, Set<String> currentVersionLeaseKeys, Instant markCutoff) {
+    for (Lease lease : candidates) {
+      // Contain per-lease failures too: one bad lease must not starve the rest of the sweep.
+      try {
+        if (lease.cleanupState() == Lease.CleanupState.ELIGIBLE_FOR_CLEANUP) {
+          continue;
+        }
+        if (currentVersionLeaseKeys.contains(lease.id())) {
+          continue;
+        }
+        if (refuseIfUsedByLocalGeneration(lease, "cleanup mark")) {
+          continue;
+        }
+        if (this.leaseManager.markEligibleForCleanup(lease.id(), markCutoff)) {
+          LOG.atInfo()
+              .addKeyValue("leaseKey", lease.id())
+              .addKeyValue("leaseExpiration", lease.leaseExpiration())
+              .addKeyValue(
+                  "gracePeriod",
+                  Duration.ofMillis(this.materializedViewConfig.staleLeaseMarkGracePeriodMs))
+              .log("Marked stale lease eligible for cleanup");
+        }
+      } catch (Exception e) {
+        LOG.atWarn()
+            .addKeyValue("leaseKey", lease.id())
+            .setCause(e)
+            .log("Failed to mark stale lease eligible for cleanup, continuing sweep");
+      }
     }
   }
 
@@ -1568,17 +1583,21 @@ public class MaterializedViewManager implements ReplicationManager {
   }
 
   /**
-   * Cleans up one stale lease: drops the MV collection first, then the lease document. The lease is
-   * the GC source of truth, so a failure in between leaves a re-discoverable lease rather than an
-   * orphaned collection. This method's checks run on the sweep-start snapshot; both destructive
-   * halves re-validate against the database (see {@link #dropStaleMatViewCollection} and {@link
-   * LeaseManager#deleteStaleLease}).
-   *
-   * @return true iff the lease document was deleted this sweep; false otherwise (not yet
-   *     marked/overdue, refused by the local-generation guard, drop failed, or the OCC delete
-   *     missed). Drives the overdue gauge — an overdue lease returning false is a blocked cleanup.
+   * Initial delay before the first GC sweep, so a just-restarted mongot re-establishes replication
+   * and lease renewal before GC trusts staleness. At least one mark grace, scan interval as floor.
    */
-  private boolean cleanUpStaleLease(Lease lease, Instant deleteCutoff) {
+  @VisibleForTesting
+  static long firstScanDelayMs(AutoEmbeddingMaterializedViewConfig config) {
+    return Math.max(config.staleLeaseScanIntervalMs, config.staleLeaseMarkGracePeriodMs);
+  }
+
+  /**
+   * Cleans up one stale lease: drops the materialized view collection, then the lease document, so
+   * a failure in between leaves a re-discoverable lease rather than an orphaned collection. Both
+   * steps re-validate against the database. Returns true iff the lease was deleted this sweep.
+   */
+  private boolean cleanUpStaleLease(
+      Lease lease, Set<String> currentVersionLeaseKeys, Instant deleteCutoff) {
     if (lease.cleanupState() != Lease.CleanupState.ELIGIBLE_FOR_CLEANUP) {
       // Not yet marked as of this sweep's snapshot — cleaned up by a later sweep at the earliest.
       return false;
@@ -1587,31 +1606,25 @@ public class MaterializedViewManager implements ReplicationManager {
       // Marked, but not yet lapsed past the delete grace.
       return false;
     }
-    UUID matViewUuid = lease.materializedViewCollectionMetadata().collectionUuid();
-    boolean usedByLocalGeneration;
-    synchronized (this) {
-      usedByLocalGeneration =
-          this.activeGenerationIdCatalog.genIdByMatViewCollection.containsKey(matViewUuid);
-    }
-    if (usedByLocalGeneration) {
-      // A local generation still reads this collection. A live MV's lease should never be marked
-      // (renewal outruns the mark grace), so this points at a bug or an extreme outage; refuse
-      // the destructive drop and surface loudly. The matViewGcLeaseInUseRefusals counter makes this
-      // alertable and quantifiable — a non-zero value warrants investigation.
-      this.meterRegistry.counter(MAT_VIEW_GC_LEASE_IN_USE_REFUSAL_COUNTER_NAME).increment();
-      LOG.atError()
+    // The never-touch-current safeguard, re-checked at delete time: the mark may not have gone
+    // through this code's mark pass (a build without the safeguard, a manual edit), or the lease
+    // may have become its index's highest version since. Refusals surface via the overdue gauge.
+    if (currentVersionLeaseKeys.contains(lease.id())) {
+      LOG.atWarn()
           .addKeyValue("leaseKey", lease.id())
-          .addKeyValue("matViewUuid", matViewUuid)
-          .log(
-              "Stale-marked lease's mat view is still used by a local generation; refusing"
-                  + " cleanup");
+          .log("Marked lease is its index's current version; refusing cleanup delete");
       return false;
     }
-    if (!this.dropStaleMatViewCollection(lease.id(), deleteCutoff)) {
+    // Re-checked at delete time: the marking mongot can differ from this one, and OCC cannot see
+    // local readers (see refuseIfUsedByLocalGeneration).
+    if (refuseIfUsedByLocalGeneration(lease, "cleanup delete")) {
+      return false;
+    }
+    if (!this.dropStaleMatViewCollection(lease.id(), lease.leaseVersion(), deleteCutoff)) {
       // Not dropped (no longer eligible, or the drop failed) — the next sweep re-evaluates.
       return false;
     }
-    if (this.leaseManager.deleteStaleLease(lease.id(), deleteCutoff)) {
+    if (this.leaseManager.deleteStaleLease(lease.id(), lease.leaseVersion(), deleteCutoff)) {
       LOG.atInfo()
           .addKeyValue("leaseKey", lease.id())
           .addKeyValue("leaseExpiration", lease.leaseExpiration())
@@ -1619,6 +1632,36 @@ public class MaterializedViewManager implements ReplicationManager {
       return true;
     }
     return false;
+  }
+
+  /**
+   * The in-use safeguard, run at both mark and delete time: if a generation on this mongot still
+   * reads {@code lease}'s materialized view, records the refusal (counter + log) and returns true.
+   * GC is leaderless (marker and deleter can differ) and a local reader never bumps the lease
+   * version, so OCC cannot catch this.
+   *
+   * @param skippedAction phrase naming what is being skipped, e.g. {@code "cleanup mark"}
+   */
+  private boolean refuseIfUsedByLocalGeneration(Lease lease, String skippedAction) {
+    if (!usedByLocalGeneration(lease)) {
+      return false;
+    }
+    // A follower reads an MV whose lease is not renewed; sustained non-zero is alertable.
+    this.meterRegistry.counter(MAT_VIEW_GC_LEASE_IN_USE_REFUSAL_COUNTER_NAME).increment();
+    LOG.atWarn()
+        .addKeyValue("leaseKey", lease.id())
+        .log(
+            "Stale lease's mat view is still used by a local generation; skipping "
+                + skippedAction);
+    return true;
+  }
+
+  /** True if a generation on this mongot still reads {@code lease}'s materialized view. */
+  private boolean usedByLocalGeneration(Lease lease) {
+    UUID matViewUuid = lease.materializedViewCollectionMetadata().collectionUuid();
+    synchronized (this) {
+      return this.activeGenerationIdCatalog.genIdByMatViewCollection.containsKey(matViewUuid);
+    }
   }
 
   /**
@@ -1733,20 +1776,17 @@ public class MaterializedViewManager implements ReplicationManager {
   }
 
   /**
-   * Drops the materialized view collection of a stale lease — the first step of cleaning it up,
-   * before {@link LeaseManager#deleteStaleLease} removes the lease document. The lease manager
-   * re-reads the lease and resolves the collection only while it is still eligible for cleanup, so
-   * a lease reused in the meantime is left untouched. Best effort, never throws, and idempotent: an
-   * already-absent collection is a no-op, so a retry after a half-finished cleanup still returns
-   * true and lets the lease be deleted.
-   *
-   * @return true if the collection is gone and the lease is still eligible — the caller should
-   *     proceed to {@link LeaseManager#deleteStaleLease}; false otherwise
+   * Drops a stale lease's materialized view collection — the first cleanup step, before {@link
+   * LeaseManager#deleteStaleLease}. The namespace resolves only while the lease is still eligible
+   * and at {@code expectedLeaseVersion}, so a reused lease is left untouched. Best effort, never
+   * throws, idempotent; true means the collection is gone and the lease delete may proceed.
    */
   @VisibleForTesting
-  boolean dropStaleMatViewCollection(String leaseKey, Instant expirationCutoff) {
+  boolean dropStaleMatViewCollection(
+      String leaseKey, long expectedLeaseVersion, Instant expirationCutoff) {
     Optional<MongoNamespace> namespace =
-        this.leaseManager.resolveStaleMatViewNamespace(leaseKey, expirationCutoff);
+        this.leaseManager.resolveStaleMatViewNamespace(
+            leaseKey, expectedLeaseVersion, expirationCutoff);
     if (namespace.isEmpty()) {
       return false;
     }

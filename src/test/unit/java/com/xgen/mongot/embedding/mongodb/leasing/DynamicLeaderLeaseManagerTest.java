@@ -1836,10 +1836,10 @@ public class DynamicLeaderLeaseManagerTest {
     leaseList.add(lease.toBson());
     when(this.mockFindIterable.into(any())).thenReturn(leaseList);
 
-    List<Lease> candidates = this.leaseManager.findGcCandidates(Instant.now());
+    List<Lease> leases = this.leaseManager.findGcCandidates();
 
-    assertThat(candidates).hasSize(1);
-    assertThat(candidates.get(0).id()).isEqualTo(collectionName);
+    assertThat(leases).hasSize(1);
+    assertThat(leases.get(0).id()).isEqualTo(collectionName);
     // The lease→database mapping must be registered even though no configured generation ever
     // added this lease, so a follow-up markEligibleForCleanup can resolve the database.
     assertThat(this.leaseManager.getLeaseKeyToDatabase()).containsKey(collectionName);
@@ -1848,19 +1848,14 @@ public class DynamicLeaderLeaseManagerTest {
   }
 
   @Test
-  public void findGcCandidates_queriesByExpirationBeforeCutoff() {
-    Instant cutoff = Instant.parse("2026-01-01T00:00:00Z");
+  public void findGcCandidates_scansUnfiltered() {
+    // The scan must see every lease, fresh ones included — the never-mark-current safeguard is
+    // derived from it, and the current version is normally renewed. Staleness filtering is the
+    // sweep's job, client-side.
+    this.leaseManager.findGcCandidates();
 
-    this.leaseManager.findGcCandidates(cutoff);
-
-    ArgumentCaptor<Bson> filterCaptor = ArgumentCaptor.forClass(Bson.class);
-    verify(this.mockCollection).find(filterCaptor.capture());
-    BsonDocument filter =
-        filterCaptor
-            .getValue()
-            .toBsonDocument(BsonDocument.class, MongoClientSettings.getDefaultCodecRegistry());
-    assertThat(filter.getDocument("leaseExpiration").getDateTime("$lt").getValue())
-        .isEqualTo(cutoff.toEpochMilli());
+    verify(this.mockCollection).find();
+    verify(this.mockCollection, never()).find(any(Bson.class));
   }
 
   @Test
@@ -1871,17 +1866,17 @@ public class DynamicLeaderLeaseManagerTest {
     leaseList.add(good.toBson());
     when(this.mockFindIterable.into(any())).thenReturn(leaseList);
 
-    List<Lease> candidates = this.leaseManager.findGcCandidates(Instant.now());
+    List<Lease> leases = this.leaseManager.findGcCandidates();
 
-    assertThat(candidates).hasSize(1);
-    assertThat(candidates.get(0).id()).isEqualTo("good-collection");
+    assertThat(leases).hasSize(1);
+    assertThat(leases.get(0).id()).isEqualTo("good-collection");
   }
 
   @Test
   public void findGcCandidates_queryFailure_returnsEmpty() {
-    when(this.mockCollection.find(any(Bson.class))).thenThrow(new RuntimeException("find failed"));
+    when(this.mockCollection.find()).thenThrow(new RuntimeException("find failed"));
 
-    assertThat(this.leaseManager.findGcCandidates(Instant.now())).isEmpty();
+    assertThat(this.leaseManager.findGcCandidates()).isEmpty();
   }
 
   @Test
@@ -1916,7 +1911,7 @@ public class DynamicLeaderLeaseManagerTest {
     when(tenantCollection.withReadConcern(any())).thenReturn(tenantCollection);
     when(tenantCollection.withReadPreference(any())).thenReturn(tenantCollection);
     when(tenantCollection.withWriteConcern(any())).thenReturn(tenantCollection);
-    when(tenantCollection.find(any(Bson.class))).thenReturn(tenantFindIterable);
+    when(tenantCollection.find()).thenReturn(tenantFindIterable);
     Lease tenantLease = createLeaseWithMatViewUuid("tenant-orphan-lease", UUID.randomUUID());
     ArrayList<BsonDocument> tenantLeases = new ArrayList<>();
     tenantLeases.add(tenantLease.toBson());
@@ -1932,9 +1927,9 @@ public class DynamicLeaderLeaseManagerTest {
     // A configured generation teaches the manager the tenant's internal database.
     manager.add(createTestIndexGeneration());
 
-    List<Lease> candidates = manager.findGcCandidates(Instant.now());
+    List<Lease> leases = manager.findGcCandidates();
 
-    assertThat(candidates.stream().anyMatch(c -> c.id().equals("tenant-orphan-lease"))).isTrue();
+    assertThat(leases.stream().anyMatch(c -> c.id().equals("tenant-orphan-lease"))).isTrue();
     // The orphan's mapping points at the tenant database it was found in.
     assertThat(manager.getLeaseKeyToDatabase().get("tenant-orphan-lease")).isEqualTo(tenantDb);
     // Completeness of the restriction: across the whole test only the default database and the
@@ -1953,7 +1948,7 @@ public class DynamicLeaderLeaseManagerTest {
         this.mockAutoEmbeddingMongoClient.getLeaseManagerMongoClient().orElseThrow();
     clearInvocations(mongoClient);
 
-    this.leaseManager.findGcCandidates(Instant.now());
+    this.leaseManager.findGcCandidates();
 
     ArgumentCaptor<String> dbCaptor = ArgumentCaptor.forClass(String.class);
     verify(mongoClient, times(1)).getDatabase(dbCaptor.capture());
@@ -1970,7 +1965,7 @@ public class DynamicLeaderLeaseManagerTest {
     leaseList.add(lease.toBson());
     when(this.mockFindIterable.into(any())).thenReturn(leaseList);
     // Registers the database mapping and seeds the in-memory copy.
-    this.leaseManager.findGcCandidates(Instant.now());
+    this.leaseManager.findGcCandidates();
     this.leaseManager.putLease(collectionName, lease);
 
     UpdateResult updateResult = mock(UpdateResult.class);
@@ -1991,7 +1986,7 @@ public class DynamicLeaderLeaseManagerTest {
     ArrayList<BsonDocument> leaseList = new ArrayList<>();
     leaseList.add(lease.toBson());
     when(this.mockFindIterable.into(any())).thenReturn(leaseList);
-    this.leaseManager.findGcCandidates(Instant.now());
+    this.leaseManager.findGcCandidates();
     this.leaseManager.putLease(collectionName, lease);
 
     UpdateResult updateResult = mock(UpdateResult.class);
@@ -2020,7 +2015,7 @@ public class DynamicLeaderLeaseManagerTest {
     ArrayList<BsonDocument> leaseList = new ArrayList<>();
     leaseList.add(lease.toBson());
     when(this.mockFindIterable.into(any())).thenReturn(leaseList);
-    this.leaseManager.findGcCandidates(Instant.now());
+    this.leaseManager.findGcCandidates();
     when(this.mockCollection.updateOne(any(Bson.class), any(Bson.class)))
         .thenThrow(new RuntimeException("update failed"));
 
@@ -2075,7 +2070,7 @@ public class DynamicLeaderLeaseManagerTest {
     ArrayList<BsonDocument> leaseList = new ArrayList<>();
     leaseList.add(lease.toBson());
     when(this.mockFindIterable.into(any())).thenReturn(leaseList);
-    this.leaseManager.findGcCandidates(Instant.now());
+    this.leaseManager.findGcCandidates();
   }
 
   @Test
@@ -2087,11 +2082,25 @@ public class DynamicLeaderLeaseManagerTest {
     when(this.mockFindIterable.first()).thenReturn(lease.toBson());
 
     Optional<MongoNamespace> namespace =
-        this.leaseManager.resolveStaleMatViewNamespace(collectionName, Instant.now());
+        this.leaseManager.resolveStaleMatViewNamespace(collectionName, 1L, Instant.now());
 
     assertThat(namespace).isPresent();
     assertThat(namespace.get().getDatabaseName()).isEqualTo(DATABASE_NAME);
     assertThat(namespace.get().getCollectionName()).isEqualTo(collectionName);
+  }
+
+  @Test
+  public void resolveStaleMatViewNamespace_versionMismatch_returnsEmpty() {
+    String collectionName = "reused-collection";
+    Lease lease = markedLease(collectionName, Instant.now().minusSeconds(7200));
+    registerViaGcScan(lease);
+    // The re-read lease is still marked and stale, but at leaseVersion 1; the sweep expected a
+    // different version, meaning the lease was reused since the snapshot. The fencing-token check
+    // must veto the drop.
+    when(this.mockFindIterable.first()).thenReturn(lease.toBson());
+
+    assertThat(this.leaseManager.resolveStaleMatViewNamespace(collectionName, 2L, Instant.now()))
+        .isEmpty();
   }
 
   @Test
@@ -2121,7 +2130,8 @@ public class DynamicLeaderLeaseManagerTest {
     registerViaGcScan(lease);
     when(this.mockFindIterable.first()).thenReturn(lease.toBson());
 
-    assertThat(this.leaseManager.resolveStaleMatViewNamespace(leaseKey, Instant.now())).isEmpty();
+    assertThat(this.leaseManager.resolveStaleMatViewNamespace(leaseKey, 1L, Instant.now()))
+        .isEmpty();
   }
 
   @Test
@@ -2133,7 +2143,7 @@ public class DynamicLeaderLeaseManagerTest {
     Lease renewed = markedLease(collectionName, now.plusSeconds(60));
     when(this.mockFindIterable.first()).thenReturn(renewed.toBson());
 
-    assertThat(this.leaseManager.resolveStaleMatViewNamespace(collectionName, now)).isEmpty();
+    assertThat(this.leaseManager.resolveStaleMatViewNamespace(collectionName, 1L, now)).isEmpty();
   }
 
   @Test
@@ -2145,7 +2155,7 @@ public class DynamicLeaderLeaseManagerTest {
     Lease unmarked = unmarkedLease(collectionName, Instant.now().minusSeconds(7200));
     when(this.mockFindIterable.first()).thenReturn(unmarked.toBson());
 
-    assertThat(this.leaseManager.resolveStaleMatViewNamespace(collectionName, Instant.now()))
+    assertThat(this.leaseManager.resolveStaleMatViewNamespace(collectionName, 1L, Instant.now()))
         .isEmpty();
   }
 
@@ -2155,13 +2165,13 @@ public class DynamicLeaderLeaseManagerTest {
     registerViaGcScan(markedLease(collectionName, Instant.now().minusSeconds(7200)));
     when(this.mockFindIterable.first()).thenReturn(null);
 
-    assertThat(this.leaseManager.resolveStaleMatViewNamespace(collectionName, Instant.now()))
+    assertThat(this.leaseManager.resolveStaleMatViewNamespace(collectionName, 1L, Instant.now()))
         .isEmpty();
   }
 
   @Test
   public void resolveStaleMatViewNamespace_unknownLease_returnsEmpty() {
-    assertThat(this.leaseManager.resolveStaleMatViewNamespace("never-seen", Instant.now()))
+    assertThat(this.leaseManager.resolveStaleMatViewNamespace("never-seen", 1L, Instant.now()))
         .isEmpty();
   }
 
@@ -2175,7 +2185,7 @@ public class DynamicLeaderLeaseManagerTest {
     when(deleteResult.getDeletedCount()).thenReturn(1L);
     when(this.mockCollection.deleteOne(any(Bson.class))).thenReturn(deleteResult);
 
-    assertThat(this.leaseManager.deleteStaleLease(collectionName, Instant.now())).isTrue();
+    assertThat(this.leaseManager.deleteStaleLease(collectionName, 1L, Instant.now())).isTrue();
     assertThat(this.leaseManager.getLeases()).doesNotContainKey(collectionName);
     assertThat(this.leaseManager.getLeaseKeyToDatabase()).doesNotContainKey(collectionName);
   }
@@ -2188,12 +2198,12 @@ public class DynamicLeaderLeaseManagerTest {
     when(deleteResult.getDeletedCount()).thenReturn(0L);
     when(this.mockCollection.deleteOne(any(Bson.class))).thenReturn(deleteResult);
 
-    assertThat(this.leaseManager.deleteStaleLease(collectionName, Instant.now())).isFalse();
+    assertThat(this.leaseManager.deleteStaleLease(collectionName, 1L, Instant.now())).isFalse();
     assertThat(this.leaseManager.getLeaseKeyToDatabase()).containsKey(collectionName);
   }
 
   @Test
-  public void deleteStaleLease_filtersOnMarkedStateAndExpiration() {
+  public void deleteStaleLease_filtersOnMarkedStateVersionAndExpiration() {
     String collectionName = "filtered-collection";
     registerViaGcScan(markedLease(collectionName, Instant.now().minusSeconds(7200)));
     Instant cutoff = Instant.parse("2026-01-01T00:00:00Z");
@@ -2201,7 +2211,7 @@ public class DynamicLeaderLeaseManagerTest {
     when(deleteResult.getDeletedCount()).thenReturn(0L);
     when(this.mockCollection.deleteOne(any(Bson.class))).thenReturn(deleteResult);
 
-    this.leaseManager.deleteStaleLease(collectionName, cutoff);
+    this.leaseManager.deleteStaleLease(collectionName, 7L, cutoff);
 
     ArgumentCaptor<Bson> filterCaptor = ArgumentCaptor.forClass(Bson.class);
     verify(this.mockCollection).deleteOne(filterCaptor.capture());
@@ -2217,6 +2227,8 @@ public class DynamicLeaderLeaseManagerTest {
                     "cleanupState",
                     new BsonString(Lease.CleanupState.ELIGIBLE_FOR_CLEANUP.name()))))
         .isTrue();
+    // Fencing token: the OCC delete commits only against the exact leaseVersion the sweep saw.
+    assertThat(clauses.stream().anyMatch(c -> c.asDocument().containsKey("leaseVersion"))).isTrue();
     assertThat(
             clauses.contains(
                 new BsonDocument(
@@ -2227,7 +2239,7 @@ public class DynamicLeaderLeaseManagerTest {
 
   @Test
   public void deleteStaleLease_unknownLease_returnsFalseWithoutDbWrite() {
-    assertThat(this.leaseManager.deleteStaleLease("never-seen-lease", Instant.now())).isFalse();
+    assertThat(this.leaseManager.deleteStaleLease("never-seen-lease", 1L, Instant.now())).isFalse();
     verify(this.mockCollection, never()).deleteOne(any(Bson.class));
   }
 
@@ -2238,7 +2250,7 @@ public class DynamicLeaderLeaseManagerTest {
     when(this.mockCollection.deleteOne(any(Bson.class)))
         .thenThrow(new RuntimeException("delete failed"));
 
-    assertThat(this.leaseManager.deleteStaleLease(collectionName, Instant.now())).isFalse();
+    assertThat(this.leaseManager.deleteStaleLease(collectionName, 1L, Instant.now())).isFalse();
   }
 
   @Test
@@ -2247,7 +2259,7 @@ public class DynamicLeaderLeaseManagerTest {
     registerViaGcScan(markedLease(collectionName, Instant.now().minusSeconds(7200)));
     when(this.mockFindIterable.first()).thenThrow(new RuntimeException("read failed"));
 
-    assertThat(this.leaseManager.resolveStaleMatViewNamespace(collectionName, Instant.now()))
+    assertThat(this.leaseManager.resolveStaleMatViewNamespace(collectionName, 1L, Instant.now()))
         .isEmpty();
   }
 

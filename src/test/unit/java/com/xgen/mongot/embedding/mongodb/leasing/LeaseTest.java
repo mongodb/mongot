@@ -238,6 +238,30 @@ public class LeaseTest {
     }
 
     @Test
+    public void testIndexIdMatchesNameFormatLayout() {
+      // v1+ MV collection name: "<indexId>-<hash>-<nameFormatVersion>-<autoEmbeddingVersion>".
+      assertEquals(
+          "507f1f77bcf86cd799439011",
+          createLeaseWithId("507f1f77bcf86cd799439011-abc123-1-0").indexId());
+      // A future format version keeping the layout parses without a code change.
+      assertEquals(
+          "507f1f77bcf86cd799439011",
+          createLeaseWithId("507f1f77bcf86cd799439011-abc123-2-0").indexId());
+      // v0 MV collection name is just the indexId, with no delimiter.
+      assertEquals(
+          "507f1f77bcf86cd799439011", createLeaseWithId("507f1f77bcf86cd799439011").indexId());
+    }
+
+    @Test
+    public void testIndexIdUnknownNameLayoutKeptWhole() {
+      // An unrecognized layout returns the full id: the lease groups only with itself, so the GC
+      // current-version safeguard protects it rather than comparing it across indexes.
+      assertEquals(
+          "507f1f77bcf86cd799439011-abc123",
+          createLeaseWithId("507f1f77bcf86cd799439011-abc123").indexId());
+    }
+
+    @Test
     public void testWithNewIndexDefinitionVersionPreservesCommitInfoWhenReuseTrue() {
       // Set up a lease with steady state commitInfo (change stream resume)
       var opTime = new BsonTimestamp(9876543210L);
@@ -844,6 +868,26 @@ public class LeaseTest {
           Instant.now(),
           Lease.FIRST_LEASE_VERSION,
           commitInfo,
+          "1",
+          Map.of(
+              "1",
+              new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.INITIAL_SYNC)),
+          new MaterializedViewCollectionMetadata(
+              VERSION_ZERO, UUID.fromString(COLLECTION_UUID), COLLECTION_NAME),
+          null,
+          Lease.CleanupState.NOT_ELIGIBLE);
+    }
+
+    private static Lease createLeaseWithId(String id) {
+      return new Lease(
+          id,
+          Lease.SCHEMA_VERSION,
+          COLLECTION_UUID,
+          COLLECTION_NAME,
+          LEASE_OWNER,
+          Instant.now(),
+          Lease.FIRST_LEASE_VERSION,
+          "",
           "1",
           Map.of(
               "1",

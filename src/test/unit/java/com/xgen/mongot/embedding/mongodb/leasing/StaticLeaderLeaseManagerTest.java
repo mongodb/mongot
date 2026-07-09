@@ -330,10 +330,10 @@ public class StaticLeaderLeaseManagerTest {
     leaseList.add(lease.toBson());
     when(this.mockFindIterable.into(any())).thenReturn(leaseList);
 
-    List<Lease> candidates = leaseManager.findGcCandidates(Instant.now());
+    List<Lease> leases = leaseManager.findGcCandidates();
 
-    assertThat(candidates).hasSize(1);
-    assertThat(candidates.get(0).id()).isEqualTo(collectionName);
+    assertThat(leases).hasSize(1);
+    assertThat(leases.get(0).id()).isEqualTo(collectionName);
     // The lease→database mapping must be registered even though no configured generation ever
     // added this lease, so a follow-up markEligibleForCleanup can resolve the database.
     assertThat(leaseManager.getLeaseKeyToDatabase()).containsKey(collectionName);
@@ -354,18 +354,18 @@ public class StaticLeaderLeaseManagerTest {
     leaseList.add(good.toBson());
     when(this.mockFindIterable.into(any())).thenReturn(leaseList);
 
-    List<Lease> candidates = leaseManager.findGcCandidates(Instant.now());
+    List<Lease> leases = leaseManager.findGcCandidates();
 
-    assertThat(candidates).hasSize(1);
-    assertThat(candidates.get(0).id()).isEqualTo(collectionName);
+    assertThat(leases).hasSize(1);
+    assertThat(leases.get(0).id()).isEqualTo(collectionName);
   }
 
   @Test
   public void findGcCandidates_queryFailure_returnsEmpty() {
     StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
-    when(this.mockCollection.find(any(Bson.class))).thenThrow(new RuntimeException("find failed"));
+    when(this.mockCollection.find()).thenThrow(new RuntimeException("find failed"));
 
-    assertThat(leaseManager.findGcCandidates(Instant.now())).isEmpty();
+    assertThat(leaseManager.findGcCandidates()).isEmpty();
   }
 
   @Test
@@ -381,7 +381,7 @@ public class StaticLeaderLeaseManagerTest {
     leaseList.add(lease.toBson());
     when(this.mockFindIterable.into(any())).thenReturn(leaseList);
     // Registers the database mapping (findGcCandidates) and the in-memory copy (sync).
-    leaseManager.findGcCandidates(Instant.now());
+    leaseManager.findGcCandidates();
     leaseManager.syncLeasesFromMongod();
 
     UpdateResult updateResult = mock(UpdateResult.class);
@@ -407,7 +407,7 @@ public class StaticLeaderLeaseManagerTest {
     ArrayList<BsonDocument> leaseList = new ArrayList<>();
     leaseList.add(lease.toBson());
     when(this.mockFindIterable.into(any())).thenReturn(leaseList);
-    leaseManager.findGcCandidates(Instant.now());
+    leaseManager.findGcCandidates();
     leaseManager.syncLeasesFromMongod();
 
     UpdateResult updateResult = mock(UpdateResult.class);
@@ -443,7 +443,7 @@ public class StaticLeaderLeaseManagerTest {
     ArrayList<BsonDocument> leaseList = new ArrayList<>();
     leaseList.add(lease.toBson());
     when(this.mockFindIterable.into(any())).thenReturn(leaseList);
-    leaseManager.findGcCandidates(Instant.now());
+    leaseManager.findGcCandidates();
     when(this.mockCollection.updateOne(any(Bson.class), any(Bson.class)))
         .thenThrow(new RuntimeException("update failed"));
 
@@ -518,7 +518,7 @@ public class StaticLeaderLeaseManagerTest {
     ArrayList<BsonDocument> leaseList = new ArrayList<>();
     leaseList.add(lease.toBson());
     when(this.mockFindIterable.into(any())).thenReturn(leaseList);
-    leaseManager.findGcCandidates(Instant.now());
+    leaseManager.findGcCandidates();
   }
 
   @Test
@@ -531,7 +531,7 @@ public class StaticLeaderLeaseManagerTest {
     when(this.mockFindIterable.first()).thenReturn(lease.toBson());
 
     Optional<MongoNamespace> namespace =
-        leaseManager.resolveStaleMatViewNamespace(collectionName, Instant.now());
+        leaseManager.resolveStaleMatViewNamespace(collectionName, 1L, Instant.now());
 
     assertThat(namespace).isPresent();
     assertThat(namespace.get().getDatabaseName()).isEqualTo(DATABASE_NAME);
@@ -551,7 +551,8 @@ public class StaticLeaderLeaseManagerTest {
                 VERSION_ZERO, UUID.randomUUID(), collectionName));
     when(this.mockFindIterable.first()).thenReturn(unmarked.toBson());
 
-    assertThat(leaseManager.resolveStaleMatViewNamespace(collectionName, Instant.now())).isEmpty();
+    assertThat(leaseManager.resolveStaleMatViewNamespace(collectionName, 1L, Instant.now()))
+        .isEmpty();
   }
 
   @Test
@@ -564,7 +565,7 @@ public class StaticLeaderLeaseManagerTest {
     Lease renewed = markedLease(collectionName, now.plusSeconds(60));
     when(this.mockFindIterable.first()).thenReturn(renewed.toBson());
 
-    assertThat(leaseManager.resolveStaleMatViewNamespace(collectionName, now)).isEmpty();
+    assertThat(leaseManager.resolveStaleMatViewNamespace(collectionName, 1L, now)).isEmpty();
   }
 
   @Test
@@ -578,7 +579,7 @@ public class StaticLeaderLeaseManagerTest {
     when(deleteResult.getDeletedCount()).thenReturn(1L);
     when(this.mockCollection.deleteOne(any(Bson.class))).thenReturn(deleteResult);
 
-    assertThat(leaseManager.deleteStaleLease(collectionName, Instant.now())).isTrue();
+    assertThat(leaseManager.deleteStaleLease(collectionName, 1L, Instant.now())).isTrue();
     assertThat(leaseManager.getLeases()).doesNotContainKey(collectionName);
     assertThat(leaseManager.getLeaseKeyToDatabase()).doesNotContainKey(collectionName);
   }
@@ -592,7 +593,7 @@ public class StaticLeaderLeaseManagerTest {
     when(deleteResult.getDeletedCount()).thenReturn(0L);
     when(this.mockCollection.deleteOne(any(Bson.class))).thenReturn(deleteResult);
 
-    assertThat(leaseManager.deleteStaleLease(collectionName, Instant.now())).isFalse();
+    assertThat(leaseManager.deleteStaleLease(collectionName, 1L, Instant.now())).isFalse();
     assertThat(leaseManager.getLeaseKeyToDatabase()).containsKey(collectionName);
   }
 
@@ -603,13 +604,15 @@ public class StaticLeaderLeaseManagerTest {
     registerViaGcScan(leaseManager, markedStaleLease(collectionName));
     when(this.mockFindIterable.first()).thenReturn(null);
 
-    assertThat(leaseManager.resolveStaleMatViewNamespace(collectionName, Instant.now())).isEmpty();
+    assertThat(leaseManager.resolveStaleMatViewNamespace(collectionName, 1L, Instant.now()))
+        .isEmpty();
   }
 
   @Test
   public void resolveStaleMatViewNamespace_unknownLease_returnsEmpty() {
     StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
-    assertThat(leaseManager.resolveStaleMatViewNamespace("never-seen", Instant.now())).isEmpty();
+    assertThat(leaseManager.resolveStaleMatViewNamespace("never-seen", 1L, Instant.now()))
+        .isEmpty();
   }
 
   @Test
@@ -619,13 +622,14 @@ public class StaticLeaderLeaseManagerTest {
     registerViaGcScan(leaseManager, markedStaleLease(collectionName));
     when(this.mockFindIterable.first()).thenThrow(new RuntimeException("read failed"));
 
-    assertThat(leaseManager.resolveStaleMatViewNamespace(collectionName, Instant.now())).isEmpty();
+    assertThat(leaseManager.resolveStaleMatViewNamespace(collectionName, 1L, Instant.now()))
+        .isEmpty();
   }
 
   @Test
   public void deleteStaleLease_unknownLease_returnsFalseWithoutDbWrite() {
     StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
-    assertThat(leaseManager.deleteStaleLease("never-seen-lease", Instant.now())).isFalse();
+    assertThat(leaseManager.deleteStaleLease("never-seen-lease", 1L, Instant.now())).isFalse();
     verify(this.mockCollection, never()).deleteOne(any(Bson.class));
   }
 
@@ -637,11 +641,11 @@ public class StaticLeaderLeaseManagerTest {
     when(this.mockCollection.deleteOne(any(Bson.class)))
         .thenThrow(new RuntimeException("delete failed"));
 
-    assertThat(leaseManager.deleteStaleLease(collectionName, Instant.now())).isFalse();
+    assertThat(leaseManager.deleteStaleLease(collectionName, 1L, Instant.now())).isFalse();
   }
 
   @Test
-  public void deleteStaleLease_filtersOnMarkedStateAndExpiration() {
+  public void deleteStaleLease_filtersOnMarkedStateVersionAndExpiration() {
     StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
     String collectionName = "filtered-collection";
     registerViaGcScan(leaseManager, markedStaleLease(collectionName));
@@ -650,7 +654,7 @@ public class StaticLeaderLeaseManagerTest {
     when(deleteResult.getDeletedCount()).thenReturn(0L);
     when(this.mockCollection.deleteOne(any(Bson.class))).thenReturn(deleteResult);
 
-    leaseManager.deleteStaleLease(collectionName, cutoff);
+    leaseManager.deleteStaleLease(collectionName, 7L, cutoff);
 
     ArgumentCaptor<Bson> filterCaptor = ArgumentCaptor.forClass(Bson.class);
     verify(this.mockCollection).deleteOne(filterCaptor.capture());
@@ -666,6 +670,8 @@ public class StaticLeaderLeaseManagerTest {
                     "cleanupState",
                     new BsonString(Lease.CleanupState.ELIGIBLE_FOR_CLEANUP.name()))))
         .isTrue();
+    // Fencing token: the OCC delete commits only against the exact leaseVersion the sweep saw.
+    assertThat(clauses.stream().anyMatch(c -> c.asDocument().containsKey("leaseVersion"))).isTrue();
     assertThat(
             clauses.contains(
                 new BsonDocument(

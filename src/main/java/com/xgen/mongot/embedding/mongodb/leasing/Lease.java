@@ -128,6 +128,18 @@ public record Lease(
     ELIGIBLE_FOR_CLEANUP
   }
 
+  /**
+   * The index this lease belongs to. The lease id is the MV collection name; its layout is only
+   * knowable from the name itself (an orphaned lease has no index definition left to consult): v0 =
+   * bare dash-free indexId, v1+ = {@code "<indexId>-<hash>-<nameFormatVersion>-<aeVersion>"} (see
+   * {@code MaterializedViewCollectionResolver}). A name matching neither layout is returned whole,
+   * so the lease groups only with itself and the GC current-version safeguard protects it.
+   */
+  public String indexId() {
+    String[] segments = this.id.split("-");
+    return segments.length == 4 ? segments[0] : this.id;
+  }
+
   static class Fields {
     /**
      * The unique identifier for the lease. For now, we maintain one lease per mat view collection
