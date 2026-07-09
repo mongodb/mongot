@@ -73,6 +73,62 @@ public class DefaultDocumentIndexerTest {
   }
 
   @Test
+  public void testCommitPersistsAutoEmbeddingMetadataWhenSupplierPresent() throws Exception {
+    InitializedIndex index = mockInitializedIndex(MOCK_INDEX_DEFINITION_GENERATION);
+    DefaultDocumentIndexer indexer =
+        DefaultDocumentIndexer.create(index, () -> new AutoEmbeddingCommitMetadata(true));
+    EncodedUserData base =
+        EncodedUserData.fromString("{\"backendIndexVersion\": {\"$numberInt\": \"123\"}}");
+    indexer.updateCommitUserData(
+        IndexCommitUserData.fromEncodedData(base, Optional.of(index.getGenerationId())));
+    indexer.commit();
+    verify(index.getWriter())
+        .commit(
+            argThat(
+                encoded ->
+                    IndexCommitUserData.fromEncodedData(encoded, Optional.empty())
+                        .getAutoEmbeddingMetadata()
+                        .equals(Optional.of(new AutoEmbeddingCommitMetadata(true)))));
+  }
+
+  @Test
+  public void testCommitPersistsFalseWhenSupplierReturnsFalse() throws Exception {
+    InitializedIndex index = mockInitializedIndex(MOCK_INDEX_DEFINITION_GENERATION);
+    DefaultDocumentIndexer indexer =
+        DefaultDocumentIndexer.create(index, () -> new AutoEmbeddingCommitMetadata(false));
+    EncodedUserData base =
+        EncodedUserData.fromString("{\"backendIndexVersion\": {\"$numberInt\": \"123\"}}");
+    indexer.updateCommitUserData(
+        IndexCommitUserData.fromEncodedData(base, Optional.of(index.getGenerationId())));
+    indexer.commit();
+    verify(index.getWriter())
+        .commit(
+            argThat(
+                encoded ->
+                    IndexCommitUserData.fromEncodedData(encoded, Optional.empty())
+                        .getAutoEmbeddingMetadata()
+                        .equals(Optional.of(new AutoEmbeddingCommitMetadata(false)))));
+  }
+
+  @Test
+  public void testCommitOmitsAutoEmbeddingMetadataWhenNoSupplier() throws Exception {
+    InitializedIndex index = mockInitializedIndex(MOCK_INDEX_DEFINITION_GENERATION);
+    DefaultDocumentIndexer indexer = DefaultDocumentIndexer.create(index);
+    EncodedUserData base =
+        EncodedUserData.fromString("{\"backendIndexVersion\": {\"$numberInt\": \"123\"}}");
+    indexer.updateCommitUserData(
+        IndexCommitUserData.fromEncodedData(base, Optional.of(index.getGenerationId())));
+    indexer.commit();
+    verify(index.getWriter())
+        .commit(
+            argThat(
+                encoded ->
+                    IndexCommitUserData.fromEncodedData(encoded, Optional.empty())
+                        .getAutoEmbeddingMetadata()
+                        .isEmpty()));
+  }
+
+  @Test
   public void testCommitWithPreexistingCommitUserData() throws Exception {
     EncodedUserData userData =
         EncodedUserData.fromString("{\"backendIndexVersion\": {\"$numberInt\": \"123\"}}");

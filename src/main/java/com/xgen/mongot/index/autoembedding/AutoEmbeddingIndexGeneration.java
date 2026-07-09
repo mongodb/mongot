@@ -4,6 +4,7 @@ import static com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGenerationFa
 
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
+import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingCommitMetadata;
 
 /** Composite IndexGeneration for Materialized View based AutoEmbedding index */
 public class AutoEmbeddingIndexGeneration extends IndexGeneration {
@@ -39,7 +40,12 @@ public class AutoEmbeddingIndexGeneration extends IndexGeneration {
             compositeIndex.matViewIndex,
             createMaterializedViewIndexDefinitionGeneration(rawDefinitionGeneration));
     this.derivedIndexGeneration =
-        new IndexGeneration(compositeIndex.derivedIndex, derivedIndexDefinitionGeneration);
+        new DerivedLocalIndexGeneration(
+            compositeIndex.derivedIndex,
+            derivedIndexDefinitionGeneration,
+            () ->
+                new AutoEmbeddingCommitMetadata(
+                    compositeIndex.matViewIndex.isCurrentVersionQueryablePerLease()));
   }
 
   /** Returns derived indexGeneration that contains Lucene index and Lucene index definition */

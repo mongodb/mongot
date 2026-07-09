@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
+import com.xgen.mongot.index.EncodedUserData;
 import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.MeteredIndexWriter;
 import com.xgen.mongot.index.analyzer.AnalyzerRegistry;
@@ -31,6 +32,8 @@ import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.monitor.NoOpDiskMonitor;
+import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingCommitMetadata;
+import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
 import com.xgen.mongot.util.AtomicDirectoryRemover;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.concurrent.Executors;
@@ -45,6 +48,7 @@ import com.xgen.testing.mongot.mock.index.SearchIndex;
 import com.xgen.testing.mongot.mock.index.VectorIndex;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Optional;
@@ -510,6 +514,157 @@ public class LuceneIndexFactoryTest {
       assertThat(factory.isCacheWarmerEnabled()).isTrue();
 
       verify(systemInfo.get(), times(2)).getOperatingSystem();
+    }
+  }
+
+  @Test
+  public void readPersistedCommitUserData_whenIndexNeverPersisted_returnsEmpty() throws Exception {
+    var cfg = LuceneConfigBuilder.builder().tempDataPath().build();
+    try (LuceneIndexFactory factory = openFactory(cfg)) {
+      SearchIndexDefinitionGeneration gen =
+          SearchIndexDefinitionGenerationBuilder.create(
+              SearchIndex.mockSearchDefinition(new ObjectId()), CURRENT, Collections.emptyList());
+      assertThat(factory.readPersistedCommitUserData(gen)).isEmpty();
+    }
+  }
+
+  @Test
+  public void readPersistedCommitUserData_singlePartition_roundTripsAutoEmbeddingMetadata()
+      throws Exception {
+    var cfg = LuceneConfigBuilder.builder().tempDataPath().build();
+    try (LuceneIndexFactory factory = openFactory(cfg)) {
+      SearchIndexDefinitionGeneration gen =
+          SearchIndexDefinitionGenerationBuilder.create(
+              SearchIndex.mockSearchDefinition(new ObjectId()), CURRENT, Collections.emptyList());
+      commitQueryableAutoEmbedding(factory, gen);
+      assertThat(readAutoEmbedding(factory, gen)).hasValue(new AutoEmbeddingCommitMetadata(true));
+    }
+  }
+
+  @Test
+  public void readPersistedCommitUserData_multiPartition_readsPartitionZeroCommit()
+      throws Exception {
+    var cfg = LuceneConfigBuilder.builder().tempDataPath().build();
+    try (LuceneIndexFactory factory = openFactory(cfg)) {
+      var definition =
+          SearchIndexDefinitionBuilder.builder()
+              .defaultMetadata()
+              .mappings(SearchIndex.mockSearchDefinition(new ObjectId()).getMappings())
+              .numPartitions(2)
+              .build();
+      SearchIndexDefinitionGeneration gen =
+          SearchIndexDefinitionGenerationBuilder.create(
+              definition, CURRENT, Collections.emptyList());
+      commitQueryableAutoEmbedding(factory, gen);
+      // The index directory itself has no segments file: partitions live in "0"/"1"
+      // subdirectories, so this only succeeds because the read targets partition 0.
+      assertThat(readAutoEmbedding(factory, gen)).hasValue(new AutoEmbeddingCommitMetadata(true));
+    }
+  }
+
+  @Test
+  public void readPersistedCommitUserData_whenCommitCorrupt_returnsEmptyWithoutThrowing()
+      throws Exception {
+    var cfg = LuceneConfigBuilder.builder().tempDataPath().build();
+    try (LuceneIndexFactory factory = openFactory(cfg)) {
+      SearchIndexDefinitionGeneration gen =
+          SearchIndexDefinitionGenerationBuilder.create(
+              SearchIndex.mockSearchDefinition(new ObjectId()), CURRENT, Collections.emptyList());
+      commitQueryableAutoEmbedding(factory, gen);
+      // Overwrite the segments file with garbage so Lucene fails to parse the commit. The read must
+      // swallow the failure (IOException or an unchecked exception from a corrupt SegmentInfos) and
+      // report absent rather than propagate.
+      overwriteSegmentsFilesWithGarbage(cfg.dataPath());
+      assertThat(factory.readPersistedCommitUserData(gen)).isEmpty();
+    }
+  }
+
+  @Test
+  public void readPersistedCommitUserData_whenDirectoryHasNoCommit_returnsEmpty() throws Exception {
+    var cfg = LuceneConfigBuilder.builder().tempDataPath().build();
+    try (LuceneIndexFactory factory = openFactory(cfg)) {
+      SearchIndexDefinitionGeneration gen =
+          SearchIndexDefinitionGenerationBuilder.create(
+              SearchIndex.mockSearchDefinition(new ObjectId()), CURRENT, Collections.emptyList());
+      commitQueryableAutoEmbedding(factory, gen);
+      // A present but commit-less directory (all index files gone) must also degrade to absent.
+      deleteAllRegularFiles(cfg.dataPath());
+      assertThat(factory.readPersistedCommitUserData(gen)).isEmpty();
+    }
+  }
+
+  @Test
+  public void readPersistedCommitUserData_whenCommitHasNoUserData_returnsEmpty() throws Exception {
+    var cfg = LuceneConfigBuilder.builder().tempDataPath().build();
+    try (LuceneIndexFactory factory = openFactory(cfg)) {
+      SearchIndexDefinitionGeneration gen =
+          SearchIndexDefinitionGenerationBuilder.create(
+              SearchIndex.mockSearchDefinition(new ObjectId()), CURRENT, Collections.emptyList());
+      // A real commit that carries no user data ("{}", e.g. an older-schema commit) must read back
+      // as absent, not as a present-but-empty payload: empty uniformly means "no persisted signal".
+      var index = factory.getIndex(gen);
+      InitializedIndex initializedIndex = factory.getInitializedIndex(index, gen);
+      initializedIndex.getWriter().commit(EncodedUserData.EMPTY);
+      initializedIndex.close();
+      assertThat(factory.readPersistedCommitUserData(gen)).isEmpty();
+    }
+  }
+
+  private static LuceneIndexFactory openFactory(LuceneConfig cfg)
+      throws InvalidAnalyzerDefinitionException, IOException {
+    return LuceneIndexFactory.fromConfig(
+        cfg,
+        FeatureFlags.getDefault(),
+        new DynamicFeatureFlagRegistry(
+            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
+        EnvironmentVariantPerfConfig.getDefault(),
+        MeterAndFtdcRegistry.createWithSimpleRegistries(),
+        Optional.empty(),
+        AnalyzerRegistry.factory(),
+        new NoOpDiskMonitor());
+  }
+
+  private static void commitQueryableAutoEmbedding(
+      LuceneIndexFactory factory, SearchIndexDefinitionGeneration gen)
+      throws InvalidAnalyzerDefinitionException, IOException {
+    var index = factory.getIndex(gen);
+    InitializedIndex initializedIndex = factory.getInitializedIndex(index, gen);
+    IndexCommitUserData userData =
+        IndexCommitUserData.fromEncodedData(
+                EncodedUserData.fromString("{\"backendIndexVersion\": {\"$numberInt\": \"123\"}}"),
+                Optional.of(gen.getGenerationId()))
+            .withAutoEmbeddingMetadata(new AutoEmbeddingCommitMetadata(true));
+    initializedIndex.getWriter().commit(userData.toEncodedData());
+    initializedIndex.close();
+  }
+
+  private static Optional<AutoEmbeddingCommitMetadata> readAutoEmbedding(
+      LuceneIndexFactory factory, SearchIndexDefinitionGeneration gen) {
+    return factory
+        .readPersistedCommitUserData(gen)
+        .map(
+            encoded ->
+                IndexCommitUserData.fromEncodedData(encoded, Optional.of(gen.getGenerationId())))
+        .flatMap(IndexCommitUserData::getAutoEmbeddingMetadata);
+  }
+
+  private static void overwriteSegmentsFilesWithGarbage(Path root) throws IOException {
+    try (var stream = Files.walk(root)) {
+      for (Path file :
+          stream
+              .filter(Files::isRegularFile)
+              .filter(file -> file.getFileName().toString().startsWith("segments"))
+              .toList()) {
+        Files.write(file, new byte[] {0, 1, 2, 3, 4, 5, 6, 7});
+      }
+    }
+  }
+
+  private static void deleteAllRegularFiles(Path root) throws IOException {
+    try (var stream = Files.walk(root)) {
+      for (Path file : stream.filter(Files::isRegularFile).toList()) {
+        Files.delete(file);
+      }
     }
   }
 }

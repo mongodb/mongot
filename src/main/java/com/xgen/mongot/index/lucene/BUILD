@@ -101,6 +101,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/lucene/backing",
         "//src/main/java/com/xgen/mongot/index/lucene/blobstore",
         "//src/main/java/com/xgen/mongot/index/lucene/codec/bloom",
+        "//src/main/java/com/xgen/mongot/index/lucene/commit",
         "//src/main/java/com/xgen/mongot/index/lucene/config",
         "//src/main/java/com/xgen/mongot/index/lucene/directory",
         "//src/main/java/com/xgen/mongot/index/lucene/explain",

@@ -4,6 +4,7 @@ java_library(
     name = "common",
     srcs = [
         "AggregateCommandCollectionScanMongoClient.java",
+        "AutoEmbeddingCommitMetadata.java",
         "AutoEmbeddingMaterializedViewConfig.java",
         "BufferlessIdOrderInitialSyncResumeInfo.java",
         "BufferlessNaturalOrderInitialSyncResumeInfo.java",

@@ -7,6 +7,7 @@ import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
+import com.xgen.mongot.index.EncodedUserData;
 import com.xgen.mongot.index.Index;
 import com.xgen.mongot.index.IndexFactory;
 import com.xgen.mongot.index.IndexMetricsUpdater;
@@ -21,11 +22,13 @@ import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.lucene.blobstore.LuceneIndexSnapshotter;
 import com.xgen.mongot.index.lucene.blobstore.LuceneIndexSnapshotterManager;
 import com.xgen.mongot.index.lucene.codec.bloom.BloomCodecPolicy;
+import com.xgen.mongot.index.lucene.commit.LuceneCommitData;
 import com.xgen.mongot.index.lucene.config.LuceneConfig;
 import com.xgen.mongot.index.lucene.directory.ByteReadCollector;
 import com.xgen.mongot.index.lucene.directory.EnvironmentVariantPerfConfig;
 import com.xgen.mongot.index.lucene.directory.IndexDirectoryFactory;
 import com.xgen.mongot.index.lucene.directory.IndexDirectoryHelper;
+import com.xgen.mongot.index.lucene.directory.IndexPathFactory;
 import com.xgen.mongot.index.lucene.merge.DiskUtilizationAwareMergePolicy;
 import com.xgen.mongot.index.lucene.merge.InstrumentedConcurrentMergeScheduler;
 import com.xgen.mongot.index.lucene.merge.MergePolicyFactory;
@@ -48,12 +51,17 @@ import com.xgen.mongot.util.concurrent.NamedExecutorService;
 import com.xgen.mongot.util.concurrent.NamedScheduledExecutorService;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import org.apache.lucene.index.MergePolicy;
+import org.apache.lucene.index.SegmentInfos;
+import org.apache.lucene.store.Directory;
+import org.apache.lucene.store.FSDirectory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import oshi.SystemInfo;
@@ -472,6 +480,51 @@ public class LuceneIndexFactory implements IndexFactory {
 
     Crash.because("failed to close merge scheduler").ifThrows(() -> this.mergeScheduler.close());
     this.metricsFactory.close();
+  }
+
+  @Override
+  public Optional<EncodedUserData> readPersistedCommitUserData(
+      IndexDefinitionGeneration definitionGeneration) {
+    // Everything here (path construction included) is inside the try so that no failure can
+    // propagate: callers treat empty as "no persisted signal" and fall back to the pre-existing
+    // status, so degrading to empty is always safe.
+    try {
+      // Read partition 0's directory, mirroring MultiLuceneIndexWriter#getCommitUserData: every
+      // partition is committed with identical user data, and partition 0 is committed last, so on a
+      // partial-crash it holds the safest (oldest) value. For a single-partition index this
+      // resolves to the index directory itself; for a partitioned index it is the "0" subdirectory
+      // (the index directory has no segments file of its own).
+      Path path =
+          new IndexPathFactory(this.indexDirectoryHelper, definitionGeneration)
+              .getIndexPartitionDataPath(0);
+      if (!Files.exists(path)) {
+        return Optional.empty();
+      }
+      try (Directory directory = FSDirectory.open(path)) {
+        EncodedUserData encoded =
+            LuceneCommitData.fromDataMap(
+                    Optional.of(SegmentInfos.readLatestCommit(directory).getUserData().entrySet()))
+                .getEncodedUserData();
+        // fromDataMap degrades to EncodedUserData.EMPTY when the commit carries no user data (e.g.
+        // an older-schema commit). Collapse that to Optional.empty() so a present Optional always
+        // wraps real persisted data and empty uniformly means "no persisted signal".
+        return encoded.equals(EncodedUserData.EMPTY) ? Optional.empty() : Optional.of(encoded);
+      }
+    } catch (Exception e) {
+      // Includes a missing/unreadable commit (I/O error or a corrupt SegmentInfos surfacing as an
+      // unchecked exception) and any failure building the partition path from a malformed
+      // generation. Logging itself must not throw, or a malformed definitionGeneration would defeat
+      // the "never propagate" guarantee this method promises its callers.
+      try {
+        LOG.atWarn()
+            .setCause(e)
+            .addKeyValue("generationId", definitionGeneration.getGenerationId())
+            .log("Could not read persisted commit user data from disk; treating as absent");
+      } catch (Exception loggingFailure) {
+        LOG.warn("Could not read persisted commit user data from disk; treating as absent", e);
+      }
+      return Optional.empty();
+    }
   }
 
   @Override

@@ -6,6 +6,7 @@ java_test_suite(
         "AutoEmbeddingCompositeIndexTest.java",
         "AutoEmbeddingFailureMessagesTest.java",
         "AutoEmbeddingIndexGenerationFactoryTest.java",
+        "AutoEmbeddingIndexGenerationTest.java",
         "InitializedMaterializedViewIndexTest.java",
         "MaterializedViewGenerationIdTest.java",
         "MaterializedViewIndexFactoryTest.java",

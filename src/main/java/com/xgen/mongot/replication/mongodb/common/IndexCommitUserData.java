@@ -30,6 +30,7 @@ public class IndexCommitUserData implements DocumentEncodable {
           Optional.empty(),
           Optional.empty(),
           Optional.empty(),
+          Optional.empty(),
           Optional.empty());
 
   private final Optional<ChangeStreamResumeInfo> resumeInfo;
@@ -39,6 +40,7 @@ public class IndexCommitUserData implements DocumentEncodable {
   private final Optional<StaleStateInfo> staleStateInfo;
   private final Optional<IndexStateInfo> indexStateInfo;
   private final Optional<Long> customVectorEngineLsn;
+  private final Optional<AutoEmbeddingCommitMetadata> autoEmbeddingMetadata;
 
   private static class Fields {
     private static final Field.Optional<ChangeStreamResumeInfo> CHANGE_STREAM_RESUME_INFO =
@@ -87,6 +89,21 @@ public class IndexCommitUserData implements DocumentEncodable {
             .noDefault();
     private static final Field.Optional<Long> CUSTOM_VECTOR_ENGINE_LSN =
         Field.builder("customVectorEngineLsn").longField().optional().noDefault();
+
+    // Persisted only on the derived Lucene commit of an auto-embedding composite index. Holds the
+    // auto-embedding state needed to report the index on a restart while mongod is unreachable.
+    // Absent for non-auto-embedding indexes.
+    //
+    // Rollback behavior: binaries that predate this top-level field reject it as unknown, catch the
+    // parse error, and return IndexCommitUserData.EMPTY. That avoids crashing but can force the
+    // existing re-sync fallback after rollback. The allowUnknownFields() below applies to future
+    // fields added inside autoEmbeddingMetadata once this top-level field is known.
+    private static final Field.Optional<AutoEmbeddingCommitMetadata> AUTO_EMBEDDING_METADATA =
+        Field.builder("autoEmbeddingMetadata")
+            .classField(AutoEmbeddingCommitMetadata::fromBson)
+            .allowUnknownFields()
+            .optional()
+            .noDefault();
   }
 
   @VisibleForTesting
@@ -97,7 +114,8 @@ public class IndexCommitUserData implements DocumentEncodable {
       Optional<InitialSyncResumeInfo> initialSyncResumeInfo,
       Optional<StaleStateInfo> staleStateInfo,
       Optional<IndexStateInfo> indexStateInfo,
-      Optional<Long> customVectorEngineLsn) {
+      Optional<Long> customVectorEngineLsn,
+      Optional<AutoEmbeddingCommitMetadata> autoEmbeddingMetadata) {
     this.resumeInfo = resumeInfo;
     this.backendIndexVersion = backendIndexVersion;
     this.exceededLimitsReason = exceededLimitsReason;
@@ -105,6 +123,7 @@ public class IndexCommitUserData implements DocumentEncodable {
     this.staleStateInfo = staleStateInfo;
     this.indexStateInfo = indexStateInfo;
     this.customVectorEngineLsn = customVectorEngineLsn;
+    this.autoEmbeddingMetadata = autoEmbeddingMetadata;
   }
 
   public static IndexCommitUserData createExceeded(String reason) {
@@ -112,6 +131,7 @@ public class IndexCommitUserData implements DocumentEncodable {
         Optional.empty(),
         Optional.empty(),
         Optional.of(reason),
+        Optional.empty(),
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
@@ -126,6 +146,7 @@ public class IndexCommitUserData implements DocumentEncodable {
         Optional.empty(),
         Optional.of(staleStateInfo),
         Optional.empty(),
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -138,6 +159,7 @@ public class IndexCommitUserData implements DocumentEncodable {
         Optional.of(resumeInfo),
         Optional.empty(),
         Optional.empty(),
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -146,6 +168,7 @@ public class IndexCommitUserData implements DocumentEncodable {
     return new IndexCommitUserData(
         Optional.of(resumeInfo),
         Optional.of(indexFormatVersion),
+        Optional.empty(),
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
@@ -168,6 +191,7 @@ public class IndexCommitUserData implements DocumentEncodable {
         Optional.empty(),
         Optional.empty(),
         Optional.of(indexStateInfo),
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -188,7 +212,8 @@ public class IndexCommitUserData implements DocumentEncodable {
         parser.getField(Fields.INITIAL_SYNC_RESUME_INFO).unwrap(),
         parser.getField(Fields.STALE_STATE_INFO).unwrap(),
         parser.getField(Fields.INDEX_STATE_INFO).unwrap(),
-        parser.getField(Fields.CUSTOM_VECTOR_ENGINE_LSN).unwrap());
+        parser.getField(Fields.CUSTOM_VECTOR_ENGINE_LSN).unwrap(),
+        parser.getField(Fields.AUTO_EMBEDDING_METADATA).unwrap());
   }
 
   private static IndexCommitUserData fromEncodedString(
@@ -241,6 +266,10 @@ public class IndexCommitUserData implements DocumentEncodable {
     return this.customVectorEngineLsn;
   }
 
+  public Optional<AutoEmbeddingCommitMetadata> getAutoEmbeddingMetadata() {
+    return this.autoEmbeddingMetadata;
+  }
+
   public IndexCommitUserData withCustomVectorEngineLsn(long lsn) {
     return new IndexCommitUserData(
         this.resumeInfo,
@@ -249,7 +278,20 @@ public class IndexCommitUserData implements DocumentEncodable {
         this.initialSyncResumeInfo,
         this.staleStateInfo,
         this.indexStateInfo,
-        Optional.of(lsn));
+        Optional.of(lsn),
+        this.autoEmbeddingMetadata);
+  }
+
+  public IndexCommitUserData withAutoEmbeddingMetadata(AutoEmbeddingCommitMetadata metadata) {
+    return new IndexCommitUserData(
+        this.resumeInfo,
+        this.backendIndexVersion,
+        this.exceededLimitsReason,
+        this.initialSyncResumeInfo,
+        this.staleStateInfo,
+        this.indexStateInfo,
+        this.customVectorEngineLsn,
+        Optional.of(metadata));
   }
 
   /**
@@ -280,6 +322,7 @@ public class IndexCommitUserData implements DocumentEncodable {
         .field(Fields.STALE_STATE_INFO, this.staleStateInfo)
         .field(Fields.INDEX_STATE_INFO, this.indexStateInfo)
         .field(Fields.CUSTOM_VECTOR_ENGINE_LSN, this.customVectorEngineLsn)
+        .field(Fields.AUTO_EMBEDDING_METADATA, this.autoEmbeddingMetadata)
         .build();
   }
 
@@ -298,7 +341,8 @@ public class IndexCommitUserData implements DocumentEncodable {
         && this.staleStateInfo.equals(userData.staleStateInfo)
         && this.initialSyncResumeInfo.equals(userData.initialSyncResumeInfo)
         && this.indexStateInfo.equals(userData.indexStateInfo)
-        && this.customVectorEngineLsn.equals(userData.customVectorEngineLsn);
+        && this.customVectorEngineLsn.equals(userData.customVectorEngineLsn)
+        && this.autoEmbeddingMetadata.equals(userData.autoEmbeddingMetadata);
   }
 
   @Override
@@ -310,6 +354,7 @@ public class IndexCommitUserData implements DocumentEncodable {
         this.staleStateInfo,
         this.initialSyncResumeInfo,
         this.indexStateInfo,
-        this.customVectorEngineLsn);
+        this.customVectorEngineLsn,
+        this.autoEmbeddingMetadata);
   }
 }

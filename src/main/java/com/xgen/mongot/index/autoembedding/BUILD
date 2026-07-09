@@ -7,6 +7,7 @@ java_library(
         "AutoEmbeddingFailureMessages.java",
         "AutoEmbeddingIndexGeneration.java",
         "AutoEmbeddingIndexGenerationFactory.java",
+        "DerivedLocalIndexGeneration.java",
         "InitializedMaterializedViewIndex.java",
         "MaterializedViewIndexFactory.java",
         "MaterializedViewIndexGeneration.java",
@@ -22,6 +23,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/mongodb",
         "//src/main/java/com/xgen/mongot/index/status",
         "//src/main/java/com/xgen/mongot/index/version",
+        "//src/main/java/com/xgen/mongot/replication/mongodb/common",
         "@maven//:org_mongodb_bson",
     ],
     deps = [

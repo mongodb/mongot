@@ -16,6 +16,7 @@ import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.InitializedIndex;
+import com.xgen.mongot.index.autoembedding.DerivedLocalIndexGeneration;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.MetricsFactory;
@@ -733,7 +734,11 @@ public class MongoDbReplicationManager implements ReplicationManager {
       return;
     }
 
-    DefaultDocumentIndexer indexer = DefaultDocumentIndexer.create(initializedIndex.get());
+    DefaultDocumentIndexer indexer =
+        indexGeneration instanceof DerivedLocalIndexGeneration derivedGeneration
+            ? DefaultDocumentIndexer.create(
+                initializedIndex.get(), derivedGeneration.getCommitMetadataSupplier())
+            : DefaultDocumentIndexer.create(initializedIndex.get());
 
     IndexManager indexManager =
         ReplicationIndexManagerFactory.forIndexGeneration(

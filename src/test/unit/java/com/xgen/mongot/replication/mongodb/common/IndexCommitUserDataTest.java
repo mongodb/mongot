@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.bson.BsonBinary;
+import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonInt64;
 import org.bson.BsonString;
@@ -39,6 +40,7 @@ public class IndexCommitUserDataTest {
       new IndexCommitUserData(
           Optional.empty(),
           Optional.of(IndexFormatVersion.CURRENT),
+          Optional.empty(),
           Optional.empty(),
           Optional.empty(),
           Optional.empty(),
@@ -311,6 +313,66 @@ public class IndexCommitUserDataTest {
           new BsonTimestamp(1234567890L), parsed.getStaleStateInfo().get().getLastOptime());
       Assert.assertEquals(
           StaleStatusReason.DOCS_EXCEEDED, parsed.getStaleStateInfo().get().getReason());
+    }
+
+    @Test
+    public void testAutoEmbeddingMetadataRoundTrips() {
+      IndexCommitUserData data =
+          USER_DATA_WITH_CHANGE_STREAM_RESUME_INFO.withAutoEmbeddingMetadata(
+              new AutoEmbeddingCommitMetadata(true));
+      Assert.assertEquals(
+          Optional.of(new AutoEmbeddingCommitMetadata(true)), data.getAutoEmbeddingMetadata());
+
+      IndexCommitUserData decoded =
+          IndexCommitUserData.fromEncodedData(data.toEncodedData(), Optional.empty());
+      Assert.assertEquals(data, decoded);
+      Assert.assertEquals(
+          Optional.of(new AutoEmbeddingCommitMetadata(true)), decoded.getAutoEmbeddingMetadata());
+    }
+
+    @Test
+    public void testAutoEmbeddingMetadataAbsentByDefault() {
+      Assert.assertEquals(Optional.empty(), IndexCommitUserData.EMPTY.getAutoEmbeddingMetadata());
+      Assert.assertEquals(
+          Optional.empty(), USER_DATA_WITH_CHANGE_STREAM_RESUME_INFO.getAutoEmbeddingMetadata());
+    }
+
+    /**
+     * Rollback compatibility: a binary that predates a top-level field sees that field as unknown.
+     * Current code simulates that by reading an arbitrary future top-level field; an older binary
+     * would treat autoEmbeddingMetadata the same way.
+     */
+    @Test
+    public void testUnknownTopLevelFieldReturnsEmptyForRollbackCompatibility() {
+      BsonDocument userData = USER_DATA_WITH_CHANGE_STREAM_RESUME_INFO.toBson();
+      userData.append("futureTopLevelField", new BsonString("value"));
+
+      Assert.assertEquals(
+          IndexCommitUserData.EMPTY,
+          IndexCommitUserData.fromEncodedData(
+              EncodedUserData.fromString(userData.toJson()), Optional.empty()));
+    }
+
+    /**
+     * Forwards compatibility: an autoEmbeddingMetadata sub-document written by a newer mongot with
+     * an extra inner field must still be parseable by a binary that predates that field. The
+     * top-level key is known, and the sub-document is parsed with allowUnknownFields().
+     */
+    @Test
+    public void testAutoEmbeddingMetadataForwardsCompatibility_unknownFieldsIgnored() {
+      BsonDocument metadataWithUnknownField =
+          new BsonDocument()
+              .append("wasMatViewReady", BsonBoolean.TRUE)
+              .append("futureUnknownField", new BsonString("value"));
+      BsonDocument userData =
+          new BsonDocument().append("autoEmbeddingMetadata", metadataWithUnknownField);
+
+      IndexCommitUserData parsed =
+          IndexCommitUserData.fromEncodedData(
+              EncodedUserData.fromString(userData.toJson()), Optional.empty());
+
+      Assert.assertEquals(
+          Optional.of(new AutoEmbeddingCommitMetadata(true)), parsed.getAutoEmbeddingMetadata());
     }
   }
 }

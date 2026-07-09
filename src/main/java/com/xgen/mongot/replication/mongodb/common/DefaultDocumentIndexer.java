@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 public class DefaultDocumentIndexer implements DocumentIndexer {
 
@@ -19,8 +20,17 @@ public class DefaultDocumentIndexer implements DocumentIndexer {
   private final InitializedIndex index;
   private final IndexDefinition indexDefinition;
   private final AtomicReference<IndexCommitUserData> commitUserData;
+  // Present only for the derived index of an auto-embedding composite. When present, each commit
+  // snapshots the auto-embedding metadata (e.g. the lease's per-definition-version queryable
+  // ratchet) so a restart that cannot reach mongod can read it back to report STALE rather than
+  // FAILED. Kept opaque as a whole-metadata supplier so evolving the metadata schema does not touch
+  // this class.
+  private final Optional<Supplier<AutoEmbeddingCommitMetadata>> autoEmbeddingMetadataSupplier;
 
-  private DefaultDocumentIndexer(InitializedIndex index, IndexDefinition indexDefinition) {
+  private DefaultDocumentIndexer(
+      InitializedIndex index,
+      IndexDefinition indexDefinition,
+      Optional<Supplier<AutoEmbeddingCommitMetadata>> autoEmbeddingMetadataSupplier) {
     HashMap<String, Object> defaultKeyValues = new HashMap<>();
     defaultKeyValues.put("indexId", indexDefinition.getIndexId());
     this.logger = DefaultKeyValueLogger.getLogger(DefaultDocumentIndexer.class, defaultKeyValues);
@@ -30,10 +40,21 @@ public class DefaultDocumentIndexer implements DocumentIndexer {
         new AtomicReference<>(
             IndexCommitUserData.fromEncodedData(
                 index.getWriter().getCommitUserData(), Optional.of(index.getGenerationId())));
+    this.autoEmbeddingMetadataSupplier = autoEmbeddingMetadataSupplier;
   }
 
   public static DefaultDocumentIndexer create(InitializedIndex index) {
-    return new DefaultDocumentIndexer(index, index.getDefinition());
+    return new DefaultDocumentIndexer(index, index.getDefinition(), Optional.empty());
+  }
+
+  /**
+   * Creates an indexer for the derived index of an auto-embedding composite. The supplier is read
+   * on every commit to snapshot the current auto-embedding metadata into the commit user data.
+   */
+  public static DefaultDocumentIndexer create(
+      InitializedIndex index, Supplier<AutoEmbeddingCommitMetadata> autoEmbeddingMetadataSupplier) {
+    return new DefaultDocumentIndexer(
+        index, index.getDefinition(), Optional.of(autoEmbeddingMetadataSupplier));
   }
 
   @Override
@@ -74,7 +95,11 @@ public class DefaultDocumentIndexer implements DocumentIndexer {
 
   @Override
   public synchronized void commit() throws IOException {
-    IndexCommitUserData userData = this.commitUserData.get();
+    IndexCommitUserData base = this.commitUserData.get();
+    IndexCommitUserData userData =
+        this.autoEmbeddingMetadataSupplier
+            .map(supplier -> base.withAutoEmbeddingMetadata(supplier.get()))
+            .orElse(base);
     this.index.getWriter().commit(userData.toEncodedData());
   }
 
