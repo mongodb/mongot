@@ -105,6 +105,11 @@ maven.install(
         "com.google.code.gson:gson:2.13.2",
         # Force plexus-utils version to 4.0.3 to address CVE-2025-67030
         "org.codehaus.plexus:plexus-utils:4.0.3",
+        # Force httpcore5 / httpcore5-h2 to 5.4.2 to address CVE-2026-54428 (unbounded
+        # HPackDecoder header allocation). Pulled transitively via docker-java's
+        # httpclient5; keep both core5 artifacts aligned.
+        "org.apache.httpcomponents.core5:httpcore5:5.4.2",
+        "org.apache.httpcomponents.core5:httpcore5-h2:5.4.2",
         # OSHI 7.x switched to jna-platform-jpms, removing the transitive driver for jna-platform;
         # pin explicitly to hold the pre-existing version
         "net.java.dev.jna:jna-platform:5.17.0",
