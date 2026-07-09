@@ -50,6 +50,10 @@ public final class AndClause extends CompoundClause {
     return this.clauses;
   }
 
+  public boolean isExplicitAnd() {
+    return this.explicitAnd;
+  }
+
   @Override
   public BsonValue toBson() {
     if (this.explicitAnd) {

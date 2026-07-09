@@ -1,0 +1,38 @@
+load("//bazel/java:test.bzl", "java_test_suite")
+
+java_test_suite(
+    name = "optimizer",
+    srcs = [
+        "ClauseRewriteEngineTest.java",
+        "DifferentialTestHarness.java",
+        "DifferentialTestHarnessTest.java",
+        "OperatorRewriteEngineTest.java",
+    ],
+    tags = ["unit"],
+    runtime_deps = [
+        "@maven//:com_google_flogger_flogger_slf4j_backend",  # keep
+    ],
+    deps = [
+        "//src/main/java/com/xgen/mongot/featureflag/dynamic",
+        "//src/main/java/com/xgen/mongot/index",
+        "//src/main/java/com/xgen/mongot/index/lucene/query/context",
+        "//src/main/java/com/xgen/mongot/index/query/operators",
+        "//src/main/java/com/xgen/mongot/index/query/operators/bound",
+        "//src/main/java/com/xgen/mongot/index/query/operators/mql",
+        "//src/main/java/com/xgen/mongot/index/query/operators/value",
+        "//src/main/java/com/xgen/mongot/index/query/optimizer",
+        "//src/main/java/com/xgen/mongot/index/query/points",
+        "//src/main/java/com/xgen/mongot/index/query/scores",
+        "//src/main/java/com/xgen/mongot/index/query/shapes",
+        "//src/main/java/com/xgen/mongot/util",
+        "//src/main/java/com/xgen/testing/mongot/index/path/string",
+        "//src/main/java/com/xgen/testing/mongot/index/query/operators",
+        "//src/main/java/com/xgen/testing/mongot/index/query/operators/mql",
+        "//src/main/java/com/xgen/testing/mongot/mock/index",
+        "@maven//:junit_junit",
+        "@maven//:org_apache_lucene_lucene_core",
+        "@maven//:org_mockito_mockito_core",
+        "@maven//:org_mongodb_bson",
+        "@maven//:org_mongodb_mongodb_driver_core",
+    ],
+)
