@@ -83,7 +83,8 @@ public class AutoEmbedFieldMappingCreator {
    * has dynamic mapping enabled, passthrough is additionally inferred at read time for every
    * non-embed path so the materialized view carries every source field.
    */
-  public static AutoEmbedFieldMapping createAutoEmbedMapping(SearchIndexDefinition searchDef) {
+  public static SearchIndexAutoEmbedFieldMapping createAutoEmbedMapping(
+      SearchIndexDefinition searchDef) {
     ImmutableMap.Builder<FieldPath, AutoEmbedField.EmbedField> embedBuilder =
         ImmutableMap.builder();
     ImmutableSet.Builder<FieldPath> passthroughBuilder = ImmutableSet.builder();

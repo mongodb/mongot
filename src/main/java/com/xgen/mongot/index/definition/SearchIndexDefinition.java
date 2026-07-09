@@ -713,6 +713,20 @@ public final class SearchIndexDefinition implements IndexDefinition {
         this.materializedViewNameFormatVersion);
   }
 
+  /**
+   * True when {@code other} differs from this definition at most by definitionVersion and its
+   * createdAt stamp.
+   */
+  public boolean equalsIgnoringDefinitionVersion(SearchIndexDefinition other) {
+    BsonDocument thisBson = toBson();
+    BsonDocument otherBson = other.toBson();
+    thisBson.remove(IndexDefinition.Fields.DEFINITION_VERSION.getName());
+    otherBson.remove(IndexDefinition.Fields.DEFINITION_VERSION.getName());
+    thisBson.remove(IndexDefinition.Fields.DEFINITION_VERSION_CREATED_AT.getName());
+    otherBson.remove(IndexDefinition.Fields.DEFINITION_VERSION_CREATED_AT.getName());
+    return thisBson.equals(otherBson);
+  }
+
   @Override
   public String toString() {
     var collection =

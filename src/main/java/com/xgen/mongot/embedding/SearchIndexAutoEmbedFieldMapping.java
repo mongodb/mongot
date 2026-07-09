@@ -138,6 +138,19 @@ public record SearchIndexAutoEmbedFieldMapping(
             || hasPassthroughAncestor(path);
   }
 
+  /**
+   * True when the two mappings produce identical materialized-view content for every source
+   * document. In dynamic mode every non-embed path is passthrough, so the enumerated explicit
+   * passthrough paths are irrelevant to MV content and only the embed fields are compared;
+   * otherwise this is full equality.
+   */
+  public boolean producesSameMatViewContent(SearchIndexAutoEmbedFieldMapping other) {
+    if (this.dynamic.isEnabled() && other.dynamic.isEnabled()) {
+      return this.embedFields.equals(other.embedFields);
+    }
+    return this.equals(other);
+  }
+
   private boolean hasPassthroughAncestor(FieldPath path) {
     return path.ancestorPaths().anyMatch(this.explicitPassthroughPaths::contains);
   }

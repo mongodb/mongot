@@ -1,6 +1,7 @@
 package com.xgen.mongot.index;
 
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_DEFINITION;
+import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_SEARCH_AUTO_EMBEDDING_INDEX_DEFINITION;
 import static com.xgen.testing.mongot.mock.index.VectorIndex.MOCK_AUTO_EMBEDDING_INDEX_DEFINITION;
 import static com.xgen.testing.mongot.mock.index.VectorIndex.MOCK_VECTOR_DEFINITION;
 import static org.junit.Assert.assertEquals;
@@ -35,8 +36,12 @@ public class IndexTypeDataTest {
     assertEquals(IndexTypeData.IndexTypeTag.TAG_VECTOR_SEARCH_AUTO_EMBEDDING, result);
   }
 
-  // TODO(CLOUDP-353553): add testGetIndexTypeTag_searchAutoEmbeddingIndex when
-  //  SearchIndexDefinition.isAutoEmbeddingIndex() returns the real value.
+  @Test
+  public void testGetIndexTypeTag_searchAutoEmbeddingIndex() {
+    IndexTypeData.IndexTypeTag result =
+        IndexTypeData.getIndexTypeTag(MOCK_SEARCH_AUTO_EMBEDDING_INDEX_DEFINITION);
+    assertEquals(IndexTypeData.IndexTypeTag.TAG_SEARCH_AUTO_EMBEDDING, result);
+  }
 
   @Test
   public void testGetNumGauge_withSearchTag() {

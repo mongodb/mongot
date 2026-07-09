@@ -1,8 +1,9 @@
 package com.xgen.mongot.index.autoembedding;
 
 import com.google.errorprone.annotations.Var;
+import com.xgen.mongot.embedding.SearchIndexAutoEmbedFieldMapping;
 import com.xgen.mongot.embedding.mongodb.MaterializedViewCollectionResolver;
-import com.xgen.mongot.index.definition.FieldDefinition;
+import com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorAutoEmbedFieldDefinition;
@@ -244,101 +245,51 @@ public final class MaterializedViewIndexGenerationUtil {
 
   private static boolean skipInitialSyncSearch(
       SearchIndexDefinition oldDef, SearchIndexDefinition newDef) {
-    // 1. Auto-embed fields changed -> resync
-    String oldHash = MaterializedViewCollectionResolver.computeHash(oldDef);
-    String newHash = MaterializedViewCollectionResolver.computeHash(newDef);
-    if (!oldHash.equals(newHash)) {
-      LOG.atError()
-          .log(
-              "Search AUTO_EMBED fields changed, "
-                  + "which should NOT happen in replaceGenerator path");
+    // Resync (re-embed) is needed only when the materialized-view content changes. The MV
+    // holds the auto-embed fields' embeddings plus the passed-through values of the
+    // non-auto-embed fields, which is exactly what the AutoEmbedFieldMapping captures
+    // (dynamic mode, embed fields with their specs, and passthrough paths). Any other
+    // difference -- analyzers, synonyms, typeSets, storedSource, sort, numPartitions,
+    // indexFeatureVersion -- leaves the embeddings valid, so the generation is reused and
+    // the Lucene index is rebuilt over the preserved MV data.
+    // The comparison is by MV content, not strict equality: in dynamic mode the explicit
+    // passthrough paths don't affect what reaches the MV.
+
+    // The MV materializes the view's output, so a view change invalidates every materialized
+    // document regardless of the mappings.
+    if (!oldDef.getView().equals(newDef.getView())) {
+      LOG.atInfo()
+          .addKeyValue("indexId", newDef.getIndexId())
+          .addKeyValue("oldDefinitionVersion", oldDef.getDefinitionVersion())
+          .addKeyValue("newDefinitionVersion", newDef.getDefinitionVersion())
+          .log("Source view changed; resync required");
       return false;
     }
 
-    // 2. Non-auto-embed fields changed -> resync
-    if (searchNonAutoEmbedFieldsChanged(oldDef, newDef)) {
+    SearchIndexAutoEmbedFieldMapping oldMapping =
+        AutoEmbedFieldMappingCreator.createAutoEmbedMapping(oldDef);
+    SearchIndexAutoEmbedFieldMapping newMapping =
+        AutoEmbedFieldMappingCreator.createAutoEmbedMapping(newDef);
+    if (!oldMapping.producesSameMatViewContent(newMapping)) {
+      LOG.atInfo()
+          .addKeyValue("indexId", newDef.getIndexId())
+          .addKeyValue("oldDefinitionVersion", oldDef.getDefinitionVersion())
+          .addKeyValue("newDefinitionVersion", newDef.getDefinitionVersion())
+          .log("Search materialized-view content changed; resync required");
       return false;
     }
 
-    // 3. Lucene-only params changed -> reuse
-    if (searchLuceneParamsChanged(oldDef, newDef)) {
-      return true;
-    }
-
-    // 4. Same definition version (e.g. Lucene rebuild, fell off oplog). Step 4 trusts that
-    // steps 1-3 cover every schema-affecting field; new mapping properties must be added to
-    // step 2 (`searchNonAutoEmbedFieldsChanged`) before they can land in the def or the
-    // schema-change path will silently short-circuit here.
-    if (oldDef.getDefinitionVersion().equals(newDef.getDefinitionVersion())) {
-      LOG.atInfo().log("Definition version did not change");
-      return true;
-    }
-
-    // 5. Only definitionVersion differs -> resync
-    return false;
-  }
-
-  private static boolean searchNonAutoEmbedFieldsChanged(
-      SearchIndexDefinition oldDef, SearchIndexDefinition newDef) {
-    // TODO(CLOUDP-353553): allowlist-of-checks below misses per-field Lucene-only tweaks
-    // (analyzer/tokenization on non-auto-embed fields, hnswOptions/similarity on auto-embed
-    // fields) — forces a full re-embed when only Lucene params changed. Vector strips these
-    // per-field; search should mirror that. Also: every new top-level mapping property
-    // (typeSets, synonyms, storedSource, sort, …) has to be added below explicitly today.
-    if (!oldDef.getMappings().dynamic().equals(newDef.getMappings().dynamic())) {
-      LOG.atInfo().log("Mappings dynamic flag changed");
-      return true;
-    }
-
-    // Compare non-auto-embed fields (order-independent via sorted map)
-    var oldNonAutoEmbed = new TreeMap<String, FieldDefinition>();
-    var newNonAutoEmbed = new TreeMap<String, FieldDefinition>();
-    for (var entry : oldDef.getMappings().fields().entrySet()) {
-      if (entry.getValue().searchAutoEmbedFieldDefinition().isEmpty()) {
-        oldNonAutoEmbed.put(entry.getKey(), entry.getValue());
-      }
-    }
-    for (var entry : newDef.getMappings().fields().entrySet()) {
-      if (entry.getValue().searchAutoEmbedFieldDefinition().isEmpty()) {
-        newNonAutoEmbed.put(entry.getKey(), entry.getValue());
-      }
-    }
-    if (!oldNonAutoEmbed.equals(newNonAutoEmbed)) {
-      LOG.atInfo().log("Search non-auto-embed fields changed");
-      return true;
-    }
-    return false;
-  }
-
-  private static boolean searchLuceneParamsChanged(
-      SearchIndexDefinition oldDef, SearchIndexDefinition newDef) {
-    @Var boolean changed = false;
-    if (oldDef.getNumPartitions() != newDef.getNumPartitions()) {
+    // A bump of definitionVersion with no other change forces a resync: the operator escape
+    // hatch for recovering from transient errors, mirroring the vector arm.
+    if (!oldDef.getDefinitionVersion().equals(newDef.getDefinitionVersion())
+        && oldDef.equalsIgnoringDefinitionVersion(newDef)) {
       LOG.atInfo()
-          .addKeyValue("oldNumPartitions", oldDef.getNumPartitions())
-          .addKeyValue("newNumPartitions", newDef.getNumPartitions())
-          .log("numPartitions changed");
-      changed = true;
+          .addKeyValue("indexId", newDef.getIndexId())
+          .addKeyValue("oldDefinitionVersion", oldDef.getDefinitionVersion())
+          .addKeyValue("newDefinitionVersion", newDef.getDefinitionVersion())
+          .log("Only definitionVersion changed; resync forced");
+      return false;
     }
-    if (oldDef.getParsedIndexFeatureVersion() != newDef.getParsedIndexFeatureVersion()) {
-      LOG.atInfo()
-          .addKeyValue("oldIndexFeatureVersion", oldDef.getParsedIndexFeatureVersion())
-          .addKeyValue("newIndexFeatureVersion", newDef.getParsedIndexFeatureVersion())
-          .log("indexFeatureVersion changed");
-      changed = true;
-    }
-    if (!oldDef.getAnalyzerName().equals(newDef.getAnalyzerName())) {
-      LOG.atInfo().log("analyzerName changed");
-      changed = true;
-    }
-    if (!oldDef.getSearchAnalyzerName().equals(newDef.getSearchAnalyzerName())) {
-      LOG.atInfo().log("searchAnalyzerName changed");
-      changed = true;
-    }
-    if (!oldDef.getAnalyzers().equals(newDef.getAnalyzers())) {
-      LOG.atInfo().log("custom analyzers changed");
-      changed = true;
-    }
-    return changed;
+    return true;
   }
 }
