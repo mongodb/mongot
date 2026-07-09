@@ -754,30 +754,30 @@
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-resolver-dns-native-macos</artifactId>
-  <version>jar</version>
-  <type>osx-aarch_64</type>
-  <classifier>4.1.135.Final</classifier>
+  <version>4.1.135.Final</version>
+  <type>jar</type>
+  <classifier>osx-aarch_64</classifier>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-resolver-dns-native-macos</artifactId>
-  <version>jar</version>
-  <type>osx-x86_64</type>
-  <classifier>4.1.135.Final</classifier>
+  <version>4.1.135.Final</version>
+  <type>jar</type>
+  <classifier>osx-x86_64</classifier>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-tcnative</artifactId>
-  <version>jar</version>
-  <type>linux-aarch_64-fedora</type>
-  <classifier>2.0.71.Final</classifier>
+  <version>2.0.71.Final</version>
+  <type>jar</type>
+  <classifier>linux-aarch_64-fedora</classifier>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-tcnative</artifactId>
-  <version>jar</version>
-  <type>linux-x86_64-fedora</type>
-  <classifier>2.0.71.Final</classifier>
+  <version>2.0.71.Final</version>
+  <type>jar</type>
+  <classifier>linux-x86_64-fedora</classifier>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
@@ -787,37 +787,37 @@
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-tcnative-boringssl-static</artifactId>
-  <version>jar</version>
-  <type>linux-aarch_64</type>
-  <classifier>2.0.71.Final</classifier>
+  <version>2.0.71.Final</version>
+  <type>jar</type>
+  <classifier>linux-aarch_64</classifier>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-tcnative-boringssl-static</artifactId>
-  <version>jar</version>
-  <type>linux-x86_64</type>
-  <classifier>2.0.71.Final</classifier>
+  <version>2.0.71.Final</version>
+  <type>jar</type>
+  <classifier>linux-x86_64</classifier>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-tcnative-boringssl-static</artifactId>
-  <version>jar</version>
-  <type>osx-aarch_64</type>
-  <classifier>2.0.71.Final</classifier>
+  <version>2.0.71.Final</version>
+  <type>jar</type>
+  <classifier>osx-aarch_64</classifier>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-tcnative-boringssl-static</artifactId>
-  <version>jar</version>
-  <type>osx-x86_64</type>
-  <classifier>2.0.71.Final</classifier>
+  <version>2.0.71.Final</version>
+  <type>jar</type>
+  <classifier>osx-x86_64</classifier>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-tcnative-boringssl-static</artifactId>
-  <version>jar</version>
-  <type>windows-x86_64</type>
-  <classifier>2.0.71.Final</classifier>
+  <version>2.0.71.Final</version>
+  <type>jar</type>
+  <classifier>windows-x86_64</classifier>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
@@ -842,30 +842,30 @@
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-transport-native-epoll</artifactId>
-  <version>jar</version>
-  <type>linux-aarch_64</type>
-  <classifier>4.1.135.Final</classifier>
+  <version>4.1.135.Final</version>
+  <type>jar</type>
+  <classifier>linux-aarch_64</classifier>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-transport-native-epoll</artifactId>
-  <version>jar</version>
-  <type>linux-x86_64</type>
-  <classifier>4.1.135.Final</classifier>
+  <version>4.1.135.Final</version>
+  <type>jar</type>
+  <classifier>linux-x86_64</classifier>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-transport-native-kqueue</artifactId>
-  <version>jar</version>
-  <type>osx-aarch_64</type>
-  <classifier>4.1.135.Final</classifier>
+  <version>4.1.135.Final</version>
+  <type>jar</type>
+  <classifier>osx-aarch_64</classifier>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-transport-native-kqueue</artifactId>
-  <version>jar</version>
-  <type>osx-x86_64</type>
-  <classifier>4.1.135.Final</classifier>
+  <version>4.1.135.Final</version>
+  <type>jar</type>
+  <classifier>osx-x86_64</classifier>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
@@ -1600,9 +1600,9 @@
 <dependency>
   <groupId>org.xmlresolver</groupId>
   <artifactId>xmlresolver</artifactId>
-  <version>jar</version>
-  <type>data</type>
-  <classifier>5.3.3</classifier>
+  <version>5.3.3</version>
+  <type>jar</type>
+  <classifier>data</classifier>
 </dependency>
 <dependency>
   <groupId>org.yaml</groupId>

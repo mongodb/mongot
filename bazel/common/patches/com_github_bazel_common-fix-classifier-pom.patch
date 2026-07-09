@@ -1,0 +1,21 @@
+Fix pom_file.bzl classifier artifact coordinate order.
+
+The CLASSIFIER_DEP_BLOCK template expects {0}=group {1}=artifact {2}=version
+{3}=type {4}=classifier, but Maven's 5-part coordinate string is ordered
+group:artifact:packaging:classifier:version. Without reordering, the "jar"
+packaging lands in <version>, the classifier in <type>, and the actual version
+in <classifier>. This produces malformed pom.xml entries for native-transport
+artifacts and causes Dependabot to flag already-patched dependencies.
+
+--- a/tools/maven/pom_file.bzl
++++ b/tools/maven/pom_file.bzl
+@@ -155,6 +155,9 @@
+         if len(parts) == 3:
+             template = DEP_BLOCK
+         elif len(parts) == 5:
++            # Maven coordinate is group:artifact:packaging:classifier:version.
++            # CLASSIFIER_DEP_BLOCK expects [group, artifact, version, type, classifier].
++            parts = [parts[0], parts[1], parts[4], parts[2], parts[3]]
+             template = CLASSIFIER_DEP_BLOCK
+         else:
+             fail("Unknown dependency format: %s" % dep)
