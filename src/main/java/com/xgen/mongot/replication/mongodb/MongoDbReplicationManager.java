@@ -704,6 +704,10 @@ public class MongoDbReplicationManager implements ReplicationManager {
             replicationConfig.getMatchCollectionUuidForUpdateLookup())
         .setEnableSplitLargeChangeStreamEvents(
             replicationConfig.getEnableSplitLargeChangeStreamEvents())
+        .setSteadyStateSchedulingMethod(replicationConfig.getSteadyStateSchedulingMethod())
+        .setSteadyStatePriorityRatio(replicationConfig.getSteadyStatePriorityRatio())
+        .setSteadyStatePriorityOptimeThresholdSeconds(
+            replicationConfig.getSteadyStatePriorityOptimeThresholdSeconds())
         .build();
   }
 

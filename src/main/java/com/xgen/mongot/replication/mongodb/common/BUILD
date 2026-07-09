@@ -68,6 +68,7 @@ java_library(
         "SplitEventChangeStreamClient.java",
         "StaleStateInfo.java",
         "SteadyStateException.java",
+        "SteadyStateSchedulingMethod.java",
         "SynonymSyncException.java",
         "TimeableChangeStreamMongoClient.java",
         "UnsupportedMongoDbVersionException.java",

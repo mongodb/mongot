@@ -40,9 +40,11 @@ import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
 import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.ReplicationOptimeUpdater;
 import com.xgen.mongot.replication.mongodb.common.SessionRefresher;
+import com.xgen.mongot.replication.mongodb.common.SteadyStateSchedulingMethod;
 import com.xgen.mongot.replication.mongodb.initialsync.InitialSyncQueue;
 import com.xgen.mongot.replication.mongodb.initialsync.config.InitialSyncConfig;
 import com.xgen.mongot.replication.mongodb.steadystate.SteadyStateManager;
+import com.xgen.mongot.replication.mongodb.steadystate.changestream.SteadyStateReplicationConfig;
 import com.xgen.mongot.replication.mongodb.synonyms.SynonymManager;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.Crash;
@@ -56,6 +58,7 @@ import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.version.GenerationIdBuilder;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
+import com.xgen.testing.mongot.replication.mongodb.common.MongoDbReplicationConfigBuilder;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.file.Path;
@@ -74,6 +77,26 @@ import org.junit.Test;
 import org.mockito.Mockito;
 
 public class MongoDbReplicationManagerTest {
+
+  @Test
+  public void testGetSteadyStateReplicationConfigCopiesPrioritySchedulingFields() {
+    MongoDbReplicationConfig replicationConfig =
+        MongoDbReplicationConfigBuilder.builder()
+            .optionalSteadyStateSchedulingMethod(
+                Optional.of(SteadyStateSchedulingMethod.OPTIME_LAG))
+            .optionalSteadyStatePriorityRatio(Optional.of(3))
+            .optionalSteadyStatePriorityOptimeThresholdSeconds(Optional.of(20))
+            .build();
+
+    SteadyStateReplicationConfig steadyStateReplicationConfig =
+        MongoDbReplicationManager.getSteadyStateReplicationConfig(replicationConfig);
+
+    assertEquals(
+        SteadyStateSchedulingMethod.OPTIME_LAG,
+        steadyStateReplicationConfig.getSteadyStateSchedulingMethod());
+    assertEquals(3, steadyStateReplicationConfig.getSteadyStatePriorityRatio());
+    assertEquals(20, steadyStateReplicationConfig.getSteadyStatePriorityOptimeThresholdSeconds());
+  }
 
   @Test
   public void testDropIndex() throws Exception {

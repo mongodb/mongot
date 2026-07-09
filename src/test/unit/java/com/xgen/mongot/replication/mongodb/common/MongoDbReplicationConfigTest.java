@@ -73,7 +73,9 @@ public class MongoDbReplicationConfigTest {
               Optional.of(9),
               Optional.of(10),
               Optional.of(11),
-              Optional.empty()));
+              Optional.of(50),
+              Optional.of(SteadyStateSchedulingMethod.OPTIME_LAG),
+              Optional.of(3)));
     }
 
     @Test
@@ -395,6 +397,85 @@ public class MongoDbReplicationConfigTest {
               MongoDbReplicationConfigBuilder.builder()
                   .optionalRequestRateLimitBackoffMs(Optional.of(-1))
                   .build());
+    }
+
+    @Test
+    public void testSteadyStatePriorityOptimeThresholdSecondsExplicit() {
+      // Shouldn't throw
+      MongoDbReplicationConfigBuilder.builder()
+          .optionalSteadyStatePriorityOptimeThresholdSeconds(Optional.of(1))
+          .build();
+
+      assertThrowsIllegalArgumentException(
+          () ->
+              MongoDbReplicationConfigBuilder.builder()
+                  .optionalSteadyStatePriorityOptimeThresholdSeconds(Optional.of(0))
+                  .build());
+
+      assertThrowsIllegalArgumentException(
+          () ->
+              MongoDbReplicationConfigBuilder.builder()
+                  .optionalSteadyStatePriorityOptimeThresholdSeconds(Optional.of(-1))
+                  .build());
+    }
+
+    @Test
+    public void testSteadyStatePriorityOptimeThresholdSecondsDefault() {
+      MongoDbReplicationConfig config = MongoDbReplicationConfigBuilder.builder().build();
+
+      Assert.assertEquals(
+          MongoDbReplicationConfig.DEFAULT_STEADY_STATE_PRIORITY_OPTIME_THRESHOLD_SECONDS,
+          config.steadyStatePriorityOptimeThresholdSeconds);
+    }
+
+    @Test
+    public void testSteadyStatePriorityRatioExplicit() {
+      // Shouldn't throw
+      MongoDbReplicationConfigBuilder.builder()
+          .optionalSteadyStatePriorityRatio(Optional.of(1))
+          .build();
+
+      assertThrowsIllegalArgumentException(
+          () ->
+              MongoDbReplicationConfigBuilder.builder()
+                  .optionalSteadyStatePriorityRatio(Optional.of(0))
+                  .build());
+
+      assertThrowsIllegalArgumentException(
+          () ->
+              MongoDbReplicationConfigBuilder.builder()
+                  .optionalSteadyStatePriorityRatio(Optional.of(-1))
+                  .build());
+    }
+
+    @Test
+    public void testSteadyStatePriorityRatioDefault() {
+      MongoDbReplicationConfig config = MongoDbReplicationConfigBuilder.builder().build();
+
+      Assert.assertEquals(
+          MongoDbReplicationConfig.DEFAULT_STEADY_STATE_PRIORITY_RATIO,
+          config.steadyStatePriorityRatio);
+    }
+
+    @Test
+    public void testSteadyStateSchedulingMethodDefault() {
+      MongoDbReplicationConfig config = MongoDbReplicationConfigBuilder.builder().build();
+
+      Assert.assertEquals(
+          MongoDbReplicationConfig.DEFAULT_STEADY_STATE_SCHEDULING_METHOD,
+          config.steadyStateSchedulingMethod);
+    }
+
+    @Test
+    public void testSteadyStateSchedulingMethodExplicit() {
+      MongoDbReplicationConfig config =
+          MongoDbReplicationConfigBuilder.builder()
+              .optionalSteadyStateSchedulingMethod(
+                  Optional.of(SteadyStateSchedulingMethod.OPTIME_LAG))
+              .build();
+
+      Assert.assertEquals(
+          SteadyStateSchedulingMethod.OPTIME_LAG, config.steadyStateSchedulingMethod);
     }
 
     private static void assertExpectedNumConcurrentInitialSyncsDefault(int numCpus, int expected) {

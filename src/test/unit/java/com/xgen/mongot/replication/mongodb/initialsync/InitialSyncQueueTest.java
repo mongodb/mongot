@@ -1560,6 +1560,8 @@ public class InitialSyncQueueTest {
               maxConcurrentEmbeddingInitialSyncs,
               Optional.empty(),
               Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
               Optional.empty()),
           initialSyncConfig,
           new MockInitialSyncManagerFactory(resultSuppliers),

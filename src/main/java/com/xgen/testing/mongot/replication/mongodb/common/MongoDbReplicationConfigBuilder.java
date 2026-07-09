@@ -2,6 +2,7 @@ package com.xgen.testing.mongot.replication.mongodb.common;
 
 import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
+import com.xgen.mongot.replication.mongodb.common.SteadyStateSchedulingMethod;
 import com.xgen.mongot.util.Runtime;
 import java.util.List;
 import java.util.Optional;
@@ -27,7 +28,10 @@ public class MongoDbReplicationConfigBuilder {
   private Optional<Boolean> enableSplitLargeChangeStreamEvents = Optional.empty();
   private Optional<Boolean> splitLargeChangeStreamEventsForInitialSync = Optional.empty();
   private Optional<Integer> optionalRequestRateLimitBackoffMs = Optional.empty();
-  private Optional<Boolean> enableChangeStreamPriorityScheduling = Optional.empty();
+  private Optional<Integer> optionalSteadyStatePriorityOptimeThresholdSeconds = Optional.empty();
+  private Optional<SteadyStateSchedulingMethod> optionalSteadyStateSchedulingMethod =
+      Optional.empty();
+  private Optional<Integer> optionalSteadyStatePriorityRatio = Optional.empty();
 
   public static MongoDbReplicationConfigBuilder builder() {
     return new MongoDbReplicationConfigBuilder();
@@ -116,9 +120,22 @@ public class MongoDbReplicationConfigBuilder {
     return this;
   }
 
-  public MongoDbReplicationConfigBuilder enableChangeStreamPriorityScheduling(
-      Optional<Boolean> enableChangeStreamPriorityScheduling) {
-    this.enableChangeStreamPriorityScheduling = enableChangeStreamPriorityScheduling;
+  public MongoDbReplicationConfigBuilder optionalSteadyStatePriorityOptimeThresholdSeconds(
+      Optional<Integer> optionalSteadyStatePriorityOptimeThresholdSeconds) {
+    this.optionalSteadyStatePriorityOptimeThresholdSeconds =
+        optionalSteadyStatePriorityOptimeThresholdSeconds;
+    return this;
+  }
+
+  public MongoDbReplicationConfigBuilder optionalSteadyStateSchedulingMethod(
+      Optional<SteadyStateSchedulingMethod> optionalSteadyStateSchedulingMethod) {
+    this.optionalSteadyStateSchedulingMethod = optionalSteadyStateSchedulingMethod;
+    return this;
+  }
+
+  public MongoDbReplicationConfigBuilder optionalSteadyStatePriorityRatio(
+      Optional<Integer> optionalSteadyStatePriorityRatio) {
+    this.optionalSteadyStatePriorityRatio = optionalSteadyStatePriorityRatio;
     return this;
   }
 
@@ -144,6 +161,8 @@ public class MongoDbReplicationConfigBuilder {
         this.optionalMaxConcurrentEmbeddingInitialSyncs,
         this.embeddingGetMoreBatchSize,
         this.optionalRequestRateLimitBackoffMs,
-        this.enableChangeStreamPriorityScheduling);
+        this.optionalSteadyStatePriorityOptimeThresholdSeconds,
+        this.optionalSteadyStateSchedulingMethod,
+        this.optionalSteadyStatePriorityRatio);
   }
 }

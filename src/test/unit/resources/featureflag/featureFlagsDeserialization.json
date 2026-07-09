@@ -62,7 +62,8 @@
         "fcisIndexDataConditionalWrites": true,
         "searchAggregation": true,
         "byteBinaryQuantization": true,
-        "resetStaleInternalSearchCheckpoint": true
+        "resetStaleInternalSearchCheckpoint": true,
+        "enableChangeStreamPriorityScheduling": true
       }
     },
     {

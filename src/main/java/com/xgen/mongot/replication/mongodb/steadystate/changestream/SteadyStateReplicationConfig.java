@@ -1,6 +1,8 @@
 package com.xgen.mongot.replication.mongodb.steadystate.changestream;
 
 import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
+import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
+import com.xgen.mongot.replication.mongodb.common.SteadyStateSchedulingMethod;
 import com.xgen.mongot.util.Check;
 import java.util.List;
 import java.util.Optional;
@@ -17,6 +19,9 @@ public class SteadyStateReplicationConfig {
   private final boolean matchCollectionUuidForUpdateLookup;
   private final boolean enableSplitLargeChangeStreamEvents;
   private final CommonReplicationConfig.Type replicationType;
+  private final SteadyStateSchedulingMethod steadyStateSchedulingMethod;
+  private final int steadyStatePriorityRatio;
+  private final int steadyStatePriorityOptimeThresholdSeconds;
 
   private SteadyStateReplicationConfig(
       int numConcurrentChangeStreams,
@@ -28,7 +33,10 @@ public class SteadyStateReplicationConfig {
       List<String> excludedChangestreamFields,
       boolean matchCollectionUuidForUpdateLookup,
       boolean enableSplitLargeChangeStreamEvents,
-      CommonReplicationConfig.Type replicationType) {
+      CommonReplicationConfig.Type replicationType,
+      SteadyStateSchedulingMethod steadyStateSchedulingMethod,
+      int steadyStatePriorityRatio,
+      int steadyStatePriorityOptimeThresholdSeconds) {
     this.numConcurrentChangeStreams = numConcurrentChangeStreams;
     this.changeStreamQueryMaxTimeMs = changeStreamQueryMaxTimeMs;
     this.changeStreamCursorMaxTimeSec = changeStreamCursorMaxTimeSec;
@@ -39,6 +47,9 @@ public class SteadyStateReplicationConfig {
     this.matchCollectionUuidForUpdateLookup = matchCollectionUuidForUpdateLookup;
     this.enableSplitLargeChangeStreamEvents = enableSplitLargeChangeStreamEvents;
     this.replicationType = replicationType;
+    this.steadyStateSchedulingMethod = steadyStateSchedulingMethod;
+    this.steadyStatePriorityRatio = steadyStatePriorityRatio;
+    this.steadyStatePriorityOptimeThresholdSeconds = steadyStatePriorityOptimeThresholdSeconds;
   }
 
   public static SteadyStateReplicationConfig.Builder builder() {
@@ -85,6 +96,18 @@ public class SteadyStateReplicationConfig {
     return this.replicationType;
   }
 
+  public SteadyStateSchedulingMethod getSteadyStateSchedulingMethod() {
+    return this.steadyStateSchedulingMethod;
+  }
+
+  public int getSteadyStatePriorityRatio() {
+    return this.steadyStatePriorityRatio;
+  }
+
+  public int getSteadyStatePriorityOptimeThresholdSeconds() {
+    return this.steadyStatePriorityOptimeThresholdSeconds;
+  }
+
   public static class Builder {
     private Optional<Integer> numConcurrentChangeStreams;
     private Optional<Integer> changeStreamQueryMaxTimeMs;
@@ -96,6 +119,9 @@ public class SteadyStateReplicationConfig {
     private boolean matchCollectionUuidForUpdateLookup;
     private boolean enableSplitLargeChangeStreamEvents;
     private CommonReplicationConfig.Type replicationType;
+    private SteadyStateSchedulingMethod steadyStateSchedulingMethod;
+    private int steadyStatePriorityRatio;
+    private int steadyStatePriorityOptimeThresholdSeconds;
 
     public Builder() {
       this.numConcurrentChangeStreams = Optional.empty();
@@ -108,6 +134,11 @@ public class SteadyStateReplicationConfig {
       this.matchCollectionUuidForUpdateLookup = false;
       this.enableSplitLargeChangeStreamEvents = false;
       this.replicationType = CommonReplicationConfig.Type.DEFAULT;
+      this.steadyStateSchedulingMethod =
+          MongoDbReplicationConfig.DEFAULT_STEADY_STATE_SCHEDULING_METHOD;
+      this.steadyStatePriorityRatio = MongoDbReplicationConfig.DEFAULT_STEADY_STATE_PRIORITY_RATIO;
+      this.steadyStatePriorityOptimeThresholdSeconds =
+          MongoDbReplicationConfig.DEFAULT_STEADY_STATE_PRIORITY_OPTIME_THRESHOLD_SECONDS;
     }
 
     public Builder setNumConcurrentChangeStreams(int value) {
@@ -161,6 +192,23 @@ public class SteadyStateReplicationConfig {
       return this;
     }
 
+    public Builder setSteadyStateSchedulingMethod(
+        SteadyStateSchedulingMethod steadyStateSchedulingMethod) {
+      this.steadyStateSchedulingMethod = steadyStateSchedulingMethod;
+      return this;
+    }
+
+    public Builder setSteadyStatePriorityRatio(int steadyStatePriorityRatio) {
+      this.steadyStatePriorityRatio = steadyStatePriorityRatio;
+      return this;
+    }
+
+    public Builder setSteadyStatePriorityOptimeThresholdSeconds(
+        int steadyStatePriorityOptimeThresholdSeconds) {
+      this.steadyStatePriorityOptimeThresholdSeconds = steadyStatePriorityOptimeThresholdSeconds;
+      return this;
+    }
+
     public SteadyStateReplicationConfig build() {
       return new SteadyStateReplicationConfig(
           Check.isPresent(this.numConcurrentChangeStreams, "numConcurrentChangeStreams"),
@@ -172,7 +220,10 @@ public class SteadyStateReplicationConfig {
           this.excludedChangestreamFields,
           this.matchCollectionUuidForUpdateLookup,
           this.enableSplitLargeChangeStreamEvents,
-          this.replicationType);
+          this.replicationType,
+          this.steadyStateSchedulingMethod,
+          this.steadyStatePriorityRatio,
+          this.steadyStatePriorityOptimeThresholdSeconds);
     }
   }
 }
