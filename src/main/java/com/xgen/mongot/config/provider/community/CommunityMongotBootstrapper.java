@@ -800,6 +800,7 @@ public class CommunityMongotBootstrapper {
             DefaultConfigManager.ReplicationMode.ENABLE,
             Optional.of(embeddingServiceManagerSupplier),
             leaseManager,
+            indexCatalog,
             mvMetadataCatalog,
             autoEmbeddingMongoClient,
             dynamicFeatureFlagRegistry);

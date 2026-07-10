@@ -14,6 +14,7 @@ java_library(
         "@maven//:org_slf4j_slf4j_api",
     ],
     deps = [
+        "//src/main/java/com/xgen/mongot/catalog",
         "//src/main/java/com/xgen/mongot/cursor",
         "//src/main/java/com/xgen/mongot/embedding/cache",
         "//src/main/java/com/xgen/mongot/embedding/config",

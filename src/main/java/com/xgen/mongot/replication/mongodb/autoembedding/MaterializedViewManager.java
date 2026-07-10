@@ -16,6 +16,7 @@ import com.google.common.base.Supplier;
 import com.google.errorprone.annotations.Var;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.mongodb.MongoNamespace;
+import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.embedding.cache.EmbeddingRetryCache;
 import com.xgen.mongot.embedding.cache.EmbeddingRetryCache.ReleaseTrigger;
@@ -76,6 +77,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -124,6 +126,8 @@ public class MaterializedViewManager implements ReplicationManager {
   public static final String MAT_VIEW_GC_LEASE_IN_USE_REFUSAL_COUNTER_NAME =
       "matViewGcLeaseInUseRefusals";
   public static final String MAT_VIEW_GC_SWEEP_FAILURE_COUNTER_NAME = "matViewGcSweepFailures";
+  public static final String MAT_VIEW_GC_DELETED_INDEX_LEASE_COUNTER_NAME =
+      "matViewGcDeletedIndexLeases";
   public static final String MAT_VIEW_COLLECTION_DROP_COUNTER_NAME = "matViewCollectionDrop";
   public static final String DROP_SCENARIO_TAG = "scenario";
   public static final String DROP_OUTCOME_TAG = "outcome";
@@ -167,6 +171,12 @@ public class MaterializedViewManager implements ReplicationManager {
 
   /** The LeaseManager for status polling (follower) and lease management (leader). */
   private final LeaseManager leaseManager;
+
+  /**
+   * The live index config, consulted by the GC sweep: an index absent from the catalog has been
+   * deleted, so none of its leases is a current version worth protecting.
+   */
+  private final IndexCatalog indexCatalog;
 
   /** Factory for creating MaterializedViewGenerator instances. */
   private final MaterializedViewGeneratorFactory matViewGeneratorFactory;
@@ -267,6 +277,7 @@ public class MaterializedViewManager implements ReplicationManager {
       NamedScheduledExecutorService staleLeaseScannerExecutor,
       MeterRegistry meterRegistry,
       LeaseManager leaseManager,
+      IndexCatalog indexCatalog,
       MaterializedViewCollectionMetadataCatalog matViewMetadataCatalog,
       AutoEmbeddingMaterializedViewConfig materializedViewConfig,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
@@ -283,6 +294,7 @@ public class MaterializedViewManager implements ReplicationManager {
         staleLeaseScannerExecutor,
         meterRegistry,
         leaseManager,
+        indexCatalog,
         matViewMetadataCatalog,
         materializedViewConfig,
         dynamicFeatureFlagRegistry,
@@ -306,6 +318,7 @@ public class MaterializedViewManager implements ReplicationManager {
       NamedScheduledExecutorService staleLeaseScannerExecutor,
       MeterRegistry meterRegistry,
       LeaseManager leaseManager,
+      IndexCatalog indexCatalog,
       MaterializedViewCollectionMetadataCatalog matViewMetadataCatalog,
       AutoEmbeddingMaterializedViewConfig materializedViewConfig,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
@@ -331,6 +344,7 @@ public class MaterializedViewManager implements ReplicationManager {
     this.optimeUpdaterExecutor = optimeUpdaterExecutor;
     this.staleLeaseScannerExecutor = staleLeaseScannerExecutor;
     this.leaseManager = leaseManager;
+    this.indexCatalog = indexCatalog;
     this.matViewMetadataCatalog = matViewMetadataCatalog;
     this.embeddingRetryCache = embeddingRetryCache;
     this.isReplicationEnabled = false;
@@ -431,6 +445,7 @@ public class MaterializedViewManager implements ReplicationManager {
       Optional<Supplier<EmbeddingServiceManager>> embeddingServiceManagerSupplier,
       MeterAndFtdcRegistry meterAndFtdcRegistry,
       LeaseManager leaseManager,
+      IndexCatalog indexCatalog,
       MaterializedViewCollectionMetadataCatalog matViewMetadataCatalog,
       AutoEmbeddingMongoClient autoEmbeddingMongoClient,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
@@ -521,6 +536,7 @@ public class MaterializedViewManager implements ReplicationManager {
             staleLeaseScannerExecutor,
             meterRegistry,
             leaseManager,
+            indexCatalog,
             matViewMetadataCatalog,
             materializedViewConfig,
             dynamicFeatureFlagRegistry,
@@ -1416,8 +1432,9 @@ public class MaterializedViewManager implements ReplicationManager {
    * Lease.CleanupState#ELIGIBLE_FOR_CLEANUP}; pass 2 drops the collection and lease for those
    * already marked and stale past the delete grace, so mark and cleanup span at least two sweeps.
    * Leaderless and idempotent — safe to run on every mongot concurrently. Safeguards: never act on
-   * an index's current (highest) version, nor on a lease whose MV a local generation still uses;
-   * the deletion phase adds OCC re-reads on top.
+   * an index's current (highest) version while the index is still configured — a deleted index has
+   * no current version, so all of its leases are cleanup targets — nor on a lease whose MV a local
+   * generation still uses; the deletion phase adds OCC re-reads on top.
    */
   @VisibleForTesting
   void scanStaleLeasesForCleanup() {
@@ -1457,7 +1474,13 @@ public class MaterializedViewManager implements ReplicationManager {
       // Safeguard: never mark or delete an index's current (highest-version) lease — it is the
       // live index, even if its heartbeat went stale (e.g. a fleet-wide outage). Partial scans are
       // safe: marking needs a scanned higher-version sibling, so a missing lease can only protect.
-      Set<String> currentVersionLeaseKeys = LeaseManager.currentVersionLeaseKeys(scannedLeases);
+      // The protection lapses once the index is deleted: with no live version left, its remaining
+      // leases — the highest one included — are orphans like any other, and nothing but this sweep
+      // ever cleans them up. Config lag is covered by the grace periods: a live index's current
+      // lease is continuously renewed and never becomes stale enough to be a candidate.
+      Set<String> currentVersionLeaseKeys =
+          keysOfConfiguredIndexes(
+              LeaseManager.currentVersionLeaseKeys(scannedLeases), scannedLeases);
       markStaleLeases(candidates, currentVersionLeaseKeys, markCutoff);
       // Deletion kill switch: with GC on but this off, the sweep is mark-only and deletes nothing.
       // Gauge reset to 0 as above — with deletion deliberately off, nothing is "blocked".
@@ -1536,6 +1559,50 @@ public class MaterializedViewManager implements ReplicationManager {
             .log("Failed to mark stale lease eligible for cleanup, continuing sweep");
       }
     }
+  }
+
+  /**
+   * Filters the current-version safeguard set down to the leases whose index still exists in this
+   * mongot's config. Deletion removes an index from the {@link IndexCatalog} and its versions are
+   * never re-created, so a deleted index's leases all stay cleanup targets. A lease key whose index
+   * id cannot be parsed keeps its protection.
+   */
+  private Set<String> keysOfConfiguredIndexes(Set<String> leaseKeys, List<Lease> scannedLeases) {
+    Set<String> keys = new HashSet<>(leaseKeys);
+    for (Lease lease : scannedLeases) {
+      if (keys.contains(lease.id()) && !isIndexConfigured(lease.indexId())) {
+        keys.remove(lease.id());
+        // Re-counted on every sweep while the orphan exists, so the rate reflects how many
+        // deleted-index leases the GC is currently working through.
+        this.meterRegistry.counter(MAT_VIEW_GC_DELETED_INDEX_LEASE_COUNTER_NAME).increment();
+        // Debug: this re-fires on every sweep for as long as the orphan exists (up to the delete
+        // grace); the one-shot INFO signal for the outcome is the cleanup-mark log line.
+        LOG.atDebug()
+            .addKeyValue("leaseKey", lease.id())
+            .addKeyValue("leaseExpiration", lease.leaseExpiration())
+            .log(
+                "Index absent from this mongot's config (deleted, or this node's config is "
+                    + "lagging); its highest-version lease is not protected");
+      }
+    }
+    return keys;
+  }
+
+  /**
+   * Whether {@code indexId} is present in this mongot's config. An id that does not parse resolves
+   * to configured — the conservative default, matching the grouping fallback in {@link
+   * Lease#indexId()}.
+   */
+  private boolean isIndexConfigured(String indexId) {
+    if (!ObjectId.isValid(indexId)) {
+      // A lease key in no known layout — should not happen, so surface it while it keeps the
+      // conservative protection.
+      LOG.atWarn()
+          .addKeyValue("indexId", indexId)
+          .log("Lease key has no parseable index id; keeping its GC protection");
+      return true;
+    }
+    return this.indexCatalog.getIndexById(new ObjectId(indexId)).isPresent();
   }
 
   /**

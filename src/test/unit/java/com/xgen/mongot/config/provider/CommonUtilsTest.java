@@ -267,6 +267,7 @@ public class CommonUtilsTest {
             DefaultConfigManager.ReplicationMode.ENABLE,
             Optional.of(() -> mock(EmbeddingServiceManager.class)),
             mocks.leaseManager,
+            mocks.indexCatalog,
             mocks.mvMetadataCatalog,
             mocks.autoEmbeddingMongoClient,
             DynamicFeatureFlagRegistry.empty());
@@ -301,6 +302,7 @@ public class CommonUtilsTest {
             DefaultConfigManager.ReplicationMode.ENABLE,
             Optional.of(() -> mock(EmbeddingServiceManager.class)),
             mocks.leaseManager,
+            mocks.indexCatalog,
             mocks.mvMetadataCatalog,
             mocks.autoEmbeddingMongoClient,
             DynamicFeatureFlagRegistry.empty());
@@ -337,6 +339,7 @@ public class CommonUtilsTest {
             DefaultConfigManager.ReplicationMode.DISK_UTILIZATION_BASED,
             Optional.of(() -> mock(EmbeddingServiceManager.class)),
             mocks.leaseManager,
+            mocks.indexCatalog,
             mocks.mvMetadataCatalog,
             mocks.autoEmbeddingMongoClient,
             ReplicationStateMonitor.builder()
@@ -367,6 +370,7 @@ public class CommonUtilsTest {
             DefaultConfigManager.ReplicationMode.DISABLE,
             mocks.embeddingServiceManagerSupplier,
             mocks.leaseManager,
+            mocks.indexCatalog,
             mocks.mvMetadataCatalog,
             mocks.autoEmbeddingMongoClient,
             DynamicFeatureFlagRegistry.empty());
@@ -388,6 +392,7 @@ public class CommonUtilsTest {
             DefaultConfigManager.ReplicationMode.ENABLE,
             mocks.embeddingServiceManagerSupplier,
             mocks.leaseManager,
+            mocks.indexCatalog,
             mocks.mvMetadataCatalog,
             mocks.autoEmbeddingMongoClient,
             DynamicFeatureFlagRegistry.empty());
@@ -551,6 +556,7 @@ public class CommonUtilsTest {
             DefaultConfigManager.ReplicationMode.DISK_UTILIZATION_BASED,
             Optional.of(() -> mock(EmbeddingServiceManager.class)),
             mocks.leaseManager,
+            mocks.indexCatalog,
             mocks.mvMetadataCatalog,
             mocks.autoEmbeddingMongoClient,
             DynamicFeatureFlagRegistry.empty());

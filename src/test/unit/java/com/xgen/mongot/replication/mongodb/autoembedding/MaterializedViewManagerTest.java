@@ -36,6 +36,7 @@ import com.mongodb.MongoNamespace;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
+import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.embedding.cache.EmbeddingRetryCache;
@@ -4043,6 +4044,83 @@ public class MaterializedViewManagerTest {
   }
 
   @Test
+  public void scanStaleLeases_deletedIndex_soleLeaseMarked() {
+    Mocks mocks = Mocks.create();
+    // The index is gone from the config: its highest-version (here: sole) lease is no longer a
+    // current version to protect, or nothing would ever clean it up.
+    ObjectId deletedIndexId = new ObjectId();
+    Lease lastLease =
+        leaseWithExpiration(
+            deletedIndexId.toHexString() + "-h1-1-0",
+            Instant.now().minus(Duration.ofHours(1)),
+            Lease.CleanupState.NOT_ELIGIBLE);
+    when(mocks.leaseManager.findGcCandidates()).thenReturn(List.of(lastLease));
+    when(mocks.indexCatalog.getIndexById(deletedIndexId)).thenReturn(Optional.empty());
+    when(mocks.leaseManager.markEligibleForCleanup(any(), any())).thenReturn(true);
+
+    mocks.manager.scanStaleLeasesForCleanup();
+
+    verify(mocks.leaseManager).markEligibleForCleanup(eq(lastLease.id()), any());
+    // matViewGcDeletedIndexLeases: the unprotected deleted-index lease is counted.
+    assertEquals(
+        1.0,
+        mocks
+            .meterRegistry
+            .counter(MaterializedViewManager.MAT_VIEW_GC_DELETED_INDEX_LEASE_COUNTER_NAME)
+            .count(),
+        0.0);
+  }
+
+  @Test
+  public void scanStaleLeases_configuredIndex_soleLeaseStillProtected() {
+    Mocks mocks = Mocks.create();
+    // Same shape, but the index is still in the config (the Mocks default): the safeguard holds
+    // even though the lease's heartbeat has gone stale.
+    Lease sole =
+        leaseWithExpiration(
+            new ObjectId().toHexString() + "-h1-1-0",
+            Instant.now().minus(Duration.ofHours(1)),
+            Lease.CleanupState.NOT_ELIGIBLE);
+    when(mocks.leaseManager.findGcCandidates()).thenReturn(List.of(sole));
+
+    mocks.manager.scanStaleLeasesForCleanup();
+
+    verify(mocks.leaseManager, never()).markEligibleForCleanup(any(), any());
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void scanStaleLeases_deletedIndex_markedOverdueLeaseCleaned() {
+    Mocks mocks = Mocks.create();
+    // Already marked (e.g. by the deletion drop path after a failed delete) and far past the
+    // delete grace, with no higher-version sibling: the delete-time safeguard re-check must also
+    // recognize the deleted index, or the lease stays refused forever.
+    ObjectId deletedIndexId = new ObjectId();
+    Lease marked =
+        leaseWithExpiration(
+            deletedIndexId.toHexString() + "-h1-1-0",
+            Instant.now().minus(PAST_DELETE_GRACE),
+            Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+    when(mocks.leaseManager.findGcCandidates()).thenReturn(List.of(marked));
+    when(mocks.indexCatalog.getIndexById(deletedIndexId)).thenReturn(Optional.empty());
+    when(mocks.leaseManager.resolveStaleMatViewNamespace(eq(marked.id()), anyLong(), any()))
+        .thenReturn(Optional.of(new MongoNamespace("test-db", "mv-collection")));
+    MongoClient writerClient = mock(MongoClient.class);
+    MongoDatabase database = mock(MongoDatabase.class);
+    MongoCollection<Document> collection = mock(MongoCollection.class);
+    when(mocks.autoEmbeddingMongoClient.getMaterializedViewWriterMongoClient())
+        .thenReturn(Optional.of(writerClient));
+    when(writerClient.getDatabase("test-db")).thenReturn(database);
+    when(database.getCollection("mv-collection")).thenReturn(collection);
+    when(mocks.leaseManager.deleteStaleLease(eq(marked.id()), anyLong(), any())).thenReturn(true);
+
+    mocks.manager.scanStaleLeasesForCleanup();
+
+    verify(collection).drop();
+    verify(mocks.leaseManager).deleteStaleLease(eq(marked.id()), anyLong(), any());
+  }
+
+  @Test
   public void firstScanDelay_isAtLeastMarkGracePeriod() {
     // The first GC sweep is deferred past a just-restarted mongot's
     // replication/lease-renewal resume. With defaults, mark grace (30m) > scan interval (5m), so
@@ -4075,6 +4153,7 @@ public class MaterializedViewManagerTest {
     final NamedScheduledExecutorService staleLeaseScannerExecutor;
     final DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry;
     final EmbeddingRetryCache embeddingRetryCache;
+    final IndexCatalog indexCatalog;
 
     MaterializedViewManager manager;
 
@@ -4121,6 +4200,11 @@ public class MaterializedViewManagerTest {
               DynamicFeatureFlags.MV_GC_DELETION_ENABLED))
           .thenReturn(true);
       this.embeddingRetryCache = mock(EmbeddingRetryCache.class);
+      // Every index is configured by default, so the GC current-version safeguard behaves as
+      // before; deleted-index tests stub specific ids back to empty.
+      this.indexCatalog = mock(IndexCatalog.class);
+      when(this.indexCatalog.getIndexById(any()))
+          .thenReturn(Optional.of(mock(IndexGeneration.class)));
 
       SyncSourceConfig syncSourceConfig =
           SyncSourceConfig.builder()
@@ -4154,6 +4238,7 @@ public class MaterializedViewManagerTest {
                   this.staleLeaseScannerExecutor,
                   this.meterRegistry,
                   leaseManager,
+                  this.indexCatalog,
                   metadataCatalog,
                   AutoEmbeddingMaterializedViewConfig.getDefault(),
                   this.dynamicFeatureFlagRegistry,
