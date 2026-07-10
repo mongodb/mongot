@@ -58,25 +58,24 @@ public class ReplicationStateMonitor {
   }
 
   /**
-   * Disk-based monitor that also gates auto-embedding materialized-view replication. On coupled
-   * nodes auto-embedding reuses the local replication gate; on decoupled nodes it uses a gate
-   * registered to the mongod disk monitor when one is configured, and is otherwise left open.
+   * Disk-based monitor that also gates auto-embedding materialized-view replication. Auto-embedding
+   * is gated by a {@link HysteresisGate} registered to {@code autoEmbeddingDiskMonitor} using
+   * {@code autoEmbeddingConfig}; when either is empty, auto-embedding replication is left ungated
+   * (open). The caller selects the disk monitor and thresholds for the node's topology.
    */
   public static ReplicationStateMonitor diskBased(
       HysteresisConfig replicationConfig,
       Optional<HysteresisConfig> initialSyncConfig,
       Optional<HysteresisConfig> autoEmbeddingConfig,
-      DiskMonitor mongotDiskMonitor,
-      Optional<DiskMonitor> mongodDiskMonitor,
-      boolean isMongotNodeCoupled) {
-    var replicationGate = registeredHysteresisGate(replicationConfig, mongotDiskMonitor);
+      DiskMonitor sharedDiskMonitor,
+      Optional<DiskMonitor> autoEmbeddingDiskMonitor) {
+    var replicationGate = registeredHysteresisGate(replicationConfig, sharedDiskMonitor);
     Gate initialSyncGate =
         initialSyncConfig
-            .<Gate>map(config -> registeredHysteresisGate(config, mongotDiskMonitor))
+            .<Gate>map(config -> registeredHysteresisGate(config, sharedDiskMonitor))
             .orElseGet(ToggleGate::opened);
     Gate autoEmbeddingReplicationGate =
-        autoEmbeddingReplicationGate(
-            replicationGate, autoEmbeddingConfig, mongodDiskMonitor, isMongotNodeCoupled);
+        autoEmbeddingReplicationGate(autoEmbeddingConfig, autoEmbeddingDiskMonitor);
     return builder()
         .setReplicationGate(replicationGate)
         .setInitialSyncGate(initialSyncGate)
@@ -85,20 +84,12 @@ public class ReplicationStateMonitor {
   }
 
   private static Gate autoEmbeddingReplicationGate(
-      Gate localReplicationGate,
       Optional<HysteresisConfig> autoEmbeddingConfig,
-      Optional<DiskMonitor> mongodDiskMonitor,
-      boolean isMongotNodeCoupled) {
-    if (isMongotNodeCoupled) {
-      // TODO(CLOUDP-386521): give coupled nodes their own auto-embedding gate on the local disk
-      // monitor if we ever need different thresholds than Lucene replication.
-      return localReplicationGate;
-    }
-    if (mongodDiskMonitor.isEmpty() || autoEmbeddingConfig.isEmpty()) {
-      // Decoupled node without a mongod disk monitor: leave auto-embedding replication ungated.
+      Optional<DiskMonitor> autoEmbeddingDiskMonitor) {
+    if (autoEmbeddingConfig.isEmpty() || autoEmbeddingDiskMonitor.isEmpty()) {
       return ToggleGate.opened();
     }
-    return registeredHysteresisGate(autoEmbeddingConfig.get(), mongodDiskMonitor.get());
+    return registeredHysteresisGate(autoEmbeddingConfig.get(), autoEmbeddingDiskMonitor.get());
   }
 
   private static HysteresisGate registeredHysteresisGate(

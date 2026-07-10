@@ -69,9 +69,11 @@ public class CommonUtils {
       // Create a no-op replication manager factory if replication mode is disabled or replication
       // is set to be shutdown
       Check.checkState(
-          !(replicationMode.equals(DefaultConfigManager.ReplicationMode.ENABLE)
+          !((replicationMode.equals(DefaultConfigManager.ReplicationMode.ENABLE)
+                  || replicationMode.equals(
+                      DefaultConfigManager.ReplicationMode.MONGOD_DISK_UTILIZATION_BASED))
               && pauseReplication),
-          "replication can not be paused when replication mode is set to be enabled");
+          "Lucene replication can not be paused in ENABLE or MONGOD_DISK_UTILIZATION_BASED mode");
 
       if (pauseReplication) {
         LOG.atWarn()
@@ -271,7 +273,7 @@ public class CommonUtils {
         return Optional.empty();
       }
 
-      // Auto-embedding treats DISK_UTILIZATION_BASED as ENABLE; lifecycle gates pause work.
+      // Auto-embedding disk modes still create the manager; lifecycle gates pause work.
       var matViewManager =
           MaterializedViewManager.create(
               dataPath,

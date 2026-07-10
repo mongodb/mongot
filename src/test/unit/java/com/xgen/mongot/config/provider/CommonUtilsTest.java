@@ -190,6 +190,38 @@ public class CommonUtilsTest {
   }
 
   @Test
+  public void testGetReplicationManager_mongodDiskBasedModeDoesNotPauseLucene() {
+    var mocks = Mocks.create();
+    var replicationStateMonitor =
+        ReplicationStateMonitor.builder()
+            .setReplicationGate(ToggleGate.closed())
+            .setInitialSyncGate(ToggleGate.opened())
+            .build();
+    var factory =
+        CommonUtils.getReplicationManagerFactory(
+            mocks.dataPath,
+            mocks.replicationConfig,
+            mocks.initialSyncConfig,
+            mocks.durabilityConfig,
+            mocks.featureFlags,
+            mocks.mongotCursorManager,
+            mocks.indexCatalog,
+            mocks.initializedIndexCatalog,
+            MeterAndFtdcRegistry.create(mocks.meterRegistry, mocks.ftdcRegistry),
+            DefaultConfigManager.ReplicationMode.MONGOD_DISK_UTILIZATION_BASED,
+            replicationStateMonitor,
+            mocks.embeddingServiceManagerSupplier,
+            Optional.empty());
+
+    Exception exception =
+        Assert.assertThrows(
+            IllegalStateException.class, () -> factory.create(Optional.of(mocks.syncSourceConfig)));
+    Assert.assertEquals(
+        "Lucene replication can not be paused in ENABLE or MONGOD_DISK_UTILIZATION_BASED mode",
+        exception.getMessage());
+  }
+
+  @Test
   public void testGetReplicationManager_missingReplicationUri_returnsNoOp() {
     var mocks = Mocks.create();
     var factory =

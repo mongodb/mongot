@@ -76,7 +76,12 @@ public enum DynamicFeatureFlags {
    * EmbeddingRetryCache} to reuse vectors across write retries. When disabled (default), it uses
    * the no-op cache, so behavior is unchanged.
    */
-  EMBEDDING_RETRY_CACHE("mongot.featureFlag.enableEmbeddingRetryCache", false);
+  EMBEDDING_RETRY_CACHE("mongot.featureFlag.enableEmbeddingRetryCache", false),
+  /**
+   * When enabled, Atlas auto-embedding materialized-view replication is disk-gated independently of
+   * Lucene replication disk mode.
+   */
+  AUTO_EMBEDDING_MONGOD_DISK_MONITOR("mongot.featureFlag.autoEmbeddingMongodDiskMonitor", false);
 
   private final String name;
   private final boolean fallback;

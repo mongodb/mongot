@@ -602,13 +602,13 @@ public class DefaultConfigManager implements ConfigManager {
   }
 
   /**
-   * ReplicationMode is set by {@code DiskMonitorConfig}. Replication mode will be set to ENABLE if
-   * the config is empty or both DISABLE and DISK_UTILIZATION_BASED flags are false. DISABLE
-   * overrides DISK_UTILIZATION_BASED
+   * ENABLE leaves replication ungated. DISABLE turns it off. DISK_UTILIZATION_BASED gates Lucene
+   * and MV; MONGOD_DISK_UTILIZATION_BASED gates only MV.
    */
   public enum ReplicationMode {
     ENABLE,
     DISABLE,
-    DISK_UTILIZATION_BASED
+    DISK_UTILIZATION_BASED,
+    MONGOD_DISK_UTILIZATION_BASED
   }
 }
