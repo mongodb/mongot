@@ -1634,4 +1634,33 @@ public class VoyageClientTest {
     assertEquals("float", getOutputDataType(VectorAutoEmbedQuantization.BINARY));
     assertEquals("binary", getOutputDataType(VectorAutoEmbedQuantization.BINARY_NO_RESCORE));
   }
+
+  @Test
+  public void embed_recordsAutoEmbeddingTokenAndRequestCounters() throws Exception {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MetricsFactory metricsFactory = new MetricsFactory("test", registry);
+    EmbeddingModelConfig modelConfig =
+        EmbeddingModelConfig.create(
+            "voyage-3-large",
+            EmbeddingServiceConfig.EmbeddingProvider.VOYAGE,
+            createDedicatedClusterConfig("test-token"));
+    VoyageClient voyageClient =
+        new VoyageClient(
+            modelConfig,
+            EmbeddingServiceConfig.ServiceTier.QUERY,
+            modelConfig.query(),
+            metricsFactory,
+            Optional.empty(),
+            false,
+            false);
+    VoyageClient.injectVoyageClient(voyageClient, createMockHttpClient());
+
+    voyageClient.embed(List.of("hello"), dummyContext());
+
+    // QUERY tier maps to phase "query"; the mock response reports total_tokens=1.
+    Tags tags = Tags.of("provider", "VOYAGE", "canonicalModel", "voyage-3-large", "phase", "query");
+    assertEquals(1.0, registry.get("autoEmbedding.tokenUsage").tags(tags).counter().count(), 0.0);
+    assertEquals(
+        1.0, registry.get("autoEmbedding.embeddingRequests").tags(tags).counter().count(), 0.0);
+  }
 }

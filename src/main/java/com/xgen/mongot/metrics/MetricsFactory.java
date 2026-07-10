@@ -384,6 +384,13 @@ public class MetricsFactory {
         String.format("%s.%s", this.namespace, childNamespace), this.registry, this.factoryTags);
   }
 
+  /**
+   * Like {@link #childMetricsFactory} but with an independent namespace and tags (not inherited).
+   */
+  public MetricsFactory siblingMetricsFactory(String namespace, Tags factoryTags) {
+    return new MetricsFactory(namespace, this.registry, factoryTags);
+  }
+
   /** Closes all meters created by this MetricsFactory. */
   public void close() {
     this.registeredMeters.forEach(this.registry::remove);

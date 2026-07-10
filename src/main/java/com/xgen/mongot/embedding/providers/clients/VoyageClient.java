@@ -79,6 +79,9 @@ public class VoyageClient implements ClientInterface {
   private final Counter invalidRequestCounter;
   private final Counter congestionEventCounter;
   private final Counter aimdSuccessCounter;
+  // AutoEmbedding counters published to the search-auto-embedding MaaS usecase.
+  private final Counter maasTokenUsageCounter;
+  private final Counter maasEmbeddingRequestsCounter;
   private final MetricsFactory metricsFactory;
   private @Nullable DynamicSemaphore congestionSemaphore;
 
@@ -191,6 +194,17 @@ public class VoyageClient implements ClientInterface {
     this.invalidRequestCounter = metricsFactory.counter("invalidRequestCounter");
     this.congestionEventCounter = metricsFactory.counter("aimdCongestionEvents");
     this.aimdSuccessCounter = metricsFactory.counter("aimdSuccessfulRequests");
+    // Sibling factory drops the parent's 3-value "workload" tag so these MaaS metrics
+    // carry only {provider, canonicalModel, phase} for the search-auto-embedding usecase.
+    MetricsFactory maasMetricsFactory =
+        metricsFactory.siblingMetricsFactory(
+            "autoEmbedding",
+            Tags.of(
+                "provider", embeddingModelConfig.provider().name(),
+                "canonicalModel", embeddingModelConfig.name(),
+                "phase", tier.phase()));
+    this.maasTokenUsageCounter = maasMetricsFactory.counter("tokenUsage");
+    this.maasEmbeddingRequestsCounter = maasMetricsFactory.counter("embeddingRequests");
     updateConfig(workloadParams);
 
     // Dedicated clusters must have credentialToken set
@@ -255,6 +269,8 @@ public class VoyageClient implements ClientInterface {
       }
       renewHttpClientIfStale();
       HttpClient clientForRequest = this.voyageHttpClient;
+      // Count each provider call actually issued (post input-validation, pre-send).
+      this.maasEmbeddingRequestsCounter.increment();
       try {
         HttpResponse<String> response =
             clientForRequest.send(request, HttpResponse.BodyHandlers.ofString());
@@ -745,6 +761,7 @@ public class VoyageClient implements ClientInterface {
                   .build(),
               outputDataType);
       this.inputTokenDistribution.record(embedResponse.embedUsage.totalTokens);
+      this.maasTokenUsageCounter.increment(embedResponse.embedUsage.totalTokens);
       List<VectorOrError> results = new ArrayList<>();
       var iterator = embedResponse.data.iterator();
       for (String input : inputs) {

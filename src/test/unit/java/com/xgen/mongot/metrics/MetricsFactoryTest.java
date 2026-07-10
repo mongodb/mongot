@@ -323,6 +323,26 @@ public class MetricsFactoryTest {
   }
 
   @Test
+  public void testSiblingMetricsFactory() {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    Tags parentTags = Tags.of(Tag.of("ClassID", "2"));
+    MetricsFactory metricsFactory =
+        new MetricsFactory("testMetricsFactory", meterRegistry, parentTags);
+
+    Tags siblingTags = Tags.of(Tag.of("phase", "index"));
+    MetricsFactory siblingMetricsFactory =
+        metricsFactory.siblingMetricsFactory("sibling", siblingTags);
+    Counter counter = siblingMetricsFactory.counter("counter");
+
+    // Independent namespace: not prefixed with the parent's namespace.
+    Assert.assertEquals("sibling.counter", counter.getId().getName());
+    // Sibling tags are applied; the parent's factory tags are not inherited.
+    Assert.assertEquals(siblingTags, counter.getId().getTagsAsIterable());
+    // The parent's registry is shared, so the same meter is returned.
+    Assert.assertSame(counter, meterRegistry.counter("sibling.counter", siblingTags));
+  }
+
+  @Test
   public void testGet() {
     MeterRegistry meterRegistry = new SimpleMeterRegistry();
     Tags tags = Tags.of(Tag.of("ClassID", "2"));
