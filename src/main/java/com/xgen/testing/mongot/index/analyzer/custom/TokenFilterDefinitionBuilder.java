@@ -2,6 +2,7 @@ package com.xgen.testing.mongot.index.analyzer.custom;
 
 import com.xgen.mongot.index.analyzer.custom.AsciiFoldingTokenFilterDefinition;
 import com.xgen.mongot.index.analyzer.custom.DaitchMokotoffSoundexTokenFilterDefinition;
+import com.xgen.mongot.index.analyzer.custom.DoubleMetaphoneTokenFilterDefinition;
 import com.xgen.mongot.index.analyzer.custom.EdgeGramTokenFilterDefinition;
 import com.xgen.mongot.index.analyzer.custom.EnglishMinimalStemmingTokenFilterDefinition;
 import com.xgen.mongot.index.analyzer.custom.EnglishPossessiveTokenFilterDefinition;
@@ -201,6 +202,29 @@ public class TokenFilterDefinitionBuilder {
 
     public DaitchMokotoffSoundexTokenFilterDefinition build() {
       return new DaitchMokotoffSoundexTokenFilterDefinition(this.outputOption);
+    }
+  }
+
+  public static class DoubleMetaphoneTokenFilter {
+    private OriginalTokens originalTokens = OriginalTokens.INCLUDE;
+    private Optional<Integer> maxCodeLength = Optional.empty();
+
+    public static DoubleMetaphoneTokenFilter builder() {
+      return new DoubleMetaphoneTokenFilter();
+    }
+
+    public DoubleMetaphoneTokenFilter originalTokens(OriginalTokens originalTokens) {
+      this.originalTokens = originalTokens;
+      return this;
+    }
+
+    public DoubleMetaphoneTokenFilter maxCodeLength(int maxCodeLength) {
+      this.maxCodeLength = Optional.of(maxCodeLength);
+      return this;
+    }
+
+    public DoubleMetaphoneTokenFilterDefinition build() {
+      return new DoubleMetaphoneTokenFilterDefinition(this.originalTokens, this.maxCodeLength);
     }
   }
 

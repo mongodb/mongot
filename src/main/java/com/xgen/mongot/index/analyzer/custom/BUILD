@@ -6,6 +6,7 @@ java_library(
         "AsciiFoldingTokenFilterDefinition.java",
         "CharFilterDefinition.java",
         "DaitchMokotoffSoundexTokenFilterDefinition.java",
+        "DoubleMetaphoneTokenFilterDefinition.java",
         "EdgeGramTokenFilterDefinition.java",
         "EdgeGramTokenizerDefinition.java",
         "EnglishMinimalStemmingTokenFilterDefinition.java",

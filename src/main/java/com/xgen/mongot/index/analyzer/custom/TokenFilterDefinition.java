@@ -19,6 +19,7 @@ public abstract class TokenFilterDefinition
   public enum Type {
     ASCII_FOLDING,
     DAITCH_MOKOTOFF_SOUNDEX,
+    DOUBLE_METAPHONE,
     EDGE_GRAM,
     ENGLISH_MINIMAL_STEMMING,
     ENGLISH_POSSESSIVE,
@@ -69,6 +70,7 @@ public abstract class TokenFilterDefinition
     return switch (type) {
       case ASCII_FOLDING -> AsciiFoldingTokenFilterDefinition.fromBson(parser);
       case DAITCH_MOKOTOFF_SOUNDEX -> DaitchMokotoffSoundexTokenFilterDefinition.fromBson(parser);
+      case DOUBLE_METAPHONE -> DoubleMetaphoneTokenFilterDefinition.fromBson(parser);
       case EDGE_GRAM -> EdgeGramTokenFilterDefinition.fromBson(parser);
       case ENGLISH_MINIMAL_STEMMING -> new EnglishMinimalStemmingTokenFilterDefinition();
       case ENGLISH_POSSESSIVE -> new EnglishPossessiveTokenFilterDefinition();
@@ -103,6 +105,11 @@ public abstract class TokenFilterDefinition
   public DaitchMokotoffSoundexTokenFilterDefinition asDaitchMokotoffSoundexFilterDefinition() {
     Check.expectedType(Type.DAITCH_MOKOTOFF_SOUNDEX, this.getType());
     return (DaitchMokotoffSoundexTokenFilterDefinition) this;
+  }
+
+  public DoubleMetaphoneTokenFilterDefinition asDoubleMetaphoneTokenFilterDefinition() {
+    Check.expectedType(Type.DOUBLE_METAPHONE, this.getType());
+    return (DoubleMetaphoneTokenFilterDefinition) this;
   }
 
   public EdgeGramTokenFilterDefinition asEdgeGramTokenFilterDefinition() {

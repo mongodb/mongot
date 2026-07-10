@@ -15,6 +15,21 @@
       }
     },
     {
+      "description": "doubleMetaphone",
+      "value": {
+        "type": "doubleMetaphone",
+        "originalTokens": "include"
+      }
+    },
+    {
+      "description": "doubleMetaphone with maxCodeLength",
+      "value": {
+        "type": "doubleMetaphone",
+        "originalTokens": "include",
+        "maxCodeLength": 6
+      }
+    },
+    {
       "description": "lowercase",
       "value": {
         "type": "lowercase"

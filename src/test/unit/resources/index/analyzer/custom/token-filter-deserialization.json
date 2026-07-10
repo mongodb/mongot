@@ -418,6 +418,33 @@
       }
     },
     {
+      "description": "doubleMetaphone",
+      "value": {
+        "type": "doubleMetaphone"
+      }
+    },
+    {
+      "description": "doubleMetaphone with maxCodeLength",
+      "value": {
+        "type": "doubleMetaphone",
+        "maxCodeLength": 6
+      }
+    },
+    {
+      "description": "doubleMetaphone min maxCodeLength",
+      "value": {
+        "type": "doubleMetaphone",
+        "maxCodeLength": 1
+      }
+    },
+    {
+      "description": "doubleMetaphone max maxCodeLength",
+      "value": {
+        "type": "doubleMetaphone",
+        "maxCodeLength": 8
+      }
+    },
+    {
       "description": "trimFilter",
       "value": {
         "type": "trim"
@@ -852,6 +879,27 @@
       "value": {
         "type": "limitTokenCount",
         "maxTokenCount": null
+      }
+    },
+    {
+      "description": "doubleMetaphone zero maxCodeLength",
+      "value": {
+        "type": "doubleMetaphone",
+        "maxCodeLength": 0
+      }
+    },
+    {
+      "description": "doubleMetaphone negative maxCodeLength",
+      "value": {
+        "type": "doubleMetaphone",
+        "maxCodeLength": -2
+      }
+    },
+    {
+      "description": "doubleMetaphone maxCodeLength above max",
+      "value": {
+        "type": "doubleMetaphone",
+        "maxCodeLength": 9
       }
     }
   ]

@@ -60,6 +60,10 @@ public class TokenFilterDefinitionTest {
           edgeGram(),
           edgeGramMinMaxEqual(),
           edgeGramInclude(),
+          doubleMetaphone(),
+          doubleMetaphoneWithMaxCodeLength(),
+          doubleMetaphoneMinMaxCodeLength(),
+          doubleMetaphoneMaxMaxCodeLength(),
           englishMinimalStemming(),
           englishPossessive(),
           flattenGraph(),
@@ -393,6 +397,39 @@ public class TokenFilterDefinitionTest {
               .build());
     }
 
+    private static BsonDeserializationTestSuite.ValidSpec<TokenFilterDefinition> doubleMetaphone() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "doubleMetaphone",
+          TokenFilterDefinitionBuilder.DoubleMetaphoneTokenFilter.builder().build());
+    }
+
+    private static BsonDeserializationTestSuite.ValidSpec<TokenFilterDefinition>
+        doubleMetaphoneWithMaxCodeLength() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "doubleMetaphone with maxCodeLength",
+          TokenFilterDefinitionBuilder.DoubleMetaphoneTokenFilter.builder()
+              .maxCodeLength(6)
+              .build());
+    }
+
+    private static BsonDeserializationTestSuite.ValidSpec<TokenFilterDefinition>
+        doubleMetaphoneMinMaxCodeLength() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "doubleMetaphone min maxCodeLength",
+          TokenFilterDefinitionBuilder.DoubleMetaphoneTokenFilter.builder()
+              .maxCodeLength(1)
+              .build());
+    }
+
+    private static BsonDeserializationTestSuite.ValidSpec<TokenFilterDefinition>
+        doubleMetaphoneMaxMaxCodeLength() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "doubleMetaphone max maxCodeLength",
+          TokenFilterDefinitionBuilder.DoubleMetaphoneTokenFilter.builder()
+              .maxCodeLength(8)
+              .build());
+    }
+
     private static BsonDeserializationTestSuite.ValidSpec<TokenFilterDefinition>
         dutchSnowballFilter() {
       return BsonDeserializationTestSuite.TestSpec.valid(
@@ -657,6 +694,8 @@ public class TokenFilterDefinitionTest {
       return Arrays.asList(
           asciiFolding(),
           daitchMokotoffSoundex(),
+          doubleMetaphone(),
+          doubleMetaphoneWithMaxCodeLength(),
           lowercase(),
           length(),
           lengthSerializesDefaults(),
@@ -866,6 +905,21 @@ public class TokenFilterDefinitionTest {
     private static BsonSerializationTestSuite.TestSpec<TokenFilterDefinition> flattenGraph() {
       return BsonSerializationTestSuite.TestSpec.create(
           "flattenGraph", TokenFilterDefinitionBuilder.FlattenGraphTokenFilter.builder().build());
+    }
+
+    private static BsonSerializationTestSuite.TestSpec<TokenFilterDefinition> doubleMetaphone() {
+      return BsonSerializationTestSuite.TestSpec.create(
+          "doubleMetaphone",
+          TokenFilterDefinitionBuilder.DoubleMetaphoneTokenFilter.builder().build());
+    }
+
+    private static BsonSerializationTestSuite.TestSpec<TokenFilterDefinition>
+        doubleMetaphoneWithMaxCodeLength() {
+      return BsonSerializationTestSuite.TestSpec.create(
+          "doubleMetaphone with maxCodeLength",
+          TokenFilterDefinitionBuilder.DoubleMetaphoneTokenFilter.builder()
+              .maxCodeLength(6)
+              .build());
     }
 
     private static BsonSerializationTestSuite.TestSpec<TokenFilterDefinition> shingle() {

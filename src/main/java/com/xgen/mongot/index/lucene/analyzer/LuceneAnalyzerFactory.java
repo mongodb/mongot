@@ -1,6 +1,7 @@
 package com.xgen.mongot.index.lucene.analyzer;
 
 import com.xgen.mongot.index.analyzer.custom.CharFilterDefinition;
+import com.xgen.mongot.index.analyzer.custom.DoubleMetaphoneTokenFilterDefinition;
 import com.xgen.mongot.index.analyzer.custom.EdgeGramTokenFilterDefinition;
 import com.xgen.mongot.index.analyzer.custom.EdgeGramTokenizerDefinition;
 import com.xgen.mongot.index.analyzer.custom.LengthTokenFilterDefinition;
@@ -55,6 +56,7 @@ import org.apache.lucene.analysis.ngram.NGramTokenizer;
 import org.apache.lucene.analysis.pattern.PatternReplaceFilter;
 import org.apache.lucene.analysis.pattern.PatternTokenizer;
 import org.apache.lucene.analysis.phonetic.DaitchMokotoffSoundexFilter;
+import org.apache.lucene.analysis.phonetic.DoubleMetaphoneFilter;
 import org.apache.lucene.analysis.pl.PolishAnalyzer;
 import org.apache.lucene.analysis.reverse.ReverseStringFilter;
 import org.apache.lucene.analysis.shingle.ShingleFilter;
@@ -173,6 +175,14 @@ public class LuceneAnalyzerFactory {
               definition.asDaitchMokotoffSoundexFilterDefinition().outputOption
                   == OriginalTokens.INCLUDE;
           yield input -> new DaitchMokotoffSoundexFilter(input, includeOriginalTokens);
+        }
+
+        case DOUBLE_METAPHONE -> {
+          DoubleMetaphoneTokenFilterDefinition doubleMetaphone =
+              definition.asDoubleMetaphoneTokenFilterDefinition();
+          boolean inject = doubleMetaphone.originalTokens == OriginalTokens.INCLUDE;
+          int maxCodeLength = doubleMetaphone.maxCodeLength.orElse(4);
+          yield input -> new DoubleMetaphoneFilter(input, maxCodeLength, inject);
         }
 
         case EDGE_GRAM -> {

@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "search/components/custom_analyzer/tokenFilter/doubleMetaphone.json",
+  "type": "object",
+  "_description": "Token filter that creates tokens for words that sound the same based on the Double Metaphone phonetic algorithm.",
+  "properties": {
+    "type": {
+      "suggestSortText": "0",
+      "type": "string",
+      "markdownDescription": "Label that identifies the `doubleMetaphone` token filter type, which creates tokens for words that sound the same based on the [Double Metaphone](https://en.wikipedia.org/wiki/Metaphone#Double_Metaphone) phonetic algorithm.",
+      "description": "Label that identifies the doubleMetaphone token filter type, which creates tokens for words that sound the same based on the Double Metaphone phonetic algorithm.",
+      "const": "doubleMetaphone",
+      "$ref": "../tokenFilter.json#/definitions/typePropertyOverrides"
+    },
+    "originalTokens": {
+      "suggestSortText": "1",
+      "type": "string",
+      "markdownDescription": "String that specifies whether to `include` or `omit` the original tokens in the output of the token filter.",
+      "description": "Specify whether to include or omit the original tokens in the output of the token filter.",
+      "oneOf": [
+        {
+          "const": "include"
+        },
+        {
+          "const": "omit"
+        }
+      ],
+      "default": "include"
+    },
+    "maxCodeLength": {
+      "suggestSortText": "2",
+      "type": "integer",
+      "markdownDescription": "Integer that specifies the maximum number of characters in the phonetic code.",
+      "description": "Maximum number of characters in the phonetic code.",
+      "minimum": 1,
+      "default": 4
+    }
+  },
+  "required": ["type"],
+  "additionalProperties": false
+}

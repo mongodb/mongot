@@ -6,6 +6,7 @@ java_test_suite(
         "AsciiFoldingTokenFilterDefinitionTest.java",
         "CharFilterDefinitionTest.java",
         "DaitchMokotoffSoundexTokenFilterDefinitionTest.java",
+        "DoubleMetaphoneTokenFilterDefinitionTest.java",
         "EdgeGramTokenFilterDefinitionTest.java",
         "EdgeGramTokenizerDefinitionTest.java",
         "EnglishMinimalStemmingTokenFilterDefinitionTest.java",

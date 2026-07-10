@@ -9,6 +9,7 @@
       "enum": [
         "asciiFolding",
         "daitchMokotoffSoundex",
+        "doubleMetaphone",
         "edgeGram",
         "englishMinimalStemming",
         "englishPossessive",
@@ -35,6 +36,7 @@
       "markdownEnumDescriptions": [
         "Token filter that converts alphabetic, numeric, and symbolic unicode characters that are not in the [Basic Latin Unicode block](https://en.wikipedia.org/wiki/Basic_Latin_(Unicode_block)) to their ASCII equivalents, if available.",
         "Token filter that creates tokens for words that sound the same based on the [Daitch-Mokotoff Soundex](https://en.wikipedia.org/wiki/Daitch%E2%80%93Mokotoff_Soundex) phonetic algorithm.",
+        "Token filter that creates tokens for words that sound the same based on the [Double Metaphone](https://en.wikipedia.org/wiki/Metaphone#Double_Metaphone) phonetic algorithm.",
         "Token filter that tokenizes input from the left side, or edge, of a text input into n-grams of configured sizes.",
         "Token filter that stems English words by removing plural suffixes. It is less aggressive than other English stemmers and does not modify non-plural words.",
         "Token filter that removes possessives (trailing 's) from words.",
@@ -67,6 +69,9 @@
     },
     {
       "$ref": "tokenFilter/daitchMokotoffSoundex.json"
+    },
+    {
+      "$ref": "tokenFilter/doubleMetaphone.json"
     },
     {
       "$ref": "tokenFilter/edgeGram.json"
