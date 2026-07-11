@@ -1226,7 +1226,25 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
           .addKeyValue("leaseExpired", leaseExpired)
           .log("Attempting to acquire leadership");
 
-      Lease newLease = inMemoryLease.withRenewedOwnership(this.hostname);
+      // Record this generation's configured definition version on the lease being acquired. The
+      // in-memory record from add() can be lost to a follower-poll overwrite before any write
+      // persists it, and no other write path raises latestIndexDefinitionVersion — a reused lease
+      // would otherwise resolve status and GC current-version protection against the old version
+      // forever.
+      String versionKey = this.matViewGenerationIdToDefinitionVersion.get(generationId);
+      if (versionKey == null) {
+        // Only possible when the generation is being dropped concurrently: add() registers the
+        // version before a generation can become acquirable. Don't acquire leadership of a
+        // generation that is being torn down.
+        LOG.atDebug()
+            .addKeyValue("generationId", generationId)
+            .log("No definition version found during leadership acquisition");
+        return false;
+      }
+      Lease newLease =
+          inMemoryLease
+              .withRenewedOwnership(this.hostname)
+              .withRecordedIndexDefinitionVersion(versionKey);
       if (weOwnLease || leaseExpired) {
         return acquireExistingLease(generationId, inMemoryLease, newLease);
       }
@@ -1277,6 +1295,12 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     this.leaseKeyToDatabase.put(
         proposedMetadata.collectionName(),
         this.dbResolver.resolve(indexDefinitionGeneration.getIndexDefinition().getDatabase()));
+    // Register the definition version like add() does: leadership acquisition refuses generations
+    // with no registered version, and acquisition can legitimately run between initializeLease and
+    // add() (restart with an owned lease).
+    this.matViewGenerationIdToDefinitionVersion.put(
+        indexDefinitionGeneration.getGenerationId(),
+        getIndexDefinitionVersion(indexDefinitionGeneration.getIndexDefinition()));
     @Var var existingLease = this.leases.get(proposedMetadata.collectionName());
     if (existingLease == null) {
       // Try to get lease from database and update in memory state.

@@ -2288,6 +2288,79 @@ public class DynamicLeaderLeaseManagerTest {
    * Creates a MaterializedViewIndexGeneration and registers its generationId in the catalog so that
    * DynamicLeaderLeaseManager.getLeaseKey (which uses catalog) works.
    */
+  // ====== recording the definition version on lease reuse (revert to a previous definition) ====
+
+  @Test
+  public void tryAcquireLeadership_reusedLeaseMissingDefinitionVersion_recordsIt() {
+    MaterializedViewIndexDefinitionGeneration defGen =
+        MaterializedViewIndex.mockMatViewDefinitionGeneration(new ObjectId(), 4);
+    MaterializedViewIndexGeneration gen = mockMatViewIndexGeneration(defGen);
+    addCatalogMetadataForGeneration(gen.getGenerationId());
+    this.leaseManager.add(gen);
+    String leaseKey = getLeaseKeyFromCatalog(gen.getGenerationId());
+    // Reused lease in the DB predates the revert: expired, still on version 2. The poll
+    // overwrites the in-memory record from add() with this copy.
+    Lease dbCopy =
+        leaseWithVersions(
+            leaseKey,
+            "2",
+            Map.of(
+                "2",
+                new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.UNKNOWN)));
+    setupFindLeaseFromDatabase(dbCopy);
+    setupSuccessfulLeaseUpdate();
+    this.leaseManager.pollFollowerStatuses();
+
+    boolean acquired = this.leaseManager.tryAcquireLeadership(gen.getGenerationId());
+
+    assertThat(acquired).isTrue();
+    Lease cached = this.leaseManager.getLeases().get(leaseKey);
+    assertThat(cached.latestIndexDefinitionVersion()).isEqualTo("4");
+    assertThat(cached.indexDefinitionVersionStatusMap()).containsKey("4");
+  }
+
+  @Test
+  public void tryAcquireLeadership_generationDroppedConcurrently_doesNotAcquire() {
+    MaterializedViewIndexDefinitionGeneration defGen =
+        MaterializedViewIndex.mockMatViewDefinitionGeneration(new ObjectId(), 4);
+    MaterializedViewIndexGeneration gen = mockMatViewIndexGeneration(defGen);
+    addCatalogMetadataForGeneration(gen.getGenerationId());
+    this.leaseManager.add(gen);
+    String leaseKey = getLeaseKeyFromCatalog(gen.getGenerationId());
+    this.leaseManager.putLease(
+        leaseKey,
+        leaseWithVersions(
+            leaseKey,
+            "2",
+            Map.of(
+                "2",
+                new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.UNKNOWN))));
+    this.leaseManager.drop(gen.getGenerationId());
+
+    boolean acquired = this.leaseManager.tryAcquireLeadership(gen.getGenerationId());
+
+    assertThat(acquired).isFalse();
+    verify(this.mockCollection, never()).replaceOne(any(), any(BsonDocument.class));
+  }
+
+  private Lease leaseWithVersions(
+      String leaseKey, String latestVersion, Map<String, Lease.IndexDefinitionVersionStatus> map) {
+    return new Lease(
+        leaseKey,
+        Lease.SCHEMA_VERSION,
+        "fa41efe9-dd13-4976-a6ce-009682ec4257",
+        "collection-name",
+        OTHER_HOSTNAME,
+        Instant.now().minusSeconds(60),
+        5L,
+        "",
+        latestVersion,
+        map,
+        new MaterializedViewCollectionMetadata(VERSION_ZERO, UUID.randomUUID(), leaseKey),
+        null,
+        Lease.CleanupState.NOT_ELIGIBLE);
+  }
+
   private MaterializedViewIndexGeneration createTestIndexGeneration() {
     MaterializedViewIndexDefinitionGeneration defGen =
         MaterializedViewIndex.mockMatViewDefinitionGeneration(new ObjectId());

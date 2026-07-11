@@ -472,6 +472,48 @@ public record Lease(
   }
 
   /**
+   * Returns a copy that records {@code versionKey} as the latest definition version, adding it to
+   * the version-status map if missing; everything else is unchanged. Returns {@code this} when the
+   * version is already recorded. Used when an existing lease is reused for a definition version it
+   * has not seen (a revert back to a previous definition): definition versions only grow, so the
+   * version in use is always the lease's latest.
+   */
+  public Lease withRecordedIndexDefinitionVersion(String versionKey) {
+    // Reject at the boundary: a null would otherwise slip past the short-circuited equals below
+    // and only fail much later, inside the BSON writer of whichever write persists this lease.
+    Objects.requireNonNull(versionKey, "versionKey");
+    boolean hasVersion = this.indexDefinitionVersionStatusMap.containsKey(versionKey);
+    if (hasVersion && versionKey.equals(this.latestIndexDefinitionVersion)) {
+      return this;
+    }
+    @Var
+    Map<String, IndexDefinitionVersionStatus> newVersionStatus =
+        this.indexDefinitionVersionStatusMap;
+    if (!hasVersion) {
+      // Same placeholder a resolver uses for a missing entry: not queryable until the leader's
+      // status writes report the truth. The change behind the new version may require a resync
+      // (e.g. a filter change), so queryability must not carry over from the previous version.
+      newVersionStatus = new HashMap<>(this.indexDefinitionVersionStatusMap);
+      newVersionStatus.put(
+          versionKey, new IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.UNKNOWN));
+    }
+    return new Lease(
+        this.id,
+        SCHEMA_VERSION,
+        this.collectionUuid,
+        this.collectionName,
+        this.leaseOwner,
+        this.leaseExpiration,
+        this.leaseVersion,
+        this.commitInfo,
+        versionKey,
+        newVersionStatus,
+        this.materializedViewCollectionMetadata,
+        this.steadyAsOfOplogPosition,
+        this.cleanupState);
+  }
+
+  /**
    * Updates status and potentially sets steadyAsOfOplogPosition when transitioned to STEADY
    *
    * @param indexStatus the new status

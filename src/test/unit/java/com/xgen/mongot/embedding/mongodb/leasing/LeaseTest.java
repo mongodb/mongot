@@ -858,6 +858,91 @@ public class LeaseTest {
           /* status= */ null);
     }
 
+    @Test
+    public void withRecordedIndexDefinitionVersion_missingVersion_addsEntryAndBumpsLatest() {
+      var lease =
+          createLeaseWithVersions(
+              "2",
+              Map.of(
+                  "2",
+                  new Lease.IndexDefinitionVersionStatus(true, IndexStatus.StatusCode.STEADY)));
+
+      var recorded = lease.withRecordedIndexDefinitionVersion("4");
+
+      assertEquals("4", recorded.latestIndexDefinitionVersion());
+      // Not queryable until the leader's status writes report the truth: the change behind the
+      // new version may require a resync.
+      assertEquals(
+          new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.UNKNOWN),
+          recorded.indexDefinitionVersionStatusMap().get("4"));
+      // Everything else is untouched.
+      assertEquals(lease.leaseVersion(), recorded.leaseVersion());
+      assertEquals(lease.commitInfo(), recorded.commitInfo());
+      assertEquals(lease.leaseExpiration(), recorded.leaseExpiration());
+      assertEquals(lease.leaseOwner(), recorded.leaseOwner());
+      assertEquals(lease.cleanupState(), recorded.cleanupState());
+    }
+
+    @Test
+    public void withRecordedIndexDefinitionVersion_existingVersionStaleLatest_bumpsLatestOnly() {
+      // Production shape of the stuck lease: the status write landed but latest never bumped.
+      var lease =
+          createLeaseWithVersions(
+              "2",
+              Map.of(
+                  "2",
+                  new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.UNKNOWN),
+                  "4",
+                  new Lease.IndexDefinitionVersionStatus(true, IndexStatus.StatusCode.STEADY)));
+
+      var recorded = lease.withRecordedIndexDefinitionVersion("4");
+
+      assertEquals("4", recorded.latestIndexDefinitionVersion());
+      assertEquals(
+          lease.indexDefinitionVersionStatusMap(), recorded.indexDefinitionVersionStatusMap());
+    }
+
+    @Test
+    public void withRecordedIndexDefinitionVersion_alreadyConsistent_returnsSameInstance() {
+      var lease =
+          createLeaseWithVersions(
+              "4",
+              Map.of(
+                  "4",
+                  new Lease.IndexDefinitionVersionStatus(true, IndexStatus.StatusCode.STEADY)));
+
+      assertEquals(lease, lease.withRecordedIndexDefinitionVersion("4"));
+      assertTrue(lease == lease.withRecordedIndexDefinitionVersion("4"));
+    }
+
+    @Test(expected = NullPointerException.class)
+    public void withRecordedIndexDefinitionVersion_nullVersion_rejected() {
+      createLeaseWithVersions(
+              "4",
+              Map.of(
+                  "4", new Lease.IndexDefinitionVersionStatus(true, IndexStatus.StatusCode.STEADY)))
+          .withRecordedIndexDefinitionVersion(null);
+    }
+
+    private static Lease createLeaseWithVersions(
+        String latestVersion, Map<String, Lease.IndexDefinitionVersionStatus> versionStatusMap) {
+      return new Lease(
+          LEASE_ID,
+          Lease.SCHEMA_VERSION,
+          COLLECTION_UUID,
+          COLLECTION_NAME,
+          LEASE_OWNER,
+          Instant.now(),
+          7L,
+          "some-commit-info",
+          latestVersion,
+          versionStatusMap,
+          new MaterializedViewCollectionMetadata(
+              VERSION_ZERO, UUID.fromString(COLLECTION_UUID), COLLECTION_NAME),
+          null,
+          Lease.CleanupState.NOT_ELIGIBLE);
+    }
+
     private static Lease createLeaseWithCommitInfo(String commitInfo) {
       return new Lease(
           LEASE_ID,
