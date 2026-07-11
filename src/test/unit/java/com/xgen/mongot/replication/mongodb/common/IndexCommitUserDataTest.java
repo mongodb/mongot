@@ -3,15 +3,19 @@ package com.xgen.mongot.replication.mongodb.common;
 import static com.xgen.testing.BsonSerializationTestSuite.fromEncodable;
 
 import com.mongodb.MongoNamespace;
+import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
+import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata;
 import com.xgen.mongot.index.EncodedUserData;
 import com.xgen.mongot.index.status.IndexStatus.Reason;
 import com.xgen.mongot.index.status.IndexStatus.StatusCode;
 import com.xgen.mongot.index.status.StaleStatusReason;
 import com.xgen.mongot.index.version.IndexFormatVersion;
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.BsonDeserializationTestSuite;
 import com.xgen.testing.BsonSerializationTestSuite;
 import com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.bson.BsonBinary;
@@ -373,6 +377,51 @@ public class IndexCommitUserDataTest {
 
       Assert.assertEquals(
           Optional.of(new AutoEmbeddingCommitMetadata(true)), parsed.getAutoEmbeddingMetadata());
+    }
+
+    @Test
+    public void testAutoEmbeddingMetadataWithCollectionMetadataRoundTrips() {
+      AutoEmbeddingCommitMetadata metadata =
+          new AutoEmbeddingCommitMetadata(
+              true,
+              Optional.of("acme___mdb_internal_search"),
+              Optional.of(
+                  new MaterializedViewCollectionMetadata(
+                      new MaterializedViewSchemaMetadata(
+                          1L,
+                          Map.of(FieldPath.parse("title"), FieldPath.parse("_autoEmbed.title"))),
+                      UUID.fromString("390a604a-4979-4d10-9f4f-3d2552224aee"),
+                      "123")));
+      IndexCommitUserData data =
+          USER_DATA_WITH_CHANGE_STREAM_RESUME_INFO.withAutoEmbeddingMetadata(metadata);
+
+      IndexCommitUserData decoded =
+          IndexCommitUserData.fromEncodedData(data.toEncodedData(), Optional.empty());
+      Assert.assertEquals(data, decoded);
+      Assert.assertEquals(Optional.of(metadata), decoded.getAutoEmbeddingMetadata());
+    }
+
+    @Test
+    public void testAutoEmbeddingMetadataWithoutCollectionMetadataIsAbsent() {
+      // A derived Lucene last committed by a binary that wrote wasMatViewReady alone (before the
+      // reconstruction metadata existed) must still parse, with the metadata reported absent.
+      BsonDocument metadataWithoutBundle =
+          new BsonDocument().append("wasMatViewReady", BsonBoolean.TRUE);
+      BsonDocument userData =
+          new BsonDocument().append("autoEmbeddingMetadata", metadataWithoutBundle);
+
+      IndexCommitUserData parsed =
+          IndexCommitUserData.fromEncodedData(
+              EncodedUserData.fromString(userData.toJson()), Optional.empty());
+
+      Assert.assertEquals(
+          Optional.of(new AutoEmbeddingCommitMetadata(true)), parsed.getAutoEmbeddingMetadata());
+      Assert.assertTrue(
+          parsed
+              .getAutoEmbeddingMetadata()
+              .orElseThrow()
+              .materializedViewCollectionMetadata()
+              .isEmpty());
     }
   }
 }

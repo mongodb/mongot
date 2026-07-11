@@ -6,6 +6,7 @@ import static com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGe
 
 import com.xgen.mongot.cursor.batch.BatchSizeStrategy;
 import com.xgen.mongot.cursor.batch.QueryCursorOptions;
+import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewNonTransientException;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
@@ -218,6 +219,19 @@ public class InitializedMaterializedViewIndex implements InitializedAutoEmbedInd
 
   public MaterializedViewSchemaMetadata getSchemaMetadata() {
     return this.schemaMetadata;
+  }
+
+  /**
+   * The materialized view's immutable collection metadata (UUID, collection name, schema).
+   * Persisted into the derived Lucene commit so the derived index definition can be rebuilt when
+   * mongod is unreachable; the mongod-assigned collection UUID and MV-sourced schema in particular
+   * cannot be recovered offline any other way.
+   */
+  public MaterializedViewCollectionMetadata getMaterializedViewCollectionMetadata() {
+    return new MaterializedViewCollectionMetadata(
+        this.schemaMetadata,
+        this.materializedViewWriter.getCollectionUuid(),
+        this.materializedViewWriter.getNamespace().getCollectionName());
   }
 
   public String getMaterializedViewDatabaseName() {
