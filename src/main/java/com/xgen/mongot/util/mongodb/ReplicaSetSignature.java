@@ -14,7 +14,8 @@ import org.bson.BsonDocument;
  * Therefore, we use the replica set creation date to further identify the right replica set.
  *
  * <p><b>Note</b>: If any format-breaking changes are needed in this class, we first must create a
- * backward-compatible copy of this type and use it in IndexSnapshotMetadata instead of this one.
+ * backward-compatible copy of this type and use it in IndexSnapshotMetadata and SnapshotterState
+ * instead of this one.
  *
  * @param rsId replica set ID
  * @param createDate creation date string
