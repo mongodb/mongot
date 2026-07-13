@@ -108,6 +108,25 @@ public class InitializedMaterializedViewIndex implements InitializedAutoEmbedInd
         .log("Set leaderStatus gauge");
   }
 
+  /**
+   * Re-registers the per-index {@code leaderStatus} gauge if it has been evicted from the registry
+   * while this generation is still live. Invoked from the leader heartbeat so a healthy leader's
+   * gauge self-heals within one beat instead of staying absent until process restart.
+   */
+  public void ensureLeaderStatusGaugeRegistered() {
+    boolean reRegistered =
+        this.indexMetricsUpdater
+            .getMetricsFactory()
+            .ensurePerIndexObjectValueGaugeRegistered(
+                "leaderStatus", this.leaderStatusGauge, Number::doubleValue);
+    if (reRegistered) {
+      LOG.atWarn()
+          .addKeyValue("generationId", this.generationId)
+          .addKeyValue("stateObjectIdentity", System.identityHashCode(this.leaderStatusGauge))
+          .log("Re-registered missing leaderStatus gauge");
+    }
+  }
+
   @Override
   public IndexMetrics getMetrics() {
     return this.indexMetricsUpdater.getMetrics();

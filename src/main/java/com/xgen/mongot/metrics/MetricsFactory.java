@@ -22,6 +22,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -48,6 +49,14 @@ public class MetricsFactory {
   private final Tags factoryTags;
   private final Set<Meter> registeredMeters;
 
+  // When true, close() removes a meter from the registry only if the registry still holds the exact
+  // meter instance this factory registered. This guards against tearing down a meter that a sibling
+  // factory re-registered under the same Meter.Id. Auto-embedding matview generations share a
+  // Meter.Id across attempts (MaterializedViewGenerationId.uniqueString() omits the attempt
+  // number), so a dropped generation's close() would otherwise remove the live successor's
+  // leaderStatus gauge. Opt-in so behavior is unchanged for every non-matview factory.
+  private final boolean identitySafeClose;
+
   public MetricsFactory(String namespace, MeterRegistry registry) {
     this(namespace, registry, Tags.empty());
   }
@@ -57,10 +66,16 @@ public class MetricsFactory {
   }
 
   public MetricsFactory(String namespace, MeterRegistry registry, Tags factoryTags) {
+    this(namespace, registry, factoryTags, false);
+  }
+
+  public MetricsFactory(
+      String namespace, MeterRegistry registry, Tags factoryTags, boolean identitySafeClose) {
     this.namespace = namespace;
     this.registry = registry;
     this.factoryTags = factoryTags;
     this.registeredMeters = Collections.synchronizedSet(new HashSet<>());
+    this.identitySafeClose = identitySafeClose;
   }
 
   /**
@@ -171,6 +186,26 @@ public class MetricsFactory {
           .log("Re-registered gauge with same id");
     }
     return stateObject;
+  }
+
+  /**
+   * Re-registers a gauge for {@code stateObject} under {@code name} + {@code meterTags} only if no
+   * gauge is currently registered for that id. Unlike {@link #objectValueGauge}, this never
+   * removes-then-re-adds an already-present gauge, so it is safe to call on a hot path (e.g. a
+   * heartbeat) to self-heal a gauge that was evicted from the registry — for instance one torn down
+   * by a sibling generation sharing the same Meter.Id.
+   *
+   * @return true if a re-registration occurred, false if the gauge was already present.
+   */
+  public synchronized <T> boolean ensureObjectValueGaugeRegistered(
+      String name, T stateObject, ToDoubleFunction<T> valueFunc, Tags meterTags) {
+    var fullName = metricName(name);
+    var fullTags = this.factoryTags.and(meterTags);
+    if (this.registry.find(fullName).tags(fullTags).gauge() != null) {
+      return false;
+    }
+    objectValueGauge(name, stateObject, valueFunc, meterTags);
+    return true;
   }
 
   /**
@@ -381,7 +416,10 @@ public class MetricsFactory {
 
   public MetricsFactory childMetricsFactory(String childNamespace) {
     return new MetricsFactory(
-        String.format("%s.%s", this.namespace, childNamespace), this.registry, this.factoryTags);
+        String.format("%s.%s", this.namespace, childNamespace),
+        this.registry,
+        this.factoryTags,
+        this.identitySafeClose);
   }
 
   /**
@@ -392,8 +430,15 @@ public class MetricsFactory {
   }
 
   /** Closes all meters created by this MetricsFactory. */
-  public void close() {
-    this.registeredMeters.forEach(this.registry::remove);
+  public synchronized void close() {
+    if (this.identitySafeClose) {
+      // Remove only meters the registry still maps to the exact instance we registered.
+      Set<Meter> liveMeters = Collections.newSetFromMap(new IdentityHashMap<>());
+      liveMeters.addAll(this.registry.getMeters());
+      this.registeredMeters.stream().filter(liveMeters::contains).forEach(this.registry::remove);
+    } else {
+      this.registeredMeters.forEach(this.registry::remove);
+    }
     this.registeredMeters.clear();
   }
 

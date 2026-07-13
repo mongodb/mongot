@@ -59,16 +59,35 @@ public class PerIndexMetricsFactory {
       MeterAndFtdcRegistry meterAndFtdcRegistry,
       String indexGenerationId,
       String indexId) {
+    this(namespace, meterAndFtdcRegistry, indexGenerationId, indexId, false);
+  }
+
+  /**
+   * Creates a per-index metrics factory, optionally with identity-safe close semantics.
+   *
+   * @param identitySafeClose when true, the closed per-index factories only tear down meters the
+   *     registry still maps to the exact instance they registered. Auto-embedding matview
+   *     generations share a Meter.Id across attempts, so this prevents a dropped generation from
+   *     removing a live successor's gauge. See {@link MetricsFactory#close()}.
+   */
+  public PerIndexMetricsFactory(
+      String namespace,
+      MeterAndFtdcRegistry meterAndFtdcRegistry,
+      String indexGenerationId,
+      String indexId,
+      boolean identitySafeClose) {
     this(
         meterAndFtdcRegistry,
         new MetricsFactory(
             namespace,
             meterAndFtdcRegistry.meterRegistry(),
-            Tags.of("generationId logString", indexGenerationId).and("indexId logString", indexId)),
+            Tags.of("generationId logString", indexGenerationId).and("indexId logString", indexId),
+            identitySafeClose),
         new MetricsFactory(
             namespace,
             meterAndFtdcRegistry.ftdcRegistry(),
-            Tags.of("generationId logString", indexGenerationId).and("indexId logString", indexId)),
+            Tags.of("generationId logString", indexGenerationId).and("indexId logString", indexId),
+            identitySafeClose),
         new MetricsFactory(namespace, meterAndFtdcRegistry.meterRegistry()));
   }
 
@@ -342,6 +361,18 @@ public class PerIndexMetricsFactory {
   public <T> T perIndexObjectValueGauge(
       String name, T stateObject, ToDoubleFunction<T> valueFunc, Tags meterTags) {
     return this.perIndexAllFactory.objectValueGauge(name, stateObject, valueFunc, meterTags);
+  }
+
+  /**
+   * Re-registers the per-index gauge for {@code stateObject} only if it is missing from the
+   * registry. See {@link MetricsFactory#ensureObjectValueGaugeRegistered}.
+   *
+   * @return true if a re-registration occurred, false if the gauge was already present.
+   */
+  public <T> boolean ensurePerIndexObjectValueGaugeRegistered(
+      String name, T stateObject, ToDoubleFunction<T> valueFunc) {
+    return this.perIndexAllFactory.ensureObjectValueGaugeRegistered(
+        name, stateObject, valueFunc, Tags.empty());
   }
 
   public <T extends Collection<?>> T perIndexCollectionSizeGauge(String name, T collection) {

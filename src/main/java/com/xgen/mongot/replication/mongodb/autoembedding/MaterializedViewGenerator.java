@@ -129,6 +129,14 @@ public class MaterializedViewGenerator extends ReplicationIndexManager {
   }
 
   /**
+   * Self-heals this generation's {@code leaderStatus} gauge if it was evicted from the registry.
+   * See {@link InitializedMaterializedViewIndex#ensureLeaderStatusGaugeRegistered()}.
+   */
+  void ensureLeaderStatusGaugeRegistered() {
+    this.matViewIndex.ensureLeaderStatusGaugeRegistered();
+  }
+
+  /**
    * Clears the cached leader flag and the leader-status gauge in lockstep. Idempotent. Lock order:
    * manager → generator (caller in {@link MaterializedViewManager} holds the manager monitor; this
    * method takes the generator monitor briefly), matching the existing {@link

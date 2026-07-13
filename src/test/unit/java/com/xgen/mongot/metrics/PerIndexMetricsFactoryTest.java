@@ -361,4 +361,45 @@ public class PerIndexMetricsFactoryTest {
         () -> meterRegistry.get("counter").tags(Tags.of("generationId logString", "2")).counter());
     assertEquals(1, meterRegistry.getMeters().size());
   }
+
+  // Exercises the auto-embedding-facing wiring — identitySafeClose threaded to the
+  // closed per-index factories and the ensure-re-register delegate. Two factories
+  // share a generation id (as matview attempts a0/a1 do); dropping the predecessor must not remove
+  // the successor's live gauge, and ensure re-registers it if it is evicted.
+  @Test
+  public void testMatviewIdentitySafeCloseAndSelfHeal() {
+    var meterRegistry = this.meterAndFtdcRegistry.meterRegistry();
+    PerIndexMetricsFactory a0 =
+        new PerIndexMetricsFactory(
+            "test",
+            this.meterAndFtdcRegistry,
+            "matview-abc-u0",
+            "abc",
+            /* identitySafeClose= */ true);
+    PerIndexMetricsFactory a1 =
+        new PerIndexMetricsFactory(
+            "test",
+            this.meterAndFtdcRegistry,
+            "matview-abc-u0",
+            "abc",
+            /* identitySafeClose= */ true);
+
+    a0.perIndexObjectValueGauge("leaderStatus", new AtomicLong(), Number::doubleValue);
+    AtomicLong a1State =
+        a1.perIndexObjectValueGauge("leaderStatus", new AtomicLong(), Number::doubleValue);
+    a1State.set(1);
+
+    // Dropping a0 must leave a1's live gauge intact (Fix B).
+    a0.close();
+    Gauge gauge = meterRegistry.get(name("leaderStatus")).gauge();
+    assertEquals(1.0, gauge.value(), 0.0);
+
+    // If the gauge is evicted, ensure re-registers it against the existing state object (Fix D).
+    meterRegistry.remove(gauge);
+    assertThrows(
+        MeterNotFoundException.class, () -> meterRegistry.get(name("leaderStatus")).gauge());
+    assertTrue(
+        a1.ensurePerIndexObjectValueGaugeRegistered("leaderStatus", a1State, Number::doubleValue));
+    assertEquals(1.0, meterRegistry.get(name("leaderStatus")).gauge().value(), 0.0);
+  }
 }

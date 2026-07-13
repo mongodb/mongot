@@ -1833,6 +1833,24 @@ public class MaterializedViewManager implements ReplicationManager {
               });
     }
 
+    // Self-heal the leaderStatus gauge if it was evicted from the registry while the generation is
+    // still live (e.g. a sibling matview generation sharing the same Meter.Id tore it down on
+    // close). The generator map is keyed by source-collection UUID, so it holds at most one attempt
+    // per index; re-registering under the manager monitor and only when the snapshot generator is
+    // still the mapped one guarantees a concurrently-replaced (soon-to-be-dropped) attempt can
+    // never own the re-registered gauge — same guard as the passes above. No-op when the gauge is
+    // present; only a missing gauge is re-registered, against the current owner's state object.
+    getMatViewGenerators()
+        .forEach(
+            (uuid, generator) -> {
+              synchronized (this) {
+                var current = getMatViewGenerator(generator.getIndexGeneration().getGenerationId());
+                if (current.isPresent() && current.get() == generator) {
+                  generator.ensureLeaderStatusGaugeRegistered();
+                }
+              }
+            });
+
     // Log heartbeat for monitoring
     var leaderIndexIds =
         this.leaseManager.getLeaderGenerationIds().stream()

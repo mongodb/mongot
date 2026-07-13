@@ -428,4 +428,60 @@ public class MetricsFactoryTest {
         MeterNotFoundException.class, () -> metricsFactory1.get("counter").counter());
     Assert.assertEquals(1, meterRegistry.getMeters().size());
   }
+
+  @Test
+  public void testIdentitySafeCloseKeepsSuccessorGauge() {
+    MeterRegistry registry = new SimpleMeterRegistry();
+    Tags shared = Tags.of("generationId logString", "matview-abc-u0");
+    MetricsFactory a0 = new MetricsFactory("ns", registry, shared, /* identitySafeClose= */ true);
+    MetricsFactory a1 = new MetricsFactory("ns", registry, shared, /* identitySafeClose= */ true);
+
+    a0.objectValueGauge("leaderStatus", new AtomicLong(), Number::doubleValue);
+    a0.objectValueGauge("a0Only", new AtomicLong(), Number::doubleValue);
+    // a1 registering the same id evicts a0's gauge from the registry and installs its own.
+    AtomicLong a1State = a1.objectValueGauge("leaderStatus", new AtomicLong(), Number::doubleValue);
+    a1State.set(1);
+
+    a0.close();
+
+    // Successor's shared-id gauge survives; a0's uniquely-owned gauge is removed; tracking cleared.
+    List<Meter> meters = registry.getMeters();
+    Assert.assertEquals(1, meters.size());
+    Assert.assertEquals(1.0, ((Gauge) meters.get(0)).value(), 0.0);
+    Assert.assertNull(registry.find("ns.a0Only").gauge());
+    Assert.assertTrue(a0.getAllRegisteredMeters().isEmpty());
+
+    // No successor now, so close() still removes a1's own gauge.
+    a1.close();
+    Assert.assertTrue(registry.getMeters().isEmpty());
+  }
+
+  // ensureObjectValueGaugeRegistered is a no-op when the gauge is present, and re-registers the
+  // SAME state object when it has been evicted.
+  @Test
+  public void testEnsureObjectValueGaugeRegistered() {
+    MeterRegistry registry = new SimpleMeterRegistry();
+    MetricsFactory factory = new MetricsFactory("ns", registry);
+
+    AtomicLong state =
+        factory.objectValueGauge("leaderStatus", new AtomicLong(), Number::doubleValue);
+    state.set(1);
+
+    // Present -> no-op.
+    Assert.assertFalse(
+        factory.ensureObjectValueGaugeRegistered(
+            "leaderStatus", state, Number::doubleValue, Tags.empty()));
+    Assert.assertEquals(1, registry.getMeters().size());
+
+    // Evict, then ensure re-registers against the existing state object.
+    registry.remove(registry.getMeters().get(0));
+    Assert.assertTrue(registry.getMeters().isEmpty());
+    Assert.assertTrue(
+        factory.ensureObjectValueGaugeRegistered(
+            "leaderStatus", state, Number::doubleValue, Tags.empty()));
+
+    List<Meter> meters = registry.getMeters();
+    Assert.assertEquals(1, meters.size());
+    Assert.assertEquals(1.0, ((Gauge) meters.get(0)).value(), 0.0);
+  }
 }
