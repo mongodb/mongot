@@ -97,6 +97,53 @@ public class Mongot01042BinaryQuantizedFlatVectorsReaderTest {
   }
 
   @Test
+  public void getByteVectorValues_nonExistentField_throwsIllegalArgumentException()
+      throws IOException {
+    String existingField =
+        FieldName.TypeField.KNN_F32_Q1.getLuceneFieldName(
+            FieldPath.parse("existingField"), Optional.empty());
+    try (Directory dir = LuceneIndexRule.newDirectoryForTest();
+        IndexWriter w = new IndexWriter(dir, LuceneIndexRule.getIndexWriterConfig())) {
+      float[] vector = VectorTestUtils.createFloatVector(30);
+
+      VectorIndexDocumentWrapper document =
+          VectorIndexDocumentWrapper.createRoot(
+              DUMMY_ENCODED_BYTES,
+              SearchIndexCapabilities.CURRENT,
+              new IndexMetricsUpdater.IndexingMetricsUpdater(
+                  SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+              IndexingPolicyBuilderContext.builder().build());
+
+      IndexableFieldFactory.addKnnVectorField(
+          document,
+          FieldPath.newRoot("existingField"),
+          Vector.fromFloats(vector, FloatVector.OriginalType.NATIVE),
+          new VectorFieldSpecification(
+              vector.length,
+              VectorSimilarity.COSINE,
+              VectorQuantization.BINARY,
+              new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+      w.addDocument(document.luceneDocument);
+      w.commit();
+
+      try (DirectoryReader reader = DirectoryReader.open(w)) {
+        LeafReader leafReader = Iterables.getOnlyElement(reader.leaves()).reader();
+        KnnVectorsReader knnVectorsReader = ((CodecReader) leafReader).getVectorReader();
+        KnnVectorsReader forField =
+            ((PerFieldKnnVectorsFormat.FieldsReader) knnVectorsReader)
+                .getFieldReader(existingField);
+        Lucene99HnswVectorsReader hnswReader =
+            Check.instanceOf(forField, Lucene99HnswVectorsReader.class);
+        IllegalArgumentException exception =
+            Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> hnswReader.getByteVectorValues("missingField"));
+        assertThat(exception).hasMessageThat().contains("not found");
+      }
+    }
+  }
+
+  @Test
   public void getQuantizedVectorValues_nonExistentField_throwsIllegalArgumentException()
       throws IOException {
     String existingField =

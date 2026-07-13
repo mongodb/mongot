@@ -79,9 +79,23 @@ public class BinaryQuantizedFlatVectorsScorer implements FlatVectorsScorer {
 
   @Override
   public RandomVectorScorer getRandomVectorScorer(
-      VectorSimilarityFunction similarityFunction, KnnVectorValues vectorValues, byte[] target)
+      VectorSimilarityFunction similarityFunction, KnnVectorValues vectorValues, byte[] query)
       throws IOException {
-    return nonQuantizedDelegate.getRandomVectorScorer(similarityFunction, vectorValues, target);
+    if (vectorValues instanceof QuantizedByteVectorValues quantizedByteVectorValues) {
+      ScalarQuantizer scalarQuantizer = quantizedByteVectorValues.getScalarQuantizer();
+      assert scalarQuantizer != null && scalarQuantizer.getBits() == 1;
+
+      // Quantize and pack query vector before scoring segment
+      byte[] quantizedQuery = new byte[query.length];
+      // ScalarQuantizer has no byte[] quantize overload; use the stateless static helper
+      // instead of downcasting to BinaryQuantizer.
+      BinaryQuantizer.quantizeBytes(query, quantizedQuery);
+      byte[] packedBits = new byte[BinaryQuantizationUtils.requiredBytes(query.length)];
+      BinaryQuantizationUtils.compressBytes(quantizedQuery, packedBits);
+
+      return new BitRandomVectorScorer(quantizedByteVectorValues, packedBits);
+    }
+    return this.nonQuantizedDelegate.getRandomVectorScorer(similarityFunction, vectorValues, query);
   }
 
   @Override

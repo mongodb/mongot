@@ -222,6 +222,25 @@ public abstract class OffHeapQuantizedByteVectorValues extends QuantizedByteVect
         }
       };
     }
+
+    @Override
+    public VectorScorer scorer(byte[] target) throws IOException {
+      DenseOffHeapVectorValues copy = copy();
+      DocIndexIterator iterator = copy.iterator();
+      RandomVectorScorer vectorScorer =
+          this.vectorsScorer.getRandomVectorScorer(this.similarityFunction, copy, target);
+      return new VectorScorer() {
+        @Override
+        public float score() throws IOException {
+          return vectorScorer.score(iterator.index());
+        }
+
+        @Override
+        public DocIdSetIterator iterator() {
+          return iterator;
+        }
+      };
+    }
   }
 
   private static class SparseOffHeapVectorValues extends OffHeapQuantizedByteVectorValues {
@@ -306,6 +325,25 @@ public abstract class OffHeapQuantizedByteVectorValues extends QuantizedByteVect
         }
       };
     }
+
+    @Override
+    public VectorScorer scorer(byte[] target) throws IOException {
+      SparseOffHeapVectorValues copy = copy();
+      DocIndexIterator iterator = copy.iterator();
+      RandomVectorScorer vectorScorer =
+          this.vectorsScorer.getRandomVectorScorer(this.similarityFunction, copy, target);
+      return new VectorScorer() {
+        @Override
+        public float score() throws IOException {
+          return vectorScorer.score(iterator.index());
+        }
+
+        @Override
+        public DocIdSetIterator iterator() {
+          return iterator;
+        }
+      };
+    }
   }
 
   private static class EmptyOffHeapVectorValues extends OffHeapQuantizedByteVectorValues {
@@ -315,7 +353,7 @@ public abstract class OffHeapQuantizedByteVectorValues extends QuantizedByteVect
         int dimension,
         VectorSimilarityFunction similarityFunction,
         FlatVectorsScorer vectorsScorer) {
-      super(dimension, 0, new BinaryQuantizer(), similarityFunction, vectorsScorer, null);
+      super(dimension, 0, BinaryQuantizer.INSTANCE, similarityFunction, vectorsScorer, null);
     }
 
     @Override
@@ -352,6 +390,12 @@ public abstract class OffHeapQuantizedByteVectorValues extends QuantizedByteVect
     @Nullable
     @Override
     public VectorScorer scorer(float[] target) {
+      return null;
+    }
+
+    @Nullable
+    @Override
+    public VectorScorer scorer(byte[] target) {
       return null;
     }
 

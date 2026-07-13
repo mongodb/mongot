@@ -55,8 +55,9 @@ class BinaryQuantizationUtils {
    * @param packedBitsWithPadding a BitVector densely packed into a byte[] with padding occurring at
    *     the end of the final byte
    * @param output a float buffer to store the result in. The buffer must have exactly one element
-   *     for every non-padding bit in `packedBits`. The number of padding bits will be inferred from
-   *     {@code output.length - packedBitsWithPadding.length}
+   *     for every non-padding bit in `packedBits`, so {@code output.length} is the number of
+   *     non-padding bits. The number of padding bits is inferred as {@code
+   *     packedBitsWithPadding.length * 8 - output.length}
    */
   public static void dequantize(byte[] packedBitsWithPadding, float[] output) {
     int n = packedBitsWithPadding.length;
@@ -81,6 +82,48 @@ class BinaryQuantizationUtils {
     // Scalar tail for last byte in case dimension is not multiple of 8
     for (byte b = packedBitsWithPadding[n - 1]; out < output.length; ++out) {
       output[out] = b < 0 ? 1f : -1f;
+      b <<= 1;
+    }
+  }
+
+  /**
+   * Dequantizes a BitVector by expanding each non-padding bit into +/-1 (as bytes) and storing it
+   * in its correspond slot in `output`. Byte-valued counterpart of {@link #dequantize(byte[],
+   * float[])}.
+   *
+   * <p>Usage Note: when dequantizing many vectors, it is good practice to create one `output`
+   * buffer and reuse it for each call.
+   *
+   * @param packedBitsWithPadding a BitVector densely packed into a byte[] with padding occurring at
+   *     the end of the final byte
+   * @param output a byte buffer to store the result in. The buffer must have exactly one element
+   *     for every non-padding bit in `packedBits`, so {@code output.length} is the number of
+   *     non-padding bits. The number of padding bits is inferred as {@code
+   *     packedBitsWithPadding.length * 8 - output.length}
+   */
+  public static void dequantize(byte[] packedBitsWithPadding, byte[] output) {
+    int n = packedBitsWithPadding.length;
+
+    int loopBound = output.length / 8;
+    @Var int out = 0;
+    @Var int i;
+    // This loop is unrolled to encourage the jvm to process whole byte at a time.
+    for (i = 0; i < n && i < loopBound; ++i, out += 8) {
+      byte b = packedBitsWithPadding[i];
+      // expand each bit of the byte into consecutive bytes
+      output[out] = (b & 0x80) != 0 ? (byte) 1 : (byte) -1;
+      output[out + 1] = (b & 0x40) != 0 ? (byte) 1 : (byte) -1;
+      output[out + 2] = (b & 0x20) != 0 ? (byte) 1 : (byte) -1;
+      output[out + 3] = (b & 0x10) != 0 ? (byte) 1 : (byte) -1;
+      output[out + 4] = (b & 0x08) != 0 ? (byte) 1 : (byte) -1;
+      output[out + 5] = (b & 0x04) != 0 ? (byte) 1 : (byte) -1;
+      output[out + 6] = (b & 0x02) != 0 ? (byte) 1 : (byte) -1;
+      output[out + 7] = (b & 0x01) != 0 ? (byte) 1 : (byte) -1;
+    }
+
+    // Scalar tail for last byte in case dimension is not multiple of 8
+    for (byte b = packedBitsWithPadding[n - 1]; out < output.length; ++out) {
+      output[out] = b < 0 ? (byte) 1 : (byte) -1;
       b <<= 1;
     }
   }

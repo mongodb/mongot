@@ -175,7 +175,7 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
     // the vectors directly to the new segment.
     // No need to use temporary file as we don't have to re-open for reading
     if (fieldInfo.getVectorEncoding().equals(VectorEncoding.FLOAT32)) {
-      ScalarQuantizer mergedQuantizationState = new BinaryQuantizer();
+      ScalarQuantizer mergedQuantizationState = BinaryQuantizer.INSTANCE;
       MergedQuantizedVectorValues byteVectorValues =
           MergedQuantizedVectorValues.mergeQuantizedByteVectorValues(
               fieldInfo, mergeState, mergedQuantizationState);
@@ -299,7 +299,7 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
   }
 
   private void writeQuantizedVectors(FieldWriter fieldData) throws IOException {
-    ScalarQuantizer scalarQuantizer = new BinaryQuantizer();
+    ScalarQuantizer scalarQuantizer = BinaryQuantizer.INSTANCE;
     byte[] vector = new byte[fieldData.fieldInfo.getVectorDimension()];
     byte[] compressedVector = compressedArray(fieldData.fieldInfo.getVectorDimension());
     ByteBuffer offsetBuffer = ByteBuffer.allocate(Float.BYTES).order(ByteOrder.LITTLE_ENDIAN);
@@ -354,7 +354,7 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
   }
 
   private void writeSortedQuantizedVectors(FieldWriter fieldData, int[] ordMap) throws IOException {
-    ScalarQuantizer scalarQuantizer = new BinaryQuantizer();
+    ScalarQuantizer scalarQuantizer = BinaryQuantizer.INSTANCE;
     byte[] vector = new byte[fieldData.fieldInfo.getVectorDimension()];
     byte[] compressedVector = compressedArray(fieldData.fieldInfo.getVectorDimension());
     ByteBuffer offsetBuffer = ByteBuffer.allocate(Float.BYTES).order(ByteOrder.LITTLE_ENDIAN);
@@ -379,7 +379,7 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
       // Simply merge the underlying delegate, which just copies the raw vector data to a new
       // segment file
       this.rawVectorDelegate.mergeOneField(fieldInfo, mergeState);
-      ScalarQuantizer mergedQuantizationState = new BinaryQuantizer();
+      ScalarQuantizer mergedQuantizationState = BinaryQuantizer.INSTANCE;
       supplier =
           mergeOneFieldToIndex(
               this.segmentWriteState, fieldInfo, mergeState, mergedQuantizationState);

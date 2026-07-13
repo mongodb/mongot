@@ -125,4 +125,27 @@ public class BinaryQuantizationUtilsTest {
     float[] expected = {-1f, -1f, -1f, -1f, 1f, 1f, 1f};
     assertArrayEquals(expected, dequantized, TestUtils.EPSILON);
   }
+
+  @Test
+  public void dequantize_bytes_unrolled_8dims() {
+    int dimensions = 8;
+    byte[] compressedVector = {(byte) 0b1101_0100};
+    byte[] dequantized = new byte[dimensions];
+
+    BinaryQuantizationUtils.dequantize(compressedVector, dequantized);
+
+    byte[] expected = {1, 1, -1, 1, -1, 1, -1, -1};
+    assertArrayEquals(expected, dequantized);
+  }
+
+  @Test
+  public void dequantize_bytes_tail_decodesLeftToRight() {
+    byte[] compressedVector = {(byte) 0b0000_1111};
+    byte[] dequantized = new byte[7];
+
+    BinaryQuantizationUtils.dequantize(compressedVector, dequantized);
+
+    byte[] expected = {-1, -1, -1, -1, 1, 1, 1};
+    assertArrayEquals(expected, dequantized);
+  }
 }

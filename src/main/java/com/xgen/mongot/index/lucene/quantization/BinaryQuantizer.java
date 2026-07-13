@@ -29,19 +29,39 @@ public class BinaryQuantizer extends ScalarQuantizer {
   static final float UNUSED_MIN_QUANTILE = 0f;
   static final float UNUSED_MAX_QUANTILE = 1f;
 
-  public BinaryQuantizer() {
+  /** Binary quantization is stateless, so a single shared instance serves all call sites. */
+  public static final BinaryQuantizer INSTANCE = new BinaryQuantizer();
+
+  private BinaryQuantizer() {
     super(UNUSED_MIN_QUANTILE, UNUSED_MAX_QUANTILE, (byte) 1);
   }
 
   @Override
   public float quantize(float[] src, byte[] dest, VectorSimilarityFunction similarityFunction) {
-    assert src.length == dest.length;
     if (dest != null) {
+      assert src.length == dest.length;
       for (int i = 0; i < src.length; i++) {
         dest[i] = (src[i] > 0.0 ? (byte) 1 : (byte) 0);
       }
     }
     return 0f;
+  }
+
+  /**
+   * Quantizes each byte-valued dimension into a single bit (1 if positive, else 0). Binary
+   * quantization is stateless, so this is exposed as a static helper to avoid downcasting a {@link
+   * ScalarQuantizer} at call sites.
+   *
+   * @param src source array of raw byte values
+   * @param dest destination array of quantized bytes
+   */
+  public static void quantizeBytes(byte[] src, byte[] dest) {
+    if (dest != null) {
+      assert src.length == dest.length;
+      for (int i = 0; i < src.length; i++) {
+        dest[i] = (src[i] > 0 ? (byte) 1 : (byte) 0);
+      }
+    }
   }
 
   @Override
