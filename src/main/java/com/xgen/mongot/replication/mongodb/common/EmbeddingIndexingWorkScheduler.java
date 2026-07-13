@@ -832,9 +832,11 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
 
     EmbeddingServiceManager serviceManager = this.embeddingServiceManagerSupplier.get();
     ServiceTier tier =
-        priority == Priority.INITIAL_SYNC_COLLECTION_SCAN
-            ? ServiceTier.COLLECTION_SCAN
-            : ServiceTier.CHANGE_STREAM;
+        switch (priority) {
+          case INITIAL_SYNC_COLLECTION_SCAN, INITIAL_SYNC_CHANGE_STREAM ->
+              ServiceTier.COLLECTION_SCAN;
+          case STEADY_STATE_CHANGE_STREAM -> ServiceTier.CHANGE_STREAM;
+        };
 
     for (var entry : stringsToEmbedPerBatchKey.asMap().entrySet()) {
       FLOGGER.atFine().log(

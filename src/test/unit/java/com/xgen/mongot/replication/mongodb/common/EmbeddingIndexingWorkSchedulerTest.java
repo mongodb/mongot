@@ -7,6 +7,7 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
@@ -30,6 +31,7 @@ import com.xgen.mongot.embedding.providers.EmbeddingServiceRegistry;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelCatalog;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
+import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.ServiceTier;
 import com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator;
 import com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils;
 import com.xgen.mongot.index.DocumentEvent;
@@ -168,6 +170,71 @@ public class EmbeddingIndexingWorkSchedulerTest {
             AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorIndexDefinition),
             expectedAutoEmbeddingsByPath(indexId));
     verify(indexer, times(1)).indexDocumentEvent(expected);
+  }
+
+  @Test
+  public void testInitialSyncCollectionScanUsesCollectionScanTier() throws Exception {
+    assertServiceTierForPriority(
+        SchedulerQueue.Priority.INITIAL_SYNC_COLLECTION_SCAN, ServiceTier.COLLECTION_SCAN);
+  }
+
+  @Test
+  public void testInitialSyncChangeStreamUsesCollectionScanTier() throws Exception {
+    // Change-stream processing performed as part of a new index build is part of the initial
+    // sync, not steady-state traffic, so it should get the same flex tier as the collection scan.
+    assertServiceTierForPriority(
+        SchedulerQueue.Priority.INITIAL_SYNC_CHANGE_STREAM, ServiceTier.COLLECTION_SCAN);
+  }
+
+  @Test
+  public void testSteadyStateChangeStreamUsesChangeStreamTier() throws Exception {
+    assertServiceTierForPriority(
+        SchedulerQueue.Priority.STEADY_STATE_CHANGE_STREAM, ServiceTier.CHANGE_STREAM);
+  }
+
+  private void assertServiceTierForPriority(
+      SchedulerQueue.Priority priority, ServiceTier expectedTier)
+      throws ExecutionException,
+          InterruptedException,
+          TimeoutException,
+          FieldExceededLimitsException,
+          IOException {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    EmbeddingServiceManager serviceManager =
+        spy(
+            new EmbeddingServiceManager(
+                List.of(TEST_EMBEDDING_CONFIG_V3_LARGE, TEST_EMBEDDING_CONFIG_V3_LITE),
+                new FakeEmbeddingClientFactory(),
+                Executors.singleThreadScheduledExecutor("indexing", meterRegistry),
+                meterRegistry,
+                Optional.empty()));
+    EmbeddingIndexingWorkScheduler scheduler = scheduler(Suppliers.ofInstance(serviceManager));
+
+    ObjectId indexId = new ObjectId();
+    VectorIndexDefinition vectorIndexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .withTextField(indexId + ".a")
+            .withTextField(indexId + ".b")
+            .build();
+    DocumentIndexer indexer = mockDocumentRequiresAutoEmbedding(vectorIndexDefinition);
+    RawBsonDocument rawBsonDoc =
+        BsonUtils.documentToRaw(new BsonDocument(indexId.toString(), createBasicBson()));
+    DocumentEvent event =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromMetadataNamespace(Optional.of(rawBsonDoc), indexId), rawBsonDoc);
+    List<DocumentEvent> batch = new ArrayList<>(List.of(event));
+    CompletableFuture<Void> indexingFuture =
+        scheduler.schedule(
+            batch,
+            priority,
+            indexer,
+            new GenerationId(new ObjectId(), Generation.CURRENT),
+            Optional.of(new ObjectId()),
+            Optional.of(COMMIT_USER_DATA),
+            IGNORE_METRICS);
+    indexingFuture.get(5, TimeUnit.SECONDS);
+
+    verify(serviceManager, times(1)).embedAsync(any(), any(), eq(expectedTier), any());
   }
 
   @Test
