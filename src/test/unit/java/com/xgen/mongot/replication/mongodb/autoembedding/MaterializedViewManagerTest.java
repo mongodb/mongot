@@ -92,6 +92,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.LongSummaryStatistics;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -102,6 +103,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
+import java.util.stream.LongStream;
 import org.bson.Document;
 import org.bson.types.ObjectId;
 import org.junit.Assert;
@@ -5024,5 +5026,31 @@ public class MaterializedViewManagerTest {
                 && id.generation.userIndexVersion == matViewGenId.generation.userIndexVersion;
     when(catalog.getMetadata(argThat(sameUserVersion))).thenReturn(metadata);
     when(catalog.getMetadataIfPresent(argThat(sameUserVersion))).thenReturn(Optional.of(metadata));
+  }
+
+  @Test
+  public void summarizeReplicationLagMs_computesMaxAndAverageAcrossMaterializedViews() {
+    assertEquals(
+        250.0,
+        MaterializedViewManager.summarizeReplicationLagMs(
+            LongStream.of(100, 250, 40), stats -> (double) stats.getMax()),
+        0.0);
+    assertEquals(
+        130.0,
+        MaterializedViewManager.summarizeReplicationLagMs(
+            LongStream.of(100, 250, 40), LongSummaryStatistics::getAverage),
+        0.0);
+  }
+
+  @Test
+  public void summarizeReplicationLagMs_withNoMaterializedViews_isNaN() {
+    assertTrue(
+        Double.isNaN(
+            MaterializedViewManager.summarizeReplicationLagMs(
+                LongStream.empty(), stats -> (double) stats.getMax())));
+    assertTrue(
+        Double.isNaN(
+            MaterializedViewManager.summarizeReplicationLagMs(
+                LongStream.empty(), LongSummaryStatistics::getAverage)));
   }
 }

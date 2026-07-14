@@ -35,6 +35,7 @@ import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.IndexGeneration;
+import com.xgen.mongot.index.ReplicationOpTimeInfo;
 import com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.autoembedding.InitializedMaterializedViewIndex;
 import com.xgen.mongot.index.autoembedding.MaterializedViewIndexGeneration;
@@ -80,6 +81,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.LongSummaryStatistics;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -91,7 +93,9 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
+import java.util.function.ToDoubleFunction;
 import java.util.stream.Collectors;
+import java.util.stream.LongStream;
 import org.bson.types.ObjectId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -124,6 +128,13 @@ public class MaterializedViewManager implements ReplicationManager {
 
   public static final String MAT_VIEW_GC_SCANNER_ALIVE_GAUGE = "matViewGcScannerAlive";
   public static final String MAT_VIEW_GC_LEASES_OVERDUE_GAUGE = "matViewGcLeasesOverdue";
+
+  // Per-host materialized-view replication lag (ms).
+  // Process-level gauge intended for MaaS/Atlas export.
+  public static final String MAT_VIEW_REPLICATION_LAG_MS_GAUGE = "materializedViewReplicationLagMs";
+  public static final String STAT_LABEL = "stat";
+  public static final String STAT_MAX = "max";
+  public static final String STAT_AVG = "avg";
   public static final String MAT_VIEW_GC_LEASE_IN_USE_REFUSAL_COUNTER_NAME =
       "matViewGcLeaseInUseRefusals";
   public static final String MAT_VIEW_GC_SWEEP_FAILURE_COUNTER_NAME = "matViewGcSweepFailures";
@@ -572,6 +583,54 @@ public class MaterializedViewManager implements ReplicationManager {
         MAT_VIEW_GC_SCANNER_ALIVE_GAUGE,
         autoEmbeddingMatViewManager,
         MaterializedViewManager::gcScannerAliveValue);
+    // Per-host max/avg replication lag across queryable materialized views, re-evaluated on scrape.
+    // Registered here (post-construction) because it binds `this`.
+    metricsFactory.objectValueGauge(
+        MAT_VIEW_REPLICATION_LAG_MS_GAUGE,
+        autoEmbeddingMatViewManager,
+        manager -> manager.replicationLagMs(stats -> (double) stats.getMax()),
+        Tags.of(STAT_LABEL, STAT_MAX));
+    metricsFactory.objectValueGauge(
+        MAT_VIEW_REPLICATION_LAG_MS_GAUGE,
+        autoEmbeddingMatViewManager,
+        manager -> manager.replicationLagMs(LongSummaryStatistics::getAverage),
+        Tags.of(STAT_LABEL, STAT_AVG));
+  }
+
+  /**
+   * Aggregates replication lag (ms) across all materialized views that can currently service
+   * queries, applying {@code selector} (max or average) to the resulting summary. Returns {@link
+   * Double#NaN} when no such MV has reported an optime snapshot yet, so an idle host emits nothing.
+   * Never throws: a transient index-lifecycle race during a scrape degrades to NaN.
+   */
+  private double replicationLagMs(ToDoubleFunction<LongSummaryStatistics> selector) {
+    try {
+      return summarizeReplicationLagMs(queryableMaterializedViewLagsMs(), selector);
+    } catch (RuntimeException e) {
+      return Double.NaN;
+    }
+  }
+
+  private LongStream queryableMaterializedViewLagsMs() {
+    return this.getMatViewGenerators().values().stream()
+        .map(generator -> generator.getIndexGeneration().getIndex())
+        .filter(matViewIndex -> !matViewIndex.isClosed())
+        .filter(matViewIndex -> matViewIndex.getStatus().canServiceQueries())
+        .map(
+            matViewIndex ->
+                matViewIndex
+                    .getMetricsUpdater()
+                    .getIndexingMetricsUpdater()
+                    .getReplicationOpTimeInfo()
+                    .snapshot())
+        .flatMap(Optional::stream)
+        .mapToLong(ReplicationOpTimeInfo.Snapshot::replicationLagMs);
+  }
+
+  static double summarizeReplicationLagMs(
+      LongStream lagsMs, ToDoubleFunction<LongSummaryStatistics> selector) {
+    LongSummaryStatistics stats = lagsMs.summaryStatistics();
+    return stats.getCount() == 0 ? Double.NaN : selector.applyAsDouble(stats);
   }
 
   /** helper function similar to MongoDbReplicationManager::gaugeReplicationManagers */
