@@ -1,11 +1,13 @@
 package com.xgen.mongot.index.query.optimizer;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import com.mongodb.client.model.geojson.Position;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.lucene.query.context.QueryFactoryContext;
 import com.xgen.mongot.index.query.operators.AllDocumentsOperator;
@@ -50,15 +52,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import org.bson.BsonDocument;
 import org.junit.Test;
 import org.mockito.Mockito;
 
 /**
- * Engine traversal tests with an empty rule list. Verifies leaf and composite {@link Operator}
- * subtypes pass through unchanged, the engine terminates in a single iteration, and the audit
- * records no rule firings.
+ * Engine tests. Empty-rule-list tests verify leaf and composite {@link Operator} subtypes pass
+ * through unchanged by reference, in a single iteration, with an empty audit. Stub-rule tests
+ * verify rule firing and audit recording, parent rebuild on child change, fixed-point chaining,
+ * first-matching-rule-wins ordering, and the {@link OperatorRewriteEngine#MAX_ITERATIONS} cap.
  */
 public class OperatorRewriteEngineTest {
 
@@ -109,7 +113,7 @@ public class OperatorRewriteEngineTest {
   }
 
   @Test
-  public void nestedCompound_passesThroughAtEveryLevel() {
+  public void nestedCompound_passesThroughUnchangedAtEveryLevel() {
     CompoundOperator inner =
         new CompoundOperatorBuilder().must(equalsOp("a", "1")).must(equalsOp("b", "2")).build();
     CompoundOperator outer =
@@ -157,6 +161,115 @@ public class OperatorRewriteEngineTest {
     assertTrue(
         "every direct permits subtype of Operator must have a fixture; missing: " + missing,
         missing.isEmpty());
+  }
+
+  @Test
+  public void rewritingRule_replacesLeafAndRecordsFiring() {
+    EqualsOperator original = equalsOp("field", "a");
+    EqualsOperator replacement = equalsOp("field", "b");
+    OperatorRewriteEngine engine =
+        new OperatorRewriteEngine(
+            List.of(stubRule("swap", op -> op == original ? replacement : op)));
+
+    RewriteContext context = newContext();
+    Operator result = engine.rewrite(original, context);
+
+    assertSame(replacement, result);
+    assertEquals(List.of("swap"), context.audit().firedRules());
+    assertEquals(2, context.audit().iterations());
+  }
+
+  @Test
+  public void rewritingRule_rebuildsParentAndPreservesSiblings() {
+    EqualsOperator original = equalsOp("field", "a");
+    EqualsOperator replacement = equalsOp("field", "b");
+    EqualsOperator sibling = equalsOp("other", "keep");
+    CompoundOperator parent =
+        new CompoundOperatorBuilder()
+            .must(original)
+            .must(sibling)
+            .filter(equalsOp("f", "1"))
+            .build();
+    OperatorRewriteEngine engine =
+        new OperatorRewriteEngine(
+            List.of(stubRule("swap", op -> op == original ? replacement : op)));
+
+    RewriteContext context = newContext();
+    Operator result = engine.rewrite(parent, context);
+
+    assertNotSame(parent, result);
+    CompoundOperator rebuilt = (CompoundOperator) result;
+    assertSame(replacement, rebuilt.must().operators().get(0));
+    assertSame(sibling, rebuilt.must().operators().get(1));
+    assertSame(parent.filter(), rebuilt.filter());
+    assertEquals(List.of("swap"), context.audit().firedRules());
+    assertEquals(2, context.audit().iterations());
+  }
+
+  @Test
+  public void chainedRules_convergeAcrossIterations() {
+    EqualsOperator first = equalsOp("field", "a");
+    EqualsOperator second = equalsOp("field", "b");
+    EqualsOperator third = equalsOp("field", "c");
+    OperatorRewriteEngine engine =
+        new OperatorRewriteEngine(
+            List.of(
+                stubRule("a-to-b", op -> op == first ? second : op),
+                stubRule("b-to-c", op -> op == second ? third : op)));
+
+    RewriteContext context = newContext();
+    Operator result = engine.rewrite(first, context);
+
+    assertSame(third, result);
+    assertEquals(List.of("a-to-b", "b-to-c"), context.audit().firedRules());
+    assertEquals(3, context.audit().iterations());
+  }
+
+  @Test
+  public void multipleMatchingRules_firstRegisteredWins() {
+    EqualsOperator original = equalsOp("field", "a");
+    EqualsOperator firstOutput = equalsOp("field", "b");
+    EqualsOperator secondOutput = equalsOp("field", "c");
+    OperatorRewriteEngine engine =
+        new OperatorRewriteEngine(
+            List.of(
+                stubRule("first", op -> op == original ? firstOutput : op),
+                stubRule("second", op -> op == original ? secondOutput : op)));
+
+    RewriteContext context = newContext();
+    Operator result = engine.rewrite(original, context);
+
+    assertSame(firstOutput, result);
+    assertEquals(List.of("first"), context.audit().firedRules());
+    assertEquals(2, context.audit().iterations());
+  }
+
+  @Test
+  public void nonConvergingRule_stopsAtMaxIterations() {
+    EqualsOperator ping = equalsOp("field", "ping");
+    EqualsOperator pong = equalsOp("field", "pong");
+    OperatorRewriteEngine engine =
+        new OperatorRewriteEngine(List.of(stubRule("churn", op -> op == ping ? pong : ping)));
+
+    RewriteContext context = newContext();
+    engine.rewrite(ping, context);
+
+    assertEquals(OperatorRewriteEngine.MAX_ITERATIONS, context.audit().iterations());
+    assertEquals(OperatorRewriteEngine.MAX_ITERATIONS, context.audit().firedRules().size());
+  }
+
+  @Test
+  public void identityReturningRule_treatedAsNoOp() {
+    EqualsOperator op = equalsOp("field", "a");
+    OperatorRewriteEngine engine =
+        new OperatorRewriteEngine(List.of(stubRule("noop", operator -> operator)));
+
+    RewriteContext context = newContext();
+    Operator result = engine.rewrite(op, context);
+
+    assertSame(op, result);
+    assertTrue(context.audit().firedRules().isEmpty());
+    assertEquals(1, context.audit().iterations());
   }
 
   /**
@@ -262,5 +375,25 @@ public class OperatorRewriteEngineTest {
         new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory());
     return new RewriteContext(
         null, factoryContext, DynamicFeatureFlagRegistry.empty(), metrics, new RewriteAudit());
+  }
+
+  /** Rule stub driven by the given function; the flag is arbitrary — the engine never reads it. */
+  private static OperatorRewriteRule stubRule(String name, UnaryOperator<Operator> rewrite) {
+    return new OperatorRewriteRule() {
+      @Override
+      public Operator apply(Operator operator, RewriteContext context) {
+        return rewrite.apply(operator);
+      }
+
+      @Override
+      public String name() {
+        return name;
+      }
+
+      @Override
+      public DynamicFeatureFlags flag() {
+        return DynamicFeatureFlags.QUERY_OPTIMIZER;
+      }
+    };
   }
 }

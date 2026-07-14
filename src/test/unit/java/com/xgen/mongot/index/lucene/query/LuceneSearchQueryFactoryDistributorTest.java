@@ -10,6 +10,11 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig.Phase;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig.Scope;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.analyzer.AnalyzerRegistry;
 import com.xgen.mongot.index.analyzer.InvalidAnalyzerDefinitionException;
@@ -1035,6 +1040,82 @@ public class LuceneSearchQueryFactoryDistributorTest {
 
       assertThat(result).isInstanceOf(WrappedQuery.class);
     }
+  }
+
+  /**
+   * Pins the optimizer wiring contract for the explain entry point: {@code
+   * createSearchExplainQuery} must run the operator tree through {@link
+   * com.xgen.mongot.index.query.optimizer.QueryOptimizer#optimize} exactly like {@code
+   * createQuery}, so explain reports the plan that would execute and rule firings can surface as
+   * {@code optimizerRulesFired}.
+   */
+  @Test
+  public void createSearchExplainQuery_queryOptimizerEnabled_invokesOptimizer() throws Exception {
+    IndexMetricsUpdater.QueryingMetricsUpdater metrics = queryMetrics();
+    LuceneSearchQueryFactoryDistributor factory = factoryWithQueryOptimizerEnabled(metrics);
+
+    Operator termOperator = OperatorBuilder.term().path("title").query("godfather").build();
+
+    double before = metrics.getOptimizerInvocations().count();
+    try (var reader = DirectoryReader.open(directory)) {
+      factory.createSearchExplainQuery(termOperator, reader, Optional.empty(), DEFAULT_OPTIONS);
+    }
+    Assert.assertEquals(
+        "QueryOptimizer.optimize must be invoked from the createSearchExplainQuery entry point",
+        before + 1.0,
+        metrics.getOptimizerInvocations().count(),
+        0.0);
+  }
+
+  /**
+   * Companion pin for the execution entry point: the public {@code createQuery} overload must
+   * invoke the optimizer once per call.
+   */
+  @Test
+  public void createQuery_queryOptimizerEnabled_invokesOptimizer() throws Exception {
+    IndexMetricsUpdater.QueryingMetricsUpdater metrics = queryMetrics();
+    LuceneSearchQueryFactoryDistributor factory = factoryWithQueryOptimizerEnabled(metrics);
+
+    Operator termOperator = OperatorBuilder.term().path("title").query("godfather").build();
+
+    double before = metrics.getOptimizerInvocations().count();
+    try (var reader = DirectoryReader.open(directory)) {
+      factory.createQuery(termOperator, reader, Optional.empty(), DEFAULT_OPTIONS);
+    }
+    Assert.assertEquals(
+        "QueryOptimizer.optimize must be invoked from the createQuery entry point",
+        before + 1.0,
+        metrics.getOptimizerInvocations().count(),
+        0.0);
+  }
+
+  private static LuceneSearchQueryFactoryDistributor factoryWithQueryOptimizerEnabled(
+      IndexMetricsUpdater.QueryingMetricsUpdater metrics) {
+    DynamicFeatureFlagConfig config =
+        new DynamicFeatureFlagConfig(
+            DynamicFeatureFlags.QUERY_OPTIMIZER.getName(),
+            Phase.ENABLED,
+            List.of(),
+            List.of(),
+            0,
+            Scope.GROUP);
+    DynamicFeatureFlagRegistry dffRegistry =
+        new DynamicFeatureFlagRegistry(
+            Optional.of(List.of(config)),
+            Optional.empty(),
+            Optional.of(new ObjectId()),
+            Optional.empty());
+    SearchIndexDefinition indexDefinition =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().dynamicMapping().build();
+    return LuceneSearchQueryFactoryDistributor.create(
+        indexDefinition,
+        IndexFormatVersion.CURRENT,
+        AnalyzerRegistryBuilder.empty(),
+        SynonymRegistryBuilder.empty(),
+        metrics,
+        false,
+        FeatureFlags.getDefault(),
+        dffRegistry);
   }
 
   /**

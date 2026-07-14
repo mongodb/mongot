@@ -8,6 +8,7 @@ java_library(
         "FacetFeatureExplainer.java",
         "HighlightFeatureExplainer.java",
         "MetadataFeatureExplainer.java",
+        "OptimizerFeatureExplainer.java",
         "ResultMaterializationFeatureExplainer.java",
         "SortFeatureExplainer.java",
     ],

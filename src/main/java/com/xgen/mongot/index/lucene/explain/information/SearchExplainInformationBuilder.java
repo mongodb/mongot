@@ -21,6 +21,7 @@ public class SearchExplainInformationBuilder {
   private Optional<Map<String, Integer>> queriedStringFacetCardinalities = Optional.empty();
   private Optional<Map<String, Integer>> totalStringFacetCardinalities = Optional.empty();
   private Optional<List<FeatureFlagEvaluationSpec>> dynamicFeatureFlags = Optional.empty();
+  private Optional<List<String>> optimizerRulesFired = Optional.empty();
 
   public Optional<HighlightStats> highlightStats = Optional.empty();
 
@@ -105,6 +106,11 @@ public class SearchExplainInformationBuilder {
     return this;
   }
 
+  public SearchExplainInformationBuilder optimizerRulesFired(List<String> optimizerRulesFired) {
+    this.optimizerRulesFired = Optional.of(optimizerRulesFired);
+    return this;
+  }
+
   public SearchExplainInformationBuilder resultMaterializationStats(
       ResultMaterializationStats resultMaterializationStats) {
     this.resultMaterializationStats = Optional.of(resultMaterializationStats);
@@ -138,7 +144,8 @@ public class SearchExplainInformationBuilder {
           this.vectorTracingInfos,
           this.vectorSearchSegmentStats,
           Optional.empty(),
-          this.dynamicFeatureFlags);
+          this.dynamicFeatureFlags,
+          this.optimizerRulesFired);
     }
 
     // only metadata/resource usage should be present top level when there are index partitions
@@ -153,6 +160,7 @@ public class SearchExplainInformationBuilder {
         Optional.empty(),
         Optional.empty(),
         Optional.of(this.indexPartitionExplainInformations),
-        this.dynamicFeatureFlags);
+        this.dynamicFeatureFlags,
+        this.optimizerRulesFired);
   }
 }

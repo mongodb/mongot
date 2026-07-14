@@ -64,6 +64,23 @@ public class IndexMetricsUpdater implements Closeable {
    */
   private static final double[] TOTAL_FACET_BUCKETS_BUCKETS = {1000, 10_000, 50_000};
 
+  /**
+   * Histogram bounds for query-optimizer fixed-point iteration counts. Most queries finish in 1
+   * iteration. Counts never exceed the engines' 8-iteration cap; a run aborted at the cap records
+   * exactly 8, indistinguishable here from convergence in 8, so cap aborts surface only in the
+   * engines' warning logs.
+   */
+  private static final double[] OPTIMIZER_ITERATIONS_BUCKETS = {1, 2, 4, 8};
+
+  /**
+   * Histogram bounds (seconds) for the wall-clock cost of one optimize call. Spans 50us through
+   * 10ms; samples above 10ms fall in the implicit +Inf bucket and signal a regression to
+   * investigate.
+   */
+  private static final double[] OPTIMIZER_LATENCY_SECONDS_BUCKETS = {
+    0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01
+  };
+
   private final IndexDefinition indexDefinition;
   private final PerIndexMetricsFactory metricsFactory;
   private final IndexingMetricsUpdater indexingMetricsUpdater;
@@ -578,6 +595,24 @@ public class IndexMetricsUpdater implements Closeable {
     private final DistributionSummary vectorSearchVisitedNodesPerSegmentUnfilteredExact;
     private final DistributionSummary vectorSearchVisitedNodesPerSegmentFilteredExact;
 
+    /**
+     * Query-optimizer invocation counter. Incremented once per QueryOptimizer.optimize call made
+     * while the optimizer is enabled; flag-off calls record nothing.
+     */
+    private final Counter optimizerInvocations;
+
+    /** Distribution of fixed-point iterations performed by the query optimizer. */
+    private final DistributionSummary optimizerIterations;
+
+    /**
+     * Distribution of wall-clock latency (seconds) per QueryOptimizer.optimize call with active
+     * rules. Calls short-circuited for lack of rules record no sample.
+     */
+    private final DistributionSummary optimizerLatencySeconds;
+
+    /** Optimize calls that threw and fell back to the unoptimized tree. */
+    private final Counter optimizerFailures;
+
     @VisibleForTesting
     public QueryingMetricsUpdater(PerIndexMetricsFactory metricsFactory) {
       this(
@@ -723,6 +758,12 @@ public class IndexMetricsUpdater implements Closeable {
           metricsFactory.counter("fallBackHeuristicSuccessCounter");
       this.fallBackHeuristicFailureCounter =
           metricsFactory.counter("fallBackHeuristicFailureCounter");
+      this.optimizerInvocations = metricsFactory.counter("optimizerInvocations");
+      this.optimizerIterations =
+          metricsFactory.histogram("optimizerIterations", OPTIMIZER_ITERATIONS_BUCKETS);
+      this.optimizerLatencySeconds =
+          metricsFactory.histogram("optimizerLatencySeconds", OPTIMIZER_LATENCY_SECONDS_BUCKETS);
+      this.optimizerFailures = metricsFactory.counter("optimizerFailures");
     }
 
     public Counter getTotalQueryCounter() {
@@ -950,6 +991,22 @@ public class IndexMetricsUpdater implements Closeable {
 
     public Counter getBenefitFromIndexSortCounter() {
       return this.benefitFromIndexSortCounter;
+    }
+
+    public Counter getOptimizerInvocations() {
+      return this.optimizerInvocations;
+    }
+
+    public DistributionSummary getOptimizerIterations() {
+      return this.optimizerIterations;
+    }
+
+    public DistributionSummary getOptimizerLatencySeconds() {
+      return this.optimizerLatencySeconds;
+    }
+
+    public Counter getOptimizerFailures() {
+      return this.optimizerFailures;
     }
 
     public void recordDynamicFeatureFlagLatencyTimer(long durationNs) {

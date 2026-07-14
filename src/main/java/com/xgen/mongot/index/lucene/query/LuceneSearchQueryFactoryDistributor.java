@@ -49,6 +49,8 @@ import com.xgen.mongot.index.query.operators.VectorSearchFilter;
 import com.xgen.mongot.index.query.operators.VectorSearchOperator;
 import com.xgen.mongot.index.query.operators.WildcardOperator;
 import com.xgen.mongot.index.query.operators.type.NonNullValueType;
+import com.xgen.mongot.index.query.optimizer.QueryOptimizer;
+import com.xgen.mongot.index.query.optimizer.RuleRegistry;
 import com.xgen.mongot.index.query.sort.SequenceToken;
 import com.xgen.mongot.index.query.sort.SortSpec;
 import com.xgen.mongot.index.synonym.SynonymRegistry;
@@ -95,6 +97,7 @@ public class LuceneSearchQueryFactoryDistributor {
   private final LuceneQueryScorer luceneQueryScorer;
   private final LuceneSortFactory luceneSortFactory;
   private final SearchQueryFactoryContext queryFactoryContext;
+  private final QueryOptimizer queryOptimizer;
 
   /** Generates Lucene Queries from Operators, IndexDefinitions and Analyzers. */
   private LuceneSearchQueryFactoryDistributor(
@@ -119,7 +122,8 @@ public class LuceneSearchQueryFactoryDistributor {
       RangeQueryFactory rangeQueryFactory,
       LuceneQueryScorer luceneQueryScorer,
       LuceneSortFactory luceneSortFactory,
-      SearchQueryFactoryContext queryFactoryContext) {
+      SearchQueryFactoryContext queryFactoryContext,
+      QueryOptimizer queryOptimizer) {
     this.allDocsQueryFactory = allDocsQueryFactory;
     this.autocompleteQueryFactory = autocompleteQueryFactory;
     this.embeddedDocumentQueryFactory = embeddedDocumentQueryFactory;
@@ -149,12 +153,14 @@ public class LuceneSearchQueryFactoryDistributor {
             inQueryFactory,
             existsQueryFactory,
             equalsQueryFactory,
+            queryOptimizer,
             this::createQuery);
     this.vectorSearchQueryFactory =
         new VectorSearchQueryFactory(queryFactoryContext, this.vectorSearchFilterQueryFactory);
     this.luceneQueryScorer = luceneQueryScorer;
     this.luceneSortFactory = luceneSortFactory;
     this.queryFactoryContext = queryFactoryContext;
+    this.queryOptimizer = queryOptimizer;
   }
 
   /**
@@ -217,6 +223,9 @@ public class LuceneSearchQueryFactoryDistributor {
         new InQueryFactory(queryFactoryContext, dynamicFeatureFlagRegistry);
 
     AllDocsQueryFactory allDocsQueryFactory = new AllDocsQueryFactory(queryFactoryContext);
+    QueryOptimizer queryOptimizer =
+        new QueryOptimizer(
+            RuleRegistry.defaults(), queryFactoryContext, dynamicFeatureFlagRegistry);
     return new LuceneSearchQueryFactoryDistributor(
         allDocsQueryFactory,
         new AutocompleteQueryFactory(queryFactoryContext),
@@ -239,7 +248,8 @@ public class LuceneSearchQueryFactoryDistributor {
         rangeQueryFactory,
         LuceneQueryScorer.create(queryFactoryContext),
         new LuceneSortFactory(queryFactoryContext),
-        queryFactoryContext);
+        queryFactoryContext,
+        queryOptimizer);
   }
 
   /**
@@ -259,9 +269,10 @@ public class LuceneSearchQueryFactoryDistributor {
       QueryOptimizationFlags queryOptimizationFlags)
       throws InvalidQueryException, IOException {
     validateReturnScope(returnScope);
+    Operator optimized = this.queryOptimizer.optimize(operator, indexReader).tree();
     var scoredQuery =
         createQuery(
-            operator, SingleQueryContext.createQueryRootWithReturnScope(indexReader, returnScope));
+            optimized, SingleQueryContext.createQueryRootWithReturnScope(indexReader, returnScope));
     return queryOptimizationFlags.omitSearchDocumentResults()
         ? new ConstantScoreQuery(scoredQuery)
         : scoredQuery;
@@ -311,9 +322,10 @@ public class LuceneSearchQueryFactoryDistributor {
       QueryOptimizationFlags queryOptimizationFlags)
       throws InvalidQueryException, IOException {
     validateReturnScope(returnScope);
+    Operator optimized = this.queryOptimizer.optimize(operator, indexReader).tree();
     var explainQuery =
         createSearchExplainQuery(
-            operator,
+            optimized,
             SingleQueryContext.createExplainRootWithReturnScope(indexReader, returnScope));
     return queryOptimizationFlags.omitSearchDocumentResults()
         ? new ConstantScoreQuery(explainQuery)

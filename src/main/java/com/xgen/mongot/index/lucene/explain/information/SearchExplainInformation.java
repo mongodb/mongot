@@ -22,7 +22,8 @@ public record SearchExplainInformation(
     Optional<List<VectorSearchTracingSpec>> vectorSearchTracingInfo,
     Optional<List<VectorSearchSegmentStatsSpec>> vectorSearchSegmentStats,
     Optional<List<SearchExplainInformation>> indexPartitionExplainInformation,
-    Optional<List<FeatureFlagEvaluationSpec>> dynamicFeatureFlags)
+    Optional<List<FeatureFlagEvaluationSpec>> dynamicFeatureFlags,
+    Optional<List<String>> optimizerRulesFired)
     implements DocumentEncodable {
 
   static class Fields {
@@ -106,6 +107,9 @@ public record SearchExplainInformation(
             .asList()
             .optional()
             .noDefault();
+
+    static final Field.Optional<List<String>> OPTIMIZER_RULES_FIRED =
+        Field.builder("optimizerRulesFired").stringField().asList().optional().noDefault();
   }
 
   public static SearchExplainInformation fromBson(DocumentParser parser) throws BsonParseException {
@@ -119,7 +123,8 @@ public record SearchExplainInformation(
         parser.getField(Fields.VECTOR_TRACING).unwrap(),
         parser.getField(Fields.VECTOR_SEARCH_LUCENE_SEGMENT_STATS).unwrap(),
         parser.getField(Fields.INDEX_PARTITION_EXPLAIN_INFORMATION).unwrap(),
-        parser.getField(Fields.DYNAMIC_FEATURE_FLAGS).unwrap());
+        parser.getField(Fields.DYNAMIC_FEATURE_FLAGS).unwrap(),
+        parser.getField(Fields.OPTIMIZER_RULES_FIRED).unwrap());
   }
 
   @Override
@@ -140,6 +145,7 @@ public record SearchExplainInformation(
         .field(Fields.VECTOR_SEARCH_LUCENE_SEGMENT_STATS, this.vectorSearchSegmentStats)
         .field(Fields.INDEX_PARTITION_EXPLAIN_INFORMATION, this.indexPartitionExplainInformation)
         .field(Fields.DYNAMIC_FEATURE_FLAGS, this.dynamicFeatureFlags)
+        .field(Fields.OPTIMIZER_RULES_FIRED, this.optimizerRulesFired)
         .build();
   }
 

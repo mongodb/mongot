@@ -22,6 +22,8 @@ import com.xgen.mongot.index.query.operators.mql.NotOperator;
 import com.xgen.mongot.index.query.operators.mql.OpenRangeBoundComparisonOperator;
 import com.xgen.mongot.index.query.operators.mql.OrClause;
 import com.xgen.mongot.index.query.operators.mql.SimpleClause;
+import com.xgen.mongot.index.query.optimizer.QueryOptimizer;
+import com.xgen.mongot.index.query.optimizer.RuleRegistry;
 import com.xgen.mongot.util.FieldPath;
 import java.io.IOException;
 import java.util.List;
@@ -38,6 +40,7 @@ public class VectorSearchFilterQueryFactory {
   private final InQueryFactory inQueryFactory;
   private final ExistsQueryFactory existsQueryFactory;
   private final EqualsQueryFactory equalsQueryFactory;
+  private final QueryOptimizer queryOptimizer;
 
   public static VectorSearchFilterQueryFactory create(VectorQueryFactoryContext factoryContext) {
     return create(factoryContext, DynamicFeatureFlagRegistry.empty());
@@ -54,8 +57,15 @@ public class VectorSearchFilterQueryFactory {
     var rangeQueryFactory =
         new RangeQueryFactory(factoryContext, equalsQueryFactory, dateRangeQueryFactory);
     var inQueryFactory = new InQueryFactory(factoryContext, dynamicFeatureFlagRegistry);
+    var queryOptimizer =
+        new QueryOptimizer(RuleRegistry.defaults(), factoryContext, dynamicFeatureFlagRegistry);
     return new VectorSearchFilterQueryFactory(
-        factoryContext, rangeQueryFactory, inQueryFactory, existsQueryFactory, equalsQueryFactory);
+        factoryContext,
+        rangeQueryFactory,
+        inQueryFactory,
+        existsQueryFactory,
+        equalsQueryFactory,
+        queryOptimizer);
   }
 
   VectorSearchFilterQueryFactory(
@@ -63,12 +73,14 @@ public class VectorSearchFilterQueryFactory {
       RangeQueryFactory rangeQueryFactory,
       InQueryFactory inQueryFactory,
       ExistsQueryFactory existsQueryFactory,
-      EqualsQueryFactory equalsQueryFactory) {
+      EqualsQueryFactory equalsQueryFactory,
+      QueryOptimizer queryOptimizer) {
     this.factoryContext = factoryContext;
     this.rangeQueryFactory = rangeQueryFactory;
     this.inQueryFactory = inQueryFactory;
     this.existsQueryFactory = existsQueryFactory;
     this.equalsQueryFactory = equalsQueryFactory;
+    this.queryOptimizer = queryOptimizer;
   }
 
   /**
@@ -82,7 +94,9 @@ public class VectorSearchFilterQueryFactory {
 
   Query createLuceneFilter(VectorSearchFilter filter, SingleQueryContext singleQueryContext)
       throws InvalidQueryException, IOException {
-    return switch (filter) {
+    VectorSearchFilter optimized =
+        this.queryOptimizer.optimize(filter, singleQueryContext.getIndexReader()).tree();
+    return switch (optimized) {
       case VectorSearchFilter.ClauseFilter clauseFilter ->
           createLuceneFilterFromClause(clauseFilter.clause(), singleQueryContext);
       case VectorSearchFilter.OperatorFilter operatorFilter ->

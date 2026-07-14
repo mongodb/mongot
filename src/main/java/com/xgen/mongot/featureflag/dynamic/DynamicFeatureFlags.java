@@ -81,7 +81,8 @@ public enum DynamicFeatureFlags {
    * When enabled, Atlas auto-embedding materialized-view replication is disk-gated independently of
    * Lucene replication disk mode.
    */
-  AUTO_EMBEDDING_MONGOD_DISK_MONITOR("mongot.featureFlag.autoEmbeddingMongodDiskMonitor", false);
+  AUTO_EMBEDDING_MONGOD_DISK_MONITOR("mongot.featureFlag.autoEmbeddingMongodDiskMonitor", false),
+  QUERY_OPTIMIZER("mongot.featureFlag.queryOptimizer", false);
 
   private final String name;
   private final boolean fallback;

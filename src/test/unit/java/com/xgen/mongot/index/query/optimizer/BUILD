@@ -7,6 +7,7 @@ java_test_suite(
         "DifferentialTestHarness.java",
         "DifferentialTestHarnessTest.java",
         "OperatorRewriteEngineTest.java",
+        "QueryOptimizerTest.java",
     ],
     tags = ["unit"],
     runtime_deps = [
@@ -15,6 +16,7 @@ java_test_suite(
     deps = [
         "//src/main/java/com/xgen/mongot/featureflag/dynamic",
         "//src/main/java/com/xgen/mongot/index",
+        "//src/main/java/com/xgen/mongot/index/lucene/explain/tracing",
         "//src/main/java/com/xgen/mongot/index/lucene/query/context",
         "//src/main/java/com/xgen/mongot/index/query/operators",
         "//src/main/java/com/xgen/mongot/index/query/operators/bound",
@@ -29,10 +31,13 @@ java_test_suite(
         "//src/main/java/com/xgen/testing/mongot/index/query/operators",
         "//src/main/java/com/xgen/testing/mongot/index/query/operators/mql",
         "//src/main/java/com/xgen/testing/mongot/mock/index",
+        "@maven//:ch_qos_logback_logback_classic",
+        "@maven//:ch_qos_logback_logback_core",
         "@maven//:junit_junit",
         "@maven//:org_apache_lucene_lucene_core",
         "@maven//:org_mockito_mockito_core",
         "@maven//:org_mongodb_bson",
         "@maven//:org_mongodb_mongodb_driver_core",
+        "@maven//:org_slf4j_slf4j_api",
     ],
 )

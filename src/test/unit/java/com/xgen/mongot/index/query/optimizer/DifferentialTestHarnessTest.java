@@ -15,7 +15,7 @@ import org.junit.Test;
 /**
  * Self-test for {@link DifferentialTestHarness}. Drives the equivalence check directly with
  * synthetically-constructed Lucene queries — one pair that is structurally different but matches
- * the same docs (equivalent), and one pair that diverges on a single document (inequivalent).
+ * the same docs (equivalent), and one pair whose match sets are disjoint (inequivalent).
  */
 public class DifferentialTestHarnessTest {
 
@@ -43,7 +43,7 @@ public class DifferentialTestHarnessTest {
   }
 
   @Test
-  public void inequivalent_pair_identifiesDifferingDoc() throws Exception {
+  public void inequivalent_pair_identifiesDifferingDocs() throws Exception {
     try (var harness =
         DifferentialTestHarness.builder()
             .addDocument("doc-a", DocField.of("category", "fiction"))

@@ -3,6 +3,7 @@ package com.xgen.mongot.index.lucene.query;
 import com.xgen.mongot.index.lucene.query.context.SearchQueryFactoryContext;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.operators.Operator;
+import com.xgen.mongot.index.query.optimizer.QueryOptimizer;
 import java.io.IOException;
 import org.apache.lucene.search.Query;
 
@@ -16,13 +17,15 @@ class VectorSearchFilterFromOperatorQueryFactory extends VectorSearchFilterQuery
       InQueryFactory inQueryFactory,
       ExistsQueryFactory existsQueryFactory,
       EqualsQueryFactory equalsQueryFactory,
+      QueryOptimizer queryOptimizer,
       QueryCreator queryCreator) {
     super(
         queryFactoryContext,
         rangeQueryFactory,
         inQueryFactory,
         existsQueryFactory,
-        equalsQueryFactory);
+        equalsQueryFactory,
+        queryOptimizer);
     this.queryCreator = queryCreator;
   }
 
