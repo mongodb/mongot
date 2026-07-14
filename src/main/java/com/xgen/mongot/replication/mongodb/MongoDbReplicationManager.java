@@ -46,6 +46,7 @@ import com.xgen.mongot.util.concurrent.NamedScheduledExecutorService;
 import com.xgen.mongot.util.mongodb.BatchMongoClient;
 import com.xgen.mongot.util.mongodb.ConnectionInfo;
 import com.xgen.mongot.util.mongodb.MongoClientBuilder;
+import com.xgen.mongot.util.mongodb.SslContextFactory;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
@@ -60,7 +61,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
-import javax.net.ssl.SSLContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -361,7 +361,7 @@ public class MongoDbReplicationManager implements ReplicationManager {
           Optional.of(
               getSynonymsMongoClient(
                   mongosSingleHostUri.uri(),
-                  mongosSingleHostUri.sslContext(),
+                  mongosSingleHostUri.sslContextFactory(),
                   replicationConfig.numConcurrentSynonymSyncs,
                   meterRegistry));
     } else {
@@ -557,7 +557,7 @@ public class MongoDbReplicationManager implements ReplicationManager {
       MeterRegistry meterRegistry,
       int maxConnections) {
     return MongoClientBuilder.builder(syncSource.uri(), metricsNamespacePrefix, meterRegistry)
-        .sslContext(syncSource.sslContext())
+        .sslContextFactory(syncSource.sslContextFactory())
         .description("initial sync and session refresh")
         .maxConnections(maxConnections)
         .buildSyncClient();
@@ -665,11 +665,11 @@ public class MongoDbReplicationManager implements ReplicationManager {
 
   private static com.mongodb.client.MongoClient getSynonymsMongoClient(
       ConnectionString connectionString,
-      Optional<SSLContext> sslContext,
+      Optional<SslContextFactory> sslContextFactory,
       int numConcurrentSynonymSyncs,
       MeterRegistry meterRegistry) {
     return MongoClientBuilder.builder(connectionString, meterRegistry)
-        .sslContext(sslContext)
+        .sslContextFactory(sslContextFactory)
         .description("mongos synonym sync")
         .maxConnections(numConcurrentSynonymSyncs)
         .buildSyncClient();
@@ -684,7 +684,7 @@ public class MongoDbReplicationManager implements ReplicationManager {
             syncSourceConfig.mongodClusterReplicationUri.uri(),
             metricsNamespacePrefix,
             meterRegistry)
-        .sslContext(syncSourceConfig.mongodClusterReplicationUri.sslContext())
+        .sslContextFactory(syncSourceConfig.mongodClusterReplicationUri.sslContextFactory())
         .description("steady state sync")
         .maxConnections(numConcurrentChangeStreams)
         .buildSyncBatchClient();

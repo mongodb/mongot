@@ -6,12 +6,12 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.lang.Nullable;
 import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
 import com.xgen.mongot.util.mongodb.MongoClientBuilder;
+import com.xgen.mongot.util.mongodb.SslContextFactory;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import javax.net.ssl.SSLContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -140,13 +140,14 @@ public class AutoEmbeddingMongoClient {
     // Update sync source first
     this.materializedViewResolverMongoClient.set(
         createMaterializedViewResolverMongoClient(
-            connectionInfo.uri(), connectionInfo.sslContext()));
+            connectionInfo.uri(), connectionInfo.sslContextFactory()));
     this.leaseManagerMongoClient.set(
-        createLeaseManagerMongoClient(connectionInfo.uri(), connectionInfo.sslContext()));
+        createLeaseManagerMongoClient(connectionInfo.uri(), connectionInfo.sslContextFactory()));
     this.materializedViewWriterMongoClient.set(
-        createMaterializedViewWriterMongoClient(connectionInfo.uri(), connectionInfo.sslContext()));
+        createMaterializedViewWriterMongoClient(
+            connectionInfo.uri(), connectionInfo.sslContextFactory()));
     this.probeMongoClient.set(
-        createProbeMongoClient(connectionInfo.uri(), connectionInfo.sslContext()));
+        createProbeMongoClient(connectionInfo.uri(), connectionInfo.sslContextFactory()));
   }
 
   public Optional<MongoClient> getMaterializedViewResolverMongoClient() {
@@ -184,7 +185,7 @@ public class AutoEmbeddingMongoClient {
   }
 
   private MongoClient createLeaseManagerMongoClient(
-      ConnectionString connectionString, Optional<SSLContext> sslContext) {
+      ConnectionString connectionString, Optional<SslContextFactory> sslContextFactory) {
     LOG.atInfo()
         .addKeyValue("hosts", connectionString.getHosts())
         .addKeyValue("replicaSet", connectionString.getRequiredReplicaSetName())
@@ -193,12 +194,12 @@ public class AutoEmbeddingMongoClient {
         connectionString,
         "Dynamic Lease Manager mongo client",
         LEASE_MANAGER_MONGO_CLIENT_MAX_CONNECTIONS,
-        sslContext,
+        sslContextFactory,
         this.meterRegistry);
   }
 
   private MongoClient createProbeMongoClient(
-      ConnectionString connectionString, Optional<SSLContext> sslContext) {
+      ConnectionString connectionString, Optional<SslContextFactory> sslContextFactory) {
     // Short timeouts so a single tick cannot stall the disk-monitor executor indefinitely.
     // The dbStats command itself is already capped by maxTimeMS=2000; server selection and
     // socket timeouts provide an outer bound in case the primary is unreachable.
@@ -206,7 +207,7 @@ public class AutoEmbeddingMongoClient {
         .addKeyValue("hosts", connectionString.getHosts())
         .log("Creating MongoClient for mongod-disk probe");
     return MongoClientBuilder.builder(connectionString, this.meterRegistry)
-        .sslContext(sslContext)
+        .sslContextFactory(sslContextFactory)
         .description("AutoEmbedding mongod-disk probe")
         .maxConnections(PROBE_MONGO_CLIENT_MAX_CONNECTIONS)
         .serverSelectionTimeoutMs(3_000L)
@@ -215,7 +216,7 @@ public class AutoEmbeddingMongoClient {
   }
 
   private MongoClient createMaterializedViewResolverMongoClient(
-      ConnectionString connectionString, Optional<SSLContext> sslContext) {
+      ConnectionString connectionString, Optional<SslContextFactory> sslContextFactory) {
     LOG.atInfo()
         .addKeyValue("hosts", connectionString.getHosts())
         .log("Creating MongoClient for MaterializedViewCollectionResolver");
@@ -223,19 +224,19 @@ public class AutoEmbeddingMongoClient {
         connectionString,
         "AutoEmbedding Materialized View Collection Resolver",
         RESOLVER_MONGO_CLIENT_MAX_CONNECTIONS,
-        sslContext,
+        sslContextFactory,
         this.meterRegistry);
   }
 
   private MongoClient createMaterializedViewWriterMongoClient(
-      ConnectionString connectionString, Optional<SSLContext> sslContext) {
+      ConnectionString connectionString, Optional<SslContextFactory> sslContextFactory) {
     LOG.atInfo()
         .addKeyValue("hosts", connectionString.getHosts())
         .addKeyValue("socketTimeoutSeconds", this.materializedViewWriterSocketTimeoutMs / 1000)
         .addKeyValue("maxConnections", this.matViewWriterMaxConnections)
         .log("Creating MongoClient for MaterializedViewWriter");
     return MongoClientBuilder.builder(connectionString, this.meterRegistry)
-        .sslContext(sslContext)
+        .sslContextFactory(sslContextFactory)
         .description("AutoEmbedding Materialized View Writer")
         .maxConnections(this.matViewWriterMaxConnections)
         .socketTimeoutMs(Math.toIntExact(this.materializedViewWriterSocketTimeoutMs))

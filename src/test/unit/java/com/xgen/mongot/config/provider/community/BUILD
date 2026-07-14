@@ -72,6 +72,8 @@ java_test_suite(
         "@maven//:io_micrometer_micrometer_core",
         "@maven//:junit_junit",
         "@maven//:org_apache_commons_commons_lang3",
+        "@maven//:org_bouncycastle_bc_fips",
+        "@maven//:org_bouncycastle_bcpkix_fips",
         "@maven//:org_mockito_mockito_core",
         "@maven//:org_mongodb_bson",
         "@maven//:org_mongodb_mongodb_driver_core",

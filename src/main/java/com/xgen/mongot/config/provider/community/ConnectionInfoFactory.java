@@ -17,14 +17,13 @@ import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
-import javax.net.ssl.SSLContext;
 
 public class ConnectionInfoFactory {
 
   public static ConnectionInfo getClusterConnectionInfo(
       MongoConnectionConfig config, ReadPreference readPreference) {
     return new ConnectionInfo(
-        getClusterConnectionString(config, readPreference), getSslContext(config));
+        getClusterConnectionString(config, readPreference), getSslContextFactory(config));
   }
 
   /**
@@ -35,7 +34,7 @@ public class ConnectionInfoFactory {
       MongoConnectionConfig config, HostAndPort hostAndPort) {
     return new ConnectionInfo(
         getSingleHostConnectionString(config, hostAndPort, Optional.empty()),
-        getSslContext(config));
+        getSslContextFactory(config));
   }
 
   /**
@@ -50,7 +49,7 @@ public class ConnectionInfoFactory {
       MongoConnectionConfig config, HostAndPort hostAndPort, ReadPreference readPreference) {
     return new ConnectionInfo(
         getSingleHostConnectionString(config, hostAndPort, Optional.of(readPreference)),
-        getSslContext(config));
+        getSslContextFactory(config));
   }
 
   private static ConnectionString getSingleHostConnectionString(
@@ -154,31 +153,26 @@ public class ConnectionInfoFactory {
   }
 
   @VisibleForTesting
-  public static Optional<SSLContext> getSslContext(MongoConnectionConfig connectionConfig) {
-
-    if (connectionConfig.scram().isPresent()) {
-      return getScramSslContext(connectionConfig.scram().get());
+  public static Optional<SslContextFactory> getSslContextFactory(MongoConnectionConfig config) {
+    if (config.scram().isPresent()) {
+      return getScramSslContextFactory(config.scram().get());
     }
-
-    if (connectionConfig.x509().isPresent()) {
-      X509Config x509Config = connectionConfig.x509().get();
-      return Optional.of(getX509SslContext(x509Config));
+    if (config.x509().isPresent()) {
+      return Optional.of(getX509SslContextFactory(config.x509().get()));
     }
-
     throw Check.unreachableError();
   }
 
   /**
-   * Builds an {@link SSLContext} for x509 client-certificate authentication. A CA file is required
-   * inline on {@code x509Config}. x509 setups use a private CA not present in the JVM default trust
-   * store, so falling back to it would either fail verification or silently accept any server
-   * certificate signed by a public CA.
+   * Builds a {@link SslContextFactory} for x509 client-certificate authentication. A CA file is
+   * required inline on {@code x509Config}. x509 setups use a private CA not present in the JVM
+   * default trust store, so falling back to it would either fail verification or silently accept
+   * any server certificate signed by a public CA.
    *
    * @param x509Config the x509 auth configuration, which may carry an inline CA and cert-key file
-   * @return an {@link SSLContext} configured with the resolved CA and client certificate
+   * @return a {@link SslContextFactory} configured with the resolved CA and client certificate
    */
-  private static SSLContext getX509SslContext(X509Config x509Config) {
-
+  private static SslContextFactory getX509SslContextFactory(X509Config x509Config) {
     Check.checkArg(
         x509Config.tlsConfig().caFile().isPresent(), "caFile must be set within x509 config");
 
@@ -186,31 +180,31 @@ public class ConnectionInfoFactory {
         x509Config.tlsConfig().tlsCertificateKeyFile().isPresent(),
         "tlsCertificateKeyFile required for x509 auth");
 
-    return SslContextFactory.getWithCertKeyFile(
+    return SslContextFactory.withCertKeyFile(
         x509Config.tlsConfig().caFile(),
         x509Config.tlsConfig().tlsCertificateKeyFile().get(),
         x509Config.tlsConfig().tlsCertificateKeyFilePasswordFile());
   }
 
   /**
-   * Builds an {@link SSLContext} for SCRAM authentication. Because SCRAM authenticates via
+   * Builds a {@link SslContextFactory} for SCRAM authentication. Because SCRAM authenticates via
    * password, a CA file is optional: when absent the driver falls back to the JVM default trust
    * store for server certificate verification. When {@code tlsCertificateKeyFile} is also
    * configured, a client certificate is included to enable mTLS on top of SCRAM.
    *
    * @param scramConfig the SCRAM auth configuration, including TLS settings
-   * @return an {@link SSLContext} if any TLS material is configured, or empty to use driver
+   * @return a {@link SslContextFactory} if any TLS material is configured, or empty to use driver
    *     defaults
    */
-  private static Optional<SSLContext> getScramSslContext(ScramConfig scramConfig) {
+  private static Optional<SslContextFactory> getScramSslContextFactory(ScramConfig scramConfig) {
     TlsConfig tlsConfig = scramConfig.tls();
     if (tlsConfig.tlsCertificateKeyFile().isPresent()) {
       return Optional.of(
-          SslContextFactory.getWithCertKeyFile(
+          SslContextFactory.withCertKeyFile(
               tlsConfig.caFile(),
               tlsConfig.tlsCertificateKeyFile().get(),
               tlsConfig.tlsCertificateKeyFilePasswordFile()));
     }
-    return tlsConfig.caFile().map(SslContextFactory::getWithCaFile);
+    return tlsConfig.caFile().map(SslContextFactory::withCaFile);
   }
 }

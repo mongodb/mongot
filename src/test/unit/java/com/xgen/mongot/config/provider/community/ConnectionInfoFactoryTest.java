@@ -11,15 +11,114 @@ import com.mongodb.Tag;
 import com.mongodb.TagSet;
 import com.xgen.mongot.util.mongodb.ConnectionInfo;
 import com.xgen.mongot.util.mongodb.Databases;
+import com.xgen.mongot.util.mongodb.SslContextFactory;
 import java.io.IOException;
+import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.SecureRandom;
+import java.security.cert.X509Certificate;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Base64;
+import java.util.Date;
 import java.util.List;
 import java.util.Optional;
+import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
+import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
+import org.bouncycastle.operator.ContentSigner;
+import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 public class ConnectionInfoFactoryTest {
+
+  private static Path tlsCaFile;
+  private static Path tlsClientCombinedFile;
+
+  @BeforeClass
+  public static void generateTlsCerts() throws Exception {
+    KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+    kpg.initialize(2048, new SecureRandom());
+
+    KeyPair caKeyPair = kpg.generateKeyPair();
+    X509Certificate caCert = buildSelfSignedCert(caKeyPair, "CN=Test CA");
+
+    tlsCaFile = Files.createTempFile("conn-info-test-ca", ".pem");
+    Files.writeString(tlsCaFile, toPemCert(caCert));
+
+    KeyPair clientKeyPair = kpg.generateKeyPair();
+    X509Certificate clientCert =
+        buildSignedCert(clientKeyPair, "CN=Test Client", caKeyPair, caCert);
+
+    tlsClientCombinedFile = Files.createTempFile("conn-info-test-client", ".pem");
+    Files.writeString(
+        tlsClientCombinedFile, toPemPrivateKey(clientKeyPair) + toPemCert(clientCert));
+  }
+
+  @AfterClass
+  public static void deleteTlsCerts() throws Exception {
+    if (tlsCaFile != null) {
+      Files.deleteIfExists(tlsCaFile);
+    }
+    if (tlsClientCombinedFile != null) {
+      Files.deleteIfExists(tlsClientCombinedFile);
+    }
+  }
+
+  private static X509Certificate buildSelfSignedCert(KeyPair keyPair, String dn) throws Exception {
+    X500Name name = new X500Name(dn);
+    Instant now = Instant.now();
+    JcaX509v3CertificateBuilder builder =
+        new JcaX509v3CertificateBuilder(
+            name,
+            BigInteger.valueOf(1),
+            Date.from(now),
+            Date.from(now.plus(365, ChronoUnit.DAYS)),
+            name,
+            keyPair.getPublic());
+    ContentSigner signer = new JcaContentSignerBuilder("SHA256WithRSA").build(keyPair.getPrivate());
+    return new JcaX509CertificateConverter().getCertificate(builder.build(signer));
+  }
+
+  private static X509Certificate buildSignedCert(
+      KeyPair subjectKeyPair, String subjectDn, KeyPair caKeyPair, X509Certificate caCert)
+      throws Exception {
+    X500Name issuer = new X500Name(caCert.getSubjectX500Principal().getName());
+    X500Name subject = new X500Name(subjectDn);
+    Instant now = Instant.now();
+    JcaX509v3CertificateBuilder builder =
+        new JcaX509v3CertificateBuilder(
+            issuer,
+            BigInteger.valueOf(2),
+            Date.from(now),
+            Date.from(now.plus(365, ChronoUnit.DAYS)),
+            subject,
+            subjectKeyPair.getPublic());
+    ContentSigner signer =
+        new JcaContentSignerBuilder("SHA256WithRSA").build(caKeyPair.getPrivate());
+    return new JcaX509CertificateConverter().getCertificate(builder.build(signer));
+  }
+
+  private static String toPemPrivateKey(KeyPair keyPair) {
+    byte[] encoded = keyPair.getPrivate().getEncoded();
+    String b64 =
+        Base64.getMimeEncoder(64, "\n".getBytes(StandardCharsets.UTF_8)).encodeToString(encoded);
+    return "-----BEGIN PRIVATE KEY-----\n" + b64 + "\n-----END PRIVATE KEY-----\n";
+  }
+
+  private static String toPemCert(X509Certificate cert) throws Exception {
+    byte[] encoded = cert.getEncoded();
+    String b64 =
+        Base64.getMimeEncoder(64, "\n".getBytes(StandardCharsets.UTF_8)).encodeToString(encoded);
+    return "-----BEGIN CERTIFICATE-----\n" + b64 + "\n-----END CERTIFICATE-----\n";
+  }
 
   private static final List<HostAndPort> HOSTS =
       List.of(HostAndPort.fromParts("localhost", 27017), HostAndPort.fromParts("localhost", 27018));
@@ -105,7 +204,7 @@ public class ConnectionInfoFactoryTest {
       assertThat(raw).contains("tls=false");
       assertThat(raw).contains("directConnection=false");
       assertThat(raw).contains("readConcernLevel=majority");
-      assertThat(info.sslContext()).isEmpty();
+      assertThat(info.sslContextFactory()).isEmpty();
     } finally {
       Files.deleteIfExists(passwordFile);
     }
@@ -219,7 +318,7 @@ public class ConnectionInfoFactoryTest {
       assertThat(uri).contains("tls=false");
       assertThat(uri).contains("directConnection=true");
       assertThat(uri).contains("readConcernLevel=majority");
-      assertThat(info.sslContext()).isEmpty();
+      assertThat(info.sslContextFactory()).isEmpty();
     } finally {
       Files.deleteIfExists(passwordFile);
     }
@@ -364,7 +463,7 @@ public class ConnectionInfoFactoryTest {
   }
 
   @Test
-  public void getSingleHostConnectionInfo_scramWithoutCertificateKeyFile_sslContextIsEmpty()
+  public void getSingleHostConnectionInfo_scramWithoutCertificateKeyFile_sslContextFactoryIsEmpty()
       throws IOException {
     Path passwordFile = createPasswordFile("hunter2"); // kingfisher:ignore
     try {
@@ -380,10 +479,61 @@ public class ConnectionInfoFactoryTest {
       assertThat(cs.getCredential().getSource()).isEqualTo("admin");
       assertThat(new String(cs.getCredential().getPassword())).isEqualTo("hunter2");
 
-      assertThat(info.sslContext()).isEmpty();
+      assertThat(info.sslContextFactory()).isEmpty();
     } finally {
       Files.deleteIfExists(passwordFile);
     }
+  }
+
+  @Test
+  public void getSslContextFactory_scramWithCaFileOnly_returnsPresentSslContextFactory()
+      throws IOException {
+    Path passwordFile = createPasswordFile("p"); // kingfisher:ignore
+    try {
+      TlsConfig tls =
+          new TlsConfig(true, Optional.empty(), Optional.empty(), Optional.of(tlsCaFile));
+      ScramConfig scram = new ScramConfig(Databases.ADMIN, "__system", passwordFile, tls);
+      ReplicaSetConfig config = replicaSetConfig(scram);
+
+      Optional<SslContextFactory> result = ConnectionInfoFactory.getSslContextFactory(config);
+
+      assertThat(result).isPresent();
+    } finally {
+      Files.deleteIfExists(passwordFile);
+    }
+  }
+
+  @Test
+  public void getSslContextFactory_scramWithCaFileAndCertKey_returnsPresentSslContextFactory()
+      throws IOException {
+    Path passwordFile = createPasswordFile("p"); // kingfisher:ignore
+    try {
+      TlsConfig tls =
+          new TlsConfig(
+              true, Optional.of(tlsClientCombinedFile), Optional.empty(), Optional.of(tlsCaFile));
+      ScramConfig scram = new ScramConfig(Databases.ADMIN, "__system", passwordFile, tls);
+      ReplicaSetConfig config = replicaSetConfig(scram);
+
+      Optional<SslContextFactory> result = ConnectionInfoFactory.getSslContextFactory(config);
+
+      assertThat(result).isPresent();
+    } finally {
+      Files.deleteIfExists(passwordFile);
+    }
+  }
+
+  @Test
+  public void getSslContextFactory_x509WithoutCertKeyFile_throwsIllegalArgumentException() {
+    TlsConfig tls = new TlsConfig(true, Optional.empty(), Optional.empty(), Optional.of(tlsCaFile));
+    X509Config x509 = new X509Config(tls);
+    ReplicaSetConfig config = replicaSetConfig(x509);
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> ConnectionInfoFactory.getSslContextFactory(config));
+
+    assertThat(e).hasMessageThat().contains("tlsCertificateKeyFile required for x509 auth");
   }
 
   @Test
@@ -407,7 +557,7 @@ public class ConnectionInfoFactoryTest {
       assertThat(raw).contains("tls=false");
       assertThat(raw).contains("directConnection=false");
       assertThat(raw).contains("readConcernLevel=majority");
-      assertThat(info.sslContext()).isEmpty();
+      assertThat(info.sslContextFactory()).isEmpty();
     } finally {
       Files.deleteIfExists(passwordFile);
     }

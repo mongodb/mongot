@@ -44,6 +44,75 @@ import org.bouncycastle.pkcs.PKCS8EncryptedPrivateKeyInfo;
  */
 public class SslContextFactory {
 
+  private final Optional<TrustManagerFactory> trustManagerFactory;
+  private final Optional<KeyManagerFactory> keyManagerFactory;
+
+  public SslContextFactory() {
+    this.trustManagerFactory = Optional.empty();
+    this.keyManagerFactory = Optional.empty();
+  }
+
+  private SslContextFactory(
+      Optional<TrustManagerFactory> trustManagerFactory,
+      Optional<KeyManagerFactory> keyManagerFactory) {
+    this.trustManagerFactory = trustManagerFactory;
+    this.keyManagerFactory = keyManagerFactory;
+  }
+
+  /**
+   * Creates a {@link SslContextFactory} configured with the CA trust material from {@code
+   * caFilePath}. Both the OpenSSL {@link SslContext} (via {@link #get()}) and the Java {@link
+   * SSLContext} fallback (via {@link #getJavaContext()}) validate server certificates against the
+   * supplied CA rather than the system trust store.
+   */
+  public static SslContextFactory withCaFile(Path caFilePath) {
+    try {
+      return new SslContextFactory(
+          Optional.of(createTrustManagerFromCaFile(caFilePath)), Optional.empty());
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to build SslContextFactory from CA file", e);
+    }
+  }
+
+  /**
+   * Creates a {@link SslContextFactory} configured for mutual TLS. Includes a key manager from
+   * {@code certKeyFilePath} and optionally a trust manager from {@code caFilePath}. When {@code
+   * caFilePath} is absent the JVM default trust store is used for server certificate verification.
+   * Both the OpenSSL {@link SslContext} (via {@link #get()}) and the Java {@link SSLContext}
+   * fallback (via {@link #getJavaContext()}) use this material.
+   */
+  public static SslContextFactory withCertKeyFile(
+      Optional<Path> caFilePath, Path certKeyFilePath, Optional<Path> certKeyFilePasswordPath) {
+    try {
+      Optional<TrustManagerFactory> tmf =
+          caFilePath.isPresent()
+              ? Optional.of(createTrustManagerFromCaFile(caFilePath.get()))
+              : Optional.empty();
+      KeyManagerFactory kmf = createKmfFromCombinedPem(certKeyFilePath, certKeyFilePasswordPath);
+      return new SslContextFactory(tmf, Optional.of(kmf));
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to build SslContextFactory from cert/key file", e);
+    }
+  }
+
+  /**
+   * Builds a Java {@link SSLContext} from the trust and key material held by this factory. Used as
+   * a fallback when OpenSSL dynamic linking is unavailable or fails.
+   */
+  public SSLContext getJavaContext() {
+    try {
+      SSLContext sslContext = SSLContext.getInstance("TLSv1.3");
+      javax.net.ssl.TrustManager[] trustManagers =
+          this.trustManagerFactory.map(TrustManagerFactory::getTrustManagers).orElse(null);
+      javax.net.ssl.KeyManager[] keyManagers =
+          this.keyManagerFactory.map(KeyManagerFactory::getKeyManagers).orElse(null);
+      sslContext.init(keyManagers, trustManagers, new SecureRandom());
+      return sslContext;
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to build Java SSLContext", e);
+    }
+  }
+
   /**
    * Creates an SSLContext from a CA file containing multiple certificates.
    *
@@ -223,11 +292,19 @@ public class SslContextFactory {
     return kmf;
   }
 
+  /**
+   * Returns a Netty {@link SslContext} backed by the native OpenSSL provider. For the Java {@link
+   * SSLContext} fallback (used when OpenSSL linking fails or the platform is unsupported), see
+   * {@link #getJavaContext()}.
+   */
   SslContext get() throws SslDynamicLinkingException {
     try {
       // try to dynamically link to system version of OpenSSL to provide better throughput to
       // mongod.
-      return SslContextBuilder.forClient().sslProvider(SslProvider.OPENSSL).build();
+      SslContextBuilder builder = SslContextBuilder.forClient().sslProvider(SslProvider.OPENSSL);
+      this.trustManagerFactory.ifPresent(builder::trustManager);
+      this.keyManagerFactory.ifPresent(builder::keyManager);
+      return builder.build();
     } catch (UnsatisfiedLinkError | SSLException e) {
       // OpenSSL provider may fail due to a linking problem. While this is not expected in
       // production, we failover to slower implementation if it does occur and will monitor

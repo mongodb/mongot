@@ -21,7 +21,6 @@ import io.netty.handler.ssl.OpenSsl;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import javax.net.ssl.SSLContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,7 +38,6 @@ public class MongoClientBuilder {
   private Optional<String> applicationName;
   private Optional<Integer> maxConnections;
   private Optional<Integer> socketTimeoutMs;
-  private Optional<SSLContext> sslContext;
   private Optional<ReadConcern> readConcern;
   private Optional<Long> heartbeatFrequencyMs;
   private Optional<Long> minHeartbeatFrequencyMs;
@@ -62,7 +60,6 @@ public class MongoClientBuilder {
     this.applicationName = Optional.empty();
     this.maxConnections = Optional.empty();
     this.socketTimeoutMs = Optional.empty();
-    this.sslContext = Optional.empty();
     this.readConcern = Optional.empty();
     this.heartbeatFrequencyMs = Optional.empty();
     this.minHeartbeatFrequencyMs = Optional.empty();
@@ -138,7 +135,7 @@ public class MongoClientBuilder {
         connectionInfo.uri(),
         applicationName,
         Defaults.SINGLE_THREAD_MAX_CONNECTIONS,
-        connectionInfo.sslContext(),
+        connectionInfo.sslContextFactory(),
         meterRegistry);
   }
 
@@ -150,20 +147,16 @@ public class MongoClientBuilder {
       ConnectionString connectionString,
       String applicationName,
       int maxConnections,
-      Optional<SSLContext> sslContext,
+      Optional<SslContextFactory> sslContextFactory,
       MeterRegistry meterRegistry) {
 
-    return builder(connectionString, meterRegistry)
-        .sslContext(sslContext)
-        .description(applicationName)
-        .maxConnections(maxConnections)
-        .socketTimeoutMs(Defaults.SOCKET_TIMEOUT_MS)
-        .buildNonReplicationClient();
-  }
-
-  public MongoClientBuilder sslContext(Optional<SSLContext> sslContext) {
-    this.sslContext = sslContext;
-    return this;
+    var b =
+        builder(connectionString, meterRegistry)
+            .description(applicationName)
+            .maxConnections(maxConnections)
+            .socketTimeoutMs(Defaults.SOCKET_TIMEOUT_MS);
+    sslContextFactory.ifPresent(b::sslContextFactory);
+    return b.buildNonReplicationClient();
   }
 
   public MongoClientBuilder description(String description) {
@@ -183,6 +176,11 @@ public class MongoClientBuilder {
 
   public MongoClientBuilder sslContextFactory(SslContextFactory sslContextFactory) {
     this.sslContextFactory = Optional.of(sslContextFactory);
+    return this;
+  }
+
+  public MongoClientBuilder sslContextFactory(Optional<SslContextFactory> sslContextFactory) {
+    this.sslContextFactory = sslContextFactory;
     return this;
   }
 
@@ -291,14 +289,6 @@ public class MongoClientBuilder {
       attemptOpenSslDynamicLinking(settings);
     }
 
-    if (this.sslContext.isPresent()) {
-      settings.applyToSslSettings(
-          builder -> {
-            builder.enabled(true);
-            builder.context(this.sslContext.get());
-          });
-    }
-
     this.readConcern.ifPresent(settings::readConcern);
     this.applicationName.ifPresent(settings::applicationName);
     this.maxConnections.ifPresent(
@@ -320,6 +310,7 @@ public class MongoClientBuilder {
           .addKeyValue("platform", platform)
           .addKeyValue("applicationName", this.applicationName)
           .log("Skipping OpenSSL linking on an unsupported platform");
+      applyJavaSslFallback(settings);
       return;
     }
     try {
@@ -335,7 +326,18 @@ public class MongoClientBuilder {
     } catch (SslDynamicLinkingException e) {
       this.failedDynamicLinkingCounter.increment();
       LOG.error("netty-tcnative dynamic linking failed: ", e);
+      applyJavaSslFallback(settings);
     }
+  }
+
+  private void applyJavaSslFallback(MongoClientSettings.Builder settings) {
+    this.sslContextFactory.ifPresent(
+        factory ->
+            settings.applyToSslSettings(
+                b -> {
+                  b.enabled(true);
+                  b.context(factory.getJavaContext());
+                }));
   }
 
   private boolean validateConnectionString(ConnectionString connectionString) {

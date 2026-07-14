@@ -332,7 +332,7 @@ public class InitialSyncHostProvider implements Closeable {
         .minHeartbeatFrequencyMs(500)
         .localThresholdMs(100)
         .maxConnections(1)
-        .sslContext(connectionInfo.sslContext())
+        .sslContextFactory(connectionInfo.sslContextFactory())
         .buildNonReplicationClient();
   }
 }
