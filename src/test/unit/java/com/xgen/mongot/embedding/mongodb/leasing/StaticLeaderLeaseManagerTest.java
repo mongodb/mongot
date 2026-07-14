@@ -697,6 +697,138 @@ public class StaticLeaderLeaseManagerTest {
         .isTrue();
   }
 
+  // ==================== deleted-index deliberate cleanup ====================
+
+  @Test
+  public void cleanupLeaseForDeletedIndex_deleteFailure_evictsCacheAndReturnsFalse() {
+    StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
+    String collectionName = "deleted-index-error-lease";
+    registerViaGcScan(
+        leaseManager,
+        createLeaseWithMetadata(
+            collectionName,
+            new MaterializedViewCollectionMetadata(
+                VERSION_ZERO, UUID.randomUUID(), collectionName)));
+    when(this.mockCollection.deleteOne(any(Bson.class)))
+        .thenThrow(new RuntimeException("delete failed"));
+
+    assertThat(leaseManager.cleanupLeaseForDeletedIndex(collectionName)).isFalse();
+    // The cached copy is evicted even when the delete fails; the document is left for the GC.
+    assertThat(leaseManager.getLeaseKeyToDatabase()).doesNotContainKey(collectionName);
+  }
+
+  @Test
+  public void cleanupLeaseForDeletedIndex_deletesByIdRegardlessOfOwnerAndState() {
+    StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
+    String collectionName = "deleted-index-lease";
+    Lease fresh =
+        createLeaseWithMetadata(
+            collectionName,
+            new MaterializedViewCollectionMetadata(
+                VERSION_ZERO, UUID.randomUUID(), collectionName));
+    registerViaGcScan(leaseManager, fresh);
+    DeleteResult deleteResult = mock(DeleteResult.class);
+    when(this.mockCollection.deleteOne(any(Bson.class))).thenReturn(deleteResult);
+
+    assertThat(leaseManager.cleanupLeaseForDeletedIndex(collectionName)).isTrue();
+
+    // By id only: no owner, staleness, or cleanup-state predicate. Local cache evicted.
+    ArgumentCaptor<Bson> filterCaptor = ArgumentCaptor.forClass(Bson.class);
+    verify(this.mockCollection).deleteOne(filterCaptor.capture());
+    String filterJson =
+        filterCaptor
+            .getValue()
+            .toBsonDocument(BsonDocument.class, MongoClientSettings.getDefaultCodecRegistry())
+            .toJson();
+    assertThat(filterJson).doesNotContain(Lease.Fields.LEASE_OWNER.getName());
+    assertThat(filterJson).doesNotContain(Lease.Fields.CLEANUP_STATE.getName());
+    assertThat(filterJson).doesNotContain(Lease.Fields.LEASE_EXPIRATION.getName());
+    assertThat(leaseManager.getLeases()).doesNotContainKey(collectionName);
+    assertThat(leaseManager.getLeaseKeyToDatabase()).doesNotContainKey(collectionName);
+  }
+
+  @Test
+  public void findLeasesForDeletedIndex_unparseableDocument_skippedNotFatal() {
+    StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
+    ObjectId indexId = new ObjectId();
+    String knownKey = indexId.toHexString() + "-hash1-1-0";
+    String leftoverKey = indexId.toHexString() + "-hash2-1-0";
+    registerViaGcScan(
+        leaseManager,
+        createLeaseWithMetadata(
+            knownKey,
+            new MaterializedViewCollectionMetadata(VERSION_ZERO, UUID.randomUUID(), knownKey)));
+    ArrayList<BsonDocument> found = new ArrayList<>();
+    found.add(
+        createLeaseWithMetadata(
+                knownKey,
+                new MaterializedViewCollectionMetadata(VERSION_ZERO, UUID.randomUUID(), knownKey))
+            .toBson());
+    // Malformed lease document (missing required fields): must be skipped per document, not
+    // abort the scan and hide the remaining leases.
+    found.add(new BsonDocument("_id", new BsonString(indexId.toHexString() + "-bad-1-0")));
+    found.add(
+        createLeaseWithMetadata(
+                leftoverKey,
+                new MaterializedViewCollectionMetadata(
+                    VERSION_ZERO, UUID.randomUUID(), leftoverKey))
+            .toBson());
+    when(this.mockFindIterable.into(any())).thenReturn(found);
+
+    List<LeaseManager.DeletedIndexLease> leases =
+        leaseManager.findLeasesForDeletedIndex(indexId, knownKey);
+
+    assertThat(leases.stream().map(entry -> entry.lease().id()))
+        .containsExactly(knownKey, leftoverKey);
+  }
+
+  @Test
+  public void findLeasesForDeletedIndex_returnsLeasesWithNamespacesAndRegistersMappings() {
+    StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
+    ObjectId indexId = new ObjectId();
+    String knownKey = indexId.toHexString() + "-hash1-1-0";
+    String leftoverKey = indexId.toHexString() + "-hash2-1-0";
+    registerViaGcScan(
+        leaseManager,
+        createLeaseWithMetadata(
+            knownKey,
+            new MaterializedViewCollectionMetadata(VERSION_ZERO, UUID.randomUUID(), knownKey)));
+    ArrayList<BsonDocument> found = new ArrayList<>();
+    found.add(
+        createLeaseWithMetadata(
+                knownKey,
+                new MaterializedViewCollectionMetadata(VERSION_ZERO, UUID.randomUUID(), knownKey))
+            .toBson());
+    found.add(
+        createLeaseWithMetadata(
+                leftoverKey,
+                new MaterializedViewCollectionMetadata(
+                    VERSION_ZERO, UUID.randomUUID(), leftoverKey))
+            .toBson());
+    when(this.mockFindIterable.into(any())).thenReturn(found);
+
+    List<LeaseManager.DeletedIndexLease> leases =
+        leaseManager.findLeasesForDeletedIndex(indexId, knownKey);
+
+    assertThat(leases.stream().map(entry -> entry.lease().id()))
+        .containsExactly(knownKey, leftoverKey);
+    // The scan pattern covers both id layouts: bare v0 ids and dash-suffixed v1+ ids.
+    ArgumentCaptor<Bson> filterCaptor = ArgumentCaptor.forClass(Bson.class);
+    verify(this.mockCollection).find(filterCaptor.capture());
+    assertThat(
+            filterCaptor
+                .getValue()
+                .toBsonDocument(BsonDocument.class, MongoClientSettings.getDefaultCodecRegistry())
+                .toJson())
+        .contains("^" + indexId.toHexString());
+    // Each lease arrives paired with the MV namespace to drop — no per-lease re-read needed.
+    assertThat(
+            leases.stream()
+                .map(entry -> entry.matViewNamespace().orElseThrow().getCollectionName()))
+        .containsExactly(knownKey, leftoverKey);
+    assertThat(leaseManager.getLeaseKeyToDatabase()).containsKey(leftoverKey);
+  }
+
   private Lease createLeaseWithMetadata(
       String collectionName, MaterializedViewCollectionMetadata metadata) {
     return new Lease(

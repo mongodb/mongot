@@ -57,6 +57,7 @@ import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
 import org.bson.Document;
 import org.bson.conversions.Bson;
+import org.bson.types.ObjectId;
 import org.jetbrains.annotations.TestOnly;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -863,19 +864,10 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
       return Optional.empty();
     }
     try {
-      // The eligibility re-read AND the namespace construction both run inside this try: a missing
-      // materializedViewCollectionMetadata or an invalid collection name must still yield empty,
-      // not throw out of this best-effort method.
-      Optional<Lease> lease =
-          readLeaseIfStillEligible(dbName, leaseKey, expectedLeaseVersion, expirationCutoff);
-      if (lease.isEmpty()) {
-        return Optional.empty();
-      }
-      return Optional.of(
-          new MongoNamespace(
-              dbName, lease.get().materializedViewCollectionMetadata().collectionName()));
+      return readLeaseIfStillEligible(dbName, leaseKey, expectedLeaseVersion, expirationCutoff)
+          .flatMap(lease -> LeaseManager.matViewNamespaceOf(dbName, lease));
     } catch (Exception e) {
-      // Re-read or namespace resolution failed; the next sweep re-evaluates.
+      // Re-read failed; the next sweep re-evaluates.
       LOG.atWarn()
           .addKeyValue("leaseKey", leaseKey)
           .setCause(e)
@@ -964,6 +956,98 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
           .addKeyValue("leaseKey", leaseKey)
           .setCause(e)
           .log("Failed to delete stale lease");
+      return false;
+    }
+  }
+
+  @Override
+  public List<DeletedIndexLease> findLeasesForDeletedIndex(ObjectId indexId, String knownLeaseKey) {
+    Optional<String> dbNameIfKnown =
+        databaseForLease(knownLeaseKey, "listing a deleted index's leases");
+    if (dbNameIfKnown.isEmpty()) {
+      return List.of();
+    }
+    String dbName = dbNameIfKnown.get();
+    // Index-bounded prefix prefilter only; Lease#indexId is the authority on lease-id layouts
+    // and does the exact matching below.
+    var filter = Filters.regex("_id", "^" + indexId.toHexString());
+    try {
+      List<BsonDocument> rawLeases =
+          this.operationExecutor.execute(
+              "findLeasesForDeletedIndex",
+              () -> this.getCollection(dbName).find(filter).into(new ArrayList<>()));
+      List<DeletedIndexLease> found = new ArrayList<>();
+      for (BsonDocument rawLease : rawLeases) {
+        Lease lease;
+        try {
+          lease = Lease.fromBson(rawLease);
+        } catch (BsonParseException | RuntimeException e) {
+          // Skip per document, as in the GC lease scan: one bad doc must not hide the rest.
+          LOG.atWarn()
+              .addKeyValue("indexId", indexId)
+              .setCause(e)
+              .log("Failed to parse a lease document while listing a deleted index's leases");
+          continue;
+        }
+        if (!lease.indexId().equals(indexId.toHexString())) {
+          // Prefix-matched but not this index's per Lease#indexId: corrupt data.
+          LOG.atWarn()
+              .addKeyValue("indexId", indexId)
+              .addKeyValue("leaseKey", lease.id())
+              .log("Skipping a prefix-matched lease that does not belong to the deleted index");
+          continue;
+        }
+        this.leaseKeyToDatabase.putIfAbsent(lease.id(), dbName);
+        found.add(new DeletedIndexLease(lease, LeaseManager.matViewNamespaceOf(dbName, lease)));
+      }
+      return found;
+    } catch (Exception e) {
+      LOG.atWarn()
+          .addKeyValue("indexId", indexId)
+          .setCause(e)
+          .log("Failed to list a deleted index's leases");
+      return List.of();
+    }
+  }
+
+  /** The database mapped for {@code leaseKey}, or empty (logging {@code action}) if unknown. */
+  private Optional<String> databaseForLease(String leaseKey, String action) {
+    try {
+      return Optional.of(getDatabaseForLease(leaseKey));
+    } catch (IllegalStateException e) {
+      LOG.atWarn()
+          .addKeyValue("leaseKey", leaseKey)
+          .addKeyValue("action", action)
+          .setCause(e)
+          .log("No database mapping for lease key, skipping");
+      return Optional.empty();
+    }
+  }
+
+  @Override
+  public boolean cleanupLeaseForDeletedIndex(String leaseKey) {
+    Optional<String> dbNameIfKnown = databaseForLease(leaseKey, "deleting a deleted index's lease");
+    if (dbNameIfKnown.isEmpty()) {
+      return false;
+    }
+    String dbName = dbNameIfKnown.get();
+    // Evict the local copy first, as dropLease does: the cached entry must not outlive this
+    // call even when the delete fails (the document is left for the GC either way).
+    this.leases.remove(leaseKey);
+    this.leaseKeyToDatabase.remove(leaseKey);
+    // By id only: the index is gone from the desired config, so owner, staleness, and cleanup
+    // state are all irrelevant — every lease under it is garbage. Concurrent mongots race this
+    // idempotently; deletedCount 0 with no error means another one won.
+    try {
+      this.operationExecutor.execute(
+          "cleanupLeaseForDeletedIndex",
+          () -> this.getCollection(dbName).deleteOne(Filters.eq("_id", leaseKey)));
+      return true;
+    } catch (Exception e) {
+      LOG.atWarn()
+          .addKeyValue("leaseKey", leaseKey)
+          .setCause(e)
+          .log("Failed to delete a deleted index's lease");
       return false;
     }
   }

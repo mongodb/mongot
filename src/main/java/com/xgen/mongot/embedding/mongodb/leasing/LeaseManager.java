@@ -23,7 +23,9 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import org.bson.BsonTimestamp;
+import org.bson.types.ObjectId;
 import org.jetbrains.annotations.TestOnly;
+import org.slf4j.LoggerFactory;
 
 // TODO(CLOUDP-371278): Refactor interface to have stricter type that only allows MatView related
 // IndexGeneration and GenerationId
@@ -195,6 +197,36 @@ public interface LeaseManager {
   boolean deleteStaleLease(String leaseKey, long expectedLeaseVersion, Instant expirationCutoff);
 
   /**
+   * A deleted index's lease paired with the materialized view namespace its document points at.
+   * {@code matViewNamespace} is empty when the lease carries no usable collection metadata — then
+   * there is nothing to deliberately drop and the lease is left for the stale-lease GC.
+   */
+  record DeletedIndexLease(Lease lease, Optional<MongoNamespace> matViewNamespace) {}
+
+  /**
+   * Returns every lease document belonging to {@code indexId}: the deleted index's own lease plus
+   * any leftovers from earlier supersessions. All of an index's leases live in the database of
+   * {@code knownLeaseKey}, keyed by index-id prefix, so this is a single prefix scan. Each lease is
+   * paired with its MV namespace, and its database mapping is registered for the cleanup calls that
+   * follow. Best effort, never throws; an unknown database or a failed read returns an empty list.
+   */
+  List<DeletedIndexLease> findLeasesForDeletedIndex(ObjectId indexId, String knownLeaseKey);
+
+  /**
+   * Deliberately removes the lease document {@code leaseKey} of a deleted index — regardless of
+   * owner, staleness, or cleanup state, since the index is authoritatively gone from the desired
+   * config and every lease under it is garbage. Run only after the lease's materialized view
+   * collection has been dropped, preserving the drop-before-delete ordering the stale-lease GC
+   * relies on. Also evicts this node's cached copy. Best effort, never throws.
+   *
+   * @param leaseKey the lease document {@code _id}
+   * @return {@code true} if the document is gone (deleted now, or already absent — concurrent
+   *     mongots race this idempotently); {@code false} if the database is unknown or the delete
+   *     failed
+   */
+  boolean cleanupLeaseForDeletedIndex(String leaseKey);
+
+  /**
    * Returns all generation IDs where this instance is the leader.
    *
    * @return a set of generation IDs where this instance is the leader
@@ -361,6 +393,24 @@ public interface LeaseManager {
           .forEach(lease -> currentVersionKeys.add(lease.id()));
     }
     return currentVersionKeys;
+  }
+
+  /**
+   * The MV namespace {@code lease} points at, or empty (logged) when its metadata is missing or
+   * invalid. Shared by the deleted-index scan and the GC's stale-namespace resolution.
+   */
+  static Optional<MongoNamespace> matViewNamespaceOf(String dbName, Lease lease) {
+    try {
+      return Optional.of(
+          new MongoNamespace(dbName, lease.materializedViewCollectionMetadata().collectionName()));
+    } catch (RuntimeException e) {
+      LoggerFactory.getLogger(LeaseManager.class)
+          .atWarn()
+          .addKeyValue("leaseKey", lease.id())
+          .setCause(e)
+          .log("Lease carries no usable materialized view namespace");
+      return Optional.empty();
+    }
   }
 
   private static OptionalLong parseDefinitionVersion(String version) {

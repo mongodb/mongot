@@ -25,6 +25,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -291,13 +292,17 @@ public class MaterializedViewManagerTest {
     mocks.addIndexForReplication(materializedViewindexGeneration);
 
     // Drop the index - this triggers onDrop -> leaseManager.drop -> then removeMetadata
+    mocks.markIndexDeleted();
     mocks.manager.dropIndex(MOCK_GENERATION_ID).get(5, TimeUnit.SECONDS);
 
     // Verify ordering: leaseManager.drop() (which untracks the generationId) must complete
     // BEFORE removeMetadata() is called. This ensures the generationId is fully untracked
     // before the metadata is cleaned up.
     InOrder inOrder = Mockito.inOrder(mocks.leaseManager, mocks.metadataCatalog);
-    inOrder.verify(mocks.leaseManager).drop(MOCK_MAT_VIEW_GENERATION_ID);
+    // drop() runs twice (eagerly in cleanUpMatViewResources, again in
+    // cleanUpGenerationIdStates); calls() consumes both without requiring them to be adjacent,
+    // since the detached deletion-cleanup chain may interleave other lease-manager calls.
+    inOrder.verify(mocks.leaseManager, Mockito.calls(2)).drop(MOCK_MAT_VIEW_GENERATION_ID);
     inOrder
         .verify(mocks.metadataCatalog)
         .removeMetadata(materializedViewindexGeneration.getGenerationId());
@@ -742,9 +747,9 @@ public class MaterializedViewManagerTest {
 
   // ==================== Drop discriminator (supersession vs deletion) ====================
   //
-  // Last local user of an MV collection: another active generation for the same indexId on a
-  // different MV collection means supersession (leave collection + lease for the GC); none means
-  // deletion (drop both now).
+  // Last local user of an MV collection: the IndexCatalog decides — index still configured means
+  // retirement (leave collection + lease for the stale-lease GC), index absent means deletion
+  // (clean up the MV collections and leases now).
 
   @Test
   public void dropIndex_aevBumpSupersession_leavesMvCollectionAndLeaseForGc() throws Exception {
@@ -790,15 +795,18 @@ public class MaterializedViewManagerTest {
     MaterializedViewGenerator generator = mocks.mockMaterializedViewGenerator(gen);
     mocks.addIndexForReplication(gen);
 
-    // No other active generation for this index -> genuine deletion.
+    // The index is gone from the IndexCatalog -> genuine deletion.
+    mocks.markIndexDeleted();
     mocks.manager.dropIndex(MOCK_GENERATION_ID).get(5, TimeUnit.SECONDS);
 
     verify(generator).shutdown();
-    // Leader drops the shared MV collection, then the lease document.
+    // The cleanup chain is detached from the future dropIndex returns, so sync on its last
+    // action (the lease delete) before the plain verifies.
+    verify(mocks.leaseManager, timeout(5000))
+        .cleanupLeaseForDeletedIndex("test_" + INDEX_ID.toHexString());
     verify(gen.getIndex().getWriter()).dropMaterializedViewCollection();
-    verify(mocks.leaseManager).dropLease("test_" + INDEX_ID.toHexString());
-    // No manager-level eviction on the deletion branch: dropLease needs the in-memory lease for
-    // its ownership check and performs its own local cleanup.
+    // No manager-level eviction on the deletion branch: the by-id delete performs its own local
+    // cleanup.
     verify(mocks.leaseManager, never()).evictCachedLease(any(String.class));
     // matViewCollectionDrop{scenario=indexDeletion, outcome=success} is recorded for the drop.
     assertEquals(
@@ -808,20 +816,47 @@ public class MaterializedViewManagerTest {
   }
 
   @Test
-  public void dropIndex_indexDeletion_dropFails_countsIndexDeletionFailure() throws Exception {
+  public void dropIndex_indexStillConfigured_noSibling_leavesSharedResourcesForGc()
+      throws Exception {
+    // The index is still in the IndexCatalog (a retirement drop, e.g. an initial-sync retry) and
+    // no sibling generation is registered locally. The old sibling-presence heuristic read this
+    // as deletion and dropped the shared MV + lease out from under the index; the catalog says
+    // the index lives on, so they must be left for the successor generation / the GC.
+    Mocks mocks = Mocks.create();
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator generator = mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+
+    mocks.manager.dropIndex(MOCK_GENERATION_ID).get(5, TimeUnit.SECONDS);
+
+    verify(generator).shutdown();
+    verify(gen.getIndex().getWriter(), never()).dropMaterializedViewCollection();
+    verify(mocks.leaseManager, never()).dropLease(any(String.class));
+    verify(mocks.leaseManager, never()).cleanupLeaseForDeletedIndex(any(String.class));
+  }
+
+  @Test
+  public void dropIndex_indexDeletion_dropFails_leavesLeaseForGc() throws Exception {
     Mocks mocks = Mocks.create();
     MaterializedViewIndexGeneration gen =
         mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
     mocks.mockMaterializedViewGenerator(gen);
     mocks.addIndexForReplication(gen);
-    // The leader's MV-collection drop fails; dropIndex swallows it (exceptionally) and still drops
-    // the lease, but the failure is recorded.
+    // The leader's MV-collection drop fails. Deleting the lease anyway would strand the surviving
+    // collection forever (the GC scanner is lease-driven), so the lease must be left in place —
+    // the GC finds it on its own, and with the deleted-index safeguard fix it marks and deletes
+    // it after the graces.
     when(gen.getIndex().getWriter().dropMaterializedViewCollection())
         .thenReturn(CompletableFuture.failedFuture(new RuntimeException("drop failed")));
 
+    mocks.markIndexDeleted();
     mocks.manager.dropIndex(MOCK_GENERATION_ID).get(5, TimeUnit.SECONDS);
 
-    verify(mocks.leaseManager).dropLease("test_" + INDEX_ID.toHexString());
+    // The detached chain sweeps leftovers even after a failed MV drop; sync on that.
+    verify(mocks.leaseManager, timeout(5000))
+        .findLeasesForDeletedIndex(eq(INDEX_ID), any(String.class));
+    verify(mocks.leaseManager, never()).cleanupLeaseForDeletedIndex(any(String.class));
     assertEquals(
         1.0,
         collectionDropCount(mocks, MaterializedViewManager.DROP_SCENARIO_INDEX_DELETION, "failure"),
@@ -830,6 +865,134 @@ public class MaterializedViewManagerTest {
         0.0,
         collectionDropCount(mocks, MaterializedViewManager.DROP_SCENARIO_INDEX_DELETION, "success"),
         0.0);
+  }
+
+  @Test
+  public void dropIndex_indexDeletion_leaseDeleteFails_completesBestEffort() throws Exception {
+    Mocks mocks = Mocks.create();
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+    when(mocks.leaseManager.cleanupLeaseForDeletedIndex(any(String.class))).thenReturn(false);
+
+    mocks.markIndexDeleted();
+    // MV drop succeeded, lease delete failed: best effort — the drop completes normally and the
+    // lease stays where the GC scanner finds it.
+    mocks.manager.dropIndex(MOCK_GENERATION_ID).get(5, TimeUnit.SECONDS);
+
+    verify(mocks.leaseManager, timeout(5000))
+        .cleanupLeaseForDeletedIndex("test_" + INDEX_ID.toHexString());
+    verify(gen.getIndex().getWriter()).dropMaterializedViewCollection();
+  }
+
+  @Test
+  public void dropIndex_indexDeletion_cleansUpLeftoverSiblingLease() throws Exception {
+    // A supersession that completed before the deletion left its MV + lease behind for the GC.
+    // Cleaning them up here spares the GC's graces (days in production).
+    Mocks mocks = Mocks.create();
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+
+    String leftoverKey = "test_" + INDEX_ID.toHexString() + "_leftover";
+    // Built with a random MV uuid, so no locally active generation matches and the cleanup
+    // does not skip it as mid-flip.
+    Lease leftover =
+        leaseWithExpiration(leftoverKey, Instant.now(), Lease.CleanupState.NOT_ELIGIBLE);
+    when(mocks.leaseManager.findLeasesForDeletedIndex(eq(INDEX_ID), any(String.class)))
+        .thenReturn(
+            List.of(
+                new LeaseManager.DeletedIndexLease(
+                    leftover, Optional.of(new MongoNamespace("testdb", leftoverKey)))));
+    MongoClient writerClient = mock(MongoClient.class);
+    MongoDatabase database = mock(MongoDatabase.class);
+    MongoCollection<Document> collection = mock(MongoCollection.class);
+    when(mocks.autoEmbeddingMongoClient.getMaterializedViewWriterMongoClient())
+        .thenReturn(Optional.of(writerClient));
+    when(writerClient.getDatabase("testdb")).thenReturn(database);
+    when(database.getCollection(leftoverKey)).thenReturn(collection);
+
+    mocks.markIndexDeleted();
+    mocks.manager.dropIndex(MOCK_GENERATION_ID).get(5, TimeUnit.SECONDS);
+
+    verify(mocks.leaseManager, timeout(5000))
+        .cleanupLeaseForDeletedIndex("test_" + INDEX_ID.toHexString());
+    // The leftover's MV collection is dropped via the writer client, then its lease deleted.
+    verify(mocks.leaseManager).cleanupLeaseForDeletedIndex(leftoverKey);
+    // The leftover scan must run before the dropped generation's own lease delete: that delete
+    // evicts the leaseKey -> database mapping the scan resolves the lease table through.
+    InOrder inOrder = Mockito.inOrder(mocks.leaseManager);
+    inOrder.verify(mocks.leaseManager).findLeasesForDeletedIndex(eq(INDEX_ID), any(String.class));
+    inOrder
+        .verify(mocks.leaseManager)
+        .cleanupLeaseForDeletedIndex("test_" + INDEX_ID.toHexString());
+    // Both this generation's MV drop and the leftover's count as indexDeletion drops.
+    assertEquals(
+        2.0,
+        collectionDropCount(mocks, MaterializedViewManager.DROP_SCENARIO_INDEX_DELETION, "success"),
+        0.0);
+  }
+
+  @Test
+  public void dropIndex_indexDeletion_leftoverLeaseWithoutNamespace_leavesItForGc()
+      throws Exception {
+    // The leftover lease exists but carries no usable MV namespace (missing or invalid
+    // metadata): don't delete the lease blind — leave it and let the GC sort it out.
+    Mocks mocks = Mocks.create();
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+
+    String leftoverKey = "test_" + INDEX_ID.toHexString() + "_leftover";
+    Lease leftover =
+        leaseWithExpiration(leftoverKey, Instant.now(), Lease.CleanupState.NOT_ELIGIBLE);
+    when(mocks.leaseManager.findLeasesForDeletedIndex(eq(INDEX_ID), any(String.class)))
+        .thenReturn(List.of(new LeaseManager.DeletedIndexLease(leftover, Optional.empty())));
+
+    mocks.markIndexDeleted();
+    mocks.manager.dropIndex(MOCK_GENERATION_ID).get(5, TimeUnit.SECONDS);
+
+    verify(mocks.leaseManager, timeout(5000))
+        .cleanupLeaseForDeletedIndex("test_" + INDEX_ID.toHexString());
+    verify(mocks.leaseManager, never()).cleanupLeaseForDeletedIndex(leftoverKey);
+  }
+
+  @Test
+  public void dropIndex_indexDeletionMidFlip_dropsMvCollectionAndLease() throws Exception {
+    // An index deletion landing mid-flip: a sibling generation for the same index is still
+    // registered in the local catalog (its own MV collection), exactly the state the old
+    // sibling-presence heuristic misread as supersession and skipped. The IndexCatalog is empty
+    // for the index regardless of local siblings, so the dropped generation cleans up its MV
+    // collection + lease instead of leaking them.
+    Mocks mocks = Mocks.create();
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator generator = mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+
+    // Sibling generation for the SAME index on a different MV collection still registered.
+    MaterializedViewGenerationId siblingGenId =
+        new MaterializedViewGenerationId(
+            MOCK_MAT_VIEW_GENERATION_ID.indexId,
+            MOCK_MAT_VIEW_GENERATION_ID.generation.incrementUser());
+    registerSiblingCollection(
+        mocks.metadataCatalog, siblingGenId, "test_" + INDEX_ID.toHexString() + "_aev1");
+    MaterializedViewIndexGeneration siblingGen =
+        mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(siblingGenId));
+    mocks.mockMaterializedViewGenerator(siblingGen);
+    mocks.addIndexForReplication(siblingGen);
+
+    mocks.markIndexDeleted();
+    mocks.manager.dropIndex(MOCK_GENERATION_ID).get(5, TimeUnit.SECONDS);
+
+    // Sibling presence no longer blocks the drop: the deleted generation's shared resources go.
+    verify(generator).shutdown();
+    verify(mocks.leaseManager, timeout(5000))
+        .cleanupLeaseForDeletedIndex("test_" + INDEX_ID.toHexString());
+    verify(gen.getIndex().getWriter()).dropMaterializedViewCollection();
   }
 
   @Test
@@ -909,10 +1072,11 @@ public class MaterializedViewManagerTest {
             new Generation(Generation.CURRENT.userIndexVersion, IndexFormatVersion.CURRENT, 0));
 
     // Act — drop the index while replication is disabled
+    mocks.markIndexDeleted();
     mocks.manager.dropIndex(dropGenId).get(5, TimeUnit.SECONDS);
 
-    // Assert — lease is dropped (generator==null path uses lastMaterializedViewIndexGeneration)
-    verify(mocks.leaseManager).dropLease(any(String.class));
+    // Assert — lease is deleted (generator==null path uses lastMaterializedViewIndexGeneration).
+    verify(mocks.leaseManager, timeout(5000)).cleanupLeaseForDeletedIndex(any(String.class));
     // Assert — leader drops the MV collection via lastMaterializedViewIndexGeneration's writer
     verify(matViewIndexGeneration.getIndex().getWriter()).dropMaterializedViewCollection();
     // Assert — refcounts are cleaned
@@ -940,10 +1104,11 @@ public class MaterializedViewManagerTest {
             new Generation(Generation.CURRENT.userIndexVersion, IndexFormatVersion.CURRENT, 0));
 
     // Act
+    mocks.markIndexDeleted();
     mocks.manager.dropIndex(dropGenId).get(5, TimeUnit.SECONDS);
 
-    // Assert — lease is dropped from memory
-    verify(mocks.leaseManager).dropLease(any(String.class));
+    // Assert — lease is dropped from memory (non-leader half of the deletion path).
+    verify(mocks.leaseManager, timeout(5000)).dropLease(any(String.class));
     // Assert — follower does NOT drop the MV collection (not leader)
     verify(matViewIndexGeneration.getIndex().getWriter(), never()).dropMaterializedViewCollection();
   }
@@ -1627,11 +1792,12 @@ public class MaterializedViewManagerTest {
             new Generation(Generation.CURRENT.userIndexVersion, IndexFormatVersion.CURRENT, 0));
 
     // dropIndex(a0): first attempt dropped — lease should survive
+    mocks.markIndexDeleted();
     mocks.manager.dropIndex(genIdA0).get(5, TimeUnit.SECONDS);
 
-    // Verify lease was NOT cleaned up (leaseManager.drop and dropLease not called yet)
+    // Verify lease was NOT cleaned up (leaseManager.drop and the lease delete not called yet)
     verify(mocks.leaseManager, never()).drop(any());
-    verify(mocks.leaseManager, never()).dropLease(any());
+    verify(mocks.leaseManager, never()).cleanupLeaseForDeletedIndex(any());
     // Generator should NOT be shut down (other attempt still active, same UUID)
     verify(generator, never()).shutdown();
 
@@ -1650,7 +1816,7 @@ public class MaterializedViewManagerTest {
     // cleanup. Both calls are idempotent.
     verify(generator).shutdown();
     verify(mocks.leaseManager, times(2)).drop(defGen.getGenerationId());
-    verify(mocks.leaseManager).dropLease(any(String.class));
+    verify(mocks.leaseManager, timeout(5000)).cleanupLeaseForDeletedIndex(any(String.class));
     verify(mocks.metadataCatalog).removeMetadata(defGen.getGenerationId());
   }
 
@@ -1732,10 +1898,11 @@ public class MaterializedViewManagerTest {
         new GenerationId(
             indexId,
             new Generation(Generation.CURRENT.userIndexVersion, IndexFormatVersion.CURRENT, 0));
+    mocks.markIndexDeleted();
     mocks.manager.dropIndex(genIdU0A0).get(5, TimeUnit.SECONDS);
 
     verify(mocks.leaseManager, never()).drop(any());
-    verify(mocks.leaseManager, never()).dropLease(any());
+    verify(mocks.leaseManager, never()).cleanupLeaseForDeletedIndex(any());
     verify(generatorU1, never()).shutdown();
     verify(mocks.metadataCatalog, never()).removeMetadata(any());
     assertEquals(4, catalog.genIdByMatViewCollection.get(uuid).size());
@@ -1761,7 +1928,7 @@ public class MaterializedViewManagerTest {
     mocks.manager.dropIndex(genIdU0A2).get(5, TimeUnit.SECONDS);
 
     verify(mocks.leaseManager).drop(any());
-    verify(mocks.leaseManager, never()).dropLease(any());
+    verify(mocks.leaseManager, never()).cleanupLeaseForDeletedIndex(any());
     verify(generatorU1, never()).shutdown();
     // u0's metadata cleaned up because genIdByMatViewGenId["u0"] is empty
     verify(mocks.metadataCatalog).removeMetadata(defGenU0.getGenerationId());
@@ -1777,13 +1944,13 @@ public class MaterializedViewManagerTest {
     mocks.manager.dropIndex(genIdU1A0).get(5, TimeUnit.SECONDS);
 
     verify(mocks.leaseManager, never()).drop(any());
-    verify(mocks.leaseManager, never()).dropLease(any());
+    verify(mocks.leaseManager, never()).cleanupLeaseForDeletedIndex(any());
     verify(generatorU1, never()).shutdown();
     verify(mocks.metadataCatalog, never()).removeMetadata(any());
     assertEquals(1, catalog.genIdByMatViewCollection.get(uuid).size());
     assertEquals(1, catalog.genIdByMatViewGenId.get(canonicalKeyU1).size());
 
-    // === Drop u1-a1: uuid set=0 → shutdown + drop + dropLease. generatorId["u1"]=0 →
+    // === Drop u1-a1: uuid set=0 → shutdown + drop + lease delete. generatorId["u1"]=0 →
     // removeMetadata(u1) ===
     GenerationId genIdU1A1 =
         new GenerationId(indexId, new Generation(u1Version, IndexFormatVersion.CURRENT, 1));
@@ -1795,7 +1962,7 @@ public class MaterializedViewManagerTest {
     // cleanup. Both calls are idempotent.
     verify(generatorU1).shutdown();
     verify(mocks.leaseManager, times(2)).drop(defGenU1.getGenerationId());
-    verify(mocks.leaseManager).dropLease(any(String.class));
+    verify(mocks.leaseManager, timeout(5000)).cleanupLeaseForDeletedIndex(any(String.class));
     // Metadata cleanup
     verify(mocks.metadataCatalog).removeMetadata(defGenU1.getGenerationId());
     // Both maps fully cleaned
@@ -4252,6 +4419,11 @@ public class MaterializedViewManagerTest {
       this.manager.setIsReplicationEnabled(true);
     }
 
+    /** Removes every index from the mocked IndexCatalog, so drops read as index deletions. */
+    void markIndexDeleted() {
+      when(this.indexCatalog.getIndexById(any())).thenReturn(Optional.empty());
+    }
+
     private static Mocks create() {
       NamedExecutorService executorService = mock(NamedExecutorService.class);
       when(executorService.getName()).thenReturn("indexing");
@@ -4302,6 +4474,8 @@ public class MaterializedViewManagerTest {
       StaticLeaderLeaseManager leaseManager = mock(StaticLeaderLeaseManager.class);
       doNothing().when(leaseManager).drop(any());
       when(leaseManager.dropLease(any(String.class))).thenReturn(COMPLETED_FUTURE);
+      when(leaseManager.cleanupLeaseForDeletedIndex(any(String.class))).thenReturn(true);
+      when(leaseManager.findLeasesForDeletedIndex(any(), any(String.class))).thenReturn(List.of());
       when(leaseManager.isLeader(any())).thenReturn(true);
       // Default: an empty scan — no candidates, nothing protected. GC tests override this with
       // their own lease topology.
@@ -4398,6 +4572,8 @@ public class MaterializedViewManagerTest {
       StaticLeaderLeaseManager leaseManager = mock(StaticLeaderLeaseManager.class);
       doNothing().when(leaseManager).drop(any());
       when(leaseManager.dropLease(any(String.class))).thenReturn(COMPLETED_FUTURE);
+      when(leaseManager.cleanupLeaseForDeletedIndex(any(String.class))).thenReturn(true);
+      when(leaseManager.findLeasesForDeletedIndex(any(), any(String.class))).thenReturn(List.of());
       when(leaseManager.isLeader(any())).thenReturn(true);
       // Default: an empty scan — no candidates, nothing protected. GC tests override this with
       // their own lease topology.
@@ -4443,6 +4619,9 @@ public class MaterializedViewManagerTest {
       when(mockLeaseManager.isLeader(any())).thenReturn(false);
       doNothing().when(mockLeaseManager).drop(any());
       when(mockLeaseManager.dropLease(any(String.class))).thenReturn(COMPLETED_FUTURE);
+      when(mockLeaseManager.cleanupLeaseForDeletedIndex(any(String.class))).thenReturn(true);
+      when(mockLeaseManager.findLeasesForDeletedIndex(any(), any(String.class)))
+          .thenReturn(List.of());
       // Track added generation IDs to return from getFollowerGenerationIds
       Set<MaterializedViewGenerationId> addedGenerationIds = ConcurrentHashMap.newKeySet();
       doAnswer(
@@ -4566,6 +4745,9 @@ public class MaterializedViewManagerTest {
       LeaseManager mockLeaseManager = mock(leaseManagerType);
       doNothing().when(mockLeaseManager).drop(any());
       when(mockLeaseManager.dropLease(any(String.class))).thenReturn(COMPLETED_FUTURE);
+      when(mockLeaseManager.cleanupLeaseForDeletedIndex(any(String.class))).thenReturn(true);
+      when(mockLeaseManager.findLeasesForDeletedIndex(any(), any(String.class)))
+          .thenReturn(List.of());
       // Default: an empty scan — no candidates, nothing protected. GC tests override this with
       // their own lease topology.
       when(mockLeaseManager.findGcCandidates()).thenReturn(List.of());
@@ -4655,6 +4837,9 @@ public class MaterializedViewManagerTest {
       DynamicLeaderLeaseManager mockLeaseManager = mock(DynamicLeaderLeaseManager.class);
       doNothing().when(mockLeaseManager).drop(any());
       when(mockLeaseManager.dropLease(any(String.class))).thenReturn(COMPLETED_FUTURE);
+      when(mockLeaseManager.cleanupLeaseForDeletedIndex(any(String.class))).thenReturn(true);
+      when(mockLeaseManager.findLeasesForDeletedIndex(any(), any(String.class)))
+          .thenReturn(List.of());
       when(mockLeaseManager.isLeader(any())).thenReturn(false);
       when(mockLeaseManager.getLeaderGenerationIds()).thenReturn(Set.of());
 

@@ -29,6 +29,7 @@ import com.xgen.mongot.embedding.mongodb.leasing.Lease;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
 import com.xgen.mongot.embedding.mongodb.leasing.StaticLeaderLeaseManager;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
+import com.xgen.mongot.embedding.utils.MongoClientOperationExecutor;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
@@ -158,6 +159,7 @@ public class MaterializedViewManager implements ReplicationManager {
   final ActiveGenerationIdCatalog activeGenerationIdCatalog;
 
   private final MetricsFactory metricsFactory;
+  private final MongoClientOperationExecutor matViewWriterOperationExecutor;
 
   @GuardedBy("this")
   private boolean shutdown;
@@ -335,6 +337,8 @@ public class MaterializedViewManager implements ReplicationManager {
     this.autoEmbeddingMongoClient = autoEmbeddingMongoClient;
     this.shutdown = false;
     this.metricsFactory = new MetricsFactory("replication.mongodb", this.meterRegistry);
+    this.matViewWriterOperationExecutor =
+        new MongoClientOperationExecutor(this.metricsFactory, "matViewCollection");
     // The overdue gauge (matViewGcLeasesOverdue) is registered once here so the series is always
     // present (0 when GC is off or healthy) and pushed updates stick. numGauge doesn't bind `this`,
     // so it's safe in the constructor — unlike the scanner-alive gauge (matViewGcScannerAlive),
@@ -1042,10 +1046,11 @@ public class MaterializedViewManager implements ReplicationManager {
    * only reached via the config-driven removal path, which means either:
    *
    * <ul>
-   *   <li><b>autoEmbed-field update (supersession)</b> -- a newer lease for the same indexId
-   *       survives. Leave the shared collection + lease; cleaning them up is gated on every mongot
-   *       flipping off the old version, which only the GC can safely observe.
-   *   <li><b>index deletion</b> -- no surviving sibling lease, so the leader drops both now.
+   *   <li><b>generation retired</b> (autoEmbed-field update, initial-sync retry, format upgrade) --
+   *       the index lives on. Leave the shared collection + lease; cleaning them up is gated on
+   *       every mongot flipping off the old version, which only the GC can safely observe.
+   *   <li><b>index deletion</b> -- the leader cleans up the index's MV collections and leases now,
+   *       including leftovers earlier supersessions left behind for the GC.
    * </ul>
    */
   private synchronized CompletableFuture<Void> cleanUpMatViewResources(GenerationId generationId) {
@@ -1110,40 +1115,22 @@ public class MaterializedViewManager implements ReplicationManager {
                   return null;
                 });
 
-    // Distinguish why this generation was dropped (only the config-driven removal path reaches
-    // dropIndex):
-    //   - supersession (autoEmbed-field update or ops aev bump): the index moved to a new MV
-    //     collection, whose generation is still registered in the local active catalog (the
-    //     flip ordering guarantees add(newGen) ran before dropIndex(oldGen)). Retiring the old
-    //     MV is safe only once every mongot has flipped off it -- which no single mongot can
-    //     observe -- so leave the shared collection + lease for the stale-lease GC (keyed on
-    //     lease-expiration age). A laggard still on the old version re-elects itself and keeps
-    //     the lease renewed until then.
-    //   - deletion: no other active generation for this index, so drop now.
-    // Keyed on catalog presence rather than definition versions or generator state: an ops aev
-    // bump changes no definition version (so version comparison cannot see it), a sibling whose
-    // retirement already completed has left the catalog (so it does not block a later genuine
-    // deletion), and a state check would misfire if the new generator failed between the flip
-    // and this drop. Known gap: an index deletion arriving mid-flip (both generations still
-    // registered) takes the supersession branch for the first-dropped generation, leaving one
-    // extra MV collection + lease for the stale-lease GC -- conservative (never a wrong drop),
-    // but avoidable garbage.
-    // TODO(CLOUDP-412446): replace this heuristic with an explicit deletion-vs-retirement drop
-    // reason plumbed from DesiredConfigStateUpdater.dropDeletedIndexes.
-    ObjectId indexId = generationId.indexId;
-    boolean supersededByNewMatView =
-        this.activeGenerationIdCatalog.genIdByMatViewCollection.values().stream()
-            .flatMap(Set::stream)
-            .anyMatch(genId -> indexId.equals(genId.indexId));
+    // Deletion vs retirement comes from the IndexCatalog: config removes a deleted index from
+    // the catalog before dropping its generations, while retirement paths (staged swap,
+    // phasing-out, initial-sync retry) leave the entry in place. (Format upgrades remove-then-
+    // readd, but only for unloadable-format indexes, which never register MV metadata here.)
+    // Retired MVs must stay for the stale-lease GC: retiring is safe only once every mongot has
+    // flipped off the old version, which no single mongot can observe.
+    boolean indexDeleted = this.indexCatalog.getIndexById(generationId.indexId).isEmpty();
 
-    if (supersededByNewMatView) {
+    if (!indexDeleted) {
       LOG.atInfo()
           .addKeyValue("generationId", generationId)
           .addKeyValue("collectionName", leaseKey)
           .addKeyValue("wasLeader", wasLeader)
           .log(
-              "Index has an active generation on a newer MV collection; leaving this MV "
-                  + "collection and lease for the stale-lease GC instead of dropping now");
+              "Generation retired while the index lives on; leaving this MV collection and "
+                  + "lease for the stale-lease GC instead of dropping now");
       // The lease document stays for the GC, but this node is done with the lease: evict the
       // local copy after the generator finishes shutting down, so a later re-initialization of
       // the same definition re-reads the database instead of stale metadata (a recreated MV
@@ -1151,36 +1138,109 @@ public class MaterializedViewManager implements ReplicationManager {
       return generatorShutdownFuture.thenRun(() -> this.leaseManager.evictCachedLease(leaseKey));
     }
 
-    // No other active generation for this index: a genuine deletion. Safe to drop the shared MV
-    // collection (leader only) and the lease now.
+    // Index deleted: clean up the shared MV collection and lease now (leader only), plus any
+    // leftover sibling leases of this index — a supersession that completed before the deletion
+    // left its MV + lease behind for the GC, and cleaning those up now spares the GC's graces.
+    if (!wasLeader) {
+      // dropLease runs the local half (cache eviction) and touches the database only when this
+      // node's cached lease claims ownership — that possible retrying delete is why the chain is
+      // detached like the leader's below: the config monitor must not wait on it.
+      LOG.atInfo()
+          .addKeyValue("generationId", generationId)
+          .addKeyValue("collectionName", leaseKey)
+          .log("Index deleted; not the leader, leaving shared resource cleanup to the leader");
+      generatorShutdownFuture
+          .thenComposeAsync(ignored -> this.leaseManager.dropLease(leaseKey))
+          .exceptionally(throwable -> logDetachedCleanupFailure(throwable, generationId, leaseKey));
+      return generatorShutdownFuture;
+    }
     LOG.atInfo()
         .addKeyValue("generationId", generationId)
         .addKeyValue("collectionName", leaseKey)
-        .log("Dropping lease and materialized view collection");
-    return generatorShutdownFuture
+        .log("Index deleted; dropping its materialized view collections and leases");
+    // Detached from the returned future: the config monitor blocks on every drop it applies
+    // (IndexActions awaits them), and this cleanup retries against the source cluster -- with
+    // the mongod unreachable it would stall all config processing behind it. Nothing needs to
+    // wait for it: any failure just leaves the lease for the stale-lease GC.
+    generatorShutdownFuture
         .thenComposeAsync(
-            ignored -> {
-              if (wasLeader) {
-                return materializedViewIndexGeneration
+            ignored ->
+                materializedViewIndexGeneration
                     .getIndex()
                     .getWriter()
                     .dropMaterializedViewCollection()
-                    .whenComplete(
-                        (unusedResult, dropError) ->
-                            recordCollectionDrop(DROP_SCENARIO_INDEX_DELETION, dropError == null))
-                    .exceptionally(
-                        throwable -> {
-                          LOG.error(
-                              "Failed to drop materialized view collection for {}, "
-                                  + "ignore it for now.",
-                              generationId,
-                              throwable);
-                          return null;
-                        });
+                    .handle(
+                        (unusedResult, dropError) -> {
+                          boolean dropped = dropError == null;
+                          recordCollectionDrop(DROP_SCENARIO_INDEX_DELETION, dropped);
+                          return dropped;
+                        }))
+        .thenAccept(
+            mvDropped -> {
+              // Leftovers first: the own-lease delete below evicts the leaseKey -> database
+              // mapping the leftover scan resolves the lease table through.
+              cleanUpLeftoverLeases(generationId.indexId, leaseKey);
+              // Drop-before-delete, as in the GC: a surviving MV's lease must stay visible to the
+              // lease-driven scanner. No mark either — it wouldn't shorten the delete grace, and
+              // the GC marks a deleted index's leases itself.
+              if (mvDropped) {
+                deleteLeaseOrLeaveForGc(leaseKey);
+              } else {
+                LOG.atWarn()
+                    .addKeyValue("generationId", generationId)
+                    .addKeyValue("collectionName", leaseKey)
+                    .log(
+                        "Failed to drop the deleted index's materialized view collection; "
+                            + "leaving its lease for the stale-lease GC");
               }
-              return COMPLETED_FUTURE;
             })
-        .thenComposeAsync(ignored -> this.leaseManager.dropLease(leaseKey));
+        .exceptionally(throwable -> logDetachedCleanupFailure(throwable, generationId, leaseKey));
+    return generatorShutdownFuture;
+  }
+
+  private Void logDetachedCleanupFailure(
+      Throwable throwable, GenerationId generationId, String leaseKey) {
+    LOG.atWarn()
+        .addKeyValue("generationId", generationId)
+        .addKeyValue("collectionName", leaseKey)
+        .setCause(throwable)
+        .log("Deleted-index cleanup failed; leaving the rest for the stale-lease GC");
+    return null;
+  }
+
+  /**
+   * Cleans up leases that earlier supersessions of the deleted index left behind for the GC: drops
+   * each one's MV collection, then deletes the lease. Any failure just leaves the lease where the
+   * GC already finds it. Leases still backing a locally active generation are skipped — their own
+   * {@code dropIndex} in this same config update cleans them up. Leader-only; the by-id deletes are
+   * idempotent.
+   */
+  private void cleanUpLeftoverLeases(ObjectId indexId, String droppedLeaseKey) {
+    for (LeaseManager.DeletedIndexLease leftover :
+        this.leaseManager.findLeasesForDeletedIndex(indexId, droppedLeaseKey)) {
+      Lease lease = leftover.lease();
+      if (lease.id().equals(droppedLeaseKey) || usedByLocalGeneration(lease)) {
+        continue;
+      }
+      if (leftover.matViewNamespace().isPresent()
+          && dropMatViewCollection(
+              lease.id(), leftover.matViewNamespace().get(), DROP_SCENARIO_INDEX_DELETION)) {
+        deleteLeaseOrLeaveForGc(lease.id());
+      }
+    }
+  }
+
+  /**
+   * Deletes a deleted index's lease; a failed delete is left alone — the GC scanner finds the lease
+   * on its own and, with the safeguard no longer protecting a deleted index's leases, marks and
+   * deletes it after the graces.
+   */
+  private void deleteLeaseOrLeaveForGc(String leaseKey) {
+    if (!this.leaseManager.cleanupLeaseForDeletedIndex(leaseKey)) {
+      LOG.atWarn()
+          .addKeyValue("leaseKey", leaseKey)
+          .log("Could not delete a deleted index's lease; leaving it for the stale-lease GC");
+    }
   }
 
   @Override
@@ -1879,31 +1939,48 @@ public class MaterializedViewManager implements ReplicationManager {
     if (namespace.isEmpty()) {
       return false;
     }
-    String database = namespace.get().getDatabaseName();
-    String collectionName = namespace.get().getCollectionName();
+    // Best effort: on failure the next sweep re-evaluates this lease, and the counter
+    // (scenario=gc, outcome=failure) flags, via a sustained non-zero value, GC blocked on MV
+    // deletion failures.
+    return dropMatViewCollection(leaseKey, namespace.get(), DROP_SCENARIO_GC);
+  }
+
+  /**
+   * Drops the MV collection at {@code namespace} via the writer client, recording the attempt on
+   * the matViewCollectionDrop counter under {@code scenario}. Missing collections drop as a no-op,
+   * keeping retries and concurrent cleanups idempotent.
+   */
+  private boolean dropMatViewCollection(
+      String leaseKey, MongoNamespace namespace, String scenario) {
     try {
       var mongoClient =
           Check.isPresent(
               this.autoEmbeddingMongoClient.getMaterializedViewWriterMongoClient(),
               "materializedViewWriterMongoClient");
-      mongoClient.getDatabase(database).getCollection(collectionName).drop();
-      recordCollectionDrop(DROP_SCENARIO_GC, true);
+      // Retries + request metrics like every lease-table op; failure below means failed retries.
+      this.matViewWriterOperationExecutor.execute(
+          "dropMatViewCollection",
+          () ->
+              mongoClient
+                  .getDatabase(namespace.getDatabaseName())
+                  .getCollection(namespace.getCollectionName())
+                  .drop());
+      recordCollectionDrop(scenario, true);
       LOG.atInfo()
           .addKeyValue("leaseKey", leaseKey)
-          .addKeyValue("collectionName", collectionName)
-          .addKeyValue("database", database)
-          .log("Dropped stale materialized view collection");
+          .addKeyValue("collectionName", namespace.getCollectionName())
+          .addKeyValue("database", namespace.getDatabaseName())
+          .addKeyValue("scenario", scenario)
+          .log("Dropped materialized view collection");
       return true;
     } catch (Exception | AssertionError e) {
-      // Best effort: the next sweep re-evaluates this lease. The matViewCollectionDrop counter
-      // (scenario=gc, outcome=failure) flags, via a sustained non-zero value, GC blocked on MV
-      // deletion failures.
-      recordCollectionDrop(DROP_SCENARIO_GC, false);
+      recordCollectionDrop(scenario, false);
       LOG.atWarn()
           .addKeyValue("leaseKey", leaseKey)
-          .addKeyValue("collectionName", collectionName)
+          .addKeyValue("collectionName", namespace.getCollectionName())
+          .addKeyValue("scenario", scenario)
           .setCause(e)
-          .log("Failed to drop stale materialized view collection");
+          .log("Failed to drop materialized view collection");
       return false;
     }
   }
