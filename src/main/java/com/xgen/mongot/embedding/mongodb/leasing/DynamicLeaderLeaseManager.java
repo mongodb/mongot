@@ -10,6 +10,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.errorprone.annotations.Var;
 import com.mongodb.ErrorCategory;
 import com.mongodb.MongoNamespace;
+import com.mongodb.MongoSocketException;
+import com.mongodb.MongoTimeoutException;
 import com.mongodb.MongoWriteException;
 import com.mongodb.ReadConcern;
 import com.mongodb.ReadPreference;
@@ -39,6 +41,7 @@ import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
 import io.micrometer.core.instrument.Counter;
 import java.io.IOException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -90,6 +93,15 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
       "postRestoreLeaseRepairSuccess";
   static final String POST_RESTORE_LEASE_REPAIR_FAILURE_COUNTER_NAME =
       "postRestoreLeaseRepairFailure";
+  static final String CIRCUIT_BREAKER_OPENED_COUNTER_NAME = "circuitBreakerOpened";
+  static final String ACQUISITION_SUPPRESSED_COUNTER_NAME = "acquisitionSuppressed";
+  static final String LEASE_STORE_STALLED_GAUGE_NAME = "leaseStoreStalled";
+
+  // Fixed like GIVE_UP_BLACKOUT_SECONDS and the client retry policy: an internal, fail-safe
+  // resilience timing, not an ops knob. Cooldown base = refresh interval, cap = lease TTL.
+  @VisibleForTesting static final int CIRCUIT_BREAKER_FAILURE_THRESHOLD = 3;
+  private static final Duration CIRCUIT_BREAKER_BASE_COOLDOWN = Duration.ofSeconds(30);
+  private static final Duration CIRCUIT_BREAKER_MAX_COOLDOWN = Duration.ofMinutes(5);
 
   private final MongoClientOperationExecutor operationExecutor;
   private final String hostname;
@@ -115,6 +127,10 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
   private final MetricsFactory metricsFactory;
   // Ops commands. Populated at construction but not executed until the source mongod is ready.
   private final LeaseManagerOpsCommands opsCommands;
+  // Backs off acquisition writes during a customer commit-point stall; see
+  // LeaseStoreCircuitBreaker.
+  private final LeaseStoreCircuitBreaker leaseStoreCircuitBreaker;
+  private final Counter acquisitionSuppressedCounter;
 
   @TestOnly
   public DynamicLeaderLeaseManager(
@@ -159,6 +175,15 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     this.opsCommands = opsCommands;
     this.isDedicatedCluster = dbResolver.isDedicatedCluster();
     this.uuidResolver = buildUuidResolver();
+    this.acquisitionSuppressedCounter =
+        this.metricsFactory.counter(ACQUISITION_SUPPRESSED_COUNTER_NAME);
+    this.leaseStoreCircuitBreaker =
+        new LeaseStoreCircuitBreaker(
+            CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+            CIRCUIT_BREAKER_BASE_COOLDOWN,
+            CIRCUIT_BREAKER_MAX_COOLDOWN,
+            this.metricsFactory.counter(CIRCUIT_BREAKER_OPENED_COUNTER_NAME),
+            this.metricsFactory.numGauge(LEASE_STORE_STALLED_GAUGE_NAME));
   }
 
   public static DynamicLeaderLeaseManager create(
@@ -1125,7 +1150,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
             this.operationExecutor.execute(
                 "getFollowerLeases",
                 () ->
-                    this.getCollection(dbName)
+                    this.getCollectionForFollowerPoll(dbName)
                         .find(Filters.in("_id", keys))
                         .into(new ArrayList<>()));
         for (BsonDocument rawLease : rawLeases) {
@@ -1288,6 +1313,14 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
           .log("Skipping leadership acquisition - in give-up blackout");
       return false;
     }
+    if (!this.leaseStoreCircuitBreaker.allowAttempt()) {
+      // Commit point stalled: skip the w:majority acquire that cannot commit; retried on half-open.
+      this.acquisitionSuppressedCounter.increment();
+      LOG.atDebug()
+          .addKeyValue("generationId", generationId)
+          .log("Skipping leadership acquisition - lease store circuit breaker open");
+      return false;
+    }
     try {
       Lease inMemoryLease = this.leases.get(getLeaseKey(generationId));
       if (inMemoryLease == null) {
@@ -1330,13 +1363,19 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
               .withRenewedOwnership(this.hostname)
               .withRecordedIndexDefinitionVersion(versionKey);
       if (weOwnLease || leaseExpired) {
-        return acquireExistingLease(generationId, inMemoryLease, newLease);
+        boolean acquired = acquireExistingLease(generationId, inMemoryLease, newLease);
+        // replaceOne completed (committed or OCC loss), so the store is reachable.
+        this.leaseStoreCircuitBreaker.recordStoreReachable();
+        return acquired;
       }
       LOG.atDebug()
           .addKeyValue("generationId", generationId)
           .log("Cannot acquire leadership - lease is owned by another instance and not expired");
       return false;
     } catch (Exception e) {
+      if (isStallClassFailure(e)) {
+        this.leaseStoreCircuitBreaker.recordStallFailure();
+      }
       LOG.warn("Error attempting to acquire leadership for {}", generationId, e);
       return false;
     }
@@ -1755,6 +1794,8 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
                   this.getCollection(getDatabaseForLease(getLeaseKey(generationId)))
                       .replaceOne(filter, renewedLease.toBson()));
 
+      // replaceOne reached the server (committed or OCC loss), so the store is reachable.
+      this.leaseStoreCircuitBreaker.recordStoreReachable();
       if (result.getMatchedCount() > 0) {
         // Successfully renewed.
         this.leases.put(leaseKey, renewedLease);
@@ -1777,6 +1818,9 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     } catch (Exception e) {
       // Transient error (network, etc.) - don't give up leadership yet.
       // Let the next heartbeat cycle retry. If the lease expires, we'll give up then.
+      if (isStallClassFailure(e)) {
+        this.leaseStoreCircuitBreaker.recordStallFailure();
+      }
       LOG.warn("Failed to renew lease for {}, will retry on next heartbeat", generationId, e);
       return false;
     }
@@ -2006,21 +2050,50 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
 
   private MongoCollection<BsonDocument> getCollection(String databaseName)
       throws MaterializedViewTransientException {
+    return getLeaseCollection(databaseName, ReadConcern.LINEARIZABLE);
+  }
+
+  /**
+   * Lease handle for the follower poll only: {@code majority} read concern (not {@code
+   * linearizable}) so the poll survives a stalled commit point. Safe because leadership is fenced
+   * by the {@code w:majority} OCC acquire write, not this read; writes and GC reads keep {@link
+   * #getCollection}'s linearizable concern.
+   */
+  private MongoCollection<BsonDocument> getCollectionForFollowerPoll(String databaseName)
+      throws MaterializedViewTransientException {
+    return getLeaseCollection(databaseName, ReadConcern.MAJORITY);
+  }
+
+  // Write concern is set unconditionally; it's ignored on the read-only follower poll.
+  private MongoCollection<BsonDocument> getLeaseCollection(
+      String databaseName, ReadConcern readConcern) throws MaterializedViewTransientException {
     try {
       return Check.isPresent(
               this.autoEmbeddingMongoClient.getLeaseManagerMongoClient(), "leaseManagerMongoClient")
           .getDatabase(databaseName)
           .getCollection(LEASE_COLLECTION_NAME, BsonDocument.class)
-          .withReadConcern(ReadConcern.LINEARIZABLE)
+          .withReadConcern(readConcern)
           .withReadPreference(ReadPreference.primary())
           .withWriteConcern(WriteConcern.MAJORITY);
     } catch (AssertionError e) {
-      // Catches empty this.autoEmbeddingMongoClient.getLeaseManagerMongoClient() when sync source
-      // is missing.
+      // Empty getLeaseManagerMongoClient() when the sync source is missing.
       throw new MaterializedViewTransientException(
           String.valueOf(e.getMessage()),
           e,
           MaterializedViewTransientException.Reason.MONGO_CLIENT_NOT_AVAILABLE);
     }
+  }
+
+  /**
+   * Whether a lease-op failure is stall-class (store unreachable / commit stalled) rather than an
+   * OCC loss (does not throw) or a logic error — only these advance the circuit breaker.
+   */
+  private static boolean isStallClassFailure(Throwable t) {
+    for (@Var Throwable cause = t; cause != null; cause = cause.getCause()) {
+      if (cause instanceof MongoSocketException || cause instanceof MongoTimeoutException) {
+        return true;
+      }
+    }
+    return false;
   }
 }
