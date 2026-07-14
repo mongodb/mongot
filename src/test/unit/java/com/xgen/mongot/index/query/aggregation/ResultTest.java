@@ -11,6 +11,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.bson.BsonArray;
+import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.bson.BsonValue;
 import org.junit.Test;
@@ -125,6 +127,16 @@ public class ResultTest {
     @Override
     public BsonValue toStandaloneBson() {
       return null;
+    }
+
+    @Override
+    public BsonArray toIntermediateBson() {
+      return new BsonArray();
+    }
+
+    @Override
+    public BsonDocument toIntermediateMetricPartials() {
+      return new org.bson.BsonDocument("sum_" + this.name, new org.bson.BsonDouble(this.value));
     }
   }
 

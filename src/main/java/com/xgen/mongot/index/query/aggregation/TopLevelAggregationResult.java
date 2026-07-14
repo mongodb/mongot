@@ -5,7 +5,10 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.bson.BsonArray;
 import org.bson.BsonDocument;
+import org.bson.BsonString;
+import org.bson.BsonValue;
 
 /**
  * Result produced by the top-level aggregation. Wraps the child results (one per top-level
@@ -56,5 +59,26 @@ public record TopLevelAggregationResult(List<AggregationResult> childResults)
       result.append(child.getName(), child.toStandaloneBson());
     }
     return result;
+  }
+
+  @Override
+  public BsonArray toIntermediateBson() {
+    BsonArray docs = new BsonArray();
+    for (AggregationResult child : this.childResults) {
+      BsonArray childDocs = child.toIntermediateBson();
+      for (BsonValue value : childDocs) {
+        BsonDocument source = value.asDocument();
+        if (source.containsKey(IntermediateAggregationMetaField.GROUP_NAME)) {
+          throw new IllegalStateException(
+              "Child intermediate document must not set routing field "
+                  + IntermediateAggregationMetaField.GROUP_NAME);
+        }
+        BsonDocument doc = new BsonDocument();
+        doc.putAll(source);
+        doc.append(IntermediateAggregationMetaField.GROUP_NAME, new BsonString(child.getName()));
+        docs.add(doc);
+      }
+    }
+    return docs;
   }
 }

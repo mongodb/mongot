@@ -2,13 +2,17 @@ package com.xgen.mongot.index.query.aggregation;
 
 import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
 import com.xgen.mongot.index.query.aggregation.TermsAggregationResult.TermsBucket;
+import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.SortedNumericDocValuesField;
@@ -29,6 +33,10 @@ import org.apache.lucene.search.Query;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.util.BytesRef;
+import org.bson.BsonArray;
+import org.bson.BsonDocument;
+import org.bson.BsonDouble;
+import org.bson.BsonInt64;
 import org.bson.BsonString;
 import org.bson.BsonValue;
 import org.jetbrains.annotations.Nullable;
@@ -175,6 +183,16 @@ public abstract class AggregationTestSupport {
     public BsonValue toStandaloneBson() {
       return new org.bson.BsonDouble(this.value);
     }
+
+    @Override
+    public BsonArray toIntermediateBson() {
+      return new BsonArray();
+    }
+
+    @Override
+    public BsonDocument toIntermediateMetricPartials() {
+      return new BsonDocument("sum_" + this.name, new org.bson.BsonDouble(this.value));
+    }
   }
 
   /** Inline sum spec -- uses the raw Lucene field name (bypasses field-type resolution). */
@@ -235,6 +253,110 @@ public abstract class AggregationTestSupport {
         results.add(new SumResult(this.name, sum));
       }
       return results;
+    }
+  }
+
+  // ===== shared result-tree fixtures (until official aggregator results land) =====
+
+  /** Inline avg leaf result for intermediate BSON and merge tests. */
+  protected static record AvgResult(String name, double sum, long count)
+      implements AggregationResult {
+    @Override
+    public String getName() {
+      return this.name;
+    }
+
+    @Override
+    public AggregationResult mergePartitionResult(AggregationResult other) {
+      AvgResult that = Check.instanceOf(other, AvgResult.class);
+      return new AvgResult(this.name, this.sum + that.sum, this.count + that.count);
+    }
+
+    @Override
+    public BsonValue toStandaloneBson() {
+      return new BsonDocument(
+          this.name, this.count == 0 ? new BsonDouble(0) : new BsonDouble(this.sum / this.count));
+    }
+
+    @Override
+    public BsonArray toIntermediateBson() {
+      return new BsonArray();
+    }
+
+    @Override
+    public BsonDocument toIntermediateMetricPartials() {
+      return new BsonDocument()
+          .append("avg_sum_" + this.name, new BsonDouble(this.sum))
+          .append("avg_count_" + this.name, new BsonInt64(this.count));
+    }
+  }
+
+  /** Inline terms group result for intermediate BSON and merge tests. */
+  protected static final class TermsResult extends MultiBucketAggregationResult {
+    private final String name;
+    private final List<TermsBucket> buckets;
+
+    protected TermsResult(String name, FieldPath path, List<TermsBucket> buckets) {
+      super(path);
+      this.name = name;
+      this.buckets = buckets;
+    }
+
+    @Override
+    public String getName() {
+      return this.name;
+    }
+
+    @Override
+    public List<TermsBucket> getBuckets() {
+      return this.buckets;
+    }
+
+    @Override
+    public AggregationResult mergePartitionResult(AggregationResult other) {
+      TermsResult that = Check.instanceOf(other, TermsResult.class);
+      Map<String, TermsBucket> merged =
+          this.buckets.stream()
+              .collect(
+                  Collectors.toMap(
+                      b -> b.getKey().getValue(),
+                      Function.identity(),
+                      (a, b) -> {
+                        throw new IllegalStateException("dup: " + a.getKey());
+                      },
+                      LinkedHashMap::new));
+      for (TermsBucket otherBucket : that.buckets) {
+        merged.merge(otherBucket.getKey().getValue(), otherBucket, TermsBucket::merge);
+      }
+      return new TermsResult(this.name, this.path, new ArrayList<>(merged.values()));
+    }
+
+    protected static final class TermsBucket implements Bucket {
+      private final String key;
+      private final AggregationResults childResults;
+
+      protected TermsBucket(String key, AggregationResults childResults) {
+        this.key = key;
+        this.childResults = childResults;
+      }
+
+      @Override
+      public BsonString getKey() {
+        return new BsonString(this.key);
+      }
+
+      @Override
+      public AggregationResults getChildResults() {
+        return this.childResults;
+      }
+
+      private static TermsBucket merge(TermsBucket a, TermsBucket b) {
+        List<AggregationResult> merged = new ArrayList<>();
+        for (AggregationResult lhs : a.childResults) {
+          merged.add(lhs.mergePartitionResult(b.childResults.get(lhs.getName())));
+        }
+        return new TermsBucket(a.key, AggregationResults.from(merged));
+      }
     }
   }
 

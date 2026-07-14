@@ -1,6 +1,8 @@
 package com.xgen.mongot.index.query.aggregation;
 
+import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
+import java.util.ArrayList;
 import java.util.List;
 import org.bson.BsonArray;
 import org.bson.BsonDocument;
@@ -58,5 +60,94 @@ public abstract class MultiBucketAggregationResult implements AggregationResult 
       bucketsBson.add(bucketDoc);
     }
     return new BsonDocument("buckets", bucketsBson);
+  }
+
+  /**
+   * Flattens nested buckets into one intermediate document per leaf bucket path. Each document
+   * contains {@link IntermediateAggregationMetaField#KEYS} and mergeable metric partials; the
+   * top-level routing field {@link IntermediateAggregationMetaField#GROUP_NAME} is stamped by
+   * {@link TopLevelAggregationResult}.
+   *
+   * <p>Example — nested {@code by_city -> by_color -> avg_price} over two leaf buckets:
+   *
+   * <pre>{@code
+   * // Nested child results (conceptual):
+   * by_city.buckets[0] = {_id: "NYC", by_color: {buckets: [{_id: "red", avg_price: ...}]}}
+   * by_city.buckets[1] = {_id: "LA",  by_color: {buckets: [{_id: "red", avg_price: ...}]}}
+   *
+   * // Flat intermediate rows emitted here (group_name added by TopLevelAggregationResult):
+   * [
+   *   {$meta/keys: {city: "NYC", color: "red"}, avg_sum_avg_price: 30, avg_count_avg_price: 2},
+   *   {$meta/keys: {city: "LA",  color: "red"}, avg_sum_avg_price: 5,  avg_count_avg_price: 1}
+   * ]
+   * }</pre>
+   */
+  @Override
+  public final BsonArray toIntermediateBson() {
+    BsonArray docs = new BsonArray();
+    for (Bucket bucket : this.getBuckets()) {
+      BsonDocument keys = new BsonDocument().append(this.path.toString(), bucket.getKey());
+      collectBucketDocs(keys, bucket, docs);
+    }
+    return docs;
+  }
+
+  private static void collectBucketDocs(BsonDocument keys, Bucket bucket, BsonArray docs) {
+    BsonDocument metricFields = new BsonDocument();
+    List<BsonArray> subBucketDocs = new ArrayList<>();
+
+    for (AggregationResult child : bucket.getChildResults()) {
+      BsonArray childRows = child.toIntermediateBson();
+      if (!childRows.isEmpty()) {
+        subBucketDocs.add(childRows);
+      }
+      BsonDocument metricPartials = child.toIntermediateMetricPartials();
+      if (!metricPartials.isEmpty()) {
+        IntermediateAggregationMetaField.assertNoReservedFields(metricPartials);
+        metricFields.putAll(metricPartials);
+      }
+    }
+
+    // Leaf grouping level: every child is a metric result (empty toIntermediateBson(), partials
+    // only). Nested group children would have contributed non-empty subBucketDocs wire rows.
+    if (subBucketDocs.isEmpty()) {
+      docs.add(buildLeafIntermediateDoc(keys, metricFields));
+      return;
+    }
+
+    Check.checkState(
+        metricFields.isEmpty(), "Metric operators must be defined at the leaf grouping level only");
+    for (BsonArray subDocs : subBucketDocs) {
+      mergeIntoSubDocs(keys, subDocs, docs);
+    }
+  }
+
+  private static BsonDocument buildLeafIntermediateDoc(
+      BsonDocument keys, BsonDocument metricFields) {
+    BsonDocument doc = new BsonDocument();
+    doc.append(IntermediateAggregationMetaField.KEYS, keys);
+    doc.putAll(metricFields);
+    return doc;
+  }
+
+  private static void mergeIntoSubDocs(BsonDocument parentKeys, BsonArray subDocs, BsonArray out) {
+    for (BsonValue value : subDocs) {
+      BsonDocument subDoc = value.asDocument();
+      if (subDoc.containsKey(IntermediateAggregationMetaField.GROUP_NAME)) {
+        throw new IllegalStateException(
+            "Child intermediate document must not set routing field "
+                + IntermediateAggregationMetaField.GROUP_NAME);
+      }
+      if (!subDoc.containsKey(IntermediateAggregationMetaField.KEYS)) {
+        throw new IllegalStateException(
+            "Child intermediate document must set grouping-keys field "
+                + IntermediateAggregationMetaField.KEYS);
+      }
+      BsonDocument childKeys = subDoc.getDocument(IntermediateAggregationMetaField.KEYS);
+      BsonDocument mergedKeys =
+          IntermediateAggregationMetaField.mergeGroupingKeys(parentKeys, childKeys);
+      subDoc.put(IntermediateAggregationMetaField.KEYS, mergedKeys);
+      out.add(subDoc);
+    }
   }
 }

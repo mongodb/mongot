@@ -19,6 +19,7 @@ java_library(
         "DenseTermsAccumulator.java",
         "DoubleArray.java",
         "GroupAggregationSpec.java",
+        "IntermediateAggregationMetaField.java",
         "LeafBucketCollector.java",
         "LongArray.java",
         "MultiBucketAggregationResult.java",

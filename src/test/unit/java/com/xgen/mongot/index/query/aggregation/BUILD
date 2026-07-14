@@ -8,6 +8,7 @@ java_test_suite(
         "AggregationTestSupport.java",
         "BoundaryAggregationTest.java",
         "BoundaryEncoderTest.java",
+        "IntermediateBsonTest.java",
         "PrimitiveArrayTest.java",
         "ResultTest.java",
         "ShardMergePipelineBuilderTest.java",
