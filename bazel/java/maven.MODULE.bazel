@@ -110,6 +110,11 @@ maven.install(
         # httpclient5; keep both core5 artifacts aligned.
         "org.apache.httpcomponents.core5:httpcore5:5.4.2",
         "org.apache.httpcomponents.core5:httpcore5-h2:5.4.2",
+        # Force reactor-netty to 1.2.18 to address CVE-2026-41715 (cleartext credential
+        # disclosure on HTTPS->HTTP redirect in the HTTP client). Pulled transitively via
+        # azure-core-http-netty; keep core and http aligned on the same version.
+        "io.projectreactor.netty:reactor-netty-core:1.2.18",
+        "io.projectreactor.netty:reactor-netty-http:1.2.18",
         # OSHI 7.x switched to jna-platform-jpms, removing the transitive driver for jna-platform;
         # pin explicitly to hold the pre-existing version
         "net.java.dev.jna:jna-platform:5.17.0",
@@ -173,7 +178,7 @@ maven.install(
         ("com.github.docker-java", "docker-java-api", "3.7.1"),
         ("com.github.docker-java", "docker-java-transport", "3.7.1"),
         ("com.github.docker-java", "docker-java-transport-httpclient5", "3.7.1"),
-        ("io.projectreactor", "reactor-test", "3.7.8"),
+        ("io.projectreactor", "reactor-test", "3.7.19"),
         ("com.googlecode.junit-toolbox", "junit-toolbox", "2.4"),
         ("org.hamcrest", "hamcrest-library", "3.0"),
         ("org.hamcrest", "hamcrest-core", "3.0"),
