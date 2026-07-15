@@ -1,8 +1,7 @@
 load("@contrib_rules_jvm//java:defs.bzl", _java_test_suite = "java_test_suite")
-load("@rules_java//java:java_library.bzl", "java_library")
 load("@rules_java//java:java_test.bzl", "java_test")
 load("@rules_jvm_external//:defs.bzl", "artifact")
-load(":package.bzl", "mongot_java_package")
+load(":package.bzl", "java_library", "mongot_java_package")
 
 # Maven coordinates resolved as test-only deps for every java test suite.
 # The strings are converted to @maven//... labels by mongot_java_package._transform_deps.
@@ -33,6 +32,11 @@ TEST_ONLY_ARTIFACTS = [
 MOCKITO_CORE_LIB = "@maven//:org_mockito_mockito_core"
 MOCKITO_SUBCLASS_LIB = "@maven//:org_mockito_mockito_subclass"
 
+def _disable_spotbugs_for_tests(tags):
+    if "no-java-spotbugs" in tags:
+        return tags
+    return tags + ["no-java-spotbugs"]
+
 def java_test_suite(name, srcs, deps, tags, jvm_flags = [], **kwargs):
     """A thin wrapper around contrib_rules_jvm java_test_suite
 
@@ -56,11 +60,30 @@ def java_test_suite(name, srcs, deps, tags, jvm_flags = [], **kwargs):
     # It can be removed when we upgrade to Java 22+.
     jvm_flags = jvm_flags + ["--enable-preview"]
 
+    errorprone_annotations = "@maven//:com_google_errorprone_error_prone_annotations"
+    lint_deps = deps if errorprone_annotations in deps else deps + [errorprone_annotations]
+
+    # Create an aggregate library covering all test sources so that checkstyle runs once per
+    # package instead of once per test class. The individual test targets below are tagged
+    # "no-java-checkstyle" (a well-known tag recognized by apple_rules_lint to opt a target out of
+    # the "java-checkstyle" linter aspect, see
+    # https://github.com/apple/apple_rules_lint/blob/ccfc3520169bd88ed73801c50ea4fe3abd535a12/api.md?plain=1#L36)
+    # to suppress their per-file sidecars.
+    java_library(
+        name = name + "-lint",
+        srcs = srcs,
+        deps = lint_deps,
+        javacopts = ["--enable-preview"],
+        testonly = True,
+        tags = tags,
+        visibility = ["//visibility:private"],
+    )
+
     _java_test_suite(
         name = name,
         srcs = srcs,
         deps = deps,
-        tags = tags,
+        tags = _disable_spotbugs_for_tests(tags) + ["no-java-checkstyle"],
         jvm_flags = jvm_flags,
         **kwargs
     )
@@ -84,7 +107,7 @@ def mongot_java_test_resources():
 def mongot_java_unit_test(name, test_class, size = "small", timeout = "short", tags = [], data = [], **kwargs):
     java_test(
         name = name,
-        tags = tags + ["unit"],
+        tags = _disable_spotbugs_for_tests(tags + ["unit"]),
         size = size,
         timeout = timeout,
         test_class = test_class,
@@ -147,7 +170,7 @@ def perf_java_integration_test_suite(
 def mongot_java_integration_test(size = "small", timeout = "short", tags = [], **kwargs):
     final_tags = tags if "integration_community_sharded" in tags else tags + ["integration"]
     java_test(
-        tags = final_tags,
+        tags = _disable_spotbugs_for_tests(final_tags),
         size = size,
         timeout = timeout,
         **kwargs
@@ -182,7 +205,7 @@ def mongot_java_integration_test_suite(
 
 def mongot_java_e2e_test(size = "small", timeout = "short", tags = [], **kwargs):
     java_test(
-        tags = tags + ["e2e", "exclusive"],
+        tags = _disable_spotbugs_for_tests(tags + ["e2e", "exclusive"]),
         size = size,
         timeout = timeout,
         **kwargs
@@ -232,7 +255,7 @@ def mongot_java_e2e_test_suite(
 
 def mongot_java_fuzz_test(size = "small", timeout = "short", tags = [], **kwargs):
     java_test(
-        tags = tags + ["fuzz"],
+        tags = _disable_spotbugs_for_tests(tags + ["fuzz"]),
         size = size,
         timeout = timeout,
         **kwargs
@@ -258,6 +281,7 @@ def mongot_java_bench_suite(name, deps = [], exclude_files = [], resources = Fal
         deps = deps + [artifact("org.openjdk.jmh:jmh-core")],
         plugins = ["//bazel/java:jmh_annotation_processor"],
         testonly = True,
+        tags = ["no-java-spotbugs"],
         javacopts = ["--enable-preview"],
     )
 
@@ -278,6 +302,7 @@ def mongot_java_bench_suite(name, deps = [], exclude_files = [], resources = Fal
             classpath_resources = ["//conf/mongot/test:conf"],
             visibility = ["//visibility:public"],
             data = test_data,
+            tags = ["no-java-spotbugs"],
             jvm_flags = ["--enable-preview"],
         )
 
@@ -301,7 +326,12 @@ def _mongot_java_test_suite(
     deps = deps + TEST_ONLY_ARTIFACTS + ["org.mockito:mockito-core"]
 
     # Create a package with the dependencies that can be used by the individual tests.
-    mongot_java_package(name = name, deps = deps, testonly = True)
+    mongot_java_package(
+        name = name,
+        deps = deps,
+        testonly = True,
+        tags = ["no-java-spotbugs"],
+    )
 
     if not "//conf/mongot/test:conf" in classpath_resources:
         classpath_resources = ["//conf/mongot/test:conf"] + classpath_resources

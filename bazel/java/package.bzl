@@ -2,8 +2,20 @@ load("@contrib_rules_jvm//java:defs.bzl", _java_library = "java_library")
 load("@rules_java//java:java_binary.bzl", "java_binary")
 load("@rules_jvm_external//:defs.bzl", "artifact")
 
+def _disable_spotbugs_for_test_packages(tags):
+    if not native.package_name().startswith("src/test/"):
+        return tags
+    if "no-java-spotbugs" in tags:
+        return tags
+
+    # "no-java-spotbugs" is a well-known tag recognized by apple_rules_lint to opt a target out of
+    # the "java-spotbugs" linter aspect. See
+    # https://github.com/apple/apple_rules_lint/blob/ccfc3520169bd88ed73801c50ea4fe3abd535a12/api.md?plain=1#L36
+    return tags + ["no-java-spotbugs"]
+
 def java_library(name, plugins = [], javacopts = [], testonly = False, **kwargs):
     visibility = kwargs.pop("visibility", ["//visibility:public"])
+    tags = _disable_spotbugs_for_test_packages(kwargs.pop("tags", []))
 
     plugins = plugins + ["//bazel/java:autoservice_annotation_processor"]
     plugins = plugins + ["//src/main/java/com/xgen/errorprone:unsafe_collectors_plugin"]
@@ -16,11 +28,13 @@ def java_library(name, plugins = [], javacopts = [], testonly = False, **kwargs)
         plugins = plugins,
         visibility = visibility,
         javacopts = javacopts,
+        tags = tags,
         testonly = testonly,
         **kwargs
     )
 
-def mongot_java_package(name = "lib", deps = [], data = [], plugins = [], exports = [], testonly = False, **kwargs):
+def mongot_java_package(name = "lib", deps = [], data = [], plugins = [], exports = [], testonly = False, tags = [], **kwargs):
+    tags = _disable_spotbugs_for_test_packages(tags)
     deps = deps + [
         "org.slf4j:slf4j-api",
         "com.google.errorprone:error_prone_annotations",
@@ -62,6 +76,7 @@ def mongot_java_package(name = "lib", deps = [], data = [], plugins = [], export
         exports = exports,
         data = data,
         plugins = plugins,
+        tags = tags,
         visibility = ["//visibility:public"],
         testonly = testonly,
         **kwargs
