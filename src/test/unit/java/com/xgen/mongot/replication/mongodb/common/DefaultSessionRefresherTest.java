@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.mongodb.MongoException;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.session.ClientSession;
@@ -17,6 +18,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import org.bson.BsonDocument;
 import org.bson.BsonObjectId;
 import org.bson.Document;
@@ -51,6 +53,104 @@ public class DefaultSessionRefresherTest {
     try {
       // Should not call refreshSessions if no sessions are registered.
       Assert.assertFalse(latch.await(500, TimeUnit.MILLISECONDS));
+    } finally {
+      refresher.shutdown();
+    }
+  }
+
+  @Test
+  public void testIgnoresClosedClientExceptionDuringShutdownAndKeepsRefreshing() throws Exception {
+    // Simulate the replication manager closing the shared client out from under the refresher on
+    // shutdown: after markStopping(), runCommand throws IllegalStateException ("state should be:
+    // open"). This must not be counted as a failed refresh, and the periodic task must keep running
+    // (an escaping exception would cancel it).
+    var registry = new SimpleMeterRegistry();
+    var invocationCount = new AtomicInteger();
+    var client =
+        clientThrowing(() -> new IllegalStateException("state should be: open"), invocationCount);
+
+    var refresher =
+        DefaultSessionRefresher.create(
+            new MetricsFactory("replication.sessionRefresher", registry),
+            CommonReplicationConfig.Type.DEFAULT,
+            Executors.singleThreadScheduledExecutor("session-refresh", new SimpleMeterRegistry()),
+            client,
+            Duration.ofMillis(10));
+
+    // Mark stopping before any refresh runs so every failure is attributed to shutdown.
+    refresher.markStopping();
+
+    try {
+      try (var ignored = refresher.register(dummySession())) {
+        waitForInvocations(invocationCount, 2);
+        Assert.assertTrue(
+            "expected refresh task to keep running after a closed-client exception",
+            invocationCount.get() >= 2);
+      }
+      Assert.assertEquals(
+          "shutdown-race failures must not be counted", 0.0, failedRefreshCount(registry), 0.0);
+    } finally {
+      refresher.shutdown();
+    }
+  }
+
+  @Test
+  public void testCountsMongoExceptionFailureAndKeepsRefreshing() throws Exception {
+    // A genuine refresh failure during normal operation (not stopping) is counted, and the periodic
+    // task keeps running.
+    var registry = new SimpleMeterRegistry();
+    var invocationCount = new AtomicInteger();
+    var client = clientThrowing(() -> new MongoException("refresh failed"), invocationCount);
+
+    var refresher =
+        DefaultSessionRefresher.create(
+            new MetricsFactory("replication.sessionRefresher", registry),
+            CommonReplicationConfig.Type.DEFAULT,
+            Executors.singleThreadScheduledExecutor("session-refresh", new SimpleMeterRegistry()),
+            client,
+            Duration.ofMillis(10));
+
+    try {
+      try (var ignored = refresher.register(dummySession())) {
+        waitForInvocations(invocationCount, 2);
+        Assert.assertTrue(
+            "expected refresh task to keep running after a failure", invocationCount.get() >= 2);
+        Assert.assertTrue(
+            "genuine MongoException failures must be counted", failedRefreshCount(registry) >= 1);
+      }
+    } finally {
+      refresher.shutdown();
+    }
+  }
+
+  @Test
+  public void testDoesNotCountUnexpectedExceptionButKeepsRefreshing() throws Exception {
+    // An unexpected (non-Mongo) runtime exception during normal operation must not cancel the
+    // periodic task, and must not be counted as a refresh failure.
+    var registry = new SimpleMeterRegistry();
+    var invocationCount = new AtomicInteger();
+    var client = clientThrowing(() -> new IllegalStateException("unexpected"), invocationCount);
+
+    var refresher =
+        DefaultSessionRefresher.create(
+            new MetricsFactory("replication.sessionRefresher", registry),
+            CommonReplicationConfig.Type.DEFAULT,
+            Executors.singleThreadScheduledExecutor("session-refresh", new SimpleMeterRegistry()),
+            client,
+            Duration.ofMillis(10));
+
+    try {
+      try (var ignored = refresher.register(dummySession())) {
+        waitForInvocations(invocationCount, 2);
+        Assert.assertTrue(
+            "expected refresh task to keep running after an unexpected exception",
+            invocationCount.get() >= 2);
+      }
+      Assert.assertEquals(
+          "unexpected exceptions must not be counted as refresh failures",
+          0.0,
+          failedRefreshCount(registry),
+          0.0);
     } finally {
       refresher.shutdown();
     }
@@ -117,5 +217,40 @@ public class DefaultSessionRefresherTest {
     } finally {
       refresher.shutdown();
     }
+  }
+
+  private static MongoClient clientThrowing(
+      Supplier<? extends RuntimeException> exception, AtomicInteger invocationCount) {
+    var client = mock(MongoClient.class);
+    var database = mock(MongoDatabase.class);
+    when(database.runCommand(any()))
+        .then(
+            invocation -> {
+              invocationCount.incrementAndGet();
+              throw exception.get();
+            });
+    when(client.getDatabase(any())).thenReturn(database);
+    return client;
+  }
+
+  private static ClientSession dummySession() {
+    var session = mock(ClientSession.class);
+    var serverSession = mock(ServerSession.class);
+    var sessionId = new BsonDocument().append("id", new BsonObjectId());
+    when(serverSession.getIdentifier()).thenReturn(sessionId);
+    when(session.getServerSession()).thenReturn(serverSession);
+    return session;
+  }
+
+  private static void waitForInvocations(AtomicInteger invocationCount, int target)
+      throws InterruptedException {
+    long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+    while (invocationCount.get() < target && System.nanoTime() < deadline) {
+      Thread.sleep(10);
+    }
+  }
+
+  private static double failedRefreshCount(SimpleMeterRegistry registry) {
+    return registry.get("replication.sessionRefresher.failedSessionRefreshes").counter().count();
   }
 }

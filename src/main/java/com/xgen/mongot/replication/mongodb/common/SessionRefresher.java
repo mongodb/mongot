@@ -13,5 +13,12 @@ public interface SessionRefresher {
    */
   <S extends ClientSession> RefreshingClientSession<S> register(S session);
 
+  /**
+   * Signals that the shared MongoClient is about to be (or has been) closed as part of replication
+   * shutdown. After this is called, refresh failures caused by the closed client are expected and
+   * are ignored rather than being logged as errors or counted as failed refreshes.
+   */
+  void markStopping();
+
   void shutdown();
 }

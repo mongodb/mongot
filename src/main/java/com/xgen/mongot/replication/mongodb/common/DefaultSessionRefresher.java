@@ -44,6 +44,10 @@ public class DefaultSessionRefresher implements SessionRefresher, VerboseRunnabl
   private final Counter failedRefreshCounter;
   private final Timer refreshTimer;
 
+  // Set when the replication manager is closing the shared client on shutdown. Once set, refresh
+  // failures are attributed to the client being torn down and are ignored rather than counted.
+  private volatile boolean stopping = false;
+
   private DefaultSessionRefresher(
       MetricsFactory metricsFactory,
       CommonReplicationConfig.Type replicationType,
@@ -99,6 +103,11 @@ public class DefaultSessionRefresher implements SessionRefresher, VerboseRunnabl
   }
 
   @Override
+  public void markStopping() {
+    this.stopping = true;
+  }
+
+  @Override
   public void shutdown() {
     LOG.info("Shutting down.");
 
@@ -134,9 +143,27 @@ public class DefaultSessionRefresher implements SessionRefresher, VerboseRunnabl
       Timed.runnable(
           this.refreshTimer,
           () -> this.mongoClient.getDatabase(Databases.ADMIN).runCommand(command.toProxy()));
-    } catch (MongoException e) {
-      LOG.error("Caught exception attempting to refresh sessions.", e);
-      this.failedRefreshCounter.increment();
+    } catch (RuntimeException e) {
+      if (this.stopping) {
+        // The replication manager closed the shared client out from under this refresh on
+        // shutdown. Depending on timing this surfaces as an IllegalStateException (pool already
+        // closed) or a MongoException (socket closed mid-read); either way the cursors it keeps
+        // alive are being torn down anyway, so it is not a real failure. Ignore it, but keep the
+        // periodic task running so it isn't cancelled.
+        LOG.debug("Ignoring session refresh failure while shutting down.", e);
+        return;
+      }
+      if (e instanceof MongoException) {
+        // A genuine refresh failure (command error, network blip). Count it.
+        LOG.error("Caught exception attempting to refresh sessions.", e);
+        this.failedRefreshCounter.increment();
+        return;
+      }
+      // An unexpected runtime exception. Log it loudly, but keep the periodic task running rather
+      // than letting it escape and cancel refreshes (which would eventually let the server reap
+      // the sessions and kill the replication cursors). Don't count it as a refresh failure so the
+      // failedRefreshCounter metric keeps meaning "a real refresh command failed".
+      LOG.error("Unexpected exception while refreshing sessions; continuing.", e);
     }
   }
 

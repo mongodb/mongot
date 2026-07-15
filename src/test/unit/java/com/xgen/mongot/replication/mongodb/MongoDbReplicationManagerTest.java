@@ -74,6 +74,7 @@ import java.util.function.Supplier;
 import org.bson.types.ObjectId;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 public class MongoDbReplicationManagerTest {
@@ -280,6 +281,42 @@ public class MongoDbReplicationManagerTest {
         .getIndexingWorkSchedulers()
         .forEach((strategy, scheduler) -> verify(scheduler).shutdown());
     verify(shardedMocks.decodingScheduler).shutdown();
+  }
+
+  @Test
+  public void testShutdownAbortsReplicationClientsBeforeSubManagerShutdown() throws Exception {
+    Mocks mocks = Mocks.create();
+    MongoClient syncMongoClient = mocks.clientSessionRecordMap.get("test").syncMongoClient();
+
+    mocks.manager.shutdown().get(5, TimeUnit.SECONDS);
+
+    // The replication clients must be closed to unblock any in-flight reads before we start
+    // awaiting the sub-managers, whose executors would otherwise hang on a stuck getMore.
+    InOrder inOrder =
+        Mockito.inOrder(
+            syncMongoClient,
+            mocks.syncBatchMongoClient,
+            mocks.initialSyncQueue,
+            mocks.steadyStateManager,
+            mocks.synonymManager);
+    inOrder.verify(syncMongoClient).close();
+    inOrder.verify(mocks.syncBatchMongoClient).close();
+    inOrder.verify(mocks.initialSyncQueue).shutdown();
+    inOrder.verify(mocks.steadyStateManager).shutdown();
+    inOrder.verify(mocks.synonymManager).shutdown();
+  }
+
+  @Test
+  public void testShardedShutdownAbortsSynonymsClientBeforeSubManagerShutdown() throws Exception {
+    Mocks mocks = Mocks.createSharded();
+    MongoClient synonymsSyncClient =
+        Check.isPresent(mocks.synonymsSyncMongoClient, "synonymsSyncMongoClient");
+
+    mocks.manager.shutdown().get(5, TimeUnit.SECONDS);
+
+    InOrder inOrder = Mockito.inOrder(synonymsSyncClient, mocks.steadyStateManager);
+    inOrder.verify(synonymsSyncClient).close();
+    inOrder.verify(mocks.steadyStateManager).shutdown();
   }
 
   @Test
@@ -789,6 +826,8 @@ public class MongoDbReplicationManagerTest {
     @Keep final IndexingWorkSchedulerFactory indexingWorkSchedulerFactory;
     @Keep final MongotCursorManager cursorManager;
     final Map<String, ClientSessionRecord> clientSessionRecordMap;
+    final BatchMongoClient syncBatchMongoClient;
+    final Optional<MongoClient> synonymsSyncMongoClient;
     final Optional<SessionRefresher> synonymsSessionRefresher;
     final InitialSyncQueue initialSyncQueue;
     final SteadyStateManager steadyStateManager;
@@ -824,6 +863,8 @@ public class MongoDbReplicationManagerTest {
       this.indexingWorkSchedulerFactory = indexingWorkSchedulerFactory;
       this.cursorManager = cursorManager;
       this.clientSessionRecordMap = clientSessionRecordMap;
+      this.syncBatchMongoClient = syncBatchMongoClient;
+      this.synonymsSyncMongoClient = synonymsSyncMongoClient;
       this.synonymsSessionRefresher = synonymsSessionRefresher;
       this.initialSyncQueue = initialSyncQueue;
       this.steadyStateManager = steadyStateManager;

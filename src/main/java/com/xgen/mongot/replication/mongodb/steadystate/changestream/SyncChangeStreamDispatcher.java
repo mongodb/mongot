@@ -316,9 +316,12 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
             .setCause(ex)
             .log("Failed fetching or processing a change stream batch for index");
 
-        if (this.shutdown) {
+        if (this.shutdown || info.indexManager.isShutdown()) {
           // A failure occurred during initiated shutdown, we don't have to worry about
-          // failing the index (it's done at a higher level).
+          // failing the index (it's done at a higher level). This also covers the case where the
+          // replication manager closed the shared mongo client to abort an in-flight getMore: the
+          // index manager is already marked shut down even though the dispatcher's own shutdown
+          // flag has not been set yet, so we must not fail its lifecycle for the expected failure.
           LOG.atInfo()
               .addKeyValue("indexId", generationId.indexId)
               .addKeyValue("generationId", generationId)

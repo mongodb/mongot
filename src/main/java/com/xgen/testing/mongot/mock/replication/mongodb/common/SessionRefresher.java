@@ -30,6 +30,9 @@ public class SessionRefresher {
     }
 
     @Override
+    public void markStopping() {}
+
+    @Override
     public void shutdown() {}
   }
 }

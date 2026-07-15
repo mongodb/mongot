@@ -7,7 +7,10 @@ import static com.xgen.testing.mongot.mock.replication.mongodb.common.DocumentIn
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.xgen.mongot.index.IndexMetricsUpdater;
@@ -78,15 +81,78 @@ public class SyncChangeStreamDispatcherTest {
             Optional.of(1),
             CommonReplicationConfig.Type.DEFAULT);
 
-    syncDispatcher.add(
-        embeddingDefinition,
-        embeddingGeneration.getGenerationId(),
-        mock(ChangeStreamResumeInfo.class),
-        indexManager,
-        false);
+    try {
+      syncDispatcher.add(
+          embeddingDefinition,
+          embeddingGeneration.getGenerationId(),
+          mock(ChangeStreamResumeInfo.class),
+          indexManager,
+          false);
 
-    // The semaphore should be released when we return early due to index manager shutdown.
-    assertNumberOfEmbeddingPermits(syncDispatcher, 1);
+      // The semaphore should be released when we return early due to index manager shutdown.
+      assertNumberOfEmbeddingPermits(syncDispatcher, 1);
+    } finally {
+      // Shut down the dispatcher so its scheduled executor threads do not leak across the suite.
+      syncDispatcher.shutdown();
+    }
+  }
+
+  @Test
+  public void testGetNextFailureWhileIndexManagerShutDownDoesNotFailLifecycle() throws Exception {
+    var definition = SearchIndex.mockSearchDefinition(new ObjectId());
+    IndexDefinitionGeneration generation =
+        mockIndexGeneration(definition).getDefinitionGeneration();
+
+    // getNext() fails as it would when the replication manager closes the shared client to abort an
+    // in-flight read on shutdown.
+    ChangeStreamMongoClient<SteadyStateException> mongoClient = mock(ChangeStreamMongoClient.class);
+    when(mongoClient.getNext())
+        .thenThrow(SteadyStateException.createTransient(new RuntimeException("closed"), "closed"));
+
+    ChangeStreamMongoClientFactory mongoClientFactory = mock(ChangeStreamMongoClientFactory.class);
+    when(mongoClientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+        .thenReturn(mongoClient);
+
+    ChangeStreamIndexManager indexManager =
+        spy(
+            DecodingExecutorChangeStreamIndexManager.createWithDecodingScheduler(
+                definition,
+                mock(IndexingWorkScheduler.class),
+                mockDocumentIndexer(),
+                ChangeStreamUtils.PRE_BATCH_RESUME_INFO.getNamespace(),
+                resumeInfo -> {},
+                IGNORE_METRICS,
+                new CompletableFuture<>(),
+                generation.getGenerationId(),
+                DecodingWorkScheduler.create(2, new SimpleMeterRegistry())));
+    // Not shut down when doGetMore checks before the read, but shut down by the time getNext()
+    // fails and we reach the catch block (client was closed out from under the in-flight read).
+    when(indexManager.isShutdown()).thenReturn(false, true);
+
+    SyncChangeStreamDispatcher syncDispatcher =
+        new SyncChangeStreamDispatcher(
+            new SimpleMeterRegistry(),
+            mongoClientFactory,
+            Executors.fixedSizeThreadScheduledExecutor("executor", 1, new SimpleMeterRegistry()),
+            Optional.empty(),
+            CommonReplicationConfig.Type.DEFAULT);
+
+    try {
+      syncDispatcher.add(
+          definition,
+          generation.getGenerationId(),
+          mock(ChangeStreamResumeInfo.class),
+          indexManager,
+          false);
+
+      // The client is closed gracefully and the index lifecycle is not failed for the expected read
+      // failure during shutdown.
+      verify(mongoClient, timeout(2000)).close();
+      verify(indexManager, never()).failLifecycle(any());
+    } finally {
+      // Shut down the dispatcher so its scheduled executor threads do not leak across the suite.
+      syncDispatcher.shutdown();
+    }
   }
 
   private static void assertNumberOfEmbeddingPermits(

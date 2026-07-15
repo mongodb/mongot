@@ -789,6 +789,15 @@ public class MongoDbReplicationManager implements ReplicationManager {
             .map(IndexManager::shutdown)
             .collect(Collectors.toList());
 
+    // Abort any in-flight replication reads before we start awaiting the shutdown futures above.
+    // The synchronous mongo driver ignores Thread.interrupt() during a blocking socket read, so the
+    // only way to unblock a hung getMore/find (e.g. when the sync source is unhealthy) is to close
+    // the client, which closes the socket. Doing this early lets the initial-sync, steady-state and
+    // synonym worker threads unwind so their executors terminate before Executors.shutdownOrFail
+    // hits its hard timeout and crashes mongot. The later .close() calls in the chain below become
+    // idempotent no-ops.
+    abortReplicationMongoClients();
+
     // Need to create a separate executor to run the shutdown tasks, otherwise it may end up running
     // on the indexing executor. As one of the shutdown tasks is shutting down that executor, this
     // will hang forever.
@@ -832,6 +841,29 @@ public class MongoDbReplicationManager implements ReplicationManager {
         .thenRunAsync(this.replicationOptimeUpdater::close, shutdownExecutor)
         .thenRunAsync(this::deregisterGauges, shutdownExecutor)
         .whenComplete((result, throwable) -> shutdownExecutor.shutdown());
+  }
+
+  /**
+   * Closes all replication mongo clients to abort any in-flight reads. Closing a client closes its
+   * sockets, which is the only reliable way to unblock a synchronous-driver read that is hung on an
+   * unhealthy sync source. Every client's {@code close()} is idempotent, so it is safe for this to
+   * run before the later close stages of {@link #shutdown()}.
+   */
+  private void abortReplicationMongoClients() {
+    LOG.info("Aborting replication mongo clients to unblock in-flight reads.");
+
+    // Mark the session refreshers as stopping before closing the clients so that a refresh racing
+    // with the close is recognized as an expected shutdown failure rather than being counted.
+    this.clientSessionRecordMap
+        .values()
+        .forEach(clientSessionRecord -> clientSessionRecord.sessionRefresher().markStopping());
+    this.synonymsSessionRefresher.ifPresent(SessionRefresher::markStopping);
+
+    this.clientSessionRecordMap
+        .values()
+        .forEach(clientSessionRecord -> clientSessionRecord.syncMongoClient().close());
+    this.syncBatchMongoClient.close();
+    this.synonymsSyncClient.ifPresent(MongoClient::close);
   }
 
   @Override
