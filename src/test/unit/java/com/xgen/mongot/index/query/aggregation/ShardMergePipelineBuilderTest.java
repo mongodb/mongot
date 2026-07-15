@@ -34,7 +34,10 @@ public class ShardMergePipelineBuilderTest {
         BsonDocument.parse(
             """
             {"$group": {
-              "_id": {"tag": "$tag", "keys": "$keys"},
+              "_id": {
+                "$meta/group_name": {"$getField": {"field": "$meta/group_name", "input": "$$ROOT"}},
+                "$meta/keys": {"$getField": {"field": "$meta/keys", "input": "$$ROOT"}}
+              },
               "count_value": {"$sum": "$count"},
               "sum_sum_price": {"$sum": "$sum_sum_price"}
             }}
@@ -45,8 +48,8 @@ public class ShardMergePipelineBuilderTest {
         BsonDocument.parse(
             """
             {"$facet": {
-              "by_city": [{"$match": {"_id.tag": "by_city"}}],
-              "count": [{"$match": {"_id.tag": null}}]
+              "by_city": [{"$match": {"_id": {"$meta/group_name": "by_city"}}}],
+              "count": [{"$match": {"_id": {"$meta/group_name": null}}}]
             }}
             """);
     assertEquals(expectedFacet, pipeline.get(1));
@@ -60,7 +63,7 @@ public class ShardMergePipelineBuilderTest {
                 "by_city": {"buckets": {"$map": {
                   "input": "$by_city", "as": "b",
                   "in": {
-                    "city": "$$b._id.keys.city",
+                    "city": "$$b._id['$meta/keys'].city",
                     "sum_price": "$$b.sum_sum_price"
                   }
                 }}}
@@ -68,6 +71,52 @@ public class ShardMergePipelineBuilderTest {
             }}
             """);
     assertEquals(expectedReplaceWith, pipeline.get(2));
+  }
+
+  @Test
+  public void singleGroupWithAvgMetricFinalizesInReplaceWith() {
+    AggregationSpec leaf = new AvgSpec("avg_price", PRICE);
+    AggregationSpec group = new TermsSpec("by_city", CITY, List.of(leaf));
+    TopAggregationSpec top = new TopAggregationSpec(List.of(group));
+
+    ShardMergePipelineBuilder builder = new ShardMergePipelineBuilder();
+    top.buildShardMergePipeline(builder);
+    List<BsonDocument> pipeline = builder.build("lowerBound");
+
+    BsonDocument expectedGroup =
+        BsonDocument.parse(
+            """
+            {"$group": {
+              "_id": {
+                "$meta/group_name": {"$getField": {"field": "$meta/group_name", "input": "$$ROOT"}},
+                "$meta/keys": {"$getField": {"field": "$meta/keys", "input": "$$ROOT"}}
+              },
+              "count_value": {"$sum": "$count"},
+              "avg_sum_avg_price": {"$sum": "$avg_sum_avg_price"},
+              "avg_count_avg_price": {"$sum": "$avg_count_avg_price"}
+            }}
+            """);
+    assertEquals(expectedGroup, pipeline.get(0));
+
+    BsonDocument inFields =
+        pipeline
+            .get(2)
+            .getDocument("$replaceWith")
+            .getDocument("facet")
+            .getDocument("by_city")
+            .getDocument("buckets")
+            .getDocument("$map")
+            .getDocument("in");
+    BsonDocument expectedAvgPrice =
+        BsonDocument.parse(
+            """
+            {"$cond": {
+              "if": {"$eq": ["$$b.avg_count_avg_price", 0]},
+              "then": null,
+              "else": {"$divide": ["$$b.avg_sum_avg_price", "$$b.avg_count_avg_price"]}
+            }}
+            """);
+    assertEquals(expectedAvgPrice, inFields.get("avg_price"));
   }
 
   @Test
@@ -105,8 +154,8 @@ public class ShardMergePipelineBuilderTest {
                 "by_city": {"buckets": {"$map": {
                   "input": "$by_city", "as": "b",
                   "in": {
-                    "city": "$$b._id.keys.city",
-                    "color": "$$b._id.keys.color",
+                    "city": "$$b._id['$meta/keys'].city",
+                    "color": "$$b._id['$meta/keys'].color",
                     "sum_price": "$$b.sum_sum_price"
                   }
                 }}}
@@ -132,15 +181,13 @@ public class ShardMergePipelineBuilderTest {
         BsonDocument.parse(
             """
             {"$facet": {
-              "by_city": [{"$match": {"_id.tag": "by_city"}}],
-              "by_color": [{"$match": {"_id.tag": "by_color"}}],
-              "count": [{"$match": {"_id.tag": null}}]
+              "by_city": [{"$match": {"_id": {"$meta/group_name": "by_city"}}}],
+              "by_color": [{"$match": {"_id": {"$meta/group_name": "by_color"}}}],
+              "count": [{"$match": {"_id": {"$meta/group_name": null}}}]
             }}
             """);
     assertEquals(expectedFacet, pipeline.get(1));
   }
-
-  // ===== inline spec fixtures (no accumulator/result needed for pipeline tests) =====
 
   private static final class SumSpec extends OperatorAggregationSpec {
     @SuppressWarnings("unused")
@@ -161,6 +208,42 @@ public class ShardMergePipelineBuilderTest {
       builder.addMetricAccumulator(
           "sum_" + this.name, new BsonDocument("$sum", new BsonString("$sum_" + this.name)));
       builder.addMetricProjection(this.name, new BsonString("$$b.sum_" + this.name));
+    }
+  }
+
+  private static final class AvgSpec extends OperatorAggregationSpec {
+    @SuppressWarnings("unused")
+    private final FieldPath path;
+
+    AvgSpec(String name, FieldPath path) {
+      super(Operator.AVG, name);
+      this.path = path;
+    }
+
+    @Override
+    public Accumulator buildAccumulator(AggregationContext context) {
+      throw new UnsupportedOperationException("not exercised in pipeline test");
+    }
+
+    @Override
+    public void buildShardMergePipeline(ShardMergePipelineBuilder builder) {
+      builder.addMetricAccumulator(
+          "avg_sum_" + this.name,
+          new BsonDocument("$sum", new BsonString("$avg_sum_" + this.name)));
+      builder.addMetricAccumulator(
+          "avg_count_" + this.name,
+          new BsonDocument("$sum", new BsonString("$avg_count_" + this.name)));
+      builder.addMetricProjection(
+          this.name,
+          BsonDocument.parse(
+              """
+              {"$cond": {
+                "if": {"$eq": ["$$b.avg_count_%s", 0]},
+                "then": null,
+                "else": {"$divide": ["$$b.avg_sum_%s", "$$b.avg_count_%s"]}
+              }}
+              """
+                  .formatted(this.name, this.name, this.name)));
     }
   }
 

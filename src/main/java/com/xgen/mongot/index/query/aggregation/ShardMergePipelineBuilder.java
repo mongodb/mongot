@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import org.bson.BsonArray;
 import org.bson.BsonDocument;
+import org.bson.BsonNull;
 import org.bson.BsonString;
 import org.bson.BsonValue;
 import org.jetbrains.annotations.Nullable;
@@ -17,20 +18,76 @@ import org.jetbrains.annotations.Nullable;
  * <p>Usage:
  *
  * <pre>{@code
- * builder.beginTag("byDirector");
+ * builder.beginPath("byDirector");
  * directorSpec.buildShardMergePipeline(builder);  // recursive
- * builder.endTag();
+ * builder.endPath();
  * List<BsonDocument> pipeline = builder.build("lowerBound");
  * }</pre>
  *
- * <p>Stage 1: $group metric field accumulators. _id is always { tag: "$tag", keys: "$keys" } —
- * hardcoded in build(). Stage 2: $facet per-path computation. Stage 3: $replaceWith projections. [
- * $group: { _id: { tag: "$tag", keys: "$keys" }, count_value: { $sum: "$count"}, avg_sum_color: {
- * $sum: "$avg_sum_color"} ... }, $facet: { "byDirector": [{ $match: { "_id.tag": "byDirector" } }],
- * ...., "count": [{ $match: { "_id.tag": null } }] }, $replaceWith: { "count": { "lowerBound": {
- * $first: "$count.count_value" } }, "facet": { "byDirector": { "buckets": { "$map": { "input":
- * "$byDirector", "as": "b", "in": { "director": "$$b._id.keys.director", "avg_price": {"$divide":
- * ["$$b.avg_sum_avg_price", "$$b.avg_count_avg_price"]} } } } } } } ]
+ * <p>Stages:
+ *
+ * <ul>
+ *   <li>Stage 1 ({@code $group}) — merge shard rows that share the same routing metadata and
+ *       grouping keys; sum metric partials and count docs.
+ *   <li>Stage 2 ({@code $facet}) — route grouped rows into one arm per top-level branch (e.g.
+ *       {@code by_city}) plus a {@code count} arm.
+ *   <li>Stage 3 ({@code $replaceWith}) — project each facet arm into {@code buckets} with grouping
+ *       key values and finalized metrics.
+ * </ul>
+ *
+ * <p>Example — nested {@code by_city -> by_color -> sum_price}. Intermediate BSON is already flat
+ * (one row per leaf bucket path); this builder merges and projects those rows. Nested output field
+ * names like {@code by_color} are materialized later from the {@code AggregationSpec} tree.
+ *
+ * <pre>{@code
+ * // Query tree (conceptual):
+ * //   by_city  (path: city)
+ * //     └── by_color  (path: color)
+ * //           └── sum_price
+ *
+ * // --- shard intermediate rows (merge-pipeline input) ---
+ * { $meta/group_name: "by_city", $meta/keys: {city: "NYC", color: "red"},  sum_sum_price: 30 }
+ * { $meta/group_name: "by_city", $meta/keys: {city: "NYC", color: "blue"}, sum_sum_price: 20 }
+ * { $meta/group_name: "by_city", $meta/keys: {city: "LA",  color: "red"},  sum_sum_price: 5  }
+ *
+ * // --- after Stage 1: $group ---
+ * // _id reads $meta/group_name and $meta/keys via $getField; metrics are summed per (_id) key.
+ * {
+ *   _id: {
+ *     $meta/group_name: "by_city",
+ *     $meta/keys:       {city: "NYC", color: "red"}
+ *   },
+ *   sum_sum_price: 30,
+ *   count_value:   1
+ * }
+ * // ... one grouped document per distinct (group_name, keys) pair ...
+ *
+ * // --- after Stage 2: $facet ---
+ * // Each top-level branch arm $match-es on _id.$meta/group_name; count arm $match-es null routing.
+ * {
+ *   by_city: [
+ *     {_id: {$meta/group_name: "by_city", $meta/keys: {city: "NYC", color: "red"}},  ...},
+ *     {_id: {$meta/group_name: "by_city", $meta/keys: {city: "NYC", color: "blue"}}, ...},
+ *     {_id: {$meta/group_name: "by_city", $meta/keys: {city: "LA",  color: "red"}},  ...}
+ *   ],
+ *   count: [ ... ]
+ * }
+ *
+ * // --- after Stage 3: $replaceWith ---
+ * // $map projects _id.$meta/keys and merged metric fields into flat bucket documents.
+ * {
+ *   count: {lowerBound: 3},
+ *   facet: {
+ *     by_city: {
+ *       buckets: [
+ *         {city: "NYC", color: "red",  sum_price: 30},
+ *         {city: "NYC", color: "blue", sum_price: 20},
+ *         {city: "LA",  color: "red",  sum_price: 5 }
+ *       ]
+ *     }
+ *   }
+ * }
+ * }</pre>
  */
 public final class ShardMergePipelineBuilder {
 
@@ -43,24 +100,31 @@ public final class ShardMergePipelineBuilder {
   // Stage 3: $replaceWith — per-path $map "in" fields from all specs along path
   private final Map<String, BsonDocument> projectionFields = new LinkedHashMap<>();
 
-  @Nullable private String currentTag;
+  @Nullable private String currentGroupName;
 
   /**
-   * Called by the coordinator before traversing each top-level spec. Registers the tag for Stage 2
-   * $facet sub-pipeline ($match on tag).
+   * Called by the coordinator before traversing each top-level spec. Registers the group name for
+   * Stage 2 $facet sub-pipeline ($match on {@link IntermediateAggregationMetaField#GROUP_NAME}).
    */
-  public void beginTag(String tag) {
-    this.currentTag = tag;
+  public void beginPath(String groupName) {
+    this.currentGroupName = groupName;
     this.facetPipelines.append(
-        tag,
+        groupName,
         new BsonArray(
-            List.of(new BsonDocument("$match", new BsonDocument("_id.tag", new BsonString(tag))))));
+            List.of(
+                new BsonDocument(
+                    "$match",
+                    new BsonDocument(
+                        "_id",
+                        new BsonDocument(
+                            IntermediateAggregationMetaField.GROUP_NAME,
+                            new BsonString(groupName)))))));
   }
 
   /** Called by the coordinator after traversing each top-level spec. */
   @SuppressWarnings("NullAway")
-  public void endTag() {
-    this.currentTag = null;
+  public void endPath() {
+    this.currentGroupName = null;
   }
 
   /** Called by leaf metric specs — adds accumulator to Stage 1 $group. */
@@ -74,21 +138,22 @@ public final class ShardMergePipelineBuilder {
    * this — their sub-pipeline stays as just $match.
    */
   public void addFacetStage(BsonDocument stage) {
-    Check.isNotNull(this.currentTag, "beginTag() must be called before addFacetStage()");
-    this.facetPipelines.get(this.currentTag).asArray().add(stage);
+    Check.isNotNull(this.currentGroupName, "beginPath() must be called before addFacetStage()");
+    this.facetPipelines.get(this.currentGroupName).asArray().add(stage);
   }
 
   /** Called by bucket specs — extracts a key from _id.keys into the final output. */
   public void addKeyProjection(String keyName) {
     this.projectionFields
-        .computeIfAbsent(this.currentTag, k -> new BsonDocument())
-        .append(keyName, new BsonString("$$b._id.keys." + keyName));
+        .computeIfAbsent(this.currentGroupName, k -> new BsonDocument())
+        .append(
+            keyName, new BsonString(IntermediateAggregationMetaField.groupedKeyFieldPath(keyName)));
   }
 
   /** Called by leaf metric specs — adds finalization expression to final output. */
   public void addMetricProjection(String field, BsonValue expr) {
     this.projectionFields
-        .computeIfAbsent(this.currentTag, k -> new BsonDocument())
+        .computeIfAbsent(this.currentGroupName, k -> new BsonDocument())
         .append(field, expr);
   }
 
@@ -99,12 +164,16 @@ public final class ShardMergePipelineBuilder {
    */
   public List<BsonDocument> build(String countType) {
     // Stage1: $group
-    // _id is always { tag: "$tag", keys: "$keys"}
-    // Also sum the "count" field from count docs (0 for aggregation docs that lack it)
     BsonDocument groupId =
         new BsonDocument()
-            .append("tag", new BsonString("$tag"))
-            .append("keys", new BsonString("$keys"));
+            .append(
+                IntermediateAggregationMetaField.GROUP_NAME,
+                IntermediateAggregationMetaField.rootFieldExpression(
+                    IntermediateAggregationMetaField.GROUP_NAME))
+            .append(
+                IntermediateAggregationMetaField.KEYS,
+                IntermediateAggregationMetaField.rootFieldExpression(
+                    IntermediateAggregationMetaField.KEYS));
     BsonDocument groupBody =
         new BsonDocument()
             .append("_id", groupId)
@@ -116,34 +185,36 @@ public final class ShardMergePipelineBuilder {
     BsonDocument groupStage = new BsonDocument("$group", groupBody);
 
     // Stage2: $facet
-    // Add "count" sub-pipeline: match count docs (they have null tag since count doc has no tag)
+    // Add "count" sub-pipeline: match count docs (they have null group_name)
     this.facetPipelines.append(
         "count",
         new BsonArray(
             List.of(
-                new BsonDocument("$match", new BsonDocument("_id.tag", new org.bson.BsonNull())))));
+                new BsonDocument(
+                    "$match",
+                    new BsonDocument(
+                        "_id",
+                        new BsonDocument(
+                            IntermediateAggregationMetaField.GROUP_NAME, new BsonNull()))))));
     BsonDocument facetStage = new BsonDocument("$facet", this.facetPipelines);
 
     // Stage3: $replaceWith
-    // Add count field, then facet results
     BsonDocument replaceWithBody = new BsonDocument();
-    // Count: extract from the "count" sub-pipeline
     replaceWithBody.append(
         "count",
         new BsonDocument(
             countType, new BsonDocument("$first", new BsonString("$count.count_value"))));
-    // Facet results: wrap in "facet" object
     BsonDocument facetBody = new BsonDocument();
     for (Map.Entry<String, BsonDocument> entry : this.projectionFields.entrySet()) {
-      String tag = entry.getKey();
+      String groupName = entry.getKey();
       BsonDocument inFields = entry.getValue();
 
       BsonDocument mapExpr =
           new BsonDocument()
-              .append("input", new BsonString("$" + tag))
+              .append("input", new BsonString("$" + groupName))
               .append("as", new BsonString("b"))
               .append("in", inFields);
-      facetBody.append(tag, new BsonDocument("buckets", new BsonDocument("$map", mapExpr)));
+      facetBody.append(groupName, new BsonDocument("buckets", new BsonDocument("$map", mapExpr)));
     }
     replaceWithBody.append("facet", facetBody);
     BsonDocument replaceWithStage = new BsonDocument("$replaceWith", replaceWithBody);

@@ -1,6 +1,7 @@
 package com.xgen.mongot.index.query.aggregation;
 
 import org.bson.BsonDocument;
+import org.bson.BsonString;
 import org.bson.BsonValue;
 
 /**
@@ -50,6 +51,25 @@ public final class IntermediateAggregationMetaField {
     merged.putAll(parentKeys);
     merged.putAll(childKeys);
     return merged;
+  }
+
+  /**
+   * {@code $getField} expression reading {@code fieldName} from the current merge input document.
+   *
+   * <p>Required because intermediate field names use the {@code $meta/} prefix and cannot be
+   * referenced with a plain {@code $field} path in a {@code $group} stage.
+   */
+  public static BsonDocument rootFieldExpression(String fieldName) {
+    return new BsonDocument(
+        "$getField",
+        new BsonDocument()
+            .append("field", new BsonString(fieldName))
+            .append("input", new BsonString("$$ROOT")));
+  }
+
+  /** Aggregation expression for one grouping key inside a merged {@code $group} result row. */
+  public static String groupedKeyFieldPath(String keyName) {
+    return "$$b._id['" + KEYS + "']." + keyName;
   }
 
   private static String describeValue(BsonValue value) {

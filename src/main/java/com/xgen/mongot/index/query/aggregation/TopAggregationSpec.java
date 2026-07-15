@@ -26,9 +26,9 @@ public record TopAggregationSpec(List<AggregationSpec> children) implements Aggr
   public void buildShardMergePipeline(ShardMergePipelineBuilder builder) {
     // The final aggregation result top level name is tracked through begin/end path.
     for (AggregationSpec child : this.children) {
-      builder.beginTag(child.name());
+      builder.beginPath(child.name());
       child.buildShardMergePipeline(builder);
-      builder.endTag();
+      builder.endPath();
     }
   }
 

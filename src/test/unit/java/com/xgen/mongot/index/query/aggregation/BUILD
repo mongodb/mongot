@@ -4,6 +4,7 @@ java_test_suite(
     name = "aggregation",
     srcs = [
         "AccumulatorTest.java",
+        "AggregationIntegrationTest.java",
         "AggregationRegistryTest.java",
         "AggregationTestSupport.java",
         "BoundaryAggregationTest.java",
