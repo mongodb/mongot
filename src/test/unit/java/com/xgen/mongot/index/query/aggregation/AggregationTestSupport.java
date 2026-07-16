@@ -18,13 +18,11 @@ import org.apache.lucene.document.Document;
 import org.apache.lucene.document.SortedNumericDocValuesField;
 import org.apache.lucene.document.SortedSetDocValuesField;
 import org.apache.lucene.index.DirectoryReader;
-import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.NoMergePolicy;
-import org.apache.lucene.index.SortedNumericDocValues;
 import org.apache.lucene.search.Collector;
 import org.apache.lucene.search.CollectorManager;
 import org.apache.lucene.search.IndexSearcher;
@@ -44,8 +42,8 @@ import org.junit.After;
 
 /**
  * Shared scaffolding for aggregation accumulator tests: an in-memory Lucene index with token and
- * numeric fields, a minimal {@link AggregationContext}, a reusable {@code $sum} leaf fixture, and
- * helpers for driving a query and reading {@link TermsAggregationResult} buckets.
+ * numeric fields, a minimal {@link AggregationContext}, reusable {@link TestOperatorSpecs} leaf
+ * fixtures, and helpers for driving a query and reading {@link TermsAggregationResult} buckets.
  */
 public abstract class AggregationTestSupport {
 
@@ -158,7 +156,7 @@ public abstract class AggregationTestSupport {
   }
 
   protected static double sumOf(TermsBucket bucket, String childName) {
-    return ((SumResult) bucket.getChildResults().get(childName)).value();
+    return ((TestOperatorSpecs.SumResult) bucket.getChildResults().get(childName)).value();
   }
 
   protected static TermsAggregationResult childTerms(TermsBucket bucket, String childName) {
@@ -166,95 +164,6 @@ public abstract class AggregationTestSupport {
   }
 
   // ===== shared $sum leaf fixture (reads PRICE_FIELD by raw Lucene name) =====
-
-  /** Inline leaf result carrying a single double value. */
-  protected record SumResult(String name, double value) implements AggregationResult {
-    @Override
-    public String getName() {
-      return this.name;
-    }
-
-    @Override
-    public AggregationResult mergePartitionResult(AggregationResult other) {
-      return new SumResult(this.name, this.value + ((SumResult) other).value);
-    }
-
-    @Override
-    public BsonValue toStandaloneBson() {
-      return new org.bson.BsonDouble(this.value);
-    }
-
-    @Override
-    public BsonArray toIntermediateBson() {
-      return new BsonArray();
-    }
-
-    @Override
-    public BsonDocument toIntermediateMetricPartials() {
-      return new BsonDocument("sum_" + this.name, new org.bson.BsonDouble(this.value));
-    }
-  }
-
-  /** Inline sum spec -- uses the raw Lucene field name (bypasses field-type resolution). */
-  protected static final class SumSpec extends OperatorAggregationSpec {
-    private final String luceneFieldName;
-
-    protected SumSpec(String name, String luceneFieldName) {
-      super(Operator.SUM, name);
-      this.luceneFieldName = luceneFieldName;
-    }
-
-    @Override
-    public Accumulator buildAccumulator(AggregationContext context) {
-      return new SumAccumulator(this.name, this.luceneFieldName, context);
-    }
-
-    @Override
-    public void buildShardMergePipeline(ShardMergePipelineBuilder builder) {
-      throw new UnsupportedOperationException("not exercised in accumulator tests");
-    }
-  }
-
-  /** Inline leaf metric accumulator summing a numeric field per owning bucket ordinal. */
-  protected static final class SumAccumulator extends Accumulator {
-    private final String luceneFieldName;
-    private final DoubleArray sums;
-
-    protected SumAccumulator(String name, String luceneFieldName, AggregationContext context) {
-      super(name, List.of(), context);
-      this.luceneFieldName = luceneFieldName;
-      this.sums = new DoubleArray(8);
-    }
-
-    @Override
-    public LeafBucketCollector getLeafCollector(AggregationContext context) throws IOException {
-      SortedNumericDocValues values =
-          DocValues.getSortedNumeric(context.getLeafReaderContext().reader(), this.luceneFieldName);
-      return new LeafBucketCollector() {
-        @Override
-        public void collect(int doc, long owningBucketOrd) throws IOException {
-          if (values.advanceExact(doc)) {
-            int bucketOrd = (int) owningBucketOrd;
-            int count = values.docValueCount();
-            for (int i = 0; i < count; i++) {
-              SumAccumulator.this.sums.increment(bucketOrd, (double) values.nextValue());
-            }
-          }
-        }
-      };
-    }
-
-    @Override
-    protected List<AggregationResult> buildResults(LongArray ordsToCollect) {
-      List<AggregationResult> results = new ArrayList<>();
-      for (int i = 0; i < ordsToCollect.size(); i++) {
-        int bucketOrd = (int) ordsToCollect.get(i);
-        double sum = bucketOrd < this.sums.size() ? this.sums.get(bucketOrd) : 0.0;
-        results.add(new SumResult(this.name, sum));
-      }
-      return results;
-    }
-  }
 
   // ===== shared result-tree fixtures (until official aggregator results land) =====
 

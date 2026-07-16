@@ -1,10 +1,20 @@
 package com.xgen.mongot.server.command.search;
 
+import com.xgen.mongot.featureflag.Feature;
+import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.index.query.CollectorQuery;
 import com.xgen.mongot.index.query.OperatorQuery;
 import com.xgen.mongot.index.query.SearchQuery;
+import com.xgen.mongot.index.query.aggregation.TestOperatorSpecs;
+import com.xgen.mongot.index.query.collectors.AggDefinition;
+import com.xgen.mongot.index.query.collectors.AggregationCollector;
+import com.xgen.mongot.index.query.collectors.FacetDefinition;
+import com.xgen.mongot.index.query.counts.Count;
 import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
 import com.xgen.mongot.server.command.search.definition.PlanShardedSearchCommandResponseDefinition;
 import com.xgen.mongot.server.command.search.definition.request.PlanShardedSearchCommandDefinition;
+import com.xgen.mongot.server.message.MessageUtils;
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.TestUtils;
 import com.xgen.testing.mongot.index.query.OperatorQueryBuilder;
 import com.xgen.testing.mongot.index.query.operators.OperatorBuilder;
@@ -12,18 +22,30 @@ import com.xgen.testing.mongot.index.query.sort.SortFieldBuilder;
 import com.xgen.testing.mongot.index.query.sort.SortSpecBuilder;
 import com.xgen.testing.mongot.server.command.search.definition.ShardedSearchPlanBuilder;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import org.bson.BsonArray;
 import org.bson.BsonDateTime;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonString;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.junit.MockitoJUnitRunner;
 
 @RunWith(MockitoJUnitRunner.class)
 public class ShardedSearchPlannerTest {
+
+  private static final FeatureFlags DEFAULT_FEATURE_FLAGS = FeatureFlags.getDefault();
+  private static final FeatureFlags AGGREGATION_ENABLED_FEATURE_FLAGS =
+      FeatureFlags.withDefaults().enable(Feature.SEARCH_AGGREGATION).build();
+
+  @BeforeClass
+  public static void setUpAggregationRegistry() {
+    TestOperatorSpecs.installRegistry();
+  }
 
   private static BsonDocument getOperatorQuery() {
     return new BsonDocument()
@@ -187,7 +209,8 @@ public class ShardedSearchPlannerTest {
     PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
         ShardedSearchPlanner.planSearch(
             SearchQuery.fromBson(getOperatorQuery()),
-            new PlanShardedSearchCommandDefinition.SearchFeatures(0));
+            new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+            DEFAULT_FEATURE_FLAGS);
     PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan expected =
         ShardedSearchPlanBuilder.operator()
             .countType("lowerBound")
@@ -220,7 +243,7 @@ public class ShardedSearchPlannerTest {
 
     PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
         ShardedSearchPlanner.planSearch(
-            query, new PlanShardedSearchCommandDefinition.SearchFeatures(1));
+            query, new PlanShardedSearchCommandDefinition.SearchFeatures(1), DEFAULT_FEATURE_FLAGS);
     BsonDocument expected =
         new BsonDocument()
             .append("$searchSortValues._0", new BsonInt32(1))
@@ -254,7 +277,9 @@ public class ShardedSearchPlannerTest {
         ShardedSearchPlannerException.class,
         () ->
             ShardedSearchPlanner.planSearch(
-                query, new PlanShardedSearchCommandDefinition.SearchFeatures(0)));
+                query,
+                new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+                DEFAULT_FEATURE_FLAGS));
   }
 
   @Test
@@ -273,7 +298,8 @@ public class ShardedSearchPlannerTest {
                                 .build())
                         .buildSortBetaV1())
                 .build(),
-            new PlanShardedSearchCommandDefinition.SearchFeatures(0));
+            new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+            DEFAULT_FEATURE_FLAGS);
 
     PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan expected =
         ShardedSearchPlanBuilder.operator()
@@ -289,7 +315,8 @@ public class ShardedSearchPlannerTest {
     PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
         ShardedSearchPlanner.planSearch(
             SearchQuery.fromBson(getOperatorQuery()),
-            new PlanShardedSearchCommandDefinition.SearchFeatures(0));
+            new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+            DEFAULT_FEATURE_FLAGS);
     PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan expected =
         ShardedSearchPlanBuilder.operator().countType("lowerBound").build();
     Assert.assertEquals(expected, result);
@@ -300,7 +327,8 @@ public class ShardedSearchPlannerTest {
     PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
         ShardedSearchPlanner.planSearch(
             SearchQuery.fromBson(getOperatorQueryWithCount()),
-            new PlanShardedSearchCommandDefinition.SearchFeatures(0));
+            new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+            DEFAULT_FEATURE_FLAGS);
     PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan expected =
         ShardedSearchPlanBuilder.operator().countType("total").build();
     Assert.assertEquals(expected, result);
@@ -311,7 +339,9 @@ public class ShardedSearchPlannerTest {
     var query = createFacetQuery(getSimpleStringFacet());
     PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
         ShardedSearchPlanner.planSearch(
-            SearchQuery.fromBson(query), new PlanShardedSearchCommandDefinition.SearchFeatures(0));
+            SearchQuery.fromBson(query),
+            new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+            DEFAULT_FEATURE_FLAGS);
 
     var facetDocs = List.of(createStringFacetDoc("directorFacet", 10));
     var bucketDoc = new BsonDocument("directorFacet", createBucketDoc("directorFacet"));
@@ -330,7 +360,9 @@ public class ShardedSearchPlannerTest {
     var query = createFacetQuery(getStringFacetWithNumBuckets());
     PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
         ShardedSearchPlanner.planSearch(
-            SearchQuery.fromBson(query), new PlanShardedSearchCommandDefinition.SearchFeatures(0));
+            SearchQuery.fromBson(query),
+            new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+            DEFAULT_FEATURE_FLAGS);
 
     var facetDocs = List.of(createStringFacetDoc("directorFacet", 1000));
     var bucketDoc = new BsonDocument("directorFacet", createBucketDoc("directorFacet"));
@@ -349,7 +381,9 @@ public class ShardedSearchPlannerTest {
     var query = createFacetQuery(getSimpleNumericFacet());
     PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
         ShardedSearchPlanner.planSearch(
-            SearchQuery.fromBson(query), new PlanShardedSearchCommandDefinition.SearchFeatures(0));
+            SearchQuery.fromBson(query),
+            new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+            DEFAULT_FEATURE_FLAGS);
 
     var facetDocs = List.of(createNumericFacetDoc("ratingFacet"));
     var bucketDoc = new BsonDocument("ratingFacet", createBucketDoc("ratingFacet"));
@@ -368,7 +402,9 @@ public class ShardedSearchPlannerTest {
     var query = createFacetQuery(getSimpleDateFacet());
     PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
         ShardedSearchPlanner.planSearch(
-            SearchQuery.fromBson(query), new PlanShardedSearchCommandDefinition.SearchFeatures(0));
+            SearchQuery.fromBson(query),
+            new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+            DEFAULT_FEATURE_FLAGS);
 
     var facetDocs = List.of(createDateFacetDoc("eventFacet"));
     var bucketDoc = new BsonDocument("eventFacet", createBucketDoc("eventFacet"));
@@ -387,7 +423,9 @@ public class ShardedSearchPlannerTest {
     var query = createFacetQuery(getMultipleFacets());
     PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
         ShardedSearchPlanner.planSearch(
-            SearchQuery.fromBson(query), new PlanShardedSearchCommandDefinition.SearchFeatures(0));
+            SearchQuery.fromBson(query),
+            new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+            DEFAULT_FEATURE_FLAGS);
 
     var facetDocs =
         List.of(
@@ -414,7 +452,9 @@ public class ShardedSearchPlannerTest {
     var query = createFacetQuery(getMultipleStringFacets());
     PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
         ShardedSearchPlanner.planSearch(
-            SearchQuery.fromBson(query), new PlanShardedSearchCommandDefinition.SearchFeatures(0));
+            SearchQuery.fromBson(query),
+            new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+            DEFAULT_FEATURE_FLAGS);
 
     var facetDocs =
         List.of(
@@ -434,5 +474,100 @@ public class ShardedSearchPlannerTest {
             .build();
 
     Assert.assertEquals(expected, result);
+  }
+
+  @Test
+  public void testFlatAvgAggregationMetaPipeline() throws Exception {
+    CollectorQuery query = createFlatAvgAggregationQuery();
+    PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
+        ShardedSearchPlanner.planSearch(
+            query,
+            new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+            AGGREGATION_ENABLED_FEATURE_FLAGS);
+
+    List<BsonDocument> pipeline = result.metaPipeline;
+    Assert.assertEquals(3, pipeline.size());
+
+    BsonDocument expectedGroup =
+        BsonDocument.parse(
+            """
+            {"$group": {
+              "_id": {
+                "$meta/group_name": {"$getField": {"field": "$meta/group_name", "input": "$$ROOT"}},
+                "$meta/keys": {"$getField": {"field": "$meta/keys", "input": "$$ROOT"}}
+              },
+              "count_value": {"$sum": "$count"},
+              "avg_sum_avg_price": {"$sum": "$avg_sum_avg_price"},
+              "avg_count_avg_price": {"$sum": "$avg_count_avg_price"}
+            }}
+            """);
+    Assert.assertEquals(expectedGroup, pipeline.get(0));
+
+    BsonDocument expectedFacet =
+        BsonDocument.parse(
+            """
+            {"$facet": {
+              "by_city": [{"$match": {"_id": {"$meta/group_name": "by_city"}}}],
+              "count": [{"$match": {"_id": {"$meta/group_name": null}}}]
+            }}
+            """);
+    Assert.assertEquals(expectedFacet, pipeline.get(1));
+  }
+
+  @Test
+  public void planSearch_aggregationFeatureFlagDisabled_throwsShardedSearchPlannerException() {
+    CollectorQuery query = createFlatAvgAggregationQuery();
+
+    TestUtils.assertThrows(
+        "Aggregation is not enabled. Please contact support.",
+        ShardedSearchPlannerException.class,
+        () ->
+            ShardedSearchPlanner.planSearch(
+                query,
+                new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+                DEFAULT_FEATURE_FLAGS));
+  }
+
+  @Test
+  public void planSearch_aggregationFeatureFlagDisabled_producesCommandErrorResponse() {
+    CollectorQuery query = createFlatAvgAggregationQuery();
+
+    ShardedSearchPlannerException exception =
+        Assert.assertThrows(
+            ShardedSearchPlannerException.class,
+            () ->
+                ShardedSearchPlanner.planSearch(
+                    query,
+                    new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+                    DEFAULT_FEATURE_FLAGS));
+
+    BsonDocument errorBody = MessageUtils.createErrorBody(exception);
+    Assert.assertEquals(0, errorBody.getInt32("ok").getValue());
+    Assert.assertEquals(
+        "Aggregation is not enabled. Please contact support.",
+        errorBody.getString("errmsg").getValue());
+  }
+
+  private static CollectorQuery createFlatAvgAggregationQuery() {
+    AggDefinition agg =
+        new AggDefinition(
+            List.of(new FacetDefinition.StringFacetDefinition("city", 10)),
+            new AggDefinition.LeafOperator("avg", Optional.of(FieldPath.parse("price"))));
+    AggregationCollector collector =
+        AggregationCollector.create(
+            OperatorBuilder.text().path("title").query("godfather").build(),
+            Map.of("by_city", agg));
+    return new CollectorQuery(
+        collector,
+        "testIndex",
+        Count.DEFAULT,
+        Optional.empty(),
+        Optional.empty(),
+        false,
+        false,
+        false,
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty());
   }
 }

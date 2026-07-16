@@ -38,7 +38,7 @@ public class AccumulatorTest extends AggregationTestSupport {
 
   @Test
   public void groupByCityWithSumPrice() throws Exception {
-    AggregationSpec sumSpec = new SumSpec("sum_price", PRICE_LUCENE_FIELD);
+    AggregationSpec sumSpec = new TestOperatorSpecs.SumSpec("sum_price", PRICE_LUCENE_FIELD);
     AggregationSpec termsSpec =
         new TermsSpec("by_city", FieldPath.parse(CITY_FIELD), CITY_LUCENE_FIELD, List.of(sumSpec));
     TopAggregationSpec topSpec = new TopAggregationSpec(List.of(termsSpec));
@@ -57,7 +57,8 @@ public class AccumulatorTest extends AggregationTestSupport {
 
     Map<String, Double> sumByCity = new HashMap<>();
     for (TermsResult.TermsBucket bucket : byCity.getBuckets()) {
-      SumResult sum = (SumResult) bucket.getChildResults().get("sum_price");
+      TestOperatorSpecs.SumResult sum =
+          (TestOperatorSpecs.SumResult) bucket.getChildResults().get("sum_price");
       sumByCity.put(bucket.getKey().getValue(), sum.value());
     }
 

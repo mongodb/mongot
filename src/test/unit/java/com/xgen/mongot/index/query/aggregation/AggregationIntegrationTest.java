@@ -24,7 +24,9 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
   public void flatSum_intermediateBsonMatchesGeneratedPipeline() {
     AggregationSpec specTree =
         new TopAggregationSpec(
-            List.of(new TermsSpec("by_city", CITY, List.of(new SumSpec("sum_price", PRICE)))));
+            List.of(
+                new TermsSpec(
+                    "by_city", CITY, List.of(new TestOperatorSpecs.SumSpec("sum_price", PRICE)))));
 
     AggregationResult resultTree =
         new TopLevelAggregationResult(
@@ -35,10 +37,12 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                     List.of(
                         new TermsResult.TermsBucket(
                             "NYC",
-                            AggregationResults.from(List.of(new SumResult("sum_price", 30.0)))),
+                            AggregationResults.from(
+                                List.of(new TestOperatorSpecs.SumResult("sum_price", 30.0)))),
                         new TermsResult.TermsBucket(
                             "SF",
-                            AggregationResults.from(List.of(new SumResult("sum_price", 50.0))))))));
+                            AggregationResults.from(
+                                List.of(new TestOperatorSpecs.SumResult("sum_price", 50.0))))))));
 
     BsonArray intermediate = resultTree.toIntermediateBson();
     List<BsonDocument> pipeline = buildPipeline(specTree);
@@ -56,7 +60,9 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
   public void flatAvg_intermediateBsonMatchesGeneratedPipeline() {
     AggregationSpec specTree =
         new TopAggregationSpec(
-            List.of(new TermsSpec("by_city", CITY, List.of(new AvgSpec("avg_price", PRICE)))));
+            List.of(
+                new TermsSpec(
+                    "by_city", CITY, List.of(new TestOperatorSpecs.AvgSpec("avg_price", PRICE)))));
 
     AggregationResult resultTree =
         new TopLevelAggregationResult(
@@ -89,8 +95,12 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
     AggregationSpec specTree =
         new TopAggregationSpec(
             List.of(
-                new TermsSpec("by_city", CITY, List.of(new SumSpec("sum_price", PRICE))),
-                new TermsSpec("by_color", COLOR, List.of(new SumSpec("sum_price", PRICE)))));
+                new TermsSpec(
+                    "by_city", CITY, List.of(new TestOperatorSpecs.SumSpec("sum_price", PRICE))),
+                new TermsSpec(
+                    "by_color",
+                    COLOR,
+                    List.of(new TestOperatorSpecs.SumSpec("sum_price", PRICE)))));
 
     AggregationResult resultTree =
         new TopLevelAggregationResult(
@@ -101,14 +111,16 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                     List.of(
                         new TermsResult.TermsBucket(
                             "NYC",
-                            AggregationResults.from(List.of(new SumResult("sum_price", 10.0)))))),
+                            AggregationResults.from(
+                                List.of(new TestOperatorSpecs.SumResult("sum_price", 10.0)))))),
                 new TermsResult(
                     "by_color",
                     COLOR,
                     List.of(
                         new TermsResult.TermsBucket(
                             "red",
-                            AggregationResults.from(List.of(new SumResult("sum_price", 35.0))))))));
+                            AggregationResults.from(
+                                List.of(new TestOperatorSpecs.SumResult("sum_price", 35.0))))))));
 
     BsonArray intermediate = resultTree.toIntermediateBson();
     List<BsonDocument> pipeline = buildPipeline(specTree);
@@ -163,64 +175,6 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
   }
 
   // ===== inline spec fixtures =====
-
-  private static final class SumSpec extends OperatorAggregationSpec {
-    @SuppressWarnings("unused")
-    private final FieldPath path;
-
-    SumSpec(String name, FieldPath path) {
-      super(Operator.SUM, name);
-      this.path = path;
-    }
-
-    @Override
-    public Accumulator buildAccumulator(AggregationContext context) {
-      throw new UnsupportedOperationException("not exercised");
-    }
-
-    @Override
-    public void buildShardMergePipeline(ShardMergePipelineBuilder builder) {
-      builder.addMetricAccumulator(
-          "sum_" + this.name, new BsonDocument("$sum", new BsonString("$sum_" + this.name)));
-      builder.addMetricProjection(this.name, new BsonString("$$b.sum_" + this.name));
-    }
-  }
-
-  private static final class AvgSpec extends OperatorAggregationSpec {
-    @SuppressWarnings("unused")
-    private final FieldPath path;
-
-    AvgSpec(String name, FieldPath path) {
-      super(Operator.AVG, name);
-      this.path = path;
-    }
-
-    @Override
-    public Accumulator buildAccumulator(AggregationContext context) {
-      throw new UnsupportedOperationException("not exercised");
-    }
-
-    @Override
-    public void buildShardMergePipeline(ShardMergePipelineBuilder builder) {
-      builder.addMetricAccumulator(
-          "avg_sum_" + this.name,
-          new BsonDocument("$sum", new BsonString("$avg_sum_" + this.name)));
-      builder.addMetricAccumulator(
-          "avg_count_" + this.name,
-          new BsonDocument("$sum", new BsonString("$avg_count_" + this.name)));
-      builder.addMetricProjection(
-          this.name,
-          BsonDocument.parse(
-              """
-              {"$cond": {
-                "if": {"$eq": ["$$b.avg_count_%s", 0]},
-                "then": null,
-                "else": {"$divide": ["$$b.avg_sum_%s", "$$b.avg_count_%s"]}
-              }}
-              """
-                  .formatted(this.name, this.name, this.name)));
-    }
-  }
 
   private static final class TermsSpec extends GroupAggregationSpec {
     TermsSpec(String name, FieldPath path, List<AggregationSpec> children) {

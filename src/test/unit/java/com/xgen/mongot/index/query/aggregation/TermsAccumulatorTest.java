@@ -29,7 +29,7 @@ public class TermsAccumulatorTest extends AggregationTestSupport {
           new TestDoc("SF", "green", 7));
 
   private static TopAggregationSpec cityTermsWithSum(boolean isRoot, int limit) {
-    AggregationSpec sum = new SumSpec("sum_price", PRICE_LUCENE_FIELD);
+    AggregationSpec sum = new TestOperatorSpecs.SumSpec("sum_price", PRICE_LUCENE_FIELD);
     AggregationSpec byCity =
         new TermsGroupAggregationSpec(
             "by_city",
@@ -131,7 +131,7 @@ public class TermsAccumulatorTest extends AggregationTestSupport {
   public void twoFieldTerms_denseOuterRemapInner() throws Exception {
     buildIndex(DATASET, DATASET.size());
 
-    AggregationSpec sum = new SumSpec("sum_price", PRICE_LUCENE_FIELD);
+    AggregationSpec sum = new TestOperatorSpecs.SumSpec("sum_price", PRICE_LUCENE_FIELD);
     AggregationSpec byColor =
         new TermsGroupAggregationSpec(
             "by_color",
@@ -230,7 +230,8 @@ public class TermsAccumulatorTest extends AggregationTestSupport {
 
   private static TermsAggregationResult.TermsBucket colorBucket(
       String color, long docCount, double sum) {
-    AggregationResults children = AggregationResults.from(List.of(new SumResult("sum_price", sum)));
+    AggregationResults children =
+        AggregationResults.from(List.of(new TestOperatorSpecs.SumResult("sum_price", sum)));
     return new TermsAggregationResult.TermsBucket(new BytesRef(color), docCount, children);
   }
 

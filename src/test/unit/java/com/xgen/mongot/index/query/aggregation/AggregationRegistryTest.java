@@ -77,14 +77,15 @@ public class AggregationRegistryTest {
     AggregationRegistry.install(
         Map.of(
             "group",
-            (name, path, children, args, context) -> new TestGrpSpec(name, path, children)),
+            (name, path, children, args, registry) -> new TestGrpSpec(name, path, children)),
         Map.of());
 
     AggregationRegistry.GroupSpecSupplier supplier =
         AggregationRegistry.getInstance().getGroupSpecSupplier("group");
     assertNotNull(supplier);
 
-    GroupAggregationSpec spec = supplier.build("by_city", CITY, List.of(), null, null);
+    GroupAggregationSpec spec =
+        supplier.build("by_city", CITY, List.of(), null, AggregationRegistry.getInstance());
     assertEquals("by_city", spec.name());
     assertEquals(CITY, spec.getPath());
     assertTrue(spec.children().isEmpty());

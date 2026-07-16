@@ -26,9 +26,13 @@ public class IntermediateBsonTest extends AggregationTestSupport {
             CITY,
             List.of(
                 new TermsResult.TermsBucket(
-                    "NYC", AggregationResults.from(List.of(new SumResult("sum_price", 30.0)))),
+                    "NYC",
+                    AggregationResults.from(
+                        List.of(new TestOperatorSpecs.SumResult("sum_price", 30.0)))),
                 new TermsResult.TermsBucket(
-                    "SF", AggregationResults.from(List.of(new SumResult("sum_price", 50.0))))));
+                    "SF",
+                    AggregationResults.from(
+                        List.of(new TestOperatorSpecs.SumResult("sum_price", 50.0))))));
 
     BsonArray intermediate = new TopLevelAggregationResult(List.of(byCity)).toIntermediateBson();
 
@@ -118,7 +122,9 @@ public class IntermediateBsonTest extends AggregationTestSupport {
             CITY,
             List.of(
                 new TermsResult.TermsBucket(
-                    "NYC", AggregationResults.from(List.of(new SumResult("sum_price", 10.0))))));
+                    "NYC",
+                    AggregationResults.from(
+                        List.of(new TestOperatorSpecs.SumResult("sum_price", 10.0))))));
 
     TermsResult byColor =
         new TermsResult(
@@ -126,7 +132,9 @@ public class IntermediateBsonTest extends AggregationTestSupport {
             COLOR,
             List.of(
                 new TermsResult.TermsBucket(
-                    "red", AggregationResults.from(List.of(new SumResult("sum_price", 35.0))))));
+                    "red",
+                    AggregationResults.from(
+                        List.of(new TestOperatorSpecs.SumResult("sum_price", 35.0))))));
 
     BsonArray intermediate =
         new TopLevelAggregationResult(List.of(byCity, byColor)).toIntermediateBson();
@@ -256,7 +264,9 @@ public class IntermediateBsonTest extends AggregationTestSupport {
             CITY,
             List.of(
                 new TermsResult.TermsBucket(
-                    "NYC", AggregationResults.from(List.of(new SumResult("sum_price", 30.0))))));
+                    "NYC",
+                    AggregationResults.from(
+                        List.of(new TestOperatorSpecs.SumResult("sum_price", 30.0))))));
 
     BsonDocument standalone = byCity.toStandaloneBson().asDocument();
     BsonDocument expected =

@@ -3,9 +3,15 @@ package com.xgen.mongot.server.command.search;
 import static com.xgen.mongot.util.Check.checkState;
 
 import com.google.common.collect.ImmutableList;
+import com.xgen.mongot.featureflag.Feature;
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.query.CollectorQuery;
 import com.xgen.mongot.index.query.OperatorQuery;
 import com.xgen.mongot.index.query.SearchQuery;
+import com.xgen.mongot.index.query.aggregation.AggregationRegistry;
+import com.xgen.mongot.index.query.aggregation.AggregationSpecBuilder;
+import com.xgen.mongot.index.query.aggregation.ShardMergePipelineBuilder;
+import com.xgen.mongot.index.query.aggregation.TopAggregationSpec;
 import com.xgen.mongot.index.query.collectors.AggregationCollector;
 import com.xgen.mongot.index.query.collectors.FacetCollector;
 import com.xgen.mongot.index.query.collectors.FacetDefinition;
@@ -38,10 +44,12 @@ public class ShardedSearchPlanner {
    * generates a ShardedSearchPlan.
    */
   static PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan planSearch(
-      SearchQuery queryDefinition, PlanShardedSearchCommandDefinition.SearchFeatures searchFeatures)
+      SearchQuery queryDefinition,
+      PlanShardedSearchCommandDefinition.SearchFeatures searchFeatures,
+      FeatureFlags featureFlags)
       throws ShardedSearchPlannerException {
     BsonDocument sortSpec = validateQueryAndConstructSortSpec(searchFeatures, queryDefinition);
-    List<BsonDocument> metaPipeline = getShardedSearchMetaPipeline(queryDefinition);
+    List<BsonDocument> metaPipeline = getShardedSearchMetaPipeline(queryDefinition, featureFlags);
     return new PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan(metaPipeline, sortSpec);
   }
 
@@ -78,9 +86,11 @@ public class ShardedSearchPlanner {
    * this section</a> in the search docs for more details.
    *
    * @param query the $search query made against a sharded collection
+   * @param featureFlags feature flags governing optional search behavior (e.g. aggregation)
    * @return the pipeline to execute over the sharded metadata results
    */
-  private static List<BsonDocument> getShardedSearchMetaPipeline(SearchQuery query) {
+  private static List<BsonDocument> getShardedSearchMetaPipeline(
+      SearchQuery query, FeatureFlags featureFlags) throws ShardedSearchPlannerException {
     String countType = query.count().type() == Count.Type.LOWER_BOUND ? "lowerBound" : "total";
 
     // If the Query is a CollectorQuery, then get facet definitions from the FacetCollector and
@@ -94,13 +104,40 @@ public class ShardedSearchPlanner {
             yield buildMetaPipeline(countType, Optional.of(facetDefinitions));
           }
           case AggregationCollector aggregationCollector -> {
-            throw new UnsupportedOperationException(
-                "Aggregation is not supported for intermediate query yet");
+            if (!featureFlags.isEnabled(Feature.SEARCH_AGGREGATION)) {
+              throw new ShardedSearchPlannerException(
+                  "Aggregation is not enabled. Please contact support.");
+            }
+            yield buildAggregationMetaPipeline(countType, aggregationCollector);
           }
         }
       }
       case OperatorQuery operatorQuery -> buildMetaPipeline(countType, Optional.empty());
     };
+  }
+
+  /**
+   * Build the sharded merge pipeline for the unified aggregation framework. Parses the collector
+   * into an {@link com.xgen.mongot.index.query.aggregation.AggregationSpec} tree and walks it via
+   * {@link com.xgen.mongot.index.query.aggregation.AggregationSpec#buildShardMergePipeline}.
+   */
+  private static List<BsonDocument> buildAggregationMetaPipeline(
+      String countType, AggregationCollector aggregationCollector)
+      throws ShardedSearchPlannerException {
+    try {
+      // TODO(CLOUDP-424290): Wire a BoundaryFieldResolver into planShardedSearch so date/numeric
+      // boundary grouping can build merge pipelines (merge stages are the same as terms once the
+      // spec tree is constructed; planner needs index field metadata to encode boundaries).
+      TopAggregationSpec spec =
+          AggregationSpecBuilder.toTopLevelSpec(
+              aggregationCollector, AggregationRegistry.getInstance(), Optional.empty());
+      ShardMergePipelineBuilder builder = new ShardMergePipelineBuilder();
+      spec.buildShardMergePipeline(builder);
+      return builder.build(countType);
+    } catch (IllegalArgumentException | IllegalStateException e) {
+      throw new ShardedSearchPlannerException(
+          "Failed to build aggregation merge pipeline: " + e.getMessage(), e);
+    }
   }
 
   private static BsonDocument constructSortSpec(Sort sort) {

@@ -4,13 +4,11 @@ import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReaderContext;
 
 /**
- * Shared state passed through the aggregation framework during planning and execution.
+ * Shared state passed through the aggregation framework during execution.
  *
  * <p>The same context flows through the entire spec / accumulator / result tree:
  *
  * <ul>
- *   <li>At plan time, specs read {@link #getRegistry()} to look up factory implementations and get
- *       FieldDefinition to discover field types when validating paths.
  *   <li>At execution time, the top-level accumulator's {@link
  *       com.xgen.mongot.index.query.aggregation.accumulator.BucketCollector#asCollector} wires the
  *       context into Lucene's query machinery. For every segment Lucene visits, the framework
@@ -31,8 +29,8 @@ public interface AggregationContext {
   AggregationContext withLeafReaderContext(LeafReaderContext context);
 
   /**
-   * Return the registry of aggregation factories. Plan-time code consults this to look up the
-   * concrete {@code GroupSpecSupplier} / {@code OperatorSupplier} for a given aggregation name.
+   * Return the registry of aggregation factories. Execution-time code consults this to look up the
+   * concrete {@code OperatorSupplier} for a given aggregation name.
    */
   AggregationRegistry getRegistry();
 

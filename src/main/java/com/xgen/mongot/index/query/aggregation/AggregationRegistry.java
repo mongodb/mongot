@@ -51,7 +51,7 @@ public class AggregationRegistry {
         FieldPath path,
         List<AggregationSpec> children,
         GroupingArgs args,
-        AggregationContext context);
+        AggregationRegistry registry);
   }
 
   /**

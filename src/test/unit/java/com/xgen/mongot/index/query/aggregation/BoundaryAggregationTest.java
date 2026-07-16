@@ -42,7 +42,7 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
 
   private static TopAggregationSpec priceBoundary(
       Optional<BsonValue> defaultKey, boolean lastEdgeInclusive) {
-    AggregationSpec sum = new SumSpec("sum_price", PRICE_LUCENE_FIELD);
+    AggregationSpec sum = new TestOperatorSpecs.SumSpec("sum_price", PRICE_LUCENE_FIELD);
     AggregationSpec byPrice =
         new BoundaryGroupAggregationSpec(
             "by_price",
@@ -178,7 +178,7 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
             new TestDoc("SF", "green", 350)); // SF  default
     buildIndex(data, 2); // 3 segments: terms parent builds a global OrdinalMap
 
-    AggregationSpec sum = new SumSpec("sum_price", PRICE_LUCENE_FIELD);
+    AggregationSpec sum = new TestOperatorSpecs.SumSpec("sum_price", PRICE_LUCENE_FIELD);
     AggregationSpec byPrice =
         new BoundaryGroupAggregationSpec(
             "by_price",
@@ -319,7 +319,7 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
   }
 
   private static double sumAt(BoundaryAggregationResult.BoundaryBucket bucket, String childName) {
-    return ((SumResult) bucket.getChildResults().get(childName)).value();
+    return ((TestOperatorSpecs.SumResult) bucket.getChildResults().get(childName)).value();
   }
 
   private static BoundaryAggregationResult childBoundary(
@@ -329,7 +329,8 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
 
   private static BoundaryAggregationResult.BoundaryBucket boundaryBucket(
       BsonValue key, long docCount, double sum) {
-    AggregationResults children = AggregationResults.from(List.of(new SumResult("sum_price", sum)));
+    AggregationResults children =
+        AggregationResults.from(List.of(new TestOperatorSpecs.SumResult("sum_price", sum)));
     return new BoundaryAggregationResult.BoundaryBucket(key, docCount, children);
   }
 

@@ -48,7 +48,8 @@ public class PlanShardedSearchCommand implements Command {
           SearchQuery.fromBson(
               this.definition.queryDocument(), QueryOptimizationFlags.DEFAULT_OPTIONS, allow10k);
       PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan shardedSearchPlan =
-          ShardedSearchPlanner.planSearch(queryDefinition, this.definition.searchFeatures());
+          ShardedSearchPlanner.planSearch(
+              queryDefinition, this.definition.searchFeatures(), this.metadata.featureFlags());
 
       return PlanShardedSearchCommandResponseDefinition.create(shardedSearchPlan).toBson();
     } catch (ShardedSearchPlannerException | BsonParseException e) {

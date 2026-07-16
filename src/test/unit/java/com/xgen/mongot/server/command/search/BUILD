@@ -33,6 +33,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/index/lucene/explain/information",
         "//src/main/java/com/xgen/mongot/index/lucene/explain/tracing",
         "//src/main/java/com/xgen/mongot/index/query",
+        "//src/main/java/com/xgen/mongot/index/query/aggregation",
         "//src/main/java/com/xgen/mongot/index/query/collectors",
         "//src/main/java/com/xgen/mongot/index/query/counts",
         "//src/main/java/com/xgen/mongot/index/query/operators",
@@ -45,6 +46,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/server/command/search",
         "//src/main/java/com/xgen/mongot/server/command/search/definition",
         "//src/main/java/com/xgen/mongot/server/command/search/definition/request",
+        "//src/main/java/com/xgen/mongot/server/message",
         "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/bson",
         "//src/main/java/com/xgen/mongot/util/bson/parser",
@@ -63,6 +65,7 @@ java_test_suite(
         "//src/main/java/com/xgen/testing/mongot/server/command/search/definition",
         "//src/main/java/com/xgen/testing/mongot/server/command/search/definition/request",
         "//src/proto/searchenvoy:searchenvoy_java_proto",
+        "//src/test/unit/java/com/xgen/mongot/index/query/aggregation:planner_test_support",  # keep
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_truth_truth",
         "@maven//:io_micrometer_micrometer_core",

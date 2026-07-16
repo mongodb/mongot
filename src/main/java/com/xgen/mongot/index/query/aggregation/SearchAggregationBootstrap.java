@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.bson.BsonValue;
+import org.jetbrains.annotations.TestOnly;
 
 /** All AggregationSpec registration should be done in this class at startup. */
 public class SearchAggregationBootstrap {
@@ -21,23 +22,24 @@ public class SearchAggregationBootstrap {
 
   private SearchAggregationBootstrap() {}
 
-  public static void installRegistry() {
-    // TODO(CLOUDP-413102) Add operator registry
-    AggregationRegistry.install(groupSuppliers(), Map.of());
+  // TODO(CLOUDP-413102) Add operator registry
+  @TestOnly
+  static void installRegistry(Map<String, AggregationRegistry.OperatorSupplier> operators) {
+    AggregationRegistry.install(groupSuppliers(), operators);
   }
 
   private static Map<String, GroupSpecSupplier> groupSuppliers() {
     return Map.of(
         TERMS,
-        (name, path, children, args, context) -> {
+        (name, path, children, args, registry) -> {
           GroupingArgs.TermsArgs termsArgs = Check.instanceOf(args, GroupingArgs.TermsArgs.class);
           return new TermsGroupAggregationSpec(name, path, children, termsArgs);
         },
         NUMBER_BOUNDARY,
-        (name, path, children, args, context) ->
+        (name, path, children, args, registry) ->
             SearchAggregationBootstrap.boundary(name, path, children, args, NUMBER_BOUNDARY),
         DATE_BOUNDARY,
-        (name, path, children, args, context) ->
+        (name, path, children, args, registry) ->
             SearchAggregationBootstrap.boundary(name, path, children, args, DATE_BOUNDARY));
   }
 
