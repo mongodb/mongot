@@ -2,7 +2,6 @@ package com.xgen.mongot.util;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
@@ -20,17 +19,22 @@ public class FileUtils {
   /**
    * Tries to create a directory if it does not exist. As well as parent directories as needed.
    *
+   * <p>On failure, the underlying {@link java.nio.file.FileSystemException} (which carries the
+   * native {@code strerror(errno)} reason, e.g. {@code "No space left on device"}) is preserved as
+   * the cause so that {@link Crash#assignCrashCategory} can classify disk-full crashes as {@link
+   * Crash.CrashCategory#DISK_FULL}.
+   *
    * <p>Not thread safe!
    */
   public static void mkdirIfNotExist(Path dir) throws IOException {
-    // File::mkdirs returns false if the directory already exists, or if an
-    // IOException is thrown. We want to distinguish between the two so check to see if the
-    // directory exists first.
-    File f = dir.toFile();
-    if (!f.exists()) {
-      if (!f.mkdirs()) {
-        throw new IOException(String.format("unable to create directory at %s", dir));
-      }
+    if (Files.exists(dir)) {
+      return;
+    }
+    try {
+      Files.createDirectories(dir);
+    } catch (IOException e) {
+      throw new IOException(
+          String.format("unable to create directory at %s: %s", dir, e.getMessage()), e);
     }
   }
 

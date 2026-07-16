@@ -54,6 +54,7 @@ java_test_suite(
         "@maven//:com_google_truth_truth",
         "@maven//:io_micrometer_micrometer_core",
         "@maven//:junit_junit",
+        "@maven//:org_apache_commons_commons_lang3",
         "@maven//:org_apache_lucene_lucene_core",
         "@maven//:org_mongodb_bson",
         "@maven//:org_slf4j_slf4j_api",
