@@ -194,24 +194,35 @@ public class AicUpdateSearchIndexCommand implements Command {
         Invariants.validateVectorNestedRootReferences(List.of(vectorIndex));
       }
 
-      // Validate auto-embedding index update restrictions
-      if (oldIndex instanceof VectorIndexDefinition oldVector
-          && newIndex instanceof VectorIndexDefinition newVector) {
-        AutoEmbeddingIndexValidator.validateNoAutoEmbeddingTypeConversion(oldVector, newVector);
-        if (oldVector.isAutoEmbeddingIndex() && newVector.isAutoEmbeddingIndex()) {
-          AutoEmbeddingIndexValidator.validateNoAutoEmbeddingFieldChanges(oldVector, newVector);
+      // Validate auto-embedding index updates. Converting a type:autoEmbed index to type:vector
+      // is rejected; all other updates (including changes to auto-embedding field values such as
+      // path, model, or quantization) are allowed. The new definition is re-validated like create
+      // (registered models, no mixed vector types) so an update cannot persist a definition that
+      // create would reject; the superseded MV is cleaned up by GC. Failures of these
+      // auto-embedding checks are client errors (BAD_VALUE), matching the same checks in the
+      // create workflow; the catalog/analyzer invariants above return COMMAND_FAILED on create
+      // and update alike.
+      try {
+        if (oldIndex instanceof VectorIndexDefinition oldVector
+            && newIndex instanceof VectorIndexDefinition newVector) {
+          AutoEmbeddingIndexValidator.validateNoAutoEmbeddingTypeConversion(oldVector, newVector);
+          if (newVector.isAutoEmbeddingIndex()) {
+            AutoEmbeddingIndexValidator.validate(newVector);
+          }
+        } else if (oldIndex instanceof SearchIndexDefinition
+            && newIndex instanceof SearchIndexDefinition newSearch) {
+          if (newSearch.isAutoEmbeddingIndex()) {
+            AutoEmbeddingIndexValidator.validate(newSearch);
+          }
+        } else {
+          throw new IllegalStateException(
+              "Cannot compare index definitions of different types: "
+                  + oldIndex.getClass().getSimpleName()
+                  + " vs "
+                  + newIndex.getClass().getSimpleName());
         }
-      } else if (oldIndex instanceof SearchIndexDefinition oldSearch
-          && newIndex instanceof SearchIndexDefinition newSearch) {
-        if (oldSearch.isAutoEmbeddingIndex() && newSearch.isAutoEmbeddingIndex()) {
-          AutoEmbeddingIndexValidator.validateNoAutoEmbeddingFieldChanges(oldSearch, newSearch);
-        }
-      } else {
-        throw new IllegalStateException(
-            "Cannot compare index definitions of different types: "
-                + oldIndex.getClass().getSimpleName()
-                + " vs "
-                + newIndex.getClass().getSimpleName());
+      } catch (InvalidIndexDefinitionException e) {
+        return MessageUtils.createError(Errors.BAD_VALUE, e.getMessage());
       }
 
       this.authoritativeIndexCatalog.updateIndex(

@@ -190,124 +190,6 @@ public class AutoEmbeddingIndexValidatorTest {
   }
 
   @Test
-  public void validateNoAutoEmbeddingFieldChanges_noChanges_succeeds()
-      throws InvalidIndexDefinitionException {
-    VectorAutoEmbedFieldDefinition field =
-        new VectorAutoEmbedFieldDefinition(REGISTERED_MODEL, FieldPath.parse("autoEmbedField"));
-    VectorIndexDefinition oldIndex = createVectorIndexWithFields(List.of(field));
-    VectorIndexDefinition newIndex = createVectorIndexWithFields(List.of(field));
-
-    // Should not throw
-    AutoEmbeddingIndexValidator.validateNoAutoEmbeddingFieldChanges(oldIndex, newIndex);
-  }
-
-  @Test
-  public void validateNoAutoEmbeddingFieldChanges_modelChanged_throwsException() {
-    // Register a second model for this test
-    EmbeddingModelConfig secondModelConfig =
-        EmbeddingModelConfig.create(
-            "another-model",
-            EmbeddingProvider.VOYAGE,
-            new EmbeddingServiceConfig.EmbeddingConfig(
-                Optional.of("us-east-1"),
-                new EmbeddingServiceConfig.VoyageModelConfig(
-                    Optional.of(1024),
-                    Optional.of(EmbeddingServiceConfig.TruncationOption.START),
-                    Optional.of(512),
-                    Optional.of(100)),
-                new EmbeddingServiceConfig.ErrorHandlingConfig(50, 50L, 10L, 0.1),
-                new EmbeddingServiceConfig.VoyageEmbeddingCredentials(
-                    "test-key", "2024-10-15T22:32:20.925Z"),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                true,
-                Optional.empty(),
-                false,
-                Optional.empty()));
-    EmbeddingModelCatalog.registerModelConfig("another-model", secondModelConfig);
-
-    VectorIndexDefinition oldIndex = createVectorIndexWithModel(REGISTERED_MODEL);
-    VectorIndexDefinition newIndex = createVectorIndexWithModel("another-model");
-
-    InvalidIndexDefinitionException exception =
-        assertThrows(
-            InvalidIndexDefinitionException.class,
-            () ->
-                AutoEmbeddingIndexValidator.validateNoAutoEmbeddingFieldChanges(
-                    oldIndex, newIndex));
-
-    assertThat(exception.getMessage()).contains("cannot update type:autoEmbed fields");
-  }
-
-  @Test
-  public void validateNoAutoEmbeddingFieldChanges_pathChanged_throwsException() {
-    VectorAutoEmbedFieldDefinition field1 =
-        new VectorAutoEmbedFieldDefinition(REGISTERED_MODEL, FieldPath.parse("field1"));
-    VectorAutoEmbedFieldDefinition field2 =
-        new VectorAutoEmbedFieldDefinition(REGISTERED_MODEL, FieldPath.parse("field2"));
-
-    VectorIndexDefinition oldIndex = createVectorIndexWithFields(List.of(field1));
-    VectorIndexDefinition newIndex = createVectorIndexWithFields(List.of(field2));
-
-    InvalidIndexDefinitionException exception =
-        assertThrows(
-            InvalidIndexDefinitionException.class,
-            () ->
-                AutoEmbeddingIndexValidator.validateNoAutoEmbeddingFieldChanges(
-                    oldIndex, newIndex));
-
-    assertThat(exception.getMessage()).contains("cannot update type:autoEmbed fields");
-  }
-
-  @Test
-  public void validateNoAutoEmbeddingFieldChanges_oldNotAutoEmbedding_throwsException() {
-    // Old index is not auto-embedding (only has vector field)
-    VectorDataFieldDefinition vectorField =
-        VectorDataFieldDefinitionBuilder.builder()
-            .path(FieldPath.parse("embedding"))
-            .numDimensions(3)
-            .similarity(VectorSimilarity.EUCLIDEAN)
-            .quantization(VectorQuantization.NONE)
-            .build();
-    VectorIndexDefinition oldIndex = createVectorIndexWithFields(List.of(vectorField));
-
-    // New index is auto-embedding
-    VectorAutoEmbedFieldDefinition autoEmbedField =
-        new VectorAutoEmbedFieldDefinition(REGISTERED_MODEL, FieldPath.parse("autoEmbedField"));
-    VectorIndexDefinition newIndex = createVectorIndexWithFields(List.of(autoEmbedField));
-
-    // Should throw - method requires both indexes to be auto-embedding
-    assertThrows(
-        IllegalArgumentException.class,
-        () -> AutoEmbeddingIndexValidator.validateNoAutoEmbeddingFieldChanges(oldIndex, newIndex));
-  }
-
-  @Test
-  public void validateNoAutoEmbeddingFieldChanges_newNotAutoEmbedding_throwsException() {
-    // Old index is auto-embedding
-    VectorAutoEmbedFieldDefinition autoEmbedField =
-        new VectorAutoEmbedFieldDefinition(REGISTERED_MODEL, FieldPath.parse("autoEmbedField"));
-    VectorIndexDefinition oldIndex = createVectorIndexWithFields(List.of(autoEmbedField));
-
-    // New index is not auto-embedding (only has vector field)
-    VectorDataFieldDefinition vectorField =
-        VectorDataFieldDefinitionBuilder.builder()
-            .path(FieldPath.parse("embedding"))
-            .numDimensions(3)
-            .similarity(VectorSimilarity.EUCLIDEAN)
-            .quantization(VectorQuantization.NONE)
-            .build();
-    VectorIndexDefinition newIndex = createVectorIndexWithFields(List.of(vectorField));
-
-    // Should throw - method requires both indexes to be auto-embedding
-    assertThrows(
-        IllegalArgumentException.class,
-        () -> AutoEmbeddingIndexValidator.validateNoAutoEmbeddingFieldChanges(oldIndex, newIndex));
-  }
-
-  @Test
   public void validateNoAutoEmbeddingTypeConversion_autoEmbeddingToVector_throwsException() {
     // Old index is auto-embedding
     VectorAutoEmbedFieldDefinition autoEmbedField =
@@ -519,36 +401,6 @@ public class AutoEmbeddingIndexValidatorTest {
   }
 
   @Test
-  public void validateNoSearchAutoEmbeddingFieldChanges_changedFields_throwsException() {
-    SearchIndexDefinition oldIndex =
-        createSearchIndexWithAutoEmbedFields(
-            new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL, FieldPath.parse("content")));
-    SearchIndexDefinition newIndex =
-        createSearchIndexWithAutoEmbedFields(
-            new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL, FieldPath.parse("description")));
-
-    InvalidIndexDefinitionException exception =
-        assertThrows(
-            InvalidIndexDefinitionException.class,
-            () ->
-                AutoEmbeddingIndexValidator.validateNoAutoEmbeddingFieldChanges(
-                    oldIndex, newIndex));
-
-    assertThat(exception.getMessage()).contains("cannot update type:autoEmbed fields");
-  }
-
-  @Test
-  public void validateNoSearchAutoEmbeddingFieldChanges_identicalFields_succeeds()
-      throws InvalidIndexDefinitionException {
-    SearchAutoEmbedFieldDefinition field =
-        new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL, FieldPath.parse("content"));
-    SearchIndexDefinition oldIndex = createSearchIndexWithAutoEmbedFields(field);
-    SearchIndexDefinition newIndex = createSearchIndexWithAutoEmbedFields(field);
-
-    AutoEmbeddingIndexValidator.validateNoAutoEmbeddingFieldChanges(oldIndex, newIndex);
-  }
-
-  @Test
   public void validateSearchIndexWithNestedAutoEmbedAndTopLevelVector_throwsException() {
     // Nested auto-embed + top-level regular vector: the mixed-type check must see auto-embed
     // declarations at any nesting depth.
@@ -631,36 +483,6 @@ public class AutoEmbeddingIndexValidatorTest {
   }
 
   @Test
-  public void validateNoSearchAutoEmbeddingFieldChanges_nestedFieldChanged_throwsException() {
-    SearchIndexDefinition oldIndex =
-        createSearchIndexWithNestedAutoEmbed(
-            new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL, FieldPath.parse("content")));
-    SearchIndexDefinition newIndex =
-        createSearchIndexWithNestedAutoEmbed(
-            new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL, FieldPath.parse("description")));
-
-    InvalidIndexDefinitionException exception =
-        assertThrows(
-            InvalidIndexDefinitionException.class,
-            () ->
-                AutoEmbeddingIndexValidator.validateNoAutoEmbeddingFieldChanges(
-                    oldIndex, newIndex));
-
-    assertThat(exception.getMessage()).contains("cannot update type:autoEmbed fields");
-  }
-
-  @Test
-  public void validateNoSearchAutoEmbeddingFieldChanges_nestedIdenticalFields_succeeds()
-      throws InvalidIndexDefinitionException {
-    SearchAutoEmbedFieldDefinition field =
-        new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL, FieldPath.parse("content"));
-    SearchIndexDefinition oldIndex = createSearchIndexWithNestedAutoEmbed(field);
-    SearchIndexDefinition newIndex = createSearchIndexWithNestedAutoEmbed(field);
-
-    AutoEmbeddingIndexValidator.validateNoAutoEmbeddingFieldChanges(oldIndex, newIndex);
-  }
-
-  @Test
   public void validateSearchIndexWithDuplicateSourceFields_throwsException() {
     // A nested and a top-level declaration sharing a sourceField: construction keeps the last
     // model, and this community-path validation is the clean user-facing rejection.
@@ -727,22 +549,6 @@ public class AutoEmbeddingIndexValidatorTest {
 
     assertThat(exception.getMessage()).contains("consumed by the embedding pipeline");
     assertThat(exception.getMessage()).contains("content");
-  }
-
-  private SearchIndexDefinition createSearchIndexWithNestedAutoEmbed(
-      SearchAutoEmbedFieldDefinition autoEmbedDef) {
-    var nested =
-        DocumentFieldDefinitionBuilder.builder()
-            .dynamic(false)
-            .field(
-                "embedding", FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedDef).build())
-            .build();
-    var mappings =
-        DocumentFieldDefinitionBuilder.builder()
-            .dynamic(false)
-            .field("parent", FieldDefinitionBuilder.builder().document(nested).build())
-            .build();
-    return SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
   }
 
   private SearchIndexDefinition createSearchIndexWithAutoEmbed(String modelName) {

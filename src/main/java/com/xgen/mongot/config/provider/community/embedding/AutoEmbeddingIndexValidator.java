@@ -96,36 +96,6 @@ public class AutoEmbeddingIndexValidator {
     }
   }
 
-  public static void validateNoAutoEmbeddingFieldChanges(
-      VectorIndexDefinition oldIndex, VectorIndexDefinition newIndex)
-      throws InvalidIndexDefinitionException {
-    checkBothAutoEmbedding(oldIndex, newIndex);
-    throwIfFieldsChanged(
-        getAutoEmbeddingFieldDefinitions(oldIndex),
-        getAutoEmbeddingFieldDefinitions(newIndex),
-        newIndex.getName());
-  }
-
-  public static void validateNoAutoEmbeddingFieldChanges(
-      SearchIndexDefinition oldIndex, SearchIndexDefinition newIndex)
-      throws InvalidIndexDefinitionException {
-    checkBothAutoEmbedding(oldIndex, newIndex);
-    throwIfFieldsChanged(
-        getAutoEmbeddingFieldDefinitions(oldIndex),
-        getAutoEmbeddingFieldDefinitions(newIndex),
-        newIndex.getName());
-  }
-
-  private static List<VectorIndexFieldDefinition> getAutoEmbeddingFieldDefinitions(
-      VectorIndexDefinition newIndex) {
-    return newIndex.getFields().stream()
-        .filter(
-            field ->
-                field.getType() == VectorIndexFieldDefinition.Type.TEXT
-                    || field.getType() == VectorIndexFieldDefinition.Type.AUTO_EMBED)
-        .toList();
-  }
-
   /**
    * Collects auto-embed declarations at any {@code document} nesting depth, in field-hierarchy
    * order. A field's auto-embed and {@code document} type alternatives are processed independently,
@@ -143,25 +113,6 @@ public class AutoEmbeddingIndexValidator {
     for (FieldDefinition fieldDef : document.fields().values()) {
       fieldDef.searchAutoEmbedFieldDefinition().ifPresent(out::add);
       fieldDef.documentFieldDefinition().ifPresent(nested -> collectAutoEmbedFields(nested, out));
-    }
-  }
-
-  private static void checkBothAutoEmbedding(IndexDefinition oldIndex, IndexDefinition newIndex) {
-    if (!oldIndex.isAutoEmbeddingIndex() || !newIndex.isAutoEmbeddingIndex()) {
-      throw new IllegalArgumentException(
-          "Unable to invoke auto-embedding field change validation on non auto-embedding indexes");
-    }
-  }
-
-  private static void throwIfFieldsChanged(List<?> oldFields, List<?> newFields, String indexName)
-      throws InvalidIndexDefinitionException {
-    if (!oldFields.equals(newFields)) {
-      throw new InvalidIndexDefinitionException(
-          String.format(
-              "Index: %s cannot update type:autoEmbed fields. "
-                  + "To modify an index containing Automated Embedding fields, "
-                  + "please delete the index and create a new one instead",
-              indexName));
     }
   }
 

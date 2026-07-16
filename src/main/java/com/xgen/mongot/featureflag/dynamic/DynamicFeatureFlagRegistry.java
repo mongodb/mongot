@@ -140,29 +140,34 @@ public class DynamicFeatureFlagRegistry {
   }
 
   /**
-   * Community has no DFF, so this factory seeds {@link
-   * DynamicFeatureFlags#BLOOM_FILTER_FOR_ID_FIELD} as {@code ENABLED} while leaving every other
-   * flag unregistered (falling through to its declared fallback, identical to {@link #empty()}).
+   * Community has no DFF, so this factory seeds the flags that should default on for community /
+   * on-prem — {@link DynamicFeatureFlags#BLOOM_FILTER_FOR_ID_FIELD}, {@link
+   * DynamicFeatureFlags#MV_GC_ENABLED} and {@link DynamicFeatureFlags#MV_GC_DELETION_ENABLED} — as
+   * {@code ENABLED}, while leaving every other flag unregistered (falling through to its declared
+   * fallback, identical to {@link #empty()}).
    *
-   * <p>A synthetic cluster id ({@link #COMMUNITY_SENTINEL_CLUSTER_ID}) is supplied so that the
-   * bloom flag's evaluation is eagerly cached by {@code buildInternalConfig}. Without a cluster id
-   * the {@code MONGOT_CLUSTER}-scoped flag would not be cached and {@code evaluateClusterInvariant}
-   * would fall back to the flag's declared {@code false} default.
+   * <p>A synthetic cluster id ({@link #COMMUNITY_SENTINEL_CLUSTER_ID}) is supplied so these flags'
+   * evaluations are eagerly cached by {@code buildInternalConfig}. Without a cluster id a {@code
+   * MONGOT_CLUSTER}-scoped flag would not be cached and {@code evaluateClusterInvariant} would fall
+   * back to its declared {@code false} default. The scope here is only the synthetic caching key;
+   * in Atlas these flags are scoped by the control plane (e.g. {@code MV_GC_ENABLED} rolls out per
+   * group), independently of this default.
    */
   public static DynamicFeatureFlagRegistry communityDefault() {
-    var bloomForIdField =
-        new DynamicFeatureFlagConfig(
-            DynamicFeatureFlags.BLOOM_FILTER_FOR_ID_FIELD.getName(),
-            Phase.ENABLED,
-            List.of(),
-            List.of(),
-            100,
-            Scope.MONGOT_CLUSTER);
     return new DynamicFeatureFlagRegistry(
-        Optional.of(List.of(bloomForIdField)),
+        Optional.of(
+            List.of(
+                communityEnabled(DynamicFeatureFlags.BLOOM_FILTER_FOR_ID_FIELD),
+                communityEnabled(DynamicFeatureFlags.MV_GC_ENABLED),
+                communityEnabled(DynamicFeatureFlags.MV_GC_DELETION_ENABLED))),
         Optional.empty(),
         Optional.empty(),
         Optional.of(COMMUNITY_SENTINEL_CLUSTER_ID));
+  }
+
+  private static DynamicFeatureFlagConfig communityEnabled(DynamicFeatureFlags flag) {
+    return new DynamicFeatureFlagConfig(
+        flag.getName(), Phase.ENABLED, List.of(), List.of(), 100, Scope.MONGOT_CLUSTER);
   }
 
   /**

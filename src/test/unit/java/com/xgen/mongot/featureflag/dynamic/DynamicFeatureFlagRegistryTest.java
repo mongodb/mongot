@@ -3,6 +3,8 @@ package com.xgen.mongot.featureflag.dynamic;
 import static com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags.BLOOM_FILTER_FOR_ID_FIELD;
 import static com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags.BLOOM_FILTER_IN_STEADY_STATE;
 import static com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags.DISABLE_BULK_SCORER_QUERY_FOR_EMBEDDED_DOCUMENT_CHILD;
+import static com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags.MV_GC_DELETION_ENABLED;
+import static com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags.MV_GC_ENABLED;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -760,12 +762,21 @@ public class DynamicFeatureFlagRegistryTest {
     }
 
     @Test
-    public void communityDefault_bloomForIdEnabled_otherFlagsAtFallback() {
+    public void communityDefault_bloomAndMvGcEnabled_otherFlagsAtFallback() {
       var registry = DynamicFeatureFlagRegistry.communityDefault();
 
       assertTrue(
           "communityDefault should enable BLOOM_FILTER_FOR_ID_FIELD",
           registry.evaluateClusterInvariant(BLOOM_FILTER_FOR_ID_FIELD));
+
+      assertTrue(
+          "communityDefault should enable MV_GC_ENABLED so GC runs on community / on-prem",
+          registry.evaluateClusterInvariant(MV_GC_ENABLED));
+
+      assertTrue(
+          "communityDefault should enable MV_GC_DELETION_ENABLED so GC actually cleans up"
+              + " superseded MVs on community / on-prem",
+          registry.evaluateClusterInvariant(MV_GC_DELETION_ENABLED));
 
       assertFalse(
           "communityDefault should leave BLOOM_FILTER_IN_STEADY_STATE at its false fallback",

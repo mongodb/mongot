@@ -29,9 +29,14 @@ import com.xgen.mongot.catalogservice.MetadataServiceException;
 import com.xgen.mongot.catalogservice.TopologyMismatchException;
 import com.xgen.mongot.catalogservice.schema.AuthoritativeIndexKey;
 import com.xgen.mongot.catalogservice.schema.IndexEntry;
+import com.xgen.mongot.embedding.providers.configs.EmbeddingModelCatalog;
+import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
+import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
+import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.EmbeddingProvider;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexCapabilities;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
+import com.xgen.mongot.index.definition.VectorAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.VectorDataFieldDefinition;
 import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexCapabilities;
@@ -61,10 +66,16 @@ import java.util.Optional;
 import org.bson.BsonDocument;
 import org.bson.types.ObjectId;
 import org.jetbrains.annotations.NotNull;
+import org.junit.AfterClass;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 
 public class AicUpdateSearchIndexCommandTest {
+
+  @AfterClass
+  public static void clearModelCatalog() {
+    EmbeddingModelCatalog.clear();
+  }
 
   @Test
   public void testUpdateSearchIndex() throws MetadataServiceException {
@@ -230,6 +241,276 @@ public class AicUpdateSearchIndexCommandTest {
                         new VectorIndexingAlgorithm.HnswIndexingAlgorithm()))));
     assertEquals(2L, (long) captor.getValue().getDefinitionVersion().get());
     assertTrue(captor.getValue().getDefinitionVersionCreatedAt().get().isAfter(now));
+  }
+
+  @Test
+  public void testAutoEmbedFieldUpdate_modelChange_succeeds() throws MetadataServiceException {
+    String storedModel = "aic-update-stored-model";
+    String updatedModel = "aic-update-new-model";
+    registerTestModel(storedModel);
+    registerTestModel(updatedModel);
+
+    var mockAic = mock(AuthoritativeIndexCatalog.class);
+    var indexId = new ObjectId();
+    Instant now = Instant.now();
+    when(mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(
+            List.of(
+                toIndexEntry(
+                    VectorIndexDefinitionBuilder.builder()
+                        .database(DATABASE_NAME)
+                        .collectionUuid(COLLECTION_UUID)
+                        .lastObservedCollectionName(COLLECTION_NAME)
+                        .indexId(indexId)
+                        .name(VECTOR_INDEX_NAME)
+                        .indexFeatureVersion(VectorIndexCapabilities.CURRENT_FEATURE_VERSION)
+                        .withAutoEmbedField(VECTOR_PATH, storedModel)
+                        .withDefinitionVersion(Optional.of(1L))
+                        .withDefinitionVersionCreatedAt(Optional.of(now))
+                        .build())));
+
+    // Change the auto-embedding field's model to another registered model - the update is allowed.
+    var updateDefinition =
+        (UpdateSearchIndexCommandDefinition)
+            ManageSearchIndexCommandDefinitionBuilder.updateIndex()
+                .withIndexName(VECTOR_INDEX_NAME)
+                .withDefinition(
+                    UserVectorIndexDefinitionBuilder.builder()
+                        .setFields(
+                            List.of(
+                                new VectorAutoEmbedFieldDefinition(
+                                    updatedModel, FieldPath.parse(VECTOR_PATH))))
+                        .build())
+                .buildSearchIndexCommand();
+
+    var command =
+        new AicUpdateSearchIndexCommand(
+            mockAic,
+            mock(CatalogAccessGuard.class),
+            DATABASE_NAME,
+            COLLECTION_UUID,
+            COLLECTION_NAME,
+            Optional.empty(),
+            updateDefinition,
+            IndexDefinitionConfig.getDefault());
+
+    BsonDocument response = command.run();
+    assertEquals(1, response.getInt32("ok").getValue());
+
+    ArgumentCaptor<VectorIndexDefinition> captor =
+        ArgumentCaptor.forClass(VectorIndexDefinition.class);
+    verify(mockAic)
+        .updateIndex(
+            eq(new AuthoritativeIndexKey(COLLECTION_UUID, VECTOR_INDEX_NAME)),
+            captor.capture(),
+            any());
+    assertTrue(captor.getValue().getModelNamePerPath().containsValue(updatedModel));
+  }
+
+  @Test
+  public void testAutoEmbedFieldUpdate_unregisteredModel_rejected()
+      throws MetadataServiceException {
+    var mockAic = mock(AuthoritativeIndexCatalog.class);
+    var indexId = new ObjectId();
+    Instant now = Instant.now();
+    when(mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(
+            List.of(
+                toIndexEntry(
+                    VectorIndexDefinitionBuilder.builder()
+                        .database(DATABASE_NAME)
+                        .collectionUuid(COLLECTION_UUID)
+                        .lastObservedCollectionName(COLLECTION_NAME)
+                        .indexId(indexId)
+                        .name(VECTOR_INDEX_NAME)
+                        .indexFeatureVersion(VectorIndexCapabilities.CURRENT_FEATURE_VERSION)
+                        .withAutoEmbedField(VECTOR_PATH, "stored-model")
+                        .withDefinitionVersion(Optional.of(1L))
+                        .withDefinitionVersionCreatedAt(Optional.of(now))
+                        .build())));
+
+    // Change the model to an unregistered one. Auto-embedding field changes are allowed, but the
+    // new definition is re-validated like create - so the unregistered model is rejected.
+    var updateDefinition =
+        (UpdateSearchIndexCommandDefinition)
+            ManageSearchIndexCommandDefinitionBuilder.updateIndex()
+                .withIndexName(VECTOR_INDEX_NAME)
+                .withDefinition(
+                    UserVectorIndexDefinitionBuilder.builder()
+                        .setFields(
+                            List.of(
+                                new VectorAutoEmbedFieldDefinition(
+                                    "unregistered-model-" + System.nanoTime(),
+                                    FieldPath.parse(VECTOR_PATH))))
+                        .build())
+                .buildSearchIndexCommand();
+
+    var command =
+        new AicUpdateSearchIndexCommand(
+            mockAic,
+            mock(CatalogAccessGuard.class),
+            DATABASE_NAME,
+            COLLECTION_UUID,
+            COLLECTION_NAME,
+            Optional.empty(),
+            updateDefinition,
+            IndexDefinitionConfig.getDefault());
+
+    BsonDocument response = command.run();
+    assertEquals(0, response.getInt32("ok").getValue());
+    assertEquals(Errors.BAD_VALUE.code, response.getInt32("code").getValue());
+    assertTrue(response.getString("errmsg").getValue().contains("are not supported"));
+    verify(mockAic, never()).updateIndex(any(), any(), any());
+  }
+
+  @Test
+  public void testAutoEmbedFieldUpdate_addsRegularVectorField_rejected()
+      throws MetadataServiceException {
+    String storedModel = "aic-update-mixed-model";
+    registerTestModel(storedModel);
+
+    var mockAic = mock(AuthoritativeIndexCatalog.class);
+    var indexId = new ObjectId();
+    Instant now = Instant.now();
+    when(mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(
+            List.of(
+                toIndexEntry(
+                    VectorIndexDefinitionBuilder.builder()
+                        .database(DATABASE_NAME)
+                        .collectionUuid(COLLECTION_UUID)
+                        .lastObservedCollectionName(COLLECTION_NAME)
+                        .indexId(indexId)
+                        .name(VECTOR_INDEX_NAME)
+                        .indexFeatureVersion(VectorIndexCapabilities.CURRENT_FEATURE_VERSION)
+                        .withAutoEmbedField(VECTOR_PATH, storedModel)
+                        .withDefinitionVersion(Optional.of(1L))
+                        .withDefinitionVersionCreatedAt(Optional.of(now))
+                        .build())));
+
+    // Keep the autoEmbed field identical but add a regular type:vector field. The old
+    // field-equality check compared only autoEmbed-typed fields, so this used to slip through;
+    // re-validating like create rejects the mixed-type definition.
+    var updateDefinition =
+        (UpdateSearchIndexCommandDefinition)
+            ManageSearchIndexCommandDefinitionBuilder.updateIndex()
+                .withIndexName(VECTOR_INDEX_NAME)
+                .withDefinition(
+                    UserVectorIndexDefinitionBuilder.builder()
+                        .setFields(
+                            List.of(
+                                new VectorAutoEmbedFieldDefinition(
+                                    storedModel, FieldPath.parse(VECTOR_PATH)),
+                                new VectorDataFieldDefinition(
+                                    FieldPath.parse("precomputedEmbedding"),
+                                    new VectorFieldSpecification(
+                                        VECTOR_DIMENSIONS,
+                                        VECTOR_SIMILARITY,
+                                        VECTOR_QUANTIZATION,
+                                        new VectorIndexingAlgorithm.HnswIndexingAlgorithm()))))
+                        .build())
+                .buildSearchIndexCommand();
+
+    var command =
+        new AicUpdateSearchIndexCommand(
+            mockAic,
+            mock(CatalogAccessGuard.class),
+            DATABASE_NAME,
+            COLLECTION_UUID,
+            COLLECTION_NAME,
+            Optional.empty(),
+            updateDefinition,
+            IndexDefinitionConfig.getDefault());
+
+    BsonDocument response = command.run();
+    assertEquals(0, response.getInt32("ok").getValue());
+    assertEquals(Errors.BAD_VALUE.code, response.getInt32("code").getValue());
+    assertTrue(
+        response.getString("errmsg").getValue().contains("cannot mix regular vector fields"));
+    verify(mockAic, never()).updateIndex(any(), any(), any());
+  }
+
+  @Test
+  public void testVectorToAutoEmbedConversion_unregisteredModel_rejected()
+      throws MetadataServiceException {
+    var mockAic = mock(AuthoritativeIndexCatalog.class);
+    var indexId = new ObjectId();
+    Instant now = Instant.now();
+    when(mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(
+            List.of(
+                toIndexEntry(
+                    VectorIndexDefinitionBuilder.builder()
+                        .database(DATABASE_NAME)
+                        .collectionUuid(COLLECTION_UUID)
+                        .lastObservedCollectionName(COLLECTION_NAME)
+                        .indexId(indexId)
+                        .name(VECTOR_INDEX_NAME)
+                        .indexFeatureVersion(VectorIndexCapabilities.CURRENT_FEATURE_VERSION)
+                        .withVectorFieldDefaultOptions(
+                            VECTOR_PATH, VECTOR_DIMENSIONS, VECTOR_SIMILARITY, VECTOR_QUANTIZATION)
+                        .withDefinitionVersion(Optional.of(1L))
+                        .withDefinitionVersionCreatedAt(Optional.of(now))
+                        .build())));
+
+    // Converting a regular vector index to autoEmbed is allowed, but the conversion used to skip
+    // create-validation entirely; re-validating rejects an unregistered model.
+    var updateDefinition =
+        (UpdateSearchIndexCommandDefinition)
+            ManageSearchIndexCommandDefinitionBuilder.updateIndex()
+                .withIndexName(VECTOR_INDEX_NAME)
+                .withDefinition(
+                    UserVectorIndexDefinitionBuilder.builder()
+                        .setFields(
+                            List.of(
+                                new VectorAutoEmbedFieldDefinition(
+                                    "unregistered-model-" + System.nanoTime(),
+                                    FieldPath.parse(VECTOR_PATH))))
+                        .build())
+                .buildSearchIndexCommand();
+
+    var command =
+        new AicUpdateSearchIndexCommand(
+            mockAic,
+            mock(CatalogAccessGuard.class),
+            DATABASE_NAME,
+            COLLECTION_UUID,
+            COLLECTION_NAME,
+            Optional.empty(),
+            updateDefinition,
+            IndexDefinitionConfig.getDefault());
+
+    BsonDocument response = command.run();
+    assertEquals(0, response.getInt32("ok").getValue());
+    assertEquals(Errors.BAD_VALUE.code, response.getInt32("code").getValue());
+    assertTrue(response.getString("errmsg").getValue().contains("are not supported"));
+    verify(mockAic, never()).updateIndex(any(), any(), any());
+  }
+
+  private static void registerTestModel(String modelName) {
+    EmbeddingModelCatalog.registerModelConfig(
+        modelName,
+        EmbeddingModelConfig.create(
+            modelName,
+            EmbeddingProvider.VOYAGE,
+            new EmbeddingServiceConfig.EmbeddingConfig(
+                Optional.of("us-east-1"),
+                new EmbeddingServiceConfig.VoyageModelConfig(
+                    Optional.of(1024),
+                    Optional.of(EmbeddingServiceConfig.TruncationOption.START),
+                    Optional.of(512),
+                    Optional.of(100)),
+                new EmbeddingServiceConfig.ErrorHandlingConfig(50, 50L, 10L, 0.1),
+                new EmbeddingServiceConfig.VoyageEmbeddingCredentials(
+                    "test-key", "2024-10-15T22:32:20.925Z"),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                true,
+                Optional.empty(),
+                false,
+                Optional.empty())));
   }
 
   @Test
