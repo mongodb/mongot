@@ -954,6 +954,9 @@ public class DefaultConfigManagerTest {
 
     verify(mocks.lifecycleManager).shutdownAutoEmbeddingReplication();
     verify(mocks.lifecycleManager, never()).updateSyncSource(any());
+    assertEquals(1.0, transitionCount(mocks, "pause"), 0.0);
+    assertEquals(0.0, transitionCount(mocks, "resume"), 0.0);
+    assertEquals(1.0, pausedGaugeValue(mocks), 0.0);
   }
 
   @Test
@@ -976,6 +979,8 @@ public class DefaultConfigManagerTest {
 
     verify(mocks.lifecycleManager, never()).shutdownAutoEmbeddingReplication();
     verify(mocks.lifecycleManager, never()).restartAutoEmbeddingReplication(any());
+    assertEquals(0.0, transitionCount(mocks, "pause"), 0.0);
+    assertEquals(0.0, transitionCount(mocks, "resume"), 0.0);
   }
 
   @Test
@@ -999,6 +1004,9 @@ public class DefaultConfigManagerTest {
     verify(mocks.lifecycleManager)
         .restartAutoEmbeddingReplication(ConfigStateMocks.MOCK_SYNC_SOURCE_CONFIG);
     verify(mocks.lifecycleManager, never()).updateSyncSource(any());
+    assertEquals(1.0, transitionCount(mocks, "resume"), 0.0);
+    assertEquals(0.0, transitionCount(mocks, "pause"), 0.0);
+    assertEquals(0.0, pausedGaugeValue(mocks), 0.0);
   }
 
   @Test
@@ -1045,6 +1053,19 @@ public class DefaultConfigManagerTest {
         .setReplicationGate(replicationGate)
         .setInitialSyncGate(ToggleGate.opened())
         .build();
+  }
+
+  private static double transitionCount(DefaultConfigManagerMocks mocks, String transition) {
+    return mocks
+        .meterRegistry
+        .get("configManager.autoEmbeddingReplicationGateTransitions")
+        .tag("transition", transition)
+        .counter()
+        .count();
+  }
+
+  private static double pausedGaugeValue(DefaultConfigManagerMocks mocks) {
+    return mocks.meterRegistry.get("configManager.autoEmbeddingReplicationPaused").gauge().value();
   }
 
   /**

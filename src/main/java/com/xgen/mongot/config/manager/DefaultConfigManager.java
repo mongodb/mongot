@@ -43,7 +43,9 @@ import com.xgen.mongot.util.CollectionUtils;
 import com.xgen.mongot.util.Crash;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tags;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -91,6 +93,12 @@ public class DefaultConfigManager implements ConfigManager {
   protected final Gate replicationGate;
   private final Gate autoEmbeddingReplicationGate;
 
+  // Counts auto-embedding replication pause/resume transitions driven by the mongod-disk gate,
+  // tagged by transition. Paired with the autoEmbeddingReplicationPaused gauge registered in the
+  // constructor.
+  private final Counter autoEmbeddingReplicationPauseCounter;
+  private final Counter autoEmbeddingReplicationResumeCounter;
+
   final FeatureFlags featureFlags;
 
   @GuardedBy("this")
@@ -115,6 +123,19 @@ public class DefaultConfigManager implements ConfigManager {
     this.initialSyncGate = replicationStateMonitor.getInitialSyncGate();
     this.replicationGate = replicationStateMonitor.getReplicationGate();
     this.autoEmbeddingReplicationGate = replicationStateMonitor.getAutoEmbeddingReplicationGate();
+    // Read the gate directly so the gauge keeps reporting the paused state even while a pause has
+    // torn down the auto-embedding materialized-view replicator (1 = paused by disk pressure,
+    // 0 = running).
+    this.metricsFactory.objectValueGauge(
+        "autoEmbeddingReplicationPaused",
+        this.autoEmbeddingReplicationGate,
+        gate -> gate.isClosed() ? 1.0 : 0.0);
+    this.autoEmbeddingReplicationPauseCounter =
+        this.metricsFactory.counter(
+            "autoEmbeddingReplicationGateTransitions", Tags.of("transition", "pause"));
+    this.autoEmbeddingReplicationResumeCounter =
+        this.metricsFactory.counter(
+            "autoEmbeddingReplicationGateTransitions", Tags.of("transition", "resume"));
     this.featureFlags = featureFlags;
     this.replicationStatusChangeTimestamp = Instant.now();
 
@@ -571,8 +592,10 @@ public class DefaultConfigManager implements ConfigManager {
           .addKeyValue("autoEmbeddingReplicationGate", this.autoEmbeddingReplicationGate.toString())
           .log("Disk usage crossed auto-embedding pause or resume threshold");
       if (shouldPauseAutoEmbeddingReplication) {
+        this.autoEmbeddingReplicationPauseCounter.increment();
         shutdownAutoEmbeddingReplication();
       } else {
+        this.autoEmbeddingReplicationResumeCounter.increment();
         lifecycleManager.restartAutoEmbeddingReplication(syncSourceConfig);
       }
     }
