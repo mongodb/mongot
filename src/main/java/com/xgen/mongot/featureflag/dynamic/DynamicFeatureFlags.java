@@ -82,7 +82,8 @@ public enum DynamicFeatureFlags {
    * Lucene replication disk mode.
    */
   AUTO_EMBEDDING_MONGOD_DISK_MONITOR("mongot.featureFlag.autoEmbeddingMongodDiskMonitor", false),
-  QUERY_OPTIMIZER("mongot.featureFlag.queryOptimizer", false);
+  QUERY_OPTIMIZER("mongot.featureFlag.queryOptimizer", false),
+  ENABLE_OTEL_TRACING("mongot.featureFlag.enableOTELTracing", false);
 
   private final String name;
   private final boolean fallback;
