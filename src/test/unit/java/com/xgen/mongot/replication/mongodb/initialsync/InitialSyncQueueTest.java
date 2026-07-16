@@ -58,6 +58,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -97,6 +98,16 @@ public class InitialSyncQueueTest {
   private static final DocumentIndexer DOCUMENT_INDEXER = mockDocumentIndexer();
 
   private static final String DEFAULT_MONGO_HOST_NAME = "defaultHost";
+
+  @Test
+  public void queuedSyncsGaugesCoverEveryIndexTypeTag() throws Exception {
+    // The gauge maps are looked up unchecked via getIndexTypeTag, so a missing tag NPEs the
+    // first initial sync of that index type (search auto-embedding was missing).
+    Mocks mocks = Mocks.create(Map.of(MOCK_INDEX_GENERATION_ID, () -> RESUME_INFO));
+    Assert.assertEquals(
+        EnumSet.allOf(IndexTypeData.IndexTypeTag.class),
+        mocks.initialSyncQueue.queuedSyncs.keySet());
+  }
 
   @Test
   public void testSuccessfulBufferlessInitialSync() throws Exception {

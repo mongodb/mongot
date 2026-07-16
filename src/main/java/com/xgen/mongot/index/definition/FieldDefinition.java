@@ -147,6 +147,14 @@ public record FieldDefinition(
                     && definition.get().getType() != FieldTypeDefinition.Type.DOCUMENT);
   }
 
+  /** Returns true if the field has any type definition other than the given types. */
+  public boolean hasFieldDefinitionsOtherThan(FieldTypeDefinition.Type... excludedTypes) {
+    ImmutableSet<FieldTypeDefinition.Type> excluded = ImmutableSet.copyOf(excludedTypes);
+    return getAllDefinitions()
+        .anyMatch(
+            definition -> definition.isPresent() && !excluded.contains(definition.get().getType()));
+  }
+
   Stream<Optional<? extends FieldTypeDefinition>> getAllDefinitions() {
     return Stream.of(
         this.autocompleteFieldDefinition,

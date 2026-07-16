@@ -32,7 +32,8 @@ public record EmbeddedDocumentsFieldDefinition(
           Type.SORTABLE_DATE_BETA_V1,
           Type.SORTABLE_NUMBER_BETA_V1,
           Type.SORTABLE_STRING_BETA_V1,
-          Type.KNN_VECTOR);
+          Type.KNN_VECTOR,
+          Type.AUTO_EMBED_VECTOR);
 
   public static class Fields {
     public static final Field.WithDefault<DynamicDefinition> DYNAMIC =

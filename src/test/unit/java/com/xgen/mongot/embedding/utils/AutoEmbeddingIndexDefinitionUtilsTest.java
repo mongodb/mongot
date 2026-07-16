@@ -987,6 +987,260 @@ public class AutoEmbeddingIndexDefinitionUtilsTest {
   }
 
   @Test
+  public void testGetDerivedSearchIndexDefinition_nestedAutoEmbedHoistedToMatViewPath() {
+    SearchAutoEmbedFieldDefinition autoEmbedField =
+        new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("content"));
+    DocumentFieldDefinition nested =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
+            .field(
+                "active",
+                FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build())
+            .build();
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("parent", FieldDefinitionBuilder.builder().document(nested).build())
+            .build();
+    SearchIndexDefinition rawDefinition =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+
+    var schemaMetadata =
+        new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(
+            1L, Map.of(FieldPath.parse("content"), FieldPath.parse("_autoEmbed.content")));
+    SearchIndexDefinition derivedDefinition =
+        AutoEmbeddingIndexDefinitionUtils.getDerivedSearchIndexDefinition(
+            rawDefinition, MV_DATABASE_NAME, UUID.randomUUID(), schemaMetadata);
+
+    // The nested auto-embed field is hoisted to a top-level vector field at its flat mat-view path.
+    FieldDefinition hoisted = derivedDefinition.getMappings().fields().get("_autoEmbed.content");
+    Assert.assertNotNull("Nested auto-embed should hoist to top-level _autoEmbed.content", hoisted);
+    Assert.assertTrue(hoisted.searchIndexVectorFieldDefinition().isPresent());
+    Assert.assertTrue(hoisted.searchAutoEmbedFieldDefinition().isEmpty());
+
+    // The containing document is preserved with its non-auto-embed child, minus the auto-embed
+    // field.
+    FieldDefinition parent = derivedDefinition.getMappings().fields().get("parent");
+    Assert.assertNotNull("Parent document should be preserved", parent);
+    DocumentFieldDefinition parentDoc = parent.documentFieldDefinition().get();
+    Assert.assertNotNull(
+        "Sibling non-auto-embed field should be preserved", parentDoc.fields().get("active"));
+    Assert.assertNull(
+        "Nested auto-embed field should be removed from its document",
+        parentDoc.fields().get("embedding"));
+  }
+
+  @Test
+  public void testGetDerivedSearchIndexDefinition_dynamicDocumentKeepsDynamicMapping() {
+    // Dynamic document containing an auto-embed: the derived document keeps dynamic mapping (its
+    // wholesale-copied MV subtree is dynamically indexed), keeps declared children, drops the
+    // embed declaration, and the embed hoists to its flat mat-view path.
+    SearchAutoEmbedFieldDefinition autoEmbedField =
+        new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("parent.content"));
+    DocumentFieldDefinition nested =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(true)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
+            .field(
+                "active",
+                FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build())
+            .build();
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("parent", FieldDefinitionBuilder.builder().document(nested).build())
+            .build();
+    SearchIndexDefinition rawDefinition =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+    var schemaMetadata =
+        new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(
+            1L,
+            Map.of(
+                FieldPath.parse("parent.content"), FieldPath.parse("_autoEmbed.parent.content")));
+
+    SearchIndexDefinition derivedDefinition =
+        AutoEmbeddingIndexDefinitionUtils.getDerivedSearchIndexDefinition(
+            rawDefinition, MV_DATABASE_NAME, UUID.randomUUID(), schemaMetadata);
+
+    FieldDefinition hoisted =
+        derivedDefinition.getMappings().fields().get("_autoEmbed.parent.content");
+    Assert.assertNotNull("Auto-embed should hoist to its flat mat-view path", hoisted);
+    Assert.assertTrue(hoisted.searchIndexVectorFieldDefinition().isPresent());
+
+    DocumentFieldDefinition parentDoc =
+        derivedDefinition.getMappings().fields().get("parent").documentFieldDefinition().get();
+    Assert.assertTrue("Derived document keeps dynamic mapping", parentDoc.dynamic().isEnabled());
+    Assert.assertNotNull("Declared sibling should be preserved", parentDoc.fields().get("active"));
+    Assert.assertNull("Embed declaration should be removed", parentDoc.fields().get("embedding"));
+  }
+
+  @Test
+  public void testGetDerivedSearchIndexDefinition_emptyDocumentsUnderDynamicMappingPreserved() {
+    // dynamic article > static meta > only an embed. Both documents become empty after hoisting
+    // but must survive: `article` so its wholesale-copied MV subtree is dynamically indexed,
+    // `meta` so its static mapping keeps suppressing dynamic indexing of its subtree.
+    SearchAutoEmbedFieldDefinition autoEmbedField =
+        new SearchAutoEmbedFieldDefinition(
+            "voyage-3-large", FieldPath.parse("article.meta.summary"));
+    DocumentFieldDefinition meta =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "summary_embedding",
+                FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
+            .build();
+    DocumentFieldDefinition article =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(true)
+            .field("meta", FieldDefinitionBuilder.builder().document(meta).build())
+            .build();
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("article", FieldDefinitionBuilder.builder().document(article).build())
+            .build();
+    SearchIndexDefinition rawDefinition =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+    var schemaMetadata =
+        new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(
+            1L,
+            Map.of(
+                FieldPath.parse("article.meta.summary"),
+                FieldPath.parse("_autoEmbed.article.meta.summary")));
+
+    SearchIndexDefinition derivedDefinition =
+        AutoEmbeddingIndexDefinitionUtils.getDerivedSearchIndexDefinition(
+            rawDefinition, MV_DATABASE_NAME, UUID.randomUUID(), schemaMetadata);
+
+    Assert.assertNotNull(
+        derivedDefinition.getMappings().fields().get("_autoEmbed.article.meta.summary"));
+    DocumentFieldDefinition articleDoc =
+        derivedDefinition.getMappings().fields().get("article").documentFieldDefinition().get();
+    Assert.assertTrue("Dynamic document survives empty", articleDoc.dynamic().isEnabled());
+    DocumentFieldDefinition metaDoc =
+        articleDoc.fields().get("meta").documentFieldDefinition().get();
+    Assert.assertFalse(metaDoc.dynamic().isEnabled());
+    Assert.assertTrue(
+        "Static document under dynamic mapping survives empty to suppress dynamic descent",
+        metaDoc.fields().isEmpty());
+  }
+
+  @Test
+  public void testGetDerivedSearchIndexDefinition_scalarAndDocumentAlternativesPreserved() {
+    // A field declared as both a scalar and a document containing an auto-embed keeps the scalar
+    // alternative and the rebuilt document (embed removed) at its original path.
+    DocumentFieldDefinition nested =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("text")))
+                    .build())
+            .field(
+                "active",
+                FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build())
+            .build();
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "parent",
+                FieldDefinitionBuilder.builder()
+                    .document(nested)
+                    .bool(new BooleanFieldDefinition())
+                    .build())
+            .build();
+    SearchIndexDefinition rawDefinition =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+    var schemaMetadata =
+        new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(
+            1L, Map.of(FieldPath.parse("text"), FieldPath.parse("_autoEmbed.text")));
+
+    SearchIndexDefinition derivedDefinition =
+        AutoEmbeddingIndexDefinitionUtils.getDerivedSearchIndexDefinition(
+            rawDefinition, MV_DATABASE_NAME, UUID.randomUUID(), schemaMetadata);
+
+    FieldDefinition parent = derivedDefinition.getMappings().fields().get("parent");
+    Assert.assertNotNull(parent);
+    Assert.assertTrue(
+        "Scalar alternative should be preserved", parent.booleanFieldDefinition().isPresent());
+    DocumentFieldDefinition parentDoc = parent.documentFieldDefinition().get();
+    Assert.assertNotNull(parentDoc.fields().get("active"));
+    Assert.assertNull(parentDoc.fields().get("embedding"));
+    Assert.assertNotNull(derivedDefinition.getMappings().fields().get("_autoEmbed.text"));
+  }
+
+  @Test
+  public void testGetDerivedSearchIndexDefinition_autoEmbedAndDocumentAlternatives() {
+    // A field declared as both an auto-embed and a document with its own nested auto-embed: both
+    // embeds hoist to pure vector fields (no unprocessed document subtree on the hoisted field),
+    // and the field keeps its rebuilt document alternative.
+    DocumentFieldDefinition nested =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "nested_embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("deep")))
+                    .build())
+            .field(
+                "active",
+                FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build())
+            .build();
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "combo",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("top")))
+                    .document(nested)
+                    .build())
+            .build();
+    SearchIndexDefinition rawDefinition =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+    var schemaMetadata =
+        new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(
+            1L,
+            Map.of(
+                FieldPath.parse("top"), FieldPath.parse("_autoEmbed.top"),
+                FieldPath.parse("deep"), FieldPath.parse("_autoEmbed.deep")));
+
+    SearchIndexDefinition derivedDefinition =
+        AutoEmbeddingIndexDefinitionUtils.getDerivedSearchIndexDefinition(
+            rawDefinition, MV_DATABASE_NAME, UUID.randomUUID(), schemaMetadata);
+
+    FieldDefinition hoistedTop = derivedDefinition.getMappings().fields().get("_autoEmbed.top");
+    Assert.assertNotNull(hoistedTop);
+    Assert.assertTrue(hoistedTop.searchIndexVectorFieldDefinition().isPresent());
+    Assert.assertTrue(
+        "Hoisted vector field must not carry the document alternative",
+        hoistedTop.documentFieldDefinition().isEmpty());
+    FieldDefinition hoistedDeep = derivedDefinition.getMappings().fields().get("_autoEmbed.deep");
+    Assert.assertNotNull("Nested embed inside the document alternative must hoist", hoistedDeep);
+    Assert.assertTrue(hoistedDeep.searchIndexVectorFieldDefinition().isPresent());
+
+    FieldDefinition combo = derivedDefinition.getMappings().fields().get("combo");
+    Assert.assertNotNull(combo);
+    Assert.assertTrue(combo.searchAutoEmbedFieldDefinition().isEmpty());
+    DocumentFieldDefinition comboDoc = combo.documentFieldDefinition().get();
+    Assert.assertNotNull(comboDoc.fields().get("active"));
+    Assert.assertNull(comboDoc.fields().get("nested_embedding"));
+  }
+
+  @Test
   public void testGetDerivedSearchIndexDefinition_preservesIndexMetadata() {
     SearchAutoEmbedFieldDefinition autoEmbedField =
         new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("content"));

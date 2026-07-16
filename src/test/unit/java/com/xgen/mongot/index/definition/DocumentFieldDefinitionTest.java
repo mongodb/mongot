@@ -3,6 +3,7 @@ package com.xgen.mongot.index.definition;
 import static com.xgen.testing.BsonDeserializationTestSuite.fromDocument;
 import static com.xgen.testing.BsonSerializationTestSuite.load;
 
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.BsonDeserializationTestSuite;
 import com.xgen.testing.BsonSerializationTestSuite;
 import com.xgen.testing.TestUtils;
@@ -200,6 +201,48 @@ public class DocumentFieldDefinitionTest {
 
       var fields = Map.ofEntries(Map.entry("a", a), Map.entry("b", b));
       Assert.assertEquals("fields", fields, definition.fields());
+    }
+
+    @Test
+    public void testContainsSearchAutoEmbedField() {
+      FieldDefinition autoEmbed =
+          FieldDefinitionBuilder.builder()
+              .searchAutoEmbed(
+                  new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("content")))
+              .build();
+      FieldDefinition plain =
+          FieldDefinitionBuilder.builder()
+              .date(DateFieldDefinitionBuilder.builder().build())
+              .build();
+
+      DocumentFieldDefinition topLevel =
+          DocumentFieldDefinitionBuilder.builder().field("embedding", autoEmbed).build();
+      Assert.assertTrue("top-level auto-embed", topLevel.containsSearchAutoEmbedField());
+
+      DocumentFieldDefinition nested =
+          DocumentFieldDefinitionBuilder.builder()
+              .field(
+                  "parent",
+                  FieldDefinitionBuilder.builder()
+                      .document(
+                          DocumentFieldDefinitionBuilder.builder()
+                              .field("embedding", autoEmbed)
+                              .build())
+                      .build())
+              .build();
+      Assert.assertTrue("auto-embed nested under document", nested.containsSearchAutoEmbedField());
+
+      DocumentFieldDefinition without =
+          DocumentFieldDefinitionBuilder.builder()
+              .field("title", plain)
+              .field(
+                  "parent",
+                  FieldDefinitionBuilder.builder()
+                      .document(
+                          DocumentFieldDefinitionBuilder.builder().field("title", plain).build())
+                      .build())
+              .build();
+      Assert.assertFalse("no auto-embed anywhere", without.containsSearchAutoEmbedField());
     }
 
     @Test

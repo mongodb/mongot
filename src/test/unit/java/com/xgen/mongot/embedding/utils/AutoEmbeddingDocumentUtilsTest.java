@@ -21,7 +21,11 @@ import com.xgen.mongot.embedding.SearchIndexAutoEmbedFieldMapping;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata;
 import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.DocumentMetadata;
+import com.xgen.mongot.index.definition.BooleanFieldDefinition;
+import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.DynamicDefinition;
+import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
+import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
@@ -33,6 +37,9 @@ import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.BsonVectorParser;
 import com.xgen.mongot.util.bson.FloatVector;
 import com.xgen.mongot.util.bson.Vector;
+import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import java.io.IOException;
 import java.util.AbstractMap;
@@ -42,6 +49,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.bson.BsonArray;
+import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonDouble;
 import org.bson.BsonInt32;
@@ -459,6 +467,390 @@ public class AutoEmbeddingDocumentUtilsTest {
                                 new BsonDocument("c", new BsonString(computeTextHash("text1")))))
                     .append("b", new BsonDocument("c", BsonVectorParser.encode(vector1)))),
         resultDoc);
+  }
+
+  /** Static root; `parent` is a dynamic document containing an auto-embed declaration. */
+  private static SearchIndexDefinition dynamicParentAutoEmbedSearchDef() {
+    DocumentFieldDefinition parent =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(true)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("parent.content")))
+                    .build())
+            .field(
+                "active",
+                FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build())
+            .build();
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("parent", FieldDefinitionBuilder.builder().document(parent).build())
+            .build();
+    return SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+  }
+
+  private static final MaterializedViewSchemaMetadata DYNAMIC_PARENT_SCHEMA_METADATA =
+      new MaterializedViewSchemaMetadata(
+          1,
+          Map.of(FieldPath.parse("parent.content"), FieldPath.parse("_autoEmbed.parent.content")));
+
+  @Test
+  public void buildMaterializedViewDocumentEvent_dynamicDocumentWithAutoEmbed_copiesWholesale()
+      throws IOException {
+    // The MV must carry the dynamic document's declared AND undeclared children (the derived
+    // index maps them dynamically), while the embed source is owned by the embed pipeline
+    // (vector + hash, no raw copy).
+    AutoEmbedFieldMapping mapping =
+        AutoEmbedFieldMappingCreator.createAutoEmbedMapping(dynamicParentAutoEmbedSearchDef());
+    Vector vector = Vector.fromFloats(new float[] {1.0f, 2.0f}, FloatVector.OriginalType.NATIVE);
+    BsonDocument bsonDoc =
+        BsonDocument.parse(
+            "{\"_id\": \"anId\", \"parent\": "
+                + "{\"active\": true, \"content\": \"embed me\", \"color\": \"red\"}}");
+    RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
+    DocumentEvent rawEvent =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromOriginalDocument(Optional.of(rawBsonDoc)), rawBsonDoc);
+
+    DocumentEvent result =
+        buildMaterializedViewDocumentEvent(
+            rawEvent,
+            mapping,
+            ImmutableMap.of(FieldPath.parse("parent.content"), ImmutableMap.of("embed me", vector)),
+            DYNAMIC_PARENT_SCHEMA_METADATA);
+
+    BsonDocument mvDoc = result.getDocument().get().clone();
+    assertEquals(
+        new BsonDocument(
+                "parent",
+                new BsonDocument("active", BsonBoolean.TRUE).append("color", new BsonString("red")))
+            .append(
+                "_autoEmbed",
+                new BsonDocument(
+                        "parent", new BsonDocument("content", BsonVectorParser.encode(vector)))
+                    .append(
+                        "_hash",
+                        new BsonDocument(
+                            "parent",
+                            new BsonDocument(
+                                "content", new BsonString(computeTextHash("embed me")))))),
+        mvDoc);
+  }
+
+  @Test
+  public void compareDocuments_dynamicDocumentWithAutoEmbed_freshMvComparesClean()
+      throws IOException {
+    // Round-trip: an MV document produced by the wholesale dynamic-document walk compares clean
+    // against its source (embedding reusable); a changed embed source text compares stale.
+    SearchIndexDefinition searchDef = dynamicParentAutoEmbedSearchDef();
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+    AutoEmbedFieldMapping matViewMapping =
+        AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(
+            searchDef, DYNAMIC_PARENT_SCHEMA_METADATA);
+    Vector vector = Vector.fromFloats(new float[] {1.0f, 2.0f}, FloatVector.OriginalType.NATIVE);
+    BsonDocument bsonDoc =
+        BsonDocument.parse(
+            "{\"_id\": \"anId\", \"parent\": "
+                + "{\"active\": true, \"content\": \"embed me\", \"color\": \"red\"}}");
+    RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
+    DocumentEvent rawEvent =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromOriginalDocument(Optional.of(rawBsonDoc)), rawBsonDoc);
+    RawBsonDocument mvDoc =
+        buildMaterializedViewDocumentEvent(
+                rawEvent,
+                mapping,
+                ImmutableMap.of(
+                    FieldPath.parse("parent.content"), ImmutableMap.of("embed me", vector)),
+                DYNAMIC_PARENT_SCHEMA_METADATA)
+            .getDocument()
+            .get();
+
+    var fresh =
+        compareDocuments(
+            rawBsonDoc, mvDoc, mapping, matViewMapping, DYNAMIC_PARENT_SCHEMA_METADATA);
+    assertFalse("Fresh MV doc must not be stale", fresh.needsReIndexing());
+    assertTrue(
+        "Embedding must be reusable",
+        fresh.reusableEmbeddings().containsKey(FieldPath.parse("parent.content")));
+
+    BsonDocument changedDoc =
+        BsonDocument.parse(
+            "{\"_id\": \"anId\", \"parent\": "
+                + "{\"active\": true, \"content\": \"different\", \"color\": \"red\"}}");
+    RawBsonDocument changedRaw = new RawBsonDocument(changedDoc, BsonUtils.BSON_DOCUMENT_CODEC);
+    var stale =
+        compareDocuments(
+            changedRaw, mvDoc, mapping, matViewMapping, DYNAMIC_PARENT_SCHEMA_METADATA);
+    assertTrue("Changed embed source text must be stale", stale.needsReIndexing());
+  }
+
+  @Test
+  public void compareDocuments_dynamicDocument_changedDynamicFieldIsStale() throws IOException {
+    // A non-embed field changed inside the wholesale dynamic subtree while the embed text stayed
+    // the same. The per-path loop cannot see it (no enumerable entry); projection equality must
+    // flag it — while the unchanged embedding stays reusable, so the rebuild costs no embedding
+    // call.
+    SearchIndexDefinition searchDef = dynamicParentAutoEmbedSearchDef();
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+    AutoEmbedFieldMapping matViewMapping =
+        AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(
+            searchDef, DYNAMIC_PARENT_SCHEMA_METADATA);
+    Vector vector = Vector.fromFloats(new float[] {1.0f, 2.0f}, FloatVector.OriginalType.NATIVE);
+    BsonDocument original =
+        BsonDocument.parse(
+            "{\"_id\": \"anId\", \"parent\": "
+                + "{\"active\": true, \"content\": \"embed me\", \"color\": \"red\"}}");
+    RawBsonDocument originalRaw = new RawBsonDocument(original, BsonUtils.BSON_DOCUMENT_CODEC);
+    RawBsonDocument mvDoc =
+        buildMaterializedViewDocumentEvent(
+                DocumentEvent.createInsert(
+                    DocumentMetadata.fromOriginalDocument(Optional.of(originalRaw)), originalRaw),
+                mapping,
+                ImmutableMap.of(
+                    FieldPath.parse("parent.content"), ImmutableMap.of("embed me", vector)),
+                DYNAMIC_PARENT_SCHEMA_METADATA)
+            .getDocument()
+            .get();
+
+    BsonDocument changed =
+        BsonDocument.parse(
+            "{\"_id\": \"anId\", \"parent\": "
+                + "{\"active\": true, \"content\": \"embed me\", \"color\": \"blue\"}}");
+    RawBsonDocument changedRaw = new RawBsonDocument(changed, BsonUtils.BSON_DOCUMENT_CODEC);
+
+    var result =
+        compareDocuments(
+            changedRaw, mvDoc, mapping, matViewMapping, DYNAMIC_PARENT_SCHEMA_METADATA);
+    assertTrue("Changed field in the dynamic subtree must be stale", result.needsReIndexing());
+    assertTrue(
+        "Unchanged embedding must still be reusable",
+        result.reusableEmbeddings().containsKey(FieldPath.parse("parent.content")));
+  }
+
+  @Test
+  public void compareDocuments_rootDynamic_changedUndeclaredFieldIsStale() throws IOException {
+    // Root-dynamic mode has the same open-ended passthroughs; projection equality must detect a
+    // changed undeclared field there too (previously invisible: fieldMap() is embed-only in
+    // dynamic mode).
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(true)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("content")))
+                    .build())
+            .build();
+    SearchIndexDefinition searchDef =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+    MaterializedViewSchemaMetadata schemaMetadata =
+        new MaterializedViewSchemaMetadata(
+            1, Map.of(FieldPath.parse("content"), FieldPath.parse("_autoEmbed.content")));
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+    AutoEmbedFieldMapping matViewMapping =
+        AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(searchDef, schemaMetadata);
+    Vector vector = Vector.fromFloats(new float[] {1.0f, 2.0f}, FloatVector.OriginalType.NATIVE);
+    BsonDocument original =
+        BsonDocument.parse(
+            "{\"_id\": \"anId\", \"content\": \"embed me\", \"category\": \"books\"}");
+    RawBsonDocument originalRaw = new RawBsonDocument(original, BsonUtils.BSON_DOCUMENT_CODEC);
+    RawBsonDocument mvDoc =
+        buildMaterializedViewDocumentEvent(
+                DocumentEvent.createInsert(
+                    DocumentMetadata.fromOriginalDocument(Optional.of(originalRaw)), originalRaw),
+                mapping,
+                ImmutableMap.of(FieldPath.parse("content"), ImmutableMap.of("embed me", vector)),
+                schemaMetadata)
+            .getDocument()
+            .get();
+
+    var fresh = compareDocuments(originalRaw, mvDoc, mapping, matViewMapping, schemaMetadata);
+    assertFalse("Fresh MV doc must not be stale", fresh.needsReIndexing());
+
+    BsonDocument changed =
+        BsonDocument.parse(
+            "{\"_id\": \"anId\", \"content\": \"embed me\", \"category\": \"films\"}");
+    RawBsonDocument changedRaw = new RawBsonDocument(changed, BsonUtils.BSON_DOCUMENT_CODEC);
+    var stale = compareDocuments(changedRaw, mvDoc, mapping, matViewMapping, schemaMetadata);
+    assertTrue(
+        "Changed undeclared field under dynamic root must be stale", stale.needsReIndexing());
+  }
+
+  @Test
+  public void compareDocuments_search_fencedLeaseVersionComparesClean() throws IOException {
+    // Fencing injects _autoEmbed._leaseVersion into real MV docs; the projection comparison must
+    // strip MV metadata so it never causes spurious re-indexing (search-mapping counterpart of
+    // the vector enforcer test in MaterializedViewWriterTest).
+    SearchIndexDefinition searchDef = dynamicParentAutoEmbedSearchDef();
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+    AutoEmbedFieldMapping matViewMapping =
+        AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(
+            searchDef, DYNAMIC_PARENT_SCHEMA_METADATA);
+    Vector vector = Vector.fromFloats(new float[] {1.0f, 2.0f}, FloatVector.OriginalType.NATIVE);
+    BsonDocument original =
+        BsonDocument.parse(
+            "{\"_id\": \"anId\", \"parent\": "
+                + "{\"active\": true, \"content\": \"embed me\", \"color\": \"red\"}}");
+    RawBsonDocument originalRaw = new RawBsonDocument(original, BsonUtils.BSON_DOCUMENT_CODEC);
+    BsonDocument mvMutable =
+        buildMaterializedViewDocumentEvent(
+                DocumentEvent.createInsert(
+                    DocumentMetadata.fromOriginalDocument(Optional.of(originalRaw)), originalRaw),
+                mapping,
+                ImmutableMap.of(
+                    FieldPath.parse("parent.content"), ImmutableMap.of("embed me", vector)),
+                DYNAMIC_PARENT_SCHEMA_METADATA)
+            .getDocument()
+            .get()
+            .decode(BsonUtils.BSON_DOCUMENT_CODEC);
+    mvMutable.getDocument("_autoEmbed").append("_leaseVersion", new BsonInt64(42));
+    RawBsonDocument fencedMvDoc = new RawBsonDocument(mvMutable, BsonUtils.BSON_DOCUMENT_CODEC);
+
+    var result =
+        compareDocuments(
+            originalRaw, fencedMvDoc, mapping, matViewMapping, DYNAMIC_PARENT_SCHEMA_METADATA);
+    assertFalse("MV metadata must not cause spurious re-indexing", result.needsReIndexing());
+  }
+
+  @Test
+  public void compareDocuments_search_staticDeclaredFilterChangeIsStale() throws IOException {
+    // Static-mode declared passthroughs were previously compared per-path; projection equality
+    // must preserve that coverage.
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("content")))
+                    .build())
+            .field(
+                "active",
+                FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build())
+            .build();
+    SearchIndexDefinition searchDef =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+    MaterializedViewSchemaMetadata schemaMetadata =
+        new MaterializedViewSchemaMetadata(
+            1, Map.of(FieldPath.parse("content"), FieldPath.parse("_autoEmbed.content")));
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+    AutoEmbedFieldMapping matViewMapping =
+        AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(searchDef, schemaMetadata);
+    Vector vector = Vector.fromFloats(new float[] {1.0f, 2.0f}, FloatVector.OriginalType.NATIVE);
+    BsonDocument original =
+        BsonDocument.parse("{\"_id\": \"anId\", \"content\": \"embed me\", \"active\": true}");
+    RawBsonDocument originalRaw = new RawBsonDocument(original, BsonUtils.BSON_DOCUMENT_CODEC);
+    RawBsonDocument mvDoc =
+        buildMaterializedViewDocumentEvent(
+                DocumentEvent.createInsert(
+                    DocumentMetadata.fromOriginalDocument(Optional.of(originalRaw)), originalRaw),
+                mapping,
+                ImmutableMap.of(FieldPath.parse("content"), ImmutableMap.of("embed me", vector)),
+                schemaMetadata)
+            .getDocument()
+            .get();
+
+    BsonDocument changed =
+        BsonDocument.parse("{\"_id\": \"anId\", \"content\": \"embed me\", \"active\": false}");
+    RawBsonDocument changedRaw = new RawBsonDocument(changed, BsonUtils.BSON_DOCUMENT_CODEC);
+    var result = compareDocuments(changedRaw, mvDoc, mapping, matViewMapping, schemaMetadata);
+    assertTrue("Changed declared filter value must be stale", result.needsReIndexing());
+  }
+
+  @Test
+  public void compareDocuments_dynamicDocument_embedSourceUnderArray_comparesClean()
+      throws IOException {
+    // Embed source under an array inside the wholesale dynamic document: the MV writer places
+    // vector and hash document-nested under _autoEmbed regardless of arrays on the source side,
+    // so the projection comparison strips them and a fresh MV compares clean (no re-index loop).
+    DocumentFieldDefinition parent =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(true)
+            .field(
+                "items_embed",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("parent.items.text")))
+                    .build())
+            .build();
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("parent", FieldDefinitionBuilder.builder().document(parent).build())
+            .build();
+    SearchIndexDefinition searchDef =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+    MaterializedViewSchemaMetadata schemaMetadata =
+        new MaterializedViewSchemaMetadata(
+            1,
+            Map.of(
+                FieldPath.parse("parent.items.text"),
+                FieldPath.parse("_autoEmbed.parent.items.text")));
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+    AutoEmbedFieldMapping matViewMapping =
+        AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(searchDef, schemaMetadata);
+    Vector vector = Vector.fromFloats(new float[] {1.0f, 2.0f}, FloatVector.OriginalType.NATIVE);
+    BsonDocument original =
+        BsonDocument.parse(
+            "{\"_id\": \"anId\", \"parent\": {\"color\": \"red\", \"items\":"
+                + " [{\"text\": \"embed me\", \"tag\": 1}, {\"text\": \"\", \"tag\": 2}]}}");
+    RawBsonDocument originalRaw = new RawBsonDocument(original, BsonUtils.BSON_DOCUMENT_CODEC);
+    RawBsonDocument mvDoc =
+        buildMaterializedViewDocumentEvent(
+                DocumentEvent.createInsert(
+                    DocumentMetadata.fromOriginalDocument(Optional.of(originalRaw)), originalRaw),
+                mapping,
+                ImmutableMap.of(
+                    FieldPath.parse("parent.items.text"), ImmutableMap.of("embed me", vector)),
+                schemaMetadata)
+            .getDocument()
+            .get();
+
+    var fresh = compareDocuments(originalRaw, mvDoc, mapping, matViewMapping, schemaMetadata);
+    assertFalse("Fresh MV doc must not be stale", fresh.needsReIndexing());
+    assertTrue(
+        "Embedding must be reusable",
+        fresh.reusableEmbeddings().containsKey(FieldPath.parse("parent.items.text")));
+  }
+
+  @Test
+  public void compareDocuments_search_schemaVersion0_freshMvComparesClean() throws IOException {
+    // Schema v0 places vectors and hashes at source-relative paths, exercising the
+    // decode-and-strip branch of the projection comparison.
+    SearchIndexDefinition searchDef = dynamicParentAutoEmbedSearchDef();
+    MaterializedViewSchemaMetadata schemaMetadata = new MaterializedViewSchemaMetadata(0, Map.of());
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+    AutoEmbedFieldMapping matViewMapping =
+        AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(searchDef, schemaMetadata);
+    Vector vector = Vector.fromFloats(new float[] {1.0f, 2.0f}, FloatVector.OriginalType.NATIVE);
+    BsonDocument original =
+        BsonDocument.parse(
+            "{\"_id\": \"anId\", \"parent\": "
+                + "{\"active\": true, \"content\": \"embed me\", \"color\": \"red\"}}");
+    RawBsonDocument originalRaw = new RawBsonDocument(original, BsonUtils.BSON_DOCUMENT_CODEC);
+    RawBsonDocument mvDoc =
+        buildMaterializedViewDocumentEvent(
+                DocumentEvent.createInsert(
+                    DocumentMetadata.fromOriginalDocument(Optional.of(originalRaw)), originalRaw),
+                mapping,
+                ImmutableMap.of(
+                    FieldPath.parse("parent.content"), ImmutableMap.of("embed me", vector)),
+                schemaMetadata)
+            .getDocument()
+            .get();
+
+    var fresh = compareDocuments(originalRaw, mvDoc, mapping, matViewMapping, schemaMetadata);
+    assertFalse("Fresh v0 MV doc must not be stale", fresh.needsReIndexing());
   }
 
   @Test

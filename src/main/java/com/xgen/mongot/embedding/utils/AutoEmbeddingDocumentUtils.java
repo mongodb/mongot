@@ -6,6 +6,7 @@ import static com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator.getHa
 import static com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator.getMatViewFieldPath;
 
 import com.google.common.base.Verify;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -15,6 +16,7 @@ import com.google.errorprone.annotations.Var;
 import com.mongodb.client.model.changestream.UpdateDescription;
 import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
 import com.xgen.mongot.embedding.AutoEmbedFieldMapping.AutoEmbedField;
+import com.xgen.mongot.embedding.SearchIndexAutoEmbedFieldMapping;
 import com.xgen.mongot.embedding.VectorAutoEmbedFieldMapping;
 import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.ingestion.BsonDocumentProcessor;
@@ -50,6 +52,10 @@ public class AutoEmbeddingDocumentUtils {
 
   public static final String HASH_FIELD_SUFFIX = "_hash";
   private static final Logger LOG = LoggerFactory.getLogger(AutoEmbeddingDocumentUtils.class);
+
+  // Mirrors {@code MaterializedViewCollectionResolver.MV_COLLECTION_SCHEMA_NAMESPACE}. Inlined to
+  // avoid a utils → mongodb package dependency.
+  private static final String MV_NAMESPACE = "_autoEmbed";
 
   /**
    * Metadata fields present in materialized view documents that are not part of the index field
@@ -386,12 +392,22 @@ public class AutoEmbeddingDocumentUtils {
     @Var boolean needsReIndexing = false;
     var reusableEmbeddingsBuilder = ImmutableMap.<FieldPath, ImmutableMap<String, Vector>>builder();
 
+    // Search mappings compare passthrough content by projection equality instead of the per-path
+    // loop below: dynamic-mode passthroughs (root dynamic and wholesale dynamic documents) are
+    // open-ended, so fieldMap() cannot enumerate them for per-path comparison (CLOUDP-384026).
+    boolean passthroughComparedByProjection = mappings instanceof SearchIndexAutoEmbedFieldMapping;
+
     try {
       BsonDocumentProcessor.process(sourceDoc, sourceFilterValuesCollector);
       BsonDocumentProcessor.process(matViewDoc, matViewFilterValuesCollector);
 
       var sourceDocValues = sourceFilterValuesCollector.getCollectedValues();
       var matViewValues = matViewFilterValuesCollector.getCollectedValues();
+
+      if (passthroughComparedByProjection
+          && !passthroughProjectionMatches(sourceDoc, matViewDoc, mappings, schemaMetadata)) {
+        needsReIndexing = true;
+      }
 
       for (Map.Entry<FieldPath, AutoEmbedField> entry : mappings.fieldMap().entrySet()) {
         FieldPath sourceFieldPath = entry.getKey();
@@ -404,7 +420,9 @@ public class AutoEmbeddingDocumentUtils {
         // Filter values: full ordered-list equality. Top-level filters compare source-vs-source;
         // nested filters (CLOUDP-402522) are co-located at the remapped MV path, one value per
         // index-aligned array element, so ordered-list equality detects any per-element change.
-        if (field instanceof AutoEmbedField.PassthroughField) {
+        // Search mappings skip this: their passthrough staleness is already decided by
+        // projection equality above.
+        if (field instanceof AutoEmbedField.PassthroughField && !passthroughComparedByProjection) {
           if (!Objects.equals(
               sourceDocValues.get(sourceFieldPath), matViewValues.get(matViewFieldPath))) {
             needsReIndexing = true;
@@ -529,6 +547,82 @@ public class AutoEmbeddingDocumentUtils {
   public record DocumentComparisonResult(
       boolean needsReIndexing,
       ImmutableMap<FieldPath, ImmutableMap<String, Vector>> reusableEmbeddings) {}
+
+  /**
+   * Compares the writer's expected passthrough projection of {@code sourceDoc} against {@code
+   * matViewDoc} stripped of embed vectors, hashes, and MV metadata. Both sides are shaped by the
+   * same {@link MaterializedViewDocumentHandler} traversal that produces MV documents, so equality
+   * holds exactly when the MV's passthrough content is current — including open-ended dynamic
+   * regions (root dynamic and wholesale dynamic documents) that {@code fieldMap()} cannot enumerate
+   * for per-path comparison.
+   */
+  private static boolean passthroughProjectionMatches(
+      RawBsonDocument sourceDoc,
+      RawBsonDocument matViewDoc,
+      AutoEmbedFieldMapping mappings,
+      MaterializedViewSchemaMetadata schemaMetadata)
+      throws IOException {
+    BsonDocument expected = new BsonDocument();
+    BsonDocumentProcessor.process(
+        sourceDoc, MaterializedViewDocumentHandler.create(mappings, Optional.empty(), expected));
+    stripIdForMaterializedViewWrite(expected);
+
+    // On MV schema v1+ the vectors, hashes, and lease metadata all live under the _autoEmbed
+    // namespace, so building the passthrough view by skipping that key (plus top-level metadata
+    // fields) avoids decoding the embedding binaries the strips below would just discard. Schema
+    // v0 spread them across source-relative paths and needs the decode-and-strip fallback.
+    BsonDocument actual;
+    if (schemaMetadata.materializedViewSchemaVersion() >= 1) {
+      actual = new BsonDocument();
+      for (String key : matViewDoc.keySet()) {
+        if (!key.equals(MV_NAMESPACE) && !MV_METADATA_FIELDS.contains(key)) {
+          actual.put(key, matViewDoc.get(key));
+        }
+      }
+    } else {
+      actual = matViewDoc.decode(BsonUtils.BSON_DOCUMENT_CODEC);
+      for (String metadataField : MV_METADATA_FIELDS) {
+        removePathPruningEmptyAncestors(actual, FieldPath.parse(metadataField));
+      }
+    }
+    for (FieldPath sourceEmbedPath : mappings.embedFields().keySet()) {
+      removePathPruningEmptyAncestors(
+          actual,
+          getMatViewFieldPath(sourceEmbedPath, schemaMetadata.autoEmbeddingFieldsMapping()));
+      removePathPruningEmptyAncestors(
+          actual,
+          getHashFieldPath(sourceEmbedPath, schemaMetadata.materializedViewSchemaVersion()));
+    }
+    return expected.equals(actual);
+  }
+
+  /**
+   * Removes the value at {@code path} and prunes ancestor documents the removal leaves empty. Bails
+   * out when a segment is absent or traverses a non-document value (e.g. the array shapes {@link
+   * #addBsonValueToBsonDocument} can produce for overlapping embed declarations); the leftover
+   * value then surfaces as a projection mismatch and the document is re-indexed.
+   */
+  private static void removePathPruningEmptyAncestors(BsonDocument doc, FieldPath path) {
+    ImmutableList<String> segments = ImmutableList.copyOf(path.getSegments());
+    BsonDocument[] parents = new BsonDocument[segments.size()];
+    @Var BsonDocument current = doc;
+    for (int i = 0; i < segments.size() - 1; i++) {
+      parents[i] = current;
+      BsonValue child = current.get(segments.get(i));
+      if (child == null || !child.isDocument()) {
+        return;
+      }
+      current = child.asDocument();
+    }
+    parents[segments.size() - 1] = current;
+    current.remove(segments.get(segments.size() - 1));
+    for (int i = segments.size() - 2; i >= 0; i--) {
+      if (!parents[i + 1].isEmpty()) {
+        break;
+      }
+      parents[i].remove(segments.get(i));
+    }
+  }
 
   /**
    * Decides whether a change-stream update can be applied as a partial {@code $set} on the MV (vs a

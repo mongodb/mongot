@@ -81,6 +81,7 @@ import org.bson.RawBsonDocument;
 import org.bson.types.ObjectId;
 import org.junit.After;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 
 public class EmbeddingIndexingWorkSchedulerTest {
 
@@ -1056,6 +1057,94 @@ public class EmbeddingIndexingWorkSchedulerTest {
                         && ctx.autoEmbedQuantization().equals(VectorAutoEmbedQuantization.FLOAT)));
 
     verify(indexer, times(1)).indexDocumentEvent(any());
+  }
+
+  @Test
+  public void testSearchIndexAutoEmbed_nestedDeclaration_embedsAndWritesVector()
+      throws ExecutionException,
+          InterruptedException,
+          TimeoutException,
+          FieldExceededLimitsException {
+    // A nested autoEmbedVector declaration must extract its source text, call the embedding
+    // service, and write vector + hash into the MV document (not a passthrough-only copy).
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+
+    ObjectId indexId = new ObjectId();
+    var generationId =
+        new MaterializedViewGenerationId(
+            indexId, new MaterializedViewGeneration(Generation.CURRENT));
+    var embeddingServiceManager =
+        spy(
+            new EmbeddingServiceManager(
+                List.of(TEST_EMBEDDING_CONFIG_V3_LARGE),
+                new FakeEmbeddingClientFactory(),
+                Executors.singleThreadScheduledExecutor("indexing", meterRegistry),
+                meterRegistry,
+                Optional.empty()));
+    EmbeddingIndexingWorkScheduler scheduler =
+        schedulerForMaterializedViewIndex(
+            Suppliers.ofInstance(embeddingServiceManager), generationId);
+
+    SearchAutoEmbedFieldDefinition autoEmbedField =
+        new SearchAutoEmbedFieldDefinition(
+            "voyage-3-large", FieldPath.parse(indexId + ".parent.a"));
+    DocumentFieldDefinition parentDoc =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
+            .build();
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("parent", FieldDefinitionBuilder.builder().document(parentDoc).build())
+            .build();
+    SearchIndexDefinition searchIndexDefinition =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+    DocumentIndexer indexer = mockDocumentRequiresAutoEmbedding(searchIndexDefinition);
+
+    BsonDocument innerDoc =
+        new BsonDocument()
+            .append("_id", new BsonString("anId"))
+            .append("parent", new BsonDocument("a", new BsonString("textNested")));
+    BsonDocument bsonDoc = new BsonDocument(indexId.toString(), innerDoc);
+    RawBsonDocument rawBsonDoc = BsonUtils.documentToRaw(bsonDoc);
+
+    DocumentEvent event =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromMetadataNamespace(Optional.of(rawBsonDoc), indexId), rawBsonDoc);
+    List<DocumentEvent> batch = new ArrayList<>(List.of(event));
+    CompletableFuture<Void> indexingFuture =
+        scheduler.schedule(
+            batch,
+            SchedulerQueue.Priority.STEADY_STATE_CHANGE_STREAM,
+            indexer,
+            generationId,
+            Optional.of(new ObjectId()),
+            Optional.of(COMMIT_USER_DATA),
+            IGNORE_METRICS);
+    indexingFuture.get(5, TimeUnit.SECONDS);
+
+    verify(embeddingServiceManager, times(1))
+        .embedAsync(
+            argThat(strings -> strings.size() == 1 && strings.contains("textNested")),
+            argThat(config -> config.name().equals("voyage-3-large")),
+            any(),
+            any());
+
+    ArgumentCaptor<DocumentEvent> indexedEvent = ArgumentCaptor.forClass(DocumentEvent.class);
+    verify(indexer, times(1)).indexDocumentEvent(indexedEvent.capture());
+    BsonDocument mvDoc =
+        indexedEvent.getValue().getDocument().get().decode(BsonUtils.BSON_DOCUMENT_CODEC);
+    BsonDocument mvParent = mvDoc.getDocument(indexId.toString()).getDocument("parent");
+    assertTrue(
+        "MV document must carry the embedded vector at the source path (schema v0)",
+        mvParent.containsKey("a") && mvParent.get("a").isBinary());
+    assertTrue(
+        "MV document must carry the embedding hash",
+        mvParent.containsKey("a" + AutoEmbeddingDocumentUtils.HASH_FIELD_SUFFIX)
+            && mvParent.get("a" + AutoEmbeddingDocumentUtils.HASH_FIELD_SUFFIX).isString());
   }
 
   @Test

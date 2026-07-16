@@ -87,4 +87,20 @@ public record DocumentFieldDefinition(
   public Optional<FieldDefinition> getField(String fieldName) {
     return Optional.ofNullable(this.fields.get(fieldName));
   }
+
+  /**
+   * True if this document declares an auto-embed field anywhere in its {@code document} subtree.
+   * {@code embeddedDocuments} subtrees are not searched: auto-embed fields inside them are rejected
+   * at validation.
+   */
+  public boolean containsSearchAutoEmbedField() {
+    return this.fields.values().stream()
+        .anyMatch(
+            fieldDef ->
+                fieldDef.searchAutoEmbedFieldDefinition().isPresent()
+                    || fieldDef
+                        .documentFieldDefinition()
+                        .map(DocumentFieldDefinition::containsSearchAutoEmbedField)
+                        .orElse(false));
+  }
 }

@@ -9,9 +9,11 @@ import com.xgen.mongot.embedding.providers.configs.EmbeddingModelCatalog;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.EmbeddingProvider;
+import com.xgen.mongot.index.definition.BooleanFieldDefinition;
 import com.xgen.mongot.index.definition.InvalidIndexDefinitionException;
 import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
+import com.xgen.mongot.index.definition.SearchIndexVectorFieldDefinition;
 import com.xgen.mongot.index.definition.VectorAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.VectorAutoEmbedFieldSpecification;
 import com.xgen.mongot.index.definition.VectorDataFieldDefinition;
@@ -26,6 +28,7 @@ import com.xgen.mongot.index.definition.quantization.VectorQuantization;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.EmbeddedDocumentsFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.KnnVectorFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
@@ -543,6 +546,203 @@ public class AutoEmbeddingIndexValidatorTest {
     SearchIndexDefinition newIndex = createSearchIndexWithAutoEmbedFields(field);
 
     AutoEmbeddingIndexValidator.validateNoAutoEmbeddingFieldChanges(oldIndex, newIndex);
+  }
+
+  @Test
+  public void validateSearchIndexWithNestedAutoEmbedAndTopLevelVector_throwsException() {
+    // Nested auto-embed + top-level regular vector: the mixed-type check must see auto-embed
+    // declarations at any nesting depth.
+    var knnVectorDef =
+        KnnVectorFieldDefinitionBuilder.builder()
+            .dimensions(1024)
+            .similarity(VectorSimilarity.DOT_PRODUCT)
+            .build();
+    var nested =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            REGISTERED_MODEL, FieldPath.parse("text")))
+                    .build())
+            .build();
+    var mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("parent", FieldDefinitionBuilder.builder().document(nested).build())
+            .field("rawVector", FieldDefinitionBuilder.builder().knnVector(knnVectorDef).build())
+            .build();
+    SearchIndexDefinition searchIndex =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+
+    InvalidIndexDefinitionException exception =
+        assertThrows(
+            InvalidIndexDefinitionException.class,
+            () -> AutoEmbeddingIndexValidator.validate(searchIndex));
+
+    assertThat(exception.getMessage()).contains("cannot mix regular vector fields");
+  }
+
+  @Test
+  public void validateSearchIndexWithAutoEmbedAndVectorUnderEmbeddedDocuments_throwsException() {
+    // A regular vector inside an embeddedDocuments field (the canonical nested pre-computed
+    // vector shape; knnVector is illegal there but the vector type is allowed) must trip the
+    // mixed-type check alongside a top-level auto-embed.
+    var vectorSpec =
+        new VectorFieldSpecification(
+            1024,
+            VectorSimilarity.DOT_PRODUCT,
+            VectorQuantization.NONE,
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm());
+    var embeddedDocs =
+        EmbeddedDocumentsFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "vector",
+                FieldDefinitionBuilder.builder()
+                    .searchIndexVectorField(new SearchIndexVectorFieldDefinition(vectorSpec))
+                    .build())
+            .build();
+    var mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "autoEmbedField",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            REGISTERED_MODEL, FieldPath.parse("content")))
+                    .build())
+            .field(
+                "sections",
+                FieldDefinitionBuilder.builder().embeddedDocuments(embeddedDocs).build())
+            .build();
+    SearchIndexDefinition searchIndex =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+
+    InvalidIndexDefinitionException exception =
+        assertThrows(
+            InvalidIndexDefinitionException.class,
+            () -> AutoEmbeddingIndexValidator.validate(searchIndex));
+
+    assertThat(exception.getMessage()).contains("cannot mix regular vector fields");
+  }
+
+  @Test
+  public void validateNoSearchAutoEmbeddingFieldChanges_nestedFieldChanged_throwsException() {
+    SearchIndexDefinition oldIndex =
+        createSearchIndexWithNestedAutoEmbed(
+            new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL, FieldPath.parse("content")));
+    SearchIndexDefinition newIndex =
+        createSearchIndexWithNestedAutoEmbed(
+            new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL, FieldPath.parse("description")));
+
+    InvalidIndexDefinitionException exception =
+        assertThrows(
+            InvalidIndexDefinitionException.class,
+            () ->
+                AutoEmbeddingIndexValidator.validateNoAutoEmbeddingFieldChanges(
+                    oldIndex, newIndex));
+
+    assertThat(exception.getMessage()).contains("cannot update type:autoEmbed fields");
+  }
+
+  @Test
+  public void validateNoSearchAutoEmbeddingFieldChanges_nestedIdenticalFields_succeeds()
+      throws InvalidIndexDefinitionException {
+    SearchAutoEmbedFieldDefinition field =
+        new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL, FieldPath.parse("content"));
+    SearchIndexDefinition oldIndex = createSearchIndexWithNestedAutoEmbed(field);
+    SearchIndexDefinition newIndex = createSearchIndexWithNestedAutoEmbed(field);
+
+    AutoEmbeddingIndexValidator.validateNoAutoEmbeddingFieldChanges(oldIndex, newIndex);
+  }
+
+  @Test
+  public void validateSearchIndexWithDuplicateSourceFields_throwsException() {
+    // A nested and a top-level declaration sharing a sourceField: construction keeps the last
+    // model, and this community-path validation is the clean user-facing rejection.
+    var nested =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            REGISTERED_MODEL, FieldPath.parse("content")))
+                    .build())
+            .build();
+    var mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("parent", FieldDefinitionBuilder.builder().document(nested).build())
+            .field(
+                "top_embed",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            REGISTERED_MODEL, FieldPath.parse("content")))
+                    .build())
+            .build();
+    SearchIndexDefinition searchIndex =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+
+    InvalidIndexDefinitionException exception =
+        assertThrows(
+            InvalidIndexDefinitionException.class,
+            () -> AutoEmbeddingIndexValidator.validate(searchIndex));
+
+    assertThat(exception.getMessage()).contains("same sourceField");
+    assertThat(exception.getMessage()).contains("content");
+  }
+
+  @Test
+  public void validateSearchIndexWithSourceFieldOverlappingDeclaredField_throwsException() {
+    // An embed sourceField coinciding with a declared non-embed path: the source is consumed by
+    // the embedding pipeline, so the overlapping declaration would silently index nothing.
+    var mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "content",
+                FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build())
+            .field(
+                "content_embed",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            REGISTERED_MODEL, FieldPath.parse("content")))
+                    .build())
+            .build();
+    SearchIndexDefinition searchIndex =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+
+    InvalidIndexDefinitionException exception =
+        assertThrows(
+            InvalidIndexDefinitionException.class,
+            () -> AutoEmbeddingIndexValidator.validate(searchIndex));
+
+    assertThat(exception.getMessage()).contains("consumed by the embedding pipeline");
+    assertThat(exception.getMessage()).contains("content");
+  }
+
+  private SearchIndexDefinition createSearchIndexWithNestedAutoEmbed(
+      SearchAutoEmbedFieldDefinition autoEmbedDef) {
+    var nested =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "embedding", FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedDef).build())
+            .build();
+    var mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("parent", FieldDefinitionBuilder.builder().document(nested).build())
+            .build();
+    return SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
   }
 
   private SearchIndexDefinition createSearchIndexWithAutoEmbed(String modelName) {

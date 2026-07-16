@@ -1,8 +1,5 @@
 package com.xgen.mongot.replication.mongodb.initialsync;
 
-import static com.xgen.mongot.index.IndexTypeData.IndexTypeTag.TAG_SEARCH;
-import static com.xgen.mongot.index.IndexTypeData.IndexTypeTag.TAG_VECTOR_SEARCH;
-import static com.xgen.mongot.index.IndexTypeData.IndexTypeTag.TAG_VECTOR_SEARCH_AUTO_EMBEDDING;
 import static com.xgen.mongot.index.IndexTypeData.getIndexTypeTag;
 import static com.xgen.mongot.index.IndexTypeData.getNumGauge;
 import static com.xgen.mongot.replication.mongodb.initialsync.InitialSyncManager.getFactory;
@@ -10,6 +7,8 @@ import static com.xgen.mongot.util.Check.checkState;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import com.google.errorprone.annotations.Var;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.mongodb.MongoNamespace;
@@ -50,6 +49,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -127,7 +127,7 @@ public class InitialSyncQueue {
   private final Set<ObjectId> pauseInitialSyncOnIndexIds;
 
   /** Map of queuedSyncs gauge for each {@link IndexTypeData.IndexTypeTag}. */
-  protected final Map<IndexTypeData.IndexTypeTag, AtomicLong> queuedSyncs;
+  protected final ImmutableMap<IndexTypeData.IndexTypeTag, AtomicLong> queuedSyncs;
 
   /** Gate for pausing initial syncs. */
   private final Gate initialSyncGate;
@@ -166,25 +166,14 @@ public class InitialSyncQueue {
     this.requeuedEmbeddingInitialSyncs = metricsFactory.counter("requeuedEmbeddingInitialSyncs");
     String queuedSyncsName = "queuedSyncs";
     this.queuedSyncs =
-        Map.of(
-            TAG_SEARCH,
-            getNumGauge(
-                metricsFactory,
-                queuedSyncsName,
-                TAG_SEARCH,
-                Tag.of("replicationType", replicationConfig.getReplicationType().name())),
-            TAG_VECTOR_SEARCH,
-            getNumGauge(
-                metricsFactory,
-                queuedSyncsName,
-                TAG_VECTOR_SEARCH,
-                Tag.of("replicationType", replicationConfig.getReplicationType().name())),
-            TAG_VECTOR_SEARCH_AUTO_EMBEDDING,
-            getNumGauge(
-                metricsFactory,
-                queuedSyncsName,
-                TAG_VECTOR_SEARCH_AUTO_EMBEDDING,
-                Tag.of("replicationType", replicationConfig.getReplicationType().name())));
+        Maps.toMap(
+            EnumSet.allOf(IndexTypeData.IndexTypeTag.class),
+            tag ->
+                getNumGauge(
+                    metricsFactory,
+                    queuedSyncsName,
+                    tag,
+                    Tag.of("replicationType", replicationConfig.getReplicationType().name())));
 
     // TODO(CLOUDP-360914): Deprecate this condition check after shutting down type:text indexes
     this.maxConcurrentEmbeddingInitialSyncs =
@@ -609,7 +598,7 @@ public class InitialSyncQueue {
 
     private final InitialSyncManagerFactory initialSyncManagerFactory;
     private final Semaphore concurrentSyncs;
-    private final Map<IndexTypeData.IndexTypeTag, AtomicLong> inProgressSyncs;
+    private final ImmutableMap<IndexTypeData.IndexTypeTag, AtomicLong> inProgressSyncs;
     private final AtomicLong inProgressResumedSyncs;
     private final Map<Boolean, LongTaskTimer> initialSyncLongTimerFeatureFlagMapping;
     private final Map<Boolean, Timer> initialSyncTimerFeatureFlagMapping;
@@ -641,27 +630,18 @@ public class InitialSyncQueue {
       this.embeddingGetMoreBatchSize = getEmbeddingGetMoreBatchSize(replicationConfig);
 
       this.metricsFactory = new MetricsFactory("initialsync.dispatcher", meterRegistry);
+      // Keyed over every IndexTypeTag: looked up unchecked by getIndexTypeTag, so a missing tag
+      // would NPE the first initial sync of that index type.
       String inProgressSyncsName = "inProgressSyncs";
       this.inProgressSyncs =
-          Map.of(
-              TAG_SEARCH,
-              getNumGauge(
-                  this.metricsFactory,
-                  inProgressSyncsName,
-                  TAG_SEARCH,
-                  Tag.of("replicationType", replicationConfig.getReplicationType().name())),
-              TAG_VECTOR_SEARCH,
-              getNumGauge(
-                  this.metricsFactory,
-                  inProgressSyncsName,
-                  TAG_VECTOR_SEARCH,
-                  Tag.of("replicationType", replicationConfig.getReplicationType().name())),
-              TAG_VECTOR_SEARCH_AUTO_EMBEDDING,
-              getNumGauge(
-                  this.metricsFactory,
-                  inProgressSyncsName,
-                  TAG_VECTOR_SEARCH_AUTO_EMBEDDING,
-                  Tag.of("replicationType", replicationConfig.getReplicationType().name())));
+          Maps.toMap(
+              EnumSet.allOf(IndexTypeData.IndexTypeTag.class),
+              tag ->
+                  getNumGauge(
+                      this.metricsFactory,
+                      inProgressSyncsName,
+                      tag,
+                      Tag.of("replicationType", replicationConfig.getReplicationType().name())));
 
       Tags naturalOrderScanTag = Tags.of("scan_type", "natural_order");
       Tags idOrderScanTag = Tags.of("scan_type", "id_order");

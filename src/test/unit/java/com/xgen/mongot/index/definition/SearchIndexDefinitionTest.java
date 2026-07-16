@@ -14,6 +14,8 @@ import com.xgen.mongot.index.analyzer.definition.StockNormalizerName;
 import com.xgen.mongot.index.query.sort.NullEmptySortPosition;
 import com.xgen.mongot.index.query.sort.SortOrder;
 import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
+import com.xgen.mongot.util.FieldPath;
+import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.testing.BsonDeserializationTestSuite;
 import com.xgen.testing.BsonSerializationTestSuite;
 import com.xgen.testing.mongot.index.analyzer.custom.CustomCharFilterDefinitionBuilder;
@@ -942,6 +944,215 @@ public class SearchIndexDefinitionTest {
             .lastObservedCollectionName("collection")
             .collectionUuid(BASIC_COLLECTION_UUID)
             .mappings(BASIC_MAPPINGS);
+
+    @Test
+    public void isAutoEmbeddingIndex_nestedAutoEmbedOnly_returnsTrue() {
+      // The auto-embedding pipeline (MV generation, query embedding) is gated on this flag; an
+      // auto-embed field declared under a `document` field must be recognized.
+      var def = definitionBuilderWithMappings(nestedAutoEmbedMappings()).build();
+      Assert.assertTrue(def.isAutoEmbeddingIndex());
+      Assert.assertEquals(2, def.getParsedAutoEmbeddingFeatureVersion());
+    }
+
+    @Test
+    public void getModelNamePerPath_mixedTopLevelAndNestedAutoEmbed_containsBothSourceFields() {
+      // EmbeddingIndexingWorkScheduler builds per-path embed configs from this map; a nested
+      // declaration's source field must appear or its values are never embedded.
+      DocumentFieldDefinition mappings =
+          DocumentFieldDefinitionBuilder.builder()
+              .dynamic(false)
+              .field(
+                  "title_embedding",
+                  FieldDefinitionBuilder.builder()
+                      .searchAutoEmbed(
+                          new SearchAutoEmbedFieldDefinition(
+                              "voyage-3-large", FieldPath.parse("title")))
+                      .build())
+              .field("parent", nestedAutoEmbedField())
+              .build();
+      var def = definitionBuilderWithMappings(mappings).build();
+      Assert.assertEquals(
+          Map.of(
+              FieldPath.parse("title"), "voyage-3-large",
+              FieldPath.parse("content"), "voyage-3-large"),
+          def.getModelNamePerPath());
+    }
+
+    @Test
+    public void getModelNamePerPath_autoEmbedAndDocumentAlternatives_collectsBoth() {
+      // A field declared as both an auto-embed and a document with its own nested auto-embed
+      // (search mappings may declare several types per field): both source fields must be
+      // collected or the nested one is never embedded.
+      DocumentFieldDefinition nested =
+          DocumentFieldDefinitionBuilder.builder()
+              .dynamic(false)
+              .field(
+                  "nested_embedding",
+                  FieldDefinitionBuilder.builder()
+                      .searchAutoEmbed(
+                          new SearchAutoEmbedFieldDefinition(
+                              "voyage-3-large", FieldPath.parse("deep")))
+                      .build())
+              .build();
+      DocumentFieldDefinition mappings =
+          DocumentFieldDefinitionBuilder.builder()
+              .dynamic(false)
+              .field(
+                  "combo",
+                  FieldDefinitionBuilder.builder()
+                      .searchAutoEmbed(
+                          new SearchAutoEmbedFieldDefinition(
+                              "voyage-3-large", FieldPath.parse("top")))
+                      .document(nested)
+                      .build())
+              .build();
+      var def = definitionBuilderWithMappings(mappings).build();
+      Assert.assertEquals(
+          Map.of(
+              FieldPath.parse("top"), "voyage-3-large",
+              FieldPath.parse("deep"), "voyage-3-large"),
+          def.getModelNamePerPath());
+    }
+
+    @Test
+    public void construction_duplicateAutoEmbedSourceFields_keepsLastWithoutThrowing() {
+      // Duplicate sourceFields are rejected at the definition boundaries (fromBson and the
+      // community validator); construction itself must not throw a raw duplicate-key error.
+      DocumentFieldDefinition mappings =
+          DocumentFieldDefinitionBuilder.builder()
+              .dynamic(false)
+              .field(
+                  "first_embed",
+                  FieldDefinitionBuilder.builder()
+                      .searchAutoEmbed(
+                          new SearchAutoEmbedFieldDefinition(
+                              "voyage-3-large", FieldPath.parse("content")))
+                      .build())
+              .field("parent", nestedAutoEmbedField())
+              .build();
+      var def = definitionBuilderWithMappings(mappings).build();
+      Assert.assertEquals(
+          Map.of(FieldPath.parse("content"), "voyage-3-large"), def.getModelNamePerPath());
+    }
+
+    @Test
+    public void fromBson_duplicateAutoEmbedSourceFields_throwsParseError() {
+      // A nested and a top-level declaration sharing a sourceField must fail as a clean parse
+      // error rather than an IllegalArgumentException from map construction.
+      var def = definitionBuilderWithMappings(nestedAutoEmbedMappings()).build();
+      BsonDocument bson = def.toBson();
+      bson.getDocument("mappings")
+          .getDocument("fields")
+          .put(
+              "duplicate_embed",
+              BsonDocument.parse(
+                  "{'type': 'autoEmbedVector', 'model': 'voyage-3-large',"
+                      + " 'modality': 'text', 'sourceField': 'content'}"));
+      try {
+        SearchIndexDefinition.fromBson(bson);
+        Assert.fail("expected BsonParseException");
+      } catch (BsonParseException e) {
+        Assert.assertTrue(
+            "message should name the duplicate sourceField: " + e.getMessage(),
+            e.getMessage().contains("sourceField") && e.getMessage().contains("content"));
+      }
+    }
+
+    @Test
+    public void fromBson_sourceFieldOverlapsDeclaredField_throwsParseError() {
+      // An embed sourceField coinciding with an explicitly declared non-embed path: the source is
+      // consumed by the embedding pipeline and never copied to the MV, so the declaration would
+      // silently index nothing.
+      DocumentFieldDefinition mappings =
+          DocumentFieldDefinitionBuilder.builder()
+              .dynamic(false)
+              .field(
+                  "content",
+                  FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build())
+              .field(
+                  "content_embed",
+                  FieldDefinitionBuilder.builder()
+                      .searchAutoEmbed(
+                          new SearchAutoEmbedFieldDefinition(
+                              "voyage-3-large", FieldPath.parse("content")))
+                      .build())
+              .build();
+      BsonDocument bson = definitionBuilderWithMappings(mappings).build().toBson();
+      try {
+        SearchIndexDefinition.fromBson(bson);
+        Assert.fail("expected BsonParseException");
+      } catch (BsonParseException e) {
+        Assert.assertTrue(
+            "message should name the conflicting sourceField: " + e.getMessage(),
+            e.getMessage().contains("consumed by the embedding pipeline")
+                && e.getMessage().contains("content"));
+      }
+    }
+
+    @Test
+    public void fromBson_sourceFieldOverlapsOwnScalarAlternative_throwsParseError() {
+      // Same-field spelling: autoEmbed + scalar on one declaration whose sourceField is its own
+      // path.
+      DocumentFieldDefinition mappings =
+          DocumentFieldDefinitionBuilder.builder()
+              .dynamic(false)
+              .field(
+                  "title",
+                  FieldDefinitionBuilder.builder()
+                      .searchAutoEmbed(
+                          new SearchAutoEmbedFieldDefinition(
+                              "voyage-3-large", FieldPath.parse("title")))
+                      .bool(new BooleanFieldDefinition())
+                      .build())
+              .build();
+      BsonDocument bson = definitionBuilderWithMappings(mappings).build().toBson();
+      try {
+        SearchIndexDefinition.fromBson(bson);
+        Assert.fail("expected BsonParseException");
+      } catch (BsonParseException e) {
+        Assert.assertTrue(
+            e.getMessage().contains("consumed by the embedding pipeline")
+                && e.getMessage().contains("title"));
+      }
+    }
+
+    /**
+     * Fresh builder per test: {@code BASIC_DEFINITION_BUILDER} is shared and mutable, so setting
+     * mappings on it would leak into tests that assert the default {@code BASIC_MAPPINGS}.
+     */
+    private static SearchIndexDefinitionBuilder definitionBuilderWithMappings(
+        DocumentFieldDefinition mappings) {
+      return SearchIndexDefinitionBuilder.builder()
+          .indexId(BASIC_INDEX_ID)
+          .name("name")
+          .database("database")
+          .lastObservedCollectionName("collection")
+          .collectionUuid(BASIC_COLLECTION_UUID)
+          .mappings(mappings);
+    }
+
+    private static DocumentFieldDefinition nestedAutoEmbedMappings() {
+      return DocumentFieldDefinitionBuilder.builder()
+          .dynamic(false)
+          .field("parent", nestedAutoEmbedField())
+          .build();
+    }
+
+    private static FieldDefinition nestedAutoEmbedField() {
+      return FieldDefinitionBuilder.builder()
+          .document(
+              DocumentFieldDefinitionBuilder.builder()
+                  .dynamic(false)
+                  .field(
+                      "embedding",
+                      FieldDefinitionBuilder.builder()
+                          .searchAutoEmbed(
+                              new SearchAutoEmbedFieldDefinition(
+                                  "voyage-3-large", FieldPath.parse("content")))
+                          .build())
+                  .build())
+          .build();
+    }
 
     @Test
     public void typeSet_differs_notEqual() {

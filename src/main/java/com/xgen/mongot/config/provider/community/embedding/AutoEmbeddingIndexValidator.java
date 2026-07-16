@@ -1,7 +1,9 @@
 package com.xgen.mongot.config.provider.community.embedding;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelCatalog;
+import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.FieldDefinition;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.InvalidIndexDefinitionException;
@@ -9,11 +11,11 @@ import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
+import com.xgen.mongot.util.FieldPath;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -41,7 +43,11 @@ public class AutoEmbeddingIndexValidator {
     validateEmbeddingModelsAreRegistered(indexDefinition);
     switch (indexDefinition) {
       case VectorIndexDefinition vectorIndex -> validateNoMixedVectorTypes(vectorIndex);
-      case SearchIndexDefinition searchIndex -> validateSearchNoMixedVectorTypes(searchIndex);
+      case SearchIndexDefinition searchIndex -> {
+        validateSearchNoMixedVectorTypes(searchIndex);
+        validateSearchUniqueAutoEmbedSourceFields(searchIndex);
+        validateSearchSourceFieldsDoNotOverlapMappings(searchIndex);
+      }
     }
   }
 
@@ -120,13 +126,24 @@ public class AutoEmbeddingIndexValidator {
         .toList();
   }
 
+  /**
+   * Collects auto-embed declarations at any {@code document} nesting depth, in field-hierarchy
+   * order. A field's auto-embed and {@code document} type alternatives are processed independently,
+   * mirroring the auto-embed mapping walk.
+   */
   private static List<SearchAutoEmbedFieldDefinition> getAutoEmbeddingFieldDefinitions(
       SearchIndexDefinition newIndex) {
-    return newIndex.getMappings().fields().values().stream()
-        .map(FieldDefinition::searchAutoEmbedFieldDefinition)
-        .filter(Optional::isPresent)
-        .map(Optional::get)
-        .toList();
+    List<SearchAutoEmbedFieldDefinition> autoEmbedFields = new ArrayList<>();
+    collectAutoEmbedFields(newIndex.getMappings(), autoEmbedFields);
+    return autoEmbedFields;
+  }
+
+  private static void collectAutoEmbedFields(
+      DocumentFieldDefinition document, List<SearchAutoEmbedFieldDefinition> out) {
+    for (FieldDefinition fieldDef : document.fields().values()) {
+      fieldDef.searchAutoEmbedFieldDefinition().ifPresent(out::add);
+      fieldDef.documentFieldDefinition().ifPresent(nested -> collectAutoEmbedFields(nested, out));
+    }
   }
 
   private static void checkBothAutoEmbedding(IndexDefinition oldIndex, IndexDefinition newIndex) {
@@ -171,21 +188,80 @@ public class AutoEmbeddingIndexValidator {
 
   private static void validateSearchNoMixedVectorTypes(SearchIndexDefinition searchIndex)
       throws InvalidIndexDefinitionException {
-    @Var boolean hasRegularVectorField = false;
-    @Var boolean hasAutoEmbedField = false;
+    throwIfMixedVectorTypes(
+        containsRegularVectorField(searchIndex.getMappings()),
+        searchIndex.getMappings().containsSearchAutoEmbedField());
+  }
 
-    for (Map.Entry<String, FieldDefinition> entry : searchIndex.getMappings().fields().entrySet()) {
-      FieldDefinition fieldDef = entry.getValue();
-      if (fieldDef.searchAutoEmbedFieldDefinition().isPresent()) {
-        hasAutoEmbedField = true;
-      }
+  /**
+   * True if a {@code vector} or {@code knnVector} field is declared at any nesting depth,
+   * descending through both {@code document} and {@code embeddedDocuments} fields (the latter is
+   * the canonical shape for nested pre-computed vectors).
+   */
+  private static boolean containsRegularVectorField(DocumentFieldDefinition document) {
+    return containsRegularVectorField(document.fields().values());
+  }
+
+  private static boolean containsRegularVectorField(Iterable<FieldDefinition> fields) {
+    for (FieldDefinition fieldDef : fields) {
       if (fieldDef.searchIndexVectorFieldDefinition().isPresent()
           || fieldDef.knnVectorFieldDefinition().isPresent()) {
-        hasRegularVectorField = true;
+        return true;
+      }
+      if (fieldDef
+          .documentFieldDefinition()
+          .map(nested -> containsRegularVectorField(nested.fields().values()))
+          .orElse(false)) {
+        return true;
+      }
+      if (fieldDef
+          .embeddedDocumentsFieldDefinition()
+          .map(embedded -> containsRegularVectorField(embedded.fields().values()))
+          .orElse(false)) {
+        return true;
       }
     }
+    return false;
+  }
 
-    throwIfMixedVectorTypes(hasRegularVectorField, hasAutoEmbedField);
+  /**
+   * Rejects duplicate auto-embed {@code sourceField} declarations with a clean validation error.
+   * The definition itself constructs fine (model resolution keeps the last declaration), so this
+   * community-path check is the user-facing rejection for definitions built directly rather than
+   * parsed from BSON.
+   */
+  private static void validateSearchUniqueAutoEmbedSourceFields(SearchIndexDefinition searchIndex)
+      throws InvalidIndexDefinitionException {
+    Set<FieldPath> seen = new HashSet<>();
+    Set<FieldPath> duplicates = new LinkedHashSet<>();
+    for (SearchAutoEmbedFieldDefinition autoEmbed : getAutoEmbeddingFieldDefinitions(searchIndex)) {
+      if (!seen.add(autoEmbed.sourceField())) {
+        duplicates.add(autoEmbed.sourceField());
+      }
+    }
+    if (!duplicates.isEmpty()) {
+      throw new InvalidIndexDefinitionException(
+          String.format(
+              "Multiple autoEmbedVector fields declare the same sourceField: %s", duplicates));
+    }
+  }
+
+  /**
+   * Rejects auto-embed {@code sourceField}s that coincide with an explicitly declared non-embed
+   * mapping path: the source value is consumed by the embedding pipeline and never reaches the
+   * materialized view, so the overlapping declaration would silently index nothing.
+   */
+  private static void validateSearchSourceFieldsDoNotOverlapMappings(
+      SearchIndexDefinition searchIndex) throws InvalidIndexDefinitionException {
+    ImmutableSet<FieldPath> conflicts =
+        SearchIndexDefinition.autoEmbedSourceFieldMappingConflicts(searchIndex.getMappings());
+    if (!conflicts.isEmpty()) {
+      throw new InvalidIndexDefinitionException(
+          String.format(
+              "autoEmbedVector sourceField(s) %s are consumed by the embedding pipeline and"
+                  + " cannot also be mapped as another type",
+              conflicts));
+    }
   }
 
   private static void throwIfMixedVectorTypes(

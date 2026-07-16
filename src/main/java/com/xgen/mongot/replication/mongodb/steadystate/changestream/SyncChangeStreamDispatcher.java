@@ -1,12 +1,11 @@
 package com.xgen.mongot.replication.mongodb.steadystate.changestream;
 
-import static com.xgen.mongot.index.IndexTypeData.IndexTypeTag.TAG_SEARCH;
-import static com.xgen.mongot.index.IndexTypeData.IndexTypeTag.TAG_VECTOR_SEARCH;
-import static com.xgen.mongot.index.IndexTypeData.IndexTypeTag.TAG_VECTOR_SEARCH_AUTO_EMBEDDING;
 import static com.xgen.mongot.index.IndexTypeData.getIndexTypeTag;
 import static com.xgen.mongot.index.IndexTypeData.getNumGauge;
 
 import com.google.common.base.Stopwatch;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.IndexTypeData;
 import com.xgen.mongot.index.definition.IndexDefinition;
@@ -29,7 +28,7 @@ import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
 import java.time.Duration;
-import java.util.Map;
+import java.util.EnumSet;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.RejectedExecutionException;
@@ -57,11 +56,11 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
   private final AtomicLong getMoresInFlight;
   private final Timer getMoresInFlightTimer;
   /* Tracks count and duration of queued getMore operations */
-  private final Map<IndexTypeData.IndexTypeTag, AtomicLong> getMoresScheduled;
+  private final ImmutableMap<IndexTypeData.IndexTypeTag, AtomicLong> getMoresScheduled;
   private final Timer getMoresSchedulingTimer;
   /* Tracks the overall count and duration of change-stream batches processing
   (includes: server call, preprocessing and indexing)  */
-  private final Map<IndexTypeData.IndexTypeTag, AtomicLong> batchesInProgressTotal;
+  private final ImmutableMap<IndexTypeData.IndexTypeTag, AtomicLong> batchesInProgressTotal;
   private final Timer batchesInProgressTotalTimer;
   /* Tracks the total number of change-stream ended exceptionally */
   private final Counter unexpectedBatchFailures;
@@ -94,48 +93,28 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
         metricsFactory.numGauge("getMoresInFlight", Tags.of("replicationType", type.name()));
     // TODO(CLOUDP-289914): Remove this getMoresInFlightTimer after switching to new one.
     this.getMoresInFlightTimer = metricsFactory.timer("getMoreDurations");
+    // Both maps are keyed over every IndexTypeTag: looked up unchecked by getIndexTypeTag, so a
+    // missing tag would NPE the first batch of that index type.
     String getMoresScheduledName = "getMoresScheduled";
     this.getMoresScheduled =
-        Map.of(
-            TAG_SEARCH,
+        Maps.toMap(
+            EnumSet.allOf(IndexTypeData.IndexTypeTag.class),
+            tag ->
                 getNumGauge(
                     metricsFactory,
                     getMoresScheduledName,
-                    TAG_SEARCH,
-                    Tag.of("replicationType", type.name())),
-            TAG_VECTOR_SEARCH,
-                getNumGauge(
-                    metricsFactory,
-                    getMoresScheduledName,
-                    TAG_VECTOR_SEARCH,
-                    Tag.of("replicationType", type.name())),
-            TAG_VECTOR_SEARCH_AUTO_EMBEDDING,
-                getNumGauge(
-                    metricsFactory,
-                    getMoresScheduledName,
-                    TAG_VECTOR_SEARCH_AUTO_EMBEDDING,
+                    tag,
                     Tag.of("replicationType", type.name())));
     this.getMoresSchedulingTimer = metricsFactory.timer("getMoresSchedulingDurations");
     String batchesInProgressTotalName = "batchesInProgressTotal";
     this.batchesInProgressTotal =
-        Map.of(
-            TAG_SEARCH,
+        Maps.toMap(
+            EnumSet.allOf(IndexTypeData.IndexTypeTag.class),
+            tag ->
                 getNumGauge(
                     metricsFactory,
                     batchesInProgressTotalName,
-                    TAG_SEARCH,
-                    Tag.of("replicationType", type.name())),
-            TAG_VECTOR_SEARCH,
-                getNumGauge(
-                    metricsFactory,
-                    batchesInProgressTotalName,
-                    TAG_VECTOR_SEARCH,
-                    Tag.of("replicationType", type.name())),
-            TAG_VECTOR_SEARCH_AUTO_EMBEDDING,
-                getNumGauge(
-                    metricsFactory,
-                    batchesInProgressTotalName,
-                    TAG_VECTOR_SEARCH_AUTO_EMBEDDING,
+                    tag,
                     Tag.of("replicationType", type.name())));
     this.batchesInProgressTotalTimer = metricsFactory.timer("batchesInProgressTotalDurations");
     this.unexpectedBatchFailures = metricsFactory.counter("unexpectedBatchFailures");
