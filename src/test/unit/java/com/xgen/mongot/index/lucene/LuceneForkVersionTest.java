@@ -46,7 +46,7 @@ import org.junit.Test;
 public class LuceneForkVersionTest {
 
   private static final String UPSTREAM_VERSION = "10.1.0";
-  private static final String FORK_VERSION = "10.1.0-4";
+  private static final String FORK_VERSION = "10.1.0-5";
 
   @Test
   public void luceneCore_fromFork() {
