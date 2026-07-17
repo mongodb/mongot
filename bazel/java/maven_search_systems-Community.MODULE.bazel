@@ -44,10 +44,10 @@ _NETTY_CORE_ARTIFACTS = [
     "netty-transport",
 ]
 
-# 2.0.79.Final is the first release where the linux-aarch_64-fedora artifact
-# links against OpenSSL 3.x (matching the x86_64-fedora behavior), enabling
-# FIPS compliance on AL2023 aarch64 where OpenSSL 3.x is installed.
-_NETTY_TCNATIVE_VERSION = "2.0.79.Final"
+# Kept in lockstep with the Atlas netty-tcnative version (maven_search_systems.MODULE.bazel).
+# 2.0.80.Final is the version that fully functions for dynamic linking against the system OpenSSL 3.x
+# (the earlier 2.0.79.Final had dynamic-linking issues), enabling FIPS compliance on AL2023.
+_NETTY_TCNATIVE_VERSION = "2.0.80.Final"
 
 _NETTY_TCNATIVE_ARTIFACTS = [
     "netty-tcnative-boringssl-static",

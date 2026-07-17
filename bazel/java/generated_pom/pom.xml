@@ -768,61 +768,61 @@
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-tcnative</artifactId>
-  <version>2.0.71.Final</version>
+  <version>2.0.80.Final</version>
   <type>jar</type>
   <classifier>linux-aarch_64-fedora</classifier>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-tcnative</artifactId>
-  <version>2.0.71.Final</version>
+  <version>2.0.80.Final</version>
   <type>jar</type>
   <classifier>linux-x86_64-fedora</classifier>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-tcnative-boringssl-static</artifactId>
-  <version>2.0.71.Final</version>
+  <version>2.0.80.Final</version>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-tcnative-boringssl-static</artifactId>
-  <version>2.0.71.Final</version>
+  <version>2.0.80.Final</version>
   <type>jar</type>
   <classifier>linux-aarch_64</classifier>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-tcnative-boringssl-static</artifactId>
-  <version>2.0.71.Final</version>
+  <version>2.0.80.Final</version>
   <type>jar</type>
   <classifier>linux-x86_64</classifier>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-tcnative-boringssl-static</artifactId>
-  <version>2.0.71.Final</version>
+  <version>2.0.80.Final</version>
   <type>jar</type>
   <classifier>osx-aarch_64</classifier>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-tcnative-boringssl-static</artifactId>
-  <version>2.0.71.Final</version>
+  <version>2.0.80.Final</version>
   <type>jar</type>
   <classifier>osx-x86_64</classifier>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-tcnative-boringssl-static</artifactId>
-  <version>2.0.71.Final</version>
+  <version>2.0.80.Final</version>
   <type>jar</type>
   <classifier>windows-x86_64</classifier>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>
   <artifactId>netty-tcnative-classes</artifactId>
-  <version>2.0.71.Final</version>
+  <version>2.0.80.Final</version>
 </dependency>
 <dependency>
   <groupId>io.netty</groupId>

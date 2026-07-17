@@ -40,7 +40,7 @@ _NETTY_CORE_ARTIFACTS = [
     "netty-transport",
 ]
 
-_NETTY_TCNATIVE_VERSION = "2.0.71.Final"
+_NETTY_TCNATIVE_VERSION = "2.0.80.Final"
 
 _NETTY_TCNATIVE_ARTIFACTS = [
     "netty-tcnative-boringssl-static",

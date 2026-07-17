@@ -27,11 +27,6 @@ git_repository(
     shallow_since = "1737476933 +0000",
 )
 
-# netty-tcnative dynamic OpenSSL build for amazon2023 (used by integration tests
-# whose host base image does not ship libssl at the version netty expects).
-netty_tcnative_ext = use_extension("//bazel/java:extensions.bzl", "netty_tcnative_ext")
-use_repo(netty_tcnative_ext, "netty_tcnative_openssl_dynamic_linux_x86_64")
-
 # grpc-java transitive repos produced by grpc_java_repositories(). The only
 # transitive name referenced from project BUILD files is @io_grpc_grpc_proto.
 grpc_java = use_extension("//bazel/java:extensions.bzl", "grpc_java")

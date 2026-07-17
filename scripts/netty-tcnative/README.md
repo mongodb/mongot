@@ -1,5 +1,11 @@
 # Building netty-tcnative with Dynamic OpenSSL Linking
 
+> **DEPRECATED (CLOUDP-413451):** As of netty-tcnative **2.0.80.Final**, mongot uses the standard
+> Maven Central `*-fedora` artifacts (which dynamically link the system OpenSSL 3.x) for both Atlas
+> and community, on x86_64 and aarch64. The custom-built S3 JAR described below is **no longer used**,
+> and this directory (and `netty_tcnative_deps()`) is removed in a follow-up cleanup PR. Do not
+> follow these instructions for new updates.
+
 This directory contains scripts to build `netty-tcnative` from source with dynamic OpenSSL linking.
 The built JAR is uploaded to S3 and downloaded by Bazel at build time.
 
