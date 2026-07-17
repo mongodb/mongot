@@ -16,8 +16,8 @@ public class SynonymSyncMetrics {
   private final Counter collScansCounter;
 
   SynonymSyncMetrics(MetricsFactory metricsFactory) {
-    this.syncDurationTimer = metricsFactory.timer("syncDurations");
-    this.collScanDurationTimer = metricsFactory.timer("collScanDurations");
+    this.syncDurationTimer = metricsFactory.timerSec("syncDurations");
+    this.collScanDurationTimer = metricsFactory.timerSec("collScanDurations");
     this.exceptionCounter = metricsFactory.counter("exceptions");
     this.collScansTriggeredByChangeStreamCounter =
         metricsFactory.counter("collScansTriggeredByChangeStream");

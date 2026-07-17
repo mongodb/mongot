@@ -89,36 +89,28 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
 
     MetricsFactory metricsFactory =
         new MetricsFactory("indexing.steadyStateChangeStream", meterRegistry);
+    Tag replicationTypeTag = Tag.of("replicationType", type.name());
     this.getMoresInFlight =
-        metricsFactory.numGauge("getMoresInFlight", Tags.of("replicationType", type.name()));
+        metricsFactory.numGauge("getMoresInFlight", Tags.of(replicationTypeTag));
     // TODO(CLOUDP-289914): Remove this getMoresInFlightTimer after switching to new one.
-    this.getMoresInFlightTimer = metricsFactory.timer("getMoreDurations");
+    this.getMoresInFlightTimer = metricsFactory.timerSec("getMoreDurations");
     // Both maps are keyed over every IndexTypeTag: looked up unchecked by getIndexTypeTag, so a
     // missing tag would NPE the first batch of that index type.
     String getMoresScheduledName = "getMoresScheduled";
     this.getMoresScheduled =
         Maps.toMap(
             EnumSet.allOf(IndexTypeData.IndexTypeTag.class),
-            tag ->
-                getNumGauge(
-                    metricsFactory,
-                    getMoresScheduledName,
-                    tag,
-                    Tag.of("replicationType", type.name())));
-    this.getMoresSchedulingTimer = metricsFactory.timer("getMoresSchedulingDurations");
+            tag -> getNumGauge(metricsFactory, getMoresScheduledName, tag, replicationTypeTag));
+    this.getMoresSchedulingTimer = metricsFactory.timerSec("getMoresSchedulingDurations");
     String batchesInProgressTotalName = "batchesInProgressTotal";
     this.batchesInProgressTotal =
         Maps.toMap(
             EnumSet.allOf(IndexTypeData.IndexTypeTag.class),
             tag ->
-                getNumGauge(
-                    metricsFactory,
-                    batchesInProgressTotalName,
-                    tag,
-                    Tag.of("replicationType", type.name())));
-    this.batchesInProgressTotalTimer = metricsFactory.timer("batchesInProgressTotalDurations");
+                getNumGauge(metricsFactory, batchesInProgressTotalName, tag, replicationTypeTag));
+    this.batchesInProgressTotalTimer = metricsFactory.timerSec("batchesInProgressTotalDurations");
     this.unexpectedBatchFailures = metricsFactory.counter("unexpectedBatchFailures");
-    this.preprocessingBatchTimer = metricsFactory.timer("preprocessingBatchDurations");
+    this.preprocessingBatchTimer = metricsFactory.timerSec("preprocessingBatchDurations");
     this.rescheduledEmbeddingGetMores = metricsFactory.counter("rescheduledEmbeddingGetMores");
 
     Tags replicationTag = Tags.of(Scope.REPLICATION.getTag());
@@ -133,7 +125,7 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
     this.syncClientUp =
         metricsFactory.numGauge(
             "dispatcher",
-            replicationTag.and("client", "synchronous-batch").and("replicationType", type.name()));
+            replicationTag.and("client", "synchronous-batch").and(replicationTypeTag));
     this.syncClientUp.incrementAndGet();
 
     this.maxInFlightEmbeddingGetMores = maxInFlightEmbeddingGetMores;

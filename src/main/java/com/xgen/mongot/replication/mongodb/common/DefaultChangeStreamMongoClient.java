@@ -55,7 +55,7 @@ public class DefaultChangeStreamMongoClient<E extends Exception>
     this.initialSyncMetricsUpdaterOpt = initialSyncMetricsUpdaterOpt;
     // TODO(CLOUDP-289914): Remove this getMoreTimer after switching to new one by
     // IndexMetricsUpdater
-    this.getMoreTimer = metricsFactory.timer("getMoreDurations");
+    this.getMoreTimer = metricsFactory.timerSec("getMoreDurations");
     this.batchSize = batchSize;
     this.cursorId = OptionalLong.empty();
     this.state = State.OPEN_CURSOR;

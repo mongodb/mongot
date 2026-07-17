@@ -42,6 +42,7 @@ import org.slf4j.LoggerFactory;
  */
 public class MetricsFactory {
 
+  private static final double[] DEFAULT_TIMER_PERCENTILES = {0.5, 0.75, 0.9, 0.99};
   private static final Logger LOG = LoggerFactory.getLogger(MetricsFactory.class);
 
   private final String namespace;
@@ -360,15 +361,62 @@ public class MetricsFactory {
   /**
    * Used to track the duration of short-running tasks. "Short-running" is subjective but the
    * assumption is that it should be under a minute.
+   *
+   * <p>Registers a timer with a {@code timeUnit=seconds} tag and the default percentile set ({@code
+   * 0.5}, {@code 0.75}, {@code 0.9}, {@code 0.99}). Calling this method again with the same {@code
+   * name} returns the existing {@link Timer} from the backing {@link MeterRegistry} rather than
+   * creating a duplicate meter.
+   *
+   * @param name the name of the metric (without the factory namespace prefix)
+   * @return a {@link Timer} that can record task durations
    */
-  public Timer timer(String name) {
+  public Timer timerSec(String name) {
+    return timer(name, TimeUnit.SECONDS);
+  }
+
+  /**
+   * Used to track the duration of short-running tasks. "Short-running" is subjective but the
+   * assumption is that it should be under a minute.
+   *
+   * <p>Registers a timer tagged with {@code timeUnit} set from {@code timeUnit} and the default
+   * percentile set ({@code 0.5}, {@code 0.75}, {@code 0.9}, {@code 0.99}). Calling this method
+   * again with the same {@code name} and {@code timeUnit} returns the existing {@link Timer} from
+   * the backing {@link MeterRegistry} rather than creating a duplicate meter.
+   *
+   * @param name the name of the metric (without the factory namespace prefix)
+   * @param timeUnit the unit used to record timer samples; exported as a {@code timeUnit} tag on
+   *     the meter
+   * @return a {@link Timer} that can record task durations
+   */
+  public Timer timer(String name, TimeUnit timeUnit) {
     return timer(
         name,
-        Tags.of("timeUnit", Enums.convertNameTo(CaseFormat.LOWER_CAMEL, TimeUnit.SECONDS)),
-        0.5,
-        0.75,
-        0.9,
-        0.99);
+        Tags.of("timeUnit", Enums.convertNameTo(CaseFormat.LOWER_CAMEL, timeUnit)),
+        DEFAULT_TIMER_PERCENTILES);
+  }
+
+  /**
+   * Used to track the duration of short-running tasks. "Short-running" is subjective but the
+   * assumption is that it should be under a minute.
+   *
+   * <p>Registers a timer tagged with {@code timeUnit} set from {@code timeUnit}, {@code meterTags},
+   * and the default percentile set ({@code 0.5}, {@code 0.75}, {@code 0.9}, {@code 0.99}). If
+   * {@code meterTags} already contains a {@code timeUnit} tag, it is not duplicated. Calling this
+   * method again with the same {@code name}, {@code meterTags}, and {@code timeUnit} returns the
+   * existing {@link Timer} from the backing {@link MeterRegistry} rather than creating a duplicate
+   * meter.
+   *
+   * @param name the name of the metric (without the factory namespace prefix)
+   * @param meterTags additional tags to add to the exported timer
+   * @param timeUnit the unit used to record timer samples; exported as a {@code timeUnit} tag on
+   *     the meter unless already present in {@code meterTags}
+   * @return a {@link Timer} that can record task durations
+   */
+  public Timer timer(String name, Tags meterTags, TimeUnit timeUnit) {
+    return timer(
+        name,
+        meterTags.and(Tags.of("timeUnit", Enums.convertNameTo(CaseFormat.LOWER_CAMEL, timeUnit))),
+        DEFAULT_TIMER_PERCENTILES);
   }
 
   /**

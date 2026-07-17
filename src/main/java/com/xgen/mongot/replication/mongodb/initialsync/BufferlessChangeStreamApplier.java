@@ -162,7 +162,7 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
         metricsFactory.counter(SKIPPED_DOCUMENTS_WITHOUT_METADATA_NAMESPACE);
     this.partialEmbedMetricCounters =
         new PartialEmbedMetricCounters(metricsFactory, replicationTag);
-    this.preprocessingBatchTimer = metricsFactory.timer(PREPROCESSING_BATCH_DURATIONS);
+    this.preprocessingBatchTimer = metricsFactory.timerSec(PREPROCESSING_BATCH_DURATIONS);
     this.totalDocumentsCounter = metricsFactory.counter("changeStreamTotalDocuments");
     this.avoidNaturalOrderScanSyncSourceChangeResync = avoidNaturalOrderScanSyncSourceChangeResync;
   }

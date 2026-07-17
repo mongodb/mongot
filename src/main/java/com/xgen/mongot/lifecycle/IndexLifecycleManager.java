@@ -104,7 +104,7 @@ public class IndexLifecycleManager {
           metricsFactory.counter("failedInitializationIndexes"),
           metricsFactory.counter("failedDropIndexes"),
           metricsFactory.counter("failedDownloadIndexes"),
-          metricsFactory.timer("indexInitializationDuration"));
+          metricsFactory.timerSec("indexInitializationDuration"));
     }
   }
 

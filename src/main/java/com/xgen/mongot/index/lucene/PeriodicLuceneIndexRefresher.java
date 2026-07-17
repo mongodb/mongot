@@ -38,7 +38,8 @@ class PeriodicLuceneIndexRefresher implements Closeable, VerboseRunnable {
     this.searcherManagers = searcherManagers;
     this.indexStatusRef = indexStatusRef;
     this.metricsFactory = metricsFactory;
-    this.timer = metricsFactory.perIndexTimer("refreshDurations");
+    this.timer =
+        metricsFactory.getProcessMetricsFactory().timer("refreshDurations", TimeUnit.MILLISECONDS);
     executor.scheduleWithFixedDelay(this, 0, interval.toMillis(), TimeUnit.MILLISECONDS);
   }
 

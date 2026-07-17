@@ -155,7 +155,7 @@ public class MaterializedViewWriter implements IndexWriter {
     this.bulkOperationsRef = new AtomicReference<>(new ConcurrentLinkedQueue<>());
     this.partialBulkWriteErrors = metricsFactory.counter("partialBulkWriteErrors");
     this.mvWriteThrottleCount = metricsFactory.counter("mvWriteThrottleCount");
-    this.mvWriteThrottleWaitTime = metricsFactory.timer("mvWriteThrottleWaitTime");
+    this.mvWriteThrottleWaitTime = metricsFactory.timerSec("mvWriteThrottleWaitTime");
     this.bulkWriteNumDocs = metricsFactory.summary("bulkWriteNumDocs");
     this.bulkWritePayloadSize = metricsFactory.summary("bulkWritePayloadSize");
     this.operationExecutor =

@@ -100,7 +100,7 @@ public class BufferlessCollectionScanner {
     this.lastScannedToken = lastScannedToken;
     this.skippedDocumentsWithoutMetadataNamespaceCounter =
         metricsFactory.counter(SKIPPED_DOCUMENTS_WITHOUT_METADATA_NAMESPACE);
-    this.preprocessingBatchTimer = metricsFactory.timer(PREPROCESSING_BATCH_DURATIONS);
+    this.preprocessingBatchTimer = metricsFactory.timerSec(PREPROCESSING_BATCH_DURATIONS);
     this.avoidNaturalOrderScanSyncSourceChangeResync = avoidNaturalOrderScanSyncSourceChangeResync;
     this.shutdown = false;
   }

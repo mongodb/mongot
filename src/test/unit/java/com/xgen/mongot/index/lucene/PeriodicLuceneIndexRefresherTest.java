@@ -4,7 +4,6 @@ import static com.xgen.mongot.index.lucene.InstrumentedConcurrentMergeSchedulerT
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_DEFINITION;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_DEFINITION_GENERATION;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_GENERATION_ID;
-import static org.mockito.ArgumentMatchers.any;
 
 import com.google.common.collect.ImmutableList;
 import com.xgen.mongot.featureflag.FeatureFlags;
@@ -17,6 +16,7 @@ import com.xgen.mongot.index.lucene.searcher.LuceneSearcherManager;
 import com.xgen.mongot.index.lucene.searcher.QueryCacheProvider;
 import com.xgen.mongot.index.lucene.writer.SingleLuceneIndexWriter;
 import com.xgen.mongot.index.status.IndexStatus;
+import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.metrics.PerIndexMetricsFactory;
 import com.xgen.testing.TestUtils;
 import com.xgen.testing.mongot.index.analyzer.AnalyzerRegistryBuilder;
@@ -66,12 +66,17 @@ public class PeriodicLuceneIndexRefresherTest {
 
     AtomicReference<IndexStatus> statusRef = new AtomicReference<>(IndexStatus.notStarted());
 
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    var processMetricsFactory = new MetricsFactory("test", registry);
+    var metricsFactory = Mockito.mock(PerIndexMetricsFactory.class);
+    Mockito.when(metricsFactory.getProcessMetricsFactory()).thenReturn(processMetricsFactory);
+
     new PeriodicLuceneIndexRefresher(
         Executors.newSingleThreadScheduledExecutor(),
         Duration.ofMillis(50),
         ImmutableList.of(searcherManager),
         statusRef::get,
-        Mockito.mock(PerIndexMetricsFactory.class));
+        metricsFactory);
 
     // The refresher should not refresh while in NOT_STARTED.
     Assert.assertFalse(refreshed.await(500, TimeUnit.MILLISECONDS));
@@ -114,9 +119,10 @@ public class PeriodicLuceneIndexRefresherTest {
           public void afterRefresh(boolean didRefresh) {}
         });
 
-    Timer timer = new SimpleMeterRegistry().timer("testTimer");
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    var processMetricsFactory = new MetricsFactory("test", registry);
     var metricsFactory = Mockito.mock(PerIndexMetricsFactory.class);
-    Mockito.when(metricsFactory.perIndexTimer(any())).thenReturn(timer);
+    Mockito.when(metricsFactory.getProcessMetricsFactory()).thenReturn(processMetricsFactory);
 
     new PeriodicLuceneIndexRefresher(
         Executors.newSingleThreadScheduledExecutor(),
@@ -126,6 +132,7 @@ public class PeriodicLuceneIndexRefresherTest {
         metricsFactory);
 
     Assert.assertTrue(refreshed.await(5, TimeUnit.SECONDS));
+    Timer timer = registry.get("test.refreshDurations").timer();
     Assert.assertTrue(timer.totalTime(TimeUnit.MILLISECONDS) >= 0);
     Assert.assertTrue(timer.count() >= 1);
   }

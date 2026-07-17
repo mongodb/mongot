@@ -69,7 +69,7 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
       MaterializedViewCollectionMetadataCatalog matViewCollectionMetadataCatalog,
       MetricsFactory metricsFactory) {
     super(clock, context, mongoClient, lastScannedToken, metricsFactory, false);
-    this.preprocessingBatchTimer = metricsFactory.timer(PREPROCESSING_BATCH_DURATIONS);
+    this.preprocessingBatchTimer = metricsFactory.timerSec(PREPROCESSING_BATCH_DURATIONS);
     Check.checkState(
         !context.useNaturalOrderScan(),
         "AutoEmbeddingSortedIdCollectionScanner should not be used with natural order scan");

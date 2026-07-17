@@ -398,7 +398,7 @@ public class MetricsFactoryTest {
     metricsFactory.numGauge("numGauge");
     metricsFactory.objectValueGauge("objectValueGauge", new ArrayList<>(), ArrayList::size);
     metricsFactory.collectionSizeGauge("collectionGauge", new ArrayList<>());
-    metricsFactory.timer("timer");
+    metricsFactory.timerSec("timer");
     metricsFactory.summary("histogram", new double[0]);
 
     Assert.assertEquals(6, metricsFactory.getAllRegisteredMeters().size());

@@ -88,7 +88,7 @@ public class CommandRegistry {
       // To avoid triggering lookups for each command, the metric is cached in this class.
       if (detailedStats) {
         this.totalTimer =
-            commandMetricsFactory.timer(String.format("%sCommandTotalLatency", commandName));
+            commandMetricsFactory.timerSec(String.format("%sCommandTotalLatency", commandName));
         this.serializationTimer =
             Optional.of(
                 commandMetricsFactory.timer(

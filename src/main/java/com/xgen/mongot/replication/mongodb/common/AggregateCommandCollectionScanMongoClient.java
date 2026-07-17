@@ -46,7 +46,7 @@ public class AggregateCommandCollectionScanMongoClient<E extends Exception>
         initialSyncMetricsUpdaterOpt,
         collectionScanGetMoreBatchSize);
     this.command = command;
-    this.openScanTimer = metricsFactory.timer("openScanDurations");
+    this.openScanTimer = metricsFactory.timerSec("openScanDurations");
   }
 
   @Override

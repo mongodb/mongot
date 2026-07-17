@@ -77,8 +77,8 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
     this.clusterTimeProvider = clusterTimeProvider;
     this.collectionScanTime = collectionScanTime;
     this.resumeInfo = resumeInfo;
-    this.collectionScanTimer = metricsFactory.timer("collectionScanTime");
-    this.changeStreamTimer = metricsFactory.timer("changeStreamTime");
+    this.collectionScanTimer = metricsFactory.timerSec("collectionScanTime");
+    this.changeStreamTimer = metricsFactory.timerSec("changeStreamTime");
     this.mongoClient = mongoClient;
     this.fsyncSuccessDurationTimer =
         metricsFactory.timer("fsyncDuration", Tags.of("outcome", "success"));

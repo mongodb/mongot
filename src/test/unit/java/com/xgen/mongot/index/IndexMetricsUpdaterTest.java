@@ -696,7 +696,7 @@ public class IndexMetricsUpdaterTest {
             .getVectorResultLatencyTimer()
             .record(Duration.ofMillis(100));
         var vectorBatchLatencies =
-            metricsFactory.get("vectorResultLatencies").tag("indexFeatureVersion", "4").timer();
+            metricsFactory.get("vectorResultLatencies").tag("indexType", "vector_search").timer();
         assertThat(vectorBatchLatencies.totalTime(TimeUnit.MILLISECONDS)).isEqualTo(100);
       }
 

@@ -87,7 +87,7 @@ public abstract class CollectionScanCommandMongoClient<E extends Exception>
     this.refreshingSession = refreshingSession;
     // TODO(CLOUDP-289914): Remove this getMoreTimer after switching to new one by
     // IndexMetricsUpdater
-    this.getMoreTimer = metricsFactory.timer("getMoreDurations");
+    this.getMoreTimer = metricsFactory.timerSec("getMoreDurations");
     this.namespace = namespace;
     this.namespaceChangeCheck = namespaceChangeCheck;
     this.futureWrapper = futureWrapper;
