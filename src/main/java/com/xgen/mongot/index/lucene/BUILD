@@ -5,6 +5,7 @@ java_library(
     srcs = [
         "AbstractLuceneSearchManager.java",
         "AccumulatorCollectorManager.java",
+        "AggregationIntermediateBatchProducer.java",
         "Comparators.java",
         "DeadlineQueryTimeout.java",
         "DiskIndexBackingStrategy.java",

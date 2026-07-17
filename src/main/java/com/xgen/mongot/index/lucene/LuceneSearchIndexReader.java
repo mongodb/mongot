@@ -80,6 +80,9 @@ import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.Sort;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TopDocs;
+import org.apache.lucene.search.TotalHits;
+import org.bson.BsonArray;
+import org.bson.BsonValue;
 
 /** This class reads from a single Lucene index. */
 @SuppressWarnings("GuardedBy") // Uses LockGuard instead
@@ -963,6 +966,57 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
             query.concurrent()));
   }
 
+  private SearchProducerAndMetaProducer intermediateAggregationCollectorQuery(
+      AggregationCollector aggregationCollector,
+      CollectorQuery query,
+      org.apache.lucene.search.Query luceneQuery,
+      LuceneIndexSearcherReference searcherReference,
+      BatchSizeStrategy batchSizeStrategy,
+      Optional<LuceneUnifiedHighlighter> unifiedHighlighter,
+      Optional<LuceneScoreDetailsManager> scoreDetailsManager,
+      Optional<Sort> luceneSort,
+      Optional<SequenceToken> searchAfter,
+      QueryCursorOptions queryCursorOptions,
+      QueryOptimizationFlags queryOptimizationFlags)
+      throws IOException, InterruptedException, InvalidQueryException {
+    if (!this.featureFlags.isEnabled(Feature.SEARCH_AGGREGATION)) {
+      throw new InvalidQueryException(
+          "Aggregation is not enabled. Please contact support.", InvalidQueryException.Type.STRICT);
+    }
+
+    LuceneSearchManager<AggregationQueryInfo> aggregationSearchManager =
+        this.luceneSearchManagerFactory.newAggregationManager(
+            luceneQuery, luceneSort, searchAfter, this.facetContext, aggregationCollector);
+
+    AggregationQueryInfo collectorQueryInfo =
+        aggregationSearchManager.initialSearch(
+            searcherReference, batchSizeStrategy.adviseNextBatchSize());
+
+    checkState(
+        collectorQueryInfo.topDocs.totalHits.relation() == TotalHits.Relation.EQUAL_TO,
+        "AggregationIntermediateBatchProducer requires an exact count.");
+
+    BsonValue intermediateBson = collectorQueryInfo.getAggregationResult().toIntermediateBson();
+    BsonArray intermediateDocs = intermediateBson.asArray();
+    BatchProducer intermediateProducer =
+        new AggregationIntermediateBatchProducer(
+            intermediateDocs, collectorQueryInfo.topDocs.totalHits.value());
+
+    return new SearchProducerAndMetaProducer(
+        searchBatchProducer(
+            query,
+            aggregationSearchManager,
+            collectorQueryInfo.topDocs,
+            collectorQueryInfo.luceneExhausted,
+            batchSizeStrategy,
+            searcherReference,
+            unifiedHighlighter,
+            scoreDetailsManager,
+            queryCursorOptions,
+            queryOptimizationFlags),
+        intermediateProducer);
+  }
+
   private SearchProducerAndMetaProducer intermediateOperatorQuery(
       OperatorQuery query,
       org.apache.lucene.search.Query luceneQuery,
@@ -1060,9 +1114,20 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
           }
         }
       }
-      case AggregationCollector aggregationCollector ->
-          throw new UnsupportedOperationException(
-              "Aggregation is not supported in intermediate queries");
+      case AggregationCollector aggregationCollector -> {
+        return intermediateAggregationCollectorQuery(
+            aggregationCollector,
+            query,
+            luceneQuery,
+            searcherReference,
+            batchSizeStrategy,
+            unifiedHighlighter,
+            scoreDetailsManager,
+            luceneSort,
+            searchAfter,
+            queryCursorOptions,
+            queryOptimizationFlags);
+      }
     }
     return intermediateFacetCollectorQuery(
         query,
