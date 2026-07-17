@@ -76,6 +76,15 @@ public class ReplicationIndexManager implements IndexManager {
    */
   public static final Duration DEFAULT_TRANSIENT_BACKOFF = Duration.ofSeconds(30);
 
+  /**
+   * System property specifying the perf-test force-merge-after-initial-sync target segment count.
+   * It is baked into the mongot binary the perf framework builds (via the {@code upload_artifacts}
+   * job), which passes {@code -D<this property>=<n>} on the JVM command line, so perf runs get an
+   * index merged down to {@code n} segments.
+   */
+  static final String FORCE_MERGE_MAX_NUM_SEGMENTS_PROPERTY =
+      "mongot.perf.forceMergeMaxNumSegments";
+
   private static final String EMPTY_EXCEPTION_METRIC_FIELD = "None";
   private static final String INDEX_DROPPED_COUNTER_UNKNOWN_TAG = "unknown";
   // Base name of the auto-embedding internal-search database. Kept in sync with
@@ -648,6 +657,10 @@ public class ReplicationIndexManager implements IndexManager {
       return null;
     }
 
+    // maybeForceMergeAfterInitialSync() can take a long time to complete, and since this method is
+    // synchronized, it holds the manager's monitor for that whole duration
+    // -- e.g. shutdown() will block until the merge finishes.
+    maybeForceMergeAfterInitialSync();
     resumeSteadyState(resumeInfo);
     return null;
   }
@@ -885,6 +898,23 @@ public class ReplicationIndexManager implements IndexManager {
       this.recordReplicationExceptionMetric(e);
       this.handleSteadyStateExceptionAfterManagerShutdown(e, Optional.empty());
     }
+  }
+
+  private void maybeForceMergeAfterInitialSync() {
+    String maxNumSegmentsProperty = System.getProperty(FORCE_MERGE_MAX_NUM_SEGMENTS_PROPERTY);
+    if (isShutDown() || maxNumSegmentsProperty == null) {
+      return;
+    }
+    int maxNumSegments = Integer.parseInt(maxNumSegmentsProperty);
+
+    this.logger.info("Force-merging index to {} segment(s) after initial sync.", maxNumSegments);
+    Crash.because("failed to force-merge index after initial sync")
+        .ifThrowsExceptionOrError(
+            () -> {
+              this.index.getWriter().forceMerge(maxNumSegments);
+              this.documentIndexer.commit();
+              this.index.getReader().refresh();
+            });
   }
 
   private synchronized void handleSteadyStateException(Throwable throwable) {

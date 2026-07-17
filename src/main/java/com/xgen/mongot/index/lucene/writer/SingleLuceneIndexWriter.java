@@ -699,6 +699,20 @@ public class SingleLuceneIndexWriter implements LuceneIndexWriter {
     }
   }
 
+  @Override
+  public void forceMerge(int maxNumSegments) throws IOException {
+    try (LockGuard ignored = LockGuard.with(this.shutdownSharedLock)) {
+      ensureOpen("forceMerge");
+      this.logger.atInfo().addKeyValue("maxNumSegments", maxNumSegments).log("Force-merging index");
+      try {
+        this.luceneWriter.forceMerge(maxNumSegments);
+      } catch (Exception e) {
+        recordIndexingFailure(e, "forceMerge");
+        throw e;
+      }
+    }
+  }
+
   /**
    * Internal method to cancel merges without checking if the writer is open. This is used by
    * close() to cancel merges during the close process.

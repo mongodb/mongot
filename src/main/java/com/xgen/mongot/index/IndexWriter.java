@@ -115,4 +115,15 @@ public interface IndexWriter extends Closeable {
    * @throws IOException if there is an error during merge cancellation
    */
   void cancelMerges() throws IOException;
+
+  /**
+   * Force-merges the index down to at most {@code maxNumSegments} segments.
+   *
+   * <p>The default implementation is a no-op for writer implementations that do not support
+   * force-merging.
+   *
+   * @param maxNumSegments the maximum number of segments to merge down to (e.g. {@code 1})
+   * @throws IOException if there is an error during the merge
+   */
+  default void forceMerge(int maxNumSegments) throws IOException {}
 }

@@ -15,6 +15,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
@@ -654,6 +655,80 @@ public class ReplicationIndexManagerTest {
                   .getReplicationOpTimeInfo()
                   .snapshot())
           .isPresent();
+    }
+  }
+
+  @Test
+  public void testForceMergeAfterInitialSyncEnabledBySystemProperty() throws Exception {
+    System.setProperty(ReplicationIndexManager.FORCE_MERGE_MAX_NUM_SEGMENTS_PROPERTY, "1");
+    try (Mocks mocks = Mocks.successfulInitialSync()) {
+      IndexWriter writer = mocks.index.getWriter();
+
+      InOrder inOrder = Mockito.inOrder(mocks.index, writer, mocks.documentIndexer);
+      inOrder.verify(writer, timeout(1000)).forceMerge(1);
+      inOrder.verify(mocks.documentIndexer, timeout(1000)).commit();
+      inOrder
+          .verify(mocks.index, timeout(1000))
+          .setStatus(indexStatusWithCode(IndexStatus.StatusCode.STEADY));
+
+      mocks.assertStateTransitions(
+          IndexManager.State.INITIAL_SYNC, IndexManager.State.STEADY_STATE);
+    } finally {
+      System.clearProperty(ReplicationIndexManager.FORCE_MERGE_MAX_NUM_SEGMENTS_PROPERTY);
+    }
+  }
+
+  @Test
+  public void testForceMergeAfterInitialSyncUsesConfiguredSegmentCount() throws Exception {
+    System.setProperty(ReplicationIndexManager.FORCE_MERGE_MAX_NUM_SEGMENTS_PROPERTY, "4");
+    try (Mocks mocks = Mocks.successfulInitialSync()) {
+      IndexWriter writer = mocks.index.getWriter();
+
+      InOrder inOrder = Mockito.inOrder(mocks.index, writer, mocks.documentIndexer);
+      inOrder.verify(writer, timeout(1000)).forceMerge(4);
+      inOrder.verify(mocks.documentIndexer, timeout(1000)).commit();
+      inOrder
+          .verify(mocks.index, timeout(1000))
+          .setStatus(indexStatusWithCode(IndexStatus.StatusCode.STEADY));
+
+      mocks.assertStateTransitions(
+          IndexManager.State.INITIAL_SYNC, IndexManager.State.STEADY_STATE);
+    } finally {
+      System.clearProperty(ReplicationIndexManager.FORCE_MERGE_MAX_NUM_SEGMENTS_PROPERTY);
+    }
+  }
+
+  @Test
+  public void testNoForceMergeAfterInitialSyncWhenPropertyUnset() throws Exception {
+    try (Mocks mocks = Mocks.successfulInitialSync()) {
+      IndexWriter writer = mocks.index.getWriter();
+
+      verify(mocks.steadyStateManager, timeout(1000))
+          .add(any(), any(), any(), any(), any(), anyBoolean());
+      verify(writer, never()).forceMerge(anyInt());
+
+      mocks.assertStateTransitions(
+          IndexManager.State.INITIAL_SYNC, IndexManager.State.STEADY_STATE);
+    }
+  }
+
+  @Test
+  public void testNoForceMergeWhenResumingSteadyStateFromRestart() throws Exception {
+    System.setProperty(ReplicationIndexManager.FORCE_MERGE_MAX_NUM_SEGMENTS_PROPERTY, "1");
+    try (Mocks mocks = Mocks.validUserData(FeatureFlags.withDefaults().build())) {
+      IndexWriter writer = mocks.index.getWriter();
+
+      verify(mocks.steadyStateManager, timeout(5000))
+          .add(eq(MOCK_INDEX_GENERATION_ID), any(), any(), any(), any(), anyBoolean());
+      verify(mocks.index, timeout(1000))
+          .setStatus(indexStatusWithCode(IndexStatus.StatusCode.STEADY));
+      // This resume did not come from initial sync, so no force-merge should have occurred.
+      verify(writer, never()).forceMerge(anyInt());
+
+      mocks.assertStateTransitions(
+          IndexManager.State.INITIALIZING, IndexManager.State.STEADY_STATE);
+    } finally {
+      System.clearProperty(ReplicationIndexManager.FORCE_MERGE_MAX_NUM_SEGMENTS_PROPERTY);
     }
   }
 

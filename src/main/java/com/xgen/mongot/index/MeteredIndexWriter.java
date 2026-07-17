@@ -67,6 +67,11 @@ public class MeteredIndexWriter implements IndexWriter {
     this.indexWriter.cancelMerges();
   }
 
+  @Override
+  public void forceMerge(int maxNumSegments) throws IOException {
+    this.indexWriter.forceMerge(maxNumSegments);
+  }
+
   @VisibleForTesting
   public IndexWriter getWrapped() {
     return this.indexWriter;

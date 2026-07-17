@@ -176,6 +176,12 @@ public class MultiLuceneIndexWriter implements LuceneIndexWriter {
     CheckedStream.from(this.indexWriters).forEachChecked(IndexWriter::cancelMerges);
   }
 
+  @Override
+  public void forceMerge(int maxNumSegments) throws IOException {
+    CheckedStream.from(this.indexWriters)
+        .forEachChecked(indexWriter -> indexWriter.forceMerge(maxNumSegments));
+  }
+
   public List<SingleLuceneIndexWriter> getSingleLuceneIndexWriters() {
     return this.indexWriters;
   }
