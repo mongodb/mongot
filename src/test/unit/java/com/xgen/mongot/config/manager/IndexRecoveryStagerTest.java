@@ -10,6 +10,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
@@ -20,6 +21,7 @@ import com.mongodb.MongoNamespace;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.index.InitializedVectorIndex;
 import com.xgen.mongot.index.autoembedding.UnresolvedAutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
@@ -30,6 +32,7 @@ import com.xgen.testing.mongot.config.manager.ConfigStateMocks;
 import com.xgen.testing.mongot.mock.index.MaterializedViewIndex;
 import com.xgen.testing.mongot.mock.index.VectorIndex;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -272,6 +275,57 @@ public class IndexRecoveryStagerTest {
     var stagedIndex = mocks.staged.getIndex(VectorIndex.MOCK_INDEX_ID);
     assertTrue(
         "Unresolved auto-embedding index with UNKNOWN reason should be staged for recovery",
+        stagedIndex.isPresent());
+    assertEquals(
+        definitionGeneration.generation().nextAttempt(),
+        stagedIndex.get().getGenerationId().generation);
+  }
+
+  @Test
+  public void unresolvedAutoEmbeddingIndex_staleOfflineServing_isStagedForRecoveryFromLiveCatalog()
+      throws Exception {
+    var mocks = getEmptyMocks();
+
+    // A live, unresolved auto-embedding index whose on-disk derived Lucene was queryable at commit
+    // time: it serves offline from the reconstructed derived index and reports a real STALE status,
+    // so it parks in the live indexCatalog and recovery re-stages it by type (not by a recoverable
+    // FAILED reason).
+    var definitionGeneration =
+        mockDefinitionGeneration(
+            VectorIndex.MOCK_MATERIALIZED_VIEW_AUTO_EMBEDDING_INDEX_DEFINITION);
+    InitializedVectorIndex reconstructed = mock(InitializedVectorIndex.class);
+    when(reconstructed.getStatus())
+        .thenReturn(IndexStatus.stale("serving offline", new BsonTimestamp(1, 1)));
+    var unresolvedIndex =
+        UnresolvedAutoEmbeddingIndexGeneration.createStale(
+            definitionGeneration, reconstructed, Map.of());
+    mocks.indexCatalog.addIndex(unresolvedIndex);
+
+    assertEquals(
+        IndexStatus.StatusCode.STALE, unresolvedIndex.getIndex().getStatus().getStatusCode());
+    // Recovery is driven by type for a STALE offline-serving index, not by canBeRecovered().
+    assertFalse(unresolvedIndex.getIndex().getStatus().canBeRecovered());
+
+    // Materialized view is resolvable again (mongod reachable).
+    reset(mocks.configState.materializedViewIndexFactory.get());
+    when(mocks
+            .configState
+            .materializedViewIndexFactory
+            .get()
+            .getIndex(any(IndexDefinitionGeneration.class)))
+        .thenAnswer(
+            invocation ->
+                MaterializedViewIndex.mockIndex(
+                    (MaterializedViewIndexDefinitionGeneration) invocation.getArgument(0)));
+
+    // Recovery must stage a new attempt for the live queryable index (driven off the live
+    // indexCatalog via IndexRecoveryStager::getRecoveringIndexesToStage).
+    stageIndexes(mocks, Set.of());
+
+    var stagedIndex = mocks.staged.getIndex(VectorIndex.MOCK_INDEX_ID);
+    assertTrue(
+        "Queryable unresolved auto-embedding index in the live catalog should be staged for "
+            + "recovery",
         stagedIndex.isPresent());
     assertEquals(
         definitionGeneration.generation().nextAttempt(),

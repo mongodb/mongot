@@ -18,9 +18,11 @@ import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.xgen.mongot.config.backup.ConfigJournalV1;
 import com.xgen.mongot.config.manager.metrics.GroupedIndexGenerationMetrics;
@@ -35,6 +37,8 @@ import com.xgen.mongot.index.IndexDetailedStatus;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.IndexInformation;
 import com.xgen.mongot.index.InitializedIndex;
+import com.xgen.mongot.index.InitializedVectorIndex;
+import com.xgen.mongot.index.autoembedding.UnresolvedAutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
@@ -65,6 +69,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -84,6 +89,28 @@ public class DefaultConfigManagerTest {
   public void testInitNoConfigJournal() throws Exception {
     DefaultConfigManagerMocks mocks = DefaultConfigManagerMocks.create();
     mocks.assertEmptyOrNoConfigJournalInit();
+  }
+
+  /**
+   * On clean shutdown an offline-serving unresolved auto-embedding index is closed even though it
+   * is absent from the initialized-index catalog, so its reconstructed Lucene reader does not leak.
+   */
+  @Test
+  public void close_offlineServingAutoEmbeddingIndex_closesReconstructedReader() throws Exception {
+    DefaultConfigManagerMocks mocks = DefaultConfigManagerMocks.create();
+
+    InitializedVectorIndex reconstructed = mock(InitializedVectorIndex.class);
+    when(reconstructed.getStatus()).thenReturn(IndexStatus.steady());
+    IndexGeneration offlineServing =
+        UnresolvedAutoEmbeddingIndexGeneration.createStale(
+            MOCK_VECTOR_INDEX_DEFINITION_GENERATION_CURRENT, reconstructed, Map.of());
+    // Present in the index catalog but never initialized, so absent from the initialized-index
+    // catalog -- the case that previously left the reconstructed reader unclosed on shutdown.
+    mocks.indexCatalog.addIndex(offlineServing);
+
+    mocks.configManager.close();
+
+    verify(reconstructed).close();
   }
 
   /**

@@ -27,6 +27,7 @@ import com.xgen.mongot.index.IndexInformation;
 import com.xgen.mongot.index.analyzer.InvalidAnalyzerDefinitionException;
 import com.xgen.mongot.index.analyzer.definition.OverriddenBaseAnalyzerDefinition;
 import com.xgen.mongot.index.autoembedding.MaterializedViewIndexFactory;
+import com.xgen.mongot.index.autoembedding.UnresolvedAutoEmbeddingIndex;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.IndexDefinitionGenerationProducer;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
@@ -426,6 +427,12 @@ public class DefaultConfigManager implements ConfigManager {
                                     indexGen.getGenerationId());
                             if (initializedIndex.isPresent()) {
                               initializedIndex.get().close();
+                            } else if (indexGen.getIndex()
+                                instanceof UnresolvedAutoEmbeddingIndex unresolved) {
+                              // An offline-serving unresolved auto-embedding index holds an open
+                              // reconstructed Lucene reader but is intentionally kept out of the
+                              // initialized-index catalog, so close it here to release the reader.
+                              unresolved.close();
                             } else {
                               GenerationId generationId = indexGen.getGenerationId();
                               LOG.atWarn()

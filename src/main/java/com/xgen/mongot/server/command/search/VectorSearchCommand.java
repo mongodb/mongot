@@ -38,6 +38,7 @@ import com.xgen.mongot.index.Variables;
 import com.xgen.mongot.index.VectorIndexReader;
 import com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.autoembedding.InitializedMaterializedViewIndex;
+import com.xgen.mongot.index.autoembedding.UnresolvedAutoEmbeddingIndex;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.StoredSourceDefinition;
 import com.xgen.mongot.index.definition.VectorAutoEmbedFieldDefinition;
@@ -714,6 +715,9 @@ public class VectorSearchCommand implements Command {
     InitializedIndex initializedIndex =
         this.initializedIndexCatalog
             .getIndex(index.getGenerationId())
+            // Offline fallback: an unresolved auto-embedding index (mongod unreachable) is absent
+            // from the catalog but may carry a derived Lucene reconstructed from its last commit.
+            .or(() -> offlineReconstructedIndex(index))
             .orElseThrow(
                 () ->
                     new IndexUnavailableException(
@@ -728,6 +732,23 @@ public class VectorSearchCommand implements Command {
     }
 
     return Optional.of(initializedIndex);
+  }
+
+  /**
+   * The derived Lucene index reconstructed offline from an unresolved auto-embedding index's
+   * persisted commit metadata, when present, so a $vectorSearch can serve from the last-committed
+   * data while mongod is unreachable.
+   *
+   * <p>TODO(CLOUDP-363302): stored source is not supported for auto-embedding (the derived
+   * definition carries no {@code storedSource}), so {@code returnStoredSource: true} is rejected
+   * upstream rather than served offline; enable it here once auto-embedding supports stored source.
+   */
+  private static Optional<InitializedIndex> offlineReconstructedIndex(
+      IndexGeneration indexGeneration) {
+    if (indexGeneration.getIndex() instanceof UnresolvedAutoEmbeddingIndex unresolved) {
+      return unresolved.getReconstructedDerivedIndex();
+    }
+    return Optional.empty();
   }
 
   private void addMetadataIfExplain(VectorSearchQuery vectorSearchQuery) {
@@ -967,13 +988,31 @@ public class VectorSearchCommand implements Command {
         .orElse(Set.of());
   }
 
+  // TODO(CLOUDP-423143): this catalog lookup is independent of the one that picks the reader to
+  // serve from, so a generation swap between them can pair a mapping with a reader from different
+  // generations. Resolve the catalog entry once per query instead.
   private Map<FieldPath, FieldPath> findAutoEmbeddingFieldsMapping(
       VectorSearchQuery vectorSearchQuery) {
-    // For mat view based index, needs to use raw index definition to find out fields mapping
-    return resolveMaterializedViewIndex(vectorSearchQuery)
-        .map(
-            materializedViewIndex ->
-                materializedViewIndex.getSchemaMetadata().autoEmbeddingFieldsMapping())
+    // Resolved index: the mapping comes from the materialized view.
+    Optional<InitializedMaterializedViewIndex> materializedViewIndex =
+        resolveMaterializedViewIndex(vectorSearchQuery);
+    if (materializedViewIndex.isPresent()) {
+      return materializedViewIndex.get().getSchemaMetadata().autoEmbeddingFieldsMapping();
+    }
+    // Offline (view unresolved): fall back to the mapping persisted with the reconstructed index,
+    // without which query paths would not be remapped to the derived Lucene path.
+    return this.indexCatalog
+        .getIndex(
+            this.definition.db(),
+            this.definition.collectionUuid(),
+            this.definition.viewName(),
+            vectorSearchQuery.index())
+        .map(IndexGeneration::getIndex)
+        .flatMap(
+            index ->
+                index instanceof UnresolvedAutoEmbeddingIndex unresolved
+                    ? Optional.of(unresolved.getAutoEmbeddingFieldsMapping())
+                    : Optional.empty())
         .orElse(Map.of());
   }
 

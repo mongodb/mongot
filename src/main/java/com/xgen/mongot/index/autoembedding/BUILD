@@ -24,6 +24,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/status",
         "//src/main/java/com/xgen/mongot/index/version",
         "//src/main/java/com/xgen/mongot/replication/mongodb/common",
+        "//src/main/java/com/xgen/mongot/util",
         "@maven//:org_mongodb_bson",
     ],
     deps = [

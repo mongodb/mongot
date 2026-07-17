@@ -20,14 +20,20 @@ import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinitionGeneration;
+import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.MaterializedViewGeneration;
 import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingCommitMetadata;
 import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
+import com.xgen.mongot.replication.mongodb.common.ResumeTokenUtils;
 import com.xgen.mongot.util.Check;
+import com.xgen.mongot.util.FieldPath;
 import java.io.IOException;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
+import org.apache.commons.codec.DecoderException;
+import org.bson.BsonTimestamp;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -61,15 +67,12 @@ public class AutoEmbeddingIndexGenerationFactory {
                 >= MIN_VERSION_FOR_MATERIALIZED_VIEW_EMBEDDING,
         "Input definition is not materialized view based auto-embedding index");
 
-    // Source collection not on this node's mongod (e.g. unsharded collection on a non-owner
-    // shard): skip the MV collection, lease, and leaderStatus gauge, and report
-    // COLLECTION_NOT_FOUND so the recovery loop re-stages the index when the collection appears
-    // on this shard.
+    // Source collection absent on this node's mongod (e.g. unsharded collection on a non-owner
+    // shard): skip the MV, lease, and leaderStatus gauge and report COLLECTION_NOT_FOUND so the
+    // recovery loop re-stages once the collection appears on this shard.
     if (matViewIndexFactory.isSourceCollectionAbsentOnMongod(indexDef)) {
-      // Debug, not info: this fires whenever the index is (re)added/staged (e.g. on every restart)
-      // for non-owner shards that don't host the collection — the steady-state case this PR
-      // targets — so keep it quiet. The COLLECTION_NOT_FOUND index status is the durable signal;
-      // the index add itself is already logged by the caller (IndexActions).
+      // Debug, not info: fires on every (re)add/stage for non-owner shards, so keep it quiet. The
+      // COLLECTION_NOT_FOUND status is the durable signal.
       LOG.atDebug()
           .addKeyValue("generationId", rawDefinitionGeneration.getGenerationId())
           .addKeyValue("database", indexDef.getDatabase())
@@ -93,8 +96,11 @@ public class AutoEmbeddingIndexGenerationFactory {
           .log(
               "Failed to create materialized view index, "
                   + "creates unresolved index instead, will retry it when sync source is updated.");
-      return UnresolvedAutoEmbeddingIndexGeneration.createFailed(
-          rawDefinitionGeneration, e.getReason());
+      return staleOfflineServingGeneration(indexFactory, rawDefinitionGeneration)
+          .orElseGet(
+              () ->
+                  UnresolvedAutoEmbeddingIndexGeneration.createFailed(
+                      rawDefinitionGeneration, e.getReason()));
     }
 
     IndexDefinitionGeneration derivedDefGen =
@@ -123,38 +129,30 @@ public class AutoEmbeddingIndexGenerationFactory {
   }
 
   /**
-   * Reconstructs the derived Lucene vector index for querying while mongod is unreachable, using
-   * only the {@link AutoEmbeddingCommitMetadata} persisted in the derived index's last on-disk
-   * commit -- no materialized view, lease, or mongod. This proves the persisted metadata is
-   * self-sufficient: the raw definition (control-plane config) supplies the field shape, and the
-   * commit supplies the resolved (tenant-namespaced) database name, collection UUID, and schema
-   * mapping needed to rebuild the derived definition. The derived generation reuses the raw
-   * generation, so it maps to the same on-disk directory the derived Lucene last committed to.
+   * Reconstructs the derived Lucene vector index for offline querying using only the {@link
+   * AutoEmbeddingCommitMetadata} in the last on-disk commit (no materialized view or mongod): the
+   * raw definition supplies the field shape and the commit supplies the resolved database name,
+   * collection UUID, and schema mapping. The derived generation reuses the raw generation, so it
+   * maps to the same directory the derived Lucene last committed to.
    *
-   * <p>Returns empty when the commit lacks the reconstruction metadata (a derived Lucene last
-   * committed by a binary that wrote {@code wasMatViewReady} alone), the raw definition is not a
-   * vector index, or rebuilding the derived definition / opening the on-disk index fails -- this is
-   * a best-effort fallback, so any failure (including malformed or incompatible persisted schema
-   * metadata, which surfaces as an unchecked exception) degrades to empty rather than propagating.
-   *
-   * <p>Reconstruction is intentionally not gated on {@code wasMatViewReady}: this helper rebuilds
-   * whatever the last on-disk commit persisted, regardless of whether the materialized view had
-   * reached readiness. Whether that on-disk data is complete enough to answer queries is a separate
-   * decision the caller makes from the persisted {@code wasMatViewReady} signal (see {@link
-   * AutoEmbeddingCommitMetadata#wasMatViewReady()}) -- only a snapshot committed while the view was
-   * ready is reported queryable and served; an unready snapshot may still be reconstructed here but
-   * is never exposed for querying.
+   * <p>Best-effort: returns empty when the commit lacks reconstruction metadata, the raw definition
+   * is not a vector index, or rebuilding/opening fails (any exception degrades to empty). Not gated
+   * on {@code wasMatViewReady} -- the caller decides from that signal whether to serve.
    */
   public static Optional<InitializedIndex> reconstructOfflineDerivedVectorIndex(
       IndexFactory indexFactory, IndexDefinitionGeneration rawDefinitionGeneration) {
-    Optional<AutoEmbeddingCommitMetadata> metadata =
-        indexFactory
-            .readPersistedCommitUserData(rawDefinitionGeneration)
-            .map(
-                encoded ->
-                    IndexCommitUserData.fromEncodedData(
-                        encoded, Optional.of(rawDefinitionGeneration.getGenerationId())))
-            .flatMap(IndexCommitUserData::getAutoEmbeddingMetadata);
+    return reconstructOfflineDerivedVectorIndex(
+        indexFactory,
+        rawDefinitionGeneration,
+        readPersistedCommit(indexFactory, rawDefinitionGeneration)
+            .flatMap(IndexCommitUserData::getAutoEmbeddingMetadata));
+  }
+
+  /** Reconstructs from already-read commit metadata, reusing the caller's snapshot. */
+  private static Optional<InitializedIndex> reconstructOfflineDerivedVectorIndex(
+      IndexFactory indexFactory,
+      IndexDefinitionGeneration rawDefinitionGeneration,
+      Optional<AutoEmbeddingCommitMetadata> metadata) {
     if (metadata.isEmpty()) {
       return Optional.empty();
     }
@@ -170,11 +168,8 @@ public class AutoEmbeddingIndexGenerationFactory {
       return Optional.empty();
     }
     try {
-      // Inside the try: reconstructing the derived definition from persisted schema metadata can
-      // throw unchecked if that metadata is malformed or incompatible. This is a best-effort
-      // offline fallback, so degrade to empty. The reconstructed index is returned as the base
-      // InitializedIndex (always Lucene-backed) rather than narrowed to InitializedVectorIndex --
-      // auto-embedding on search indexes will produce a non-vector derived Lucene index too.
+      // Rebuilding from persisted schema metadata can throw unchecked (malformed/incompatible); the
+      // catch degrades to empty. Returned as the base InitializedIndex (always Lucene-backed).
       VectorIndexDefinition derivedDefinition =
           getDerivedVectorIndexDefinition(
               vectorDef,
@@ -193,6 +188,97 @@ public class AutoEmbeddingIndexGenerationFactory {
           .log("Failed to reconstruct derived Lucene index offline from persisted commit metadata");
       return Optional.empty();
     }
+  }
+
+  /**
+   * Brings up the on-disk derived Lucene as a degraded, query-only STALE generation when the last
+   * commit says the view was ready and an optime can be recovered. Query-only because no
+   * replication runs: mongod is unreachable, so there is no composite writer and the reconstructed
+   * index only serves reads. The reconstructed index is set STALE as of that optime and serves
+   * queries until mongod returns. Empty (caller falls back to FAILED/retry) when the view was not
+   * ready, no optime is recoverable, or reconstruction fails.
+   */
+  private static Optional<UnresolvedAutoEmbeddingIndexGeneration> staleOfflineServingGeneration(
+      IndexFactory indexFactory, IndexDefinitionGeneration rawDefinitionGeneration) {
+    Optional<IndexCommitUserData> commit =
+        readPersistedCommit(indexFactory, rawDefinitionGeneration);
+    Optional<AutoEmbeddingCommitMetadata> metadata =
+        commit.flatMap(IndexCommitUserData::getAutoEmbeddingMetadata);
+    if (!metadata.map(AutoEmbeddingCommitMetadata::wasMatViewReady).orElse(false)) {
+      return Optional.empty();
+    }
+    // Validate the optime before reconstructing, so a rejected commit skips the work and never
+    // leaves a reader open.
+    Optional<BsonTimestamp> optime =
+        commit.flatMap(AutoEmbeddingIndexGenerationFactory::lastCommittedOptime);
+    if (optime.isEmpty()) {
+      return Optional.empty();
+    }
+    Optional<InitializedIndex> reconstructed =
+        reconstructOfflineDerivedVectorIndex(indexFactory, rawDefinitionGeneration, metadata);
+    if (reconstructed.isEmpty()) {
+      return Optional.empty();
+    }
+    reconstructed
+        .get()
+        .setStatus(
+            IndexStatus.stale(
+                "Serving Automated Embedding index from last committed data while its source is "
+                    + "unavailable",
+                optime.get()));
+    return Optional.of(
+        UnresolvedAutoEmbeddingIndexGeneration.createStale(
+            rawDefinitionGeneration,
+            reconstructed.get(),
+            persistedAutoEmbeddingFieldsMapping(metadata)));
+  }
+
+  /**
+   * The last committed optime for the STALE status: the explicit stale-state optime, else decoded
+   * from the change-stream resume token. Empty when the commit carries neither.
+   */
+  private static Optional<BsonTimestamp> lastCommittedOptime(IndexCommitUserData commit) {
+    if (commit.getStaleStateInfo().isPresent()) {
+      return Optional.of(commit.getStaleStateInfo().get().getLastOptime());
+    }
+    if (commit.getResumeInfo().isEmpty()) {
+      return Optional.empty();
+    }
+    try {
+      return Optional.of(
+          ResumeTokenUtils.opTimeFromResumeToken(commit.getResumeInfo().get().getResumeToken()));
+    } catch (DecoderException | RuntimeException e) {
+      // A malformed resume token must not abort resolution; without an optime the caller falls back
+      // to FAILED/retry.
+      LOG.atWarn()
+          .setCause(e)
+          .log("Failed to decode last committed optime from persisted resume token");
+      return Optional.empty();
+    }
+  }
+
+  /** Reads the derived index's last on-disk commit without contacting mongod. */
+  private static Optional<IndexCommitUserData> readPersistedCommit(
+      IndexFactory indexFactory, IndexDefinitionGeneration rawDefinitionGeneration) {
+    return indexFactory
+        .readPersistedCommitUserData(rawDefinitionGeneration)
+        .map(
+            encoded ->
+                IndexCommitUserData.fromEncodedData(
+                    encoded, Optional.of(rawDefinitionGeneration.getGenerationId())));
+  }
+
+  /**
+   * The persisted user-to-internal field mapping (e.g. {@code "title" -> "_autoEmbed.title"}) used
+   * to remap query paths while serving offline, since the unresolved view cannot supply it. Empty
+   * when the commit carries no collection metadata.
+   */
+  private static Map<FieldPath, FieldPath> persistedAutoEmbeddingFieldsMapping(
+      Optional<AutoEmbeddingCommitMetadata> commitMetadata) {
+    return commitMetadata
+        .flatMap(AutoEmbeddingCommitMetadata::materializedViewCollectionMetadata)
+        .map(metadata -> metadata.schemaMetadata().autoEmbeddingFieldsMapping())
+        .orElse(Map.of());
   }
 
   static MaterializedViewIndexDefinitionGeneration createMaterializedViewIndexDefinitionGeneration(
@@ -222,9 +308,8 @@ public class AutoEmbeddingIndexGenerationFactory {
                 matViewIndex.getMaterializedViewDatabaseName(),
                 matViewIndex.getMaterializedViewCollectionUuid(),
                 matViewIndex.getSchemaMetadata());
-        // A search-typed IndexDefinition reaches the factory only via
-        // SearchIndexDefinitionGeneration.
-        // MaterializedViewIndexDefinitionGeneration is constructed by this factory, not passed in.
+        // A search-typed definition reaches the factory only via SearchIndexDefinitionGeneration;
+        // MaterializedViewIndexDefinitionGeneration is built here, not passed in.
         SearchIndexDefinitionGeneration rawSearchGen =
             Check.instanceOf(rawDefinitionGeneration, SearchIndexDefinitionGeneration.class);
         AnalyzerBoundSearchIndexDefinition analyzerBound =

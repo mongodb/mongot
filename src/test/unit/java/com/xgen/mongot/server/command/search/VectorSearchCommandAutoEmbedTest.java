@@ -36,7 +36,9 @@ import com.xgen.mongot.index.ReaderClosedException;
 import com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.autoembedding.InitializedMaterializedViewIndex;
 import com.xgen.mongot.index.autoembedding.MaterializedViewIndexGeneration;
+import com.xgen.mongot.index.autoembedding.UnresolvedAutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
+import com.xgen.mongot.index.definition.VectorIndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.index.lucene.LuceneVectorIndex;
@@ -47,6 +49,7 @@ import com.xgen.mongot.index.query.VectorSearchQuery;
 import com.xgen.mongot.index.query.operators.VectorSearchFilter;
 import com.xgen.mongot.index.query.operators.VectorSearchQueryInput;
 import com.xgen.mongot.index.query.operators.mql.Clause;
+import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.index.version.MaterializedViewGeneration;
 import com.xgen.mongot.index.version.MaterializedViewGenerationId;
@@ -168,6 +171,64 @@ public class VectorSearchCommandAutoEmbedTest {
     Assert.assertEquals(1, command.getAutoEmbeddingVectorSearchQueries().count(), 0);
     Assert.assertEquals(1, command.getAutoEmbeddingTextQueries().count(), 0);
     Assert.assertEquals(0, command.getAutoEmbeddingMultiModalQueries().count(), 0);
+  }
+
+  @Test
+  public void run_unresolvedAutoEmbeddingOffline_servesFromReconstructedDerivedIndex()
+      throws Exception {
+    var mocks = new Mocks();
+
+    // The derived Lucene index reconstructed offline from the persisted commit, exposed by the
+    // unresolved auto-embedding generation while mongod is unreachable.
+    var reconstructed = Mockito.mock(InitializedVectorIndex.class);
+    when(reconstructed.getDefinition())
+        .thenReturn(
+            VectorIndexDefinitionBuilder.builder()
+                .withDotProductVectorField(PATH.toString(), 3)
+                .build());
+    when(reconstructed.getReader()).thenReturn(mocks.reader);
+    lenient().when(reconstructed.asVectorIndex()).thenCallRealMethod();
+    when(reconstructed.getMetricsUpdater()).thenReturn(mocks.metricsUpdater);
+    // The unresolved generation delegates its status to the reconstructed index (STALE offline).
+    lenient().when(reconstructed.getStatus()).thenReturn(IndexStatus.steady());
+
+    // The catalog holds an UnresolvedAutoEmbeddingIndexGeneration (materialized view
+    // unresolved) that carries the reconstructed derived index; it is absent from the
+    // initialized-index catalog, so the query falls through to the offline-reconstructed index.
+    var rawGen =
+        new VectorIndexDefinitionGeneration(
+            VectorIndexDefinitionBuilder.builder().withAutoEmbedField(PATH.toString()).build(),
+            Generation.CURRENT);
+    var unresolvedGeneration =
+        UnresolvedAutoEmbeddingIndexGeneration.createStale(rawGen, reconstructed, Map.of());
+    when(mocks.catalog.getIndex(DATABASE_NAME, COLLECTION_UUID, Optional.empty(), INDEX_NAME))
+        .thenReturn(Optional.of(unresolvedGeneration));
+    when(mocks.initializedIndexCatalog.getIndex(unresolvedGeneration.getGenerationId()))
+        .thenReturn(Optional.empty());
+
+    var command =
+        buildAutoEmbeddingVectorSearchCommandWithMocks(
+            mocks,
+            VectorQueryBuilder.builder()
+                .index(INDEX_NAME)
+                .criteria(
+                    ApproximateVectorQueryCriteriaBuilder.builder()
+                        .limit(LIMIT)
+                        .numCandidates(NUM_CANDIDATES)
+                        .queryVector(QUERY_VECTOR)
+                        .path(PATH)
+                        .build())
+                .build());
+    var result = command.run();
+
+    // Served from the reconstructed derived index's reader via the offline fallback, not the
+    // initialized-index catalog. This covers the fallback routing and serving only; it does not
+    // exercise user-to-internal path remapping, which is not applied for an unresolved generation.
+    Mockito.verify(mocks.reader, times(1)).query(any(), any());
+    var expected =
+        mockInitialMongotCursorBatchForVectorSearch(0, new VectorSearchResultBatch(4), NAMESPACE)
+            .toBson();
+    Assert.assertEquals(expected, result);
   }
 
   @Test

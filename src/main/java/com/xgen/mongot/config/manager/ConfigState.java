@@ -455,11 +455,16 @@ public class ConfigState {
         // but is not a transient failure: keep it a quiet DOES_NOT_EXIST and let it recover via
         // the collection-reappearance path (IndexRecoveryStager), not this transient-retry reset.
         .filter(indexGeneration -> !indexGeneration.getIndex().getStatus().isCollectionNotFound())
+        // A STALE index is serving offline from its reconstructed derived Lucene; leave it serving
+        // (IndexRecoveryStager re-stages it by type). Reset the rest to a recoverable RETRY.
+        .filter(
+            indexGeneration ->
+                indexGeneration.getIndex().getStatus().getStatusCode()
+                    != IndexStatus.StatusCode.STALE)
         .forEach(
             unresolvedIndexGeneration ->
                 unresolvedIndexGeneration
                     .getIndex()
-                    // Set a failed status but recoverable (AUTO_EMBEDDING_RESOLUTION_RETRY)
                     .setStatus(
                         IndexStatus.failed(
                             AutoEmbeddingFailureMessages.withFailurePrefix(

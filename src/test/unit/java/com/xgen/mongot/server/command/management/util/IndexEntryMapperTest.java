@@ -28,6 +28,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
+import org.bson.BsonTimestamp;
 import org.bson.types.ObjectId;
 import org.junit.Test;
 
@@ -1050,6 +1051,69 @@ public class IndexEntryMapperTest {
 
     assertNotNull(result);
     assertEquals(emptyCustomerDef, result.latestDefinition());
+  }
+
+  @Test
+  public void testToIndexEntry_staleOfflineServing_reportsStaleAndQueryable() {
+    // An auto-embedding index serving offline from its reconstructed derived Lucene reports a real
+    // STALE status (as of its last committed optime), which is query-serviceable.
+    SearchIndexDefinition definition = createSearchIndexDefinition(1L, TEST_INSTANT);
+    Map<String, IndexStatsEntry> indexStats = new HashMap<>();
+    IndexStatus staleStatus =
+        IndexStatus.stale(
+            "Serving Automated Embedding index from last committed data while its source is "
+                + "unavailable",
+            new BsonTimestamp(1, 1));
+    IndexStatsEntry entry =
+        new IndexStatsEntry(
+            new IndexStatsEntry.IndexStatsKey(TEST_SERVER_ID, TEST_INDEX_ID),
+            IndexDefinition.Type.SEARCH,
+            Optional.of(
+                new IndexStatsEntry.DetailedIndexStats(staleStatus, definition, Optional.empty())),
+            Optional.empty());
+    indexStats.put(TEST_HOSTNAME, entry);
+
+    ListSearchIndexesResponseDefinition.IndexEntry result =
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
+
+    assertEquals("STALE", result.status());
+    assertTrue("STALE is query-serviceable", result.queryable());
+
+    ListSearchIndexesResponseDefinition.HostStatusDetail hostDetail =
+        result.hostStatusDetails().get(0);
+    assertEquals("STALE", hostDetail.status());
+    assertTrue(hostDetail.queryable());
+    assertEquals("STALE", hostDetail.mainIndex().get().status());
+    assertTrue(hostDetail.mainIndex().get().queryable());
+  }
+
+  @Test
+  public void testToIndexEntry_unresolvedAutoEmbeddingNotQueryable_reportsFailed() {
+    // An AE-resolution failure whose on-disk derived Lucene was not queryable keeps reporting
+    // FAILED.
+    SearchIndexDefinition definition = createSearchIndexDefinition(1L, TEST_INSTANT);
+    Map<String, IndexStatsEntry> indexStats = new HashMap<>();
+    IndexStatus unresolvedStatus =
+        IndexStatus.failed(
+            "Unable to create Automated Embedding index at this time",
+            IndexStatus.Reason.AUTO_EMBEDDING_RESOLUTION_FAILED);
+    IndexStatsEntry entry =
+        new IndexStatsEntry(
+            new IndexStatsEntry.IndexStatsKey(TEST_SERVER_ID, TEST_INDEX_ID),
+            IndexDefinition.Type.SEARCH,
+            Optional.of(
+                new IndexStatsEntry.DetailedIndexStats(
+                    unresolvedStatus, definition, Optional.empty())),
+            Optional.empty());
+    indexStats.put(TEST_HOSTNAME, entry);
+
+    ListSearchIndexesResponseDefinition.IndexEntry result =
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
+
+    assertEquals("FAILED", result.status());
+    assertFalse(result.queryable());
   }
 
   private SearchIndexDefinition createSearchIndexDefinition(Long version, Instant createdAt) {

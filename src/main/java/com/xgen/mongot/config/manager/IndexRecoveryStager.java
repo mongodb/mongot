@@ -8,6 +8,7 @@ import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.analyzer.InvalidAnalyzerDefinitionException;
+import com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGenerationFactory;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.status.IndexStatus;
 import java.io.IOException;
@@ -49,7 +50,21 @@ class IndexRecoveryStager {
   private boolean isRecoveringIndex(IndexGeneration indexGeneration) {
     IndexStatus indexStatus = indexGeneration.getIndex().getStatus();
     return indexStatus.getStatusCode() == IndexStatus.StatusCode.RECOVERING_NON_TRANSIENT
-        || indexStatus.canBeRecovered();
+        || indexStatus.canBeRecovered()
+        || isStaleOfflineServingAutoEmbedding(indexGeneration);
+  }
+
+  /**
+   * A live, unresolved auto-embedding index serving offline (reports STALE, not a recoverable
+   * FAILED reason), so it must be re-staged by type to rebuild the full composite once mongod is
+   * reachable.
+   *
+   * <p>TODO(CLOUDP-404773): stage the recovery attempt only once mongod is reachable; staging while
+   * mongod is down produces an attempt that immediately fails and churns drop/re-stage.
+   */
+  private static boolean isStaleOfflineServingAutoEmbedding(IndexGeneration indexGeneration) {
+    return AutoEmbeddingIndexGenerationFactory.isAutoEmbeddingResolutionFailed(indexGeneration)
+        && indexGeneration.getIndex().getStatus().getStatusCode() == IndexStatus.StatusCode.STALE;
   }
 
   private static void logIndexIds(List<IndexGeneration> indexes, String logMessage) {
@@ -170,6 +185,8 @@ class IndexRecoveryStager {
   private List<IndexGeneration> getRetryableStagedIndexes() {
     // we only want to re-stage attempt for failed stage index when it failed during initialization
     // or resolving materialized view collection metadata for auto-embedding index
+    // TODO(CLOUDP-363302): while mongod is unreachable, each re-staged auto-embedding attempt fails
+    // resolution again and churns drop/re-stage; skip re-staging until mongod is reachable.
     return this.configState.staged.getIndexes().stream()
         .filter(
             indexGeneration -> {
