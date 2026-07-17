@@ -1,9 +1,11 @@
 package com.xgen.mongot.util.bson.parser;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.bson.BsonDocument;
 import org.bson.BsonElement;
@@ -26,7 +28,20 @@ public class MapField {
      */
     static <T> FieldBuilder<T> create(
         String name, ValueEncoder<T> valueEncoder, ValueParser<T> valueParser) {
-      return new FieldBuilder<>(name, new Encoder<>(valueEncoder), new Parser<>(valueParser));
+      return new FieldBuilder<>(
+          name, new Encoder<>(valueEncoder), new Parser<>(valueParser, HashMap::new));
+    }
+
+    /**
+     * Like {@link #create}, but the parsed map preserves the BSON document's field order
+     * (BsonDocument::entrySet is insertion-ordered). Opt-in for order-sensitive consumers such as
+     * aggregation facet definitions; the default stays a plain HashMap so existing call sites keep
+     * their iteration behavior.
+     */
+    static <T> FieldBuilder<T> createOrdered(
+        String name, ValueEncoder<T> valueEncoder, ValueParser<T> valueParser) {
+      return new FieldBuilder<>(
+          name, new Encoder<>(valueEncoder), new Parser<>(valueParser, LinkedHashMap::new));
     }
 
     public FieldBuilder<T> mustNotBeEmpty() {
@@ -61,7 +76,8 @@ public class MapField {
      * the same type erasure as the required private constructor.
      */
     static <T> ValueBuilder<T> create(ValueEncoder<T> valueEncoder, ValueParser<T> valueParser) {
-      return new ValueBuilder<>(new Encoder<>(valueEncoder), new Parser<>(valueParser));
+      return new ValueBuilder<>(
+          new Encoder<>(valueEncoder), new Parser<>(valueParser, HashMap::new));
     }
 
     public ValueBuilder<T> mustNotBeEmpty() {
@@ -145,9 +161,11 @@ public class MapField {
   private static class Parser<T> implements ValueParser<Map<String, T>> {
 
     private final ValueParser<T> valueParser;
+    private final Supplier<Map<String, T>> mapFactory;
 
-    Parser(ValueParser<T> valueParser) {
+    Parser(ValueParser<T> valueParser, Supplier<Map<String, T>> mapFactory) {
       this.valueParser = valueParser;
+      this.mapFactory = mapFactory;
     }
 
     @Override
@@ -158,7 +176,7 @@ public class MapField {
       }
 
       BsonDocument document = value.asDocument();
-      Map<String, T> map = new HashMap<>();
+      Map<String, T> map = this.mapFactory.get();
 
       for (Map.Entry<String, BsonValue> entry : document.entrySet()) {
         String field = entry.getKey();

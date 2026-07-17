@@ -312,5 +312,13 @@ public class Field {
     public MapField.FieldBuilder<T> asMap() {
       return MapField.FieldBuilder.create(this.name, this.encoder, this.parser);
     }
+
+    /**
+     * Like {@link #asMap()}, but the parsed map preserves the BSON document's declared field order.
+     * Use for order-sensitive consumers (e.g. aggregation facet definitions).
+     */
+    public MapField.FieldBuilder<T> asOrderedMap() {
+      return MapField.FieldBuilder.createOrdered(this.name, this.encoder, this.parser);
+    }
   }
 }
