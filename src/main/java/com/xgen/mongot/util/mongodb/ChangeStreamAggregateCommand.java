@@ -227,6 +227,14 @@ public class ChangeStreamAggregateCommand {
     }
   }
 
+  /**
+   * Whether this command targets the whole database ({@code aggregate: 1}) rather than a specific
+   * collection. Mirrors the {@code aggregate} value chosen in {@link #toProxy()}.
+   */
+  public boolean isCollectionLess() {
+    return this.collectionName.isEmpty();
+  }
+
   /** Constructs the proper AggregateCommandProxy for the ChangeStreamAggregateCommand. */
   public AggregateCommandProxy toProxy() {
     BsonValue aggregate =
