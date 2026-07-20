@@ -3,6 +3,7 @@ load("//bazel/java:test.bzl", "java_test_suite")
 java_test_suite(
     name = "changestream",
     srcs = [
+        "ChangeStreamActivityObserverTest.java",
         "ChangeStreamIndexManagerTest.java",
         "ChangeStreamManagerTest.java",
         "ChangeStreamMongoCursorClientExceptionHandlingTest.java",

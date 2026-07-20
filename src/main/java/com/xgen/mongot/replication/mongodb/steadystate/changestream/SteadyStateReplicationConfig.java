@@ -18,6 +18,7 @@ public class SteadyStateReplicationConfig {
   private final List<String> excludedChangestreamFields;
   private final boolean matchCollectionUuidForUpdateLookup;
   private final boolean enableSplitLargeChangeStreamEvents;
+  private final int changeStreamInactivityThresholdSec;
   private final CommonReplicationConfig.Type replicationType;
   private final SteadyStateSchedulingMethod steadyStateSchedulingMethod;
   private final int steadyStatePriorityRatio;
@@ -33,6 +34,7 @@ public class SteadyStateReplicationConfig {
       List<String> excludedChangestreamFields,
       boolean matchCollectionUuidForUpdateLookup,
       boolean enableSplitLargeChangeStreamEvents,
+      int changeStreamInactivityThresholdSec,
       CommonReplicationConfig.Type replicationType,
       SteadyStateSchedulingMethod steadyStateSchedulingMethod,
       int steadyStatePriorityRatio,
@@ -46,6 +48,7 @@ public class SteadyStateReplicationConfig {
     this.excludedChangestreamFields = excludedChangestreamFields;
     this.matchCollectionUuidForUpdateLookup = matchCollectionUuidForUpdateLookup;
     this.enableSplitLargeChangeStreamEvents = enableSplitLargeChangeStreamEvents;
+    this.changeStreamInactivityThresholdSec = changeStreamInactivityThresholdSec;
     this.replicationType = replicationType;
     this.steadyStateSchedulingMethod = steadyStateSchedulingMethod;
     this.steadyStatePriorityRatio = steadyStatePriorityRatio;
@@ -92,6 +95,10 @@ public class SteadyStateReplicationConfig {
     return this.enableSplitLargeChangeStreamEvents;
   }
 
+  public int getChangeStreamInactivityThresholdSec() {
+    return this.changeStreamInactivityThresholdSec;
+  }
+
   public CommonReplicationConfig.Type getReplicationType() {
     return this.replicationType;
   }
@@ -118,6 +125,7 @@ public class SteadyStateReplicationConfig {
     private List<String> excludedChangestreamFields;
     private boolean matchCollectionUuidForUpdateLookup;
     private boolean enableSplitLargeChangeStreamEvents;
+    private int changeStreamInactivityThresholdSec;
     private CommonReplicationConfig.Type replicationType;
     private SteadyStateSchedulingMethod steadyStateSchedulingMethod;
     private int steadyStatePriorityRatio;
@@ -133,6 +141,8 @@ public class SteadyStateReplicationConfig {
       this.excludedChangestreamFields = List.of();
       this.matchCollectionUuidForUpdateLookup = false;
       this.enableSplitLargeChangeStreamEvents = false;
+      this.changeStreamInactivityThresholdSec =
+          MongoDbReplicationConfig.DEFAULT_CHANGE_STREAM_INACTIVITY_THRESHOLD_SEC;
       this.replicationType = CommonReplicationConfig.Type.DEFAULT;
       this.steadyStateSchedulingMethod =
           MongoDbReplicationConfig.DEFAULT_STEADY_STATE_SCHEDULING_METHOD;
@@ -187,6 +197,11 @@ public class SteadyStateReplicationConfig {
       return this;
     }
 
+    public Builder setChangeStreamInactivityThresholdSec(int value) {
+      this.changeStreamInactivityThresholdSec = value;
+      return this;
+    }
+
     public Builder setReplicationType(CommonReplicationConfig.Type replicationType) {
       this.replicationType = replicationType;
       return this;
@@ -210,6 +225,8 @@ public class SteadyStateReplicationConfig {
     }
 
     public SteadyStateReplicationConfig build() {
+      Check.argIsPositive(
+          this.changeStreamInactivityThresholdSec, "changeStreamInactivityThresholdSec");
       return new SteadyStateReplicationConfig(
           Check.isPresent(this.numConcurrentChangeStreams, "numConcurrentChangeStreams"),
           Check.isPresent(this.changeStreamQueryMaxTimeMs, "changeStreamQueryMaxTimeMs"),
@@ -220,6 +237,7 @@ public class SteadyStateReplicationConfig {
           this.excludedChangestreamFields,
           this.matchCollectionUuidForUpdateLookup,
           this.enableSplitLargeChangeStreamEvents,
+          this.changeStreamInactivityThresholdSec,
           this.replicationType,
           this.steadyStateSchedulingMethod,
           this.steadyStatePriorityRatio,

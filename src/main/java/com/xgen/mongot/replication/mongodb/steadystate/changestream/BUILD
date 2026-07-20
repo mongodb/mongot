@@ -4,6 +4,7 @@ java_library(
     name = "changestream",
     srcs = [
         "BatchDataSizePriorityStrategy.java",
+        "ChangeStreamActivityObserver.java",
         "ChangeStreamDispatcher.java",
         "ChangeStreamIndexManager.java",
         "ChangeStreamIndexManagerFactory.java",

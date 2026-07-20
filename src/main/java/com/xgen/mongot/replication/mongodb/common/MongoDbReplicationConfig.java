@@ -49,6 +49,13 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
   public static final SteadyStateSchedulingMethod DEFAULT_STEADY_STATE_SCHEDULING_METHOD =
       SteadyStateSchedulingMethod.FIFO;
 
+  /**
+   * Default number of seconds a collection may go without change events before its indexes count as
+   * inactive. Aligned with the 30-minute change-stream cursor TTL so only rarely-written
+   * collections are classified inactive.
+   */
+  public static final int DEFAULT_CHANGE_STREAM_INACTIVITY_THRESHOLD_SEC = 1800;
+
   /** The number of initial syncs that are allowed to be run concurrently. */
   public final int numConcurrentInitialSyncs;
 
