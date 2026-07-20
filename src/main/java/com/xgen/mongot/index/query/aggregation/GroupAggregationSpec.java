@@ -1,9 +1,11 @@
 package com.xgen.mongot.index.query.aggregation;
 
+import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * A bucket/ intermediate node in the aggregation spec tree.
@@ -53,8 +55,27 @@ public abstract non-sealed class GroupAggregationSpec implements AggregationSpec
 
   @Override
   public final void buildShardMergePipeline(ShardMergePipelineBuilder builder) {
-    // Track the key projection so the $group has a chance to group by on current path.
-    builder.addKeyProjection(this.path.toString());
+    List<GroupAggregationSpec> groupChildren =
+        this.children.stream()
+            .filter(GroupAggregationSpec.class::isInstance)
+            .map(GroupAggregationSpec.class::cast)
+            .toList();
+
+    Optional<String> nestedBranchName;
+    if (groupChildren.size() == 1) {
+      nestedBranchName = Optional.of(groupChildren.getFirst().name());
+    } else {
+      // Private preview supports a single nested facet group per intermediate level (leaf levels
+      // have zero group children). Parsing rejects multiple group children at one level.
+      Check.checkState(
+          groupChildren.size() == 0,
+          "grouping level %s must have exactly one nested facet group child, found %s",
+          this.name,
+          groupChildren.size());
+      nestedBranchName = Optional.empty();
+    }
+    builder.addGroupLevel(this.path.toString(), nestedBranchName);
+
     for (AggregationSpec spec : this.children) {
       spec.buildShardMergePipeline(builder);
     }

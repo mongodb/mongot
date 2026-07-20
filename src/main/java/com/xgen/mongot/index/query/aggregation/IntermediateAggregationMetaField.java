@@ -1,5 +1,7 @@
 package com.xgen.mongot.index.query.aggregation;
 
+import java.util.List;
+import org.bson.BsonArray;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.bson.BsonValue;
@@ -60,11 +62,32 @@ public final class IntermediateAggregationMetaField {
    * referenced with a plain {@code $field} path in a {@code $group} stage.
    */
   public static BsonDocument rootFieldExpression(String fieldName) {
+    return fieldExpression(fieldName, "$$ROOT");
+  }
+
+  /**
+   * {@code $match} stage comparing a {@code $meta/}-prefixed field inside {@code $_id}.
+   *
+   * <p>Plain {@code $match} query paths cannot reference these field names literally on mongod; use
+   * {@code $expr} + {@code $getField} instead.
+   */
+  public static BsonDocument matchIdFieldStage(String fieldName, BsonValue expected) {
+    return new BsonDocument("$match", matchIdFieldExpression(fieldName, expected));
+  }
+
+  static BsonDocument matchIdFieldExpression(String fieldName, BsonValue expected) {
+    return new BsonDocument(
+        "$expr",
+        new BsonDocument(
+            "$eq", new BsonArray(List.of(fieldExpression(fieldName, "$_id"), expected))));
+  }
+
+  private static BsonDocument fieldExpression(String fieldName, String input) {
     return new BsonDocument(
         "$getField",
         new BsonDocument()
             .append("field", new BsonString(fieldName))
-            .append("input", new BsonString("$$ROOT")));
+            .append("input", new BsonString(input)));
   }
 
   /** Aggregation expression for one grouping key inside a merged {@code $group} result row. */
@@ -72,8 +95,13 @@ public final class IntermediateAggregationMetaField {
     return "$$b._id['" + KEYS + "']." + keyName;
   }
 
+  /** Aggregation expression for one grouping key on the current facet-arm document. */
+  public static String idKeysFieldPath(String keyName) {
+    return "$_id['" + KEYS + "']." + keyName;
+  }
+
   private static String describeValue(BsonValue value) {
-    // BsonString#toString() renders as BsonString{value='NYC'}; quote the raw value for errors.
+    // BsonString#toString() renders as BsonString{value='NYC'} - quote the raw value for errors.
     if (value.isString()) {
       return value.asString().getValue();
     }

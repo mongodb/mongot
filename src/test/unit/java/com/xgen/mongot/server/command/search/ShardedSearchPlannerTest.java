@@ -507,8 +507,26 @@ public class ShardedSearchPlannerTest {
         BsonDocument.parse(
             """
             {"$facet": {
-              "by_city": [{"$match": {"_id": {"$meta/group_name": "by_city"}}}],
-              "count": [{"$match": {"_id": {"$meta/group_name": null}}}]
+              "by_city": [
+                {"$match": {"$expr": {"$eq": [
+                  {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                  "by_city"
+                ]}}},
+                {"$project": {
+                  "_id": "$_id['$meta/keys'].city",
+                  "avg_price": {
+                    "$cond": {
+                      "if": {"$eq": ["$avg_count_avg_price", 0]},
+                      "then": null,
+                      "else": {"$divide": ["$avg_sum_avg_price", "$avg_count_avg_price"]}
+                    }
+                  }
+                }}
+              ],
+              "count": [{"$match": {"$expr": {"$eq": [
+                {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                null
+              ]}}}]
             }}
             """);
     Assert.assertEquals(expectedFacet, pipeline.get(1));
