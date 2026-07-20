@@ -11,6 +11,7 @@ java_library(
         "ChangeStreamMongoClientFactory.java",
         "ChangeStreamPriorityStrategy.java",
         "ChangeStreamTaskExecutor.java",
+        "CollectionRoster.java",
         "DecodingExecutorChangeStreamIndexManager.java",
         "DualQueueExecutor.java",
         "EnqueueContext.java",
