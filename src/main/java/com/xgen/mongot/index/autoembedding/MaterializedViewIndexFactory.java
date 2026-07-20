@@ -2,6 +2,7 @@ package com.xgen.mongot.index.autoembedding;
 
 import static com.xgen.mongot.util.mongodb.MongoDbDatabase.getCollectionInfos;
 
+import com.mongodb.ReadPreference;
 import com.mongodb.client.MongoClient;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
@@ -113,6 +114,23 @@ public class MaterializedViewIndexFactory implements IndexFactory {
           .log("Could not verify source collection presence on direct mongod; proceeding");
       return false;
     }
+  }
+
+  /**
+   * Returns whether the Mongo driver's periodically refreshed topology cache currently has a
+   * writable mongod. This does not issue a command or wait for server selection.
+   */
+  public boolean isMongodReachableFromCachedTopology() {
+    return isMongodReachableFromCachedTopology(
+        this.autoEmbeddingMongoClient.getMaterializedViewResolverMongoClient());
+  }
+
+  // Package-private for unit testing with an already-resolved client.
+  boolean isMongodReachableFromCachedTopology(Optional<MongoClient> resolverClient) {
+    return resolverClient
+        .map(MongoClient::getClusterDescription)
+        .map(cluster -> !ReadPreference.primary().choose(cluster).isEmpty())
+        .orElse(false);
   }
 
   // Package-private for unit testing: source collection UUIDs present on this node's local mongod.

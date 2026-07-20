@@ -9,9 +9,12 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
@@ -21,7 +24,9 @@ import com.mongodb.MongoNamespace;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.InitializedVectorIndex;
+import com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.autoembedding.UnresolvedAutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
@@ -115,11 +120,15 @@ public class IndexRecoveryStagerTest {
   }
 
   @Test
-  public void testRecoveringIndexStagedWhenNoOtherStaged() throws Exception {
+  public void regularIndexRecoveryDoesNotDependOnMongodReachability() throws Exception {
     var mocks = getEmptyMocks();
     var index = mocks.addIndex(new ObjectId(), ConfigStateMocks.State.LIVE);
+    assertFalse(index instanceof AutoEmbeddingIndexGeneration);
     index.getIndex().setStatus(IndexStatus.recoveringNonTransient(new BsonTimestamp()));
+    var materializedViewIndexFactory = mocks.configState.materializedViewIndexFactory.get();
+    when(materializedViewIndexFactory.isMongodReachableFromCachedTopology()).thenReturn(false);
     mocks.clearInvocations();
+    clearInvocations(materializedViewIndexFactory);
 
     stageIndexes(mocks, Set.of());
 
@@ -132,6 +141,68 @@ public class IndexRecoveryStagerTest {
     assertEquals(
         index.getDefinitionGeneration().generation().nextAttempt(),
         stagedIndex.get().getGenerationId().generation);
+    verify(materializedViewIndexFactory, never()).isMongodReachableFromCachedTopology();
+  }
+
+  @Test
+  public void regularFailedStagedIndexRetriesWhenMongodIsUnreachable() throws Exception {
+    var mocks = getEmptyMocks();
+    var definitionGeneration = mockDefinitionGeneration(new ObjectId());
+    mocks.addIndex(definitionGeneration, ConfigStateMocks.State.LIVE);
+    IndexGeneration failedAttempt =
+        mocks.addIndex(definitionGeneration.incrementAttempt(), ConfigStateMocks.State.STAGED);
+    assertFalse(failedAttempt instanceof AutoEmbeddingIndexGeneration);
+    failedAttempt
+        .getIndex()
+        .setStatus(IndexStatus.failed("init failed", IndexStatus.Reason.INITIALIZATION_FAILED));
+    var materializedViewIndexFactory = mocks.configState.materializedViewIndexFactory.get();
+    when(materializedViewIndexFactory.isMongodReachableFromCachedTopology()).thenReturn(false);
+    mocks.clearInvocations();
+    clearInvocations(materializedViewIndexFactory);
+
+    stageIndexes(mocks, Set.of());
+
+    assertEquals(
+        failedAttempt.getDefinitionGeneration().incrementAttempt().getGenerationId(),
+        mocks
+            .staged
+            .getIndex(failedAttempt.getDefinition().getIndexId())
+            .orElseThrow()
+            .getGenerationId());
+    assertThat(mocks.phasingOut.getIndexes()).contains(failedAttempt);
+    verify(materializedViewIndexFactory, never()).isMongodReachableFromCachedTopology();
+  }
+
+  @Test
+  public void resolvedAutoEmbeddingIndexRecoveryDoesNotDependOnMongodReachability()
+      throws Exception {
+    var mocks = getEmptyMocks();
+    var definitionGeneration =
+        mockDefinitionGeneration(
+            MaterializedViewIndex.mockAutoEmbeddingVectorDefinition(new ObjectId(), 0));
+    IndexGeneration index = mocks.addIndex(definitionGeneration, ConfigStateMocks.State.LIVE);
+    assertTrue(index instanceof AutoEmbeddingIndexGeneration);
+    AutoEmbeddingIndexGeneration autoEmbeddingIndex = (AutoEmbeddingIndexGeneration) index;
+    autoEmbeddingIndex
+        .getMaterializedViewIndexGeneration()
+        .getIndex()
+        .setStatus(IndexStatus.recoveringNonTransient(new BsonTimestamp()));
+
+    var materializedViewIndexFactory = mocks.configState.materializedViewIndexFactory.get();
+    when(materializedViewIndexFactory.isMongodReachableFromCachedTopology()).thenReturn(false);
+    mocks.clearInvocations();
+    clearInvocations(materializedViewIndexFactory);
+
+    stageIndexes(mocks, Set.of());
+
+    assertEquals(
+        definitionGeneration.incrementAttempt().getGenerationId(),
+        mocks
+            .staged
+            .getIndex(definitionGeneration.getIndexDefinition().getIndexId())
+            .orElseThrow()
+            .getGenerationId());
+    verify(materializedViewIndexFactory, never()).isMongodReachableFromCachedTopology();
   }
 
   @Test
@@ -204,6 +275,8 @@ public class IndexRecoveryStagerTest {
             invocation ->
                 MaterializedViewIndex.mockIndex(
                     (MaterializedViewIndexDefinitionGeneration) invocation.getArgument(0)));
+    when(mocks.configState.materializedViewIndexFactory.get().isMongodReachableFromCachedTopology())
+        .thenReturn(false);
 
     // updateSyncSource resets unresolved indexes to AUTO_EMBEDDING_RESOLUTION_RETRY (recoverable)
     mocks.configState.updateSyncSource(ConfigStateMocks.MOCK_SYNC_SOURCE_CONFIG);
@@ -216,6 +289,15 @@ public class IndexRecoveryStagerTest {
     assertTrue(
         "Index should be recoverable after updateSyncSource",
         unresolvedIndex.getIndex().getStatus().canBeRecovered());
+
+    mocks.clearInvocations();
+
+    stageIndexes(mocks, Set.of());
+    assertTrue(mocks.staged.getIndex(VectorIndex.MOCK_INDEX_ID).isEmpty());
+    mocks.assertNoIndexActivity();
+
+    when(mocks.configState.materializedViewIndexFactory.get().isMongodReachableFromCachedTopology())
+        .thenReturn(true);
 
     // IndexRecoveryStager should stage a recovery attempt
     stageIndexes(mocks, Set.of());
@@ -230,7 +312,7 @@ public class IndexRecoveryStagerTest {
   }
 
   @Test
-  public void unresolvedAutoEmbeddingIndex_withUnknownReason_isRecoverableImmediately()
+  public void unresolvedAutoEmbeddingIndex_withUnknownReason_stagesOnlyWhenMongodIsReachable()
       throws Exception {
     var mocks = getEmptyMocks();
 
@@ -257,6 +339,12 @@ public class IndexRecoveryStagerTest {
 
     mocks.clearInvocations();
 
+    // The status is recoverable, but the unresolved index must remain untouched until mongod is
+    // reachable.
+    stageIndexes(mocks, Set.of());
+    assertTrue(mocks.staged.getIndex(VectorIndex.MOCK_INDEX_ID).isEmpty());
+    mocks.assertNoIndexActivity();
+
     // Restore MaterializedViewIndexFactory to succeed on subsequent calls
     reset(mocks.configState.materializedViewIndexFactory.get());
     when(mocks
@@ -268,6 +356,8 @@ public class IndexRecoveryStagerTest {
             invocation ->
                 MaterializedViewIndex.mockIndex(
                     (MaterializedViewIndexDefinitionGeneration) invocation.getArgument(0)));
+    when(mocks.configState.materializedViewIndexFactory.get().isMongodReachableFromCachedTopology())
+        .thenReturn(true);
 
     // IndexRecoveryStager should stage a recovery attempt immediately (no updateSyncSource needed)
     stageIndexes(mocks, Set.of());
@@ -306,6 +396,13 @@ public class IndexRecoveryStagerTest {
     // Recovery is driven by type for a STALE offline-serving index, not by canBeRecovered().
     assertFalse(unresolvedIndex.getIndex().getStatus().canBeRecovered());
 
+    mocks.clearInvocations();
+
+    // Mongod is still unreachable, so the live offline-serving generation remains untouched.
+    stageIndexes(mocks, Set.of());
+    assertTrue(mocks.staged.getIndex(VectorIndex.MOCK_INDEX_ID).isEmpty());
+    mocks.assertNoIndexActivity();
+
     // Materialized view is resolvable again (mongod reachable).
     reset(mocks.configState.materializedViewIndexFactory.get());
     when(mocks
@@ -317,6 +414,8 @@ public class IndexRecoveryStagerTest {
             invocation ->
                 MaterializedViewIndex.mockIndex(
                     (MaterializedViewIndexDefinitionGeneration) invocation.getArgument(0)));
+    when(mocks.configState.materializedViewIndexFactory.get().isMongodReachableFromCachedTopology())
+        .thenReturn(true);
 
     // Recovery must stage a new attempt for the live queryable index (driven off the live
     // indexCatalog via IndexRecoveryStager::getRecoveringIndexesToStage).
@@ -330,6 +429,55 @@ public class IndexRecoveryStagerTest {
     assertEquals(
         definitionGeneration.generation().nextAttempt(),
         stagedIndex.get().getGenerationId().generation);
+  }
+
+  @Test
+  public void unresolvedAutoEmbeddingIndex_failedStageRetriesOnlyWhenMongodIsReachable()
+      throws Exception {
+    var mocks = getEmptyMocks();
+    var definitionGeneration =
+        mockDefinitionGeneration(
+            VectorIndex.MOCK_MATERIALIZED_VIEW_AUTO_EMBEDDING_INDEX_DEFINITION);
+    IndexActions.withReplication(mocks.configState).addNewIndexes(List.of(definitionGeneration));
+
+    doThrow(new MaterializedViewTransientException("Mongod unavailable"))
+        .when(mocks.configState.materializedViewIndexFactory.get())
+        .getIndex(any(IndexDefinitionGeneration.class));
+    IndexDefinitionGeneration failedAttempt = definitionGeneration.incrementAttempt();
+    IndexActions.withReplication(mocks.configState).addStagedIndex(failedAttempt);
+
+    var unresolvedStagedIndex = mocks.staged.getIndex(VectorIndex.MOCK_INDEX_ID).orElseThrow();
+    assertThat(unresolvedStagedIndex.getIndex().getStatus().getReason())
+        .isEqualTo(Optional.of(AUTO_EMBEDDING_RESOLUTION_RETRY));
+    mocks.clearInvocations();
+
+    // Mongod is still unreachable: keep the failed attempt staged instead of dropping and
+    // immediately recreating another failed attempt.
+    stageIndexes(mocks, Set.of());
+    assertEquals(
+        failedAttempt.getGenerationId(),
+        mocks.staged.getIndex(VectorIndex.MOCK_INDEX_ID).orElseThrow().getGenerationId());
+    assertTrue(mocks.phasingOut.getIndexes().isEmpty());
+
+    reset(mocks.configState.materializedViewIndexFactory.get());
+    when(mocks
+            .configState
+            .materializedViewIndexFactory
+            .get()
+            .getIndex(any(IndexDefinitionGeneration.class)))
+        .thenAnswer(
+            invocation ->
+                MaterializedViewIndex.mockIndex(
+                    (MaterializedViewIndexDefinitionGeneration) invocation.getArgument(0)));
+    when(mocks.configState.materializedViewIndexFactory.get().isMongodReachableFromCachedTopology())
+        .thenReturn(true);
+
+    stageIndexes(mocks, Set.of());
+
+    assertEquals(
+        failedAttempt.incrementAttempt().getGenerationId(),
+        mocks.staged.getIndex(VectorIndex.MOCK_INDEX_ID).orElseThrow().getGenerationId());
+    assertThat(mocks.phasingOut.getIndexes()).contains(unresolvedStagedIndex);
   }
 
   @Test

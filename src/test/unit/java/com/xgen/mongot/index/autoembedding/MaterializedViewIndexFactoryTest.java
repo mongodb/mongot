@@ -10,10 +10,18 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.mongodb.MongoException;
+import com.mongodb.ServerAddress;
 import com.mongodb.client.MongoClient;
+import com.mongodb.connection.ClusterConnectionMode;
+import com.mongodb.connection.ClusterDescription;
+import com.mongodb.connection.ClusterType;
+import com.mongodb.connection.ServerConnectionState;
+import com.mongodb.connection.ServerDescription;
+import com.mongodb.connection.ServerType;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.util.mongodb.CheckedMongoException;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -34,21 +42,20 @@ public class MaterializedViewIndexFactoryTest {
   @Test
   public void isSourceCollectionAbsentOnMongod_resolverClientNotReady_returnsFalse()
       throws Exception {
-    MaterializedViewIndexFactory factory = factoryWithRealAbsenceCheck();
+    MaterializedViewIndexFactory factory = factoryWithRealChecks();
 
     // Presence cannot be confirmed without a resolver client, so we do NOT declare it absent --
     // the caller proceeds and getIndex fails to a recoverable FAILED status (no MV/lease created).
     assertFalse(
         "Cannot determine presence without a resolver client; must not declare absent",
         factory.isSourceCollectionAbsentOnMongod(Optional.empty(), indexDefinition()));
-
     // Presence is never queried when the sync-source client is not yet available.
     verify(factory, never()).collectionUuidsOnShard(any(), any());
   }
 
   @Test
   public void isSourceCollectionAbsentOnMongod_collectionPresent_returnsFalse() throws Exception {
-    MaterializedViewIndexFactory factory = factoryWithRealAbsenceCheck();
+    MaterializedViewIndexFactory factory = factoryWithRealChecks();
     when(factory.collectionUuidsOnShard(any(), eq(DATABASE)))
         .thenReturn(Set.of(SOURCE_COLLECTION_UUID));
 
@@ -59,7 +66,7 @@ public class MaterializedViewIndexFactoryTest {
 
   @Test
   public void isSourceCollectionAbsentOnMongod_collectionMissing_returnsTrue() throws Exception {
-    MaterializedViewIndexFactory factory = factoryWithRealAbsenceCheck();
+    MaterializedViewIndexFactory factory = factoryWithRealChecks();
     when(factory.collectionUuidsOnShard(any(), eq(DATABASE))).thenReturn(Set.of(UUID.randomUUID()));
 
     assertTrue(
@@ -69,7 +76,7 @@ public class MaterializedViewIndexFactoryTest {
 
   @Test
   public void isSourceCollectionAbsentOnMongod_queryFails_returnsFalse() throws Exception {
-    MaterializedViewIndexFactory factory = factoryWithRealAbsenceCheck();
+    MaterializedViewIndexFactory factory = factoryWithRealChecks();
     when(factory.collectionUuidsOnShard(any(), any()))
         .thenThrow(new CheckedMongoException(new MongoException("boom")));
 
@@ -83,11 +90,51 @@ public class MaterializedViewIndexFactoryTest {
             Optional.of(mock(MongoClient.class)), indexDefinition()));
   }
 
-  private static MaterializedViewIndexFactory factoryWithRealAbsenceCheck() {
+  @Test
+  public void isMongodReachableFromCachedTopology_resolverClientNotReady_returnsFalse() {
+    MaterializedViewIndexFactory factory = factoryWithRealChecks();
+
+    assertFalse(factory.isMongodReachableFromCachedTopology(Optional.empty()));
+  }
+
+  @Test
+  public void isMongodReachableFromCachedTopology_primaryAvailable_returnsTrue() {
+    MaterializedViewIndexFactory factory = factoryWithRealChecks();
+    MongoClient client = mock(MongoClient.class);
+    when(client.getClusterDescription())
+        .thenReturn(clusterDescription(ServerType.REPLICA_SET_PRIMARY, true));
+
+    assertTrue(factory.isMongodReachableFromCachedTopology(Optional.of(client)));
+  }
+
+  @Test
+  public void isMongodReachableFromCachedTopology_noPrimaryAvailable_returnsFalse() {
+    MaterializedViewIndexFactory factory = factoryWithRealChecks();
+    MongoClient client = mock(MongoClient.class);
+    when(client.getClusterDescription())
+        .thenReturn(clusterDescription(ServerType.REPLICA_SET_SECONDARY, true));
+
+    assertFalse(factory.isMongodReachableFromCachedTopology(Optional.of(client)));
+  }
+
+  private static MaterializedViewIndexFactory factoryWithRealChecks() {
     MaterializedViewIndexFactory factory = mock(MaterializedViewIndexFactory.class);
     when(factory.isSourceCollectionAbsentOnMongod(any(), any(IndexDefinition.class)))
         .thenCallRealMethod();
+    when(factory.isMongodReachableFromCachedTopology(any())).thenCallRealMethod();
     return factory;
+  }
+
+  private static ClusterDescription clusterDescription(ServerType serverType, boolean ok) {
+    ServerDescription serverDescription =
+        ServerDescription.builder()
+            .address(new ServerAddress())
+            .type(serverType)
+            .state(ServerConnectionState.CONNECTED)
+            .ok(ok)
+            .build();
+    return new ClusterDescription(
+        ClusterConnectionMode.MULTIPLE, ClusterType.REPLICA_SET, List.of(serverDescription));
   }
 
   private static IndexDefinition indexDefinition() {
