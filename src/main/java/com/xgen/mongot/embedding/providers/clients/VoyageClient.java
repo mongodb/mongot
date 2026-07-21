@@ -40,6 +40,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import javax.net.ssl.SSLException;
+import org.apache.commons.lang3.StringUtils;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.jetbrains.annotations.Nullable;
@@ -111,6 +112,14 @@ public class VoyageClient implements ClientInterface {
   public static final String DEFAULT_ENDPOINT = "https://api.voyageai.com/v1/embeddings";
 
   private static final int MAX_INDEX_NAME_LENGTH = 256;
+
+  /**
+   * Caps how much of a Voyage error response body is embedded in the {@link
+   * EmbeddingProviderTransientException} message for an otherwise-unhandled 400, since that body
+   * can echo request input and the message ends up in a log line (see {@code
+   * EmbeddingIndexingWorkScheduler}'s BLOCK/SKIP logging).
+   */
+  private static final int MAX_LOGGED_RESPONSE_BODY_LENGTH = 500;
 
   @VisibleForTesting public static final String VOYAGE_API_FLEX_TIER = "flex";
 
@@ -720,19 +729,40 @@ public class VoyageClient implements ClientInterface {
           HttpTimeoutException {
     int statusCode = response.statusCode();
     if (statusCode == 400) {
-      String errorMessage =
-          String.format(
-              "Got invalid request, fail fast and give up retries." + " Response body: %s.",
-              response.body());
       // TODO(CLOUDP-344098): Formalize the voyage response format or error code to avoid
       // miscategorizing the oversized batch request (VOYAGE-471)
       if (response.body().contains(BATCH_SIZE_TOO_LARGE_ERROR_MESSAGE)) {
-        throw new EmbeddingProviderBatchingException(errorMessage);
+        throw new EmbeddingProviderBatchingException(
+            String.format(
+                "Got invalid request, fail fast and give up retries. Response body: %s.",
+                response.body()));
+      } else if (this.serviceTier == EmbeddingServiceConfig.ServiceTier.QUERY) {
+        // Query-time embedding is synchronous, not retried, and has no BLOCK/SKIP concept - the
+        // caller (VectorSearchCommand) translates this VectorOrError's errorMessage into its own
+        // query error. Throwing here would escape uncaught as an internal error instead, since
+        // EmbeddingProviderTransientException isn't a UserFacingException. Preserve the pre-fix
+        // swallow behavior for this tier only; indexing tiers (below) still throw.
+        this.invalidRequestCounter.increment();
+        String errorMessage =
+            String.format(
+                "Got invalid request, fail fast and give up retries. Response body: %s.",
+                response.body());
+        return inputs.stream().map(ignored -> new VectorOrError(errorMessage)).toList();
       } else {
-        LOG.warn(errorMessage);
         // TODO(CLOUDP-344098): Add alerts in Control Plane to notify clients directly.
         this.invalidRequestCounter.increment();
-        return inputs.stream().map(ignored -> new VectorOrError(errorMessage)).toList();
+        // Retried indefinitely at the index's checkpoint (BLOCK) unless AUTO_EMBEDDING_400_SKIP
+        // is enabled for this index; not logged here to avoid spamming the raw response body on
+        // every retry — the rate-limited logging in EmbeddingIndexingWorkScheduler covers it.
+        // The response body is bounded before it's embedded in the message below, since it can
+        // echo input text and this message is what ends up in that rate-limited log line.
+        throw new EmbeddingProviderTransientException(
+            String.format(
+                "Got invalid request from embedding provider (HTTP 400); index will block and"
+                    + " retry at its checkpoint until resolved or AUTO_EMBEDDING_400_SKIP is"
+                    + " enabled. Response body: %s.",
+                StringUtils.abbreviate(response.body(), MAX_LOGGED_RESPONSE_BODY_LENGTH)),
+            EmbeddingProviderTransientException.Reason.HTTP_INVALID_REQUEST);
       }
     }
     if (statusCode == 429) {

@@ -93,6 +93,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
+import java.util.function.Predicate;
 import java.util.function.ToDoubleFunction;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
@@ -495,6 +496,14 @@ public class MaterializedViewManager implements ReplicationManager {
         () ->
             dynamicFeatureFlagRegistry.evaluateClusterInvariant(
                 DynamicFeatureFlags.EMBEDDING_RETRY_CACHE);
+    // Evaluated per index (not once here) so the flag toggles at runtime without recreating the
+    // manager, and per-index scoping lets a customer opt individual indexes into SKIP.
+    Predicate<ObjectId> skipInvalidRequestEnabledForIndex =
+        indexId ->
+            dynamicFeatureFlagRegistry.evaluate(
+                DynamicFeatureFlags.AUTO_EMBEDDING_400_SKIP.getName(),
+                indexId,
+                DynamicFeatureFlags.AUTO_EMBEDDING_400_SKIP.getFallback());
 
     var indexingWorkSchedulerFactory =
         IndexingWorkSchedulerFactory.createEmbeddingIndexingSchedulerOnly(
@@ -506,7 +515,8 @@ public class MaterializedViewManager implements ReplicationManager {
             materializedViewConfig.perBatchMemoryBudgetHeapPercent,
             enableLifecycleAttributionMetrics,
             embeddingRetryCache,
-            embeddingRetryCacheEnabled);
+            embeddingRetryCacheEnabled,
+            skipInvalidRequestEnabledForIndex);
 
     var decodingWorkScheduler =
         DecodingWorkScheduler.create(

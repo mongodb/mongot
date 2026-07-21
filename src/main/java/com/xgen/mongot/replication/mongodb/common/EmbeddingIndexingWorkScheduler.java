@@ -43,6 +43,7 @@ import com.xgen.mongot.replication.mongodb.common.SchedulerQueue.Priority;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.FutureUtils;
+import com.xgen.mongot.util.LoggableIdUtils;
 import com.xgen.mongot.util.bson.Vector;
 import com.xgen.mongot.util.concurrent.NamedExecutorService;
 import io.micrometer.core.instrument.Tags;
@@ -60,9 +61,11 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import net.jodah.failsafe.FailsafeException;
 import org.bson.BsonDocument;
+import org.bson.types.ObjectId;
 
 /**
  * The embedding indexing work scheduler accepts embedding and indexing work and schedules it to be
@@ -131,6 +134,14 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
    */
   private final BooleanSupplier cacheEnabled;
 
+  /**
+   * Evaluated per batch (keyed by {@link IndexDefinition#getIndexId()}) to decide whether an
+   * otherwise-unhandled Voyage HTTP 400 should be skipped rather than left to block the index.
+   * Backed by the {@code AUTO_EMBEDDING_400_SKIP} dynamic feature flag. False for the legacy {@code
+   * EMBEDDING} strategy, which this flag does not cover.
+   */
+  private final Predicate<ObjectId> skipInvalidRequestEnabledForIndex;
+
   EmbeddingIndexingWorkScheduler(
       NamedExecutorService indexingExecutor,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
@@ -139,7 +150,8 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
       AutoEmbeddingMemoryBudget globalBudget,
       long perBatchBudgetBytes,
       EmbeddingRetryCache embeddingRetryCache,
-      BooleanSupplier cacheEnabled) {
+      BooleanSupplier cacheEnabled,
+      Predicate<ObjectId> skipInvalidRequestEnabledForIndex) {
     super(indexingExecutor, indexingStrategy);
     this.embeddingServiceManagerSupplier = embeddingServiceManagerSupplier;
     this.materializedViewCollectionMetadataCatalog = materializedViewCollectionMetadataCatalog;
@@ -148,6 +160,7 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
     this.perBatchBudgetBytes = perBatchBudgetBytes;
     this.embeddingRetryCache = embeddingRetryCache;
     this.cacheEnabled = cacheEnabled;
+    this.skipInvalidRequestEnabledForIndex = skipInvalidRequestEnabledForIndex;
     this.metricsFactory =
         new MetricsFactory("embeddingIndexingWorkScheduler", indexingExecutor.getMeterRegistry());
   }
@@ -183,7 +196,9 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
             PER_BATCH_AUTO_EMBEDDING_MEMORY_BUDGET_BYTES,
             // Legacy type:text indexing has no per-batch MV commit to drive eviction.
             EmbeddingRetryCache.noOp(),
-            () -> false);
+            () -> false,
+            // AUTO_EMBEDDING_400_SKIP does not cover the legacy EMBEDDING strategy.
+            id -> false);
     scheduler.start();
     return scheduler;
   }
@@ -231,7 +246,8 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
         globalBudget,
         perBatchBudgetBytes,
         EmbeddingRetryCache.noOp(),
-        () -> false);
+        () -> false,
+        id -> false);
   }
 
   static EmbeddingIndexingWorkScheduler createForMaterializedViewIndex(
@@ -242,6 +258,26 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
       long perBatchBudgetBytes,
       EmbeddingRetryCache embeddingRetryCache,
       BooleanSupplier cacheEnabled) {
+    return createForMaterializedViewIndex(
+        indexingExecutor,
+        embeddingServiceManagerSupplier,
+        matViewCollectionMetadataCatalog,
+        globalBudget,
+        perBatchBudgetBytes,
+        embeddingRetryCache,
+        cacheEnabled,
+        id -> false);
+  }
+
+  static EmbeddingIndexingWorkScheduler createForMaterializedViewIndex(
+      NamedExecutorService indexingExecutor,
+      Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
+      MaterializedViewCollectionMetadataCatalog matViewCollectionMetadataCatalog,
+      AutoEmbeddingMemoryBudget globalBudget,
+      long perBatchBudgetBytes,
+      EmbeddingRetryCache embeddingRetryCache,
+      BooleanSupplier cacheEnabled,
+      Predicate<ObjectId> skipInvalidRequestEnabledForIndex) {
     EmbeddingIndexingWorkScheduler scheduler =
         new EmbeddingIndexingWorkScheduler(
             indexingExecutor,
@@ -251,7 +287,8 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
             globalBudget,
             perBatchBudgetBytes,
             embeddingRetryCache,
-            cacheEnabled);
+            cacheEnabled,
+            skipInvalidRequestEnabledForIndex);
     scheduler.start();
     return scheduler;
   }
@@ -455,15 +492,19 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
                             indexDefinition,
                             generationKey,
                             subBatchClaimedKeys)
-                        .thenApplyAsync(
-                            embeddingsPerModel ->
-                                applyEmbeddingsToEvents(
-                                    events,
-                                    embeddingsPerModel,
-                                    embedBatchKeyPerPath,
-                                    indexDefinition,
-                                    autoEmbedMapping,
-                                    matViewSchemaMetadata),
+                        .handleAsync(
+                            (embeddingsPerModel, throwable) -> {
+                              if (throwable != null) {
+                                return skipBundleOrRethrow(throwable, indexDefinition, events);
+                              }
+                              return applyEmbeddingsToEvents(
+                                  events,
+                                  embeddingsPerModel,
+                                  embedBatchKeyPerPath,
+                                  indexDefinition,
+                                  autoEmbedMapping,
+                                  matViewSchemaMetadata);
+                            },
                             this.executor);
                   },
                   this.executor)
@@ -519,6 +560,96 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
     return current;
   }
 
+  /**
+   * Handles a failed embedding call for a bundle. When the failure is an otherwise-unhandled Voyage
+   * 400 ({@link EmbeddingProviderTransientException} with reason {@code HTTP_INVALID_REQUEST}) and
+   * {@code AUTO_EMBEDDING_400_SKIP} is enabled for this index, logs the skipped documents and
+   * returns an empty event list so the whole bundle is dropped — the batch still commits and
+   * advances the checkpoint. Dropping the bundle (rather than building its documents without
+   * embeddings) is what makes SKIP uniform across event types: a change-stream partial embed update
+   * cannot be written without its new vector, so the only coherent skip is to not apply it at all.
+   * Any other failure, or the flag being off, is rethrown unchanged so the batch fails and the
+   * index blocks at its checkpoint.
+   */
+  private List<DocumentEvent> skipBundleOrRethrow(
+      Throwable throwable, IndexDefinition indexDefinition, List<DocumentEvent> events) {
+    Throwable cause = unwrapCause(throwable);
+    if (cause instanceof EmbeddingProviderTransientException ex
+        && ex.getReason() == EmbeddingProviderTransientException.Reason.HTTP_INVALID_REQUEST
+        && this.skipInvalidRequestEnabledForIndex.test(indexDefinition.getIndexId())) {
+      logSkippedInvalidRequestBatch(indexDefinition, events, ex);
+      return List.of();
+    }
+    if (throwable instanceof RuntimeException runtimeException) {
+      throw runtimeException;
+    }
+    if (throwable instanceof Error error) {
+      throw error;
+    }
+    throw new AssertionError("threw unexpected checked exception: " + throwable, throwable);
+  }
+
+  /**
+   * Logs the skipped batch's {@code _id} range (first/last document, in scan order) for support to
+   * pull, labeled with the index name and database. Rate-limited per log call site (not deduped per
+   * index or checkpoint position — a stuck index can suppress another index's log line) so a
+   * persistently failing index does not spam the log on every subsequent update to the same range.
+   */
+  private void logSkippedInvalidRequestBatch(
+      IndexDefinition indexDefinition,
+      List<DocumentEvent> events,
+      EmbeddingProviderTransientException cause) {
+    logDefensively(
+        () -> {
+          LoggableIdRange idRange = loggableIdRange(events);
+          FLOGGER.atWarning().atMostEvery(1, TimeUnit.MINUTES).log(
+              "AUTO_EMBEDDING_400_SKIP enabled: skipping %d document(s) after an invalid-request"
+                  + " error instead of blocking. index=%s, database=%s, idRange=[%s, %s],"
+                  + " cause=%s",
+              events.size(),
+              indexDefinition.getName(),
+              indexDefinition.getDatabase(),
+              idRange.firstId(),
+              idRange.lastId(),
+              cause.getMessage());
+        });
+  }
+
+  private record LoggableIdRange(String firstId, String lastId) {}
+
+  /**
+   * Computes the batch's {@code _id} range (first/last event, in scan order) as loggable strings
+   * via {@link LoggableIdUtils#getLoggableId}, falling back to {@link
+   * LoggableIdUtils#UNKNOWN_LOGGABLE_ID} for both ends if extraction or formatting throws.
+   */
+  private static LoggableIdRange loggableIdRange(List<DocumentEvent> events) {
+    try {
+      return new LoggableIdRange(
+          LoggableIdUtils.getLoggableId(events.get(0).getDocumentId()),
+          LoggableIdUtils.getLoggableId(events.get(events.size() - 1).getDocumentId()));
+    } catch (Exception e) {
+      return new LoggableIdRange(
+          LoggableIdUtils.UNKNOWN_LOGGABLE_ID, LoggableIdUtils.UNKNOWN_LOGGABLE_ID);
+    }
+  }
+
+  /**
+   * Runs a diagnostic logging statement, swallowing any exception so a broken log call can never
+   * affect the caller — the SKIP recovery path and {@link #handleBatchException} (which must
+   * resolve {@code batch.future} regardless) both log through this. Per {@code
+   * docs/internal/development/patterns/defensive-indexing-path-logging.md}: logging in the indexing
+   * path must never throw uncaught, and callers should guard the entire diagnostic call, not just
+   * the id-formatting step, even though {@link #loggableIdRange} already guards itself.
+   */
+  private static void logDefensively(Runnable logStatement) {
+    try {
+      logStatement.run();
+    } catch (Exception e) {
+      FLOGGER.atSevere().atMostEvery(1, TimeUnit.HOURS).log(
+          "Unexpected error emitting a diagnostic log in the auto-embedding indexing path");
+    }
+  }
+
   @Override
   void handleBatchException(IndexingSchedulerBatch batch, Throwable throwable) {
     Throwable cause = unwrapCause(throwable);
@@ -534,6 +665,9 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
     } else if (cause instanceof EmbeddingProviderTransientException ex) {
       recordBatchErrorMetric(
           EmbeddingProviderTransientException.class.getSimpleName(), ex.getReason().name());
+      if (ex.getReason() == EmbeddingProviderTransientException.Reason.HTTP_INVALID_REQUEST) {
+        logBlockedInvalidRequestBatch(batch, ex);
+      }
       // TODO(CLOUDP-305372): Find a way to skip already indexed document event in retries.
       if (batch.priority == Priority.INITIAL_SYNC_COLLECTION_SCAN
           || batch.priority == Priority.INITIAL_SYNC_CHANGE_STREAM) {
@@ -562,6 +696,33 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
     } else {
       batch.future.completeExceptionally(throwable);
     }
+  }
+
+  /**
+   * Logs the blocked batch's {@code _id} range (first/last event in the batch, since bisecting down
+   * to the exact failing document is post-GA) for support to pull, labeled with the index name and
+   * database. Rate-limited per log call site (not deduped per index or checkpoint position — a
+   * stuck index can suppress another index's log line): the index retries this same batch
+   * indefinitely while blocked, so without rate-limiting this would log on every retry.
+   */
+  private void logBlockedInvalidRequestBatch(
+      IndexingSchedulerBatch batch, EmbeddingProviderTransientException cause) {
+    if (batch.events.isEmpty()) {
+      return;
+    }
+    logDefensively(
+        () -> {
+          IndexDefinition indexDefinition = batch.indexer.getIndexDefinition();
+          LoggableIdRange idRange = loggableIdRange(batch.events);
+          FLOGGER.atWarning().atMostEvery(1, TimeUnit.MINUTES).log(
+              "Index blocked on an invalid-request error and will retry indefinitely at its"
+                  + " checkpoint. index=%s, database=%s, idRange=[%s, %s], cause=%s",
+              indexDefinition.getName(),
+              indexDefinition.getDatabase(),
+              idRange.firstId(),
+              idRange.lastId(),
+              cause.getMessage());
+        });
   }
 
   private void recordBatchErrorMetric(String exceptionType, String reason) {
@@ -607,21 +768,24 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
       // referenced by CompletableFuture::UniApply even after completing futures, which may cause
       // memory leak.
       var events = new ArrayList<>(bundle.events());
-      CompletableFuture<Map<EmbedConfigurationForBatch, Map<String, Vector>>> embeddingsFuture =
-          getEmbeddings(
-              bundle.textsPerBatchKey(), priority, indexDefinition, generationKey, claimedKeys);
       resultFutures.add(
           // Change executor to use indexing executor here for better chaining with indexer.
-          embeddingsFuture.thenApplyAsync(
-              embeddingsPerModel ->
-                  applyEmbeddingsToEvents(
-                      events,
-                      embeddingsPerModel,
-                      embedBatchKeyPerPath,
-                      indexDefinition,
-                      autoEmbedMapping,
-                      matViewSchemaMetadata),
-              this.executor));
+          getEmbeddings(
+                  bundle.textsPerBatchKey(), priority, indexDefinition, generationKey, claimedKeys)
+              .handleAsync(
+                  (embeddingsPerModel, throwable) -> {
+                    if (throwable != null) {
+                      return skipBundleOrRethrow(throwable, indexDefinition, events);
+                    }
+                    return applyEmbeddingsToEvents(
+                        events,
+                        embeddingsPerModel,
+                        embedBatchKeyPerPath,
+                        indexDefinition,
+                        autoEmbedMapping,
+                        matViewSchemaMetadata);
+                  },
+                  this.executor));
     }
     return resultFutures;
   }

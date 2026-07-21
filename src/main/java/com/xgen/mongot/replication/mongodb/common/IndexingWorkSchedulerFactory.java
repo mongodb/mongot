@@ -15,6 +15,8 @@ import com.xgen.mongot.util.concurrent.Executors;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
+import java.util.function.Predicate;
+import org.bson.types.ObjectId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -131,7 +133,8 @@ public class IndexingWorkSchedulerFactory {
         perBatchMemoryBudgetHeapPercent,
         false,
         EmbeddingRetryCache.noOp(),
-        () -> false);
+        () -> false,
+        id -> false);
   }
 
   /**
@@ -152,7 +155,8 @@ public class IndexingWorkSchedulerFactory {
       int perBatchMemoryBudgetHeapPercent,
       boolean enableLifecycleAttributionMetrics,
       EmbeddingRetryCache embeddingRetryCache,
-      BooleanSupplier cacheEnabled) {
+      BooleanSupplier cacheEnabled,
+      Predicate<ObjectId> skipInvalidRequestEnabledForIndex) {
     log.info("Creating IndexingWorkSchedulerFactory with EmbeddingIndexingWorkScheduler only");
     var executor =
         Executors.fixedSizeThreadPool("indexing-auto-embedding", numIndexingThreads, registry);
@@ -175,7 +179,8 @@ public class IndexingWorkSchedulerFactory {
             globalBudget,
             perBatchBudgetBytes,
             embeddingRetryCache,
-            cacheEnabled);
+            cacheEnabled,
+            skipInvalidRequestEnabledForIndex);
     return new IndexingWorkSchedulerFactory(
         Map.of(
             IndexingStrategy.EMBEDDING_MATERIALIZED_VIEW,

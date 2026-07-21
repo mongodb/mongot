@@ -47,6 +47,8 @@ public class EmbeddingProviderTransientException extends RuntimeException {
     TENANT_CREDENTIALS_FAILURE,
     /** Provider returned a non-OK HTTP status (> 400, excluding 408/429). */
     HTTP_NON_OK_STATUS,
+    /** Provider returned HTTP 400 for a reason other than an oversized batch. */
+    HTTP_INVALID_REQUEST,
     /** Failed to parse the provider's response body (BsonParseException). */
     RESPONSE_PARSE_ERROR,
     /** Default for legacy constructors or unclassified transient failures. */

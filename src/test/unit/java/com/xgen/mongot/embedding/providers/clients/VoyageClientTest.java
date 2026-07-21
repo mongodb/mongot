@@ -349,7 +349,71 @@ public class VoyageClientTest {
   }
 
   @Test
-  public void testEmbed_returnsErrorOnEmptyList() throws Exception {
+  public void embed_invalidRequest_hasHttpInvalidRequestReason() throws Exception {
+    HttpClient mockClient = mock(HttpClient.class);
+    HttpResponse<String> mockResponse = mock(HttpResponse.class);
+    doReturn("some error occurred").when(mockResponse).body();
+    doReturn(400).when(mockResponse).statusCode();
+    doReturn(mockResponse)
+        .when(mockClient)
+        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+
+    VoyageClient voyageClient =
+        new VoyageClient(
+            VOYAGE_3_LARGE,
+            EmbeddingServiceConfig.ServiceTier.COLLECTION_SCAN,
+            VOYAGE_3_LARGE.collectionScan(),
+            METRICS_FACTORY,
+            Optional.empty(),
+            false,
+            false);
+    VoyageClient.injectVoyageClient(voyageClient, mockClient);
+
+    EmbeddingProviderTransientException ex =
+        assertThrows(
+            EmbeddingProviderTransientException.class,
+            () -> voyageClient.embed(List.of("invalid input"), dummyContext()));
+    assertEquals(EmbeddingProviderTransientException.Reason.HTTP_INVALID_REQUEST, ex.getReason());
+  }
+
+  @Test
+  public void embed_invalidRequest_truncatesLongResponseBodyInMessage() throws Exception {
+    // The response body can echo request input, and the exception message ends up in a
+    // rate-limited log line (EmbeddingIndexingWorkScheduler), so it must be bounded rather than
+    // embedding the full, potentially large and sensitive provider body.
+    HttpClient mockClient = mock(HttpClient.class);
+    HttpResponse<String> mockResponse = mock(HttpResponse.class);
+    String longBody = "x".repeat(2000);
+    doReturn(longBody).when(mockResponse).body();
+    doReturn(400).when(mockResponse).statusCode();
+    doReturn(mockResponse)
+        .when(mockClient)
+        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+
+    VoyageClient voyageClient =
+        new VoyageClient(
+            VOYAGE_3_LARGE,
+            EmbeddingServiceConfig.ServiceTier.COLLECTION_SCAN,
+            VOYAGE_3_LARGE.collectionScan(),
+            METRICS_FACTORY,
+            Optional.empty(),
+            false,
+            false);
+    VoyageClient.injectVoyageClient(voyageClient, mockClient);
+
+    EmbeddingProviderTransientException ex =
+        assertThrows(
+            EmbeddingProviderTransientException.class,
+            () -> voyageClient.embed(List.of("invalid input"), dummyContext()));
+    assertTrue(ex.getMessage().length() < longBody.length());
+    assertFalse(ex.getMessage().contains(longBody));
+  }
+
+  @Test
+  public void embed_invalidRequest_queryTierReturnsErrorInsteadOfThrowing() throws Exception {
+    // Query-time embedding is synchronous and not retried, and its caller (VectorSearchCommand)
+    // translates a VectorOrError.errorMessage into its own query error. This tier must preserve
+    // the pre-fix swallow behavior instead of throwing, unlike indexing tiers (see above).
     HttpClient mockClient = mock(HttpClient.class);
     HttpResponse<String> mockResponse = mock(HttpResponse.class);
     doReturn("some error occurred").when(mockResponse).body();
@@ -369,12 +433,10 @@ public class VoyageClientTest {
             false);
     VoyageClient.injectVoyageClient(voyageClient, mockClient);
 
-    assertEquals(
-        voyageClient.embed(List.of("invalid input"), dummyContext()),
-        List.of(
-            new VectorOrError(
-                "Got invalid request, fail fast and give up retries. "
-                    + "Response body: some error occurred.")));
+    List<VectorOrError> results = voyageClient.embed(List.of("invalid input"), dummyContext());
+    assertEquals(1, results.size());
+    assertTrue(results.get(0).errorMessage.isPresent());
+    assertTrue(results.get(0).vector.isEmpty());
   }
 
   @Test

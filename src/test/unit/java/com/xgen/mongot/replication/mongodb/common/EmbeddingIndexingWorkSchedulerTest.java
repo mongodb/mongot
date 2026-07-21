@@ -18,8 +18,11 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.mongodb.MongoNamespace;
+import com.xgen.mongot.config.util.DeploymentEnvironment;
 import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
 import com.xgen.mongot.embedding.AutoEmbeddingMemoryBudget;
+import com.xgen.mongot.embedding.EmbeddingRequestContext;
+import com.xgen.mongot.embedding.VectorOrError;
 import com.xgen.mongot.embedding.cache.EmbeddingRetryCache;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
@@ -28,10 +31,13 @@ import com.xgen.mongot.embedding.exceptions.EmbeddingProviderTransientException;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceRegistry;
+import com.xgen.mongot.embedding.providers.clients.ClientInterface;
+import com.xgen.mongot.embedding.providers.clients.EmbeddingClientFactory;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelCatalog;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.ServiceTier;
+import com.xgen.mongot.embedding.providers.congestion.DynamicSemaphore;
 import com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator;
 import com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils;
 import com.xgen.mongot.index.DocumentEvent;
@@ -74,6 +80,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.BooleanSupplier;
+import java.util.function.Predicate;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonString;
@@ -475,6 +482,199 @@ public class EmbeddingIndexingWorkSchedulerTest {
     Throwable cause = e.getCause();
     assertThat(cause).isInstanceOf(SteadyStateException.class);
     assertThat(cause.getCause()).isInstanceOf(MaterializedViewTransientException.class);
+  }
+
+  @Test
+  public void testAutoEmbeddingHttpInvalidRequestBlocksByDefault() throws IOException {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    ObjectId indexId = new ObjectId();
+    var generationId =
+        new MaterializedViewGenerationId(
+            indexId, new MaterializedViewGeneration(Generation.CURRENT));
+    EmbeddingIndexingWorkScheduler scheduler =
+        schedulerForMaterializedViewIndex(
+            Suppliers.ofInstance(
+                new EmbeddingServiceManager(
+                    List.of(TEST_EMBEDDING_CONFIG_V3_LARGE),
+                    invalidRequestThrowingClientFactory(meterRegistry),
+                    Executors.singleThreadScheduledExecutor("indexing", meterRegistry),
+                    meterRegistry,
+                    Optional.empty())),
+            generationId,
+            EmbeddingRetryCache.noOp(),
+            () -> false,
+            // AUTO_EMBEDDING_400_SKIP off (default): the failure must block, not skip.
+            id -> false);
+
+    VectorIndexDefinition vectorIndexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .indexId(indexId)
+            .withAutoEmbedField(indexId + ".a")
+            .build();
+    DocumentIndexer indexer = mockDocumentRequiresAutoEmbedding(vectorIndexDefinition);
+    RawBsonDocument rawBsonDoc =
+        BsonUtils.documentToRaw(new BsonDocument(indexId.toString(), createBasicBson()));
+    DocumentEvent event =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromMetadataNamespace(Optional.of(rawBsonDoc), indexId), rawBsonDoc);
+    List<DocumentEvent> batch = new ArrayList<>(List.of(event));
+    CompletableFuture<Void> indexingFuture =
+        scheduler.schedule(
+            batch,
+            SchedulerQueue.Priority.STEADY_STATE_CHANGE_STREAM,
+            indexer,
+            generationId,
+            Optional.of(new ObjectId()),
+            Optional.of(COMMIT_USER_DATA),
+            IGNORE_METRICS);
+
+    // The batch fails outright (never commits), so the caller's checkpoint cannot advance and the
+    // index cannot reach READY/STEADY while this failure persists.
+    var e = assertThrows(ExecutionException.class, indexingFuture::get);
+    Throwable cause = e.getCause();
+    assertThat(cause).isInstanceOf(SteadyStateException.class);
+    assertThat(((SteadyStateException) cause).isTransient()).isTrue();
+    assertThat(cause.getCause()).isInstanceOf(EmbeddingProviderTransientException.class);
+    assertThat(((EmbeddingProviderTransientException) cause.getCause()).getReason())
+        .isEqualTo(EmbeddingProviderTransientException.Reason.HTTP_INVALID_REQUEST);
+    verify(indexer, times(0)).commit();
+  }
+
+  @Test
+  public void testAutoEmbeddingHttpInvalidRequestSkippedWhenFlagEnabled() throws Exception {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    ObjectId indexId = new ObjectId();
+    var generationId =
+        new MaterializedViewGenerationId(
+            indexId, new MaterializedViewGeneration(Generation.CURRENT));
+    EmbeddingIndexingWorkScheduler scheduler =
+        schedulerForMaterializedViewIndex(
+            Suppliers.ofInstance(
+                new EmbeddingServiceManager(
+                    List.of(TEST_EMBEDDING_CONFIG_V3_LARGE),
+                    invalidRequestThrowingClientFactory(meterRegistry),
+                    Executors.singleThreadScheduledExecutor("indexing", meterRegistry),
+                    meterRegistry,
+                    Optional.empty())),
+            generationId,
+            EmbeddingRetryCache.noOp(),
+            () -> false,
+            // AUTO_EMBEDDING_400_SKIP on for this index: the failure must be skipped, not block.
+            id -> id.equals(indexId));
+
+    VectorIndexDefinition vectorIndexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .indexId(indexId)
+            .withAutoEmbedField(indexId + ".a")
+            .build();
+    DocumentIndexer indexer = mockDocumentRequiresAutoEmbedding(vectorIndexDefinition);
+    RawBsonDocument rawBsonDoc =
+        BsonUtils.documentToRaw(new BsonDocument(indexId.toString(), createBasicBson()));
+    DocumentEvent event =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromMetadataNamespace(Optional.of(rawBsonDoc), indexId), rawBsonDoc);
+    List<DocumentEvent> batch = new ArrayList<>(List.of(event));
+    CompletableFuture<Void> indexingFuture =
+        scheduler.schedule(
+            batch,
+            SchedulerQueue.Priority.STEADY_STATE_CHANGE_STREAM,
+            indexer,
+            generationId,
+            Optional.of(new ObjectId()),
+            Optional.of(COMMIT_USER_DATA),
+            IGNORE_METRICS);
+
+    // The batch completes by dropping the whole failing bundle (nothing written) instead of
+    // blocking, and still commits so the checkpoint advances.
+    indexingFuture.get(5, TimeUnit.SECONDS);
+    verify(indexer, times(0)).indexDocumentEvent(any());
+    verify(indexer, times(1)).commit();
+  }
+
+  @Test
+  public void testAutoEmbeddingHttpInvalidRequestSkipsPartialEmbedUpdateWhenFlagEnabled()
+      throws Exception {
+    // A change-stream partial embed update cannot be written without its new vector, so before the
+    // uniform drop-the-bundle behavior it would throw IllegalStateException and fail the index even
+    // with SKIP enabled. Under SKIP it must instead drop the bundle: no write, no failure, commit.
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    ObjectId indexId = new ObjectId();
+    var generationId =
+        new MaterializedViewGenerationId(
+            indexId, new MaterializedViewGeneration(Generation.CURRENT));
+    EmbeddingIndexingWorkScheduler scheduler =
+        schedulerForMaterializedViewIndex(
+            Suppliers.ofInstance(
+                new EmbeddingServiceManager(
+                    List.of(TEST_EMBEDDING_CONFIG_V3_LARGE),
+                    invalidRequestThrowingClientFactory(meterRegistry),
+                    Executors.singleThreadScheduledExecutor("indexing", meterRegistry),
+                    meterRegistry,
+                    Optional.empty())),
+            generationId,
+            EmbeddingRetryCache.noOp(),
+            () -> false,
+            // AUTO_EMBEDDING_400_SKIP on for this index.
+            id -> id.equals(indexId));
+
+    VectorIndexDefinition vectorIndexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .indexId(indexId)
+            .withAutoEmbedField(indexId + ".a")
+            .build();
+    DocumentIndexer indexer = mockDocumentRequiresAutoEmbedding(vectorIndexDefinition);
+    RawBsonDocument rawBsonDoc =
+        BsonUtils.documentToRaw(new BsonDocument(indexId.toString(), createBasicBson()));
+    DocumentEvent event =
+        DocumentEvent.createPartialUpdate(
+            DocumentMetadata.fromMetadataNamespace(Optional.of(rawBsonDoc), indexId),
+            rawBsonDoc,
+            new BsonDocument(),
+            ImmutableMap.of(FieldPath.parse(indexId + ".a"), "aString"));
+    List<DocumentEvent> batch = new ArrayList<>(List.of(event));
+    CompletableFuture<Void> indexingFuture =
+        scheduler.schedule(
+            batch,
+            SchedulerQueue.Priority.STEADY_STATE_CHANGE_STREAM,
+            indexer,
+            generationId,
+            Optional.of(new ObjectId()),
+            Optional.of(COMMIT_USER_DATA),
+            IGNORE_METRICS);
+
+    // Must not fail; the partial-update bundle is dropped and the batch still commits.
+    indexingFuture.get(5, TimeUnit.SECONDS);
+    verify(indexer, times(0)).indexDocumentEvent(any());
+    verify(indexer, times(1)).commit();
+  }
+
+  /** An {@link EmbeddingClientFactory} whose client always fails as an unhandled Voyage 400. */
+  private static EmbeddingClientFactory invalidRequestThrowingClientFactory(
+      MeterRegistry meterRegistry) {
+    ClientInterface throwingClient =
+        new ClientInterface() {
+          @Override
+          public List<VectorOrError> embed(List<String> input, EmbeddingRequestContext context)
+              throws EmbeddingProviderTransientException, EmbeddingProviderNonTransientException {
+            throw new EmbeddingProviderTransientException(
+                "Got invalid request, fail fast and give up retries.",
+                EmbeddingProviderTransientException.Reason.HTTP_INVALID_REQUEST);
+          }
+
+          @Override
+          public void updateConfig(
+              EmbeddingModelConfig.ConsolidatedWorkloadParams workloadParams) {}
+        };
+    return new EmbeddingClientFactory(meterRegistry, DeploymentEnvironment.TEST) {
+      @Override
+      public ClientInterface createEmbeddingClient(
+          EmbeddingModelConfig embeddingModelConfig,
+          EmbeddingServiceConfig.ServiceTier serviceTier,
+          EmbeddingModelConfig.ConsolidatedWorkloadParams workloadParams,
+          Optional<DynamicSemaphore> congestionControlSemaphore) {
+        return throwingClient;
+      }
+    };
   }
 
   @Test
@@ -1691,6 +1891,16 @@ public class EmbeddingIndexingWorkSchedulerTest {
       MaterializedViewGenerationId generationId,
       EmbeddingRetryCache embeddingRetryCache,
       BooleanSupplier cacheEnabled) {
+    return schedulerForMaterializedViewIndex(
+        supplier, generationId, embeddingRetryCache, cacheEnabled, id -> false);
+  }
+
+  private EmbeddingIndexingWorkScheduler schedulerForMaterializedViewIndex(
+      Supplier<EmbeddingServiceManager> supplier,
+      MaterializedViewGenerationId generationId,
+      EmbeddingRetryCache embeddingRetryCache,
+      BooleanSupplier cacheEnabled,
+      Predicate<ObjectId> skipInvalidRequestEnabledForIndex) {
     SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     NamedExecutorService executor = Executors.fixedSizeThreadPool("indexing", 2, meterRegistry);
     var matViewCollectionMetadataCatalog = new MaterializedViewCollectionMetadataCatalog();
@@ -1705,7 +1915,8 @@ public class EmbeddingIndexingWorkSchedulerTest {
         AutoEmbeddingMemoryBudget.createDefault(),
         EmbeddingIndexingWorkScheduler.PER_BATCH_AUTO_EMBEDDING_MEMORY_BUDGET_BYTES,
         embeddingRetryCache,
-        cacheEnabled);
+        cacheEnabled,
+        skipInvalidRequestEnabledForIndex);
   }
 
   private EmbeddingIndexingWorkScheduler schedulerForMaterializedViewIndexWithBudget(

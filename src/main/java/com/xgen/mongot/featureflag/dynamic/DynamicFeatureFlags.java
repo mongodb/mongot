@@ -89,7 +89,14 @@ public enum DynamicFeatureFlags {
    * crashes the process if it observes {@code OutOfMemoryError: unable to create native thread}
    * while submitting a command, instead of silently continuing while unavailable.
    */
-  CRASH_ON_THREAD_CREATION_OOM("mongot.featureFlag.crashOnThreadCreationOom", false);
+  CRASH_ON_THREAD_CREATION_OOM("mongot.featureFlag.crashOnThreadCreationOom", false),
+  /**
+   * When enabled for an index, an otherwise-unhandled Voyage HTTP 400 no longer blocks that index's
+   * auto-embedding replication: the failing batch is skipped and logged instead, and the index can
+   * still reach READY / STEADY with the skipped documents missing. Scoped per index ({@link
+   * DynamicFeatureFlagConfig.Scope#MONGOT_INDEX}); off by default so a 400 blocks.
+   */
+  AUTO_EMBEDDING_400_SKIP("mongot.featureFlag.autoEmbedding400Skip", false);
 
   private final String name;
   private final boolean fallback;
