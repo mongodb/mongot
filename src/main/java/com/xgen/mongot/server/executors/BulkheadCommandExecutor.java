@@ -2,8 +2,11 @@ package com.xgen.mongot.server.executors;
 
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import com.xgen.mongot.server.command.Command;
+import com.xgen.mongot.util.Crash;
 import com.xgen.mongot.util.Runtime;
 import com.xgen.mongot.util.concurrent.Executors;
 import com.xgen.mongot.util.concurrent.NamedExecutorService;
@@ -16,6 +19,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.RejectedExecutionHandler;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 import org.bson.BsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,12 +34,14 @@ public class BulkheadCommandExecutor implements Closeable {
   private static final Logger LOG = LoggerFactory.getLogger(BulkheadCommandExecutor.class);
   private static final String REGULAR_EXECUTOR_NAME = "blocking-server-worker";
   private static final String GUARANTEED_EXECUTOR_NAME = "guaranteed-blocking-server-worker";
+  private static final String NATIVE_THREAD_CREATION_OOM_MESSAGE = "unable to create native thread";
 
   private final NamedExecutorService regularBlockingCommandExecutor;
   private final NamedExecutorService guaranteedBlockingCommandExecutor;
   private final OptionalInt virtualQueueCapacity;
   private final Optional<Counter> wouldHaveRejectedCounter;
   private final Counter skippedDueToCancelledStreamCounter;
+  private final DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry;
 
   /** Holds the regular executor configuration created during construction. */
   private record RegularExecutorConfig(
@@ -44,12 +50,23 @@ public class BulkheadCommandExecutor implements Closeable {
       Optional<Counter> wouldHaveRejectedCounter) {}
 
   public BulkheadCommandExecutor(MeterRegistry meterRegistry) {
-    this(meterRegistry, RegularBlockingRequestSettings.defaults(), FeatureFlags.getDefault());
+    this(
+        meterRegistry,
+        RegularBlockingRequestSettings.defaults(),
+        FeatureFlags.getDefault(),
+        DynamicFeatureFlagRegistry.empty());
   }
 
   public BulkheadCommandExecutor(
       MeterRegistry meterRegistry, RegularBlockingRequestSettings settings) {
-    this(meterRegistry, settings, FeatureFlags.getDefault());
+    this(meterRegistry, settings, FeatureFlags.getDefault(), DynamicFeatureFlagRegistry.empty());
+  }
+
+  public BulkheadCommandExecutor(
+      MeterRegistry meterRegistry,
+      RegularBlockingRequestSettings settings,
+      FeatureFlags featureFlags) {
+    this(meterRegistry, settings, featureFlags, DynamicFeatureFlagRegistry.empty());
   }
 
   /**
@@ -58,11 +75,15 @@ public class BulkheadCommandExecutor implements Closeable {
    * @param meterRegistry registry for executor metrics
    * @param settings pool/queue sizing configuration
    * @param featureFlags gates optional metrics (e.g. per-pool allocation/CPU attribution)
+   * @param dynamicFeatureFlagRegistry gates {@link
+   *     DynamicFeatureFlags#CRASH_ON_THREAD_CREATION_OOM}
    */
   public BulkheadCommandExecutor(
       MeterRegistry meterRegistry,
       RegularBlockingRequestSettings settings,
-      FeatureFlags featureFlags) {
+      FeatureFlags featureFlags,
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
+    this.dynamicFeatureFlagRegistry = dynamicFeatureFlagRegistry;
     int numCpus = Runtime.INSTANCE.getNumCpus();
     int poolSize = settings.resolvedPoolSize(numCpus);
     OptionalInt queueCapacity = settings.maybeResolvedQueueCapacity(numCpus);
@@ -206,23 +227,29 @@ public class BulkheadCommandExecutor implements Closeable {
     return switch (command.getExecutionPolicy()) {
       case ASYNC -> {
         if (!command.maybeLoadShed()) {
-          yield CompletableFuture.supplyAsync(command::run, this.guaranteedBlockingCommandExecutor);
+          yield submitOrCrashOnThreadCreationOom(
+              () ->
+                  CompletableFuture.supplyAsync(
+                      command::run, this.guaranteedBlockingCommandExecutor));
         }
         recordWouldHaveRejectedIfNeeded();
-        yield CompletableFuture.supplyAsync(
-            () -> {
-              if (isCancelled.getAsBoolean()) {
-                this.skippedDueToCancelledStreamCounter.increment();
-                LOG.debug(
-                    "Skipping dequeued command '{}' because stream was cancelled", command.name());
-                throw new CancelledStreamSkipException(
-                    "Command '"
-                        + command.name()
-                        + "' skipped: stream was cancelled before execution");
-              }
-              return command.run();
-            },
-            this.regularBlockingCommandExecutor);
+        yield submitOrCrashOnThreadCreationOom(
+            () ->
+                CompletableFuture.supplyAsync(
+                    () -> {
+                      if (isCancelled.getAsBoolean()) {
+                        this.skippedDueToCancelledStreamCounter.increment();
+                        LOG.debug(
+                            "Skipping dequeued command '{}' because stream was cancelled",
+                            command.name());
+                        throw new CancelledStreamSkipException(
+                            "Command '"
+                                + command.name()
+                                + "' skipped: stream was cancelled before execution");
+                      }
+                      return command.run();
+                    },
+                    this.regularBlockingCommandExecutor));
       }
       case SYNC -> {
         try {
@@ -232,6 +259,36 @@ public class BulkheadCommandExecutor implements Closeable {
         }
       }
     };
+  }
+
+  /**
+   * Submits work via {@code submission} and, if the JVM cannot allocate the native thread needed to
+   * run it ({@code OutOfMemoryError: unable to create native thread}, which otherwise leaves the
+   * process up but unable to serve queries), deliberately crashes the process behind {@link
+   * DynamicFeatureFlags#CRASH_ON_THREAD_CREATION_OOM} so it restarts quickly instead of limping
+   * along.
+   *
+   * <p>This OOM is thrown synchronously by {@code Thread.start()} from within the submitting
+   * thread, before the new worker thread's body ever runs, so a {@link
+   * Thread#getDefaultUncaughtExceptionHandler()} cannot observe it (see JDK-8155004) &mdash; it can
+   * only be caught here, at the submission call site.
+   */
+  private CompletableFuture<BsonDocument> submitOrCrashOnThreadCreationOom(
+      Supplier<CompletableFuture<BsonDocument>> submission) {
+    try {
+      return submission.get();
+    } catch (OutOfMemoryError oom) {
+      if (oom.getMessage() != null
+          && oom.getMessage().contains(NATIVE_THREAD_CREATION_OOM_MESSAGE)
+          && this.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+              DynamicFeatureFlags.CRASH_ON_THREAD_CREATION_OOM)) {
+        Crash.because("BulkheadCommandExecutor failed to submit command due to OutOfMemoryError")
+            .withThrowable(oom)
+            .withThreadDump()
+            .now();
+      }
+      throw oom;
+    }
   }
 
   @Override

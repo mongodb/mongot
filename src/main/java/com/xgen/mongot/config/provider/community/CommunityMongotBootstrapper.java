@@ -298,7 +298,8 @@ public class CommunityMongotBootstrapper {
             internalListAllIndexesForTesting,
             mongotConfigs.indexDefinitionConfig,
             embeddingServiceManagerSupplier,
-            mongotConfigs.featureFlags);
+            mongotConfigs.featureFlags,
+            dynamicFeatureFlagRegistry);
 
     var readinessChecker =
         new CommunityReadinessChecker(
@@ -849,11 +850,16 @@ public class CommunityMongotBootstrapper {
       boolean internalListAllIndexesForTesting,
       IndexDefinitionConfig indexDefinitionConfig,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
-      FeatureFlags featureFlags) {
+      FeatureFlags featureFlags,
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
     // Create the ExecutorManager that can serve requests for the tcpServer (and the grpcServer).
     // noinspection resource
     var executorManager =
-        new ExecutorManager(meterRegistry, regularBlockingRequestSettings, featureFlags);
+        new ExecutorManager(
+            meterRegistry,
+            regularBlockingRequestSettings,
+            featureFlags,
+            dynamicFeatureFlagRegistry);
 
     var grpcServer =
         GrpcStreamingServer.createCommunity(

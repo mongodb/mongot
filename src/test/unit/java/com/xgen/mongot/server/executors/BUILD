@@ -10,9 +10,11 @@ java_test_suite(
     tags = ["unit"],
     deps = [
         "//src/main/java/com/xgen/mongot/featureflag",
+        "//src/main/java/com/xgen/mongot/featureflag/dynamic",
         "//src/main/java/com/xgen/mongot/server/command",
         "//src/main/java/com/xgen/mongot/server/executors",
         "//src/main/java/com/xgen/mongot/server/util",
+        "//src/main/java/com/xgen/mongot/util",
         "@maven//:com_google_flogger_flogger_system_backend",  # keep
         "@maven//:com_google_truth_truth",
         "@maven//:io_micrometer_micrometer_core",

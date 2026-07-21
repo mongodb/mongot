@@ -83,7 +83,13 @@ public enum DynamicFeatureFlags {
    */
   AUTO_EMBEDDING_MONGOD_DISK_MONITOR("mongot.featureFlag.autoEmbeddingMongodDiskMonitor", false),
   QUERY_OPTIMIZER("mongot.featureFlag.queryOptimizer", false),
-  ENABLE_OTEL_TRACING("mongot.featureFlag.enableOTELTracing", false);
+  ENABLE_OTEL_TRACING("mongot.featureFlag.enableOTELTracing", false),
+  /**
+   * When enabled, {@link com.xgen.mongot.server.executors.BulkheadCommandExecutor} deliberately
+   * crashes the process if it observes {@code OutOfMemoryError: unable to create native thread}
+   * while submitting a command, instead of silently continuing while unavailable.
+   */
+  CRASH_ON_THREAD_CREATION_OOM("mongot.featureFlag.crashOnThreadCreationOom", false);
 
   private final String name;
   private final boolean fallback;

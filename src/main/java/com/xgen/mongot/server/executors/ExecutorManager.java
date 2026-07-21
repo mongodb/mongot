@@ -2,6 +2,7 @@ package com.xgen.mongot.server.executors;
 
 import com.google.common.collect.HashBasedTable;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.server.util.NettyUtil;
 import com.xgen.mongot.util.CheckedStream;
 import com.xgen.mongot.util.Crash;
@@ -32,20 +33,44 @@ public class ExecutorManager implements Closeable {
       eventLoopGroups;
 
   public ExecutorManager(MeterRegistry meterRegistry) {
-    this(meterRegistry, RegularBlockingRequestSettings.defaults(), FeatureFlags.getDefault());
+    this(
+        meterRegistry,
+        RegularBlockingRequestSettings.defaults(),
+        FeatureFlags.getDefault(),
+        DynamicFeatureFlagRegistry.empty());
   }
 
   public ExecutorManager(
       MeterRegistry meterRegistry, RegularBlockingRequestSettings regularBlockingRequestSettings) {
-    this(meterRegistry, regularBlockingRequestSettings, FeatureFlags.getDefault());
+    this(
+        meterRegistry,
+        regularBlockingRequestSettings,
+        FeatureFlags.getDefault(),
+        DynamicFeatureFlagRegistry.empty());
   }
 
   public ExecutorManager(
       MeterRegistry meterRegistry,
       RegularBlockingRequestSettings regularBlockingRequestSettings,
       FeatureFlags featureFlags) {
+    this(
+        meterRegistry,
+        regularBlockingRequestSettings,
+        featureFlags,
+        DynamicFeatureFlagRegistry.empty());
+  }
+
+  public ExecutorManager(
+      MeterRegistry meterRegistry,
+      RegularBlockingRequestSettings regularBlockingRequestSettings,
+      FeatureFlags featureFlags,
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
     this.commandExecutor =
-        new BulkheadCommandExecutor(meterRegistry, regularBlockingRequestSettings, featureFlags);
+        new BulkheadCommandExecutor(
+            meterRegistry,
+            regularBlockingRequestSettings,
+            featureFlags,
+            dynamicFeatureFlagRegistry);
     this.eventLoopGroups = HashBasedTable.create();
   }
 

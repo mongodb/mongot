@@ -16,6 +16,7 @@ java_library(
     ],
     deps = [
         "//src/main/java/com/xgen/mongot/featureflag",
+        "//src/main/java/com/xgen/mongot/featureflag/dynamic",
         "//src/main/java/com/xgen/mongot/metrics",
         "//src/main/java/com/xgen/mongot/server/command",
         "//src/main/java/com/xgen/mongot/server/util",

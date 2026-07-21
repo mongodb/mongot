@@ -6,19 +6,30 @@ import static org.junit.Assert.assertTrue;
 
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.server.command.Command;
+import com.xgen.mongot.util.Crash;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import org.bson.BsonDocument;
+import org.bson.types.ObjectId;
 import org.junit.Test;
 
 /** Unit tests for {@link BulkheadCommandExecutor}. */
@@ -661,6 +672,146 @@ public class BulkheadCommandExecutorTest {
       assertThat(meterRegistry.find("executor.thread.cpuTime").functionCounter()).isNull();
     }
   }
+
+  @Test
+  @Crash.TestOnlyHaltHandler
+  public void submitOrCrashOnThreadCreationOom_featureDisabled_rethrowsWithoutCrashing()
+      throws Exception {
+    AtomicBoolean haltCalled = new AtomicBoolean(false);
+    Crash.setHaltHandlerForTesting(exitCode -> haltCalled.set(true));
+    try {
+      try (BulkheadCommandExecutor exec =
+          new BulkheadCommandExecutor(
+              new SimpleMeterRegistry(),
+              RegularBlockingRequestSettings.defaults(),
+              FeatureFlags.getDefault(),
+              DynamicFeatureFlagRegistry.empty())) {
+        Supplier<CompletableFuture<BsonDocument>> throwingSubmission =
+            () -> {
+              throw new OutOfMemoryError("unable to create native thread");
+            };
+
+        assertThrows(
+            InvocationTargetException.class,
+            () -> invokeSubmitOrCrashOnThreadCreationOom(exec, throwingSubmission));
+        assertThat(haltCalled.get()).isFalse();
+      }
+    } finally {
+      Crash.clearHaltHandlerForTesting();
+    }
+  }
+
+  @Test
+  @Crash.TestOnlyHaltHandler
+  public void submitOrCrashOnThreadCreationOom_featureEnabled_nonNativeOomDoesNotCrash()
+      throws Exception {
+    AtomicBoolean haltCalled = new AtomicBoolean(false);
+    Crash.setHaltHandlerForTesting(exitCode -> haltCalled.set(true));
+    try {
+      ObjectId clusterId = new ObjectId();
+      DynamicFeatureFlagConfig config =
+          new DynamicFeatureFlagConfig(
+              DynamicFeatureFlags.CRASH_ON_THREAD_CREATION_OOM.getName(),
+              DynamicFeatureFlagConfig.Phase.ENABLED,
+              List.of(),
+              List.of(),
+              0,
+              DynamicFeatureFlagConfig.Scope.MONGOT_CLUSTER);
+      DynamicFeatureFlagRegistry registryWithFlagEnabled =
+          new DynamicFeatureFlagRegistry(
+              Optional.of(List.of(config)),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.of(clusterId));
+
+      try (BulkheadCommandExecutor exec =
+          new BulkheadCommandExecutor(
+              new SimpleMeterRegistry(),
+              RegularBlockingRequestSettings.defaults(),
+              FeatureFlags.getDefault(),
+              registryWithFlagEnabled)) {
+        OutOfMemoryError heapOom = new OutOfMemoryError("Java heap space");
+        Supplier<CompletableFuture<BsonDocument>> throwingSubmission =
+            () -> {
+              throw heapOom;
+            };
+
+        InvocationTargetException thrown =
+            assertThrows(
+                InvocationTargetException.class,
+                () -> invokeSubmitOrCrashOnThreadCreationOom(exec, throwingSubmission));
+        assertThat(thrown.getCause()).isSameInstanceAs(heapOom);
+        assertThat(haltCalled.get()).isFalse();
+      }
+    } finally {
+      Crash.clearHaltHandlerForTesting();
+    }
+  }
+
+  @Test
+  @Crash.TestOnlyHaltHandler
+  public void submitOrCrashOnThreadCreationOom_featureEnabled_crashesProcess() throws Exception {
+    AtomicInteger capturedExitCode = new AtomicInteger(-1);
+    CountDownLatch haltCalled = new CountDownLatch(1);
+    Crash.setHaltHandlerForTesting(
+        exitCode -> {
+          capturedExitCode.set(exitCode);
+          haltCalled.countDown();
+          // Simulate Runtime.halt() so control never returns to the caller.
+          throw new HaltError();
+        });
+    try {
+      ObjectId clusterId = new ObjectId();
+      DynamicFeatureFlagConfig config =
+          new DynamicFeatureFlagConfig(
+              DynamicFeatureFlags.CRASH_ON_THREAD_CREATION_OOM.getName(),
+              DynamicFeatureFlagConfig.Phase.ENABLED,
+              List.of(),
+              List.of(),
+              0,
+              DynamicFeatureFlagConfig.Scope.MONGOT_CLUSTER);
+      DynamicFeatureFlagRegistry registryWithFlagEnabled =
+          new DynamicFeatureFlagRegistry(
+              Optional.of(List.of(config)),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.of(clusterId));
+
+      try (BulkheadCommandExecutor exec =
+          new BulkheadCommandExecutor(
+              new SimpleMeterRegistry(),
+              RegularBlockingRequestSettings.defaults(),
+              FeatureFlags.getDefault(),
+              registryWithFlagEnabled)) {
+        Supplier<CompletableFuture<BsonDocument>> throwingSubmission =
+            () -> {
+              throw new OutOfMemoryError("unable to create native thread");
+            };
+
+        assertThrows(
+            InvocationTargetException.class,
+            () -> invokeSubmitOrCrashOnThreadCreationOom(exec, throwingSubmission));
+
+        assertTrue(haltCalled.await(5, TimeUnit.SECONDS));
+        assertThat(capturedExitCode.get()).isEqualTo(1);
+      }
+    } finally {
+      Crash.clearHaltHandlerForTesting();
+    }
+  }
+
+  private void invokeSubmitOrCrashOnThreadCreationOom(
+      BulkheadCommandExecutor exec, Supplier<CompletableFuture<BsonDocument>> submission)
+      throws Exception {
+    Method method =
+        BulkheadCommandExecutor.class.getDeclaredMethod(
+            "submitOrCrashOnThreadCreationOom", Supplier.class);
+    method.setAccessible(true);
+    method.invoke(exec, submission);
+  }
+
+  /** Stand-in for the process exit that {@link Crash#now()} would otherwise trigger. */
+  private static final class HaltError extends Error {}
 
   @Test
   public void constructor_queryMemoryAttributionEnabled_registersResourceMetricsForBothPools() {
