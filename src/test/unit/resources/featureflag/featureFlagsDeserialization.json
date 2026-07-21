@@ -63,7 +63,8 @@
         "searchAggregation": true,
         "byteBinaryQuantization": true,
         "resetStaleInternalSearchCheckpoint": true,
-        "enableChangeStreamPriorityScheduling": true
+        "enableChangeStreamPriorityScheduling": true,
+        "changeStreamActivityObserver": true
       }
     },
     {
@@ -112,7 +113,8 @@
         "fcisIndexDataConditionalWrites": false,
         "searchAggregation": false,
         "byteBinaryQuantization": false,
-        "resetStaleInternalSearchCheckpoint": false
+        "resetStaleInternalSearchCheckpoint": false,
+        "changeStreamActivityObserver": false
       }
     }
   ],

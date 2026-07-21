@@ -92,7 +92,8 @@ public enum Feature {
   // Kill-switch for the CLOUDP-416232 one-time stale-internal-search-checkpoint reset guard in
   // ReplicationIndexManager. Enabled by default; disable to skip the reset without a rollback.
   RESET_STALE_INTERNAL_SEARCH_CHECKPOINT("resetStaleInternalSearchCheckpoint", State.ENABLED),
-  CHANGE_STREAM_PRIORITY_SCHEDULING("enableChangeStreamPriorityScheduling", State.DISABLED);
+  CHANGE_STREAM_PRIORITY_SCHEDULING("enableChangeStreamPriorityScheduling", State.DISABLED),
+  CHANGE_STREAM_ACTIVITY_OBSERVER("changeStreamActivityObserver", State.DISABLED);
 
   private final String name;
   private final State defaultState;

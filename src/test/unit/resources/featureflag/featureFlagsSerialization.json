@@ -47,7 +47,8 @@
         "searchAggregation": false,
         "byteBinaryQuantization": false,
         "resetStaleInternalSearchCheckpoint": true,
-        "enableChangeStreamPriorityScheduling": false
+        "enableChangeStreamPriorityScheduling": false,
+        "changeStreamActivityObserver": false
       }
     },
     {
@@ -97,7 +98,8 @@
         "searchAggregation": false,
         "byteBinaryQuantization": false,
         "resetStaleInternalSearchCheckpoint": true,
-        "enableChangeStreamPriorityScheduling": false
+        "enableChangeStreamPriorityScheduling": false,
+        "changeStreamActivityObserver": false
       }
     },
     {
@@ -147,7 +149,8 @@
         "searchAggregation": true,
         "byteBinaryQuantization": true,
         "resetStaleInternalSearchCheckpoint": true,
-        "enableChangeStreamPriorityScheduling": true
+        "enableChangeStreamPriorityScheduling": true,
+        "changeStreamActivityObserver": true
       }
     },
     {
@@ -197,7 +200,8 @@
         "searchAggregation": false,
         "byteBinaryQuantization": false,
         "resetStaleInternalSearchCheckpoint": false,
-        "enableChangeStreamPriorityScheduling": false
+        "enableChangeStreamPriorityScheduling": false,
+        "changeStreamActivityObserver": false
       }
     }
   ]
