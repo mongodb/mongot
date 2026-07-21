@@ -102,6 +102,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import java.util.stream.LongStream;
 import org.bson.Document;
@@ -1256,6 +1257,114 @@ public class MaterializedViewManagerTest {
     // so refreshStatus() doesn't see a follower with no generator and log a warn every heartbeat.
     verify(mocks.leaseManager).drop(failingGen.getGenerationId());
     verify(mocks.leaseManager, never()).drop(succeedingGen.getGenerationId());
+  }
+
+  // refreshStatus periodically recreates a generator a transient failure left missing. Covers the
+  // guard no-op, a retry that fails transiently again (lease rolled back, re-attempted next tick),
+  // eventual recovery, and the no-gap no-op.
+  @Test
+  public void refreshStatus_retriesMissingGenerator_afterTransientCreateFailure() {
+    Mocks mocks = Mocks.createStaticLeaderWithRefreshCapture();
+    when(mocks.materializedViewGeneratorFactory.isInitialized()).thenReturn(true);
+    mocks.manager.setIsReplicationEnabled(false);
+
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(new ObjectId()));
+    MaterializedViewGenerator generator = mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen); // replication disabled: populates the catalog only
+
+    // First two create() calls throw transient (restartReplication, then the first retry); the
+    // third succeeds.
+    AtomicInteger createCalls = new AtomicInteger();
+    when(mocks.materializedViewGeneratorFactory.create(any(MaterializedViewIndexGeneration.class)))
+        .thenAnswer(
+            invocation -> {
+              if (createCalls.getAndIncrement() < 2) {
+                throw new MaterializedViewTransientException(
+                    "simulated 10107 NotPrimary",
+                    MaterializedViewTransientException.Reason.READ_LEASE_FAILED);
+              }
+              return generator;
+            });
+
+    // Transient failure during restartReplication leaves the generation active but with no
+    // generator; the lease registration is rolled back. restartReplication is not a retry, so
+    // neither retry-outcome counter moves.
+    mocks.manager.restartReplication();
+    assertFalse(mocks.manager.getMatViewGenerator(gen.getGenerationId()).isPresent());
+    verify(mocks.materializedViewGeneratorFactory, times(1)).create(gen);
+    verify(mocks.leaseManager, times(1)).drop(gen.getGenerationId());
+    assertEquals(0.0, retryCount(mocks, "failure"), 0.0);
+
+    // Guard: no retry while the factory is uninitialized.
+    when(mocks.materializedViewGeneratorFactory.isInitialized()).thenReturn(false);
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+    verify(mocks.materializedViewGeneratorFactory, times(1)).create(gen);
+    assertEquals(0.0, retryCount(mocks, "failure"), 0.0);
+    when(mocks.materializedViewGeneratorFactory.isInitialized()).thenReturn(true);
+
+    // First retry fails transiently again: lease rolled back again, still no generator, counted as
+    // a failed retry.
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+    assertFalse(mocks.manager.getMatViewGenerator(gen.getGenerationId()).isPresent());
+    verify(mocks.materializedViewGeneratorFactory, times(2)).create(gen);
+    verify(mocks.leaseManager, times(2)).drop(gen.getGenerationId());
+    assertEquals(1.0, retryCount(mocks, "failure"), 0.0);
+    assertEquals(0.0, retryCount(mocks, "success"), 0.0);
+
+    // Next tick succeeds: the missing generator is recreated and counted as a successful retry.
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+    assertTrue(mocks.manager.getMatViewGenerator(gen.getGenerationId()).isPresent());
+    verify(mocks.materializedViewGeneratorFactory, times(3)).create(gen);
+    assertEquals(1.0, retryCount(mocks, "success"), 0.0);
+    assertEquals(1.0, retryCount(mocks, "failure"), 0.0);
+
+    // No gap remains: a further refresh does not recreate or re-count.
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+    verify(mocks.materializedViewGeneratorFactory, times(3)).create(gen);
+    assertEquals(1.0, retryCount(mocks, "success"), 0.0);
+    assertEquals(1.0, retryCount(mocks, "failure"), 0.0);
+  }
+
+  // A failed transition to follower leaves a SHUT_DOWN generator in the map. refreshStatus
+  // recreates
+  // it as a fresh follower — but not while a shutdown is still in flight for that generation.
+  @Test
+  public void refreshStatus_recreatesShutDownGenerator() {
+    Mocks mocks = Mocks.createStaticLeaderWithRefreshCapture();
+    when(mocks.materializedViewGeneratorFactory.isInitialized()).thenReturn(true);
+
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(new ObjectId()));
+    MaterializedViewGenerator shutDownGenerator = mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+    doReturn(IndexManager.State.SHUT_DOWN).when(shutDownGenerator).getState();
+
+    // The retry creates a fresh, healthy generator in its place.
+    MaterializedViewGenerator healthyGenerator = mock(MaterializedViewGenerator.class);
+    when(healthyGenerator.getIndexGeneration()).thenReturn(gen);
+    when(mocks.materializedViewGeneratorFactory.create(gen)).thenReturn(healthyGenerator);
+
+    // In-flight shutdown for this generation: the SHUT_DOWN generator must not be recreated.
+    mocks.manager.pendingShutdowns.put(gen.getGenerationId(), new CompletableFuture<>());
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+    assertSame(
+        shutDownGenerator, mocks.manager.getMatViewGenerator(gen.getGenerationId()).orElseThrow());
+    assertEquals(0.0, retryCount(mocks, "success"), 0.0);
+
+    // Shutdown no longer in flight: the SHUT_DOWN generator is replaced by a fresh one.
+    mocks.manager.pendingShutdowns.remove(gen.getGenerationId());
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+    assertSame(
+        healthyGenerator, mocks.manager.getMatViewGenerator(gen.getGenerationId()).orElseThrow());
+    assertEquals(1.0, retryCount(mocks, "success"), 0.0);
+  }
+
+  private static double retryCount(Mocks mocks, String outcome) {
+    return mocks
+        .meterRegistry
+        .counter(MaterializedViewManager.GENERATOR_CREATION_RETRY_COUNTER_NAME, "outcome", outcome)
+        .count();
   }
 
   @Test

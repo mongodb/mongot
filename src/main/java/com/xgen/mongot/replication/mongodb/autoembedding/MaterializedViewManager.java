@@ -125,6 +125,9 @@ public class MaterializedViewManager implements ReplicationManager {
   public static final String GENERATOR_CREATION_FAILURE_COUNTER_NAME =
       "matViewGeneratorCreationFailures";
 
+  public static final String GENERATOR_CREATION_RETRY_COUNTER_NAME =
+      "matViewGeneratorCreationRetries";
+
   public static final String STATE_LABEL = "state";
 
   public static final String MAT_VIEW_GC_SCANNER_ALIVE_GAUGE = "matViewGcScannerAlive";
@@ -774,7 +777,7 @@ public class MaterializedViewManager implements ReplicationManager {
     try {
       generator = this.matViewGeneratorFactory.create(matViewIndexGeneration);
     } catch (RuntimeException e) {
-      // TODO(CLOUDP-398177): add retry mechanism for generator creation failure.
+      // Transient failures are retried by refreshStatus's periodic reconciliation.
       recordGeneratorCreationFailure(
           matViewIndexGeneration.getGenerationId(), e, "CREATE_NEW_GENERATOR");
       throw e;
@@ -896,7 +899,7 @@ public class MaterializedViewManager implements ReplicationManager {
       try {
         newGenerator = this.matViewGeneratorFactory.create(matViewIndexGeneration);
       } catch (RuntimeException e) {
-        // TODO(CLOUDP-398177): add retry mechanism for generator creation failure.
+        // Existing generator is left in place (still replicating the prior definition).
         recordGeneratorCreationFailure(
             matViewIndexGeneration.getGenerationId(), e, "REPLACE_GENERATOR");
         throw e;
@@ -991,8 +994,8 @@ public class MaterializedViewManager implements ReplicationManager {
       // Replace in the map immediately so subsequent operations use the new follower generator.
       this.managedMaterializedViewGenerators.put(uuid, newGenerator);
     } catch (Throwable e) {
-      // Do not rethrow: this runs on the leader heartbeat thread, which must keep scheduling.
-      // TODO(CLOUDP-398177): add retry mechanism for generator creation failure.
+      // Do not rethrow: this runs on the leader heartbeat thread, which must keep scheduling. The
+      // old generator is left shut down in the map; refreshStatus recreates the follower.
       recordGeneratorCreationFailure(generationId, e, "FACTORY_CREATE_AFTER_LEADERSHIP_LOSS");
     }
     // Have to shut down the existing generator no matter new generator is created or not
@@ -1380,6 +1383,9 @@ public class MaterializedViewManager implements ReplicationManager {
     if (isShutdown() || !isReplicationSupported()) {
       return;
     }
+    // Recreate any generator a transient failure left missing or shut down, before the election
+    // loop below reads the managed map.
+    retryFailedGeneratorCreations();
     // Poll all follower statuses from LeaseManager.
     var pollResult = this.leaseManager.pollFollowerStatuses();
 
@@ -2077,11 +2083,9 @@ public class MaterializedViewManager implements ReplicationManager {
    * <p>Per-generation generator creation can throw {@link MaterializedViewTransientException} —
    * e.g. a mongod primary stepdown returning {@code 10107 NotPrimary} during the lease read in
    * {@link com.xgen.mongot.index.mongodb.MaterializedViewWriter#getCommitUserData}. Such failures
-   * are caught and the affected generation is skipped (and its lease-manager registration rolled
-   * back so {@link #refreshStatus} doesn't see a follower with no generator). Retry happens on the
-   * next conf push that drives another {@code restartReplication}; {@code refreshStatus} itself
-   * does not re-attempt generator creation. Non-transient exceptions still propagate so genuine
-   * bugs remain fatal.
+   * are caught and the affected generation is skipped; {@link #refreshStatus} periodically retries
+   * any active generation still missing a generator. Non-transient exceptions still propagate so
+   * genuine bugs remain fatal.
    *
    * <p>No-op if the generator factory's sync source URIs are not yet available.
    */
@@ -2093,25 +2097,81 @@ public class MaterializedViewManager implements ReplicationManager {
     }
     this.isReplicationEnabled = true;
     this.activeGenerationIdCatalog.latestMatViewIndexGenerationByCollection.forEach(
+        this::createAndStoreGenerator);
+  }
+
+  /**
+   * Creates a generator for the collection and stores it, swallowing transient failures so they
+   * don't crash mongot. Rolls back the lease registration on a transient failure and leaves the
+   * retry to {@link #refreshStatus}; non-transient exceptions propagate. Returns {@code true} if a
+   * generator was created and stored.
+   */
+  private synchronized boolean createAndStoreGenerator(
+      UUID uuid, MaterializedViewIndexGeneration matViewIndexGeneration) {
+    try {
+      this.managedMaterializedViewGenerators.put(uuid, createNewGenerator(matViewIndexGeneration));
+      return true;
+    } catch (MaterializedViewTransientException e) {
+      this.leaseManager.drop(matViewIndexGeneration.getGenerationId());
+      LOG.atWarn()
+          .addKeyValue("generationId", matViewIndexGeneration.getGenerationId())
+          .addKeyValue("reason", e.getReason())
+          .setCause(e)
+          .log("Skipping generator creation for index; will retry on next refresh.");
+      return false;
+    }
+  }
+
+  /**
+   * Recreates generators for active generations that are missing or were left shut down, so an
+   * unreplicated index recovers without operator intervention. No-op unless replication is enabled
+   * and the generator factory is initialized.
+   */
+  private synchronized void retryFailedGeneratorCreations() {
+    if (isShutdown()
+        || !this.isReplicationEnabled
+        || !this.matViewGeneratorFactory.isInitialized()) {
+      return;
+    }
+    this.activeGenerationIdCatalog.latestMatViewIndexGenerationByCollection.forEach(
         (uuid, matViewIndexGeneration) -> {
+          if (!needsGeneratorRecreation(uuid)) {
+            return;
+          }
           try {
-            this.managedMaterializedViewGenerators.put(
-                uuid, createNewGenerator(matViewIndexGeneration));
-          } catch (MaterializedViewTransientException e) {
-            // Swallow transient failures (e.g. 10107 NotPrimary during mongod stepdown) so they
-            // don't propagate to PeriodicConfigMonitor.Crash and halt the JVM. Retry happens on
-            // the conf call changes; refreshStatus() does not re-attempt generator creation.
-            // createNewGenerator() has already called leaseManager.add() before throwing, so
-            // roll that back to avoid leaving a dangling follower entry that refreshStatus()
-            // would log "Generator disqualified" against every heartbeat.
-            this.leaseManager.drop(matViewIndexGeneration.getGenerationId());
-            LOG.atWarn()
-                .addKeyValue("generationId", matViewIndexGeneration.getGenerationId())
-                .addKeyValue("reason", e.getReason())
+            recordGeneratorRetry(createAndStoreGenerator(uuid, matViewIndexGeneration));
+          } catch (Exception e) {
+            // Last line of defense: a throw out of the status-refresh runnable would permanently
+            // cancel scheduleWithFixedDelay. Log and move on; the next tick retries.
+            recordGeneratorRetry(false);
+            LOG.atError()
+                .addKeyValue("collectionUuid", uuid)
                 .setCause(e)
-                .log("Skipping generator restart for index; will retry on next conf push.");
+                .log("Generator creation retry failed; will retry on next refresh.");
           }
         });
+  }
+
+  private void recordGeneratorRetry(boolean succeeded) {
+    this.meterRegistry
+        .counter(
+            GENERATOR_CREATION_RETRY_COUNTER_NAME, "outcome", succeeded ? "success" : "failure")
+        .increment();
+  }
+
+  /**
+   * True when a collection's active generation has no usable generator: none is stored, or the
+   * stored one was left {@code SHUT_DOWN} (e.g. a failed transition to follower) with no shutdown
+   * still in flight for it. Runtime-error states (FAILED/FAILED_EXCEEDED) are left alone —
+   * recreating them would churn without resolving the underlying failure.
+   */
+  private synchronized boolean needsGeneratorRecreation(UUID uuid) {
+    var generator = this.managedMaterializedViewGenerators.get(uuid);
+    if (generator == null) {
+      return true;
+    }
+    return generator.getState() == SHUT_DOWN
+        && !this.pendingShutdowns.containsKey(generator.getIndexGeneration().getGenerationId());
   }
 
   @VisibleForTesting
