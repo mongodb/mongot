@@ -7,14 +7,17 @@ import static com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils.POST
 import static com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils.toRawBsonDocuments;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -255,6 +258,90 @@ public class ChangeStreamIndexManagerTest {
           0);
 
       Assert.assertFalse(future.isDone());
+    }
+
+    @Test
+    public void testRecordsEventSizesOnDecodingPath() throws Exception {
+      // The per-event size metric must be recorded from the decoding task (CLOUDP-353521), not
+      // synchronously on the IO/dispatch thread that calls indexBatch. To guard that behavior
+      // (rather than merely that recording happens at all), capture the thread each
+      // recordDocumentSizeBytes call runs on and assert it is a decoding-executor thread, distinct
+      // from the thread that invoked indexBatch. If the recording were done synchronously in
+      // indexBatch, it would run on the caller thread here and this test would fail.
+      IndexingWorkScheduler scheduler = mock(IndexingWorkScheduler.class);
+      when(scheduler.schedule(any(), any(), any(), any(), any(), any(), any()))
+          .thenReturn(CompletableFuture.completedFuture(null));
+      CompletableFuture<Void> future = new CompletableFuture<>();
+
+      DocumentIndexer indexer = indexer();
+
+      var metricsFactory = SearchIndex.mockMetricsFactory();
+      IndexMetricsUpdater realUpdater =
+          IndexMetricsUpdaterBuilder.builder()
+              .metricsFactory(metricsFactory)
+              .indexMetricsSupplier(IndexMetricsSupplier.mockEmptyIndexMetricsSupplier())
+              .build();
+      var spyIndexingMetricsUpdater = spy(realUpdater.getIndexingMetricsUpdater());
+      IndexMetricsUpdater metricsUpdater = spy(realUpdater);
+      doReturn(spyIndexingMetricsUpdater).when(metricsUpdater).getIndexingMetricsUpdater();
+
+      // Record the thread that each recordDocumentSizeBytes call runs on (still exercising the real
+      // recording logic).
+      List<String> recordingThreads = Collections.synchronizedList(new ArrayList<>());
+      doAnswer(
+              invocation -> {
+                recordingThreads.add(Thread.currentThread().getName());
+                return invocation.callRealMethod();
+              })
+          .when(spyIndexingMetricsUpdater)
+          .recordDocumentSizeBytes(anyInt());
+
+      ChangeStreamIndexManager manager =
+          getChangeStreamIndexManagerFactory()
+              .create(
+                  MOCK_INDEX_DEFINITION,
+                  scheduler,
+                  indexer,
+                  ChangeStreamUtils.PRE_BATCH_RESUME_INFO.getNamespace(),
+                  resumeInfo -> {},
+                  metricsUpdater,
+                  future,
+                  GenerationIdBuilder.create());
+
+      List<ChangeStreamDocument<RawBsonDocument>> events =
+          Arrays.asList(
+              ChangeStreamUtils.insertEvent(0, MOCK_INDEX_DEFINITION),
+              ChangeStreamUtils.insertEvent(1, MOCK_INDEX_DEFINITION));
+
+      String indexBatchThread = Thread.currentThread().getName();
+      CompletableFuture<Void> indexFuture =
+          manager.indexBatch(
+                  new ChangeStreamBatch(
+                      toRawBsonDocuments(events),
+                      ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
+                      new BsonTimestamp()),
+                  NOOP_DOCUMENT_METRICS_UPDATER,
+                  NOOP_TIMER)
+              .indexingFuture;
+
+      indexFuture.get(5, TimeUnit.SECONDS);
+
+      // One recording per raw event in the batch, performed on the decoding task.
+      verify(spyIndexingMetricsUpdater, timeout(5000).times(events.size()))
+          .recordDocumentSizeBytes(anyInt());
+
+      // Every recording ran on a decoding-executor thread, not the thread that called indexBatch.
+      assertEquals(events.size(), recordingThreads.size());
+      for (String recordingThread : recordingThreads) {
+        assertNotEquals(
+            "event size metric was recorded on the indexBatch (IO/dispatch) thread",
+            indexBatchThread,
+            recordingThread);
+        assertTrue(
+            "expected event size metric to be recorded on a decoding thread but was "
+                + recordingThread,
+            recordingThread.contains("decoding"));
+      }
     }
 
     @Test
@@ -1735,8 +1822,10 @@ public class ChangeStreamIndexManagerTest {
       when(hangingBatch.getPostBatchResumeToken())
           .thenReturn(ChangeStreamUtils.resumeToken(new BsonTimestamp(3, 0)));
 
-      // allow calls `getRawEvents()` in pre-processing by this thread (total 6 calls), after hang.
-      AtomicInteger blockDecoding = new AtomicInteger(-6);
+      // allow calls `getRawEvents()` in pre-processing by this thread (total 5 calls), after hang.
+      // The event-size metric no longer calls getRawEvents() on this (IO) thread; it is recorded on
+      // the decoding thread instead (CLOUDP-353521).
+      AtomicInteger blockDecoding = new AtomicInteger(-5);
       when(hangingBatch.getRawEvents())
           .thenAnswer(
               invocation -> {
@@ -1831,8 +1920,10 @@ public class ChangeStreamIndexManagerTest {
       when(hangingBatch.getPostBatchResumeToken())
           .thenReturn(ChangeStreamUtils.resumeToken(new BsonTimestamp(3, 0)));
 
-      // allow calls `getRawEvents()` in pre-processing by this thread (total 6 calls), after hang.
-      AtomicInteger blockDecoding = new AtomicInteger(-6);
+      // allow calls `getRawEvents()` in pre-processing by this thread (total 5 calls), after hang.
+      // The event-size metric no longer calls getRawEvents() on this (IO) thread; it is recorded on
+      // the decoding thread instead (CLOUDP-353521).
+      AtomicInteger blockDecoding = new AtomicInteger(-5);
       when(hangingBatch.getRawEvents())
           .thenAnswer(
               invocation -> {

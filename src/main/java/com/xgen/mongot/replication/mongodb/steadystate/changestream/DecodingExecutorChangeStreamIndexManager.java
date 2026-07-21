@@ -175,10 +175,6 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
       // look if `renameNamespace` is present.
       boolean hasLifecycleEvent = lifecycleEvent.isPresent() || this.renameNamespace.isPresent();
 
-      ChangeStreamDocumentUtils.recordChangeStreamEventSizes(
-          batch.getRawEvents(),
-          this.indexMetricsUpdater.getIndexingMetricsUpdater()::recordDocumentSizeBytes);
-
       CompletableFuture<Void> schedulingFuture = new CompletableFuture<>();
 
       // Schedule the given batch for decoding. Decoding will be done in-order (FIFO) per index
@@ -192,6 +188,13 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
               batch.getRawEvents(),
               Priority.STEADY_STATE_CHANGE_STREAM,
               events -> {
+                // Record the size of every raw event in the batch. This runs on the decoding
+                // thread rather than the IO/dispatch thread so the (batch-length) traversal doesn't
+                // block the thread that fetches the next change-stream batch (CLOUDP-353521).
+                ChangeStreamDocumentUtils.recordChangeStreamEventSizes(
+                    events,
+                    this.indexMetricsUpdater.getIndexingMetricsUpdater()::recordDocumentSizeBytes);
+
                 // A list view of change-stream documents based on given raw documents. The view
                 // excludes non-CRUD events from the end of the list. Note: decoding from raw
                 // document to change-stream document happens when calling List#get.
