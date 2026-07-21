@@ -6,6 +6,7 @@ load("//bazel/java:package.bzl", "java_library")
 java_library(
     name = "trace",
     srcs = [
+        "LatencySamplingSpanProcessor.java",
         "ParentScopeGuard.java",
         "Slf4jExporter.java",
         "SpanGuard.java",
