@@ -438,6 +438,11 @@ public final class Mongot01042BinaryQuantizedFlatVectorsReader extends FlatVecto
     }
 
     @Override
+    public int ordToDoc(int ord) {
+      return this.rawVectorValues.ordToDoc(ord);
+    }
+
+    @Override
     public FloatVectorValues copy() throws IOException {
       return new QuantizedFloatVectorValues(
           this.rawVectorValues.copy(), this.quantizedVectorValues.copy());
@@ -477,6 +482,11 @@ public final class Mongot01042BinaryQuantizedFlatVectorsReader extends FlatVecto
     @Override
     public byte[] vectorValue(int ord) throws IOException {
       return this.rawVectorValues.vectorValue(ord);
+    }
+
+    @Override
+    public int ordToDoc(int ord) {
+      return this.rawVectorValues.ordToDoc(ord);
     }
 
     @Override

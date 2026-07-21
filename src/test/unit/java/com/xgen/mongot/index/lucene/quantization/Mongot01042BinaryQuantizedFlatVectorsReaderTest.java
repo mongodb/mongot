@@ -16,6 +16,7 @@ import com.xgen.mongot.index.definition.quantization.VectorQuantization;
 import com.xgen.mongot.index.lucene.document.context.IndexingPolicyBuilderContext;
 import com.xgen.mongot.index.lucene.document.single.IndexableFieldFactory;
 import com.xgen.mongot.index.lucene.document.single.VectorIndexDocumentWrapper;
+import com.xgen.mongot.index.lucene.extension.KnnByteVectorField;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.util.LuceneDocumentIdEncoder;
 import com.xgen.mongot.util.Check;
@@ -33,11 +34,13 @@ import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.StringField;
+import org.apache.lucene.index.ByteVectorValues;
 import org.apache.lucene.index.CodecReader;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.FloatVectorValues;
 import org.apache.lucene.index.IndexWriter;
+import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.store.Directory;
@@ -48,6 +51,10 @@ import org.junit.Test;
 
 public class Mongot01042BinaryQuantizedFlatVectorsReaderTest {
   private static final byte[] DUMMY_ENCODED_BYTES = new byte[8];
+
+  private static final String BYTE_FIELD =
+      FieldName.TypeField.KNN_BYTE_Q1.getLuceneFieldName(
+          FieldPath.parse("field"), Optional.empty());
 
   @Test
   public void getFloatVectorValues_nonExistentField_throwsIllegalArgumentException()
@@ -97,54 +104,7 @@ public class Mongot01042BinaryQuantizedFlatVectorsReaderTest {
   }
 
   @Test
-  public void getByteVectorValues_nonExistentField_throwsIllegalArgumentException()
-      throws IOException {
-    String existingField =
-        FieldName.TypeField.KNN_F32_Q1.getLuceneFieldName(
-            FieldPath.parse("existingField"), Optional.empty());
-    try (Directory dir = LuceneIndexRule.newDirectoryForTest();
-        IndexWriter w = new IndexWriter(dir, LuceneIndexRule.getIndexWriterConfig())) {
-      float[] vector = VectorTestUtils.createFloatVector(30);
-
-      VectorIndexDocumentWrapper document =
-          VectorIndexDocumentWrapper.createRoot(
-              DUMMY_ENCODED_BYTES,
-              SearchIndexCapabilities.CURRENT,
-              new IndexMetricsUpdater.IndexingMetricsUpdater(
-                  SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
-              IndexingPolicyBuilderContext.builder().build());
-
-      IndexableFieldFactory.addKnnVectorField(
-          document,
-          FieldPath.newRoot("existingField"),
-          Vector.fromFloats(vector, FloatVector.OriginalType.NATIVE),
-          new VectorFieldSpecification(
-              vector.length,
-              VectorSimilarity.COSINE,
-              VectorQuantization.BINARY,
-              new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
-      w.addDocument(document.luceneDocument);
-      w.commit();
-
-      try (DirectoryReader reader = DirectoryReader.open(w)) {
-        LeafReader leafReader = Iterables.getOnlyElement(reader.leaves()).reader();
-        KnnVectorsReader knnVectorsReader = ((CodecReader) leafReader).getVectorReader();
-        KnnVectorsReader forField =
-            ((PerFieldKnnVectorsFormat.FieldsReader) knnVectorsReader)
-                .getFieldReader(existingField);
-        Lucene99HnswVectorsReader hnswReader =
-            Check.instanceOf(forField, Lucene99HnswVectorsReader.class);
-        IllegalArgumentException exception =
-            Assert.assertThrows(
-                IllegalArgumentException.class,
-                () -> hnswReader.getByteVectorValues("missingField"));
-        assertThat(exception).hasMessageThat().contains("not found");
-      }
-    }
-  }
-
-  @Test
-  public void getQuantizedVectorValues_nonExistentField_throwsIllegalArgumentException()
+  public void floatPath_getQuantizedVectorValues_nonExistentField_throwsIllegalArgumentException()
       throws IOException {
     String existingField =
         FieldName.TypeField.KNN_F32_Q1.getLuceneFieldName(
@@ -191,7 +151,7 @@ public class Mongot01042BinaryQuantizedFlatVectorsReaderTest {
   }
 
   @Test
-  public void getQuantizationState_nonExistentField_throwsIllegalArgumentException()
+  public void floatPath_getQuantizationState_nonExistentField_throwsIllegalArgumentException()
       throws IOException {
     String existingField =
         FieldName.TypeField.KNN_F32_Q1.getLuceneFieldName(
@@ -238,7 +198,7 @@ public class Mongot01042BinaryQuantizedFlatVectorsReaderTest {
   }
 
   @Test
-  public void getFloatVectorValues_ghostFields_doesNotReturnNull() throws IOException {
+  public void floatPath_getFloatVectorValues_ghostFields_doesNotReturnNull() throws IOException {
     // Test case adapted from
     // https://github.com/apache/lucene/blob/4b47fb1a3113d22bca6cd8c1664529ef2d7f4877/lucene/core/src/test/org/apache/lucene/search/BaseKnnVectorQueryTestCase.java#L792-L827
     String field =
@@ -291,7 +251,8 @@ public class Mongot01042BinaryQuantizedFlatVectorsReaderTest {
   }
 
   @Test
-  public void getQuantizedVectorValues_ghostFields_doesNotReturnNull() throws IOException {
+  public void floatPath_getQuantizedVectorValues_ghostFields_doesNotReturnNull()
+      throws IOException {
     // Test case adapted from
     // https://github.com/apache/lucene/blob/4b47fb1a3113d22bca6cd8c1664529ef2d7f4877/lucene/core/src/test/org/apache/lucene/search/BaseKnnVectorQueryTestCase.java#L792-L827
     String field =
@@ -335,6 +296,320 @@ public class Mongot01042BinaryQuantizedFlatVectorsReaderTest {
         assertNotNull(quantized);
         assertThat(quantized).isInstanceOf(OffHeapQuantizedByteVectorValues.class);
         assertEquals(NO_MORE_DOCS, quantized.iterator().nextDoc());
+      }
+    }
+  }
+
+  @Test
+  public void getByteVectorValues_nonExistentField_throwsIllegalArgumentException()
+      throws IOException {
+    String existingField =
+        FieldName.TypeField.KNN_F32_Q1.getLuceneFieldName(
+            FieldPath.parse("existingField"), Optional.empty());
+    try (Directory dir = LuceneIndexRule.newDirectoryForTest();
+        IndexWriter w = new IndexWriter(dir, LuceneIndexRule.getIndexWriterConfig())) {
+      float[] vector = VectorTestUtils.createFloatVector(30);
+
+      VectorIndexDocumentWrapper document =
+          VectorIndexDocumentWrapper.createRoot(
+              DUMMY_ENCODED_BYTES,
+              SearchIndexCapabilities.CURRENT,
+              new IndexMetricsUpdater.IndexingMetricsUpdater(
+                  SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+              IndexingPolicyBuilderContext.builder().build());
+
+      IndexableFieldFactory.addKnnVectorField(
+          document,
+          FieldPath.newRoot("existingField"),
+          Vector.fromFloats(vector, FloatVector.OriginalType.NATIVE),
+          new VectorFieldSpecification(
+              vector.length,
+              VectorSimilarity.COSINE,
+              VectorQuantization.BINARY,
+              new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+      w.addDocument(document.luceneDocument);
+      w.commit();
+
+      try (DirectoryReader reader = DirectoryReader.open(w)) {
+        LeafReader leafReader = Iterables.getOnlyElement(reader.leaves()).reader();
+        KnnVectorsReader knnVectorsReader = ((CodecReader) leafReader).getVectorReader();
+        KnnVectorsReader forField =
+            ((PerFieldKnnVectorsFormat.FieldsReader) knnVectorsReader)
+                .getFieldReader(existingField);
+        Lucene99HnswVectorsReader hnswReader =
+            Check.instanceOf(forField, Lucene99HnswVectorsReader.class);
+        IllegalArgumentException exception =
+            Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> hnswReader.getByteVectorValues("missingField"));
+        assertThat(exception).hasMessageThat().contains("not found");
+      }
+    }
+  }
+
+  @Test
+  public void bytePath_getQuantizedVectorValues_nonExistentField_throwsIllegalArgumentException()
+      throws IOException {
+    String existingField =
+        FieldName.TypeField.KNN_BYTE_Q1.getLuceneFieldName(
+            FieldPath.parse("existingField"), Optional.empty());
+    try (Directory dir = LuceneIndexRule.newDirectoryForTest();
+        IndexWriter w =
+            new IndexWriter(
+                dir, new IndexWriterConfig().setCodec(new Mongot01042BinaryQuantizedTestCodec()))) {
+      byte[] vector = VectorTestUtils.createByteVector(30);
+
+      Document doc = new Document();
+      doc.add(new StringField("id", "0", Field.Store.NO));
+      w.addDocument(doc);
+
+      Document vectorDoc = new Document();
+      vectorDoc.add(new StringField("id", "1", Field.Store.NO));
+      vectorDoc.add(
+          new KnnByteVectorField(
+              existingField, vector, VectorSimilarity.COSINE.getLuceneSimilarityFunction()));
+      w.addDocument(vectorDoc);
+      w.commit();
+      w.deleteDocuments(new Term("id", "1"));
+      w.forceMerge(1);
+
+      try (DirectoryReader reader = DirectoryReader.open(w)) {
+        LeafReader leafReader = Iterables.getOnlyElement(reader.leaves()).reader();
+        KnnVectorsReader knnVectorsReader = ((CodecReader) leafReader).getVectorReader();
+        KnnVectorsReader forField =
+            ((PerFieldKnnVectorsFormat.FieldsReader) knnVectorsReader)
+                .getFieldReader(existingField);
+        Lucene99HnswVectorsReader hnswReader =
+            Check.instanceOf(forField, Lucene99HnswVectorsReader.class);
+        IllegalArgumentException exception =
+            Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> hnswReader.getQuantizedVectorValues("missingField"));
+        assertThat(exception).hasMessageThat().contains("not found");
+      }
+    }
+  }
+
+  @Test
+  public void bytePath_getQuantizationState_nonExistentField_throwsIllegalArgumentException()
+      throws IOException {
+    String existingField =
+        FieldName.TypeField.KNN_BYTE_Q1.getLuceneFieldName(
+            FieldPath.parse("existingField"), Optional.empty());
+    try (Directory dir = LuceneIndexRule.newDirectoryForTest();
+        IndexWriter w =
+            new IndexWriter(
+                dir, new IndexWriterConfig().setCodec(new Mongot01042BinaryQuantizedTestCodec()))) {
+      byte[] vector = VectorTestUtils.createByteVector(30);
+
+      Document document = new Document();
+      document.add(
+          new KnnByteVectorField(
+              existingField, vector, VectorSimilarity.COSINE.getLuceneSimilarityFunction()));
+      w.addDocument(document);
+      w.commit();
+
+      try (DirectoryReader reader = DirectoryReader.open(w)) {
+        LeafReader leafReader = Iterables.getOnlyElement(reader.leaves()).reader();
+        KnnVectorsReader knnVectorsReader = ((CodecReader) leafReader).getVectorReader();
+        KnnVectorsReader forField =
+            ((PerFieldKnnVectorsFormat.FieldsReader) knnVectorsReader)
+                .getFieldReader(existingField);
+        Lucene99HnswVectorsReader hnswReader =
+            Check.instanceOf(forField, Lucene99HnswVectorsReader.class);
+        IllegalArgumentException exception =
+            Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> hnswReader.getQuantizationState("missingField"));
+        assertThat(exception).hasMessageThat().contains("not found");
+      }
+    }
+  }
+
+  @Test
+  public void bytePath_getByteVectorValues_ghostFields_doesNotReturnNull() throws IOException {
+    try (Directory dir = LuceneIndexRule.newDirectoryForTest();
+        IndexWriter w =
+            new IndexWriter(
+                dir, new IndexWriterConfig().setCodec(new Mongot01042BinaryQuantizedTestCodec()))) {
+      byte[] vector = VectorTestUtils.createByteVector(30);
+
+      Document doc = new Document();
+      doc.add(new StringField("id", "0", Field.Store.NO));
+      w.addDocument(doc);
+
+      Document vectorDoc = new Document();
+      vectorDoc.add(new StringField("id", "1", Field.Store.NO));
+      vectorDoc.add(
+          new KnnByteVectorField(
+              BYTE_FIELD, vector, VectorSimilarity.COSINE.getLuceneSimilarityFunction()));
+      w.addDocument(vectorDoc);
+      w.commit();
+      w.deleteDocuments(new Term("id", "1"));
+      w.forceMerge(1);
+
+      try (DirectoryReader reader = DirectoryReader.open(w)) {
+        LeafReader leafReader = Iterables.getOnlyElement(reader.leaves()).reader();
+        KnnVectorsReader knnVectorsReader = ((CodecReader) leafReader).getVectorReader();
+        KnnVectorsReader forField =
+            ((PerFieldKnnVectorsFormat.FieldsReader) knnVectorsReader).getFieldReader(BYTE_FIELD);
+        Lucene99HnswVectorsReader hnswReader =
+            Check.instanceOf(forField, Lucene99HnswVectorsReader.class);
+        ByteVectorValues vectorValues = hnswReader.getByteVectorValues(BYTE_FIELD);
+        assertNotNull(vectorValues);
+        assertEquals(NO_MORE_DOCS, vectorValues.iterator().nextDoc());
+      }
+    }
+  }
+
+  @Test
+  public void bytePath_getQuantizedVectorValues_ghostFields_doesNotReturnNull() throws IOException {
+    try (Directory dir = LuceneIndexRule.newDirectoryForTest();
+        IndexWriter w =
+            new IndexWriter(
+                dir, new IndexWriterConfig().setCodec(new Mongot01042BinaryQuantizedTestCodec()))) {
+      byte[] vector = VectorTestUtils.createByteVector(30);
+
+      Document doc = new Document();
+      doc.add(new StringField("id", "0", Field.Store.NO));
+      w.addDocument(doc);
+
+      Document vectorDoc = new Document();
+      vectorDoc.add(new StringField("id", "1", Field.Store.NO));
+      vectorDoc.add(
+          new KnnByteVectorField(
+              BYTE_FIELD, vector, VectorSimilarity.COSINE.getLuceneSimilarityFunction()));
+      w.addDocument(vectorDoc);
+      w.commit();
+      w.deleteDocuments(new Term("id", "1"));
+      w.forceMerge(1);
+
+      try (DirectoryReader reader = DirectoryReader.open(w)) {
+        LeafReader leafReader = Iterables.getOnlyElement(reader.leaves()).reader();
+        QuantizedByteVectorValues quantized =
+            VectorTestUtils.getQuantizedReader(leafReader, BYTE_FIELD);
+
+        assertNotNull(quantized);
+        assertThat(quantized).isInstanceOf(OffHeapQuantizedByteVectorValues.class);
+        assertEquals(NO_MORE_DOCS, quantized.iterator().nextDoc());
+      }
+    }
+  }
+
+  @Test
+  public void bytePath_getByteVectorValues_returnsIndexedByteVectors() throws IOException {
+    try (Directory dir = LuceneIndexRule.newDirectoryForTest();
+        IndexWriter w =
+            new IndexWriter(
+                dir, new IndexWriterConfig().setCodec(new Mongot01042BinaryQuantizedTestCodec()))) {
+      byte[] vector = VectorTestUtils.createByteVector(30);
+
+      Document doc = new Document();
+      doc.add(
+          new KnnByteVectorField(
+              BYTE_FIELD, vector, VectorSimilarity.COSINE.getLuceneSimilarityFunction()));
+      w.addDocument(doc);
+      w.commit();
+
+      try (DirectoryReader reader = DirectoryReader.open(w)) {
+        LeafReader leafReader = Iterables.getOnlyElement(reader.leaves()).reader();
+        KnnVectorsReader knnVectorsReader = ((CodecReader) leafReader).getVectorReader();
+        KnnVectorsReader forField =
+            ((PerFieldKnnVectorsFormat.FieldsReader) knnVectorsReader).getFieldReader(BYTE_FIELD);
+        Lucene99HnswVectorsReader hnswReader =
+            Check.instanceOf(forField, Lucene99HnswVectorsReader.class);
+        ByteVectorValues vv = hnswReader.getByteVectorValues(BYTE_FIELD);
+        assertNotNull(vv);
+        ByteVectorValues.DocIndexIterator iter = vv.iterator();
+        assertThat(iter.nextDoc()).isNotEqualTo(NO_MORE_DOCS);
+        assertThat(vv.vectorValue(iter.index())).isEqualTo(vector);
+        assertEquals(1, vv.size());
+        assertEquals(NO_MORE_DOCS, iter.nextDoc());
+      }
+    }
+  }
+
+  @Test
+  public void floatPath_sparseField_ordToDocMatchesRawValues() throws IOException {
+    String field =
+        FieldName.TypeField.KNN_F32_Q1.getLuceneFieldName(
+            FieldPath.parse("field"), Optional.empty());
+    try (Directory dir = LuceneIndexRule.newDirectoryForTest();
+        IndexWriter w = new IndexWriter(dir, LuceneIndexRule.getIndexWriterConfig())) {
+      float[] vector = VectorTestUtils.createFloatVector(30);
+
+      Document doc = new Document();
+      doc.add(new StringField("id", "0", Field.Store.NO));
+      w.addDocument(doc);
+
+      VectorIndexDocumentWrapper wrappedDocument =
+          VectorIndexDocumentWrapper.createRoot(
+              LuceneDocumentIdEncoder.encodeDocumentId(new BsonInt32(1)),
+              SearchIndexCapabilities.CURRENT,
+              new IndexMetricsUpdater.IndexingMetricsUpdater(
+                  SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+              IndexingPolicyBuilderContext.builder().build());
+      wrappedDocument.luceneDocument.add(new StringField("id", "1", Field.Store.NO));
+
+      IndexableFieldFactory.addKnnVectorField(
+          wrappedDocument,
+          FieldPath.newRoot("field"),
+          Vector.fromFloats(vector, FloatVector.OriginalType.NATIVE),
+          new VectorFieldSpecification(
+              vector.length,
+              VectorSimilarity.COSINE,
+              VectorQuantization.BINARY,
+              new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+      w.addDocument(wrappedDocument.luceneDocument);
+      w.commit();
+      w.forceMerge(1);
+
+      try (DirectoryReader reader = DirectoryReader.open(w)) {
+        LeafReader leafReader = Iterables.getOnlyElement(reader.leaves()).reader();
+        FloatVectorValues vectorValues = leafReader.getFloatVectorValues(field);
+        assertNotNull(vectorValues);
+        FloatVectorValues.DocIndexIterator iter = vectorValues.iterator();
+        assertThat(iter.nextDoc()).isEqualTo(1);
+        assertEquals(iter.docID(), vectorValues.ordToDoc(iter.index()));
+      }
+    }
+  }
+
+  @Test
+  public void bytePath_sparseField_ordToDocMatchesRawValues() throws IOException {
+    // This exercises QuantizedByteVectorValues.ordToDoc; without the delegating override it would
+    // fall through to the KnnVectorValues identity (return ord), reporting doc 0 for ord 0.
+    try (Directory dir = LuceneIndexRule.newDirectoryForTest();
+        IndexWriter w =
+            new IndexWriter(
+                dir, new IndexWriterConfig().setCodec(new Mongot01042BinaryQuantizedTestCodec()))) {
+      byte[] vector = VectorTestUtils.createByteVector(30);
+
+      Document doc = new Document();
+      doc.add(new StringField("id", "0", Field.Store.NO));
+      w.addDocument(doc);
+
+      Document vectorDoc = new Document();
+      vectorDoc.add(new StringField("id", "1", Field.Store.NO));
+      vectorDoc.add(
+          new KnnByteVectorField(
+              BYTE_FIELD, vector, VectorSimilarity.COSINE.getLuceneSimilarityFunction()));
+      w.addDocument(vectorDoc);
+      w.commit();
+      w.forceMerge(1);
+
+      try (DirectoryReader reader = DirectoryReader.open(w)) {
+        LeafReader leafReader = Iterables.getOnlyElement(reader.leaves()).reader();
+        KnnVectorsReader knnVectorsReader = ((CodecReader) leafReader).getVectorReader();
+        KnnVectorsReader forField =
+            ((PerFieldKnnVectorsFormat.FieldsReader) knnVectorsReader).getFieldReader(BYTE_FIELD);
+        Lucene99HnswVectorsReader hnswReader =
+            Check.instanceOf(forField, Lucene99HnswVectorsReader.class);
+        ByteVectorValues vectorValues = hnswReader.getByteVectorValues(BYTE_FIELD);
+        assertNotNull(vectorValues);
+        ByteVectorValues.DocIndexIterator iter = vectorValues.iterator();
+        assertThat(iter.nextDoc()).isEqualTo(1);
+        assertEquals(iter.docID(), vectorValues.ordToDoc(iter.index()));
       }
     }
   }

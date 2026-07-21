@@ -8,6 +8,7 @@ java_test_suite(
         "BinaryQuantizerTest.java",
         "Mongot01042BinaryQuantizedFlatVectorsReaderTest.java",
         "Mongot01042BinaryQuantizedFlatVectorsWriterTest.java",
+        "Mongot01042BinaryQuantizedTestCodec.java",
         "Mongot01042HnswBinaryQuantizedVectorsFormatTest.java",
         "OffHeapQuantizedByteVectorValuesTest.java",
         "PackingUnpackingTest.java",
