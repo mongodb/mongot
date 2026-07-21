@@ -1,12 +1,12 @@
-package com.xgen.mongot.index.query.aggregation;
+package com.xgen.mongot.index.query.collectors;
 
-import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.index.definition.FieldDefinition;
 import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
-import com.xgen.mongot.index.query.collectors.AggDefinition;
-import com.xgen.mongot.index.query.collectors.AggDefinition.LeafOperator;
-import com.xgen.mongot.index.query.collectors.AggregationCollector;
-import com.xgen.mongot.index.query.collectors.FacetDefinition;
+import com.xgen.mongot.index.query.aggregation.AggregationRegistry;
+import com.xgen.mongot.index.query.aggregation.AggregationSpec;
+import com.xgen.mongot.index.query.aggregation.Operator;
+import com.xgen.mongot.index.query.aggregation.SearchAggregationBootstrap;
+import com.xgen.mongot.index.query.aggregation.TopAggregationSpec;
 import com.xgen.mongot.index.query.collectors.FacetDefinition.BoundaryFacetDefinition;
 import com.xgen.mongot.util.FieldPath;
 import java.util.ArrayList;
@@ -37,7 +37,8 @@ public final class AggregationSpecBuilder {
   private AggregationSpecBuilder() {}
 
   /**
-   * Builds a top-level spec tree from the collector definition.
+   * Builds a top-level spec tree from the collector definition, lowering each top-level facet
+   * branch recursively.
    *
    * @param boundaryResolver index field metadata for number/date boundary group specs. {@link
    *     Optional#empty()} at shard plan time ({@code planShardedSearch}) because the planner does
@@ -49,35 +50,51 @@ public final class AggregationSpecBuilder {
       AggregationCollector collector,
       AggregationRegistry registry,
       Optional<BoundaryFieldResolver> boundaryResolver) {
-    List<AggregationSpec> children = new ArrayList<>(collector.aggDefinitions().size());
-    for (Map.Entry<String, AggDefinition> entry : collector.aggDefinitions().entrySet()) {
-      children.add(lower(entry.getKey(), entry.getValue(), registry, boundaryResolver));
+    List<AggregationSpec> children = new ArrayList<>(collector.facets().size());
+    for (Map.Entry<String, AggregationFacetDefinition> entry : collector.facets().entrySet()) {
+      children.add(
+          lower(entry.getKey(), entry.getValue(), /* isRoot= */ true, registry, boundaryResolver));
     }
     return new TopAggregationSpec(children);
   }
 
+  /**
+   * Lower one recursive facet node into its group spec. A group node's children are its nested
+   * facet subtrees XOR its metric leaves, never both (enforced at parse time): an intermediate node
+   * recurses into its nested facets, while a leaf builds one operator spec per {@code aggregations}
+   * entry (a legacy-shaped leaf's implicit {@code count} is materialized at construction time by
+   * {@link AggregationFacetDefinition}).
+   */
   private static AggregationSpec lower(
       String name,
-      AggDefinition def,
+      AggregationFacetDefinition def,
+      boolean isRoot,
       AggregationRegistry registry,
       Optional<BoundaryFieldResolver> boundaryResolver) {
-    @Var AggregationSpec spec = operatorSpec(name, def.leafOperator(), registry);
-    List<FacetDefinition> aggs = def.aggs();
-    for (int i = aggs.size() - 1; i >= 0; i--) {
-      boolean isRoot = i == 0;
-      spec = groupSpec(name, aggs.get(i), isRoot, List.of(spec), registry, boundaryResolver);
+    List<AggregationSpec> children = new ArrayList<>();
+    if (!def.isLeaf()) {
+      def.facets()
+          .forEach(
+              (child, childDef) ->
+                  children.add(
+                      lower(child, childDef, /* isRoot= */ false, registry, boundaryResolver)));
+    } else {
+      def.aggregations()
+          .forEach(
+              (out, metric) ->
+                  children.add(operatorSpec(out, metric.operator(), metric.path(), registry)));
     }
-    return spec;
+    return groupSpec(name, def.group(), def.path(), isRoot, children, registry, boundaryResolver);
   }
 
   private static AggregationSpec groupSpec(
       String name,
       FacetDefinition facetDefinition,
+      FieldPath path,
       boolean isRoot,
       List<AggregationSpec> childrenSpecs,
       AggregationRegistry registry,
       Optional<BoundaryFieldResolver> boundaryResolver) {
-    FieldPath path = FieldPath.parse(facetDefinition.path());
     return switch (facetDefinition) {
       case FacetDefinition.StringFacetDefinition stringFacetDefinition ->
           registry
@@ -133,7 +150,7 @@ public final class AggregationSpecBuilder {
   }
 
   private static AggregationSpec operatorSpec(
-      String name, LeafOperator leafOperator, AggregationRegistry registry) {
-    return registry.getOperatorSupplier(leafOperator.name()).build(name, leafOperator.path());
+      String name, Operator operator, Optional<FieldPath> path, AggregationRegistry registry) {
+    return registry.getOperatorSupplier(operator.registryKey()).build(name, path);
   }
 }

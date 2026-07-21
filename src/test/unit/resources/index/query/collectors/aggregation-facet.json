@@ -1,0 +1,541 @@
+{
+  "valid": [
+    {
+      "description": "legacy shaped entry",
+      "value": {
+        "facets": {
+          "byCategory": {
+            "type": "string",
+            "path": "category"
+          }
+        }
+      }
+    },
+    {
+      "description": "string leaf with metrics",
+      "value": {
+        "facets": {
+          "byCategory": {
+            "type": "string",
+            "path": "category",
+            "numBuckets": 20,
+            "aggregations": {
+              "total": {
+                "type": "sum",
+                "path": "price"
+              },
+              "n": {
+                "type": "count"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "nested facets with metrics leaf",
+      "value": {
+        "facets": {
+          "byGroupFacet": {
+            "type": "string",
+            "path": "category",
+            "numBuckets": 20,
+            "facets": {
+              "capacityFacet": {
+                "type": "number",
+                "path": "capacity",
+                "boundaries": [0, 100, 300, 500],
+                "default": "other",
+                "aggregations": {
+                  "avgPrice": {
+                    "type": "avg",
+                    "path": "price"
+                  },
+                  "capacityCount": {
+                    "type": "count"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "mixed legacy and aggregation entries",
+      "value": {
+        "facets": {
+          "byBrand": {
+            "type": "string",
+            "path": "brand"
+          },
+          "byCategory": {
+            "type": "string",
+            "path": "category",
+            "aggregations": {
+              "total": {
+                "type": "sum",
+                "path": "price"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "explicit operator",
+      "value": {
+        "operator": {
+          "text": {
+            "path": "review",
+            "query": "good"
+          }
+        },
+        "facets": {
+          "byCategory": {
+            "type": "string",
+            "path": "category",
+            "aggregations": {
+              "n": {
+                "type": "count"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "three level nesting with average leaf",
+      "value": {
+        "facets": {
+          "byGroupFacet": {
+            "type": "string",
+            "path": "category",
+            "numBuckets": 20,
+            "facets": {
+              "createdAtFacet": {
+                "type": "date",
+                "path": "createdAt",
+                "boundaries": [
+                  { "$date": "2023-01-01T00:00:00Z" },
+                  { "$date": "2024-01-01T00:00:00Z" },
+                  { "$date": "2025-01-01T00:00:00Z" }
+                ],
+                "default": "other",
+                "facets": {
+                  "capacityFacet": {
+                    "type": "number",
+                    "path": "capacity",
+                    "boundaries": [0, 100, 300, 500],
+                    "default": "other",
+                    "aggregations": {
+                      "avgCapacity": {
+                        "type": "avg",
+                        "path": "capacity"
+                      },
+                      "n": {
+                        "type": "count"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "multiple top level facets with date sibling",
+      "value": {
+        "operator": {
+          "exists": {
+            "path": "category"
+          }
+        },
+        "facets": {
+          "categoryFacet": {
+            "type": "string",
+            "path": "category",
+            "numBuckets": 20,
+            "aggregations": {
+              "avgCapacity": {
+                "type": "avg",
+                "path": "capacity"
+              }
+            }
+          },
+          "createdAtFacet": {
+            "type": "date",
+            "path": "createdAt",
+            "boundaries": [
+              { "$date": "2023-01-01T00:00:00Z" },
+              { "$date": "2024-01-01T00:00:00Z" }
+            ],
+            "default": "other"
+          },
+          "capacityFacet": {
+            "type": "number",
+            "path": "capacity",
+            "boundaries": [0, 100, 300, 500],
+            "default": "other"
+          }
+        }
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "description": "intermediate node with multiple nested facets",
+      "errorMessageContains": "more than one nested facet branch",
+      "value": {
+        "facets": {
+          "byGroupFacet": {
+            "type": "string",
+            "path": "category",
+            "facets": {
+              "createdAtFacet": {
+                "type": "date",
+                "path": "createdAt",
+                "boundaries": [
+                  { "$date": "2023-01-01T00:00:00Z" },
+                  { "$date": "2024-01-01T00:00:00Z" }
+                ],
+                "aggregations": {
+                  "n": {
+                    "type": "count"
+                  }
+                }
+              },
+              "capacityFacet": {
+                "type": "number",
+                "path": "capacity",
+                "boundaries": [0, 100]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "aggregations with nested facets on same node",
+      "errorMessageContains": "aggregations are leaf-only",
+      "value": {
+        "facets": {
+          "byCategory": {
+            "type": "string",
+            "path": "category",
+            "aggregations": {
+              "n": {
+                "type": "count"
+              }
+            },
+            "facets": {
+              "byCapacity": {
+                "type": "number",
+                "path": "capacity",
+                "boundaries": [0, 100]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "count metric with path",
+      "errorMessageContains": "does not take a path",
+      "value": {
+        "facets": {
+          "byCategory": {
+            "type": "string",
+            "path": "category",
+            "aggregations": {
+              "n": {
+                "type": "count",
+                "path": "price"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "sum metric without path",
+      "errorMessageContains": "requires a path",
+      "value": {
+        "facets": {
+          "byCategory": {
+            "type": "string",
+            "path": "category",
+            "aggregations": {
+              "total": {
+                "type": "sum"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "first metric not yet supported",
+      "errorMessageContains": "must be one of",
+      "value": {
+        "facets": {
+          "byCategory": {
+            "type": "string",
+            "path": "category",
+            "aggregations": {
+              "pick": {
+                "type": "first",
+                "path": "price"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "last metric not yet supported",
+      "errorMessageContains": "must be one of",
+      "value": {
+        "facets": {
+          "byCategory": {
+            "type": "string",
+            "path": "category",
+            "aggregations": {
+              "pick": {
+                "type": "last",
+                "path": "price"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "unknown metric type",
+      "value": {
+        "facets": {
+          "byCategory": {
+            "type": "string",
+            "path": "category",
+            "aggregations": {
+              "n": {
+                "type": "median",
+                "path": "price"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "non-string metric path",
+      "value": {
+        "facets": {
+          "byCategory": {
+            "type": "string",
+            "path": "category",
+            "aggregations": {
+              "total": {
+                "type": "sum",
+                "path": 5
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "numBuckets on number facet",
+      "errorMessageContains": "unrecognized field \"numBuckets\"",
+      "value": {
+        "facets": {
+          "byCapacity": {
+            "type": "number",
+            "path": "capacity",
+            "boundaries": [0, 100],
+            "numBuckets": 5,
+            "aggregations": {
+              "n": {
+                "type": "count"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "boundaries on string facet",
+      "errorMessageContains": "unrecognized field \"boundaries\"",
+      "value": {
+        "facets": {
+          "byCategory": {
+            "type": "string",
+            "path": "category",
+            "boundaries": [0, 100],
+            "aggregations": {
+              "n": {
+                "type": "count"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "default on string facet",
+      "errorMessageContains": "unrecognized field \"default\"",
+      "value": {
+        "facets": {
+          "byCategory": {
+            "type": "string",
+            "path": "category",
+            "default": "other",
+            "aggregations": {
+              "n": {
+                "type": "count"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "empty aggregations",
+      "value": {
+        "facets": {
+          "byCategory": {
+            "type": "string",
+            "path": "category",
+            "aggregations": {}
+          }
+        }
+      }
+    },
+    {
+      "description": "empty nested facets",
+      "value": {
+        "facets": {
+          "byCategory": {
+            "type": "string",
+            "path": "category",
+            "facets": {}
+          }
+        }
+      }
+    },
+    {
+      "description": "empty top-level facets",
+      "value": {
+        "facets": {}
+      }
+    },
+    {
+      "description": "missing top-level facets",
+      "value": {
+        "operator": {
+          "text": {
+            "path": "review",
+            "query": "good"
+          }
+        }
+      }
+    },
+    {
+      "description": "unknown field on facet node",
+      "value": {
+        "facets": {
+          "byCategory": {
+            "type": "string",
+            "path": "category",
+            "limit": 10,
+            "aggregations": {
+              "n": {
+                "type": "count"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "metric value not a document",
+      "value": {
+        "facets": {
+          "byCategory": {
+            "type": "string",
+            "path": "category",
+            "aggregations": {
+              "n": "count"
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "aggregations not a document",
+      "value": {
+        "facets": {
+          "byCategory": {
+            "type": "string",
+            "path": "category",
+            "aggregations": ["count"]
+          }
+        }
+      }
+    },
+    {
+      "description": "nested facet node missing type",
+      "value": {
+        "facets": {
+          "byCategory": {
+            "type": "string",
+            "path": "category",
+            "facets": {
+              "byCapacity": {
+                "path": "capacity",
+                "boundaries": [0, 100]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "numBuckets above limit",
+      "value": {
+        "facets": {
+          "byCategory": {
+            "type": "string",
+            "path": "category",
+            "numBuckets": 2000,
+            "aggregations": {
+              "n": {
+                "type": "count"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "unknown field in metric",
+      "errorMessageContains": "unrecognized field",
+      "value": {
+        "facets": {
+          "byCategory": {
+            "type": "string",
+            "path": "category",
+            "aggregations": {
+              "n": {
+                "type": "count",
+                "foo": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

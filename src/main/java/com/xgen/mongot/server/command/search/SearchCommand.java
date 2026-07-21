@@ -19,6 +19,7 @@ import com.xgen.mongot.cursor.serialization.MongotCursorBatch;
 import com.xgen.mongot.cursor.serialization.MongotCursorResult;
 import com.xgen.mongot.cursor.serialization.MongotIntermediateCursorBatch;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
+import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.DynamicFeatureFlagsMetricsRecorder;
 import com.xgen.mongot.index.IndexGeneration;
@@ -147,9 +148,15 @@ public class SearchCommand implements Command {
           this.metadata
               .dynamicFeatureFlagRegistry()
               .evaluateClusterInvariant(DynamicFeatureFlags.ENABLE_10K_BUCKET_LIMIT);
+      boolean searchAggregationEnabled =
+          this.metadata.featureFlags().isEnabled(Feature.SEARCH_AGGREGATION);
       @Var
       SearchQuery queryDefinition =
-          SearchQuery.fromBson(this.definition.queryDocument(), queryOptimizationFlags, allow10k);
+          SearchQuery.fromBson(
+              this.definition.queryDocument(),
+              queryOptimizationFlags,
+              allow10k,
+              searchAggregationEnabled);
       Optional<InitializedIndex> index = getIndexFromCatalog(queryDefinition);
 
       if (index.isPresent()) {

@@ -30,7 +30,9 @@ public final class TestOperatorSpecs {
             "sum",
             (name, path) -> new SumSpec("sum_price", path.orElse(FieldPath.parse("price"))),
             "avg",
-            (name, path) -> new AvgSpec("avg_price", path.orElse(FieldPath.parse("price")))));
+            (name, path) -> new AvgSpec("avg_price", path.orElse(FieldPath.parse("price"))),
+            "count",
+            (name, path) -> new CountSpec(name)));
   }
 
   /** Inline leaf result carrying a single double value. */
@@ -87,6 +89,25 @@ public final class TestOperatorSpecs {
       builder.addMetricAccumulator(
           "sum_" + this.name, new BsonDocument("$sum", new BsonString("$sum_" + this.name)));
       builder.addMetricProjection(this.name, new BsonString("$$b.sum_" + this.name));
+    }
+  }
+
+  /** Inline count spec that keeps the registry-supplied name, for spec-lowering assertions. */
+  public static final class CountSpec extends OperatorAggregationSpec {
+    public CountSpec(String name) {
+      super(Operator.COUNT, name);
+    }
+
+    @Override
+    public Accumulator buildAccumulator(AggregationContext context) {
+      throw new UnsupportedOperationException("not exercised in planner tests");
+    }
+
+    @Override
+    public void buildShardMergePipeline(ShardMergePipelineBuilder builder) {
+      builder.addMetricAccumulator(
+          "count_" + this.name, new BsonDocument("$sum", new BsonString("$count_" + this.name)));
+      builder.addMetricProjection(this.name, new BsonString("$$b.count_" + this.name));
     }
   }
 

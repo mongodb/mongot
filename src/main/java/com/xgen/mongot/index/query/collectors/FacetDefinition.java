@@ -42,6 +42,10 @@ public sealed interface FacetDefinition extends DocumentEncodable
   /**
    * Deserializes definition from a BSON.
    *
+   * <p>Must not close the parser: callers may read additional fields from the same document
+   * afterward (e.g. {@link AggregationFacetDefinition#fromBson} reads {@code aggregations} and
+   * nested {@code facets} on top of the group payload parsed here).
+   *
    * @param allow10k when true, string facet {@code numBuckets} may be 1–10_000 and number/date
    *     facet {@code boundaries} may contain 2–10_000 values; when false, each limit is 1_000
    *     (parser throws BsonParseException if exceeded).

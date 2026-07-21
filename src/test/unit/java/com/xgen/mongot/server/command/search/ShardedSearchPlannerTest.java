@@ -5,10 +5,12 @@ import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.query.CollectorQuery;
 import com.xgen.mongot.index.query.OperatorQuery;
 import com.xgen.mongot.index.query.SearchQuery;
+import com.xgen.mongot.index.query.aggregation.Operator;
 import com.xgen.mongot.index.query.aggregation.TestOperatorSpecs;
-import com.xgen.mongot.index.query.collectors.AggDefinition;
 import com.xgen.mongot.index.query.collectors.AggregationCollector;
+import com.xgen.mongot.index.query.collectors.AggregationFacetDefinition;
 import com.xgen.mongot.index.query.collectors.FacetDefinition;
+import com.xgen.mongot.index.query.collectors.MetricSpec;
 import com.xgen.mongot.index.query.counts.Count;
 import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
 import com.xgen.mongot.server.command.search.definition.PlanShardedSearchCommandResponseDefinition;
@@ -567,10 +569,12 @@ public class ShardedSearchPlannerTest {
   }
 
   private static CollectorQuery createFlatAvgAggregationQuery() {
-    AggDefinition agg =
-        new AggDefinition(
-            List.of(new FacetDefinition.StringFacetDefinition("city", 10)),
-            new AggDefinition.LeafOperator("avg", Optional.of(FieldPath.parse("price"))));
+    AggregationFacetDefinition agg =
+        AggregationFacetDefinition.create(
+            new FacetDefinition.StringFacetDefinition("city", 10),
+            Map.of(
+                "avg_price", new MetricSpec(Operator.AVG, Optional.of(FieldPath.parse("price")))),
+            Map.of());
     AggregationCollector collector =
         AggregationCollector.create(
             OperatorBuilder.text().path("title").query("godfather").build(),

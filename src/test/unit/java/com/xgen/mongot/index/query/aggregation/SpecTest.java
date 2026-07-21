@@ -111,6 +111,30 @@ public class SpecTest {
     assertEquals("sum_price", firstLeaf.name());
   }
 
+  @Test
+  public void multipleNestedGroupChildren_rejected() {
+    // Defends the sharded merge planner's assumption of at most one nested grouping child per
+    // level; parse-time validation normally prevents this, so a bypass must fail loudly.
+    GroupAggregationSpec branch1 = new TermsSpec("by_a", CITY, List.of());
+    GroupAggregationSpec branch2 = new TermsSpec("by_b", CITY, List.of());
+
+    IllegalArgumentException ex =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> new TermsSpec("by_city", CITY, List.of(branch1, branch2)));
+    assertTrue(ex.getMessage().contains("at most one nested grouping child"));
+  }
+
+  @Test
+  public void singleNestedGroupChildWithLeaves_allowed() {
+    // One nested grouping child alongside metric leaves is within the invariant.
+    GroupAggregationSpec nested = new TermsSpec("by_capacity", CITY, List.of());
+    AggregationSpec leaf = new SumSpec("sum_price", PRICE);
+
+    GroupAggregationSpec group = new TermsSpec("by_city", CITY, List.of(nested, leaf));
+    assertEquals(2, group.children().size());
+  }
+
   // ===== minimal inline spec/accumulator fixtures =====
 
   private static final class SumSpec extends OperatorAggregationSpec {

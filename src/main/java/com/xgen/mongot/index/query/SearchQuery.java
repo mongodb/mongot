@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.query;
 
+import com.xgen.mongot.index.query.collectors.AggregationCollector;
 import com.xgen.mongot.index.query.collectors.Collector;
 import com.xgen.mongot.index.query.counts.Count;
 import com.xgen.mongot.index.query.highlights.UnresolvedHighlight;
@@ -80,14 +81,21 @@ public sealed interface SearchQuery extends Query permits CollectorQuery, Operat
 
   static SearchQuery fromBson(BsonDocument document, QueryOptimizationFlags queryOptimizationFlags)
       throws BsonParseException {
-    return fromBson(document, queryOptimizationFlags, false);
+    return fromBson(
+        document,
+        queryOptimizationFlags,
+        /* allow10k= */ false,
+        /* searchAggregationEnabled= */ false);
   }
 
   private static SearchQuery fromBson(
-      DocumentParser parser, QueryOptimizationFlags queryOptimizationFlags, boolean allow10k)
+      DocumentParser parser,
+      QueryOptimizationFlags queryOptimizationFlags,
+      boolean allow10k,
+      boolean useAggregation)
       throws BsonParseException {
     var operator = Operator.atMostOneFromBson(parser);
-    var collector = Collector.atMostOneFromBson(parser, allow10k);
+    var collector = Collector.atMostOneFromBson(parser, allow10k, useAggregation);
     if (operator.isPresent() && collector.isPresent()) {
       parser
           .getContext()
@@ -166,12 +174,30 @@ public sealed interface SearchQuery extends Query permits CollectorQuery, Operat
     return parser.getContext().handleSemanticError(errorDescription);
   }
 
+  /**
+   * Parses a search query, optionally routing an aggregation-capable {@code facet} request onto the
+   * aggregation path.
+   *
+   * @param document the search query document to parse
+   * @param queryOptimizationFlags optimization flags applied while building the parsed query
+   * @param allow10k when true, facet bucket-count bounds are widened to the 10k limit
+   * @param searchAggregationEnabled when true (the {@link
+   *     com.xgen.mongot.featureflag.Feature#SEARCH_AGGREGATION} flag is on), an aggregation-capable
+   *     {@code facet} request (per {@link AggregationCollector#isAggregationCapable}) is parsed
+   *     into an {@link AggregationCollector}; otherwise the request is always parsed on the legacy
+   *     {@link com.xgen.mongot.index.query.collectors.FacetCollector} path.
+   */
   static SearchQuery fromBson(
-      BsonDocument document, QueryOptimizationFlags queryOptimizationFlags, boolean allow10k)
+      BsonDocument document,
+      QueryOptimizationFlags queryOptimizationFlags,
+      boolean allow10k,
+      boolean searchAggregationEnabled)
       throws BsonParseException {
+    boolean useAggregation =
+        searchAggregationEnabled && AggregationCollector.isAggregationCapable(document);
     try (var guard = Tracing.simpleSpanGuard("Query.fromBson")) {
       try (var parser = BsonDocumentParser.fromRoot(document).build()) {
-        return fromBson(parser, queryOptimizationFlags, allow10k);
+        return fromBson(parser, queryOptimizationFlags, allow10k, useAggregation);
       }
     }
   }

@@ -16,21 +16,42 @@ import org.bson.BsonValue;
 public sealed interface Collector extends DocumentEncodable
     permits FacetCollector, AggregationCollector {
 
+  /** The {@code facet} collector wire field name, shared by every {@code facet} field builder. */
+  String FACET_FIELD = "facet";
+
   class Fields {
     public static final Field.Optional<FacetCollector> FACET =
-        Field.builder("facet")
+        Field.builder(FACET_FIELD)
             .classField(FacetCollector::fromBson, FacetCollector::collectorToBson)
             .disallowUnknownFields()
             .optional()
             .noDefault();
 
     public static final Field.Optional<FacetCollector> FACET_10K_ALLOWED =
-        Field.builder("facet")
+        Field.builder(FACET_FIELD)
             .classField(
                 FacetCollector::fromBson10kAllowed, FacetCollector::collectorToBson10kAllowed)
             .disallowUnknownFields()
             .optional()
             .noDefault();
+
+    // The same "facet" wire field parsed into an AggregationCollector (aggregation-capable
+    // requests under the SEARCH_AGGREGATION flag); one descriptor per bucket-limit mode, mirroring
+    // FACET / FACET_10K_ALLOWED above.
+    static final Field.Optional<AggregationCollector> FACET_AGGREGATION =
+        facetAggregationField(false);
+    static final Field.Optional<AggregationCollector> FACET_AGGREGATION_10K =
+        facetAggregationField(true);
+
+    private static Field.Optional<AggregationCollector> facetAggregationField(boolean allow10k) {
+      return Field.builder(FACET_FIELD)
+          .classField(
+              (DocumentParser p) -> AggregationCollector.fromBson(p, allow10k),
+              AggregationCollector::collectorToBson)
+          .disallowUnknownFields()
+          .optional()
+          .noDefault();
+    }
   }
 
   // Aggregation isn't ready: so it is not user-selectable yet and is excluded from this
@@ -89,15 +110,27 @@ public sealed interface Collector extends DocumentEncodable
       case FacetCollector facetCollector ->
           builder.field(Fields.FACET_10K_ALLOWED, Optional.of(facetCollector)).build();
       case AggregationCollector aggregationCollector ->
-          throw new UnsupportedOperationException(
-              "AggregationCollector BSON serialization is not implemented");
+          builder.field(Fields.FACET_AGGREGATION_10K, Optional.of(aggregationCollector)).build();
     };
   }
 
   BsonValue collectorToBson();
 
-  static Optional<Collector> atMostOneFromBson(DocumentParser parser, boolean allow10k)
-      throws BsonParseException {
+  /**
+   * Parses the {@code facet} collector, if present. When {@code useAggregation} is true (the
+   * caller's shape pre-scan found an aggregation-capable request under an enabled feature flag),
+   * the {@code facet} field is parsed into an {@link AggregationCollector}; otherwise it is parsed
+   * into a {@link FacetCollector} exactly as before, leaving the legacy path untouched.
+   */
+  static Optional<Collector> atMostOneFromBson(
+      DocumentParser parser, boolean allow10k, boolean useAggregation) throws BsonParseException {
+    if (useAggregation) {
+      return parser
+          .getGroup()
+          .atMostOneOf(
+              parser.getField(allow10k ? Fields.FACET_AGGREGATION_10K : Fields.FACET_AGGREGATION))
+          .map(c -> (Collector) c);
+    }
     return parser
         .getGroup()
         .atMostOneOf(parser.getField(allow10k ? Fields.FACET_10K_ALLOWED : Fields.FACET))

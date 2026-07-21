@@ -1,5 +1,6 @@
 package com.xgen.mongot.server.command.search;
 
+import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.query.QueryOptimizationFlags;
 import com.xgen.mongot.index.query.SearchQuery;
@@ -44,9 +45,14 @@ public class PlanShardedSearchCommand implements Command {
           this.metadata
               .dynamicFeatureFlagRegistry()
               .evaluateClusterInvariant(DynamicFeatureFlags.ENABLE_10K_BUCKET_LIMIT);
+      boolean searchAggregationEnabled =
+          this.metadata.featureFlags().isEnabled(Feature.SEARCH_AGGREGATION);
       SearchQuery queryDefinition =
           SearchQuery.fromBson(
-              this.definition.queryDocument(), QueryOptimizationFlags.DEFAULT_OPTIONS, allow10k);
+              this.definition.queryDocument(),
+              QueryOptimizationFlags.DEFAULT_OPTIONS,
+              allow10k,
+              searchAggregationEnabled);
       PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan shardedSearchPlan =
           ShardedSearchPlanner.planSearch(
               queryDefinition, this.definition.searchFeatures(), this.metadata.featureFlags());

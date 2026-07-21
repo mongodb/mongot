@@ -23,6 +23,17 @@ public abstract non-sealed class GroupAggregationSpec implements AggregationSpec
   protected final List<AggregationSpec> children;
 
   protected GroupAggregationSpec(FieldPath path, String name, List<AggregationSpec> children) {
+    // Invariant relied on by the sharded merge planner: an intermediate group has at most one
+    // nested grouping child (multiple branches at an intermediate level are rejected at parse time
+    // in AggregationFacetDefinition). Guard here so a future caller that bypasses parse validation
+    // fails loudly rather than silently mis-planning the shard merge.
+    // TODO(CLOUDP-425979): relax this once the sharded merge planner supports more than one nested
+    // grouping child.
+    long groupChildren = children.stream().filter(GroupAggregationSpec.class::isInstance).count();
+    if (groupChildren > 1) {
+      throw new IllegalArgumentException(
+          "an intermediate group may have at most one nested grouping child; got " + groupChildren);
+    }
     this.path = path;
     this.name = name;
     this.children = children;
