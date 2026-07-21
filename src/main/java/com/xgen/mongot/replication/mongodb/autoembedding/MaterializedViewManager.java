@@ -138,6 +138,8 @@ public class MaterializedViewManager implements ReplicationManager {
   public static final String MAT_VIEW_GC_LEASE_IN_USE_REFUSAL_COUNTER_NAME =
       "matViewGcLeaseInUseRefusals";
   public static final String MAT_VIEW_GC_SWEEP_FAILURE_COUNTER_NAME = "matViewGcSweepFailures";
+  public static final String MAT_VIEW_GC_MARKED_CURRENT_REFUSAL_COUNTER_NAME =
+      "matViewGcMarkedCurrentRefusals";
   public static final String MAT_VIEW_GC_DELETED_INDEX_LEASE_COUNTER_NAME =
       "matViewGcDeletedIndexLeases";
   public static final String MAT_VIEW_COLLECTION_DROP_COUNTER_NAME = "matViewCollectionDrop";
@@ -1798,8 +1800,11 @@ public class MaterializedViewManager implements ReplicationManager {
     }
     // The never-touch-current safeguard, re-checked at delete time: the mark may not have gone
     // through this code's mark pass (a build without the safeguard, a manual edit), or the lease
-    // may have become its index's highest version since. Refusals surface via the overdue gauge.
+    // may have become its index's highest version since. Counted because recurring refusals mean
+    // some writer violated the never-mark-current rule (alertable); transient ones self-clear via
+    // the unmark on active-use writes.
     if (currentVersionLeaseKeys.contains(lease.id())) {
+      this.meterRegistry.counter(MAT_VIEW_GC_MARKED_CURRENT_REFUSAL_COUNTER_NAME).increment();
       LOG.atWarn()
           .addKeyValue("leaseKey", lease.id())
           .log("Marked lease is its index's current version; refusing cleanup delete");

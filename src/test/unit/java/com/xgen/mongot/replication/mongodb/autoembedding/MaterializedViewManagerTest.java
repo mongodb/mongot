@@ -4130,6 +4130,15 @@ public class MaterializedViewManagerTest {
     verify(mocks.leaseManager, never()).deleteStaleLease(any(), anyLong(), any());
     // Overdue but refused: counted as blocked so the anomalous marked-current state is visible.
     assertEquals(1.0, overdueGaugeValue(mocks), 0.0);
+    // matViewGcMarkedCurrentRefusals: the refusal is counted — recurring refusals mean some
+    // writer violated the never-mark-current rule and are alertable.
+    assertEquals(
+        1.0,
+        mocks
+            .meterRegistry
+            .counter(MaterializedViewManager.MAT_VIEW_GC_MARKED_CURRENT_REFUSAL_COUNTER_NAME)
+            .count(),
+        0.0);
   }
 
   @Test
