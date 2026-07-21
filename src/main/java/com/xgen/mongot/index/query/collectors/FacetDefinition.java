@@ -26,6 +26,13 @@ public sealed interface FacetDefinition extends DocumentEncodable
 
     private static final Field.Required<String> PATH =
         Field.builder("path").stringField().required();
+
+    static final Field.Optional<EmbeddedDocumentScope> EMBEDDED_DOCUMENT =
+        Field.builder("embeddedDocument")
+            .classField(EmbeddedDocumentScope::fromBson)
+            .disallowUnknownFields()
+            .optional()
+            .noDefault();
   }
 
   enum Type {
@@ -63,7 +70,18 @@ public sealed interface FacetDefinition extends DocumentEncodable
 
   Type getType();
 
-  record StringFacetDefinition(String path, int numBuckets) implements FacetDefinition {
+  /**
+   * The inline embedded-document scope for this facet, if any. When present, the facet counts only
+   * children matching {@link EmbeddedDocumentScope#operator()}, deduplicated to at most one count
+   * per root document per bucket. When absent, the facet is document-indexed as today.
+   */
+  default Optional<EmbeddedDocumentScope> embeddedDocument() {
+    return Optional.empty();
+  }
+
+  record StringFacetDefinition(
+      String path, int numBuckets, Optional<EmbeddedDocumentScope> embeddedDocument)
+      implements FacetDefinition {
     private static class Fields {
       private static final Field.WithDefault<Integer> NUM_BUCKETS_1K =
           Field.builder("numBuckets")
@@ -79,16 +97,22 @@ public sealed interface FacetDefinition extends DocumentEncodable
               .withDefault(10);
     }
 
-    @Override
-    public Type getType() {
-      return Type.STRING;
+    /** Backwards-compatible constructor for document-indexed (unscoped) string facets. */
+    public StringFacetDefinition(String path, int numBuckets) {
+      this(path, numBuckets, Optional.empty());
     }
 
     private StringFacetDefinition(DocumentParser parser, boolean allow10k)
         throws BsonParseException {
       this(
           parser.getField(FacetDefinition.Fields.PATH).unwrap(),
-          parser.getField(allow10k ? Fields.NUM_BUCKETS_10K : Fields.NUM_BUCKETS_1K).unwrap());
+          parser.getField(allow10k ? Fields.NUM_BUCKETS_10K : Fields.NUM_BUCKETS_1K).unwrap(),
+          parser.getField(FacetDefinition.Fields.EMBEDDED_DOCUMENT).unwrap());
+    }
+
+    @Override
+    public Type getType() {
+      return Type.STRING;
     }
 
     @Override
@@ -97,6 +121,7 @@ public sealed interface FacetDefinition extends DocumentEncodable
           .field(FacetDefinition.Fields.TYPE, this.getType())
           .field(FacetDefinition.Fields.PATH, this.path())
           .field(Fields.NUM_BUCKETS_10K, this.numBuckets())
+          .field(FacetDefinition.Fields.EMBEDDED_DOCUMENT, this.embeddedDocument())
           .build();
     }
   }

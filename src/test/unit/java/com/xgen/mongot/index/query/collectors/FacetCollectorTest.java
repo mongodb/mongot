@@ -24,10 +24,14 @@ import java.util.TimeZone;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.LongStream;
+import org.bson.BsonArray;
+import org.bson.BsonBoolean;
 import org.bson.BsonDateTime;
+import org.bson.BsonDocument;
 import org.bson.BsonDouble;
 import org.bson.BsonInt32;
 import org.bson.BsonNumber;
+import org.bson.BsonString;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -420,6 +424,118 @@ public class FacetCollectorTest {
       assertThat(result).isInstanceOf(FacetDefinition.StringFacetDefinition.class);
       assertThat(((FacetDefinition.StringFacetDefinition) result).numBuckets()).isEqualTo(2000);
       assertThat(result.path()).isEqualTo("director");
+    }
+
+    /**
+     * A string facet carrying an inline {@code embeddedDocument} block round-trips through
+     * toBson/fromBson, preserving the scope path and child operator.
+     */
+    @Test
+    public void scopedStringFacet_roundTripsThroughBson() throws BsonParseException {
+      var childOperator = OperatorBuilder.equals().path("variants.inStock").value(true).build();
+      var scopedDefinition =
+          new FacetDefinition.StringFacetDefinition(
+              "variants.color",
+              10,
+              Optional.of(
+                  new EmbeddedDocumentScope(
+                      com.xgen.mongot.util.FieldPath.parse("variants"), childOperator)));
+
+      // try-with-resources so parser.close() runs and asserts every field was consumed (the
+      // no-unknown-fields invariant is only enforced on close).
+      try (var parser =
+          BsonDocumentParser.fromRoot(scopedDefinition.toBson().asDocument()).build()) {
+        FacetDefinition result = FacetDefinition.fromBson(parser);
+
+        assertThat(result).isEqualTo(scopedDefinition);
+        assertThat(result.embeddedDocument()).isPresent();
+        assertThat(result.embeddedDocument().get().path().toString()).isEqualTo("variants");
+        assertThat(result.embeddedDocument().get().operator()).isEqualTo(childOperator);
+      }
+    }
+
+    /** A string facet with no {@code embeddedDocument} block parses to an empty scope. */
+    @Test
+    public void unscopedStringFacet_hasEmptyEmbeddedDocument() throws BsonParseException {
+      var definition = FacetDefinitionBuilder.string().path("director").build();
+
+      try (var parser = BsonDocumentParser.fromRoot(definition.toBson().asDocument()).build()) {
+        FacetDefinition result = FacetDefinition.fromBson(parser);
+
+        assertThat(result.embeddedDocument()).isEmpty();
+      }
+    }
+
+    /**
+     * The scope's operator selects children of {@code embeddedDocument.path}, so an operator whose
+     * path is not under that path is rejected at parse (mirrors {@code EmbeddedDocumentOperator}).
+     */
+    @Test
+    public void scopedStringFacet_operatorPathNotUnderScopePath_isRejected() {
+      var scopedStringFacet =
+          new BsonDocument()
+              .append("type", new BsonString("string"))
+              .append("path", new BsonString("variants.color"))
+              .append(
+                  "embeddedDocument",
+                  new BsonDocument()
+                      .append("path", new BsonString("variants"))
+                      .append(
+                          "operator",
+                          new BsonDocument()
+                              .append(
+                                  "range",
+                                  new BsonDocument()
+                                      .append("path", new BsonString("reviews.rating"))
+                                      .append("gte", new BsonInt32(1)))));
+
+      var parser = BsonDocumentParser.fromRoot(scopedStringFacet).build();
+      TestUtils.assertThrows(
+          "is not a subfield of", BsonParseException.class, () -> FacetDefinition.fromBson(parser));
+    }
+
+    /**
+     * POC boundary: only string/token facets support the inline {@code embeddedDocument} block so
+     * far. A number facet carrying one is rejected at parse through the real query path {@link
+     * FacetCollector#fromBson}, because the {@code facets} map disallows unknown fields and the
+     * number-facet parser never reads {@code embeddedDocument}. Semantic support for number/date
+     * scoping (with a friendlier error) arrives in a later milestone; this test locks the current
+     * boundary so it is explicit rather than a silent drop.
+     */
+    @Test
+    public void scopedNumberFacet_isRejectedByFacetCollector() {
+      var scopedNumberFacet =
+          new BsonDocument()
+              .append("type", new BsonString("number"))
+              .append("path", new BsonString("variants.price"))
+              .append("boundaries", new BsonArray(List.of(new BsonInt32(0), new BsonInt32(50))))
+              .append(
+                  "embeddedDocument",
+                  new BsonDocument()
+                      .append("path", new BsonString("variants"))
+                      .append(
+                          "operator",
+                          new BsonDocument()
+                              .append(
+                                  "equals",
+                                  new BsonDocument()
+                                      .append("path", new BsonString("variants.inStock"))
+                                      .append("value", BsonBoolean.TRUE))));
+      var collector =
+          new BsonDocument()
+              .append(
+                  "operator",
+                  new BsonDocument()
+                      .append(
+                          "text",
+                          new BsonDocument()
+                              .append("path", new BsonString("title"))
+                              .append("query", new BsonString("jacket"))))
+              .append("facets", new BsonDocument().append("priceFacet", scopedNumberFacet));
+
+      var parser = BsonDocumentParser.fromRoot(collector).build();
+      TestUtils.assertThrows(
+          "embeddedDocument", BsonParseException.class, () -> FacetCollector.fromBson(parser));
     }
 
     /** FacetCollector.fromBson (1k limit) rejects numBuckets 2000 with BsonParseException. */

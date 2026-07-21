@@ -41,8 +41,8 @@ public record EmbeddedDocumentOperator(Score score, FieldPath path, Operator ope
     return new EmbeddedDocumentOperator(parser.getField(Fields.SCORE).unwrap(), path, operator);
   }
 
-  static void validateOperatorPaths(FieldPath path, Operator operator, BsonParseContext context)
-      throws BsonParseException {
+  public static void validateOperatorPaths(
+      FieldPath path, Operator operator, BsonParseContext context) throws BsonParseException {
     // TODO(CLOUDP-327217): delegate error reporting to OperatorEmbeddedRootValidator and remove
     // this method.
     ImmutableList<FieldPath> childPaths = Operators.getAdjacentChildPaths(operator);
