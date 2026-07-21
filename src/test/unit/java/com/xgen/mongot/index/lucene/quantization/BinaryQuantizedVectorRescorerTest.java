@@ -59,6 +59,7 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.KnnFloatVectorQuery;
+import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TopDocs;
@@ -178,7 +179,8 @@ public class BinaryQuantizedVectorRescorerTest {
             SearchIndex.mockQueryMetricsUpdater(IndexDefinition.Type.VECTOR_SEARCH),
             FeatureFlags.getDefault());
     var firstPassTopDocs = manager.initialSearch(searcherReference, 10).topDocs;
-    var approximateRescorer = new BinaryQuantizedVectorRescorer.ApproximateRescorer(luceneQuery);
+    var approximateRescorer =
+        new BinaryQuantizedVectorRescorer.ApproximateRescorer(wrapRescoreQuery(luceneQuery));
 
     TopDocs fullResult =
         approximateRescorer.rescore(searcherReference.getIndexSearcher(), firstPassTopDocs, 10);
@@ -234,7 +236,8 @@ public class BinaryQuantizedVectorRescorerTest {
             SearchIndex.mockQueryMetricsUpdater(IndexDefinition.Type.VECTOR_SEARCH),
             FeatureFlags.getDefault());
     var firstPassTopDocs = manager.initialSearch(searcherReference, 10).topDocs;
-    var approximateRescorer = new BinaryQuantizedVectorRescorer.ApproximateRescorer(luceneQuery);
+    var approximateRescorer =
+        new BinaryQuantizedVectorRescorer.ApproximateRescorer(wrapRescoreQuery(luceneQuery));
 
     TopDocs fullResult =
         approximateRescorer.rescore(searcherReference.getIndexSearcher(), firstPassTopDocs, 10);
@@ -274,7 +277,8 @@ public class BinaryQuantizedVectorRescorerTest {
             FeatureFlags.getDefault());
     var firstPassTopDocs = manager.initialSearch(searcherReference, 10).topDocs;
     var rescorer =
-        new BinaryQuantizedVectorRescorer.FullFidelityRescorer(luceneQuery, this.executor);
+        new BinaryQuantizedVectorRescorer.FullFidelityRescorer(
+            wrapRescoreQuery(luceneQuery), this.executor);
 
     TopDocs fullResult =
         rescorer.rescore(searcherReference.getIndexSearcher(), firstPassTopDocs, 10);
@@ -334,7 +338,7 @@ public class BinaryQuantizedVectorRescorerTest {
             searcherReference.getIndexSearcher(),
             new TopDocs(firstPass.totalHits, firstPass.scoreDocs.clone()),
             createVectorSearchQuery(10, 20),
-            luceneQuery);
+            wrapRescoreQuery(luceneQuery));
 
     assertThat(Stream.of(fullResult.scoreDocs).mapToInt(value -> value.doc))
         .containsExactly(2, 0, 1, 3)
@@ -386,7 +390,7 @@ public class BinaryQuantizedVectorRescorerTest {
             searcherReference.getIndexSearcher(),
             new TopDocs(firstPass.totalHits, firstPass.scoreDocs.clone()),
             createVectorSearchQuery(2, 20),
-            luceneQuery);
+            wrapRescoreQuery(luceneQuery));
 
     assertThat(Stream.of(subsetResult.scoreDocs).mapToInt(value -> value.doc))
         .containsExactly(2, 0)
@@ -435,7 +439,7 @@ public class BinaryQuantizedVectorRescorerTest {
             searcherReference.getIndexSearcher(),
             firstPassTopDocs,
             createVectorSearchQuery(10, 20),
-            luceneQuery);
+            wrapRescoreQuery(luceneQuery));
 
     assertThat(Stream.of(result.scoreDocs).mapToInt(value -> value.doc))
         .containsExactly(4, 2, 0, 1, 3, 5)
@@ -492,13 +496,13 @@ public class BinaryQuantizedVectorRescorerTest {
             searcherReference.getIndexSearcher(),
             new TopDocs(firstPassTopDocs.totalHits, firstPassTopDocs.scoreDocs.clone()),
             createVectorSearchQuery(10, 20),
-            luceneQuery);
+            wrapRescoreQuery(luceneQuery));
     TopDocs secondRescore =
         rescorer.rescore(
             searcherReference.getIndexSearcher(),
             new TopDocs(firstPassTopDocs.totalHits, firstPassTopDocs.scoreDocs.clone()),
             createVectorSearchQuery(10, 20),
-            luceneQuery);
+            wrapRescoreQuery(luceneQuery));
 
     assertScoresValid(firstRescore);
     Assert.assertEquals(
@@ -537,7 +541,8 @@ public class BinaryQuantizedVectorRescorerTest {
     assertThat(parentTopDocs.scoreDocs).hasLength(2);
 
     BinaryQuantizedVectorRescorer.ApproximateRescorer rescorer =
-        new BinaryQuantizedVectorRescorer.ApproximateRescorer(knnQuery, Optional.of(parentFilter));
+        new BinaryQuantizedVectorRescorer.ApproximateRescorer(
+            wrapRescoreQuery(knnQuery), Optional.of(parentFilter));
     TopDocs rescored = rescorer.rescore(searcher, parentTopDocs, 10);
 
     assertThat(rescored.scoreDocs).hasLength(2);
@@ -573,7 +578,7 @@ public class BinaryQuantizedVectorRescorerTest {
 
     BinaryQuantizedVectorRescorer.FullFidelityRescorer rescorer =
         new BinaryQuantizedVectorRescorer.FullFidelityRescorer(
-            knnQuery, this.executor, Optional.of(parentFilter));
+            wrapRescoreQuery(knnQuery), this.executor, Optional.of(parentFilter));
     TopDocs rescored = rescorer.rescore(searcher, parentTopDocs, 10);
 
     assertThat(rescored.scoreDocs).hasLength(2);
@@ -607,7 +612,12 @@ public class BinaryQuantizedVectorRescorerTest {
     BinaryQuantizedVectorRescorer rescorer = new BinaryQuantizedVectorRescorer(this.executor);
     ApproximateVectorSearchCriteria criteria = createVectorSearchQuery(2, 10);
     TopDocs rescored =
-        rescorer.rescore(searcher, parentTopDocs, criteria, knnQuery, Optional.of(parentFilter));
+        rescorer.rescore(
+            searcher,
+            parentTopDocs,
+            criteria,
+            wrapRescoreQuery(knnQuery),
+            Optional.of(parentFilter));
 
     assertThat(rescored.scoreDocs).hasLength(2);
     assertThat(rescored.scoreDocs[0].score).isGreaterThan(rescored.scoreDocs[1].score);
@@ -648,7 +658,7 @@ public class BinaryQuantizedVectorRescorerTest {
 
     BinaryQuantizedVectorRescorer.FullFidelityRescorer rescorer =
         new BinaryQuantizedVectorRescorer.FullFidelityRescorer(
-            knnQuery, this.executor, Optional.of(parentFilter));
+            wrapRescoreQuery(knnQuery), this.executor, Optional.of(parentFilter));
     TopDocs rescored = rescorer.rescore(searcher, injectedTopDocs, 10);
 
     assertThat(rescored.scoreDocs).hasLength(2);
@@ -715,7 +725,8 @@ public class BinaryQuantizedVectorRescorerTest {
     assertThat(parentTopDocs.scoreDocs).hasLength(2);
 
     BinaryQuantizedVectorRescorer.ApproximateRescorer rescorer =
-        new BinaryQuantizedVectorRescorer.ApproximateRescorer(knnQuery, Optional.of(parentFilter));
+        new BinaryQuantizedVectorRescorer.ApproximateRescorer(
+            wrapRescoreQuery(knnQuery), Optional.of(parentFilter));
     TopDocs rescored = rescorer.rescore(searcher, parentTopDocs, 10);
 
     assertThat(rescored.scoreDocs).hasLength(2);
@@ -768,7 +779,7 @@ public class BinaryQuantizedVectorRescorerTest {
 
     BinaryQuantizedVectorRescorer.FullFidelityRescorer rescorer =
         new BinaryQuantizedVectorRescorer.FullFidelityRescorer(
-            knnQuery, this.executor, Optional.of(parentFilter));
+            wrapRescoreQuery(knnQuery), this.executor, Optional.of(parentFilter));
     TopDocs rescored = rescorer.rescore(searcher, parentTopDocs, 10);
 
     assertThat(rescored.scoreDocs).hasLength(2);
@@ -823,7 +834,12 @@ public class BinaryQuantizedVectorRescorerTest {
     BinaryQuantizedVectorRescorer rescorer = new BinaryQuantizedVectorRescorer(this.executor);
     ApproximateVectorSearchCriteria criteria = createVectorSearchQuery(2, 10);
     TopDocs rescored =
-        rescorer.rescore(searcher, parentTopDocs, criteria, knnQuery, Optional.of(parentFilter));
+        rescorer.rescore(
+            searcher,
+            parentTopDocs,
+            criteria,
+            wrapRescoreQuery(knnQuery),
+            Optional.of(parentFilter));
 
     assertThat(rescored.scoreDocs).hasLength(2);
     assertThat(rescored.scoreDocs[0].score).isGreaterThan(rescored.scoreDocs[1].score);
@@ -932,6 +948,19 @@ public class BinaryQuantizedVectorRescorerTest {
 
     return new LuceneVectorSearchManager(
         luceneQuery, vectorQuery.criteria(), Optional.empty(), Optional.empty());
+  }
+
+  /**
+   * Wraps a Lucene {@link Query} into the matching {@link BinaryQuantizedRescoreQuery}
+   * implementation. Currently only {@link KnnFloatVectorQuery} is supported; this helper is
+   * scaffolding for a future {@code KnnByteVectorQuery} branch so call sites stay unchanged when
+   * byte support is added.
+   */
+  private static BinaryQuantizedRescoreQuery wrapRescoreQuery(Query query) {
+    if (query instanceof KnnFloatVectorQuery floatQuery) {
+      return new FloatBinaryQuantizedRescoreQuery(floatQuery);
+    }
+    throw new IllegalArgumentException("Unsupported query type: " + query.getClass());
   }
 
   private static ApproximateVectorSearchCriteria createVectorSearchQuery(

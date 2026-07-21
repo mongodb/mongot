@@ -5,6 +5,7 @@ import static com.xgen.mongot.index.lucene.LuceneSearchManager.QueryInfo;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.index.lucene.quantization.BinaryQuantizedVectorRescorer;
+import com.xgen.mongot.index.lucene.quantization.FloatBinaryQuantizedRescoreQuery;
 import com.xgen.mongot.index.lucene.query.NestedAvgVectorRescorer;
 import com.xgen.mongot.index.lucene.query.custom.WrappedKnnQuery;
 import com.xgen.mongot.index.lucene.query.util.WrappedToParentBlockJoinQuery;
@@ -120,7 +121,7 @@ public class LuceneVectorSearchManager implements LuceneSearchManager<QueryInfo>
             indexSearcher,
             topCandidates,
             (ApproximateVectorSearchCriteria) this.criteria,
-            knnQuery,
+            new FloatBinaryQuantizedRescoreQuery(knnQuery),
             parentFilter);
   }
 
