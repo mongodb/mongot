@@ -172,7 +172,7 @@ public class AutoEmbeddingMaterializedViewConfigTest {
 
       assertEquals(Duration.ofMinutes(5).toMillis(), config.staleLeaseScanIntervalMs);
       assertEquals(Duration.ofMinutes(30).toMillis(), config.staleLeaseMarkGracePeriodMs);
-      assertEquals(Duration.ofDays(5).toMillis(), config.staleLeaseDeleteGracePeriodMs);
+      assertEquals(Duration.ofDays(2).toMillis(), config.staleLeaseDeleteGracePeriodMs);
 
       assertEquals(1L, config.defaultMaterializedViewNameFormatVersion);
     }
@@ -225,7 +225,7 @@ public class AutoEmbeddingMaterializedViewConfigTest {
       // Invalid ordering (delete grace < mark grace) must fall back to defaults for BOTH graces,
       // never letting a lease become delete-eligible before it can be marked.
       assertEquals(Duration.ofMinutes(30).toMillis(), config.staleLeaseMarkGracePeriodMs);
-      assertEquals(Duration.ofDays(5).toMillis(), config.staleLeaseDeleteGracePeriodMs);
+      assertEquals(Duration.ofDays(2).toMillis(), config.staleLeaseDeleteGracePeriodMs);
     }
 
     @Test

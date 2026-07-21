@@ -35,7 +35,7 @@
         "materializedViewOptimeUpdateIntervalMs": 3000,
         "staleLeaseScanIntervalMs": 300000,
         "staleLeaseMarkGracePeriodMs": 1800000,
-        "staleLeaseDeleteGracePeriodMs": 432000000
+        "staleLeaseDeleteGracePeriodMs": 172800000
       },
       "bson": {
         "pauseAllInitialSyncs": false,
@@ -78,7 +78,7 @@
         "materializedViewOptimeUpdateIntervalMs": { "$numberLong": "3000" },
         "staleLeaseScanIntervalMs": { "$numberLong": "300000" },
         "staleLeaseMarkGracePeriodMs": { "$numberLong": "1800000" },
-        "staleLeaseDeleteGracePeriodMs": { "$numberLong": "432000000" }
+        "staleLeaseDeleteGracePeriodMs": { "$numberLong": "172800000" }
       }
     }
   ]

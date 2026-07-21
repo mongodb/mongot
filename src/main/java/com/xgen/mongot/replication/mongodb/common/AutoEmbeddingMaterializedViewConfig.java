@@ -45,11 +45,13 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
   private static final long DEFAULT_STALE_LEASE_SCAN_INTERVAL_MS = Duration.ofMinutes(5).toMillis();
   private static final long DEFAULT_STALE_LEASE_MARK_GRACE_PERIOD_MS =
       Duration.ofMinutes(30).toMillis();
-  // Conservative on purpose: a marked lease waits 5 days before its MV collection is dropped, so a
-  // long weekend / holiday can't elapse the grace before anyone notices a misfire. Deletion is
-  // irreversible; the wait is cheap. Must stay >= the mark grace (validated below).
+  // A marked lease waits 2 days before its MV collection is dropped: enough for GC alerts to fire
+  // and on-call to react to a misfire (deletion is irreversible), and past the window in which a
+  // reverted index definition realistically returns to reuse the retired MV's embeddings. Longer
+  // only adds user-visible storage for the superseded MV. Must stay >= the mark grace (validated
+  // below).
   private static final long DEFAULT_STALE_LEASE_DELETE_GRACE_PERIOD_MS =
-      Duration.ofDays(5).toMillis();
+      Duration.ofDays(2).toMillis();
   private static final long DEFAULT_MATERIALIZED_VIEW_WRITER_TIMEOUT_MS =
       Duration.ofSeconds(60).toMillis();
 
