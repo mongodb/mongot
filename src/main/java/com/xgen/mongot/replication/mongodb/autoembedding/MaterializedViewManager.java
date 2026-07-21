@@ -2421,6 +2421,7 @@ public class MaterializedViewManager implements ReplicationManager {
             materializedViewConfig.getMatchCollectionUuidForUpdateLookup())
         .setEnableSplitLargeChangeStreamEvents(
             materializedViewConfig.getEnableSplitLargeChangeStreamEvents())
+        .setAutoEmbeddingMaterializedViewConfig(materializedViewConfig)
         .setReplicationType(AUTO_EMBEDDING)
         .build();
   }

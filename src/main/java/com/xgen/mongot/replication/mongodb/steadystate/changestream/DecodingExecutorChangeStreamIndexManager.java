@@ -16,6 +16,7 @@ import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.logging.DefaultKeyValueLogger;
+import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamDocumentUtils;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamDocumentUtils.DocumentEventBatch;
@@ -42,6 +43,7 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
 
   /* In-order decoding per generation id. */
   private final DecodingWorkScheduler decodingScheduler;
+  private final Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig;
 
   /* View-pipeline field dependencies are a pure function of the immutable index definition, so
    * they are derived once and reused across change-stream batches. */
@@ -60,7 +62,8 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
       IndexMetricsUpdater indexMetricsUpdater,
       CompletableFuture<Void> lifecycleFuture,
       GenerationId generationId,
-      DecodingWorkScheduler decodingScheduler) {
+      DecodingWorkScheduler decodingScheduler,
+      Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig) {
     super(
         indexDefinition,
         logger,
@@ -72,6 +75,7 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
         lifecycleFuture,
         generationId);
     this.decodingScheduler = decodingScheduler;
+    this.autoEmbeddingMaterializedViewConfig = autoEmbeddingMaterializedViewConfig;
     this.lifecycleException = Optional.empty();
     this.viewFieldDependencies =
         Suppliers.memoize(
@@ -88,6 +92,30 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
       CompletableFuture<Void> lifecycleFuture,
       GenerationId generationId,
       DecodingWorkScheduler decodingScheduler) {
+    return createWithDecodingScheduler(
+        indexDefinition,
+        indexingWorkScheduler,
+        documentIndexer,
+        namespace,
+        resumeInfoUpdater,
+        indexMetricsUpdater,
+        lifecycleFuture,
+        generationId,
+        decodingScheduler,
+        Optional.empty());
+  }
+
+  static DecodingExecutorChangeStreamIndexManager createWithDecodingScheduler(
+      IndexDefinition indexDefinition,
+      IndexingWorkScheduler indexingWorkScheduler,
+      DocumentIndexer documentIndexer,
+      MongoNamespace namespace,
+      Consumer<ChangeStreamResumeInfo> resumeInfoUpdater,
+      IndexMetricsUpdater indexMetricsUpdater,
+      CompletableFuture<Void> lifecycleFuture,
+      GenerationId generationId,
+      DecodingWorkScheduler decodingScheduler,
+      Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig) {
 
     HashMap<String, Object> defaultKeyValues = new HashMap<>();
     defaultKeyValues.put("indexId", generationId.indexId);
@@ -108,7 +136,8 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
         indexMetricsUpdater,
         lifecycleFuture,
         generationId,
-        decodingScheduler);
+        decodingScheduler,
+        autoEmbeddingMaterializedViewConfig);
   }
 
   @Override
@@ -180,7 +209,8 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
                         this.indexDefinition.createFieldDefinitionResolver(
                             this.generationId.generation.indexFormatVersion),
                         false /* areUpdateEventsPrefiltered */,
-                        this.viewFieldDependencies.get());
+                        this.viewFieldDependencies.get(),
+                        this.autoEmbeddingMaterializedViewConfig);
 
                 metricsUpdater.accept(documentEventBatch);
 

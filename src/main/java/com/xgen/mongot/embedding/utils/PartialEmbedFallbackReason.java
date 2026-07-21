@@ -34,6 +34,8 @@ public enum PartialEmbedFallbackReason {
   REPLACE_EVENT,
   /** Filter-field extraction threw at the routing layer; falls back to a full replace. */
   FILTER_EXTRACTION_FAILED,
+  /** A dynamic feature flag forced a full document update instead of a partial update. */
+  FEATURE_FLAG_FORCED_FULL_UPDATE,
   /**
    * The index co-locates filter fields under a {@code nestedRoot} (CLOUDP-402522): a partial
    * filter-only {@code $set} writes filters at their source paths and cannot reproduce the {@code

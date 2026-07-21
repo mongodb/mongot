@@ -67,6 +67,8 @@ public class ChangeStreams {
 
     // Convert all the fields in the UpdateDescription to the field we need to check for being
     // configured to be indexed or stored, and return true if any of the fields are configured.
+    // TODO(CLOUDP-424650): Include search autoEmbedVector sourceField dependencies when deciding
+    // whether an update applies.
     return fields.stream()
         .map(FieldPath::parse)
         .map(ChangeStreams::filterFieldPath)

@@ -82,6 +82,12 @@ public enum DynamicFeatureFlags {
    * Lucene replication disk mode.
    */
   AUTO_EMBEDDING_MONGOD_DISK_MONITOR("mongot.featureFlag.autoEmbeddingMongodDiskMonitor", false),
+  /**
+   * When enabled, forces materialized-view auto-embedding update events to do the full re-embed +
+   * replace.
+   */
+  AUTO_EMBEDDING_CHANGE_STREAM_FULL_UPDATE(
+      "mongot.featureFlag.autoEmbeddingChangeStreamFullUpdate", false),
   QUERY_OPTIMIZER("mongot.featureFlag.queryOptimizer", false),
   ENABLE_OTEL_TRACING("mongot.featureFlag.enableOTELTracing", false),
   /**

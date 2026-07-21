@@ -133,6 +133,7 @@ public class InitialSyncQueue {
   private final Gate initialSyncGate;
 
   private final InitialSyncConfig initialSyncConfig;
+  private final Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig;
 
   @VisibleForTesting
   InitialSyncQueue(
@@ -161,6 +162,10 @@ public class InitialSyncQueue {
     this.shutdown = false;
 
     this.initialSyncConfig = initialSyncConfig;
+    this.autoEmbeddingMaterializedViewConfig =
+        replicationConfig instanceof AutoEmbeddingMaterializedViewConfig config
+            ? Optional.of(config)
+            : Optional.empty();
 
     MetricsFactory metricsFactory = new MetricsFactory("initialsync.queue", meterRegistry);
     this.requeuedEmbeddingInitialSyncs = metricsFactory.counter("requeuedEmbeddingInitialSyncs");
@@ -936,7 +941,8 @@ public class InitialSyncQueue {
                 this.embeddingGetMoreBatchSize,
                 request.isRemoveMatchCollectionUuid(),
                 request.getUseNaturalOrderScan(),
-                InitialSyncQueue.this.initialSyncGate);
+                InitialSyncQueue.this.initialSyncGate,
+                InitialSyncQueue.this.autoEmbeddingMaterializedViewConfig);
 
         InitialSyncManager syncManager =
             this.initialSyncManagerFactory.create(

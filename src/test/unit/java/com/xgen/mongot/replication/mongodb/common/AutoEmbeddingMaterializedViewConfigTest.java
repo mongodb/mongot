@@ -117,6 +117,7 @@ public class AutoEmbeddingMaterializedViewConfigTest {
       assertFalse(config.enableSplitLargeChangeStreamEvents);
       assertEquals(List.of(), config.excludedChangestreamFields);
       assertFalse(config.matchCollectionUuidForUpdateLookup);
+      assertFalse(config.forceChangeStreamFullUpdate());
 
       // maxConcurrentEmbeddingInitialSyncs = Math.min(numCpus, 1) = 1
       assertEquals(1, config.maxConcurrentEmbeddingInitialSyncs);
@@ -174,6 +175,17 @@ public class AutoEmbeddingMaterializedViewConfigTest {
       assertEquals(Duration.ofDays(5).toMillis(), config.staleLeaseDeleteGracePeriodMs);
 
       assertEquals(1L, config.defaultMaterializedViewNameFormatVersion);
+    }
+
+    @Test
+    public void controlKnobEvaluator_isNotSerialized() {
+      AutoEmbeddingMaterializedViewConfig config = AutoEmbeddingMaterializedViewConfig.getDefault();
+      BsonDocument serializedConfig = config.toBson();
+
+      assertFalse(config.forceChangeStreamFullUpdate());
+      config.setControlKnobEvaluator(controlKnob -> true);
+      assertTrue(config.forceChangeStreamFullUpdate());
+      assertEquals(serializedConfig, config.toBson());
     }
 
     @Test

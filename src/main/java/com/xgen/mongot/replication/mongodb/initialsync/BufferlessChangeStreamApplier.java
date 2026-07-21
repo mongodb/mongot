@@ -394,7 +394,8 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
                 .getIndexDefinition()
                 .createFieldDefinitionResolver(this.context.getIndexFormatVersion()),
             true /* areUpdateEventsPrefiltered */,
-            this.viewFieldDependencies.get());
+            this.viewFieldDependencies.get(),
+            this.context.getAutoEmbeddingMaterializedViewConfig());
 
     this.totalDocumentsCounter.increment(batch.getRawEvents().size());
     this.preprocessingBatchTimer.record(preprocessingBatchTimer.stop().elapsed());

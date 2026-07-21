@@ -1,5 +1,6 @@
 package com.xgen.mongot.replication.mongodb.steadystate.changestream;
 
+import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
 import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateSchedulingMethod;
@@ -18,6 +19,7 @@ public class SteadyStateReplicationConfig {
   private final List<String> excludedChangestreamFields;
   private final boolean matchCollectionUuidForUpdateLookup;
   private final boolean enableSplitLargeChangeStreamEvents;
+  private final Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig;
   private final int changeStreamInactivityThresholdSec;
   private final CommonReplicationConfig.Type replicationType;
   private final SteadyStateSchedulingMethod steadyStateSchedulingMethod;
@@ -34,6 +36,7 @@ public class SteadyStateReplicationConfig {
       List<String> excludedChangestreamFields,
       boolean matchCollectionUuidForUpdateLookup,
       boolean enableSplitLargeChangeStreamEvents,
+      Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig,
       int changeStreamInactivityThresholdSec,
       CommonReplicationConfig.Type replicationType,
       SteadyStateSchedulingMethod steadyStateSchedulingMethod,
@@ -48,6 +51,7 @@ public class SteadyStateReplicationConfig {
     this.excludedChangestreamFields = excludedChangestreamFields;
     this.matchCollectionUuidForUpdateLookup = matchCollectionUuidForUpdateLookup;
     this.enableSplitLargeChangeStreamEvents = enableSplitLargeChangeStreamEvents;
+    this.autoEmbeddingMaterializedViewConfig = autoEmbeddingMaterializedViewConfig;
     this.changeStreamInactivityThresholdSec = changeStreamInactivityThresholdSec;
     this.replicationType = replicationType;
     this.steadyStateSchedulingMethod = steadyStateSchedulingMethod;
@@ -95,6 +99,10 @@ public class SteadyStateReplicationConfig {
     return this.enableSplitLargeChangeStreamEvents;
   }
 
+  public Optional<AutoEmbeddingMaterializedViewConfig> getAutoEmbeddingMaterializedViewConfig() {
+    return this.autoEmbeddingMaterializedViewConfig;
+  }
+
   public int getChangeStreamInactivityThresholdSec() {
     return this.changeStreamInactivityThresholdSec;
   }
@@ -125,6 +133,7 @@ public class SteadyStateReplicationConfig {
     private List<String> excludedChangestreamFields;
     private boolean matchCollectionUuidForUpdateLookup;
     private boolean enableSplitLargeChangeStreamEvents;
+    private Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig;
     private int changeStreamInactivityThresholdSec;
     private CommonReplicationConfig.Type replicationType;
     private SteadyStateSchedulingMethod steadyStateSchedulingMethod;
@@ -141,6 +150,7 @@ public class SteadyStateReplicationConfig {
       this.excludedChangestreamFields = List.of();
       this.matchCollectionUuidForUpdateLookup = false;
       this.enableSplitLargeChangeStreamEvents = false;
+      this.autoEmbeddingMaterializedViewConfig = Optional.empty();
       this.changeStreamInactivityThresholdSec =
           MongoDbReplicationConfig.DEFAULT_CHANGE_STREAM_INACTIVITY_THRESHOLD_SEC;
       this.replicationType = CommonReplicationConfig.Type.DEFAULT;
@@ -197,6 +207,12 @@ public class SteadyStateReplicationConfig {
       return this;
     }
 
+    public Builder setAutoEmbeddingMaterializedViewConfig(
+        AutoEmbeddingMaterializedViewConfig autoEmbeddingMaterializedViewConfig) {
+      this.autoEmbeddingMaterializedViewConfig = Optional.of(autoEmbeddingMaterializedViewConfig);
+      return this;
+    }
+
     public Builder setChangeStreamInactivityThresholdSec(int value) {
       this.changeStreamInactivityThresholdSec = value;
       return this;
@@ -237,6 +253,7 @@ public class SteadyStateReplicationConfig {
           this.excludedChangestreamFields,
           this.matchCollectionUuidForUpdateLookup,
           this.enableSplitLargeChangeStreamEvents,
+          this.autoEmbeddingMaterializedViewConfig,
           this.changeStreamInactivityThresholdSec,
           this.replicationType,
           this.steadyStateSchedulingMethod,

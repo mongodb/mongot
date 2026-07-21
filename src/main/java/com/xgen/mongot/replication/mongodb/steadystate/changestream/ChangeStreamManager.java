@@ -11,6 +11,7 @@ import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
+import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamModeSelector;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamModeSelector.ChangeStreamMode;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
@@ -148,7 +149,8 @@ public class ChangeStreamManager {
         modeSelector,
         indexingWorkSchedulerFactory,
         replicationConfig,
-        indexManagerFactoryWithDecodingScheduler(decodingScheduler),
+        indexManagerFactoryWithDecodingScheduler(
+            decodingScheduler, replicationConfig.getAutoEmbeddingMaterializedViewConfig()),
         enableLifecycleAttributionMetrics);
   }
 
@@ -332,6 +334,12 @@ public class ChangeStreamManager {
 
   public static ChangeStreamIndexManagerFactory indexManagerFactoryWithDecodingScheduler(
       DecodingWorkScheduler decodingScheduler) {
+    return indexManagerFactoryWithDecodingScheduler(decodingScheduler, Optional.empty());
+  }
+
+  private static ChangeStreamIndexManagerFactory indexManagerFactoryWithDecodingScheduler(
+      DecodingWorkScheduler decodingScheduler,
+      Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig) {
     return (indexDefinition,
         indexingWorkScheduler,
         documentIndexer,
@@ -349,6 +357,7 @@ public class ChangeStreamManager {
             indexMetricsUpdater,
             externalFuture,
             generationId,
-            decodingScheduler);
+            decodingScheduler,
+            autoEmbeddingMaterializedViewConfig);
   }
 }

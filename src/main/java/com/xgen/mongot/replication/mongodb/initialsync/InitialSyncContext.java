@@ -8,6 +8,7 @@ import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.monitor.Gate;
+import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkScheduler;
@@ -36,6 +37,7 @@ public class InitialSyncContext {
   private final boolean useNaturalOrderScan;
   private final boolean removeMatchCollectionUuid;
   private final Gate initialSyncGate;
+  private final Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig;
 
   private InitialSyncContext(
       IndexDefinitionGeneration indexDefinitionGeneration,
@@ -47,7 +49,8 @@ public class InitialSyncContext {
       Optional<Integer> embeddingGetMoreBatchSize,
       boolean removeMatchCollectionUuid,
       boolean useNaturalOrderScan,
-      Gate initialSyncGate) {
+      Gate initialSyncGate,
+      Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig) {
 
     this.indexDefinitionGeneration = indexDefinitionGeneration;
     this.indexingWorkScheduler = indexingWorkScheduler;
@@ -62,6 +65,7 @@ public class InitialSyncContext {
     this.useNaturalOrderScan = useNaturalOrderScan;
     this.removeMatchCollectionUuid = removeMatchCollectionUuid;
     this.initialSyncGate = initialSyncGate;
+    this.autoEmbeddingMaterializedViewConfig = autoEmbeddingMaterializedViewConfig;
   }
 
   static InitialSyncContext create(
@@ -73,6 +77,28 @@ public class InitialSyncContext {
       boolean removeMatchCollectionUuid,
       boolean useNaturalOrderScan,
       Gate initialSyncGate) {
+    return create(
+        indexDefinitionGeneration,
+        indexingWorkScheduler,
+        indexer,
+        indexMetricsUpdater,
+        embeddingGetMoreBatchSize,
+        removeMatchCollectionUuid,
+        useNaturalOrderScan,
+        initialSyncGate,
+        Optional.empty());
+  }
+
+  static InitialSyncContext create(
+      IndexDefinitionGeneration indexDefinitionGeneration,
+      IndexingWorkScheduler indexingWorkScheduler,
+      DocumentIndexer indexer,
+      IndexMetricsUpdater indexMetricsUpdater,
+      Optional<Integer> embeddingGetMoreBatchSize,
+      boolean removeMatchCollectionUuid,
+      boolean useNaturalOrderScan,
+      Gate initialSyncGate,
+      Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig) {
 
     return new InitialSyncContext(
         indexDefinitionGeneration,
@@ -84,7 +110,8 @@ public class InitialSyncContext {
         embeddingGetMoreBatchSize,
         removeMatchCollectionUuid,
         useNaturalOrderScan,
-        initialSyncGate);
+        initialSyncGate,
+        autoEmbeddingMaterializedViewConfig);
   }
 
   public GenerationId getGenerationId() {
@@ -109,6 +136,10 @@ public class InitialSyncContext {
 
   public IndexMetricsUpdater getIndexMetricsUpdater() {
     return this.indexMetricsUpdater;
+  }
+
+  public Optional<AutoEmbeddingMaterializedViewConfig> getAutoEmbeddingMaterializedViewConfig() {
+    return this.autoEmbeddingMaterializedViewConfig;
   }
 
   /**
@@ -230,6 +261,7 @@ public class InitialSyncContext {
         this.embeddingGetMoreBatchSize,
         this.removeMatchCollectionUuid,
         this.useNaturalOrderScan,
-        this.initialSyncGate);
+        this.initialSyncGate,
+        this.autoEmbeddingMaterializedViewConfig);
   }
 }

@@ -1,5 +1,6 @@
 package com.xgen.mongot.replication.mongodb.common;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.flogger.FluentLogger;
@@ -241,7 +242,8 @@ public class ChangeStreamDocumentUtils {
    *
    * <p>We will skip updates that do not touch fields that are in this index definition.
    */
-  public static DocumentEventBatch handleDocumentEvents(
+  @VisibleForTesting
+  static DocumentEventBatch handleDocumentEvents(
       List<ChangeStreamDocument<RawBsonDocument>> batch,
       IndexDefinition indexDefinition,
       FieldDefinitionResolver fieldDefinitionResolver,
@@ -251,20 +253,44 @@ public class ChangeStreamDocumentUtils {
       // Derived once per index definition by the caller (see deriveViewFieldDependencies); empty
       // for non-view or non-auto-embedding indexes.
       Optional<ViewFieldDependencies> viewFieldDependencies) {
+    return handleDocumentEvents(
+        batch,
+        indexDefinition,
+        fieldDefinitionResolver,
+        areUpdateEventsPrefiltered,
+        viewFieldDependencies,
+        Optional.empty());
+  }
+
+  /** Handles a document-event batch using the auto-embedding runtime replication configuration. */
+  public static DocumentEventBatch handleDocumentEvents(
+      List<ChangeStreamDocument<RawBsonDocument>> batch,
+      IndexDefinition indexDefinition,
+      FieldDefinitionResolver fieldDefinitionResolver,
+      boolean areUpdateEventsPrefiltered,
+      Optional<ViewFieldDependencies> viewFieldDependencies,
+      Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig) {
 
     ChangeStreamBatchMetrics metrics = new ChangeStreamBatchMetrics();
     Set<BsonDocument> processedDocs = new HashSet<>();
 
+    // TODO(CLOUDP-424650): Split full-update eligibility from this vector-only partial-update
+    // mapping so search autoEmbedVector indexes are covered without enabling partial updates.
     Optional<AutoEmbedFieldMapping> autoEmbedMapping =
         (indexDefinition instanceof VectorIndexDefinition vectorDef
                 && MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(
                     indexDefinition))
             ? Optional.of(AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef))
             : Optional.empty();
+    boolean forceFullUpdate =
+        autoEmbedMapping.isPresent()
+            && autoEmbeddingMaterializedViewConfig
+                .map(AutoEmbeddingMaterializedViewConfig::forceChangeStreamFullUpdate)
+                .orElse(false);
 
     // Identify docs whose collapsed-away predecessors required full processing.
     Set<BsonDocument> autoEmbedDocsRequiringFullUpdate = new HashSet<>();
-    if (autoEmbedMapping.isPresent()) {
+    if (autoEmbedMapping.isPresent() && !forceFullUpdate) {
       Set<BsonDocument> seenSurvivor = new HashSet<>();
       for (var event : Lists.reverse(batch)) {
         BsonDocument key = event.getDocumentKey();
@@ -297,7 +323,8 @@ public class ChangeStreamDocumentUtils {
                 areUpdateEventsPrefiltered,
                 autoEmbedMapping,
                 viewFieldDependencies,
-                autoEmbedDocsRequiringFullUpdate.contains(event.getDocumentKey()));
+                autoEmbedDocsRequiringFullUpdate.contains(event.getDocumentKey()),
+                forceFullUpdate);
         if (docEvent.isPresent()) {
           finalChangeEvents.add(docEvent.get());
 
@@ -329,7 +356,8 @@ public class ChangeStreamDocumentUtils {
       boolean areUpdateEventsPrefiltered,
       Optional<AutoEmbedFieldMapping> autoEmbedMapping,
       Optional<ViewFieldDependencies> viewFieldDependencies,
-      boolean docRequiresFullUpdate) {
+      boolean docRequiresFullUpdate,
+      boolean forceFullUpdate) {
 
     DocumentMetadata metadata = createMetadata(event, indexDefinition);
 
@@ -380,6 +408,12 @@ public class ChangeStreamDocumentUtils {
                 event.getUpdateDescription(), fieldDefinitionResolver, indexDefinition.getView())) {
           metrics.updateApplicable();
           incrementApplicableDocumentMetrics(metrics, event);
+
+          if (autoEmbedMapping.isPresent() && forceFullUpdate) {
+            metrics.partialEmbedFallback(
+                PartialEmbedFallbackReason.FEATURE_FLAG_FORCED_FULL_UPDATE);
+            return Optional.of(DocumentEvent.createUpdate(metadata, event.getFullDocument()));
+          }
 
           // For materialized view based auto-embedding indexes (AUTO_EMBED fields, version >= 2),
           // decide between a partial $set and a full ReplaceOne.

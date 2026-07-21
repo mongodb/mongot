@@ -944,6 +944,14 @@ public class DynamicFeatureFlagRegistryTest {
     }
 
     @Test
+    public void autoEmbeddingChangeStreamFullUpdate_hasExpectedNameAndFallback() {
+      assertEquals(
+          "mongot.featureFlag.autoEmbeddingChangeStreamFullUpdate",
+          DynamicFeatureFlags.AUTO_EMBEDDING_CHANGE_STREAM_FULL_UPDATE.getName());
+      assertFalse(DynamicFeatureFlags.AUTO_EMBEDDING_CHANGE_STREAM_FULL_UPDATE.getFallback());
+    }
+
+    @Test
     public void updateDynamicFeatureFlags_updatesGlobalObject() {
       DynamicFeatureFlagConfig testFeature =
           new DynamicFeatureFlagConfig(

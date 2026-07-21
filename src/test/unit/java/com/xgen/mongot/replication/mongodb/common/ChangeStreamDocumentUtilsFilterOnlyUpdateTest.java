@@ -20,6 +20,8 @@ import com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.bson.BsonArray;
 import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
@@ -89,6 +91,82 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
     assertEquals(new BsonString("updated"), event.getFilterFieldUpdates().get().get("category"));
     // Filter-only changes need no embedding work — neither applied nor a full-re-index fallback.
     assertEquals(0, batch.partialEmbedApplied);
+    assertTrue(batch.partialEmbedFallbacks.isEmpty());
+  }
+
+  @Test
+  public void testFilterOnlyUpdate_AutoEmbedFieldIndex_FeatureFlagEvaluatedForEachBatch() {
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .build();
+    ChangeStreamDocument<RawBsonDocument> changeEvent =
+        createFilterOnlyUpdateEvent(indexDef, "category");
+    AtomicBoolean forceFullUpdate = new AtomicBoolean(false);
+    AutoEmbeddingMaterializedViewConfig materializedViewConfig =
+        AutoEmbeddingMaterializedViewConfig.getDefault();
+    materializedViewConfig.setControlKnobEvaluator(controlKnob -> forceFullUpdate.get());
+
+    var partialUpdateBatch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef),
+            Optional.of(materializedViewConfig));
+    assertTrue(partialUpdateBatch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+
+    forceFullUpdate.set(true);
+    var fullUpdateBatch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef),
+            Optional.of(materializedViewConfig));
+
+    DocumentEvent event = fullUpdateBatch.finalChangeEvents.getFirst();
+    assertFalse(event.getFilterFieldUpdates().isPresent());
+    assertTrue(event.getChangedEmbedTexts().isEmpty());
+    assertEquals(changeEvent.getFullDocument(), event.getDocument().orElseThrow());
+    assertEquals(
+        Integer.valueOf(1),
+        fullUpdateBatch.partialEmbedFallbacks.get(
+            PartialEmbedFallbackReason.FEATURE_FLAG_FORCED_FULL_UPDATE));
+  }
+
+  @Test
+  public void testFilterOnlyUpdate_VectorIndex_RemainsFullUpdateWhenFeatureFlagEnabled() {
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withCosineVectorField("embedding", 3)
+            .withFilterPath("category")
+            .build();
+    assertFalse(indexDef.isAutoEmbeddingIndex());
+    assertFalse(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    ChangeStreamDocument<RawBsonDocument> changeEvent =
+        createFilterOnlyUpdateEvent(indexDef, "category");
+    AutoEmbeddingMaterializedViewConfig materializedViewConfig =
+        AutoEmbeddingMaterializedViewConfig.getDefault();
+    materializedViewConfig.setControlKnobEvaluator(controlKnob -> true);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef),
+            Optional.of(materializedViewConfig));
+
+    DocumentEvent event = batch.finalChangeEvents.getFirst();
+    assertFalse(event.getFilterFieldUpdates().isPresent());
+    assertTrue(event.getChangedEmbedTexts().isEmpty());
+    assertEquals(changeEvent.getFullDocument(), event.getDocument().orElseThrow());
     assertTrue(batch.partialEmbedFallbacks.isEmpty());
   }
 
@@ -896,6 +974,50 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
     DocumentEvent event = batch.finalChangeEvents.getFirst();
     assertTrue(event.getFilterFieldUpdates().isPresent());
     assertEquals(new BsonString("updated"), event.getFilterFieldUpdates().get().get("category"));
+  }
+
+  @Test
+  public void testFilterOnlyUpdate_AutoEmbedFieldIndexOnView_FullUpdateWhenFeatureFlagEnabled() {
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .withFilterPath("isPublished")
+            .view(
+                ViewDefinition.existing(
+                    "myView",
+                    List.of(
+                        BsonDocument.parse(
+                            "{\"$match\": {\"$expr\": {\"$eq\": [\"$isPublished\", true]}}}"))))
+            .build();
+    assertTrue(indexDef.isAutoEmbeddingIndex());
+    assertTrue(indexDef.getView().isPresent());
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    ChangeStreamDocument<RawBsonDocument> changeEvent =
+        createFilterOnlyUpdateEvent(indexDef, "category");
+    AutoEmbeddingMaterializedViewConfig materializedViewConfig =
+        AutoEmbeddingMaterializedViewConfig.getDefault();
+    materializedViewConfig.setControlKnobEvaluator(controlKnob -> true);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef),
+            Optional.of(materializedViewConfig));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    DocumentEvent event = batch.finalChangeEvents.getFirst();
+    assertFalse(event.getFilterFieldUpdates().isPresent());
+    assertTrue(event.getChangedEmbedTexts().isEmpty());
+    assertEquals(changeEvent.getFullDocument(), event.getDocument().orElseThrow());
+    assertEquals(
+        Integer.valueOf(1),
+        batch.partialEmbedFallbacks.get(
+            PartialEmbedFallbackReason.FEATURE_FLAG_FORCED_FULL_UPDATE));
   }
 
   @Test

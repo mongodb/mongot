@@ -13,8 +13,10 @@ import com.xgen.mongot.util.bson.parser.Field;
 import com.xgen.mongot.util.bson.parser.Value;
 import java.time.Duration;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
 import org.bson.BsonDocument;
 import org.bson.types.ObjectId;
 import org.slf4j.Logger;
@@ -50,6 +52,15 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
       Duration.ofDays(5).toMillis();
   private static final long DEFAULT_MATERIALIZED_VIEW_WRITER_TIMEOUT_MS =
       Duration.ofSeconds(60).toMillis();
+
+  /** Auto-embedding runtime control knobs whose source of truth may be deployment-specific. */
+  public enum ControlKnob {
+    CHANGE_STREAM_FULL_UPDATE
+  }
+
+  private static boolean disabledControlKnobs(ControlKnob controlKnob) {
+    return false;
+  }
 
   /**
    * Default memory budget as a percentage of JVM heap. The global default is 100% (unbounded). The
@@ -216,6 +227,14 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
    */
   public final long materializedViewWriterSocketTimeoutMs;
 
+  /**
+   * Runtime-only control knob evaluator. Atlas dynamic feature configurations are persisted
+   * separately and published through the registry's volatile state; this evaluator is intentionally
+   * omitted from {@link #toBson()}.
+   */
+  private volatile Predicate<ControlKnob> controlKnobsEvaluator =
+      AutoEmbeddingMaterializedViewConfig::disabledControlKnobs;
+
   private AutoEmbeddingMaterializedViewConfig(
       boolean pauseAllInitialSyncs,
       List<ObjectId> pauseInitialSyncOnIndexIds,
@@ -286,6 +305,21 @@ public final class AutoEmbeddingMaterializedViewConfig extends CommonReplication
     this.staleLeaseScanIntervalMs = staleLeaseScanIntervalMs;
     this.staleLeaseMarkGracePeriodMs = staleLeaseMarkGracePeriodMs;
     this.staleLeaseDeleteGracePeriodMs = staleLeaseDeleteGracePeriodMs;
+  }
+
+  /**
+   * Sets the deployment-specific runtime control knob evaluator.
+   *
+   * <p>The evaluator itself is not serialized. Atlas persists dynamic feature configurations in the
+   * dynamic feature flag journal; Community and LocalDev retain the default disabled evaluator.
+   */
+  public void setControlKnobEvaluator(Predicate<ControlKnob> controlKnobsEvaluator) {
+    this.controlKnobsEvaluator = Objects.requireNonNull(controlKnobsEvaluator);
+  }
+
+  /** Returns whether change-stream updates should always use full re-embed and replace. */
+  public boolean forceChangeStreamFullUpdate() {
+    return this.controlKnobsEvaluator.test(ControlKnob.CHANGE_STREAM_FULL_UPDATE);
   }
 
   /**
