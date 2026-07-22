@@ -5,10 +5,12 @@ import static com.xgen.mongot.index.status.IndexStatus.Reason.AUTO_EMBEDDING_RES
 import static com.xgen.mongot.index.status.IndexStatus.Reason.COLLECTION_NOT_FOUND;
 
 import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
+import com.xgen.mongot.index.Index;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.status.IndexStatus;
+import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
 import java.util.Map;
 import java.util.Optional;
@@ -50,11 +52,25 @@ public class UnresolvedAutoEmbeddingIndexGeneration extends IndexGeneration {
   public static UnresolvedAutoEmbeddingIndexGeneration createFailed(
       IndexDefinitionGeneration definitionGeneration,
       MaterializedViewTransientException.Reason reason) {
+    return createFailed(definitionGeneration, reason, Optional.empty());
+  }
+
+  /**
+   * Creates a FAILED generation retaining {@code derivedIndexForCleanup}, when present, so phasing
+   * out the unresolved generation still reclaims its derived Lucene directory.
+   */
+  public static UnresolvedAutoEmbeddingIndexGeneration createFailed(
+      IndexDefinitionGeneration definitionGeneration,
+      MaterializedViewTransientException.Reason reason,
+      Optional<Index> derivedIndexForCleanup) {
+    Check.checkArg(
+        derivedIndexForCleanup.stream().noneMatch(InitializedIndex.class::isInstance),
+        "A FAILED generation cannot retain a queryable derived index");
     var failedIndex =
         new UnresolvedAutoEmbeddingIndex(
             definitionGeneration.getIndexDefinition(),
             IndexStatus.failed(FAILURE_MESSAGE, failedStatusReason(reason)),
-            Optional.empty(),
+            derivedIndexForCleanup,
             Map.of());
     return new UnresolvedAutoEmbeddingIndexGeneration(failedIndex, definitionGeneration);
   }
@@ -75,11 +91,23 @@ public class UnresolvedAutoEmbeddingIndexGeneration extends IndexGeneration {
    */
   public static UnresolvedAutoEmbeddingIndexGeneration createCollectionNotFound(
       IndexDefinitionGeneration definitionGeneration) {
+    return createCollectionNotFound(definitionGeneration, Optional.empty());
+  }
+
+  /**
+   * Creates a {@code COLLECTION_NOT_FOUND} generation, retaining a cleanup-only derived index when
+   * a persisted commit proves this shard previously owned derived data.
+   */
+  public static UnresolvedAutoEmbeddingIndexGeneration createCollectionNotFound(
+      IndexDefinitionGeneration definitionGeneration, Optional<Index> derivedIndexForCleanup) {
+    Check.checkArg(
+        derivedIndexForCleanup.stream().noneMatch(InitializedIndex.class::isInstance),
+        "A COLLECTION_NOT_FOUND generation cannot retain a queryable derived index");
     var unresolvedIndex =
         new UnresolvedAutoEmbeddingIndex(
             definitionGeneration.getIndexDefinition(),
             IndexStatus.doesNotExist(COLLECTION_NOT_FOUND),
-            Optional.empty(),
+            derivedIndexForCleanup,
             Map.of());
     return new UnresolvedAutoEmbeddingIndexGeneration(unresolvedIndex, definitionGeneration);
   }

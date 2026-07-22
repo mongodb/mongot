@@ -2,8 +2,12 @@ package com.xgen.mongot.index.autoembedding;
 
 import static com.google.common.truth.Truth.assertThat;
 import static com.xgen.mongot.embedding.utils.AutoEmbeddingIndexDefinitionUtils.getDerivedVectorIndexDefinition;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.google.common.collect.ImmutableList;
+import com.xgen.mongot.catalog.InitializedIndexCatalog;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata;
 import com.xgen.mongot.featureflag.FeatureFlags;
@@ -11,6 +15,7 @@ import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.DocumentMetadata;
 import com.xgen.mongot.index.Index;
+import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.IndexWriter;
 import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.InitializedVectorIndex;
@@ -23,6 +28,7 @@ import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.index.lucene.LuceneIndexFactory;
 import com.xgen.mongot.index.lucene.directory.EnvironmentVariantPerfConfig;
+import com.xgen.mongot.index.lucene.directory.IndexDirectoryHelper;
 import com.xgen.mongot.index.query.MaterializedVectorSearchQuery;
 import com.xgen.mongot.index.query.QueryExecutionContext;
 import com.xgen.mongot.index.query.VectorSearchQuery;
@@ -44,6 +50,8 @@ import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.lucene.LuceneConfigBuilder;
 import com.xgen.testing.mongot.index.query.ApproximateVectorQueryCriteriaBuilder;
 import com.xgen.testing.mongot.index.query.VectorQueryBuilder;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -152,6 +160,86 @@ public class AutoEmbeddingOfflineQueryTest {
     }
   }
 
+  @Test
+  public void sourceCollectionAbsentWithPersistedCommit_dropDeletesDerivedDirectories()
+      throws Exception {
+    Path dataPath = TestUtils.getTempFolder().getRoot().toPath();
+    ObjectId indexId = new ObjectId();
+    VectorIndexDefinition rawVectorDef =
+        VectorIndexDefinitionBuilder.builder()
+            .indexId(indexId)
+            .name("vec")
+            .database("sample_mflix")
+            .lastObservedCollectionName("movies")
+            .collectionUuid(UUID.randomUUID())
+            .withAutoEmbedField(
+                "title",
+                "voyage-3-large",
+                DIMENSIONS,
+                VectorAutoEmbedQuantization.FLOAT,
+                VectorSimilarity.COSINE)
+            .build();
+    VectorIndexDefinitionGeneration rawGen =
+        new VectorIndexDefinitionGeneration(rawVectorDef, Generation.CURRENT);
+    MaterializedViewSchemaMetadata schema =
+        new MaterializedViewSchemaMetadata(
+            1L, Map.of(FieldPath.parse("title"), FieldPath.parse("_autoEmbed.title")));
+    MaterializedViewCollectionMetadata collectionMetadata =
+        new MaterializedViewCollectionMetadata(schema, MV_COLLECTION_UUID, indexId.toHexString());
+    VectorIndexDefinition derivedDef =
+        getDerivedVectorIndexDefinition(rawVectorDef, MV_DATABASE_NAME, MV_COLLECTION_UUID, schema);
+    VectorIndexDefinitionGeneration derivedGen =
+        new VectorIndexDefinitionGeneration(derivedDef, Generation.CURRENT);
+    String generationName = IndexDirectoryHelper.getNameForGeneration(rawGen);
+    Path indexPath = dataPath.resolve(generationName);
+    Path metadataPath = dataPath.resolve("indexMetadata").resolve(generationName);
+
+    try (LuceneIndexFactory factory = openFactory(dataPath)) {
+      Index derivedIndex = factory.getIndex(derivedGen);
+      InitializedVectorIndex initialized =
+          Check.instanceOf(
+              factory.getInitializedIndex(derivedIndex, derivedGen), InitializedVectorIndex.class);
+      initialized
+          .getWriter()
+          .commit(
+              IndexCommitUserData.EMPTY
+                  .withAutoEmbeddingMetadata(
+                      new AutoEmbeddingCommitMetadata(
+                          false, Optional.of(MV_DATABASE_NAME), Optional.of(collectionMetadata)))
+                  .toEncodedData());
+      initialized.close();
+    }
+    assertThat(Files.exists(indexPath)).isTrue();
+    assertThat(Files.exists(metadataPath)).isTrue();
+
+    // Reopen from the same data path to model a former owner restarting after source deletion.
+    try (LuceneIndexFactory factory = openFactory(dataPath)) {
+      MaterializedViewIndexFactory matViewIndexFactory = mock(MaterializedViewIndexFactory.class);
+      when(matViewIndexFactory.isSourceCollectionAbsentOnMongod(any())).thenReturn(true);
+      IndexGeneration unresolved =
+          AutoEmbeddingIndexGenerationFactory.getAutoEmbeddingIndexGeneration(
+              factory,
+              matViewIndexFactory,
+              rawGen,
+              mock(InitializedIndexCatalog.class),
+              () -> false);
+
+      assertThat(unresolved.getIndex().getStatus().getStatusCode())
+          .isEqualTo(IndexStatus.StatusCode.DOES_NOT_EXIST);
+      assertThat(unresolved.getIndex().getStatus().getReason())
+          .hasValue(IndexStatus.Reason.COLLECTION_NOT_FOUND);
+      assertThat(
+              ((UnresolvedAutoEmbeddingIndex) unresolved.getIndex()).getReconstructedDerivedIndex())
+          .isEmpty();
+
+      unresolved.getIndex().close();
+      unresolved.getIndex().drop();
+
+      assertThat(Files.exists(indexPath)).isFalse();
+      assertThat(Files.exists(metadataPath)).isFalse();
+    }
+  }
+
   private static FieldPath derivedVectorFieldPath(VectorIndexDefinition derivedDef) {
     return derivedDef.getFields().stream()
         .filter(field -> field.getType() == VectorIndexFieldDefinition.Type.VECTOR)
@@ -209,10 +297,11 @@ public class AutoEmbeddingOfflineQueryTest {
   }
 
   private static LuceneIndexFactory openFactory() throws Exception {
-    var config =
-        LuceneConfigBuilder.builder()
-            .dataPath(TestUtils.getTempFolder().getRoot().toPath())
-            .build();
+    return openFactory(TestUtils.getTempFolder().getRoot().toPath());
+  }
+
+  private static LuceneIndexFactory openFactory(Path dataPath) throws Exception {
+    var config = LuceneConfigBuilder.builder().dataPath(dataPath).build();
     return LuceneIndexFactory.fromConfig(
         config,
         FeatureFlags.getDefault(),

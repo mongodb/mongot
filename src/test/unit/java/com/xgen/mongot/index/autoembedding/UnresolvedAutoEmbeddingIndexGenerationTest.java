@@ -3,11 +3,12 @@ package com.xgen.mongot.index.autoembedding;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
+import com.xgen.mongot.index.Index;
 import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.InitializedVectorIndex;
 import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
@@ -78,15 +79,21 @@ public class UnresolvedAutoEmbeddingIndexGenerationTest {
     InitializedVectorIndex reconstructed = mock(InitializedVectorIndex.class);
     when(reconstructed.getStatus())
         .thenReturn(IndexStatus.stale("serving offline", new BsonTimestamp(7, 1)));
-    UnresolvedAutoEmbeddingIndexGeneration.createStale(
-            MaterializedViewIndex.mockMatViewDefinitionGeneration(new ObjectId()),
-            reconstructed,
-            Map.of())
-        .getIndex()
-        .drop();
+    Index index =
+        UnresolvedAutoEmbeddingIndexGeneration.createStale(
+                MaterializedViewIndex.mockMatViewDefinitionGeneration(new ObjectId()),
+                reconstructed,
+                Map.of())
+            .getIndex();
+
+    index.close();
+    index.drop();
+
     // Dropping the phased-out generation must delete the reconstructed derived Lucene's on-disk
     // data, or the old directory leaks after recovery swaps in a new attempt.
-    verify(reconstructed).drop();
+    var inOrder = inOrder(reconstructed);
+    inOrder.verify(reconstructed).close();
+    inOrder.verify(reconstructed).drop();
   }
 
   @Test
@@ -107,6 +114,49 @@ public class UnresolvedAutoEmbeddingIndexGenerationTest {
     // The offline serving gate must reject when the reconstructed index is unavailable rather than
     // serve from a bad reader; a status-only stub (no reconstructed index) stays a no-op.
     assertThrows(IndexUnavailableException.class, index::throwIfUnavailableForQuerying);
+  }
+
+  @Test
+  public void createFailed_dropDeletesDerivedDataThroughCleanupIndex() throws Exception {
+    Index cleanupIndex = mock(Index.class);
+    Index index =
+        UnresolvedAutoEmbeddingIndexGeneration.createFailed(
+                MaterializedViewIndex.mockMatViewDefinitionGeneration(new ObjectId()),
+                MaterializedViewTransientException.Reason.BULK_WRITE_ERROR,
+                Optional.of(cleanupIndex))
+            .getIndex();
+
+    index.close();
+    index.drop();
+
+    var inOrder = inOrder(cleanupIndex);
+    inOrder.verify(cleanupIndex).close();
+    inOrder.verify(cleanupIndex).drop();
+  }
+
+  @Test
+  public void createFailed_rejectsInitializedCleanupIndex() {
+    InitializedVectorIndex initializedIndex = mock(InitializedVectorIndex.class);
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            UnresolvedAutoEmbeddingIndexGeneration.createFailed(
+                MaterializedViewIndex.mockMatViewDefinitionGeneration(new ObjectId()),
+                MaterializedViewTransientException.Reason.BULK_WRITE_ERROR,
+                Optional.of(initializedIndex)));
+  }
+
+  @Test
+  public void createCollectionNotFound_rejectsInitializedCleanupIndex() {
+    InitializedVectorIndex initializedIndex = mock(InitializedVectorIndex.class);
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            UnresolvedAutoEmbeddingIndexGeneration.createCollectionNotFound(
+                MaterializedViewIndex.mockMatViewDefinitionGeneration(new ObjectId()),
+                Optional.of(initializedIndex)));
   }
 
   private IndexStatus createStatus(MaterializedViewTransientException.Reason reason) {

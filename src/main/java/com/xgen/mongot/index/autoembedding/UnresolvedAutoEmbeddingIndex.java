@@ -15,30 +15,34 @@ import java.util.Optional;
  * sync source), kept to track status for retry. When the derived Lucene was committed to local disk
  * it carries a reconstructed derived index rebuilt offline from the persisted commit metadata:
  * status delegates to it (STALE) and {@code VectorSearchCommand} serves queries from it until
- * mongod returns. Otherwise it is a status-only stub reporting its FAILED/DOES_NOT_EXIST status.
+ * mongod returns. Otherwise it reports its FAILED/DOES_NOT_EXIST status but may still retain an
+ * unopened derived index handle so {@code drop()} can reclaim the generation's on-disk data.
  */
 public class UnresolvedAutoEmbeddingIndex implements Index {
 
   private final IndexDefinition definition;
   // Used only when there is no reconstructed index to delegate to; only ConfigManager mutates it.
   private IndexStatus status;
-  private final Optional<InitializedIndex> reconstructedDerivedIndex;
+  // An InitializedIndex is queryable offline; an uninitialized Index is retained only for cleanup.
+  private final Optional<Index> derivedIndex;
   private final Map<FieldPath, FieldPath> autoEmbeddingFieldsMapping;
 
   public UnresolvedAutoEmbeddingIndex(
       IndexDefinition definition,
       IndexStatus status,
-      Optional<InitializedIndex> reconstructedDerivedIndex,
+      Optional<Index> derivedIndex,
       Map<FieldPath, FieldPath> autoEmbeddingFieldsMapping) {
     this.definition = definition;
     this.status = status;
-    this.reconstructedDerivedIndex = reconstructedDerivedIndex;
+    this.derivedIndex = derivedIndex;
     this.autoEmbeddingFieldsMapping = autoEmbeddingFieldsMapping;
   }
 
   /** The offline-reconstructed derived Lucene index served while mongod is unreachable, if any. */
   public Optional<InitializedIndex> getReconstructedDerivedIndex() {
-    return this.reconstructedDerivedIndex;
+    return this.derivedIndex
+        .filter(InitializedIndex.class::isInstance)
+        .map(InitializedIndex.class::cast);
   }
 
   /**
@@ -56,8 +60,9 @@ public class UnresolvedAutoEmbeddingIndex implements Index {
 
   @Override
   public void setStatus(IndexStatus status) {
-    if (this.reconstructedDerivedIndex.isPresent()) {
-      this.reconstructedDerivedIndex.get().setStatus(status);
+    Optional<InitializedIndex> reconstructedDerivedIndex = getReconstructedDerivedIndex();
+    if (reconstructedDerivedIndex.isPresent()) {
+      reconstructedDerivedIndex.get().setStatus(status);
       return;
     }
     this.status = status;
@@ -66,7 +71,7 @@ public class UnresolvedAutoEmbeddingIndex implements Index {
   @Override
   public IndexStatus getStatus() {
     // While serving offline the reconstructed index owns the status (STALE).
-    return this.reconstructedDerivedIndex.map(InitializedIndex::getStatus).orElse(this.status);
+    return getReconstructedDerivedIndex().map(InitializedIndex::getStatus).orElse(this.status);
   }
 
   @Override
@@ -76,12 +81,10 @@ public class UnresolvedAutoEmbeddingIndex implements Index {
 
   @Override
   public void drop() throws IOException {
-    // Delete the reconstructed derived Lucene's on-disk data so a phased-out generation does not
-    // leak its directory (recovery swaps in a new attempt with its own directory).
-    // TODO(CLOUDP-423170): when there is no reconstructed index, the directory from a prior healthy
-    // run is not reclaimed here and leaks; clean it up for the FAILED case too.
-    if (this.reconstructedDerivedIndex.isPresent()) {
-      this.reconstructedDerivedIndex.get().drop();
+    // Delete the derived Lucene's on-disk data so a phased-out generation does not leak its
+    // directory (recovery swaps in a new attempt with its own directory).
+    if (this.derivedIndex.isPresent()) {
+      this.derivedIndex.get().drop();
     }
   }
 
@@ -96,17 +99,18 @@ public class UnresolvedAutoEmbeddingIndex implements Index {
     // While serving offline the reconstructed index gates queryability (it is what actually serves
     // the query); a status-only stub has nothing to serve, so it stays a no-op and the query fails
     // downstream when no initialized index is found.
-    if (this.reconstructedDerivedIndex.isPresent()) {
-      this.reconstructedDerivedIndex.get().throwIfUnavailableForQuerying();
+    Optional<InitializedIndex> reconstructedDerivedIndex = getReconstructedDerivedIndex();
+    if (reconstructedDerivedIndex.isPresent()) {
+      reconstructedDerivedIndex.get().throwIfUnavailableForQuerying();
     }
   }
 
   @Override
   public void close() throws IOException {
-    // Release the reconstructed reader if one was opened. Closing keeps on-disk data (drop()
-    // deletes it) so a shutdown while still offline leaves the files for the next restart.
-    if (this.reconstructedDerivedIndex.isPresent()) {
-      this.reconstructedDerivedIndex.get().close();
+    // Release the derived index handle (and its reader, if opened). Closing keeps on-disk data
+    // (drop() deletes it) so a shutdown while still offline leaves the files for the next restart.
+    if (this.derivedIndex.isPresent()) {
+      this.derivedIndex.get().close();
     }
   }
 }

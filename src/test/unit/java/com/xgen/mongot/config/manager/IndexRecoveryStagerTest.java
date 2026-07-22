@@ -11,6 +11,7 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -24,6 +25,7 @@ import com.mongodb.MongoNamespace;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.index.Index;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.InitializedVectorIndex;
 import com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGeneration;
@@ -369,6 +371,44 @@ public class IndexRecoveryStagerTest {
     assertEquals(
         definitionGeneration.generation().nextAttempt(),
         stagedIndex.get().getGenerationId().generation);
+  }
+
+  @Test
+  public void unresolvedAutoEmbeddingFailedStage_isClosedAndDroppedAfterRestaging()
+      throws Exception {
+    var mocks = getEmptyMocks();
+    var liveDefinitionGeneration =
+        mockDefinitionGeneration(
+            VectorIndex.MOCK_MATERIALIZED_VIEW_AUTO_EMBEDDING_INDEX_DEFINITION);
+    mocks.addIndex(liveDefinitionGeneration, ConfigStateMocks.State.LIVE);
+    IndexDefinitionGeneration failedDefinitionGeneration =
+        liveDefinitionGeneration.incrementAttempt();
+    Index cleanupIndex = mock(Index.class);
+    var failedIndex =
+        UnresolvedAutoEmbeddingIndexGeneration.createFailed(
+            failedDefinitionGeneration,
+            MaterializedViewTransientException.Reason.UNKNOWN,
+            Optional.of(cleanupIndex));
+    mocks.staged.addIndex(failedIndex);
+    when(mocks.configState.materializedViewIndexFactory.get().isMongodReachableFromCachedTopology())
+        .thenReturn(true);
+
+    stageIndexes(mocks, Set.of());
+
+    assertThat(mocks.phasingOut.getIndexes()).containsExactly(failedIndex);
+    var replacement = mocks.staged.getIndex(VectorIndex.MOCK_INDEX_ID).orElseThrow();
+    assertEquals(
+        failedDefinitionGeneration.generation().nextAttempt(),
+        replacement.getGenerationId().generation);
+
+    PhasingOutIndexesDropper.dropUnused(
+        mocks.configState, IndexActions.withReplication(mocks.configState));
+
+    var inOrder = inOrder(cleanupIndex);
+    inOrder.verify(cleanupIndex).close();
+    inOrder.verify(cleanupIndex).drop();
+    assertThat(mocks.phasingOut.getIndexes()).isEmpty();
+    verify(mocks.lifecycleManager).dropIndex(failedIndex.getGenerationId());
   }
 
   @Test
