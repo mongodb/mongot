@@ -6,6 +6,7 @@ load("//bazel/java:package.bzl", "java_library")
 java_library(
     name = "trace",
     srcs = [
+        "GatedSpanExporter.java",
         "LatencySamplingSpanProcessor.java",
         "ParentScopeGuard.java",
         "Slf4jExporter.java",
@@ -27,10 +28,11 @@ java_library(
         "@maven//:io_opentelemetry_opentelemetry_api",
         "@maven//:io_opentelemetry_opentelemetry_context",
         "@maven//:io_opentelemetry_opentelemetry_exporter_otlp_common",
-        "@maven//:io_opentelemetry_opentelemetry_sdk",
         "@maven//:io_opentelemetry_opentelemetry_sdk_common",
         "@maven//:io_opentelemetry_opentelemetry_sdk_trace",
         "@maven//:io_opentelemetry_opentelemetry_semconv",
+        "@maven//:org_jetbrains_annotations",
+        "@maven//:org_mongodb_bson",
         "@maven//:org_slf4j_slf4j_api",
     ],
 )

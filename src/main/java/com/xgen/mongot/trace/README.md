@@ -39,19 +39,25 @@ moreover, it can be turned off by default.
 
 ## Initializing tracing
 
-At class loading time, the `Tracing` java class automatically initializes the global OpenTelemetry
-tracer for mongot.
+`Tracing` does **not** initialize its tracer at class-loading time. Instead, `Tracing.getTracer()`
+lazily initializes it on first use, with a default configuration that logs spans locally via
+`Slf4jExporter`. This ensures spans are still captured even if nothing has explicitly configured
+tracing yet.
 
-Notable configurations for the global tracer:
+`MmsMongotBootstrapper` calls `Tracing.initializeTracer(groupId, processor)` at startup to
+(re)configure the tracer with the real span processor/exporter built from `MmsConfig`, and
+`Tracing.updateStrategyConfig(...)` to set per-operation (`$search` vs. `$vectorSearch`) sampling
+strategies. Because tracer state lives behind `Tracing.getTracer()` rather than a static field,
+`initializeTracer` can be called again later (e.g. on config refresh) to swap out the underlying
+`SdkTracerProvider` without restarting mongot.
 
-* Uses BatchSpanProcessor to group the export of multiple spans.
-* The exporter of traces is a custom exporter, in `Slf4jExporter`. This is actually a replica of
-  OpenTelemetry's [OtlpJsonLoggingSpanExporter](https://github.com/open-telemetry/opentelemetry-java/blob/d4a3b3b6806ddcd2becfae3f3160daed7aa0896b/exporters/logging-otlp/src/main/java/io/opentelemetry/exporter/logging/otlp/OtlpJsonLoggingSpanExporter.java),
-  which exports collected spans to a Java util logger
-  in [Logging OTLP JSON format](https://github.com/open-telemetry/opentelemetry-java/blob/main/sdk-extensions/autoconfigure/README.md#logging-otlp-json-exporter).
-  The only difference with `Slf4jExporter` is that it routes the traces to a **Slf4j** logger, as
-  mongot already uses
-  Slf4j for its logs, thus making exported traces uniform with other logs.
+The exporter of traces is a custom exporter, in `Slf4jExporter`. This is actually a replica of
+OpenTelemetry's [OtlpJsonLoggingSpanExporter](https://github.com/open-telemetry/opentelemetry-java/blob/d4a3b3b6806ddcd2becfae3f3160daed7aa0896b/exporters/logging-otlp/src/main/java/io/opentelemetry/exporter/logging/otlp/OtlpJsonLoggingSpanExporter.java),
+which exports collected spans to a Java util logger
+in [Logging OTLP JSON format](https://github.com/open-telemetry/opentelemetry-java/blob/main/sdk-extensions/autoconfigure/README.md#logging-otlp-json-exporter).
+The only difference with `Slf4jExporter` is that it routes the traces to a **Slf4j** logger, as
+mongot already uses
+Slf4j for its logs, thus making exported traces uniform with other logs.
 
 ## Instrumenting methods using `Tracing` library
 
@@ -64,11 +70,11 @@ try block safely de-activate the scope and end the span.
 ### Example 1 - simple span
 
 Here we wrap a process with a simple span by directly using OpenTelemetry API:
-(note that `TRACER` references the global tracer, which I have not shown its initialization for
-brevity).
+(note that `Tracing.getTracer()` returns mongot's current tracer, lazily initializing it on first
+call).
 
 ```
-Span span = TRACER.spanBuilder("mySpan").startSpan();
+Span span = Tracing.getTracer().spanBuilder("mySpan").startSpan();
 try (Scope scope = span.makeCurrent()) { // open scope
   // do something
 } finally {
@@ -204,12 +210,12 @@ Here's how this looks directly using OpenTelemetry API:
 ```
 private final Span objectSpan; 
 public myObject() {
-  objectSpan = TRACER.spanBuilder("parent").startSpan();
+  objectSpan = Tracing.getTracer().spanBuilder("parent").startSpan();
 }
 
 public void child() {
   try (Scope pScope = parent.makeCurrent()) {
-    Span child = TRACER.spanBuilder("child").startSpan();
+    Span child = Tracing.getTracer().spanBuilder("child").startSpan();
     try (child.makeCurrent()) {
       // child process
     } finally {

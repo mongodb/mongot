@@ -2,7 +2,7 @@ package com.xgen.mongot.trace;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.errorprone.annotations.MustBeClosed;
-import io.opentelemetry.api.OpenTelemetry;
+import com.google.errorprone.annotations.concurrent.LazyInit;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.trace.Span;
@@ -13,16 +13,20 @@ import io.opentelemetry.api.trace.TraceState;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
-import io.opentelemetry.sdk.OpenTelemetrySdk;
 import io.opentelemetry.sdk.common.CompletableResultCode;
 import io.opentelemetry.sdk.resources.Resource;
 import io.opentelemetry.sdk.trace.IdGenerator;
 import io.opentelemetry.sdk.trace.SdkTracerProvider;
 import io.opentelemetry.sdk.trace.SpanLimits;
-import io.opentelemetry.sdk.trace.export.BatchSpanProcessor;
-import io.opentelemetry.sdk.trace.export.SpanExporter;
+import io.opentelemetry.sdk.trace.SpanProcessor;
 import io.opentelemetry.sdk.trace.samplers.Sampler;
 import io.opentelemetry.semconv.resource.attributes.ResourceAttributes;
+import java.util.Optional;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+import org.bson.types.ObjectId;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,13 +37,6 @@ import org.slf4j.LoggerFactory;
  */
 public class Tracing {
   private static final Logger LOG = LoggerFactory.getLogger(Tracing.class);
-
-  /**
-   * The default OpenTelemetry tracer for the mongot application, which uses the global default SDK
-   * configuration initialized in {@link Tracing}. All helper methods in {@link Tracing} use {@code
-   * TRACER} by default.
-   */
-  public static final Tracer TRACER;
 
   /**
    * When using {@link ToggleSampler}, an {@link AttributeKey} to toggle sampling on or off.:
@@ -91,30 +88,100 @@ public class Tracing {
    */
   @VisibleForTesting static final IdGenerator ID_GENERATOR = IdGenerator.random();
 
-  private static final SdkTracerProvider TRACER_PROVIDER;
+  private enum SamplingStrategy {
+    HEAD,
+    TAIL;
+
+    static SamplingStrategy parse(String value) {
+      return "tail".equalsIgnoreCase(value) ? TAIL : HEAD;
+    }
+  }
+
+  private static volatile @Nullable SamplingStrategy searchStrategy = null;
+  private static volatile @Nullable SamplingStrategy vectorStrategy = null;
+  private static volatile double searchSamplingRate = 0.0;
+  private static volatile double vectorSamplingRate = 0.0;
+
   private static final String DEFAULT_REMOTE_SPAN_ID = ID_GENERATOR.generateSpanId();
   private static final ToggleSampler sampler = new ToggleSampler();
 
-  static {
-    Resource resource =
-        Resource.getDefault()
-            .merge(Resource.create(Attributes.of(ResourceAttributes.SERVICE_NAME, "mongot")));
+  private static final Lock LOCK = new ReentrantLock();
 
-    SpanExporter slf4jExporter = Slf4jExporter.create();
+  private static final AttributeKey<String> MMS_GROUP_ID = AttributeKey.stringKey("mms.group_id");
 
-    TRACER_PROVIDER =
-        SdkTracerProvider.builder()
-            .addSpanProcessor(BatchSpanProcessor.builder(slf4jExporter).build())
-            .setSpanLimits(
-                SpanLimits.getDefault().toBuilder().setMaxAttributeValueLength(1000).build())
-            .setSampler(Sampler.parentBased(sampler))
-            .setResource(resource)
-            .build();
+  private static class TracingHolder {
 
-    OpenTelemetry openTelemetry =
-        OpenTelemetrySdk.builder().setTracerProvider(TRACER_PROVIDER).buildAndRegisterGlobal();
+    private static volatile @LazyInit SdkTracerProvider tracerProvider;
+    private static volatile @LazyInit Tracer tracer;
 
-    TRACER = openTelemetry.getTracer("mongot-tracing", "0.0.1");
+    private static SdkTracerProvider currentProvider() {
+      ensureInitialized();
+      return tracerProvider;
+    }
+
+    // Lazily initializes tracing once in a thread-safe way.
+    private static void ensureInitialized() {
+      if (tracer == null) {
+        LOCK.lock();
+        try {
+          if (tracer == null) {
+            configure(defaultProcessor(), Optional.empty());
+          }
+        } finally {
+          LOCK.unlock();
+        }
+      }
+    }
+
+    // Ensures spans are still logged locally even if bootstrap doesn't wire explicit tracing
+    // config before something calls getTracer().
+    private static SpanProcessor defaultProcessor() {
+      return LatencySamplingSpanProcessor.builder(Slf4jExporter.create()).setTopN(10).build();
+    }
+
+    private static void configure(SpanProcessor processor, Optional<ObjectId> groupId) {
+      Resource baseResource =
+          Resource.getDefault()
+              .merge(Resource.create(Attributes.of(ResourceAttributes.SERVICE_NAME, "mongot")));
+      Resource resource =
+          groupId
+              .map(
+                  id ->
+                      baseResource.merge(
+                          Resource.create(Attributes.of(MMS_GROUP_ID, id.toString()))))
+              .orElse(baseResource);
+
+      SdkTracerProvider newProvider =
+          SdkTracerProvider.builder()
+              .addSpanProcessor(processor)
+              .setSpanLimits(
+                  SpanLimits.getDefault().toBuilder().setMaxAttributeValueLength(1000).build())
+              .setSampler(Sampler.parentBased(sampler))
+              .setResource(resource)
+              .build();
+
+      SdkTracerProvider previousProvider = tracerProvider;
+      tracerProvider = newProvider;
+      tracer = newProvider.get("mongot-tracing", "0.0.1");
+
+      if (previousProvider != null) {
+        previousProvider.shutdown();
+      }
+    }
+  }
+
+  public static void initializeTracer(Optional<ObjectId> groupId, SpanProcessor processor) {
+    LOCK.lock();
+    try {
+      TracingHolder.configure(processor, groupId);
+    } finally {
+      LOCK.unlock();
+    }
+  }
+
+  public static Tracer getTracer() {
+    TracingHolder.ensureInitialized();
+    return TracingHolder.tracer;
   }
 
   /**
@@ -204,7 +271,7 @@ public class Tracing {
    * @return the newly created Span
    */
   public static Span unguardedSpan(String name, Attributes attributes) {
-    return TRACER.spanBuilder(name).setAllAttributes(attributes).startSpan();
+    return getTracer().spanBuilder(name).setAllAttributes(attributes).startSpan();
   }
 
   /**
@@ -313,7 +380,7 @@ public class Tracing {
             traceId, DEFAULT_REMOTE_SPAN_ID, traceFlags, TraceState.getDefault());
 
     Span span =
-        TRACER
+        getTracer()
             .spanBuilder(name)
             .setAllAttributes(Attributes.empty())
             .setParent(Context.current().with(Span.wrap(parentContext)))
@@ -322,16 +389,59 @@ public class Tracing {
     return SpanGuard.fromSpan(span);
   }
 
+  public static void updateStrategyConfig(
+      Optional<String> searchSamplingStrategy,
+      Optional<String> vectorSamplingStrategy,
+      Optional<Double> searchTracingSamplerRate,
+      Optional<Double> vectorTracingSamplerRate) {
+    searchStrategy = searchSamplingStrategy.map(SamplingStrategy::parse).orElse(null);
+    vectorStrategy = vectorSamplingStrategy.map(SamplingStrategy::parse).orElse(null);
+    searchSamplingRate = searchTracingSamplerRate.orElse(0.0);
+    vectorSamplingRate = vectorTracingSamplerRate.orElse(0.0);
+  }
+
   /**
-   * If {@code TRACER} uses a {@link BatchSpanProcessor}, this method force flushes any spans
-   * waiting in a batch, ready to be exported. This is <b>not</b> recommended to be used, other than
-   * for diagnostic/testing purposes.
+   * Creates a root {@link SpanGuard} for a {@code $search} operation, applying the configured
+   * sampling strategy. If no strategy is set, falls back to {@link #simpleSpanGuard(String)}.
+   */
+  @MustBeClosed
+  public static SpanGuard searchSpanGuard(String name) {
+    return spanGuardWithStrategy(name, searchStrategy, searchSamplingRate);
+  }
+
+  /**
+   * Creates a root {@link SpanGuard} for a {@code $vectorSearch} operation, applying the configured
+   * sampling strategy. If no strategy is set, falls back to {@link #simpleSpanGuard(String)}.
+   */
+  @MustBeClosed
+  public static SpanGuard vectorSearchSpanGuard(String name) {
+    return spanGuardWithStrategy(name, vectorStrategy, vectorSamplingRate);
+  }
+
+  @MustBeClosed
+  private static SpanGuard spanGuardWithStrategy(
+      String name, @Nullable SamplingStrategy strategy, double rate) {
+    if (strategy == null) {
+      return simpleSpanGuard(name);
+    }
+
+    Attributes attrs =
+        switch (strategy) {
+          case HEAD -> ThreadLocalRandom.current().nextDouble() < rate ? TOGGLE_ON : TOGGLE_OFF;
+          case TAIL -> TOGGLE_ON;
+        };
+    return simpleSpanGuard(name, attrs);
+  }
+
+  /**
+   * This method force flushes any spans waiting in a batch, ready to be exported. This is
+   * <b>not</b> recommended to be used, other than for diagnostic/testing purposes.
    *
    * @return the {@link CompletableResultCode} which OpenTelemetry tracers provide when they are
    *     force flushed
    */
   @VisibleForTesting
   static CompletableResultCode forceFlush() {
-    return TRACER_PROVIDER.forceFlush();
+    return TracingHolder.currentProvider().forceFlush();
   }
 }

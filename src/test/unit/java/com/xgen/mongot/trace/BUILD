@@ -4,6 +4,7 @@ java_test_suite(
     name = "trace",
     srcs = [
         "ExporterTest.java",
+        "GatedSpanExporterTest.java",
         "LatencySamplingSpanProcessorTest.java",
         "TracingTest.java",
     ],
