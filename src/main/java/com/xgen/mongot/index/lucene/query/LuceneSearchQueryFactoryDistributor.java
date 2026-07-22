@@ -64,6 +64,8 @@ import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.MatchNoDocsQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.Sort;
+import org.apache.lucene.search.join.BitSetProducer;
+import org.apache.lucene.search.join.QueryBitSetProducer;
 import org.apache.lucene.util.automaton.TooComplexToDeterminizeException;
 
 /**
@@ -294,6 +296,28 @@ public class LuceneSearchQueryFactoryDistributor {
         operator,
         createUnscoredQueryFromOperator(operator, singleQueryContext),
         singleQueryContext);
+  }
+
+  /**
+   * Builds a Lucene query that matches the <b>child</b> documents selected by an
+   * embeddedDocument-scoped facet's {@code operator}, evaluated with {@code embeddedPath} as the
+   * embedded root. Unlike a top-level embeddedDocument operator query, this does not join matches
+   * up to their parents: the caller (an embedded-scoped facet counter) needs the matching child
+   * docs themselves so it can group them by parent and deduplicate.
+   */
+  public Query createEmbeddedChildQuery(
+      Operator operator, FieldPath embeddedPath, IndexReader indexReader)
+      throws InvalidQueryException, IOException {
+    return createQuery(
+        operator, SingleQueryContext.createQueryRoot(indexReader).withEmbeddedRoot(embeddedPath));
+  }
+
+  /**
+   * Returns a {@link BitSetProducer} identifying root (top-level) documents, used to group an
+   * embedded-scoped facet's matching child docs up to their root for per-root deduplication.
+   */
+  public BitSetProducer rootParentBitSetProducer() {
+    return new QueryBitSetProducer(EmbeddedDocumentQueryFactory.ROOT_DOCUMENTS_QUERY);
   }
 
   public Query createVectorQuery(

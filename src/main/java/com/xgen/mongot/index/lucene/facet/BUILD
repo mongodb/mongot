@@ -5,6 +5,7 @@ java_library(
     srcs = [
         "AbstractSortedSetDocValuesFacetCounts.java",
         "ConcurrentSortedSetDocValuesFacetCounts.java",
+        "ParentDedupedSortedSetDocValuesFacetCounts.java",
         "SortedSetDocValuesFacetCounts.java",
         "TokenFacetsCardinalityLimitExceededException.java",
         "TokenFacetsStateCache.java",
@@ -23,6 +24,7 @@ java_library(
         "@maven//:com_google_guava_guava",
         "@maven//:org_apache_lucene_lucene_core",
         "@maven//:org_apache_lucene_lucene_facet",
+        "@maven//:org_apache_lucene_lucene_join",
         "@maven//:org_jetbrains_annotations",
     ],
 )

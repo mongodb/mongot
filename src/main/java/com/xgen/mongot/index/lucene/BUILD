@@ -9,6 +9,7 @@ java_library(
         "Comparators.java",
         "DeadlineQueryTimeout.java",
         "DiskIndexBackingStrategy.java",
+        "EmbeddedScopedStringFacetCounter.java",
         "EmptySearchBatchProducer.java",
         "FacetMergingBatchProducer.java",
         "GenericDrillSidewaysFactory.java",
