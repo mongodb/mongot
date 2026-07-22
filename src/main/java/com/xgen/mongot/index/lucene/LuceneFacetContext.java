@@ -146,6 +146,50 @@ public class LuceneFacetContext {
     return this.fieldDefinitionResolver;
   }
 
+  /**
+   * Returns the Lucene {@link org.apache.lucene.index.SortedNumericDocValues} field name for a
+   * numeric aggregation metric path (sum/avg).
+   *
+   * <p>Search aggregation resolves only v2 {@link NumberFieldDefinition} types ({@link
+   * FieldName.TypeField#NUMBER_INT64_V2} / {@link FieldName.TypeField#NUMBER_DOUBLE_V2}), not
+   * legacy number facet fields.
+   */
+  public String getNumericAggregationLuceneFieldName(
+      FieldPath path, Optional<FieldPath> returnScope) throws InvalidQueryException {
+    NumberFieldDefinition numberFieldDef =
+        getNumericAggregationNumberFieldDefinition(path, returnScope);
+    FieldName.TypeField typeField = getNumericAggregationTypeField(numberFieldDef);
+    return typeField.getLuceneFieldName(path, Optional.empty());
+  }
+
+  private NumberFieldDefinition getNumericAggregationNumberFieldDefinition(
+      FieldPath path, Optional<FieldPath> returnScope) throws InvalidQueryException {
+    // TODO(CLOUDP-426510): support numeric aggregation over embedded documents.
+    if (returnScope.isPresent()) {
+      throw new InvalidQueryException(
+          "Numeric aggregation over embedded documents is not supported.");
+    }
+
+    Optional<FieldDefinition> maybeFieldDef =
+        this.fieldDefinitionResolver.getFieldDefinition(path, Optional.empty());
+
+    Optional<NumberFieldDefinition> numberFieldDef =
+        maybeFieldDef.flatMap(FieldDefinition::numberFieldDefinition);
+
+    if (numberFieldDef.isEmpty()) {
+      throwFieldNotIndexed(path.toString(), "number", Optional.empty());
+    }
+    return numberFieldDef.get();
+  }
+
+  private static FieldName.TypeField getNumericAggregationTypeField(
+      NumberFieldDefinition numberFieldDef) {
+    return switch (numberFieldDef.options().representation()) {
+      case DOUBLE -> FieldName.TypeField.NUMBER_DOUBLE_V2;
+      case INT64 -> FieldName.TypeField.NUMBER_INT64_V2;
+    };
+  }
+
   LongRange[] getRanges(
       FacetDefinition.BoundaryFacetDefinition<? extends BsonValue> boundaryFacetDefinition,
       Optional<FieldPath> returnScope)

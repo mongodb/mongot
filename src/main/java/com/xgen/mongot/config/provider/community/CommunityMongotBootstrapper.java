@@ -44,6 +44,7 @@ import com.xgen.mongot.index.definition.config.IndexDefinitionConfig;
 import com.xgen.mongot.index.lucene.LuceneGlobalSettings;
 import com.xgen.mongot.index.lucene.LuceneIndexFactory;
 import com.xgen.mongot.index.lucene.directory.EnvironmentVariantPerfConfig;
+import com.xgen.mongot.index.query.aggregation.SearchAggregationBootstrap;
 import com.xgen.mongot.lifecycle.LifecycleConfig;
 import com.xgen.mongot.logging.Logging;
 import com.xgen.mongot.metrics.Instrumentation;
@@ -168,6 +169,8 @@ public class CommunityMongotBootstrapper {
 
     // Initialize static global feature flags for quantization or codec objects
     FeatureFlags.initializeProcessInstance(mongotConfigs.featureFlags);
+
+    SearchAggregationBootstrap.installRegistryIfEnabled(mongotConfigs.featureFlags);
 
     // Initialize global feature flags for utility classes
     LoggableIdUtils.initialize(mongotConfigs.featureFlags.isEnabled(Feature.LOGGABLE_DOCUMENT_ID));

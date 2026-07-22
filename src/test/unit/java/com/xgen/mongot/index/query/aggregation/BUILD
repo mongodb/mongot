@@ -30,6 +30,7 @@ java_test_suite(
         "IntermediateBsonTest.java",
         "PrimitiveArrayTest.java",
         "ResultTest.java",
+        "SearchAggregationBootstrapTest.java",
         "ShardMergePipelineBuilderTest.java",
         "SpecTest.java",
         "TermsAccumulatorTest.java",
@@ -37,6 +38,7 @@ java_test_suite(
     tags = ["unit"],
     deps = [
         ":planner_test_support",  # keep
+        "//src/main/java/com/xgen/mongot/featureflag",
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/lucene/field",
         "//src/main/java/com/xgen/mongot/index/lucene/util",

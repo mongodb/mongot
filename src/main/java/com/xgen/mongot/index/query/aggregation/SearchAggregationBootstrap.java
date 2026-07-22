@@ -1,5 +1,7 @@
 package com.xgen.mongot.index.query.aggregation;
 
+import com.xgen.mongot.featureflag.Feature;
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.definition.FieldDefinition;
 import com.xgen.mongot.index.definition.FieldTypeDefinition;
 import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
@@ -10,6 +12,7 @@ import com.xgen.mongot.util.FieldPath;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.bson.BsonValue;
 import org.jetbrains.annotations.TestOnly;
 
@@ -19,13 +22,42 @@ public class SearchAggregationBootstrap {
   public static final String TERMS = "terms";
   public static final String NUMBER_BOUNDARY = "numberBoundary";
   public static final String DATE_BOUNDARY = "dateBoundary";
+  public static final String SUM = Operator.SUM.registryKey();
+  public static final String AVG = Operator.AVG.registryKey();
 
   private SearchAggregationBootstrap() {}
 
-  // TODO(CLOUDP-413102) Add operator registry
+  /**
+   * Installs production group and operator suppliers at mongot startup when {@link
+   * Feature#SEARCH_AGGREGATION} is enabled.
+   */
+  public static void installRegistryIfEnabled(FeatureFlags featureFlags) {
+    if (featureFlags.isEnabled(Feature.SEARCH_AGGREGATION)) {
+      installRegistry();
+    }
+  }
+
+  /** Installs production group and operator suppliers unconditionally. */
+  public static void installRegistry() {
+    AggregationRegistry.install(groupSuppliers(), operatorSuppliers());
+  }
+
   @TestOnly
   static void installRegistry(Map<String, AggregationRegistry.OperatorSupplier> operators) {
     AggregationRegistry.install(groupSuppliers(), operators);
+  }
+
+  private static Map<String, AggregationRegistry.OperatorSupplier> operatorSuppliers() {
+    return Map.of(
+        SUM,
+        (name, path) -> new SumAggregationSpec(name, requirePath(path, SUM)),
+        AVG,
+        (name, path) -> new AvgAggregationSpec(name, requirePath(path, AVG)));
+  }
+
+  private static FieldPath requirePath(Optional<FieldPath> path, String operator) {
+    return path.orElseThrow(
+        () -> new IllegalArgumentException(operator + " operator requires a field path"));
   }
 
   private static Map<String, GroupSpecSupplier> groupSuppliers() {

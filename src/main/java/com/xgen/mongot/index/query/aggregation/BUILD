@@ -10,6 +10,7 @@ java_library(
         "AggregationResult.java",
         "AggregationResults.java",
         "AggregationSpec.java",
+        "AvgAggregationSpec.java",
         "BoundaryAccumulator.java",
         "BoundaryAggregationResult.java",
         "BoundaryEncoder.java",
@@ -29,6 +30,7 @@ java_library(
         "RemapTermsAccumulator.java",
         "SearchAggregationBootstrap.java",
         "ShardMergePipelineBuilder.java",
+        "SumAggregationSpec.java",
         "TermsAccumulator.java",
         "TermsAggregationResult.java",
         "TermsGroupAggregationSpec.java",
@@ -42,6 +44,7 @@ java_library(
         "@maven//:org_mongodb_bson",
     ],
     deps = [
+        "//src/main/java/com/xgen/mongot/featureflag",
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/lucene/field",
         "//src/main/java/com/xgen/mongot/index/lucene/util",

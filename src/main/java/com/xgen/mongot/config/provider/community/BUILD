@@ -87,6 +87,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/lucene",
         "//src/main/java/com/xgen/mongot/index/lucene/config",
         "//src/main/java/com/xgen/mongot/index/lucene/directory",
+        "//src/main/java/com/xgen/mongot/index/query/aggregation",
         "//src/main/java/com/xgen/mongot/index/status",
         "//src/main/java/com/xgen/mongot/lifecycle",
         "//src/main/java/com/xgen/mongot/logging",
