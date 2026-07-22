@@ -48,6 +48,12 @@ public final class TestOperatorSpecs {
     }
 
     @Override
+    public AggregationResult applyLimit() {
+      // Leaf metric: no buckets to truncate.
+      return this;
+    }
+
+    @Override
     public BsonValue toStandaloneBson() {
       return new org.bson.BsonDouble(this.value);
     }

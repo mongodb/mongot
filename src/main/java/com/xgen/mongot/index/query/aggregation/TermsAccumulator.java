@@ -129,8 +129,8 @@ public abstract sealed class TermsAccumulator extends BucketsAccumulator
   protected final List<AggregationResult> buildResults(LongArray parentOrdsToCollect)
       throws IOException {
     // Collect all children owning buckets. Full cardinality is returned -- no top-N pruning here.
-    // The `limit` is carried into the result and applied later during mongot integration (so that
-    // segment / partition / shard merges all operate on the complete bucket set).
+    // The `limit` is carried into the result and applied later (see AggregationResult#applyLimit)
+    // so that segment / partition / shard merges all operate on the complete bucket set.
     List<List<OrdPair>> childPairsPerParent = childOwningOrds(parentOrdsToCollect);
 
     // Flatten all child-level owning bucket ordinals to build children results.

@@ -167,6 +167,11 @@ public class IntermediateBsonTest extends AggregationTestSupport {
           }
 
           @Override
+          public AggregationResult applyLimit() {
+            throw new UnsupportedOperationException();
+          }
+
+          @Override
           public BsonValue toStandaloneBson() {
             throw new UnsupportedOperationException();
           }
@@ -207,6 +212,11 @@ public class IntermediateBsonTest extends AggregationTestSupport {
 
           @Override
           public AggregationResult mergePartitionResult(AggregationResult other) {
+            throw new UnsupportedOperationException();
+          }
+
+          @Override
+          public AggregationResult applyLimit() {
             throw new UnsupportedOperationException();
           }
 

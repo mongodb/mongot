@@ -21,6 +21,31 @@ public interface AggregationResult {
    */
   AggregationResult mergePartitionResult(AggregationResult other);
 
+  /**
+   * Apply the per-node top-N ({@code numBuckets}) truncation to this result and its descendants,
+   * returning the finalized result.
+   *
+   * <p>Copy-on-write: implementations do not mutate {@code this}; they return a new, finalized
+   * result (or {@code this} unchanged when there is nothing to truncate). Callers must use the
+   * returned value.
+   *
+   * <p>The limit is intentionally not a parameter. It is stored only on the node that actually
+   * truncates -- {@link TermsAggregationResult} carries its own {@code numBuckets} (nested facet
+   * levels can differ) -- while container/pass-through results ({@link AggregationResults},
+   * top-level and boundary results) hold no limit and simply recurse. A single caller-supplied
+   * limit could not express the differing per-level top-Ns, and threading a per-node map would just
+   * duplicate state the truncating node already owns.
+   *
+   * <p>Precondition: call exactly once, at the outermost merge point where bucket counts are
+   * global. {@link #mergePartitionResult} keeps full cardinality until then, because top-N-by-count
+   * is not associative across merges.
+   *
+   * <p>No default is provided on purpose: every implementer must consciously decide its top-N
+   * behavior. Bucketed results truncate and/or recurse; leaf/metric results (which have no buckets)
+   * return {@code this}.
+   */
+  AggregationResult applyLimit();
+
   /** Result for non-intermediate query path. */
   BsonValue toStandaloneBson();
 

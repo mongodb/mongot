@@ -53,6 +53,12 @@ public record TopLevelAggregationResult(List<AggregationResult> childResults)
   }
 
   @Override
+  public AggregationResult applyLimit() {
+    return new TopLevelAggregationResult(
+        this.childResults.stream().map(AggregationResult::applyLimit).toList());
+  }
+
+  @Override
   public BsonDocument toStandaloneBson() {
     var result = new BsonDocument();
     for (AggregationResult child : this.childResults) {

@@ -53,4 +53,11 @@ public final class AggregationResults implements Iterable<AggregationResult> {
   public static AggregationResults from(List<AggregationResult> results) {
     return new AggregationResults(results);
   }
+
+  /**
+   * Apply the top-N limit to every contained result (see {@link AggregationResult#applyLimit()}).
+   */
+  AggregationResults applyLimit() {
+    return from(this.results.stream().map(AggregationResult::applyLimit).toList());
+  }
 }

@@ -24,6 +24,7 @@ java_test_suite(
         "AggregationIntegrationTest.java",
         "AggregationRegistryTest.java",
         "AggregationTestSupport.java",
+        "ApplyLimitTest.java",
         "BoundaryAggregationTest.java",
         "BoundaryEncoderTest.java",
         "IntermediateBsonTest.java",

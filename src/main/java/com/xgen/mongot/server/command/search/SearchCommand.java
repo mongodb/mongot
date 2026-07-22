@@ -25,6 +25,7 @@ import com.xgen.mongot.index.DynamicFeatureFlagsMetricsRecorder;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.InitializedIndex;
+import com.xgen.mongot.index.MetaResults;
 import com.xgen.mongot.index.ReaderClosedException;
 import com.xgen.mongot.index.Variables;
 import com.xgen.mongot.index.definition.IndexDefinition;
@@ -372,7 +373,17 @@ public class SearchCommand implements Command {
     QueryBatchTimerRecorder queryBatchTimerRecorder =
         this.cursorManager.getIndexQueryBatchTimerRecorder(cursorId);
 
-    Optional<BsonValue> variables = Optional.of(new Variables(cursorInfo.metaResults).toRawBson());
+    // Apply the aggregation numBuckets top-N here, at the non-sharded / non-intermediate terminal.
+    // cursorInfo.metaResults is computed once, when the cursor is created (this path runs only when
+    // intermediateVersion is empty); GetMore batches carry no meta results, so this runs exactly
+    // once on the single fully-merged result. Top-N must never run on a per-partition / per-shard
+    // result. Gate on SEARCH_AGGREGATION so this extra step is clearly aggregation-only (the flag
+    // is also enforced upstream, so an AggregationResult can only be present when it is enabled).
+    MetaResults metaResults =
+        this.metadata.featureFlags().isEnabled(Feature.SEARCH_AGGREGATION)
+            ? cursorInfo.metaResults.applyAggregationLimit()
+            : cursorInfo.metaResults;
+    Optional<BsonValue> variables = Optional.of(new Variables(metaResults).toRawBson());
     MongotCursorResultInfo cursorResultInfo =
         this.cursorManager.getNextBatch(
             cursorId,

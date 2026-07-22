@@ -121,4 +121,16 @@ public final class BoundaryAggregationResult extends MultiBucketAggregationResul
     }
     return AggregationResults.from(result);
   }
+
+  @Override
+  public AggregationResult applyLimit() {
+    // Boundary buckets are fixed by the request's ranges -- no top-N truncation. Recurse so any
+    // nested terms facets get their limit applied.
+    List<BoundaryBucket> finalized = new ArrayList<>(this.buckets.size());
+    for (BoundaryBucket b : this.buckets) {
+      finalized.add(
+          new BoundaryBucket(b.getKey(), b.getDocCount(), b.getChildResults().applyLimit()));
+    }
+    return new BoundaryAggregationResult(this.name, this.path, finalized);
+  }
 }

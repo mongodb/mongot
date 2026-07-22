@@ -110,6 +110,17 @@ public class AccumulatorTest extends AggregationTestSupport {
       return new TermsResult(this.name, this.path, new ArrayList<>(merged.values()));
     }
 
+    @Override
+    public AggregationResult applyLimit() {
+      // Test double: no numBuckets limit is modeled here, so nothing is truncated. Recurse so any
+      // child results are finalized, matching the container contract.
+      List<TermsBucket> finalized = new ArrayList<>(this.buckets.size());
+      for (TermsBucket b : this.buckets) {
+        finalized.add(new TermsBucket(b.key, b.getChildResults().applyLimit()));
+      }
+      return new TermsResult(this.name, this.path, finalized);
+    }
+
     static final class TermsBucket implements Bucket {
       private final String key;
       private final AggregationResults childResults;

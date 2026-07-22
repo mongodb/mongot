@@ -182,6 +182,12 @@ public abstract class AggregationTestSupport {
     }
 
     @Override
+    public AggregationResult applyLimit() {
+      // Leaf metric: no buckets to truncate.
+      return this;
+    }
+
+    @Override
     public BsonValue toStandaloneBson() {
       return new BsonDocument(
           this.name, this.count == 0 ? new BsonDouble(0) : new BsonDouble(this.sum / this.count));
@@ -238,6 +244,17 @@ public abstract class AggregationTestSupport {
         merged.merge(otherBucket.getKey().getValue(), otherBucket, TermsBucket::merge);
       }
       return new TermsResult(this.name, this.path, new ArrayList<>(merged.values()));
+    }
+
+    @Override
+    public AggregationResult applyLimit() {
+      // Test double: no numBuckets limit is modeled here, so nothing is truncated. Recurse so any
+      // child results are finalized, matching the container contract.
+      List<TermsBucket> finalized = new ArrayList<>(this.buckets.size());
+      for (TermsBucket b : this.buckets) {
+        finalized.add(new TermsBucket(b.key, b.getChildResults().applyLimit()));
+      }
+      return new TermsResult(this.name, this.path, finalized);
     }
 
     protected static final class TermsBucket implements Bucket {
