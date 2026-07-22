@@ -765,7 +765,8 @@ public class AutoEmbeddingIndexDefinitionUtilsTest {
   }
 
   @Test
-  public void fromBson_withBinaryNoRescoreAndDotProductSimilarity_isAllowed() throws Exception {
+  public void fromBson_withBinaryNoRescoreAndDotProductSimilarity_throwsBsonParse()
+      throws Exception {
     var bsonDoc =
         new BsonDocument()
             .append("path", new BsonString("desc"))
@@ -775,11 +776,15 @@ public class AutoEmbeddingIndexDefinitionUtilsTest {
             .append("quantization", new BsonString("binaryNoRescore"));
 
     try (var parser = BsonDocumentParser.fromRoot(bsonDoc).build()) {
-      var field = VectorAutoEmbedFieldDefinition.fromBson(parser);
-      Assert.assertEquals(
-          VectorAutoEmbedQuantization.BINARY_NO_RESCORE,
-          field.specification().autoEmbedQuantization());
-      Assert.assertEquals(VectorSimilarity.DOT_PRODUCT, field.specification().similarity());
+      BsonParseException e =
+          Assert.assertThrows(
+              BsonParseException.class, () -> VectorAutoEmbedFieldDefinition.fromBson(parser));
+
+      Truth.assertThat(e).hasMessageThat().contains("binaryNoRescore");
+      Truth.assertThat(e).hasMessageThat().contains("euclidean");
+      // The offending similarity must be reported in the user-facing camelCase spelling
+      // (e.g. "dotProduct"), not the Java enum constant name ("DOT_PRODUCT").
+      Truth.assertThat(e).hasMessageThat().contains("dotProduct");
     }
   }
 

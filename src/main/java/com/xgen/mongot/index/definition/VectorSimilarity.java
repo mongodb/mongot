@@ -36,6 +36,11 @@ public enum VectorSimilarity {
     return this.luceneSimilarityFunction;
   }
 
+  /** The camelCase index-definition BSON spelling (for example {@code dotProduct}). */
+  public String getName() {
+    return Enums.convertNameTo(CaseFormat.LOWER_CAMEL, this);
+  }
+
   /** Resolves the camelCase similarity name (for example {@code dotProduct}), empty if unknown. */
   public static Optional<VectorSimilarity> fromName(String name) {
     return Optional.ofNullable(NAME_TO_SIMILARITY.get(name));

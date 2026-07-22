@@ -230,7 +230,7 @@ public final class VectorAutoEmbedFieldSpecification extends VectorFieldSpecific
     if (userNumDimensions.isPresent()
         && userQuantization.isPresent()
         && userSimilarity.isPresent()) {
-      return new ResolvedAutoEmbedVectorParams(
+      return buildResolvedParams(
           userNumDimensions.get(), userSimilarity.get(), userQuantization.get());
     }
 
@@ -267,8 +267,7 @@ public final class VectorAutoEmbedFieldSpecification extends VectorFieldSpecific
         resolveSimilarity(
             modelName, userSimilarity, resolvedQuantization, modelConfig.similarityByQuantization);
 
-    return new ResolvedAutoEmbedVectorParams(
-        resolvedNumDimensions, similarity, resolvedQuantization);
+    return buildResolvedParams(resolvedNumDimensions, similarity, resolvedQuantization);
   }
 
   private static VectorSimilarity getDefaultSimilarity(VectorAutoEmbedQuantization quantization) {
@@ -276,6 +275,25 @@ public final class VectorAutoEmbedFieldSpecification extends VectorFieldSpecific
       case BINARY, BINARY_NO_RESCORE -> VectorSimilarity.EUCLIDEAN;
       default -> VectorSimilarity.DOT_PRODUCT;
     };
+  }
+
+  /**
+   * {@code binaryNoRescore} produces packed-bit vectors, which Lucene only supports with Euclidean
+   * similarity; any other similarity would otherwise be silently dropped at indexing time
+   * (IndexableFieldFactory), leaving the index empty. Reject it here instead.
+   */
+  private static ResolvedAutoEmbedVectorParams buildResolvedParams(
+      int numDimensions, VectorSimilarity similarity, VectorAutoEmbedQuantization quantization)
+      throws BsonParseException {
+    if (quantization == VectorAutoEmbedQuantization.BINARY_NO_RESCORE
+        && similarity != VectorSimilarity.EUCLIDEAN) {
+      throw new BsonParseException(
+          "quantization 'binaryNoRescore' only supports 'euclidean' similarity, got '"
+              + similarity.getName()
+              + "'",
+          Optional.empty());
+    }
+    return new ResolvedAutoEmbedVectorParams(numDimensions, similarity, quantization);
   }
 
   /**

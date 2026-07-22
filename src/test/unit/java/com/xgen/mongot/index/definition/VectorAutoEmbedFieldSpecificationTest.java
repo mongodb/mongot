@@ -195,6 +195,50 @@ public class VectorAutoEmbedFieldSpecificationTest {
     assertThat(e.getMessage()).contains("unregistered-model");
   }
 
+  /**
+   * {@code binaryNoRescore} produces packed-bit vectors, which Lucene only supports with Euclidean
+   * similarity. An explicit non-Euclidean similarity must be rejected on the resolved value,
+   * regardless of whether it came from the fast-path or from the model config, rather than silently
+   * skipped later when the field is indexed.
+   */
+  @Test
+  public void resolveAutoEmbedVectorParams_binaryNoRescoreWithExplicitCosine_throwsBsonParse() {
+    BsonParseException e =
+        assertThrows(
+            BsonParseException.class,
+            () ->
+                VectorAutoEmbedFieldSpecification.resolveAutoEmbedVectorParams(
+                    MODEL,
+                    Optional.of(256),
+                    Optional.of(VectorSimilarity.COSINE),
+                    Optional.of(VectorAutoEmbedQuantization.BINARY_NO_RESCORE)));
+
+    assertThat(e.getMessage()).contains("binaryNoRescore");
+    assertThat(e.getMessage()).contains("euclidean");
+    // The offending similarity must be reported in the user-facing camelCase spelling
+    // (e.g. "cosine"), not the Java enum constant name ("COSINE").
+    assertThat(e.getMessage()).contains("cosine");
+  }
+
+  @Test
+  public void resolveAutoEmbedVectorParams_binaryNoRescoreModelConfigDotProduct_throwsBsonParse() {
+    registerModel(MODEL, Optional.of(Map.of("binaryNoRescore", "dotProduct")));
+
+    BsonParseException e =
+        assertThrows(
+            BsonParseException.class,
+            () ->
+                VectorAutoEmbedFieldSpecification.resolveAutoEmbedVectorParams(
+                    MODEL,
+                    Optional.of(256),
+                    Optional.empty(),
+                    Optional.of(VectorAutoEmbedQuantization.BINARY_NO_RESCORE)));
+
+    assertThat(e.getMessage()).contains("binaryNoRescore");
+    assertThat(e.getMessage()).contains("euclidean");
+    assertThat(e.getMessage()).contains("dotProduct");
+  }
+
   private static void registerModel(
       String modelName, Optional<Map<String, String>> similarityByQuantization) {
     EmbeddingModelCatalog.registerModelConfig(
