@@ -1723,6 +1723,67 @@ public class VoyageClientTest {
     Tags tags = Tags.of("provider", "VOYAGE", "canonicalModel", "voyage-3-large", "phase", "query");
     assertEquals(1.0, registry.get("autoEmbedding.tokenUsage").tags(tags).counter().count(), 0.0);
     assertEquals(
-        1.0, registry.get("autoEmbedding.embeddingRequests").tags(tags).counter().count(), 0.0);
+        1.0,
+        registry
+            .get("autoEmbedding.embeddingRequests")
+            .tags(tags.and("status", "success"))
+            .counter()
+            .count(),
+        0.0);
+    assertEquals(
+        0.0,
+        registry
+            .get("autoEmbedding.embeddingRequests")
+            .tags(tags.and("status", "failed"))
+            .counter()
+            .count(),
+        0.0);
+  }
+
+  @Test
+  public void embed_failedRequest_recordsFailedEmbeddingRequestCounter() throws Exception {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MetricsFactory metricsFactory = new MetricsFactory("test", registry);
+    EmbeddingModelConfig modelConfig =
+        EmbeddingModelConfig.create(
+            "voyage-3-large",
+            EmbeddingServiceConfig.EmbeddingProvider.VOYAGE,
+            createDedicatedClusterConfig("test-token"));
+    VoyageClient voyageClient =
+        new VoyageClient(
+            modelConfig,
+            EmbeddingServiceConfig.ServiceTier.QUERY,
+            modelConfig.query(),
+            metricsFactory,
+            Optional.empty(),
+            false,
+            false);
+    HttpClient throwingClient = mock(HttpClient.class);
+    doThrow(new HttpTimeoutException("timed out"))
+        .when(throwingClient)
+        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+    VoyageClient.injectVoyageClient(voyageClient, throwingClient);
+
+    assertThrows(
+        EmbeddingProviderTransientException.class,
+        () -> voyageClient.embed(List.of("hello"), dummyContext()));
+
+    Tags tags = Tags.of("provider", "VOYAGE", "canonicalModel", "voyage-3-large", "phase", "query");
+    assertEquals(
+        1.0,
+        registry
+            .get("autoEmbedding.embeddingRequests")
+            .tags(tags.and("status", "failed"))
+            .counter()
+            .count(),
+        0.0);
+    assertEquals(
+        0.0,
+        registry
+            .get("autoEmbedding.embeddingRequests")
+            .tags(tags.and("status", "success"))
+            .counter()
+            .count(),
+        0.0);
   }
 }

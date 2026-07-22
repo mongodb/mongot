@@ -82,7 +82,9 @@ public class VoyageClient implements ClientInterface {
   private final Counter aimdSuccessCounter;
   // AutoEmbedding counters published to the search-auto-embedding MaaS usecase.
   private final Counter maasTokenUsageCounter;
-  private final Counter maasEmbeddingRequestsCounter;
+  // embeddingRequests is split by outcome via a status tag (success|failed).
+  private final Counter maasEmbeddingRequestsSuccessCounter;
+  private final Counter maasEmbeddingRequestsFailedCounter;
   private final MetricsFactory metricsFactory;
   private @Nullable DynamicSemaphore congestionSemaphore;
 
@@ -213,7 +215,10 @@ public class VoyageClient implements ClientInterface {
                 "canonicalModel", embeddingModelConfig.name(),
                 "phase", tier.phase()));
     this.maasTokenUsageCounter = maasMetricsFactory.counter("tokenUsage");
-    this.maasEmbeddingRequestsCounter = maasMetricsFactory.counter("embeddingRequests");
+    this.maasEmbeddingRequestsSuccessCounter =
+        maasMetricsFactory.counter("embeddingRequests", Tags.of("status", "success"));
+    this.maasEmbeddingRequestsFailedCounter =
+        maasMetricsFactory.counter("embeddingRequests", Tags.of("status", "failed"));
     updateConfig(workloadParams);
 
     // Dedicated clusters must have credentialToken set
@@ -278,8 +283,9 @@ public class VoyageClient implements ClientInterface {
       }
       renewHttpClientIfStale();
       HttpClient clientForRequest = this.voyageHttpClient;
-      // Count each provider call actually issued (post input-validation, pre-send).
-      this.maasEmbeddingRequestsCounter.increment();
+      // Each provider call actually issued (post input-validation, pre-send) is counted once in
+      // the finally below, tagged by outcome (status=success|failed).
+      @Var boolean requestSucceeded = false;
       try {
         HttpResponse<String> response =
             clientForRequest.send(request, HttpResponse.BodyHandlers.ofString());
@@ -290,6 +296,7 @@ public class VoyageClient implements ClientInterface {
             filteredInput.size());
         var vectorResponse = extractVectorsFromResponse(response, inputs, context);
         isAck = true;
+        requestSucceeded = true;
         return vectorResponse;
       } catch (HttpTimeoutException e) {
         if (e instanceof HttpConnectTimeoutException) {
@@ -327,6 +334,12 @@ public class VoyageClient implements ClientInterface {
       } catch (EmbeddingProviderTransientException e) {
         LOG.error("Got an error when processing voyage API response", e);
         throw e;
+      } finally {
+        if (requestSucceeded) {
+          this.maasEmbeddingRequestsSuccessCounter.increment();
+        } else {
+          this.maasEmbeddingRequestsFailedCounter.increment();
+        }
       }
     } finally {
       if (this.useFlexTier && this.congestionSemaphore != null) {
