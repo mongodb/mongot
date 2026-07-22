@@ -17,6 +17,7 @@ java_library(
     ],
     visibility = ["//visibility:public"],
     exports = [
+        "//src/main/java/com/xgen/mongot/index",
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/query",
         "//src/main/java/com/xgen/mongot/index/query/operators",

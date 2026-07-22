@@ -743,8 +743,7 @@ public class VectorSearchCommand implements Command {
    * definition carries no {@code storedSource}), so {@code returnStoredSource: true} is rejected
    * upstream rather than served offline; enable it here once auto-embedding supports stored source.
    */
-  private static Optional<InitializedIndex> offlineReconstructedIndex(
-      IndexGeneration indexGeneration) {
+  static Optional<InitializedIndex> offlineReconstructedIndex(IndexGeneration indexGeneration) {
     if (indexGeneration.getIndex() instanceof UnresolvedAutoEmbeddingIndex unresolved) {
       return unresolved.getReconstructedDerivedIndex();
     }
