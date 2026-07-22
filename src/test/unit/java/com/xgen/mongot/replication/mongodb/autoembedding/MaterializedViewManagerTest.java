@@ -54,7 +54,9 @@ import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.IndexGeneration;
+import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.InitializedSearchIndex;
+import com.xgen.mongot.index.ReplicationOpTimeInfo;
 import com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.autoembedding.InitializedMaterializedViewIndex;
 import com.xgen.mongot.index.autoembedding.MaterializedViewIndexGeneration;
@@ -99,13 +101,18 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import java.util.stream.LongStream;
+import org.bson.BsonDocument;
+import org.bson.BsonInt64;
+import org.bson.BsonTimestamp;
 import org.bson.Document;
+import org.bson.conversions.Bson;
 import org.bson.types.ObjectId;
 import org.junit.Assert;
 import org.junit.Test;
@@ -4418,6 +4425,179 @@ public class MaterializedViewManagerTest {
     assertTrue(MaterializedViewManager.firstScanDelayMs(config) >= config.staleLeaseScanIntervalMs);
   }
 
+  @Test
+  public void updateMaxReplicationOpTime_leadershipLossDuringUpdate_usesFollowerPollOptime()
+      throws Exception {
+    Mocks mocks = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+    var indexGeneration = mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    var metricsUpdater = mock(IndexMetricsUpdater.class);
+    var indexingMetricsUpdater = mock(IndexMetricsUpdater.IndexingMetricsUpdater.class);
+    var opTimeInfo = new ReplicationOpTimeInfo();
+    when(indexGeneration.getIndex().getMetricsUpdater()).thenReturn(metricsUpdater);
+    when(metricsUpdater.getIndexingMetricsUpdater()).thenReturn(indexingMetricsUpdater);
+    when(indexingMetricsUpdater.getReplicationOpTimeInfo()).thenReturn(opTimeInfo);
+
+    var generator = mocks.mockMaterializedViewGenerator(indexGeneration);
+    mocks.addIndexForReplication(indexGeneration);
+    assertTrue(generator.isLeader());
+
+    BsonTimestamp oldReplicationOpTime = new BsonTimestamp(100, 1);
+    BsonTimestamp oldMaxOpTime = new BsonTimestamp(120, 1);
+    BsonTimestamp followerReplicationOpTime = new BsonTimestamp(150, 1);
+    BsonTimestamp newMaxOpTime = new BsonTimestamp(200, 1);
+    opTimeInfo.update(oldReplicationOpTime.getValue(), oldMaxOpTime.getValue());
+
+    MongoClient mongoClient = mock(MongoClient.class);
+    MongoDatabase adminDatabase = mock(MongoDatabase.class);
+    when(mocks.autoEmbeddingMongoClient.getMaterializedViewResolverMongoClient())
+        .thenReturn(Optional.of(mongoClient));
+    when(mongoClient.getDatabase("admin")).thenReturn(adminDatabase);
+    CountDownLatch optimeReadStarted = new CountDownLatch(1);
+    CountDownLatch finishOptimeRead = new CountDownLatch(1);
+    when(adminDatabase.runCommand(any(Bson.class), eq(BsonDocument.class)))
+        .thenAnswer(
+            invocation -> {
+              optimeReadStarted.countDown();
+              assertTrue(finishOptimeRead.await(5, TimeUnit.SECONDS));
+              return replSetStatus(newMaxOpTime);
+            });
+
+    CompletableFuture<Void> optimeUpdate =
+        CompletableFuture.runAsync(mocks.manager::updateMaxReplicationOpTime);
+    assertTrue(optimeReadStarted.await(5, TimeUnit.SECONDS));
+    try {
+      when(mocks.leaseManager.isLeader(indexGeneration.getGenerationId())).thenReturn(false);
+      doReturn(false).when(generator).isLeader();
+      when(mocks.leaseManager.pollFollowerStatuses())
+          .thenReturn(
+              new LeaseManager.FollowerPollResult(
+                  Map.of(indexGeneration.getGenerationId(), IndexStatus.steady()),
+                  Map.of(indexGeneration.getGenerationId(), followerReplicationOpTime),
+                  Set.of()));
+
+      mocks.runnableCaptor.orElseThrow().getValue().run();
+
+      assertEquals(
+          followerReplicationOpTime.getValue(), opTimeInfo.snapshotOrThrow().replicationOpTime());
+    } finally {
+      finishOptimeRead.countDown();
+    }
+    optimeUpdate.get(5, TimeUnit.SECONDS);
+
+    assertEquals(
+        followerReplicationOpTime.getValue(), opTimeInfo.snapshotOrThrow().replicationOpTime());
+    assertEquals(
+        newMaxOpTime.getValue(), opTimeInfo.snapshotOrThrow().maxPossibleReplicationOpTime());
+  }
+
+  @Test
+  public void updateMaxReplicationOpTime_nonQueryableFollower_clearsReplicationOpTimeInfo() {
+    Mocks mocks = Mocks.createDynamicFollowerWithAcquirableLeases();
+    var indexGeneration = mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    var opTimeInfo = ensureReplicationOpTimeInfo(indexGeneration);
+    opTimeInfo.update(new BsonTimestamp(100, 1).getValue(), new BsonTimestamp(120, 1).getValue());
+    mocks.mockMaterializedViewGenerator(indexGeneration);
+    mocks.addIndexForReplication(indexGeneration);
+    var generationId = indexGeneration.getGenerationId();
+    when(mocks.leaseManager.pollFollowerStatuses())
+        .thenReturn(
+            new LeaseManager.FollowerPollResult(
+                Map.of(generationId, IndexStatus.notStarted()), Map.of(), Set.of()));
+
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    assertTrue(opTimeInfo.snapshot().isPresent());
+
+    mocks.manager.updateMaxReplicationOpTime();
+
+    assertTrue(opTimeInfo.snapshot().isEmpty());
+  }
+
+  @Test
+  public void updateMaxReplicationOpTime_nonQueryableLeader_clearsReplicationOpTimeInfo() {
+    Mocks mocks = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+    var indexGeneration = mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    var opTimeInfo = ensureReplicationOpTimeInfo(indexGeneration);
+    opTimeInfo.update(new BsonTimestamp(100, 1).getValue(), new BsonTimestamp(120, 1).getValue());
+    var generator = mocks.mockMaterializedViewGenerator(indexGeneration);
+    mocks.addIndexForReplication(indexGeneration);
+    assertTrue(generator.isLeader());
+    indexGeneration.getIndex().setStatus(IndexStatus.notStarted());
+
+    mocks.manager.updateMaxReplicationOpTime();
+
+    assertTrue(opTimeInfo.snapshot().isEmpty());
+  }
+
+  @Test
+  public void refreshStatus_queryableFollowerWithoutCheckpoint_preservesReplicationOpTimeInfo() {
+    Mocks mocks = Mocks.createDynamicFollowerWithAcquirableLeases();
+    var indexGeneration = mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    var opTimeInfo = ensureReplicationOpTimeInfo(indexGeneration);
+    BsonTimestamp replicationOpTime = new BsonTimestamp(100, 1);
+    BsonTimestamp maxOpTime = new BsonTimestamp(120, 1);
+    opTimeInfo.update(replicationOpTime.getValue(), maxOpTime.getValue());
+    mocks.mockMaterializedViewGenerator(indexGeneration);
+    mocks.addIndexForReplication(indexGeneration);
+    var generationId = indexGeneration.getGenerationId();
+    when(mocks.leaseManager.pollFollowerStatuses())
+        .thenReturn(
+            new LeaseManager.FollowerPollResult(
+                Map.of(generationId, IndexStatus.steady()), Map.of(), Set.of()));
+
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    assertEquals(replicationOpTime.getValue(), opTimeInfo.snapshotOrThrow().replicationOpTime());
+    assertEquals(maxOpTime.getValue(), opTimeInfo.snapshotOrThrow().maxPossibleReplicationOpTime());
+  }
+
+  @Test
+  public void refreshStatus_queryableFollowerWithoutCheckpoint_leavesReplicationOpTimeInfoUnset() {
+    Mocks mocks = Mocks.createDynamicFollowerWithAcquirableLeases();
+    var indexGeneration = mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    var opTimeInfo = ensureReplicationOpTimeInfo(indexGeneration);
+    mocks.mockMaterializedViewGenerator(indexGeneration);
+    mocks.addIndexForReplication(indexGeneration);
+    var generationId = indexGeneration.getGenerationId();
+    when(mocks.leaseManager.pollFollowerStatuses())
+        .thenReturn(
+            new LeaseManager.FollowerPollResult(
+                Map.of(generationId, IndexStatus.steady()), Map.of(), Set.of()));
+
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    assertTrue(opTimeInfo.snapshot().isEmpty());
+  }
+
+  private static ReplicationOpTimeInfo ensureReplicationOpTimeInfo(
+      MaterializedViewIndexGeneration indexGeneration) {
+    var matViewIndex = indexGeneration.getIndex();
+    if (matViewIndex.getMetricsUpdater() != null) {
+      return matViewIndex
+          .getMetricsUpdater()
+          .getIndexingMetricsUpdater()
+          .getReplicationOpTimeInfo();
+    }
+    var metricsUpdater = mock(IndexMetricsUpdater.class);
+    var indexingMetricsUpdater = mock(IndexMetricsUpdater.IndexingMetricsUpdater.class);
+    var opTimeInfo = new ReplicationOpTimeInfo();
+    when(matViewIndex.getMetricsUpdater()).thenReturn(metricsUpdater);
+    when(metricsUpdater.getIndexingMetricsUpdater()).thenReturn(indexingMetricsUpdater);
+    when(indexingMetricsUpdater.getReplicationOpTimeInfo()).thenReturn(opTimeInfo);
+    return opTimeInfo;
+  }
+
+  private static BsonDocument replSetStatus(BsonTimestamp opTime) {
+    BsonDocument opTimeDocument = new BsonDocument("ts", opTime).append("t", new BsonInt64(1L));
+    return new BsonDocument(
+        "optimes",
+        new BsonDocument()
+            .append("lastCommittedOpTime", opTimeDocument)
+            .append("readConcernMajorityOpTime", opTimeDocument)
+            .append("appliedOpTime", opTimeDocument)
+            .append("durableOpTime", opTimeDocument));
+  }
+
   static class Mocks {
     final NamedExecutorService executorService;
     @Keep final IndexingWorkSchedulerFactory indexingWorkSchedulerFactory;
@@ -4852,6 +5032,10 @@ public class MaterializedViewManagerTest {
 
       NamedScheduledExecutorService statusRefreshExecutor =
           mockScheduledExecutor("mat-view-status-refresh");
+      ArgumentCaptor<Runnable> statusRefreshCaptor = ArgumentCaptor.forClass(Runnable.class);
+      doReturn(mock(ScheduledFuture.class))
+          .when(statusRefreshExecutor)
+          .scheduleWithFixedDelay(statusRefreshCaptor.capture(), anyLong(), anyLong(), any());
 
       NamedScheduledExecutorService optimeUpdaterExecutor =
           mockScheduledExecutor("mat-view-optime-updater");
@@ -4901,7 +5085,7 @@ public class MaterializedViewManagerTest {
           optimeUpdaterExecutor,
           mockLeaseManager,
           IndexStatus.unknown(),
-          Optional.empty(),
+          Optional.of(statusRefreshCaptor),
           createMockMetadataCatalog());
     }
 
@@ -5069,6 +5253,7 @@ public class MaterializedViewManagerTest {
      */
     private void addIndexForReplicationWithAttempt(
         MaterializedViewIndexGeneration materializedViewindexGeneration, int attemptNumber) {
+      ensureReplicationOpTimeInfo(materializedViewindexGeneration);
       AutoEmbeddingIndexGeneration autoEmbeddingIndexGeneration =
           mock(AutoEmbeddingIndexGeneration.class);
       when(autoEmbeddingIndexGeneration.getMaterializedViewIndexGeneration())

@@ -1090,6 +1090,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
   @Override
   public LeaseManager.FollowerPollResult pollFollowerStatuses() {
     Map<MaterializedViewGenerationId, IndexStatus> statuses = new HashMap<>();
+    Map<MaterializedViewGenerationId, BsonTimestamp> replicationOpTimes = new HashMap<>();
     Set<MaterializedViewGenerationId> acquirableLeases = new HashSet<>();
 
     LOG.atDebug()
@@ -1098,7 +1099,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
         .log("Polling follower statuses");
 
     if (this.followerGenerationIds.isEmpty()) {
-      return new LeaseManager.FollowerPollResult(statuses, acquirableLeases);
+      return new LeaseManager.FollowerPollResult(statuses, replicationOpTimes, acquirableLeases);
     }
 
     // Build a mapping from MaterializedViewGenerationID to LeaseKey for efficient lookup after
@@ -1120,7 +1121,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     }
 
     if (leaseKeys.isEmpty()) {
-      return new LeaseManager.FollowerPollResult(statuses, acquirableLeases);
+      return new LeaseManager.FollowerPollResult(statuses, replicationOpTimes, acquirableLeases);
     }
 
     // Group lease keys by resolved database name so each batch query
@@ -1181,7 +1182,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
       // (e.g. STEADY). Setting UNKNOWN here would cause isTransient()=true in the confcall,
       // which filters the index before processReplicationStatus() can transition it to STALE
       // when replication stops (cluster pause / disk-full).
-      return new LeaseManager.FollowerPollResult(Collections.emptyMap(), Collections.emptySet());
+      return LeaseManager.FollowerPollResult.EMPTY;
     }
 
     // Process each follower generation ID.
@@ -1206,6 +1207,20 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
         // Extract status from the lease.
         IndexStatus status = getStatusFromLease(lease, generationId, versionKey);
         statuses.put(generationId, status);
+        if (status.canServiceQueries()) {
+          try {
+            lease
+                .extractHighWaterMark()
+                .ifPresent(opTime -> replicationOpTimes.put(generationId, opTime));
+          } catch (RuntimeException e) {
+            this.corruptedLeaseCounter.increment();
+            LOG.atWarn()
+                .addKeyValue("leaseId", lease.id())
+                .addKeyValue("generationId", generationId)
+                .setCause(e)
+                .log("Failed to extract replication optime from follower lease, skipping optime");
+          }
+        }
 
         // Check if the lease is expired or owned by us (eligible for leadership acquisition).
         boolean leaseExpired = now.isAfter(lease.leaseExpiration());
@@ -1228,7 +1243,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
         acquirableLeases.add(generationId);
       }
     }
-    return new LeaseManager.FollowerPollResult(statuses, acquirableLeases);
+    return new LeaseManager.FollowerPollResult(statuses, replicationOpTimes, acquirableLeases);
   }
 
   /** Extracts the effective status from a lease for a given generation ID and version key. */

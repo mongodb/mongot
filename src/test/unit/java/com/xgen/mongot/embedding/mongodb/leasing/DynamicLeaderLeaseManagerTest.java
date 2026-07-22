@@ -1069,6 +1069,90 @@ public class DynamicLeaderLeaseManagerTest {
   }
 
   @Test
+  public void pollFollowerStatuses_returnsReplicationOpTimeFromLeaseCheckpoint() {
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    this.leaseManager.add(indexGeneration);
+    BsonTimestamp replicationOpTime = new BsonTimestamp(123, 1);
+    EncodedUserData commitInfo =
+        IndexCommitUserData.createChangeStreamResume(
+                ChangeStreamResumeInfo.create(
+                    new MongoNamespace("test", "collection"),
+                    ChangeStreamUtils.resumeToken(replicationOpTime)),
+                IndexFormatVersion.CURRENT)
+            .toEncodedData();
+    Lease lease =
+        createLeaseWithStatus(
+                generationId,
+                OTHER_HOSTNAME,
+                Instant.now().plusSeconds(60),
+                IndexStatus.StatusCode.STEADY)
+            .withUpdatedCheckpoint(commitInfo);
+    setupFindLeaseFromDatabase(lease);
+
+    LeaseManager.FollowerPollResult result = this.leaseManager.pollFollowerStatuses();
+
+    assertThat(result.replicationOpTimes()).containsEntry(generationId, replicationOpTime);
+  }
+
+  @Test
+  public void pollFollowerStatuses_malformedCheckpoint_skipsOptimeAndContinues() {
+    MaterializedViewIndexGeneration malformedGeneration = createTestIndexGeneration();
+    MaterializedViewGenerationId malformedGenerationId = malformedGeneration.getGenerationId();
+    this.leaseManager.add(malformedGeneration);
+    EncodedUserData malformedCommitInfo =
+        IndexCommitUserData.createChangeStreamResume(
+                ChangeStreamResumeInfo.create(
+                    new MongoNamespace("test", "collection"), new BsonDocument()),
+                IndexFormatVersion.CURRENT)
+            .toEncodedData();
+    Lease malformedLease =
+        createLeaseWithStatus(
+                malformedGenerationId,
+                OTHER_HOSTNAME,
+                Instant.now().minusSeconds(60),
+                IndexStatus.StatusCode.STEADY)
+            .withUpdatedCheckpoint(malformedCommitInfo)
+            .withReleasedOwnership();
+
+    MaterializedViewIndexGeneration validGeneration = createTestIndexGeneration();
+    MaterializedViewGenerationId validGenerationId = validGeneration.getGenerationId();
+    this.leaseManager.add(validGeneration);
+    BsonTimestamp validReplicationOpTime = new BsonTimestamp(123, 1);
+    EncodedUserData validCommitInfo =
+        IndexCommitUserData.createChangeStreamResume(
+                ChangeStreamResumeInfo.create(
+                    new MongoNamespace("test", "collection"),
+                    ChangeStreamUtils.resumeToken(validReplicationOpTime)),
+                IndexFormatVersion.CURRENT)
+            .toEncodedData();
+    Lease validLease =
+        createLeaseWithStatus(
+                validGenerationId,
+                OTHER_HOSTNAME,
+                Instant.now().plusSeconds(60),
+                IndexStatus.StatusCode.STEADY)
+            .withUpdatedCheckpoint(validCommitInfo);
+    when(this.mockFindIterable.into(any()))
+        .thenReturn(new ArrayList<>(List.of(malformedLease.toBson(), validLease.toBson())));
+
+    LeaseManager.FollowerPollResult result = this.leaseManager.pollFollowerStatuses();
+
+    assertThat(result.statuses()).containsKey(malformedGenerationId);
+    assertThat(result.statuses()).containsKey(validGenerationId);
+    assertThat(result.replicationOpTimes()).doesNotContainKey(malformedGenerationId);
+    assertThat(result.replicationOpTimes())
+        .containsEntry(validGenerationId, validReplicationOpTime);
+    assertThat(result.acquirableLeases()).contains(malformedGenerationId);
+    assertThat(
+            this.metricsFactory
+                .meterRegistry
+                .counter(this.metricsFactory.namespace + ".corruptedLeases")
+                .count())
+        .isEqualTo(1.0);
+  }
+
+  @Test
   public void pollFollowerStatuses_expiredLease_includesInAcquirableLeases() throws Exception {
     // Arrange
     MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();

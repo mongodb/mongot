@@ -376,9 +376,9 @@ public class StaticLeaderLeaseManager implements LeaseManager {
    *
    * @param generationId the generation ID to get status for
    * @param versionKey the definition version key to look up in the status map
-   * @return the effective status, or UNKNOWN if unable to determine
+   * @return the effective status and replication optime, if available
    */
-  private IndexStatus getMaterializedViewReplicationStatus(
+  private FollowerStatus getMaterializedViewReplicationStatus(
       MaterializedViewGenerationId generationId, String versionKey) {
     @Var
     Lease.IndexDefinitionVersionStatus requestedStatus =
@@ -400,14 +400,23 @@ public class StaticLeaderLeaseManager implements LeaseManager {
         }
         latestStatus =
             lease.indexDefinitionVersionStatusMap().get(lease.latestIndexDefinitionVersion());
+        IndexStatus effectiveStatus =
+            getEffectiveMaterializedViewStatus(requestedStatus, latestStatus);
+        Optional<BsonTimestamp> replicationOpTime =
+            effectiveStatus.canServiceQueries() ? lease.extractHighWaterMark() : Optional.empty();
+        return new FollowerStatus(effectiveStatus, replicationOpTime);
       } else {
         LOG.warn("No lease found in database for generation ID {}", generationId);
       }
     } catch (Exception e) {
       LOG.warn("Failed to poll status for generation ID {}", generationId, e);
     }
-    return getEffectiveMaterializedViewStatus(requestedStatus, latestStatus);
+    return new FollowerStatus(
+        getEffectiveMaterializedViewStatus(requestedStatus, latestStatus), Optional.empty());
   }
+
+  private record FollowerStatus(
+      IndexStatus indexStatus, Optional<BsonTimestamp> replicationOpTime) {}
 
   @VisibleForTesting
   Map<String, Lease> getLeases() {
@@ -719,17 +728,23 @@ public class StaticLeaderLeaseManager implements LeaseManager {
       return LeaseManager.FollowerPollResult.EMPTY;
     }
     Map<MaterializedViewGenerationId, IndexStatus> statuses = new HashMap<>();
+    Map<MaterializedViewGenerationId, BsonTimestamp> replicationOpTimes = new HashMap<>();
     for (MaterializedViewGenerationId generationId : this.managedGenerationIds) {
       String versionKey = this.generationIdToDefinitionVersion.get(generationId);
       if (versionKey == null) {
         LOG.warn("No definition version found for generation ID {}", generationId);
         continue;
       }
-      IndexStatus status = getMaterializedViewReplicationStatus(generationId, versionKey);
-      statuses.put(generationId, status);
+      FollowerStatus followerStatus =
+          getMaterializedViewReplicationStatus(generationId, versionKey);
+      statuses.put(generationId, followerStatus.indexStatus());
+      followerStatus
+          .replicationOpTime()
+          .ifPresent(opTime -> replicationOpTimes.put(generationId, opTime));
     }
     // Static leader doesn't support dynamic leader election, so no expired leases
-    return new LeaseManager.FollowerPollResult(statuses, Collections.emptySet());
+    return new LeaseManager.FollowerPollResult(
+        statuses, replicationOpTimes, Collections.emptySet());
   }
 
   @Override

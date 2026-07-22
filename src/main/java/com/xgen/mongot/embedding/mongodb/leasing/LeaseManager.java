@@ -37,8 +37,8 @@ public interface LeaseManager {
   /**
    * Result of polling follower statuses from the lease manager.
    *
-   * <p>Contains both the current status of each follower generation and the set of generation IDs
-   * that are eligible for leadership acquisition. This includes:
+   * <p>Contains the current status and replication optime of each follower generation, plus the set
+   * of generation IDs that are eligible for leadership acquisition. This includes:
    *
    * <ul>
    *   <li>Leases that have expired (previous leader failed or timed out)
@@ -47,14 +47,24 @@ public interface LeaseManager {
    * </ul>
    *
    * @param statuses Map of generation IDs to their current replication status
+   * @param replicationOpTimes Map of generation IDs to replication optimes extracted from their
+   *     lease checkpoints
    * @param acquirableLeases Set of generation IDs eligible for leadership acquisition
    */
   record FollowerPollResult(
       Map<MaterializedViewGenerationId, IndexStatus> statuses,
+      Map<MaterializedViewGenerationId, BsonTimestamp> replicationOpTimes,
       Set<MaterializedViewGenerationId> acquirableLeases) {
-    /** An empty result with no statuses and no acquirable leases. */
+    /** An empty result with no statuses, replication optimes, or acquirable leases. */
     public static final FollowerPollResult EMPTY =
-        new FollowerPollResult(Collections.emptyMap(), Collections.emptySet());
+        new FollowerPollResult(
+            Collections.emptyMap(), Collections.emptyMap(), Collections.emptySet());
+
+    public FollowerPollResult(
+        Map<MaterializedViewGenerationId, IndexStatus> statuses,
+        Set<MaterializedViewGenerationId> acquirableLeases) {
+      this(statuses, Collections.emptyMap(), acquirableLeases);
+    }
   }
 
   /**
@@ -247,11 +257,11 @@ public interface LeaseManager {
    * <p>For dynamic leader election, this also identifies leases that are eligible for leadership
    * acquisition (expired leases, leases we own, or new indexes without leases).
    *
-   * @return a {@link FollowerPollResult} containing the status map and the set of acquirable
-   *     leases. Returns {@link FollowerPollResult#EMPTY} in three cases: (1) this instance is the
+   * @return a {@link FollowerPollResult} containing status and replication optime maps and the set
+   *     of acquirable leases. Returns an empty result in three cases: (1) this instance is the
    *     leader, (2) there are no follower generation IDs, or (3) a transient DB failure prevented
    *     the batch fetch. Callers MUST treat an empty result as "no new information" and preserve
-   *     whatever status they last applied — never reset to UNKNOWN on an empty return.
+   *     whatever status and optime they last applied.
    */
   FollowerPollResult pollFollowerStatuses();
 

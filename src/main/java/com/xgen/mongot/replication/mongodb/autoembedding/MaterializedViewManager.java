@@ -218,7 +218,7 @@ public class MaterializedViewManager implements ReplicationManager {
    */
   private final NamedExecutorService lifecycleExecutor;
 
-  /** Executor for periodic optime updates. Used when acting as leader. */
+  /** Executor for periodic max optime updates. */
   private final NamedScheduledExecutorService optimeUpdaterExecutor;
 
   private final ScheduledFuture<?> optimeUpdaterFuture;
@@ -230,7 +230,7 @@ public class MaterializedViewManager implements ReplicationManager {
 
   // ==================== Status Refresh Fields ====================
 
-  /** Executor for periodic status refresh. Leader updates optime; follower polls status. */
+  /** Executor for periodic follower status and replication optime refresh. */
   private final NamedScheduledExecutorService statusRefreshExecutor;
 
   private final ScheduledFuture<?> statusRefreshFuture;
@@ -393,7 +393,7 @@ public class MaterializedViewManager implements ReplicationManager {
             this.materializedViewConfig.leaseManagerHeartbeatIntervalMs,
             TimeUnit.MILLISECONDS);
 
-    // Periodic status refresh for all indexes (leader updates optime, follower polls status)
+    // Periodic status and replication optime refresh for followers.
     this.statusRefreshFuture =
         statusRefreshExecutor.scheduleWithFixedDelay(
             new VerboseRunnable() {
@@ -411,8 +411,7 @@ public class MaterializedViewManager implements ReplicationManager {
             this.materializedViewConfig.materializedViewStatusRefreshIntervalMs,
             TimeUnit.MILLISECONDS);
 
-    // Periodic optime updates for materialized view indexes.
-    // Always scheduled - the method checks each generator's leader status.
+    // Periodic replication optime cleanup and max optime updates for materialized view indexes.
     this.optimeUpdaterFuture =
         optimeUpdaterExecutor.scheduleWithFixedDelay(
             new VerboseRunnable() {
@@ -1389,7 +1388,7 @@ public class MaterializedViewManager implements ReplicationManager {
     // Poll all follower statuses from LeaseManager.
     var pollResult = this.leaseManager.pollFollowerStatuses();
 
-    // Update the local index status for all followers.
+    // Update the local index status and replication optime for all followers.
     getMatViewGenerators()
         .values()
         .forEach(
@@ -1397,8 +1396,19 @@ public class MaterializedViewManager implements ReplicationManager {
               var generationId = generator.getIndexGeneration().getGenerationId();
               // Check generator.isLeader again before setting.
               if (pollResult.statuses().containsKey(generationId) && !generator.isLeader()) {
+                var matViewIndex = generator.getIndexGeneration().getIndex();
                 var status = pollResult.statuses().get(generationId);
-                generator.getIndexGeneration().getIndex().setStatus(status);
+                matViewIndex.setStatus(status);
+                var replicationOpTime = pollResult.replicationOpTimes().get(generationId);
+                if (replicationOpTime != null) {
+                  // Preserve an existing max optime. If this is the first observation, the periodic
+                  // max optime updater will advance it on its next run.
+                  matViewIndex
+                      .getMetricsUpdater()
+                      .getIndexingMetricsUpdater()
+                      .getReplicationOpTimeInfo()
+                      .update(replicationOpTime.getValue(), replicationOpTime.getValue());
+                }
               }
             });
 
@@ -1509,12 +1519,13 @@ public class MaterializedViewManager implements ReplicationManager {
   }
 
   /**
-   * Periodically updates the maxPossibleReplicationOpTime for all queryable materialized view
-   * indexes. This needs to happen separately since this metric is updated only for indexes in the
-   * IndexCatalog in ReplicationOptimeUpdater.
+   * Periodically clears replication optime for non-queryable materialized view indexes and updates
+   * maxPossibleReplicationOpTime for queryable indexes. This needs to happen separately since this
+   * metric is updated only for indexes in the IndexCatalog in ReplicationOptimeUpdater.
    *
-   * <p>This applies to both leaders and followers since both need accurate optime information for
-   * replication lag reporting (materialized view lag + lucene lag).
+   * <p>This applies to both leaders and followers. Leaders update replication optime while
+   * processing; followers refresh replication optime from the lease table in {@link
+   * #refreshStatus()}.
    */
   @VisibleForTesting
   void updateMaxReplicationOpTime() {
@@ -1522,6 +1533,17 @@ public class MaterializedViewManager implements ReplicationManager {
       return;
     }
     try {
+      var generators = getMatViewGenerators().values();
+      generators.forEach(
+          generator -> {
+            var matViewIndex = generator.getIndexGeneration().getIndex();
+            matViewIndex
+                .getMetricsUpdater()
+                .getIndexingMetricsUpdater()
+                .getReplicationOpTimeInfo()
+                .unset(() -> !matViewIndex.getStatus().canServiceQueries());
+          });
+
       // Use collection resolver client here for querying mongod cluster time to reduce impacts in
       // leaseManager and writer mongoClient
       var mongoClientOpt = this.autoEmbeddingMongoClient.getMaterializedViewResolverMongoClient();
@@ -1530,30 +1552,28 @@ public class MaterializedViewManager implements ReplicationManager {
         return;
       }
       var opTime = MongoDbReplSetStatus.getReadConcernMajorityOpTime(mongoClientOpt.get());
-      getMatViewGenerators()
-          .values()
-          .forEach(
-              generator -> {
-                var matViewIndex = generator.getIndexGeneration().getIndex();
-                if (matViewIndex.isClosed()) {
-                  return;
-                }
-                var status = matViewIndex.getStatus();
-                if (!status.canServiceQueries()) {
-                  return;
-                }
-                var opTimeInfo =
-                    matViewIndex
-                        .getMetricsUpdater()
-                        .getIndexingMetricsUpdater()
-                        .getReplicationOpTimeInfo();
-                status
-                    .getOptime()
-                    .ifPresentOrElse(
-                        replicationOptime ->
-                            opTimeInfo.update(replicationOptime.getValue(), opTime.getValue()),
-                        () -> opTimeInfo.update(opTime.getValue()));
-              });
+      generators.forEach(
+          generator -> {
+            var matViewIndex = generator.getIndexGeneration().getIndex();
+            if (matViewIndex.isClosed()) {
+              return;
+            }
+            var status = matViewIndex.getStatus();
+            if (!status.canServiceQueries()) {
+              return;
+            }
+            var opTimeInfo =
+                matViewIndex
+                    .getMetricsUpdater()
+                    .getIndexingMetricsUpdater()
+                    .getReplicationOpTimeInfo();
+            status
+                .getOptime()
+                .ifPresentOrElse(
+                    replicationOptime ->
+                        opTimeInfo.update(replicationOptime.getValue(), opTime.getValue()),
+                    () -> opTimeInfo.update(opTime.getValue()));
+          });
     } catch (Exception e) {
       LOG.error("Failed to update max optime for materialized views", e);
       this.meterRegistry.counter(OPTIME_UPDATER_ERROR_COUNTER_NAME).increment();

@@ -25,9 +25,13 @@ import com.xgen.mongot.index.EncodedUserData;
 import com.xgen.mongot.index.autoembedding.MaterializedViewIndexGeneration;
 import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
 import com.xgen.mongot.index.status.IndexStatus;
+import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.index.version.MaterializedViewGenerationId;
+import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
+import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
 import com.xgen.testing.mongot.metrics.SimpleMetricsFactory;
 import com.xgen.testing.mongot.mock.index.MaterializedViewIndex;
+import com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -38,6 +42,7 @@ import org.bson.BsonArray;
 import org.bson.BsonDateTime;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
+import org.bson.BsonTimestamp;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.bson.types.ObjectId;
@@ -329,6 +334,44 @@ public class StaticLeaderLeaseManagerTest {
 
     // Assert - follower must not write to the lease collection
     verify(this.mockCollection, never()).replaceOne(any(Bson.class), any(), any());
+  }
+
+  @Test
+  public void pollFollowerStatuses_returnsReplicationOpTimeFromLeaseCheckpoint() {
+    StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    leaseManager.add(indexGeneration, false);
+    BsonTimestamp replicationOpTime = new BsonTimestamp(123, 1);
+    EncodedUserData commitInfo =
+        IndexCommitUserData.createChangeStreamResume(
+                ChangeStreamResumeInfo.create(
+                    new MongoNamespace("test", "collection"),
+                    ChangeStreamUtils.resumeToken(replicationOpTime)),
+                IndexFormatVersion.CURRENT)
+            .toEncodedData();
+    String leaseKey = getLeaseKeyFromCatalog(generationId);
+    Lease lease =
+        new Lease(
+            leaseKey,
+            Lease.SCHEMA_VERSION,
+            UUID.randomUUID().toString(),
+            "source-collection",
+            HOSTNAME,
+            Instant.now().plusSeconds(60),
+            1L,
+            commitInfo.asString(),
+            "0",
+            Map.of(
+                "0", new Lease.IndexDefinitionVersionStatus(true, IndexStatus.StatusCode.STEADY)),
+            this.mvMetadataCatalog.getMetadata(generationId),
+            null,
+            Lease.CleanupState.NOT_ELIGIBLE);
+    when(this.mockFindIterable.first()).thenReturn(lease.toBson());
+
+    LeaseManager.FollowerPollResult result = leaseManager.pollFollowerStatuses();
+
+    assertThat(result.replicationOpTimes()).containsEntry(generationId, replicationOpTime);
   }
 
   // ==================== findGcCandidates / markEligibleForCleanup ====================

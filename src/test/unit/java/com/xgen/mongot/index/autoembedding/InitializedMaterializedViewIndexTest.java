@@ -14,6 +14,7 @@ import com.xgen.mongot.embedding.exceptions.MaterializedViewNonTransientExceptio
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
 import com.xgen.mongot.index.IndexMetricValuesSupplier;
 import com.xgen.mongot.index.IndexMetricsUpdater;
+import com.xgen.mongot.index.ReplicationOpTimeInfo;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
@@ -28,6 +29,7 @@ import com.xgen.testing.mongot.mock.index.MaterializedViewIndex;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+import org.bson.BsonTimestamp;
 import org.bson.types.ObjectId;
 import org.junit.Test;
 
@@ -279,5 +281,37 @@ public class InitializedMaterializedViewIndexTest {
             .count();
     assertEquals(
         "leaderStatus gauge should be unregistered after close()", 0, leaderStatusGaugesAfter);
+  }
+
+  @Test
+  public void close_replicationOpTimeCanStillBeUpdated() throws Exception {
+    InitializedMaterializedViewIndex index = createIndex(IndexStatus.steady());
+    BsonTimestamp replicationOpTime = new BsonTimestamp(100, 1);
+    BsonTimestamp maxPossibleReplicationOpTime = new BsonTimestamp(120, 1);
+
+    index.close();
+    ReplicationOpTimeInfo opTimeInfo =
+        index.getMetricsUpdater().getIndexingMetricsUpdater().getReplicationOpTimeInfo();
+    opTimeInfo.update(replicationOpTime.getValue(), maxPossibleReplicationOpTime.getValue());
+
+    assertEquals(replicationOpTime.getValue(), opTimeInfo.snapshotOrThrow().replicationOpTime());
+    assertEquals(
+        maxPossibleReplicationOpTime.getValue(),
+        opTimeInfo.snapshotOrThrow().maxPossibleReplicationOpTime());
+  }
+
+  @Test
+  public void close_replicationOpTimeCanStillBeUnset() throws Exception {
+    InitializedMaterializedViewIndex index = createIndex(IndexStatus.steady());
+    ReplicationOpTimeInfo opTimeInfo =
+        index.getMetricsUpdater().getIndexingMetricsUpdater().getReplicationOpTimeInfo();
+    opTimeInfo.update(new BsonTimestamp(100, 1).getValue(), new BsonTimestamp(120, 1).getValue());
+
+    index.close();
+    ReplicationOpTimeInfo closedIndexOpTimeInfo =
+        index.getMetricsUpdater().getIndexingMetricsUpdater().getReplicationOpTimeInfo();
+
+    assertTrue(closedIndexOpTimeInfo.unset(() -> true));
+    assertTrue(closedIndexOpTimeInfo.snapshot().isEmpty());
   }
 }
