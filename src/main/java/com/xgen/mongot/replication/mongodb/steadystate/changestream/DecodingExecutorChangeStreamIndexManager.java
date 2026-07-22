@@ -36,6 +36,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import org.bson.RawBsonDocument;
 
@@ -48,6 +49,9 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
   /* View-pipeline field dependencies are a pure function of the immutable index definition, so
    * they are derived once and reused across change-stream batches. */
   private final Supplier<Optional<ViewFieldDependencies>> viewFieldDependencies;
+
+  /* Ensures the derivation-fallback metric is emitted only on the first batch for this index. */
+  private final AtomicBoolean derivationFallbackReported = new AtomicBoolean(false);
 
   @GuardedBy("this")
   private Optional<Throwable> lifecycleException;
@@ -213,7 +217,8 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
                             this.generationId.generation.indexFormatVersion),
                         false /* areUpdateEventsPrefiltered */,
                         this.viewFieldDependencies.get(),
-                        this.autoEmbeddingMaterializedViewConfig);
+                        this.autoEmbeddingMaterializedViewConfig,
+                        this.derivationFallbackReported.compareAndSet(false, true));
 
                 metricsUpdater.accept(documentEventBatch);
 

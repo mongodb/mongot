@@ -4,6 +4,8 @@ import static com.google.common.truth.Truth.assertThat;
 
 import com.mongodb.client.model.changestream.TruncatedArray;
 import com.mongodb.client.model.changestream.UpdateDescription;
+import com.xgen.mongot.replication.mongodb.common.ViewFieldDependencies.ViewDerivationFallbackReason;
+import com.xgen.mongot.replication.mongodb.common.ViewFieldDependencies.ViewFullProcessingReason;
 import com.xgen.mongot.util.FieldPath;
 import java.util.List;
 import java.util.Set;
@@ -286,6 +288,46 @@ public class ViewFieldDependenciesTest {
     ViewFieldDependencies deps = ViewFieldDependencies.derive(pipeline, Set.of());
 
     assertThat(deps.dependsOnEverything()).isTrue();
+  }
+
+  @Test
+  public void derivationFallbackReason_boundedIsEmpty_unsupportedShapesTagged() {
+    assertThat(
+            ViewFieldDependencies.derive(customerPipeline(), Set.of()).derivationFallbackReason())
+        .isEmpty();
+    // Every unanalyzable static shape tags itself UNSUPPORTED_SHAPE (not EXCEPTION).
+    List<List<BsonDocument>> unsupported =
+        List.of(
+            List.of(BsonDocument.parse("{\"$project\": {\"x\": 1}}")), // unknown stage
+            List.of(BsonDocument.parse("{\"$set\": {\"a\": 1}, \"$match\": {}}")), // >1 key
+            List.of(BsonDocument.parse("{\"$set\": {\"copy\": \"$$ROOT\"}}")), // whole document
+            List.of(BsonDocument.parse("{\"$set\": {\"c\": {\"$getField\": \"title\"}}}")));
+    for (List<BsonDocument> pipeline : unsupported) {
+      assertThat(ViewFieldDependencies.derive(pipeline, Set.of()).derivationFallbackReason())
+          .hasValue(ViewDerivationFallbackReason.UNSUPPORTED_SHAPE);
+    }
+  }
+
+  @Test
+  public void classifyUpdate_coversEveryReasonAndResultLabels() {
+    ViewFieldDependencies deps = customerDeps();
+    assertThat(deps.classifyUpdate(null))
+        .isEqualTo(ViewFullProcessingReason.NULL_UPDATE_DESCRIPTION);
+    assertThat(deps.classifyUpdate(new UpdateDescription(null, null)))
+        .isEqualTo(ViewFullProcessingReason.EMPTY_UPDATE_DESCRIPTION);
+    assertThat(deps.classifyUpdate(new UpdateDescription(List.of("tags"), null)))
+        .isEqualTo(ViewFullProcessingReason.REMOVED_FIELDS);
+    assertThat(deps.classifyUpdate(updated("isPublished")))
+        .isEqualTo(ViewFullProcessingReason.TRIGGER_HIT);
+    assertThat(deps.classifyUpdate(updated("tags"))).isEqualTo(ViewFullProcessingReason.NONE);
+    assertThat(
+            ViewFieldDependencies.derive(
+                    List.of(BsonDocument.parse("{\"$set\": {\"copy\": \"$$ROOT\"}}")), Set.of())
+                .classifyUpdate(updated("tags")))
+        .isEqualTo(ViewFullProcessingReason.DEPENDS_ON_EVERYTHING);
+
+    assertThat(ViewFullProcessingReason.NONE.result()).isEqualTo("partial");
+    assertThat(ViewFullProcessingReason.TRIGGER_HIT.result()).isEqualTo("full");
   }
 
   // ---------------------------------------------------------------------------------------------

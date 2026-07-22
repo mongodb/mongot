@@ -20,6 +20,7 @@ import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.PartialEmbedMetricCounters;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
+import com.xgen.mongot.replication.mongodb.common.ViewFieldDependenciesMetricCounters;
 import com.xgen.mongot.util.concurrent.Executors;
 import com.xgen.mongot.util.concurrent.NamedScheduledExecutorService;
 import io.micrometer.core.instrument.Counter;
@@ -51,6 +52,7 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
   private final Counter witnessedUpdatesCounter;
   private final Counter skippedDocumentsWithoutMetadataNamespaceCounter;
   private final PartialEmbedMetricCounters partialEmbedMetricCounters;
+  private final ViewFieldDependenciesMetricCounters viewFieldDependenciesMetricCounters;
   private final AtomicLong syncClientUp;
   /* Tracks count and duration of in progress getMore operations (server calls only) */
   private final AtomicLong getMoresInFlight;
@@ -122,6 +124,8 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
         metricsFactory.counter("skippedChangeStreamDocumentsWithoutMetadataNamespace");
     this.partialEmbedMetricCounters =
         new PartialEmbedMetricCounters(metricsFactory, replicationTag);
+    this.viewFieldDependenciesMetricCounters =
+        new ViewFieldDependenciesMetricCounters(metricsFactory, replicationTag);
     this.syncClientUp =
         metricsFactory.numGauge(
             "dispatcher",
@@ -344,6 +348,7 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
     this.skippedDocumentsWithoutMetadataNamespaceCounter.increment(
         batch.skippedDocumentsWithoutMetadataNamespace);
     this.partialEmbedMetricCounters.recordBatch(batch);
+    this.viewFieldDependenciesMetricCounters.recordBatch(batch);
   }
 
   private ChangeStreamBatch withMeasurement(

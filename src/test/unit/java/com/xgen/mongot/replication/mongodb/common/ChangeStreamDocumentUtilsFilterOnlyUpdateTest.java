@@ -15,6 +15,8 @@ import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.ViewDefinition;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.metrics.MetricsFactory;
+import com.xgen.mongot.replication.mongodb.common.ViewFieldDependencies.ViewDerivationFallbackReason;
+import com.xgen.mongot.replication.mongodb.common.ViewFieldDependencies.ViewFullProcessingReason;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils;
@@ -1741,5 +1743,126 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
         new UpdateDescription(
             null, new BsonDocument(vectorFieldName, new BsonString("deep learning")));
     return ChangeStreamUtils.updateEvent(0, updateDesc, indexDef);
+  }
+
+  // View auto-embed decision metrics.
+
+  private static VectorIndexDefinition viewIndex(List<BsonDocument> pipeline) {
+    return VectorIndexDefinitionBuilder.builder()
+        .withAutoEmbedField("description")
+        .withFilterPath("category")
+        .withFilterPath("isPublished")
+        .view(ViewDefinition.existing("myView", pipeline))
+        .build();
+  }
+
+  private static ChangeStreamDocumentUtils.DocumentEventBatch handleView(
+      VectorIndexDefinition indexDef, ChangeStreamDocument<RawBsonDocument> event) {
+    return ChangeStreamDocumentUtils.handleDocumentEvents(
+        List.of(event),
+        indexDef,
+        indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+        false,
+        ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+  }
+
+  @Test
+  public void viewDecisionMetrics_partialAppliedAndTriggerHit() {
+    // Unrelated filter change -> partial path: decision NONE + one applied.
+    VectorIndexDefinition matchView =
+        viewIndex(
+            List.of(
+                BsonDocument.parse(
+                    "{\"$match\": {\"$expr\": {\"$eq\": [\"$isPublished\", true]}}}")));
+    var partial = handleView(matchView, createFilterOnlyUpdateEvent(matchView, "category"));
+    assertEquals(Integer.valueOf(1), partial.viewDecisions.get(ViewFullProcessingReason.NONE));
+    assertEquals(1, partial.viewFilterOnlyPartialApplied);
+
+    // Membership change (isPublished feeds the $match) -> full path: decision TRIGGER_HIT. (An
+    // embed-feeder change now takes the partial-embed path; that's covered by the partial-embed
+    // tests, so this uses a membership change for the genuine full/trigger case.)
+    BsonDocument membershipDoc =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("d"))
+            .append("category", new BsonString("updated"))
+            .append("isPublished", new BsonBoolean(false))
+            .append(matchView.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    var full =
+        handleView(
+            matchView,
+            ChangeStreamUtils.dataEvent(
+                OperationType.UPDATE,
+                0,
+                new UpdateDescription(
+                    null, new BsonDocument("isPublished", new BsonBoolean(false))),
+                membershipDoc));
+    assertEquals(Integer.valueOf(1), full.viewDecisions.get(ViewFullProcessingReason.TRIGGER_HIT));
+    assertEquals(0, full.viewFilterOnlyPartialApplied);
+
+    // Pin the Prometheus-visible names + tags across both batches.
+    MetricsFactory metricsFactory = new MetricsFactory("test", new SimpleMeterRegistry());
+    ViewFieldDependenciesMetricCounters counters =
+        new ViewFieldDependenciesMetricCounters(metricsFactory, Tags.empty());
+    counters.recordBatch(partial);
+    counters.recordBatch(full);
+    assertEquals(
+        1.0,
+        metricsFactory
+            .get("viewFieldDependenciesDecision", Tags.of("result", "partial", "reason", "none"))
+            .counter()
+            .count(),
+        0.0);
+    assertEquals(
+        1.0,
+        metricsFactory.get("viewFilterOnlyPartialApplied", Tags.empty()).counter().count(),
+        0.0);
+    assertEquals(
+        1.0,
+        metricsFactory
+            .get(
+                "viewFieldDependenciesDecision", Tags.of("result", "full", "reason", "trigger_hit"))
+            .counter()
+            .count(),
+        0.0);
+  }
+
+  @Test
+  public void viewDerivationFallback_reportedOnlyWhenFlagSet() {
+    // A $project view can't be analyzed: DEPENDS_ON_EVERYTHING each event, and the fallback reason
+    // rides the batch only when the reporting flag is set (avoids counting it every batch).
+    VectorIndexDefinition indexDef =
+        viewIndex(List.of(BsonDocument.parse("{\"$project\": {\"description\": 1}}")));
+    var reported =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(createFilterOnlyUpdateEvent(indexDef, "category")),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef),
+            Optional.empty(),
+            true /* reportDerivationFallback */);
+    assertEquals(
+        Integer.valueOf(1),
+        reported.viewDecisions.get(ViewFullProcessingReason.DEPENDS_ON_EVERYTHING));
+    assertEquals(
+        Optional.of(ViewDerivationFallbackReason.UNSUPPORTED_SHAPE),
+        reported.viewDerivationFallbackReason);
+
+    var notReported = handleView(indexDef, createFilterOnlyUpdateEvent(indexDef, "category"));
+    assertTrue(notReported.viewDerivationFallbackReason.isEmpty());
+
+    MetricsFactory metricsFactory = new MetricsFactory("test", new SimpleMeterRegistry());
+    ViewFieldDependenciesMetricCounters counters =
+        new ViewFieldDependenciesMetricCounters(metricsFactory, Tags.empty());
+    counters.recordBatch(reported);
+    counters.recordBatch(notReported);
+    assertEquals(
+        1.0,
+        metricsFactory
+            .get("viewFieldDependenciesDerivationFallback", Tags.of("reason", "unsupported_shape"))
+            .counter()
+            .count(),
+        0.0);
   }
 }

@@ -20,6 +20,8 @@ import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
+import com.xgen.mongot.replication.mongodb.common.ViewFieldDependencies.ViewDerivationFallbackReason;
+import com.xgen.mongot.replication.mongodb.common.ViewFieldDependencies.ViewFullProcessingReason;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.Crash;
@@ -69,6 +71,11 @@ public class ChangeStreamDocumentUtils {
     // full-re-index fallback counts.
     public final int partialEmbedApplied;
     public final Map<PartialEmbedFallbackReason, Integer> partialEmbedFallbacks;
+    // View auto-embed observability: per-decision reasons, view filter-only partials applied, and
+    // (first batch per index only) the derivation fallback reason.
+    public final Map<ViewFullProcessingReason, Integer> viewDecisions;
+    public final int viewFilterOnlyPartialApplied;
+    public final Optional<ViewDerivationFallbackReason> viewDerivationFallbackReason;
 
     private DocumentEventBatch(
         List<DocumentEvent> finalChangeEvents,
@@ -78,7 +85,10 @@ public class ChangeStreamDocumentUtils {
         int applicableDocumentsTotal,
         long applicableDocumentsTotalBytes,
         int partialEmbedApplied,
-        Map<PartialEmbedFallbackReason, Integer> partialEmbedFallbacks) {
+        Map<PartialEmbedFallbackReason, Integer> partialEmbedFallbacks,
+        Map<ViewFullProcessingReason, Integer> viewDecisions,
+        int viewFilterOnlyPartialApplied,
+        Optional<ViewDerivationFallbackReason> viewDerivationFallbackReason) {
       this.finalChangeEvents = finalChangeEvents;
       this.updatesWitnessed = updatesWitnessed;
       this.updatesApplicable = updatesApplicable;
@@ -87,6 +97,9 @@ public class ChangeStreamDocumentUtils {
       this.applicableDocumentsTotalBytes = applicableDocumentsTotalBytes;
       this.partialEmbedApplied = partialEmbedApplied;
       this.partialEmbedFallbacks = partialEmbedFallbacks;
+      this.viewDecisions = viewDecisions;
+      this.viewFilterOnlyPartialApplied = viewFilterOnlyPartialApplied;
+      this.viewDerivationFallbackReason = viewDerivationFallbackReason;
     }
   }
 
@@ -99,6 +112,10 @@ public class ChangeStreamDocumentUtils {
     private int partialEmbedAppliedCounter;
     private final EnumMap<PartialEmbedFallbackReason, Integer> partialEmbedFallbackCounters =
         new EnumMap<>(PartialEmbedFallbackReason.class);
+    private final EnumMap<ViewFullProcessingReason, Integer> viewDecisionCounters =
+        new EnumMap<>(ViewFullProcessingReason.class);
+    private int viewFilterOnlyPartialAppliedCounter;
+    private Optional<ViewDerivationFallbackReason> viewDerivationFallbackReason = Optional.empty();
 
     public ChangeStreamBatchMetrics() {
       this.witnessedUpdatesCounter = 0;
@@ -121,6 +138,21 @@ public class ChangeStreamDocumentUtils {
     /** A change fell back to a full document re-index, tagged with why. */
     public void partialEmbedFallback(PartialEmbedFallbackReason reason) {
       this.partialEmbedFallbackCounters.merge(reason, 1, Integer::sum);
+    }
+
+    /** A view-based UPDATE was classified partial|full, tagged with the reason. */
+    public void viewDecision(ViewFullProcessingReason reason) {
+      this.viewDecisionCounters.merge(reason, 1, Integer::sum);
+    }
+
+    /** A view-based UPDATE took the filter-only partial path. */
+    public void viewFilterOnlyPartialApplied() {
+      this.viewFilterOnlyPartialAppliedCounter++;
+    }
+
+    /** Records (once per index) why derivation fell back to full processing. */
+    public void recordViewDerivationFallback(ViewDerivationFallbackReason reason) {
+      this.viewDerivationFallbackReason = Optional.of(reason);
     }
 
     public void updateApplicable() {
@@ -165,6 +197,18 @@ public class ChangeStreamDocumentUtils {
 
     public Map<PartialEmbedFallbackReason, Integer> getPartialEmbedFallbacks() {
       return this.partialEmbedFallbackCounters;
+    }
+
+    public Map<ViewFullProcessingReason, Integer> getViewDecisions() {
+      return this.viewDecisionCounters;
+    }
+
+    public int getViewFilterOnlyPartialApplied() {
+      return this.viewFilterOnlyPartialAppliedCounter;
+    }
+
+    public Optional<ViewDerivationFallbackReason> getViewDerivationFallbackReason() {
+      return this.viewDerivationFallbackReason;
     }
   }
 
@@ -247,22 +291,20 @@ public class ChangeStreamDocumentUtils {
       List<ChangeStreamDocument<RawBsonDocument>> batch,
       IndexDefinition indexDefinition,
       FieldDefinitionResolver fieldDefinitionResolver,
-      // TODO(CLOUDP-324852): Remove this parameter once initial sync and steady state logic are
-      //  aligned.
       boolean areUpdateEventsPrefiltered,
-      // Derived once per index definition by the caller (see deriveViewFieldDependencies); empty
-      // for non-view or non-auto-embedding indexes.
       Optional<ViewFieldDependencies> viewFieldDependencies) {
+    // Convenience overload: no runtime config, never reports the derivation fallback (tests).
     return handleDocumentEvents(
         batch,
         indexDefinition,
         fieldDefinitionResolver,
         areUpdateEventsPrefiltered,
         viewFieldDependencies,
-        Optional.empty());
+        Optional.empty(),
+        false);
   }
 
-  /** Handles a document-event batch using the auto-embedding runtime replication configuration. */
+  /** As above, with the auto-embedding runtime config; does not report the derivation fallback. */
   public static DocumentEventBatch handleDocumentEvents(
       List<ChangeStreamDocument<RawBsonDocument>> batch,
       IndexDefinition indexDefinition,
@@ -270,8 +312,40 @@ public class ChangeStreamDocumentUtils {
       boolean areUpdateEventsPrefiltered,
       Optional<ViewFieldDependencies> viewFieldDependencies,
       Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig) {
+    return handleDocumentEvents(
+        batch,
+        indexDefinition,
+        fieldDefinitionResolver,
+        areUpdateEventsPrefiltered,
+        viewFieldDependencies,
+        autoEmbeddingMaterializedViewConfig,
+        false);
+  }
+
+  /**
+   * Handles a document-event batch. {@code reportDerivationFallback} is set by the caller on the
+   * first batch per index so the view derivation fallback is counted once.
+   */
+  public static DocumentEventBatch handleDocumentEvents(
+      List<ChangeStreamDocument<RawBsonDocument>> batch,
+      IndexDefinition indexDefinition,
+      FieldDefinitionResolver fieldDefinitionResolver,
+      // TODO(CLOUDP-324852): Remove this parameter once initial sync and steady state logic are
+      //  aligned.
+      boolean areUpdateEventsPrefiltered,
+      // Derived once per index definition by the caller (see deriveViewFieldDependencies); empty
+      // for non-view or non-auto-embedding indexes.
+      Optional<ViewFieldDependencies> viewFieldDependencies,
+      Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig,
+      // True on the first batch per index only, so the derivation fallback is counted once.
+      boolean reportDerivationFallback) {
 
     ChangeStreamBatchMetrics metrics = new ChangeStreamBatchMetrics();
+    if (reportDerivationFallback) {
+      viewFieldDependencies
+          .flatMap(ViewFieldDependencies::derivationFallbackReason)
+          .ifPresent(metrics::recordViewDerivationFallback);
+    }
     Set<BsonDocument> processedDocs = new HashSet<>();
 
     // TODO(CLOUDP-424650): Split full-update eligibility from this vector-only partial-update
@@ -341,7 +415,10 @@ public class ChangeStreamDocumentUtils {
         metrics.getApplicableDocumentsTotal(),
         metrics.getApplicableDocumentsTotalBytes(),
         metrics.getPartialEmbedApplied(),
-        metrics.getPartialEmbedFallbacks());
+        metrics.getPartialEmbedFallbacks(),
+        metrics.getViewDecisions(),
+        metrics.getViewFilterOnlyPartialApplied(),
+        metrics.getViewDerivationFallbackReason());
   }
 
   /**
@@ -440,8 +517,14 @@ public class ChangeStreamDocumentUtils {
               // emit a filter-only $set when no embed source changed. Absent dependencies or a
               // membership/computed-filter change fall through to the full (embed + upsert) path.
               if (viewFieldDependencies.isPresent()) {
+                ViewFieldDependencies deps = viewFieldDependencies.get();
                 ViewFieldDependencies.ViewUpdateClassification decision =
-                    viewFieldDependencies.get().classifyViewUpdate(event.getUpdateDescription());
+                    deps.classifyViewUpdate(event.getUpdateDescription());
+                // Decision metric: NONE when a partial path is taken, else the force-full reason.
+                metrics.viewDecision(
+                    decision.requiresFull()
+                        ? deps.classifyUpdate(event.getUpdateDescription())
+                        : ViewFullProcessingReason.NONE);
                 if (!decision.requiresFull()) {
                   boolean embedChanged = !decision.changedEmbedPaths().isEmpty();
                   @Var ImmutableMap<FieldPath, String> changedEmbedTexts = ImmutableMap.of();
@@ -470,6 +553,8 @@ public class ChangeStreamDocumentUtils {
                         && (!changedEmbedTexts.isEmpty() || !filterFieldUpdates.get().isEmpty())) {
                       if (embedChanged) {
                         metrics.partialEmbedApplied();
+                      } else {
+                        metrics.viewFilterOnlyPartialApplied();
                       }
                       return Optional.of(
                           DocumentEvent.createPartialUpdate(

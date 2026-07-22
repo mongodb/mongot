@@ -66,15 +66,15 @@ public final class ViewFieldDependencies {
   private final ImmutableSet<FieldPath> triggerFields;
 
   /**
-   * True when extraction could not bound the dependency set; every update is forced to the full
-   * re-embed + upsert path regardless of which base fields it touched.
+   * Present when extraction could not bound the dependency set (carrying why): every update is
+   * forced to the full re-embed + upsert path regardless of which base fields it touched.
    */
-  private final boolean dependsOnEverything;
+  private final Optional<ViewDerivationFallbackReason> derivationFallbackReason;
 
   private ViewFieldDependencies(
       ImmutableSet<FieldPath> nonEmbedTriggers,
       ImmutableMap<FieldPath, ImmutableSet<FieldPath>> embedFeeders,
-      boolean dependsOnEverything) {
+      Optional<ViewDerivationFallbackReason> derivationFallbackReason) {
     this.nonEmbedTriggers = nonEmbedTriggers;
     this.embedFeeders = embedFeeders;
     this.triggerFields =
@@ -82,12 +82,12 @@ public final class ViewFieldDependencies {
             .addAll(nonEmbedTriggers)
             .addAll(embedFeeders.values().stream().flatMap(Set::stream).iterator())
             .build();
-    this.dependsOnEverything = dependsOnEverything;
+    this.derivationFallbackReason = derivationFallbackReason;
   }
 
-  /** A dependency set that couldn't be bounded; forces every update onto the full path. */
-  private static ViewFieldDependencies dependsOnEverythingFallback() {
-    return new ViewFieldDependencies(ImmutableSet.of(), ImmutableMap.of(), true);
+  /** A dependency set that couldn't be bounded, tagged with why, forcing all updates full. */
+  private static ViewFieldDependencies fullProcessing(ViewDerivationFallbackReason reason) {
+    return new ViewFieldDependencies(ImmutableSet.of(), ImmutableMap.of(), Optional.of(reason));
   }
 
   /**
@@ -110,11 +110,10 @@ public final class ViewFieldDependencies {
     try {
       return doDerive(effectivePipeline, embedPaths, filterPaths);
     } catch (RuntimeException e) {
-      // TODO(CLOUDP-416417): emit a counter on this fallback so operators can distinguish
-      // exception-driven dependsOnEverything from intentionally unanalyzable views.
+      // Exception-driven fallback; counted distinctly from unanalyzable-shape fallbacks.
       LOG.atWarning().withCause(e).log(
           "Failed to derive view field dependencies; falling back to full processing");
-      return dependsOnEverythingFallback();
+      return fullProcessing(ViewDerivationFallbackReason.EXCEPTION);
     }
   }
 
@@ -127,12 +126,12 @@ public final class ViewFieldDependencies {
 
     for (BsonDocument stage : effectivePipeline) {
       if (stage.keySet().size() != 1) {
-        return dependsOnEverythingFallback();
+        return fullProcessing(ViewDerivationFallbackReason.UNSUPPORTED_SHAPE);
       }
       String stageName = stage.keySet().iterator().next();
       Optional<SupportedStage> stageType = SupportedStage.byStageName(stageName);
       if (stageType.isEmpty() || !stage.get(stageName).isDocument()) {
-        return dependsOnEverythingFallback();
+        return fullProcessing(ViewDerivationFallbackReason.UNSUPPORTED_SHAPE);
       }
       BsonDocument stageBody = stage.getDocument(stageName);
 
@@ -146,7 +145,7 @@ public final class ViewFieldDependencies {
             RefCollector collector = new RefCollector();
             collector.collect(entry.getValue());
             if (collector.wholeDocument) {
-              return dependsOnEverythingFallback();
+              return fullProcessing(ViewDerivationFallbackReason.UNSUPPORTED_SHAPE);
             }
             stageOutputs.put(
                 FieldPath.parse(entry.getKey()), resolveRefs(collector.refs, stageInput));
@@ -167,7 +166,7 @@ public final class ViewFieldDependencies {
           RefCollector collector = new RefCollector();
           collector.collect(stageBody);
           if (collector.wholeDocument) {
-            return dependsOnEverythingFallback();
+            return fullProcessing(ViewDerivationFallbackReason.UNSUPPORTED_SHAPE);
           }
           triggers.addAll(resolveRefs(collector.refs, computed));
         }
@@ -193,7 +192,7 @@ public final class ViewFieldDependencies {
         .forEach(path -> triggers.addAll(resolveRefs(Set.of(path), computed)));
 
     // triggers now holds match-referenced ∪ computed-filter feeders — the non-embed triggers.
-    return new ViewFieldDependencies(canonicalize(triggers), embedFeeders, false);
+    return new ViewFieldDependencies(canonicalize(triggers), embedFeeders, Optional.empty());
   }
 
   /** True if the path (or an ancestor) is produced by a $set/$addFields stage. */
@@ -248,7 +247,12 @@ public final class ViewFieldDependencies {
 
   /** True if extraction could not bound the dependencies; every update takes the full path. */
   public boolean dependsOnEverything() {
-    return this.dependsOnEverything;
+    return this.derivationFallbackReason.isPresent();
+  }
+
+  /** Present (with why) when derivation fell back to full processing; empty when bounded. */
+  public Optional<ViewDerivationFallbackReason> derivationFallbackReason() {
+    return this.derivationFallbackReason;
   }
 
   /**
@@ -257,7 +261,9 @@ public final class ViewFieldDependencies {
    * the batch-dedup pre-pass; {@link #classifyViewUpdate} makes the finer partial-embed decision.
    */
   public boolean requiresFullProcessing(@Nullable UpdateDescription updateDescription) {
-    if (this.dependsOnEverything || updateDescription == null || forcesFull(updateDescription)) {
+    if (this.derivationFallbackReason.isPresent()
+        || updateDescription == null
+        || forcesFull(updateDescription)) {
       return true;
     }
     Set<FieldPath> changed = changedPaths(updateDescription);
@@ -266,12 +272,39 @@ public final class ViewFieldDependencies {
   }
 
   /**
+   * Classifies an update as partial-eligible ({@code NONE}) or, if not, why it is forced full.
+   * Drives the per-event decision metric; {@link #classifyViewUpdate} makes the partial-embed
+   * decision.
+   */
+  public ViewFullProcessingReason classifyUpdate(@Nullable UpdateDescription updateDescription) {
+    if (this.derivationFallbackReason.isPresent()) {
+      return ViewFullProcessingReason.DEPENDS_ON_EVERYTHING;
+    }
+    if (updateDescription == null) {
+      return ViewFullProcessingReason.NULL_UPDATE_DESCRIPTION;
+    }
+    if (forcesFull(updateDescription)) {
+      // A removal can't be applied through the $set-only partial path.
+      return ViewFullProcessingReason.REMOVED_FIELDS;
+    }
+    Set<FieldPath> changed = changedPaths(updateDescription);
+    if (changed.isEmpty()) {
+      return ViewFullProcessingReason.EMPTY_UPDATE_DESCRIPTION;
+    }
+    return hitsAny(changed, this.triggerFields)
+        ? ViewFullProcessingReason.TRIGGER_HIT
+        : ViewFullProcessingReason.NONE;
+  }
+
+  /**
    * Classifies an UPDATE on a view-based auto-embed index: whether it must take the full path, and
    * if not, which embed sources need re-embedding (empty ⇒ filter-only partial update).
    */
   public ViewUpdateClassification classifyViewUpdate(
       @Nullable UpdateDescription updateDescription) {
-    if (this.dependsOnEverything || updateDescription == null || forcesFull(updateDescription)) {
+    if (this.derivationFallbackReason.isPresent()
+        || updateDescription == null
+        || forcesFull(updateDescription)) {
       return ViewUpdateClassification.full();
     }
     Set<FieldPath> changed = changedPaths(updateDescription);
@@ -335,6 +368,38 @@ public final class ViewFieldDependencies {
 
     private static ViewUpdateClassification partial(ImmutableSet<FieldPath> changedEmbedPaths) {
       return new ViewUpdateClassification(false, changedEmbedPaths);
+    }
+  }
+
+  /** Why derivation fell back to full processing. Exported as the snake_case {@code reason} tag. */
+  public enum ViewDerivationFallbackReason {
+    /** Derivation threw and was caught. */
+    EXCEPTION,
+    /** The view pipeline shape could not be statically analyzed. */
+    UNSUPPORTED_SHAPE
+  }
+
+  /**
+   * Per-event outcome of {@link #classifyUpdate}: {@link #NONE} allows the filter-only partial
+   * path, every other value forces full processing. Exported as the {@code result} and snake_case
+   * {@code reason} tags.
+   */
+  public enum ViewFullProcessingReason {
+    DEPENDS_ON_EVERYTHING,
+    NULL_UPDATE_DESCRIPTION,
+    EMPTY_UPDATE_DESCRIPTION,
+    REMOVED_FIELDS,
+    TRIGGER_HIT,
+    NONE;
+
+    /** True if this outcome forces full (re-embed + upsert) processing. */
+    public boolean requiresFull() {
+      return this != NONE;
+    }
+
+    /** The {@code result} tag value paired with this reason. */
+    public String result() {
+      return requiresFull() ? "full" : "partial";
     }
   }
 

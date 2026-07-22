@@ -28,6 +28,7 @@ import com.xgen.mongot.replication.mongodb.common.InitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.PartialEmbedMetricCounters;
 import com.xgen.mongot.replication.mongodb.common.SchedulerQueue;
 import com.xgen.mongot.replication.mongodb.common.ViewFieldDependencies;
+import com.xgen.mongot.replication.mongodb.common.ViewFieldDependenciesMetricCounters;
 import com.xgen.mongot.replication.mongodb.initialsync.config.InitialSyncConfig;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FutureUtils;
@@ -43,6 +44,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.bson.BsonTimestamp;
 import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
@@ -77,6 +79,10 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
   private final Counter witnessedUpdatesCounter;
   private final Counter skippedDocumentsWithoutMetadataNamespaceCounter;
   private final PartialEmbedMetricCounters partialEmbedMetricCounters;
+  private final ViewFieldDependenciesMetricCounters viewFieldDependenciesMetricCounters;
+
+  /* Ensures the derivation-fallback metric is emitted only on the first batch for this index. */
+  private final AtomicBoolean derivationFallbackReported = new AtomicBoolean(false);
 
   /* Tracks duration of preprocessing a batch */
   private final Timer preprocessingBatchTimer;
@@ -162,6 +168,8 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
         metricsFactory.counter(SKIPPED_DOCUMENTS_WITHOUT_METADATA_NAMESPACE);
     this.partialEmbedMetricCounters =
         new PartialEmbedMetricCounters(metricsFactory, replicationTag);
+    this.viewFieldDependenciesMetricCounters =
+        new ViewFieldDependenciesMetricCounters(metricsFactory, replicationTag);
     this.preprocessingBatchTimer = metricsFactory.timerSec(PREPROCESSING_BATCH_DURATIONS);
     this.totalDocumentsCounter = metricsFactory.counter("changeStreamTotalDocuments");
     this.avoidNaturalOrderScanSyncSourceChangeResync = avoidNaturalOrderScanSyncSourceChangeResync;
@@ -395,7 +403,8 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
                 .createFieldDefinitionResolver(this.context.getIndexFormatVersion()),
             true /* areUpdateEventsPrefiltered */,
             this.viewFieldDependencies.get(),
-            this.context.getAutoEmbeddingMaterializedViewConfig());
+            this.context.getAutoEmbeddingMaterializedViewConfig(),
+            this.derivationFallbackReported.compareAndSet(false, true));
 
     this.totalDocumentsCounter.increment(batch.getRawEvents().size());
     this.preprocessingBatchTimer.record(preprocessingBatchTimer.stop().elapsed());
@@ -409,6 +418,7 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
     this.skippedDocumentsWithoutMetadataNamespaceCounter.increment(
         documentEventBatch.skippedDocumentsWithoutMetadataNamespace);
     this.partialEmbedMetricCounters.recordBatch(documentEventBatch);
+    this.viewFieldDependenciesMetricCounters.recordBatch(documentEventBatch);
 
     if (documentEventBatch.applicableDocumentsTotal > 0) {
       this.context

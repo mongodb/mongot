@@ -73,6 +73,7 @@ java_library(
         "TimeableChangeStreamMongoClient.java",
         "UnsupportedMongoDbVersionException.java",
         "ViewFieldDependencies.java",
+        "ViewFieldDependenciesMetricCounters.java",
         "ViewPipeline.java",
         "WrapIfThrows.java",
     ],
