@@ -41,13 +41,13 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
   public static final int DEFAULT_STEADY_STATE_PRIORITY_RATIO = 1;
 
   /**
-   * Default priority strategy variant: FIFO. Used when {@code steadyStateSchedulingMethod} is not
-   * configured at all. A separate fallback to {@code FIFO} for an invalid value lives in {@code
-   * MmsConfig}'s {@code STEADY_STATE_SCHEDULING_METHOD} field definition. If this default has to be
-   * changed, both sites need to be updated.
+   * Default priority strategy variant: OPTIME_LAG. Used when {@code steadyStateSchedulingMethod} is
+   * not configured at all. A separate fallback to {@code OPTIME_LAG} for an invalid value lives in
+   * {@code MmsConfig}'s {@code STEADY_STATE_SCHEDULING_METHOD} field definition. If this default
+   * has to be changed, both sites need to be updated.
    */
   public static final SteadyStateSchedulingMethod DEFAULT_STEADY_STATE_SCHEDULING_METHOD =
-      SteadyStateSchedulingMethod.FIFO;
+      SteadyStateSchedulingMethod.OPTIME_LAG;
 
   /**
    * Default number of seconds a collection may go without change events before its indexes count as
