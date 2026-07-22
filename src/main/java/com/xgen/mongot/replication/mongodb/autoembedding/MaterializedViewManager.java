@@ -1215,17 +1215,20 @@ public class MaterializedViewManager implements ReplicationManager {
     // leftover sibling leases of this index — a supersession that completed before the deletion
     // left its MV + lease behind for the GC, and cleaning those up now spares the GC's graces.
     if (!wasLeader) {
-      // dropLease runs the local half (cache eviction) and touches the database only when this
-      // node's cached lease claims ownership — that possible retrying delete is why the chain is
-      // detached like the leader's below: the config monitor must not wait on it.
+      // Cache eviction only — never the lease document. The lease document is the GC's only
+      // handle on the MV collection, so only a path that just dropped the collection may delete
+      // it. Leadership is per-generation and dies with the generation that acquired it: when
+      // sibling generations share the lease (a definition revert), the last one out reaches this
+      // branch on the very node the document still names as owner, and an owner-side delete here
+      // would strand the never-dropped MV. That owner's pair is left for the stale-lease GC,
+      // which cleans a deleted index's leases in drop-then-delete order after the graces.
       LOG.atInfo()
           .addKeyValue("generationId", generationId)
           .addKeyValue("collectionName", leaseKey)
-          .log("Index deleted; not the leader, leaving shared resource cleanup to the leader");
-      generatorShutdownFuture
-          .thenComposeAsync(ignored -> this.leaseManager.dropLease(leaseKey))
-          .exceptionally(throwable -> logDetachedCleanupFailure(throwable, generationId, leaseKey));
-      return generatorShutdownFuture;
+          .log(
+              "Index deleted; not the leader, leaving shared resource cleanup to the leader "
+                  + "or, if no leader remains, to the stale-lease GC");
+      return generatorShutdownFuture.thenRun(() -> this.leaseManager.evictCachedLease(leaseKey));
     }
     LOG.atInfo()
         .addKeyValue("generationId", generationId)

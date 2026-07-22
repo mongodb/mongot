@@ -1094,9 +1094,11 @@ public class MaterializedViewManagerTest {
   }
 
   @Test
-  public void testDropIndex_whenReplicationDisabled_followerDropsLeaseOnly() throws Exception {
+  public void testDropIndex_whenReplicationDisabled_followerEvictsCachedLeaseOnly()
+      throws Exception {
     // Follower path of the generator==null code path in maybeDropCollectionAndLease:
-    // Follower drops the lease from memory but does NOT drop the MV collection.
+    // Follower evicts its cached lease copy but touches neither the lease document nor the MV
+    // collection.
     Mocks mocks = Mocks.createFollower();
     mocks.manager.setIsReplicationEnabled(false);
 
@@ -1117,10 +1119,39 @@ public class MaterializedViewManagerTest {
     mocks.markIndexDeleted();
     mocks.manager.dropIndex(dropGenId).get(5, TimeUnit.SECONDS);
 
-    // Assert — lease is dropped from memory (non-leader half of the deletion path).
-    verify(mocks.leaseManager, timeout(5000)).dropLease(any(String.class));
+    // Assert — only the cached lease copy is evicted (non-leader half of the deletion path).
+    verify(mocks.leaseManager, timeout(5000)).evictCachedLease("test_" + INDEX_ID.toHexString());
+    verify(mocks.leaseManager, never()).dropLease(any(String.class));
+    verify(mocks.leaseManager, never()).cleanupLeaseForDeletedIndex(any(String.class));
     // Assert — follower does NOT drop the MV collection (not leader)
     verify(matViewIndexGeneration.getIndex().getWriter(), never()).dropMaterializedViewCollection();
+  }
+
+  @Test
+  public void dropIndex_indexDeletion_leadershipGoneWithSibling_leavesLeaseDocumentForGc()
+      throws Exception {
+    // A definition revert makes two generations share one lease; the generation that acquired
+    // leadership tears down first and takes the leadership state with it, so the last generation
+    // out reaches the deletion branch as a non-leader on the very node that still owns the lease
+    // document. Deleting the document here without having dropped the MV collection strands the
+    // collection: a lease-less MV is invisible to the lease-driven GC. The document must survive
+    // so the GC can clean the pair in drop-then-delete order.
+    Mocks mocks = Mocks.create();
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator generator = mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+    when(mocks.leaseManager.isLeader(any())).thenReturn(false);
+
+    mocks.markIndexDeleted();
+    mocks.manager.dropIndex(MOCK_GENERATION_ID).get(5, TimeUnit.SECONDS);
+
+    verify(generator).shutdown();
+    // The cached copy is evicted; the lease document and the MV collection are left untouched.
+    verify(mocks.leaseManager, timeout(5000)).evictCachedLease("test_" + INDEX_ID.toHexString());
+    verify(mocks.leaseManager, never()).dropLease(any(String.class));
+    verify(mocks.leaseManager, never()).cleanupLeaseForDeletedIndex(any(String.class));
+    verify(gen.getIndex().getWriter(), never()).dropMaterializedViewCollection();
   }
 
   @Test
