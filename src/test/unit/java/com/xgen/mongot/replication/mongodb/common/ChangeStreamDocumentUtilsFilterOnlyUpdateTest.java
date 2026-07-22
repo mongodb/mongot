@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.google.common.collect.ImmutableSet;
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.client.model.changestream.OperationType;
 import com.mongodb.client.model.changestream.UpdateDescription;
@@ -26,6 +27,7 @@ import org.bson.BsonArray;
 import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
+import org.bson.BsonNull;
 import org.bson.BsonString;
 import org.bson.RawBsonDocument;
 import org.junit.Test;
@@ -849,11 +851,11 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
   }
 
   @Test
-  public void testNonIndexedFieldUpdate_AutoEmbedFieldIndexOnView_NotCreated() {
-    // The embed source can be computed by the view pipeline (e.g. $set from base fields),
-    // in which case updateDescription never contains the embed field's name. An update to
-    // a base field feeding the computed embed source must produce a full update so the
-    // document is re-embedded.
+  public void testComputedEmbedFeederUpdate_AutoEmbedFieldIndexOnView_PartialEmbeds() {
+    // The embed source is computed by the view pipeline (e.g. $set from base fields), so
+    // updateDescription carries the base feeder (title), not the embed name. The change re-embeds
+    // the computed source via the partial-embed path (reading the view-resolved text), rather than
+    // a full replace.
     VectorIndexDefinition indexDef =
         VectorIndexDefinitionBuilder.builder()
             .withAutoEmbedField("description")
@@ -889,7 +891,13 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
             ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
 
     assertEquals(1, batch.finalChangeEvents.size());
-    assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+    DocumentEvent event = batch.finalChangeEvents.getFirst();
+    assertTrue(event.getFilterFieldUpdates().isPresent());
+    assertEquals(
+        ImmutableSet.of(FieldPath.parse("description")), event.getChangedEmbedTexts().keySet());
+    assertEquals(
+        "new title computed", event.getChangedEmbedTexts().get(FieldPath.parse("description")));
+    assertEquals(1, batch.partialEmbedApplied);
   }
 
   @Test
@@ -1021,11 +1029,11 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
   }
 
   @Test
-  public void textEmbedFeederUpdate_AutoEmbedFieldIndexOnView_NotCreated() {
+  public void textEmbedFeederUpdate_AutoEmbedFieldIndexOnView_PartialEmbedsChangedSourceOnly() {
     // A v2 mat-view index may contain a TEXT field alongside an AUTO_EMBED field; both are embed
-    // sources (AutoEmbedFieldMappingCreator maps TEXT -> EmbedField). When the TEXT field's value
-    // is computed by the view, an update to its base feeder must re-embed; otherwise the TEXT
-    // embedding goes stale (under-collection).
+    // sources (AutoEmbedFieldMappingCreator maps TEXT -> EmbedField). When only the computed TEXT
+    // field's base feeder changes, the partial-embed path re-embeds just that source (read from
+    // the view-resolved fullDocument); the untouched AUTO_EMBED field keeps its existing vector.
     VectorIndexDefinition indexDef =
         VectorIndexDefinitionBuilder.builder()
             .withAutoEmbedField("title")
@@ -1062,7 +1070,198 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
             ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
 
     assertEquals(1, batch.finalChangeEvents.size());
+    DocumentEvent event = batch.finalChangeEvents.getFirst();
+    assertTrue(event.getFilterFieldUpdates().isPresent());
+    // Only `combined` was re-embedded; `title` was spared.
+    assertEquals(
+        ImmutableSet.of(FieldPath.parse("combined")), event.getChangedEmbedTexts().keySet());
+    assertEquals("new body and b", event.getChangedEmbedTexts().get(FieldPath.parse("combined")));
+    assertEquals(1, batch.partialEmbedApplied);
+  }
+
+  @Test
+  public void viewTwoComputedEmbeds_singleFeederChange_reEmbedsOnlyThatSource() {
+    // Two computed embed sources with disjoint feeders. Changing only embB's feeder must re-embed
+    // embB alone — embA keeps its existing vector (the N×->1× cost win this ticket delivers).
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("embA")
+            .withAutoEmbedField("embB")
+            .withFilterPath("category")
+            .view(
+                ViewDefinition.existing(
+                    "myView",
+                    List.of(
+                        BsonDocument.parse(
+                            "{\"$set\": {\"embA\": {\"$concat\": [\"$a1\", \" \", \"$a2\"]},"
+                                + " \"embB\": {\"$concat\": [\"$b1\", \" \", \"$b2\"]}}}"))))
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    UpdateDescription updateDesc =
+        new UpdateDescription(null, new BsonDocument("b1", new BsonString("new b1")));
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("embA", new BsonString("a1 a2"))
+            .append("embB", new BsonString("new b1 b2"))
+            .append("category", new BsonString("books"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, updateDesc, fullDocument)),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    DocumentEvent event = batch.finalChangeEvents.getFirst();
+    assertTrue(event.getFilterFieldUpdates().isPresent());
+    assertEquals(ImmutableSet.of(FieldPath.parse("embB")), event.getChangedEmbedTexts().keySet());
+    assertEquals("new b1 b2", event.getChangedEmbedTexts().get(FieldPath.parse("embB")));
+    assertEquals(1, batch.partialEmbedApplied);
+    assertTrue(batch.partialEmbedFallbacks.isEmpty());
+  }
+
+  @Test
+  public void viewComputedEmbed_emptyNewValue_fallsBackToFullReplace() {
+    // A partial $set can't $unset a now-empty embed vector, so an empty resolved embed text on the
+    // view path falls back to a full replace, tagged EMPTY_NEW_VALUE (same as the non-view path).
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("embA")
+            .withFilterPath("category")
+            .view(
+                ViewDefinition.existing(
+                    "myView",
+                    List.of(
+                        BsonDocument.parse(
+                            "{\"$set\": {\"embA\": {\"$concat\": [\"$a1\", \"$a2\"]}}}"))))
+            .build();
+
+    UpdateDescription updateDesc =
+        new UpdateDescription(null, new BsonDocument("a1", new BsonString("")));
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("embA", new BsonString(""))
+            .append("category", new BsonString("books"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, updateDesc, fullDocument)),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
     assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+    assertEquals(0, batch.partialEmbedApplied);
+    assertEquals(
+        Integer.valueOf(1),
+        batch.partialEmbedFallbacks.get(PartialEmbedFallbackReason.EMPTY_NEW_VALUE));
+  }
+
+  @Test
+  public void viewEmbedChangeThatDropsPassthroughFilter_fallsBackToFull() {
+    // An embed-feeder change alongside a $set that overwrites a passthrough filter's ancestor
+    // ({meta: null} drops meta.category) must NOT take the partial path: a $set built from the
+    // post-image can't clear the now-absent meta.category, so it forces a full replace.
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("embA")
+            .withFilterPath("meta.category")
+            .view(
+                ViewDefinition.existing(
+                    "myView",
+                    List.of(
+                        BsonDocument.parse(
+                            "{\"$set\": {\"embA\": {\"$concat\": [\"$a1\", \" \", \"$a2\"]}}}"))))
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    UpdateDescription updateDesc =
+        new UpdateDescription(
+            null,
+            new BsonDocument().append("a1", new BsonString("new")).append("meta", new BsonNull()));
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("embA", new BsonString("new a2"))
+            .append("meta", new BsonNull())
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, updateDesc, fullDocument)),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+    assertEquals(0, batch.partialEmbedApplied);
+    assertEquals(
+        Integer.valueOf(1),
+        batch.partialEmbedFallbacks.get(PartialEmbedFallbackReason.ANCESTOR_OVERWRITE));
+  }
+
+  @Test
+  public void viewDedup_collapsedFilterDrop_forcesSurvivorFull() {
+    // Batch dedup: an older event drops a filter (meta: null) and a newer event changes an embed
+    // feeder. The older event collapses behind the survivor; the pre-pass must force the survivor
+    // to a full replace so the dropped meta.category doesn't survive as a stale partial-update.
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("embA")
+            .withFilterPath("meta.category")
+            .view(
+                ViewDefinition.existing(
+                    "myView",
+                    List.of(
+                        BsonDocument.parse(
+                            "{\"$set\": {\"embA\": {\"$concat\": [\"$a1\", \" \", \"$a2\"]}}}"))))
+            .build();
+
+    BsonDocument metadataNamespace = new BsonDocument("_id", new BsonInt32(0));
+    ChangeStreamDocument<RawBsonDocument> olderDropsFilter =
+        ChangeStreamUtils.dataEvent(
+            OperationType.UPDATE,
+            0,
+            new UpdateDescription(null, new BsonDocument("meta", new BsonNull())),
+            new BsonDocument()
+                .append("_id", new BsonInt32(0))
+                .append("embA", new BsonString("a1 a2"))
+                .append("meta", new BsonNull())
+                .append(indexDef.getIndexId().toString(), metadataNamespace));
+    ChangeStreamDocument<RawBsonDocument> newerEmbedChange =
+        ChangeStreamUtils.dataEvent(
+            OperationType.UPDATE,
+            0,
+            new UpdateDescription(null, new BsonDocument("a1", new BsonString("new"))),
+            new BsonDocument()
+                .append("_id", new BsonInt32(0))
+                .append("embA", new BsonString("new a2"))
+                .append("meta", new BsonNull())
+                .append(indexDef.getIndexId().toString(), metadataNamespace));
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(olderDropsFilter, newerEmbedChange),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    // One surviving event, forced to a full replace (not a partial $set).
+    assertEquals(1, batch.finalChangeEvents.size());
+    assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+    assertEquals(0, batch.partialEmbedApplied);
   }
 
   @Test

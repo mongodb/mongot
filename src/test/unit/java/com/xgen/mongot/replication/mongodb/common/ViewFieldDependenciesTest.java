@@ -379,4 +379,101 @@ public class ViewFieldDependenciesTest {
     assertThat(customerDeps().requiresFullProcessing(updated("visibility", "uploadedAt")))
         .isFalse();
   }
+
+  // ---------------------------------------------------------------------------------------------
+  // Per-embed feeders + view partial-embed classification
+  // ---------------------------------------------------------------------------------------------
+
+  private static ViewFieldDependencies multiEmbedDeps() {
+    return ViewFieldDependencies.derive(
+        customerPipeline(), Set.of(COMBINED, LANG_CODE, APPLICATION_NAMES));
+  }
+
+  @Test
+  public void embedFeeders_perEmbedSourceFeeders() {
+    ViewFieldDependencies deps = multiEmbedDeps();
+    assertThat(deps.getEmbedFeeders().keySet())
+        .containsExactly(COMBINED, LANG_CODE, APPLICATION_NAMES);
+    assertThat(deps.getEmbedFeeders().get(COMBINED))
+        .containsExactly(
+            FieldPath.parse("title"), FieldPath.parse("description"), FieldPath.parse("steps"));
+    assertThat(deps.getEmbedFeeders().get(LANG_CODE)).containsExactly(FieldPath.parse("language"));
+    assertThat(deps.getEmbedFeeders().get(APPLICATION_NAMES))
+        .containsExactly(FieldPath.parse("applications"));
+  }
+
+  @Test
+  public void classifyViewUpdate_singleEmbedFeeder_reEmbedsOnlyThatSource() {
+    ViewFieldDependencies.ViewUpdateClassification c =
+        multiEmbedDeps().classifyViewUpdate(updated("title"));
+    assertThat(c.requiresFull()).isFalse();
+    assertThat(c.changedEmbedPaths()).containsExactly(COMBINED);
+  }
+
+  @Test
+  public void classifyViewUpdate_disjointFeeders_reEmbedTouchedSubset() {
+    assertThat(multiEmbedDeps().classifyViewUpdate(updated("language")).changedEmbedPaths())
+        .containsExactly(LANG_CODE);
+    assertThat(
+            multiEmbedDeps()
+                .classifyViewUpdate(updated("title", "applications"))
+                .changedEmbedPaths())
+        .containsExactly(COMBINED, APPLICATION_NAMES);
+  }
+
+  @Test
+  public void classifyViewUpdate_matchFieldChanged_requiresFull() {
+    ViewFieldDependencies.ViewUpdateClassification c =
+        multiEmbedDeps().classifyViewUpdate(updated("isPublished"));
+    assertThat(c.requiresFull()).isTrue();
+    assertThat(c.changedEmbedPaths()).isEmpty();
+  }
+
+  @Test
+  public void classifyViewUpdate_unrelatedField_filterOnly() {
+    ViewFieldDependencies.ViewUpdateClassification c =
+        multiEmbedDeps().classifyViewUpdate(updated("tags"));
+    assertThat(c.requiresFull()).isFalse();
+    assertThat(c.changedEmbedPaths()).isEmpty();
+  }
+
+  @Test
+  public void classifyViewUpdate_removedOrEmptyOrNull_requiresFull() {
+    assertThat(multiEmbedDeps().classifyViewUpdate(null).requiresFull()).isTrue();
+    assertThat(
+            multiEmbedDeps().classifyViewUpdate(new UpdateDescription(null, null)).requiresFull())
+        .isTrue();
+    assertThat(
+            multiEmbedDeps()
+                .classifyViewUpdate(new UpdateDescription(List.of("tags"), null))
+                .requiresFull())
+        .isTrue();
+  }
+
+  @Test
+  public void classifyViewUpdate_dependsOnEverything_requiresFull() {
+    ViewFieldDependencies deps =
+        ViewFieldDependencies.derive(
+            List.of(BsonDocument.parse("{\"$set\": {\"copy\": \"$$ROOT\"}}")),
+            Set.of(FieldPath.parse("copy")));
+    assertThat(deps.classifyViewUpdate(updated("title")).requiresFull()).isTrue();
+  }
+
+  @Test
+  public void classifyViewUpdate_feederAlsoFeedsMatch_requiresFull() {
+    // `title` feeds both $match membership and the `blurb` embed; a change to it must take the full
+    // path (membership may flip) even though it also feeds an embed source.
+    List<BsonDocument> pipeline =
+        List.of(
+            BsonDocument.parse("{\"$match\": {\"$expr\": {\"$eq\": [\"$title\", \"x\"]}}}"),
+            BsonDocument.parse("{\"$set\": {\"blurb\": {\"$concat\": [\"$title\", \"$body\"]}}}"));
+    ViewFieldDependencies deps =
+        ViewFieldDependencies.derive(pipeline, Set.of(FieldPath.parse("blurb")));
+
+    assertThat(deps.classifyViewUpdate(updated("title")).requiresFull()).isTrue();
+    ViewFieldDependencies.ViewUpdateClassification bodyChange =
+        deps.classifyViewUpdate(updated("body"));
+    assertThat(bodyChange.requiresFull()).isFalse();
+    assertThat(bodyChange.changedEmbedPaths()).containsExactly(FieldPath.parse("blurb"));
+  }
 }

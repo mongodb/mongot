@@ -1,5 +1,6 @@
 package com.xgen.mongot.replication.mongodb.common;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.flogger.FluentLogger;
 import com.mongodb.client.model.changestream.TruncatedArray;
@@ -53,7 +54,15 @@ public final class ViewFieldDependencies {
   private static final String ROOT_FIELD_PREFIX = "$$ROOT.";
   private static final Set<String> WHOLE_DOCUMENT_VARIABLES = Set.of("$$CURRENT", "$$ROOT");
 
-  /** Base fields whose change forces full processing (match-referenced ∪ embed-source feeders). */
+  /**
+   * Base fields whose change forces full processing: match-referenced ∪ computed-filter feeders.
+   */
+  private final ImmutableSet<FieldPath> nonEmbedTriggers;
+
+  /** Per embed source, the base fields its (possibly computed) value depends on. */
+  private final ImmutableMap<FieldPath, ImmutableSet<FieldPath>> embedFeeders;
+
+  /** Union of nonEmbedTriggers and all embed feeders; any change here needs embedding/full work. */
   private final ImmutableSet<FieldPath> triggerFields;
 
   /**
@@ -63,9 +72,22 @@ public final class ViewFieldDependencies {
   private final boolean dependsOnEverything;
 
   private ViewFieldDependencies(
-      ImmutableSet<FieldPath> triggerFields, boolean dependsOnEverything) {
-    this.triggerFields = triggerFields;
+      ImmutableSet<FieldPath> nonEmbedTriggers,
+      ImmutableMap<FieldPath, ImmutableSet<FieldPath>> embedFeeders,
+      boolean dependsOnEverything) {
+    this.nonEmbedTriggers = nonEmbedTriggers;
+    this.embedFeeders = embedFeeders;
+    this.triggerFields =
+        ImmutableSet.<FieldPath>builder()
+            .addAll(nonEmbedTriggers)
+            .addAll(embedFeeders.values().stream().flatMap(Set::stream).iterator())
+            .build();
     this.dependsOnEverything = dependsOnEverything;
+  }
+
+  /** A dependency set that couldn't be bounded; forces every update onto the full path. */
+  private static ViewFieldDependencies dependsOnEverythingFallback() {
+    return new ViewFieldDependencies(ImmutableSet.of(), ImmutableMap.of(), true);
   }
 
   /**
@@ -92,7 +114,7 @@ public final class ViewFieldDependencies {
       // exception-driven dependsOnEverything from intentionally unanalyzable views.
       LOG.atWarning().withCause(e).log(
           "Failed to derive view field dependencies; falling back to full processing");
-      return new ViewFieldDependencies(ImmutableSet.of(), true);
+      return dependsOnEverythingFallback();
     }
   }
 
@@ -105,12 +127,12 @@ public final class ViewFieldDependencies {
 
     for (BsonDocument stage : effectivePipeline) {
       if (stage.keySet().size() != 1) {
-        return new ViewFieldDependencies(ImmutableSet.of(), true);
+        return dependsOnEverythingFallback();
       }
       String stageName = stage.keySet().iterator().next();
       Optional<SupportedStage> stageType = SupportedStage.byStageName(stageName);
       if (stageType.isEmpty() || !stage.get(stageName).isDocument()) {
-        return new ViewFieldDependencies(ImmutableSet.of(), true);
+        return dependsOnEverythingFallback();
       }
       BsonDocument stageBody = stage.getDocument(stageName);
 
@@ -124,7 +146,7 @@ public final class ViewFieldDependencies {
             RefCollector collector = new RefCollector();
             collector.collect(entry.getValue());
             if (collector.wholeDocument) {
-              return new ViewFieldDependencies(ImmutableSet.of(), true);
+              return dependsOnEverythingFallback();
             }
             stageOutputs.put(
                 FieldPath.parse(entry.getKey()), resolveRefs(collector.refs, stageInput));
@@ -145,7 +167,7 @@ public final class ViewFieldDependencies {
           RefCollector collector = new RefCollector();
           collector.collect(stageBody);
           if (collector.wholeDocument) {
-            return new ViewFieldDependencies(ImmutableSet.of(), true);
+            return dependsOnEverythingFallback();
           }
           triggers.addAll(resolveRefs(collector.refs, computed));
         }
@@ -154,8 +176,13 @@ public final class ViewFieldDependencies {
       }
     }
 
-    // Every embed source contributes the base fields its (possibly computed) value depends on.
-    embedPaths.forEach(path -> triggers.addAll(resolveRefs(Set.of(path), computed)));
+    // Per embed source, the base fields its (possibly computed) value depends on. Kept per-embed
+    // (not folded into triggers) so a change can re-embed only the affected sources.
+    ImmutableMap<FieldPath, ImmutableSet<FieldPath>> embedFeeders =
+        embedPaths.stream()
+            .collect(
+                ImmutableMap.toImmutableMap(
+                    path -> path, path -> resolveRefs(Set.of(path), computed)));
 
     // A filter field COMPUTED by the view also contributes its feeders: the filter-only partial
     // update re-extracts present filter values but cannot delete one that the view drops (e.g.
@@ -165,7 +192,8 @@ public final class ViewFieldDependencies {
         .filter(path -> isComputed(path, computed))
         .forEach(path -> triggers.addAll(resolveRefs(Set.of(path), computed)));
 
-    return new ViewFieldDependencies(canonicalize(triggers), false);
+    // triggers now holds match-referenced ∪ computed-filter feeders — the non-embed triggers.
+    return new ViewFieldDependencies(canonicalize(triggers), embedFeeders, false);
   }
 
   /** True if the path (or an ancestor) is produced by a $set/$addFields stage. */
@@ -213,6 +241,11 @@ public final class ViewFieldDependencies {
     return this.triggerFields;
   }
 
+  /** Per embed source, the base fields its value depends on. Exposed for testing. */
+  ImmutableMap<FieldPath, ImmutableSet<FieldPath>> getEmbedFeeders() {
+    return this.embedFeeders;
+  }
+
   /** True if extraction could not bound the dependencies; every update takes the full path. */
   public boolean dependsOnEverything() {
     return this.dependsOnEverything;
@@ -220,25 +253,55 @@ public final class ViewFieldDependencies {
 
   /**
    * Returns true if the update may affect view membership or an embed source, i.e. the event must
-   * take the full (embed + upsert) path rather than a filter-only partial update.
+   * take the embedding/full path rather than a pure filter-only partial update. Coarse gate used by
+   * the batch-dedup pre-pass; {@link #classifyViewUpdate} makes the finer partial-embed decision.
    */
   public boolean requiresFullProcessing(@Nullable UpdateDescription updateDescription) {
-    // TODO(CLOUDP-416417): emit per-event metrics labeled by force-full reason
-    // (dependsOnEverything, null/empty updateDescription, removedFields, trigger hit) vs.
-    // partial-path-taken; today only the aggregate embedding counter is observable.
-    if (this.dependsOnEverything || updateDescription == null) {
+    if (this.dependsOnEverything || updateDescription == null || forcesFull(updateDescription)) {
       return true;
     }
+    Set<FieldPath> changed = changedPaths(updateDescription);
+    // An empty update can't prove the indexed document is unaffected — force full.
+    return changed.isEmpty() || hitsAny(changed, this.triggerFields);
+  }
 
-    List<String> removedFields =
-        Optional.ofNullable(updateDescription.getRemovedFields()).orElseGet(Collections::emptyList);
-    if (!removedFields.isEmpty()) {
-      // Removals cannot be applied through the $set-only partial-update path: the removed field
-      // is absent from the full document, so its stale value would survive in the materialized
-      // view.
-      return true;
+  /**
+   * Classifies an UPDATE on a view-based auto-embed index: whether it must take the full path, and
+   * if not, which embed sources need re-embedding (empty ⇒ filter-only partial update).
+   */
+  public ViewUpdateClassification classifyViewUpdate(
+      @Nullable UpdateDescription updateDescription) {
+    if (this.dependsOnEverything || updateDescription == null || forcesFull(updateDescription)) {
+      return ViewUpdateClassification.full();
     }
+    Set<FieldPath> changed = changedPaths(updateDescription);
+    // Empty update, or a change to a membership/computed-filter feeder, can't take a partial $set.
+    if (changed.isEmpty() || hitsAny(changed, this.nonEmbedTriggers)) {
+      return ViewUpdateClassification.full();
+    }
+    // Otherwise re-embed only the embed sources whose feeders were touched (may be none ⇒ filter-
+    // only).
+    ImmutableSet<FieldPath> changedEmbedPaths =
+        this.embedFeeders.entrySet().stream()
+            .filter(entry -> hitsAny(changed, entry.getValue()))
+            .map(Map.Entry::getKey)
+            .collect(ImmutableSet.toImmutableSet());
+    return ViewUpdateClassification.partial(changedEmbedPaths);
+  }
 
+  /**
+   * True if a removal is present — removals can't be applied through the $set-only partial path.
+   */
+  private static boolean forcesFull(UpdateDescription updateDescription) {
+    return !Optional.ofNullable(updateDescription.getRemovedFields())
+        .orElseGet(Collections::emptyList)
+        .isEmpty();
+  }
+
+  /**
+   * Normalized base-collection paths a change touches (updated fields ∪ truncated-array fields).
+   */
+  private static Set<FieldPath> changedPaths(UpdateDescription updateDescription) {
     Set<String> updatedFields =
         Optional.ofNullable(updateDescription.getUpdatedFields())
             .map(BsonDocument::keySet)
@@ -248,17 +311,31 @@ public final class ViewFieldDependencies {
             .map(
                 arrays -> arrays.stream().map(TruncatedArray::getField).collect(Collectors.toSet()))
             .orElseGet(Collections::emptySet);
-
-    if (updatedFields.isEmpty() && truncatedArrays.isEmpty()) {
-      // An empty updateDescription cannot prove the indexed document is unaffected.
-      return true;
-    }
-
     return Stream.of(updatedFields, truncatedArrays)
         .flatMap(Collection::stream)
         .map(FieldPath::parse)
         .map(ChangeStreams::filterFieldPath)
-        .anyMatch(changed -> this.triggerFields.stream().anyMatch(changed::isDirectRelation));
+        .collect(Collectors.toSet());
+  }
+
+  /** True if any changed path is a direct relation of any field in {@code targets}. */
+  private static boolean hitsAny(Set<FieldPath> changed, Set<FieldPath> targets) {
+    return changed.stream().anyMatch(c -> targets.stream().anyMatch(c::isDirectRelation));
+  }
+
+  /**
+   * Result of {@link #classifyViewUpdate}: {@code requiresFull} true means take the full path;
+   * otherwise {@code changedEmbedPaths} are the embed sources to re-embed (empty ⇒ filter-only).
+   */
+  public record ViewUpdateClassification(
+      boolean requiresFull, ImmutableSet<FieldPath> changedEmbedPaths) {
+    private static ViewUpdateClassification full() {
+      return new ViewUpdateClassification(true, ImmutableSet.of());
+    }
+
+    private static ViewUpdateClassification partial(ImmutableSet<FieldPath> changedEmbedPaths) {
+      return new ViewUpdateClassification(false, changedEmbedPaths);
+    }
   }
 
   /** Collects base-document field references from an aggregation expression tree. */

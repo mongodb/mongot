@@ -743,11 +743,22 @@ public class AutoEmbeddingDocumentUtils {
       }
     }
 
-    ImmutableSet<FieldPath> changedEmbedPaths = changedEmbedPathsBuilder.build();
+    return extractChangedEmbedTexts(changedEmbedPathsBuilder.build(), fullDocument, fieldMapping);
+  }
+
+  /**
+   * Reads the new text for each changed embed path from the (view-resolved) full document, applying
+   * the guards a partial {@code $set} can't express: array traversal, extraction failure, and empty
+   * new value. Shared by the non-view classifier and the view-based partial-embed path; the caller
+   * supplies the changed embed paths (non-view by direct match, view by feeder lookup).
+   */
+  public static PartialEmbedClassification extractChangedEmbedTexts(
+      ImmutableSet<FieldPath> changedEmbedPaths,
+      RawBsonDocument fullDocument,
+      AutoEmbedFieldMapping fieldMapping) {
     Verify.verify(
         !changedEmbedPaths.isEmpty(),
-        "computePartialEmbedChangedTexts called with no embed-field touch; "
-            + "caller must gate on requiresEmbeddingGeneration");
+        "extractChangedEmbedTexts called with no changed embed paths");
 
     for (FieldPath embedPath : changedEmbedPaths) {
       if (sourcePathTraversesArray(fullDocument, embedPath)) {
