@@ -1,6 +1,8 @@
 package com.xgen.mongot.index.query;
 
+import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.index.query.collectors.AggregationCollector;
+import com.xgen.mongot.index.query.collectors.AggregationValidator;
 import com.xgen.mongot.index.query.collectors.Collector;
 import com.xgen.mongot.index.query.counts.Count;
 import com.xgen.mongot.index.query.highlights.UnresolvedHighlight;
@@ -154,8 +156,18 @@ public sealed interface SearchQuery extends Query permits CollectorQuery, Operat
         validator.validate(
             collector.get().getOperator().get(), returnScope.unwrap().map(ReturnScope::path));
       }
+      // The global sort on an aggregation collector is borrowed solely to order first/last
+      // metrics; it is rejected when no facet tree carries one, rather than being silently
+      // ignored. Legacy facet requests are untouched: a sort there stays accepted-and-ignored
+      // exactly as today, in both feature-flag states.
+      @Var Collector resolvedCollector = collector.get();
+      if (resolvedCollector instanceof AggregationCollector aggregationCollector) {
+        AggregationValidator validator = new AggregationValidator(parser.getContext());
+        validator.validateSort(aggregationCollector, sortSpec);
+        resolvedCollector = aggregationCollector.withSortSpec(sortSpec);
+      }
       return new CollectorQuery(
-          collector.get(),
+          resolvedCollector,
           parser.getField(Query.Fields.INDEX).unwrap(),
           parser.getField(Fields.COUNT).unwrap(),
           parser.getField(Fields.HIGHLIGHT).unwrap(),

@@ -3,7 +3,16 @@ package com.xgen.mongot.index.query;
 import static com.xgen.testing.BsonDeserializationTestSuite.fromRootDocument;
 import static com.xgen.testing.BsonSerializationTestSuite.fromEncodable;
 
+import com.google.common.collect.ImmutableList;
+import com.xgen.mongot.index.query.collectors.AggregationCollector;
+import com.xgen.mongot.index.query.collectors.AggregationFacetDefinition;
+import com.xgen.mongot.index.query.collectors.FacetDefinition;
+import com.xgen.mongot.index.query.collectors.MetricSpec;
 import com.xgen.mongot.index.query.counts.Count;
+import com.xgen.mongot.index.query.operators.AllDocumentsOperator;
+import com.xgen.mongot.index.query.sort.MongotSortField;
+import com.xgen.mongot.index.query.sort.Sort;
+import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.BsonDeserializationTestSuite;
 import com.xgen.testing.BsonSerializationTestSuite;
@@ -258,7 +267,7 @@ public class CollectorQueryTest {
 
     @Parameterized.Parameters(name = "{0}")
     public static Iterable<BsonSerializationTestSuite.TestSpec<Query>> data() {
-      return List.of(collectorQuery());
+      return List.of(collectorQuery(), aggregationCollectorWithSort());
     }
 
     @Test
@@ -314,6 +323,46 @@ public class CollectorQueryTest {
               .scoreDetails(true)
               .tracking(new Tracking("par"))
               .returnScope(new ReturnScope(FieldPath.parse("my-scope")))
+              .build());
+    }
+
+    /**
+     * The global {@code sort} on an aggregation collector is serialized as a top-level sibling of
+     * the {@code facet} document (mirroring how {@code $search}/{@code $searchMeta} emit sort for
+     * an operator query), never inside {@code facet}. This is the query-level analog of {@code
+     * AggregationCollectorParseTest#collectorToBson_omitsBorrowedSortSpec}.
+     */
+    private static BsonSerializationTestSuite.TestSpec<Query> aggregationCollectorWithSort() {
+      AggregationCollector collector =
+          AggregationCollector.create(
+                  AllDocumentsOperator.INSTANCE,
+                  Map.of(
+                      "byCategory",
+                      AggregationFacetDefinition.create(
+                          new FacetDefinition.StringFacetDefinition("category", 10),
+                          Map.of(
+                              "total",
+                              new MetricSpec(
+                                  com.xgen.mongot.index.query.aggregation.Operator.SUM,
+                                  java.util.Optional.of(FieldPath.parse("price")))),
+                          Map.of())))
+              .withSortSpec(
+                  java.util.Optional.of(
+                      new Sort(
+                          ImmutableList.of(
+                              new MongotSortField(
+                                  FieldPath.newRoot("price"), UserFieldSortOptions.DEFAULT_ASC)))));
+      return BsonSerializationTestSuite.TestSpec.create(
+          "aggregation-collector-with-sort",
+          CollectorQueryBuilder.builder()
+              .collector(collector)
+              .index("my-index")
+              .sort(
+                  new Sort(
+                      ImmutableList.of(
+                          new MongotSortField(
+                              FieldPath.newRoot("price"), UserFieldSortOptions.DEFAULT_ASC))))
+              .returnStoredSource(false)
               .build());
     }
   }

@@ -63,6 +63,40 @@
           "path": "my-scope"
         }
       }
+    },
+    {
+      "description": "aggregation-collector-with-sort",
+      "value": {
+        "index": "my-index",
+        "count": {
+          "type": "lowerBound",
+          "threshold": 1000
+        },
+        "returnStoredSource": false,
+        "scoreDetails": false,
+        "concurrent": false,
+        "sort": {
+          "price": {
+            "order": 1.0,
+            "noData": "lowest"
+          }
+        },
+        "facet": {
+          "facets": {
+            "byCategory": {
+              "type": "string",
+              "path": "category",
+              "numBuckets": 10,
+              "aggregations": {
+                "total": {
+                  "type": "sum",
+                  "path": "price"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   ]
 }

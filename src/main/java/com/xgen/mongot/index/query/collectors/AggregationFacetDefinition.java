@@ -148,6 +148,16 @@ public record AggregationFacetDefinition(
     return this.facets.isEmpty();
   }
 
+  /**
+   * Whether this node or any descendant carries a {@code first}/{@code last} metric — the only
+   * metrics whose semantics depend on the global {@code sort}. Used to reject a {@code sort} that
+   * would otherwise be silently ignored.
+   */
+  public boolean usesFirstOrLast() {
+    return this.aggregations.values().stream().anyMatch(MetricSpec::requiresSort)
+        || this.facets.values().stream().anyMatch(AggregationFacetDefinition::usesFirstOrLast);
+  }
+
   @VisibleForTesting
   public static AggregationFacetDefinition create(
       FacetDefinition group,
@@ -157,6 +167,11 @@ public record AggregationFacetDefinition(
         group, FieldPath.parse(group.path()), aggregations, facets);
   }
 
+  /**
+   * Emits the normalized wire form, which may differ from the input BSON: a legacy-shaped leaf that
+   * omitted {@code aggregations} is parsed with an implicit {@code aggregations.count}, so {@code
+   * toBson()} emits that {@code aggregations} block even though the source document did not.
+   */
   @Override
   public BsonDocument toBson() {
     // The group payload (type/path/numBuckets/boundaries/default) round-trips through

@@ -4,13 +4,18 @@ import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
 import static org.junit.Assert.assertThrows;
 
+import com.google.common.collect.ImmutableList;
 import com.xgen.mongot.index.query.aggregation.Operator;
+import com.xgen.mongot.index.query.sort.MongotSortField;
+import com.xgen.mongot.index.query.sort.Sort;
+import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentParser;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 import org.bson.BsonArray;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
@@ -123,6 +128,35 @@ public class AggregationCollectorParseTest {
           .that(reparsed)
           .isEqualTo(original);
     }
+  }
+
+  @Test
+  public void collectorToBson_omitsBorrowedSortSpec() throws Exception {
+    // The global sortSpec is a sibling of the collector, serialized by the enclosing query, so it
+    // must not leak into the facet-collector document. Encoding a collector carrying a sortSpec
+    // therefore yields the same BSON as the same collector without one, and the encoded document
+    // reparses to a collector with an empty sortSpec.
+    AggregationCollector withoutSort =
+        parse(facetWith(new BsonDocument("byCategory", metricLeaf())));
+    AggregationCollector withSort =
+        withoutSort.withSortSpec(
+            Optional.of(
+                new Sort(
+                    ImmutableList.of(
+                        new MongotSortField(
+                            FieldPath.newRoot("price"), UserFieldSortOptions.DEFAULT_ASC)))));
+
+    BsonDocument encodedWithoutSort = withoutSort.collectorToBson().asDocument();
+    BsonDocument encodedWithSort = withSort.collectorToBson().asDocument();
+
+    assertThat(encodedWithSort).isEqualTo(encodedWithoutSort);
+    assertThat(encodedWithSort.toJson()).doesNotContain("sort");
+    assertThat(parse(encodedWithSort).sortSpec()).isEmpty();
+  }
+
+  private static BsonDocument metricLeaf() {
+    return stringNode("category")
+        .append("aggregations", new BsonDocument("n", metric("count", null)));
   }
 
   @Test

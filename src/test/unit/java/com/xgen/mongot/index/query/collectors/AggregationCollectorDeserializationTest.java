@@ -53,7 +53,9 @@ public class AggregationCollectorDeserializationTest {
         mixedLegacyAndAggregationEntries(),
         explicitOperator(),
         threeLevelNestingWithAverageLeaf(),
-        multipleTopLevelFacetsWithDateSibling());
+        multipleTopLevelFacetsWithDateSibling(),
+        numberLeafWithMetrics(),
+        dateLeafWithMetrics());
   }
 
   @Test
@@ -177,6 +179,36 @@ public class AggregationCollectorDeserializationTest {
                 node(
                     numberGroup("capacity", Optional.of("other"), 0, 100, 300, 500),
                     Map.of(),
+                    Map.of()))));
+  }
+
+  private static ValidSpec<AggregationCollector> numberLeafWithMetrics() {
+    return BsonDeserializationTestSuite.TestSpec.valid(
+        "number leaf with metrics",
+        AggregationCollector.create(
+            AllDocumentsOperator.INSTANCE,
+            Map.of(
+                "byCapacity",
+                node(
+                    numberGroup("capacity", Optional.of("other"), 0, 100, 300, 500),
+                    Map.of("total", sum("price"), "n", count()),
+                    Map.of()))));
+  }
+
+  private static ValidSpec<AggregationCollector> dateLeafWithMetrics() {
+    return BsonDeserializationTestSuite.TestSpec.valid(
+        "date leaf with metrics",
+        AggregationCollector.create(
+            AllDocumentsOperator.INSTANCE,
+            Map.of(
+                "byCreatedAt",
+                node(
+                    dateGroup(
+                        "createdAt",
+                        Optional.of("other"),
+                        "2023-01-01T00:00:00Z",
+                        "2024-01-01T00:00:00Z"),
+                    Map.of("avgPrice", average("price")),
                     Map.of()))));
   }
 

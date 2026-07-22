@@ -56,6 +56,20 @@ public record MetricSpec(Operator operator, Optional<FieldPath> path) implements
     return new MetricSpec(operator, path);
   }
 
+  /**
+   * Whether this metric's value is picked by the global sort order (first/last). The global {@code
+   * sort} is only meaningful when at least one such metric is present; see {@link
+   * AggregationFacetDefinition#usesFirstOrLast}. Exhaustive over {@link Operator} so adding
+   * FIRST/LAST there forces this to be revisited.
+   */
+  boolean requiresSort() {
+    // TODO(CLOUDP-425978): add FIRST/LAST -> true once those operators land; the exhaustive switch
+    // forces this method to be revisited when they are introduced.
+    return switch (this.operator) {
+      case COUNT, SUM, AVG -> false;
+    };
+  }
+
   @Override
   public BsonDocument toBson() {
     return BsonDocumentBuilder.builder()

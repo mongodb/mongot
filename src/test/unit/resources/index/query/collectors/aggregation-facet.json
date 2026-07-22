@@ -182,6 +182,50 @@
           }
         }
       }
+    },
+    {
+      "description": "number leaf with metrics",
+      "value": {
+        "facets": {
+          "byCapacity": {
+            "type": "number",
+            "path": "capacity",
+            "boundaries": [0, 100, 300, 500],
+            "default": "other",
+            "aggregations": {
+              "total": {
+                "type": "sum",
+                "path": "price"
+              },
+              "n": {
+                "type": "count"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "date leaf with metrics",
+      "value": {
+        "facets": {
+          "byCreatedAt": {
+            "type": "date",
+            "path": "createdAt",
+            "boundaries": [
+              { "$date": "2023-01-01T00:00:00Z" },
+              { "$date": "2024-01-01T00:00:00Z" }
+            ],
+            "default": "other",
+            "aggregations": {
+              "avgPrice": {
+                "type": "avg",
+                "path": "price"
+              }
+            }
+          }
+        }
+      }
     }
   ],
   "invalid": [
