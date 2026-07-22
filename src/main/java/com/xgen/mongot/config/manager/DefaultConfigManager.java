@@ -459,10 +459,12 @@ public class DefaultConfigManager implements ConfigManager {
 
   @Override
   public synchronized ReplicationStatus getReplicationStatus() {
+    var lifecycleManager = this.configState.getLifecycleManager();
     return new ReplicationStatus(
         Instant.now(),
         this.replicationStatusChangeTimestamp,
-        !this.configState.getLifecycleManager().isReplicationSupported(),
+        !lifecycleManager.isReplicationSupported(),
+        !lifecycleManager.isAutoEmbeddingReplicationSupported(),
         getInitialSyncStatus());
   }
 

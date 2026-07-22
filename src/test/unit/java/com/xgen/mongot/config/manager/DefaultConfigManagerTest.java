@@ -868,6 +868,33 @@ public class DefaultConfigManagerTest {
   }
 
   @Test
+  public void getReplicationStatus_reportsReplicationPathsIndependently() throws Exception {
+    var mocks = DefaultConfigManagerMocks.create();
+
+    Mockito.doReturn(true).when(mocks.lifecycleManager).isReplicationSupported();
+    Mockito.doReturn(true).when(mocks.lifecycleManager).isAutoEmbeddingReplicationSupported();
+    var replicationStatus = mocks.configManager.getReplicationStatus();
+    assertThat(replicationStatus.isReplicationStopped()).isFalse();
+    assertThat(replicationStatus.isAutoEmbeddingMaterializedViewStopped()).isFalse();
+
+    Mockito.doReturn(false).when(mocks.lifecycleManager).isAutoEmbeddingReplicationSupported();
+    var autoEmbeddingStoppedStatus = mocks.configManager.getReplicationStatus();
+    assertThat(autoEmbeddingStoppedStatus.isReplicationStopped()).isFalse();
+    assertThat(autoEmbeddingStoppedStatus.isAutoEmbeddingMaterializedViewStopped()).isTrue();
+
+    Mockito.doReturn(false).when(mocks.lifecycleManager).isReplicationSupported();
+    Mockito.doReturn(true).when(mocks.lifecycleManager).isAutoEmbeddingReplicationSupported();
+    var replicationStoppedStatus = mocks.configManager.getReplicationStatus();
+    assertThat(replicationStoppedStatus.isReplicationStopped()).isTrue();
+    assertThat(replicationStoppedStatus.isAutoEmbeddingMaterializedViewStopped()).isFalse();
+
+    Mockito.doReturn(false).when(mocks.lifecycleManager).isAutoEmbeddingReplicationSupported();
+    var bothStoppedStatus = mocks.configManager.getReplicationStatus();
+    assertThat(bothStoppedStatus.isReplicationStopped()).isTrue();
+    assertThat(bothStoppedStatus.isAutoEmbeddingMaterializedViewStopped()).isTrue();
+  }
+
+  @Test
   public void testHandleReplicationAndSyncSourceUpdate_changedSyncSource_restartsReplication()
       throws Exception {
     var mocks = DefaultConfigManagerMocks.create();
