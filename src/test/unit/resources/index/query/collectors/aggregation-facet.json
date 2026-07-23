@@ -226,6 +226,27 @@
           }
         }
       }
+    },
+    {
+      "description": "leaf with first and last metrics",
+      "value": {
+        "facets": {
+          "byCategory": {
+            "type": "string",
+            "path": "category",
+            "aggregations": {
+              "cheapest": {
+                "type": "first",
+                "path": "price"
+              },
+              "priciest": {
+                "type": "last",
+                "path": "price"
+              }
+            }
+          }
+        }
+      }
     }
   ],
   "invalid": [
@@ -314,42 +335,6 @@
             "aggregations": {
               "total": {
                 "type": "sum"
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "description": "first metric not yet supported",
-      "errorMessageContains": "must be one of",
-      "value": {
-        "facets": {
-          "byCategory": {
-            "type": "string",
-            "path": "category",
-            "aggregations": {
-              "pick": {
-                "type": "first",
-                "path": "price"
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "description": "last metric not yet supported",
-      "errorMessageContains": "must be one of",
-      "value": {
-        "facets": {
-          "byCategory": {
-            "type": "string",
-            "path": "category",
-            "aggregations": {
-              "pick": {
-                "type": "last",
-                "path": "price"
               }
             }
           }

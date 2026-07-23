@@ -154,7 +154,7 @@ public record AggregationFacetDefinition(
    * would otherwise be silently ignored.
    */
   public boolean usesFirstOrLast() {
-    return this.aggregations.values().stream().anyMatch(MetricSpec::requiresSort)
+    return this.aggregations.values().stream().anyMatch(MetricSpec::usesSortOrder)
         || this.facets.values().stream().anyMatch(AggregationFacetDefinition::usesFirstOrLast);
   }
 

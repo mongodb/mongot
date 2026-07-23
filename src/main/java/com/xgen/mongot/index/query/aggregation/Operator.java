@@ -4,7 +4,9 @@ package com.xgen.mongot.index.query.aggregation;
 public enum Operator {
   COUNT("count"),
   AVG("avg"),
-  SUM("sum");
+  SUM("sum"),
+  FIRST("first"),
+  LAST("last");
 
   private final String registryKey;
 

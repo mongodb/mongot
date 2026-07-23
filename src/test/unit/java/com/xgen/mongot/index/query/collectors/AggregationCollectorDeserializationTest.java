@@ -55,7 +55,8 @@ public class AggregationCollectorDeserializationTest {
         threeLevelNestingWithAverageLeaf(),
         multipleTopLevelFacetsWithDateSibling(),
         numberLeafWithMetrics(),
-        dateLeafWithMetrics());
+        dateLeafWithMetrics(),
+        leafWithFirstAndLastMetrics());
   }
 
   @Test
@@ -212,6 +213,19 @@ public class AggregationCollectorDeserializationTest {
                     Map.of()))));
   }
 
+  private static ValidSpec<AggregationCollector> leafWithFirstAndLastMetrics() {
+    return BsonDeserializationTestSuite.TestSpec.valid(
+        "leaf with first and last metrics",
+        AggregationCollector.create(
+            AllDocumentsOperator.INSTANCE,
+            Map.of(
+                "byCategory",
+                node(
+                    stringGroup("category", 10),
+                    Map.of("cheapest", first("price"), "priciest", last("price")),
+                    Map.of()))));
+  }
+
   private static FacetDefinition.NumericFacetDefinition numberGroup(
       String path, Optional<String> defaultBucket, int... boundaries) {
     return new FacetDefinition.NumericFacetDefinition(
@@ -253,5 +267,13 @@ public class AggregationCollectorDeserializationTest {
 
   private static MetricSpec average(String path) {
     return new MetricSpec(Operator.AVG, Optional.of(FieldPath.parse(path)));
+  }
+
+  private static MetricSpec first(String path) {
+    return new MetricSpec(Operator.FIRST, Optional.of(FieldPath.parse(path)));
+  }
+
+  private static MetricSpec last(String path) {
+    return new MetricSpec(Operator.LAST, Optional.of(FieldPath.parse(path)));
   }
 }

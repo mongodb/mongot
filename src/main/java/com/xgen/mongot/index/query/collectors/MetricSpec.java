@@ -23,10 +23,8 @@ public record MetricSpec(Operator operator, Optional<FieldPath> path) implements
 
   private static final class Fields {
     // The user-facing metric type names are the Operator enum's camel-case names
-    // (count/sum/avg, matching MQL accumulator names), so the wire syntax and the
+    // (count/sum/avg/first/last, matching MQL accumulator names), so the wire syntax and the
     // execution registry share a single source of truth.
-    // TODO(CLOUDP-425978): first/last are absent from Operator until global-sort plumbing lands;
-    // until then they are rejected here as unknown metric types.
     private static final Field.Required<Operator> TYPE =
         Field.builder("type").enumField(Operator.class).asCamelCase().required();
     // Optional because count takes no path (it counts bucket docs); every other operator
@@ -59,14 +57,13 @@ public record MetricSpec(Operator operator, Optional<FieldPath> path) implements
   /**
    * Whether this metric's value is picked by the global sort order (first/last). The global {@code
    * sort} is only meaningful when at least one such metric is present; see {@link
-   * AggregationFacetDefinition#usesFirstOrLast}. Exhaustive over {@link Operator} so adding
-   * FIRST/LAST there forces this to be revisited.
+   * AggregationFacetDefinition#usesFirstOrLast}. The sort itself is optional: without one, a
+   * first/last metric picks in encountered (natural) order.
    */
-  boolean requiresSort() {
-    // TODO(CLOUDP-425978): add FIRST/LAST -> true once those operators land; the exhaustive switch
-    // forces this method to be revisited when they are introduced.
+  boolean usesSortOrder() {
     return switch (this.operator) {
       case COUNT, SUM, AVG -> false;
+      case FIRST, LAST -> true;
     };
   }
 

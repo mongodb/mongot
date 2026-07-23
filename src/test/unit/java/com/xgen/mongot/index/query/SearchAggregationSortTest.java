@@ -41,8 +41,8 @@ public class SearchAggregationSortTest {
   @Test
   public void aggregationRequestWithSortButNoFirstOrLast_rejected() {
     // The global sort only orders first/last metrics; with none in the tree (here: count only) it
-    // would be silently ignored, so it is rejected. Once first/last parse (sort plumbing
-    // follow-up), a tree containing one borrows the sort onto the AggregationCollector instead.
+    // would be silently ignored, so it is rejected. A tree containing one borrows the sort onto
+    // the AggregationCollector instead.
     BsonDocument aggNode =
         stringNode("category")
             .append(
@@ -58,6 +58,69 @@ public class SearchAggregationSortTest {
         .contains(
             "sort (or sortBetaV1) is only supported when at least one 'first' or 'last' aggregation"
                 + " metric");
+  }
+
+  @Test
+  public void aggregationRequestWithSortAndFirstMetric_borrowsSortOntoCollector() throws Exception {
+    BsonDocument document =
+        facetWith(new BsonDocument("byCategory", firstMetricNode())).append("sort", SORT);
+
+    SearchQuery query = parse(document, /* searchAggregationEnabled= */ true);
+
+    AggregationCollector collector = (AggregationCollector) ((CollectorQuery) query).collector();
+    assertThat(collector.usesFirstOrLast()).isTrue();
+    assertThat(collector.sortSpec()).isPresent();
+  }
+
+  @Test
+  public void aggregationRequestWithFirstMetricButNoSort_acceptedWithEmptySortSpec()
+      throws Exception {
+    // A first/last metric without a global field sort is allowed: it picks the first/last value
+    // in encountered (natural) order, mirroring MQL $first/$last semantics.
+    BsonDocument document = facetWith(new BsonDocument("byCategory", firstMetricNode()));
+
+    SearchQuery query = parse(document, /* searchAggregationEnabled= */ true);
+
+    AggregationCollector collector = (AggregationCollector) ((CollectorQuery) query).collector();
+    assertThat(collector.usesFirstOrLast()).isTrue();
+    assertThat(collector.sortSpec()).isEmpty();
+  }
+
+  @Test
+  public void aggregationRequestWithScoreSortAndFirstMetric_rejected() {
+    // Field-sort-only for now: `last` under a score sort would need the globally lowest-scoring
+    // docs, which score pruning skips; score-sorted `first` may be admitted later (loosening the
+    // rule is a non-breaking change, tightening is not).
+    assertScoreSortRejected(
+        new BsonDocument("score", new BsonDocument("$meta", new BsonString("searchScore"))));
+  }
+
+  @Test
+  public void aggregationRequestWithCompoundFieldAndScoreSort_rejected() {
+    // A meta component anywhere in a compound sort is rejected, not just a pure score sort.
+    assertScoreSortRejected(
+        new BsonDocument("price", new BsonInt32(1))
+            .append("score", new BsonDocument("$meta", new BsonString("searchScore"))));
+  }
+
+  private static void assertScoreSortRejected(BsonDocument sort) {
+    BsonDocument document =
+        facetWith(new BsonDocument("byCategory", firstMetricNode())).append("sort", sort);
+
+    BsonParseException ex =
+        assertThrows(
+            BsonParseException.class, () -> parse(document, /* searchAggregationEnabled= */ true));
+    assertThat(ex).hasMessageThat().contains("only support sorting by document fields");
+  }
+
+  private static BsonDocument firstMetricNode() {
+    return stringNode("category")
+        .append(
+            "aggregations",
+            new BsonDocument(
+                "pick",
+                new BsonDocument("type", new BsonString("first"))
+                    .append("path", new BsonString("price"))));
   }
 
   @Test

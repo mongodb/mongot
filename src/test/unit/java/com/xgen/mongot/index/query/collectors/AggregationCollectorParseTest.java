@@ -351,25 +351,46 @@ public class AggregationCollectorParseTest {
         BsonParseException.class, () -> parse(facetWith(new BsonDocument("byCategory", node))));
   }
 
-  // first/last are absent from the Operator enum until global-sort plumbing lands
-  // (TODO(CLOUDP-425978)), so they are rejected as unknown metric types.
+  // first/last parse as metric types at the collector level; the pairing with the global sort
+  // (which lives outside the facet document) is validated at the SearchQuery level, see
+  // AggregationValidator and SearchAggregationSortTest.
   @Test
-  public void firstMetric_rejectedAsUnsupported() {
-    assertMetricRejectedAsUnsupported("first");
+  public void firstMetric_parses() throws Exception {
+    assertSortPickingMetricParses("first");
   }
 
   @Test
-  public void lastMetric_rejectedAsUnsupported() {
-    assertMetricRejectedAsUnsupported("last");
+  public void lastMetric_parses() throws Exception {
+    assertSortPickingMetricParses("last");
   }
 
-  private static void assertMetricRejectedAsUnsupported(String op) {
+  @Test
+  public void firstMetricWithoutPath_rejected() {
+    assertPathlessMetricRejected("first");
+  }
+
+  @Test
+  public void lastMetricWithoutPath_rejected() {
+    assertPathlessMetricRejected("last");
+  }
+
+  private static void assertSortPickingMetricParses(String op) throws Exception {
     BsonDocument node =
         stringNode("category")
             .append("aggregations", new BsonDocument("pick", metric(op, "price")));
 
-    assertThrows(
-        BsonParseException.class, () -> parse(facetWith(new BsonDocument("byCategory", node))));
+    AggregationCollector collector = parse(facetWith(new BsonDocument("byCategory", node)));
+    assertThat(collector.usesFirstOrLast()).isTrue();
+  }
+
+  private static void assertPathlessMetricRejected(String op) {
+    BsonDocument node =
+        stringNode("category").append("aggregations", new BsonDocument("pick", metric(op, null)));
+
+    BsonParseException ex =
+        assertThrows(
+            BsonParseException.class, () -> parse(facetWith(new BsonDocument("byCategory", node))));
+    assertThat(ex).hasMessageThat().contains("requires a path");
   }
 
   @Test
