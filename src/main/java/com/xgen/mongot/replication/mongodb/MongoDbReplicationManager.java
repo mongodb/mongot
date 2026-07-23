@@ -295,6 +295,8 @@ public class MongoDbReplicationManager implements ReplicationManager {
     meterRegistry.gauge("replication.manager", 1);
     boolean enableLifecycleAttributionMetrics =
         featureFlags.isEnabled(Feature.LIFECYCLE_ATTRIBUTION_METRICS);
+    boolean enableChangeStreamActivityObserver =
+        featureFlags.isEnabled(Feature.CHANGE_STREAM_ACTIVITY_OBSERVER);
 
     var lifecycleExecutor =
         Executors.fixedSizeThreadPool(
@@ -401,7 +403,8 @@ public class MongoDbReplicationManager implements ReplicationManager {
             syncBatchMongoClient,
             decodingWorkScheduler,
             steadyStateReplicationConfig,
-            enableLifecycleAttributionMetrics);
+            enableLifecycleAttributionMetrics,
+            enableChangeStreamActivityObserver);
 
     var synonymManager =
         SynonymManager.create(

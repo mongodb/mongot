@@ -3,6 +3,7 @@ package com.xgen.mongot.replication.mongodb.steadystate.changestream;
 import static com.xgen.mongot.util.Check.checkState;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.errorprone.annotations.Var;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.mongodb.MongoNamespace;
 import com.xgen.mongot.index.IndexMetricsUpdater;
@@ -29,6 +30,7 @@ import com.xgen.mongot.util.FutureUtils;
 import com.xgen.mongot.util.concurrent.Executors;
 import com.xgen.mongot.util.concurrent.NamedScheduledExecutorService;
 import com.xgen.mongot.util.mongodb.BatchMongoClient;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,23 +56,42 @@ public class ChangeStreamManager {
   private final ChangeStreamIndexManagerFactory indexManagerFactory;
   private final ChangeStreamDispatcher dispatcher;
   private final ChangeStreamModeSelector modeSelector;
+  private final Optional<ActivityObserverFactory> activityObserverFactory;
 
   @GuardedBy("this")
   private final Map<GenerationId, ChangeStreamIndexManager> indexManagers;
 
+  /** The per-database activity observers, present only when the observer feature is enabled. */
+  @GuardedBy("this")
+  private final Map<String, ChangeStreamActivityObserver> observersByDatabase;
+
+  /** The observer database each index registered with, so stop can find its observer. */
+  @GuardedBy("this")
+  private final Map<GenerationId, String> observerDatabaseByIndex;
+
   @GuardedBy("this")
   private boolean shutdown;
+
+  /** Creates the activity observer for one database when its first index is added. */
+  @FunctionalInterface
+  interface ActivityObserverFactory {
+    ChangeStreamActivityObserver create(String databaseName);
+  }
 
   private ChangeStreamManager(
       IndexingWorkSchedulerFactory indexingWorkSchedulerFactory,
       ChangeStreamIndexManagerFactory indexManagerFactory,
       ChangeStreamDispatcher dispatcher,
-      ChangeStreamModeSelector modeSelector) {
+      ChangeStreamModeSelector modeSelector,
+      Optional<ActivityObserverFactory> activityObserverFactory) {
     this.indexingWorkSchedulerFactory = indexingWorkSchedulerFactory;
     this.indexManagerFactory = indexManagerFactory;
     this.dispatcher = dispatcher;
     this.modeSelector = modeSelector;
+    this.activityObserverFactory = activityObserverFactory;
     this.indexManagers = new HashMap<>();
+    this.observersByDatabase = new HashMap<>();
+    this.observerDatabaseByIndex = new HashMap<>();
     this.shutdown = false;
   }
 
@@ -82,7 +103,8 @@ public class ChangeStreamManager {
       IndexingWorkSchedulerFactory indexingWorkSchedulerFactory,
       DecodingWorkScheduler decodingScheduler,
       SteadyStateReplicationConfig replicationConfig,
-      boolean enableLifecycleAttributionMetrics) {
+      boolean enableLifecycleAttributionMetrics,
+      boolean enableChangeStreamActivityObserver) {
     Check.argIsPositive(
         replicationConfig.getChangeStreamQueryMaxTimeMs(), "changeStreamQueryMaxTimeMs");
     Check.argIsPositive(
@@ -114,6 +136,20 @@ public class ChangeStreamManager {
           .register(modeSelectorExecutor, meterRegistry);
     }
 
+    Optional<ActivityObserverFactory> activityObserverFactory =
+        enableChangeStreamActivityObserver
+            ? Optional.of(
+                databaseName ->
+                    ChangeStreamActivityObserver.create(
+                        databaseName,
+                        syncMongoClient,
+                        sessionRefresher,
+                        meterRegistry,
+                        Duration.ofSeconds(
+                            replicationConfig.getChangeStreamInactivityThresholdSec()),
+                        replicationConfig.getReplicationType()))
+            : Optional.empty();
+
     return getSyncChangeStreamManager(
         meterAndFtdcRegistry,
         sessionRefresher,
@@ -122,7 +158,8 @@ public class ChangeStreamManager {
         decodingScheduler,
         modeSelector,
         replicationConfig,
-        enableLifecycleAttributionMetrics);
+        enableLifecycleAttributionMetrics,
+        activityObserverFactory);
   }
 
   private static ChangeStreamManager getSyncChangeStreamManager(
@@ -133,7 +170,8 @@ public class ChangeStreamManager {
       DecodingWorkScheduler decodingScheduler,
       ChangeStreamModeSelector modeSelector,
       SteadyStateReplicationConfig replicationConfig,
-      boolean enableLifecycleAttributionMetrics) {
+      boolean enableLifecycleAttributionMetrics,
+      Optional<ActivityObserverFactory> activityObserverFactory) {
 
     ChangeStreamMongoClientFactory syncMongoClientFactory =
         ChangeStreamMongoClientFactory.create(
@@ -151,7 +189,8 @@ public class ChangeStreamManager {
         replicationConfig,
         indexManagerFactoryWithDecodingScheduler(
             decodingScheduler, replicationConfig.getAutoEmbeddingMaterializedViewConfig()),
-        enableLifecycleAttributionMetrics);
+        enableLifecycleAttributionMetrics,
+        activityObserverFactory);
   }
 
   // TODO(CLOUDP-405327): remove test-only overload once LIFECYCLE_ATTRIBUTION_METRICS rolls out.
@@ -170,7 +209,28 @@ public class ChangeStreamManager {
         indexingWorkSchedulerFactory,
         replicationConfig,
         indexManagerFactory,
-        false);
+        false,
+        Optional.empty());
+  }
+
+  @VisibleForTesting
+  static ChangeStreamManager createSync(
+      MeterAndFtdcRegistry meterAndFtdcRegistry,
+      ChangeStreamMongoClientFactory syncMongoClientFactory,
+      ChangeStreamModeSelector modeSelector,
+      IndexingWorkSchedulerFactory indexingWorkSchedulerFactory,
+      SteadyStateReplicationConfig replicationConfig,
+      ChangeStreamIndexManagerFactory indexManagerFactory,
+      Optional<ActivityObserverFactory> activityObserverFactory) {
+    return createSync(
+        meterAndFtdcRegistry,
+        syncMongoClientFactory,
+        modeSelector,
+        indexingWorkSchedulerFactory,
+        replicationConfig,
+        indexManagerFactory,
+        false,
+        activityObserverFactory);
   }
 
   private static ChangeStreamManager createSync(
@@ -180,7 +240,8 @@ public class ChangeStreamManager {
       IndexingWorkSchedulerFactory indexingWorkSchedulerFactory,
       SteadyStateReplicationConfig replicationConfig,
       ChangeStreamIndexManagerFactory indexManagerFactory,
-      boolean enableLifecycleAttributionMetrics) {
+      boolean enableLifecycleAttributionMetrics,
+      Optional<ActivityObserverFactory> activityObserverFactory) {
     Check.argIsPositive(
         replicationConfig.getNumConcurrentChangeStreams(), "numConcurrentChangeStreams");
     Check.argIsPositive(
@@ -219,7 +280,11 @@ public class ChangeStreamManager {
             replicationConfig.getReplicationType());
 
     return new ChangeStreamManager(
-        indexingWorkSchedulerFactory, indexManagerFactory, syncDispatcher, modeSelector);
+        indexingWorkSchedulerFactory,
+        indexManagerFactory,
+        syncDispatcher,
+        modeSelector,
+        activityObserverFactory);
   }
 
   /**
@@ -228,23 +293,36 @@ public class ChangeStreamManager {
    * @return a future that completes when the ChangeStreamManager has completed shutting down. The
    *     future will only ever complete successfully.
    */
-  public synchronized CompletableFuture<Void> shutdown() {
+  public CompletableFuture<Void> shutdown() {
     LOG.info("Shutting down.");
 
-    this.shutdown = true;
+    List<ChangeStreamActivityObserver> observersToClose;
+    CompletableFuture<Void> result;
+    synchronized (this) {
+      this.shutdown = true;
 
-    // First shut down the dispatcher thread so no more work gets scheduled.
-    this.dispatcher.shutdown();
+      // First shut down the dispatcher thread so no more work gets scheduled.
+      this.dispatcher.shutdown();
 
-    List<CompletableFuture<?>> futures =
-        this.indexManagers.values().stream()
-            .map(ChangeStreamIndexManager::shutdown)
-            .collect(Collectors.toList());
+      List<CompletableFuture<?>> futures =
+          this.indexManagers.values().stream()
+              .map(ChangeStreamIndexManager::shutdown)
+              .collect(Collectors.toList());
 
-    this.modeSelector.shutdown();
+      this.modeSelector.shutdown();
 
-    return Crash.because("failed shutting down change stream managers")
-        .ifCompletesExceptionally(FutureUtils.allOf(futures));
+      // Snapshot the observers so they can be closed after releasing the monitor: close() blocks
+      // on the read loop draining, so it must not run while the manager lock is held.
+      observersToClose = List.copyOf(this.observersByDatabase.values());
+      this.observersByDatabase.clear();
+      this.observerDatabaseByIndex.clear();
+
+      result =
+          Crash.because("failed shutting down change stream managers")
+              .ifCompletesExceptionally(FutureUtils.allOf(futures));
+    }
+    observersToClose.forEach(ChangeStreamActivityObserver::close);
+    return result;
   }
 
   /** Add an index to be managed by the ChangeStreamManager and begin indexing. */
@@ -302,6 +380,25 @@ public class ChangeStreamManager {
     this.dispatcher.add(
         indexDefinition, generationId, resumeInfo, indexManager, removeMatchCollectionUuid);
 
+    if (this.activityObserverFactory.isPresent()) {
+      try {
+        String databaseName = namespace.getDatabaseName();
+        ChangeStreamActivityObserver observer =
+            this.observersByDatabase.computeIfAbsent(
+                databaseName, this.activityObserverFactory.get()::create);
+        observer.register(generationId, namespace, indexDefinition.getCollectionUuid());
+        this.observerDatabaseByIndex.put(generationId, databaseName);
+      } catch (RuntimeException e) {
+        // The observer is purely observational; a failure to create or register it must never
+        // fail the index add. The index simply runs unobserved.
+        LOG.atWarn()
+            .addKeyValue("indexId", generationId.indexId)
+            .addKeyValue("generationId", generationId)
+            .setCause(e)
+            .log("Failed to register index with the activity observer; continuing without it");
+      }
+    }
+
     return lifecycleFuture;
   }
 
@@ -312,14 +409,33 @@ public class ChangeStreamManager {
    * @return a future that completes when the scheduled work for the index has completed. The future
    *     will only ever complete successfully.
    */
-  public synchronized CompletableFuture<Void> stop(GenerationId generationId) {
-    checkState(
-        this.indexManagers.containsKey(generationId),
-        "ChangeStreamManager does not contain index %s",
-        generationId);
-    ChangeStreamIndexManager manager = this.indexManagers.remove(generationId);
-    this.modeSelector.remove(generationId);
-    return manager.shutdown();
+  public CompletableFuture<Void> stop(GenerationId generationId) {
+    @Var ChangeStreamActivityObserver observerToClose = null;
+    CompletableFuture<Void> result;
+    synchronized (this) {
+      checkState(
+          this.indexManagers.containsKey(generationId),
+          "ChangeStreamManager does not contain index %s",
+          generationId);
+      ChangeStreamIndexManager manager = this.indexManagers.remove(generationId);
+      this.modeSelector.remove(generationId);
+
+      String observerDatabase = this.observerDatabaseByIndex.remove(generationId);
+      if (observerDatabase != null) {
+        ChangeStreamActivityObserver observer = this.observersByDatabase.get(observerDatabase);
+        if (observer != null && observer.deregister(generationId)) {
+          // The database has no managed indexes left, so its observer is no longer needed. It is
+          // closed after releasing the monitor, because close blocks on the read loop draining.
+          this.observersByDatabase.remove(observerDatabase);
+          observerToClose = observer;
+        }
+      }
+      result = manager.shutdown();
+    }
+    if (observerToClose != null) {
+      observerToClose.close();
+    }
+    return result;
   }
 
   @TestOnly

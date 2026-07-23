@@ -2349,7 +2349,9 @@ public class MaterializedViewManager implements ReplicationManager {
                   this.syncBatchMongoClient.get(),
                   this.decodingWorkScheduler,
                   getAutoEmbeddingSteadyStateReplicationConfig(this.materializedViewConfig),
-                  this.featureFlags.isEnabled(Feature.LIFECYCLE_ATTRIBUTION_METRICS)));
+                  this.featureFlags.isEnabled(Feature.LIFECYCLE_ATTRIBUTION_METRICS),
+                  // The change-stream activity observer covers DEFAULT replication only.
+                  false));
 
       this.initialSyncQueue =
           Optional.of(
