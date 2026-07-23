@@ -120,7 +120,8 @@ class LuceneSearchManagerFactory {
     Vector vector =
         Check.isPresent(criteria.queryVector(), "criteria has to be materialized up to this point");
     return quantization == VectorQuantization.BINARY
-        && vector.getVectorType() == Vector.VectorType.FLOAT
+        && (vector.getVectorType() == Vector.VectorType.FLOAT
+            || vector.getVectorType() == Vector.VectorType.BYTE)
         && criteria.getVectorSearchType() == VectorSearchCriteria.Type.APPROXIMATE;
   }
 

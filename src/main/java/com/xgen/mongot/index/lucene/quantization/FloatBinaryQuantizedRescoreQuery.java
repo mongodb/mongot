@@ -38,8 +38,8 @@ public class FloatBinaryQuantizedRescoreQuery implements BinaryQuantizedRescoreQ
   public VectorScorer approximateScorer(
       QuantizedByteVectorValues quantized, VectorSimilarityFunction similarityFunction)
       throws IOException {
-    DequantizedVectorValues vectorValues =
-        new DequantizedVectorValues(quantized, similarityFunction);
+    DequantizedFloatVectorValues vectorValues =
+        new DequantizedFloatVectorValues(quantized, similarityFunction);
     return vectorValues.scorer(this.query.getTargetCopy());
   }
 

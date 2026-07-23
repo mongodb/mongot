@@ -4,8 +4,8 @@ import static com.xgen.mongot.index.lucene.LuceneSearchManager.QueryInfo;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.errorprone.annotations.Var;
+import com.xgen.mongot.index.lucene.quantization.BinaryQuantizedRescoreQuery;
 import com.xgen.mongot.index.lucene.quantization.BinaryQuantizedVectorRescorer;
-import com.xgen.mongot.index.lucene.quantization.FloatBinaryQuantizedRescoreQuery;
 import com.xgen.mongot.index.lucene.query.NestedAvgVectorRescorer;
 import com.xgen.mongot.index.lucene.query.custom.WrappedKnnQuery;
 import com.xgen.mongot.index.lucene.query.util.WrappedToParentBlockJoinQuery;
@@ -18,6 +18,7 @@ import java.io.IOException;
 import java.util.Optional;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
+import org.apache.lucene.search.KnnByteVectorQuery;
 import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
@@ -100,15 +101,12 @@ public class LuceneVectorSearchManager implements LuceneSearchManager<QueryInfo>
     Optional<WrappedToParentBlockJoinQuery> blockJoinQuery =
         extractBlockJoinQuery(this.luceneQuery);
 
-    KnnFloatVectorQuery knnQuery;
+    Query knnQuery;
     Optional<BitSetProducer> parentFilter;
 
     if (blockJoinQuery.isPresent()) {
       Query childQuery = blockJoinQuery.get().getChildQuery();
-      knnQuery =
-          (childQuery instanceof WrappedKnnQuery wkq)
-              ? Check.instanceOf(wkq.getQuery(), KnnFloatVectorQuery.class)
-              : Check.instanceOf(childQuery, KnnFloatVectorQuery.class);
+      knnQuery = (childQuery instanceof WrappedKnnQuery wkq) ? wkq.getQuery() : childQuery;
       parentFilter = Optional.of(blockJoinQuery.get().getParentsFilter());
     } else {
       knnQuery = extractKnnQuery(this.luceneQuery);
@@ -121,25 +119,30 @@ public class LuceneVectorSearchManager implements LuceneSearchManager<QueryInfo>
             indexSearcher,
             topCandidates,
             (ApproximateVectorSearchCriteria) this.criteria,
-            new FloatBinaryQuantizedRescoreQuery(knnQuery),
+            BinaryQuantizedRescoreQuery.from(knnQuery),
             parentFilter);
   }
 
   @VisibleForTesting
-  static KnnFloatVectorQuery extractKnnQuery(Query query) {
+  static Query extractKnnQuery(Query query) {
     Query unwrapped = (query instanceof WrappedKnnQuery wkq) ? wkq.getQuery() : query;
-    if (unwrapped instanceof KnnFloatVectorQuery knn) {
-      return knn;
+    if (isKnnVectorQuery(unwrapped)) {
+      return unwrapped;
     }
     if (unwrapped instanceof BooleanQuery bq) {
       for (BooleanClause clause : bq.clauses()) {
-        if (clause.occur() == BooleanClause.Occur.MUST
-            && clause.query() instanceof KnnFloatVectorQuery knn) {
-          return knn;
+        if (clause.occur() == BooleanClause.Occur.MUST && isKnnVectorQuery(clause.query())) {
+          return clause.query();
         }
       }
     }
-    return Check.unreachable("Unrecognized flat vector query shape — expected KnnFloatVectorQuery");
+    return Check.unreachable(
+        "Unrecognized flat vector query shape — expected KnnFloatVectorQuery or"
+            + " KnnByteVectorQuery");
+  }
+
+  private static boolean isKnnVectorQuery(Query query) {
+    return query instanceof KnnFloatVectorQuery || query instanceof KnnByteVectorQuery;
   }
 
   @VisibleForTesting

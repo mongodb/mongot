@@ -7,7 +7,12 @@ import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.VectorScorer;
 import org.apache.lucene.util.quantization.QuantizedByteVectorValues;
 
-public class DequantizedVectorValues extends FloatVectorValues {
+/**
+ * {@link FloatVectorValues} view over binary-quantized float vectors that dequantizes each vector
+ * on demand into its full-fidelity {@code float[]} form. Used by the approximate rescore path to
+ * compare the raw query vector against dequantized segment vectors.
+ */
+public class DequantizedFloatVectorValues extends FloatVectorValues {
 
   private final QuantizedByteVectorValues quantizedVectorValues;
   private final VectorSimilarityFunction similarityFunction;
@@ -19,7 +24,7 @@ public class DequantizedVectorValues extends FloatVectorValues {
    */
   private final float[] scratchBuffer;
 
-  public DequantizedVectorValues(
+  public DequantizedFloatVectorValues(
       QuantizedByteVectorValues quantizedVectorValues,
       VectorSimilarityFunction similarityFunction) {
     this.quantizedVectorValues = quantizedVectorValues;
@@ -46,17 +51,18 @@ public class DequantizedVectorValues extends FloatVectorValues {
 
   @Override
   public FloatVectorValues copy() throws IOException {
-    return new DequantizedVectorValues(this.quantizedVectorValues.copy(), this.similarityFunction);
+    return new DequantizedFloatVectorValues(
+        this.quantizedVectorValues.copy(), this.similarityFunction);
   }
 
   @Override
   public VectorScorer scorer(float[] query) throws IOException {
-    DocIndexIterator itr = DequantizedVectorValues.this.quantizedVectorValues.iterator();
+    DocIndexIterator itr = DequantizedFloatVectorValues.this.quantizedVectorValues.iterator();
     return new VectorScorer() {
 
       @Override
       public float score() throws IOException {
-        return DequantizedVectorValues.this.similarityFunction.compare(
+        return DequantizedFloatVectorValues.this.similarityFunction.compare(
             query, vectorValue(itr.index()));
       }
 

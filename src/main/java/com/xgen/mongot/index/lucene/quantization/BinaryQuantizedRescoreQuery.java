@@ -1,8 +1,11 @@
 package com.xgen.mongot.index.lucene.quantization;
 
+import com.xgen.mongot.util.Check;
 import java.io.IOException;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.VectorSimilarityFunction;
+import org.apache.lucene.search.KnnByteVectorQuery;
+import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.VectorScorer;
@@ -13,12 +16,31 @@ import org.jetbrains.annotations.Nullable;
  * Encoding-agnostic view of the KNN query being rescored by {@link BinaryQuantizedVectorRescorer}.
  *
  * <p>Lucene's {@code AbstractKnnVectorQuery} (the common supertype of {@code KnnFloatVectorQuery}
- * and {@code KnnByteVectorQuery}) is package-private. In preparation for byte ingress support in
- * the rescorer, this interface wraps the extracted Lucene query into the matching implementation.
- * The rescorer operates purely against this type. All encoding-specific behavior lives behind the
- * scorer factory methods.
+ * and {@code KnnByteVectorQuery}) is package-private. This wraps the extracted Lucene query into
+ * the matching implementation ({@code FloatBinaryQuantizedRescoreQuery} or {@code
+ * ByteBinaryQuantizedRescoreQuery}). The rescorer operates purely against this type. All
+ * encoding-specific behavior lives behind the scorer factory methods.
  */
 public interface BinaryQuantizedRescoreQuery {
+
+  /**
+   * Wraps the raw Lucene KNN query in the encoding-specific rescore-query view. Dispatches on the
+   * concrete {@code Knn*VectorQuery} subtype to select {@link FloatBinaryQuantizedRescoreQuery} or
+   * {@link ByteBinaryQuantizedRescoreQuery}.
+   *
+   * @param query the extracted Lucene KNN query
+   * @return the matching rescore-query view
+   */
+  static BinaryQuantizedRescoreQuery from(Query query) {
+    return switch (query) {
+      case KnnFloatVectorQuery floatQuery -> new FloatBinaryQuantizedRescoreQuery(floatQuery);
+      case KnnByteVectorQuery byteQuery -> new ByteBinaryQuantizedRescoreQuery(byteQuery);
+      default ->
+          Check.unreachable(
+              "Unrecognized vector query shape — expected KnnFloatVectorQuery or"
+                  + " KnnByteVectorQuery");
+    };
+  }
 
   /** The vector field this query targets. */
   String getField();

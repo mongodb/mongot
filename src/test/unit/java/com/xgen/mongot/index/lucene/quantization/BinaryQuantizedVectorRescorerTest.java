@@ -9,15 +9,12 @@ import static org.apache.lucene.index.VectorSimilarityFunction.EUCLIDEAN;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.IndexDefinition;
-import com.xgen.mongot.index.definition.VectorFieldSpecification;
-import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
-import com.xgen.mongot.index.definition.VectorSimilarity;
-import com.xgen.mongot.index.definition.quantization.VectorQuantization;
 import com.xgen.mongot.index.lucene.LuceneIndexSearcherReference;
 import com.xgen.mongot.index.lucene.LuceneVectorSearchManager;
-import com.xgen.mongot.index.lucene.codec.LuceneCodec;
+import com.xgen.mongot.index.lucene.extension.KnnByteVectorField;
 import com.xgen.mongot.index.lucene.extension.KnnFloatVectorField;
 import com.xgen.mongot.index.lucene.field.FieldName;
+import com.xgen.mongot.index.lucene.query.custom.MongotKnnByteQuery;
 import com.xgen.mongot.index.lucene.query.custom.MongotKnnFloatQuery;
 import com.xgen.mongot.index.lucene.query.util.WrappedToParentBlockJoinQuery;
 import com.xgen.mongot.index.lucene.searcher.LuceneSearcherFactory;
@@ -25,7 +22,6 @@ import com.xgen.mongot.index.lucene.searcher.LuceneSearcherManager;
 import com.xgen.mongot.index.lucene.searcher.QueryCacheProvider;
 import com.xgen.mongot.index.query.VectorSearchQuery;
 import com.xgen.mongot.index.query.operators.ApproximateVectorSearchCriteria;
-import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.Vector;
 import com.xgen.mongot.util.concurrent.Executors;
@@ -41,7 +37,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
@@ -58,7 +53,6 @@ import org.apache.lucene.index.NoMergePolicy;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.search.IndexSearcher;
-import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TermQuery;
@@ -82,14 +76,17 @@ public class BinaryQuantizedVectorRescorerTest {
 
   private final IndexWriter indexWriter;
   private final String vectorFieldName;
-
   public final Optional<NamedExecutorService> executor;
 
   public final boolean sparse;
   private final VectorSimilarityFunction similarity;
+  private final Vector.VectorType type;
 
   record TestSpec(
-      boolean sparse, VectorSimilarityFunction sim, Optional<NamedExecutorService> executor) {}
+      boolean sparse,
+      VectorSimilarityFunction sim,
+      Optional<NamedExecutorService> executor,
+      Vector.VectorType type) {}
 
   @Parameters(name = "{0}")
   public static Collection<TestSpec> data() {
@@ -105,7 +102,9 @@ public class BinaryQuantizedVectorRescorerTest {
                         "test",
                         java.util.concurrent.Executors.newFixedThreadPool(2),
                         new SimpleMeterRegistry())))) {
-          params.add(new TestSpec(sparse, sim, executor));
+          for (Vector.VectorType type : List.of(Vector.VectorType.FLOAT, Vector.VectorType.BYTE)) {
+            params.add(new TestSpec(sparse, sim, executor, type));
+          }
         }
       }
     }
@@ -117,24 +116,20 @@ public class BinaryQuantizedVectorRescorerTest {
     this.sparse = params.sparse;
     this.executor = params.executor;
     this.similarity = params.sim;
+    this.type = params.type;
 
     this.indexWriter =
         new IndexWriter(
             new ByteBuffersDirectory(),
             new IndexWriterConfig()
                 .setMergePolicy(NoMergePolicy.INSTANCE)
-                .setCodec(
-                    new LuceneCodec(
-                        Map.of(
-                            fieldPath,
-                            new VectorFieldSpecification(
-                                2,
-                                VectorSimilarity.COSINE,
-                                VectorQuantization.BINARY,
-                                new VectorIndexingAlgorithm.HnswIndexingAlgorithm())))));
+                .setCodec(new Mongot01042BinaryQuantizedTestCodec()));
 
     this.vectorFieldName =
-        FieldName.TypeField.KNN_F32_Q1.getLuceneFieldName(fieldPath, Optional.empty());
+        (params.type == Vector.VectorType.FLOAT
+                ? FieldName.TypeField.KNN_F32_Q1
+                : FieldName.TypeField.KNN_BYTE_Q1)
+            .getLuceneFieldName(fieldPath, Optional.empty());
   }
 
   @Parameterized.AfterParam
@@ -147,7 +142,8 @@ public class BinaryQuantizedVectorRescorerTest {
     Assume.assumeTrue(this.similarity == EUCLIDEAN);
     // insert documents into Lucene
     indexDocumentsAndCommit(
-        List.of(
+        toVectors(
+            this.type,
             new float[] {10, -10},
             new float[] {20, 20},
             new float[] {10, -5},
@@ -155,12 +151,11 @@ public class BinaryQuantizedVectorRescorerTest {
             new float[] {3, -3},
             new float[] {50, 50}),
         EUCLIDEAN);
-    createEmptySegment(2);
+    createEmptySegment(2, this.type);
 
     // create search manager
-    LuceneVectorSearchManager manager = createSearchManager(new float[] {1, -1}, 10, 100);
-    KnnFloatVectorQuery luceneQuery =
-        Check.instanceOf(manager.getLuceneQuery(), KnnFloatVectorQuery.class);
+    LuceneVectorSearchManager manager =
+        createSearchManager(toVector(new float[] {1, -1}, this.type), 10, 100);
 
     var searcherManager =
         LuceneSearcherManager.create(
@@ -180,7 +175,8 @@ public class BinaryQuantizedVectorRescorerTest {
             FeatureFlags.getDefault());
     var firstPassTopDocs = manager.initialSearch(searcherReference, 10).topDocs;
     var approximateRescorer =
-        new BinaryQuantizedVectorRescorer.ApproximateRescorer(wrapRescoreQuery(luceneQuery));
+        new BinaryQuantizedVectorRescorer.ApproximateRescorer(
+            BinaryQuantizedRescoreQuery.from(manager.getLuceneQuery()));
 
     TopDocs fullResult =
         approximateRescorer.rescore(searcherReference.getIndexSearcher(), firstPassTopDocs, 10);
@@ -205,20 +201,19 @@ public class BinaryQuantizedVectorRescorerTest {
     // Temporarily skip DOT_PRODUCT due to incorrectly clamping of intermediate result.
     Assume.assumeFalse(this.similarity == DOT_PRODUCT);
 
-    // insert unit vectors since they are rank equivalent.
+    // insert vectors of equal norm since they are rank equivalent.
     indexDocumentsAndCommit(
-        List.of(
-            new float[] {-.7f, -.7f, -.1f},
-            new float[] {-.7f, -.7f, .1f},
-            new float[] {.7f, .7f, .1f}),
+        toVectors(
+            this.type,
+            new float[] {-70, -70, -10},
+            new float[] {-70, -70, 10},
+            new float[] {70, 70, 10}),
         this.similarity);
-    createEmptySegment(3);
+    createEmptySegment(3, this.type);
 
     // create search manager
     LuceneVectorSearchManager manager =
-        createSearchManager(new float[] {.96f, .28f, .01f}, 10, 100);
-    KnnFloatVectorQuery luceneQuery =
-        Check.instanceOf(manager.getLuceneQuery(), KnnFloatVectorQuery.class);
+        createSearchManager(toVector(new float[] {96, 28, 1}, this.type), 10, 100);
     var searcherManager =
         LuceneSearcherManager.create(
             this.indexWriter,
@@ -237,7 +232,8 @@ public class BinaryQuantizedVectorRescorerTest {
             FeatureFlags.getDefault());
     var firstPassTopDocs = manager.initialSearch(searcherReference, 10).topDocs;
     var approximateRescorer =
-        new BinaryQuantizedVectorRescorer.ApproximateRescorer(wrapRescoreQuery(luceneQuery));
+        new BinaryQuantizedVectorRescorer.ApproximateRescorer(
+            BinaryQuantizedRescoreQuery.from(manager.getLuceneQuery()));
 
     TopDocs fullResult =
         approximateRescorer.rescore(searcherReference.getIndexSearcher(), firstPassTopDocs, 10);
@@ -249,14 +245,18 @@ public class BinaryQuantizedVectorRescorerTest {
     Assume.assumeTrue(this.similarity == EUCLIDEAN);
     // insert documents into Lucene
     indexDocumentsAndCommit(
-        List.of(new float[] {1, 1}, new float[] {2, 2}, new float[] {10, 10}, new float[] {11, 11}),
+        toVectors(
+            this.type,
+            new float[] {1, 1},
+            new float[] {2, 2},
+            new float[] {10, 10},
+            new float[] {11, 11}),
         EUCLIDEAN);
-    createEmptySegment(2);
+    createEmptySegment(2, this.type);
 
     // create search manager
-    LuceneVectorSearchManager manager = createSearchManager(new float[] {9, 9}, 10, 100);
-    KnnFloatVectorQuery luceneQuery =
-        Check.instanceOf(manager.getLuceneQuery(), KnnFloatVectorQuery.class);
+    LuceneVectorSearchManager manager =
+        createSearchManager(toVector(new float[] {9, 9}, this.type), 10, 100);
 
     var searcherManager =
         LuceneSearcherManager.create(
@@ -278,7 +278,7 @@ public class BinaryQuantizedVectorRescorerTest {
     var firstPassTopDocs = manager.initialSearch(searcherReference, 10).topDocs;
     var rescorer =
         new BinaryQuantizedVectorRescorer.FullFidelityRescorer(
-            wrapRescoreQuery(luceneQuery), this.executor);
+            BinaryQuantizedRescoreQuery.from(manager.getLuceneQuery()), this.executor);
 
     TopDocs fullResult =
         rescorer.rescore(searcherReference.getIndexSearcher(), firstPassTopDocs, 10);
@@ -300,18 +300,18 @@ public class BinaryQuantizedVectorRescorerTest {
 
     // insert documents into Lucene
     indexDocumentsAndCommit(
-        List.of(
+        toVectors(
+            this.type,
             new float[] {10, -10},
             new float[] {20, 20},
             new float[] {10, -5},
             new float[] {50, 50}),
         EUCLIDEAN);
-    createEmptySegment(2);
+    createEmptySegment(2, this.type);
 
     // create search manager
-    LuceneVectorSearchManager manager = createSearchManager(new float[] {1, -1}, 10, 100);
-    KnnFloatVectorQuery luceneQuery =
-        Check.instanceOf(manager.getLuceneQuery(), KnnFloatVectorQuery.class);
+    LuceneVectorSearchManager manager =
+        createSearchManager(toVector(new float[] {1, -1}, this.type), 10, 100);
 
     var searcherManager =
         LuceneSearcherManager.create(
@@ -338,7 +338,7 @@ public class BinaryQuantizedVectorRescorerTest {
             searcherReference.getIndexSearcher(),
             new TopDocs(firstPass.totalHits, firstPass.scoreDocs.clone()),
             createVectorSearchQuery(10, 20),
-            wrapRescoreQuery(luceneQuery));
+            BinaryQuantizedRescoreQuery.from(manager.getLuceneQuery()));
 
     assertThat(Stream.of(fullResult.scoreDocs).mapToInt(value -> value.doc))
         .containsExactly(2, 0, 1, 3)
@@ -352,18 +352,18 @@ public class BinaryQuantizedVectorRescorerTest {
 
     // insert documents into Lucene
     indexDocumentsAndCommit(
-        List.of(
+        toVectors(
+            this.type,
             new float[] {10, -10},
             new float[] {20, 20},
             new float[] {10, -5},
             new float[] {50, 50}),
         EUCLIDEAN);
-    createEmptySegment(2);
+    createEmptySegment(2, this.type);
 
     // create search manager
-    LuceneVectorSearchManager manager = createSearchManager(new float[] {1, -1}, 10, 100);
-    KnnFloatVectorQuery luceneQuery =
-        Check.instanceOf(manager.getLuceneQuery(), KnnFloatVectorQuery.class);
+    LuceneVectorSearchManager manager =
+        createSearchManager(toVector(new float[] {1, -1}, this.type), 10, 100);
 
     var searcherManager =
         LuceneSearcherManager.create(
@@ -390,7 +390,7 @@ public class BinaryQuantizedVectorRescorerTest {
             searcherReference.getIndexSearcher(),
             new TopDocs(firstPass.totalHits, firstPass.scoreDocs.clone()),
             createVectorSearchQuery(2, 20),
-            wrapRescoreQuery(luceneQuery));
+            BinaryQuantizedRescoreQuery.from(manager.getLuceneQuery()));
 
     assertThat(Stream.of(subsetResult.scoreDocs).mapToInt(value -> value.doc))
         .containsExactly(2, 0)
@@ -404,15 +404,17 @@ public class BinaryQuantizedVectorRescorerTest {
     Assume.assumeTrue(this.similarity == EUCLIDEAN);
 
     // insert documents in multiple batches, effectively producing multiple segments
-    indexDocumentsAndCommit(List.of(new float[] {10, -10}, new float[] {20, 20}), EUCLIDEAN);
-    indexDocumentsAndCommit(List.of(new float[] {10, -5}, new float[] {30, 30}), EUCLIDEAN);
-    indexDocumentsAndCommit(List.of(new float[] {3, -3}, new float[] {50, 50}), EUCLIDEAN);
-    createEmptySegment(2);
+    indexDocumentsAndCommit(
+        toVectors(this.type, new float[] {10, -10}, new float[] {20, 20}), EUCLIDEAN);
+    indexDocumentsAndCommit(
+        toVectors(this.type, new float[] {10, -5}, new float[] {30, 30}), EUCLIDEAN);
+    indexDocumentsAndCommit(
+        toVectors(this.type, new float[] {3, -3}, new float[] {50, 50}), EUCLIDEAN);
+    createEmptySegment(2, this.type);
 
     // create search manager
-    LuceneVectorSearchManager manager = createSearchManager(new float[] {1, -1}, 10, 100);
-    KnnFloatVectorQuery luceneQuery =
-        Check.instanceOf(manager.getLuceneQuery(), KnnFloatVectorQuery.class);
+    LuceneVectorSearchManager manager =
+        createSearchManager(toVector(new float[] {1, -1}, this.type), 10, 100);
 
     var searcherManager =
         LuceneSearcherManager.create(
@@ -439,7 +441,7 @@ public class BinaryQuantizedVectorRescorerTest {
             searcherReference.getIndexSearcher(),
             firstPassTopDocs,
             createVectorSearchQuery(10, 20),
-            wrapRescoreQuery(luceneQuery));
+            BinaryQuantizedRescoreQuery.from(manager.getLuceneQuery()));
 
     assertThat(Stream.of(result.scoreDocs).mapToInt(value -> value.doc))
         .containsExactly(4, 2, 0, 1, 3, 5)
@@ -449,27 +451,45 @@ public class BinaryQuantizedVectorRescorerTest {
 
   @Test
   public void twoStageRescoring_allSimilarities_isIdempotent() throws IOException {
-    // insert random documents into Lucene
-    Supplier<Float> generator = () -> (float) (ThreadLocalRandom.current().nextDouble() - 0.5);
-    List<float[]> vectors =
-        Stream.generate(
-                () ->
-                    new float[] {
-                      generator.get(), generator.get(), generator.get(), generator.get()
-                    })
-            .limit(100)
-            .toList();
+    // insert random documents into Lucene, and query with a random vector, of this.type
+    List<Vector> vectors;
+    Vector queryVector;
+    if (this.type == Vector.VectorType.FLOAT) {
+      Supplier<Float> generator = () -> (float) (ThreadLocalRandom.current().nextDouble() - 0.5);
+      vectors =
+          Stream.<Vector>generate(
+                  () ->
+                      Vector.fromFloats(
+                          new float[] {
+                            generator.get(), generator.get(), generator.get(), generator.get()
+                          },
+                          NATIVE))
+              .limit(100)
+              .toList();
+      queryVector =
+          Vector.fromFloats(
+              new float[] {generator.get(), generator.get(), generator.get(), generator.get()},
+              NATIVE);
+    } else {
+      Supplier<Byte> generator = () -> (byte) (ThreadLocalRandom.current().nextInt(256) - 128);
+      vectors =
+          Stream.<Vector>generate(
+                  () ->
+                      Vector.fromBytes(
+                          new byte[] {
+                            generator.get(), generator.get(), generator.get(), generator.get()
+                          }))
+              .limit(100)
+              .toList();
+      queryVector =
+          Vector.fromBytes(
+              new byte[] {generator.get(), generator.get(), generator.get(), generator.get()});
+    }
     indexDocumentsAndCommit(vectors, this.similarity);
-    createEmptySegment(4);
+    createEmptySegment(4, this.type);
 
     // create search manager
-    LuceneVectorSearchManager manager =
-        createSearchManager(
-            new float[] {generator.get(), generator.get(), generator.get(), generator.get()},
-            50,
-            100);
-    KnnFloatVectorQuery luceneQuery =
-        Check.instanceOf(manager.getLuceneQuery(), KnnFloatVectorQuery.class);
+    LuceneVectorSearchManager manager = createSearchManager(queryVector, 50, 100);
 
     var searcherManager =
         LuceneSearcherManager.create(
@@ -496,13 +516,13 @@ public class BinaryQuantizedVectorRescorerTest {
             searcherReference.getIndexSearcher(),
             new TopDocs(firstPassTopDocs.totalHits, firstPassTopDocs.scoreDocs.clone()),
             createVectorSearchQuery(10, 20),
-            wrapRescoreQuery(luceneQuery));
+            BinaryQuantizedRescoreQuery.from(manager.getLuceneQuery()));
     TopDocs secondRescore =
         rescorer.rescore(
             searcherReference.getIndexSearcher(),
             new TopDocs(firstPassTopDocs.totalHits, firstPassTopDocs.scoreDocs.clone()),
             createVectorSearchQuery(10, 20),
-            wrapRescoreQuery(luceneQuery));
+            BinaryQuantizedRescoreQuery.from(manager.getLuceneQuery()));
 
     assertScoresValid(firstRescore);
     Assert.assertEquals(
@@ -524,15 +544,14 @@ public class BinaryQuantizedVectorRescorerTest {
     // Using different sign patterns ensures the dequantized rescorer produces distinct scores:
     //   [+,-] vs query [+,-]: distance 0, score = 1.0
     //   [-,-] vs query [+,-]: both dimensions differ, much lower score
-    this.indexWriter.addDocuments(nestedBlock(new float[] {1, -1}, new float[] {1, 1}));
-    this.indexWriter.addDocuments(nestedBlock(new float[] {-1, -1}));
+    this.indexWriter.addDocuments(
+        nestedBlock(toVectorArray(this.type, new float[] {1, -1}, new float[] {1, 1})));
+    this.indexWriter.addDocuments(nestedBlock(toVectorArray(this.type, new float[] {-1, -1})));
     this.indexWriter.commit();
 
-    float[] queryVector = new float[] {1, -1};
     QueryBitSetProducer parentFilter =
         new QueryBitSetProducer(new TermQuery(new Term(NESTED_PARENT_MARKER_FIELD, "T")));
-    MongotKnnFloatQuery knnQuery =
-        new MongotKnnFloatQuery(metrics, this.vectorFieldName, queryVector, 10);
+    Query knnQuery = knnQueryResolver(new float[] {1, -1}, 10);
     WrappedToParentBlockJoinQuery blockJoinQuery =
         new WrappedToParentBlockJoinQuery(knnQuery, parentFilter, ScoreMode.Max);
 
@@ -542,7 +561,7 @@ public class BinaryQuantizedVectorRescorerTest {
 
     BinaryQuantizedVectorRescorer.ApproximateRescorer rescorer =
         new BinaryQuantizedVectorRescorer.ApproximateRescorer(
-            wrapRescoreQuery(knnQuery), Optional.of(parentFilter));
+            BinaryQuantizedRescoreQuery.from(knnQuery), Optional.of(parentFilter));
     TopDocs rescored = rescorer.rescore(searcher, parentTopDocs, 10);
 
     assertThat(rescored.scoreDocs).hasLength(2);
@@ -560,15 +579,14 @@ public class BinaryQuantizedVectorRescorerTest {
     Assume.assumeFalse(this.sparse);
 
     // Same layout as the approximate test; full-fidelity scores should give the same ordering.
-    this.indexWriter.addDocuments(nestedBlock(new float[] {1, -1}, new float[] {50, 50}));
-    this.indexWriter.addDocuments(nestedBlock(new float[] {3, -3}));
+    this.indexWriter.addDocuments(
+        nestedBlock(toVectorArray(this.type, new float[] {1, -1}, new float[] {50, 50})));
+    this.indexWriter.addDocuments(nestedBlock(toVectorArray(this.type, new float[] {3, -3})));
     this.indexWriter.commit();
 
-    float[] queryVector = new float[] {1, -1};
     QueryBitSetProducer parentFilter =
         new QueryBitSetProducer(new TermQuery(new Term(NESTED_PARENT_MARKER_FIELD, "T")));
-    MongotKnnFloatQuery knnQuery =
-        new MongotKnnFloatQuery(metrics, this.vectorFieldName, queryVector, 10);
+    Query knnQuery = knnQueryResolver(new float[] {1, -1}, 10);
     WrappedToParentBlockJoinQuery blockJoinQuery =
         new WrappedToParentBlockJoinQuery(knnQuery, parentFilter, ScoreMode.Max);
 
@@ -578,7 +596,7 @@ public class BinaryQuantizedVectorRescorerTest {
 
     BinaryQuantizedVectorRescorer.FullFidelityRescorer rescorer =
         new BinaryQuantizedVectorRescorer.FullFidelityRescorer(
-            wrapRescoreQuery(knnQuery), this.executor, Optional.of(parentFilter));
+            BinaryQuantizedRescoreQuery.from(knnQuery), this.executor, Optional.of(parentFilter));
     TopDocs rescored = rescorer.rescore(searcher, parentTopDocs, 10);
 
     assertThat(rescored.scoreDocs).hasLength(2);
@@ -593,15 +611,14 @@ public class BinaryQuantizedVectorRescorerTest {
     Assume.assumeTrue(this.similarity == EUCLIDEAN);
     Assume.assumeFalse(this.sparse);
 
-    this.indexWriter.addDocuments(nestedBlock(new float[] {1, -1}, new float[] {50, 50}));
-    this.indexWriter.addDocuments(nestedBlock(new float[] {3, -3}));
+    this.indexWriter.addDocuments(
+        nestedBlock(toVectorArray(this.type, new float[] {1, -1}, new float[] {50, 50})));
+    this.indexWriter.addDocuments(nestedBlock(toVectorArray(this.type, new float[] {3, -3})));
     this.indexWriter.commit();
 
-    float[] queryVector = new float[] {1, -1};
     QueryBitSetProducer parentFilter =
         new QueryBitSetProducer(new TermQuery(new Term(NESTED_PARENT_MARKER_FIELD, "T")));
-    MongotKnnFloatQuery knnQuery =
-        new MongotKnnFloatQuery(metrics, this.vectorFieldName, queryVector, 10);
+    Query knnQuery = knnQueryResolver(new float[] {1, -1}, 10);
     WrappedToParentBlockJoinQuery blockJoinQuery =
         new WrappedToParentBlockJoinQuery(knnQuery, parentFilter, ScoreMode.Max);
 
@@ -616,7 +633,7 @@ public class BinaryQuantizedVectorRescorerTest {
             searcher,
             parentTopDocs,
             criteria,
-            wrapRescoreQuery(knnQuery),
+            BinaryQuantizedRescoreQuery.from(knnQuery),
             Optional.of(parentFilter));
 
     assertThat(rescored.scoreDocs).hasLength(2);
@@ -631,7 +648,7 @@ public class BinaryQuantizedVectorRescorerTest {
     Assume.assumeFalse(this.sparse);
 
     // Doc 0: child with vector; Doc 1: parent1 (well-formed block).
-    this.indexWriter.addDocuments(nestedBlock(new float[] {1, -1}));
+    this.indexWriter.addDocuments(nestedBlock(toVectorArray(this.type, new float[] {1, -1})));
     // Doc 2: bare parent with no preceding child — simulates a malformed or split block.
     // The parentBitSet will mark both doc 1 and doc 2 as parents, so for doc 2:
     //   prevParent = 1, firstChild = 2, localParentDoc = 2 → firstChild >= localParentDoc.
@@ -640,11 +657,9 @@ public class BinaryQuantizedVectorRescorerTest {
     this.indexWriter.addDocument(bareParent);
     this.indexWriter.commit();
 
-    float[] queryVector = new float[] {1, -1};
     QueryBitSetProducer parentFilter =
         new QueryBitSetProducer(new TermQuery(new Term(NESTED_PARENT_MARKER_FIELD, "T")));
-    MongotKnnFloatQuery knnQuery =
-        new MongotKnnFloatQuery(metrics, this.vectorFieldName, queryVector, 10);
+    Query knnQuery = knnQueryResolver(new float[] {1, -1}, 10);
 
     IndexSearcher searcher = buildSearcher();
 
@@ -658,7 +673,7 @@ public class BinaryQuantizedVectorRescorerTest {
 
     BinaryQuantizedVectorRescorer.FullFidelityRescorer rescorer =
         new BinaryQuantizedVectorRescorer.FullFidelityRescorer(
-            wrapRescoreQuery(knnQuery), this.executor, Optional.of(parentFilter));
+            BinaryQuantizedRescoreQuery.from(knnQuery), this.executor, Optional.of(parentFilter));
     TopDocs rescored = rescorer.rescore(searcher, injectedTopDocs, 10);
 
     assertThat(rescored.scoreDocs).hasLength(2);
@@ -692,17 +707,15 @@ public class BinaryQuantizedVectorRescorerTest {
     TermQuery childFilter = new TermQuery(new Term(childMatchField, "T"));
 
     Document childA1 = new Document();
-    childA1.add(
-        new KnnFloatVectorField(this.vectorFieldName, new float[] {-1, 1}, this.similarity));
+    childA1.add(vectorField(new float[] {-1, 1}));
     childA1.add(new StringField(childMatchField, "T", Field.Store.NO));
     Document childA2 = new Document();
-    childA2.add(
-        new KnnFloatVectorField(this.vectorFieldName, new float[] {1, -1}, this.similarity));
+    childA2.add(vectorField(new float[] {1, -1}));
     Document parentA = new Document();
     parentA.add(new StringField(NESTED_PARENT_MARKER_FIELD, "T", Field.Store.NO));
 
     Document childB1 = new Document();
-    childB1.add(new KnnFloatVectorField(this.vectorFieldName, new float[] {1, 1}, this.similarity));
+    childB1.add(vectorField(new float[] {1, 1}));
     childB1.add(new StringField(childMatchField, "T", Field.Store.NO));
     Document parentB = new Document();
     parentB.add(new StringField(NESTED_PARENT_MARKER_FIELD, "T", Field.Store.NO));
@@ -711,12 +724,9 @@ public class BinaryQuantizedVectorRescorerTest {
     this.indexWriter.addDocuments(List.of(childB1, parentB));
     this.indexWriter.commit();
 
-    float[] queryVector = new float[] {1, -1};
     QueryBitSetProducer parentFilter =
         new QueryBitSetProducer(new TermQuery(new Term(NESTED_PARENT_MARKER_FIELD, "T")));
-    MongotKnnFloatQuery knnQuery =
-        new MongotKnnFloatQuery(
-            metrics, FeatureFlags.getDefault(), this.vectorFieldName, queryVector, 10, childFilter);
+    Query knnQuery = knnQueryResolver(new float[] {1, -1}, 10, childFilter);
     WrappedToParentBlockJoinQuery blockJoinQuery =
         new WrappedToParentBlockJoinQuery(knnQuery, parentFilter, ScoreMode.Max);
 
@@ -726,7 +736,7 @@ public class BinaryQuantizedVectorRescorerTest {
 
     BinaryQuantizedVectorRescorer.ApproximateRescorer rescorer =
         new BinaryQuantizedVectorRescorer.ApproximateRescorer(
-            wrapRescoreQuery(knnQuery), Optional.of(parentFilter));
+            BinaryQuantizedRescoreQuery.from(knnQuery), Optional.of(parentFilter));
     TopDocs rescored = rescorer.rescore(searcher, parentTopDocs, 10);
 
     assertThat(rescored.scoreDocs).hasLength(2);
@@ -740,22 +750,20 @@ public class BinaryQuantizedVectorRescorerTest {
     Assume.assumeTrue(this.similarity == EUCLIDEAN);
     Assume.assumeFalse(this.sparse);
 
-    // Same layout as the approximate test; full-fidelity scores are exact floats.
+    // Same layout as the approximate test; full-fidelity scores are exact.
     String childMatchField = "childMatch";
     TermQuery childFilter = new TermQuery(new Term(childMatchField, "T"));
 
     Document childA1 = new Document();
-    childA1.add(
-        new KnnFloatVectorField(this.vectorFieldName, new float[] {-1, 1}, this.similarity));
+    childA1.add(vectorField(new float[] {-1, 1}));
     childA1.add(new StringField(childMatchField, "T", Field.Store.NO));
     Document childA2 = new Document();
-    childA2.add(
-        new KnnFloatVectorField(this.vectorFieldName, new float[] {1, -1}, this.similarity));
+    childA2.add(vectorField(new float[] {1, -1}));
     Document parentA = new Document();
     parentA.add(new StringField(NESTED_PARENT_MARKER_FIELD, "T", Field.Store.NO));
 
     Document childB1 = new Document();
-    childB1.add(new KnnFloatVectorField(this.vectorFieldName, new float[] {1, 1}, this.similarity));
+    childB1.add(vectorField(new float[] {1, 1}));
     childB1.add(new StringField(childMatchField, "T", Field.Store.NO));
     Document parentB = new Document();
     parentB.add(new StringField(NESTED_PARENT_MARKER_FIELD, "T", Field.Store.NO));
@@ -764,12 +772,9 @@ public class BinaryQuantizedVectorRescorerTest {
     this.indexWriter.addDocuments(List.of(childB1, parentB));
     this.indexWriter.commit();
 
-    float[] queryVector = new float[] {1, -1};
     QueryBitSetProducer parentFilter =
         new QueryBitSetProducer(new TermQuery(new Term(NESTED_PARENT_MARKER_FIELD, "T")));
-    MongotKnnFloatQuery knnQuery =
-        new MongotKnnFloatQuery(
-            metrics, FeatureFlags.getDefault(), this.vectorFieldName, queryVector, 10, childFilter);
+    Query knnQuery = knnQueryResolver(new float[] {1, -1}, 10, childFilter);
     WrappedToParentBlockJoinQuery blockJoinQuery =
         new WrappedToParentBlockJoinQuery(knnQuery, parentFilter, ScoreMode.Max);
 
@@ -779,7 +784,7 @@ public class BinaryQuantizedVectorRescorerTest {
 
     BinaryQuantizedVectorRescorer.FullFidelityRescorer rescorer =
         new BinaryQuantizedVectorRescorer.FullFidelityRescorer(
-            wrapRescoreQuery(knnQuery), this.executor, Optional.of(parentFilter));
+            BinaryQuantizedRescoreQuery.from(knnQuery), this.executor, Optional.of(parentFilter));
     TopDocs rescored = rescorer.rescore(searcher, parentTopDocs, 10);
 
     assertThat(rescored.scoreDocs).hasLength(2);
@@ -799,17 +804,15 @@ public class BinaryQuantizedVectorRescorerTest {
     TermQuery childFilter = new TermQuery(new Term(childMatchField, "T"));
 
     Document childA1 = new Document();
-    childA1.add(
-        new KnnFloatVectorField(this.vectorFieldName, new float[] {-1, 1}, this.similarity));
+    childA1.add(vectorField(new float[] {-1, 1}));
     childA1.add(new StringField(childMatchField, "T", Field.Store.NO));
     Document childA2 = new Document();
-    childA2.add(
-        new KnnFloatVectorField(this.vectorFieldName, new float[] {1, -1}, this.similarity));
+    childA2.add(vectorField(new float[] {1, -1}));
     Document parentA = new Document();
     parentA.add(new StringField(NESTED_PARENT_MARKER_FIELD, "T", Field.Store.NO));
 
     Document childB1 = new Document();
-    childB1.add(new KnnFloatVectorField(this.vectorFieldName, new float[] {1, 1}, this.similarity));
+    childB1.add(vectorField(new float[] {1, 1}));
     childB1.add(new StringField(childMatchField, "T", Field.Store.NO));
     Document parentB = new Document();
     parentB.add(new StringField(NESTED_PARENT_MARKER_FIELD, "T", Field.Store.NO));
@@ -818,12 +821,9 @@ public class BinaryQuantizedVectorRescorerTest {
     this.indexWriter.addDocuments(List.of(childB1, parentB));
     this.indexWriter.commit();
 
-    float[] queryVector = new float[] {1, -1};
     QueryBitSetProducer parentFilter =
         new QueryBitSetProducer(new TermQuery(new Term(NESTED_PARENT_MARKER_FIELD, "T")));
-    MongotKnnFloatQuery knnQuery =
-        new MongotKnnFloatQuery(
-            metrics, FeatureFlags.getDefault(), this.vectorFieldName, queryVector, 10, childFilter);
+    Query knnQuery = knnQueryResolver(new float[] {1, -1}, 10, childFilter);
     WrappedToParentBlockJoinQuery blockJoinQuery =
         new WrappedToParentBlockJoinQuery(knnQuery, parentFilter, ScoreMode.Max);
 
@@ -838,7 +838,7 @@ public class BinaryQuantizedVectorRescorerTest {
             searcher,
             parentTopDocs,
             criteria,
-            wrapRescoreQuery(knnQuery),
+            BinaryQuantizedRescoreQuery.from(knnQuery),
             Optional.of(parentFilter));
 
     assertThat(rescored.scoreDocs).hasLength(2);
@@ -846,16 +846,73 @@ public class BinaryQuantizedVectorRescorerTest {
     assertScoresValid(rescored);
   }
 
+  // ---- byte-only boundary test ----
+
+  @Test
+  public void fullFidelityByteRescoring_int8Boundaries_returnsResultsInOrder() throws IOException {
+    Assume.assumeTrue(this.type == Vector.VectorType.BYTE);
+    Assume.assumeTrue(this.similarity == EUCLIDEAN);
+    indexDocumentsAndCommit(
+        List.of(
+                new byte[] {-128, 100},
+                new byte[] {80, -128},
+                new byte[] {20, 30},
+                new byte[] {127, 127})
+            .stream()
+            .<Vector>map(Vector::fromBytes)
+            .toList(),
+        EUCLIDEAN);
+    createEmptySegment(2, this.type);
+
+    LuceneVectorSearchManager manager =
+        createSearchManager(Vector.fromBytes(new byte[] {9, 9}), 10, 100);
+
+    var searcherManager =
+        LuceneSearcherManager.create(
+            this.indexWriter,
+            new LuceneSearcherFactory(
+                VectorIndex.MOCK_VECTOR_DEFINITION,
+                false,
+                new QueryCacheProvider.DefaultQueryCacheProvider(),
+                Optional.empty(),
+                SearchIndex.mockQueryMetricsUpdater(IndexDefinition.Type.VECTOR_SEARCH)),
+            VectorIndex.mockMetricsFactory(),
+            () -> false);
+
+    var searcherReference =
+        LuceneIndexSearcherReference.create(
+            searcherManager,
+            SearchIndex.mockQueryMetricsUpdater(IndexDefinition.Type.VECTOR_SEARCH),
+            FeatureFlags.getDefault());
+    var firstPassTopDocs = manager.initialSearch(searcherReference, 10).topDocs;
+    var rescorer =
+        new BinaryQuantizedVectorRescorer.FullFidelityRescorer(
+            BinaryQuantizedRescoreQuery.from(manager.getLuceneQuery()), this.executor);
+
+    TopDocs fullResult =
+        rescorer.rescore(searcherReference.getIndexSearcher(), firstPassTopDocs, 10);
+    assertThat(Stream.of(fullResult.scoreDocs).mapToInt(value -> value.doc))
+        .containsExactly(2, 1, 0, 3)
+        .inOrder();
+
+    TopDocs subsetResult =
+        rescorer.rescore(searcherReference.getIndexSearcher(), firstPassTopDocs, 2);
+    assertThat(Stream.of(subsetResult.scoreDocs).mapToInt(value -> value.doc))
+        .containsExactly(2, 3)
+        .inOrder();
+    assertScoresValid(subsetResult);
+  }
+
   private static final String NESTED_PARENT_MARKER_FIELD = "$meta/embeddedRoot";
 
   /** Creates a Lucene document block: child docs (with vectors) followed by one parent doc. */
-  private List<Document> nestedBlock(float[]... childVectors) {
+  private List<Document> nestedBlock(Vector... childVectors) {
     List<Document> block =
         Arrays.stream(childVectors)
             .map(
                 vector -> {
                   Document child = new Document();
-                  child.add(new KnnFloatVectorField(this.vectorFieldName, vector, this.similarity));
+                  child.add(vectorField(vector, this.similarity));
                   return child;
                 })
             .collect(Collectors.toList());
@@ -863,6 +920,82 @@ public class BinaryQuantizedVectorRescorerTest {
     parent.add(new StringField(NESTED_PARENT_MARKER_FIELD, "T", Field.Store.NO));
     block.add(parent);
     return block;
+  }
+
+  /** Converts a float fixture into a byte-valid {@link Vector} of the given type. */
+  private static Vector toVector(float[] raw, Vector.VectorType type) {
+    if (type == Vector.VectorType.FLOAT) {
+      return Vector.fromFloats(raw, NATIVE);
+    }
+    byte[] bytes = new byte[raw.length];
+    for (int i = 0; i < raw.length; i++) {
+      long rounded = Math.round(raw[i]);
+      if (rounded < Byte.MIN_VALUE || rounded > Byte.MAX_VALUE) {
+        throw new IllegalArgumentException(
+            "Vector value is outside the signed byte range: " + raw[i]);
+      }
+      bytes[i] = (byte) rounded;
+    }
+    return Vector.fromBytes(bytes);
+  }
+
+  private static List<Vector> toVectors(Vector.VectorType type, float[]... raws) {
+    return Arrays.stream(raws).map(v -> toVector(v, type)).toList();
+  }
+
+  private static Vector[] toVectorArray(Vector.VectorType type, float[]... raws) {
+    return Arrays.stream(raws).map(v -> toVector(v, type)).toArray(Vector[]::new);
+  }
+
+  /** Builds a {@link KnnFloatVectorField} or {@link KnnByteVectorField} for {@code this.type}. */
+  private Field vectorField(float[] raw) {
+    return vectorField(toVector(raw, this.type), this.similarity);
+  }
+
+  /** Builds a {@link KnnFloatVectorField} or {@link KnnByteVectorField} for {@code vector}. */
+  private Field vectorField(Vector vector, VectorSimilarityFunction similarity) {
+    return vector.getVectorType() == Vector.VectorType.FLOAT
+        ? new KnnFloatVectorField(
+            this.vectorFieldName, vector.asFloatVector().getFloatVector(), similarity)
+        : new KnnByteVectorField(this.vectorFieldName, vector.getBytes(), similarity);
+  }
+
+  /** Builds a {@link MongotKnnFloatQuery} or {@link MongotKnnByteQuery} for {@code this.type}. */
+  private Query knnQueryResolver(float[] rawQueryVector, int numCandidates) {
+    return knnQueryResolver(toVector(rawQueryVector, this.type), numCandidates);
+  }
+
+  /** Builds a {@link MongotKnnFloatQuery} or {@link MongotKnnByteQuery} for {@code queryVector}. */
+  private Query knnQueryResolver(Vector queryVector, int numCandidates) {
+    if (queryVector.getVectorType() == Vector.VectorType.FLOAT) {
+      return new MongotKnnFloatQuery(
+          metrics,
+          this.vectorFieldName,
+          queryVector.asFloatVector().getFloatVector(),
+          numCandidates);
+    }
+    return new MongotKnnByteQuery(
+        metrics, this.vectorFieldName, queryVector.getBytes(), numCandidates);
+  }
+
+  /** Overload of {@link #knnQueryResolver(float[], int)} that also applies a child filter. */
+  private Query knnQueryResolver(float[] rawQueryVector, int numCandidates, Query childFilter) {
+    return knnQueryResolver(toVector(rawQueryVector, this.type), numCandidates, childFilter);
+  }
+
+  /** Overload of {@link #knnQueryResolver(Vector, int)} that also applies a child filter. */
+  private Query knnQueryResolver(Vector queryVector, int numCandidates, Query childFilter) {
+    if (queryVector.getVectorType() == Vector.VectorType.FLOAT) {
+      return new MongotKnnFloatQuery(
+          metrics,
+          FeatureFlags.getDefault(),
+          this.vectorFieldName,
+          queryVector.asFloatVector().getFloatVector(),
+          numCandidates,
+          childFilter);
+    }
+    return new MongotKnnByteQuery(
+        metrics, this.vectorFieldName, queryVector.getBytes(), numCandidates, childFilter);
   }
 
   private IndexSearcher buildSearcher() throws IOException {
@@ -894,12 +1027,12 @@ public class BinaryQuantizedVectorRescorerTest {
   }
 
   /** Create a segment with ghost vector values. */
-  private void createEmptySegment(int dim) throws IOException {
-    float[] v = new float[dim];
-    v[1] = 1f;
+  private void createEmptySegment(int dim, Vector.VectorType type) throws IOException {
     var toBeDeleted = new Document();
     toBeDeleted.add(new TextField("delete", "delete", Field.Store.NO));
-    toBeDeleted.add(new KnnFloatVectorField(this.vectorFieldName, v, this.similarity));
+    float[] v = new float[dim];
+    v[1] = 1f;
+    toBeDeleted.add(vectorField(toVector(v, type), this.similarity));
 
     var docToKeepSegmentLive = new Document();
     docToKeepSegmentLive.add(new StringField("keep", "keep", Field.Store.NO));
@@ -911,12 +1044,13 @@ public class BinaryQuantizedVectorRescorerTest {
     this.indexWriter.commit();
   }
 
-  private void indexDocumentsAndCommit(List<float[]> vectors, VectorSimilarityFunction similarity)
+  private void indexDocumentsAndCommit(List<Vector> vectors, VectorSimilarityFunction similarity)
       throws IOException {
 
-    for (float[] vector : vectors) {
+    for (Vector vector : vectors) {
       var document = new Document();
-      document.add(new KnnFloatVectorField(this.vectorFieldName, vector, similarity));
+      document.add(vectorField(vector, similarity));
+
       this.indexWriter.addDocument(document);
     }
 
@@ -929,38 +1063,22 @@ public class BinaryQuantizedVectorRescorerTest {
   }
 
   private LuceneVectorSearchManager createSearchManager(
-      float[] queryVector, int limit, int numCandidates) {
+      Vector queryVector, int limit, int numCandidates) {
 
     VectorSearchQuery vectorQuery =
         VectorQueryBuilder.builder()
             .index("myVectorIndex")
             .criteria(
                 ApproximateVectorQueryCriteriaBuilder.builder()
-                    .queryVector(Vector.fromFloats(queryVector, NATIVE))
+                    .queryVector(queryVector)
                     .path(FieldPath.newRoot("root"))
                     .limit(limit)
                     .numCandidates(numCandidates)
                     .build())
             .build();
-
-    KnnFloatVectorQuery luceneQuery =
-        new MongotKnnFloatQuery(metrics, this.vectorFieldName, queryVector, numCandidates);
-
+    Query luceneQuery = knnQueryResolver(queryVector, numCandidates);
     return new LuceneVectorSearchManager(
         luceneQuery, vectorQuery.criteria(), Optional.empty(), Optional.empty());
-  }
-
-  /**
-   * Wraps a Lucene {@link Query} into the matching {@link BinaryQuantizedRescoreQuery}
-   * implementation. Currently only {@link KnnFloatVectorQuery} is supported; this helper is
-   * scaffolding for a future {@code KnnByteVectorQuery} branch so call sites stay unchanged when
-   * byte support is added.
-   */
-  private static BinaryQuantizedRescoreQuery wrapRescoreQuery(Query query) {
-    if (query instanceof KnnFloatVectorQuery floatQuery) {
-      return new FloatBinaryQuantizedRescoreQuery(floatQuery);
-    }
-    throw new IllegalArgumentException("Unsupported query type: " + query.getClass());
   }
 
   private static ApproximateVectorSearchCriteria createVectorSearchQuery(

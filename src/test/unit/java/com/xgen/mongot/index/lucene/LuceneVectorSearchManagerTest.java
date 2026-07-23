@@ -8,8 +8,10 @@ import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.lucene.codec.LuceneCodec;
+import com.xgen.mongot.index.lucene.extension.KnnByteVectorField;
 import com.xgen.mongot.index.lucene.extension.KnnFloatVectorField;
 import com.xgen.mongot.index.lucene.field.FieldName;
+import com.xgen.mongot.index.lucene.query.custom.MongotKnnByteQuery;
 import com.xgen.mongot.index.lucene.query.custom.MongotKnnFloatQuery;
 import com.xgen.mongot.index.lucene.query.custom.WrappedKnnQuery;
 import com.xgen.mongot.index.lucene.query.util.WrappedToParentBlockJoinQuery;
@@ -31,6 +33,7 @@ import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
+import org.apache.lucene.search.KnnByteVectorQuery;
 import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.join.QueryBitSetProducer;
@@ -53,7 +56,8 @@ public class LuceneVectorSearchManagerTest {
   }
 
   @Test
-  public void shouldCapResultsWithLimitWhenNumCandidatesIsHigherThanLimit() throws IOException {
+  public void shouldCapResultsWithLimitWhenNumCandidatesIsHigherThanLimit_float()
+      throws IOException {
 
     int numCandidates = 3;
     FloatVector queryVector = Vector.fromFloats(new float[] {4f, 4f}, NATIVE);
@@ -121,17 +125,86 @@ public class LuceneVectorSearchManagerTest {
     assertThat(Arrays.stream(initialScoreDocs).map(s -> s.doc)).containsExactly(3, 2).inOrder();
   }
 
+  @Test
+  public void shouldCapResultsWithLimitWhenNumCandidatesIsHigherThanLimit_byte()
+      throws IOException {
+
+    int numCandidates = 3;
+    Vector queryVector = Vector.fromBytes(new byte[] {4, 4});
+    var query =
+        VectorQueryBuilder.builder()
+            .index("myVectorIndex")
+            .criteria(
+                ApproximateVectorQueryCriteriaBuilder.builder()
+                    .queryVector(queryVector)
+                    .path(FieldPath.newRoot("root"))
+                    .numCandidates(numCandidates)
+                    .limit(2)
+                    .build())
+            .build();
+    var luceneFieldName =
+        FieldName.TypeField.KNN_BYTE.getLuceneFieldName(
+            FieldPath.newRoot("field"), Optional.empty());
+
+    var manager =
+        new LuceneVectorSearchManager(
+            new MongotKnnByteQuery(metrics, luceneFieldName, queryVector.getBytes(), numCandidates),
+            query.criteria(),
+            Optional.empty(),
+            Optional.empty());
+
+    // insert documents into Lucene
+    Document doc1 = new Document();
+    doc1.add(new KnnByteVectorField(luceneFieldName, new byte[] {1, 1}, EUCLIDEAN));
+    this.indexWriter.addDocument(doc1);
+
+    Document doc2 = new Document();
+    doc2.add(new KnnByteVectorField(luceneFieldName, new byte[] {2, 2}, EUCLIDEAN));
+    this.indexWriter.addDocument(doc2);
+
+    Document doc3 = new Document();
+    doc3.add(new KnnByteVectorField(luceneFieldName, new byte[] {3, 3}, EUCLIDEAN));
+    this.indexWriter.addDocument(doc3);
+
+    Document doc4 = new Document();
+    doc4.add(new KnnByteVectorField(luceneFieldName, new byte[] {4, 4}, EUCLIDEAN));
+    this.indexWriter.addDocument(doc4);
+
+    this.indexWriter.commit();
+
+    LuceneSearcherManager searcherManager =
+        LuceneSearcherManager.create(
+            this.indexWriter,
+            new LuceneSearcherFactory(
+                VectorIndex.MOCK_VECTOR_DEFINITION,
+                false,
+                new QueryCacheProvider.DefaultQueryCacheProvider(),
+                Optional.empty(),
+                VectorIndex.mockQueryMetricsUpdater()),
+            VectorIndex.mockMetricsFactory(),
+            () -> false);
+
+    var searcherReference =
+        LuceneIndexSearcherReference.create(
+            searcherManager,
+            SearchIndex.mockQueryMetricsUpdater(IndexDefinition.Type.VECTOR_SEARCH),
+            FeatureFlags.getDefault());
+
+    var initialScoreDocs = manager.initialSearch(searcherReference, 2).topDocs.scoreDocs;
+    assertThat(Arrays.stream(initialScoreDocs).map(s -> s.doc)).containsExactly(3, 2).inOrder();
+  }
+
   // Tests for extractKnnQuery covering all four flat query shapes it must handle.
 
   @Test
-  public void extractKnnQuery_directKnn_returnsIt() {
+  public void extractKnnQuery_directKnnFloat_returnsIt() {
     KnnFloatVectorQuery knn = new KnnFloatVectorQuery("v", new float[] {1f}, 10);
 
     assertThat(LuceneVectorSearchManager.extractKnnQuery(knn)).isSameInstanceAs(knn);
   }
 
   @Test
-  public void extractKnnQuery_wrappedKnnAroundKnn_returnsKnn() {
+  public void extractKnnQuery_wrappedKnnAroundKnnFloat_returnsKnnFloat() {
     KnnFloatVectorQuery knn = new KnnFloatVectorQuery("v", new float[] {1f}, 10);
     WrappedKnnQuery wrappedKnn = new WrappedKnnQuery(knn);
 
@@ -139,7 +212,7 @@ public class LuceneVectorSearchManagerTest {
   }
 
   @Test
-  public void extractKnnQuery_booleanQueryMustKnn_returnsKnn() {
+  public void extractKnnQuery_booleanQueryMustKnnFloat_returnsKnnFloat() {
     KnnFloatVectorQuery knn = new KnnFloatVectorQuery("v", new float[] {1f}, 10);
     TermQuery filter = new TermQuery(new Term("category", "A"));
     BooleanQuery boolQuery =
@@ -152,8 +225,53 @@ public class LuceneVectorSearchManagerTest {
   }
 
   @Test
-  public void extractKnnQuery_wrappedKnnAroundBooleanQueryMustKnn_returnsKnn() {
+  public void extractKnnQuery_wrappedKnnAroundBooleanQueryMustKnnFloat_returnsKnnFloat() {
     KnnFloatVectorQuery knn = new KnnFloatVectorQuery("v", new float[] {1f}, 10);
+    TermQuery filter = new TermQuery(new Term("category", "A"));
+    BooleanQuery boolQuery =
+        new BooleanQuery.Builder()
+            .add(knn, BooleanClause.Occur.MUST)
+            .add(filter, BooleanClause.Occur.FILTER)
+            .build();
+    WrappedKnnQuery wrappedKnn = new WrappedKnnQuery(boolQuery);
+
+    assertThat(LuceneVectorSearchManager.extractKnnQuery(wrappedKnn)).isSameInstanceAs(knn);
+  }
+
+  // Byte variants of extractKnnQuery — the function was generalized in this PR to also
+  // recognize KnnByteVectorQuery via isKnnVectorQuery.
+
+  @Test
+  public void extractKnnQuery_directKnnByte_returnsIt() {
+    KnnByteVectorQuery knn = new KnnByteVectorQuery("v", new byte[] {1}, 10);
+
+    assertThat(LuceneVectorSearchManager.extractKnnQuery(knn)).isSameInstanceAs(knn);
+  }
+
+  @Test
+  public void extractKnnQuery_wrappedKnnAroundKnnByte_returnsKnnByte() {
+    KnnByteVectorQuery knn = new KnnByteVectorQuery("v", new byte[] {1}, 10);
+    WrappedKnnQuery wrappedKnn = new WrappedKnnQuery(knn);
+
+    assertThat(LuceneVectorSearchManager.extractKnnQuery(wrappedKnn)).isSameInstanceAs(knn);
+  }
+
+  @Test
+  public void extractKnnQuery_booleanQueryMustKnnByte_returnsKnnByte() {
+    KnnByteVectorQuery knn = new KnnByteVectorQuery("v", new byte[] {1}, 10);
+    TermQuery filter = new TermQuery(new Term("category", "A"));
+    BooleanQuery boolQuery =
+        new BooleanQuery.Builder()
+            .add(knn, BooleanClause.Occur.MUST)
+            .add(filter, BooleanClause.Occur.FILTER)
+            .build();
+
+    assertThat(LuceneVectorSearchManager.extractKnnQuery(boolQuery)).isSameInstanceAs(knn);
+  }
+
+  @Test
+  public void extractKnnQuery_wrappedKnnAroundBooleanQueryMustKnnByte_returnsKnnByte() {
+    KnnByteVectorQuery knn = new KnnByteVectorQuery("v", new byte[] {1}, 10);
     TermQuery filter = new TermQuery(new Term("category", "A"));
     BooleanQuery boolQuery =
         new BooleanQuery.Builder()

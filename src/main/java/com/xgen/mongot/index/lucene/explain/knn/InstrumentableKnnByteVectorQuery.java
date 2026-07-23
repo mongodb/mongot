@@ -75,4 +75,8 @@ public class InstrumentableKnnByteVectorQuery extends MongotKnnByteQuery {
     return this.instrumentationHelper.meteredMergeLeafResults(
         perLeafResults, () -> super.mergeLeafResults(perLeafResults));
   }
+
+  public void examineResultsAfterRescoring(TopDocs rescoredDocs) {
+    this.instrumentationHelper.examineResultsAfterRescoring(rescoredDocs);
+  }
 }

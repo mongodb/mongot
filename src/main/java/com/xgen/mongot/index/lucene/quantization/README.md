@@ -65,9 +65,10 @@ a Java `byte` array. When `compress` is true, which is always the case with Mong
 quantization, elements are stored eight bits per byte.
 
 
-[DequantizedVectorValues](DequantizedVectorValues.java) is a trivial VectorValues class for
-converting binary-quantized 1-bit elements from `byte` to `float`. Used by
-[BinaryQuantizedVectorRescorer](BinaryQuantizedVectorRescorer.java).
+[DequantizedFloatVectorValues](DequantizedFloatVectorValues.java) and
+[DequantizedByteVectorValues](DequantizedByteVectorValues.java) are trivial VectorValues classes
+for converting binary-quantized 1-bit elements to `float` and `byte`, respectively. They are used
+by [BinaryQuantizedVectorRescorer](BinaryQuantizedVectorRescorer.java).
 
 ## Pre-Quantized Vectors
 
@@ -83,4 +84,3 @@ The main class for the ingestion of pre-quantized vectors feature is:
 [Mongot01042HnswBitVectorsFormat](Mongot01042HnswBitVectorsFormat.java).
 
 [FlatBitVectorsScorer](FlatBitVectorsScorer.java) calculates scoring for the HNSW algorithm.
-
