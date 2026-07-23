@@ -82,9 +82,10 @@ public class VoyageClient implements ClientInterface {
   private final Counter aimdSuccessCounter;
   // AutoEmbedding counters published to the search-auto-embedding MaaS usecase.
   private final Counter maasTokenUsageCounter;
-  // embeddingRequests is split by outcome via a status tag (success|failed).
+  // embeddingRequests is split by outcome via a status tag (success|failed); failed series also
+  // carry an errorCode tag, so they are resolved dynamically off this sibling factory.
   private final Counter maasEmbeddingRequestsSuccessCounter;
-  private final Counter maasEmbeddingRequestsFailedCounter;
+  private final MetricsFactory maasEmbeddingMetricsFactory;
   private final MetricsFactory metricsFactory;
   private @Nullable DynamicSemaphore congestionSemaphore;
 
@@ -215,10 +216,13 @@ public class VoyageClient implements ClientInterface {
                 "canonicalModel", embeddingModelConfig.name(),
                 "phase", tier.phase()));
     this.maasTokenUsageCounter = maasMetricsFactory.counter("tokenUsage");
+    // errorCode="none" on success keeps this series' tag-key set identical to the failed series
+    // ({..., status, errorCode}); Prometheus-backed registries reject one metric name with two
+    // differing key sets.
     this.maasEmbeddingRequestsSuccessCounter =
-        maasMetricsFactory.counter("embeddingRequests", Tags.of("status", "success"));
-    this.maasEmbeddingRequestsFailedCounter =
-        maasMetricsFactory.counter("embeddingRequests", Tags.of("status", "failed"));
+        maasMetricsFactory.counter(
+            "embeddingRequests", Tags.of("status", "success", "errorCode", "none"));
+    this.maasEmbeddingMetricsFactory = maasMetricsFactory;
     updateConfig(workloadParams);
 
     // Dedicated clusters must have credentialToken set
@@ -284,8 +288,12 @@ public class VoyageClient implements ClientInterface {
       renewHttpClientIfStale();
       HttpClient clientForRequest = this.voyageHttpClient;
       // Each provider call actually issued (post input-validation, pre-send) is counted once in
-      // the finally below, tagged by outcome (status=success|failed).
+      // the finally below, tagged by outcome (status=success|failed) and, on failure, the HTTP
+      // errorCode.
       @Var boolean requestSucceeded = false;
+      // HTTP status of a failure (e.g. 408/429/500); "none" when the failure carries no HTTP
+      // status.
+      @Var String failureErrorCode = "none";
       try {
         HttpResponse<String> response =
             clientForRequest.send(request, HttpResponse.BodyHandlers.ofString());
@@ -304,6 +312,7 @@ public class VoyageClient implements ClientInterface {
         }
         LOG.error("Got timeout when sending voyage API request", e);
         isAck = false;
+        failureErrorCode = "408";
         recordProviderErrorMetric(
             EmbeddingProviderTransientException.Reason.HTTP_TIMEOUT, Optional.of(408));
         throw new EmbeddingProviderTransientException(
@@ -311,6 +320,7 @@ public class VoyageClient implements ClientInterface {
       } catch (EmbeddingProviderRateLimitException e) {
         LOG.error("Got rate-limit error when sending voyage API request", e);
         isAck = false;
+        failureErrorCode = "429";
         // EmbeddingProviderRateLimitException is only thrown from the HTTP 429 branch in
         // extractVectorsFromResponse, so the status code is always 429.
         recordProviderErrorMetric(
@@ -333,12 +343,16 @@ public class VoyageClient implements ClientInterface {
             e, EmbeddingProviderTransientException.Reason.HTTP_IO_EXCEPTION);
       } catch (EmbeddingProviderTransientException e) {
         LOG.error("Got an error when processing voyage API response", e);
+        failureErrorCode = e.getHttpStatusCode().map(Object::toString).orElse("none");
         throw e;
       } finally {
         if (requestSucceeded) {
           this.maasEmbeddingRequestsSuccessCounter.increment();
         } else {
-          this.maasEmbeddingRequestsFailedCounter.increment();
+          this.maasEmbeddingMetricsFactory
+              .counter(
+                  "embeddingRequests", Tags.of("status", "failed", "errorCode", failureErrorCode))
+              .increment();
         }
       }
     } finally {
@@ -793,7 +807,8 @@ public class VoyageClient implements ClientInterface {
           EmbeddingProviderTransientException.Reason.HTTP_NON_OK_STATUS, Optional.of(statusCode));
       throw new EmbeddingProviderTransientException(
           String.format("Got non OK status from response, status code: %s", statusCode),
-          EmbeddingProviderTransientException.Reason.HTTP_NON_OK_STATUS);
+          EmbeddingProviderTransientException.Reason.HTTP_NON_OK_STATUS,
+          Optional.of(statusCode));
     }
     try {
       String outputDataType = getOutputDataType(context.autoEmbedQuantization());

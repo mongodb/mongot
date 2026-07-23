@@ -35,6 +35,8 @@ import com.xgen.mongot.util.UserFacingException;
 import com.xgen.mongot.util.bson.Vector;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.prometheusmetrics.PrometheusConfig;
+import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.net.http.HttpClient;
@@ -1730,14 +1732,6 @@ public class VoyageClientTest {
             .counter()
             .count(),
         0.0);
-    assertEquals(
-        0.0,
-        registry
-            .get("autoEmbedding.embeddingRequests")
-            .tags(tags.and("status", "failed"))
-            .counter()
-            .count(),
-        0.0);
   }
 
   @Test
@@ -1773,7 +1767,7 @@ public class VoyageClientTest {
         1.0,
         registry
             .get("autoEmbedding.embeddingRequests")
-            .tags(tags.and("status", "failed"))
+            .tags(tags.and("status", "failed").and("errorCode", "408"))
             .counter()
             .count(),
         0.0);
@@ -1785,5 +1779,93 @@ public class VoyageClientTest {
             .counter()
             .count(),
         0.0);
+  }
+
+  @Test
+  public void embed_nonOkStatus_recordsFailedEmbeddingRequestCounterWithHttpCode()
+      throws Exception {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MetricsFactory metricsFactory = new MetricsFactory("test", registry);
+    EmbeddingModelConfig modelConfig =
+        EmbeddingModelConfig.create(
+            "voyage-3-large",
+            EmbeddingServiceConfig.EmbeddingProvider.VOYAGE,
+            createDedicatedClusterConfig("test-token"));
+    VoyageClient voyageClient =
+        new VoyageClient(
+            modelConfig,
+            EmbeddingServiceConfig.ServiceTier.QUERY,
+            modelConfig.query(),
+            metricsFactory,
+            Optional.empty(),
+            false,
+            false);
+    HttpResponse<String> mockResponse = mock(HttpResponse.class);
+    doReturn(500).when(mockResponse).statusCode();
+    doReturn("Internal Server Error").when(mockResponse).body();
+    HttpClient mockClient = mock(HttpClient.class);
+    doReturn(mockResponse)
+        .when(mockClient)
+        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+    VoyageClient.injectVoyageClient(voyageClient, mockClient);
+
+    assertThrows(
+        EmbeddingProviderTransientException.class,
+        () -> voyageClient.embed(List.of("hello"), dummyContext()));
+
+    // The 5xx status is surfaced on the rethrown exception, so the failed series is tagged 500.
+    Tags tags = Tags.of("provider", "VOYAGE", "canonicalModel", "voyage-3-large", "phase", "query");
+    assertEquals(
+        1.0,
+        registry
+            .get("autoEmbedding.embeddingRequests")
+            .tags(tags.and("status", "failed").and("errorCode", "500"))
+            .counter()
+            .count(),
+        0.0);
+  }
+
+  @Test
+  public void embed_successAndFailure_shareTagKeysOnPrometheusRegistry() throws Exception {
+    // Prometheus requires all series of a metric name to share one tag-key set. The success
+    // counter registers eagerly (constructor) and a failure lazily adds the status=failed series;
+    // if the two carried different keys, the failed registration/scrape would throw. This guards
+    // that both series carry the errorCode key (success -> "none"). SimpleMeterRegistry does not
+    // enforce this, so the check needs a real PrometheusMeterRegistry.
+    PrometheusMeterRegistry registry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
+    MetricsFactory metricsFactory = new MetricsFactory("test", registry);
+    EmbeddingModelConfig modelConfig =
+        EmbeddingModelConfig.create(
+            "voyage-3-large",
+            EmbeddingServiceConfig.EmbeddingProvider.VOYAGE,
+            createDedicatedClusterConfig("test-token"));
+    VoyageClient voyageClient =
+        new VoyageClient(
+            modelConfig,
+            EmbeddingServiceConfig.ServiceTier.QUERY,
+            modelConfig.query(),
+            metricsFactory,
+            Optional.empty(),
+            false,
+            false);
+
+    VoyageClient.injectVoyageClient(voyageClient, createMockHttpClient());
+    voyageClient.embed(List.of("hello"), dummyContext());
+
+    HttpClient throwingClient = mock(HttpClient.class);
+    doThrow(new HttpTimeoutException("timed out"))
+        .when(throwingClient)
+        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+    VoyageClient.injectVoyageClient(voyageClient, throwingClient);
+    assertThrows(
+        EmbeddingProviderTransientException.class,
+        () -> voyageClient.embed(List.of("hello"), dummyContext()));
+
+    // Scrape succeeds (no uniform-tag-key violation) and exposes both series.
+    String scrape = registry.scrape();
+    assertTrue(scrape.contains("status=\"success\""));
+    assertTrue(scrape.contains("status=\"failed\""));
+    assertTrue(scrape.contains("errorCode=\"none\""));
+    assertTrue(scrape.contains("errorCode=\"408\""));
   }
 }

@@ -1,30 +1,53 @@
 package com.xgen.mongot.embedding.exceptions;
 
+import java.util.Optional;
+
 public class EmbeddingProviderTransientException extends RuntimeException {
   private final Reason reason;
+  private final Optional<Integer> httpStatusCode;
 
   public EmbeddingProviderTransientException(String message) {
     super(message);
     this.reason = Reason.UNKNOWN;
+    this.httpStatusCode = Optional.empty();
   }
 
   public EmbeddingProviderTransientException(Throwable throwable) {
     super(throwable);
     this.reason = Reason.UNKNOWN;
+    this.httpStatusCode = Optional.empty();
   }
 
   public EmbeddingProviderTransientException(String message, Reason reason) {
-    super(message);
-    this.reason = reason == null ? Reason.UNKNOWN : reason;
+    this(message, reason, Optional.empty());
   }
 
   public EmbeddingProviderTransientException(Throwable throwable, Reason reason) {
     super(throwable);
     this.reason = reason == null ? Reason.UNKNOWN : reason;
+    this.httpStatusCode = Optional.empty();
+  }
+
+  /**
+   * Creates a transient failure tagged with the originating provider HTTP status.
+   *
+   * @param httpStatusCode the provider HTTP status when the failure was a non-OK HTTP response;
+   *     empty for network, timeout, or parse failures with no HTTP status.
+   */
+  public EmbeddingProviderTransientException(
+      String message, Reason reason, Optional<Integer> httpStatusCode) {
+    super(message);
+    this.reason = reason == null ? Reason.UNKNOWN : reason;
+    this.httpStatusCode = httpStatusCode == null ? Optional.empty() : httpStatusCode;
   }
 
   public Reason getReason() {
     return this.reason;
+  }
+
+  /** The provider HTTP status code, present only for non-OK HTTP response failures. */
+  public Optional<Integer> getHttpStatusCode() {
+    return this.httpStatusCode;
   }
 
   /** Categorizes the cause of a transient embedding provider failure. */
