@@ -14,17 +14,29 @@ import com.xgen.mongot.index.analyzer.InvalidAnalyzerDefinitionException;
 import com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.autoembedding.UnresolvedAutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.VectorDataFieldDefinition;
+import com.xgen.mongot.index.definition.VectorFieldSpecification;
+import com.xgen.mongot.index.definition.VectorIndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
+import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
+import com.xgen.mongot.index.definition.VectorSearchEngine;
+import com.xgen.mongot.index.definition.VectorSimilarity;
+import com.xgen.mongot.index.definition.quantization.VectorQuantization;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.GenerationId;
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.TestUtils;
 import com.xgen.testing.mongot.config.manager.ConfigStateMocks;
+import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import com.xgen.testing.mongot.mock.index.IndexGeneration;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import com.xgen.testing.mongot.mock.index.VectorIndex;
 import java.io.IOException;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
+import org.bson.types.ObjectId;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -249,6 +261,69 @@ public class IndexActionsTest {
     this.mocks.assertStagedIndexesAre(); // no staged indexes.
     this.mocks.assertIndexCreatedAndDropped(STAGED_INDEX_DEFINITION_GENERATION);
     verify(this.mocks.lifecycleManager, never()).dropIndex(any());
+  }
+
+  @Test
+  public void testCustomVectorEngineIndexLeftUninitialized() throws Exception {
+    var definitionGeneration = mockCustomVectorEngineDefinitionGeneration();
+
+    this.actions.addNewIndexes(List.of(definitionGeneration));
+
+    // The index stays in the catalog so the SLS conf call can still see it and request a log...
+    Assert.assertTrue(
+        this.mocks
+            .indexCatalog
+            .getIndexById(definitionGeneration.getIndexDefinition().getIndexId())
+            .isPresent());
+    // ...but it is never enqueued for initialization until the SLS-driven init path exists.
+    verify(this.mocks.lifecycleManager, never()).add(any());
+  }
+
+  @Test
+  public void testCustomVectorEngineStagedIndexLeftUninitialized() throws Exception {
+    var definitionGeneration = mockCustomVectorEngineDefinitionGeneration();
+    this.actions.addNewIndexes(List.of(definitionGeneration));
+    this.mocks.clearInvocations();
+
+    var stagedDefinitionGeneration =
+        definitionGeneration.incrementUser(definitionGeneration.getIndexDefinition());
+    this.actions.addStagedIndex(stagedDefinitionGeneration);
+
+    Assert.assertTrue(
+        this.mocks
+            .staged
+            .getIndex(definitionGeneration.getIndexDefinition().getIndexId())
+            .isPresent());
+    verify(this.mocks.lifecycleManager, never()).add(any());
+  }
+
+  @Test
+  public void testNonCustomVectorEngineIndexStillInitialized() throws Exception {
+    // Control: a regular (non custom vector engine) vector index is still enqueued as usual.
+    this.actions.addNewIndexes(List.of(VectorIndex.MOCK_INDEX_DEFINITION_GENERATION));
+
+    verify(this.mocks.lifecycleManager).add(any());
+  }
+
+  private static VectorIndexDefinitionGeneration mockCustomVectorEngineDefinitionGeneration() {
+    return mockDefinitionGeneration(
+        VectorIndexDefinitionBuilder.builder()
+            .indexId(new ObjectId())
+            .name("custom_vector_engine_index")
+            .database("mock_database")
+            .lastObservedCollectionName("mock_collection")
+            .collectionUuid(UUID.randomUUID())
+            .setFields(
+                List.<VectorIndexFieldDefinition>of(
+                    new VectorDataFieldDefinition(
+                        FieldPath.parse("vector.path"),
+                        new VectorFieldSpecification(
+                            3,
+                            VectorSimilarity.COSINE,
+                            VectorQuantization.NONE,
+                            new VectorIndexingAlgorithm.HnswIndexingAlgorithm(),
+                            VectorSearchEngine.CUSTOM))))
+            .build());
   }
 
   @Test

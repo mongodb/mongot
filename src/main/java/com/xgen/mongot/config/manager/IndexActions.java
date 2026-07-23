@@ -12,6 +12,7 @@ import com.xgen.mongot.index.analyzer.InvalidAnalyzerDefinitionException;
 import com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGenerationFactory;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.Crash;
@@ -100,9 +101,34 @@ public class IndexActions {
       return;
     }
 
+    if (deferVectorliteInitialization(indexGeneration)) {
+      // The custom vector engine (vectorlite) initialization path is driven by the SLS conf call
+      // and is not yet implemented; leave the index uninitialized in the catalog for now.
+      LOG.atInfo()
+          .addKeyValue("indexId", generationId.indexId)
+          .addKeyValue("generationId", generationId)
+          .log("Leaving custom vector engine index uninitialized; SLS-driven init not yet wired.");
+      return;
+    }
+
     if (this.withReplication) {
       this.configState.getLifecycleManager().add(indexGeneration);
     }
+  }
+
+  /**
+   * Whether initialization of {@code indexGeneration} should be deferred because it is a custom
+   * vector engine (vectorlite) index whose SLS-driven initialization path is not yet implemented.
+   *
+   * <p>When {@code true}, callers must skip {@link LifecycleManager#add} and leave the index in the
+   * catalog (reported as {@code NOT_STARTED}). The index is still visible to the SLS conf call so
+   * it can be assigned a log; a future change will initialize it once a log id has been assigned.
+   * Whether vectorlite indexes exist at all is gated on the control-plane side (mms), so no mongot
+   * feature flag is consulted here.
+   */
+  static boolean deferVectorliteInitialization(IndexGeneration indexGeneration) {
+    return indexGeneration.getDefinition() instanceof VectorIndexDefinition vectorDefinition
+        && vectorDefinition.isCustomVectorEngineIndex();
   }
 
   void addStagedIndexes(List<IndexDefinitionGeneration> definitions)
@@ -147,6 +173,17 @@ public class IndexActions {
                 "Unable to create auto-embedding stage index, "
                     + "Skips replication for this definition at this time.");
       }
+      return;
+    }
+    if (deferVectorliteInitialization(indexGeneration)) {
+      // See addIndex: custom vector engine (vectorlite) staged indexes are left uninitialized until
+      // the SLS-driven initialization path exists.
+      LOG.atInfo()
+          .addKeyValue("indexId", generationId.indexId)
+          .addKeyValue("generationId", generationId)
+          .log(
+              "Leaving custom vector engine staged index uninitialized; SLS-driven init not yet"
+                  + " wired.");
       return;
     }
     if (this.withReplication) {

@@ -1,5 +1,6 @@
 package com.xgen.mongot.config.manager;
 
+import static com.xgen.mongot.config.manager.IndexActions.deferVectorliteInitialization;
 import static com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGenerationFactory.isAutoEmbeddingResolutionFailed;
 import static com.xgen.mongot.util.Check.checkArg;
 import static com.xgen.mongot.util.Check.checkState;
@@ -247,10 +248,12 @@ public class DefaultConfigManager implements ConfigManager {
 
     configState.indexCatalog.getIndexes().stream()
         .filter(indexGeneration -> !isAutoEmbeddingResolutionFailed(indexGeneration))
+        .filter(indexGeneration -> !deferVectorliteInitialization(indexGeneration))
         .forEach(indexGeneration -> configState.getLifecycleManager().add(indexGeneration));
 
     configState.staged.getIndexes().stream()
         .filter(indexGeneration -> !isAutoEmbeddingResolutionFailed(indexGeneration))
+        .filter(indexGeneration -> !deferVectorliteInitialization(indexGeneration))
         .forEach(indexGeneration -> configState.getLifecycleManager().add(indexGeneration));
   }
 
