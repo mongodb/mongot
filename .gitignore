@@ -22,6 +22,7 @@ scripts/silkbomb/third-party-tools/*
 scripts/copybara/copy.bara.sky
 scripts/copybara/copybara_credentials.yaml
 scripts/copybara/release_archive_credentials.yaml
+scripts/release/release_notes_credentials.yaml
 scripts/copybara/mongodb-bot.gitconfig
 scripts/netty-tcnative/output
 
