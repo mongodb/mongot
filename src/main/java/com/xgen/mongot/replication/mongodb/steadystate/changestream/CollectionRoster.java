@@ -169,6 +169,22 @@ class CollectionRoster {
   }
 
   /**
+   * The idle seconds for a single index, looked up by its {@link GenerationId} via its collection.
+   * All indexes on a collection share the value because they tail the same events. Returns zero
+   * when the index is not tracked or {@code position} is null (no batch processed yet).
+   */
+  long idleSecondsForIndex(GenerationId generationId, @Nullable BsonTimestamp position) {
+    if (position == null) {
+      return 0;
+    }
+    UUID collectionUuid = this.collectionByIndex.get(generationId);
+    if (collectionUuid == null) {
+      return 0;
+    }
+    return this.idleSeconds(collectionUuid, position);
+  }
+
+  /**
    * A collection's idle seconds derived from optimes: the current stream position minus the cluster
    * time of the collection's most recent event. A collection whose baseline has not been seeded yet
    * reports zero.

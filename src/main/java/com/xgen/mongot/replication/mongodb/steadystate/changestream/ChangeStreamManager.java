@@ -144,7 +144,7 @@ public class ChangeStreamManager {
                         databaseName,
                         syncMongoClient,
                         sessionRefresher,
-                        meterRegistry,
+                        meterAndFtdcRegistry,
                         Duration.ofSeconds(
                             replicationConfig.getChangeStreamInactivityThresholdSec()),
                         replicationConfig.getReplicationType()))

@@ -5,12 +5,15 @@ import static com.google.common.truth.Truth.assertThat;
 import com.mongodb.MongoNamespace;
 import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.index.version.GenerationId;
+import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoClient;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
 import com.xgen.mongot.util.concurrent.Executors;
 import com.xgen.mongot.util.concurrent.NamedScheduledExecutorService;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.ByteBuffer;
 import java.time.Duration;
@@ -37,7 +40,11 @@ public class ChangeStreamActivityObserverTest {
   private static final Duration RETRY_DELAY = Duration.ofMillis(10);
   private static final Duration AWAIT_TIMEOUT = Duration.ofSeconds(10);
 
+  private static final String PER_INDEX_NAMESPACE =
+      "indexing.steadyStateChangeStream.activityObserver";
+
   private SimpleMeterRegistry meterRegistry;
+  private MeterAndFtdcRegistry meterAndFtdcRegistry;
   private MetricsFactory metricsFactory;
   private NamedScheduledExecutorService executor;
   private ScriptedStream stream;
@@ -46,6 +53,7 @@ public class ChangeStreamActivityObserverTest {
   @Before
   public void setUp() {
     this.meterRegistry = new SimpleMeterRegistry();
+    this.meterAndFtdcRegistry = MeterAndFtdcRegistry.createWithMeterRegistry(this.meterRegistry);
     this.metricsFactory = new MetricsFactory("test.activityObserver", this.meterRegistry);
     this.executor =
         Executors.singleThreadScheduledExecutor("test-activity-observer", this.meterRegistry);
@@ -71,6 +79,7 @@ public class ChangeStreamActivityObserverTest {
             this.executor,
             THRESHOLD,
             this.metricsFactory,
+            this.meterAndFtdcRegistry,
             RETRY_DELAY,
             Duration.ofMillis(200));
   }
@@ -255,6 +264,91 @@ public class ChangeStreamActivityObserverTest {
     assertThat(this.meterRegistry.find("test.activityObserver.trackedIndexes").gauge()).isNull();
     // Closing twice is safe.
     this.observer.close();
+  }
+
+  @Test
+  public void indexIdleSecondsReflectsPerCollectionIdle() throws Exception {
+    GenerationId indexA = newGenerationId();
+    GenerationId indexB = newGenerationId();
+    startObserver();
+    this.observer.register(indexA, namespace("collA"), UUID.randomUUID());
+    this.observer.register(indexB, namespace("collB"), UUID.randomUUID());
+
+    // Seed both, then drive events at different cluster times and advance the position to 2000.
+    this.stream.offerBatch(emptyBatch(1000));
+    this.stream.offerBatch(batchWithEvent(event("collA", 1800), 1900));
+    this.stream.offerBatch(batchWithEvent(event("collB", 1200), 2000));
+    this.stream.awaitCalls(4);
+
+    // collA last active at 1800, collB at 1200; position is 2000.
+    assertThat(indexIdleGauge(indexA).value()).isEqualTo(200.0);
+    assertThat(indexIdleGauge(indexB).value()).isEqualTo(800.0);
+  }
+
+  @Test
+  public void indexesOnSameCollectionShareIdleValue() throws Exception {
+    UUID collection = UUID.randomUUID();
+    GenerationId indexA = newGenerationId();
+    GenerationId indexB = newGenerationId();
+    startObserver();
+    this.observer.register(indexA, namespace("coll"), collection);
+    this.observer.register(indexB, namespace("coll"), collection);
+
+    this.stream.offerBatch(emptyBatch(1000));
+    this.stream.offerBatch(batchWithEvent(event("coll", 1500), 1700));
+    this.stream.awaitCalls(3);
+
+    assertThat(indexIdleGauge(indexA).value()).isEqualTo(200.0);
+    assertThat(indexIdleGauge(indexB).value()).isEqualTo(200.0);
+  }
+
+  @Test
+  public void deregisterRemovesOnlyThatIndexGauge() throws Exception {
+    GenerationId indexA = newGenerationId();
+    GenerationId indexB = newGenerationId();
+    startObserver();
+    this.observer.register(indexA, namespace("collA"), UUID.randomUUID());
+    this.observer.register(indexB, namespace("collB"), UUID.randomUUID());
+    this.stream.offerBatch(emptyBatch(1000));
+    this.stream.awaitCalls(2);
+
+    this.observer.deregister(indexA);
+
+    assertThat(findIndexIdleGauge(indexA)).isNull();
+    assertThat(findIndexIdleGauge(indexB)).isNotNull();
+  }
+
+  @Test
+  public void indexIdleSecondsIsZeroBeforeAnyBatch() {
+    GenerationId index = newGenerationId();
+    startObserver();
+    this.observer.register(index, namespace("coll"), UUID.randomUUID());
+
+    // No batch processed yet, so the position is null and idle reads zero.
+    assertThat(indexIdleGauge(index).value()).isEqualTo(0.0);
+  }
+
+  private Gauge indexIdleGauge(GenerationId generationId) {
+    return this.meterRegistry
+        .get(PER_INDEX_NAMESPACE + ".indexIdleSeconds")
+        .tags(indexTags(generationId))
+        .gauge();
+  }
+
+  private Gauge findIndexIdleGauge(GenerationId generationId) {
+    var search =
+        this.meterRegistry
+            .find(PER_INDEX_NAMESPACE + ".indexIdleSeconds")
+            .tags(indexTags(generationId));
+    return search.gauge();
+  }
+
+  private static Tags indexTags(GenerationId generationId) {
+    return Tags.of(
+        "generationId logString",
+        generationId.uniqueString(),
+        "indexId logString",
+        generationId.indexId.toHexString());
   }
 
   private double gauge(String name) {

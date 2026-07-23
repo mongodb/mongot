@@ -4,7 +4,9 @@ import com.google.errorprone.annotations.Var;
 import com.mongodb.MongoNamespace;
 import com.mongodb.client.MongoClient;
 import com.xgen.mongot.index.version.GenerationId;
+import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.MetricsFactory;
+import com.xgen.mongot.metrics.PerIndexMetricsFactory;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoClient;
 import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
@@ -19,8 +21,10 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -64,6 +68,10 @@ class ChangeStreamActivityObserver implements AutoCloseable {
 
   private static final Duration CLOSE_TIMEOUT = Duration.ofSeconds(5);
 
+  /** Namespace shared by the per-DB gauges and the per-index {@code indexIdleSeconds} gauge. */
+  private static final String METRICS_NAMESPACE =
+      "indexing.steadyStateChangeStream.activityObserver";
+
   /**
    * Events-only projection: the observer needs just enough of each event to demux it by collection.
    * Keeping {@code _id} is mandatory for change-stream cursors. Full documents are never fetched
@@ -91,8 +99,17 @@ class ChangeStreamActivityObserver implements AutoCloseable {
   private final NamedScheduledExecutorService executor;
   private final Duration inactivityThreshold;
   private final MetricsFactory metricsFactory;
+  private final MeterAndFtdcRegistry meterAndFtdcRegistry;
   private final Duration streamRetryDelay;
   private final Duration closeTimeout;
+
+  /**
+   * The per-index {@code indexIdleSeconds} gauge factory per registered index. The map holds a
+   * strong reference to each {@link PerIndexMetricsFactory} (and to its {@link GenerationId} key,
+   * which is the gauge's weakly-referenced state object) until the index is deregistered. Mutated
+   * under the {@link ChangeStreamManager} lock; read on the closing thread.
+   */
+  private final Map<GenerationId, PerIndexMetricsFactory> perIndexFactories;
 
   /** The per-collection roster and demux state. */
   private final CollectionRoster roster;
@@ -126,12 +143,13 @@ class ChangeStreamActivityObserver implements AutoCloseable {
       String databaseName,
       MongoClient mongoClient,
       SessionRefresher sessionRefresher,
-      MeterRegistry meterRegistry,
+      MeterAndFtdcRegistry meterAndFtdcRegistry,
       Duration inactivityThreshold,
       CommonReplicationConfig.Type replicationType) {
+    MeterRegistry meterRegistry = meterAndFtdcRegistry.meterRegistry();
     MetricsFactory metricsFactory =
         new MetricsFactory(
-            "indexing.steadyStateChangeStream.activityObserver",
+            METRICS_NAMESPACE,
             meterRegistry,
             Tags.of("database", databaseName, "replicationType", replicationType.name()));
     NamedScheduledExecutorService executor =
@@ -155,6 +173,7 @@ class ChangeStreamActivityObserver implements AutoCloseable {
         executor,
         inactivityThreshold,
         metricsFactory,
+        meterAndFtdcRegistry,
         STREAM_RETRY_DELAY,
         CLOSE_TIMEOUT);
   }
@@ -165,6 +184,7 @@ class ChangeStreamActivityObserver implements AutoCloseable {
       NamedScheduledExecutorService executor,
       Duration inactivityThreshold,
       MetricsFactory metricsFactory,
+      MeterAndFtdcRegistry meterAndFtdcRegistry,
       Duration streamRetryDelay,
       Duration closeTimeout) {
     this.databaseName = databaseName;
@@ -172,9 +192,11 @@ class ChangeStreamActivityObserver implements AutoCloseable {
     this.executor = executor;
     this.inactivityThreshold = inactivityThreshold;
     this.metricsFactory = metricsFactory;
+    this.meterAndFtdcRegistry = meterAndFtdcRegistry;
     this.streamRetryDelay = streamRetryDelay;
     this.closeTimeout = closeTimeout;
 
+    this.perIndexFactories = new ConcurrentHashMap<>();
     this.roster = new CollectionRoster();
     this.currentPosition = new AtomicReference<>();
     this.lastResumeToken = null;
@@ -202,6 +224,19 @@ class ChangeStreamActivityObserver implements AutoCloseable {
    */
   void register(GenerationId generationId, MongoNamespace namespace, UUID collectionUuid) {
     this.roster.register(generationId, namespace, collectionUuid, this.currentPosition.get());
+    this.perIndexFactories.computeIfAbsent(
+        generationId,
+        gen -> {
+          PerIndexMetricsFactory factory =
+              new PerIndexMetricsFactory(METRICS_NAMESPACE, this.meterAndFtdcRegistry, gen);
+          // The state object is the GenerationId itself; the map key keeps it strongly reachable so
+          // Micrometer's weak reference to it does not clear (which would make the gauge read NaN).
+          factory.perIndexObjectValueGauge(
+              "indexIdleSeconds",
+              gen,
+              g -> this.roster.idleSecondsForIndex(g, this.currentPosition.get()));
+          return factory;
+        });
   }
 
   /**
@@ -211,6 +246,10 @@ class ChangeStreamActivityObserver implements AutoCloseable {
    * @return true when the observer tracks no indexes afterwards, so the caller may close it
    */
   boolean deregister(GenerationId generationId) {
+    PerIndexMetricsFactory factory = this.perIndexFactories.remove(generationId);
+    if (factory != null) {
+      factory.close();
+    }
     return this.roster.deregister(generationId);
   }
 
@@ -254,6 +293,12 @@ class ChangeStreamActivityObserver implements AutoCloseable {
               "Activity observer read loop did not stop within the close timeout;"
                   + " leaving stream cleanup to the read loop");
     }
+    // Close any per-index factories that survived (deregister normally removes them first) so their
+    // indexIdleSeconds gauges do not leak on the registry.
+    for (PerIndexMetricsFactory factory : this.perIndexFactories.values()) {
+      factory.close();
+    }
+    this.perIndexFactories.clear();
     this.metricsFactory.close();
     LOG.atInfo().addKeyValue("database", this.databaseName).log("Closed activity observer");
   }
