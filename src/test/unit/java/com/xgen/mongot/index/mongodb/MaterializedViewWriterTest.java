@@ -15,6 +15,7 @@ import com.google.common.util.concurrent.RateLimiter;
 import com.mongodb.MongoBulkWriteException;
 import com.mongodb.MongoNamespace;
 import com.mongodb.bulk.BulkWriteError;
+import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
@@ -368,6 +369,87 @@ public class MaterializedViewWriterTest {
                   return list.get(0) instanceof com.mongodb.client.model.UpdateOneModel;
                 }),
             same(MaterializedViewWriter.MV_BULK_WRITE_OPTIONS));
+  }
+
+  @Test
+  public void testFilterOnlyUpdateNoOpIsCountedAsUnmatchedFilterUpdate()
+      throws IOException, FieldExceededLimitsException {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MetricsFactory metricsFactory = new MetricsFactory("noOpTest", registry);
+
+    // A filter-only $set (UpdateOneModel, upsert=false) that matches no MV document — e.g. the doc
+    // has not been ingested by initial sync yet. matchedCount=0 and no upserts, so the single
+    // expected write effect did not land: a silent dropped write.
+    BulkWriteResult noOpResult = mock(BulkWriteResult.class);
+    when(noOpResult.wasAcknowledged()).thenReturn(true);
+    when(noOpResult.getMatchedCount()).thenReturn(0);
+    when(noOpResult.getUpserts()).thenReturn(List.of());
+    when(this.mockCollection.bulkWrite(any(), same(MaterializedViewWriter.MV_BULK_WRITE_OPTIONS)))
+        .thenReturn(noOpResult);
+
+    var matViewWriter =
+        new MaterializedViewWriter(
+            this.autoEmbeddingMongoClient,
+            MV_DATABASE_NAME,
+            MV_COLLECTION_NAME,
+            GENERATION_ID,
+            this.mockLeaseManager,
+            metricsFactory,
+            COLLECTION_UUID,
+            Optional.empty());
+
+    matViewWriter.updateIndex(filterOnlyUpdateEvent());
+    matViewWriter.commit(EncodedUserData.EMPTY);
+
+    Assert.assertEquals(1.0, metricsFactory.get("mvUnmatchedFilterUpdates").counter().count(), 0.0);
+  }
+
+  @Test
+  public void testFilterOnlyUpdateThatMatchesIsNotCounted()
+      throws IOException, FieldExceededLimitsException {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MetricsFactory metricsFactory = new MetricsFactory("matchedTest", registry);
+
+    // The same filter-only $set, but it matches its target document (matchedCount=1): the write
+    // landed, so nothing is counted as dropped.
+    BulkWriteResult matchedResult = mock(BulkWriteResult.class);
+    when(matchedResult.wasAcknowledged()).thenReturn(true);
+    when(matchedResult.getMatchedCount()).thenReturn(1);
+    when(matchedResult.getUpserts()).thenReturn(List.of());
+    when(this.mockCollection.bulkWrite(any(), same(MaterializedViewWriter.MV_BULK_WRITE_OPTIONS)))
+        .thenReturn(matchedResult);
+
+    var matViewWriter =
+        new MaterializedViewWriter(
+            this.autoEmbeddingMongoClient,
+            MV_DATABASE_NAME,
+            MV_COLLECTION_NAME,
+            GENERATION_ID,
+            this.mockLeaseManager,
+            metricsFactory,
+            COLLECTION_UUID,
+            Optional.empty());
+
+    matViewWriter.updateIndex(filterOnlyUpdateEvent());
+    matViewWriter.commit(EncodedUserData.EMPTY);
+
+    Assert.assertEquals(0.0, metricsFactory.get("mvUnmatchedFilterUpdates").counter().count(), 0.0);
+  }
+
+  /**
+   * A filter-only (partial-embed) update event, written as an {@code UpdateOneModel} upsert=false.
+   */
+  private static DocumentEvent filterOnlyUpdateEvent() {
+    ObjectId indexId = new ObjectId();
+    RawBsonDocument document =
+        BsonUtils.documentToRaw(
+            new BsonDocument(indexId.toString(), new BsonDocument("_id", new BsonInt32(1)))
+                .append("filterField", new BsonString("value")));
+    return DocumentEvent.createPartialUpdate(
+        DocumentMetadata.fromMetadataNamespace(Optional.of(document), indexId),
+        document,
+        new BsonDocument("filterField", new BsonString("newValue")),
+        com.google.common.collect.ImmutableMap.of());
   }
 
   @Test

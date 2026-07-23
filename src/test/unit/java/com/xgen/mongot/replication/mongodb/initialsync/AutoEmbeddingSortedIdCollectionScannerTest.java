@@ -61,6 +61,11 @@ public class AutoEmbeddingSortedIdCollectionScannerTest {
   }
 
   private static AutoEmbeddingSortedIdCollectionScanner newScanner(boolean onView) {
+    return newScanner(onView, new MetricsFactory("test", new SimpleMeterRegistry()));
+  }
+
+  private static AutoEmbeddingSortedIdCollectionScanner newScanner(
+      boolean onView, MetricsFactory metricsFactory) {
     VectorIndexDefinitionBuilder builder =
         VectorIndexDefinitionBuilder.builder()
             .indexId(INDEX_ID)
@@ -96,7 +101,7 @@ public class AutoEmbeddingSortedIdCollectionScannerTest {
         mock(InitialSyncMongoClient.class),
         new BsonInt32(0),
         catalog,
-        new MetricsFactory("test", new SimpleMeterRegistry()));
+        metricsFactory);
   }
 
   /**
@@ -196,6 +201,25 @@ public class AutoEmbeddingSortedIdCollectionScannerTest {
     assertThat(events.get(0).getDocumentId()).isEqualTo(new BsonInt32(3));
     assertThat(events.get(1).getEventType()).isEqualTo(DocumentEvent.EventType.DELETE);
     assertThat(events.get(1).getDocumentId()).isEqualTo(new BsonInt32(7));
+  }
+
+  /**
+   * The sort-merge emits per-class divergence counters so the otherwise-silent self-heal is
+   * observable: a doc missing from the MV (INSERT) and a leftover MV doc (DELETE) increment the
+   * missing and surplus counters respectively, while stale stays zero (nothing is present in both).
+   */
+  @Test
+  public void sortMergeEventsRecordsMissingAndSurplusDivergenceCounts() {
+    MetricsFactory metricsFactory = new MetricsFactory("test", new SimpleMeterRegistry());
+    AutoEmbeddingSortedIdCollectionScanner scanner = newScanner(true, metricsFactory);
+
+    List<DocumentEvent> events =
+        scanner.sortMergeEvents(List.of(sourceDocWithNamespace(3)), List.of(matViewDoc(7)));
+
+    assertThat(events).hasSize(2);
+    assertThat(metricsFactory.get("resyncMissingDocuments").counter().count()).isEqualTo(1.0);
+    assertThat(metricsFactory.get("resyncSurplusDocuments").counter().count()).isEqualTo(1.0);
+    assertThat(metricsFactory.get("resyncStaleDocuments").counter().count()).isEqualTo(0.0);
   }
 
   /**

@@ -27,6 +27,7 @@ import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.mongodb.CollectionScanFindCommand;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Timer;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -57,6 +58,9 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
   private final Optional<FieldPath> sourceNestedRoot;
 
   private final Timer preprocessingBatchTimer;
+  private final Counter resyncMissingDocuments;
+  private final Counter resyncSurplusDocuments;
+  private final Counter resyncStaleDocuments;
   private boolean firstPage = true;
 
   /** Builds an AutoEmbeddingSortedIdCollectionScanner. */
@@ -70,6 +74,9 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
       MetricsFactory metricsFactory) {
     super(clock, context, mongoClient, lastScannedToken, metricsFactory, false);
     this.preprocessingBatchTimer = metricsFactory.timerSec(PREPROCESSING_BATCH_DURATIONS);
+    this.resyncMissingDocuments = metricsFactory.counter("resyncMissingDocuments");
+    this.resyncSurplusDocuments = metricsFactory.counter("resyncSurplusDocuments");
+    this.resyncStaleDocuments = metricsFactory.counter("resyncStaleDocuments");
     Check.checkState(
         !context.useNaturalOrderScan(),
         "AutoEmbeddingSortedIdCollectionScanner should not be used with natural order scan");
@@ -252,7 +259,54 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
       operations.add(DocumentEvent.createDelete(metadata.getId().get()));
       matViewIdx++;
     }
+    recordDivergenceMetrics(operations);
     return operations;
+  }
+
+  /**
+   * Makes the otherwise-silent self-heal observable by counting the divergences this sort-merge
+   * detected between the source collection and the materialized view, by class:
+   *
+   * <ul>
+   *   <li>{@code missing} — in the source but not the MV (an {@link DocumentEvent.EventType#INSERT}
+   *       heal action);
+   *   <li>{@code surplus} — an MV entry that the scan deletes (a {@link
+   *       DocumentEvent.EventType#DELETE}). This is usually "in the MV but not the source", but it
+   *       also covers the MV entry of a source doc that was <em>skipped as unreadable</em> (missing
+   *       metadata namespace, e.g. HELP-60413 duplicate fields): such a doc exists in the source
+   *       yet is dropped from the index, so {@code surplus} is not strictly "not in source";
+   *   <li>{@code stale} — present in both but with content that needs re-indexing (an {@link
+   *       DocumentEvent.EventType#UPDATE}).
+   * </ul>
+   *
+   * <p>On a healthy, already-populated MV a resync emits none of these. Note {@code missing} is
+   * dominated by expected back-fill during the first full build of an MV (the MV starts empty, so
+   * every source document is an insert); it is meaningful as a drift signal when scanning an
+   * already-populated MV (e.g. a resync after oplog fall-off). {@code stale} is ~zero on a first
+   * build and is an unambiguous drift signal; {@code surplus} is ~zero on a first build too but,
+   * per above, also tracks skipped-unreadable-doc deletes, so a non-zero value is not by itself
+   * proof of MV/source drift (correlate with the skipped-document counter).
+   */
+  private void recordDivergenceMetrics(List<DocumentEvent> operations) {
+    @Var long missing = 0;
+    @Var long surplus = 0;
+    @Var long stale = 0;
+    for (DocumentEvent event : operations) {
+      switch (event.getEventType()) {
+        case INSERT -> missing++;
+        case DELETE -> surplus++;
+        case UPDATE -> stale++;
+      }
+    }
+    if (missing > 0) {
+      this.resyncMissingDocuments.increment(missing);
+    }
+    if (surplus > 0) {
+      this.resyncSurplusDocuments.increment(surplus);
+    }
+    if (stale > 0) {
+      this.resyncStaleDocuments.increment(stale);
+    }
   }
 
   // Records that a document lacking its metadata namespace (e.g. duplicate fields, HELP-60413) was
