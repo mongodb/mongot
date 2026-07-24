@@ -1,6 +1,10 @@
 package com.xgen.mongot.index.lucene;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.xgen.mongot.index.definition.FieldDefinition;
+import com.xgen.mongot.index.lucene.facet.TokenFacetsCardinalityLimitExceededException;
+import com.xgen.mongot.index.lucene.facet.TokenFacetsStateCache;
+import com.xgen.mongot.index.lucene.facet.TokenSsdvFacetState;
 import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
 import com.xgen.mongot.index.lucene.searcher.LuceneIndexSearcher;
 import com.xgen.mongot.index.query.aggregation.AggregationContext;
@@ -62,7 +66,9 @@ public class LuceneAggregationSearchManager
       LuceneIndexSearcherReference searcherReference, int batchSize) throws IOException {
     LuceneIndexSearcher searcher = searcherReference.getIndexSearcher();
 
-    AggregationContext context = AggregationContext.createDefault(searcher.getIndexReader());
+    AggregationContext context =
+        AggregationContext.createDefault(
+            searcher.getIndexReader(), cachedGlobalValueLookup(searcher));
     TopAggregationSpec rootSpec =
         AggregationSpecBuilder.toTopLevelSpec(
             this.aggregationCollector,
@@ -85,6 +91,35 @@ public class LuceneAggregationSearchManager
     maybePopulateScores(searcher, topDocs.scoreDocs);
 
     return new AggregationQueryInfo(topDocs, topDocs.scoreDocs.length < batchSize, aggResult);
+  }
+
+  /**
+   * Serves top-level doc values for terms aggregations out of the searcher's {@link
+   * com.xgen.mongot.index.lucene.facet.TokenFacetsStateCache}, so the expensive global OrdinalMap
+   * is built once per (reader, field) rather than on every query. Returns empty — letting the
+   * accumulator build an uncached view, matching previous behavior — when the cache is disabled or
+   * when the shared-tier facet cardinality limit would reject the field (aggregations do not
+   * enforce that limit).
+   */
+  @VisibleForTesting
+  static AggregationContext.CachedGlobalValueLookup cachedGlobalValueLookup(
+      LuceneIndexSearcher searcher) {
+    return luceneField -> {
+      Optional<TokenFacetsStateCache> cache = searcher.getTokenFacetsStateCache();
+      if (cache.isEmpty()) {
+        return Optional.empty();
+      }
+      Optional<TokenSsdvFacetState> state;
+      try {
+        state = cache.get().get(luceneField);
+      } catch (TokenFacetsCardinalityLimitExceededException e) {
+        return Optional.empty();
+      }
+      if (state.isEmpty()) {
+        return Optional.empty();
+      }
+      return Optional.of(state.get().getDocValues());
+    };
   }
 
   private static final class FacetContextBoundaryResolver

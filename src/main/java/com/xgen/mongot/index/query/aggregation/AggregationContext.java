@@ -1,7 +1,10 @@
 package com.xgen.mongot.index.query.aggregation;
 
+import java.io.IOException;
+import java.util.Optional;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.index.SortedSetDocValues;
 
 /**
  * Shared state passed through the aggregation framework during execution.
@@ -21,6 +24,23 @@ import org.apache.lucene.index.LeafReaderContext;
  * receiver. The same context can therefore be shared across concurrent leaf collectors safely.
  */
 public interface AggregationContext {
+
+  /**
+   * Supplies pre-built top-level (cross-segment) doc values for a lucene field, typically backed by
+   * a cache of global ordinal maps maintained across queries (e.g. the token facets state cache).
+   * Returns {@link Optional#empty()} when no cached view is available for the field, in which case
+   * the caller builds one from scratch.
+   */
+  @FunctionalInterface
+  interface CachedGlobalValueLookup {
+    Optional<SortedSetDocValues> lookup(String luceneField) throws IOException;
+  }
+
+  /**
+   * Return the lookup for cached top-level doc values. Consulted before building a global ordinal
+   * map from scratch, since that build is expensive on large indexes.
+   */
+  CachedGlobalValueLookup getCachedGlobalValueLookup();
 
   /**
    * Return a derived context bound to the given segment. Called by the framework once per segment
@@ -47,6 +67,12 @@ public interface AggregationContext {
   IndexReader getIndexReader();
 
   static AggregationContext createDefault(IndexReader indexReader) {
-    return new AggregationContextImpl(indexReader, AggregationRegistry.getInstance());
+    return createDefault(indexReader, luceneField -> Optional.empty());
+  }
+
+  static AggregationContext createDefault(
+      IndexReader indexReader, CachedGlobalValueLookup cachedGlobalValueLookup) {
+    return new AggregationContextImpl(
+        indexReader, AggregationRegistry.getInstance(), cachedGlobalValueLookup);
   }
 }

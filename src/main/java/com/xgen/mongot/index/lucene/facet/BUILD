@@ -17,6 +17,7 @@ java_library(
         "@maven//:org_apache_lucene_lucene_facet",
     ],
     deps = [
+        "//src/main/java/com/xgen/mongot/index/lucene/util",
         "//src/main/java/com/xgen/mongot/index/query",
         "//src/main/java/com/xgen/mongot/util",
         "@maven//:com_github_ben_manes_caffeine_caffeine",

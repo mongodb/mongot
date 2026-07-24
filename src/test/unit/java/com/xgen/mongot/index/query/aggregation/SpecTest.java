@@ -41,6 +41,11 @@ public class SpecTest {
         }
 
         @Override
+        public CachedGlobalValueLookup getCachedGlobalValueLookup() {
+          throw new UnsupportedOperationException();
+        }
+
+        @Override
         public IndexReader getIndexReader() {
           throw new UnsupportedOperationException();
         }

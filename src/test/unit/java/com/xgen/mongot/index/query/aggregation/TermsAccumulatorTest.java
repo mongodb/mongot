@@ -4,10 +4,13 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
+import com.xgen.mongot.index.lucene.util.TopLevelDocValues;
 import com.xgen.mongot.index.query.aggregation.AggregationRegistry.GroupingArgs.TermsArgs;
 import com.xgen.mongot.util.FieldPath;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import org.apache.lucene.search.MatchNoDocsQuery;
 import org.apache.lucene.util.BytesRef;
@@ -88,6 +91,30 @@ public class TermsAccumulatorTest extends AggregationTestSupport {
     assertEquals(2L, bucket(byCity, "LA").getDocCount());
     assertEquals(1L, bucket(byCity, "SF").getDocCount());
 
+    assertEquals(60.0, sumOf(bucket(byCity, "NYC"), "sum_price"), 1e-9);
+    assertEquals(20.0, sumOf(bucket(byCity, "LA"), "sum_price"), 1e-9);
+    assertEquals(7.0, sumOf(bucket(byCity, "SF"), "sum_price"), 1e-9);
+  }
+
+  @Test
+  public void termsAccumulator_usesCachedTopLevelValuesFromContext() throws Exception {
+    buildIndex(DATASET, 2); // 3 segments -> the cached view carries a real OrdinalMap
+    List<String> requestedFields = new ArrayList<>();
+    AggregationContext.CachedGlobalValueLookup lookup =
+        luceneField -> {
+          requestedFields.add(luceneField);
+          return Optional.of(
+              TopLevelDocValues.getDocValues(this.reader, luceneField, Optional.empty()));
+        };
+
+    Accumulator top = collectAll(cityTermsWithSum(true, 100), new TestContext(this.reader, lookup));
+
+    assertEquals(List.of(CITY_LUCENE_FIELD), requestedFields);
+    TermsAggregationResult byCity = firstTerms(top);
+    assertEquals(Set.of("NYC", "LA", "SF"), bucketKeys(byCity));
+    assertEquals(3L, bucket(byCity, "NYC").getDocCount());
+    assertEquals(2L, bucket(byCity, "LA").getDocCount());
+    assertEquals(1L, bucket(byCity, "SF").getDocCount());
     assertEquals(60.0, sumOf(bucket(byCity, "NYC"), "sum_price"), 1e-9);
     assertEquals(20.0, sumOf(bucket(byCity, "LA"), "sum_price"), 1e-9);
     assertEquals(7.0, sumOf(bucket(byCity, "SF"), "sum_price"), 1e-9);

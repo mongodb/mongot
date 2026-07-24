@@ -293,25 +293,40 @@ public abstract class AggregationTestSupport {
    */
   protected static final class TestContext implements AggregationContext {
     private final IndexReader indexReader;
+    private final CachedGlobalValueLookup cachedGlobalValueLookup;
     @Nullable private final LeafReaderContext leafReaderContext;
 
     protected TestContext(IndexReader indexReader) {
-      this(indexReader, null);
+      this(indexReader, luceneField -> Optional.empty(), null);
     }
 
-    private TestContext(IndexReader indexReader, @Nullable LeafReaderContext leafReaderContext) {
+    protected TestContext(
+        IndexReader indexReader, CachedGlobalValueLookup cachedGlobalValueLookup) {
+      this(indexReader, cachedGlobalValueLookup, null);
+    }
+
+    private TestContext(
+        IndexReader indexReader,
+        CachedGlobalValueLookup cachedGlobalValueLookup,
+        @Nullable LeafReaderContext leafReaderContext) {
       this.indexReader = indexReader;
+      this.cachedGlobalValueLookup = cachedGlobalValueLookup;
       this.leafReaderContext = leafReaderContext;
     }
 
     @Override
     public AggregationContext withLeafReaderContext(LeafReaderContext context) {
-      return new TestContext(this.indexReader, context);
+      return new TestContext(this.indexReader, this.cachedGlobalValueLookup, context);
     }
 
     @Override
     public AggregationRegistry getRegistry() {
       return AggregationRegistry.getInstance();
+    }
+
+    @Override
+    public CachedGlobalValueLookup getCachedGlobalValueLookup() {
+      return this.cachedGlobalValueLookup;
     }
 
     @Override

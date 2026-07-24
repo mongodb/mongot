@@ -2,6 +2,7 @@ package com.xgen.mongot.index.query.aggregation;
 
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
+import com.xgen.mongot.index.lucene.util.TopLevelDocValues;
 import com.xgen.mongot.util.FieldPath;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -9,14 +10,12 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.IntFunction;
 import org.apache.lucene.index.DocValues;
-import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.MultiDocValues.MultiSortedSetDocValues;
 import org.apache.lucene.index.OrdinalMap;
 import org.apache.lucene.index.SortedDocValues;
 import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.packed.PackedInts;
 
 /** The base class to aggregate on term based doc-value fields (TOKEN, UUID, ObjectID, etc). */
 public abstract sealed class TermsAccumulator extends BucketsAccumulator
@@ -161,48 +160,6 @@ public abstract sealed class TermsAccumulator extends BucketsAccumulator
     return results;
   }
 
-  /**
-   * Logic forked from {@Link org.apache.lucene.facet.StringDocValuesReaderState} to build a global
-   * SSDV across all the segments. The global OrdinalMap is included as well.
-   */
-  static SortedSetDocValues buildTopLevelValues(IndexReader reader, String luceneField)
-      throws IOException {
-    List<LeafReaderContext> leaves = reader.leaves();
-    int leafCount = leaves.size();
-    if (leafCount == 0) {
-      return DocValues.emptySortedSet();
-    }
-
-    if (leafCount == 1) {
-      return DocValues.getSortedSet(leaves.getFirst().reader(), luceneField);
-    }
-
-    SortedSetDocValues[] docValues = new SortedSetDocValues[leafCount];
-    int[] starts = new int[leafCount + 1];
-    @Var long cost = 0;
-    for (int i = 0; i < leafCount; i++) {
-      LeafReaderContext context = leaves.get(i);
-      docValues[i] = DocValues.getSortedSet(context.reader(), luceneField);
-      starts[i] = context.docBase;
-      cost += docValues[i].cost();
-    }
-    starts[leafCount] = reader.maxDoc();
-    Optional<IndexReader.CacheHelper> cacheHelper =
-        Optional.ofNullable(reader.getReaderCacheHelper());
-    Optional<IndexReader.CacheKey> owner = cacheHelper.map(IndexReader.CacheHelper::getKey);
-    // Lucene OrdinalMap expect null CacheKey if it is not cacheable.
-    // DEFAULT packed strategy is picked here to be aligned with lucene but can revisit if
-    // memory cost is high.
-    OrdinalMap map = OrdinalMap.build(owner.orElse(null), docValues, PackedInts.DEFAULT);
-    SortedSetDocValues multiValues = new MultiSortedSetDocValues(docValues, starts, map, cost);
-    if (multiValues.getValueCount() > Integer.MAX_VALUE) {
-      throw new IllegalStateException(
-          "Aggregation on string field is not supported when the number of unique terms exceeds "
-              + "Integer.MAX_VALUE");
-    }
-    return multiValues;
-  }
-
   static TermsAccumulator create(
       TermsGroupAggregationSpec spec,
       AggregationContext context,
@@ -211,10 +168,23 @@ public abstract sealed class TermsAccumulator extends BucketsAccumulator
       TypeField typeField)
       throws IOException {
     String luceneField = typeField.getLuceneFieldName(spec.getPath(), Optional.empty());
-    SortedSetDocValues values = buildTopLevelValues(context.getIndexReader(), luceneField);
+    // Prefer a cached top-level view (reuses a previously built global OrdinalMap); building the
+    // OrdinalMap from scratch is expensive on large indexes.
+    Optional<SortedSetDocValues> cachedValues =
+        context.getCachedGlobalValueLookup().lookup(luceneField);
+    SortedSetDocValues values =
+        cachedValues.isPresent()
+            ? cachedValues.get()
+            : TopLevelDocValues.getDocValues(
+                context.getIndexReader(), luceneField, Optional.empty());
     // None if single segment
     @Var Optional<OrdinalMap> ordinalMap = Optional.empty();
     if (values instanceof MultiSortedSetDocValues multiValues) {
+      if (values.getValueCount() > Integer.MAX_VALUE) {
+        throw new IllegalStateException(
+            "Aggregation on string field is not supported when the number of unique terms exceeds "
+                + "Integer.MAX_VALUE");
+      }
       ordinalMap = Optional.of(multiValues.mapping);
     }
     if (isRoot) {
