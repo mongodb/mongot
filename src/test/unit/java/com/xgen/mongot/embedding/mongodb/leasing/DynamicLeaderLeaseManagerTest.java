@@ -321,6 +321,34 @@ public class DynamicLeaderLeaseManagerTest {
   }
 
   @Test
+  public void add_expiredOwnedLeaseWithNewRemoteOwner_demotesExistingLeader() {
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    String leaseKey = getLeaseKeyFromCatalog(generationId);
+
+    Lease ownedLease = createLease(generationId, HOSTNAME, Instant.now().plusSeconds(60));
+    this.leaseManager.putLease(leaseKey, ownedLease);
+    this.leaseManager.add(indexGeneration);
+    assertThat(this.leaseManager.isLeader(generationId)).isTrue();
+
+    Lease expiredCachedLease = createLease(generationId, HOSTNAME, Instant.now().minusSeconds(60));
+    this.leaseManager.putLease(leaseKey, expiredCachedLease);
+    Lease newRemoteLease = expiredCachedLease.withRenewedOwnership(OTHER_HOSTNAME);
+    setupFindLeaseFromDatabase(newRemoteLease);
+
+    this.leaseManager.add(indexGeneration);
+
+    assertThat(this.leaseManager.isLeader(generationId)).isFalse();
+    assertThat(this.leaseManager.getFollowerGenerationIds()).contains(generationId);
+
+    LeaseManager.FollowerPollResult result = this.leaseManager.pollFollowerStatuses();
+    assertThat(result.acquirableLeases()).doesNotContain(generationId);
+    assertThat(this.leaseManager.getLeases().get(leaseKey).leaseOwner()).isEqualTo(OTHER_HOSTNAME);
+    assertThat(this.leaseManager.getLeases().get(leaseKey).leaseVersion())
+        .isEqualTo(newRemoteLease.leaseVersion());
+  }
+
+  @Test
   public void getLeaderAndFollowerGenerationIds_afterAddAndDrop_returnsCorrectSets() {
     // Arrange
     MaterializedViewIndexGeneration indexGeneration1 = createTestIndexGeneration();

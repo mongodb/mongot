@@ -891,7 +891,6 @@ public class MaterializedViewManager implements ReplicationManager {
     // This prevents the same race as CLOUDP-393734: if shutdown() completes synchronously
     // (e.g., cancel() returns COMPLETED_FUTURE for QUEUED entries), the old generator's
     // InitialSyncQueue entry may still be present when the new generator tries to enqueue.
-    boolean wasLeader = this.leaseManager.isLeader(oldGenerationId);
     this.pendingShutdowns.put(newGenerationId, new CompletableFuture<>());
     try {
       MaterializedViewGenerator newGenerator;
@@ -928,11 +927,12 @@ public class MaterializedViewManager implements ReplicationManager {
                       if (this.leaseManager instanceof StaticLeaderLeaseManager) {
                         activateStaticLeadership(
                             newGenerator, matViewIndexGeneration.getGenerationId());
-                      } else if (wasLeader) {
+                      } else if (this.leaseManager.isLeader(newGenerationId)) {
                         LOG.atInfo()
                             .addKeyValue("oldGenerationId", oldGenerationId)
                             .addKeyValue("newGenerationId", newGenerationId)
-                            .log("Activating leadership for new generator");
+                            .log(
+                                "Activating leadership for new generator after lease registration");
                         newGenerator.becomeLeader();
                       }
                       // Unregister metrics for the now-replaced generation so the registry

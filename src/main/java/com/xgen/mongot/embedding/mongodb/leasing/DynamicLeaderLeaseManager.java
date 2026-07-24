@@ -512,9 +512,9 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
   /**
    * Adds a new index generation to be managed by this lease manager.
    *
-   * <p>If we already own the lease for this index (e.g., during index definition update), the
-   * generation is added as a leader. Otherwise, it starts as a follower and leadership is acquired
-   * via {@link #tryAcquireLeadership(MaterializedViewGenerationId)}.
+   * <p>If we already own an unexpired lease for this index (e.g., during index definition update),
+   * the generation is added as a leader. Otherwise, it starts as a follower and leadership is
+   * acquired via {@link #tryAcquireLeadership(MaterializedViewGenerationId)}.
    *
    * <p>If no lease exists in memory, an in-memory lease with empty owner is created. This lease
    * will be persisted to the database when {@link
@@ -526,16 +526,17 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
         Check.instanceOf(indexGeneration.getGenerationId(), MaterializedViewGenerationId.class);
     String versionKey = getIndexDefinitionVersion(indexGeneration.getDefinition());
     this.matViewGenerationIdToDefinitionVersion.put(generationId, versionKey);
+    String leaseKey = getLeaseKey(generationId);
     this.leaseKeyToDatabase.put(
-        getLeaseKey(generationId),
-        this.dbResolver.resolve(indexGeneration.getDefinition().getDatabase()));
+        leaseKey, this.dbResolver.resolve(indexGeneration.getDefinition().getDatabase()));
 
-    if (this.leases.containsKey(getLeaseKey(generationId))) {
-      // Lease exists in memory - check if we own it.
-      var lease = this.leases.get(getLeaseKey(generationId));
+    var lease = this.leases.get(leaseKey);
+    if (lease != null) {
+      // Lease exists in memory - only retain leadership while our ownership is still valid.
       boolean weOwnLease = this.hostname.equals(lease.leaseOwner());
+      boolean leaseExpired = Instant.now().isAfter(lease.leaseExpiration());
 
-      if (weOwnLease) {
+      if (weOwnLease && !leaseExpired) {
         // We own the lease - this is likely an index definition update (e.g., filter field change).
         // Add to leaderGenerationIds so the generator can become leader immediately.
         this.leaderGenerationIds.add(generationId);
@@ -546,20 +547,24 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
             .addKeyValue("hostname", this.hostname)
             .log("Starting as leader - we own the existing lease");
       } else {
-        // Another instance owns the lease - start as follower.
+        // add() runs again after replication restart, while the previous leader tracking remains.
+        // Clear it so expired ownership must be reacquired through OCC before the generator writes.
+        this.leaderGenerationIds.remove(generationId);
         this.followerGenerationIds.add(generationId);
         LOG.atInfo()
             .addKeyValue("generationId", generationId)
             .addKeyValue("leaseOwner", lease.leaseOwner())
             .addKeyValue("leaseExpiration", lease.leaseExpiration())
             .addKeyValue("hostname", this.hostname)
-            .log("Starting as follower - existing lease owned by another instance");
+            .addKeyValue("weOwnLease", weOwnLease)
+            .addKeyValue("leaseExpired", leaseExpired)
+            .log("Starting as follower - existing lease requires acquisition");
       }
 
       // Update the lease with the new index definition version if needed.
       if (!lease.indexDefinitionVersionStatusMap().containsKey(versionKey)) {
         this.leases.put(
-            getLeaseKey(generationId),
+            leaseKey,
             lease.withNewIndexDefinitionVersion(
                 versionKey, indexGeneration.getIndex().getStatus(), skipInitialSync));
       }
@@ -585,7 +590,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
               versionKey,
               indexGeneration.getIndex().getStatus(),
               materializedViewCollectionMetadata);
-      this.leases.put(getLeaseKey(generationId), newLease);
+      this.leases.put(leaseKey, newLease);
     }
   }
 

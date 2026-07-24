@@ -3257,6 +3257,8 @@ public class MaterializedViewManagerTest {
 
     // Simulate that we were leader for the old generation.
     when(mocks.leaseManager.isLeader(gen1Id)).thenReturn(true);
+    // Simulate add() retaining leadership for the new generation.
+    when(mocks.leaseManager.isLeader(gen2Id)).thenReturn(true);
 
     mocks.addIndexForReplication(matViewIndexGen2);
 
@@ -3295,6 +3297,35 @@ public class MaterializedViewManagerTest {
         mocks.manager.pendingShutdowns.containsKey(newGenId));
     // becomeLeader should have been called by refreshStatus's deferred activation.
     verify(gen2).becomeLeader();
+  }
+
+  @Test
+  public void replaceGenerator_differentGenId_losesLeadershipDuringShutdown_staysFollower() {
+    Mocks mocks = Mocks.createDynamicFollowerWithAcquirableLeases();
+
+    var gen1Id = MOCK_MAT_VIEW_GENERATION_ID;
+    var matViewIndexGen1 = mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(gen1Id));
+    when(mocks.leaseManager.isLeader(gen1Id)).thenReturn(true);
+    MaterializedViewGenerator gen1 = mocks.mockMaterializedViewGenerator(matViewIndexGen1);
+    mocks.addIndexForReplication(matViewIndexGen1);
+
+    CompletableFuture<Void> slowShutdownFuture = new CompletableFuture<>();
+    doReturn(slowShutdownFuture).when(gen1).shutdown();
+
+    var gen2Id =
+        new MaterializedViewGenerationId(
+            MOCK_MAT_VIEW_GENERATION_ID.indexId,
+            MOCK_MAT_VIEW_GENERATION_ID.generation.incrementUser());
+    var matViewIndexGen2 = mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(gen2Id, 1));
+    MaterializedViewGenerator gen2 = mocks.mockMaterializedViewGenerator(matViewIndexGen2);
+    when(mocks.leaseManager.isLeader(gen2Id)).thenReturn(false);
+
+    mocks.addIndexForReplication(matViewIndexGen2);
+    slowShutdownFuture.complete(null);
+
+    verify(mocks.leaseManager).drop(gen1Id);
+    verify(mocks.leaseManager).add(matViewIndexGen2, false);
+    verify(gen2, never()).becomeLeader();
   }
 
   @Test
@@ -3337,7 +3368,7 @@ public class MaterializedViewManagerTest {
     // Ensure we are NOT the leader for this generation.
     when(mocks.leaseManager.isLeader(gen1Id)).thenReturn(false);
 
-    // Add gen2 (higher version -> different genId -> replaceGenerator with wasLeader=false).
+    // Add gen2 (higher version -> different genId) while the new generation remains a follower.
     var gen2Id =
         new MaterializedViewGenerationId(
             MOCK_MAT_VIEW_GENERATION_ID.indexId,
@@ -3347,8 +3378,8 @@ public class MaterializedViewManagerTest {
     Mockito.clearInvocations(gen1, gen2);
     mocks.addIndexForReplication(matViewIndexGen2);
 
-    // becomeLeader should NOT have been called on either generator —
-    // we were not leader for the old generation, so leadership should not transfer.
+    // becomeLeader should NOT have been called on either generator because add() left the new
+    // generation as a follower.
     verify(gen1, never()).becomeLeader();
     verify(gen2, never()).becomeLeader();
 
@@ -3460,7 +3491,7 @@ public class MaterializedViewManagerTest {
     assertFalse("Generator should be empty when no metadata exists", result.isPresent());
   }
 
-  // ==================== Dynamic Leader with Unexpired Lease Tests ====================
+  // ==================== Dynamic Leader Restart Tests ====================
 
   @Test
   public void dynamicLeader_restartWithUnexpiredLease_activatesLeadershipImmediately() {
@@ -3480,6 +3511,44 @@ public class MaterializedViewManagerTest {
     verify(mocks.leaseManager).add(materializedViewIndexGeneration, false);
     // Verify that becomeLeader() was called on the generator because we own the lease
     verify(materializedViewGenerator).becomeLeader();
+  }
+
+  @Test
+  public void dynamicLeader_restartWithExpiredLease_doesNotActivateLeadership() throws Exception {
+    Mocks mocks = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+    MaterializedViewIndexGeneration matViewIndexGeneration =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerationId generationId = matViewIndexGeneration.getGenerationId();
+
+    AtomicInteger registrations = new AtomicInteger();
+    AtomicBoolean isLeader = new AtomicBoolean();
+    doAnswer(
+            invocation -> {
+              isLeader.set(registrations.getAndIncrement() == 0);
+              return null;
+            })
+        .when(mocks.leaseManager)
+        .add(matViewIndexGeneration, false);
+    when(mocks.leaseManager.isLeader(generationId)).thenAnswer(invocation -> isLeader.get());
+    when(mocks.materializedViewGeneratorFactory.shutdown()).thenReturn(COMPLETED_FUTURE);
+    when(mocks.materializedViewGeneratorFactory.isInitialized()).thenReturn(true);
+
+    MaterializedViewGenerator oldGenerator =
+        mocks.mockMaterializedViewGenerator(matViewIndexGeneration);
+    mocks.addIndexForReplication(matViewIndexGeneration);
+    verify(oldGenerator).becomeLeader();
+
+    mocks.manager.shutdownReplication().get(5, TimeUnit.SECONDS);
+
+    MaterializedViewGenerator restartedGenerator =
+        mocks.mockMaterializedViewGenerator(matViewIndexGeneration);
+    mocks.manager.restartReplication();
+
+    verify(mocks.leaseManager, times(2)).add(matViewIndexGeneration, false);
+    verify(mocks.materializedViewGeneratorFactory, times(2)).create(matViewIndexGeneration);
+    assertSame(restartedGenerator, mocks.manager.getMatViewGenerator(generationId).orElseThrow());
+    verify(restartedGenerator, never()).becomeLeader();
+    assertFalse(restartedGenerator.isLeader());
   }
 
   // ==================== Stale-Lease GC Scanner Tests ====================
