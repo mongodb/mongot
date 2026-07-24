@@ -138,7 +138,7 @@ public class SearchCommand implements Command {
   public BsonDocument run() {
     LOG.atTrace().addKeyValue("command", SearchCommandDefinition.NAME).log("Received command");
 
-    try (var guard = Tracing.simpleSpanGuard("SearchCommand.run", Tracing.TOGGLE_OFF)) {
+    try (var guard = Tracing.searchSpanGuard("SearchCommand.run")) {
       this.metrics.searchCommandsTotalCount.increment();
       QueryOptimizationFlags queryOptimizationFlags =
           this.definition
@@ -354,57 +354,61 @@ public class SearchCommand implements Command {
           IOException,
           InterruptedException,
           ReaderClosedException {
-    Timer.Sample sample = Timer.start();
-    SearchCursorInfo cursorInfo =
-        this.cursorManager.newCursor(
-            this.definition.db(),
-            this.definition.collectionName(),
-            this.definition.collectionUuid(),
-            this.definition.viewName(),
-            queryDefinition,
-            queryCursorOptions,
-            queryOptimizationFlags,
-            this.searchEnvoyMetadata);
+    try (var guard = Tracing.simpleSpanGuard("SearchCommand.getBatch")) {
+      Timer.Sample sample = Timer.start();
+      SearchCursorInfo cursorInfo =
+          this.cursorManager.newCursor(
+              this.definition.db(),
+              this.definition.collectionName(),
+              this.definition.collectionUuid(),
+              this.definition.viewName(),
+              queryDefinition,
+              queryCursorOptions,
+              queryOptimizationFlags,
+              this.searchEnvoyMetadata);
 
-    long cursorId = cursorInfo.cursorId;
-    this.createdCursorIds.add(cursorId);
+      long cursorId = cursorInfo.cursorId;
+      this.createdCursorIds.add(cursorId);
 
-    // Get the timer consumer first, as the cursor may be killed when the next batch is retrieved.
-    QueryBatchTimerRecorder queryBatchTimerRecorder =
-        this.cursorManager.getIndexQueryBatchTimerRecorder(cursorId);
+      // Get the timer consumer first, as the cursor may be killed when the next batch is retrieved.
+      QueryBatchTimerRecorder queryBatchTimerRecorder =
+          this.cursorManager.getIndexQueryBatchTimerRecorder(cursorId);
 
-    // Apply the aggregation numBuckets top-N here, at the non-sharded / non-intermediate terminal.
-    // cursorInfo.metaResults is computed once, when the cursor is created (this path runs only when
-    // intermediateVersion is empty); GetMore batches carry no meta results, so this runs exactly
-    // once on the single fully-merged result. Top-N must never run on a per-partition / per-shard
-    // result. Gate on SEARCH_AGGREGATION so this extra step is clearly aggregation-only (the flag
-    // is also enforced upstream, so an AggregationResult can only be present when it is enabled).
-    MetaResults metaResults =
-        this.metadata.featureFlags().isEnabled(Feature.SEARCH_AGGREGATION)
-            ? cursorInfo.metaResults.applyAggregationLimit()
-            : cursorInfo.metaResults;
-    Optional<BsonValue> variables = Optional.of(new Variables(metaResults).toRawBson());
-    MongotCursorResultInfo cursorResultInfo =
-        this.cursorManager.getNextBatch(
-            cursorId,
-            this.bsonSizeSoftLimit.subtract(
-                MongotCursorBatch.calculateEmptyBatchSize(variables, Optional.empty())),
-            queryCursorOptions);
+      // Apply the aggregation numBuckets top-N here, at the non-sharded / non-intermediate
+      // terminal.
+      // cursorInfo.metaResults is computed once, when the cursor is created (this path runs only
+      // when
+      // intermediateVersion is empty); GetMore batches carry no meta results, so this runs exactly
+      // once on the single fully-merged result. Top-N must never run on a per-partition / per-shard
+      // result. Gate on SEARCH_AGGREGATION so this extra step is clearly aggregation-only (the flag
+      // is also enforced upstream, so an AggregationResult can only be present when it is enabled).
+      MetaResults metaResults =
+          this.metadata.featureFlags().isEnabled(Feature.SEARCH_AGGREGATION)
+              ? cursorInfo.metaResults.applyAggregationLimit()
+              : cursorInfo.metaResults;
+      Optional<BsonValue> variables = Optional.of(new Variables(metaResults).toRawBson());
+      MongotCursorResultInfo cursorResultInfo =
+          this.cursorManager.getNextBatch(
+              cursorId,
+              this.bsonSizeSoftLimit.subtract(
+                  MongotCursorBatch.calculateEmptyBatchSize(variables, Optional.empty())),
+              queryCursorOptions);
 
-    Optional<MongotCursorResult> cursorResult =
-        populateCursorResult
-            ? Optional.of(cursorResultInfo.toCursorResult(cursorId, Optional.empty()))
-            : Optional.empty();
+      Optional<MongotCursorResult> cursorResult =
+          populateCursorResult
+              ? Optional.of(cursorResultInfo.toCursorResult(cursorId, Optional.empty()))
+              : Optional.empty();
 
-    MongotCursorBatch batch =
-        new MongotCursorBatch(
-            cursorResult,
-            cursorResultInfo.explainResult,
-            populateCursorResult ? variables : Optional.empty());
+      MongotCursorBatch batch =
+          new MongotCursorBatch(
+              cursorResult,
+              cursorResultInfo.explainResult,
+              populateCursorResult ? variables : Optional.empty());
 
-    queryBatchTimerRecorder.recordSample(sample);
+      queryBatchTimerRecorder.recordSample(sample);
 
-    return batch.toBson();
+      return batch.toBson();
+    }
   }
 
   private BsonDocument getIntermediateBatch(
@@ -484,36 +488,38 @@ public class SearchCommand implements Command {
 
   private Optional<InitializedIndex> getIndexFromCatalog(Query query)
       throws IndexUnavailableException {
-    Optional<IndexGeneration> indexGeneration =
-        this.indexCatalog.getIndex(
-            this.definition.db(),
-            this.definition.collectionUuid(),
-            this.definition.viewName(),
-            query.index());
+    try (var guard = Tracing.simpleSpanGuard("SearchCommand.getIndexFromCatalog")) {
+      Optional<IndexGeneration> indexGeneration =
+          this.indexCatalog.getIndex(
+              this.definition.db(),
+              this.definition.collectionUuid(),
+              this.definition.viewName(),
+              query.index());
 
-    if (indexGeneration.isEmpty()) {
-      return Optional.empty();
-    }
-    var index = indexGeneration.get();
-    index.getIndex().throwIfUnavailableForQuerying();
-    InitializedIndex initializedIndex =
-        this.initializedIndexCatalog
-            .getIndex(index.getGenerationId())
-            .orElseThrow(
-                () ->
-                    new IndexUnavailableException(
-                        String.format(
-                            "Index %s not initialized", index.getDefinition().getName())));
-
-    if (initializedIndex.getDefinition().getView().isPresent()) {
-      if (this.definition.viewName().isPresent()) {
-        this.metrics.queriesAgainstView.increment(); // GA version
-      } else {
-        this.metrics.queriesAgainstViewSourceCollection.increment(); // preview version
+      if (indexGeneration.isEmpty()) {
+        return Optional.empty();
       }
-    }
+      var index = indexGeneration.get();
+      index.getIndex().throwIfUnavailableForQuerying();
+      InitializedIndex initializedIndex =
+          this.initializedIndexCatalog
+              .getIndex(index.getGenerationId())
+              .orElseThrow(
+                  () ->
+                      new IndexUnavailableException(
+                          String.format(
+                              "Index %s not initialized", index.getDefinition().getName())));
 
-    return Optional.of(initializedIndex);
+      if (initializedIndex.getDefinition().getView().isPresent()) {
+        if (this.definition.viewName().isPresent()) {
+          this.metrics.queriesAgainstView.increment(); // GA version
+        } else {
+          this.metrics.queriesAgainstViewSourceCollection.increment(); // preview version
+        }
+      }
+
+      return Optional.of(initializedIndex);
+    }
   }
 
   private void addMetadataIfExplain(SearchQuery query) {

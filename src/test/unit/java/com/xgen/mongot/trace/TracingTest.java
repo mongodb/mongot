@@ -234,6 +234,36 @@ public class TracingTest {
   }
 
   @Test
+  public void testSearchSpanGuardHeadStrategyDoesNotSampleAtRateZero() {
+    Tracing.updateStrategyConfig(
+        Optional.of("head"), Optional.empty(), Optional.of(0.0), Optional.empty());
+
+    try (var guard = Tracing.searchSpanGuard("search")) {
+      assertFalse(guard.getSpan().isRecording());
+    }
+  }
+
+  @Test
+  public void testSearchSpanGuardTailStrategyAlwaysSamples() {
+    Tracing.updateStrategyConfig(
+        Optional.of("tail"), Optional.empty(), Optional.of(0.0), Optional.empty());
+
+    try (var guard = Tracing.searchSpanGuard("search")) {
+      assertTrue(guard.getSpan().isRecording());
+    }
+  }
+
+  @Test
+  public void testSearchSpanGuardHeadStrategySamplesAtRateOne() {
+    Tracing.updateStrategyConfig(
+        Optional.of("head"), Optional.empty(), Optional.of(1.0), Optional.empty());
+
+    try (var guard = Tracing.searchSpanGuard("search")) {
+      assertTrue(guard.getSpan().isRecording());
+    }
+  }
+
+  @Test
   public void testSearchAndVectorSearchStrategiesAreConfiguredIndependently() {
     Tracing.updateStrategyConfig(
         Optional.of("tail"), Optional.of("head"), Optional.empty(), Optional.of(0.0));
