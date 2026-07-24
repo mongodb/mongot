@@ -28,6 +28,7 @@ import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamModeSelector;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoClient;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
+import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.DecodingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
@@ -401,6 +402,7 @@ public class SyncChangeStreamManagerTest {
                 .setNumConcurrentChangeStreams(2)
                 .setChangeStreamCursorMaxTimeSec(1)
                 .setMaxInFlightEmbeddingGetMores(1)
+                .setReplicationType(CommonReplicationConfig.Type.AUTO_EMBEDDING)
                 .build(),
             changeStreamIndexManagerFactory);
 

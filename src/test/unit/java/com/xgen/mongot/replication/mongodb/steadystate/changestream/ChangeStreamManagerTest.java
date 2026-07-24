@@ -43,6 +43,7 @@ import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamModeSelector;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoClient;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
+import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.DecodingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkScheduler;
@@ -1745,7 +1746,8 @@ public class ChangeStreamManagerTest {
             indexingWorkSchedulerFactory(),
             SteadyStateReplicationConfig.builder()
                 .setNumConcurrentChangeStreams(2)
-                .setMaxInFlightEmbeddingGetMores(1),
+                .setMaxInFlightEmbeddingGetMores(1)
+                .setReplicationType(CommonReplicationConfig.Type.AUTO_EMBEDDING),
             this.context.getIndexManagerFactory(),
             barriers);
 
@@ -1927,6 +1929,138 @@ public class ChangeStreamManagerTest {
     secondGetMoreStarted.await(5, TimeUnit.SECONDS);
     firstGetMoreDone.await(5, TimeUnit.SECONDS);
     secondGetMoreDone.await(5, TimeUnit.SECONDS);
+  }
+
+  @Test
+  public void testCreateSync_defaultReplicationType_usesDualQueueExecutor() throws Exception {
+    Assume.assumeTrue(this.context.name.equals("sync-client"));
+
+    ChangeStreamManager changeStreamManager =
+        ChangeStreamManager.createSync(
+            MeterAndFtdcRegistry.createWithSimpleRegistries(),
+            ChangeStreamManagerTestSyncHelpers.syncSingleEventProducingClient(),
+            mock(ChangeStreamModeSelector.class),
+            indexingWorkSchedulerFactory(),
+            SteadyStateReplicationConfig.builder()
+                .setNumConcurrentChangeStreams(1)
+                .setMaxInFlightEmbeddingGetMores(1)
+                .setChangeStreamQueryMaxTimeMs(1000)
+                .setChangeStreamCursorMaxTimeSec(1000)
+                .build(),
+            this.context.getIndexManagerFactory(),
+            true);
+
+    assertThat(changeStreamManager.getTaskExecutorClass()).hasValue(DualQueueExecutor.class);
+    // DualQueueExecutor has no semaphore - getEmbeddingAvailablePermits returns empty
+    assertThat(changeStreamManager.getEmbeddingAvailablePermits()).isEmpty();
+    changeStreamManager.shutdown().get(5, TimeUnit.SECONDS);
+  }
+
+  @Test
+  public void testCreateSync_autoEmbeddingReplicationType_usesAutoEmbeddingExecutor()
+      throws Exception {
+    Assume.assumeTrue(this.context.name.equals("sync-client"));
+
+    ChangeStreamManager changeStreamManager =
+        ChangeStreamManager.createSync(
+            MeterAndFtdcRegistry.createWithSimpleRegistries(),
+            ChangeStreamManagerTestSyncHelpers.syncSingleEventProducingClient(),
+            mock(ChangeStreamModeSelector.class),
+            indexingWorkSchedulerFactory(),
+            SteadyStateReplicationConfig.builder()
+                .setNumConcurrentChangeStreams(2)
+                .setMaxInFlightEmbeddingGetMores(1)
+                .setReplicationType(CommonReplicationConfig.Type.AUTO_EMBEDDING)
+                .setChangeStreamQueryMaxTimeMs(1000)
+                .setChangeStreamCursorMaxTimeSec(1000)
+                .build(),
+            this.context.getIndexManagerFactory(),
+            true);
+
+    // AutoEmbeddingExecutor has a semaphore - getEmbeddingAvailablePermits returns the cap
+    assertThat(changeStreamManager.getEmbeddingAvailablePermits()).hasValue(1);
+    changeStreamManager.shutdown().get(5, TimeUnit.SECONDS);
+  }
+
+  @Test
+  public void testCreateSync_defaultReplicationType_priorityDisabled_usesFifoExecutor()
+      throws Exception {
+    Assume.assumeTrue(this.context.name.equals("sync-client"));
+
+    // Priority scheduling off and no getMore cap (maxInFlight >= numConcurrent) => FifoExecutor.
+    ChangeStreamManager changeStreamManager =
+        ChangeStreamManager.createSync(
+            MeterAndFtdcRegistry.createWithSimpleRegistries(),
+            ChangeStreamManagerTestSyncHelpers.syncSingleEventProducingClient(),
+            mock(ChangeStreamModeSelector.class),
+            indexingWorkSchedulerFactory(),
+            SteadyStateReplicationConfig.builder()
+                .setNumConcurrentChangeStreams(2)
+                .setMaxInFlightEmbeddingGetMores(2)
+                .setChangeStreamQueryMaxTimeMs(1000)
+                .setChangeStreamCursorMaxTimeSec(1000)
+                .build(),
+            this.context.getIndexManagerFactory(),
+            false);
+
+    assertThat(changeStreamManager.getTaskExecutorClass()).hasValue(FifoExecutor.class);
+    // FifoExecutor has no semaphore - getEmbeddingAvailablePermits returns empty.
+    assertThat(changeStreamManager.getEmbeddingAvailablePermits()).isEmpty();
+    changeStreamManager.shutdown().get(5, TimeUnit.SECONDS);
+  }
+
+  @Test
+  public void testCreateSync_defaultReplicationType_priorityDisabledWithCap_usesAutoEmbedding()
+      throws Exception {
+    Assume.assumeTrue(this.context.name.equals("sync-client"));
+
+    // Priority scheduling off but a getMore cap applies (maxInFlight < numConcurrent) =>
+    // AutoEmbeddingExecutor, even for the DEFAULT replication type.
+    ChangeStreamManager changeStreamManager =
+        ChangeStreamManager.createSync(
+            MeterAndFtdcRegistry.createWithSimpleRegistries(),
+            ChangeStreamManagerTestSyncHelpers.syncSingleEventProducingClient(),
+            mock(ChangeStreamModeSelector.class),
+            indexingWorkSchedulerFactory(),
+            SteadyStateReplicationConfig.builder()
+                .setNumConcurrentChangeStreams(2)
+                .setMaxInFlightEmbeddingGetMores(1)
+                .setChangeStreamQueryMaxTimeMs(1000)
+                .setChangeStreamCursorMaxTimeSec(1000)
+                .build(),
+            this.context.getIndexManagerFactory(),
+            false);
+
+    assertThat(changeStreamManager.getTaskExecutorClass()).hasValue(AutoEmbeddingExecutor.class);
+    assertThat(changeStreamManager.getEmbeddingAvailablePermits()).hasValue(1);
+    changeStreamManager.shutdown().get(5, TimeUnit.SECONDS);
+  }
+
+  @Test
+  public void testCreateSync_autoEmbeddingReplicationType_priorityDisabled_usesAutoEmbedding()
+      throws Exception {
+    Assume.assumeTrue(this.context.name.equals("sync-client"));
+
+    // AUTO_EMBEDDING always uses AutoEmbeddingExecutor regardless of the priority-scheduling flag.
+    ChangeStreamManager changeStreamManager =
+        ChangeStreamManager.createSync(
+            MeterAndFtdcRegistry.createWithSimpleRegistries(),
+            ChangeStreamManagerTestSyncHelpers.syncSingleEventProducingClient(),
+            mock(ChangeStreamModeSelector.class),
+            indexingWorkSchedulerFactory(),
+            SteadyStateReplicationConfig.builder()
+                .setNumConcurrentChangeStreams(2)
+                .setMaxInFlightEmbeddingGetMores(1)
+                .setReplicationType(CommonReplicationConfig.Type.AUTO_EMBEDDING)
+                .setChangeStreamQueryMaxTimeMs(1000)
+                .setChangeStreamCursorMaxTimeSec(1000)
+                .build(),
+            this.context.getIndexManagerFactory(),
+            false);
+
+    assertThat(changeStreamManager.getTaskExecutorClass()).hasValue(AutoEmbeddingExecutor.class);
+    assertThat(changeStreamManager.getEmbeddingAvailablePermits()).hasValue(1);
+    changeStreamManager.shutdown().get(5, TimeUnit.SECONDS);
   }
 
   private static void setupRegistry() {

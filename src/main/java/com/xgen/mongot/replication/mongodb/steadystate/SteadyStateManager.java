@@ -67,6 +67,7 @@ public class SteadyStateManager {
       DecodingWorkScheduler decodingWorkScheduler,
       SteadyStateReplicationConfig replicationConfig,
       boolean enableLifecycleAttributionMetrics,
+      boolean enableChangeStreamPriorityScheduling,
       boolean enableChangeStreamActivityObserver) {
     Check.argIsPositive(
         replicationConfig.getNumConcurrentChangeStreams(), "numConcurrentChangeStreams");
@@ -85,6 +86,7 @@ public class SteadyStateManager {
             decodingWorkScheduler,
             replicationConfig,
             enableLifecycleAttributionMetrics,
+            enableChangeStreamPriorityScheduling,
             enableChangeStreamActivityObserver),
         new HashMap<>());
   }

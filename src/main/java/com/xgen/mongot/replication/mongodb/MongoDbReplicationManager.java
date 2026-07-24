@@ -295,6 +295,8 @@ public class MongoDbReplicationManager implements ReplicationManager {
     meterRegistry.gauge("replication.manager", 1);
     boolean enableLifecycleAttributionMetrics =
         featureFlags.isEnabled(Feature.LIFECYCLE_ATTRIBUTION_METRICS);
+    boolean enableChangeStreamPriorityScheduling =
+        featureFlags.isEnabled(Feature.CHANGE_STREAM_PRIORITY_SCHEDULING);
     boolean enableChangeStreamActivityObserver =
         featureFlags.isEnabled(Feature.CHANGE_STREAM_ACTIVITY_OBSERVER);
 
@@ -404,6 +406,7 @@ public class MongoDbReplicationManager implements ReplicationManager {
             decodingWorkScheduler,
             steadyStateReplicationConfig,
             enableLifecycleAttributionMetrics,
+            enableChangeStreamPriorityScheduling,
             enableChangeStreamActivityObserver);
 
     var synonymManager =

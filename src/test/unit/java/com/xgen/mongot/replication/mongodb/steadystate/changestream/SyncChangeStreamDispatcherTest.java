@@ -73,13 +73,15 @@ public class SyncChangeStreamDispatcherTest {
     when(indexManager.isShutdown()).thenReturn(true);
 
     // Create a dispatcher with a maximum of 1 concurrent embedding getMore.
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    AutoEmbeddingExecutor taskExecutor =
+        new AutoEmbeddingExecutor(
+            meterRegistry,
+            Executors.fixedSizeThreadScheduledExecutor("executor", 1, meterRegistry),
+            Optional.of(1));
     SyncChangeStreamDispatcher syncDispatcher =
         new SyncChangeStreamDispatcher(
-            new SimpleMeterRegistry(),
-            mongoClientFactory,
-            Executors.fixedSizeThreadScheduledExecutor("executor", 1, new SimpleMeterRegistry()),
-            Optional.of(1),
-            CommonReplicationConfig.Type.DEFAULT);
+            meterRegistry, mongoClientFactory, taskExecutor, CommonReplicationConfig.Type.DEFAULT);
 
     try {
       syncDispatcher.add(
@@ -133,8 +135,9 @@ public class SyncChangeStreamDispatcherTest {
         new SyncChangeStreamDispatcher(
             new SimpleMeterRegistry(),
             mongoClientFactory,
-            Executors.fixedSizeThreadScheduledExecutor("executor", 1, new SimpleMeterRegistry()),
-            Optional.empty(),
+            new FifoExecutor(
+                Executors.fixedSizeThreadScheduledExecutor(
+                    "executor", 1, new SimpleMeterRegistry())),
             CommonReplicationConfig.Type.DEFAULT);
 
     try {

@@ -1543,6 +1543,8 @@ public class IndexMetricsUpdater implements Closeable {
       static final String BATCH_TOTAL_APPLICABLE_BYTES = "batchTotalApplicableBytes";
       static final String BATCH_GET_MORE_TIMER = "getMoreDurations";
       static final String BATCH_DECODING_TIMER = "decodingBatchDurations";
+      static final String BATCH_SCHEDULING_TIMER = "schedulingDurations";
+      private static final double[] BATCH_SCHEDULING_TIMER_PERCENTILES = {0.5, 0.9};
 
       private final PerIndexMetricsFactory metricsFactory;
       private final IdFieldTypeGauge idFieldTypeGauge;
@@ -1550,6 +1552,7 @@ public class IndexMetricsUpdater implements Closeable {
       private final DistributionSummary batchTotalApplicableBytes;
       private final Timer batchGetMoreTimer;
       private final Timer batchDecodingTimer;
+      private final Timer batchSchedulingTimer;
 
       SteadyStateMetrics(PerIndexMetricsFactory metricsFactory, Tags tags) {
         this.metricsFactory = metricsFactory;
@@ -1572,6 +1575,9 @@ public class IndexMetricsUpdater implements Closeable {
 
         this.batchGetMoreTimer = processMetricsFactory.timer(BATCH_GET_MORE_TIMER, tags);
         this.batchDecodingTimer = processMetricsFactory.timer(BATCH_DECODING_TIMER, tags);
+        this.batchSchedulingTimer =
+            this.metricsFactory.perIndexTimer(
+                BATCH_SCHEDULING_TIMER, tags, BATCH_SCHEDULING_TIMER_PERCENTILES);
       }
 
       public DistributionSummary getBatchTotalApplicableDocuments() {
@@ -1588,6 +1594,10 @@ public class IndexMetricsUpdater implements Closeable {
 
       public Timer getBatchDecodingTimer() {
         return this.batchDecodingTimer;
+      }
+
+      public Timer getBatchSchedulingTimer() {
+        return this.batchSchedulingTimer;
       }
 
       public void reportIdKeyFieldType(String idFieldTypeName) {

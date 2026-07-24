@@ -2350,6 +2350,7 @@ public class MaterializedViewManager implements ReplicationManager {
                   this.decodingWorkScheduler,
                   getAutoEmbeddingSteadyStateReplicationConfig(this.materializedViewConfig),
                   this.featureFlags.isEnabled(Feature.LIFECYCLE_ATTRIBUTION_METRICS),
+                  this.featureFlags.isEnabled(Feature.CHANGE_STREAM_PRIORITY_SCHEDULING),
                   // The change-stream activity observer covers DEFAULT replication only.
                   false));
 

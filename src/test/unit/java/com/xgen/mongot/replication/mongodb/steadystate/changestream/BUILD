@@ -3,6 +3,7 @@ load("//bazel/java:test.bzl", "java_test_suite")
 java_test_suite(
     name = "changestream",
     srcs = [
+        "AutoEmbeddingExecutorTest.java",
         "ChangeStreamActivityObserverTest.java",
         "ChangeStreamIndexManagerTest.java",
         "ChangeStreamManagerTest.java",
@@ -11,6 +12,7 @@ java_test_suite(
         "CollectionRosterTest.java",
         "DualBlockingQueueTest.java",
         "DualQueueExecutorTest.java",
+        "FifoExecutorTest.java",
         "PrioritizedTaskTest.java",
         "SyncChangeStreamDispatcherTest.java",
         "SyncChangeStreamManagerTest.java",

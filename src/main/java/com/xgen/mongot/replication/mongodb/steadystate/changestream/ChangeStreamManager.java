@@ -18,6 +18,7 @@ import com.xgen.mongot.replication.mongodb.common.ChangeStreamModeSelector.Chang
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.CollectionSamplingMongoClient;
 import com.xgen.mongot.replication.mongodb.common.CollectionStatsMongoClient;
+import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.DecodingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.HeuristicChangeStreamModeSelector;
@@ -104,6 +105,7 @@ public class ChangeStreamManager {
       DecodingWorkScheduler decodingScheduler,
       SteadyStateReplicationConfig replicationConfig,
       boolean enableLifecycleAttributionMetrics,
+      boolean enableChangeStreamPriorityScheduling,
       boolean enableChangeStreamActivityObserver) {
     Check.argIsPositive(
         replicationConfig.getChangeStreamQueryMaxTimeMs(), "changeStreamQueryMaxTimeMs");
@@ -159,6 +161,7 @@ public class ChangeStreamManager {
         modeSelector,
         replicationConfig,
         enableLifecycleAttributionMetrics,
+        enableChangeStreamPriorityScheduling,
         activityObserverFactory);
   }
 
@@ -171,6 +174,7 @@ public class ChangeStreamManager {
       ChangeStreamModeSelector modeSelector,
       SteadyStateReplicationConfig replicationConfig,
       boolean enableLifecycleAttributionMetrics,
+      boolean enableChangeStreamPriorityScheduling,
       Optional<ActivityObserverFactory> activityObserverFactory) {
 
     ChangeStreamMongoClientFactory syncMongoClientFactory =
@@ -190,6 +194,7 @@ public class ChangeStreamManager {
         indexManagerFactoryWithDecodingScheduler(
             decodingScheduler, replicationConfig.getAutoEmbeddingMaterializedViewConfig()),
         enableLifecycleAttributionMetrics,
+        enableChangeStreamPriorityScheduling,
         activityObserverFactory);
   }
 
@@ -209,6 +214,7 @@ public class ChangeStreamManager {
         indexingWorkSchedulerFactory,
         replicationConfig,
         indexManagerFactory,
+        false,
         false,
         Optional.empty());
   }
@@ -230,7 +236,29 @@ public class ChangeStreamManager {
         replicationConfig,
         indexManagerFactory,
         false,
+        false,
         activityObserverFactory);
+  }
+
+  @VisibleForTesting
+  static ChangeStreamManager createSync(
+      MeterAndFtdcRegistry meterAndFtdcRegistry,
+      ChangeStreamMongoClientFactory syncMongoClientFactory,
+      ChangeStreamModeSelector modeSelector,
+      IndexingWorkSchedulerFactory indexingWorkSchedulerFactory,
+      SteadyStateReplicationConfig replicationConfig,
+      ChangeStreamIndexManagerFactory indexManagerFactory,
+      boolean enableChangeStreamPriorityScheduling) {
+    return createSync(
+        meterAndFtdcRegistry,
+        syncMongoClientFactory,
+        modeSelector,
+        indexingWorkSchedulerFactory,
+        replicationConfig,
+        indexManagerFactory,
+        false,
+        enableChangeStreamPriorityScheduling,
+        Optional.empty());
   }
 
   private static ChangeStreamManager createSync(
@@ -241,6 +269,7 @@ public class ChangeStreamManager {
       SteadyStateReplicationConfig replicationConfig,
       ChangeStreamIndexManagerFactory indexManagerFactory,
       boolean enableLifecycleAttributionMetrics,
+      boolean enableChangeStreamPriorityScheduling,
       Optional<ActivityObserverFactory> activityObserverFactory) {
     Check.argIsPositive(
         replicationConfig.getNumConcurrentChangeStreams(), "numConcurrentChangeStreams");
@@ -249,34 +278,18 @@ public class ChangeStreamManager {
 
     LOG.info("Creating with sync-batch client.");
 
-    NamedScheduledExecutorService executorService =
-        Executors.fixedSizeThreadScheduledExecutor(
-            replicationConfig.getReplicationType().metricsNamespacePrefix
-                + "change-stream-sync-dispatcher",
-            replicationConfig.getNumConcurrentChangeStreams(),
-            meterAndFtdcRegistry.meterRegistry());
+    ChangeStreamTaskExecutor taskExecutor =
+        createTaskExecutor(
+            meterAndFtdcRegistry,
+            replicationConfig,
+            enableLifecycleAttributionMetrics,
+            enableChangeStreamPriorityScheduling);
 
-    if (enableLifecycleAttributionMetrics) {
-      ThreadPoolResourceMetrics.create(
-              replicationConfig.getReplicationType().resourceAttributionSubsystem)
-          .register(executorService, meterAndFtdcRegistry.meterRegistry());
-    }
-
-    boolean shouldLimitMaxInFlightEmbeddingGetMores =
-        replicationConfig.getMaxInFlightEmbeddingGetMores()
-            < replicationConfig.getNumConcurrentChangeStreams();
-
-    SyncChangeStreamDispatcher syncDispatcher =
+    ChangeStreamDispatcher syncDispatcher =
         new SyncChangeStreamDispatcher(
             meterAndFtdcRegistry.meterRegistry(),
             syncMongoClientFactory,
-            executorService,
-            // Pass in an empty optional if maxInFlightEmbeddingGetMores is greater than or equal to
-            // numConcurrentChangeStreams, since this is the same as not limiting the number of
-            // in-flight getMores.
-            shouldLimitMaxInFlightEmbeddingGetMores
-                ? Optional.of(replicationConfig.getMaxInFlightEmbeddingGetMores())
-                : Optional.empty(),
+            taskExecutor,
             replicationConfig.getReplicationType());
 
     return new ChangeStreamManager(
@@ -285,6 +298,71 @@ public class ChangeStreamManager {
         syncDispatcher,
         modeSelector,
         activityObserverFactory);
+  }
+
+  /**
+   * Builds the {@link ChangeStreamTaskExecutor} that determines how getMore tasks are scheduled.
+   *
+   * <p>Priority scheduling ({@code enableChangeStreamPriorityScheduling}) only changes behavior for
+   * {@link CommonReplicationConfig.Type#DEFAULT}, where it swaps the plain scheduled executor for a
+   * {@link DualQueueExecutor}. Otherwise (including for {@link
+   * CommonReplicationConfig.Type#AUTO_EMBEDDING}) the scheduled-executor path below is used, which
+   * yields an {@link AutoEmbeddingExecutor} when a max-in-flight-embedding-getMores cap applies and
+   * a {@link FifoExecutor} when it does not.
+   *
+   * <p>Known gap: {@link DualQueueExecutor} has no concept of the max-in-flight-embedding-getMores
+   * cap. Legacy, non-materialized-view auto-embedding indexes ({@code type:TEXT}) still run on this
+   * {@link CommonReplicationConfig.Type#DEFAULT} path today, tracked for removal under
+   * CLOUDP-426030), so enabling {@code enableChangeStreamPriorityScheduling} on a {@code DEFAULT}
+   * deployment that still has one of these indexes will silently remove the concurrency cap on its
+   * embedding getMores.
+   */
+  private static ChangeStreamTaskExecutor createTaskExecutor(
+      MeterAndFtdcRegistry meterAndFtdcRegistry,
+      SteadyStateReplicationConfig replicationConfig,
+      boolean enableLifecycleAttributionMetrics,
+      boolean enableChangeStreamPriorityScheduling) {
+    String executorName =
+        replicationConfig.getReplicationType().metricsNamespacePrefix
+            + "change-stream-sync-dispatcher";
+
+    if (enableChangeStreamPriorityScheduling
+        && replicationConfig.getReplicationType() == CommonReplicationConfig.Type.DEFAULT) {
+      DualQueueExecutor dualQueueExecutor =
+          new DualQueueExecutor(
+              executorName,
+              replicationConfig.getNumConcurrentChangeStreams(),
+              meterAndFtdcRegistry.meterRegistry(),
+              new OptimeLagPriorityStrategy(
+                  OptimeLagPriorityStrategy.DEFAULT_HIGH_PRIORITY_LAG_THRESHOLD_SECONDS));
+      if (enableLifecycleAttributionMetrics) {
+        ThreadPoolResourceMetrics.create(
+                replicationConfig.getReplicationType().resourceAttributionSubsystem)
+            .register(dualQueueExecutor.getDelegate(), meterAndFtdcRegistry.meterRegistry());
+      }
+      return dualQueueExecutor;
+    }
+
+    NamedScheduledExecutorService scheduledExecutor =
+        Executors.fixedSizeThreadScheduledExecutor(
+            executorName,
+            replicationConfig.getNumConcurrentChangeStreams(),
+            meterAndFtdcRegistry.meterRegistry());
+    if (enableLifecycleAttributionMetrics) {
+      ThreadPoolResourceMetrics.create(
+              replicationConfig.getReplicationType().resourceAttributionSubsystem)
+          .register(scheduledExecutor, meterAndFtdcRegistry.meterRegistry());
+    }
+
+    boolean shouldLimitMaxInFlightEmbeddingGetMores =
+        replicationConfig.getMaxInFlightEmbeddingGetMores()
+            < replicationConfig.getNumConcurrentChangeStreams();
+    return shouldLimitMaxInFlightEmbeddingGetMores
+        ? new AutoEmbeddingExecutor(
+            meterAndFtdcRegistry.meterRegistry(),
+            scheduledExecutor,
+            Optional.of(replicationConfig.getMaxInFlightEmbeddingGetMores()))
+        : new FifoExecutor(scheduledExecutor);
   }
 
   /**
@@ -443,6 +521,16 @@ public class ChangeStreamManager {
   Optional<Integer> getEmbeddingAvailablePermits() {
     if (this.dispatcher instanceof SyncChangeStreamDispatcher syncChangeStreamDispatcher) {
       return syncChangeStreamDispatcher.getEmbeddingAvailablePermits();
+    } else {
+      return Optional.empty();
+    }
+  }
+
+  @TestOnly
+  @VisibleForTesting
+  Optional<Class<? extends ChangeStreamTaskExecutor>> getTaskExecutorClass() {
+    if (this.dispatcher instanceof SyncChangeStreamDispatcher syncChangeStreamDispatcher) {
+      return Optional.of(syncChangeStreamDispatcher.getTaskExecutorClass());
     } else {
       return Optional.empty();
     }

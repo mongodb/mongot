@@ -3,6 +3,7 @@ load("//bazel/java:package.bzl", "java_library")
 java_library(
     name = "changestream",
     srcs = [
+        "AutoEmbeddingExecutor.java",
         "BatchDataSizePriorityStrategy.java",
         "ChangeStreamActivityObserver.java",
         "ChangeStreamDispatcher.java",
@@ -16,6 +17,7 @@ java_library(
         "DecodingExecutorChangeStreamIndexManager.java",
         "DualQueueExecutor.java",
         "EnqueueContext.java",
+        "FifoExecutor.java",
         "HadDocumentsPriorityStrategy.java",
         "ModeAwareChangeStreamClient.java",
         "OptimeLagPriorityStrategy.java",
