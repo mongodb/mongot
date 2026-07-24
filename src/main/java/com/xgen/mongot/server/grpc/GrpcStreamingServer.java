@@ -257,6 +257,11 @@ public class GrpcStreamingServer implements CommandServer {
                   responseStream);
             });
 
+    var manageSearchIndexUnaryCallHandler =
+        ServerCalls.asyncUnaryCall(
+            new ManageSearchIndexUnaryCallHandler(
+                commandRegistry, executorManager.commandExecutor, healthManager));
+
     TlsMode tlsMode =
         securityConfigOpt.isPresent() ? securityConfigOpt.get().tlsMode() : TlsMode.DISABLED;
     LOG.atInfo().addKeyValue("TlsMode", tlsMode).log("initializing gRPC server");
@@ -277,6 +282,9 @@ public class GrpcStreamingServer implements CommandServer {
                         .addMethod(CommandStreamMethods.searchCommandStream, bsonMessageCallHandler)
                         .addMethod(
                             CommandStreamMethods.vectorSearchCommandStream, bsonMessageCallHandler)
+                        .addMethod(
+                            CommandStreamMethods.manageSearchIndexUnary,
+                            manageSearchIndexUnaryCallHandler)
                         .build())
             .addService(healthManager.getHealthService())
             .maxInboundMessageSize((int) inboundMessageSizeLimit.toBytes())

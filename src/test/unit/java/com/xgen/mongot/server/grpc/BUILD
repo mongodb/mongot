@@ -6,6 +6,7 @@ java_test_suite(
         "BsonMessageCallHandlerTest.java",
         "CommandManagerTest.java",
         "HealthManagerTest.java",
+        "ManageSearchIndexUnaryCallHandlerTest.java",
         "MessageMarshallerTest.java",
         "RawBsonMarshallerTest.java",
         "SearchEnvoyMetadataInterceptorTest.java",
