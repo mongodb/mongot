@@ -1573,6 +1573,8 @@ public class InitialSyncQueueTest {
               Optional.empty(),
               Optional.empty(),
               Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
               Optional.empty()),
           initialSyncConfig,
           new MockInitialSyncManagerFactory(resultSuppliers),

@@ -27,6 +27,8 @@
         "splitLargeChangeStreamEventsForInitialSync": false,
         "requestRateLimitBackoffMs" : 11,
         "steadyStatePriorityOptimeThresholdSeconds": 50,
+        "changeStreamInactivityThresholdSec": 1800,
+        "changeStreamKeepAliveIntervalSec": 3600,
         "steadyStateSchedulingMethod": "OPTIME_LAG",
         "steadyStatePriorityRatio": 3
       },
@@ -59,6 +61,8 @@
         "splitLargeChangeStreamEventsForInitialSync": false,
         "requestRateLimitBackoffMs" : 11,
         "steadyStatePriorityOptimeThresholdSeconds": 50,
+        "changeStreamInactivityThresholdSec": 1800,
+        "changeStreamKeepAliveIntervalSec": 3600,
         "steadyStateSchedulingMethod": "OPTIME_LAG",
         "steadyStatePriorityRatio": 3
       }

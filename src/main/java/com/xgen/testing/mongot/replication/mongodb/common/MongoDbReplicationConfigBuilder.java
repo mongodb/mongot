@@ -29,6 +29,8 @@ public class MongoDbReplicationConfigBuilder {
   private Optional<Boolean> splitLargeChangeStreamEventsForInitialSync = Optional.empty();
   private Optional<Integer> optionalRequestRateLimitBackoffMs = Optional.empty();
   private Optional<Integer> optionalSteadyStatePriorityOptimeThresholdSeconds = Optional.empty();
+  private Optional<Integer> optionalChangeStreamInactivityThresholdSec = Optional.empty();
+  private Optional<Integer> optionalChangeStreamKeepAliveIntervalSec = Optional.empty();
   private Optional<SteadyStateSchedulingMethod> optionalSteadyStateSchedulingMethod =
       Optional.empty();
   private Optional<Integer> optionalSteadyStatePriorityRatio = Optional.empty();
@@ -127,6 +129,18 @@ public class MongoDbReplicationConfigBuilder {
     return this;
   }
 
+  public MongoDbReplicationConfigBuilder optionalChangeStreamInactivityThresholdSec(
+      Optional<Integer> optionalChangeStreamInactivityThresholdSec) {
+    this.optionalChangeStreamInactivityThresholdSec = optionalChangeStreamInactivityThresholdSec;
+    return this;
+  }
+
+  public MongoDbReplicationConfigBuilder optionalChangeStreamKeepAliveIntervalSec(
+      Optional<Integer> optionalChangeStreamKeepAliveIntervalSec) {
+    this.optionalChangeStreamKeepAliveIntervalSec = optionalChangeStreamKeepAliveIntervalSec;
+    return this;
+  }
+
   public MongoDbReplicationConfigBuilder optionalSteadyStateSchedulingMethod(
       Optional<SteadyStateSchedulingMethod> optionalSteadyStateSchedulingMethod) {
     this.optionalSteadyStateSchedulingMethod = optionalSteadyStateSchedulingMethod;
@@ -162,6 +176,8 @@ public class MongoDbReplicationConfigBuilder {
         this.embeddingGetMoreBatchSize,
         this.optionalRequestRateLimitBackoffMs,
         this.optionalSteadyStatePriorityOptimeThresholdSeconds,
+        this.optionalChangeStreamInactivityThresholdSec,
+        this.optionalChangeStreamKeepAliveIntervalSec,
         this.optionalSteadyStateSchedulingMethod,
         this.optionalSteadyStatePriorityRatio);
   }

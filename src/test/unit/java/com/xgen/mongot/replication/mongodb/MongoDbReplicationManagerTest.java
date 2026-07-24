@@ -87,6 +87,8 @@ public class MongoDbReplicationManagerTest {
                 Optional.of(SteadyStateSchedulingMethod.OPTIME_LAG))
             .optionalSteadyStatePriorityRatio(Optional.of(3))
             .optionalSteadyStatePriorityOptimeThresholdSeconds(Optional.of(20))
+            .optionalChangeStreamInactivityThresholdSec(Optional.of(900))
+            .optionalChangeStreamKeepAliveIntervalSec(Optional.of(1800))
             .build();
 
     SteadyStateReplicationConfig steadyStateReplicationConfig =
@@ -97,6 +99,8 @@ public class MongoDbReplicationManagerTest {
         steadyStateReplicationConfig.getSteadyStateSchedulingMethod());
     assertEquals(3, steadyStateReplicationConfig.getSteadyStatePriorityRatio());
     assertEquals(20, steadyStateReplicationConfig.getSteadyStatePriorityOptimeThresholdSeconds());
+    assertEquals(900, steadyStateReplicationConfig.getChangeStreamInactivityThresholdSec());
+    assertEquals(1800, steadyStateReplicationConfig.getChangeStreamKeepAliveIntervalSec());
   }
 
   @Test

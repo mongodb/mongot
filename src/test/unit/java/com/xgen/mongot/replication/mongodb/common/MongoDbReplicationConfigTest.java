@@ -74,6 +74,8 @@ public class MongoDbReplicationConfigTest {
               Optional.of(10),
               Optional.of(11),
               Optional.of(50),
+              Optional.of(1800),
+              Optional.of(3600),
               Optional.of(SteadyStateSchedulingMethod.OPTIME_LAG),
               Optional.of(3)));
     }
@@ -426,6 +428,64 @@ public class MongoDbReplicationConfigTest {
       Assert.assertEquals(
           MongoDbReplicationConfig.DEFAULT_STEADY_STATE_PRIORITY_OPTIME_THRESHOLD_SECONDS,
           config.steadyStatePriorityOptimeThresholdSeconds);
+    }
+
+    @Test
+    public void testChangeStreamInactivityThresholdSecExplicit() {
+      // Shouldn't throw
+      MongoDbReplicationConfigBuilder.builder()
+          .optionalChangeStreamInactivityThresholdSec(Optional.of(1))
+          .build();
+
+      assertThrowsIllegalArgumentException(
+          () ->
+              MongoDbReplicationConfigBuilder.builder()
+                  .optionalChangeStreamInactivityThresholdSec(Optional.of(0))
+                  .build());
+
+      assertThrowsIllegalArgumentException(
+          () ->
+              MongoDbReplicationConfigBuilder.builder()
+                  .optionalChangeStreamInactivityThresholdSec(Optional.of(-1))
+                  .build());
+    }
+
+    @Test
+    public void testChangeStreamInactivityThresholdSecDefault() {
+      MongoDbReplicationConfig config = MongoDbReplicationConfigBuilder.builder().build();
+
+      Assert.assertEquals(
+          MongoDbReplicationConfig.DEFAULT_CHANGE_STREAM_INACTIVITY_THRESHOLD_SEC,
+          config.changeStreamInactivityThresholdSec);
+    }
+
+    @Test
+    public void testChangeStreamKeepAliveIntervalSecExplicit() {
+      // Shouldn't throw
+      MongoDbReplicationConfigBuilder.builder()
+          .optionalChangeStreamKeepAliveIntervalSec(Optional.of(1))
+          .build();
+
+      assertThrowsIllegalArgumentException(
+          () ->
+              MongoDbReplicationConfigBuilder.builder()
+                  .optionalChangeStreamKeepAliveIntervalSec(Optional.of(0))
+                  .build());
+
+      assertThrowsIllegalArgumentException(
+          () ->
+              MongoDbReplicationConfigBuilder.builder()
+                  .optionalChangeStreamKeepAliveIntervalSec(Optional.of(-1))
+                  .build());
+    }
+
+    @Test
+    public void testChangeStreamKeepAliveIntervalSecDefault() {
+      MongoDbReplicationConfig config = MongoDbReplicationConfigBuilder.builder().build();
+
+      Assert.assertEquals(
+          MongoDbReplicationConfig.DEFAULT_CHANGE_STREAM_KEEP_ALIVE_INTERVAL_SEC,
+          config.changeStreamKeepAliveIntervalSec);
     }
 
     @Test

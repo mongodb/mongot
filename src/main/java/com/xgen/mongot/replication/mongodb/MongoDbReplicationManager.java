@@ -693,6 +693,9 @@ public class MongoDbReplicationManager implements ReplicationManager {
         .buildSyncBatchClient();
   }
 
+  /**
+   * Derives the steady-state replication config from the given {@link MongoDbReplicationConfig}.
+   */
   public static SteadyStateReplicationConfig getSteadyStateReplicationConfig(
       MongoDbReplicationConfig replicationConfig) {
     return SteadyStateReplicationConfig.builder()
@@ -711,6 +714,10 @@ public class MongoDbReplicationManager implements ReplicationManager {
         .setSteadyStatePriorityRatio(replicationConfig.getSteadyStatePriorityRatio())
         .setSteadyStatePriorityOptimeThresholdSeconds(
             replicationConfig.getSteadyStatePriorityOptimeThresholdSeconds())
+        .setChangeStreamInactivityThresholdSec(
+            replicationConfig.getChangeStreamInactivityThresholdSec())
+        .setChangeStreamKeepAliveIntervalSec(
+            replicationConfig.getChangeStreamKeepAliveIntervalSec())
         .build();
   }
 

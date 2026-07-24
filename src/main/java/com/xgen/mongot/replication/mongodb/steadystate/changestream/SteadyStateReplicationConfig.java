@@ -25,6 +25,7 @@ public class SteadyStateReplicationConfig {
   private final SteadyStateSchedulingMethod steadyStateSchedulingMethod;
   private final int steadyStatePriorityRatio;
   private final int steadyStatePriorityOptimeThresholdSeconds;
+  private final int changeStreamKeepAliveIntervalSec;
 
   private SteadyStateReplicationConfig(
       int numConcurrentChangeStreams,
@@ -41,7 +42,8 @@ public class SteadyStateReplicationConfig {
       CommonReplicationConfig.Type replicationType,
       SteadyStateSchedulingMethod steadyStateSchedulingMethod,
       int steadyStatePriorityRatio,
-      int steadyStatePriorityOptimeThresholdSeconds) {
+      int steadyStatePriorityOptimeThresholdSeconds,
+      int changeStreamKeepAliveIntervalSec) {
     this.numConcurrentChangeStreams = numConcurrentChangeStreams;
     this.changeStreamQueryMaxTimeMs = changeStreamQueryMaxTimeMs;
     this.changeStreamCursorMaxTimeSec = changeStreamCursorMaxTimeSec;
@@ -57,6 +59,7 @@ public class SteadyStateReplicationConfig {
     this.steadyStateSchedulingMethod = steadyStateSchedulingMethod;
     this.steadyStatePriorityRatio = steadyStatePriorityRatio;
     this.steadyStatePriorityOptimeThresholdSeconds = steadyStatePriorityOptimeThresholdSeconds;
+    this.changeStreamKeepAliveIntervalSec = changeStreamKeepAliveIntervalSec;
   }
 
   public static SteadyStateReplicationConfig.Builder builder() {
@@ -107,6 +110,10 @@ public class SteadyStateReplicationConfig {
     return this.changeStreamInactivityThresholdSec;
   }
 
+  public int getChangeStreamKeepAliveIntervalSec() {
+    return this.changeStreamKeepAliveIntervalSec;
+  }
+
   public CommonReplicationConfig.Type getReplicationType() {
     return this.replicationType;
   }
@@ -139,6 +146,7 @@ public class SteadyStateReplicationConfig {
     private SteadyStateSchedulingMethod steadyStateSchedulingMethod;
     private int steadyStatePriorityRatio;
     private int steadyStatePriorityOptimeThresholdSeconds;
+    private int changeStreamKeepAliveIntervalSec;
 
     public Builder() {
       this.numConcurrentChangeStreams = Optional.empty();
@@ -159,6 +167,8 @@ public class SteadyStateReplicationConfig {
       this.steadyStatePriorityRatio = MongoDbReplicationConfig.DEFAULT_STEADY_STATE_PRIORITY_RATIO;
       this.steadyStatePriorityOptimeThresholdSeconds =
           MongoDbReplicationConfig.DEFAULT_STEADY_STATE_PRIORITY_OPTIME_THRESHOLD_SECONDS;
+      this.changeStreamKeepAliveIntervalSec =
+          MongoDbReplicationConfig.DEFAULT_CHANGE_STREAM_KEEP_ALIVE_INTERVAL_SEC;
     }
 
     public Builder setNumConcurrentChangeStreams(int value) {
@@ -218,6 +228,11 @@ public class SteadyStateReplicationConfig {
       return this;
     }
 
+    public Builder setChangeStreamKeepAliveIntervalSec(int value) {
+      this.changeStreamKeepAliveIntervalSec = value;
+      return this;
+    }
+
     public Builder setReplicationType(CommonReplicationConfig.Type replicationType) {
       this.replicationType = replicationType;
       return this;
@@ -243,6 +258,8 @@ public class SteadyStateReplicationConfig {
     public SteadyStateReplicationConfig build() {
       Check.argIsPositive(
           this.changeStreamInactivityThresholdSec, "changeStreamInactivityThresholdSec");
+      Check.argIsPositive(
+          this.changeStreamKeepAliveIntervalSec, "changeStreamKeepAliveIntervalSec");
       return new SteadyStateReplicationConfig(
           Check.isPresent(this.numConcurrentChangeStreams, "numConcurrentChangeStreams"),
           Check.isPresent(this.changeStreamQueryMaxTimeMs, "changeStreamQueryMaxTimeMs"),
@@ -258,7 +275,8 @@ public class SteadyStateReplicationConfig {
           this.replicationType,
           this.steadyStateSchedulingMethod,
           this.steadyStatePriorityRatio,
-          this.steadyStatePriorityOptimeThresholdSeconds);
+          this.steadyStatePriorityOptimeThresholdSeconds,
+          this.changeStreamKeepAliveIntervalSec);
     }
   }
 }
