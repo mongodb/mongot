@@ -1759,8 +1759,15 @@ public class ChangeStreamManagerTest {
         ignoreResumeInfo(),
         IGNORE_METRICS,
         false);
-    // Ensure that getMore is called on the first index before the second.
-    Thread.sleep(100);
+
+    // Wait for the first index's getMore to actually start before adding the second index. This
+    // guarantees the first index has acquired the single in-flight embedding getMore permit, making
+    // the permit-acquisition order deterministic. Relying on Thread.sleep() here was flaky: it only
+    // ordered task submission, not execution, so under load the second index's getMore could win
+    // the permit race, block forever on secondGetMoreStarted (which this test never releases), and
+    // starve the first index's getMore, causing firstGetMoreStarted.await() below to time out.
+    firstGetMoreStarted.await(5, TimeUnit.SECONDS);
+
     manager.add(
         secondGeneration.getGenerationId(),
         secondIndexer,
@@ -1774,9 +1781,8 @@ public class ChangeStreamManagerTest {
     // should be blocked until the first index batch is done.
     //
     // Desired state:
-    //  1. getMore
+    //  1. getMore (first index, holding the only in-flight embedding getMore permit)
     //  2. blocked on getMore (enqueued but rescheduling until first index finishes)
-    firstGetMoreStarted.await(5, TimeUnit.SECONDS);
     Assert.assertThrows(
         TimeoutException.class, () -> secondGetMoreStarted.await(500, TimeUnit.MILLISECONDS));
     secondGetMoreStarted.reset();
