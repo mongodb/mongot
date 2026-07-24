@@ -13,6 +13,7 @@ import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.TraceFlags;
 import io.opentelemetry.context.Scope;
 import java.util.List;
+import java.util.Optional;
 import org.junit.After;
 import org.junit.Test;
 
@@ -31,6 +32,12 @@ public class TracingTest {
   @After
   public void resetInitialSamplingRate() {
     Tracing.updateSamplingRate(originalSamplingRate);
+  }
+
+  @After
+  public void resetStrategyConfig() {
+    Tracing.updateStrategyConfig(
+        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
   }
 
   @Test
@@ -192,6 +199,51 @@ public class TracingTest {
             .count();
 
     assertEquals(2, count);
+  }
+
+  @Test
+  public void testVectorSearchSpanGuardHeadStrategySamplesAtRateOne() {
+    Tracing.updateStrategyConfig(
+        Optional.empty(), Optional.of("head"), Optional.empty(), Optional.of(1.0));
+
+    try (var guard = Tracing.vectorSearchSpanGuard("vectorSearch")) {
+      assertTrue(guard.getSpan().isRecording());
+    }
+  }
+
+  @Test
+  public void testVectorSearchSpanGuardHeadStrategyDoesNotSampleAtRateZero() {
+    Tracing.updateStrategyConfig(
+        Optional.empty(), Optional.of("head"), Optional.empty(), Optional.of(0.0));
+
+    try (var guard = Tracing.vectorSearchSpanGuard("vectorSearch")) {
+      assertFalse(guard.getSpan().isRecording());
+    }
+  }
+
+  @Test
+  public void testVectorSearchSpanGuardTailStrategyAlwaysSamples() {
+    // TAIL sampling always tags the span TOGGLE_ON; the actual keep/drop decision happens
+    // downstream, so the configured rate should have no bearing here.
+    Tracing.updateStrategyConfig(
+        Optional.empty(), Optional.of("tail"), Optional.empty(), Optional.of(0.0));
+
+    try (var guard = Tracing.vectorSearchSpanGuard("vectorSearch")) {
+      assertTrue(guard.getSpan().isRecording());
+    }
+  }
+
+  @Test
+  public void testSearchAndVectorSearchStrategiesAreConfiguredIndependently() {
+    Tracing.updateStrategyConfig(
+        Optional.of("tail"), Optional.of("head"), Optional.empty(), Optional.of(0.0));
+
+    try (var searchGuard = Tracing.searchSpanGuard("search")) {
+      assertTrue(searchGuard.getSpan().isRecording()); // tail strategy always samples
+    }
+    try (var vectorGuard = Tracing.vectorSearchSpanGuard("vectorSearch")) {
+      assertFalse(vectorGuard.getSpan().isRecording()); // head strategy at rate 0.0
+    }
   }
 
   private static int dummyFunction() {
