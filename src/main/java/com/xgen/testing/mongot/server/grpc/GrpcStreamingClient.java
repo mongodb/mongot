@@ -265,6 +265,13 @@ public class GrpcStreamingClient implements Closeable {
         .getStatus();
   }
 
+  /** Calls the unary {@code mongodb.BsonCommandService/manageSearchIndex} method. */
+  public RawBsonDocument callManageSearchIndexUnary(RawBsonDocument request) {
+    return ClientCalls.blockingUnaryCall(
+        this.channel.newCall(CommandStreamMethods.manageSearchIndexUnary, CallOptions.DEFAULT),
+        request);
+  }
+
   @Override
   public void close() {
     Crash.because("failed to shut down gRPC client")
