@@ -1544,7 +1544,9 @@ public class IndexMetricsUpdater implements Closeable {
       static final String BATCH_GET_MORE_TIMER = "getMoreDurations";
       static final String BATCH_DECODING_TIMER = "decodingBatchDurations";
       static final String BATCH_SCHEDULING_TIMER = "schedulingDurations";
-      private static final double[] BATCH_SCHEDULING_TIMER_PERCENTILES = {0.5, 0.9};
+      static final String PER_INDEX_GET_MORE_TIMER = "perIndexGetMoreDurations";
+
+      private static final double[] NO_PERCENTILES = {};
 
       private final PerIndexMetricsFactory metricsFactory;
       private final IdFieldTypeGauge idFieldTypeGauge;
@@ -1553,6 +1555,7 @@ public class IndexMetricsUpdater implements Closeable {
       private final Timer batchGetMoreTimer;
       private final Timer batchDecodingTimer;
       private final Timer batchSchedulingTimer;
+      private final Timer perIndexGetMoreTimer;
 
       SteadyStateMetrics(PerIndexMetricsFactory metricsFactory, Tags tags) {
         this.metricsFactory = metricsFactory;
@@ -1576,8 +1579,9 @@ public class IndexMetricsUpdater implements Closeable {
         this.batchGetMoreTimer = processMetricsFactory.timer(BATCH_GET_MORE_TIMER, tags);
         this.batchDecodingTimer = processMetricsFactory.timer(BATCH_DECODING_TIMER, tags);
         this.batchSchedulingTimer =
-            this.metricsFactory.perIndexTimer(
-                BATCH_SCHEDULING_TIMER, tags, BATCH_SCHEDULING_TIMER_PERCENTILES);
+            this.metricsFactory.perIndexTimer(BATCH_SCHEDULING_TIMER, tags, NO_PERCENTILES);
+        this.perIndexGetMoreTimer =
+            this.metricsFactory.perIndexTimer(PER_INDEX_GET_MORE_TIMER, tags, NO_PERCENTILES);
       }
 
       public DistributionSummary getBatchTotalApplicableDocuments() {
@@ -1598,6 +1602,10 @@ public class IndexMetricsUpdater implements Closeable {
 
       public Timer getBatchSchedulingTimer() {
         return this.batchSchedulingTimer;
+      }
+
+      public Timer getPerIndexGetMoreTimer() {
+        return this.perIndexGetMoreTimer;
       }
 
       public void reportIdKeyFieldType(String idFieldTypeName) {

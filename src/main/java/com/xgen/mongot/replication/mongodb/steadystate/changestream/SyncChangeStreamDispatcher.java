@@ -304,6 +304,7 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
       Duration duration = timer.stop().elapsed();
       this.getMoresInFlightTimer.record(duration);
       metricsUpdater.getBatchGetMoreTimer().record(duration);
+      metricsUpdater.getPerIndexGetMoreTimer().record(duration);
       return batch;
     } finally {
       this.getMoresInFlight.decrementAndGet();

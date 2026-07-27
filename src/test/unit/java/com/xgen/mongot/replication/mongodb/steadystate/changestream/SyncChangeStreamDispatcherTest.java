@@ -240,6 +240,78 @@ public class SyncChangeStreamDispatcherTest {
     }
   }
 
+  @Test
+  public void testPerIndexGetMoreDurationRecordedPerGetMore() throws Exception {
+    var definition = SearchIndex.mockSearchDefinition(new ObjectId());
+    IndexDefinitionGeneration generation =
+        mockIndexGeneration(definition).getDefinitionGeneration();
+
+    BsonTimestamp now = new BsonTimestamp(1_700_000_000, 0);
+    ChangeStreamBatch emptyBatch =
+        new ChangeStreamBatch(Collections.emptyList(), ChangeStreamUtils.resumeToken(now), now);
+
+    ChangeStreamMongoClient<SteadyStateException> mongoClient = mock(ChangeStreamMongoClient.class);
+    when(mongoClient.getNext())
+        .thenReturn(emptyBatch)
+        .thenReturn(emptyBatch)
+        .thenThrow(
+            SteadyStateException.createTransient(
+                new RuntimeException("stop after 3rd getMore"), "test-terminate"));
+
+    ChangeStreamMongoClientFactory mongoClientFactory = mock(ChangeStreamMongoClientFactory.class);
+    when(mongoClientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+        .thenReturn(mongoClient);
+
+    IndexMetricsUpdater metrics =
+        IndexMetricsUpdaterBuilder.builder()
+            .metricsFactory(SearchIndex.mockMetricsFactory())
+            .indexMetricsSupplier(IndexMetricsSupplier.mockEmptyIndexMetricsSupplier())
+            .build();
+
+    ChangeStreamIndexManager indexManager =
+        DecodingExecutorChangeStreamIndexManager.createWithDecodingScheduler(
+            definition,
+            mock(IndexingWorkScheduler.class),
+            mockDocumentIndexer(),
+            ChangeStreamUtils.PRE_BATCH_RESUME_INFO.getNamespace(),
+            resumeInfo -> {},
+            metrics,
+            new CompletableFuture<>(),
+            generation.getGenerationId(),
+            DecodingWorkScheduler.create(2, new SimpleMeterRegistry()));
+
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    ChangeStreamDualQueueExecutor taskExecutor =
+        new ChangeStreamDualQueueExecutor(
+            "test-dispatcher", 1, meterRegistry, new OptimeLagPriorityStrategy(10), 4);
+    SyncChangeStreamDispatcher syncDispatcher =
+        new SyncChangeStreamDispatcher(
+            meterRegistry, mongoClientFactory, taskExecutor, CommonReplicationConfig.Type.DEFAULT);
+
+    try {
+      syncDispatcher.add(
+          definition,
+          generation.getGenerationId(),
+          mock(ChangeStreamResumeInfo.class),
+          indexManager,
+          false);
+
+      verify(mongoClient, timeout(2000).times(3)).getNext();
+
+      // Each successful getMore records one per-index duration sample. The first two getNext calls
+      // return; the third throws before the duration is recorded, so the count is 2.
+      assertThat(
+              metrics
+                  .getReplicationMetricsUpdater()
+                  .getSteadyStateMetrics()
+                  .getPerIndexGetMoreTimer()
+                  .count())
+          .isEqualTo(2L);
+    } finally {
+      syncDispatcher.shutdown();
+    }
+  }
+
   private static void assertNumberOfEmbeddingPermits(
       SyncChangeStreamDispatcher dispatcher, int expectedPermits) {
     assertThat(dispatcher.getEmbeddingAvailablePermits()).isPresent();
