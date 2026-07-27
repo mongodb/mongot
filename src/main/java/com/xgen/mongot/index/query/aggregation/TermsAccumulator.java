@@ -111,6 +111,9 @@ public abstract sealed class TermsAccumulator extends BucketsAccumulator
         if (!segmentValues.advanceExact(doc)) {
           return;
         }
+        if (segmentValues.docValueCount() > 1) {
+          context.markMultiValued(doc);
+        }
         for (int i = 0; i < segmentValues.docValueCount(); i++) {
           long globalOrd = segmentToGlobal(segmentIndex, segmentValues.nextOrd());
           collectGlobalOrd(owningBucketOrd, doc, globalOrd, children);

@@ -51,13 +51,25 @@ public abstract non-sealed class GroupAggregationSpec implements AggregationSpec
 
   @Override
   public final Accumulator buildAccumulator(AggregationContext context) throws IOException {
+    AggregationContext branchContext = contextForChildAccumulators(context);
     // Bottom-up: build the children's accumulators first; the derived accumulator's constructor
     // wires itself as their parent.
     List<Accumulator> childAccumulators = new ArrayList<>(this.children.size());
     for (AggregationSpec childSpec : this.children) {
-      childAccumulators.add(childSpec.buildAccumulator(context));
+      childAccumulators.add(childSpec.buildAccumulator(branchContext));
     }
-    return createAccumulator(context, childAccumulators);
+    return createAccumulator(branchContext, childAccumulators);
+  }
+
+  /**
+   * Supplies the context for child accumulators in this facet branch. Root groups install a {@link
+   * MultiValueDocMarker}; nested groups inherit the parent's marker.
+   */
+  private AggregationContext contextForChildAccumulators(AggregationContext context) {
+    if (context.getMultiValueDocMarker().isPresent()) {
+      return context;
+    }
+    return context.withMultiValueDocMarker(new MultiValueDocMarker());
   }
 
   // Derived class should implement to provide the accumulator.

@@ -938,9 +938,12 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
       throw new InvalidQueryException(
           "Aggregation is not enabled. Please contact support.", InvalidQueryException.Type.STRICT);
     }
+    LuceneAggregationPlanResolver.AggregationPlan aggregationPlan =
+        LuceneAggregationPlanResolver.resolveAggregationPlan(
+            this.facetContext, aggregationCollector);
     LuceneSearchManager<AggregationQueryInfo> aggregationSearchManager =
         this.luceneSearchManagerFactory.newAggregationManager(
-            luceneQuery, luceneSort, searchAfter, this.facetContext, aggregationCollector);
+            luceneQuery, luceneSort, searchAfter, aggregationPlan);
 
     AggregationQueryInfo collectorQueryInfo =
         aggregationSearchManager.initialSearch(
@@ -984,9 +987,12 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
           "Aggregation is not enabled. Please contact support.", InvalidQueryException.Type.STRICT);
     }
 
+    LuceneAggregationPlanResolver.AggregationPlan aggregationPlan =
+        LuceneAggregationPlanResolver.resolveAggregationPlan(
+            this.facetContext, aggregationCollector);
     LuceneSearchManager<AggregationQueryInfo> aggregationSearchManager =
         this.luceneSearchManagerFactory.newAggregationManager(
-            luceneQuery, luceneSort, searchAfter, this.facetContext, aggregationCollector);
+            luceneQuery, luceneSort, searchAfter, aggregationPlan);
 
     AggregationQueryInfo collectorQueryInfo =
         aggregationSearchManager.initialSearch(

@@ -66,13 +66,53 @@ public interface AggregationContext {
    */
   IndexReader getIndexReader();
 
+  /**
+   * Resolves aggregation metric paths to Lucene doc-values fields. Present at Lucene execution
+   * time; empty in unit tests that supply raw field names directly.
+   */
+  Optional<AggregationFieldResolver> getFieldResolver();
+
+  /** Marker for skipping metrics when an ancestor group field is multi-valued on a doc. */
+  Optional<MultiValueDocMarker> getMultiValueDocMarker();
+
+  /** Return a derived context that shares state with {@code marker} for this facet branch. */
+  AggregationContext withMultiValueDocMarker(MultiValueDocMarker marker);
+
+  /** Mark {@code doc} when a group field fans it into multiple buckets in this facet branch. */
+  default void markMultiValued(int doc) {
+    getMultiValueDocMarker().ifPresent(marker -> marker.markMultiValued(doc));
+  }
+
+  /** Whether {@code doc} was marked multi-valued by an ancestor group in this facet branch. */
+  default boolean isMultiValued(int doc) {
+    return getMultiValueDocMarker().map(marker -> marker.isMultiValued(doc)).orElse(false);
+  }
+
   static AggregationContext createDefault(IndexReader indexReader) {
-    return createDefault(indexReader, luceneField -> Optional.empty());
+    return create(indexReader, Optional.empty());
   }
 
   static AggregationContext createDefault(
       IndexReader indexReader, CachedGlobalValueLookup cachedGlobalValueLookup) {
+    return create(indexReader, Optional.empty(), cachedGlobalValueLookup);
+  }
+
+  /**
+   * Creates an aggregation context for the given index reader.
+   *
+   * <p>{@code fieldResolver} is empty in unit tests that wire Lucene field names directly; Lucene
+   * execution supplies a pre-resolved resolver for metric operators.
+   */
+  static AggregationContext create(
+      IndexReader indexReader, Optional<AggregationFieldResolver> fieldResolver) {
+    return create(indexReader, fieldResolver, luceneField -> Optional.empty());
+  }
+
+  static AggregationContext create(
+      IndexReader indexReader,
+      Optional<AggregationFieldResolver> fieldResolver,
+      CachedGlobalValueLookup cachedGlobalValueLookup) {
     return new AggregationContextImpl(
-        indexReader, AggregationRegistry.getInstance(), cachedGlobalValueLookup);
+        indexReader, AggregationRegistry.getInstance(), fieldResolver, cachedGlobalValueLookup);
   }
 }

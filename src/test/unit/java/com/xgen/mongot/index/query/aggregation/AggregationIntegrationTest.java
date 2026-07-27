@@ -27,7 +27,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
         new TopAggregationSpec(
             List.of(
                 new TermsSpec(
-                    "by_city", CITY, List.of(new TestOperatorSpecs.SumSpec("sum_price", PRICE)))));
+                    "by_city", CITY, List.of(new SumAggregationSpec("sum_price", PRICE)))));
 
     AggregationResult resultTree =
         new TopLevelAggregationResult(
@@ -39,11 +39,11 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                         new TermsResult.TermsBucket(
                             "NYC",
                             AggregationResults.from(
-                                List.of(new TestOperatorSpecs.SumResult("sum_price", 30.0)))),
+                                List.of(new SumAggregationResult("sum_price", 30.0)))),
                         new TermsResult.TermsBucket(
                             "SF",
                             AggregationResults.from(
-                                List.of(new TestOperatorSpecs.SumResult("sum_price", 50.0))))))));
+                                List.of(new SumAggregationResult("sum_price", 50.0))))))));
 
     BsonArray intermediate = resultTree.toIntermediateBson();
     List<BsonDocument> pipeline = buildPipeline(specTree);
@@ -83,7 +83,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
         new TopAggregationSpec(
             List.of(
                 new TermsSpec(
-                    "by_city", CITY, List.of(new TestOperatorSpecs.AvgSpec("avg_price", PRICE)))));
+                    "by_city", CITY, List.of(new AvgAggregationSpec("avg_price", PRICE)))));
 
     AggregationResult resultTree =
         new TopLevelAggregationResult(
@@ -95,7 +95,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                         new TermsResult.TermsBucket(
                             "NYC",
                             AggregationResults.from(
-                                List.of(new AvgResult("avg_price", 30.0, 2))))))));
+                                List.of(new AvgAggregationResult("avg_price", 30.0, 2))))))));
 
     BsonArray intermediate = resultTree.toIntermediateBson();
     List<BsonDocument> pipeline = buildPipeline(specTree);
@@ -147,7 +147,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                         new TermsSpec(
                             "by_color",
                             COLOR,
-                            List.of(new TestOperatorSpecs.AvgSpec("avg_price", PRICE)))))));
+                            List.of(new AvgAggregationSpec("avg_price", PRICE)))))));
 
     TermsResult laColors =
         new TermsResult(
@@ -155,7 +155,9 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
             COLOR,
             List.of(
                 new TermsResult.TermsBucket(
-                    "red", AggregationResults.from(List.of(new AvgResult("avg_price", 5.0, 1))))));
+                    "red",
+                    AggregationResults.from(
+                        List.of(new AvgAggregationResult("avg_price", 5.0, 1))))));
 
     AggregationResult resultTree =
         new TopLevelAggregationResult(
@@ -223,8 +225,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
   @Test
   public void nestedDepth4_intermediateBsonAndPipelineUseThreeReconstructionGroups() {
     AggregationSpec byColor =
-        new TermsSpec(
-            "by_color", COLOR, List.of(new TestOperatorSpecs.AvgSpec("avg_price", PRICE)));
+        new TermsSpec("by_color", COLOR, List.of(new AvgAggregationSpec("avg_price", PRICE)));
     AggregationSpec byCity = new TermsSpec("by_city", CITY, List.of(byColor));
     AggregationSpec byRegion = new TermsSpec("by_region", REGION, List.of(byCity));
     AggregationSpec specTree =
@@ -236,7 +237,9 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
             COLOR,
             List.of(
                 new TermsResult.TermsBucket(
-                    "red", AggregationResults.from(List.of(new AvgResult("avg_price", 5.0, 1))))));
+                    "red",
+                    AggregationResults.from(
+                        List.of(new AvgAggregationResult("avg_price", 5.0, 1))))));
 
     TermsResult laCities =
         new TermsResult(
@@ -363,12 +366,10 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
   @Test
   public void nestedAndFlatFacets_intermediateBsonAndPipelineAlign() {
     AggregationSpec nestedColor =
-        new TermsSpec(
-            "by_color", COLOR, List.of(new TestOperatorSpecs.AvgSpec("avg_price", PRICE)));
+        new TermsSpec("by_color", COLOR, List.of(new AvgAggregationSpec("avg_price", PRICE)));
     AggregationSpec nestedCity = new TermsSpec("by_city", CITY, List.of(nestedColor));
     AggregationSpec flatColor =
-        new TermsSpec(
-            "by_color", COLOR, List.of(new TestOperatorSpecs.AvgSpec("avg_price", PRICE)));
+        new TermsSpec("by_color", COLOR, List.of(new AvgAggregationSpec("avg_price", PRICE)));
     AggregationSpec specTree = new TopAggregationSpec(List.of(nestedCity, flatColor));
 
     TermsResult laColors =
@@ -377,10 +378,13 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
             COLOR,
             List.of(
                 new TermsResult.TermsBucket(
-                    "red", AggregationResults.from(List.of(new AvgResult("avg_price", 5.0, 1)))),
+                    "red",
+                    AggregationResults.from(
+                        List.of(new AvgAggregationResult("avg_price", 5.0, 1)))),
                 new TermsResult.TermsBucket(
                     "green",
-                    AggregationResults.from(List.of(new AvgResult("avg_price", 15.0, 1))))));
+                    AggregationResults.from(
+                        List.of(new AvgAggregationResult("avg_price", 15.0, 1))))));
 
     TermsResult nycColors =
         new TermsResult(
@@ -388,7 +392,9 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
             COLOR,
             List.of(
                 new TermsResult.TermsBucket(
-                    "red", AggregationResults.from(List.of(new AvgResult("avg_price", 30.0, 2))))));
+                    "red",
+                    AggregationResults.from(
+                        List.of(new AvgAggregationResult("avg_price", 30.0, 2))))));
 
     TermsResult byCityResult =
         new TermsResult(
@@ -404,7 +410,9 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
             COLOR,
             List.of(
                 new TermsResult.TermsBucket(
-                    "red", AggregationResults.from(List.of(new AvgResult("avg_price", 35.0, 3))))));
+                    "red",
+                    AggregationResults.from(
+                        List.of(new AvgAggregationResult("avg_price", 35.0, 3))))));
 
     AggregationResult resultTree =
         new TopLevelAggregationResult(List.of(byCityResult, byColorResult));
@@ -521,12 +529,9 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
     AggregationSpec specTree =
         new TopAggregationSpec(
             List.of(
+                new TermsSpec("by_city", CITY, List.of(new SumAggregationSpec("sum_price", PRICE))),
                 new TermsSpec(
-                    "by_city", CITY, List.of(new TestOperatorSpecs.SumSpec("sum_price", PRICE))),
-                new TermsSpec(
-                    "by_color",
-                    COLOR,
-                    List.of(new TestOperatorSpecs.SumSpec("sum_price", PRICE)))));
+                    "by_color", COLOR, List.of(new SumAggregationSpec("sum_price", PRICE)))));
 
     AggregationResult resultTree =
         new TopLevelAggregationResult(
@@ -538,7 +543,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                         new TermsResult.TermsBucket(
                             "NYC",
                             AggregationResults.from(
-                                List.of(new TestOperatorSpecs.SumResult("sum_price", 10.0)))))),
+                                List.of(new SumAggregationResult("sum_price", 10.0)))))),
                 new TermsResult(
                     "by_color",
                     COLOR,
@@ -546,7 +551,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                         new TermsResult.TermsBucket(
                             "red",
                             AggregationResults.from(
-                                List.of(new TestOperatorSpecs.SumResult("sum_price", 35.0))))))));
+                                List.of(new SumAggregationResult("sum_price", 35.0))))))));
 
     BsonArray intermediate = resultTree.toIntermediateBson();
     List<BsonDocument> pipeline = buildPipeline(specTree);

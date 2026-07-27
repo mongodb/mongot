@@ -155,6 +155,31 @@ public class TermsAccumulatorTest extends AggregationTestSupport {
   }
 
   @Test
+  public void multiValuedGroupKey_skipsProductionSum() throws Exception {
+    buildIndexWithMultiValueCityDoc(100);
+    Accumulator top =
+        collectAll(cityTermsWithProductionSum(true, 100), newContextWithFieldResolver());
+    TermsAggregationResult byCity = firstTerms(top);
+    assertEquals(Set.of("LA", "NYC"), bucketKeys(byCity));
+    for (String city : Set.of("LA", "NYC")) {
+      SumAggregationResult sum =
+          (SumAggregationResult) bucket(byCity, city).getChildResults().get("sum_price");
+      assertEquals(0.0, sum.getValue(), 1e-9);
+    }
+  }
+
+  private static TopAggregationSpec cityTermsWithProductionSum(boolean isRoot, int limit) {
+    AggregationSpec sum = new SumAggregationSpec("sum_price", FieldPath.parse(PRICE_FIELD));
+    AggregationSpec byCity =
+        new TermsGroupAggregationSpec(
+            "by_city",
+            FieldPath.parse(CITY_FIELD),
+            List.of(sum),
+            new TermsArgs(isRoot, TypeField.TOKEN, limit));
+    return new TopAggregationSpec(List.of(byCity));
+  }
+
+  @Test
   public void twoFieldTerms_denseOuterRemapInner() throws Exception {
     buildIndex(DATASET, DATASET.size());
 

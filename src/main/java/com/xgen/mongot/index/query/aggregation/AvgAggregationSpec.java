@@ -20,7 +20,13 @@ public final class AvgAggregationSpec extends OperatorAggregationSpec {
 
   @Override
   public Accumulator buildAccumulator(AggregationContext context) throws IOException {
-    throw new UnsupportedOperationException("Average accumulation is not implemented yet");
+    ResolvedNumericMetricField metricField =
+        context
+            .getFieldResolver()
+            .orElseThrow(
+                () -> new IllegalStateException("Aggregation field resolver is not configured"))
+            .resolveNumeric(this.path);
+    return new AvgAccumulator(this.name, metricField, context);
   }
 
   @Override

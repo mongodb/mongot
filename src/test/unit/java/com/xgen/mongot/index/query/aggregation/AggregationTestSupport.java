@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.query.aggregation;
 
+import com.xgen.mongot.index.definition.NumericFieldOptions;
 import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
 import com.xgen.mongot.index.query.aggregation.TermsAggregationResult.TermsBucket;
 import com.xgen.mongot.util.Check;
@@ -58,6 +59,8 @@ public abstract class AggregationTestSupport {
       TypeField.TOKEN.getLuceneFieldName(FieldPath.parse(COLOR_FIELD), Optional.empty());
   protected static final String PRICE_LUCENE_FIELD =
       TypeField.NUMBER_INT64_V2.getLuceneFieldName(FieldPath.parse(PRICE_FIELD), Optional.empty());
+  protected static final String DOUBLE_PRICE_LUCENE_FIELD =
+      TypeField.NUMBER_DOUBLE_V2.getLuceneFieldName(FieldPath.parse(PRICE_FIELD), Optional.empty());
 
   protected Directory directory;
   protected IndexReader reader;
@@ -101,6 +104,21 @@ public abstract class AggregationTestSupport {
     this.searcher = new IndexSearcher(this.reader);
   }
 
+  /** One doc with multiple group-key tokens and a single metric value. */
+  protected void buildIndexWithMultiValueCityDoc(long price) throws IOException {
+    this.directory = new ByteBuffersDirectory();
+    IndexWriterConfig config = new IndexWriterConfig().setMergePolicy(NoMergePolicy.INSTANCE);
+    try (IndexWriter writer = new IndexWriter(this.directory, config)) {
+      Document luceneDoc = new Document();
+      luceneDoc.add(new SortedSetDocValuesField(CITY_LUCENE_FIELD, new BytesRef("NYC")));
+      luceneDoc.add(new SortedSetDocValuesField(CITY_LUCENE_FIELD, new BytesRef("LA")));
+      luceneDoc.add(new SortedNumericDocValuesField(PRICE_LUCENE_FIELD, price));
+      writer.addDocument(luceneDoc);
+    }
+    this.reader = DirectoryReader.open(this.directory);
+    this.searcher = new IndexSearcher(this.reader);
+  }
+
   /** Build the accumulator tree for {@code spec}, run {@code query}, and return the root. */
   protected Accumulator collect(TopAggregationSpec spec, AggregationContext context, Query query)
       throws IOException {
@@ -131,6 +149,56 @@ public abstract class AggregationTestSupport {
 
   protected AggregationContext newContext() {
     return new TestContext(this.reader);
+  }
+
+  protected static AggregationResult mergePartitionResults(
+      AggregationResult left, AggregationResult right) {
+    AggregationResultBuilder builder = left.toBuilder();
+    builder.add(left);
+    builder.add(right);
+    return builder.build();
+  }
+
+  protected AggregationContext newContextWithFieldResolver() {
+    return AggregationContext.create(
+        this.reader,
+        Optional.of(
+            new AggregationFieldResolver() {
+              @Override
+              public ResolvedNumericMetricField resolveNumeric(FieldPath path) {
+                if (path.equals(FieldPath.parse(PRICE_FIELD))) {
+                  return new ResolvedNumericMetricField(
+                      PRICE_LUCENE_FIELD, NumericFieldOptions.Representation.INT64);
+                }
+                throw new IllegalStateException("unexpected path: " + path);
+              }
+
+              @Override
+              public ResolvedTokenField resolveToken(FieldPath path) {
+                throw new IllegalStateException("unexpected path: " + path);
+              }
+            }));
+  }
+
+  protected AggregationContext newContextWithDoubleFieldResolver() {
+    return AggregationContext.create(
+        this.reader,
+        Optional.of(
+            new AggregationFieldResolver() {
+              @Override
+              public ResolvedNumericMetricField resolveNumeric(FieldPath path) {
+                if (path.equals(FieldPath.parse(PRICE_FIELD))) {
+                  return new ResolvedNumericMetricField(
+                      DOUBLE_PRICE_LUCENE_FIELD, NumericFieldOptions.Representation.DOUBLE);
+                }
+                throw new IllegalStateException("unexpected path: " + path);
+              }
+
+              @Override
+              public ResolvedTokenField resolveToken(FieldPath path) {
+                throw new IllegalStateException("unexpected path: " + path);
+              }
+            }));
   }
 
   // ===== assertion helpers =====
@@ -321,28 +389,42 @@ public abstract class AggregationTestSupport {
     private final IndexReader indexReader;
     private final CachedGlobalValueLookup cachedGlobalValueLookup;
     @Nullable private final LeafReaderContext leafReaderContext;
+    private final Optional<MultiValueDocMarker> multiValueDocMarker;
 
     protected TestContext(IndexReader indexReader) {
-      this(indexReader, luceneField -> Optional.empty(), null);
+      this(indexReader, luceneField -> Optional.empty(), null, Optional.empty());
     }
 
     protected TestContext(
         IndexReader indexReader, CachedGlobalValueLookup cachedGlobalValueLookup) {
-      this(indexReader, cachedGlobalValueLookup, null);
+      this(indexReader, cachedGlobalValueLookup, null, Optional.empty());
     }
 
     private TestContext(
         IndexReader indexReader,
         CachedGlobalValueLookup cachedGlobalValueLookup,
-        @Nullable LeafReaderContext leafReaderContext) {
+        @Nullable LeafReaderContext leafReaderContext,
+        Optional<MultiValueDocMarker> multiValueDocMarker) {
       this.indexReader = indexReader;
       this.cachedGlobalValueLookup = cachedGlobalValueLookup;
       this.leafReaderContext = leafReaderContext;
+      this.multiValueDocMarker = multiValueDocMarker;
     }
 
     @Override
     public AggregationContext withLeafReaderContext(LeafReaderContext context) {
-      return new TestContext(this.indexReader, this.cachedGlobalValueLookup, context);
+      this.multiValueDocMarker.ifPresent(MultiValueDocMarker::reset);
+      return new TestContext(
+          this.indexReader, this.cachedGlobalValueLookup, context, this.multiValueDocMarker);
+    }
+
+    @Override
+    public AggregationContext withMultiValueDocMarker(MultiValueDocMarker marker) {
+      return new TestContext(
+          this.indexReader,
+          this.cachedGlobalValueLookup,
+          this.leafReaderContext,
+          Optional.of(marker));
     }
 
     @Override
@@ -366,6 +448,16 @@ public abstract class AggregationTestSupport {
     @Override
     public IndexReader getIndexReader() {
       return this.indexReader;
+    }
+
+    @Override
+    public Optional<AggregationFieldResolver> getFieldResolver() {
+      return Optional.empty();
+    }
+
+    @Override
+    public Optional<MultiValueDocMarker> getMultiValueDocMarker() {
+      return this.multiValueDocMarker;
     }
   }
 }

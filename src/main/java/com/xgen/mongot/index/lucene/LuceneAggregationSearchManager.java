@@ -1,21 +1,17 @@
 package com.xgen.mongot.index.lucene;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.xgen.mongot.index.definition.FieldDefinition;
+import com.xgen.mongot.index.lucene.LuceneAggregationPlanResolver.AggregationPlan;
 import com.xgen.mongot.index.lucene.facet.TokenFacetsCardinalityLimitExceededException;
 import com.xgen.mongot.index.lucene.facet.TokenFacetsStateCache;
 import com.xgen.mongot.index.lucene.facet.TokenSsdvFacetState;
-import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
 import com.xgen.mongot.index.lucene.searcher.LuceneIndexSearcher;
 import com.xgen.mongot.index.query.aggregation.AggregationContext;
+import com.xgen.mongot.index.query.aggregation.AggregationFieldResolver;
 import com.xgen.mongot.index.query.aggregation.AggregationResult;
 import com.xgen.mongot.index.query.aggregation.TopAggregationSpec;
-import com.xgen.mongot.index.query.collectors.AggregationCollector;
-import com.xgen.mongot.index.query.collectors.AggregationSpecBuilder;
-import com.xgen.mongot.index.query.collectors.FacetDefinition.BoundaryFacetDefinition;
 import com.xgen.mongot.index.query.sort.SequenceToken;
 import com.xgen.mongot.util.Check;
-import com.xgen.mongot.util.FieldPath;
 import java.io.IOException;
 import java.util.Optional;
 import org.apache.lucene.search.MultiCollectorManager;
@@ -33,8 +29,8 @@ import org.apache.lucene.search.TopDocs;
 public class LuceneAggregationSearchManager
     extends AbstractLuceneSearchManager<LuceneAggregationSearchManager.AggregationQueryInfo> {
 
-  private final LuceneFacetContext facetContext;
-  private final AggregationCollector aggregationCollector;
+  private final TopAggregationSpec rootSpec;
+  private final AggregationFieldResolver fieldResolver;
 
   public static class AggregationQueryInfo extends QueryInfo {
     private final AggregationResult aggregationResult;
@@ -54,11 +50,10 @@ public class LuceneAggregationSearchManager
       Query luceneQuery,
       Optional<Sort> luceneSort,
       Optional<SequenceToken> searchAfter,
-      LuceneFacetContext facetContext,
-      AggregationCollector aggregationCollector) {
+      AggregationPlan aggregationPlan) {
     super(luceneQuery, luceneSort, searchAfter);
-    this.facetContext = facetContext;
-    this.aggregationCollector = aggregationCollector;
+    this.rootSpec = aggregationPlan.rootSpec();
+    this.fieldResolver = aggregationPlan.fieldResolver();
   }
 
   @Override
@@ -67,20 +62,17 @@ public class LuceneAggregationSearchManager
     LuceneIndexSearcher searcher = searcherReference.getIndexSearcher();
 
     AggregationContext context =
-        AggregationContext.createDefault(
-            searcher.getIndexReader(), cachedGlobalValueLookup(searcher));
-    TopAggregationSpec rootSpec =
-        AggregationSpecBuilder.toTopLevelSpec(
-            this.aggregationCollector,
-            context.getRegistry(),
-            Optional.of(new FacetContextBoundaryResolver(this.facetContext)));
+        AggregationContext.create(
+            searcher.getIndexReader(),
+            Optional.of(this.fieldResolver),
+            cachedGlobalValueLookup(searcher));
 
     int readerLimit = Math.max(1, searcher.getIndexReader().maxDoc());
     int searchLimit = Math.min(readerLimit, batchSize);
 
     var searchCollectorManager = createCollectorManager(searchLimit, Integer.MAX_VALUE);
 
-    AccumulatorCollectorManager accCM = new AccumulatorCollectorManager(rootSpec, context);
+    AccumulatorCollectorManager accCM = new AccumulatorCollectorManager(this.rootSpec, context);
 
     var results =
         searcher.search(
@@ -120,36 +112,5 @@ public class LuceneAggregationSearchManager
       }
       return Optional.of(state.get().getDocValues());
     };
-  }
-
-  private static final class FacetContextBoundaryResolver
-      implements AggregationSpecBuilder.BoundaryFieldResolver {
-    private final LuceneFacetContext facetContext;
-
-    FacetContextBoundaryResolver(LuceneFacetContext facetContext) {
-      this.facetContext = facetContext;
-    }
-
-    @Override
-    public FieldDefinition getFieldDefinition(FieldPath path) {
-      return this.facetContext
-          .getFieldDefinitionResolver()
-          .getFieldDefinition(path, Optional.empty())
-          .orElseThrow(
-              () -> new IllegalStateException("Unresolvable field definition for path: " + path));
-    }
-
-    @Override
-    public TypeField getBoundaryFacetFieldType(BoundaryFacetDefinition<?> facetDefinition) {
-      try {
-        return this.facetContext.getBoundaryFacetFieldType(facetDefinition, Optional.empty());
-      } catch (Exception e) {
-        // Note: ideally we should capture InvalidQueryException here but that introduced
-        // java package circular dependencies. So we capture a generic Exception and convert
-        // it into a runtime exception.
-        throw new IllegalStateException(
-            "Failed to get field type for " + facetDefinition.path(), e);
-      }
-    }
   }
 }

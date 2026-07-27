@@ -8,6 +8,7 @@ import static org.junit.Assert.assertTrue;
 import com.xgen.mongot.util.FieldPath;
 import java.io.IOException;
 import java.util.List;
+import java.util.Optional;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.junit.Test;
@@ -23,33 +24,51 @@ public class SpecTest {
    * so unsupported-operation throws are fine. SpecTest only checks how specs wire accumulators
    * together; no Lucene scan runs here.
    */
-  private static final AggregationContext STUB_CONTEXT =
-      new AggregationContext() {
-        @Override
-        public AggregationContext withLeafReaderContext(LeafReaderContext context) {
-          throw new UnsupportedOperationException();
-        }
+  private static AggregationContext stubContext(Optional<MultiValueDocMarker> multiValueDocMarker) {
+    return new AggregationContext() {
+      @Override
+      public AggregationContext withLeafReaderContext(LeafReaderContext context) {
+        throw new UnsupportedOperationException();
+      }
 
-        @Override
-        public AggregationRegistry getRegistry() {
-          return AggregationRegistry.getInstance();
-        }
+      @Override
+      public AggregationRegistry getRegistry() {
+        return AggregationRegistry.getInstance();
+      }
 
-        @Override
-        public LeafReaderContext getLeafReaderContext() {
-          throw new UnsupportedOperationException();
-        }
+      @Override
+      public CachedGlobalValueLookup getCachedGlobalValueLookup() {
+        throw new UnsupportedOperationException();
+      }
 
-        @Override
-        public CachedGlobalValueLookup getCachedGlobalValueLookup() {
-          throw new UnsupportedOperationException();
-        }
+      @Override
+      public LeafReaderContext getLeafReaderContext() {
+        throw new UnsupportedOperationException();
+      }
 
-        @Override
-        public IndexReader getIndexReader() {
-          throw new UnsupportedOperationException();
-        }
-      };
+      @Override
+      public IndexReader getIndexReader() {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public Optional<AggregationFieldResolver> getFieldResolver() {
+        return Optional.empty();
+      }
+
+      @Override
+      public Optional<MultiValueDocMarker> getMultiValueDocMarker() {
+        return multiValueDocMarker;
+      }
+
+      @Override
+      public AggregationContext withMultiValueDocMarker(MultiValueDocMarker marker) {
+        return stubContext(Optional.of(marker));
+      }
+    };
+  }
+
+  private static final AggregationContext STUB_CONTEXT = stubContext(Optional.empty());
 
   @Test
   public void operatorSpecExposesMetadata() {

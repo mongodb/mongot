@@ -6,7 +6,6 @@ import com.xgen.mongot.util.FieldPath;
 import java.util.List;
 import org.bson.BsonArray;
 import org.bson.BsonDocument;
-import org.bson.BsonString;
 import org.junit.Test;
 
 /**
@@ -23,7 +22,7 @@ public class ShardMergePipelineBuilderTest {
 
   @Test
   public void singleGroupWithMetricLowerBound() {
-    AggregationSpec leaf = new SumSpec("sum_price", PRICE);
+    AggregationSpec leaf = new SumAggregationSpec("sum_price", PRICE);
     AggregationSpec group = new TermsSpec("by_city", CITY, List.of(leaf));
     TopAggregationSpec top = new TopAggregationSpec(List.of(group));
 
@@ -84,7 +83,7 @@ public class ShardMergePipelineBuilderTest {
 
   @Test
   public void singleGroupWithAvgMetricFinalizesInFacetProject() {
-    AggregationSpec leaf = new AvgSpec("avg_price", PRICE);
+    AggregationSpec leaf = new AvgAggregationSpec("avg_price", PRICE);
     AggregationSpec group = new TermsSpec("by_city", CITY, List.of(leaf));
     TopAggregationSpec top = new TopAggregationSpec(List.of(group));
 
@@ -129,7 +128,7 @@ public class ShardMergePipelineBuilderTest {
 
   @Test
   public void countTypeTotalChangesCountField() {
-    AggregationSpec leaf = new SumSpec("sum_price", PRICE);
+    AggregationSpec leaf = new SumAggregationSpec("sum_price", PRICE);
     AggregationSpec group = new TermsSpec("by_city", CITY, List.of(leaf));
     TopAggregationSpec top = new TopAggregationSpec(List.of(group));
 
@@ -144,7 +143,7 @@ public class ShardMergePipelineBuilderTest {
 
   @Test
   public void nestedGroupsReconstructChildBranchInFacetArm() {
-    AggregationSpec leaf = new SumSpec("sum_price", PRICE);
+    AggregationSpec leaf = new SumAggregationSpec("sum_price", PRICE);
     AggregationSpec innerGroup = new TermsSpec("by_color", COLOR, List.of(leaf));
     AggregationSpec outerGroup = new TermsSpec("by_city", CITY, List.of(innerGroup));
     TopAggregationSpec top = new TopAggregationSpec(List.of(outerGroup));
@@ -198,7 +197,7 @@ public class ShardMergePipelineBuilderTest {
 
   @Test
   public void nestedDepth4_emitsThreeGroupStagesAndTripleNestedProject() {
-    AggregationSpec leaf = new SumSpec("sum_price", PRICE);
+    AggregationSpec leaf = new SumAggregationSpec("sum_price", PRICE);
     AggregationSpec byColor = new TermsSpec("by_color", COLOR, List.of(leaf));
     AggregationSpec byCity = new TermsSpec("by_city", CITY, List.of(byColor));
     AggregationSpec byRegion = new TermsSpec("by_region", REGION, List.of(byCity));
@@ -290,8 +289,8 @@ public class ShardMergePipelineBuilderTest {
 
   @Test
   public void multipleTopLevelGroupsProduceSeparateFacets() {
-    AggregationSpec leaf1 = new SumSpec("sum_price", PRICE);
-    AggregationSpec leaf2 = new SumSpec("sum_price", PRICE);
+    AggregationSpec leaf1 = new SumAggregationSpec("sum_price", PRICE);
+    AggregationSpec leaf2 = new SumAggregationSpec("sum_price", PRICE);
     AggregationSpec group1 = new TermsSpec("by_city", CITY, List.of(leaf1));
     AggregationSpec group2 = new TermsSpec("by_color", COLOR, List.of(leaf2));
     TopAggregationSpec top = new TopAggregationSpec(List.of(group1, group2));
@@ -331,64 +330,6 @@ public class ShardMergePipelineBuilderTest {
             }}
             """);
     assertEquals(expectedFacet, pipeline.get(1));
-  }
-
-  private static final class SumSpec extends OperatorAggregationSpec {
-    @SuppressWarnings("unused")
-    private final FieldPath path;
-
-    SumSpec(String name, FieldPath path) {
-      super(Operator.SUM, name);
-      this.path = path;
-    }
-
-    @Override
-    public Accumulator buildAccumulator(AggregationContext context) {
-      throw new UnsupportedOperationException("not exercised in pipeline test");
-    }
-
-    @Override
-    public void buildShardMergePipeline(ShardMergePipelineBuilder builder) {
-      builder.addMetricAccumulator(
-          "sum_" + this.name, new BsonDocument("$sum", new BsonString("$sum_" + this.name)));
-      builder.addMetricProjection(this.name, new BsonString("$$b.sum_" + this.name));
-    }
-  }
-
-  private static final class AvgSpec extends OperatorAggregationSpec {
-    @SuppressWarnings("unused")
-    private final FieldPath path;
-
-    AvgSpec(String name, FieldPath path) {
-      super(Operator.AVG, name);
-      this.path = path;
-    }
-
-    @Override
-    public Accumulator buildAccumulator(AggregationContext context) {
-      throw new UnsupportedOperationException("not exercised in pipeline test");
-    }
-
-    @Override
-    public void buildShardMergePipeline(ShardMergePipelineBuilder builder) {
-      builder.addMetricAccumulator(
-          "avg_sum_" + this.name,
-          new BsonDocument("$sum", new BsonString("$avg_sum_" + this.name)));
-      builder.addMetricAccumulator(
-          "avg_count_" + this.name,
-          new BsonDocument("$sum", new BsonString("$avg_count_" + this.name)));
-      builder.addMetricProjection(
-          this.name,
-          BsonDocument.parse(
-              """
-              {"$cond": {
-                "if": {"$eq": ["$$b.avg_count_%s", 0]},
-                "then": null,
-                "else": {"$divide": ["$$b.avg_sum_%s", "$$b.avg_count_%s"]}
-              }}
-              """
-                  .formatted(this.name, this.name, this.name)));
-    }
   }
 
   private static final class TermsSpec extends GroupAggregationSpec {

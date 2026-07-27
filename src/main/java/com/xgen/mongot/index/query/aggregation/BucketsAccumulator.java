@@ -40,8 +40,12 @@ public abstract class BucketsAccumulator extends Accumulator {
 
   @Override
   public final LeafBucketCollector getLeafCollector(AggregationContext context) throws IOException {
-    LeafBucketCollector children = this.childrenCollector.getLeafCollector(context);
-    return this.getLeafCollector(context, children);
+    // Use this accumulator's build-time context (e.g. branch-scoped MultiValueDocMarker) with the
+    // runtime leaf binding, not the root context passed from asCollector().
+    AggregationContext bound = this.context.withLeafReaderContext(context.getLeafReaderContext());
+    bound.getMultiValueDocMarker().ifPresent(MultiValueDocMarker::reset);
+    LeafBucketCollector children = this.childrenCollector.getLeafCollector(bound);
+    return this.getLeafCollector(bound, children);
   }
 
   /**

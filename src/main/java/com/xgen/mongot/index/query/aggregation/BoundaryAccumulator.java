@@ -120,6 +120,9 @@ final class BoundaryAccumulator extends BucketsAccumulator {
           return;
         }
         int count = values.docValueCount();
+        if (count > 1) {
+          context.markMultiValued(doc);
+        }
         @Var int lastRange = -1;
         @Var boolean matchedAny = false;
         for (int i = 0; i < count; i++) {

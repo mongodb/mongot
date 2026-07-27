@@ -479,6 +479,80 @@ public class ShardedSearchPlannerTest {
   }
 
   @Test
+  public void testFlatSumAggregationMetaPipeline() throws Exception {
+    CollectorQuery query = createFlatSumAggregationQuery();
+    PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
+        ShardedSearchPlanner.planSearch(
+            query,
+            new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+            AGGREGATION_ENABLED_FEATURE_FLAGS);
+
+    List<BsonDocument> pipeline = result.metaPipeline;
+    Assert.assertEquals(3, pipeline.size());
+
+    BsonDocument expectedGroup =
+        BsonDocument.parse(
+            """
+            {"$group": {
+              "_id": {
+                "$meta/group_name": {"$getField": {"field": "$meta/group_name", "input": "$$ROOT"}},
+                "$meta/keys": {"$getField": {"field": "$meta/keys", "input": "$$ROOT"}}
+              },
+              "count_value": {"$sum": "$count"},
+              "sum_sum_price": {"$sum": "$sum_sum_price"}
+            }}
+            """);
+    Assert.assertEquals(expectedGroup, pipeline.get(0));
+
+    BsonDocument expectedFacet =
+        BsonDocument.parse(
+            """
+            {"$facet": {
+              "by_city": [
+                {"$match": {"$expr": {"$eq": [
+                  {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                  "by_city"
+                ]}}},
+                {"$project": {
+                  "_id": "$_id['$meta/keys'].city",
+                  "sum_price": "$sum_sum_price"
+                }}
+              ],
+              "count": [{"$match": {"$expr": {"$eq": [
+                {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                null
+              ]}}}]
+            }}
+            """);
+    Assert.assertEquals(expectedFacet, pipeline.get(1));
+  }
+
+  private static CollectorQuery createFlatSumAggregationQuery() {
+    AggregationFacetDefinition agg =
+        AggregationFacetDefinition.create(
+            new FacetDefinition.StringFacetDefinition("city", 10),
+            Map.of(
+                "sum_price", new MetricSpec(Operator.SUM, Optional.of(FieldPath.parse("price")))),
+            Map.of());
+    AggregationCollector collector =
+        AggregationCollector.create(
+            OperatorBuilder.text().path("title").query("godfather").build(),
+            Map.of("by_city", agg));
+    return new CollectorQuery(
+        collector,
+        "testIndex",
+        Count.DEFAULT,
+        Optional.empty(),
+        Optional.empty(),
+        false,
+        false,
+        false,
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty());
+  }
+
+  @Test
   public void testFlatAvgAggregationMetaPipeline() throws Exception {
     CollectorQuery query = createFlatAvgAggregationQuery();
     PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
