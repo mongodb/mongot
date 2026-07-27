@@ -24,6 +24,32 @@ public final class TestOperatorSpecs {
 
   private TestOperatorSpecs() {}
 
+  /**
+   * Builder for test-double results whose merge is a pure function: folds each added result into an
+   * accumulated one with {@code combine}. Production results implement dedicated hash-carrying
+   * builders instead; leaf-metric fakes in tests are the only folding users.
+   */
+  public static AggregationResultBuilder folding(
+      java.util.function.BinaryOperator<AggregationResult> combine) {
+    return new AggregationResultBuilder() {
+      @Nullable private AggregationResult accumulated;
+
+      @Override
+      public void add(AggregationResult other) {
+        this.accumulated =
+            this.accumulated == null ? other : combine.apply(this.accumulated, other);
+      }
+
+      @Override
+      public AggregationResult build() {
+        if (this.accumulated == null) {
+          throw new IllegalStateException("build() requires at least one add()");
+        }
+        return this.accumulated;
+      }
+    };
+  }
+
   public static void installRegistry() {
     SearchAggregationBootstrap.installRegistry(
         Map.of(
@@ -43,8 +69,10 @@ public final class TestOperatorSpecs {
     }
 
     @Override
-    public AggregationResult mergePartitionResult(AggregationResult other) {
-      return new SumResult(this.name, this.value + ((SumResult) other).value);
+    public AggregationResultBuilder toBuilder() {
+      return folding(
+          (a, b) ->
+              new SumResult(((SumResult) a).name, ((SumResult) a).value + ((SumResult) b).value));
     }
 
     @Override

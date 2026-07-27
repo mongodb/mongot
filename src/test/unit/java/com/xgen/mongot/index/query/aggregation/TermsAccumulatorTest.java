@@ -201,14 +201,14 @@ public class TermsAccumulatorTest extends AggregationTestSupport {
   public void denseTerms_emptyWhenNoMatches() throws Exception {
     buildIndex(DATASET, DATASET.size());
     Accumulator top = collect(cityTermsWithSum(true, 100), newContext(), new MatchNoDocsQuery());
-    assertTrue(firstTerms(top).getBuckets().isEmpty());
+    assertTrue(firstTerms(top).getBuckets(BucketOrder.KEY_ASC).isEmpty());
   }
 
   @Test
   public void remapTerms_emptyWhenNoMatches() throws Exception {
     buildIndex(DATASET, DATASET.size());
     Accumulator top = collect(cityTermsWithSum(false, 100), newContext(), new MatchNoDocsQuery());
-    assertTrue(firstTerms(top).getBuckets().isEmpty());
+    assertTrue(firstTerms(top).getBuckets(BucketOrder.KEY_ASC).isEmpty());
   }
 
   @Test
@@ -224,10 +224,10 @@ public class TermsAccumulatorTest extends AggregationTestSupport {
             cityBucket("NYC", 2, colorBucket("red", 1, 5.0), colorBucket("green", 1, 8.0)),
             cityBucket("SEA", 1, colorBucket("blue", 1, 9.0)));
 
-    TermsAggregationResult merged = (TermsAggregationResult) left.mergePartitionResult(right);
+    TermsAggregationResult merged = (TermsAggregationResult) merge(left, right);
 
-    // Top level: full city union, LinkedHashMap order = left buckets then new right keys.
-    assertEquals(List.of("NYC", "LA", "SEA"), bucketKeysInOrder(merged));
+    // Top level: full city union, re-sorted by key to match single-reader SSDV term order.
+    assertEquals(List.of("LA", "NYC", "SEA"), bucketKeysInOrder(merged));
     assertEquals(5L, bucket(merged, "NYC").getDocCount()); // 3 + 2
     assertEquals(2L, bucket(merged, "LA").getDocCount());
     assertEquals(1L, bucket(merged, "SEA").getDocCount());

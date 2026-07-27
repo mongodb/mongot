@@ -16,33 +16,24 @@ public interface AggregationResult {
   String getName();
 
   /**
-   * Merge this result with another partition's result, returning the combined result. This is used
-   * for merging results from different partitions/ segments.
+   * Create an empty builder for merging partition/segment results of this result's shape (type,
+   * name, path). This result's data is NOT included — {@link AggregationResultBuilder#add} every
+   * result, including this one, then materialize the combined result once with {@link
+   * AggregationResultBuilder#build}. Results are immutable; all merge state lives in the builder.
    */
-  AggregationResult mergePartitionResult(AggregationResult other);
+  AggregationResultBuilder toBuilder();
 
   /**
    * Apply the per-node top-N ({@code numBuckets}) truncation to this result and its descendants,
-   * returning the finalized result.
+   * returning the finalized result. Copy-on-write: {@code this} is never mutated; callers must use
+   * the returned value. Each truncating node carries its own limit (nested facet levels can
+   * differ); containers and leaf metrics simply recurse or return {@code this}.
    *
-   * <p>Copy-on-write: implementations do not mutate {@code this}; they return a new, finalized
-   * result (or {@code this} unchanged when there is nothing to truncate). Callers must use the
-   * returned value.
-   *
-   * <p>The limit is intentionally not a parameter. It is stored only on the node that actually
-   * truncates -- {@link TermsAggregationResult} carries its own {@code numBuckets} (nested facet
-   * levels can differ) -- while container/pass-through results ({@link AggregationResults},
-   * top-level and boundary results) hold no limit and simply recurse. A single caller-supplied
-   * limit could not express the differing per-level top-Ns, and threading a per-node map would just
-   * duplicate state the truncating node already owns.
-   *
-   * <p>Precondition: call exactly once, at the outermost merge point where bucket counts are
-   * global. {@link #mergePartitionResult} keeps full cardinality until then, because top-N-by-count
-   * is not associative across merges.
-   *
-   * <p>No default is provided on purpose: every implementer must consciously decide its top-N
-   * behavior. Bucketed results truncate and/or recurse; leaf/metric results (which have no buckets)
-   * return {@code this}.
+   * <p>Call exactly once, at the outermost merge point where bucket counts are global: {@link
+   * AggregationResultBuilder} keeps full cardinality until then, because top-N-by-count is not
+   * associative across merges. Concretely, this must only be called on a fully-merged, non-sharded
+   * / non-partitioned (standalone) result -- never in sharded mode on a per-shard or per-partition
+   * result.
    */
   AggregationResult applyLimit();
 

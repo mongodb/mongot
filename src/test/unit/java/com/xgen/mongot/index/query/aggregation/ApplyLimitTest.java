@@ -21,6 +21,13 @@ public class ApplyLimitTest extends AggregationTestSupport {
   private static final FieldPath SIZE = FieldPath.parse("size");
   private static final FieldPath PRICE = FieldPath.parse("price");
 
+  // Every assertion in this class checks the top-N presentation order (count desc, key asc),
+  // which is applied at read time via getBuckets(BucketOrder.COUNT_DESC) rather than stored by
+  // applyLimit().
+  private static List<String> topBucketKeys(TermsAggregationResult result) {
+    return bucketKeysInOrder(result, BucketOrder.COUNT_DESC);
+  }
+
   private static TermsBucket termsBucket(String key, long docCount, AggregationResult... children) {
     return new TermsBucket(new BytesRef(key), docCount, AggregationResults.from(List.of(children)));
   }
@@ -36,8 +43,7 @@ public class ApplyLimitTest extends AggregationTestSupport {
     TermsAggregationResult result =
         terms(
             2, termsBucket("a", 5), termsBucket("b", 10), termsBucket("c", 1), termsBucket("d", 8));
-    assertEquals(
-        List.of("b", "d"), bucketKeysInOrder((TermsAggregationResult) result.applyLimit()));
+    assertEquals(List.of("b", "d"), topBucketKeys((TermsAggregationResult) result.applyLimit()));
   }
 
   @Test
@@ -46,8 +52,7 @@ public class ApplyLimitTest extends AggregationTestSupport {
         terms(2, termsBucket("banana", 5), termsBucket("apple", 5), termsBucket("cherry", 5));
     // All tied on count 5 -> ascending key: apple, banana.
     assertEquals(
-        List.of("apple", "banana"),
-        bucketKeysInOrder((TermsAggregationResult) result.applyLimit()));
+        List.of("apple", "banana"), topBucketKeys((TermsAggregationResult) result.applyLimit()));
   }
 
   @Test
@@ -59,8 +64,7 @@ public class ApplyLimitTest extends AggregationTestSupport {
     TermsAggregationResult result =
         terms(2, termsBucket("banana", 5), termsBucket("cherry", 5), termsBucket("apple", 5));
     assertEquals(
-        List.of("apple", "banana"),
-        bucketKeysInOrder((TermsAggregationResult) result.applyLimit()));
+        List.of("apple", "banana"), topBucketKeys((TermsAggregationResult) result.applyLimit()));
   }
 
   @Test
@@ -73,11 +77,11 @@ public class ApplyLimitTest extends AggregationTestSupport {
     TermsBucket d = termsBucket("date", 9);
     List<String> expected = List.of("date", "apple"); // date(9), then apple(5) before banana(5).
     assertEquals(
-        expected, bucketKeysInOrder((TermsAggregationResult) terms(2, a, b, c, d).applyLimit()));
+        expected, topBucketKeys((TermsAggregationResult) terms(2, a, b, c, d).applyLimit()));
     assertEquals(
-        expected, bucketKeysInOrder((TermsAggregationResult) terms(2, d, c, b, a).applyLimit()));
+        expected, topBucketKeys((TermsAggregationResult) terms(2, d, c, b, a).applyLimit()));
     assertEquals(
-        expected, bucketKeysInOrder((TermsAggregationResult) terms(2, b, d, a, c).applyLimit()));
+        expected, topBucketKeys((TermsAggregationResult) terms(2, b, d, a, c).applyLimit()));
   }
 
   @Test
@@ -86,8 +90,7 @@ public class ApplyLimitTest extends AggregationTestSupport {
         terms(100, termsBucket("LA", 1), termsBucket("NYC", 2), termsBucket("SF", 2));
     // No truncation, but still ordered count desc / key asc: NYC(2), SF(2), LA(1).
     assertEquals(
-        List.of("NYC", "SF", "LA"),
-        bucketKeysInOrder((TermsAggregationResult) result.applyLimit()));
+        List.of("NYC", "SF", "LA"), topBucketKeys((TermsAggregationResult) result.applyLimit()));
   }
 
   @Test
@@ -95,12 +98,12 @@ public class ApplyLimitTest extends AggregationTestSupport {
     TermsAggregationResult result =
         terms(1, termsBucket("NYC", 2), termsBucket("SF", 2), termsBucket("LA", 1));
     // NYC and SF tie on 2; key asc -> NYC wins.
-    assertEquals(List.of("NYC"), bucketKeysInOrder((TermsAggregationResult) result.applyLimit()));
+    assertEquals(List.of("NYC"), topBucketKeys((TermsAggregationResult) result.applyLimit()));
   }
 
   @Test
   public void emptyBucketsStaysEmpty() {
-    assertEquals(List.of(), bucketKeysInOrder((TermsAggregationResult) terms(5).applyLimit()));
+    assertEquals(List.of(), topBucketKeys((TermsAggregationResult) terms(5).applyLimit()));
   }
 
   // ===== nested terms: limit applied per parent bucket =====
@@ -119,9 +122,9 @@ public class ApplyLimitTest extends AggregationTestSupport {
     TermsAggregationResult limited = (TermsAggregationResult) outer.applyLimit();
 
     // Outer ordered by count desc: blue(7), red(4). Each parent keeps its OWN top-1 inner size.
-    assertEquals(List.of("blue", "red"), bucketKeysInOrder(limited));
-    assertEquals(List.of("S"), bucketKeysInOrder(childTerms(bucket(limited, "red"), "by_size")));
-    assertEquals(List.of("XL"), bucketKeysInOrder(childTerms(bucket(limited, "blue"), "by_size")));
+    assertEquals(List.of("blue", "red"), topBucketKeys(limited));
+    assertEquals(List.of("S"), topBucketKeys(childTerms(bucket(limited, "red"), "by_size")));
+    assertEquals(List.of("XL"), topBucketKeys(childTerms(bucket(limited, "blue"), "by_size")));
   }
 
   // ===== metric children are untouched =====
@@ -135,7 +138,7 @@ public class ApplyLimitTest extends AggregationTestSupport {
             termsBucket("LA", 1, new TestOperatorSpecs.SumResult("total", 9.0)));
     TermsAggregationResult limited = (TermsAggregationResult) result.applyLimit();
 
-    assertEquals(List.of("NYC"), bucketKeysInOrder(limited));
+    assertEquals(List.of("NYC"), topBucketKeys(limited));
     assertEquals(42.0, sumOf(bucket(limited, "NYC"), "total"), 1e-9);
   }
 
@@ -148,7 +151,7 @@ public class ApplyLimitTest extends AggregationTestSupport {
             List.of(terms(1, termsBucket("NYC", 2), termsBucket("LA", 1))));
     TopLevelAggregationResult limited = (TopLevelAggregationResult) top.applyLimit();
     assertEquals(
-        List.of("NYC"), bucketKeysInOrder((TermsAggregationResult) limited.childResults().get(0)));
+        List.of("NYC"), topBucketKeys((TermsAggregationResult) limited.childResults().get(0)));
   }
 
   @Test
@@ -172,15 +175,17 @@ public class ApplyLimitTest extends AggregationTestSupport {
     BoundaryAggregationResult limited = (BoundaryAggregationResult) boundary.applyLimit();
 
     // Boundary keeps all buckets (no top-N); nested terms under each are still limited.
-    assertEquals(2, limited.getBuckets().size());
+    assertEquals(2, limited.getBuckets(BucketOrder.KEY_ASC).size());
     assertEquals(
         List.of("NYC"),
-        bucketKeysInOrder(
-            (TermsAggregationResult) limited.getBuckets().get(0).getChildResults().get("by_city")));
+        topBucketKeys(
+            (TermsAggregationResult)
+                limited.getBuckets(BucketOrder.KEY_ASC).get(0).getChildResults().get("by_city")));
     assertEquals(
         List.of("SF"),
-        bucketKeysInOrder(
-            (TermsAggregationResult) limited.getBuckets().get(1).getChildResults().get("by_city")));
+        topBucketKeys(
+            (TermsAggregationResult)
+                limited.getBuckets(BucketOrder.KEY_ASC).get(1).getChildResults().get("by_city")));
   }
 
   // ===== merge stays full-cardinality; truncation only happens in applyLimit =====
@@ -190,13 +195,13 @@ public class ApplyLimitTest extends AggregationTestSupport {
     TermsAggregationResult left = terms(1, termsBucket("NYC", 2), termsBucket("LA", 3));
     TermsAggregationResult right = terms(1, termsBucket("NYC", 5), termsBucket("SF", 1));
 
-    TermsAggregationResult merged = (TermsAggregationResult) left.mergePartitionResult(right);
+    TermsAggregationResult merged = (TermsAggregationResult) merge(left, right);
     // Merge does NOT truncate to limit=1: all three keys survive with summed counts.
-    assertEquals(3, merged.getBuckets().size());
+    assertEquals(3, merged.getBuckets(BucketOrder.KEY_ASC).size());
     assertEquals(7, bucket(merged, "NYC").getDocCount()); // 2 + 5
 
     // applyLimit then picks the single highest: NYC(7).
-    assertEquals(List.of("NYC"), bucketKeysInOrder((TermsAggregationResult) merged.applyLimit()));
+    assertEquals(List.of("NYC"), topBucketKeys((TermsAggregationResult) merged.applyLimit()));
   }
 
   private static TermsBucket bareBucket(String key, long docCount) {

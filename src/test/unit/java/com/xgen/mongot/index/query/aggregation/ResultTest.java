@@ -43,7 +43,7 @@ public class ResultTest {
   public void leafResultMergeSumsValues() {
     SumResult a = new SumResult("sum_price", 10.0);
     SumResult b = new SumResult("sum_price", 25.0);
-    SumResult merged = (SumResult) a.mergePartitionResult(b);
+    SumResult merged = (SumResult) merge(a, b);
     assertEquals(35.0, merged.value(), 0.0001);
     assertEquals("sum_price", merged.getName());
   }
@@ -70,10 +70,10 @@ public class ResultTest {
                 new TermsResult.TermsBucket(
                     "SF", AggregationResults.from(List.of(new SumResult("sum", 7.0))))));
 
-    TermsResult merged = (TermsResult) left.mergePartitionResult(right);
-    assertEquals(3, merged.getBuckets().size());
+    TermsResult merged = (TermsResult) merge(left, right);
+    assertEquals(3, merged.getBuckets(BucketOrder.KEY_ASC).size());
 
-    for (TermsResult.TermsBucket bucket : merged.getBuckets()) {
+    for (TermsResult.TermsBucket bucket : merged.getBuckets(BucketOrder.KEY_ASC)) {
       double sum = ((SumResult) bucket.getChildResults().get("sum")).value();
       switch (bucket.getKey().getValue()) {
         case "NYC" -> assertEquals(30.0, sum, 0.0001);
@@ -91,7 +91,7 @@ public class ResultTest {
     TopLevelAggregationResult right =
         new TopLevelAggregationResult(List.of(new SumResult("a", 10.0), new SumResult("b", 20.0)));
 
-    TopLevelAggregationResult merged = (TopLevelAggregationResult) left.mergePartitionResult(right);
+    TopLevelAggregationResult merged = (TopLevelAggregationResult) merge(left, right);
 
     assertEquals(2, merged.childResults().size());
     assertThrows(UnsupportedOperationException.class, merged::getName);
@@ -113,6 +113,13 @@ public class ResultTest {
 
   // ===== inline result fixtures =====
 
+  private static AggregationResult merge(AggregationResult a, AggregationResult b) {
+    AggregationResultBuilder builder = a.toBuilder();
+    builder.add(a);
+    builder.add(b);
+    return builder.build();
+  }
+
   private record SumResult(String name, double value) implements AggregationResult {
     @Override
     public String getName() {
@@ -120,8 +127,10 @@ public class ResultTest {
     }
 
     @Override
-    public AggregationResult mergePartitionResult(AggregationResult other) {
-      return new SumResult(this.name, this.value + ((SumResult) other).value);
+    public AggregationResultBuilder toBuilder() {
+      return TestOperatorSpecs.folding(
+          (a, b) ->
+              new SumResult(((SumResult) a).name, ((SumResult) a).value + ((SumResult) b).value));
     }
 
     @Override
@@ -162,13 +171,17 @@ public class ResultTest {
     }
 
     @Override
-    public List<TermsBucket> getBuckets() {
+    public List<TermsBucket> getBuckets(BucketOrder order) {
       return this.buckets;
     }
 
     @Override
-    public AggregationResult mergePartitionResult(AggregationResult other) {
-      TermsResult that = Check.instanceOf(other, TermsResult.class);
+    public AggregationResultBuilder toBuilder() {
+      return TestOperatorSpecs.folding(
+          (a, b) -> ((TermsResult) a).mergeWith(Check.instanceOf(b, TermsResult.class)));
+    }
+
+    private TermsResult mergeWith(TermsResult that) {
       Map<String, TermsBucket> merged =
           this.buckets.stream()
               .collect(
@@ -218,7 +231,7 @@ public class ResultTest {
       static TermsBucket merge(TermsBucket a, TermsBucket b) {
         List<AggregationResult> merged = new ArrayList<>();
         for (AggregationResult lhs : a.childResults) {
-          merged.add(lhs.mergePartitionResult(b.childResults.get(lhs.getName())));
+          merged.add(ResultTest.merge(lhs, b.childResults.get(lhs.getName())));
         }
         return new TermsBucket(a.key, AggregationResults.from(merged));
       }

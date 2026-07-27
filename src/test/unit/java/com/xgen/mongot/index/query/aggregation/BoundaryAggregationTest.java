@@ -64,7 +64,7 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
 
     BoundaryAggregationResult byPrice = firstBoundary(top);
     // Out-of-range docs dropped (no default); 3 range buckets, including the empty r1.
-    assertEquals(3, byPrice.getBuckets().size());
+    assertEquals(3, byPrice.getBuckets(BucketOrder.KEY_ASC).size());
 
     assertEquals(new BsonInt32(0), keyAt(byPrice, 0));
     assertEquals(2L, countAt(byPrice, 0));
@@ -86,7 +86,7 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
     Accumulator top = collectAll(priceBoundary(Optional.empty(), false), newContext());
 
     BoundaryAggregationResult byPrice = firstBoundary(top);
-    assertEquals(3, byPrice.getBuckets().size());
+    assertEquals(3, byPrice.getBuckets(BucketOrder.KEY_ASC).size());
     assertEquals(2L, countAt(byPrice, 0));
     assertEquals(0L, countAt(byPrice, 1));
     assertEquals(1L, countAt(byPrice, 2));
@@ -125,7 +125,7 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
     Accumulator top = collectAll(priceBoundary(Optional.of(DEFAULT_KEY), false), newContext());
 
     BoundaryAggregationResult byPrice = firstBoundary(top);
-    assertEquals(4, byPrice.getBuckets().size()); // 3 ranges + default
+    assertEquals(4, byPrice.getBuckets(BucketOrder.KEY_ASC).size()); // 3 ranges + default
 
     assertEquals(1L, countAt(byPrice, 0));
     assertEquals(0L, countAt(byPrice, 1));
@@ -142,7 +142,7 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
     Accumulator top = collectAll(priceBoundary(Optional.empty(), false), newContext());
 
     BoundaryAggregationResult byPrice = firstBoundary(top);
-    assertEquals(3, byPrice.getBuckets().size()); // no default bucket
+    assertEquals(3, byPrice.getBuckets(BucketOrder.KEY_ASC).size()); // no default bucket
     assertEquals(1L, countAt(byPrice, 0)); // only the in-range doc; 350/-5/missing dropped
     assertEquals(0L, countAt(byPrice, 1));
     assertEquals(0L, countAt(byPrice, 2));
@@ -205,7 +205,7 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
             ((TopLevelAggregationResult) top.buildTopLevelResult()).childResults().get(0);
 
     BoundaryAggregationResult nyc = childBoundary(bucket(byCityResult, "NYC"));
-    assertEquals(4, nyc.getBuckets().size());
+    assertEquals(4, nyc.getBuckets(BucketOrder.KEY_ASC).size());
     assertEquals(1L, countAt(nyc, 0)); // 10
     assertEquals(1L, countAt(nyc, 1)); // 150
     assertEquals(0L, countAt(nyc, 2));
@@ -237,9 +237,9 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
             boundaryBucket(new BsonInt32(100), 0, 0.0),
             boundaryBucket(new BsonInt32(200), 3, 900.0));
 
-    BoundaryAggregationResult merged = (BoundaryAggregationResult) left.mergePartitionResult(right);
+    BoundaryAggregationResult merged = (BoundaryAggregationResult) merge(left, right);
 
-    assertEquals(3, merged.getBuckets().size());
+    assertEquals(3, merged.getBuckets(BucketOrder.KEY_ASC).size());
     assertEquals(new BsonInt32(0), keyAt(merged, 0));
     assertEquals(3L, countAt(merged, 0)); // 2 + 1
     assertEquals(70.0, sumAt(bucketAt(merged, 0), "sum_price"), 1e-9); // 60 + 10
@@ -255,14 +255,14 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
         byPriceResult(
             boundaryBucket(new BsonInt32(0), 1, 0.0), boundaryBucket(new BsonInt32(100), 1, 0.0));
     BoundaryAggregationResult right = byPriceResult(boundaryBucket(new BsonInt32(0), 1, 0.0));
-    assertThrows(IllegalArgumentException.class, () -> left.mergePartitionResult(right));
+    assertThrows(IllegalArgumentException.class, () -> merge(left, right));
   }
 
   @Test
   public void mergeRejectsDivergingBucketKeys() {
     BoundaryAggregationResult left = byPriceResult(boundaryBucket(new BsonInt32(0), 1, 0.0));
     BoundaryAggregationResult right = byPriceResult(boundaryBucket(new BsonInt32(5), 1, 0.0));
-    assertThrows(IllegalArgumentException.class, () -> left.mergePartitionResult(right));
+    assertThrows(IllegalArgumentException.class, () -> merge(left, right));
   }
 
   @Test
@@ -307,7 +307,8 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
 
   private static BoundaryAggregationResult.BoundaryBucket bucketAt(
       BoundaryAggregationResult result, int index) {
-    return (BoundaryAggregationResult.BoundaryBucket) result.getBuckets().get(index);
+    return (BoundaryAggregationResult.BoundaryBucket)
+        result.getBuckets(BucketOrder.KEY_ASC).get(index);
   }
 
   private static BsonValue keyAt(BoundaryAggregationResult result, int index) {

@@ -1,21 +1,21 @@
 package com.xgen.mongot.index.lucene;
 
-import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.index.query.aggregation.Accumulator;
 import com.xgen.mongot.index.query.aggregation.AggregationContext;
 import com.xgen.mongot.index.query.aggregation.AggregationResult;
+import com.xgen.mongot.index.query.aggregation.AggregationResultBuilder;
 import com.xgen.mongot.index.query.aggregation.AggregationSpec;
 import com.xgen.mongot.index.query.aggregation.BucketCollector.BucketCollectorWrapper;
 import com.xgen.mongot.util.Check;
+import com.xgen.mongot.util.CheckedStream;
 import java.io.IOException;
 import java.util.Collection;
-import java.util.Optional;
+import java.util.List;
 import org.apache.lucene.search.CollectorManager;
 
 /**
  * Bridges the Accumulator tree to Lucene. {@code newCollector()} builds a new accumulator tree per
- * search slice; {@code reduce()} folds slice results with {@link
- * AggregationResult#mergePartitionResult}.
+ * search slice; {@code reduce()} folds slice results with an {@link AggregationResultBuilder}.
  */
 public class AccumulatorCollectorManager
     implements CollectorManager<BucketCollectorWrapper, AggregationResult> {
@@ -37,17 +37,18 @@ public class AccumulatorCollectorManager
   @Override
   public AggregationResult reduce(Collection<BucketCollectorWrapper> collectors)
       throws IOException {
-    @Var Optional<AggregationResult> merged = Optional.empty();
-
-    for (BucketCollectorWrapper collector : collectors) {
-      Accumulator accumulator = Check.instanceOf(collector.bucketCollector(), Accumulator.class);
-      AggregationResult result = accumulator.buildTopLevelResult();
-      merged = Optional.of(merged.map(r -> r.mergePartitionResult(result)).orElse(result));
-    }
-
-    if (merged.isEmpty()) {
-      throw new IllegalStateException("No collectors to reduce");
-    }
-    return merged.get();
+    // buildTopLevelResult() throws IOException, so CheckedStream stands in for Stream.map.
+    List<AggregationResult> results =
+        CheckedStream.from(collectors)
+            .mapAndCollectChecked(
+                collector ->
+                    Check.instanceOf(collector.bucketCollector(), Accumulator.class)
+                        .buildTopLevelResult());
+    Check.checkState(!results.isEmpty(), "No collectors to reduce");
+    // get(0) only supplies the shape: the builder starts empty and every result folds in
+    // uniformly. A future spec.newResultBuilder() would remove the need for a representative.
+    AggregationResultBuilder builder = results.get(0).toBuilder();
+    results.forEach(builder::add);
+    return builder.build();
   }
 }

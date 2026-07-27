@@ -162,7 +162,7 @@ public class IntermediateBsonTest extends AggregationTestSupport {
           }
 
           @Override
-          public AggregationResult mergePartitionResult(AggregationResult other) {
+          public AggregationResultBuilder toBuilder() {
             throw new UnsupportedOperationException();
           }
 
@@ -211,7 +211,7 @@ public class IntermediateBsonTest extends AggregationTestSupport {
           }
 
           @Override
-          public AggregationResult mergePartitionResult(AggregationResult other) {
+          public AggregationResultBuilder toBuilder() {
             throw new UnsupportedOperationException();
           }
 

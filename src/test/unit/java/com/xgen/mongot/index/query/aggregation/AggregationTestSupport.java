@@ -135,20 +135,34 @@ public abstract class AggregationTestSupport {
 
   // ===== assertion helpers =====
 
+  /** Two-result convenience over the seed-add-build {@link AggregationResultBuilder} protocol. */
+  protected static AggregationResult merge(AggregationResult a, AggregationResult b) {
+    AggregationResultBuilder builder = a.toBuilder();
+    builder.add(a);
+    builder.add(b);
+    return builder.build();
+  }
+
   protected static List<String> bucketKeysInOrder(TermsAggregationResult result) {
-    return result.getBuckets().stream()
+    return bucketKeysInOrder(result, BucketOrder.KEY_ASC);
+  }
+
+  /** Bucket keys in the requested read-time order (e.g. COUNT_DESC for top-N presentation). */
+  protected static List<String> bucketKeysInOrder(
+      TermsAggregationResult result, BucketOrder order) {
+    return result.getBuckets(order).stream()
         .map(bucket -> ((BsonString) bucket.getKey()).getValue())
         .collect(Collectors.toList());
   }
 
   protected static Set<String> bucketKeys(TermsAggregationResult result) {
-    return result.getBuckets().stream()
+    return result.getBuckets(BucketOrder.KEY_ASC).stream()
         .map(bucket -> ((BsonString) bucket.getKey()).getValue())
         .collect(Collectors.toSet());
   }
 
   protected static TermsBucket bucket(TermsAggregationResult result, String key) {
-    return result.getBuckets().stream()
+    return result.getBuckets(BucketOrder.KEY_ASC).stream()
         .map(b -> (TermsBucket) b)
         .filter(b -> b.getKey().getValue().equals(key))
         .findFirst()
@@ -176,9 +190,13 @@ public abstract class AggregationTestSupport {
     }
 
     @Override
-    public AggregationResult mergePartitionResult(AggregationResult other) {
-      AvgResult that = Check.instanceOf(other, AvgResult.class);
-      return new AvgResult(this.name, this.sum + that.sum, this.count + that.count);
+    public AggregationResultBuilder toBuilder() {
+      return TestOperatorSpecs.folding(
+          (a, b) -> {
+            AvgResult left = (AvgResult) a;
+            AvgResult right = Check.instanceOf(b, AvgResult.class);
+            return new AvgResult(left.name, left.sum + right.sum, left.count + right.count);
+          });
     }
 
     @Override
@@ -223,13 +241,18 @@ public abstract class AggregationTestSupport {
     }
 
     @Override
-    public List<TermsBucket> getBuckets() {
+    public List<TermsBucket> getBuckets(BucketOrder order) {
+      // Test fake: insertion order regardless of the requested order.
       return this.buckets;
     }
 
     @Override
-    public AggregationResult mergePartitionResult(AggregationResult other) {
-      TermsResult that = Check.instanceOf(other, TermsResult.class);
+    public AggregationResultBuilder toBuilder() {
+      return TestOperatorSpecs.folding(
+          (a, b) -> ((TermsResult) a).mergeWith(Check.instanceOf(b, TermsResult.class)));
+    }
+
+    private TermsResult mergeWith(TermsResult that) {
       Map<String, TermsBucket> merged =
           this.buckets.stream()
               .collect(
@@ -279,7 +302,10 @@ public abstract class AggregationTestSupport {
       private static TermsBucket merge(TermsBucket a, TermsBucket b) {
         List<AggregationResult> merged = new ArrayList<>();
         for (AggregationResult lhs : a.childResults) {
-          merged.add(lhs.mergePartitionResult(b.childResults.get(lhs.getName())));
+          AggregationResultBuilder builder = lhs.toBuilder();
+          builder.add(lhs);
+          builder.add(b.childResults.get(lhs.getName()));
+          merged.add(builder.build());
         }
         return new TermsBucket(a.key, AggregationResults.from(merged));
       }

@@ -1,10 +1,9 @@
 package com.xgen.mongot.index.query.aggregation;
 
 import com.xgen.mongot.util.Check;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 import org.bson.BsonArray;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
@@ -23,33 +22,46 @@ public record TopLevelAggregationResult(List<AggregationResult> childResults)
   }
 
   @Override
-  public AggregationResult mergePartitionResult(AggregationResult other) {
-    TopLevelAggregationResult that = Check.instanceOf(other, TopLevelAggregationResult.class);
-    Map<String, AggregationResult> otherByName = new LinkedHashMap<>();
-    for (AggregationResult r : that.childResults) {
-      if (otherByName.put(r.getName(), r) != null) {
-        throw new IllegalStateException("Duplicate child result name: " + r.getName());
+  public AggregationResultBuilder toBuilder() {
+    return new Builder(this);
+  }
+
+  /** Merge state for the top level: one child builder per named top-level aggregation. */
+  private static final class Builder implements AggregationResultBuilder {
+    // Seeded in the seed's child order so the built result preserves it.
+    private final LinkedHashMap<String, AggregationResultBuilder> childBuilders =
+        new LinkedHashMap<>();
+
+    // Identity element of the merge for `shape`'s child names: every child builder starts empty
+    // until add() folds results in, so the fold has no first-element special case.
+    Builder(TopLevelAggregationResult shape) {
+      for (AggregationResult child : shape.childResults) {
+        if (this.childBuilders.put(child.getName(), child.toBuilder()) != null) {
+          throw new IllegalStateException("Duplicate child result name: " + child.getName());
+        }
       }
     }
-    if (this.childResults.size() != otherByName.size()) {
-      throw new IllegalStateException(
-          "Cannot merge top-level results with mismatched child result names: "
-              + this.childResults.stream().map(AggregationResult::getName).toList()
-              + " vs "
-              + otherByName.keySet());
-    }
-    List<AggregationResult> merged = new ArrayList<>();
-    for (AggregationResult child : this.childResults) {
-      if (!otherByName.containsKey(child.getName())) {
+
+    @Override
+    public void add(AggregationResult other) {
+      TopLevelAggregationResult that = Check.instanceOf(other, TopLevelAggregationResult.class);
+      List<String> otherNames = that.childResults.stream().map(AggregationResult::getName).toList();
+      if (!this.childBuilders.keySet().equals(Set.copyOf(otherNames))
+          || otherNames.size() != this.childBuilders.size()) {
         throw new IllegalStateException(
             "Cannot merge top-level results with mismatched child result names: "
-                + this.childResults.stream().map(AggregationResult::getName).toList()
+                + this.childBuilders.keySet()
                 + " vs "
-                + otherByName.keySet());
+                + otherNames);
       }
-      merged.add(child.mergePartitionResult(otherByName.get(child.getName())));
+      that.childResults.forEach(child -> this.childBuilders.get(child.getName()).add(child));
     }
-    return new TopLevelAggregationResult(merged);
+
+    @Override
+    public TopLevelAggregationResult build() {
+      return new TopLevelAggregationResult(
+          this.childBuilders.values().stream().map(AggregationResultBuilder::build).toList());
+    }
   }
 
   @Override

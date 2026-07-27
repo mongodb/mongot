@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.query.aggregation;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
 import java.util.ArrayList;
@@ -42,13 +43,28 @@ public abstract class MultiBucketAggregationResult implements AggregationResult 
     AggregationResults getChildResults();
   }
 
-  public abstract List<? extends Bucket> getBuckets();
+  // Non-sharded standalone output order: count desc, key-asc tiebreak (CLOUDP-419089), matching
+  // the legacy string-facet top-N; see the tiebreak note in TermsAggregationResult#comparator.
+  // The new aggregation shard merge pipeline does not yet enforce this order (or numBuckets)
+  // mongod-side -- known gap, see ShardMergePipelineBuilder#build.
+  private static final BucketOrder STANDALONE_BUCKET_ORDER = BucketOrder.COUNT_DESC;
+  // Sharded intermediate wire order: only needs to be deterministic (mongod reconstructs buckets
+  // with the shard merge pipeline).
+  private static final BucketOrder INTERMEDIATE_BUCKET_ORDER = BucketOrder.KEY_ASC;
+
+  /**
+   * Return this result's buckets in the requested order, applied here at read time rather than
+   * during merges (see {@link AggregationResultBuilder}). Public for tests only; production reads
+   * go through {@link #toStandaloneBson()} and {@link #toIntermediateBson()}.
+   */
+  @VisibleForTesting
+  public abstract List<? extends Bucket> getBuckets(BucketOrder order);
 
   @Override
   public BsonValue toStandaloneBson() {
     // Build bson document with the `buckets` array field.
     BsonArray bucketsBson = new BsonArray();
-    for (Bucket bucket : this.getBuckets()) {
+    for (Bucket bucket : this.getBuckets(STANDALONE_BUCKET_ORDER)) {
       BsonDocument bucketDoc = new BsonDocument();
       bucketDoc.append("_id", bucket.getKey());
 
@@ -85,7 +101,7 @@ public abstract class MultiBucketAggregationResult implements AggregationResult 
   @Override
   public final BsonArray toIntermediateBson() {
     BsonArray docs = new BsonArray();
-    for (Bucket bucket : this.getBuckets()) {
+    for (Bucket bucket : this.getBuckets(INTERMEDIATE_BUCKET_ORDER)) {
       BsonDocument keys = new BsonDocument().append(this.path.toString(), bucket.getKey());
       collectBucketDocs(keys, bucket, docs);
     }

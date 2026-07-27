@@ -53,10 +53,10 @@ public class AccumulatorTest extends AggregationTestSupport {
 
     TermsResult byCity = (TermsResult) top.childResults().get(0);
     assertEquals("by_city", byCity.getName());
-    assertEquals(2, byCity.getBuckets().size());
+    assertEquals(2, byCity.getBuckets(BucketOrder.KEY_ASC).size());
 
     Map<String, Double> sumByCity = new HashMap<>();
-    for (TermsResult.TermsBucket bucket : byCity.getBuckets()) {
+    for (TermsResult.TermsBucket bucket : byCity.getBuckets(BucketOrder.KEY_ASC)) {
       TestOperatorSpecs.SumResult sum =
           (TestOperatorSpecs.SumResult) bucket.getChildResults().get("sum_price");
       sumByCity.put(bucket.getKey().getValue(), sum.value());
@@ -87,13 +87,17 @@ public class AccumulatorTest extends AggregationTestSupport {
     }
 
     @Override
-    public List<TermsBucket> getBuckets() {
+    public List<TermsBucket> getBuckets(BucketOrder order) {
       return this.buckets;
     }
 
     @Override
-    public AggregationResult mergePartitionResult(AggregationResult other) {
-      TermsResult that = Check.instanceOf(other, TermsResult.class);
+    public AggregationResultBuilder toBuilder() {
+      return TestOperatorSpecs.folding(
+          (a, b) -> ((TermsResult) a).mergeWith(Check.instanceOf(b, TermsResult.class)));
+    }
+
+    private TermsResult mergeWith(TermsResult that) {
       Map<String, TermsBucket> merged =
           this.buckets.stream()
               .collect(
@@ -143,7 +147,10 @@ public class AccumulatorTest extends AggregationTestSupport {
       static TermsBucket merge(TermsBucket a, TermsBucket b) {
         List<AggregationResult> merged = new ArrayList<>();
         for (AggregationResult lhs : a.childResults) {
-          merged.add(lhs.mergePartitionResult(b.childResults.get(lhs.getName())));
+          AggregationResultBuilder builder = lhs.toBuilder();
+          builder.add(lhs);
+          builder.add(b.childResults.get(lhs.getName()));
+          merged.add(builder.build());
         }
         return new TermsBucket(a.key, AggregationResults.from(merged));
       }

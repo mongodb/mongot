@@ -4,10 +4,11 @@ import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.PriorityQueue;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.apache.lucene.util.BytesRef;
 import org.bson.BsonString;
 
@@ -20,10 +21,14 @@ import org.bson.BsonString;
 public final class TermsAggregationResult extends MultiBucketAggregationResult {
 
   private final String name;
-  // Max number of buckets this result may hold. Carried through merges (kept at full cardinality)
-  // and applied exactly once by applyLimit() at the outermost merge point.
+  // Max number of buckets. Carried through merges at full cardinality; applied exactly once by
+  // applyLimit() at the outermost merge point.
   private final int limit;
-  private final List<TermsBucket> buckets;
+  // Buckets keyed by term for the O(1) lookup merges need; ordering is applied at read time in
+  // getBuckets(BucketOrder). Same shape in every scenario: a single (non-partitioned) reader's
+  // result holds the buckets that reader counted; a Builder-built result holds the term-union
+  // with summed counts.
+  private final HashMap<BytesRef, TermsBucket> bucketsByKey;
 
   public static final class TermsBucket implements Bucket {
     private final BytesRef key;
@@ -41,7 +46,9 @@ public final class TermsAggregationResult extends MultiBucketAggregationResult {
       return new BsonString(this.key.utf8ToString());
     }
 
-    public BytesRef getBytesRefKey() {
+    // Private on purpose: BytesRef is mutable and this returns the map-key instance, so exposing
+    // it would let callers corrupt bucketsByKey. External readers use getKey().
+    private BytesRef getBytesRefKey() {
       return this.key;
     }
 
@@ -59,7 +66,16 @@ public final class TermsAggregationResult extends MultiBucketAggregationResult {
     super(path);
     this.name = name;
     this.limit = limit;
-    this.buckets = buckets;
+    this.bucketsByKey =
+        buckets.stream()
+            .collect(
+                Collectors.toMap(
+                    TermsBucket::getBytesRefKey,
+                    Function.identity(),
+                    (a, b) -> {
+                      throw new IllegalArgumentException("Duplicate bucket key: " + a.getKey());
+                    },
+                    () -> new HashMap<>(buckets.size())));
   }
 
   @Override
@@ -68,114 +84,139 @@ public final class TermsAggregationResult extends MultiBucketAggregationResult {
   }
 
   @Override
-  public List<? extends Bucket> getBuckets() {
-    return this.buckets;
+  public List<? extends Bucket> getBuckets(BucketOrder order) {
+    return this.bucketsByKey.values().stream().sorted(comparator(order)).toList();
+  }
+
+  private static Comparator<TermsBucket> comparator(BucketOrder order) {
+    return switch (order) {
+      // Ascending term order matches a single un-partitioned reader (Lucene SSDV ordinal order).
+      case KEY_ASC -> Comparator.comparing(TermsBucket::getBytesRefKey);
+      // Count ties break by BytesRef.compareTo (unsigned UTF-8), matching Lucene ordinal order --
+      // intentionally NOT the legacy StringFacetCountComparator's UTF-16 String.compareTo, which
+      // disagrees for supplementary-plane code points.
+      case COUNT_DESC ->
+          Comparator.comparingLong(TermsBucket::getDocCount)
+              .reversed()
+              .thenComparing(TermsBucket::getBytesRefKey);
+    };
   }
 
   @Override
-  public AggregationResult mergePartitionResult(AggregationResult other) {
-    TermsAggregationResult that = Check.instanceOf(other, TermsAggregationResult.class);
-    if (!this.name.equals(that.name)) {
-      throw new IllegalArgumentException(
-          String.format(
-              "Cannot merge aggregation results with different group name: %s and %s",
-              this.name, that.name));
-    }
-
-    if (!this.path.equals(that.path)) {
-      throw new IllegalArgumentException(
-          String.format(
-              "Cannot merge aggregation results with different paths: %s and %s",
-              this.path, that.path));
-    }
-
-    if (this.limit != that.limit) {
-      throw new IllegalArgumentException(
-          String.format(
-              "Cannot merge aggregation results with different limits: %s and %s",
-              this.limit, that.limit));
-    }
-
-    // Group buckets across both sides by the key, summing doc counts and recursively merging
-    // children. Full cardinality is retained (no top-N truncation) so that chained segment /
-    // partition / shard merges stay exact; the `limit` is applied exactly once by applyLimit()
-    // at the outermost merge point. LinkedHashMap keeps the iteration order deterministic.
-    LinkedHashMap<BytesRef, TermsBucket> mergedBuckets = new LinkedHashMap<>();
-    for (TermsBucket b : this.buckets) {
-      mergedBuckets.put(b.getBytesRefKey(), b);
-    }
-    for (TermsBucket b : that.buckets) {
-      mergedBuckets.merge(
-          b.getBytesRefKey(),
-          b,
-          (b1, b2) -> {
-            AggregationResults mergedChildren =
-                mergeChildren(b1.getChildResults(), b2.getChildResults());
-            return new TermsBucket(
-                b1.getBytesRefKey(), b1.getDocCount() + b2.getDocCount(), mergedChildren);
-          });
-    }
-
-    return new TermsAggregationResult(
-        this.name, this.path, this.limit, List.copyOf(mergedBuckets.values()));
+  public AggregationResultBuilder toBuilder() {
+    return new Builder(this);
   }
-
-  // Order buckets by descending doc count, ties broken by ascending key. BytesRef.compareTo is
-  // unsigned lexicographic, which equals term (and global-ordinal) ascending -- matching the
-  // existing Lucene string-facet top-N ordering (TopOrdAndIntQueue: largest value, then smallest
-  // ordinal).
-  private static final Comparator<TermsBucket> TOP_K_ORDER =
-      Comparator.comparingLong(TermsBucket::getDocCount)
-          .reversed()
-          .thenComparing(TermsBucket::getBytesRefKey);
 
   @Override
   public AggregationResult applyLimit() {
-    // Select the top `keep` buckets by (count desc, key asc) with a bounded min-heap, matching the
-    // legacy string-facet top-N (TopOrdAndIntQueue). The heap holds at most `keep` buckets with the
-    // worst-kept at its head, so each of the n buckets costs O(log keep) -- O(n log keep) overall,
-    // beating a full O(n log n) sort when numBuckets is well below the bucket cardinality. This is
-    // the single, outermost application of the deferred limit; counts here are already global (see
-    // the contract on AggregationResult#applyLimit).
-    int keep = Math.min(this.limit, this.buckets.size());
+    // numBuckets means "keep the N most frequent terms", so selection is by COUNT_DESC regardless
+    // of how survivors are later ordered by getBuckets(BucketOrder). Bounded min-heap: O(n log
+    // keep) instead of a full sort, matching the legacy string-facet top-N (TopOrdAndIntQueue).
+    Comparator<TermsBucket> topKOrder = comparator(BucketOrder.COUNT_DESC);
+    int keep = Math.min(this.limit, this.bucketsByKey.size());
     // Head = worst-kept bucket (reversed order), so it can be evicted in O(log keep).
-    PriorityQueue<TermsBucket> heap = new PriorityQueue<>(TOP_K_ORDER.reversed());
-    for (TermsBucket b : this.buckets) {
+    PriorityQueue<TermsBucket> heap = new PriorityQueue<>(topKOrder.reversed());
+    for (TermsBucket b : this.bucketsByKey.values()) {
       if (heap.size() < keep) {
         heap.add(b);
-      } else if (keep > 0 && TOP_K_ORDER.compare(b, heap.peek()) < 0) {
-        // b ranks better than the current worst-kept (TOP_K_ORDER treats "better" as smaller).
+      } else if (keep > 0 && topKOrder.compare(b, heap.peek()) < 0) {
+        // b ranks better than the current worst-kept (topKOrder treats "better" as smaller).
         heap.poll();
         heap.add(b);
       }
     }
-    // The min-heap drains worst-first, so fill back-to-front to get the required best-first output
-    // order (count desc, key asc). Recurse into survivors so nested facets get their own limit.
-    TermsBucket[] ordered = new TermsBucket[heap.size()];
-    for (int i = ordered.length - 1; i >= 0; i--) {
+    // Drain in any order (presentation order is applied at read time); recurse into survivors so
+    // nested facets get their own limit.
+    List<TermsBucket> kept = new ArrayList<>(heap.size());
+    while (!heap.isEmpty()) {
       TermsBucket b = heap.poll();
-      ordered[i] =
-          new TermsBucket(b.getBytesRefKey(), b.getDocCount(), b.getChildResults().applyLimit());
+      kept.add(
+          new TermsBucket(b.getBytesRefKey(), b.getDocCount(), b.getChildResults().applyLimit()));
     }
-    return new TermsAggregationResult(this.name, this.path, this.limit, List.of(ordered));
+    return new TermsAggregationResult(this.name, this.path, this.limit, kept);
   }
 
-  // Element-wise merge of two child AggregationResults. Each side must contain the same set of
-  // child names (same spec tree on every partition), matched by name and merged via each child's
-  // own AggregationResult.mergePartitionResult().
-  private AggregationResults mergeChildren(AggregationResults a, AggregationResults b) {
-    Map<String, AggregationResult> leftByName = a.getResultsByName();
-    Map<String, AggregationResult> rightByName = b.getResultsByName();
-    if (!leftByName.keySet().equals(rightByName.keySet())) {
-      throw new IllegalArgumentException(
-          String.format(
-              "Cannot merge aggregation results with different child names: %s and %s",
-              leftByName.keySet(), rightByName.keySet()));
+  /**
+   * Unions buckets by term into one hash map carried across the whole fold, summing doc counts and
+   * recursively merging children. Keeps full cardinality and never sorts; see {@link
+   * AggregationResultBuilder}.
+   */
+  private static final class Builder implements AggregationResultBuilder {
+    private final String name;
+    private final FieldPath path;
+    private final int limit;
+    private final HashMap<BytesRef, BucketBuilder> bucketsByKey = new HashMap<>();
+
+    // Identity element of the merge for `shape`'s (name, path, limit): holds no buckets until
+    // add() folds results in, so the fold has no first-element special case.
+    Builder(TermsAggregationResult shape) {
+      this.name = shape.name;
+      this.path = shape.path;
+      this.limit = shape.limit;
     }
-    List<AggregationResult> merged = new ArrayList<>();
-    for (String name : leftByName.keySet()) {
-      merged.add(leftByName.get(name).mergePartitionResult(rightByName.get(name)));
+
+    @Override
+    public void add(AggregationResult other) {
+      TermsAggregationResult that = Check.instanceOf(other, TermsAggregationResult.class);
+      if (!this.name.equals(that.name)) {
+        throw new IllegalArgumentException(
+            String.format(
+                "Cannot merge aggregation results with different group name: %s and %s",
+                this.name, that.name));
+      }
+      if (!this.path.equals(that.path)) {
+        throw new IllegalArgumentException(
+            String.format(
+                "Cannot merge aggregation results with different paths: %s and %s",
+                this.path, that.path));
+      }
+      if (this.limit != that.limit) {
+        throw new IllegalArgumentException(
+            String.format(
+                "Cannot merge aggregation results with different limits: %s and %s",
+                this.limit, that.limit));
+      }
+      fold(that);
     }
-    return AggregationResults.from(merged);
+
+    private void fold(TermsAggregationResult result) {
+      result
+          .bucketsByKey
+          .values()
+          .forEach(
+              bucket ->
+                  this.bucketsByKey
+                      .computeIfAbsent(bucket.getBytesRefKey(), BucketBuilder::new)
+                      .add(bucket));
+    }
+
+    @Override
+    public TermsAggregationResult build() {
+      return new TermsAggregationResult(
+          this.name,
+          this.path,
+          this.limit,
+          this.bucketsByKey.values().stream().map(BucketBuilder::build).toList());
+    }
+  }
+
+  // Per-bucket merge state: summed doc count plus one child builder per named child result.
+  private static final class BucketBuilder {
+    private final BytesRef key;
+    private long docCount;
+    private final AggregationResults.Builder childBuilders = new AggregationResults.Builder();
+
+    BucketBuilder(BytesRef key) {
+      this.key = key;
+    }
+
+    void add(TermsBucket bucket) {
+      this.docCount += bucket.getDocCount();
+      this.childBuilders.add(bucket.getChildResults());
+    }
+
+    TermsBucket build() {
+      return new TermsBucket(this.key, this.docCount, this.childBuilders.build());
+    }
   }
 }
