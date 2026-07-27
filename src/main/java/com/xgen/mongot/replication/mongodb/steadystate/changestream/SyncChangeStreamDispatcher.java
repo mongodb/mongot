@@ -151,10 +151,6 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
   private void enqueue(ChangeStreamIndexingInfo info, Optional<ChangeStreamBatch> previousBatch) {
     info.schedulingTimer.reset().start();
 
-    this.getMoresScheduled
-        .get(getIndexTypeTag(info.indexManager.indexDefinition))
-        .incrementAndGet();
-
     EnqueueContext context =
         new EnqueueContext(
             info.indexManager.indexDefinition,

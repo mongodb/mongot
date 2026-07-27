@@ -1,9 +1,7 @@
-package com.xgen.mongot.replication.mongodb.steadystate.changestream;
+package com.xgen.mongot.util.concurrent;
 
 import static com.google.common.truth.Truth.assertThat;
 
-import com.xgen.mongot.util.concurrent.DualBlockingQueue;
-import com.xgen.mongot.util.concurrent.PrioritizedTask;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.ArrayList;
 import java.util.List;
@@ -313,6 +311,41 @@ public class DualBlockingQueueTest {
     assertThat(queue.take()).isEqualTo(high); // ratio reached
     assertThat(queue.peek()).isEqualTo(low); // regular is served next
     assertThat(queue.take()).isEqualTo(low);
+  }
+
+  @Test
+  public void testOffer_incrementsRoutingCounters() {
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    DualBlockingQueue queue = new DualBlockingQueue(4, "test-queue", meterRegistry);
+
+    queue.offer(task(true));
+    queue.offer(task(false));
+    queue.offer(task(true));
+
+    assertThat(meterRegistry.get("test-queue.tasksRoutedToPreferredQueue").counter().count())
+        .isEqualTo(2.0);
+    assertThat(meterRegistry.get("test-queue.tasksRoutedToRegularQueue").counter().count())
+        .isEqualTo(1.0);
+  }
+
+  @Test
+  public void testSelectNext_incrementsServedCounters() throws InterruptedException {
+    // Ratio of 2: with 2 preferred + 1 regular queued, both preferred are served (2) before the
+    // ratio triggers a regular task (1).
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    DualBlockingQueue queue = new DualBlockingQueue(2, "test-queue", meterRegistry);
+    queue.offer(task(true));
+    queue.offer(task(true));
+    queue.offer(task(false));
+
+    queue.take();
+    queue.take();
+    queue.take();
+
+    assertThat(meterRegistry.get("test-queue.preferredQueueTasksServed").counter().count())
+        .isEqualTo(2.0);
+    assertThat(meterRegistry.get("test-queue.regularQueueTasksServed").counter().count())
+        .isEqualTo(1.0);
   }
 
   @Test

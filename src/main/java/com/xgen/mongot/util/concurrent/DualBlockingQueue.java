@@ -19,7 +19,8 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * A {@link BlockingQueue} that replaces the default FIFO queue in the change-stream thread pool.
+ * A {@link BlockingQueue} that replaces the default FIFO queue in a thread pool, giving callers a
+ * high/low priority scheme.
  *
  * <p>Tasks are routed to a preferred or regular queue based on {@link
  * PrioritizedTask#isHighPriority()}. Worker threads pull {@code preferredTasksPerRegularTask} tasks

@@ -15,10 +15,6 @@ final class OptimeLagPriorityStrategy implements ChangeStreamPriorityStrategy {
 
   private static final Logger LOG = LoggerFactory.getLogger(OptimeLagPriorityStrategy.class);
 
-  // Default lag threshold: an index whose cursor is at least this many seconds behind the server's
-  // optime is treated as falling behind and routed to the preferred queue.
-  static final int DEFAULT_HIGH_PRIORITY_LAG_THRESHOLD_SECONDS = 50;
-
   private final int highPriorityLagThresholdSeconds;
 
   OptimeLagPriorityStrategy(int highPriorityLagThresholdSeconds) {

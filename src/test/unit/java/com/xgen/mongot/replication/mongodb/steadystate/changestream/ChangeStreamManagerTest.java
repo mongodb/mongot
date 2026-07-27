@@ -50,6 +50,7 @@ import com.xgen.mongot.replication.mongodb.common.IndexingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException.Type;
+import com.xgen.mongot.replication.mongodb.common.SteadyStateSchedulingMethod;
 import com.xgen.mongot.util.mongodb.Errors;
 import com.xgen.testing.mongot.index.IndexMetricsUpdaterBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
@@ -1946,13 +1947,41 @@ public class ChangeStreamManagerTest {
                 .setMaxInFlightEmbeddingGetMores(1)
                 .setChangeStreamQueryMaxTimeMs(1000)
                 .setChangeStreamCursorMaxTimeSec(1000)
+                .setSteadyStateSchedulingMethod(SteadyStateSchedulingMethod.OPTIME_LAG)
                 .build(),
             this.context.getIndexManagerFactory(),
             true);
 
-    assertThat(changeStreamManager.getTaskExecutorClass()).hasValue(DualQueueExecutor.class);
-    // DualQueueExecutor has no semaphore - getEmbeddingAvailablePermits returns empty
+    assertThat(changeStreamManager.getTaskExecutorClass())
+        .hasValue(ChangeStreamDualQueueExecutor.class);
+    // ChangeStreamDualQueueExecutor has no semaphore - getEmbeddingAvailablePermits returns empty
     assertThat(changeStreamManager.getEmbeddingAvailablePermits()).isEmpty();
+    changeStreamManager.shutdown().get(5, TimeUnit.SECONDS);
+  }
+
+  @Test
+  public void
+      testCreateSync_defaultReplicationType_fifoSchedulingMethod_doesNotUseDualQueueExecutor()
+          throws Exception {
+    Assume.assumeTrue(this.context.name.equals("sync-client"));
+
+    ChangeStreamManager changeStreamManager =
+        ChangeStreamManager.createSync(
+            MeterAndFtdcRegistry.createWithSimpleRegistries(),
+            ChangeStreamManagerTestSyncHelpers.syncSingleEventProducingClient(),
+            mock(ChangeStreamModeSelector.class),
+            indexingWorkSchedulerFactory(),
+            SteadyStateReplicationConfig.builder()
+                .setNumConcurrentChangeStreams(1)
+                .setMaxInFlightEmbeddingGetMores(1)
+                .setChangeStreamQueryMaxTimeMs(1000)
+                .setChangeStreamCursorMaxTimeSec(1000)
+                .setSteadyStateSchedulingMethod(SteadyStateSchedulingMethod.FIFO)
+                .build(),
+            this.context.getIndexManagerFactory(),
+            true);
+
+    assertThat(changeStreamManager.getTaskExecutorClass()).hasValue(FifoExecutor.class);
     changeStreamManager.shutdown().get(5, TimeUnit.SECONDS);
   }
 

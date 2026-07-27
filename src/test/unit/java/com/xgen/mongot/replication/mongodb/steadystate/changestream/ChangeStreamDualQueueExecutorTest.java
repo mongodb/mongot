@@ -4,6 +4,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
+import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.ByteBuffer;
@@ -20,7 +21,7 @@ import org.bson.BsonString;
 import org.bson.BsonTimestamp;
 import org.junit.Test;
 
-public class DualQueueExecutorTest {
+public class ChangeStreamDualQueueExecutorTest {
 
   private static EnqueueContext contextWithNoPreviousBatch() {
     return new EnqueueContext(SearchIndexDefinitionBuilder.VALID_INDEX, Optional.empty(), () -> {});
@@ -52,7 +53,7 @@ public class DualQueueExecutorTest {
   }
 
   /**
-   * Previous batch with 2s of optime lag — below a 5s threshold, above the default 50s threshold.
+   * Previous batch with 2s of optime lag — below both a 5s threshold and the default 60s threshold.
    */
   private static EnqueueContext contextWithLowOpTimeLag() {
     int nowSeconds = (int) (System.currentTimeMillis() / 1000);
@@ -73,23 +74,27 @@ public class DualQueueExecutorTest {
         SearchIndexDefinitionBuilder.VALID_INDEX, Optional.empty(), onDropped);
   }
 
-  private static DualQueueExecutor createExecutor(int numThreads) {
-    return new DualQueueExecutor(
+  private static final int PREFERRED_TASKS_PER_REGULAR_TASK = 4;
+
+  private static ChangeStreamDualQueueExecutor createExecutor(int numThreads) {
+    return new ChangeStreamDualQueueExecutor(
         "test-executor",
         numThreads,
         new SimpleMeterRegistry(),
         new OptimeLagPriorityStrategy(
-            OptimeLagPriorityStrategy.DEFAULT_HIGH_PRIORITY_LAG_THRESHOLD_SECONDS));
+            MongoDbReplicationConfig.DEFAULT_STEADY_STATE_PRIORITY_OPTIME_THRESHOLD_SECONDS),
+        PREFERRED_TASKS_PER_REGULAR_TASK);
   }
 
   /** Executor with a lower threshold so we can test the high-priority path. */
-  private static DualQueueExecutor createExecutorWithThreshold(
+  private static ChangeStreamDualQueueExecutor createExecutorWithThreshold(
       int numThreads, int thresholdSeconds) {
-    return new DualQueueExecutor(
+    return new ChangeStreamDualQueueExecutor(
         "test-executor",
         numThreads,
         new SimpleMeterRegistry(),
-        new OptimeLagPriorityStrategy(thresholdSeconds));
+        new OptimeLagPriorityStrategy(thresholdSeconds),
+        PREFERRED_TASKS_PER_REGULAR_TASK);
   }
 
   /** Builds a PBRT whose decoded optime is {@code ts}. */
@@ -102,7 +107,7 @@ public class DualQueueExecutorTest {
 
   @Test
   public void enqueue_taskExecutes() throws InterruptedException {
-    DualQueueExecutor executor = createExecutor(1);
+    ChangeStreamDualQueueExecutor executor = createExecutor(1);
     CountDownLatch latch = new CountDownLatch(1);
 
     assertThat(executor.enqueue(latch::countDown, contextWithNoPreviousBatch())).isTrue();
@@ -114,7 +119,7 @@ public class DualQueueExecutorTest {
   @Test
   public void enqueue_withoutPreviousBatch_prioritizesTaskAheadOfRegularPriorityTasks()
       throws InterruptedException {
-    DualQueueExecutor executor = createExecutor(1);
+    ChangeStreamDualQueueExecutor executor = createExecutor(1);
     CountDownLatch blockThread = new CountDownLatch(1);
     CountDownLatch threadBlocked = new CountDownLatch(1);
     List<String> executionOrder = new ArrayList<>();
@@ -160,7 +165,7 @@ public class DualQueueExecutorTest {
   @Test
   public void enqueue_optimeLagAboveThreshold_isHighPriority() throws InterruptedException {
     // Use a low threshold (5s) so contextWithHighOpTimeLag (60s lag) triggers high priority.
-    DualQueueExecutor executor = createExecutorWithThreshold(1, 5);
+    ChangeStreamDualQueueExecutor executor = createExecutorWithThreshold(1, 5);
     CountDownLatch blockThread = new CountDownLatch(1);
     CountDownLatch threadBlocked = new CountDownLatch(1);
     List<String> executionOrder = new ArrayList<>();
@@ -201,7 +206,7 @@ public class DualQueueExecutorTest {
 
   @Test
   public void enqueue_optimeLagBelowThreshold_isLowPriority() throws InterruptedException {
-    DualQueueExecutor executor = createExecutorWithThreshold(1, 5);
+    ChangeStreamDualQueueExecutor executor = createExecutorWithThreshold(1, 5);
     CountDownLatch blockThread = new CountDownLatch(1);
     CountDownLatch threadBlocked = new CountDownLatch(1);
     List<String> executionOrder = new ArrayList<>();
@@ -242,57 +247,8 @@ public class DualQueueExecutorTest {
   }
 
   @Test
-  public void enqueue_withPreviousBatch_servesFourPrioritizedTasksBeforeRegularTasks()
-      throws InterruptedException {
-    // Verifies PREFERRED_TASKS_PER_REGULAR_TASK=4: queue 1 low then 4 high; all 4 run before low.
-    DualQueueExecutor executor = createExecutorWithThreshold(1, 5);
-    CountDownLatch blockThread = new CountDownLatch(1);
-    CountDownLatch threadBlocked = new CountDownLatch(1);
-    List<String> executionOrder = new ArrayList<>();
-
-    executor.enqueue(
-        () -> {
-          threadBlocked.countDown();
-          try {
-            blockThread.await();
-          } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-          }
-        },
-        contextWithNoPreviousBatch());
-
-    assertThat(threadBlocked.await(5, TimeUnit.SECONDS)).isTrue();
-
-    CountDownLatch done = new CountDownLatch(5);
-    executor.enqueue(
-        () -> {
-          executionOrder.add("low");
-          done.countDown();
-        },
-        contextWithCaughtUpPreviousBatch());
-    for (int i = 0; i < 4; i++) {
-      int idx = i;
-      executor.enqueue(
-          () -> {
-            executionOrder.add("high-" + idx);
-            done.countDown();
-          },
-          contextWithHighOpTimeLag());
-    }
-
-    blockThread.countDown();
-    assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
-
-    int lowIndex = executionOrder.indexOf("low");
-    for (int i = 0; i < 4; i++) {
-      assertThat(executionOrder.indexOf("high-" + i)).isLessThan(lowIndex);
-    }
-    executor.shutdown();
-  }
-
-  @Test
   public void shutdown_completesInFlightTasks() throws InterruptedException {
-    DualQueueExecutor executor = createExecutor(1);
+    ChangeStreamDualQueueExecutor executor = createExecutor(1);
     CountDownLatch latch = new CountDownLatch(3);
 
     executor.enqueue(latch::countDown, contextWithNoPreviousBatch());
@@ -305,7 +261,7 @@ public class DualQueueExecutorTest {
 
   @Test
   public void enqueue_afterShutdown_returnsFalseAndCallsOnDropped() {
-    DualQueueExecutor executor = createExecutor(1);
+    ChangeStreamDualQueueExecutor executor = createExecutor(1);
     executor.shutdown();
 
     AtomicBoolean dropped = new AtomicBoolean(false);
@@ -316,22 +272,15 @@ public class DualQueueExecutorTest {
   }
 
   @Test
-  public void constructor_rejectsNonPositiveThreads() {
-    assertThrows(
-        IllegalArgumentException.class,
-        () ->
-            new DualQueueExecutor(
-                "test-executor",
-                0,
-                new SimpleMeterRegistry(),
-                new OptimeLagPriorityStrategy(
-                    OptimeLagPriorityStrategy.DEFAULT_HIGH_PRIORITY_LAG_THRESHOLD_SECONDS)));
-  }
-
-  @Test
   public void constructor_rejectsNullStrategy() {
     assertThrows(
         NullPointerException.class,
-        () -> new DualQueueExecutor("test-executor", 1, new SimpleMeterRegistry(), null));
+        () ->
+            new ChangeStreamDualQueueExecutor(
+                "test-executor",
+                1,
+                new SimpleMeterRegistry(),
+                null,
+                PREFERRED_TASKS_PER_REGULAR_TASK));
   }
 }

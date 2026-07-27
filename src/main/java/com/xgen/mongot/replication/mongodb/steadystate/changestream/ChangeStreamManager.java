@@ -25,6 +25,7 @@ import com.xgen.mongot.replication.mongodb.common.HeuristicChangeStreamModeSelec
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
 import com.xgen.mongot.replication.mongodb.common.SessionRefresher;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
+import com.xgen.mongot.replication.mongodb.common.SteadyStateSchedulingMethod;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.Crash;
 import com.xgen.mongot.util.FutureUtils;
@@ -304,18 +305,20 @@ public class ChangeStreamManager {
    * Builds the {@link ChangeStreamTaskExecutor} that determines how getMore tasks are scheduled.
    *
    * <p>Priority scheduling ({@code enableChangeStreamPriorityScheduling}) only changes behavior for
-   * {@link CommonReplicationConfig.Type#DEFAULT}, where it swaps the plain scheduled executor for a
-   * {@link DualQueueExecutor}. Otherwise (including for {@link
+   * {@link CommonReplicationConfig.Type#DEFAULT} when {@link
+   * SteadyStateReplicationConfig#getSteadyStateSchedulingMethod()} selects a variant other than
+   * {@link SteadyStateSchedulingMethod#FIFO}, where it swaps the plain scheduled executor for a
+   * {@link ChangeStreamDualQueueExecutor}. Otherwise (including for {@link
    * CommonReplicationConfig.Type#AUTO_EMBEDDING}) the scheduled-executor path below is used, which
    * yields an {@link AutoEmbeddingExecutor} when a max-in-flight-embedding-getMores cap applies and
    * a {@link FifoExecutor} when it does not.
    *
-   * <p>Known gap: {@link DualQueueExecutor} has no concept of the max-in-flight-embedding-getMores
-   * cap. Legacy, non-materialized-view auto-embedding indexes ({@code type:TEXT}) still run on this
-   * {@link CommonReplicationConfig.Type#DEFAULT} path today, tracked for removal under
-   * CLOUDP-426030), so enabling {@code enableChangeStreamPriorityScheduling} on a {@code DEFAULT}
-   * deployment that still has one of these indexes will silently remove the concurrency cap on its
-   * embedding getMores.
+   * <p>Known gap: {@link ChangeStreamDualQueueExecutor} has no concept of the
+   * max-in-flight-embedding-getMores cap. Legacy, non-materialized-view auto-embedding indexes
+   * ({@code type:TEXT}) still run on this {@link CommonReplicationConfig.Type#DEFAULT} path today,
+   * tracked for removal under CLOUDP-426030), so enabling {@code
+   * enableChangeStreamPriorityScheduling} on a {@code DEFAULT} deployment that still has one of
+   * these indexes will silently remove the concurrency cap on its embedding getMores.
    */
   private static ChangeStreamTaskExecutor createTaskExecutor(
       MeterAndFtdcRegistry meterAndFtdcRegistry,
@@ -326,15 +329,18 @@ public class ChangeStreamManager {
         replicationConfig.getReplicationType().metricsNamespacePrefix
             + "change-stream-sync-dispatcher";
 
+    SteadyStateSchedulingMethod schedulingMethod =
+        replicationConfig.getSteadyStateSchedulingMethod();
     if (enableChangeStreamPriorityScheduling
-        && replicationConfig.getReplicationType() == CommonReplicationConfig.Type.DEFAULT) {
-      DualQueueExecutor dualQueueExecutor =
-          new DualQueueExecutor(
+        && replicationConfig.getReplicationType() == CommonReplicationConfig.Type.DEFAULT
+        && schedulingMethod != SteadyStateSchedulingMethod.FIFO) {
+      ChangeStreamDualQueueExecutor dualQueueExecutor =
+          new ChangeStreamDualQueueExecutor(
               executorName,
               replicationConfig.getNumConcurrentChangeStreams(),
               meterAndFtdcRegistry.meterRegistry(),
-              new OptimeLagPriorityStrategy(
-                  OptimeLagPriorityStrategy.DEFAULT_HIGH_PRIORITY_LAG_THRESHOLD_SECONDS));
+              createPriorityStrategy(schedulingMethod, replicationConfig),
+              replicationConfig.getSteadyStatePriorityRatio());
       if (enableLifecycleAttributionMetrics) {
         ThreadPoolResourceMetrics.create(
                 replicationConfig.getReplicationType().resourceAttributionSubsystem)
@@ -363,6 +369,31 @@ public class ChangeStreamManager {
             scheduledExecutor,
             Optional.of(replicationConfig.getMaxInFlightEmbeddingGetMores()))
         : new FifoExecutor(scheduledExecutor);
+  }
+
+  /**
+   * Builds the {@link ChangeStreamPriorityStrategy} for the given {@link
+   * SteadyStateSchedulingMethod}. Only called when {@code schedulingMethod} is not {@link
+   * SteadyStateSchedulingMethod#FIFO}.
+   */
+  private static ChangeStreamPriorityStrategy createPriorityStrategy(
+      SteadyStateSchedulingMethod schedulingMethod,
+      SteadyStateReplicationConfig replicationConfig) {
+    switch (schedulingMethod) {
+      case HAD_DOCUMENTS:
+        return new HadDocumentsPriorityStrategy();
+      case BATCH_DATA_SIZE:
+        return new BatchDataSizePriorityStrategy(
+            BatchDataSizePriorityStrategy.DEFAULT_HIGH_PRIORITY_BATCH_SIZE_BYTES);
+      case OPTIME_LAG:
+        return new OptimeLagPriorityStrategy(
+            replicationConfig.getSteadyStatePriorityOptimeThresholdSeconds());
+      case FIFO:
+        throw new IllegalStateException(
+            "createPriorityStrategy should not be called for scheduling method: "
+                + schedulingMethod);
+    }
+    throw new AssertionError("unreachable: " + schedulingMethod);
   }
 
   /**

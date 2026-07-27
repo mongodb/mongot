@@ -6,6 +6,7 @@ java_library(
         "DefaultNamedExecutorService.java",
         "DefaultNamedScheduledExecutorService.java",
         "DualBlockingQueue.java",
+        "DualQueueExecutor.java",
         "Executors.java",
         "FileLockGuard.java",
         "LiveThreadIdsRegistry.java",

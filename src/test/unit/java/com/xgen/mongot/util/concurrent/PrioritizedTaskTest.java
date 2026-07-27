@@ -1,8 +1,7 @@
-package com.xgen.mongot.replication.mongodb.steadystate.changestream;
+package com.xgen.mongot.util.concurrent;
 
 import static com.google.common.truth.Truth.assertThat;
 
-import com.xgen.mongot.util.concurrent.PrioritizedTask;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Assert;
 import org.junit.Test;

@@ -1,9 +1,5 @@
-package com.xgen.mongot.replication.mongodb.steadystate.changestream;
+package com.xgen.mongot.util.concurrent;
 
-import com.xgen.mongot.util.concurrent.DualBlockingQueue;
-import com.xgen.mongot.util.concurrent.Executors;
-import com.xgen.mongot.util.concurrent.NamedExecutorService;
-import com.xgen.mongot.util.concurrent.PrioritizedTask;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.Objects;
 import java.util.concurrent.RejectedExecutionException;
@@ -12,57 +8,61 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
- * {@link ChangeStreamTaskExecutor} for the text/vector sync change-stream path.
+ * Generic priority-queue executor with no caller-specific scheduling logic: callers decide {@code
+ * isHighPriority} themselves.
  *
  * <p>Uses a {@link DualBlockingQueue} as the backing queue for the thread pool. Tasks are wrapped
  * in a {@link PrioritizedTask} and routed to the preferred or regular queue based on the
- * scheduler's priority signal.
+ * caller-supplied priority flag.
  *
  * <p>Thread-safe: all fields are final and set at construction; concurrency is delegated to the
  * {@link ThreadPoolExecutor} and {@link DualBlockingQueue}.
  */
-final class DualQueueExecutor implements ChangeStreamTaskExecutor {
-
-  private static final int PREFERRED_TASKS_PER_REGULAR_TASK = 4;
+public final class DualQueueExecutor {
 
   private final ThreadPoolExecutor rawExecutor;
   private final NamedExecutorService delegate;
-  private final ChangeStreamPriorityStrategy strategy;
 
-  DualQueueExecutor(
-      String name,
-      int numThreads,
-      MeterRegistry meterRegistry,
-      ChangeStreamPriorityStrategy strategy) {
+  public DualQueueExecutor(
+      String name, int numThreads, MeterRegistry meterRegistry, int preferredTasksPerRegularTask) {
     Objects.requireNonNull(name, "name");
     Objects.requireNonNull(meterRegistry, "meterRegistry");
-    Objects.requireNonNull(strategy, "strategy");
     if (numThreads <= 0) {
       throw new IllegalArgumentException("numThreads must be positive, got: " + numThreads);
     }
+    if (preferredTasksPerRegularTask <= 0) {
+      throw new IllegalArgumentException(
+          "preferredTasksPerRegularTask must be positive, got: " + preferredTasksPerRegularTask);
+    }
     DualBlockingQueue queue =
-        new DualBlockingQueue(PREFERRED_TASKS_PER_REGULAR_TASK, name, meterRegistry);
+        new DualBlockingQueue(preferredTasksPerRegularTask, name, meterRegistry);
     ThreadFactory threadFactory = Executors.countingNamedThreadFactory(name);
     this.rawExecutor =
         new ThreadPoolExecutor(numThreads, numThreads, 0L, TimeUnit.SECONDS, queue, threadFactory);
     this.delegate = Executors.namedExecutor(name, this.rawExecutor, meterRegistry);
-    this.strategy = strategy;
   }
 
-  @Override
-  public boolean enqueue(Runnable task, EnqueueContext context) {
-    // No previous batch = first submission for this index; default to high priority so it starts
-    // draining promptly instead of waiting behind the regular queue.
-    boolean isHighPriority =
-        context.previousBatch().map(this.strategy::isHighPriority).orElse(true);
+  /**
+   * Enqueues a task for execution and reports whether it was accepted. If the task cannot be
+   * accepted (for example, after {@link #shutdown}), {@code onDropped} is invoked rather than
+   * throwing.
+   *
+   * @param task the work to run
+   * @param isHighPriority {@code true} to route to the preferred queue, {@code false} for regular
+   * @param onDropped invoked if the task cannot be accepted, to release resources
+   * @return {@code true} if the task was accepted for execution, {@code false} if it was dropped
+   */
+  public boolean enqueue(Runnable task, boolean isHighPriority, Runnable onDropped) {
+    Objects.requireNonNull(task, "task");
+    Objects.requireNonNull(onDropped, "onDropped");
     try {
       this.rawExecutor.execute(new PrioritizedTask(task, isHighPriority));
       return true;
     } catch (RejectedExecutionException ex) {
       // The queue is unbounded, so rejection only happens after shutdown. Hand the task back to the
-      // dispatcher via onDropped so it can release resources; this is an expected part of shutdown,
+      // caller via onDropped so it can release resources; this is an expected part of shutdown,
       // not a failure, so it is intentionally not logged.
-      context.onDropped().run();
+      onDropped.run();
       return false;
     }
   }
@@ -74,11 +74,10 @@ final class DualQueueExecutor implements ChangeStreamTaskExecutor {
    * TODO(CLOUDP-410283)) and throw at enqueue time. All task submission must go through {@link
    * #enqueue}.
    */
-  NamedExecutorService getDelegate() {
+  public NamedExecutorService getDelegate() {
     return this.delegate;
   }
 
-  @Override
   public void shutdown() {
     Executors.shutdownOrFail(this.delegate);
   }
