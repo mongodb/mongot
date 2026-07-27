@@ -3,6 +3,7 @@ package com.xgen.mongot.embedding.mongodb.leasing;
 import static com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata.VERSION_ZERO;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
@@ -121,6 +122,60 @@ public class LeaseRepairUtilTest {
   }
 
   @Test
+  public void repairLeaseForPostRestoreMigration_viewLeafName_canonicalizesToBaseCollection()
+      throws Exception {
+    // Legacy view-backed lease: collectionName holds the view leaf, but commitInfo tracks the base
+    // collection the change stream follows. Repair must resolve the base collection — never the
+    // view leaf, which would resolve to a View — and rewrite collectionName to it.
+    UUID freshRootUuid = UUID.randomUUID();
+    UUID freshMvUuid = UUID.randomUUID();
+    Lease stale =
+        viewLeafLease(TENANT_ID + "_sample_mflix", "movies", "movies_after_1950", COLLECTION_UUID);
+
+    Lease repaired =
+        LeaseRepairUtil.repairLeaseForPostRestoreMigration(
+            stale,
+            (db, coll) -> {
+              if (db.equals("sample_mflix") && coll.equals("movies")) {
+                return freshRootUuid;
+              }
+              if (db.equals(INTERNAL_SEARCH_DB) && coll.equals(MV_COLLECTION_NAME)) {
+                return freshMvUuid;
+              }
+              // Resolving the view leaf as a collection is exactly the bug under test.
+              throw new AssertionError("unexpected resolver call: " + db + "." + coll);
+            },
+            INTERNAL_SEARCH_DB);
+
+    assertEquals("movies", repaired.collectionName());
+    assertEquals(freshRootUuid.toString(), repaired.collectionUuid());
+    assertEquals(freshMvUuid, repaired.materializedViewCollectionMetadata().collectionUuid());
+    assertEquals(EncodedUserData.EMPTY.asString(), repaired.commitInfo());
+    assertNull(repaired.steadyAsOfOplogPosition());
+  }
+
+  @Test
+  public void repairLeaseForPostRestoreMigration_viewLeafNameWithCurrentUuids_stillRewritesName()
+      throws Exception {
+    // Both UUIDs already current, but collectionName is a stale view leaf. Name staleness alone
+    // must force the rebuild instead of an unchanged return, so the leaf gets canonicalized.
+    Lease stale =
+        viewLeafLease(TENANT_ID + "_sample_mflix", "movies", "movies_after_1950", COLLECTION_UUID);
+    UUID currentSourceUuid = UUID.fromString(stale.collectionUuid());
+    UUID currentMvUuid = stale.materializedViewCollectionMetadata().collectionUuid();
+
+    Lease repaired =
+        LeaseRepairUtil.repairLeaseForPostRestoreMigration(
+            stale,
+            (db, coll) -> db.equals(INTERNAL_SEARCH_DB) ? currentMvUuid : currentSourceUuid,
+            INTERNAL_SEARCH_DB);
+
+    assertNotSame(stale, repaired);
+    assertEquals("movies", repaired.collectionName());
+    assertEquals(stale.collectionUuid(), repaired.collectionUuid());
+  }
+
+  @Test
   public void repairLeaseForPostRestoreMigration_failureCases() {
     Lease stale = leaseWithNamespaceDb(TENANT_ID + "_sample_mflix");
 
@@ -216,6 +271,35 @@ public class LeaseRepairUtilTest {
         new MaterializedViewCollectionMetadata(
             VERSION_ZERO, UUID.fromString(COLLECTION_UUID), MV_COLLECTION_NAME),
         steadyPosition,
+        Lease.CleanupState.NOT_ELIGIBLE);
+  }
+
+  // Lease whose commitInfo namespace is the base collection while collectionName holds the view
+  // leaf — the legacy view-backed shape the repair must canonicalize.
+  private static Lease viewLeafLease(
+      String prefixedDb, String baseCollection, String viewLeaf, String sourceUuid) {
+    var resumeInfo =
+        ChangeStreamResumeInfo.create(
+            new MongoNamespace(prefixedDb, baseCollection),
+            ChangeStreamUtils.resumeToken(new BsonTimestamp(1L)));
+    var commitInfo =
+        IndexCommitUserData.createChangeStreamResume(resumeInfo, IndexFormatVersion.CURRENT)
+            .toEncodedData()
+            .asString();
+    return new Lease(
+        "test-lease-id",
+        Lease.SCHEMA_VERSION,
+        sourceUuid,
+        viewLeaf,
+        "localhost",
+        Instant.now(),
+        1L,
+        commitInfo,
+        "1",
+        Map.of("1", new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.STEADY)),
+        new MaterializedViewCollectionMetadata(
+            VERSION_ZERO, UUID.fromString(COLLECTION_UUID), MV_COLLECTION_NAME),
+        new BsonTimestamp(1000, 1),
         Lease.CleanupState.NOT_ELIGIBLE);
   }
 }

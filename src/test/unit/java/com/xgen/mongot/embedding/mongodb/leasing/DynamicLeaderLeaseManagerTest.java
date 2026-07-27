@@ -615,8 +615,9 @@ public class DynamicLeaderLeaseManagerTest {
             staleCommitInfo(tenantId, "sample_mflix", "embedded_movies"));
     String leaseCollectionName = staleLease.materializedViewCollectionMetadata().collectionName();
     setupFindLeaseFromDatabase(staleLease);
-    // listCollections returns Collection variants with our fresh UUIDs on both source and MV dbs.
-    setupListCollections("sample_mflix", leaseCollectionName, newSourceUuid);
+    // Source UUID resolves against the base collection named in the commitInfo namespace
+    // ("embedded_movies"), not the lease's collectionName; MV UUID resolves against the MV name.
+    setupListCollections("sample_mflix", "embedded_movies", newSourceUuid);
     // Caller passes dbResolver.resolveDefault() — DATABASE_NAME ("test-db") here, not the
     // hardcoded __mdb_internal_search constant.
     setupListCollections(DATABASE_NAME, leaseCollectionName, newMvUuid);
@@ -628,6 +629,8 @@ public class DynamicLeaderLeaseManagerTest {
     Lease inMem = this.leaseManager.getLeases().get(staleLease.id());
     assertThat(inMem.commitInfo()).isEqualTo(EncodedUserData.EMPTY.asString());
     assertThat(inMem.collectionUuid()).isEqualTo(newSourceUuid.toString());
+    // collectionName canonicalized from the stale lease field to the base collection in commitInfo.
+    assertThat(inMem.collectionName()).isEqualTo("embedded_movies");
     assertThat(inMem.materializedViewCollectionMetadata().collectionUuid()).isEqualTo(newMvUuid);
     assertThat(inMem.steadyAsOfOplogPosition()).isNull();
     assertThat(

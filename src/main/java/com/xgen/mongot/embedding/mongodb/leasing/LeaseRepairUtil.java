@@ -68,9 +68,10 @@ public final class LeaseRepairUtil {
 
   /**
    * Full repair for a stale flex→dedicated migration lease (tenant-prefixed commitInfo case):
-   * clears commitInfo, refreshes source + MV UUIDs via {@code uuidResolver}, nulls
-   * steadyAsOfOplogPosition. Returns the input lease unchanged via reference equality if the
-   * prefix-regex hit was a false positive (both UUIDs already current).
+   * clears commitInfo, re-derives the source collection (name + UUID) from the commitInfo namespace
+   * and the MV UUID via {@code uuidResolver}, nulls steadyAsOfOplogPosition. Reads the source
+   * namespace before commitInfo is cleared. Returns the input lease unchanged via reference
+   * equality if the prefix-regex hit was a false positive (name and both UUIDs already current).
    *
    * @param internalSearchDb the database where materialized-view collections live (the resolver's
    *     {@code resolveDefault()}).
@@ -78,24 +79,29 @@ public final class LeaseRepairUtil {
   public static Lease repairLeaseForPostRestoreMigration(
       Lease lease, CollectionUuidResolver uuidResolver, String internalSearchDb)
       throws LeaseRepairException {
-    String sourceDb =
-        stripTenantPrefix(
-            parseCommitInfo(lease)
-                .getResumeInfo()
-                .map(info -> info.getNamespace().getDatabaseName())
-                .orElseThrow(
-                    () ->
-                        new LeaseRepairException(
-                            "lease "
-                                + lease.id()
-                                + " has no resume info to derive source database from")));
-    UUID newSourceUuid = uuidResolver.resolve(sourceDb, lease.collectionName());
+    // The commitInfo namespace is the collection the change stream actually follows — the base
+    // collection for a view-backed index, never the view leaf. Deriving both db and collection from
+    // it canonicalizes the source identity even when collectionName holds a stale view leaf.
+    var sourceNamespace =
+        parseCommitInfo(lease)
+            .getResumeInfo()
+            .map(info -> info.getNamespace())
+            .orElseThrow(
+                () ->
+                    new LeaseRepairException(
+                        "lease "
+                            + lease.id()
+                            + " has no resume info to derive source namespace from"));
+    String sourceDb = stripTenantPrefix(sourceNamespace.getDatabaseName());
+    String sourceCollection = sourceNamespace.getCollectionName();
+    UUID newSourceUuid = uuidResolver.resolve(sourceDb, sourceCollection);
     MaterializedViewCollectionMetadata mvMeta = lease.materializedViewCollectionMetadata();
     UUID newMvUuid = uuidResolver.resolve(internalSearchDb, mvMeta.collectionName());
 
     boolean sourceUuidStale = !newSourceUuid.toString().equals(lease.collectionUuid());
     boolean mvUuidStale = !newMvUuid.equals(mvMeta.collectionUuid());
-    if (!sourceUuidStale && !mvUuidStale) {
+    boolean sourceNameStale = !sourceCollection.equals(lease.collectionName());
+    if (!sourceUuidStale && !mvUuidStale && !sourceNameStale) {
       // False positive on prefix regex — customer DB literally named with a 24-hex prefix.
       return lease;
     }
@@ -103,7 +109,7 @@ public final class LeaseRepairUtil {
         lease.id(),
         Lease.SCHEMA_VERSION,
         newSourceUuid.toString(),
-        lease.collectionName(),
+        sourceCollection,
         lease.leaseOwner(),
         lease.leaseExpiration(),
         lease.leaseVersion(),
