@@ -88,6 +88,7 @@ public class PeriodicDiskMonitor implements DiskMonitor {
         computeDiskUtilization(fileStore));
   }
 
+  @Override
   @VisibleForTesting
   public void start(Duration diskMonitorDuration) {
     LOG.atInfo()
@@ -100,6 +101,7 @@ public class PeriodicDiskMonitor implements DiskMonitor {
         TimeUnit.MILLISECONDS);
   }
 
+  @Override
   public void stop() {
     LOG.info("Stopping periodic disk monitoring.");
     Executors.shutdownOrFail(this.executorService);
@@ -129,6 +131,7 @@ public class PeriodicDiskMonitor implements DiskMonitor {
             "disk utilization has reached critical threshold, crashing to abort"
                 + "pending merges and writes")
         .withCrashCategory(Crash.CrashCategory.DISK_FULL)
+        .withThreadDump()
         .now();
   }
 
