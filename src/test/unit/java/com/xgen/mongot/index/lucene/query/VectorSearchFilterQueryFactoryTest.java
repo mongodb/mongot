@@ -21,10 +21,18 @@ import com.xgen.mongot.index.definition.VectorIndexFilterFieldDefinition;
 import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.index.definition.VectorTextFieldDefinition;
 import com.xgen.mongot.index.definition.quantization.VectorQuantization;
+import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.query.context.VectorQueryFactoryContext;
+import com.xgen.mongot.index.lucene.util.LuceneDoubleConversionUtils;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.operators.VectorSearchFilter;
 import com.xgen.mongot.index.query.operators.VectorSearchFilter.ClauseFilter;
+import com.xgen.mongot.index.query.operators.bound.DateRangeBound;
+import com.xgen.mongot.index.query.operators.bound.NumericRangeBound;
+import com.xgen.mongot.index.query.operators.mql.ClosedRangeBoundComparisonOperator;
+import com.xgen.mongot.index.query.operators.mql.SimpleClause;
+import com.xgen.mongot.index.query.points.DatePoint;
+import com.xgen.mongot.index.query.points.DoublePoint;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.Vector;
@@ -36,15 +44,24 @@ import com.xgen.testing.mongot.index.query.operators.mql.ClauseBuilder;
 import com.xgen.testing.mongot.index.query.operators.mql.MqlFilterOperatorBuilder;
 import com.xgen.testing.mongot.index.query.operators.mql.ValueBuilder;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
+import java.io.IOException;
+import java.util.Date;
 import java.util.List;
 import java.util.Optional;
+import org.apache.lucene.document.Document;
+import org.apache.lucene.document.LongPoint;
 import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.FilterDirectoryReader;
+import org.apache.lucene.index.FilterLeafReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.index.LeafReader;
+import org.apache.lucene.index.PointValues;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.ConstantScoreQuery;
+import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.store.ByteBuffersDirectory;
@@ -485,5 +502,411 @@ public class VectorSearchFilterQueryFactoryTest {
             .build();
 
     assertEquals(expected, actual);
+  }
+
+  /**
+   * Vector-index ingestion routes each numeric value to exactly one point-field variant by BSON
+   * type: integral values to the int64 multi-value field, floating-point values to the double
+   * multi-value field. A document like {@code {a: [1, 2.5]}} therefore contributes one point to
+   * each variant, and both variants look single-valued when inspected one field at a time — but the
+   * document is still multi-valued.
+   *
+   * <p>Closed-range translation must preserve the semantics of the original pair of open bounds,
+   * under which different array elements may satisfy each bound: {@code {a: {$gt: 2.0, $lt: 2.4}}}
+   * matches {@code {a: [1, 2.5]}} because 2.5 satisfies the lower bound and 1 satisfies the upper
+   * bound. A single fused closed-range query over the point fields cannot match this document, so
+   * translation may only fuse when the document's values all live in one field.
+   */
+  @Test
+  public void closedRangeOnMixedIntDoubleArrayDocument_matchesLikeTwoOpenBounds() throws Exception {
+    FieldPath filterPath = FieldPath.parse("a");
+    VectorQueryFactoryContext context = contextWithFilterPath(filterPath);
+    VectorSearchFilterQueryFactory factory =
+        VectorSearchFilterQueryFactory.create(context, DynamicFeatureFlagRegistry.empty());
+
+    VectorSearchFilter filter =
+        new ClauseFilter(
+            new SimpleClause(
+                filterPath,
+                List.of(
+                    new ClosedRangeBoundComparisonOperator(
+                        new NumericRangeBound(
+                            Optional.of(new DoublePoint(2.0)),
+                            Optional.of(new DoublePoint(2.4)),
+                            false,
+                            false)))));
+
+    String int64Field =
+        FieldName.TypeField.NUMBER_INT64_MULTIPLE.getLuceneFieldName(filterPath, Optional.empty());
+    String doubleField =
+        FieldName.TypeField.NUMBER_DOUBLE_MULTIPLE.getLuceneFieldName(filterPath, Optional.empty());
+
+    try (var directory = new ByteBuffersDirectory()) {
+      try (IndexWriter writer = new IndexWriter(directory, new IndexWriterConfig())) {
+        // {a: [1, 2.5]} — the same fields and encodings LuceneVectorIndexFieldValueHandler
+        // writes: the int element as a raw long point, the double element as a sortable long.
+        Document mixedArrayDoc = new Document();
+        mixedArrayDoc.add(new LongPoint(int64Field, 1L));
+        mixedArrayDoc.add(new LongPoint(doubleField, LuceneDoubleConversionUtils.toLong(2.5)));
+        writer.addDocument(mixedArrayDoc);
+
+        // {a: 2.2} — control document inside the range, matched by fused and unfused forms
+        // alike; proves the translated query is not trivially empty.
+        Document inRangeDoc = new Document();
+        inRangeDoc.add(new LongPoint(doubleField, LuceneDoubleConversionUtils.toLong(2.2)));
+        writer.addDocument(inRangeDoc);
+
+        writer.commit();
+      }
+      try (DirectoryReader reader = DirectoryReader.open(directory)) {
+        Query query =
+            factory.createLuceneFilter(filter, SingleQueryContext.createQueryRoot(reader));
+        assertEquals(
+            "both documents must match: {a: [1, 2.5]} satisfies $gt via 2.5 and $lt via 1, "
+                + "and {a: 2.2} lies inside the range",
+            2,
+            new IndexSearcher(reader).count(query));
+      }
+    }
+  }
+
+  /**
+   * When every value of the filter field lives in a single point-field variant and no document
+   * carries more than one, closed-range translation must fuse: the produced query is exactly the
+   * single-range translation of the same bounds (wrapped in the single-MUST {@link BooleanQuery}
+   * that simple-clause translation always adds), not the AND-of-two-opens fallback — and it still
+   * matches only the documents inside the range.
+   */
+  @Test
+  public void closedRangeOnSingleValuedDoubleData_fusesToSingleRangeQuery() throws Exception {
+    FieldPath filterPath = FieldPath.parse("a");
+    VectorQueryFactoryContext context = contextWithFilterPath(filterPath);
+    VectorSearchFilterQueryFactory factory =
+        VectorSearchFilterQueryFactory.create(context, DynamicFeatureFlagRegistry.empty());
+    NumericRangeBound bounds =
+        new NumericRangeBound(
+            Optional.of(new DoublePoint(2.0)), Optional.of(new DoublePoint(2.4)), false, false);
+    VectorSearchFilter filter =
+        new ClauseFilter(
+            new SimpleClause(filterPath, List.of(new ClosedRangeBoundComparisonOperator(bounds))));
+    String doubleField =
+        FieldName.TypeField.NUMBER_DOUBLE_MULTIPLE.getLuceneFieldName(filterPath, Optional.empty());
+
+    try (var directory = new ByteBuffersDirectory()) {
+      try (IndexWriter writer = new IndexWriter(directory, new IndexWriterConfig())) {
+        // {a: 2.2} inside the range, {a: 3.0} outside it — one double value per document, so the
+        // point-field group is provably single-valued and fusion is sound.
+        Document inRangeDoc = new Document();
+        inRangeDoc.add(new LongPoint(doubleField, LuceneDoubleConversionUtils.toLong(2.2)));
+        writer.addDocument(inRangeDoc);
+        Document outOfRangeDoc = new Document();
+        outOfRangeDoc.add(new LongPoint(doubleField, LuceneDoubleConversionUtils.toLong(3.0)));
+        writer.addDocument(outOfRangeDoc);
+        writer.commit();
+      }
+      try (DirectoryReader reader = DirectoryReader.open(directory)) {
+        SingleQueryContext queryContext = SingleQueryContext.createQueryRoot(reader);
+
+        Query actual = factory.createLuceneFilter(filter, queryContext);
+
+        Query fusedRange =
+            new RangeQueryFactory(context, new EqualsQueryFactory(context))
+                .fromBounds(bounds, List.of(filterPath), queryContext);
+        Query expected =
+            new BooleanQuery.Builder().add(fusedRange, BooleanClause.Occur.MUST).build();
+        assertEquals("fusion must emit the single-range translation", expected, actual);
+        assertEquals(
+            "only {a: 2.2} lies inside (2.0, 2.4)", 1, new IndexSearcher(reader).count(actual));
+      }
+    }
+  }
+
+  /**
+   * Closed-range fusion applies to dates exactly as to numerics: when every date value lives in the
+   * single date point field and no document carries more than one, translation fuses to the
+   * single-range form.
+   */
+  @Test
+  public void closedRangeOnSingleValuedDateData_fusesToSingleRangeQuery() throws Exception {
+    FieldPath filterPath = FieldPath.parse("a");
+    VectorQueryFactoryContext context = contextWithFilterPath(filterPath);
+    VectorSearchFilterQueryFactory factory =
+        VectorSearchFilterQueryFactory.create(context, DynamicFeatureFlagRegistry.empty());
+    DateRangeBound bounds =
+        new DateRangeBound(
+            Optional.of(new DatePoint(new Date(1_000L))),
+            Optional.of(new DatePoint(new Date(2_000L))),
+            false,
+            false);
+    VectorSearchFilter filter =
+        new ClauseFilter(
+            new SimpleClause(filterPath, List.of(new ClosedRangeBoundComparisonOperator(bounds))));
+    String dateField =
+        FieldName.TypeField.DATE_MULTIPLE.getLuceneFieldName(filterPath, Optional.empty());
+
+    try (var directory = new ByteBuffersDirectory()) {
+      try (IndexWriter writer = new IndexWriter(directory, new IndexWriterConfig())) {
+        // {a: Date(1500)} inside the range, {a: Date(3000)} outside it — one date value per
+        // document, written as ingestion writes it: an epoch-millis long point.
+        Document inRangeDoc = new Document();
+        inRangeDoc.add(new LongPoint(dateField, 1_500L));
+        writer.addDocument(inRangeDoc);
+        Document outOfRangeDoc = new Document();
+        outOfRangeDoc.add(new LongPoint(dateField, 3_000L));
+        writer.addDocument(outOfRangeDoc);
+        writer.commit();
+      }
+      try (DirectoryReader reader = DirectoryReader.open(directory)) {
+        SingleQueryContext queryContext = SingleQueryContext.createQueryRoot(reader);
+
+        Query actual = factory.createLuceneFilter(filter, queryContext);
+
+        Query fusedRange =
+            new RangeQueryFactory(context, new EqualsQueryFactory(context))
+                .fromBounds(bounds, List.of(filterPath), queryContext);
+        Query expected =
+            new BooleanQuery.Builder().add(fusedRange, BooleanClause.Occur.MUST).build();
+        assertEquals("fusion must emit the single-range translation", expected, actual);
+        assertEquals(
+            "only {a: Date(1500)} lies inside (Date(1000), Date(2000))",
+            1,
+            new IndexSearcher(reader).count(actual));
+      }
+    }
+  }
+
+  /**
+   * Two single-valued documents whose numeric values live in different point-field variants — one
+   * integral, one floating-point. Summary statistics alone cannot admit this shape, but the exact
+   * per-segment docID-disjointness check proves no document spans both variants, so translation
+   * must still fuse.
+   */
+  @Test
+  public void closedRangeOnMixedIntDoubleScalarDocuments_fusesToSingleRangeQuery()
+      throws Exception {
+    FieldPath filterPath = FieldPath.parse("a");
+    VectorQueryFactoryContext context = contextWithFilterPath(filterPath);
+    VectorSearchFilterQueryFactory factory =
+        VectorSearchFilterQueryFactory.create(context, DynamicFeatureFlagRegistry.empty());
+    NumericRangeBound bounds =
+        new NumericRangeBound(
+            Optional.of(new DoublePoint(2.0)), Optional.of(new DoublePoint(2.4)), false, false);
+    VectorSearchFilter filter =
+        new ClauseFilter(
+            new SimpleClause(filterPath, List.of(new ClosedRangeBoundComparisonOperator(bounds))));
+    String int64Field =
+        FieldName.TypeField.NUMBER_INT64_MULTIPLE.getLuceneFieldName(filterPath, Optional.empty());
+    String doubleField =
+        FieldName.TypeField.NUMBER_DOUBLE_MULTIPLE.getLuceneFieldName(filterPath, Optional.empty());
+
+    try (var directory = new ByteBuffersDirectory()) {
+      try (IndexWriter writer = new IndexWriter(directory, new IndexWriterConfig())) {
+        // {a: 1} and {a: 2.2} — scalar values routed to different variants by BSON type.
+        Document intDoc = new Document();
+        intDoc.add(new LongPoint(int64Field, 1L));
+        writer.addDocument(intDoc);
+        Document doubleDoc = new Document();
+        doubleDoc.add(new LongPoint(doubleField, LuceneDoubleConversionUtils.toLong(2.2)));
+        writer.addDocument(doubleDoc);
+        writer.commit();
+      }
+      try (DirectoryReader reader = DirectoryReader.open(directory)) {
+        SingleQueryContext queryContext = SingleQueryContext.createQueryRoot(reader);
+
+        Query actual = factory.createLuceneFilter(filter, queryContext);
+
+        Query fusedRange =
+            new RangeQueryFactory(context, new EqualsQueryFactory(context))
+                .fromBounds(bounds, List.of(filterPath), queryContext);
+        Query expected =
+            new BooleanQuery.Builder().add(fusedRange, BooleanClause.Occur.MUST).build();
+        assertEquals("fusion must emit the single-range translation", expected, actual);
+        assertEquals(
+            "only {a: 2.2} lies inside (2.0, 2.4)", 1, new IndexSearcher(reader).count(actual));
+      }
+    }
+  }
+
+  /**
+   * A date-array document may satisfy the two original open bounds with different elements. The
+   * date point field is then multi-valued, so the fusion gate refuses and translation falls back to
+   * the AND-of-two-opens shape, which must still match such documents.
+   */
+  @Test
+  public void closedRangeOnDateArrayDocument_matchesLikeTwoOpenBounds() throws Exception {
+    FieldPath filterPath = FieldPath.parse("a");
+    VectorQueryFactoryContext context = contextWithFilterPath(filterPath);
+    VectorSearchFilterQueryFactory factory =
+        VectorSearchFilterQueryFactory.create(context, DynamicFeatureFlagRegistry.empty());
+    VectorSearchFilter filter =
+        new ClauseFilter(
+            new SimpleClause(
+                filterPath,
+                List.of(
+                    new ClosedRangeBoundComparisonOperator(
+                        new DateRangeBound(
+                            Optional.of(new DatePoint(new Date(1_000L))),
+                            Optional.of(new DatePoint(new Date(2_000L))),
+                            false,
+                            false)))));
+    String dateField =
+        FieldName.TypeField.DATE_MULTIPLE.getLuceneFieldName(filterPath, Optional.empty());
+
+    try (var directory = new ByteBuffersDirectory()) {
+      try (IndexWriter writer = new IndexWriter(directory, new IndexWriterConfig())) {
+        // {a: [Date(500), Date(2500)]} — Date(2500) satisfies the lower bound and Date(500)
+        // satisfies the upper bound; no single element satisfies both.
+        Document dateArrayDoc = new Document();
+        dateArrayDoc.add(new LongPoint(dateField, 500L));
+        dateArrayDoc.add(new LongPoint(dateField, 2_500L));
+        writer.addDocument(dateArrayDoc);
+
+        // {a: Date(1500)} — control document inside the range, matched by fused and unfused
+        // forms alike; proves the translated query is not trivially empty.
+        Document inRangeDoc = new Document();
+        inRangeDoc.add(new LongPoint(dateField, 1_500L));
+        writer.addDocument(inRangeDoc);
+
+        writer.commit();
+      }
+      try (DirectoryReader reader = DirectoryReader.open(directory)) {
+        Query query =
+            factory.createLuceneFilter(filter, SingleQueryContext.createQueryRoot(reader));
+        assertEquals(
+            "both documents must match: {a: [Date(500), Date(2500)]} satisfies $gt via Date(2500) "
+                + "and $lt via Date(500), and {a: Date(1500)} lies inside the range",
+            2,
+            new IndexSearcher(reader).count(query));
+      }
+    }
+  }
+
+  /**
+   * An I/O failure while reading the point statistics that gate fusion must not fail the query:
+   * {@code canEmitFusedClosedRange} answers false and translation falls back to the
+   * AND-of-two-opens shape. Translation runs against a reader whose {@code getPointValues} always
+   * throws; the produced query is then executed against the healthy reader to prove it still
+   * matches correctly.
+   */
+  @Test
+  public void closedRangeWhenPointValuesReadFails_fallsBackToAndOfTwoOpens() throws Exception {
+    FieldPath filterPath = FieldPath.parse("a");
+    VectorQueryFactoryContext context = contextWithFilterPath(filterPath);
+    VectorSearchFilterQueryFactory factory =
+        VectorSearchFilterQueryFactory.create(context, DynamicFeatureFlagRegistry.empty());
+    VectorSearchFilter filter =
+        new ClauseFilter(
+            new SimpleClause(
+                filterPath,
+                List.of(
+                    new ClosedRangeBoundComparisonOperator(
+                        new NumericRangeBound(
+                            Optional.of(new DoublePoint(2.0)),
+                            Optional.of(new DoublePoint(2.4)),
+                            false,
+                            false)))));
+    String doubleField =
+        FieldName.TypeField.NUMBER_DOUBLE_MULTIPLE.getLuceneFieldName(filterPath, Optional.empty());
+
+    try (var directory = new ByteBuffersDirectory()) {
+      try (IndexWriter writer = new IndexWriter(directory, new IndexWriterConfig())) {
+        Document inRangeDoc = new Document();
+        inRangeDoc.add(new LongPoint(doubleField, LuceneDoubleConversionUtils.toLong(2.2)));
+        writer.addDocument(inRangeDoc);
+        Document outOfRangeDoc = new Document();
+        outOfRangeDoc.add(new LongPoint(doubleField, LuceneDoubleConversionUtils.toLong(3.0)));
+        writer.addDocument(outOfRangeDoc);
+        writer.commit();
+      }
+      try (DirectoryReader reader = DirectoryReader.open(directory)) {
+        // Not closed separately: closing the delegate via try-with-resources releases it.
+        DirectoryReader throwingReader = pointValuesThrowingReader(reader);
+
+        Query actual =
+            factory.createLuceneFilter(filter, SingleQueryContext.createQueryRoot(throwingReader));
+
+        SingleQueryContext healthyContext = SingleQueryContext.createQueryRoot(reader);
+        RangeQueryFactory rangeQueryFactory =
+            new RangeQueryFactory(context, new EqualsQueryFactory(context));
+        Query lowerQuery =
+            rangeQueryFactory.fromBounds(
+                new NumericRangeBound(
+                    Optional.of(new DoublePoint(2.0)), Optional.empty(), false, false),
+                List.of(filterPath),
+                healthyContext);
+        Query upperQuery =
+            rangeQueryFactory.fromBounds(
+                new NumericRangeBound(
+                    Optional.empty(), Optional.of(new DoublePoint(2.4)), false, false),
+                List.of(filterPath),
+                healthyContext);
+        Query expected =
+            new BooleanQuery.Builder()
+                .add(
+                    new BooleanQuery.Builder()
+                        .add(lowerQuery, BooleanClause.Occur.MUST)
+                        .add(upperQuery, BooleanClause.Occur.MUST)
+                        .build(),
+                    BooleanClause.Occur.MUST)
+                .build();
+        assertEquals("I/O failure must produce the AND-of-two-opens fallback", expected, actual);
+        assertEquals(
+            "only {a: 2.2} lies inside (2.0, 2.4)", 1, new IndexSearcher(reader).count(actual));
+      }
+    }
+  }
+
+  private static VectorQueryFactoryContext contextWithFilterPath(FieldPath filterPath) {
+    VectorIndexDefinition indexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .withEuclideanVectorField("embedding", 3)
+            .withFilterPath(filterPath.toString())
+            .indexFeatureVersion(VectorIndexCapabilities.CURRENT_FEATURE_VERSION)
+            .build();
+    return new VectorQueryFactoryContext(
+        new VectorFieldDefinitionResolver(indexDefinition, IndexFormatVersion.CURRENT),
+        FeatureFlags.getDefault(),
+        metrics);
+  }
+
+  /**
+   * Wraps {@code reader} so every leaf's {@code getPointValues} throws {@link IOException},
+   * simulating an I/O failure while the fusion precondition reads segment point statistics.
+   */
+  private static DirectoryReader pointValuesThrowingReader(DirectoryReader reader)
+      throws IOException {
+    return new FilterDirectoryReader(
+        reader,
+        new FilterDirectoryReader.SubReaderWrapper() {
+          @Override
+          public LeafReader wrap(LeafReader leaf) {
+            return new FilterLeafReader(leaf) {
+              @Override
+              public PointValues getPointValues(String field) throws IOException {
+                throw new IOException("simulated PointValues read failure");
+              }
+
+              @Override
+              public CacheHelper getCoreCacheHelper() {
+                return null;
+              }
+
+              @Override
+              public CacheHelper getReaderCacheHelper() {
+                return null;
+              }
+            };
+          }
+        }) {
+      @Override
+      protected DirectoryReader doWrapDirectoryReader(DirectoryReader in) throws IOException {
+        return pointValuesThrowingReader(in);
+      }
+
+      @Override
+      public CacheHelper getReaderCacheHelper() {
+        return null;
+      }
+    };
   }
 }

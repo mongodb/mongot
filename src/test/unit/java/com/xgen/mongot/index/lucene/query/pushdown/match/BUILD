@@ -9,7 +9,9 @@ java_test_suite(
     tags = ["unit"],
     deps = [
         "//src/main/java/com/xgen/mongot/index/lucene/query/pushdown/match",
+        "//src/main/java/com/xgen/mongot/index/query/operators/bound",
         "//src/main/java/com/xgen/mongot/index/query/operators/mql",
+        "//src/main/java/com/xgen/mongot/index/query/points",
         "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/bson/parser",
         "//src/main/java/com/xgen/testing/mongot/index/query/operators/mql",

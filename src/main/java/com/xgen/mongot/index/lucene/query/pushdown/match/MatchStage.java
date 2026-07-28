@@ -4,8 +4,10 @@ import static java.util.stream.Collectors.toList;
 
 import com.google.errorprone.annotations.ThreadSafe;
 import com.xgen.mongot.index.lucene.query.pushdown.MqlComparator;
+import com.xgen.mongot.index.query.operators.bound.RangeBound;
 import com.xgen.mongot.index.query.operators.mql.AndClause;
 import com.xgen.mongot.index.query.operators.mql.Clause;
+import com.xgen.mongot.index.query.operators.mql.ClosedRangeBoundComparisonOperator;
 import com.xgen.mongot.index.query.operators.mql.EqOperator;
 import com.xgen.mongot.index.query.operators.mql.ExistsOperator;
 import com.xgen.mongot.index.query.operators.mql.GtOperator;
@@ -21,6 +23,7 @@ import com.xgen.mongot.index.query.operators.mql.NotOperator;
 import com.xgen.mongot.index.query.operators.mql.OrClause;
 import com.xgen.mongot.index.query.operators.mql.SimpleClause;
 import com.xgen.mongot.index.query.operators.value.Value;
+import com.xgen.mongot.index.query.points.Point;
 import com.xgen.mongot.util.FieldPath;
 import java.util.Comparator;
 import java.util.List;
@@ -135,6 +138,8 @@ class MatchStage implements Predicate<RawBsonDocument> {
           d ->
               DocumentMatcher.matches(
                   d, (value) -> existsOperator.value() == !value.isNull(), path);
+      case ClosedRangeBoundComparisonOperator closedRange ->
+          closedRangePredicate(closedRange, path);
     };
   }
 
@@ -162,5 +167,36 @@ class MatchStage implements Predicate<RawBsonDocument> {
               .orElseThrow()
               .negate();
     };
+  }
+
+  private static Predicate<RawBsonDocument> closedRangePredicate(
+      ClosedRangeBoundComparisonOperator closedRange, FieldPath path) {
+    RangeBound<? extends Comparable<?>> bounds = closedRange.bounds();
+    // Both endpoints are present: the ClosedRangeBoundComparisonOperator constructor enforces it.
+    BsonValue lower = ((Point) bounds.getLower().orElseThrow()).toBson();
+    BsonValue upper = ((Point) bounds.getUpper().orElseThrow()).toBson();
+    boolean lowerInclusive = bounds.lowerInclusive();
+    boolean upperInclusive = bounds.upperInclusive();
+    Predicate<RawBsonDocument> lowerPredicate =
+        d ->
+            DocumentMatcher.matches(
+                d,
+                v ->
+                    isSameTypeBracket(v, lower)
+                        && (lowerInclusive
+                            ? CMP.compare(v, lower) >= 0
+                            : CMP.compare(v, lower) > 0),
+                path);
+    Predicate<RawBsonDocument> upperPredicate =
+        d ->
+            DocumentMatcher.matches(
+                d,
+                v ->
+                    isSameTypeBracket(v, upper)
+                        && (upperInclusive
+                            ? CMP.compare(v, upper) <= 0
+                            : CMP.compare(v, upper) < 0),
+                path);
+    return lowerPredicate.and(upperPredicate);
   }
 }

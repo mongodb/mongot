@@ -99,6 +99,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/util/functionalinterfaces",
         "//src/main/java/com/xgen/mongot/util/geo",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:com_google_flogger_flogger",
         "@maven//:com_google_guava_guava",
         "@maven//:org_apache_commons_commons_collections4",
         "@maven//:org_apache_commons_commons_lang3",

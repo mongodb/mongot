@@ -14,7 +14,12 @@ import org.bson.BsonValue;
  * href="https://www.mongodb.com/docs/manual/reference/operator/query-comparison/">here:</a>. *
  */
 public sealed interface ComparisonOperator extends MqlFilterOperator, DocumentEncodable
-    permits EqOperator, InOperator, NeOperator, NinOperator, OpenRangeBoundComparisonOperator {
+    permits EqOperator,
+        InOperator,
+        NeOperator,
+        NinOperator,
+        OpenRangeBoundComparisonOperator,
+        ClosedRangeBoundComparisonOperator {
   class Fields {
     static final Field.Optional<GtOperator> GT =
         Fields.buildWithValueParser("$gt", GtOperator::fromBson);

@@ -5,6 +5,7 @@ java_library(
     srcs = [
         "AndClause.java",
         "Clause.java",
+        "ClosedRangeBoundComparisonOperator.java",
         "ComparisonOperator.java",
         "CompoundClause.java",
         "EqOperator.java",

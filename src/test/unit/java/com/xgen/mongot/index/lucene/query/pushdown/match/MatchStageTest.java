@@ -4,11 +4,17 @@ import static com.mongodb.assertions.Assertions.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.google.common.collect.ImmutableList;
+import com.xgen.mongot.index.lucene.query.pushdown.match.MatchStageTest.ClosedRangeTest;
 import com.xgen.mongot.index.lucene.query.pushdown.match.MatchStageTest.InequalityTest;
 import com.xgen.mongot.index.lucene.query.pushdown.match.MatchStageTest.MixedTypesTest;
+import com.xgen.mongot.index.query.operators.bound.DateRangeBound;
+import com.xgen.mongot.index.query.operators.bound.NumericRangeBound;
 import com.xgen.mongot.index.query.operators.mql.Clause;
+import com.xgen.mongot.index.query.operators.mql.ClosedRangeBoundComparisonOperator;
 import com.xgen.mongot.index.query.operators.mql.MqlFilterOperator;
 import com.xgen.mongot.index.query.operators.mql.MqlFilterOperatorList;
+import com.xgen.mongot.index.query.points.DatePoint;
+import com.xgen.mongot.index.query.points.DoublePoint;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.testing.mongot.index.query.operators.mql.AndClauseBuilder;
@@ -26,7 +32,9 @@ import com.xgen.testing.mongot.index.query.operators.mql.NorClauseBuilder;
 import com.xgen.testing.mongot.index.query.operators.mql.NotOperatorBuilder;
 import com.xgen.testing.mongot.index.query.operators.mql.OrClauseBuilder;
 import com.xgen.testing.mongot.index.query.operators.mql.SimpleClauseBuilder;
+import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Supplier;
 import org.bson.BsonArray;
 import org.bson.BsonDateTime;
@@ -47,6 +55,7 @@ import org.junit.runners.Suite.SuiteClasses;
 @SuiteClasses({
   InequalityTest.class,
   MixedTypesTest.class,
+  ClosedRangeTest.class,
 })
 @RunWith(Suite.class)
 public class MatchStageTest {
@@ -382,6 +391,108 @@ public class MatchStageTest {
       boolean result = matcher.test(doc);
 
       assertTrue(result);
+    }
+  }
+
+  /**
+   * The optimizer-emitted closed range must evaluate as the AND of its two half-open bounds — the
+   * shape the user originally wrote — so arrays may satisfy the two bounds with different elements.
+   */
+  public static class ClosedRangeTest {
+
+    private static final RawBsonDocument numericDoc =
+        BsonUtils.documentToRaw(
+            new BsonDocument()
+                .append("scalar", new BsonDouble(5.0))
+                .append("array", new BsonArray(List.of(new BsonDouble(1.0), new BsonDouble(10.0))))
+                .append("str", new BsonString("NotANumber")));
+
+    private static final RawBsonDocument dateDoc =
+        BsonUtils.documentToRaw(
+            new BsonDocument()
+                .append("date", new BsonDateTime(5_000L))
+                .append(
+                    "dateArray",
+                    new BsonArray(List.of(new BsonDateTime(1_000L), new BsonDateTime(10_000L)))));
+
+    private static MqlFilterOperator closedRange(
+        double lower, double upper, boolean lowerInclusive, boolean upperInclusive) {
+      return new ClosedRangeBoundComparisonOperator(
+          new NumericRangeBound(
+              Optional.of(new DoublePoint(lower)),
+              Optional.of(new DoublePoint(upper)),
+              lowerInclusive,
+              upperInclusive));
+    }
+
+    private static MqlFilterOperator closedDateRange(
+        long lowerMillis, long upperMillis, boolean lowerInclusive, boolean upperInclusive) {
+      return new ClosedRangeBoundComparisonOperator(
+          new DateRangeBound(
+              Optional.of(new DatePoint(new Date(lowerMillis))),
+              Optional.of(new DatePoint(new Date(upperMillis))),
+              lowerInclusive,
+              upperInclusive));
+    }
+
+    private static boolean matches(String path, MqlFilterOperator op) {
+      return MatchStage.build(clause(path, op).build()).test(numericDoc);
+    }
+
+    private static boolean matchesDate(String path, MqlFilterOperator op) {
+      return MatchStage.build(clause(path, op).build()).test(dateDoc);
+    }
+
+    @Test
+    public void closedRange_scalarInsideRange_matches() {
+      assertTrue(matches("scalar", closedRange(4.0, 6.0, false, false)));
+    }
+
+    @Test
+    public void closedRange_scalarOnInclusiveBoundary_matches() {
+      assertTrue(matches("scalar", closedRange(5.0, 6.0, true, false)));
+      assertTrue(matches("scalar", closedRange(4.0, 5.0, false, true)));
+    }
+
+    @Test
+    public void closedRange_scalarOnExclusiveBoundary_noMatch() {
+      assertFalse(matches("scalar", closedRange(5.0, 6.0, false, false)));
+      assertFalse(matches("scalar", closedRange(4.0, 5.0, false, false)));
+    }
+
+    @Test
+    public void closedRange_differentArrayElementsSatisfyEachBound_matches() {
+      // [1.0, 10.0] against (5, 8): 10 satisfies the lower bound, 1 satisfies the upper bound, no
+      // single element satisfies both — AND-of-opens semantics still match.
+      assertTrue(matches("array", closedRange(5.0, 8.0, false, false)));
+    }
+
+    @Test
+    public void closedRange_noArrayElementSatisfiesLowerBound_noMatch() {
+      assertFalse(matches("array", closedRange(15.0, 20.0, false, false)));
+    }
+
+    @Test
+    public void closedRange_typeBracketMismatch_noMatch() {
+      assertFalse(matches("str", closedRange(4.0, 6.0, true, true)));
+    }
+
+    @Test
+    public void closedRange_dateInsideRange_matches() {
+      assertTrue(matchesDate("date", closedDateRange(4_000L, 6_000L, false, false)));
+    }
+
+    @Test
+    public void closedRange_dateOutsideRange_noMatch() {
+      assertFalse(matchesDate("date", closedDateRange(6_000L, 8_000L, false, false)));
+    }
+
+    @Test
+    public void closedRange_differentDateArrayElementsSatisfyEachBound_matches() {
+      // [Date(1000), Date(10000)] against (Date(5000), Date(8000)): Date(10000) satisfies the
+      // lower bound, Date(1000) satisfies the upper bound, no single element satisfies both —
+      // AND-of-opens semantics still match.
+      assertTrue(matchesDate("dateArray", closedDateRange(5_000L, 8_000L, false, false)));
     }
   }
 }

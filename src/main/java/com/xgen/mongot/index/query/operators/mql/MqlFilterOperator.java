@@ -16,6 +16,7 @@ public sealed interface MqlFilterOperator extends DocumentEncodable
   enum Category {
     LOWER_BOUND,
     UPPER_BOUND,
+    CLOSED_RANGE,
     EXISTS,
     EQ,
     NE,
