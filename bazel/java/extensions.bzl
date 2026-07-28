@@ -13,8 +13,6 @@ adoptium_jdk() registers, per platform:
 adoptium_jdk_community() registers the @adoptium_jdk_community_* http_archives
 (community release JDK) that deploy/BUILD bundles into community artifacts.
 
-`netty_tcnative_ext` wraps netty_tcnative_deps() (the AL2023 http_file download).
-
 `grpc_java` wraps grpc_java_repositories() so its transitive repos (notably
 @io_grpc_grpc_proto) become available to the @maven install. `bzlmod = True`
 tells the macro to skip repos already provided by bazel_dep modules (protobuf,
@@ -25,7 +23,6 @@ rules_ruby, ...) and avoid declaring stale duplicates. Refresh the caller's
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
 load("@io_grpc_grpc_java//:repositories.bzl", "grpc_java_repositories")
 load("//bazel/java:jdk_config.bzl", "adoptium_jdk", "adoptium_jdk_community")
-load("//bazel/java:netty_tcnative.bzl", "netty_tcnative_deps")
 
 def _impl(_mctx):
     adoptium_jdk()
@@ -37,11 +34,6 @@ def _impl(_mctx):
     )
 
 java_repos = module_extension(implementation = _impl)
-
-def _netty_tcnative_impl(_mctx):
-    netty_tcnative_deps()
-
-netty_tcnative_ext = module_extension(implementation = _netty_tcnative_impl)
 
 def _grpc_java_impl(_mctx):
     grpc_java_repositories(bzlmod = True)

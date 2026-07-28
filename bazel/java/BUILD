@@ -2,7 +2,6 @@ load("@bazel_gazelle//:def.bzl", "gazelle", "gazelle_binary", "gazelle_test")
 load("@rules_java//java:defs.bzl", "java_package_configuration", "java_plugin", "java_runtime")
 load("@rules_java//toolchains:default_java_toolchain.bzl", "default_java_toolchain")
 load("@rules_jvm_external//:defs.bzl", "artifact")
-load("//bazel/java:netty_tcnative.bzl", "NETTY_TCNATIVE_AARCH64_TARGET", "NETTY_TCNATIVE_X86_64_TARGET")
 load("//bazel/java:package.bzl", "java_library")
 
 java_plugin(
@@ -67,11 +66,11 @@ java_library(
     exports = [
         "@maven//:io_netty_netty_tcnative_classes",
     ] + select({
-        "//bazel/platforms:is_linux_aarch64": [NETTY_TCNATIVE_AARCH64_TARGET],
+        "//bazel/platforms:is_linux_aarch64": ["@maven//:io_netty_netty_tcnative_linux_aarch_64_fedora"],
         # We assume all local testing that will end up using tcnative on Apple Silicon will be
         # done through docker, so we say to use the Linux version for the docker image.
-        "//bazel/platforms:is_macos_aarch64": [NETTY_TCNATIVE_AARCH64_TARGET],
-        "//conditions:default": [NETTY_TCNATIVE_X86_64_TARGET],
+        "//bazel/platforms:is_macos_aarch64": ["@maven//:io_netty_netty_tcnative_linux_aarch_64_fedora"],
+        "//conditions:default": ["@maven//:io_netty_netty_tcnative_linux_x86_64_fedora"],
     }),
 )
 

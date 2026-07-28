@@ -142,10 +142,6 @@ deps.update:
 deps.outdated:
 	@$(call BAZEL) run @maven//:outdated
 
-.PHONY: deps.pin.community
-deps.pin.community:
-	@$(DIR)/scripts/java/pin-community-maven.sh
-
 .PHONY: test.unit
 test.unit:
 	@echo 'Running unit tests for files affected by this PR'
