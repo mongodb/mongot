@@ -171,6 +171,49 @@ public class InitializedLuceneSearchIndexTest {
   }
 
   @Test
+  public void testCloseReleasesInitializedResourcesWhenUnderlyingIndexAlreadyClosed()
+      throws IOException {
+    var directory = mock(Directory.class);
+    var writer = mock(SingleLuceneIndexWriter.class);
+    var reader = mock(MeteredSearchIndexReader.class);
+    var refresher = mock(PeriodicLuceneIndexRefresher.class);
+    ImmutableList<ReferenceManager<?>> searcherManagers =
+        ImmutableList.of(spy(new NoopSearcherManager()), spy(new NoopSearcherManager()));
+    var index =
+        new LuceneSearchIndex(
+            SearchIndexDefinitionBuilder.VALID_INDEX,
+            new AtomicReference<>(IndexStatus.steady()),
+            getIndexProperties());
+    var initializedIndex =
+        new InitializedLuceneSearchIndex(
+            MOCK_INDEX_GENERATION_ID,
+            index,
+            List.of(directory),
+            writer,
+            reader,
+            refresher,
+            searcherManagers,
+            IndexMetricsUpdaterBuilder.builder()
+                .metricsFactory(SearchIndex.mockMetricsFactory())
+                .indexMetricsSupplier(IndexMetricsSupplier.mockEmptyIndexMetricsSupplier())
+                .build());
+
+    index.close();
+    initializedIndex.close();
+
+    var shutdownSequence =
+        inOrder(
+            refresher, reader, writer, directory, searcherManagers.get(0), searcherManagers.get(1));
+    shutdownSequence.verify(refresher).close();
+    shutdownSequence.verify(reader).close();
+    for (var manager : searcherManagers) {
+      shutdownSequence.verify((NoopSearcherManager) manager).afterClose();
+    }
+    shutdownSequence.verify(writer).close();
+    shutdownSequence.verify(directory).close();
+  }
+
+  @Test
   public void testClear() throws IOException, ReaderClosedException {
     var directory = mock(Directory.class);
     var writer = mock(SingleLuceneIndexWriter.class);

@@ -60,6 +60,13 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
   final ImmutableList<ReferenceManager<?>> searcherManagers;
   final IndexMetricsUpdater indexMetricsUpdater;
   final GenerationId generationId;
+  // This must be tracked independently of index.isClosed() because initialization and drop can
+  // race. A possible race is:
+  // (1) create() starts opening Lucene resources
+  // (2) The concurrent drop path closes the underlying index before this wrapper is cataloged
+  // (3) create() finishes and returns resources such as Directories and an IndexWriter
+  // (4) close() must still release those resources even though the underlying index is closed
+  private boolean initializedResourcesClosed;
 
   @VisibleForTesting
   InitializedLuceneSearchIndex(
@@ -79,6 +86,7 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
     this.refresher = refresher;
     this.searcherManagers = searcherManagers;
     this.indexMetricsUpdater = indexMetricsUpdater;
+    this.initializedResourcesClosed = false;
   }
 
   static InitializedLuceneSearchIndex create(
@@ -371,12 +379,14 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
 
   @Override
   public synchronized void close() throws IOException {
-    if (this.index.isClosed()) {
+    if (this.initializedResourcesClosed) {
       return;
     }
     LOG.info("Closing initialized index: {}", this.generationId);
     Stopwatch closeIndexTime = Stopwatch.createStarted();
-    this.index.close();
+    if (!this.index.isClosed()) {
+      this.index.close();
+    }
     this.indexMetricsUpdater.close();
 
     // The LuceneIndexRefresher and IndexReader both use the SearcherManager, so close them
@@ -395,6 +405,7 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
     for (Directory directory : this.directories) {
       directory.close();
     }
+    this.initializedResourcesClosed = true;
     LOG.info("closed index {} in {}", getDefinition().getIndexId(), closeIndexTime);
   }
 

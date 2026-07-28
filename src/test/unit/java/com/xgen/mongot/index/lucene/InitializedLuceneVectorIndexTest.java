@@ -387,6 +387,52 @@ public class InitializedLuceneVectorIndexTest {
   }
 
   @Test
+  public void testCloseReleasesInitializedResourcesWhenUnderlyingIndexAlreadyClosed()
+      throws IOException {
+    var directory = mock(Directory.class);
+    var writer = mock(SingleLuceneIndexWriter.class);
+    var reader = mock(MeteredVectorIndexReader.class);
+    var refresher = mock(PeriodicLuceneIndexRefresher.class);
+    ImmutableList<ReferenceManager<?>> searcherManagers =
+        ImmutableList.of(
+            spy(new LuceneVectorIndexTest.NoopSearcherManager()),
+            spy(new LuceneVectorIndexTest.NoopSearcherManager()));
+
+    var index =
+        new LuceneVectorIndex(
+            VectorIndex.MOCK_INDEX_DEFINITION_GENERATION.getIndexDefinition(),
+            new AtomicReference<>(IndexStatus.steady()),
+            mock(LuceneVectorIndex.VectorIndexProperties.class));
+    InitializedLuceneVectorIndex initializedIndex =
+        new InitializedLuceneVectorIndex(
+            MOCK_INDEX_DEFINITION_GENERATION.getGenerationId(),
+            index,
+            List.of(directory),
+            writer,
+            reader,
+            refresher,
+            searcherManagers,
+            IndexMetricsUpdaterBuilder.builder()
+                .metricsFactory(SearchIndex.mockMetricsFactory())
+                .indexMetricsSupplier(IndexMetricsSupplier.mockEmptyIndexMetricsSupplier())
+                .build());
+
+    index.close();
+    initializedIndex.close();
+
+    var shutdownSequence =
+        inOrder(
+            refresher, reader, writer, directory, searcherManagers.get(0), searcherManagers.get(1));
+    shutdownSequence.verify(refresher).close();
+    shutdownSequence.verify(reader).close();
+    for (var manager : searcherManagers) {
+      shutdownSequence.verify((LuceneVectorIndexTest.NoopSearcherManager) manager).afterClose();
+    }
+    shutdownSequence.verify(writer).close();
+    shutdownSequence.verify(directory).close();
+  }
+
+  @Test
   public void testIndexSupplierReportedMetrics() throws Exception {
     var metricsFactory = SearchIndex.mockMetricsFactory();
     var index = createIndex(metricsFactory);
