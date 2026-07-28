@@ -54,8 +54,10 @@ public abstract class MultiBucketAggregationResult implements AggregationResult 
 
   /**
    * Return this result's buckets in the requested order, applied here at read time rather than
-   * during merges (see {@link AggregationResultBuilder}). Public for tests only; production reads
-   * go through {@link #toStandaloneBson()} and {@link #toIntermediateBson()}.
+   * during merges: {@link AggregationResultBuilder} carries hash-based state across the whole fold,
+   * so no intermediate results are materialized and nothing is sorted until buckets are read.
+   * Public for tests only; production reads go through {@link #toStandaloneBson()} and {@link
+   * #toIntermediateBson()}.
    */
   @VisibleForTesting
   public abstract List<? extends Bucket> getBuckets(BucketOrder order);

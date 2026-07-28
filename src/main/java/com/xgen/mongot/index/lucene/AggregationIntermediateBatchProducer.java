@@ -2,27 +2,44 @@ package com.xgen.mongot.index.lucene;
 
 import static com.xgen.mongot.util.Check.checkState;
 
+import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.cursor.batch.BatchCursorOptions;
 import com.xgen.mongot.index.BatchProducer;
+import com.xgen.mongot.index.CountResult;
+import com.xgen.mongot.index.MetaResults;
+import com.xgen.mongot.index.lucene.explain.tracing.Explain;
+import com.xgen.mongot.index.query.aggregation.AggregationResult;
+import com.xgen.mongot.index.query.aggregation.AggregationResultBuilder;
+import com.xgen.mongot.index.query.counts.Count;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.Bytes;
+import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.bson.BsonArrayBuilder;
 import java.io.IOException;
+import java.util.List;
+import java.util.Optional;
+import org.apache.lucene.util.IOUtils;
 import org.bson.BsonArray;
 import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
 
 /**
- * Streams {@link BatchProducer} batches for sharded aggregation {@code intermediateQuery} results.
+ * Streams {@link BatchProducer} batches for aggregation results of one {@link AggregationResult}
+ * tree — either a single partition's result, or the tree merged across all partitions of a
+ * partitioned index via {@link #merge}.
  *
- * <p>The first batch includes a legacy count document ({@code type: "count"}) when it fits within
- * {@code resultsSizeLimit}, followed by flat aggregation intermediate documents from {@link
- * com.xgen.mongot.index.query.aggregation.AggregationResult#toIntermediateBson()}. Additional
- * intermediate documents are returned across subsequent batches, respecting the per-batch BSON size
- * limit (same semantics as {@link LuceneFacetCollectorMetaBatchProducer}).
+ * <p>For the sharded {@code intermediateQuery} path, {@code getNextBatch()} emits a legacy count
+ * document ({@code type: "count"}) when it fits within {@code resultsSizeLimit}, followed by flat
+ * aggregation intermediate documents from {@link AggregationResult#toIntermediateBson()} across
+ * batches, respecting the per-batch BSON size limit (same semantics as {@link
+ * LuceneFacetCollectorMetaBatchProducer}).
+ *
+ * <p>For the non-sharded path, {@link #getMetaResultsAndClose} drains the nested result to {@link
+ * MetaResults} instead; the two purposes are mutually exclusive per instance.
  */
 final class AggregationIntermediateBatchProducer implements BatchProducer {
 
+  private final AggregationResult aggregationResult;
   private final BsonArray intermediateDocs;
   private final long totalHits;
 
@@ -30,12 +47,77 @@ final class AggregationIntermediateBatchProducer implements BatchProducer {
   private boolean countProduced;
   private boolean closed;
 
-  AggregationIntermediateBatchProducer(BsonArray intermediateDocs, long totalHits) {
-    this.intermediateDocs = intermediateDocs;
+  AggregationIntermediateBatchProducer(AggregationResult aggregationResult, long totalHits) {
+    this.aggregationResult = aggregationResult;
+    this.intermediateDocs = aggregationResult.toIntermediateBson();
     this.totalHits = totalHits;
     this.nextDocIndex = 0;
     this.countProduced = false;
     this.closed = false;
+  }
+
+  /**
+   * Merges many per-partition producers into one, folding their result trees through {@link
+   * AggregationResultBuilder} (hash-based state carried across the whole fold: no per-merge map
+   * rebuilds or sorting; buckets are ordered once at read time) and summing total hits. The input
+   * producers are consumed: every one is closed and must not be used afterwards, including when the
+   * fold itself fails partway (results of differing shape make {@link AggregationResultBuilder#add}
+   * throw), so an early failure never leaves the rest unclosed.
+   *
+   * <p>The sequential fold costs O(P) merges on the query thread. To parallelize later, fold each
+   * slice of partitions through its own {@link AggregationResultBuilder} and combine the built
+   * results in a parent builder. Not done now: P is small and the fold is cheap relative to the
+   * per-partition searches that precede it. TODO(CLOUDP-426967): Implement parallelized merging.
+   *
+   * <p>{@code producers} must be quiesced: the caller's per-partition fan-out has to have joined
+   * before calling. The list is read and iterated without holding a lock, so a caller that hands
+   * over a still-growing {@link java.util.Collections#synchronizedList} (whose iterator does not
+   * self-synchronize) would risk a {@code ConcurrentModificationException}.
+   */
+  static AggregationIntermediateBatchProducer merge(
+      List<AggregationIntermediateBatchProducer> producers) throws IOException {
+    Check.argNotEmpty(producers, "producers");
+    AggregationResultBuilder resultBuilder = producers.get(0).aggregationResult.toBuilder();
+    @Var long totalHits = 0;
+    @Var boolean folded = false;
+    try {
+      for (int i = 0; i < producers.size(); i++) {
+        try (var indexPartitionResourceManager = Explain.maybeEnterIndexPartitionQueryContext(i)) {
+          AggregationIntermediateBatchProducer producer = producers.get(i);
+          totalHits += producer.totalHits;
+          resultBuilder.add(producer.aggregationResult);
+        }
+      }
+      folded = true;
+    } finally {
+      if (folded) {
+        // Closes all, rethrowing the first failure with the rest suppressed.
+        IOUtils.close(producers);
+      } else {
+        // The fold already failed. A throwing finally would replace that exception outright (Java
+        // discards it, it is not even suppressed), so swallow close failures to keep the root
+        // cause.
+        IOUtils.closeWhileHandlingException(producers);
+      }
+    }
+    return new AggregationIntermediateBatchProducer(resultBuilder.build(), totalHits);
+  }
+
+  /**
+   * Drains the nested aggregation result to the format of MetaResults, and then closes this batch
+   * producer.
+   *
+   * <p>Only called from the multi-partitioned reader ({@code MultiLuceneSearchIndexReader}) on the
+   * non-sharded path. Full cardinality is returned on purpose: the final per-level bucket limits
+   * (e.g. numBuckets, CLOUDP-419089) are applied exactly once at the non-sharded terminal
+   * (SearchCommand.getBatch -> MetaResults#applyAggregationLimit), which this merged MetaResults
+   * flows through like a single-partition one. The sharded path (getNextBatch) also streams full
+   * cardinality because top-N-by-count is not associative across shard merges.
+   */
+  MetaResults getMetaResultsAndClose(Count.Type countType) {
+    CountResult countResult = LuceneFacetResultUtil.getCount(this.totalHits, countType);
+    this.close();
+    return new MetaResults(countResult, Optional.empty(), Optional.of(this.aggregationResult));
   }
 
   @Override

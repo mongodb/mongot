@@ -197,6 +197,14 @@ public final class ShardMergePipelineBuilder {
   /**
    * Assemble the 3-stage pipeline ($group, $facet, $replaceWith).
    *
+   * <p>Known gap: the pipeline emits no bucket ordering or numBuckets top-N. Shards stream full
+   * cardinality (top-N-by-count is not associative, so mongot must not pre-truncate), which means
+   * the limit and the count-desc presentation order must be applied here, after the {@code $group}
+   * merge — like the legacy facet planner's {@code $sort {value: -1, _id: 1}} + {@code $limit
+   * numBuckets} (see ShardedSearchPlanner#buildStringFacetBucket). Until those stages are added,
+   * sharded aggregation results are unordered and unlimited; nested groupings additionally need
+   * per-level top-N inside the reconstructed buckets, which a flat $sort/$limit cannot express.
+   *
    * @param countType "lowerBound" or "total" — determines the count field name in the output
    */
   public List<BsonDocument> build(String countType) {

@@ -4,7 +4,7 @@ package com.xgen.mongot.index.query.aggregation;
  * Mutable accumulation state for merging {@link AggregationResult}s across partitions, segments or
  * search slices, so results themselves stay immutable: obtain an empty builder from any result of
  * the target shape with {@link AggregationResult#toBuilder()}, {@link #add} every result (including
- * that one), then {@link #build} exactly once..
+ * that one), then {@link #build} exactly once.
  *
  * <p>Builders keep full bucket cardinality: top-N ({@code numBuckets}) is not associative across
  * merges and is applied exactly once on the built result via {@link AggregationResult#applyLimit}.

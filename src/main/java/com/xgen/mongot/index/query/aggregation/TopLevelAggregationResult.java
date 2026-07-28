@@ -36,9 +36,10 @@ public record TopLevelAggregationResult(List<AggregationResult> childResults)
     // until add() folds results in, so the fold has no first-element special case.
     Builder(TopLevelAggregationResult shape) {
       for (AggregationResult child : shape.childResults) {
-        if (this.childBuilders.put(child.getName(), child.toBuilder()) != null) {
+        if (this.childBuilders.containsKey(child.getName())) {
           throw new IllegalStateException("Duplicate child result name: " + child.getName());
         }
+        this.childBuilders.put(child.getName(), child.toBuilder());
       }
     }
 

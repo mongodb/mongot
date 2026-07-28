@@ -81,8 +81,6 @@ import org.apache.lucene.search.Sort;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.TotalHits;
-import org.bson.BsonArray;
-import org.bson.BsonValue;
 
 /** This class reads from a single Lucene index. */
 @SuppressWarnings("GuardedBy") // Uses LockGuard instead
@@ -1002,11 +1000,10 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
         collectorQueryInfo.topDocs.totalHits.relation() == TotalHits.Relation.EQUAL_TO,
         "AggregationIntermediateBatchProducer requires an exact count.");
 
-    BsonValue intermediateBson = collectorQueryInfo.getAggregationResult().toIntermediateBson();
-    BsonArray intermediateDocs = intermediateBson.asArray();
     BatchProducer intermediateProducer =
         new AggregationIntermediateBatchProducer(
-            intermediateDocs, collectorQueryInfo.topDocs.totalHits.value());
+            collectorQueryInfo.getAggregationResult(),
+            collectorQueryInfo.topDocs.totalHits.value());
 
     return new SearchProducerAndMetaProducer(
         searchBatchProducer(
