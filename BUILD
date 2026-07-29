@@ -167,6 +167,7 @@ alias(
 
 exports_files([
     "BUILD",
+    "catalog-info.yaml",
     "MODULE.bazel",
     "scripts/runfiles_helper.sh",
 ])

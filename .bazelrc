@@ -1,5 +1,13 @@
 try-import .bazelrc.local
 
+# The default rules_python bootstrap shells out to a system `python3` to launch
+# py_binary/py_test. Under `bazel test` the action is sandboxed with a scrubbed
+# $HOME, so when `python3` is a version-manager shim (asdf, pyenv) it can't read
+# ~/.tool-versions and the test fails to even start. The script bootstrap execs
+# the hermetic Python 3.11 interpreter directly, no system `python3` or $HOME
+# needed, so tests stay hermetic.
+common --@rules_python//python/config_settings:bootstrap_impl=script
+
 # Temporarily allow the old Java parameters to support our old version of grpc-java.
 # TODO: remove in CLOUDP-119817
 build --incompatible_java_common_parameters=false
