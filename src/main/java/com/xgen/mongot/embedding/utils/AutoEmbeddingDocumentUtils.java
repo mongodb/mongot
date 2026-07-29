@@ -397,6 +397,29 @@ public class AutoEmbeddingDocumentUtils {
     // open-ended, so fieldMap() cannot enumerate them for per-path comparison (CLOUDP-384026).
     boolean passthroughComparedByProjection = mappings instanceof SearchIndexAutoEmbedFieldMapping;
 
+    // CLOUDP-428208: the "extra fields" scan below only looks at MV fields the current mapping can
+    // still reach. It misses a removed filter that sits inside a subdocument the mapping no longer
+    // touches.
+    //
+    // Example: index on autoEmbed "awards.text" + filter "awards.wins". The MV row looks like
+    //   { awards: { wins: 1 }, _autoEmbed: { awards: { text: <vector> } } }
+    // The embedding is stored under _autoEmbed.awards.text, NOT awards.text. So when the user drops
+    // the "awards.wins" filter, nothing the mapping knows about lives under the top-level "awards"
+    // subdocument anymore, and the scan never looks inside it -- the stale "awards.wins" is left
+    // behind. (A top-level filter like "year" has no such parent, so the scan sees it fine.)
+    //
+    // To catch this, also rebuild what the MV row *should* contain from the source doc and compare
+    // whole subtrees.
+    //
+    // This is safe for indexes that declare a nestedRoot too, so it is not excluded here: filters
+    // beneath the nestedRoot are stored remapped under _autoEmbed (e.g.
+    // _autoEmbed.sections.section_name), and the comparison strips the whole _autoEmbed namespace,
+    // so those never take part in it. Filters outside the nestedRoot -- e.g. "metadata.category"
+    // with nestedRoot "sections" -- are stored source-shaped exactly like the non-nested case and
+    // need the same protection. Only search mappings are skipped, because they already ran this
+    // same comparison above.
+    boolean detectOrphanedFieldsByProjection = !passthroughComparedByProjection;
+
     try {
       BsonDocumentProcessor.process(sourceDoc, sourceFilterValuesCollector);
       BsonDocumentProcessor.process(matViewDoc, matViewFilterValuesCollector);
@@ -536,6 +559,16 @@ public class AutoEmbeddingDocumentUtils {
           needsReIndexing = true;
           break;
         }
+      }
+
+      // The scan above can miss a stale filter value buried in a subdocument the mapping no longer
+      // touches (CLOUDP-428208; see comment where detectOrphanedFieldsByProjection is set). Rebuild
+      // the expected passthrough content from the source doc and compare; a mismatch means the MV
+      // row still holds a removed nested filter, so re-index to prune it.
+      if (!needsReIndexing
+          && detectOrphanedFieldsByProjection
+          && !passthroughProjectionMatches(sourceDoc, matViewDoc, mappings, schemaMetadata)) {
+        needsReIndexing = true;
       }
     } catch (Exception e) {
       LOG.warn("Caught exception comparing documents, re-indexing.", e);

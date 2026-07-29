@@ -1395,6 +1395,342 @@ public class AutoEmbeddingDocumentUtilsTest {
     assertTrue(comparisonResult.reusableEmbeddings().containsKey(FieldPath.parse("b")));
   }
 
+  // ---- CLOUDP-428208: removing a filter field nested under a subdocument ----
+  // The removed-field scan walks the MV document through the current mapping, so it cannot reach a
+  // stale value under a subdocument that no longer has any mapped field. These cover each shape a
+  // removed filter can have; testNeedsReIndexing_FilterRemoval above covers the top-level shape.
+
+  /**
+   * Removing a filter nested under a subdocument must re-index so the stale value is pruned. Here
+   * the surviving auto-embed field {@code awards.text} is remapped to {@code
+   * _autoEmbed.awards.text}, so once {@code awards.wins} is dropped nothing maps under the
+   * source-shaped {@code awards} subdocument.
+   */
+  @Test
+  public void compareDocuments_removedNestedFilter_triggersReindex() throws IOException {
+    var schemaMetadata =
+        new MaterializedViewSchemaMetadata(
+            1, Map.of(FieldPath.parse("awards.text"), FieldPath.parse("_autoEmbed.awards.text")));
+    var autoEmbedField =
+        new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("awards.text"));
+    var nestedFilter = new VectorIndexFilterFieldDefinition(FieldPath.parse("awards.wins"));
+    VectorIndexDefinition withFilter =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(List.of(autoEmbedField, nestedFilter))
+            .build();
+    VectorIndexDefinition withoutFilter =
+        VectorIndexDefinitionBuilder.builder().setFields(List.of(autoEmbedField)).build();
+
+    BsonDocument source =
+        new BsonDocument()
+            .append("_id", new BsonString("anId"))
+            .append(
+                "awards",
+                new BsonDocument()
+                    .append("text", new BsonString("winText"))
+                    .append("wins", new BsonInt32(1)));
+    RawBsonDocument rawSource = new RawBsonDocument(source, BsonUtils.BSON_DOCUMENT_CODEC);
+    RawBsonDocument matViewDoc =
+        buildMatViewDoc(
+            rawSource,
+            withFilter,
+            "awards.text",
+            List.of("winText"),
+            schemaMetadata,
+            Optional.empty());
+
+    assertTrue(
+        "MV row must carry the nested filter value before removal",
+        matViewDoc.getDocument("awards").containsKey("wins"));
+    assertFalse(
+        "Control: filter still declared must not re-index",
+        compare(rawSource, matViewDoc, withFilter, schemaMetadata, Optional.empty())
+            .needsReIndexing());
+    assertTrue(
+        "Removing a nested filter must re-index to prune the stale value",
+        compare(rawSource, matViewDoc, withoutFilter, schemaMetadata, Optional.empty())
+            .needsReIndexing());
+  }
+
+  /** Same as above but two levels deep, to show the fix is not specific to one nesting level. */
+  @Test
+  public void compareDocuments_removedDeeplyNestedFilter_triggersReindex() throws IOException {
+    var schemaMetadata =
+        new MaterializedViewSchemaMetadata(
+            1, Map.of(FieldPath.parse("a.b.text"), FieldPath.parse("_autoEmbed.a.b.text")));
+    var autoEmbedField =
+        new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("a.b.text"));
+    var deepFilter = new VectorIndexFilterFieldDefinition(FieldPath.parse("a.b.wins"));
+    VectorIndexDefinition withFilter =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(List.of(autoEmbedField, deepFilter))
+            .build();
+    VectorIndexDefinition withoutFilter =
+        VectorIndexDefinitionBuilder.builder().setFields(List.of(autoEmbedField)).build();
+
+    BsonDocument source =
+        new BsonDocument()
+            .append("_id", new BsonString("anId"))
+            .append(
+                "a",
+                new BsonDocument()
+                    .append(
+                        "b",
+                        new BsonDocument()
+                            .append("text", new BsonString("t1"))
+                            .append("wins", new BsonInt32(7))));
+    RawBsonDocument rawSource = new RawBsonDocument(source, BsonUtils.BSON_DOCUMENT_CODEC);
+    RawBsonDocument matViewDoc =
+        buildMatViewDoc(
+            rawSource, withFilter, "a.b.text", List.of("t1"), schemaMetadata, Optional.empty());
+
+    assertTrue(
+        "MV row must carry the deeply nested filter value before removal",
+        matViewDoc.getDocument("a").getDocument("b").containsKey("wins"));
+    assertFalse(
+        "Control: filter still declared must not re-index",
+        compare(rawSource, matViewDoc, withFilter, schemaMetadata, Optional.empty())
+            .needsReIndexing());
+    assertTrue(
+        "Removing a filter two levels deep must re-index",
+        compare(rawSource, matViewDoc, withoutFilter, schemaMetadata, Optional.empty())
+            .needsReIndexing());
+  }
+
+  /**
+   * A filter OUTSIDE a declared {@code nestedRoot} is stored source-shaped, exactly like the
+   * non-nested case, so removing it must re-index. Guards against suppressing the projection check
+   * for every index that merely declares a nestedRoot.
+   */
+  @Test
+  public void compareDocuments_nestedRoot_removedFilterOutsideNestedRoot_triggersReindex()
+      throws IOException {
+    var schemaMetadata =
+        new MaterializedViewSchemaMetadata(
+            1,
+            Map.of(FieldPath.parse("sections.text"), FieldPath.parse("_autoEmbed.sections.text")));
+    var autoEmbedField =
+        new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("sections.text"));
+    var outsideFilter = new VectorIndexFilterFieldDefinition(FieldPath.parse("metadata.category"));
+    VectorIndexDefinition withFilter =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(List.of(autoEmbedField, outsideFilter))
+            .nestedRoot("sections")
+            .build();
+    VectorIndexDefinition withoutFilter =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(List.of(autoEmbedField))
+            .nestedRoot("sections")
+            .build();
+
+    BsonDocument source =
+        new BsonDocument()
+            .append("_id", new BsonString("book_1"))
+            .append(
+                "sections",
+                new BsonArray(List.of(new BsonDocument().append("text", new BsonString("c1")))))
+            .append("metadata", new BsonDocument().append("category", new BsonString("sci-fi")));
+    RawBsonDocument rawSource = new RawBsonDocument(source, BsonUtils.BSON_DOCUMENT_CODEC);
+    RawBsonDocument matViewDoc =
+        buildMatViewDoc(
+            rawSource,
+            withFilter,
+            "sections.text",
+            List.of("c1"),
+            schemaMetadata,
+            withFilter.getNestedRoot());
+
+    assertTrue(
+        "MV row must carry the source-shaped filter outside nestedRoot",
+        matViewDoc.containsKey("metadata"));
+    assertFalse(
+        "Control: filter still declared must not re-index",
+        compare(rawSource, matViewDoc, withFilter, schemaMetadata, withFilter.getNestedRoot())
+            .needsReIndexing());
+    assertTrue(
+        "Removing a filter outside nestedRoot must re-index to prune the stale value",
+        compare(rawSource, matViewDoc, withoutFilter, schemaMetadata, withoutFilter.getNestedRoot())
+            .needsReIndexing());
+  }
+
+  /**
+   * A filter INSIDE {@code nestedRoot} is co-located under the remapped {@code _autoEmbed} root,
+   * where the per-path scan already detects its removal. Locks that in so the projection check --
+   * which deliberately ignores the {@code _autoEmbed} namespace -- is not relied on for this shape.
+   */
+  @Test
+  public void compareDocuments_nestedRoot_removedFilterInsideNestedRoot_triggersReindex()
+      throws IOException {
+    var schemaMetadata =
+        new MaterializedViewSchemaMetadata(
+            1,
+            Map.of(
+                FieldPath.parse("sections.text"),
+                FieldPath.parse("_autoEmbed.sections.text"),
+                FieldPath.parse("sections.name"),
+                FieldPath.parse("_autoEmbed.sections.name")));
+    var autoEmbedField =
+        new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("sections.text"));
+    var insideFilter = new VectorIndexFilterFieldDefinition(FieldPath.parse("sections.name"));
+    VectorIndexDefinition withFilter =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(List.of(autoEmbedField, insideFilter))
+            .nestedRoot("sections")
+            .build();
+    VectorIndexDefinition withoutFilter =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(List.of(autoEmbedField))
+            .nestedRoot("sections")
+            .build();
+
+    BsonDocument source =
+        new BsonDocument()
+            .append("_id", new BsonString("book_1"))
+            .append(
+                "sections",
+                new BsonArray(
+                    List.of(
+                        new BsonDocument()
+                            .append("text", new BsonString("c1"))
+                            .append("name", new BsonString("n1")))));
+    RawBsonDocument rawSource = new RawBsonDocument(source, BsonUtils.BSON_DOCUMENT_CODEC);
+    RawBsonDocument matViewDoc =
+        buildMatViewDoc(
+            rawSource,
+            withFilter,
+            "sections.text",
+            List.of("c1"),
+            schemaMetadata,
+            withFilter.getNestedRoot());
+
+    assertTrue(
+        "MV row must carry the filter co-located under the remapped nestedRoot before removal",
+        matViewDoc
+            .getDocument("_autoEmbed")
+            .getArray("sections")
+            .get(0)
+            .asDocument()
+            .containsKey("name"));
+    assertFalse(
+        "Control: filter still declared must not re-index",
+        compare(rawSource, matViewDoc, withFilter, schemaMetadata, withFilter.getNestedRoot())
+            .needsReIndexing());
+    assertTrue(
+        "Removing a filter inside nestedRoot must re-index to prune the stale value",
+        compare(rawSource, matViewDoc, withoutFilter, schemaMetadata, withoutFilter.getNestedRoot())
+            .needsReIndexing());
+  }
+
+  /**
+   * No-spurious-reindex guard for the projection comparison on a nestedRoot index that has filters
+   * both inside and outside the nestedRoot. An unchanged document must not be re-indexed: the
+   * inside filter is stored both source-shaped and remapped under {@code _autoEmbed}, and the
+   * comparison strips only the {@code _autoEmbed} copy, so the source-shaped copy is present on
+   * both sides and compares equal. A regression here would re-index every document of every nested
+   * index on each resync.
+   */
+  @Test
+  public void compareDocuments_nestedRoot_unchangedDocWithInsideAndOutsideFilters_noReindex()
+      throws IOException {
+    var schemaMetadata =
+        new MaterializedViewSchemaMetadata(
+            1,
+            Map.of(
+                FieldPath.parse("sections.text"),
+                FieldPath.parse("_autoEmbed.sections.text"),
+                FieldPath.parse("sections.name"),
+                FieldPath.parse("_autoEmbed.sections.name")));
+    var autoEmbedField =
+        new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("sections.text"));
+    var insideFilter = new VectorIndexFilterFieldDefinition(FieldPath.parse("sections.name"));
+    var outsideFilter = new VectorIndexFilterFieldDefinition(FieldPath.parse("metadata.category"));
+    VectorIndexDefinition definition =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(List.of(autoEmbedField, insideFilter, outsideFilter))
+            .nestedRoot("sections")
+            .build();
+
+    BsonDocument source =
+        new BsonDocument()
+            .append("_id", new BsonString("book_1"))
+            .append(
+                "sections",
+                new BsonArray(
+                    List.of(
+                        new BsonDocument()
+                            .append("text", new BsonString("c1"))
+                            .append("name", new BsonString("n1")),
+                        // Second element intentionally omits the filter: a sparse nested array must
+                        // not make the projection comparison disagree either.
+                        new BsonDocument().append("text", new BsonString("c2")))))
+            .append("metadata", new BsonDocument().append("category", new BsonString("sci-fi")));
+    RawBsonDocument rawSource = new RawBsonDocument(source, BsonUtils.BSON_DOCUMENT_CODEC);
+    RawBsonDocument matViewDoc =
+        buildMatViewDoc(
+            rawSource,
+            definition,
+            "sections.text",
+            List.of("c1", "c2"),
+            schemaMetadata,
+            definition.getNestedRoot());
+
+    assertFalse(
+        "An unchanged nested document must not be re-indexed",
+        compare(rawSource, matViewDoc, definition, schemaMetadata, definition.getNestedRoot())
+            .needsReIndexing());
+  }
+
+  /**
+   * Builds the MV document for {@code definition}, embedding every text in {@code embedTexts} under
+   * {@code embedPath}. Every embeddable text in the source must be supplied, otherwise the MV is
+   * genuinely missing an embedding and comparison correctly reports it as stale.
+   */
+  private static RawBsonDocument buildMatViewDoc(
+      RawBsonDocument source,
+      VectorIndexDefinition definition,
+      String embedPath,
+      List<String> embedTexts,
+      MaterializedViewSchemaMetadata schemaMetadata,
+      Optional<FieldPath> nestedRoot)
+      throws IOException {
+    ImmutableMap.Builder<String, Vector> vectors = ImmutableMap.builder();
+    for (int i = 0; i < embedTexts.size(); i++) {
+      vectors.put(
+          embedTexts.get(i),
+          Vector.fromFloats(
+              new float[] {0.1f * (i + 1), 0.2f * (i + 1)}, FloatVector.OriginalType.NATIVE));
+    }
+    DocumentEvent event =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromOriginalDocument(Optional.of(source)), source);
+    return new RawBsonDocument(
+        buildMaterializedViewDocumentEvent(
+                event,
+                AutoEmbedFieldMappingCreator.createAutoEmbedMapping(definition),
+                ImmutableMap.of(FieldPath.parse(embedPath), vectors.build()),
+                schemaMetadata,
+                nestedRoot)
+            .getDocument()
+            .get(),
+        BsonUtils.BSON_DOCUMENT_CODEC);
+  }
+
+  /** Runs compareDocuments for {@code definition} against an existing MV document. */
+  private static AutoEmbeddingDocumentUtils.DocumentComparisonResult compare(
+      RawBsonDocument source,
+      RawBsonDocument matViewDoc,
+      VectorIndexDefinition definition,
+      MaterializedViewSchemaMetadata schemaMetadata,
+      Optional<FieldPath> nestedRoot) {
+    return compareDocuments(
+        source,
+        matViewDoc,
+        AutoEmbedFieldMappingCreator.createAutoEmbedMapping(definition),
+        AutoEmbedFieldMappingCreator.createMatViewAutoEmbedMapping(definition, schemaMetadata),
+        schemaMetadata,
+        nestedRoot);
+  }
+
   @Test
   public void testNeedsReIndexing_LeaseVersionInMatView_version0() throws IOException {
     VectorIndexDefinition vectorIndexDefinition =
