@@ -1,17 +1,38 @@
 package com.xgen.mongot.index.query.collectors;
 
+import com.xgen.mongot.index.definition.FieldDefinition;
+import com.xgen.mongot.index.definition.SearchFieldDefinitionResolver;
 import com.xgen.mongot.index.query.sort.MetaSortOptions;
 import com.xgen.mongot.index.query.sort.SortSpec;
+import com.xgen.mongot.util.FieldPath;
+import com.xgen.mongot.util.UserFacingException;
 import com.xgen.mongot.util.bson.parser.BsonParseContext;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import java.util.Optional;
 
 /**
- * Central home for semantic validation of aggregation-capable {@code facet} requests. Keeping these
- * checks in one place makes it easy to scope future aggregation-syntax validation here rather than
- * scattering it across query parsing.
+ * Central home for validation of aggregation-capable {@code facet} requests: parse-time semantic
+ * checks, the schema checks the query path runs per reader, and the aggregation feature gate.
+ * Keeping these checks in one place makes it easy to scope future aggregation-syntax validation
+ * here rather than scattering it across query parsing.
  */
 public class AggregationValidator {
+
+  /**
+   * Signals a collector that parses but cannot run as issued -- either because aggregation is
+   * disabled or because it does not fit the index schema.
+   *
+   * <p>This package cannot depend on {@code index.query} (which already depends on it), so it
+   * cannot throw {@code InvalidQueryException} directly. Callers on the query path translate this
+   * into one.
+   */
+  public static class AggregationValidationException extends Exception
+      implements UserFacingException {
+    public AggregationValidationException(String message) {
+      super(message);
+    }
+  }
+
   private final BsonParseContext bsonParseContext;
 
   public AggregationValidator(BsonParseContext bsonParseContext) {
@@ -50,6 +71,100 @@ public class AggregationValidator {
       this.bsonParseContext.handleSemanticError(
           "'first' and 'last' aggregation metrics only support sorting by document fields; a $meta"
               + " sort component is not supported");
+    }
+  }
+
+  /**
+   * Validates an aggregation collector against the index schema it was issued against, rejecting it
+   * up front rather than letting it fail deeper in boundary accumulator setup, where the failure
+   * could not surface as a query error: spec building reaches fields through {@code
+   * BoundaryFieldResolver}, whose method cannot declare a checked exception.
+   *
+   * <p>{@code aggregationEnabled} carries the {@code SEARCH_AGGREGATION} feature flag. It is
+   * checked first so a query that is invalid on both counts reports a disabled feature rather than
+   * a grouping-field error.
+   *
+   * <p>Callers on the Lucene query path run this per partition reader. The answer is the same for
+   * every partition of an index -- they share one index definition -- but repeating a schema check
+   * costs nothing next to the search itself, and it leaves each reader self-contained.
+   */
+  public static void validateAggregationQuery(
+      AggregationCollector collector,
+      SearchFieldDefinitionResolver fieldDefinitionResolver,
+      Optional<FieldPath> returnScope,
+      boolean aggregationEnabled)
+      throws AggregationValidationException {
+    if (!aggregationEnabled) {
+      throw new AggregationValidationException(
+          "Aggregation is not enabled. Please contact support.");
+    }
+    validateGroupingFieldDefinitions(collector, fieldDefinitionResolver, returnScope);
+  }
+
+  /**
+   * Rejects grouping fields whose index field definition search aggregation cannot read.
+   *
+   * <p>Search aggregation groups on v2 {@code number} / {@code date} fields only. The legacy {@code
+   * numberFacet} / {@code dateFacet} types remain supported by ordinary facet queries, so they are
+   * rejected here rather than in shared facet field resolution.
+   *
+   * <p>Without this, a legacy-facet-only field resolves to a {@code *_FACET} Lucene type and then
+   * fails deeper in {@code SearchAggregationBootstrap.boundary}, where {@code
+   * numberFieldDefinition()} / {@code dateFieldDefinition()} are empty and {@code orElseThrow()}
+   * raises a bare {@link java.util.NoSuchElementException} instead of a query error.
+   *
+   * <p>A grouping field indexed as neither is left alone: facet field resolution already reports
+   * that as a not-indexed error with a message covering both the v2 and legacy types.
+   */
+  private static void validateGroupingFieldDefinitions(
+      AggregationCollector collector,
+      SearchFieldDefinitionResolver fieldDefinitionResolver,
+      Optional<FieldPath> returnScope)
+      throws AggregationValidationException {
+    for (AggregationFacetDefinition facet : collector.facets().values()) {
+      validateGroupingFieldDefinitions(facet, fieldDefinitionResolver, returnScope);
+    }
+  }
+
+  private static void validateGroupingFieldDefinitions(
+      AggregationFacetDefinition facet,
+      SearchFieldDefinitionResolver fieldDefinitionResolver,
+      Optional<FieldPath> returnScope)
+      throws AggregationValidationException {
+    if (facet.group() instanceof FacetDefinition.BoundaryFacetDefinition<?> boundary) {
+      validateBoundaryGroupingField(boundary, facet.path(), fieldDefinitionResolver, returnScope);
+    }
+    for (AggregationFacetDefinition child : facet.facets().values()) {
+      validateGroupingFieldDefinitions(child, fieldDefinitionResolver, returnScope);
+    }
+  }
+
+  private static void validateBoundaryGroupingField(
+      FacetDefinition.BoundaryFacetDefinition<?> boundary,
+      FieldPath path,
+      SearchFieldDefinitionResolver fieldDefinitionResolver,
+      Optional<FieldPath> returnScope)
+      throws AggregationValidationException {
+    Optional<FieldDefinition> fieldDefinition =
+        fieldDefinitionResolver.getFieldDefinition(path, returnScope);
+    boolean legacyOnly =
+        switch (boundary) {
+          case FacetDefinition.NumericFacetDefinition ignored ->
+              fieldDefinition.flatMap(FieldDefinition::numberFieldDefinition).isEmpty()
+                  && fieldDefinition
+                      .flatMap(FieldDefinition::numberFacetFieldDefinition)
+                      .isPresent();
+          case FacetDefinition.DateFacetDefinition ignored ->
+              fieldDefinition.flatMap(FieldDefinition::dateFieldDefinition).isEmpty()
+                  && fieldDefinition.flatMap(FieldDefinition::dateFacetFieldDefinition).isPresent();
+        };
+    if (legacyOnly) {
+      throw new AggregationValidationException(
+          String.format(
+              "Cannot aggregate on field \"%s\" because it is indexed as a legacy \"numberFacet\""
+                  + " or \"dateFacet\" field. Search aggregation requires a \"number\" or \"date\""
+                  + " field.",
+              path));
     }
   }
 }

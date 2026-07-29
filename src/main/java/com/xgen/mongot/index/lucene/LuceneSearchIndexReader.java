@@ -48,6 +48,7 @@ import com.xgen.mongot.index.query.ReturnScope;
 import com.xgen.mongot.index.query.SearchQuery;
 import com.xgen.mongot.index.query.VectorSearchQuery;
 import com.xgen.mongot.index.query.collectors.AggregationCollector;
+import com.xgen.mongot.index.query.collectors.AggregationValidator;
 import com.xgen.mongot.index.query.collectors.Collector;
 import com.xgen.mongot.index.query.collectors.DrillSidewaysInfoBuilder;
 import com.xgen.mongot.index.query.collectors.DrillSidewaysInfoBuilder.DrillSidewaysInfo;
@@ -932,9 +933,14 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
       QueryCursorOptions queryCursorOptions,
       QueryOptimizationFlags queryOptimizationFlags)
       throws IOException, InterruptedException, InvalidQueryException {
-    if (!this.featureFlags.isEnabled(Feature.SEARCH_AGGREGATION)) {
-      throw new InvalidQueryException(
-          "Aggregation is not enabled. Please contact support.", InvalidQueryException.Type.STRICT);
+    try {
+      AggregationValidator.validateAggregationQuery(
+          aggregationCollector,
+          this.facetContext.getFieldDefinitionResolver(),
+          query.returnScope().map(ReturnScope::path),
+          this.featureFlags.isEnabled(Feature.SEARCH_AGGREGATION));
+    } catch (AggregationValidator.AggregationValidationException e) {
+      throw new InvalidQueryException(e.getMessage());
     }
     LuceneAggregationPlanResolver.AggregationPlan aggregationPlan =
         LuceneAggregationPlanResolver.resolveAggregationPlan(
@@ -980,9 +986,14 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
       QueryCursorOptions queryCursorOptions,
       QueryOptimizationFlags queryOptimizationFlags)
       throws IOException, InterruptedException, InvalidQueryException {
-    if (!this.featureFlags.isEnabled(Feature.SEARCH_AGGREGATION)) {
-      throw new InvalidQueryException(
-          "Aggregation is not enabled. Please contact support.", InvalidQueryException.Type.STRICT);
+    try {
+      AggregationValidator.validateAggregationQuery(
+          aggregationCollector,
+          this.facetContext.getFieldDefinitionResolver(),
+          query.returnScope().map(ReturnScope::path),
+          this.featureFlags.isEnabled(Feature.SEARCH_AGGREGATION));
+    } catch (AggregationValidator.AggregationValidationException e) {
+      throw new InvalidQueryException(e.getMessage());
     }
 
     LuceneAggregationPlanResolver.AggregationPlan aggregationPlan =

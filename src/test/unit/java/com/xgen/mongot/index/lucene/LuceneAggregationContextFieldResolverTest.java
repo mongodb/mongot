@@ -10,6 +10,7 @@ import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.aggregation.ResolvedNumericMetricField;
 import com.xgen.mongot.index.query.aggregation.ResolvedTokenField;
+import com.xgen.mongot.index.query.collectors.FacetDefinition;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
@@ -17,7 +18,9 @@ import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.NumericFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.TokenFieldDefinitionBuilder;
+import java.util.List;
 import java.util.Optional;
+import org.bson.BsonInt32;
 import org.junit.Test;
 
 public class LuceneAggregationContextFieldResolverTest {
@@ -101,6 +104,20 @@ public class LuceneAggregationContextFieldResolverTest {
     assertThrows(
         InvalidQueryException.class,
         () -> fieldResolver.resolveTokenMetricField(CITY_PATH, Optional.empty()));
+  }
+
+  @Test
+  public void getBoundaryFacetFieldType_v2NumberField_resolvesV2Type()
+      throws InvalidQueryException {
+    LuceneAggregationContextFieldResolver fieldResolver =
+        createFieldResolverWithNumberField(NumericFieldOptions.Representation.INT64);
+
+    assertEquals(
+        FieldName.TypeField.NUMBER_INT64_V2,
+        fieldResolver.getBoundaryFacetFieldType(
+            new FacetDefinition.NumericFacetDefinition(
+                PRICE_FIELD, Optional.empty(), List.of(new BsonInt32(0), new BsonInt32(10))),
+            Optional.empty()));
   }
 
   private static LuceneAggregationContextFieldResolver createFieldResolverWithNumberField(

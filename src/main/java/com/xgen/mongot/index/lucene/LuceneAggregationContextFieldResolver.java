@@ -56,6 +56,13 @@ public final class LuceneAggregationContextFieldResolver implements AggregationF
                         path, returnScope.map(FieldPath::toString).orElse(""))));
   }
 
+  /**
+   * Resolves the Lucene doc-values type backing a boundary grouping field.
+   *
+   * <p>Grouping fields search aggregation cannot read are rejected up front by {@link
+   * com.xgen.mongot.index.query.collectors.AggregationValidator#validateAggregationQuery}, so this
+   * only resolves the type.
+   */
   public FieldName.TypeField getBoundaryFacetFieldType(
       BoundaryFacetDefinition<?> facetDefinition, Optional<FieldPath> returnScope)
       throws InvalidQueryException {
