@@ -5,6 +5,7 @@ import static org.junit.Assert.assertThrows;
 
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
 import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
+import com.xgen.mongot.replication.mongodb.common.SteadyStateSchedulingMethod;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.ByteBuffer;
@@ -83,6 +84,7 @@ public class ChangeStreamDualQueueExecutorTest {
         new SimpleMeterRegistry(),
         new OptimeLagPriorityStrategy(
             MongoDbReplicationConfig.DEFAULT_STEADY_STATE_PRIORITY_OPTIME_THRESHOLD_SECONDS),
+        SteadyStateSchedulingMethod.OPTIME_LAG,
         PREFERRED_TASKS_PER_REGULAR_TASK);
   }
 
@@ -94,6 +96,7 @@ public class ChangeStreamDualQueueExecutorTest {
         numThreads,
         new SimpleMeterRegistry(),
         new OptimeLagPriorityStrategy(thresholdSeconds),
+        SteadyStateSchedulingMethod.OPTIME_LAG,
         PREFERRED_TASKS_PER_REGULAR_TASK);
   }
 
@@ -281,6 +284,36 @@ public class ChangeStreamDualQueueExecutorTest {
                 1,
                 new SimpleMeterRegistry(),
                 null,
+                SteadyStateSchedulingMethod.OPTIME_LAG,
                 PREFERRED_TASKS_PER_REGULAR_TASK));
+  }
+
+  @Test
+  public void constructor_tagsQueueMetricsWithSchedulingMethod() {
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    ChangeStreamDualQueueExecutor executor =
+        new ChangeStreamDualQueueExecutor(
+            "test-executor",
+            1,
+            meterRegistry,
+            new BatchDataSizePriorityStrategy(
+                BatchDataSizePriorityStrategy.DEFAULT_HIGH_PRIORITY_BATCH_SIZE_BYTES),
+            SteadyStateSchedulingMethod.BATCH_DATA_SIZE,
+            PREFERRED_TASKS_PER_REGULAR_TASK);
+
+    assertThat(
+            meterRegistry
+                .find("test-executor.preferredQueueLength")
+                .tag("schedulingMethod", "BATCH_DATA_SIZE")
+                .gauge())
+        .isNotNull();
+    assertThat(
+            meterRegistry
+                .find("test-executor.tasksRoutedToPreferredQueue")
+                .tag("schedulingMethod", "BATCH_DATA_SIZE")
+                .counter())
+        .isNotNull();
+
+    executor.shutdown();
   }
 }

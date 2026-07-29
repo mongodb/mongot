@@ -5,8 +5,6 @@ java_library(
     srcs = [
         "DefaultNamedExecutorService.java",
         "DefaultNamedScheduledExecutorService.java",
-        "DualBlockingQueue.java",
-        "DualQueueExecutor.java",
         "Executors.java",
         "FileLockGuard.java",
         "LiveThreadIdsRegistry.java",
@@ -26,7 +24,6 @@ java_library(
         "@maven//:com_google_guava_guava",
         "@maven//:io_micrometer_micrometer_core",
         "@maven//:org_apache_commons_commons_lang3",
-        "@maven//:org_jetbrains_annotations",
         "@maven//:org_slf4j_slf4j_api",
     ],
 )

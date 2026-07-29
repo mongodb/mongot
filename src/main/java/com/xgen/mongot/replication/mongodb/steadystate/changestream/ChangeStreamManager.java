@@ -340,6 +340,7 @@ public class ChangeStreamManager {
               replicationConfig.getNumConcurrentChangeStreams(),
               meterAndFtdcRegistry.meterRegistry(),
               createPriorityStrategy(schedulingMethod, replicationConfig),
+              schedulingMethod,
               replicationConfig.getSteadyStatePriorityRatio());
       if (enableLifecycleAttributionMetrics) {
         ThreadPoolResourceMetrics.create(

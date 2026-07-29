@@ -1,9 +1,10 @@
-package com.xgen.mongot.util.concurrent;
+package com.xgen.mongot.util.concurrent.dualqueue;
 
 import com.google.errorprone.annotations.Var;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
+import com.xgen.mongot.metrics.MetricsFactory;
+import com.xgen.mongot.util.concurrent.PrioritizedTask;
 import io.micrometer.core.instrument.Counter;
-import io.micrometer.core.instrument.MeterRegistry;
 import java.util.AbstractQueue;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -38,7 +39,8 @@ import org.jetbrains.annotations.Nullable;
  * empty-queue fallback paths. When a queue intermittently empties, the actual ratio of served tasks
  * can favor preferred tasks more than configured; this is intentional.
  */
-public class DualBlockingQueue extends AbstractQueue<Runnable> implements BlockingQueue<Runnable> {
+public final class DualBlockingQueue extends AbstractQueue<Runnable>
+    implements BlockingQueue<Runnable> {
 
   @GuardedBy("lock")
   private final ArrayDeque<Runnable> preferredQueue = new ArrayDeque<>();
@@ -62,19 +64,21 @@ public class DualBlockingQueue extends AbstractQueue<Runnable> implements Blocki
   private final Counter tasksRoutedToPreferredQueue;
   private final Counter tasksRoutedToRegularQueue;
 
-  public DualBlockingQueue(
-      int preferredTasksPerRegularTask, String name, MeterRegistry meterRegistry) {
-    Objects.requireNonNull(name, "name");
-    Objects.requireNonNull(meterRegistry);
+  public DualBlockingQueue(int preferredTasksPerRegularTask, MetricsFactory metricsFactory) {
+    Objects.requireNonNull(metricsFactory, "metricsFactory");
     if (preferredTasksPerRegularTask <= 0) {
       throw new IllegalArgumentException(
           "preferredTasksPerRegularTask must be positive, got: " + preferredTasksPerRegularTask);
     }
     this.preferredTasksPerRegularTask = preferredTasksPerRegularTask;
-    this.preferredQueueTasksServed = meterRegistry.counter(name + ".preferredQueueTasksServed");
-    this.regularQueueTasksServed = meterRegistry.counter(name + ".regularQueueTasksServed");
-    this.tasksRoutedToPreferredQueue = meterRegistry.counter(name + ".tasksRoutedToPreferredQueue");
-    this.tasksRoutedToRegularQueue = meterRegistry.counter(name + ".tasksRoutedToRegularQueue");
+    this.preferredQueueTasksServed = metricsFactory.counter("preferredQueueTasksServed");
+    this.regularQueueTasksServed = metricsFactory.counter("regularQueueTasksServed");
+    this.tasksRoutedToPreferredQueue = metricsFactory.counter("tasksRoutedToPreferredQueue");
+    this.tasksRoutedToRegularQueue = metricsFactory.counter("tasksRoutedToRegularQueue");
+    metricsFactory.objectValueGauge(
+        "preferredQueueLength", this, DualBlockingQueue::preferredQueueSize);
+    metricsFactory.objectValueGauge(
+        "regularQueueLength", this, DualBlockingQueue::regularQueueSize);
   }
 
   @Override
@@ -223,6 +227,24 @@ public class DualBlockingQueue extends AbstractQueue<Runnable> implements Blocki
     this.lock.lock();
     try {
       return this.preferredQueue.size() + this.regularQueue.size();
+    } finally {
+      this.lock.unlock();
+    }
+  }
+
+  private int preferredQueueSize() {
+    this.lock.lock();
+    try {
+      return this.preferredQueue.size();
+    } finally {
+      this.lock.unlock();
+    }
+  }
+
+  private int regularQueueSize() {
+    this.lock.lock();
+    try {
+      return this.regularQueue.size();
     } finally {
       this.lock.unlock();
     }

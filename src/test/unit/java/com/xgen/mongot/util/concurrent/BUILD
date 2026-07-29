@@ -3,8 +3,6 @@ load("//bazel/java:test.bzl", "java_test_suite")
 java_test_suite(
     name = "concurrent",
     srcs = [
-        "DualBlockingQueueTest.java",
-        "DualQueueExecutorTest.java",
         "ExecutorsTest.java",
         "FileLockGuardTest.java",
         "LiveThreadIdsRegistryTest.java",

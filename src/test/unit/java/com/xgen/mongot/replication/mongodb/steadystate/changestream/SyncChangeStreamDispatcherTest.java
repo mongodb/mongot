@@ -23,6 +23,7 @@ import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.DecodingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
+import com.xgen.mongot.replication.mongodb.common.SteadyStateSchedulingMethod;
 import com.xgen.mongot.util.Condition;
 import com.xgen.mongot.util.concurrent.Executors;
 import com.xgen.testing.mongot.index.IndexMetricsUpdaterBuilder;
@@ -207,7 +208,12 @@ public class SyncChangeStreamDispatcherTest {
     // above it (preferred).
     ChangeStreamDualQueueExecutor taskExecutor =
         new ChangeStreamDualQueueExecutor(
-            "test-dispatcher", 1, meterRegistry, new OptimeLagPriorityStrategy(10), 4);
+            "test-dispatcher",
+            1,
+            meterRegistry,
+            new OptimeLagPriorityStrategy(10),
+            SteadyStateSchedulingMethod.OPTIME_LAG,
+            4);
     SyncChangeStreamDispatcher syncDispatcher =
         new SyncChangeStreamDispatcher(
             meterRegistry, mongoClientFactory, taskExecutor, CommonReplicationConfig.Type.DEFAULT);
@@ -283,7 +289,12 @@ public class SyncChangeStreamDispatcherTest {
     SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     ChangeStreamDualQueueExecutor taskExecutor =
         new ChangeStreamDualQueueExecutor(
-            "test-dispatcher", 1, meterRegistry, new OptimeLagPriorityStrategy(10), 4);
+            "test-dispatcher",
+            1,
+            meterRegistry,
+            new OptimeLagPriorityStrategy(10),
+            SteadyStateSchedulingMethod.OPTIME_LAG,
+            4);
     SyncChangeStreamDispatcher syncDispatcher =
         new SyncChangeStreamDispatcher(
             meterRegistry, mongoClientFactory, taskExecutor, CommonReplicationConfig.Type.DEFAULT);

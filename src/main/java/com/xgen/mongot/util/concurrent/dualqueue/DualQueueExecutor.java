@@ -1,6 +1,11 @@
-package com.xgen.mongot.util.concurrent;
+package com.xgen.mongot.util.concurrent.dualqueue;
 
+import com.xgen.mongot.metrics.MetricsFactory;
+import com.xgen.mongot.util.concurrent.Executors;
+import com.xgen.mongot.util.concurrent.NamedExecutorService;
+import com.xgen.mongot.util.concurrent.PrioritizedTask;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tags;
 import java.util.Objects;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
@@ -22,11 +27,22 @@ public final class DualQueueExecutor {
 
   private final ThreadPoolExecutor rawExecutor;
   private final NamedExecutorService delegate;
+  private final MetricsFactory queueMetricsFactory;
 
   public DualQueueExecutor(
       String name, int numThreads, MeterRegistry meterRegistry, int preferredTasksPerRegularTask) {
+    this(name, numThreads, meterRegistry, preferredTasksPerRegularTask, Tags.empty());
+  }
+
+  public DualQueueExecutor(
+      String name,
+      int numThreads,
+      MeterRegistry meterRegistry,
+      int preferredTasksPerRegularTask,
+      Tags queueMetricTags) {
     Objects.requireNonNull(name, "name");
     Objects.requireNonNull(meterRegistry, "meterRegistry");
+    Objects.requireNonNull(queueMetricTags, "queueMetricTags");
     if (numThreads <= 0) {
       throw new IllegalArgumentException("numThreads must be positive, got: " + numThreads);
     }
@@ -34,8 +50,9 @@ public final class DualQueueExecutor {
       throw new IllegalArgumentException(
           "preferredTasksPerRegularTask must be positive, got: " + preferredTasksPerRegularTask);
     }
+    this.queueMetricsFactory = new MetricsFactory(name, meterRegistry, queueMetricTags, true);
     DualBlockingQueue queue =
-        new DualBlockingQueue(preferredTasksPerRegularTask, name, meterRegistry);
+        new DualBlockingQueue(preferredTasksPerRegularTask, this.queueMetricsFactory);
     ThreadFactory threadFactory = Executors.countingNamedThreadFactory(name);
     this.rawExecutor =
         new ThreadPoolExecutor(numThreads, numThreads, 0L, TimeUnit.SECONDS, queue, threadFactory);
@@ -79,6 +96,11 @@ public final class DualQueueExecutor {
   }
 
   public void shutdown() {
-    Executors.shutdownOrFail(this.delegate);
+    try {
+      Executors.shutdownOrFail(this.delegate);
+    } finally {
+      // Deregister the queue's meters so the gauges stop holding a strong reference to the queue.
+      this.queueMetricsFactory.close();
+    }
   }
 }

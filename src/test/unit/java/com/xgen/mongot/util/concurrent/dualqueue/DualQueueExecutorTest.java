@@ -1,4 +1,4 @@
-package com.xgen.mongot.util.concurrent;
+package com.xgen.mongot.util.concurrent.dualqueue;
 
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
@@ -207,5 +207,24 @@ public class DualQueueExecutorTest {
     assertThrows(
         IllegalArgumentException.class,
         () -> new DualQueueExecutor("test-executor", 1, new SimpleMeterRegistry(), 0));
+  }
+
+  @Test
+  public void shutdown_deregistersQueueMeters() {
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    DualQueueExecutor executor =
+        new DualQueueExecutor("test-executor", 1, meterRegistry, PREFERRED_TASKS_PER_REGULAR_TASK);
+
+    assertThat(meterRegistry.find("test-executor.preferredQueueLength").gauge()).isNotNull();
+    assertThat(meterRegistry.find("test-executor.tasksRoutedToPreferredQueue").counter())
+        .isNotNull();
+
+    executor.shutdown();
+
+    // The queue-length gauges hold a strong reference to the queue, so leaving them registered
+    // would keep a shut-down queue alive and keep publishing its stale depths.
+    assertThat(meterRegistry.find("test-executor.preferredQueueLength").gauge()).isNull();
+    assertThat(meterRegistry.find("test-executor.regularQueueLength").gauge()).isNull();
+    assertThat(meterRegistry.find("test-executor.tasksRoutedToPreferredQueue").counter()).isNull();
   }
 }

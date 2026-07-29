@@ -1,8 +1,10 @@
 package com.xgen.mongot.replication.mongodb.steadystate.changestream;
 
-import com.xgen.mongot.util.concurrent.DualQueueExecutor;
+import com.xgen.mongot.replication.mongodb.common.SteadyStateSchedulingMethod;
 import com.xgen.mongot.util.concurrent.NamedExecutorService;
+import com.xgen.mongot.util.concurrent.dualqueue.DualQueueExecutor;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tags;
 import java.util.Objects;
 
 /**
@@ -22,10 +24,17 @@ final class ChangeStreamDualQueueExecutor implements ChangeStreamTaskExecutor {
       int numThreads,
       MeterRegistry meterRegistry,
       ChangeStreamPriorityStrategy strategy,
+      SteadyStateSchedulingMethod schedulingMethod,
       int preferredTasksPerRegularTask) {
     Objects.requireNonNull(strategy, "strategy");
+    Objects.requireNonNull(schedulingMethod, "schedulingMethod");
     this.delegate =
-        new DualQueueExecutor(name, numThreads, meterRegistry, preferredTasksPerRegularTask);
+        new DualQueueExecutor(
+            name,
+            numThreads,
+            meterRegistry,
+            preferredTasksPerRegularTask,
+            Tags.of("schedulingMethod", schedulingMethod.name()));
     this.strategy = strategy;
   }
 
