@@ -24,6 +24,8 @@ public class SearchAggregationBootstrap {
   public static final String DATE_BOUNDARY = "dateBoundary";
   public static final String SUM = Operator.SUM.registryKey();
   public static final String AVG = Operator.AVG.registryKey();
+  public static final String FIRST = Operator.FIRST.registryKey();
+  public static final String LAST = Operator.LAST.registryKey();
 
   private SearchAggregationBootstrap() {}
 
@@ -52,7 +54,11 @@ public class SearchAggregationBootstrap {
         SUM,
         (name, path) -> new SumAggregationSpec(name, requirePath(path, SUM)),
         AVG,
-        (name, path) -> new AvgAggregationSpec(name, requirePath(path, AVG)));
+        (name, path) -> new AvgAggregationSpec(name, requirePath(path, AVG)),
+        FIRST,
+        (name, path) -> new FirstAggregationSpec(name, requirePath(path, FIRST)),
+        LAST,
+        (name, path) -> new LastAggregationSpec(name, requirePath(path, LAST)));
   }
 
   private static FieldPath requirePath(Optional<FieldPath> path, String operator) {

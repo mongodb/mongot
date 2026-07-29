@@ -6,6 +6,7 @@ import com.xgen.mongot.index.query.CollectorQuery;
 import com.xgen.mongot.index.query.OperatorQuery;
 import com.xgen.mongot.index.query.SearchQuery;
 import com.xgen.mongot.index.query.aggregation.Operator;
+import com.xgen.mongot.index.query.aggregation.SearchAggregationBootstrap;
 import com.xgen.mongot.index.query.aggregation.TestOperatorSpecs;
 import com.xgen.mongot.index.query.collectors.AggregationCollector;
 import com.xgen.mongot.index.query.collectors.AggregationFacetDefinition;
@@ -640,6 +641,72 @@ public class ShardedSearchPlannerTest {
     Assert.assertEquals(
         "Aggregation is not enabled. Please contact support.",
         errorBody.getString("errmsg").getValue());
+  }
+
+  /**
+   * Sharded first/last is not implemented yet. It must fail planning as a {@link
+   * ShardedSearchPlannerException} -- {@code buildAggregationMetaPipeline} only wraps {@code
+   * IllegalArgumentException} / {@code IllegalStateException}, so any other unchecked exception
+   * would escape as an internal error instead of a command error response.
+   */
+  @Test
+  public void planSearch_firstAggregation_throwsShardedSearchPlannerException() {
+    assertFirstLastRejectedAtPlanning(Operator.FIRST, "first");
+  }
+
+  @Test
+  public void planSearch_lastAggregation_throwsShardedSearchPlannerException() {
+    assertFirstLastRejectedAtPlanning(Operator.LAST, "last");
+  }
+
+  private static void assertFirstLastRejectedAtPlanning(Operator operator, String label) {
+    // The production registry, so planning reaches the real buildShardMergePipeline rather than
+    // failing earlier on a missing operator supplier.
+    SearchAggregationBootstrap.installRegistry();
+    try {
+      ShardedSearchPlannerException exception =
+          Assert.assertThrows(
+              ShardedSearchPlannerException.class,
+              () ->
+                  ShardedSearchPlanner.planSearch(
+                      createFlatFirstLastAggregationQuery(operator),
+                      new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+                      AGGREGATION_ENABLED_FEATURE_FLAGS));
+
+      BsonDocument errorBody = MessageUtils.createErrorBody(exception);
+      Assert.assertEquals(0, errorBody.getInt32("ok").getValue());
+      Assert.assertEquals(
+          "Failed to build aggregation merge pipeline: Sharded merge for '"
+              + label
+              + "' aggregations is not implemented yet",
+          errorBody.getString("errmsg").getValue());
+    } finally {
+      TestOperatorSpecs.installRegistry();
+    }
+  }
+
+  private static CollectorQuery createFlatFirstLastAggregationQuery(Operator operator) {
+    AggregationFacetDefinition agg =
+        AggregationFacetDefinition.create(
+            new FacetDefinition.StringFacetDefinition("city", 10),
+            Map.of("metric", new MetricSpec(operator, Optional.of(FieldPath.parse("color")))),
+            Map.of());
+    AggregationCollector collector =
+        AggregationCollector.create(
+            OperatorBuilder.text().path("title").query("godfather").build(),
+            Map.of("by_city", agg));
+    return new CollectorQuery(
+        collector,
+        "testIndex",
+        Count.DEFAULT,
+        Optional.empty(),
+        Optional.empty(),
+        false,
+        false,
+        false,
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty());
   }
 
   private static CollectorQuery createFlatAvgAggregationQuery() {

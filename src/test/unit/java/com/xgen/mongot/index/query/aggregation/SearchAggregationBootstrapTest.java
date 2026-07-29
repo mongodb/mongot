@@ -8,14 +8,30 @@ import static org.junit.Assert.assertTrue;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.util.FieldPath;
+import java.io.IOException;
 import java.util.Map;
 import java.util.Optional;
+import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.IndexReader;
+import org.apache.lucene.index.IndexWriter;
+import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.store.ByteBuffersDirectory;
+import org.apache.lucene.store.Directory;
 import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
 public class SearchAggregationBootstrapTest {
 
   private static final FieldPath PRICE = FieldPath.parse("price");
+
+  // The registry is a global singleton. Clearing it before each test as well as after keeps
+  // installRegistryIfEnabled_flagDisabled_leavesRegistryEmpty from depending on whether some other
+  // test class left operators installed.
+  @Before
+  public void clearGlobalRegistry() {
+    AggregationRegistry.install(Map.of(), Map.of());
+  }
 
   @After
   public void resetGlobalRegistry() {
@@ -41,6 +57,10 @@ public class SearchAggregationBootstrapTest {
         AggregationRegistry.getInstance().getOperatorSupplier(SearchAggregationBootstrap.SUM));
     assertNotNull(
         AggregationRegistry.getInstance().getOperatorSupplier(SearchAggregationBootstrap.AVG));
+    assertNotNull(
+        AggregationRegistry.getInstance().getOperatorSupplier(SearchAggregationBootstrap.FIRST));
+    assertNotNull(
+        AggregationRegistry.getInstance().getOperatorSupplier(SearchAggregationBootstrap.LAST));
   }
 
   @Test
@@ -77,5 +97,72 @@ public class SearchAggregationBootstrapTest {
             AggregationRegistry.getInstance()
                 .getOperatorSupplier(SearchAggregationBootstrap.SUM)
                 .build("sum_price", Optional.empty()));
+  }
+
+  @Test
+  public void installRegistry_registersFirstAndLastOperators() {
+    SearchAggregationBootstrap.installRegistry();
+
+    OperatorAggregationSpec firstSpec =
+        AggregationRegistry.getInstance()
+            .getOperatorSupplier(SearchAggregationBootstrap.FIRST)
+            .build("first_price", Optional.of(PRICE));
+    assertTrue(firstSpec instanceof FirstAggregationSpec);
+    assertEquals(PRICE, ((FirstAggregationSpec) firstSpec).getPath());
+
+    OperatorAggregationSpec lastSpec =
+        AggregationRegistry.getInstance()
+            .getOperatorSupplier(SearchAggregationBootstrap.LAST)
+            .build("last_price", Optional.of(PRICE));
+    assertTrue(lastSpec instanceof LastAggregationSpec);
+    assertEquals(PRICE, ((LastAggregationSpec) lastSpec).getPath());
+  }
+
+  @Test
+  public void installRegistry_firstWithoutPath_throws() {
+    SearchAggregationBootstrap.installRegistry();
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            AggregationRegistry.getInstance()
+                .getOperatorSupplier(SearchAggregationBootstrap.FIRST)
+                .build("first_price", Optional.empty()));
+  }
+
+  @Test
+  public void installRegistry_lastWithoutPath_throws() {
+    SearchAggregationBootstrap.installRegistry();
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            AggregationRegistry.getInstance()
+                .getOperatorSupplier(SearchAggregationBootstrap.LAST)
+                .build("last_price", Optional.empty()));
+  }
+
+  @Test
+  public void firstAndLastSpecs_executionDeferred_throw() throws IOException {
+    FirstAggregationSpec first = new FirstAggregationSpec("first_price", PRICE);
+    LastAggregationSpec last = new LastAggregationSpec("last_price", PRICE);
+
+    try (Directory directory = new ByteBuffersDirectory()) {
+      try (IndexWriter writer = new IndexWriter(directory, new IndexWriterConfig())) {
+        writer.commit();
+      }
+      try (IndexReader reader = DirectoryReader.open(directory)) {
+        AggregationContext context = AggregationContext.createDefault(reader);
+
+        assertThrows(UnsupportedOperationException.class, () -> first.buildAccumulator(context));
+        assertThrows(UnsupportedOperationException.class, () -> last.buildAccumulator(context));
+      }
+    }
+
+    // IllegalStateException so ShardedSearchPlanner wraps it into ShardedSearchPlannerException
+    // rather than letting it escape planning as an uncaught internal error.
+    ShardMergePipelineBuilder builder = new ShardMergePipelineBuilder();
+    assertThrows(IllegalStateException.class, () -> first.buildShardMergePipeline(builder));
+    assertThrows(IllegalStateException.class, () -> last.buildShardMergePipeline(builder));
   }
 }
