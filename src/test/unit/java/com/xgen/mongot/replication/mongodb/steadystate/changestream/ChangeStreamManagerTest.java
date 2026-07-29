@@ -58,6 +58,7 @@ import com.xgen.testing.mongot.index.version.GenerationIdBuilder;
 import com.xgen.testing.mongot.mock.index.IndexMetricsSupplier;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Collections;
 import java.util.HashMap;
@@ -2089,6 +2090,141 @@ public class ChangeStreamManagerTest {
 
     assertThat(changeStreamManager.getTaskExecutorClass()).hasValue(AutoEmbeddingExecutor.class);
     assertThat(changeStreamManager.getEmbeddingAvailablePermits()).hasValue(1);
+    changeStreamManager.shutdown().get(5, TimeUnit.SECONDS);
+  }
+
+  @Test
+  public void testSchedulingConfigGauge_dualQueueExecutor_reportsActiveKnobs() throws Exception {
+    Assume.assumeTrue(this.context.name.equals("sync-client"));
+
+    MeterAndFtdcRegistry registry = MeterAndFtdcRegistry.createWithSimpleRegistries();
+    ChangeStreamManager changeStreamManager =
+        ChangeStreamManager.createSync(
+            registry,
+            ChangeStreamManagerTestSyncHelpers.syncSingleEventProducingClient(),
+            mock(ChangeStreamModeSelector.class),
+            indexingWorkSchedulerFactory(),
+            SteadyStateReplicationConfig.builder()
+                .setNumConcurrentChangeStreams(1)
+                .setMaxInFlightEmbeddingGetMores(1)
+                .setChangeStreamQueryMaxTimeMs(1000)
+                .setChangeStreamCursorMaxTimeSec(1000)
+                .setSteadyStateSchedulingMethod(SteadyStateSchedulingMethod.OPTIME_LAG)
+                .setSteadyStatePriorityRatio(3)
+                .setSteadyStatePriorityOptimeThresholdSeconds(20)
+                .build(),
+            this.context.getIndexManagerFactory(),
+            true);
+
+    assertThat(changeStreamManager.getTaskExecutorClass())
+        .hasValue(ChangeStreamDualQueueExecutor.class);
+    Gauge gauge = registry.meterRegistry().get("replication.steadyState.schedulingConfig").gauge();
+    // Info gauge: the value is always 1 and the settings are carried in the tags.
+    assertThat(gauge.value()).isEqualTo(1.0);
+    assertThat(gauge.getId().getTag("steadyStateSchedulingMethod")).isEqualTo("OPTIME_LAG");
+    assertThat(gauge.getId().getTag("steadyStatePriorityRatio")).isEqualTo("3");
+    assertThat(gauge.getId().getTag("steadyStatePriorityOptimeThresholdSeconds")).isEqualTo("20");
+    changeStreamManager.shutdown().get(5, TimeUnit.SECONDS);
+  }
+
+  @Test
+  public void testSchedulingConfigGauge_nonOptimeLagMethod_reportsConfiguredKnobs()
+      throws Exception {
+    Assume.assumeTrue(this.context.name.equals("sync-client"));
+
+    // A non-FIFO method other than OPTIME_LAG still takes the dual-queue path, so the effective
+    // method is the configured one.
+    MeterAndFtdcRegistry registry = MeterAndFtdcRegistry.createWithSimpleRegistries();
+    ChangeStreamManager changeStreamManager =
+        ChangeStreamManager.createSync(
+            registry,
+            ChangeStreamManagerTestSyncHelpers.syncSingleEventProducingClient(),
+            mock(ChangeStreamModeSelector.class),
+            indexingWorkSchedulerFactory(),
+            SteadyStateReplicationConfig.builder()
+                .setNumConcurrentChangeStreams(1)
+                .setMaxInFlightEmbeddingGetMores(1)
+                .setChangeStreamQueryMaxTimeMs(1000)
+                .setChangeStreamCursorMaxTimeSec(1000)
+                .setSteadyStateSchedulingMethod(SteadyStateSchedulingMethod.HAD_DOCUMENTS)
+                .setSteadyStatePriorityRatio(3)
+                .setSteadyStatePriorityOptimeThresholdSeconds(20)
+                .build(),
+            this.context.getIndexManagerFactory(),
+            true);
+
+    Gauge gauge = registry.meterRegistry().get("replication.steadyState.schedulingConfig").gauge();
+    assertThat(gauge.getId().getTag("steadyStateSchedulingMethod")).isEqualTo("HAD_DOCUMENTS");
+    assertThat(gauge.getId().getTag("steadyStatePriorityRatio")).isEqualTo("3");
+    assertThat(gauge.getId().getTag("steadyStatePriorityOptimeThresholdSeconds")).isEqualTo("20");
+    changeStreamManager.shutdown().get(5, TimeUnit.SECONDS);
+  }
+
+  @Test
+  public void testSchedulingConfigGauge_priorityDisabled_reportsFifo() throws Exception {
+    Assume.assumeTrue(this.context.name.equals("sync-client"));
+
+    // The config still asks for OPTIME_LAG, but the feature flag is off, so the executor actually
+    // built is FIFO and the gauge must say so.
+    MeterAndFtdcRegistry registry = MeterAndFtdcRegistry.createWithSimpleRegistries();
+    ChangeStreamManager changeStreamManager =
+        ChangeStreamManager.createSync(
+            registry,
+            ChangeStreamManagerTestSyncHelpers.syncSingleEventProducingClient(),
+            mock(ChangeStreamModeSelector.class),
+            indexingWorkSchedulerFactory(),
+            SteadyStateReplicationConfig.builder()
+                .setNumConcurrentChangeStreams(2)
+                .setMaxInFlightEmbeddingGetMores(2)
+                .setChangeStreamQueryMaxTimeMs(1000)
+                .setChangeStreamCursorMaxTimeSec(1000)
+                .setSteadyStateSchedulingMethod(SteadyStateSchedulingMethod.OPTIME_LAG)
+                .setSteadyStatePriorityRatio(3)
+                .setSteadyStatePriorityOptimeThresholdSeconds(20)
+                .build(),
+            this.context.getIndexManagerFactory(),
+            false);
+
+    assertThat(changeStreamManager.getTaskExecutorClass()).hasValue(FifoExecutor.class);
+    Gauge gauge = registry.meterRegistry().get("replication.steadyState.schedulingConfig").gauge();
+    // The knobs keep reporting their configured values; only the method reflects that the
+    // feature flag left the executor on the FIFO path.
+    assertThat(gauge.getId().getTag("steadyStateSchedulingMethod")).isEqualTo("FIFO");
+    assertThat(gauge.getId().getTag("steadyStatePriorityRatio")).isEqualTo("3");
+    assertThat(gauge.getId().getTag("steadyStatePriorityOptimeThresholdSeconds")).isEqualTo("20");
+    changeStreamManager.shutdown().get(5, TimeUnit.SECONDS);
+  }
+
+  @Test
+  public void testSchedulingConfigGauge_autoEmbedding_reportsUnderOwnNamespace() throws Exception {
+    Assume.assumeTrue(this.context.name.equals("sync-client"));
+
+    // AUTO_EMBEDDING never takes the dual-queue path, and its gauge is namespaced separately so it
+    // does not collide with the DEFAULT manager's.
+    MeterAndFtdcRegistry registry = MeterAndFtdcRegistry.createWithSimpleRegistries();
+    ChangeStreamManager changeStreamManager =
+        ChangeStreamManager.createSync(
+            registry,
+            ChangeStreamManagerTestSyncHelpers.syncSingleEventProducingClient(),
+            mock(ChangeStreamModeSelector.class),
+            indexingWorkSchedulerFactory(),
+            SteadyStateReplicationConfig.builder()
+                .setNumConcurrentChangeStreams(2)
+                .setMaxInFlightEmbeddingGetMores(1)
+                .setReplicationType(CommonReplicationConfig.Type.AUTO_EMBEDDING)
+                .setChangeStreamQueryMaxTimeMs(1000)
+                .setChangeStreamCursorMaxTimeSec(1000)
+                .setSteadyStateSchedulingMethod(SteadyStateSchedulingMethod.OPTIME_LAG)
+                .build(),
+            this.context.getIndexManagerFactory(),
+            true);
+
+    Gauge gauge =
+        registry
+            .meterRegistry()
+            .get("autoEmbedding.replication.steadyState.schedulingConfig")
+            .gauge();
+    assertThat(gauge.getId().getTag("steadyStateSchedulingMethod")).isEqualTo("FIFO");
     changeStreamManager.shutdown().get(5, TimeUnit.SECONDS);
   }
 

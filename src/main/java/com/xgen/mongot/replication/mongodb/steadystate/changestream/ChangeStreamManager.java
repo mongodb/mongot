@@ -32,6 +32,8 @@ import com.xgen.mongot.util.FutureUtils;
 import com.xgen.mongot.util.concurrent.Executors;
 import com.xgen.mongot.util.concurrent.NamedScheduledExecutorService;
 import com.xgen.mongot.util.mongodb.BatchMongoClient;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tags;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
@@ -334,6 +336,8 @@ public class ChangeStreamManager {
     if (enableChangeStreamPriorityScheduling
         && replicationConfig.getReplicationType() == CommonReplicationConfig.Type.DEFAULT
         && schedulingMethod != SteadyStateSchedulingMethod.FIFO) {
+      registerSchedulingConfigGauge(
+          meterAndFtdcRegistry.meterRegistry(), replicationConfig, schedulingMethod);
       ChangeStreamDualQueueExecutor dualQueueExecutor =
           new ChangeStreamDualQueueExecutor(
               executorName,
@@ -349,6 +353,10 @@ public class ChangeStreamManager {
       }
       return dualQueueExecutor;
     }
+
+    // Report FIFO as the scheduling method for non-dualQueue tasks
+    registerSchedulingConfigGauge(
+        meterAndFtdcRegistry.meterRegistry(), replicationConfig, SteadyStateSchedulingMethod.FIFO);
 
     NamedScheduledExecutorService scheduledExecutor =
         Executors.fixedSizeThreadScheduledExecutor(
@@ -370,6 +378,28 @@ public class ChangeStreamManager {
             scheduledExecutor,
             Optional.of(replicationConfig.getMaxInFlightEmbeddingGetMores()))
         : new FifoExecutor(scheduledExecutor);
+  }
+
+  /**
+   * Registers an info gauge surfacing the steady-state scheduling settings this process is running.
+   */
+  private static void registerSchedulingConfigGauge(
+      MeterRegistry meterRegistry,
+      SteadyStateReplicationConfig replicationConfig,
+      SteadyStateSchedulingMethod effectiveSchedulingMethod) {
+    String namespace =
+        replicationConfig.getReplicationType().metricsNamespacePrefix + "replication.steadyState";
+    new MetricsFactory(namespace, meterRegistry)
+        .numGauge(
+            "schedulingConfig",
+            Tags.of(
+                "steadyStateSchedulingMethod",
+                effectiveSchedulingMethod.name(),
+                "steadyStatePriorityRatio",
+                String.valueOf(replicationConfig.getSteadyStatePriorityRatio()),
+                "steadyStatePriorityOptimeThresholdSeconds",
+                String.valueOf(replicationConfig.getSteadyStatePriorityOptimeThresholdSeconds())))
+        .set(1);
   }
 
   /**
