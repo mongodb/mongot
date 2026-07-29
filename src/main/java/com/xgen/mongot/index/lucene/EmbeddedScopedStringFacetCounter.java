@@ -3,6 +3,7 @@ package com.xgen.mongot.index.lucene;
 import static java.lang.String.format;
 
 import com.xgen.mongot.index.lucene.facet.ParentDedupedSortedSetDocValuesFacetCounts;
+import com.xgen.mongot.index.lucene.facet.TokenSsdvFacetState;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.query.LuceneSearchQueryFactoryDistributor;
 import com.xgen.mongot.index.lucene.searcher.LuceneIndexSearcher;
@@ -52,7 +53,8 @@ final class EmbeddedScopedStringFacetCounter {
     String lucenePath =
         FieldName.TypeField.TOKEN.getLuceneFieldName(
             FieldPath.parse(definition.path()), Optional.of(scope.path()));
-    var fieldState = searcher.getTokenFacetsStateCache().get().get(lucenePath);
+    Optional<TokenSsdvFacetState> fieldState =
+        searcher.getTokenFacetsStateCache().get().get(lucenePath);
     if (fieldState.isEmpty()) {
       return Optional.empty();
     }

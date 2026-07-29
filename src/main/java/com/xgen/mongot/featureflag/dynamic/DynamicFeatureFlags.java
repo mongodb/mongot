@@ -34,6 +34,12 @@ public enum DynamicFeatureFlags {
   COLLECT_MULTI_PARTITION_EMPTY_SEARCH_PRODUCER(
       "mongot.featureFlag.collectMultiPartitionEmptySearchProducer", false),
   ENABLE_10K_BUCKET_LIMIT("mongot.featureFlag.enable10kBucketLimit", false),
+  /**
+   * Gates embeddedDocument-scoped facets (CLOUDP-413034): a facet carrying an inline {@code
+   * embeddedDocument: {path, operator}} block counts only the matching children of that operator,
+   * deduplicated to the root document (each root at most once per bucket).
+   */
+  ENABLE_EMBEDDED_SCOPED_FACET("mongot.featureFlag.enableEmbeddedScopedFacet", false),
   ENABLE_TOTAL_FACET_BUCKETS("mongot.featureFlag.enableTotalFacetBuckets", false),
   BLOOM_FILTER_FOR_ID_FIELD("mongot.featureFlag.enableBloomFilterNaturalOrderInitialSync", false),
   BLOOM_FILTER_IN_STEADY_STATE("mongot.featureFlag.enableBloomFilterInSteadyState", false),

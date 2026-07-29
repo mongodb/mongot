@@ -19,6 +19,7 @@ import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.util.LuceneDoubleConversionUtils;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.ReturnScope;
+import com.xgen.mongot.index.query.collectors.EmbeddedDocumentScope;
 import com.xgen.mongot.index.query.collectors.FacetCollector;
 import com.xgen.mongot.index.query.collectors.FacetDefinition;
 import com.xgen.mongot.util.Check;
@@ -51,8 +52,29 @@ public class LuceneFacetContext {
 
   void validateQuery(FacetCollector collector, Optional<ReturnScope> returnScope)
       throws InvalidQueryException {
+    // Combining a top-level returnScope with a per-facet embeddedDocument scope is not yet
+    // supported: both drive the embedded roll-up, and reconciling them is out of scope for now.
+    if (returnScope.isPresent()
+        && collector.facetDefinitions().values().stream()
+            .anyMatch(facet -> facet.embeddedDocument().isPresent())) {
+      throw new InvalidQueryException(
+          "embeddedDocument-scoped facets are not supported together with a top-level returnScope."
+              + " Remove returnScope, or remove the embeddedDocument block from the facet.");
+    }
     CheckedStream.from(collector.facetDefinitions().values())
-        .forEachChecked(s -> this.validateDefinition(s, returnScope.map(ReturnScope::path)));
+        .forEachChecked(s -> this.validateDefinition(s, effectiveEmbeddedPath(s, returnScope)));
+  }
+
+  /**
+   * The embedded path a facet is scoped to: its own inline {@code embeddedDocument.path} when
+   * present (embeddedDocument-scoped facet), otherwise the query-level {@code returnScope} path.
+   */
+  private static Optional<FieldPath> effectiveEmbeddedPath(
+      FacetDefinition definition, Optional<ReturnScope> returnScope) {
+    return definition
+        .embeddedDocument()
+        .map(EmbeddedDocumentScope::path)
+        .or(() -> returnScope.map(ReturnScope::path));
   }
 
   /**
@@ -427,15 +449,20 @@ public class LuceneFacetContext {
   }
 
   private static void throwFieldNotIndexed(
-      String path, String fieldType, Optional<String> returnScopePath)
-      throws InvalidQueryException {
-    String returnScopeSubstring =
-        returnScopePath.isPresent()
-            ? String.format("at returnScope %s", returnScopePath.get())
-            : "";
+      String path, String fieldType, Optional<String> embeddedPath) throws InvalidQueryException {
+    if (embeddedPath.isPresent()) {
+      throw new InvalidQueryException(
+          String.format(
+              "Cannot facet on field \"%s\" at embedded path \"%s\" because it was not indexed as a"
+                  + " \"%s\" field under that path.",
+              path, embeddedPath.get(), fieldType));
+    }
     throw new InvalidQueryException(
         String.format(
-            "Cannot facet on field \"%s\" \"%s\" because it was not indexed as a \"%s\" field.",
-            path, returnScopeSubstring, fieldType));
+            "Cannot facet on field \"%s\" because it was not indexed as a \"%s\" field of a"
+                + " document type. If \"%s\" is indexed inside an embeddedDocuments field, add an"
+                + " embeddedDocument block to the facet to scope to that path; otherwise index it"
+                + " as a document-level \"%s\" field.",
+            path, fieldType, path, fieldType));
   }
 }

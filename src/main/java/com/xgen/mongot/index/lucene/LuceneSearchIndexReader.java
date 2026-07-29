@@ -161,7 +161,8 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
     this.queryingMetricsUpdater = queryingMetricsUpdater;
     this.luceneSearchManagerFactory = luceneSearchManagerFactory;
     this.concurrentSearchExecutor = concurrentSearchExecutor;
-    this.metaResultsBuilder = new LuceneMetaResultsBuilder(facetContext, concurrentSearchExecutor);
+    this.metaResultsBuilder =
+        new LuceneMetaResultsBuilder(facetContext, concurrentSearchExecutor, queryFactory);
     this.indexPartitionId = indexPartitionId;
     this.featureFlags = featureFlags;
     this.dynamicFeatureFlagRegistry = dynamicFeatureFlagRegistry;
@@ -623,6 +624,28 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
         this.metaResultsBuilder.getCountMetaResults(queryInfo.topDocs, query.count().type()));
   }
 
+  /**
+   * Evaluated per query (not cached) so a runtime toggle of the dynamic flag takes effect on
+   * existing readers, matching how {@code DRILL_SIDEWAYS_FACETING} is evaluated.
+   */
+  private boolean embeddedScopedFacetsEnabled() {
+    return this.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+        DynamicFeatureFlags.ENABLE_EMBEDDED_SCOPED_FACET);
+  }
+
+  private static void rejectScopedFacetsWithDrillSideways(FacetCollector facetCollector)
+      throws InvalidQueryException {
+    boolean hasScopedFacet =
+        facetCollector.facetDefinitions().values().stream()
+            .anyMatch(def -> def.embeddedDocument().isPresent());
+    if (hasScopedFacet) {
+      throw new InvalidQueryException(
+          "embeddedDocument-scoped facets are not supported together with drill-sideways "
+              + "(doesNotAffect) faceting. Remove the doesNotAffect option from the operator, or "
+              + "the embeddedDocument block from the facet.");
+    }
+  }
+
   @VisibleForTesting
   SearchProducerAndMetaResults collectorQuery(
       CollectorQuery query,
@@ -654,6 +677,10 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
         }
 
         if (drillSidewaysInfo.isPresent()) {
+          // Scoped facets are computed independently of the main operator, so they must not be
+          // routed through the drill-sideways path (which would bypass the scoped counter and its
+          // feature-flag gate, silently producing document-indexed counts). Reject the combination.
+          rejectScopedFacetsWithDrillSideways(facetCollector);
           QueryOptimizationStatus optimizationStatus = drillSidewaysInfo.get().optimizationStatus();
           if (optimizationStatus == QueryOptimizationStatus.GENERIC) {
             return genericDrillSidewaysQuery(
@@ -916,7 +943,8 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
             collectorQueryInfo.topDocs,
             collectorQueryInfo.collector,
             query,
-            query.concurrent()));
+            query.concurrent(),
+            embeddedScopedFacetsEnabled()));
   }
 
   @VisibleForTesting
@@ -1095,6 +1123,10 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
         }
 
         if (drillSidewaysInfo.isPresent()) {
+          // Scoped facets are computed independently of the main operator, so they must not be
+          // routed through the drill-sideways path (which would bypass the scoped counter and its
+          // feature-flag gate, silently producing document-indexed counts). Reject the combination.
+          rejectScopedFacetsWithDrillSideways(facetCollector);
           QueryOptimizationStatus optimizationStatus = drillSidewaysInfo.get().optimizationStatus();
 
           if (optimizationStatus == QueryOptimizationStatus.OPTIMIZABLE) {
@@ -1449,7 +1481,9 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
         searcherReference,
         topDocs,
         facetsCollector,
-        concurrentSearchExecutor);
+        concurrentSearchExecutor,
+        this.queryFactory,
+        embeddedScopedFacetsEnabled());
   }
 
   private BatchProducer drillSidewaysFacetMetaBatchProducer(

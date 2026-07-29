@@ -193,7 +193,12 @@ public class LuceneMetaResultsBuilderTest {
       var metaResultsBuilder = new LuceneMetaResultsBuilder(facetContext, Optional.empty());
       MetaResults metaResults =
           metaResultsBuilder.buildFacetMetaResults(
-              searcherReference, topDocs, facetsCollector, collectorQuery, false);
+              searcherReference,
+              topDocs,
+              facetsCollector,
+              collectorQuery,
+              false,
+              /* embeddedScopedFacetsEnabled= */ false);
 
       // Assert count results
       assertThat(metaResults.count().getTotal()).hasValue(6L);
@@ -292,7 +297,12 @@ public class LuceneMetaResultsBuilderTest {
       var metaResultsBuilder = new LuceneMetaResultsBuilder(facetContext, Optional.empty());
       MetaResults metaResults =
           metaResultsBuilder.buildFacetMetaResults(
-              searcherReference, topDocs, facetsCollector, collectorQuery, false);
+              searcherReference,
+              topDocs,
+              facetsCollector,
+              collectorQuery,
+              false,
+              /* embeddedScopedFacetsEnabled= */ false);
 
       assertThat(metaResults.count().getTotal()).hasValue(6L);
       assertThat(metaResults.facet()).isPresent();
@@ -379,7 +389,12 @@ public class LuceneMetaResultsBuilderTest {
       var metaResultsBuilder = new LuceneMetaResultsBuilder(facetContext, Optional.empty());
       MetaResults metaResults =
           metaResultsBuilder.buildFacetMetaResults(
-              searcherReference, topDocs, facetsCollector, collectorQuery, false);
+              searcherReference,
+              topDocs,
+              facetsCollector,
+              collectorQuery,
+              false,
+              /* embeddedScopedFacetsEnabled= */ false);
 
       assertThat(metaResults.count().getTotal()).hasValue(0L);
       assertThat(metaResults.facet()).isPresent();
@@ -468,7 +483,12 @@ public class LuceneMetaResultsBuilderTest {
       var metaResultsBuilder = new LuceneMetaResultsBuilder(facetContext, Optional.empty());
       MetaResults metaResults =
           metaResultsBuilder.buildFacetMetaResults(
-              searcherReference, topDocs, facetsCollector, collectorQuery, false);
+              searcherReference,
+              topDocs,
+              facetsCollector,
+              collectorQuery,
+              false,
+              /* embeddedScopedFacetsEnabled= */ false);
 
       assertThat(metaResults.count().getTotal()).hasValue(6L);
       assertThat(metaResults.facet()).isPresent();
@@ -571,7 +591,12 @@ public class LuceneMetaResultsBuilderTest {
       var metaResultsBuilder = new LuceneMetaResultsBuilder(facetContext, Optional.empty());
       MetaResults metaResults =
           metaResultsBuilder.buildFacetMetaResults(
-              searcherReference, topDocs, result.facetsCollector(), collectorQuery, false);
+              searcherReference,
+              topDocs,
+              result.facetsCollector(),
+              collectorQuery,
+              false,
+              /* embeddedScopedFacetsEnabled= */ false);
 
       assertThat(metaResults.facet()).isPresent();
 
