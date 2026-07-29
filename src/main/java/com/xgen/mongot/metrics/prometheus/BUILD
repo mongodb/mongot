@@ -8,6 +8,7 @@ java_library(
     deps = [
         "//src/main/java/com/xgen/mongot/featureflag",
         "//src/main/java/com/xgen/mongot/metrics/cache",
+        "//src/main/java/com/xgen/mongot/util/retry",
         "@maven//:com_google_guava_guava",
         "@maven//:io_micrometer_micrometer_core",
         "@maven//:io_micrometer_micrometer_registry_prometheus",
