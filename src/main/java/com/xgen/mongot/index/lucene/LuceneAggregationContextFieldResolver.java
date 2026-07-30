@@ -5,11 +5,12 @@ import com.xgen.mongot.index.definition.NumberFieldDefinition;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.aggregation.AggregationFieldResolver;
-import com.xgen.mongot.index.query.aggregation.NumericMetricFieldPaths;
+import com.xgen.mongot.index.query.aggregation.MetricFieldPaths;
 import com.xgen.mongot.index.query.aggregation.ResolvedNumericMetricField;
 import com.xgen.mongot.index.query.aggregation.ResolvedTokenField;
 import com.xgen.mongot.index.query.aggregation.TopAggregationSpec;
 import com.xgen.mongot.index.query.collectors.FacetDefinition.BoundaryFacetDefinition;
+import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -76,14 +77,27 @@ public final class LuceneAggregationContextFieldResolver implements AggregationF
    */
   public LuceneAggregationContextFieldResolver withResolvedFields(TopAggregationSpec rootSpec)
       throws InvalidQueryException {
-    Set<FieldPath> numericPaths = NumericMetricFieldPaths.collect(rootSpec);
+    // Collected paths are de-duplicated: the same path referenced from different branches of the
+    // spec tree resolves identically, so one entry serves all of them. The put-returns-null checks
+    // guard that invariant against a collector regression.
+    Set<FieldPath> numericPaths = MetricFieldPaths.collectNumeric(rootSpec);
     Map<FieldPath, ResolvedNumericMetricField> numeric = new LinkedHashMap<>();
     for (FieldPath path : numericPaths) {
-      numeric.put(path, resolveNumericMetricField(path, Optional.empty()));
+      Check.checkState(
+          numeric.put(path, resolveNumericMetricField(path, Optional.empty())) == null,
+          "Numeric metric paths must be resolved at most once");
     }
-    // TODO(CLOUDP-425978): collect token paths from first/last specs when execution lands.
+    Set<FieldPath> tokenPaths = MetricFieldPaths.collectToken(rootSpec);
+    Map<FieldPath, ResolvedTokenField> token = new LinkedHashMap<>();
+    for (FieldPath path : tokenPaths) {
+      Check.checkState(
+          token.put(path, resolveTokenMetricField(path, Optional.empty())) == null,
+          "Token metric paths must be resolved at most once");
+    }
     return new LuceneAggregationContextFieldResolver(
-        this.facetContext, Collections.unmodifiableMap(numeric), Map.of());
+        this.facetContext,
+        Collections.unmodifiableMap(numeric),
+        Collections.unmodifiableMap(token));
   }
 
   /** Resolves a numeric metric path to its Lucene doc-values field and representation. */
@@ -95,21 +109,39 @@ public final class LuceneAggregationContextFieldResolver implements AggregationF
         typeField.getLuceneFieldName(path, returnScope), numberFieldDef.options().representation());
   }
 
-  /** Resolves a token aggregation metric path to its Lucene doc-values field. */
+  /**
+   * Resolves a token-valued metric path to its stored-source read.
+   *
+   * <p>Private preview reads only stored source, for full BSON fidelity, so the path must be
+   * covered by the index's stored source; otherwise the query is rejected. A scalar doc-values fast
+   * path is deferred (see the scalar-optimization follow-up ticket).
+   */
   public ResolvedTokenField resolveTokenMetricField(FieldPath path, Optional<FieldPath> returnScope)
       throws InvalidQueryException {
+    // TODO(CLOUDP-426510): support token-valued aggregation over embedded documents.
     if (returnScope.isPresent()) {
       throw new InvalidQueryException(
           "Token aggregation over embedded documents is not supported.");
     }
 
-    Optional<FieldDefinition> maybeFieldDef =
-        this.facetContext.getFieldDefinitionResolver().getFieldDefinition(path, returnScope);
-    if (maybeFieldDef.flatMap(FieldDefinition::tokenFieldDefinition).isEmpty()) {
-      throwFieldNotIndexed(path.toString(), "token", returnScope);
-    }
+    // isStored (not isPathToStored): the value at the path itself must be stored. An ancestor of
+    // an included path (e.g. "a.b" when only "a.b.c" is included) would read back a partial
+    // container document, not the field's value.
+    boolean storedSourceCovers =
+        this.facetContext
+            .getFieldDefinitionResolver()
+            .indexDefinition
+            .getStoredSource()
+            .isStored(path);
 
-    return new ResolvedTokenField(FieldName.TypeField.TOKEN.getLuceneFieldName(path, returnScope));
+    if (!storedSourceCovers) {
+      throw new InvalidQueryException(
+          String.format(
+              "Cannot use a token-valued aggregation on field \"%s\" because it is not covered by"
+                  + " the index's storedSource.",
+              path));
+    }
+    return new ResolvedTokenField(path);
   }
 
   @Override
