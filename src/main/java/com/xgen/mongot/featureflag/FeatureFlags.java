@@ -266,6 +266,7 @@ public class FeatureFlags implements DocumentEncodable {
    *   <li>{@link Feature#INDEX_FEATURE_VERSION_FOUR}
    *   <li>{@link Feature#SORTED_INDEX}
    *   <li>{@link Feature#NESTED_VECTOR}
+   *   <li>{@link Feature#BYTE_BINARY_QUANTIZATION}
    * </ul>
    *
    * @return a FeatureFlags with query features enabled
@@ -278,6 +279,7 @@ public class FeatureFlags implements DocumentEncodable {
         .enable(Feature.INDEX_FEATURE_VERSION_FOUR)
         .enable(Feature.SORTED_INDEX)
         .enable(Feature.NESTED_VECTOR)
+        .enable(Feature.BYTE_BINARY_QUANTIZATION)
         .build();
   }
 

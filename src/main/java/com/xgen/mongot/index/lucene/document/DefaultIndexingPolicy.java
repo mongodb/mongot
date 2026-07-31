@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.lucene.document;
 
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater.IndexingMetricsUpdater;
 import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.SearchFieldDefinitionResolver;
@@ -30,23 +31,27 @@ public class DefaultIndexingPolicy {
   public static LuceneIndexingPolicy create(
       Analyzer indexAnalyzer,
       SearchFieldDefinitionResolver resolver,
-      IndexingMetricsUpdater indexingMetricsUpdater) {
+      IndexingMetricsUpdater indexingMetricsUpdater,
+      FeatureFlags featureFlags) {
     return resolver.indexDefinition.hasEmbeddedFields()
-        ? EmbeddedIndexingPolicy.create(indexAnalyzer, resolver, indexingMetricsUpdater)
-        : RootDocumentIndexingPolicy.create(indexAnalyzer, resolver, indexingMetricsUpdater);
+        ? EmbeddedIndexingPolicy.create(
+            indexAnalyzer, resolver, indexingMetricsUpdater, featureFlags)
+        : RootDocumentIndexingPolicy.create(
+            indexAnalyzer, resolver, indexingMetricsUpdater, featureFlags);
   }
 
   public static LuceneIndexingPolicy create(
       VectorIndexDefinition indexDefinition,
       IndexCapabilities indexCapabilities,
-      IndexingMetricsUpdater indexingMetricsUpdater) {
+      IndexingMetricsUpdater indexingMetricsUpdater,
+      FeatureFlags featureFlags) {
     // Check if the index has a nested root (embedded vector fields)
     if (indexDefinition.getMappings().hasNestedRoot()) {
       return VectorEmbeddedIndexingPolicy.create(
-          indexDefinition, indexCapabilities, indexingMetricsUpdater);
+          indexDefinition, indexCapabilities, indexingMetricsUpdater, featureFlags);
     }
     return VectorIndexDocumentIndexingPolicy.create(
-        indexDefinition, indexCapabilities, indexingMetricsUpdater);
+        indexDefinition, indexCapabilities, indexingMetricsUpdater, featureFlags);
   }
 
   static class EmbeddedIndexingPolicy implements LuceneIndexingPolicy {
@@ -73,9 +78,11 @@ public class DefaultIndexingPolicy {
     static EmbeddedIndexingPolicy create(
         Analyzer indexAnalyzer,
         SearchFieldDefinitionResolver resolver,
-        IndexingMetricsUpdater indexingMetricsUpdater) {
+        IndexingMetricsUpdater indexingMetricsUpdater,
+        FeatureFlags featureFlags) {
       return new EmbeddedIndexingPolicy(
-          RootDocumentIndexingPolicy.create(indexAnalyzer, resolver, indexingMetricsUpdater),
+          RootDocumentIndexingPolicy.create(
+              indexAnalyzer, resolver, indexingMetricsUpdater, featureFlags),
           resolver.indexDefinition.getMappings(),
           indexingMetricsUpdater,
           indexAnalyzer,
@@ -104,6 +111,7 @@ public class DefaultIndexingPolicy {
     private final SearchFieldDefinitionResolver resolver;
     private final IndexingMetricsUpdater indexingMetricsUpdater;
     private final ObjectId indexId;
+    private final FeatureFlags featureFlags;
 
     RootDocumentIndexingPolicy(
         ObjectId indexId,
@@ -113,7 +121,8 @@ public class DefaultIndexingPolicy {
         boolean isEmbedded,
         Analyzer indexAnalyzer,
         SearchFieldDefinitionResolver resolver,
-        IndexingMetricsUpdater indexingMetricsUpdater) {
+        IndexingMetricsUpdater indexingMetricsUpdater,
+        FeatureFlags featureFlags) {
       this.indexId = indexId;
       this.facetsConfig = facetsConfig;
       this.mappings = mappings;
@@ -122,12 +131,14 @@ public class DefaultIndexingPolicy {
       this.indexAnalyzer = indexAnalyzer;
       this.resolver = resolver;
       this.indexingMetricsUpdater = indexingMetricsUpdater;
+      this.featureFlags = featureFlags;
     }
 
     public static RootDocumentIndexingPolicy create(
         Analyzer indexAnalyzer,
         SearchFieldDefinitionResolver resolver,
-        IndexingMetricsUpdater indexingMetricsUpdater) {
+        IndexingMetricsUpdater indexingMetricsUpdater,
+        FeatureFlags featureFlags) {
       return new RootDocumentIndexingPolicy(
           resolver.indexDefinition.getIndexId(),
           IndexableFieldFactory.createFacetsConfig(resolver.indexDefinition),
@@ -136,7 +147,8 @@ public class DefaultIndexingPolicy {
           resolver.indexDefinition.hasEmbeddedFields(),
           indexAnalyzer,
           resolver,
-          indexingMetricsUpdater);
+          indexingMetricsUpdater,
+          featureFlags);
     }
 
     @Override
@@ -144,13 +156,19 @@ public class DefaultIndexingPolicy {
       DocumentBuilder builder =
           this.isEmbedded
               ? LuceneSearchIndexDocumentBuilder.createEmbeddedRoot(
-                  id, this.mappings, this.indexAnalyzer, this.resolver, this.indexingMetricsUpdater)
+                  id,
+                  this.mappings,
+                  this.indexAnalyzer,
+                  this.resolver,
+                  this.indexingMetricsUpdater,
+                  this.featureFlags)
               : LuceneSearchIndexDocumentBuilder.createRoot(
                   id,
                   this.mappings,
                   this.indexAnalyzer,
                   this.resolver,
-                  this.indexingMetricsUpdater);
+                  this.indexingMetricsUpdater,
+                  this.featureFlags);
 
       return RootDocumentBuilder.create(
           this.indexId,
@@ -173,9 +191,9 @@ public class DefaultIndexingPolicy {
    * document per element of the array at the nested root.
    *
    * <p>When the index has no nested root, {@link
-   * DefaultIndexingPolicy#create(VectorIndexDefinition, IndexCapabilities, IndexingMetricsUpdater)}
-   * uses {@link VectorIndexDocumentIndexingPolicy} instead, which produces a single Lucene document
-   * per source document.
+   * DefaultIndexingPolicy#create(VectorIndexDefinition, IndexCapabilities, IndexingMetricsUpdater,
+   * FeatureFlags)} uses {@link VectorIndexDocumentIndexingPolicy} instead, which produces a single
+   * Lucene document per source document.
    */
   static class VectorEmbeddedIndexingPolicy implements LuceneIndexingPolicy {
     private final VectorIndexDocumentIndexingPolicy rootDocumentIndexingPolicy;
@@ -183,31 +201,36 @@ public class DefaultIndexingPolicy {
     private final IndexCapabilities indexCapabilities;
     private final IndexingMetricsUpdater indexingMetricsUpdater;
     private final VectorIndexDefinition vectorIndexDefinition;
+    private final FeatureFlags featureFlags;
 
     VectorEmbeddedIndexingPolicy(
         VectorIndexDocumentIndexingPolicy rootDocumentIndexingPolicy,
         VectorIndexFieldMapping mapping,
         IndexCapabilities indexCapabilities,
         IndexingMetricsUpdater indexingMetricsUpdater,
-        VectorIndexDefinition vectorIndexDefinition) {
+        VectorIndexDefinition vectorIndexDefinition,
+        FeatureFlags featureFlags) {
       this.rootDocumentIndexingPolicy = rootDocumentIndexingPolicy;
       this.mapping = mapping;
       this.indexCapabilities = indexCapabilities;
       this.indexingMetricsUpdater = indexingMetricsUpdater;
+      this.featureFlags = featureFlags;
       this.vectorIndexDefinition = vectorIndexDefinition;
     }
 
     static VectorEmbeddedIndexingPolicy create(
         VectorIndexDefinition indexDefinition,
         IndexCapabilities indexCapabilities,
-        IndexingMetricsUpdater indexingMetricsUpdater) {
+        IndexingMetricsUpdater indexingMetricsUpdater,
+        FeatureFlags featureFlags) {
       return new VectorEmbeddedIndexingPolicy(
           VectorIndexDocumentIndexingPolicy.create(
-              indexDefinition, indexCapabilities, indexingMetricsUpdater),
+              indexDefinition, indexCapabilities, indexingMetricsUpdater, featureFlags),
           indexDefinition.getMappings(),
           indexCapabilities,
           indexingMetricsUpdater,
-          indexDefinition);
+          indexDefinition,
+          featureFlags);
     }
 
     @Override
@@ -238,7 +261,8 @@ public class DefaultIndexingPolicy {
           id,
           this.indexingMetricsUpdater,
           this.indexCapabilities,
-          context.autoEmbeddings());
+          context.autoEmbeddings(),
+          this.featureFlags);
     }
   }
 
@@ -247,27 +271,32 @@ public class DefaultIndexingPolicy {
     private final VectorIndexFieldMapping mapping;
     private final IndexCapabilities indexCapabilities;
     private final IndexingMetricsUpdater indexingMetricsUpdater;
+    private final FeatureFlags featureFlags;
 
     VectorIndexDocumentIndexingPolicy(
         VectorIndexDefinition indexDefinition,
         VectorIndexFieldMapping mapping,
         IndexCapabilities indexCapabilities,
-        IndexingMetricsUpdater indexingMetricsUpdater) {
+        IndexingMetricsUpdater indexingMetricsUpdater,
+        FeatureFlags featureFlags) {
       this.indexDefinition = indexDefinition;
       this.mapping = mapping;
       this.indexCapabilities = indexCapabilities;
       this.indexingMetricsUpdater = indexingMetricsUpdater;
+      this.featureFlags = featureFlags;
     }
 
     public static VectorIndexDocumentIndexingPolicy create(
         VectorIndexDefinition indexDefinition,
         IndexCapabilities indexCapabilities,
-        IndexingMetricsUpdater indexingMetricsUpdater) {
+        IndexingMetricsUpdater indexingMetricsUpdater,
+        FeatureFlags featureFlags) {
       return new VectorIndexDocumentIndexingPolicy(
           indexDefinition,
           indexDefinition.getMappings(),
           indexCapabilities,
-          indexingMetricsUpdater);
+          indexingMetricsUpdater,
+          featureFlags);
     }
 
     @Override
@@ -299,7 +328,12 @@ public class DefaultIndexingPolicy {
     LuceneVectorIndexDocumentBuilder createRawBuilder(
         byte[] id, IndexingPolicyBuilderContext context) {
       return LuceneVectorIndexDocumentBuilder.createRoot(
-          id, this.mapping, this.indexCapabilities, this.indexingMetricsUpdater, context);
+          id,
+          this.mapping,
+          this.indexCapabilities,
+          this.indexingMetricsUpdater,
+          context,
+          this.featureFlags);
     }
   }
 }

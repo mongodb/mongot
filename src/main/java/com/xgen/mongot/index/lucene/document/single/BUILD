@@ -18,6 +18,7 @@ java_library(
     javacopts = ["-Xep:LongDoubleConversion:ERROR"],
     visibility = ["//visibility:public"],
     exports = [
+        "//src/main/java/com/xgen/mongot/featureflag",
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/ingestion/handlers",
         "//src/main/java/com/xgen/mongot/index/version",
@@ -30,6 +31,7 @@ java_library(
         "@maven//:com_google_flogger_flogger_slf4j_backend",
     ],
     deps = [
+        "//src/main/java/com/xgen/mongot/featureflag",
         "//src/main/java/com/xgen/mongot/index",
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/definition/quantization",

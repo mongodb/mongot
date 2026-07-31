@@ -204,7 +204,8 @@ public class SingleLuceneIndexWriter implements LuceneIndexWriter {
         new org.apache.lucene.index.IndexWriter(directory, indexWriterConfig);
 
     LuceneIndexingPolicy luceneIndexingPolicy =
-        DefaultIndexingPolicy.create(indexDefinition, indexCapabilities, indexingMetricsUpdater);
+        DefaultIndexingPolicy.create(
+            indexDefinition, indexCapabilities, indexingMetricsUpdater, featureFlags);
 
     Set<FieldPath> customVectorEngineFields =
         vectorFields.entrySet().stream()
@@ -290,7 +291,7 @@ public class SingleLuceneIndexWriter implements LuceneIndexWriter {
         new org.apache.lucene.index.IndexWriter(directory, indexWriterConfig);
 
     LuceneIndexingPolicy luceneIndexingPolicy =
-        DefaultIndexingPolicy.create(indexAnalyzer, resolver, indexingMetricsUpdater);
+        DefaultIndexingPolicy.create(indexAnalyzer, resolver, indexingMetricsUpdater, featureFlags);
 
     SingleLuceneIndexWriter writer =
         new SingleLuceneIndexWriter(

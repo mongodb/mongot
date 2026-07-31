@@ -14,6 +14,8 @@ import static org.mockito.Mockito.verify;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.google.common.collect.ImmutableList;
+import com.xgen.mongot.featureflag.Feature;
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater.IndexingMetricsUpdater;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.NumericFieldOptions.Representation;
@@ -104,7 +106,8 @@ public class IndexableFieldFactoryTest {
             SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
                 IndexFormatVersion.CURRENT),
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            FeatureFlags.getDefault());
     FieldPath longPath = FieldPath.newRoot("a".repeat(9001));
     IndexableFieldFactory.addFieldNamesField(myWrapper, longPath);
     IndexableFieldFactory.addFieldNamesField(myWrapper, longPath);
@@ -137,7 +140,8 @@ public class IndexableFieldFactoryTest {
             SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
                 IndexFormatVersion.CURRENT),
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            FeatureFlags.getDefault());
     DocumentWrapper spyWrapper = spy(realWrapper);
 
     // Normal field name (not exceeding max length) - no warning should be triggered
@@ -162,7 +166,8 @@ public class IndexableFieldFactoryTest {
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
                 SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
-            IndexingPolicyBuilderContext.builder().build());
+            IndexingPolicyBuilderContext.builder().build(),
+            FeatureFlags.getDefault());
 
     // ID field and embedded root field should account for the 2 fields in the document.
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -197,7 +202,8 @@ public class IndexableFieldFactoryTest {
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
                 SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
-            IndexingPolicyBuilderContext.builder().build());
+            IndexingPolicyBuilderContext.builder().build(),
+            FeatureFlags.getDefault());
 
     // ID field and embedded root field should account for the 2 fields in the document.
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -232,7 +238,8 @@ public class IndexableFieldFactoryTest {
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
                 SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
-            IndexingPolicyBuilderContext.builder().build());
+            IndexingPolicyBuilderContext.builder().build(),
+            FeatureFlags.getDefault());
 
     // ID field and embedded root field should account for the 2 fields in the document.
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -267,7 +274,8 @@ public class IndexableFieldFactoryTest {
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
                 SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
-            IndexingPolicyBuilderContext.builder().build());
+            IndexingPolicyBuilderContext.builder().build(),
+            FeatureFlags.getDefault());
 
     // ID field and embedded root field should account for the 2 fields in the document.
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -291,6 +299,145 @@ public class IndexableFieldFactoryTest {
   }
 
   @Test
+  public void testTypeFieldNameForByteVectorsWithBinaryQuantization_flagDisabled() {
+    FeatureFlags disabledFlags = FeatureFlags.withDefaults().build();
+
+    FieldPath rootPath = FieldPath.newRoot("root");
+    Vector testByteVector = Vector.fromBytes(new byte[] {(byte) 0x00, (byte) 0xFF});
+
+    var wrapper =
+        VectorIndexDocumentWrapper.createRoot(
+            DUMMY_ENCODED_BYTES,
+            SearchIndexCapabilities.CURRENT,
+            new IndexingMetricsUpdater(
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            IndexingPolicyBuilderContext.builder().build(),
+            disabledFlags);
+
+    assertEquals(2, wrapper.luceneDocument.getFields().size());
+
+    IndexableFieldFactory.addKnnVectorField(
+        wrapper,
+        rootPath,
+        testByteVector,
+        new VectorFieldSpecification(
+            testByteVector.numDimensions(),
+            VectorSimilarity.COSINE,
+            VectorQuantization.BINARY,
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+
+    // Flag is disabled — field should be rejected, no vector field added.
+    assertEquals(2, wrapper.luceneDocument.getFields().size());
+  }
+
+  @Test
+  public void testTypeFieldNameForByteVectorsWithBinaryQuantization_flagEnabled() {
+    FeatureFlags enabledFlags =
+        FeatureFlags.withDefaults().enable(Feature.BYTE_BINARY_QUANTIZATION).build();
+
+    FieldPath rootPath = FieldPath.newRoot("root");
+    Vector testByteVector = Vector.fromBytes(new byte[] {(byte) 0x00, (byte) 0xFF});
+
+    var wrapper =
+        VectorIndexDocumentWrapper.createRoot(
+            DUMMY_ENCODED_BYTES,
+            SearchIndexCapabilities.CURRENT,
+            new IndexingMetricsUpdater(
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            IndexingPolicyBuilderContext.builder().build(),
+            enabledFlags);
+
+    assertEquals(2, wrapper.luceneDocument.getFields().size());
+
+    IndexableFieldFactory.addKnnVectorField(
+        wrapper,
+        rootPath,
+        testByteVector,
+        new VectorFieldSpecification(
+            testByteVector.numDimensions(),
+            VectorSimilarity.COSINE,
+            VectorQuantization.BINARY,
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+
+    // Flag is enabled — field should be added with KNN_BYTE_Q1 field name.
+    assertEquals(3, wrapper.luceneDocument.getFields().size());
+    String expectedVectorFieldName =
+        FieldName.TypeField.KNN_BYTE_Q1.getLuceneFieldName(rootPath, Optional.empty());
+    assertEquals(expectedVectorFieldName, wrapper.luceneDocument.getFields().get(2).name());
+  }
+
+  @Test
+  public void addKnnVectorField_searchIndexByteBinaryQuantization_flagDisabled_skipsVector() {
+    FeatureFlags disabledFlags = FeatureFlags.withDefaults().build();
+
+    FieldPath rootPath = FieldPath.newRoot("root");
+    Vector testByteVector = Vector.fromBytes(new byte[] {(byte) 0x00, (byte) 0xFF});
+
+    DocumentWrapper wrapper =
+        DocumentWrapper.createRootStandalone(
+            DUMMY_ENCODED_BYTES,
+            new KeywordAnalyzer(),
+            SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
+                IndexFormatVersion.CURRENT),
+            new IndexingMetricsUpdater(
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            disabledFlags);
+
+    int initialFieldCount = wrapper.luceneDocument.getFields().size();
+
+    IndexableFieldFactory.addKnnVectorField(
+        wrapper,
+        rootPath,
+        testByteVector,
+        new VectorFieldSpecification(
+            testByteVector.numDimensions(),
+            VectorSimilarity.COSINE,
+            VectorQuantization.BINARY,
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+
+    // Flag is disabled via injected FeatureFlags — vector should be skipped.
+    assertEquals(initialFieldCount, wrapper.luceneDocument.getFields().size());
+  }
+
+  @Test
+  public void addKnnVectorField_searchIndexByteBinaryQuantization_flagEnabled_indexesVector() {
+    FeatureFlags enabledFlags =
+        FeatureFlags.withDefaults().enable(Feature.BYTE_BINARY_QUANTIZATION).build();
+
+    FieldPath rootPath = FieldPath.newRoot("root");
+    Vector testByteVector = Vector.fromBytes(new byte[] {(byte) 0x00, (byte) 0xFF});
+
+    DocumentWrapper wrapper =
+        DocumentWrapper.createRootStandalone(
+            DUMMY_ENCODED_BYTES,
+            new KeywordAnalyzer(),
+            SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
+                IndexFormatVersion.CURRENT),
+            new IndexingMetricsUpdater(
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            enabledFlags);
+
+    int initialFieldCount = wrapper.luceneDocument.getFields().size();
+
+    IndexableFieldFactory.addKnnVectorField(
+        wrapper,
+        rootPath,
+        testByteVector,
+        new VectorFieldSpecification(
+            testByteVector.numDimensions(),
+            VectorSimilarity.COSINE,
+            VectorQuantization.BINARY,
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+
+    // Flag is enabled via injected FeatureFlags — vector should be indexed.
+    assertEquals(initialFieldCount + 1, wrapper.luceneDocument.getFields().size());
+    String expectedVectorFieldName =
+        FieldName.TypeField.KNN_BYTE_Q1.getLuceneFieldName(rootPath, Optional.empty());
+    assertEquals(
+        expectedVectorFieldName, wrapper.luceneDocument.getFields().get(initialFieldCount).name());
+  }
+
+  @Test
   public void testTypeFieldNameForBitVectors() {
     FieldPath rootPath = FieldPath.newRoot("root");
     Vector testByteVector = Vector.fromBits(new byte[] {(byte) 0x00, (byte) 0xFF});
@@ -301,7 +448,8 @@ public class IndexableFieldFactoryTest {
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
                 SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
-            IndexingPolicyBuilderContext.builder().build());
+            IndexingPolicyBuilderContext.builder().build(),
+            FeatureFlags.getDefault());
 
     // ID field and embedded root field should account for the 2 fields in the document.
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -336,7 +484,8 @@ public class IndexableFieldFactoryTest {
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
                 SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
-            IndexingPolicyBuilderContext.builder().build());
+            IndexingPolicyBuilderContext.builder().build(),
+            FeatureFlags.getDefault());
 
     // ID field and embedded root field should account for the 2 fields in the document.
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -369,7 +518,8 @@ public class IndexableFieldFactoryTest {
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
                 SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
-            IndexingPolicyBuilderContext.builder().build());
+            IndexingPolicyBuilderContext.builder().build(),
+            FeatureFlags.getDefault());
 
     // ID field and embedded root field should account for the 2 fields in the document.
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -402,7 +552,8 @@ public class IndexableFieldFactoryTest {
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
                 SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
-            IndexingPolicyBuilderContext.builder().build());
+            IndexingPolicyBuilderContext.builder().build(),
+            FeatureFlags.getDefault());
 
     // ID field and embedded root field should account for the 2 fields in the document.
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -435,7 +586,8 @@ public class IndexableFieldFactoryTest {
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
                 SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
-            IndexingPolicyBuilderContext.builder().build());
+            IndexingPolicyBuilderContext.builder().build(),
+            FeatureFlags.getDefault());
 
     // ID field and embedded root field should account for the 2 fields in the document.
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -472,7 +624,8 @@ public class IndexableFieldFactoryTest {
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
                 SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
-            IndexingPolicyBuilderContext.builder().build());
+            IndexingPolicyBuilderContext.builder().build(),
+            FeatureFlags.getDefault());
 
     String checkFieldName =
         FieldName.TypeField.KNN_VECTOR.getLuceneFieldName(rootPath, Optional.empty());
@@ -534,7 +687,8 @@ public class IndexableFieldFactoryTest {
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
                 SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
-            IndexingPolicyBuilderContext.builder().build());
+            IndexingPolicyBuilderContext.builder().build(),
+            FeatureFlags.getDefault());
 
     String checkFieldName =
         FieldName.TypeField.KNN_VECTOR.getLuceneFieldName(rootPath, Optional.empty());
@@ -730,7 +884,8 @@ public class IndexableFieldFactoryTest {
             SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
                 IndexFormatVersion.CURRENT),
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            FeatureFlags.getDefault());
 
     FieldPath fieldPath = FieldPath.newRoot("testField");
     String luceneFieldName =
@@ -770,7 +925,8 @@ public class IndexableFieldFactoryTest {
             SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
                 IndexFormatVersion.CURRENT),
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            FeatureFlags.getDefault());
 
     FieldPath fieldPath = FieldPath.newRoot("testField");
     String luceneFieldName =
@@ -816,7 +972,8 @@ public class IndexableFieldFactoryTest {
             SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
                 IndexFormatVersion.CURRENT),
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            FeatureFlags.getDefault());
 
     FieldPath fieldPath1 = FieldPath.newRoot("field1");
     FieldPath fieldPath2 = FieldPath.newRoot("field2");
@@ -851,7 +1008,8 @@ public class IndexableFieldFactoryTest {
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
                 SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
-            IndexingPolicyBuilderContext.builder().build());
+            IndexingPolicyBuilderContext.builder().build(),
+            FeatureFlags.getDefault());
 
     FieldPath fieldPath = FieldPath.newRoot("testField");
 
@@ -911,7 +1069,8 @@ public class IndexableFieldFactoryTest {
             SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
                 IndexFormatVersion.CURRENT),
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            FeatureFlags.getDefault());
 
     FieldPath fieldPath = FieldPath.newRoot("testField");
     String luceneFieldName =
@@ -950,7 +1109,8 @@ public class IndexableFieldFactoryTest {
             SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
                 IndexFormatVersion.CURRENT),
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            FeatureFlags.getDefault());
 
     // Create two different field paths
     // This tests that tracking is based on the actual lucene field name, not just field path
@@ -991,7 +1151,8 @@ public class IndexableFieldFactoryTest {
             SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
                 IndexFormatVersion.CURRENT),
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            FeatureFlags.getDefault());
 
     String loggingId = IndexableFieldFactory.getLoggingId(wrapper);
     // Non-UUID/ObjectId types return "unloggable"
@@ -1012,7 +1173,8 @@ public class IndexableFieldFactoryTest {
             SearchIndexCapabilities.CURRENT,
             new IndexingMetricsUpdater(
                 SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
-            IndexingPolicyBuilderContext.builder().build());
+            IndexingPolicyBuilderContext.builder().build(),
+            FeatureFlags.getDefault());
 
     String loggingId = IndexableFieldFactory.getLoggingId(wrapper);
     // ObjectId is returned as hex string
@@ -1033,7 +1195,8 @@ public class IndexableFieldFactoryTest {
             SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
                 IndexFormatVersion.CURRENT),
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            FeatureFlags.getDefault());
 
     String loggingId = IndexableFieldFactory.getLoggingId(wrapper);
     // Non-UUID/ObjectId string IDs return "unloggable"
@@ -1062,7 +1225,8 @@ public class IndexableFieldFactoryTest {
             SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
                 IndexFormatVersion.CURRENT),
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            FeatureFlags.getDefault());
 
     // Legacy UUID returns "unloggable" because byte order is ambiguous
     String loggingId = IndexableFieldFactory.getLoggingId(wrapper);
@@ -1084,7 +1248,8 @@ public class IndexableFieldFactoryTest {
             SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
                 IndexFormatVersion.CURRENT),
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            FeatureFlags.getDefault());
 
     // Standard UUID should return the UUID string
     String loggingId = IndexableFieldFactory.getLoggingId(wrapper);
@@ -1106,7 +1271,8 @@ public class IndexableFieldFactoryTest {
             SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
                 IndexFormatVersion.CURRENT),
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            FeatureFlags.getDefault());
 
     // Non-UUID binary types should return "unloggable"
     String loggingId = IndexableFieldFactory.getLoggingId(wrapper);
@@ -1140,7 +1306,8 @@ public class IndexableFieldFactoryTest {
             SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
                 IndexFormatVersion.CURRENT),
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            FeatureFlags.getDefault());
 
     FieldPath fieldPath = FieldPath.newRoot("testDate");
     int initialFieldCount = wrapper.luceneDocument.getFields().size();
@@ -1164,7 +1331,8 @@ public class IndexableFieldFactoryTest {
             SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
                 IndexFormatVersion.CURRENT),
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            FeatureFlags.getDefault());
 
     FieldPath fieldPath = FieldPath.newRoot("testDate");
     int initialFieldCount = wrapper.luceneDocument.getFields().size();
@@ -1185,7 +1353,8 @@ public class IndexableFieldFactoryTest {
             SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
                 IndexFormatVersion.CURRENT),
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            FeatureFlags.getDefault());
 
     FieldPath fieldPath = FieldPath.newRoot("testNum");
     int initialFieldCount = wrapper.luceneDocument.getFields().size();
@@ -1211,7 +1380,8 @@ public class IndexableFieldFactoryTest {
             SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
                 IndexFormatVersion.CURRENT),
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            FeatureFlags.getDefault());
 
     FieldPath fieldPath = FieldPath.newRoot("testInt");
     int initialFieldCount = wrapper.luceneDocument.getFields().size();
@@ -1237,7 +1407,8 @@ public class IndexableFieldFactoryTest {
             SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
                 IndexFormatVersion.CURRENT),
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            FeatureFlags.getDefault());
 
     FieldPath fieldPath1 = FieldPath.newRoot("date1");
     FieldPath fieldPath2 = FieldPath.newRoot("date2");
@@ -1259,7 +1430,8 @@ public class IndexableFieldFactoryTest {
             SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
                 IndexFormatVersion.CURRENT),
             new IndexingMetricsUpdater(
-                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH));
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            FeatureFlags.getDefault());
 
     FieldPath fieldPath = FieldPath.newRoot("testFacet");
     int initialFieldCount = wrapper.luceneDocument.getFields().size();

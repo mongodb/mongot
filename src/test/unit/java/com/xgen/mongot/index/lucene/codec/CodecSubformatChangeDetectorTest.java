@@ -4,6 +4,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
 import static com.xgen.mongot.index.lucene.field.FieldName.TypeField.KNN_BIT;
 import static com.xgen.mongot.index.lucene.field.FieldName.TypeField.KNN_BYTE;
+import static com.xgen.mongot.index.lucene.field.FieldName.TypeField.KNN_BYTE_Q1;
 import static com.xgen.mongot.index.lucene.field.FieldName.TypeField.KNN_F32_Q1;
 import static com.xgen.mongot.index.lucene.field.FieldName.TypeField.KNN_F32_Q7;
 import static com.xgen.mongot.index.lucene.field.FieldName.TypeField.KNN_VECTOR;
@@ -83,6 +84,7 @@ public class CodecSubformatChangeDetectorTest {
               .put(KNN_BIT, Mongot01042HnswBitVectorsFormat.class)
               .put(KNN_F32_Q7, Lucene99HnswScalarQuantizedVectorsFormat.class)
               .put(KNN_F32_Q1, Mongot01042HnswBinaryQuantizedVectorsFormat.class)
+              .put(KNN_BYTE_Q1, Mongot01042HnswBinaryQuantizedVectorsFormat.class)
               .build();
 
   /**
@@ -98,6 +100,7 @@ public class CodecSubformatChangeDetectorTest {
               .put(KNN_BIT, FlatBitVectorsFormat.class)
               .put(KNN_F32_Q7, ScalarQuantizedFlatVectorsFormat.class)
               .put(KNN_F32_Q1, BinaryQuantizedFlatVectorsFormat.class)
+              .put(KNN_BYTE_Q1, BinaryQuantizedFlatVectorsFormat.class)
               .build();
 
   @DataPoints("allTypeFields")

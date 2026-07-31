@@ -3,10 +3,19 @@ package com.xgen.mongot.index.lucene.document;
 import static com.xgen.mongot.index.definition.StoredSourceDefinition.Mode.INCLUSION;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.xgen.mongot.featureflag.Feature;
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater.IndexingMetricsUpdater;
+import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.definition.SearchIndexVectorFieldDefinition;
 import com.xgen.mongot.index.definition.StoredSourceDefinition;
+import com.xgen.mongot.index.definition.VectorFieldSpecification;
+import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
+import com.xgen.mongot.index.definition.VectorSimilarity;
+import com.xgen.mongot.index.definition.quantization.VectorQuantization;
 import com.xgen.mongot.index.ingestion.BsonDocumentProcessor;
 import com.xgen.mongot.index.lucene.document.block.VectorEmbeddedDocumentBuilder;
 import com.xgen.mongot.index.lucene.document.builder.DocumentBlockBuilder;
@@ -14,10 +23,17 @@ import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.util.LuceneDocumentIdEncoder;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.util.BsonUtils;
+import com.xgen.mongot.util.FieldPath;
+import com.xgen.mongot.util.bson.BsonVectorParser;
+import com.xgen.mongot.util.bson.Vector;
+import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import java.io.IOException;
 import java.util.List;
+import org.apache.lucene.analysis.core.KeywordAnalyzer;
 import org.apache.lucene.document.Document;
 import org.bson.BsonArray;
 import org.bson.BsonDocument;
@@ -48,7 +64,8 @@ public class DefaultIndexingPolicyTest {
         DefaultIndexingPolicy.create(
             indexDefinition,
             indexDefinition.getIndexCapabilities(IndexFormatVersion.CURRENT),
-            METRICS_UPDATER);
+            METRICS_UPDATER,
+            FeatureFlags.getDefault());
 
     DocumentBlockBuilder builder = policy.createBuilder(DUMMY_ID);
     BsonDocument doc =
@@ -79,7 +96,8 @@ public class DefaultIndexingPolicyTest {
         DefaultIndexingPolicy.create(
             indexDefinition,
             indexDefinition.getIndexCapabilities(IndexFormatVersion.CURRENT),
-            METRICS_UPDATER);
+            METRICS_UPDATER,
+            FeatureFlags.getDefault());
 
     DocumentBlockBuilder builder = policy.createBuilder(DUMMY_ID);
     BsonDocument doc =
@@ -122,7 +140,8 @@ public class DefaultIndexingPolicyTest {
         DefaultIndexingPolicy.create(
             indexDefinition,
             indexDefinition.getIndexCapabilities(IndexFormatVersion.CURRENT),
-            METRICS_UPDATER);
+            METRICS_UPDATER,
+            FeatureFlags.getDefault());
 
     DocumentBlockBuilder builder = policy.createBuilder(DUMMY_ID);
     BsonDocument doc =
@@ -153,7 +172,8 @@ public class DefaultIndexingPolicyTest {
         DefaultIndexingPolicy.create(
             indexDefinition,
             indexDefinition.getIndexCapabilities(IndexFormatVersion.CURRENT),
-            METRICS_UPDATER);
+            METRICS_UPDATER,
+            FeatureFlags.getDefault());
 
     DocumentBlockBuilder builder = policy.createBuilder(DUMMY_ID);
     BsonDocument doc =
@@ -206,7 +226,8 @@ public class DefaultIndexingPolicyTest {
         DefaultIndexingPolicy.create(
             indexDefinition,
             indexDefinition.getIndexCapabilities(IndexFormatVersion.CURRENT),
-            METRICS_UPDATER);
+            METRICS_UPDATER,
+            FeatureFlags.getDefault());
 
     DocumentBlockBuilder builder = policy.createBuilder(DUMMY_ID);
     assertTrue(
@@ -259,7 +280,8 @@ public class DefaultIndexingPolicyTest {
         DefaultIndexingPolicy.create(
             indexDefinition,
             indexDefinition.getIndexCapabilities(IndexFormatVersion.CURRENT),
-            METRICS_UPDATER);
+            METRICS_UPDATER,
+            FeatureFlags.getDefault());
 
     DocumentBlockBuilder builder = policy.createBuilder(DUMMY_ID);
     BsonDocument doc =
@@ -292,5 +314,80 @@ public class DefaultIndexingPolicyTest {
         "Root document should have stored source field when index has storedSource and nestedRoot "
             + "(RootDocumentBuilder must wrap the root)",
         rootDocument.getField(storedSourceFieldName));
+  }
+
+  @Test
+  public void create_searchIndexWithByteBinaryVector_flagEnabled_indexesVector()
+      throws IOException {
+    FeatureFlags enabledFlags =
+        FeatureFlags.withDefaults().enable(Feature.BYTE_BINARY_QUANTIZATION).build();
+
+    Document doc = buildSearchIndexDocumentWithByteBinaryVector(enabledFlags);
+
+    String expectedVectorFieldName =
+        FieldName.TypeField.KNN_BYTE_Q1.getLuceneFieldName(
+            FieldPath.newRoot("vector"), java.util.Optional.empty());
+    assertNotNull(
+        "Injected enabled FeatureFlags should allow BYTE+BINARY vector indexing on search path",
+        doc.getField(expectedVectorFieldName));
+  }
+
+  @Test
+  public void create_searchIndexWithByteBinaryVector_flagDisabled_skipsVector() throws IOException {
+    FeatureFlags disabledFlags = FeatureFlags.withDefaults().build();
+
+    Document doc = buildSearchIndexDocumentWithByteBinaryVector(disabledFlags);
+
+    String expectedVectorFieldName =
+        FieldName.TypeField.KNN_BYTE_Q1.getLuceneFieldName(
+            FieldPath.newRoot("vector"), java.util.Optional.empty());
+    assertNull(
+        "Injected disabled FeatureFlags should skip BYTE+BINARY vector indexing on search path",
+        doc.getField(expectedVectorFieldName));
+  }
+
+  private static Document buildSearchIndexDocumentWithByteBinaryVector(FeatureFlags featureFlags)
+      throws IOException {
+    var vectorSpec =
+        new VectorFieldSpecification(
+            2,
+            VectorSimilarity.COSINE,
+            VectorQuantization.BINARY,
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm());
+    var mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "vector",
+                FieldDefinitionBuilder.builder()
+                    .searchIndexVectorField(new SearchIndexVectorFieldDefinition(vectorSpec))
+                    .build())
+            .build();
+    var indexDefinition =
+        SearchIndexDefinitionBuilder.builder()
+            .defaultMetadata()
+            .mappings(mappings)
+            .indexFeatureVersion(
+                com.xgen.mongot.index.definition.SearchIndexCapabilities.CURRENT_FEATURE_VERSION)
+            .build();
+
+    LuceneIndexingPolicy policy =
+        DefaultIndexingPolicy.create(
+            new KeywordAnalyzer(),
+            indexDefinition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            new IndexingMetricsUpdater(
+                SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+            featureFlags);
+
+    DocumentBlockBuilder builder = policy.createBuilder(DUMMY_ID);
+    Vector byteVector = Vector.fromBytes(new byte[] {(byte) 0x00, (byte) 0xFF});
+    BsonDocument sourceDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(1))
+            .append("vector", BsonVectorParser.encode(byteVector));
+    BsonDocumentProcessor.process(BsonUtils.documentToRaw(sourceDocument), builder);
+
+    List<Document> block = builder.buildBlock();
+    return block.getFirst();
   }
 }

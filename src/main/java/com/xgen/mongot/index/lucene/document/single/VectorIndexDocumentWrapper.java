@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.lucene.document.single;
 
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.lucene.document.context.IndexingPolicyBuilderContext;
 import com.xgen.mongot.index.version.IndexCapabilities;
@@ -20,8 +21,9 @@ public class VectorIndexDocumentWrapper extends AbstractDocumentWrapper {
       Document luceneDocument,
       IndexCapabilities indexCapabilities,
       IndexMetricsUpdater.IndexingMetricsUpdater indexingMetricsUpdater,
-      Optional<FieldPath> embeddedRoot) {
-    super(luceneDocument, indexCapabilities, indexingMetricsUpdater);
+      Optional<FieldPath> embeddedRoot,
+      FeatureFlags featureFlags) {
+    super(luceneDocument, indexCapabilities, indexingMetricsUpdater, featureFlags);
     this.embeddedRoot = embeddedRoot;
   }
 
@@ -29,11 +31,16 @@ public class VectorIndexDocumentWrapper extends AbstractDocumentWrapper {
       byte[] id,
       IndexCapabilities indexCapabilities,
       IndexMetricsUpdater.IndexingMetricsUpdater indexingMetricsUpdater,
-      IndexingPolicyBuilderContext context) {
+      IndexingPolicyBuilderContext context,
+      FeatureFlags featureFlags) {
     Document luceneDocument = new Document();
     VectorIndexDocumentWrapper wrapper =
         new VectorIndexDocumentWrapper(
-            luceneDocument, indexCapabilities, indexingMetricsUpdater, Optional.empty());
+            luceneDocument,
+            indexCapabilities,
+            indexingMetricsUpdater,
+            Optional.empty(),
+            featureFlags);
 
     if (context.customVectorEngineId().isPresent()) {
       long customVectorEngineId = context.customVectorEngineId().get();
@@ -65,11 +72,16 @@ public class VectorIndexDocumentWrapper extends AbstractDocumentWrapper {
       byte[] id,
       FieldPath embeddedRoot,
       IndexCapabilities indexCapabilities,
-      IndexMetricsUpdater.IndexingMetricsUpdater indexingMetricsUpdater) {
+      IndexMetricsUpdater.IndexingMetricsUpdater indexingMetricsUpdater,
+      FeatureFlags featureFlags) {
     Document luceneDocument = new Document();
     VectorIndexDocumentWrapper wrapper =
         new VectorIndexDocumentWrapper(
-            luceneDocument, indexCapabilities, indexingMetricsUpdater, Optional.of(embeddedRoot));
+            luceneDocument,
+            indexCapabilities,
+            indexingMetricsUpdater,
+            Optional.of(embeddedRoot),
+            featureFlags);
     // Use false for includeDocValue to match the root document structure
     IndexableFieldFactory.addDocumentIdField(wrapper, id, false);
     IndexableFieldFactory.addEmbeddedPathField(wrapper);

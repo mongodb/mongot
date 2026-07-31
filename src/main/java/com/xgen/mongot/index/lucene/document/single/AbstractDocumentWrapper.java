@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.lucene.document.single;
 
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.lucene.util.LuceneDocumentIdEncoder;
 import com.xgen.mongot.index.version.IndexCapabilities;
@@ -70,14 +71,17 @@ public abstract class AbstractDocumentWrapper {
   public final Document luceneDocument;
   public final IndexCapabilities indexCapabilities;
   public final IndexMetricsUpdater.IndexingMetricsUpdater indexingMetricsUpdater;
+  final FeatureFlags featureFlags;
 
   AbstractDocumentWrapper(
       Document luceneDocument,
       IndexCapabilities indexCapabilities,
-      IndexMetricsUpdater.IndexingMetricsUpdater indexingMetricsUpdater) {
+      IndexMetricsUpdater.IndexingMetricsUpdater indexingMetricsUpdater,
+      FeatureFlags featureFlags) {
     this.luceneDocument = luceneDocument;
     this.indexCapabilities = indexCapabilities;
     this.indexingMetricsUpdater = indexingMetricsUpdater;
+    this.featureFlags = featureFlags;
     this.nullFieldsIndexed = new HashSet<>();
     this.vectorFieldsIndexed = new HashSet<>();
     this.vectorFieldsInvalidForIndexing = new HashSet<>();
@@ -100,6 +104,10 @@ public abstract class AbstractDocumentWrapper {
    */
   IndexCapabilities getIndexCapabilities() {
     return this.indexCapabilities;
+  }
+
+  FeatureFlags getFeatureFlags() {
+    return this.featureFlags;
   }
 
   /**

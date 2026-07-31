@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexCapabilities;
@@ -35,7 +36,8 @@ public class VectorIndexDocumentWrapperTest {
             new byte[8],
             CURRENT_CAPABILITIES,
             this.metrics,
-            IndexingPolicyBuilderContext.builder().build());
+            IndexingPolicyBuilderContext.builder().build(),
+            FeatureFlags.getDefault());
     assertTrue(wrapper.canIndexVectorField("vector"));
     assertEquals(0.0, this.metrics.getVectorFieldsIndexed().count(), TestUtils.EPSILON);
 
@@ -52,7 +54,8 @@ public class VectorIndexDocumentWrapperTest {
             new byte[8],
             CURRENT_CAPABILITIES,
             this.metrics,
-            IndexingPolicyBuilderContext.builder().build());
+            IndexingPolicyBuilderContext.builder().build(),
+            FeatureFlags.getDefault());
     wrapper.addIndexedVectorField("vector");
     assertFalse(wrapper.canIndexVectorField("vector"));
     assertEquals(1.0, this.metrics.getVectorFieldsIndexed().count(), TestUtils.EPSILON);
@@ -70,7 +73,8 @@ public class VectorIndexDocumentWrapperTest {
             new byte[8],
             CURRENT_CAPABILITIES,
             this.metrics,
-            IndexingPolicyBuilderContext.builder().build());
+            IndexingPolicyBuilderContext.builder().build(),
+            FeatureFlags.getDefault());
     wrapper.addIndexedVectorField("vector");
     assertEquals(1.0, this.metrics.getVectorFieldsIndexed().count(), TestUtils.EPSILON);
 
@@ -86,7 +90,11 @@ public class VectorIndexDocumentWrapperTest {
 
     VectorIndexDocumentWrapper wrapper =
         VectorIndexDocumentWrapper.createRoot(
-            id, CURRENT_CAPABILITIES, this.metrics, IndexingPolicyBuilderContext.builder().build());
+            id,
+            CURRENT_CAPABILITIES,
+            this.metrics,
+            IndexingPolicyBuilderContext.builder().build(),
+            FeatureFlags.getDefault());
 
     assertNotNull(wrapper);
     assertNotNull(wrapper.luceneDocument);
@@ -112,7 +120,7 @@ public class VectorIndexDocumentWrapperTest {
 
     VectorIndexDocumentWrapper wrapper =
         VectorIndexDocumentWrapper.createEmbedded(
-            id, embeddedRoot, CURRENT_CAPABILITIES, this.metrics);
+            id, embeddedRoot, CURRENT_CAPABILITIES, this.metrics, FeatureFlags.getDefault());
 
     assertNotNull(wrapper);
     assertNotNull(wrapper.luceneDocument);

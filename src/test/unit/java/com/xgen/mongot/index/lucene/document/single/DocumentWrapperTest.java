@@ -5,6 +5,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.IndexMetricsUpdater.IndexingMetricsUpdater;
 import com.xgen.mongot.index.definition.IndexDefinition.Type;
@@ -30,7 +31,8 @@ public class DocumentWrapperTest {
             new KeywordAnalyzer(),
             SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
                 IndexFormatVersion.CURRENT),
-            new IndexingMetricsUpdater(SearchIndex.mockMetricsFactory(), Type.SEARCH));
+            new IndexingMetricsUpdater(SearchIndex.mockMetricsFactory(), Type.SEARCH),
+            FeatureFlags.getDefault());
 
     assertTrue(wrapper.isNumberAndDateSortable);
   }
@@ -45,7 +47,8 @@ public class DocumentWrapperTest {
                 .indexFeatureVersion(3)
                 .build()
                 .createFieldDefinitionResolver(IndexFormatVersion.MIN_SUPPORTED_VERSION),
-            new IndexingMetricsUpdater(SearchIndex.mockMetricsFactory(), Type.SEARCH));
+            new IndexingMetricsUpdater(SearchIndex.mockMetricsFactory(), Type.SEARCH),
+            FeatureFlags.getDefault());
 
     assertTrue(wrapper.isNumberAndDateSortable);
   }
@@ -58,7 +61,8 @@ public class DocumentWrapperTest {
             new KeywordAnalyzer(),
             SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
                 IndexFormatVersion.CURRENT),
-            new IndexingMetricsUpdater(SearchIndex.mockMetricsFactory(), Type.SEARCH));
+            new IndexingMetricsUpdater(SearchIndex.mockMetricsFactory(), Type.SEARCH),
+            FeatureFlags.getDefault());
 
     assertTrue(wrapper.isNumberAndDateSortable);
   }
@@ -73,7 +77,8 @@ public class DocumentWrapperTest {
                 .indexFeatureVersion(3)
                 .build()
                 .createFieldDefinitionResolver(IndexFormatVersion.MIN_SUPPORTED_VERSION),
-            new IndexingMetricsUpdater(SearchIndex.mockMetricsFactory(), Type.SEARCH));
+            new IndexingMetricsUpdater(SearchIndex.mockMetricsFactory(), Type.SEARCH),
+            FeatureFlags.getDefault());
 
     assertTrue(wrapper.isNumberAndDateSortable);
   }
@@ -118,7 +123,8 @@ public class DocumentWrapperTest {
             new KeywordAnalyzer(),
             SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
                 IndexFormatVersion.CURRENT),
-            this.metrics);
+            this.metrics,
+            FeatureFlags.getDefault());
     assertTrue(wrapper.canIndexVectorField("vector"));
     assertEquals(0.0, this.metrics.getVectorFieldsIndexed().count(), TestUtils.EPSILON);
 
@@ -136,7 +142,8 @@ public class DocumentWrapperTest {
             new KeywordAnalyzer(),
             SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
                 IndexFormatVersion.CURRENT),
-            this.metrics);
+            this.metrics,
+            FeatureFlags.getDefault());
     wrapper.addIndexedVectorField("vector");
     assertFalse(wrapper.canIndexVectorField("vector"));
     assertEquals(1.0, this.metrics.getVectorFieldsIndexed().count(), TestUtils.EPSILON);
@@ -155,7 +162,8 @@ public class DocumentWrapperTest {
             new KeywordAnalyzer(),
             SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
                 IndexFormatVersion.CURRENT),
-            this.metrics);
+            this.metrics,
+            FeatureFlags.getDefault());
     wrapper.addIndexedVectorField("vector");
     assertEquals(1.0, this.metrics.getVectorFieldsIndexed().count(), TestUtils.EPSILON);
 

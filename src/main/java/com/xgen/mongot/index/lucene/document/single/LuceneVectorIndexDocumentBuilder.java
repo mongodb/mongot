@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.lucene.document.single;
 
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.VectorIndexFieldMapping;
 import com.xgen.mongot.index.ingestion.handlers.FieldValueHandler;
@@ -56,10 +57,11 @@ public class LuceneVectorIndexDocumentBuilder implements DocumentBuilder, Docume
       VectorIndexFieldMapping mapping,
       IndexCapabilities indexCapabilities,
       IndexMetricsUpdater.IndexingMetricsUpdater indexingMetricsUpdater,
-      IndexingPolicyBuilderContext context) {
+      IndexingPolicyBuilderContext context,
+      FeatureFlags featureFlags) {
     return new LuceneVectorIndexDocumentBuilder(
         VectorIndexDocumentWrapper.createRoot(
-            id, indexCapabilities, indexingMetricsUpdater, context),
+            id, indexCapabilities, indexingMetricsUpdater, context, featureFlags),
         mapping,
         Optional.empty(),
         context);

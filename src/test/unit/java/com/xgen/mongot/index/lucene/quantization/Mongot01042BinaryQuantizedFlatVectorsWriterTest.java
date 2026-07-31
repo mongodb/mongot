@@ -8,6 +8,7 @@ import static org.junit.Assert.assertNotNull;
 
 import com.google.common.collect.Iterables;
 import com.google.errorprone.annotations.Var;
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexCapabilities;
@@ -84,7 +85,8 @@ public class Mongot01042BinaryQuantizedFlatVectorsWriterTest {
               SearchIndexCapabilities.CURRENT,
               new IndexMetricsUpdater.IndexingMetricsUpdater(
                   SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
-              IndexingPolicyBuilderContext.builder().build());
+              IndexingPolicyBuilderContext.builder().build(),
+              FeatureFlags.getDefault());
 
       wrappedDocument.luceneDocument.add(new StringField("id", "1", Field.Store.NO));
       IndexableFieldFactory.addKnnVectorField(
@@ -132,7 +134,8 @@ public class Mongot01042BinaryQuantizedFlatVectorsWriterTest {
                 SearchIndexCapabilities.CURRENT,
                 new IndexMetricsUpdater.IndexingMetricsUpdater(
                     SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
-                IndexingPolicyBuilderContext.builder().build());
+                IndexingPolicyBuilderContext.builder().build(),
+                FeatureFlags.getDefault());
         IndexableFieldFactory.addKnnVectorField(
             document,
             FieldPath.newRoot("field"),

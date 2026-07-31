@@ -2,6 +2,7 @@ package com.xgen.mongot.index.lucene.document.block;
 
 import com.google.common.collect.ImmutableMap;
 import com.mongodb.client.model.geojson.Geometry;
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater.IndexingMetricsUpdater;
 import com.xgen.mongot.index.definition.VectorEmbeddedDocumentsFieldDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
@@ -40,6 +41,7 @@ class VectorEmbeddedFieldValueHandler implements FieldValueHandler {
   private final FieldPath path;
   private final byte[] id;
   private final ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings;
+  private final FeatureFlags featureFlags;
 
   private VectorEmbeddedFieldValueHandler(
       Optional<FieldValueHandler> wrappedFieldValueHandler,
@@ -50,7 +52,8 @@ class VectorEmbeddedFieldValueHandler implements FieldValueHandler {
       IndexCapabilities indexCapabilities,
       FieldPath path,
       byte[] id,
-      ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings) {
+      ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings,
+      FeatureFlags featureFlags) {
     this.wrappedFieldValueHandler = wrappedFieldValueHandler;
     this.documentBlock = documentBlock;
     this.fieldDefinition = fieldDefinition;
@@ -60,6 +63,7 @@ class VectorEmbeddedFieldValueHandler implements FieldValueHandler {
     this.path = path;
     this.id = id;
     this.autoEmbeddings = autoEmbeddings;
+    this.featureFlags = featureFlags;
   }
 
   static FieldValueHandler create(
@@ -71,7 +75,8 @@ class VectorEmbeddedFieldValueHandler implements FieldValueHandler {
       IndexCapabilities indexCapabilities,
       FieldPath path,
       byte[] id,
-      ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings) {
+      ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings,
+      FeatureFlags featureFlags) {
     return new VectorEmbeddedFieldValueHandler(
         wrappedValueHandler,
         documentBlock,
@@ -81,7 +86,8 @@ class VectorEmbeddedFieldValueHandler implements FieldValueHandler {
         indexCapabilities,
         path,
         id,
-        autoEmbeddings);
+        autoEmbeddings,
+        featureFlags);
   }
 
   /**
@@ -100,7 +106,8 @@ class VectorEmbeddedFieldValueHandler implements FieldValueHandler {
       IndexCapabilities indexCapabilities,
       FieldPath path,
       byte[] id,
-      ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings) {
+      ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings,
+      FeatureFlags featureFlags) {
     return new VectorEmbeddedFieldValueHandler(
         wrappedValueHandler,
         documentBlock,
@@ -110,7 +117,8 @@ class VectorEmbeddedFieldValueHandler implements FieldValueHandler {
         indexCapabilities,
         path,
         id,
-        autoEmbeddings);
+        autoEmbeddings,
+        featureFlags);
   }
 
   @Override
@@ -197,7 +205,8 @@ class VectorEmbeddedFieldValueHandler implements FieldValueHandler {
             this.indexCapabilities,
             this.path,
             this.id,
-            this.autoEmbeddings));
+            this.autoEmbeddings,
+            this.featureFlags));
   }
 
   /**
@@ -227,7 +236,8 @@ class VectorEmbeddedFieldValueHandler implements FieldValueHandler {
               this.path,
               this.indexingMetricsUpdater,
               this.indexCapabilities,
-              this.autoEmbeddings);
+              this.autoEmbeddings,
+              this.featureFlags);
 
       // If there's also a wrapped handler, we need to handle both
       // For now, return the embedded builder (similar to search index pattern)
@@ -265,7 +275,8 @@ class VectorEmbeddedFieldValueHandler implements FieldValueHandler {
                   this.documentBlock,
                   this.path,
                   this.id,
-                  this.autoEmbeddings));
+                  this.autoEmbeddings,
+                  this.featureFlags));
     }
 
     return wrappedSubDocumentHandler;

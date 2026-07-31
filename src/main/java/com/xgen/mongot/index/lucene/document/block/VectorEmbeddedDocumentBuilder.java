@@ -1,6 +1,7 @@
 package com.xgen.mongot.index.lucene.document.block;
 
 import com.google.common.collect.ImmutableMap;
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater.IndexingMetricsUpdater;
 import com.xgen.mongot.index.definition.VectorEmbeddedDocumentsFieldDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldMapping;
@@ -39,6 +40,7 @@ public class VectorEmbeddedDocumentBuilder implements DocumentBlockBuilder {
   private final IndexingMetricsUpdater indexingMetricsUpdater;
   private final IndexCapabilities indexCapabilities;
   private final ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings;
+  private final FeatureFlags featureFlags;
 
   private VectorEmbeddedDocumentBuilder(
       DocumentHandler wrappedDocumentBuilder,
@@ -49,7 +51,8 @@ public class VectorEmbeddedDocumentBuilder implements DocumentBlockBuilder {
       Optional<FieldPath> path,
       IndexingMetricsUpdater indexingMetricsUpdater,
       IndexCapabilities indexCapabilities,
-      ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings) {
+      ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings,
+      FeatureFlags featureFlags) {
     this.wrappedDocumentBuilder = wrappedDocumentBuilder;
     this.documentBlock = documentBlock;
     this.fieldDefinition = fieldDefinition;
@@ -59,6 +62,7 @@ public class VectorEmbeddedDocumentBuilder implements DocumentBlockBuilder {
     this.indexingMetricsUpdater = indexingMetricsUpdater;
     this.indexCapabilities = indexCapabilities;
     this.autoEmbeddings = autoEmbeddings;
+    this.featureFlags = featureFlags;
   }
 
   /**
@@ -71,6 +75,7 @@ public class VectorEmbeddedDocumentBuilder implements DocumentBlockBuilder {
    * @param indexingMetricsUpdater Metrics updater for indexing operations
    * @param indexCapabilities Index capabilities
    * @param autoEmbeddings Auto-generated embeddings map
+   * @param featureFlags Feature flags for this index
    * @return A new VectorEmbeddedDocumentBuilder instance for the root
    */
   public static VectorEmbeddedDocumentBuilder createRoot(
@@ -79,7 +84,8 @@ public class VectorEmbeddedDocumentBuilder implements DocumentBlockBuilder {
       byte[] id,
       IndexingMetricsUpdater indexingMetricsUpdater,
       IndexCapabilities indexCapabilities,
-      ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings) {
+      ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings,
+      FeatureFlags featureFlags) {
 
     // Create a root block for this document
     DocumentBlock rootBlock = RootBlock.create(wrappedDocumentBuilder);
@@ -93,7 +99,8 @@ public class VectorEmbeddedDocumentBuilder implements DocumentBlockBuilder {
         Optional.empty(),
         indexingMetricsUpdater,
         indexCapabilities,
-        autoEmbeddings);
+        autoEmbeddings,
+        featureFlags);
   }
 
   /**
@@ -108,6 +115,7 @@ public class VectorEmbeddedDocumentBuilder implements DocumentBlockBuilder {
    * @param indexingMetricsUpdater Metrics updater for indexing operations
    * @param indexCapabilities Index capabilities
    * @param autoEmbeddings Auto-generated embeddings map
+   * @param featureFlags Feature flags for this index
    * @return A new VectorEmbeddedDocumentBuilder instance
    */
   public static VectorEmbeddedDocumentBuilder create(
@@ -118,12 +126,13 @@ public class VectorEmbeddedDocumentBuilder implements DocumentBlockBuilder {
       FieldPath path,
       IndexingMetricsUpdater indexingMetricsUpdater,
       IndexCapabilities indexCapabilities,
-      ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings) {
+      ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings,
+      FeatureFlags featureFlags) {
 
     // Create a new child document block for this embedded document
     VectorIndexDocumentWrapper documentWrapper =
         VectorIndexDocumentWrapper.createEmbedded(
-            id, path, indexCapabilities, indexingMetricsUpdater);
+            id, path, indexCapabilities, indexingMetricsUpdater, featureFlags);
 
     DocumentBlock childBlock = parentBlock.newChild(documentWrapper, () -> Optional.empty());
 
@@ -143,7 +152,8 @@ public class VectorEmbeddedDocumentBuilder implements DocumentBlockBuilder {
         Optional.of(path),
         indexingMetricsUpdater,
         indexCapabilities,
-        autoEmbeddings);
+        autoEmbeddings,
+        featureFlags);
   }
 
   /**
@@ -163,7 +173,8 @@ public class VectorEmbeddedDocumentBuilder implements DocumentBlockBuilder {
         this.indexCapabilities,
         this.path.map(path -> path.newChild(leafPath)).orElseGet(() -> FieldPath.newRoot(leafPath)),
         this.id,
-        this.autoEmbeddings);
+        this.autoEmbeddings,
+        this.featureFlags);
   }
 
   @Override

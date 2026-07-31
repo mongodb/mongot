@@ -2,6 +2,7 @@ package com.xgen.mongot.index.lucene.document.block;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.errorprone.annotations.Var;
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater.IndexingMetricsUpdater;
 import com.xgen.mongot.index.definition.VectorEmbeddedDocumentsFieldDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
@@ -33,6 +34,7 @@ class VectorEmbeddedDocumentHandler implements DocumentHandler {
   final IndexingMetricsUpdater indexingMetricsUpdater;
   final IndexCapabilities indexCapabilities;
   final ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings;
+  final FeatureFlags featureFlags;
 
   private VectorEmbeddedDocumentHandler(
       DocumentHandler wrappedFieldHandler,
@@ -43,7 +45,8 @@ class VectorEmbeddedDocumentHandler implements DocumentHandler {
       DocumentBlock documentBlock,
       FieldPath fieldPath,
       byte[] id,
-      ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings) {
+      ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings,
+      FeatureFlags featureFlags) {
     this.wrappedFieldHandler = wrappedFieldHandler;
     this.fieldDefinition = fieldDefinition;
     this.mapping = mapping;
@@ -53,6 +56,7 @@ class VectorEmbeddedDocumentHandler implements DocumentHandler {
     this.fieldPath = fieldPath;
     this.id = id;
     this.autoEmbeddings = autoEmbeddings;
+    this.featureFlags = featureFlags;
   }
 
   static DocumentHandler create(
@@ -64,7 +68,8 @@ class VectorEmbeddedDocumentHandler implements DocumentHandler {
       DocumentBlock documentBlock,
       FieldPath fieldPath,
       byte[] id,
-      ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings) {
+      ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings,
+      FeatureFlags featureFlags) {
     return new VectorEmbeddedDocumentHandler(
         wrappedFieldHandler,
         fieldDefinition,
@@ -74,7 +79,8 @@ class VectorEmbeddedDocumentHandler implements DocumentHandler {
         documentBlock,
         fieldPath,
         id,
-        autoEmbeddings);
+        autoEmbeddings,
+        featureFlags);
   }
 
   /**
@@ -95,7 +101,8 @@ class VectorEmbeddedDocumentHandler implements DocumentHandler {
         this.indexCapabilities,
         this.fieldPath.newChild(leafPath),
         this.id,
-        this.autoEmbeddings);
+        this.autoEmbeddings,
+        this.featureFlags);
   }
 
   /**
@@ -121,7 +128,8 @@ class VectorEmbeddedDocumentHandler implements DocumentHandler {
       IndexCapabilities indexCapabilities,
       FieldPath fieldValueHandlerAbsolutePath,
       byte[] id,
-      ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings) {
+      ImmutableMap<FieldPath, ImmutableMap<String, Vector>> autoEmbeddings,
+      FeatureFlags featureFlags) {
     String leafPath = fieldValueHandlerAbsolutePath.getLeaf();
 
     // Check if this path is the nested root for embedded vectors
@@ -141,7 +149,8 @@ class VectorEmbeddedDocumentHandler implements DocumentHandler {
                   indexCapabilities,
                   fieldValueHandlerAbsolutePath,
                   id,
-                  autoEmbeddings))
+                  autoEmbeddings,
+                  featureFlags))
           .or(() -> documentHandler.valueHandler(leafPath));
     }
 
@@ -158,7 +167,8 @@ class VectorEmbeddedDocumentHandler implements DocumentHandler {
               indexCapabilities,
               fieldValueHandlerAbsolutePath,
               id,
-              autoEmbeddings));
+              autoEmbeddings,
+              featureFlags));
     }
 
     // If fieldDefinition is null (at root level), check the mapping directly
@@ -181,7 +191,8 @@ class VectorEmbeddedDocumentHandler implements DocumentHandler {
                   indexCapabilities,
                   fieldValueHandlerAbsolutePath,
                   id,
-                  autoEmbeddings))
+                  autoEmbeddings,
+                  featureFlags))
           .or(() -> documentHandler.valueHandler(leafPath));
     }
     return documentHandler.valueHandler(leafPath);

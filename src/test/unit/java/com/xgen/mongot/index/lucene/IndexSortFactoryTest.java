@@ -378,7 +378,8 @@ public class IndexSortFactoryTest {
                   AnalyzerRegistryBuilder.empty().getNormalizer(StockNormalizerName.NONE),
                   resolver,
                   new IndexMetricsUpdater.IndexingMetricsUpdater(
-                      SearchIndex.mockMetricsFactory(), indexDefinition.getType()))
+                      SearchIndex.mockMetricsFactory(), indexDefinition.getType()),
+                  FeatureFlags.getDefault())
               .createBuilder(LuceneIndexUtils.encodeDocumentId(bson.get("_id")));
       BsonDocumentProcessor.process(BsonUtils.documentToRaw(bson), builder);
       Document document = builder.build();

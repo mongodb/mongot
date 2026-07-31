@@ -206,6 +206,7 @@ public class FeatureFlagsTest {
       assertTrue(flags.isEnabled(Feature.INDEX_FEATURE_VERSION_FOUR));
       assertTrue(flags.isEnabled(Feature.SORTED_INDEX));
       assertTrue(flags.isEnabled(Feature.NESTED_VECTOR));
+      assertTrue(flags.isEnabled(Feature.BYTE_BINARY_QUANTIZATION));
     }
 
     @Test

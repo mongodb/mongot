@@ -96,7 +96,7 @@
         "fcisConsistentSnapshotsDownload": false,
         "fcisIndexDataConditionalWrites": false,
         "searchAggregation": false,
-        "byteBinaryQuantization": false,
+        "byteBinaryQuantization": true,
         "resetStaleInternalSearchCheckpoint": true,
         "enableChangeStreamPriorityScheduling": false,
         "changeStreamActivityObserver": false

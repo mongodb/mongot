@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.lucene.document.single;
 
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.version.IndexCapabilities;
 import org.apache.lucene.document.Document;
@@ -15,7 +16,7 @@ public class ExistingDocumentWrapper extends AbstractDocumentWrapper {
       Document luceneDocument,
       IndexCapabilities indexCapabilities,
       IndexMetricsUpdater.IndexingMetricsUpdater indexingMetricsUpdater) {
-    super(luceneDocument, indexCapabilities, indexingMetricsUpdater);
+    super(luceneDocument, indexCapabilities, indexingMetricsUpdater, FeatureFlags.getDefault());
   }
 
   /**

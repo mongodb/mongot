@@ -182,7 +182,7 @@ public class LuceneCodec extends FilterCodec {
               false,
               null,
               null);
-      case FieldName.TypeField.KNN_F32_Q1 ->
+      case FieldName.TypeField.KNN_F32_Q1, FieldName.TypeField.KNN_BYTE_Q1 ->
           new Mongot01042HnswBinaryQuantizedVectorsFormat(
               options.maxEdges(), options.numEdgeCandidates());
       default -> {
@@ -200,7 +200,8 @@ public class LuceneCodec extends FilterCodec {
           new Float32AndByteFlatVectorsFormat();
       case FieldName.TypeField.KNN_BIT -> new FlatBitVectorsFormat();
       case FieldName.TypeField.KNN_F32_Q7 -> new ScalarQuantizedFlatVectorsFormat(null, 7, false);
-      case FieldName.TypeField.KNN_F32_Q1 -> new BinaryQuantizedFlatVectorsFormat();
+      case FieldName.TypeField.KNN_F32_Q1, FieldName.TypeField.KNN_BYTE_Q1 ->
+          new BinaryQuantizedFlatVectorsFormat();
       default -> {
         FLOGGER.atWarning().atMostEvery(1, TimeUnit.MINUTES).log(
             "Unexpected field type %s for KNN field %s. Using default", typeField, field);

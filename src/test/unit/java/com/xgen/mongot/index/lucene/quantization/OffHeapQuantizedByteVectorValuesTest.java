@@ -8,6 +8,7 @@ import static org.junit.Assert.assertSame;
 
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Range;
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexCapabilities;
@@ -98,7 +99,8 @@ public class OffHeapQuantizedByteVectorValuesTest {
                 SearchIndexCapabilities.CURRENT,
                 new IndexMetricsUpdater.IndexingMetricsUpdater(
                     SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
-                IndexingPolicyBuilderContext.builder().build());
+                IndexingPolicyBuilderContext.builder().build(),
+                FeatureFlags.getDefault());
         IndexableFieldFactory.addKnnVectorField(
             document,
             FIELD_PATH,

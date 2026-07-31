@@ -1,6 +1,7 @@
 package com.xgen.mongot.index.lucene.document.single;
 
 import com.google.common.collect.ImmutableSet;
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater.IndexingMetricsUpdater;
 import com.xgen.mongot.index.definition.NumericFieldOptions;
 import com.xgen.mongot.index.definition.SearchFieldDefinitionResolver;
@@ -46,8 +47,9 @@ public class DocumentWrapper extends AbstractDocumentWrapper {
       Optional<FieldPath> embeddedRoot,
       Analyzer indexAnalyzer,
       SearchFieldDefinitionResolver resolver,
-      IndexingMetricsUpdater indexingMetricsUpdater) {
-    super(luceneDocument, resolver.indexCapabilities, indexingMetricsUpdater);
+      IndexingMetricsUpdater indexingMetricsUpdater,
+      FeatureFlags featureFlags) {
+    super(luceneDocument, resolver.indexCapabilities, indexingMetricsUpdater, featureFlags);
     this.embeddedRoot = embeddedRoot;
     this.isNumberAndDateSortable =
         embeddedRoot.isEmpty() || resolver.indexCapabilities.supportsEmbeddedNumericAndDateV2();
@@ -69,11 +71,17 @@ public class DocumentWrapper extends AbstractDocumentWrapper {
       byte[] id,
       Analyzer indexAnalyzer,
       SearchFieldDefinitionResolver resolver,
-      IndexingMetricsUpdater indexingMetricsUpdater) {
+      IndexingMetricsUpdater indexingMetricsUpdater,
+      FeatureFlags featureFlags) {
     Document luceneDocument = new Document();
     DocumentWrapper wrapper =
         new DocumentWrapper(
-            luceneDocument, Optional.empty(), indexAnalyzer, resolver, indexingMetricsUpdater);
+            luceneDocument,
+            Optional.empty(),
+            indexAnalyzer,
+            resolver,
+            indexingMetricsUpdater,
+            featureFlags);
     IndexableFieldFactory.addDocumentIdField(
         wrapper, id, resolver.indexCapabilities.isMetaIdSortable());
     return wrapper;
@@ -92,9 +100,10 @@ public class DocumentWrapper extends AbstractDocumentWrapper {
       byte[] id,
       Analyzer indexAnalyzer,
       SearchFieldDefinitionResolver resolver,
-      IndexingMetricsUpdater indexingMetricsUpdater) {
+      IndexingMetricsUpdater indexingMetricsUpdater,
+      FeatureFlags featureFlags) {
     DocumentWrapper wrapper =
-        createRootStandalone(id, indexAnalyzer, resolver, indexingMetricsUpdater);
+        createRootStandalone(id, indexAnalyzer, resolver, indexingMetricsUpdater, featureFlags);
     IndexableFieldFactory.addEmbeddedRootField(wrapper);
     return wrapper;
   }
@@ -126,7 +135,10 @@ public class DocumentWrapper extends AbstractDocumentWrapper {
             Optional.of(embeddedRoot),
             indexAnalyzer,
             resolver,
-            indexingMetricsUpdater);
+            indexingMetricsUpdater,
+            // Default FeatureFlags because embedded documents do not need BYTE_BINARY_QUANTIZATION
+            // feature flag since this path cannot reach IndexableFieldFactory.addKnnVectorField
+            FeatureFlags.getDefault());
     IndexableFieldFactory.addDocumentIdField(
         wrapper, id, resolver.indexCapabilities.isMetaIdSortable());
     IndexableFieldFactory.addEmbeddedPathField(wrapper);

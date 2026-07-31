@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.lucene;
 
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.analyzer.definition.StockNormalizerName;
 import com.xgen.mongot.index.ingestion.BsonDocumentProcessor;
@@ -93,7 +94,8 @@ public class GeoBsonConversionTest {
                 AnalyzerRegistryBuilder.empty().getNormalizer(StockNormalizerName.NONE),
                 indexDefinition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
                 new IndexMetricsUpdater.IndexingMetricsUpdater(
-                    SearchIndex.mockMetricsFactory(), indexDefinition.getType()))
+                    SearchIndex.mockMetricsFactory(), indexDefinition.getType()),
+                FeatureFlags.getDefault())
             .createBuilder(new byte[] {14, 0, 0, 0, 16, 95, 105, 100, 0, 13, 0, 0, 0, 0});
     var bsonDocument = new BsonDocument().append("_id", new BsonDouble(0)).append("geo", value);
     BsonDocumentProcessor.process(BsonUtils.documentToRaw(bsonDocument), builder);

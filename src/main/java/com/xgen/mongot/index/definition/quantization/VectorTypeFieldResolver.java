@@ -7,8 +7,6 @@ import com.xgen.mongot.util.bson.Vector;
  * Resolves the Lucene {@link FieldName.TypeField} that backs a vector field. The mapping depends on
  * both the field's indexed {@link VectorQuantization} and the {@link Vector.VectorType} of the
  * query vector.
- *
- * <p>Query/read-path only. Do not use on indexing/write paths.
  */
 public final class VectorTypeFieldResolver {
 

@@ -4,6 +4,7 @@ import static com.google.common.flogger.LazyArgs.lazy;
 import static com.xgen.mongot.util.Check.checkState;
 
 import com.google.common.flogger.FluentLogger;
+import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.index.definition.FieldDefinition;
 import com.xgen.mongot.index.definition.NumericFieldOptions;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
@@ -12,6 +13,7 @@ import com.xgen.mongot.index.definition.StringFieldDefinition;
 import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.index.definition.quantization.VectorQuantization;
+import com.xgen.mongot.index.definition.quantization.VectorTypeFieldResolver;
 import com.xgen.mongot.index.lucene.config.LuceneConfig;
 import com.xgen.mongot.index.lucene.extension.KnnByteVectorField;
 import com.xgen.mongot.index.lucene.extension.KnnFloatVectorField;
@@ -522,39 +524,43 @@ public class IndexableFieldFactory {
     }
 
     VectorSimilarityFunction similarityFunction = similarity.getLuceneSimilarityFunction();
-
+    String vectorFieldName =
+        VectorTypeFieldResolver.resolveTypeField(quantization, vector.getVectorType())
+            .getLuceneFieldName(field, document.getEmbeddedRoot());
     try {
       switch (vector.getVectorType()) {
         case FLOAT -> {
-          String floatVectorFieldName =
-              quantization.toTypeField().getLuceneFieldName(field, document.getEmbeddedRoot());
           document.addVectorField(
               new KnnFloatVectorField(
-                  floatVectorFieldName,
-                  vector.asFloatVector().getFloatVector(),
-                  similarityFunction),
+                  vectorFieldName, vector.asFloatVector().getFloatVector(), similarityFunction),
               checkFieldName);
         }
         case BYTE -> {
-          if (isQuantizationEnabled(quantization)) {
+          if (quantization.equals(VectorQuantization.SCALAR)) {
             FLOGGER.atWarning().atMostEvery(10, TimeUnit.MINUTES).log(
-                "Quantization is only supported for FLOAT vectors but found BYTE vector, "
+                "Scalar quantization is only supported for FLOAT vectors but found BYTE vector, "
                     + "skipping. _id=%s",
                 lazy(() -> getLoggingId(document)));
             return;
           }
-          String byteVectorFieldName =
-              FieldName.TypeField.KNN_BYTE.getLuceneFieldName(field, document.getEmbeddedRoot());
+          if (quantization.equals(VectorQuantization.BINARY)
+              && !document.getFeatureFlags().isEnabled(Feature.BYTE_BINARY_QUANTIZATION)) {
+            FLOGGER.atWarning().atMostEvery(10, TimeUnit.MINUTES).log(
+                "Binary quantization is only supported for FLOAT vectors but found BYTE vector, "
+                    + "skipping. _id=%s",
+                lazy(() -> getLoggingId(document)));
+            return;
+          }
           document.addVectorField(
               new KnnByteVectorField(
-                  byteVectorFieldName, vector.asByteVector().getByteVector(), similarityFunction),
+                  vectorFieldName, vector.asByteVector().getByteVector(), similarityFunction),
               checkFieldName);
         }
         case BIT -> {
           if (isQuantizationEnabled(quantization)) {
             FLOGGER.atWarning().atMostEvery(10, TimeUnit.MINUTES).log(
-                "Quantization is only supported for FLOAT vectors but found BIT vector, "
-                    + "skipping. _id=%s",
+                "Quantization is only supported for FLOAT and BYTE vectors but found BIT"
+                    + " vector, skipping. _id=%s",
                 lazy(() -> getLoggingId(document)));
             return;
           }
@@ -564,11 +570,9 @@ public class IndexableFieldFactory {
                 similarity, lazy(() -> getLoggingId(document)));
             return;
           }
-          String bitVectorFieldName =
-              FieldName.TypeField.KNN_BIT.getLuceneFieldName(field, document.getEmbeddedRoot());
           document.addVectorField(
               new KnnByteVectorField(
-                  bitVectorFieldName, vector.asBitVector().getBitVector(), similarityFunction),
+                  vectorFieldName, vector.asBitVector().getBitVector(), similarityFunction),
               checkFieldName);
         }
       }

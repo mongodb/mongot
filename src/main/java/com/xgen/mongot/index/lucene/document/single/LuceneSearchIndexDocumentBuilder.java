@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.lucene.document.single;
 
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.EmbeddedDocumentsFieldDefinition;
@@ -102,9 +103,11 @@ public class LuceneSearchIndexDocumentBuilder implements DocumentBuilder {
       DocumentFieldDefinition mappings,
       Analyzer indexAnalyzer,
       SearchFieldDefinitionResolver resolver,
-      IndexMetricsUpdater.IndexingMetricsUpdater indexingMetricsUpdater) {
+      IndexMetricsUpdater.IndexingMetricsUpdater indexingMetricsUpdater,
+      FeatureFlags featureFlags) {
     return new LuceneSearchIndexDocumentBuilder(
-        DocumentWrapper.createRootStandalone(id, indexAnalyzer, resolver, indexingMetricsUpdater),
+        DocumentWrapper.createRootStandalone(
+            id, indexAnalyzer, resolver, indexingMetricsUpdater, featureFlags),
         mappings,
         Optional.empty());
   }
@@ -120,9 +123,11 @@ public class LuceneSearchIndexDocumentBuilder implements DocumentBuilder {
       DocumentFieldDefinition fieldDefinition,
       Analyzer indexAnalyzer,
       SearchFieldDefinitionResolver resolver,
-      IndexMetricsUpdater.IndexingMetricsUpdater indexingMetricsUpdater) {
+      IndexMetricsUpdater.IndexingMetricsUpdater indexingMetricsUpdater,
+      FeatureFlags featureFlags) {
     return new LuceneSearchIndexDocumentBuilder(
-        DocumentWrapper.createEmbeddedRoot(id, indexAnalyzer, resolver, indexingMetricsUpdater),
+        DocumentWrapper.createEmbeddedRoot(
+            id, indexAnalyzer, resolver, indexingMetricsUpdater, featureFlags),
         fieldDefinition,
         Optional.empty());
   }
