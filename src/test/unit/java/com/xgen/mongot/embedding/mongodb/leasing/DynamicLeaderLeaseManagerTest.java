@@ -46,6 +46,7 @@ import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
 import com.xgen.testing.mongot.metrics.SimpleMetricsFactory;
 import com.xgen.testing.mongot.mock.index.MaterializedViewIndex;
 import com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils;
+import io.micrometer.core.instrument.Counter;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -820,6 +821,149 @@ public class DynamicLeaderLeaseManagerTest {
     // Assert - should transition to follower
     assertThat(this.leaseManager.isLeader(generationId)).isFalse();
     assertThat(this.leaseManager.getFollowerGenerationIds()).contains(generationId);
+  }
+
+  // ==================== Checkpoint Failure Counters ====================
+
+  @Test
+  public void heartbeat_renewalRejected_isNotCountedAsCheckpointFailure() {
+    // Arrange
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    String leaseKey = getLeaseKeyFromCatalog(generationId);
+    long localVersionBefore = this.leaseManager.getLeaseVersion(generationId);
+    putLeaseInRenewalWindow(generationId);
+
+    // Another host owns the lease in the store: this instance is a zombie leader.
+    Lease stolenLease = createLease(generationId, OTHER_HOSTNAME, Instant.now().plusSeconds(60));
+    setupFailedLeaseUpdate();
+    setupFindLeaseFromDatabase(stolenLease);
+
+    // Act
+    this.leaseManager.heartbeat();
+
+    // Assert
+    // A lost renewal implies no MV write, so it is deliberately uncounted.
+    assertThat(checkpointRejectedCount()).isEqualTo(0.0);
+    assertThat(this.leaseManager.isLeader(generationId)).isFalse();
+    // Pins pre-existing behaviour left alone here: refreshLeaseFromDatabase installs the foreign
+    // lease, which getLeaseVersion then hands out. TODO(CLOUDP-429754): flip these assertions.
+    assertThat(this.leaseManager.getLeases().get(leaseKey).leaseOwner()).isEqualTo(OTHER_HOSTNAME);
+    assertThat(this.leaseManager.getLeaseVersion(generationId)).isNotEqualTo(localVersionBefore);
+  }
+
+  @Test
+  public void heartbeat_renewalRejected_leaseDeleted_transitionsToFollower() {
+    // Arrange
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    String leaseKey = getLeaseKeyFromCatalog(generationId);
+    putLeaseInRenewalWindow(generationId);
+
+    // No lease document in the store, as after a concurrent index drop.
+    setupFailedLeaseUpdate();
+    setupNoLeaseInDatabase();
+
+    // Act
+    this.leaseManager.heartbeat();
+
+    // Assert
+    assertThat(checkpointRejectedCount()).isEqualTo(0.0);
+    // Pins pre-existing behaviour: an empty read caches nothing, so the stale entry survives —
+    // which is what lets becomeFollower demote and the next poll re-detect the lease as acquirable.
+    assertThat(this.leaseManager.getLeases()).containsKey(leaseKey);
+    assertThat(this.leaseManager.getFollowerGenerationIds()).contains(generationId);
+  }
+
+  @Test
+  public void updateCommitInfo_rejected_recordsCheckpointRejected() throws Exception {
+    // Arrange
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    long localVersionBefore = this.leaseManager.getLeaseVersion(generationId);
+
+    // The commit path is the only place a zombie is caught when its MV writes were silently
+    // dropped rather than rejected.
+    Lease stolenLease = createLease(generationId, OTHER_HOSTNAME, Instant.now().plusSeconds(60));
+    setupFailedLeaseUpdate();
+    setupFindLeaseFromDatabase(stolenLease);
+
+    // Act
+    this.leaseManager.updateCommitInfo(generationId, EncodedUserData.EMPTY);
+
+    // Assert - the MV write already ran, so documents may lack a checkpoint
+    assertThat(checkpointRejectedCount()).isEqualTo(1.0);
+    assertThat(this.leaseManager.isLeader(generationId)).isFalse();
+    // Nothing on this path refreshes the cache, so the local token is untouched.
+    assertThat(this.leaseManager.getLeaseVersion(generationId)).isEqualTo(localVersionBefore);
+    assertThat(this.leaseManager.getLeaseVersion(generationId))
+        .isNotEqualTo(stolenLease.leaseVersion());
+  }
+
+  @Test
+  public void updateCommitInfo_afterDemotion_recordsSkippedCheckpoint() throws Exception {
+    // Arrange - a demoted generator still draining. commit() calls updateCommitInfo even for an
+    // empty batch, so this catches drains where no document was even written.
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    this.leaseManager.releaseLeadership(generationId);
+    clearInvocations(this.mockCollection);
+
+    // Act
+    this.leaseManager.updateCommitInfo(generationId, EncodedUserData.EMPTY);
+
+    // Assert - dropped before reaching the store, so no OCC rejection either
+    assertThat(skippedCheckpointCount()).isEqualTo(1.0);
+    assertThat(checkpointRejectedCount()).isEqualTo(0.0);
+    verify(this.mockCollection, never()).replaceOne(any(), any(BsonDocument.class));
+  }
+
+  @Test
+  public void updateCommitInfo_asLeader_recordsNoSkippedCheckpoint() throws Exception {
+    // Arrange
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    setupSuccessfulLeaseUpdate();
+
+    // Act
+    this.leaseManager.updateCommitInfo(generationId, EncodedUserData.EMPTY);
+
+    // Assert
+    assertThat(skippedCheckpointCount()).isEqualTo(0.0);
+  }
+
+  private double skippedCheckpointCount() {
+    Counter counter =
+        this.metricsFactory
+            .meterRegistry
+            .find(
+                this.metricsFactory.namespace
+                    + "."
+                    + DynamicLeaderLeaseManager.SKIPPED_CHECKPOINT_COUNTER_NAME)
+            .counter();
+    return counter == null ? 0.0 : counter.count();
+  }
+
+  /** Adds a generation and takes leadership of its expired lease. */
+  private MaterializedViewGenerationId acquireLeadership() {
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    this.leaseManager.add(indexGeneration);
+
+    Lease expiredLease = createLease(generationId, OTHER_HOSTNAME, Instant.now().minusSeconds(60));
+    setupFindLeaseFromDatabase(expiredLease);
+    setupSuccessfulLeaseUpdate();
+    this.leaseManager.pollFollowerStatuses();
+    this.leaseManager.tryAcquireLeadership(generationId);
+    assertThat(this.leaseManager.isLeader(generationId)).isTrue();
+    return generationId;
+  }
+
+  private double checkpointRejectedCount() {
+    Counter counter =
+        this.metricsFactory
+            .meterRegistry
+            .find(
+                this.metricsFactory.namespace
+                    + "."
+                    + DynamicLeaderLeaseManager.CHECKPOINT_REJECTED_COUNTER_NAME)
+            .counter();
+    return counter == null ? 0.0 : counter.count();
   }
 
   @Test

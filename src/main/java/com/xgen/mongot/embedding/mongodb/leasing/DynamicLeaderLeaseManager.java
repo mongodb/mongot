@@ -96,6 +96,8 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
   static final String CIRCUIT_BREAKER_OPENED_COUNTER_NAME = "circuitBreakerOpened";
   static final String ACQUISITION_SUPPRESSED_COUNTER_NAME = "acquisitionSuppressed";
   static final String LEASE_STORE_STALLED_GAUGE_NAME = "leaseStoreStalled";
+  static final String CHECKPOINT_REJECTED_COUNTER_NAME = "checkpointsRejectedNotOwner";
+  static final String SKIPPED_CHECKPOINT_COUNTER_NAME = "checkpointsSkippedNotLeader";
 
   // Fixed like GIVE_UP_BLACKOUT_SECONDS and the client retry policy: an internal, fail-safe
   // resilience timing, not an ops knob. Cooldown base = refresh interval, cap = lease TTL.
@@ -131,6 +133,8 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
   // LeaseStoreCircuitBreaker.
   private final LeaseStoreCircuitBreaker leaseStoreCircuitBreaker;
   private final Counter acquisitionSuppressedCounter;
+  private final Counter checkpointRejectedCounter;
+  private final Counter skippedCheckpointCounter;
 
   @TestOnly
   public DynamicLeaderLeaseManager(
@@ -177,6 +181,8 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     this.uuidResolver = buildUuidResolver();
     this.acquisitionSuppressedCounter =
         this.metricsFactory.counter(ACQUISITION_SUPPRESSED_COUNTER_NAME);
+    this.checkpointRejectedCounter = this.metricsFactory.counter(CHECKPOINT_REJECTED_COUNTER_NAME);
+    this.skippedCheckpointCounter = this.metricsFactory.counter(SKIPPED_CHECKPOINT_COUNTER_NAME);
     this.leaseStoreCircuitBreaker =
         new LeaseStoreCircuitBreaker(
             CIRCUIT_BREAKER_FAILURE_THRESHOLD,
@@ -742,7 +748,17 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
         ensureLeaseExists(leaseKey);
         Lease currentLease = this.leases.get(leaseKey);
         Lease updatedLease = currentLease.withUpdatedCheckpoint(encodedUserData);
-        updateLeaseInDatabase(leaseKey, generationId, currentLease, updatedLease, encodedUserData);
+        if (!updateLeaseInDatabase(
+            leaseKey, generationId, currentLease, updatedLease, encodedUserData)) {
+          // commit() has already run its bulkWrite, so MV documents may exist with no checkpoint.
+          this.checkpointRejectedCounter.increment();
+          LOG.atWarn()
+              .addKeyValue("generationId", generationId)
+              .addKeyValue("leaseKey", leaseKey)
+              .addKeyValue("hostname", this.hostname)
+              .addKeyValue("expectedLeaseVersion", currentLease.leaseVersion())
+              .log("Checkpoint commit rejected, this host no longer owns the lease");
+        }
       } catch (IllegalStateException e) {
         LOG.warn(
             "Metadata removed for generation {} during updateCommitInfo, removing from leaders",
@@ -750,6 +766,14 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
             e);
         cleanupAfterMetadataLoss(generationId, leaseKey);
       }
+    } else {
+      // commit() has already run its bulkWrite, so MV documents may exist with a stale fencing
+      // token and no checkpoint.
+      this.skippedCheckpointCounter.increment();
+      LOG.atWarn()
+          .addKeyValue("generationId", generationId)
+          .addKeyValue("hostname", this.hostname)
+          .log("Skipped checkpoint commit, no longer leader for this generation");
     }
   }
 
@@ -1980,7 +2004,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
    * }
    * }</pre>
    */
-  private void updateLeaseInDatabase(
+  private boolean updateLeaseInDatabase(
       String leaseKey,
       MaterializedViewGenerationId generationId,
       Lease currentLease,
@@ -2010,9 +2034,10 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
         LOG.warn(
             "Failed to update lease for {} - ownership/version mismatch or lease deleted.",
             leaseKey);
-      } else {
-        this.leases.put(leaseKey, updatedLease);
+        return false;
       }
+      this.leases.put(leaseKey, updatedLease);
+      return true;
     } catch (Exception e) {
       // Transient error (e.g., network issue) - throw so caller can retry on next cycle.
       throw new MaterializedViewTransientException(
