@@ -2,6 +2,9 @@ package com.xgen.mongot.index.query.aggregation;
 
 import com.xgen.mongot.index.definition.NumericFieldOptions;
 import com.xgen.mongot.index.lucene.util.LuceneDoubleConversionUtils;
+import org.bson.BsonDouble;
+import org.bson.BsonInt64;
+import org.bson.BsonValue;
 
 /**
  * Decodes encoded {@link org.apache.lucene.index.SortedNumericDocValues} for aggregation metrics.
@@ -39,6 +42,20 @@ final class NumericMetricValues {
     return switch (representation) {
       case INT64 -> (double) encoded;
       case DOUBLE -> LuceneDoubleConversionUtils.fromMqlSortableLong(encoded);
+    };
+  }
+
+  /**
+   * Decode one stored doc-value long into BSON, preserving the field's representation.
+   *
+   * <p>Used by {@code min}/{@code max}, which return a value drawn from the data rather than a
+   * computed one, so an {@code INT64} field yields a {@link BsonInt64} instead of widening to
+   * {@code double} the way {@link #decode} does for sum/avg.
+   */
+  static BsonValue decodeToBson(long encoded, NumericFieldOptions.Representation representation) {
+    return switch (representation) {
+      case INT64 -> new BsonInt64(encoded);
+      case DOUBLE -> new BsonDouble(LuceneDoubleConversionUtils.fromMqlSortableLong(encoded));
     };
   }
 }

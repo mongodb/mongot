@@ -10,11 +10,15 @@ import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.StoredSourceDefinition;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.query.InvalidQueryException;
+import com.xgen.mongot.index.query.aggregation.MaxAggregationSpec;
+import com.xgen.mongot.index.query.aggregation.MinAggregationSpec;
 import com.xgen.mongot.index.query.aggregation.ResolvedNumericMetricField;
 import com.xgen.mongot.index.query.aggregation.ResolvedTokenField;
+import com.xgen.mongot.index.query.aggregation.TopAggregationSpec;
 import com.xgen.mongot.index.query.collectors.FacetDefinition;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.util.FieldPath;
+import com.xgen.testing.mongot.index.definition.DateFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.NumericFieldDefinitionBuilder;
@@ -70,6 +74,33 @@ public class LuceneAggregationContextFieldResolverTest {
     assertThrows(
         InvalidQueryException.class,
         () -> fieldResolver.resolveNumericMetricField(PRICE_PATH, Optional.empty()));
+  }
+
+  @Test
+  public void resolveNumericMetricField_dateField_throws() {
+    // A date field has a real field definition and a dateV2 doc-values column, so it is the most
+    // plausible thing a user reaches for after numbers -- and the one this feature deliberately
+    // does not support yet. Without this test only token/unmapped rejection is pinned.
+    LuceneAggregationContextFieldResolver fieldResolver =
+        new LuceneAggregationContextFieldResolver(
+            createFacetContext(dateMappings(PRICE_FIELD), Optional.empty()));
+
+    assertThrows(
+        InvalidQueryException.class,
+        () -> fieldResolver.resolveNumericMetricField(PRICE_PATH, Optional.empty()));
+  }
+
+  @Test
+  public void withResolvedFields_minOnDateField_throws() {
+    LuceneAggregationContextFieldResolver fieldResolver =
+        new LuceneAggregationContextFieldResolver(
+            createFacetContext(dateMappings(PRICE_FIELD), Optional.empty()));
+
+    assertThrows(
+        InvalidQueryException.class,
+        () ->
+            fieldResolver.withResolvedFields(
+                new TopAggregationSpec(List.of(new MinAggregationSpec("min_price", PRICE_PATH)))));
   }
 
   @Test
@@ -165,6 +196,38 @@ public class LuceneAggregationContextFieldResolverTest {
   }
 
   @Test
+  public void withResolvedFields_minMaxOnNumberField_resolvesNumericMetric()
+      throws InvalidQueryException {
+    LuceneAggregationContextFieldResolver fieldResolver =
+        createFieldResolverWithNumberField(NumericFieldOptions.Representation.INT64);
+
+    LuceneAggregationContextFieldResolver resolved =
+        fieldResolver.withResolvedFields(
+            new TopAggregationSpec(
+                List.of(
+                    new MinAggregationSpec("min_price", PRICE_PATH),
+                    new MaxAggregationSpec("max_price", PRICE_PATH))));
+
+    assertEquals(
+        FieldName.TypeField.NUMBER_INT64_V2.getLuceneFieldName(PRICE_PATH, Optional.empty()),
+        resolved.resolveNumeric(PRICE_PATH).luceneFieldName());
+  }
+
+  @Test
+  public void withResolvedFields_minOnNonNumberField_throws() {
+    // min/max read NUMBER_*_V2 doc values, so a non-number path must be rejected before execution
+    // -- this is the only validation gate for the operator.
+    LuceneAggregationContextFieldResolver fieldResolver =
+        createFieldResolverWithTokenField(CITY_FIELD);
+
+    assertThrows(
+        InvalidQueryException.class,
+        () ->
+            fieldResolver.withResolvedFields(
+                new TopAggregationSpec(List.of(new MinAggregationSpec("min_city", CITY_PATH)))));
+  }
+
+  @Test
   public void getBoundaryFacetFieldType_v2NumberField_resolvesV2Type()
       throws InvalidQueryException {
     LuceneAggregationContextFieldResolver fieldResolver =
@@ -176,6 +239,16 @@ public class LuceneAggregationContextFieldResolverTest {
             new FacetDefinition.NumericFacetDefinition(
                 PRICE_FIELD, Optional.empty(), List.of(new BsonInt32(0), new BsonInt32(10))),
             Optional.empty()));
+  }
+
+  private static DocumentFieldDefinition dateMappings(String fieldName) {
+    return DocumentFieldDefinitionBuilder.builder()
+        .field(
+            fieldName,
+            FieldDefinitionBuilder.builder()
+                .date(DateFieldDefinitionBuilder.builder().build())
+                .build())
+        .build();
   }
 
   private static DocumentFieldDefinition tokenMappings(String fieldName) {

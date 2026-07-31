@@ -88,6 +88,57 @@ public class SearchAggregationBootstrapTest {
   }
 
   @Test
+  public void installRegistry_registersMinAndMaxOperators() {
+    SearchAggregationBootstrap.installRegistry();
+
+    OperatorAggregationSpec minSpec =
+        AggregationRegistry.getInstance()
+            .getOperatorSupplier(SearchAggregationBootstrap.MIN)
+            .build("min_price", Optional.of(PRICE));
+    assertTrue(minSpec instanceof MinAggregationSpec);
+    assertEquals(PRICE, ((MinAggregationSpec) minSpec).getPath());
+
+    OperatorAggregationSpec maxSpec =
+        AggregationRegistry.getInstance()
+            .getOperatorSupplier(SearchAggregationBootstrap.MAX)
+            .build("max_price", Optional.of(PRICE));
+    assertTrue(maxSpec instanceof MaxAggregationSpec);
+    assertEquals(PRICE, ((MaxAggregationSpec) maxSpec).getPath());
+  }
+
+  @Test
+  public void installRegistryIfEnabled_flagDisabled_leavesMinMaxUnregistered() {
+    SearchAggregationBootstrap.installRegistryIfEnabled(FeatureFlags.getDefault());
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            AggregationRegistry.getInstance().getOperatorSupplier(SearchAggregationBootstrap.MIN));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            AggregationRegistry.getInstance().getOperatorSupplier(SearchAggregationBootstrap.MAX));
+  }
+
+  @Test
+  public void installRegistry_minOrMaxWithoutPath_throws() {
+    SearchAggregationBootstrap.installRegistry();
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            AggregationRegistry.getInstance()
+                .getOperatorSupplier(SearchAggregationBootstrap.MIN)
+                .build("min_price", Optional.empty()));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            AggregationRegistry.getInstance()
+                .getOperatorSupplier(SearchAggregationBootstrap.MAX)
+                .build("max_price", Optional.empty()));
+  }
+
+  @Test
   public void installRegistry_sumWithoutPath_throws() {
     SearchAggregationBootstrap.installRegistry();
 

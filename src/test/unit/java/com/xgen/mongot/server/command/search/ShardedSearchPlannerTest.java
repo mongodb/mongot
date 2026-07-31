@@ -32,6 +32,7 @@ import org.bson.BsonDateTime;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonString;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -47,6 +48,15 @@ public class ShardedSearchPlannerTest {
 
   @BeforeClass
   public static void setUpAggregationRegistry() {
+    TestOperatorSpecs.installRegistry();
+  }
+
+  /**
+   * Restores the fake-spec registry after any test that swapped in the production one. Idempotent,
+   * so it is safe for every test in the class.
+   */
+  @After
+  public void restoreTestOperatorRegistry() {
     TestOperatorSpecs.installRegistry();
   }
 
@@ -621,6 +631,135 @@ public class ShardedSearchPlannerTest {
                 query,
                 new PlanShardedSearchCommandDefinition.SearchFeatures(0),
                 DEFAULT_FEATURE_FLAGS));
+  }
+
+  @Test
+  public void testFlatMinAggregationMetaPipeline() throws Exception {
+    // The production specs, not TestOperatorSpecs' fakes: the point is the real $min merge shape.
+    SearchAggregationBootstrap.installRegistry();
+    CollectorQuery query = createFlatMinMaxAggregationQuery(Operator.MIN, "min_price");
+    PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
+        ShardedSearchPlanner.planSearch(
+            query,
+            new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+            AGGREGATION_ENABLED_FEATURE_FLAGS);
+
+    List<BsonDocument> pipeline = result.metaPipeline;
+    Assert.assertEquals(3, pipeline.size());
+
+    // The cross-shard merge is $min over each shard's partial, which is why the shard-side
+    // selection must ignore null/missing exactly as $min does -- see MinMaxSelection.
+    BsonDocument expectedGroup =
+        BsonDocument.parse(
+            """
+            {"$group": {
+              "_id": {
+                "$meta/group_name": {"$getField": {"field": "$meta/group_name", "input": "$$ROOT"}},
+                "$meta/keys": {"$getField": {"field": "$meta/keys", "input": "$$ROOT"}}
+              },
+              "count_value": {"$sum": "$count"},
+              "min_min_price": {"$min": "$min_min_price"}
+            }}
+            """);
+    Assert.assertEquals(expectedGroup, pipeline.get(0));
+
+    BsonDocument expectedFacet =
+        BsonDocument.parse(
+            """
+            {"$facet": {
+              "by_city": [
+                {"$match": {"$expr": {"$eq": [
+                  {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                  "by_city"
+                ]}}},
+                {"$project": {
+                  "_id": "$_id['$meta/keys'].city",
+                  "min_price": "$min_min_price"
+                }}
+              ],
+              "count": [{"$match": {"$expr": {"$eq": [
+                {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                null
+              ]}}}]
+            }}
+            """);
+    Assert.assertEquals(expectedFacet, pipeline.get(1));
+  }
+
+  @Test
+  public void testFlatMaxAggregationMetaPipeline() throws Exception {
+    // The production specs, not TestOperatorSpecs' fakes: the point is the real $max merge shape.
+    SearchAggregationBootstrap.installRegistry();
+    CollectorQuery query = createFlatMinMaxAggregationQuery(Operator.MAX, "max_price");
+    PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
+        ShardedSearchPlanner.planSearch(
+            query,
+            new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+            AGGREGATION_ENABLED_FEATURE_FLAGS);
+
+    List<BsonDocument> pipeline = result.metaPipeline;
+    Assert.assertEquals(3, pipeline.size());
+
+    BsonDocument expectedGroup =
+        BsonDocument.parse(
+            """
+            {"$group": {
+              "_id": {
+                "$meta/group_name": {"$getField": {"field": "$meta/group_name", "input": "$$ROOT"}},
+                "$meta/keys": {"$getField": {"field": "$meta/keys", "input": "$$ROOT"}}
+              },
+              "count_value": {"$sum": "$count"},
+              "max_max_price": {"$max": "$max_max_price"}
+            }}
+            """);
+    Assert.assertEquals(expectedGroup, pipeline.get(0));
+
+    BsonDocument expectedFacet =
+        BsonDocument.parse(
+            """
+            {"$facet": {
+              "by_city": [
+                {"$match": {"$expr": {"$eq": [
+                  {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                  "by_city"
+                ]}}},
+                {"$project": {
+                  "_id": "$_id['$meta/keys'].city",
+                  "max_price": "$max_max_price"
+                }}
+              ],
+              "count": [{"$match": {"$expr": {"$eq": [
+                {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                null
+              ]}}}]
+            }}
+            """);
+    Assert.assertEquals(expectedFacet, pipeline.get(1));
+  }
+
+  private static CollectorQuery createFlatMinMaxAggregationQuery(
+      Operator operator, String metricName) {
+    AggregationFacetDefinition agg =
+        AggregationFacetDefinition.create(
+            new FacetDefinition.StringFacetDefinition("city", 10),
+            Map.of(metricName, new MetricSpec(operator, Optional.of(FieldPath.parse("price")))),
+            Map.of());
+    AggregationCollector collector =
+        AggregationCollector.create(
+            OperatorBuilder.text().path("title").query("godfather").build(),
+            Map.of("by_city", agg));
+    return new CollectorQuery(
+        collector,
+        "testIndex",
+        Count.DEFAULT,
+        Optional.empty(),
+        Optional.empty(),
+        false,
+        false,
+        false,
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty());
   }
 
   @Test

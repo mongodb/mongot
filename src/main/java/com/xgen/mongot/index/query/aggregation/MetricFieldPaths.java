@@ -13,7 +13,7 @@ import java.util.function.Function;
 public final class MetricFieldPaths {
   private MetricFieldPaths() {}
 
-  /** Paths referenced by numeric metric specs (sum/avg). */
+  /** Paths referenced by numeric metric specs (sum/avg/min/max). */
   public static Set<FieldPath> collectNumeric(TopAggregationSpec root) {
     return collect(
         root,
@@ -21,6 +21,8 @@ public final class MetricFieldPaths {
             switch (spec) {
               case SumAggregationSpec sum -> Optional.of(sum.getPath());
               case AvgAggregationSpec avg -> Optional.of(avg.getPath());
+              case MinAggregationSpec min -> Optional.of(min.getPath());
+              case MaxAggregationSpec max -> Optional.of(max.getPath());
               case TopAggregationSpec top -> Optional.empty();
               case GroupAggregationSpec group -> Optional.empty();
               case OperatorAggregationSpec operator -> Optional.empty();

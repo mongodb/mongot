@@ -5,9 +5,11 @@ import static org.junit.Assert.assertThrows;
 
 import com.xgen.mongot.util.FieldPath;
 import java.util.List;
+import java.util.Optional;
 import org.bson.BsonArray;
 import org.bson.BsonDocument;
 import org.bson.BsonDouble;
+import org.bson.BsonInt64;
 import org.bson.BsonString;
 import org.bson.BsonValue;
 import org.junit.Test;
@@ -42,6 +44,64 @@ public class IntermediateBsonTest extends AggregationTestSupport {
               {"$meta/group_name": "by_city", "$meta/keys": {"city": "NYC"}, "sum_sum_price": 30.0},
               {"$meta/group_name": "by_city", "$meta/keys": {"city": "SF"}, "sum_sum_price": 50.0}
             ]
+            """);
+    assertEquals(expected, intermediate);
+  }
+
+  @Test
+  public void flatSingleLevelGroup_emitsMinAndMaxPartials() {
+    TermsResult byCity =
+        new TermsResult(
+            "by_city",
+            CITY,
+            List.of(
+                new TermsResult.TermsBucket(
+                    "NYC",
+                    AggregationResults.from(
+                        List.of(
+                            new MinAggregationResult("m", Optional.of(new BsonInt64(10))),
+                            new MaxAggregationResult("x", Optional.of(new BsonInt64(50))))))));
+
+    BsonArray intermediate = new TopLevelAggregationResult(List.of(byCity)).toIntermediateBson();
+
+    BsonArray expected =
+        BsonArray.parse(
+            """
+            [
+              {
+                "$meta/group_name": "by_city",
+                "$meta/keys": {"city": "NYC"},
+                "min_m": {"$numberLong": "10"},
+                "max_x": {"$numberLong": "50"}
+              }
+            ]
+            """);
+    assertEquals(expected, intermediate);
+  }
+
+  @Test
+  public void bucketWithNoValue_omitsMinAndMaxPartialsEntirely() {
+    // The cross-shard merge runs $min/$max over these partials. An absent partial is skipped, but
+    // an explicit null would be compared -- and BSON null sorts below every number, so a shard that
+    // saw nothing would hijack every other shard's minimum. The omission is the whole contract.
+    TermsResult byCity =
+        new TermsResult(
+            "by_city",
+            CITY,
+            List.of(
+                new TermsResult.TermsBucket(
+                    "NYC",
+                    AggregationResults.from(
+                        List.of(
+                            new MinAggregationResult("m", Optional.empty()),
+                            new MaxAggregationResult("x", Optional.empty()))))));
+
+    BsonArray intermediate = new TopLevelAggregationResult(List.of(byCity)).toIntermediateBson();
+
+    BsonArray expected =
+        BsonArray.parse(
+            """
+            [{"$meta/group_name": "by_city", "$meta/keys": {"city": "NYC"}}]
             """);
     assertEquals(expected, intermediate);
   }

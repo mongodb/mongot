@@ -62,7 +62,7 @@ public record MetricSpec(Operator operator, Optional<FieldPath> path) implements
    */
   boolean usesSortOrder() {
     return switch (this.operator) {
-      case COUNT, SUM, AVG -> false;
+      case COUNT, SUM, AVG, MIN, MAX -> false;
       case FIRST, LAST -> true;
     };
   }

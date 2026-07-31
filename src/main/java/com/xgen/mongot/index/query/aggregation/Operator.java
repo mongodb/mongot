@@ -5,6 +5,8 @@ public enum Operator {
   COUNT("count"),
   AVG("avg"),
   SUM("sum"),
+  MIN("min"),
+  MAX("max"),
   FIRST("first"),
   LAST("last");
 

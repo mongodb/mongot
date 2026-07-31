@@ -282,6 +282,39 @@ public class AggregationCollectorParseTest {
   }
 
   @Test
+  public void minAndMaxMetrics_parse() throws Exception {
+    // The request-parse boundary was covered for sum/avg/count only, so nothing asserted that the
+    // wire names "min" and "max" reach the collector as their operators with their paths intact.
+    BsonDocument node =
+        stringNode("category")
+            .append(
+                "aggregations",
+                new BsonDocument("cheapest", metric("min", "price"))
+                    .append("dearest", metric("max", "price")));
+
+    AggregationCollector collector = parse(facetWith(new BsonDocument("byCategory", node)));
+
+    AggregationFacetDefinition def = collector.facets().get("byCategory");
+    assertThat(def.aggregations().get("cheapest").operator()).isEqualTo(Operator.MIN);
+    assertThat(def.aggregations().get("cheapest").path()).hasValue(FieldPath.parse("price"));
+    assertThat(def.aggregations().get("dearest").operator()).isEqualTo(Operator.MAX);
+    assertThat(def.aggregations().get("dearest").path()).hasValue(FieldPath.parse("price"));
+  }
+
+  @Test
+  public void minWithoutPath_rejected() {
+    // min/max take the same "requires a path" branch as sum/avg, but that was only pinned for sum.
+    BsonDocument node =
+        stringNode("category")
+            .append("aggregations", new BsonDocument("cheapest", metric("min", null)));
+
+    BsonParseException ex =
+        assertThrows(
+            BsonParseException.class, () -> parse(facetWith(new BsonDocument("byCategory", node))));
+    assertThat(ex).hasMessageThat().contains("requires a path");
+  }
+
+  @Test
   public void nonCountWithoutPath_rejected() {
     BsonDocument node =
         stringNode("category")
