@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Optional;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.search.Sort;
 import org.junit.Test;
 
 /** Tests that AggregationSpec implementations expose the framework contract correctly. */
@@ -54,6 +55,21 @@ public class SpecTest {
       @Override
       public Optional<AggregationFieldResolver> getFieldResolver() {
         return Optional.empty();
+      }
+
+      @Override
+      public Optional<Sort> getSort() {
+        return Optional.empty();
+      }
+
+      @Override
+      public Optional<Sort> getInvertedSort() {
+        return Optional.empty();
+      }
+
+      @Override
+      public int getPartitionId() {
+        return 0;
       }
 
       @Override

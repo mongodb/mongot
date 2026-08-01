@@ -32,6 +32,17 @@ public class LuceneAggregationSearchManager
   private final TopAggregationSpec rootSpec;
   private final AggregationFieldResolver fieldResolver;
 
+  /**
+   * The query's global sort, borrowed by {@code first}/{@code last}, and the same sort inverted,
+   * which {@code last} collects under. Held here rather than exposed on the shared search-manager
+   * base class, which has no other reason to.
+   */
+  private final Optional<Sort> luceneSort;
+
+  private final Optional<Sort> invertedLuceneSort;
+
+  private final int indexPartitionId;
+
   public static class AggregationQueryInfo extends QueryInfo {
     private final AggregationResult aggregationResult;
 
@@ -49,11 +60,16 @@ public class LuceneAggregationSearchManager
   public LuceneAggregationSearchManager(
       Query luceneQuery,
       Optional<Sort> luceneSort,
+      Optional<Sort> invertedLuceneSort,
       Optional<SequenceToken> searchAfter,
-      AggregationPlan aggregationPlan) {
+      AggregationPlan aggregationPlan,
+      int indexPartitionId) {
     super(luceneQuery, luceneSort, searchAfter);
+    this.luceneSort = luceneSort;
+    this.invertedLuceneSort = invertedLuceneSort;
     this.rootSpec = aggregationPlan.rootSpec();
     this.fieldResolver = aggregationPlan.fieldResolver();
+    this.indexPartitionId = indexPartitionId;
   }
 
   @Override
@@ -65,7 +81,13 @@ public class LuceneAggregationSearchManager
         AggregationContext.create(
             searcher.getIndexReader(),
             Optional.of(this.fieldResolver),
-            cachedGlobalValueLookup(searcher));
+            cachedGlobalValueLookup(searcher),
+            // first/last borrow the query's global sort to order the documents in a bucket, and
+            // the partition id to order documents that the sort leaves tied. last collects under
+            // the inverted sort, since a top-docs collector only ever keeps a top document.
+            this.luceneSort,
+            this.invertedLuceneSort,
+            this.indexPartitionId);
 
     int readerLimit = Math.max(1, searcher.getIndexReader().maxDoc());
     int searchLimit = Math.min(readerLimit, batchSize);

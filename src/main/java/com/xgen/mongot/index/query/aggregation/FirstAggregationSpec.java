@@ -6,9 +6,9 @@ import java.io.IOException;
 /**
  * Production leaf spec for the {@code first} aggregation operator.
  *
- * <p>{@code first} returns the metric path's value from a single document per bucket. When the
- * query defines a sort, that is the document that sorts earliest under it. When no sort is defined,
- * it is the first document in encountered order.
+ * <p>Picks the value of {@code path} from the document that sorts first under the query's global
+ * sort, or the first document in encountered order when the query has no sort. Cross-shard merge is
+ * deferred to a follow-up (see {@link #buildShardMergePipeline}).
  */
 public final class FirstAggregationSpec extends OperatorAggregationSpec {
   private final FieldPath path;
@@ -24,18 +24,14 @@ public final class FirstAggregationSpec extends OperatorAggregationSpec {
 
   @Override
   public Accumulator buildAccumulator(AggregationContext context) throws IOException {
-    // TODO(CLOUDP-425978 follow-up, after CLOUDP-426648): fetch the metric path's DocValue per
-    // bucket together with the doc's global-sort key, keeping the value from the doc that wins
-    // under the sort (or the first value in encountered order when no sort is present).
-    throw new UnsupportedOperationException("First accumulation is not implemented yet");
+    return new FirstAccumulator(this.name, this.path, context);
   }
 
   @Override
   public void buildShardMergePipeline(ShardMergePipelineBuilder builder) {
-    // TODO(CLOUDP-425978 follow-up): merge per-shard candidates with MQL's $top accumulator,
-    // sorted by the sort-key partial each shard carries in its intermediate BSON. Single-level
-    // multi-shard merge lands with value fetching, once the accumulator fixes that intermediate
-    // format; only multi-level merge waits on a separate design.
+    // TODO(CLOUDP-429832 follow-up): merge candidates across shards with a $top accumulator
+    // sorting by the sort-key partial carried in the intermediate BSON. Deferred until that
+    // intermediate format is defined so the two stay a matched contract.
     // IllegalStateException, not UnsupportedOperationException: ShardedSearchPlanner only
     // wraps IllegalArgumentException / IllegalStateException into ShardedSearchPlannerException,
     // so anything else escapes planning as an uncaught internal error.

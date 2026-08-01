@@ -7,6 +7,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.cursor.CursorConfig;
+import com.xgen.mongot.cursor.batch.BatchCursorOptions;
 import com.xgen.mongot.index.CountResult;
 import com.xgen.mongot.index.MetaResults;
 import com.xgen.mongot.index.query.aggregation.AggregationResult;
@@ -28,6 +29,151 @@ public class AggregationIntermediateBatchProducerTest {
 
   private static final BsonDocument COUNT_DOC =
       new BsonDocument("type", new BsonString("count")).append("count", new BsonInt64(42));
+
+  /**
+   * A result that refuses to flatten, standing in for a leaf metric with no cross-shard
+   * intermediate format yet -- {@code first}/{@code last} throw from {@code
+   * toIntermediateMetricPartials}.
+   */
+  private static AggregationResult unflattenableResult() {
+    return new AggregationResult() {
+      @Override
+      public String getName() {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public AggregationResultBuilder toBuilder() {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public AggregationResult applyLimit() {
+        return this;
+      }
+
+      @Override
+      public BsonValue toStandaloneBson() {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public BsonArray toIntermediateBson() {
+        throw new IllegalStateException("Sharded merge is not implemented yet");
+      }
+    };
+  }
+
+  /**
+   * The non-sharded partitioned path builds a producer per partition and only ever drains it to
+   * MetaResults, so closing one must not flatten its tree. A leaf metric that has no intermediate
+   * format yet would otherwise throw on a query that is not sharded at all.
+   */
+  @Test
+  public void close_doesNotFlattenTheResultTree() {
+    AggregationIntermediateBatchProducer producer =
+        new AggregationIntermediateBatchProducer(unflattenableResult(), 7);
+
+    producer.close();
+
+    assertTrue(producer.isExhausted());
+  }
+
+  /** Exhaustion after close is reported without consulting the rows. */
+  @Test
+  public void close_marksExhausted() {
+    AggregationIntermediateBatchProducer producer =
+        new AggregationIntermediateBatchProducer(
+            fakeResult(new BsonArray(List.of(new BsonDocument("_id", new BsonString("a"))))), 1);
+
+    assertFalse(producer.isExhausted());
+
+    producer.close();
+
+    assertTrue(producer.isExhausted());
+  }
+
+  /**
+   * The non-sharded terminal takes the nested tree as-is, so a metric with no cross-shard format
+   * still serves a query that is not sharded.
+   */
+  @Test
+  public void getMetaResultsAndClose_doesNotFlattenTheResultTree() {
+    AggregationIntermediateBatchProducer producer =
+        new AggregationIntermediateBatchProducer(unflattenableResult(), 7);
+
+    MetaResults metaResults = producer.getMetaResultsAndClose(Count.Type.LOWER_BOUND);
+
+    assertTrue(metaResults.aggregation().isPresent());
+  }
+
+  /**
+   * Constructing a producer over a tree that cannot be flattened is fine; only {@code execute},
+   * reached solely from the sharded streaming path, surfaces the missing wire format.
+   */
+  @Test
+  public void execute_isTheOnlySiteThatFlattens() throws IOException {
+    AggregationIntermediateBatchProducer producer =
+        new AggregationIntermediateBatchProducer(unflattenableResult(), 7);
+
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            producer.execute(
+                CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT, BatchCursorOptions.empty()));
+  }
+
+  /** Repeated execute() calls, one per batch from MongotCursor, flatten exactly once. */
+  @Test
+  public void execute_isIdempotentAcrossBatches() throws IOException {
+    int[] flattenCount = {0};
+    AggregationResult countingResult =
+        new AggregationResult() {
+          @Override
+          public String getName() {
+            throw new UnsupportedOperationException();
+          }
+
+          @Override
+          public AggregationResultBuilder toBuilder() {
+            throw new UnsupportedOperationException();
+          }
+
+          @Override
+          public AggregationResult applyLimit() {
+            return this;
+          }
+
+          @Override
+          public BsonValue toStandaloneBson() {
+            throw new UnsupportedOperationException();
+          }
+
+          @Override
+          public BsonArray toIntermediateBson() {
+            flattenCount[0]++;
+            return new BsonArray(List.of(intermediateDoc("NYC", 30.0)));
+          }
+        };
+    AggregationIntermediateBatchProducer producer =
+        new AggregationIntermediateBatchProducer(countingResult, 42);
+
+    producer.execute(CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT, BatchCursorOptions.empty());
+    producer.execute(CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT, BatchCursorOptions.empty());
+
+    assertEquals(1, flattenCount[0]);
+  }
+
+  /**
+   * Mirrors {@link com.xgen.mongot.cursor.MongotCursor}, which calls {@code execute} before every
+   * {@code getNextBatch}. Flattening happens in {@code execute}, so a test that skips it is not
+   * exercising the sharded streaming path.
+   */
+  private static BsonArray nextBatch(AggregationIntermediateBatchProducer producer, Bytes sizeLimit)
+      throws IOException {
+    producer.execute(sizeLimit, BatchCursorOptions.empty());
+    return producer.getNextBatch(sizeLimit);
+  }
 
   /** Fake result whose only supported operation is flattening to the given intermediate docs. */
   static AggregationResult fakeResult(BsonArray intermediateDocs) {
@@ -76,14 +222,14 @@ public class AggregationIntermediateBatchProducerTest {
 
     assertFalse(producer.isExhausted());
 
-    BsonArray batch = producer.getNextBatch(CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+    BsonArray batch = nextBatch(producer, CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
 
     assertEquals(2, batch.size());
     assertEquals(COUNT_DOC, batch.get(0).asDocument());
     assertEquals(intermediateDocs.get(0), batch.get(1));
 
     assertTrue(producer.isExhausted());
-    assertEquals(0, producer.getNextBatch(CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT).size());
+    assertEquals(0, nextBatch(producer, CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT).size());
   }
 
   @Test
@@ -91,7 +237,7 @@ public class AggregationIntermediateBatchProducerTest {
     AggregationIntermediateBatchProducer producer =
         new AggregationIntermediateBatchProducer(fakeResult(new BsonArray()), 5);
 
-    BsonArray batch = producer.getNextBatch(CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+    BsonArray batch = nextBatch(producer, CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
 
     assertEquals(1, batch.size());
     assertEquals(
@@ -118,7 +264,7 @@ public class AggregationIntermediateBatchProducerTest {
     @Var int batchCount = 0;
     BsonArray drainedIntermediateDocs = new BsonArray();
     while (!producer.isExhausted()) {
-      BsonArray batch = producer.getNextBatch(sizeLimit);
+      BsonArray batch = nextBatch(producer, sizeLimit);
       batchCount++;
       for (BsonValue value : batch) {
         BsonDocument doc = value.asDocument();
@@ -239,7 +385,7 @@ public class AggregationIntermediateBatchProducerTest {
     AggregationIntermediateBatchProducer producer =
         merged(List.of(partitionProducer(30, 10), partitionProducer(12, 5)));
 
-    BsonArray batch = producer.getNextBatch(CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+    BsonArray batch = nextBatch(producer, CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
 
     assertEquals(2, batch.size());
     assertEquals(

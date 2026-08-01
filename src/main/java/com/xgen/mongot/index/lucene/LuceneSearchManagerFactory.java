@@ -54,11 +54,14 @@ class LuceneSearchManagerFactory {
   LuceneSearchManager<AggregationQueryInfo> newAggregationManager(
       Query query,
       Optional<Sort> luceneSort,
+      Optional<Sort> invertedLuceneSort,
       Optional<SequenceToken> searchAfter,
-      AggregationPlan aggregationPlan) {
+      AggregationPlan aggregationPlan,
+      int indexPartitionId) {
     return new MeteredLuceneSearchManager<>(
         this.metricsUpdater,
-        new LuceneAggregationSearchManager(query, luceneSort, searchAfter, aggregationPlan));
+        new LuceneAggregationSearchManager(
+            query, luceneSort, invertedLuceneSort, searchAfter, aggregationPlan, indexPartitionId));
   }
 
   LuceneSearchManager<QueryInfo> newOperatorManager(

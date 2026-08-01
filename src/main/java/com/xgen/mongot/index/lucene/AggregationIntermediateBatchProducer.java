@@ -40,8 +40,21 @@ import org.bson.RawBsonDocument;
 final class AggregationIntermediateBatchProducer implements BatchProducer {
 
   private final AggregationResult aggregationResult;
-  private final BsonArray intermediateDocs;
   private final long totalHits;
+
+  /**
+   * Flattened wire rows, populated by {@link #execute} and empty until then.
+   *
+   * <p>Only the sharded path ever fills this in, because only sharded execution calls {@link
+   * #execute}. The non-sharded partitioned path builds a producer per partition and drains it
+   * through {@link #getMetaResultsAndClose}, merging nested trees directly. Flattening is therefore
+   * deferred out of the constructor: doing it eagerly would require every leaf metric to define a
+   * cross-shard intermediate format even on a query that is not sharded, which {@code first}/{@code
+   * last} do not yet have (their {@code toIntermediateMetricPartials} throws).
+   *
+   * <p>Volatile because a producer is handed to the cursor thread that reads its batches.
+   */
+  private volatile Optional<BsonArray> intermediateDocs;
 
   private int nextDocIndex;
   private boolean countProduced;
@@ -49,7 +62,7 @@ final class AggregationIntermediateBatchProducer implements BatchProducer {
 
   AggregationIntermediateBatchProducer(AggregationResult aggregationResult, long totalHits) {
     this.aggregationResult = aggregationResult;
-    this.intermediateDocs = aggregationResult.toIntermediateBson();
+    this.intermediateDocs = Optional.empty();
     this.totalHits = totalHits;
     this.nextDocIndex = 0;
     this.countProduced = false;
@@ -120,9 +133,18 @@ final class AggregationIntermediateBatchProducer implements BatchProducer {
     return new MetaResults(countResult, Optional.empty(), Optional.of(this.aggregationResult));
   }
 
+  /**
+   * Flattens the result tree to wire rows, once per producer. {@link
+   * com.xgen.mongot.cursor.MongotCursor} calls this before every {@code getNextBatch}, so later
+   * calls are no-ops and {@link #nextDocIndex} keeps indexing into the same rows.
+   *
+   * <p>Only reached on the sharded query execution path; see {@link #intermediateDocs}.
+   */
   @Override
   public void execute(Bytes sizeLimit, BatchCursorOptions queryCursorOptions) throws IOException {
-    // Docs are precomputed before the producer is created.
+    if (this.intermediateDocs.isEmpty()) {
+      this.intermediateDocs = Optional.of(this.aggregationResult.toIntermediateBson());
+    }
   }
 
   @Override
@@ -142,8 +164,9 @@ final class AggregationIntermediateBatchProducer implements BatchProducer {
       this.countProduced = true;
     }
 
-    while (this.nextDocIndex < this.intermediateDocs.size()) {
-      RawBsonDocument doc = toRawBsonDocument(this.intermediateDocs.get(this.nextDocIndex));
+    BsonArray docs = getIntermediateDocs();
+    while (this.nextDocIndex < docs.size()) {
+      RawBsonDocument doc = toRawBsonDocument(docs.get(this.nextDocIndex));
       if (resultsBuilder.append(doc)) {
         this.nextDocIndex++;
       } else {
@@ -156,14 +179,28 @@ final class AggregationIntermediateBatchProducer implements BatchProducer {
 
   @Override
   public boolean isExhausted() {
-    return this.countProduced && this.nextDocIndex >= this.intermediateDocs.size();
+    // The closed check has to come first, and has to be here at all: a producer can be closed
+    // without ever being executed, and reading the rows in that state throws. See
+    // AggregationIntermediateBatchProducerTest.close_doesNotFlattenTheResultTree.
+    return this.closed || (this.countProduced && this.nextDocIndex >= getIntermediateDocs().size());
   }
 
   @Override
   public void close() {
+    // Does not wind nextDocIndex forward to the row count, as it once did. The rows are not
+    // guaranteed to exist here: getMetaResultsAndClose closes a producer the non-sharded path never
+    // executed, so reading their size would throw. The closed short-circuit in isExhausted serves
+    // the same purpose without needing them.
     this.closed = true;
-    this.nextDocIndex = this.intermediateDocs.size();
     this.countProduced = true;
+  }
+
+  private BsonArray getIntermediateDocs() {
+    return this.intermediateDocs.orElseThrow(
+        () ->
+            new IllegalStateException(
+                "execute() must run before intermediate rows are read; only the sharded streaming"
+                    + " path may read them."));
   }
 
   private static RawBsonDocument toRawBsonDocument(BsonValue value) {

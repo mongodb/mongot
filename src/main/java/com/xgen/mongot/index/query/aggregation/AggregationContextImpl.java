@@ -1,14 +1,19 @@
 package com.xgen.mongot.index.query.aggregation;
 
+import com.xgen.mongot.util.Check;
 import java.util.Optional;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.search.Sort;
 
 final class AggregationContextImpl implements AggregationContext {
   private final IndexReader indexReader;
   private final AggregationRegistry registry;
   private final Optional<AggregationFieldResolver> fieldResolver;
   private final CachedGlobalValueLookup cachedGlobalValueLookup;
+  private final Optional<Sort> sort;
+  private final Optional<Sort> invertedSort;
+  private final int partitionId;
   private final Optional<MultiValueDocMarker> multiValueDocMarker;
   private final Optional<LeafReaderContext> leafReaderContext;
 
@@ -17,12 +22,21 @@ final class AggregationContextImpl implements AggregationContext {
       AggregationRegistry registry,
       Optional<AggregationFieldResolver> fieldResolver,
       CachedGlobalValueLookup cachedGlobalValueLookup,
+      Optional<Sort> sort,
+      Optional<Sort> invertedSort,
+      int partitionId,
       Optional<MultiValueDocMarker> multiValueDocMarker,
       Optional<LeafReaderContext> leafReaderContext) {
+    Check.checkArg(
+        sort.isPresent() == invertedSort.isPresent(),
+        "sort and invertedSort must be present or absent together");
     this.indexReader = indexReader;
     this.registry = registry;
     this.fieldResolver = fieldResolver;
     this.cachedGlobalValueLookup = cachedGlobalValueLookup;
+    this.sort = sort;
+    this.invertedSort = invertedSort;
+    this.partitionId = partitionId;
     this.multiValueDocMarker = multiValueDocMarker;
     this.leafReaderContext = leafReaderContext;
   }
@@ -31,12 +45,18 @@ final class AggregationContextImpl implements AggregationContext {
       IndexReader indexReader,
       AggregationRegistry registry,
       Optional<AggregationFieldResolver> fieldResolver,
-      CachedGlobalValueLookup cachedGlobalValueLookup) {
+      CachedGlobalValueLookup cachedGlobalValueLookup,
+      Optional<Sort> sort,
+      Optional<Sort> invertedSort,
+      int partitionId) {
     this(
         indexReader,
         registry,
         fieldResolver,
         cachedGlobalValueLookup,
+        sort,
+        invertedSort,
+        partitionId,
         Optional.empty(),
         Optional.empty());
   }
@@ -48,6 +68,9 @@ final class AggregationContextImpl implements AggregationContext {
         this.registry,
         this.fieldResolver,
         this.cachedGlobalValueLookup,
+        this.sort,
+        this.invertedSort,
+        this.partitionId,
         this.multiValueDocMarker,
         Optional.of(context));
   }
@@ -59,8 +82,26 @@ final class AggregationContextImpl implements AggregationContext {
         this.registry,
         this.fieldResolver,
         this.cachedGlobalValueLookup,
+        this.sort,
+        this.invertedSort,
+        this.partitionId,
         Optional.of(marker),
         this.leafReaderContext);
+  }
+
+  @Override
+  public int getPartitionId() {
+    return this.partitionId;
+  }
+
+  @Override
+  public Optional<Sort> getSort() {
+    return this.sort;
+  }
+
+  @Override
+  public Optional<Sort> getInvertedSort() {
+    return this.invertedSort;
   }
 
   @Override

@@ -5,6 +5,7 @@ import java.util.Optional;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.SortedSetDocValues;
+import org.apache.lucene.search.Sort;
 
 /**
  * Shared state passed through the aggregation framework during execution.
@@ -72,6 +73,46 @@ public interface AggregationContext {
    */
   Optional<AggregationFieldResolver> getFieldResolver();
 
+  /**
+   * Index partition being queried, 0-based; the same value carried as {@code ScoreDoc.shardIndex}.
+   *
+   * <p>Always 0 for a non-partitioned index, and for every query against one; a partitioned index
+   * has one reader per partition, each carrying its own id.
+   *
+   * <p>Doc ids are comparable only within a partition, so {@code first}/{@code last} order by
+   * partition first. Every key from one partition shares this, leaving single-partition behavior
+   * unchanged.
+   */
+  int getPartitionId();
+
+  /**
+   * The query's global sort. Empty when unsorted, where {@code first}/{@code last} use encounter
+   * order.
+   */
+  Optional<Sort> getSort();
+
+  /**
+   * The query's global sort with every component ordered the other way, which {@code last} collects
+   * under: a {@link org.apache.lucene.search.TopFieldCollector} only ever keeps a top document, and
+   * {@code last} wants the bottom one.
+   *
+   * <p>Built by the query layer from the same sort spec as {@link #getSort}, via {@link
+   * com.xgen.mongot.index.query.sort.SortSpec#invert()}, so both orientations resolve fields, types
+   * and missing-value placement identically rather than one being re-derived from the other's
+   * finished {@link Sort}.
+   *
+   * <p>Two inputs to that build are deliberately left out. A sequence token belongs to the forward
+   * ordering -- its values are baked into each comparator -- and pagination bounds mean nothing to
+   * a bucket's winner. The index sort is left out because an inverted sort never aligns with one
+   * anyway, and passing it would overwrite the query's own {@code usesIndexSort} explain verdict.
+   *
+   * <p>Carries no doc-id tiebreak: the sort spec has no way to name one, and {@code last} needs the
+   * undecorated sort for merging. {@code LastAccumulator} appends it for collection only.
+   *
+   * <p>Present exactly when {@link #getSort} is.
+   */
+  Optional<Sort> getInvertedSort();
+
   /** Marker for skipping metrics when an ancestor group field is multi-valued on a doc. */
   Optional<MultiValueDocMarker> getMultiValueDocMarker();
 
@@ -88,31 +129,28 @@ public interface AggregationContext {
     return getMultiValueDocMarker().map(marker -> marker.isMultiValued(doc)).orElse(false);
   }
 
-  static AggregationContext createDefault(IndexReader indexReader) {
-    return create(indexReader, Optional.empty());
-  }
-
-  static AggregationContext createDefault(
-      IndexReader indexReader, CachedGlobalValueLookup cachedGlobalValueLookup) {
-    return create(indexReader, Optional.empty(), cachedGlobalValueLookup);
-  }
-
   /**
    * Creates an aggregation context for the given index reader.
    *
    * <p>{@code fieldResolver} is empty in unit tests that wire Lucene field names directly; Lucene
-   * execution supplies a pre-resolved resolver for metric operators.
+   * execution supplies a pre-resolved resolver for metric operators. {@code sort} is the query's
+   * global sort, which {@code first}/{@code last} order their buckets by, and {@code invertedSort}
+   * is that same sort turned around for {@code last}; the two must be present or absent together.
    */
-  static AggregationContext create(
-      IndexReader indexReader, Optional<AggregationFieldResolver> fieldResolver) {
-    return create(indexReader, fieldResolver, luceneField -> Optional.empty());
-  }
-
   static AggregationContext create(
       IndexReader indexReader,
       Optional<AggregationFieldResolver> fieldResolver,
-      CachedGlobalValueLookup cachedGlobalValueLookup) {
+      CachedGlobalValueLookup cachedGlobalValueLookup,
+      Optional<Sort> sort,
+      Optional<Sort> invertedSort,
+      int partitionId) {
     return new AggregationContextImpl(
-        indexReader, AggregationRegistry.getInstance(), fieldResolver, cachedGlobalValueLookup);
+        indexReader,
+        AggregationRegistry.getInstance(),
+        fieldResolver,
+        cachedGlobalValueLookup,
+        sort,
+        invertedSort,
+        partitionId);
   }
 }

@@ -124,9 +124,6 @@ public final class LuceneAggregationContextFieldResolver implements AggregationF
           "Token aggregation over embedded documents is not supported.");
     }
 
-    // isStored (not isPathToStored): the value at the path itself must be stored. An ancestor of
-    // an included path (e.g. "a.b" when only "a.b.c" is included) would read back a partial
-    // container document, not the field's value.
     boolean storedSourceCovers =
         this.facetContext
             .getFieldDefinitionResolver()

@@ -8,15 +8,8 @@ import static org.junit.Assert.assertTrue;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.util.FieldPath;
-import java.io.IOException;
 import java.util.Map;
 import java.util.Optional;
-import org.apache.lucene.index.DirectoryReader;
-import org.apache.lucene.index.IndexReader;
-import org.apache.lucene.index.IndexWriter;
-import org.apache.lucene.index.IndexWriterConfig;
-import org.apache.lucene.store.ByteBuffersDirectory;
-import org.apache.lucene.store.Directory;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -193,22 +186,11 @@ public class SearchAggregationBootstrapTest {
                 .build("last_price", Optional.empty()));
   }
 
+  /** Sharded merge is still deferred; single-shard accumulation is covered by its own tests. */
   @Test
-  public void firstAndLastSpecs_executionDeferred_throw() throws IOException {
+  public void firstAndLastSpecs_shardMergeDeferred_throw() {
     FirstAggregationSpec first = new FirstAggregationSpec("first_price", PRICE);
     LastAggregationSpec last = new LastAggregationSpec("last_price", PRICE);
-
-    try (Directory directory = new ByteBuffersDirectory()) {
-      try (IndexWriter writer = new IndexWriter(directory, new IndexWriterConfig())) {
-        writer.commit();
-      }
-      try (IndexReader reader = DirectoryReader.open(directory)) {
-        AggregationContext context = AggregationContext.createDefault(reader);
-
-        assertThrows(UnsupportedOperationException.class, () -> first.buildAccumulator(context));
-        assertThrows(UnsupportedOperationException.class, () -> last.buildAccumulator(context));
-      }
-    }
 
     // IllegalStateException so ShardedSearchPlanner wraps it into ShardedSearchPlannerException
     // rather than letting it escape planning as an uncaught internal error.

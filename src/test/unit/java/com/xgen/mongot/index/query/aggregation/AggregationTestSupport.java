@@ -1,6 +1,7 @@
 package com.xgen.mongot.index.query.aggregation;
 
 import com.xgen.mongot.index.definition.NumericFieldOptions;
+import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
 import com.xgen.mongot.index.query.aggregation.TermsAggregationResult.TermsBucket;
 import com.xgen.mongot.util.Check;
@@ -18,6 +19,7 @@ import java.util.stream.Collectors;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.SortedNumericDocValuesField;
 import org.apache.lucene.document.SortedSetDocValuesField;
+import org.apache.lucene.document.StoredField;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
@@ -29,6 +31,7 @@ import org.apache.lucene.search.CollectorManager;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.Query;
+import org.apache.lucene.search.Sort;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.util.BytesRef;
@@ -38,7 +41,8 @@ import org.bson.BsonDouble;
 import org.bson.BsonInt64;
 import org.bson.BsonString;
 import org.bson.BsonValue;
-import org.jetbrains.annotations.Nullable;
+import org.bson.RawBsonDocument;
+import org.bson.codecs.BsonDocumentCodec;
 import org.junit.After;
 
 /**
@@ -94,6 +98,14 @@ public abstract class AggregationTestSupport {
         luceneDoc.add(new SortedSetDocValuesField(CITY_LUCENE_FIELD, new BytesRef(doc.city())));
         luceneDoc.add(new SortedSetDocValuesField(COLOR_LUCENE_FIELD, new BytesRef(doc.color())));
         luceneDoc.add(new SortedNumericDocValuesField(PRICE_LUCENE_FIELD, doc.price()));
+        // Token-valued metrics (first/last, min/max) read stored source, so every fixture document
+        // carries one alongside its doc values.
+        addStoredSource(
+            luceneDoc,
+            new BsonDocument()
+                .append(CITY_FIELD, new BsonString(doc.city()))
+                .append(COLOR_FIELD, new BsonString(doc.color()))
+                .append(PRICE_FIELD, new BsonInt64(doc.price())));
         writer.addDocument(luceneDoc);
         if ((i + 1) % docsPerSegment == 0) {
           writer.commit();
@@ -113,10 +125,29 @@ public abstract class AggregationTestSupport {
       luceneDoc.add(new SortedSetDocValuesField(CITY_LUCENE_FIELD, new BytesRef("NYC")));
       luceneDoc.add(new SortedSetDocValuesField(CITY_LUCENE_FIELD, new BytesRef("LA")));
       luceneDoc.add(new SortedNumericDocValuesField(PRICE_LUCENE_FIELD, price));
+      addStoredSource(
+          luceneDoc,
+          new BsonDocument()
+              .append(
+                  CITY_FIELD, new BsonArray(List.of(new BsonString("NYC"), new BsonString("LA"))))
+              .append(PRICE_FIELD, new BsonInt64(price)));
       writer.addDocument(luceneDoc);
     }
     this.reader = DirectoryReader.open(this.directory);
     this.searcher = new IndexSearcher(this.reader);
+  }
+
+  /**
+   * Writes {@code source} as the document's stored source, which is where token-valued metrics read
+   * their values from.
+   */
+  protected static void addStoredSource(Document doc, BsonDocument source) {
+    // Encode straight to BSON rather than round-tripping through JSON, which would widen or narrow
+    // numeric types (e.g. an int64 price coming back as an int32).
+    doc.add(
+        new StoredField(
+            FieldName.StaticField.STORED_SOURCE.getLuceneFieldName(),
+            new RawBsonDocument(source, new BsonDocumentCodec()).getByteBuffer().array()));
   }
 
   /** Build the accumulator tree for {@code spec}, run {@code query}, and return the root. */
@@ -177,7 +208,11 @@ public abstract class AggregationTestSupport {
               public ResolvedTokenField resolveToken(FieldPath path) {
                 throw new IllegalStateException("unexpected path: " + path);
               }
-            }));
+            }),
+        luceneField -> Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        0);
   }
 
   protected AggregationContext newContextWithDoubleFieldResolver() {
@@ -198,7 +233,11 @@ public abstract class AggregationTestSupport {
               public ResolvedTokenField resolveToken(FieldPath path) {
                 throw new IllegalStateException("unexpected path: " + path);
               }
-            }));
+            }),
+        luceneField -> Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        0);
   }
 
   // ===== assertion helpers =====
@@ -388,34 +427,116 @@ public abstract class AggregationTestSupport {
   protected static final class TestContext implements AggregationContext {
     private final IndexReader indexReader;
     private final CachedGlobalValueLookup cachedGlobalValueLookup;
-    @Nullable private final LeafReaderContext leafReaderContext;
+    private final Optional<LeafReaderContext> leafReaderContext;
     private final Optional<MultiValueDocMarker> multiValueDocMarker;
+    private final Optional<AggregationFieldResolver> fieldResolver;
+    private final Optional<Sort> sort;
+    private final Optional<Sort> invertedSort;
+    private final int partitionId;
 
     protected TestContext(IndexReader indexReader) {
-      this(indexReader, luceneField -> Optional.empty(), null, Optional.empty());
+      this(
+          indexReader,
+          luceneField -> Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty());
     }
 
     protected TestContext(
         IndexReader indexReader, CachedGlobalValueLookup cachedGlobalValueLookup) {
-      this(indexReader, cachedGlobalValueLookup, null, Optional.empty());
+      this(
+          indexReader,
+          cachedGlobalValueLookup,
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty());
+    }
+
+    /**
+     * Context wired for metric operators that resolve a field and may borrow a global sort, in the
+     * two orientations {@code first} and {@code last} collect under.
+     */
+    protected TestContext(
+        IndexReader indexReader,
+        Optional<AggregationFieldResolver> fieldResolver,
+        Optional<Sort> sort,
+        Optional<Sort> invertedSort) {
+      this(indexReader, fieldResolver, sort, invertedSort, 0);
+    }
+
+    /** As above, standing in for a specific index partition. */
+    protected TestContext(
+        IndexReader indexReader,
+        Optional<AggregationFieldResolver> fieldResolver,
+        Optional<Sort> sort,
+        Optional<Sort> invertedSort,
+        int partitionId) {
+      this(
+          indexReader,
+          luceneField -> Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          fieldResolver,
+          sort,
+          invertedSort,
+          partitionId);
     }
 
     private TestContext(
         IndexReader indexReader,
         CachedGlobalValueLookup cachedGlobalValueLookup,
-        @Nullable LeafReaderContext leafReaderContext,
-        Optional<MultiValueDocMarker> multiValueDocMarker) {
+        Optional<LeafReaderContext> leafReaderContext,
+        Optional<MultiValueDocMarker> multiValueDocMarker,
+        Optional<AggregationFieldResolver> fieldResolver,
+        Optional<Sort> sort,
+        Optional<Sort> invertedSort) {
+      this(
+          indexReader,
+          cachedGlobalValueLookup,
+          leafReaderContext,
+          multiValueDocMarker,
+          fieldResolver,
+          sort,
+          invertedSort,
+          0);
+    }
+
+    private TestContext(
+        IndexReader indexReader,
+        CachedGlobalValueLookup cachedGlobalValueLookup,
+        Optional<LeafReaderContext> leafReaderContext,
+        Optional<MultiValueDocMarker> multiValueDocMarker,
+        Optional<AggregationFieldResolver> fieldResolver,
+        Optional<Sort> sort,
+        Optional<Sort> invertedSort,
+        int partitionId) {
+      this.partitionId = partitionId;
       this.indexReader = indexReader;
       this.cachedGlobalValueLookup = cachedGlobalValueLookup;
       this.leafReaderContext = leafReaderContext;
       this.multiValueDocMarker = multiValueDocMarker;
+      this.fieldResolver = fieldResolver;
+      this.sort = sort;
+      this.invertedSort = invertedSort;
     }
 
     @Override
     public AggregationContext withLeafReaderContext(LeafReaderContext context) {
       this.multiValueDocMarker.ifPresent(MultiValueDocMarker::reset);
       return new TestContext(
-          this.indexReader, this.cachedGlobalValueLookup, context, this.multiValueDocMarker);
+          this.indexReader,
+          this.cachedGlobalValueLookup,
+          Optional.of(context),
+          this.multiValueDocMarker,
+          this.fieldResolver,
+          this.sort,
+          this.invertedSort,
+          this.partitionId);
     }
 
     @Override
@@ -424,7 +545,11 @@ public abstract class AggregationTestSupport {
           this.indexReader,
           this.cachedGlobalValueLookup,
           this.leafReaderContext,
-          Optional.of(marker));
+          Optional.of(marker),
+          this.fieldResolver,
+          this.sort,
+          this.invertedSort,
+          this.partitionId);
     }
 
     @Override
@@ -439,10 +564,8 @@ public abstract class AggregationTestSupport {
 
     @Override
     public LeafReaderContext getLeafReaderContext() {
-      if (this.leafReaderContext == null) {
-        throw new IllegalStateException("LeafReaderContext not bound");
-      }
-      return this.leafReaderContext;
+      return this.leafReaderContext.orElseThrow(
+          () -> new IllegalStateException("LeafReaderContext not bound"));
     }
 
     @Override
@@ -452,7 +575,22 @@ public abstract class AggregationTestSupport {
 
     @Override
     public Optional<AggregationFieldResolver> getFieldResolver() {
-      return Optional.empty();
+      return this.fieldResolver;
+    }
+
+    @Override
+    public Optional<Sort> getSort() {
+      return this.sort;
+    }
+
+    @Override
+    public Optional<Sort> getInvertedSort() {
+      return this.invertedSort;
+    }
+
+    @Override
+    public int getPartitionId() {
+      return this.partitionId;
     }
 
     @Override

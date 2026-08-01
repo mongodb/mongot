@@ -29,17 +29,18 @@ public final class MetricFieldPaths {
             });
   }
 
-  /**
-   * Paths referenced by {@link TokenMetricSpec} nodes (e.g. {@code first}/{@code last}, {@code
-   * min}/{@code max}).
-   */
+  /** Paths referenced by token metric specs (first/last). */
   public static Set<FieldPath> collectToken(TopAggregationSpec root) {
     return collect(
         root,
         spec ->
-            spec instanceof TokenMetricSpec tokenMetric
-                ? Optional.of(tokenMetric.tokenMetricPath())
-                : Optional.empty());
+            switch (spec) {
+              case FirstAggregationSpec first -> Optional.of(first.getPath());
+              case LastAggregationSpec last -> Optional.of(last.getPath());
+              case TopAggregationSpec top -> Optional.empty();
+              case GroupAggregationSpec group -> Optional.empty();
+              case OperatorAggregationSpec operator -> Optional.empty();
+            });
   }
 
   private static Set<FieldPath> collect(

@@ -2,6 +2,8 @@ package com.xgen.mongot.index.query.aggregation;
 
 import static org.junit.Assert.assertEquals;
 
+import com.xgen.mongot.index.definition.NumericFieldOptions;
+import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
 import com.xgen.mongot.index.lucene.util.LuceneDoubleConversionUtils;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
@@ -11,6 +13,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.IntFunction;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.SortedNumericDocValuesField;
@@ -113,6 +116,85 @@ public class SumAccumulatorTest extends AggregationTestSupport {
                 DOUBLE_PRICE_LUCENE_FIELD, LuceneDoubleConversionUtils.toMqlSortableLong(price)));
         writer.addDocument(luceneDoc);
       }
+    }
+    this.reader = DirectoryReader.open(this.directory);
+    this.searcher = new org.apache.lucene.search.IndexSearcher(this.reader);
+  }
+
+  /**
+   * The multi-valued mark is a leaf-local doc id, so {@code BucketsAccumulator} resets it between
+   * segments; without that, a mark from segment 0 drops a single-valued document at the same doc id
+   * in segment 1.
+   *
+   * <p>Uses the production spec and context: {@code LocalOrdTermsAccumulator} never marks, and
+   * {@code TestContext} resets on its own, so neither can detect a missing reset.
+   */
+  @Test
+  public void multiValueMarkResetBetweenSegments_laterSegmentStillCounted() throws Exception {
+    buildTwoSegmentIndexWithMultiValueCityInFirst();
+
+    AggregationSpec sumSpec = new SumAggregationSpec("sum_price", FieldPath.parse(PRICE_FIELD));
+    AggregationSpec termsSpec =
+        new TermsGroupAggregationSpec(
+            "by_city",
+            FieldPath.parse(CITY_FIELD),
+            List.of(sumSpec),
+            new AggregationRegistry.GroupingArgs.TermsArgs(true, TypeField.TOKEN, 10));
+    TopAggregationSpec topSpec = new TopAggregationSpec(List.of(termsSpec));
+
+    AggregationContext context =
+        AggregationContext.create(
+            this.reader,
+            Optional.of(
+                new AggregationFieldResolver() {
+                  @Override
+                  public ResolvedNumericMetricField resolveNumeric(FieldPath path) {
+                    return new ResolvedNumericMetricField(
+                        PRICE_LUCENE_FIELD, NumericFieldOptions.Representation.INT64);
+                  }
+
+                  @Override
+                  public ResolvedTokenField resolveToken(FieldPath path) {
+                    throw new IllegalStateException(path.toString());
+                  }
+                }),
+            luceneField -> Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            0);
+
+    TopLevelAggregationResult top =
+        (TopLevelAggregationResult) collectAll(topSpec, context).buildTopLevelResult();
+    TermsAggregationResult byCity = (TermsAggregationResult) top.childResults().get(0);
+
+    // Segment 0's document is multi-valued on city and is skipped, as sum/avg intend
+    // (CLOUDP-421371). Segment 1's document sits at the same leaf doc id and must still count.
+    assertEquals(
+        100.0,
+        ((SumAggregationResult) bucket(byCity, "NYC").getChildResults().get("sum_price"))
+            .getValue(),
+        0.0001);
+  }
+
+  /**
+   * Segment 0: one document with two city values. Segment 1: one single-valued, same leaf doc id.
+   */
+  private void buildTwoSegmentIndexWithMultiValueCityInFirst() throws IOException {
+    this.directory = new ByteBuffersDirectory();
+    IndexWriterConfig config = new IndexWriterConfig().setMergePolicy(NoMergePolicy.INSTANCE);
+    try (IndexWriter writer = new IndexWriter(this.directory, config)) {
+      Document multiValued = new Document();
+      multiValued.add(new SortedSetDocValuesField(CITY_LUCENE_FIELD, new BytesRef("NYC")));
+      multiValued.add(new SortedSetDocValuesField(CITY_LUCENE_FIELD, new BytesRef("LA")));
+      multiValued.add(new SortedNumericDocValuesField(PRICE_LUCENE_FIELD, 10));
+      writer.addDocument(multiValued);
+      writer.commit();
+
+      Document singleValued = new Document();
+      singleValued.add(new SortedSetDocValuesField(CITY_LUCENE_FIELD, new BytesRef("NYC")));
+      singleValued.add(new SortedNumericDocValuesField(PRICE_LUCENE_FIELD, 100));
+      writer.addDocument(singleValued);
+      writer.commit();
     }
     this.reader = DirectoryReader.open(this.directory);
     this.searcher = new org.apache.lucene.search.IndexSearcher(this.reader);

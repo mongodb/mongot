@@ -57,6 +57,7 @@ import com.xgen.mongot.index.query.collectors.FacetCollector;
 import com.xgen.mongot.index.query.counts.Count;
 import com.xgen.mongot.index.query.operators.Operator;
 import com.xgen.mongot.index.query.sort.SequenceToken;
+import com.xgen.mongot.index.query.sort.SortSpec;
 import com.xgen.mongot.index.synonym.SynonymRegistry;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.util.Check;
@@ -973,9 +974,25 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
     LuceneAggregationPlanResolver.AggregationPlan aggregationPlan =
         LuceneAggregationPlanResolver.resolveAggregationPlan(
             this.facetContext, aggregationCollector);
+    // Always 0 here: a partitioned index routes aggregation through
+    // intermediateAggregationCollectorQuery instead, so this path only ever serves a
+    // single-partition index.
     LuceneSearchManager<AggregationQueryInfo> aggregationSearchManager =
         this.luceneSearchManagerFactory.newAggregationManager(
-            luceneQuery, luceneSort, searchAfter, aggregationPlan);
+            luceneQuery,
+            luceneSort,
+            // The same sort inverted, for $last; see AggregationContext#getInvertedSort for why
+            // the token and the index sort are left out.
+            this.queryFactory.createSort(
+                query.sortSpec().map(SortSpec::invert),
+                Optional.empty(),
+                searcherReference.getIndexSearcher().getFieldToSortableTypesMapping(),
+                query.returnScope(),
+                queryOptimizationFlags,
+                Optional.empty()),
+            searchAfter,
+            aggregationPlan,
+            this.indexPartitionId);
 
     AggregationQueryInfo collectorQueryInfo =
         aggregationSearchManager.initialSearch(
@@ -1027,9 +1044,25 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
     LuceneAggregationPlanResolver.AggregationPlan aggregationPlan =
         LuceneAggregationPlanResolver.resolveAggregationPlan(
             this.facetContext, aggregationCollector);
+    // The reader's own partition, since a partitioned index has one reader per partition and
+    // fans out over them. first/last need it because doc ids only order documents within a
+    // single partition.
     LuceneSearchManager<AggregationQueryInfo> aggregationSearchManager =
         this.luceneSearchManagerFactory.newAggregationManager(
-            luceneQuery, luceneSort, searchAfter, aggregationPlan);
+            luceneQuery,
+            luceneSort,
+            // The same sort inverted, for $last; see AggregationContext#getInvertedSort for why
+            // the token and the index sort are left out.
+            this.queryFactory.createSort(
+                query.sortSpec().map(SortSpec::invert),
+                Optional.empty(),
+                searcherReference.getIndexSearcher().getFieldToSortableTypesMapping(),
+                query.returnScope(),
+                queryOptimizationFlags,
+                Optional.empty()),
+            searchAfter,
+            aggregationPlan,
+            this.indexPartitionId);
 
     AggregationQueryInfo collectorQueryInfo =
         aggregationSearchManager.initialSearch(

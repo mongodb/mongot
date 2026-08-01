@@ -4,7 +4,11 @@ import org.bson.BsonArray;
 
 /** Base class for leaf metric aggregation results (e.g. {@code sum}, {@code avg}). */
 abstract sealed class MetricAggregationResult implements AggregationResult
-    permits SumAggregationResult, AvgAggregationResult, MinAggregationResult, MaxAggregationResult {
+    permits SumAggregationResult,
+        AvgAggregationResult,
+        MinAggregationResult,
+        MaxAggregationResult,
+        FirstLastAggregationResultBase {
   private final String name;
 
   protected MetricAggregationResult(String name) {
