@@ -75,7 +75,6 @@ public class SearchCommand implements Command {
   private static final Logger LOG = LoggerFactory.getLogger(SearchCommand.class);
   private static final FluentLogger FLOGGER = FluentLogger.forEnclosingClass();
 
-  private final MetricsFactory metricsFactory;
   private final Metrics metrics;
   private final MongotCursorManager cursorManager;
   private final IndexCatalog indexCatalog;
@@ -96,7 +95,6 @@ public class SearchCommand implements Command {
       SearchCommandsRegister.BootstrapperMetadata metadata,
       Bytes bsonSizeSoftLimit,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier) {
-    this.metricsFactory = metrics.metricsFactory;
     this.metrics = metrics;
     this.cursorManager = cursorManager;
     this.indexCatalog = indexCatalog;
@@ -226,17 +224,7 @@ public class SearchCommand implements Command {
       }
 
       boolean isUserFacing = UserFacingException.isUserFacing(e);
-      this.metricsFactory
-          .counter(
-              "searchCommandInternalFailures",
-              Tags.of(
-                  "exceptionName",
-                  e.getClass().getSimpleName(),
-                  ErrorType.METRIC_TAG_KEY,
-                  isUserFacing
-                      ? ErrorType.USER_FACING_ERROR.toString()
-                      : ErrorType.INTERNAL_ERROR.toString()))
-          .increment();
+      this.metrics.recordInternalFailure(e);
 
       if (!isUserFacing) {
         // Mongot internal processing error should be rare, log with a low limit. We still need a
@@ -246,20 +234,6 @@ public class SearchCommand implements Command {
             this.definition.queryDocument());
       }
       return MessageUtils.createErrorBody(e);
-    } catch (Throwable e) {
-      // Use the same tag keys as the Exception branch above so all registrations of
-      // searchCommandInternalFailures share one tag-key set (Prometheus requirement). A raw
-      // Throwable is not a UserFacingException, so it is always an internal error.
-      this.metricsFactory
-          .counter(
-              "searchCommandInternalFailures",
-              Tags.of(
-                  "exceptionName",
-                  e.getClass().getSimpleName(),
-                  ErrorType.METRIC_TAG_KEY,
-                  ErrorType.INTERNAL_ERROR.toString()))
-          .increment();
-      throw e;
     }
   }
 
@@ -641,6 +615,23 @@ public class SearchCommand implements Command {
       this.queriesAgainstView = metricsFactory.counter("queriesAgainstView");
       this.queriesAgainstViewSourceCollection =
           metricsFactory.counter("queriesAgainstViewSourceCollection");
+    }
+
+    /** Emit failure metrics with the same set of label keys. */
+    void recordInternalFailure(Throwable throwable) {
+      ErrorType errorType =
+          UserFacingException.isUserFacing(throwable)
+              ? ErrorType.USER_FACING_ERROR
+              : ErrorType.INTERNAL_ERROR;
+      this.metricsFactory
+          .counter(
+              "searchCommandInternalFailures",
+              Tags.of(
+                  "exceptionName",
+                  throwable.getClass().getSimpleName(),
+                  ErrorType.METRIC_TAG_KEY,
+                  errorType.toString()))
+          .increment();
     }
   }
 }

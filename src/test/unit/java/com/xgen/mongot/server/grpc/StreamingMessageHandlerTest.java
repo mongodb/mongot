@@ -26,6 +26,7 @@ import com.xgen.mongot.server.message.MessageMessage;
 import com.xgen.mongot.server.message.MessageSection;
 import com.xgen.mongot.server.message.MessageSectionBody;
 import com.xgen.mongot.server.message.OpCode;
+import com.xgen.mongot.util.ErrorType;
 import com.xgen.mongot.util.mongodb.Errors;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
@@ -33,6 +34,8 @@ import io.grpc.stub.StreamObserver;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.cumulative.CumulativeTimer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.prometheusmetrics.PrometheusConfig;
+import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -96,6 +99,59 @@ public class StreamingMessageHandlerTest {
   /** Verifies that half-close is sent to the {@code responseObserver}. */
   private void verifyServerHalfClosed() {
     this.inOrder.verify(this.responseObserver, timeout(5000).times(1)).onCompleted();
+  }
+
+  private double commandFailureCount(
+      String commandName, Class<? extends Throwable> exceptionClass, ErrorType errorType) {
+    var counter =
+        this.meterRegistry
+            .find("command." + commandName + "CommandFailure")
+            .tags(
+                "exceptionName",
+                exceptionClass.getSimpleName(),
+                ErrorType.METRIC_TAG_KEY,
+                errorType.toString())
+            .counter();
+    return counter == null ? 0 : counter.count();
+  }
+
+  @Test
+  public void commandFailureMetric_hasPrometheusCompatibleTagKeys() {
+    var registry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
+    var commandRegistry = CommandRegistry.create(registry);
+    commandRegistry.registerCommand(
+        ThrowExceptionCommand.Name,
+        (CommandFactory) ignored -> new ThrowExceptionCommand(Command.ExecutionPolicy.SYNC),
+        true);
+    var registration = commandRegistry.getCommandRegistration(ThrowExceptionCommand.Name);
+
+    registration.recordFailure(new RuntimeException("exception"));
+    registration.recordFailure(new OutOfMemoryError("error"));
+
+    Assert.assertEquals(
+        1.0,
+        registry
+            .find("command." + ThrowExceptionCommand.Name + "CommandFailure")
+            .tags(
+                "exceptionName",
+                RuntimeException.class.getSimpleName(),
+                ErrorType.METRIC_TAG_KEY,
+                ErrorType.INTERNAL_ERROR.toString())
+            .counter()
+            .count(),
+        0.0);
+    Assert.assertEquals(
+        1.0,
+        registry
+            .find("command." + ThrowExceptionCommand.Name + "CommandFailure")
+            .tags(
+                "exceptionName",
+                OutOfMemoryError.class.getSimpleName(),
+                ErrorType.METRIC_TAG_KEY,
+                ErrorType.INTERNAL_ERROR.toString())
+            .counter()
+            .count(),
+        0.0);
   }
 
   /**
@@ -253,6 +309,26 @@ public class StreamingMessageHandlerTest {
     }
   }
 
+  private static class ThrowErrorCommand implements Command {
+
+    private static final String Name = "throwErrorCommand";
+
+    @Override
+    public String name() {
+      return Name;
+    }
+
+    @Override
+    public BsonDocument run() {
+      throw new OutOfMemoryError("throw error by command");
+    }
+
+    @Override
+    public ExecutionPolicy getExecutionPolicy() {
+      return ExecutionPolicy.ASYNC;
+    }
+  }
+
   private static class CreateCursorsCommand implements Command {
 
     private static final String Name = "createCursorsCommand";
@@ -381,7 +457,8 @@ public class StreamingMessageHandlerTest {
         "do not know how to work with the command factory of " + testSessionCommandName);
     Assert.assertEquals(
         1.00,
-        this.commandRegistry.getCommandRegistration(testSessionCommandName).failureCounter.count(),
+        commandFailureCount(
+            testSessionCommandName, IllegalArgumentException.class, ErrorType.USER_FACING_ERROR),
         0.0);
 
     this.messageHandler.onCompleted();
@@ -399,10 +476,8 @@ public class StreamingMessageHandlerTest {
     verifyServerErrorResponse("throw exception by command");
     Assert.assertEquals(
         1.00,
-        this.commandRegistry
-            .getCommandRegistration(ThrowExceptionCommand.Name)
-            .failureCounter
-            .count(),
+        commandFailureCount(
+            ThrowExceptionCommand.Name, RuntimeException.class, ErrorType.INTERNAL_ERROR),
         0.0);
 
     this.messageHandler.onCompleted();
@@ -426,10 +501,23 @@ public class StreamingMessageHandlerTest {
     this.executorManager.commandExecutor.close();
     Assert.assertEquals(
         1.00,
-        this.commandRegistry
-            .getCommandRegistration(ThrowExceptionCommand.Name)
-            .failureCounter
-            .count(),
+        commandFailureCount(
+            ThrowExceptionCommand.Name, RuntimeException.class, ErrorType.INTERNAL_ERROR),
+        0.0);
+  }
+
+  @Test
+  public void throwErrorInAsyncCommand_recordsTaggedCommandFailure() {
+    this.commandRegistry.registerCommand(
+        ThrowErrorCommand.Name, (CommandFactory) ignored -> new ThrowErrorCommand(), true);
+    BsonDocument document = new BsonDocument().append(ThrowErrorCommand.Name, BsonBoolean.TRUE);
+
+    this.messageHandler.onNext(createOpMsgFromBsonDocument(document));
+    verifyServerErrorResponse("throw error by command");
+    Assert.assertEquals(
+        1.00,
+        commandFailureCount(
+            ThrowErrorCommand.Name, OutOfMemoryError.class, ErrorType.INTERNAL_ERROR),
         0.0);
   }
 

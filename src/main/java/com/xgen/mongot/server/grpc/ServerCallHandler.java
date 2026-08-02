@@ -94,7 +94,7 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
                   // alerting/dashboards remain accurate. Envoy may retry on another host, but
                   // this host did reject the command.
                   handlingContext.commandRegistration.ifPresent(
-                      registration -> registration.failureCounter.increment());
+                      registration -> registration.recordFailure(unwrapped));
                   this.commandManager.onCommandFailure(
                       Status.RESOURCE_EXHAUSTED.withDescription("Search server at capacity"));
                 } else {
@@ -104,7 +104,7 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
                         if (!(unwrapped instanceof InterruptedException)
                             && !(unwrapped instanceof CancelledStreamSkipException)) {
                           handlingContext.commandRegistration.ifPresent(
-                              registration -> registration.failureCounter.increment());
+                              registration -> registration.recordFailure(unwrapped));
                         }
                       });
                 }

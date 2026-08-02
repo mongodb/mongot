@@ -306,17 +306,7 @@ public class VectorSearchCommand implements Command {
       }
 
       boolean isUserFacing = UserFacingException.isUserFacing(e);
-      this.metricsFactory
-          .counter(
-              "vectorSearchCommandInternalFailures",
-              Tags.of(
-                  "exceptionName",
-                  e.getClass().getSimpleName(),
-                  ErrorType.METRIC_TAG_KEY,
-                  isUserFacing
-                      ? ErrorType.USER_FACING_ERROR.toString()
-                      : ErrorType.INTERNAL_ERROR.toString()))
-          .increment();
+      this.metrics.recordInternalFailure(e);
 
       if (!isUserFacing) {
         // Mongot internal processing error should be rare, log with a low limit. We still need a
@@ -326,20 +316,6 @@ public class VectorSearchCommand implements Command {
       }
 
       return MessageUtils.createErrorBody(e);
-    } catch (Throwable e) {
-      // Use the same tag keys as the Exception branch above so all registrations of
-      // vectorSearchCommandInternalFailures share one tag-key set (Prometheus requirement). A raw
-      // Throwable is not a UserFacingException, so it is always an internal error.
-      this.metricsFactory
-          .counter(
-              "vectorSearchCommandInternalFailures",
-              Tags.of(
-                  "exceptionName",
-                  e.getClass().getSimpleName(),
-                  ErrorType.METRIC_TAG_KEY,
-                  ErrorType.INTERNAL_ERROR.toString()))
-          .increment();
-      throw e;
     } finally {
       queryTypeOptional.ifPresent(this::decreaseConcurrentQueriesGauge);
     }
@@ -1349,6 +1325,23 @@ public class VectorSearchCommand implements Command {
       this.concurrentAutoEmbeddingQueries =
           metricsFactory.numGauge("concurrentAutoEmbeddingQueries");
       this.metricsFactory = metricsFactory;
+    }
+
+    /** Emit failure metrics with the same set of label keys. */
+    void recordInternalFailure(Throwable throwable) {
+      ErrorType errorType =
+          UserFacingException.isUserFacing(throwable)
+              ? ErrorType.USER_FACING_ERROR
+              : ErrorType.INTERNAL_ERROR;
+      this.metricsFactory
+          .counter(
+              "vectorSearchCommandInternalFailures",
+              Tags.of(
+                  "exceptionName",
+                  throwable.getClass().getSimpleName(),
+                  ErrorType.METRIC_TAG_KEY,
+                  errorType.toString()))
+          .increment();
     }
   }
 }

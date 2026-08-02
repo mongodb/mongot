@@ -8,7 +8,8 @@ import com.xgen.mongot.server.command.builtin.HelloCommand;
 import com.xgen.mongot.server.command.builtin.IsMasterCommand;
 import com.xgen.mongot.server.command.builtin.PingCommand;
 import com.xgen.mongot.util.Enums;
-import io.micrometer.core.instrument.Counter;
+import com.xgen.mongot.util.ErrorType;
+import com.xgen.mongot.util.UserFacingException;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
@@ -75,7 +76,8 @@ public class CommandRegistry {
     public final boolean isSecure;
     public final Timer totalTimer;
     public final Optional<Timer> serializationTimer;
-    public final Counter failureCounter;
+    private final MetricsFactory commandMetricsFactory;
+    private final String failureCounterName;
 
     private CommandRegistration(
         String commandName,
@@ -85,6 +87,8 @@ public class CommandRegistry {
         boolean detailedStats) {
       this.factory = factory;
       this.isSecure = isSecure;
+      this.commandMetricsFactory = commandMetricsFactory;
+      this.failureCounterName = String.format("%sCommandFailure", commandName);
       // To avoid triggering lookups for each command, the metric is cached in this class.
       if (detailedStats) {
         this.totalTimer =
@@ -107,8 +111,23 @@ public class CommandRegistry {
                 String.format("%sCommandTotalLatency", commandName), Tags.empty());
         this.serializationTimer = Optional.empty();
       }
-      this.failureCounter =
-          commandMetricsFactory.counter(String.format("%sCommandFailure", commandName));
+    }
+
+    /** Emit failure metrics with the same set of label keys. */
+    public void recordFailure(Throwable throwable) {
+      ErrorType errorType =
+          UserFacingException.isUserFacing(throwable)
+              ? ErrorType.USER_FACING_ERROR
+              : ErrorType.INTERNAL_ERROR;
+      this.commandMetricsFactory
+          .counter(
+              this.failureCounterName,
+              Tags.of(
+                  "exceptionName",
+                  throwable.getClass().getSimpleName(),
+                  ErrorType.METRIC_TAG_KEY,
+                  errorType.toString()))
+          .increment();
     }
   }
 }

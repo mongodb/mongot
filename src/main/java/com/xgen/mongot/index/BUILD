@@ -35,6 +35,7 @@ java_library(
         "IndexTypeData.java",
         "IndexUnavailableException.java",
         "IndexWriter.java",
+        "InitialSyncIndexUnavailableException.java",
         "InitializedAutoEmbedIndex.java",
         "InitializedIndex.java",
         "InitializedSearchIndex.java",

@@ -10,17 +10,14 @@ import com.xgen.mongot.cursor.serialization.MongotCursorResult;
 import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.explain.tracing.ExplainQueryState;
-import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.server.command.Command;
 import com.xgen.mongot.server.command.CommandFactory;
 import com.xgen.mongot.server.command.search.definition.request.BatchOptionsDefinition;
 import com.xgen.mongot.server.command.search.definition.request.GetMoreCommandDefinition;
 import com.xgen.mongot.server.message.MessageUtils;
 import com.xgen.mongot.util.Bytes;
-import com.xgen.mongot.util.ErrorType;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
-import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
 import io.opentelemetry.context.Scope;
 import java.util.Optional;
@@ -35,17 +32,14 @@ public class GetMoreCommand implements Command {
   private final GetMoreCommandDefinition definition;
   private final MongotCursorManager cursorManager;
   private final Bytes bsonSizeSoftLimit;
-  private final MetricsFactory metricsFactory;
 
   private GetMoreCommand(
       GetMoreCommandDefinition definition,
       MongotCursorManager cursorManager,
-      Bytes bsonSizeSoftLimit,
-      MetricsFactory metricsFactory) {
+      Bytes bsonSizeSoftLimit) {
     this.definition = definition;
     this.cursorManager = cursorManager;
     this.bsonSizeSoftLimit = bsonSizeSoftLimit;
-    this.metricsFactory = metricsFactory;
   }
 
   @Override
@@ -94,19 +88,6 @@ public class GetMoreCommand implements Command {
       // we didn't expect this error, so we will log the entire stack trace for diagnostics
       LOG.error("Unexpected error", e);
       return MessageUtils.createErrorBody(e);
-    } catch (Throwable e) {
-      // Tag with exceptionName + errorType for consistency with the other *InternalFailures
-      // metrics. A raw Throwable is always an internal error.
-      this.metricsFactory
-          .counter(
-              "GetMoreCommandInternalFailures",
-              Tags.of(
-                  "exceptionName",
-                  e.getClass().getSimpleName(),
-                  ErrorType.METRIC_TAG_KEY,
-                  ErrorType.INTERNAL_ERROR.toString()))
-          .increment();
-      throw e;
     }
   }
 
@@ -129,21 +110,17 @@ public class GetMoreCommand implements Command {
 
     private final MongotCursorManager cursorManager;
     private final Bytes bsonSizeSoftLimit;
-    private final MetricsFactory metricsFactory;
 
-    public Factory(
-        MongotCursorManager cursorManager, Bytes bsonSizeSoftLimit, MetricsFactory metricsFactory) {
+    public Factory(MongotCursorManager cursorManager, Bytes bsonSizeSoftLimit) {
       this.cursorManager = cursorManager;
       this.bsonSizeSoftLimit = bsonSizeSoftLimit;
-      this.metricsFactory = metricsFactory;
     }
 
     @Override
     public Command create(BsonDocument args) {
       try (var parser = BsonDocumentParser.fromRoot(args).allowUnknownFields(true).build()) {
         GetMoreCommandDefinition definition = GetMoreCommandDefinition.fromBson(parser);
-        return new GetMoreCommand(
-            definition, this.cursorManager, this.bsonSizeSoftLimit, this.metricsFactory);
+        return new GetMoreCommand(definition, this.cursorManager, this.bsonSizeSoftLimit);
       } catch (BsonParseException e) {
         // we have no way of throwing checked exceptions beyond this method
         // (called directly by opmsg)

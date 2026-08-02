@@ -11,6 +11,7 @@ import static com.xgen.testing.mongot.mock.index.IndexGeneration.mockIndexGenera
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -37,6 +38,8 @@ import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.CountResult;
 import com.xgen.mongot.index.IndexGeneration;
+import com.xgen.mongot.index.IndexUnavailableException;
+import com.xgen.mongot.index.InitialSyncIndexUnavailableException;
 import com.xgen.mongot.index.InitializedSearchIndex;
 import com.xgen.mongot.index.MetaResults;
 import com.xgen.mongot.index.definition.SearchIndexCapabilities;
@@ -68,6 +71,8 @@ import com.xgen.testing.mongot.server.command.search.definition.request.ExplainD
 import com.xgen.testing.mongot.server.command.search.definition.request.SearchCommandDefinitionBuilder;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.prometheusmetrics.PrometheusConfig;
+import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
@@ -215,6 +220,49 @@ public class SearchCommandTest {
 
   private static MetricsFactory mockMetricsFactory() {
     return new MetricsFactory("mockNamespace", new SimpleMeterRegistry());
+  }
+
+  private static double internalFailureCount(
+      MetricsFactory metricsFactory, String exceptionName, ErrorType errorType) {
+    return metricsFactory
+        .counter(
+            "searchCommandInternalFailures",
+            Tags.of("exceptionName", exceptionName, ErrorType.METRIC_TAG_KEY, errorType.toString()))
+        .count();
+  }
+
+  @Test
+  public void internalFailureMetric_hasPrometheusCompatibleTagKeys() {
+    var registry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
+    var metrics = new SearchCommand.Metrics(new MetricsFactory("search_metrics", registry));
+
+    metrics.recordInternalFailure(new IOException("handled exception"));
+    metrics.recordInternalFailure(new AssertionError("raw throwable"));
+
+    Assert.assertEquals(
+        1.0,
+        registry
+            .find("search_metrics.searchCommandInternalFailures")
+            .tags(
+                "exceptionName",
+                IOException.class.getSimpleName(),
+                ErrorType.METRIC_TAG_KEY,
+                ErrorType.INTERNAL_ERROR.toString())
+            .counter()
+            .count(),
+        0.0);
+    Assert.assertEquals(
+        1.0,
+        registry
+            .find("search_metrics.searchCommandInternalFailures")
+            .tags(
+                "exceptionName",
+                AssertionError.class.getSimpleName(),
+                ErrorType.METRIC_TAG_KEY,
+                ErrorType.INTERNAL_ERROR.toString())
+            .counter()
+            .count(),
+        0.0);
   }
 
   @DataPoints
@@ -933,7 +981,7 @@ public class SearchCommandTest {
   }
 
   @Test
-  public void unreachableErrorThrown_metricIncremented() throws Exception {
+  public void unreachableErrorThrown_internalMetricNotIncremented() throws Exception {
     var metricsFactory = mockMetricsFactory();
     SearchCommand command =
         new SearchCommand(
@@ -953,20 +1001,14 @@ public class SearchCommandTest {
 
     Assert.assertThrows(AssertionError.class, command::run);
     Truth.assertThat(
-            metricsFactory
-                .counter(
-                    "searchCommandInternalFailures",
-                    Tags.of(
-                        "exceptionName",
-                        AssertionError.class.getSimpleName(),
-                        ErrorType.METRIC_TAG_KEY,
-                        ErrorType.INTERNAL_ERROR.toString()))
-                .count())
-        .isEqualTo(1.0);
+            internalFailureCount(
+                metricsFactory, AssertionError.class.getSimpleName(), ErrorType.INTERNAL_ERROR))
+        .isEqualTo(0.0);
   }
 
   @Test
-  public void intermediateBatch_unreachableErrorThrown_metricIncremented() throws Exception {
+  public void intermediateBatch_unreachableErrorThrown_internalMetricNotIncremented()
+      throws Exception {
     var metricsFactory = mockMetricsFactory();
     SearchCommand command =
         new SearchCommand(
@@ -987,21 +1029,11 @@ public class SearchCommandTest {
 
     Assert.assertThrows(AssertionError.class, command::run);
     Truth.assertThat(
-            metricsFactory
-                .counter(
-                    "searchCommandInternalFailures",
-                    Tags.of(
-                        "exceptionName",
-                        AssertionError.class.getSimpleName(),
-                        ErrorType.METRIC_TAG_KEY,
-                        ErrorType.INTERNAL_ERROR.toString()))
-                .count())
-        .isEqualTo(1.0);
+            internalFailureCount(
+                metricsFactory, AssertionError.class.getSimpleName(), ErrorType.INTERNAL_ERROR))
+        .isEqualTo(0.0);
   }
 
-  // The Exception branch and the Throwable branch must register searchCommandInternalFailures with
-  // the SAME tag keys (exceptionName + errorType), otherwise Prometheus rejects the second
-  // registration. See CLOUDP-397618.
   @Test
   public void internalException_metricIncrementedWithExceptionNameAndErrorType() throws Exception {
     var metricsFactory = mockMetricsFactory();
@@ -1023,15 +1055,8 @@ public class SearchCommandTest {
 
     command.run();
     Truth.assertThat(
-            metricsFactory
-                .counter(
-                    "searchCommandInternalFailures",
-                    Tags.of(
-                        "exceptionName",
-                        IOException.class.getSimpleName(),
-                        ErrorType.METRIC_TAG_KEY,
-                        ErrorType.INTERNAL_ERROR.toString()))
-                .count())
+            internalFailureCount(
+                metricsFactory, IOException.class.getSimpleName(), ErrorType.INTERNAL_ERROR))
         .isEqualTo(1.0);
   }
 
@@ -1467,6 +1492,7 @@ public class SearchCommandTest {
 
   @Test
   public void testIndexNotInitializedReturnsErrorResponse() throws Exception {
+    var metricsFactory = mockMetricsFactory();
     IndexCatalog catalog = mock(IndexCatalog.class);
     InitializedIndexCatalog initializedIndexCatalog = mock(InitializedIndexCatalog.class);
 
@@ -1485,7 +1511,7 @@ public class SearchCommandTest {
 
     SearchCommand command =
         new SearchCommand(
-            new SearchCommand.Metrics(mockMetricsFactory()),
+            new SearchCommand.Metrics(metricsFactory),
             getCursorManager(),
             catalog,
             initializedIndexCatalog,
@@ -1507,6 +1533,61 @@ public class SearchCommandTest {
         result.getString("errmsg").getValue());
     // Verify that throwIfUnavailableForQuerying() was called before the initialization check
     verify(mockSearchIndex).throwIfUnavailableForQuerying();
+    Truth.assertThat(
+            internalFailureCount(
+                metricsFactory,
+                IndexUnavailableException.class.getSimpleName(),
+                ErrorType.USER_FACING_ERROR))
+        .isEqualTo(1.0);
+  }
+
+  @Test
+  public void testIndexInInitialSyncRecordsIndexUnavailableMetric() throws Exception {
+    var metricsFactory = mockMetricsFactory();
+    IndexCatalog catalog = mock(IndexCatalog.class);
+    InitializedIndexCatalog initializedIndexCatalog = mock(InitializedIndexCatalog.class);
+
+    var searchIndexDefinition = SearchIndex.mockSearchDefinition(new ObjectId());
+    var definitionGeneration = mockDefinitionGeneration(searchIndexDefinition);
+    com.xgen.mongot.index.SearchIndex mockSearchIndex = SearchIndex.mockIndex(definitionGeneration);
+    doThrow(
+            new InitialSyncIndexUnavailableException(
+                String.format(
+                    "cannot query search index %s while in state %s",
+                    searchIndexDefinition, IndexStatus.StatusCode.INITIAL_SYNC)))
+        .when(mockSearchIndex)
+        .throwIfUnavailableForQuerying();
+
+    var indexGeneration = new IndexGeneration(mockSearchIndex, definitionGeneration);
+
+    when(catalog.getIndex(DATABASE_NAME, COLLECTION_UUID, Optional.empty(), INDEX_NAME))
+        .thenReturn(Optional.of(indexGeneration));
+
+    SearchCommand command =
+        new SearchCommand(
+            new SearchCommand.Metrics(metricsFactory),
+            getCursorManager(),
+            catalog,
+            initializedIndexCatalog,
+            SearchCommandDefinitionBuilder.builder()
+                .db(DATABASE_NAME)
+                .collectionName(COLLECTION_NAME)
+                .collectionUuid(COLLECTION_UUID)
+                .query(VALID_OPERATOR_QUERY)
+                .build(),
+            BOOTSTRAPPER_METADATA,
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
+
+    BsonDocument result = command.run();
+    Assert.assertEquals(0, result.getInt32("ok").getValue());
+    Assert.assertTrue(result.getString("errmsg").getValue().contains("INITIAL_SYNC"));
+    Truth.assertThat(
+            internalFailureCount(
+                metricsFactory,
+                InitialSyncIndexUnavailableException.class.getSimpleName(),
+                ErrorType.USER_FACING_ERROR))
+        .isEqualTo(1.0);
   }
 
   private static MongotCursorManager getCursorManager() throws Exception {

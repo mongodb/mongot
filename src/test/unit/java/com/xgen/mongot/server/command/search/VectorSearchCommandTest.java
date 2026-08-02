@@ -85,6 +85,8 @@ import com.xgen.testing.mongot.server.command.search.definition.request.ExplainD
 import com.xgen.testing.mongot.server.command.search.definition.request.VectorSearchCommandDefinitionBuilder;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.prometheusmetrics.PrometheusConfig;
+import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
@@ -186,6 +188,40 @@ public class VectorSearchCommandTest {
                     .build())
             .build();
     return new VectorSearchFilter.ClauseFilter(filter);
+  }
+
+  @Test
+  public void internalFailureMetric_hasPrometheusCompatibleTagKeys() {
+    var registry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
+    var metrics = new VectorSearchCommand.Metrics(new MetricsFactory("search_metrics", registry));
+
+    metrics.recordInternalFailure(new IOException("handled exception"));
+    metrics.recordInternalFailure(new AssertionError("raw throwable"));
+
+    Assert.assertEquals(
+        1.0,
+        registry
+            .find("search_metrics.vectorSearchCommandInternalFailures")
+            .tags(
+                "exceptionName",
+                IOException.class.getSimpleName(),
+                ErrorType.METRIC_TAG_KEY,
+                ErrorType.INTERNAL_ERROR.toString())
+            .counter()
+            .count(),
+        0.0);
+    Assert.assertEquals(
+        1.0,
+        registry
+            .find("search_metrics.vectorSearchCommandInternalFailures")
+            .tags(
+                "exceptionName",
+                AssertionError.class.getSimpleName(),
+                ErrorType.METRIC_TAG_KEY,
+                ErrorType.INTERNAL_ERROR.toString())
+            .counter()
+            .count(),
+        0.0);
   }
 
   @Test
@@ -1864,7 +1900,7 @@ public class VectorSearchCommandTest {
   }
 
   @Test
-  public void getBatch_unreachableErrorThrown_metricIncremented()
+  public void getBatch_unreachableErrorThrown_internalMetricNotIncremented()
       throws ReaderClosedException,
           IOException,
           InvalidQueryException,
@@ -1913,7 +1949,7 @@ public class VectorSearchCommandTest {
                         ErrorType.METRIC_TAG_KEY,
                         ErrorType.INTERNAL_ERROR.toString()))
                 .count())
-        .isEqualTo(1.0);
+        .isEqualTo(0.0);
   }
 
   // Test to prove that a RunTimeException that is wrapping an InvalidQueryException results in
@@ -1968,7 +2004,7 @@ public class VectorSearchCommandTest {
     Assert.assertEquals(
         1.0, metricsFactory.counter("vectorSearchCommandInvalidQueries").count(), 0.0);
 
-    // Should NOT count as an Internal System Failure
+    // Should NOT count as an internal failure (invalid query path)
     Assert.assertEquals(
         0.0, metricsFactory.counter("vectorSearchCommandInternalFailures").count(), 0.0);
 

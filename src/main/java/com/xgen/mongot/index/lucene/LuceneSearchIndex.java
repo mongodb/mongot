@@ -6,6 +6,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexUnavailableException;
+import com.xgen.mongot.index.InitialSyncIndexUnavailableException;
 import com.xgen.mongot.index.SearchIndex;
 import com.xgen.mongot.index.analyzer.AnalyzerRegistry;
 import com.xgen.mongot.index.analyzer.definition.AnalyzerDefinition;
@@ -286,7 +287,11 @@ public class LuceneSearchIndex implements SearchIndex {
   public void throwIfUnavailableForQuerying() throws IndexUnavailableException {
     IndexStatus.StatusCode statusCode = this.getStatus().getStatusCode();
     switch (statusCode) {
-      case UNKNOWN, NOT_STARTED, INITIAL_SYNC, FAILED ->
+      case INITIAL_SYNC ->
+          throw new InitialSyncIndexUnavailableException(
+              String.format(
+                  "cannot query search index %s while in state %s", this.definition, statusCode));
+      case UNKNOWN, NOT_STARTED, FAILED ->
           throw new IndexUnavailableException(
               String.format(
                   "cannot query search index %s while in state %s", this.definition, statusCode));

@@ -8,6 +8,7 @@ import static org.mockito.Mockito.spy;
 
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexUnavailableException;
+import com.xgen.mongot.index.InitialSyncIndexUnavailableException;
 import com.xgen.mongot.index.lucene.config.LuceneConfig;
 import com.xgen.mongot.index.lucene.merge.InstrumentedConcurrentMergeScheduler;
 import com.xgen.mongot.index.lucene.searcher.QueryCacheProvider;
@@ -184,7 +185,7 @@ public class LuceneVectorIndexTest {
         IndexUnavailableException.class,
         () -> createIndexWithStatus(IndexStatus.notStarted()).throwIfUnavailableForQuerying());
     Assert.assertThrows(
-        IndexUnavailableException.class,
+        InitialSyncIndexUnavailableException.class,
         () -> createIndexWithStatus(IndexStatus.initialSync()).throwIfUnavailableForQuerying());
     Assert.assertThrows(
         IndexUnavailableException.class,

@@ -6,6 +6,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexUnavailableException;
+import com.xgen.mongot.index.InitialSyncIndexUnavailableException;
 import com.xgen.mongot.index.VectorIndex;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
@@ -208,7 +209,11 @@ public class LuceneVectorIndex implements VectorIndex {
   public void throwIfUnavailableForQuerying() throws IndexUnavailableException {
     var status = getStatus().getStatusCode();
     switch (status) {
-      case UNKNOWN, NOT_STARTED, INITIAL_SYNC, FAILED ->
+      case INITIAL_SYNC ->
+          throw new InitialSyncIndexUnavailableException(
+              String.format(
+                  "cannot query vector index %s while in state %s", this.definition, status));
+      case UNKNOWN, NOT_STARTED, FAILED ->
           throw new IndexUnavailableException(
               String.format(
                   "cannot query vector index %s while in state %s", this.definition, status));
