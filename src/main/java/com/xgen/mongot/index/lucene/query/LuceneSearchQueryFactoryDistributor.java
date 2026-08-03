@@ -406,9 +406,14 @@ public class LuceneSearchQueryFactoryDistributor {
       FieldToSortableTypesMapping fieldsToSortableTypesMapping,
       Optional<ReturnScope> returnScope,
       QueryOptimizationFlags queryOptimizationFlags,
-      Optional<org.apache.lucene.search.Sort> indexSort)
+      Optional<org.apache.lucene.search.Sort> indexSort,
+      boolean sortDrivesAggregation)
       throws InvalidQueryException {
-    if (sortSpec.isEmpty() || queryOptimizationFlags.omitSearchDocumentResults()) {
+    // A sort exists to order the returned documents, so $searchMeta normally has no use for one.
+    // first/last are the exception: there the sort picks each bucket's winner, which is meta
+    // output and has to be built either way (CLOUDP-425978).
+    if (sortSpec.isEmpty()
+        || (queryOptimizationFlags.omitSearchDocumentResults() && !sortDrivesAggregation)) {
       return Optional.empty();
     }
 

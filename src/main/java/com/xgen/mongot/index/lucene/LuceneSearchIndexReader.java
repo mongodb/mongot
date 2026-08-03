@@ -354,7 +354,8 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
                 indexSearcher.getFieldToSortableTypesMapping(),
                 searchQuery.returnScope(),
                 queryOptimizationFlags,
-                indexSort);
+                indexSort,
+                searchQuery.sortDrivesAggregation());
         trackIndexSortMetrics(luceneSort, indexSort);
 
         luceneQuery =
@@ -472,7 +473,8 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
             indexSearcher.getFieldToSortableTypesMapping(),
             query.returnScope(),
             queryOptimizationFlags,
-            indexSort);
+            indexSort,
+            query.sortDrivesAggregation());
     trackIndexSortMetrics(luceneSort, indexSort);
 
     luceneQuery =
@@ -998,7 +1000,8 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
                 searcherReference.getIndexSearcher().getFieldToSortableTypesMapping(),
                 query.returnScope(),
                 queryOptimizationFlags,
-                Optional.empty()),
+                Optional.empty(),
+                query.sortDrivesAggregation()),
             searchAfter,
             aggregationPlan,
             this.indexPartitionId);
@@ -1068,7 +1071,8 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
                 searcherReference.getIndexSearcher().getFieldToSortableTypesMapping(),
                 query.returnScope(),
                 queryOptimizationFlags,
-                Optional.empty()),
+                Optional.empty(),
+                query.sortDrivesAggregation()),
             searchAfter,
             aggregationPlan,
             this.indexPartitionId);

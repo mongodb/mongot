@@ -87,6 +87,28 @@ public class SearchAggregationSortTest {
   }
 
   @Test
+  public void aggregationRequestWithFirstMetric_sortDrivesAggregation() throws Exception {
+    // Marks the query as one whose sort has to be built even under $searchMeta, where no documents
+    // come back and the sort would otherwise be skipped (CLOUDP-425978).
+    BsonDocument document =
+        facetWith(new BsonDocument("byCategory", firstMetricNode())).append("sort", SORT);
+
+    assertThat(parse(document, /* searchAggregationEnabled= */ true).sortDrivesAggregation())
+        .isTrue();
+  }
+
+  @Test
+  public void legacyFacetRequestWithSort_doesNotDriveAggregation() throws Exception {
+    // A sort on a legacy facet request stays accepted-and-ignored, so $searchMeta keeps skipping
+    // it.
+    BsonDocument document =
+        facetWith(new BsonDocument("byCategory", stringNode("category"))).append("sort", SORT);
+
+    assertThat(parse(document, /* searchAggregationEnabled= */ true).sortDrivesAggregation())
+        .isFalse();
+  }
+
+  @Test
   public void aggregationRequestWithScoreSortAndFirstMetric_rejected() {
     // Field-sort-only for now: `last` under a score sort would need the globally lowest-scoring
     // docs, which score pruning skips; score-sorted `first` may be admitted later (loosening the

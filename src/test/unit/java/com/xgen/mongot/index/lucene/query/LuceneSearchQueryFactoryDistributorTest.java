@@ -1407,20 +1407,37 @@ public class LuceneSearchQueryFactoryDistributorTest {
                     .build())
             .buildSort();
 
+    FieldToSortableTypesMapping mapping =
+        new FieldToSortableTypesMapping(
+            ImmutableSetMultimap.of(
+                FieldPath.newRoot("foo"),
+                FieldName.TypeField.NUMBER_INT64_V2,
+                FieldPath.newRoot("bar"),
+                FieldName.TypeField.TOKEN),
+            ImmutableMap.of());
+
     assertThat(
             factory.createSort(
                 Optional.of(sortSpec),
                 Optional.empty(),
-                new FieldToSortableTypesMapping(
-                    ImmutableSetMultimap.of(
-                        FieldPath.newRoot("foo"),
-                        FieldName.TypeField.NUMBER_INT64_V2,
-                        FieldPath.newRoot("bar"),
-                        FieldName.TypeField.TOKEN),
-                    ImmutableMap.of()),
+                mapping,
                 Optional.empty(),
                 QueryOptimizationFlagsBuilder.builder().omitSearchDocumentResults(true).build(),
-                Optional.empty()))
+                Optional.empty(),
+                /* sortDrivesAggregation= */ false))
         .isEmpty();
+
+    // first/last read the sort to pick each bucket's winner, which is meta output, so $searchMeta
+    // still has to build it (CLOUDP-425978).
+    assertThat(
+            factory.createSort(
+                Optional.of(sortSpec),
+                Optional.empty(),
+                mapping,
+                Optional.empty(),
+                QueryOptimizationFlagsBuilder.builder().omitSearchDocumentResults(true).build(),
+                Optional.empty(),
+                /* sortDrivesAggregation= */ true))
+        .isPresent();
   }
 }

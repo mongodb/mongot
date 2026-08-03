@@ -237,6 +237,19 @@ public sealed interface SearchQuery extends Query permits CollectorQuery, Operat
   }
 
   /**
+   * Whether the query's sort is consumed by a {@code first} or {@code last} aggregation metric,
+   * which orders the documents within each bucket to pick that bucket's winner.
+   *
+   * <p>Unlike ordering the returned documents, this is meta output, so it survives {@code
+   * $searchMeta}.
+   */
+  default boolean sortDrivesAggregation() {
+    return this instanceof CollectorQuery collectorQuery
+        && collectorQuery.collector() instanceof AggregationCollector aggregationCollector
+        && aggregationCollector.usesFirstOrLast();
+  }
+
+  /**
    * Returns the {@link SortSpec} exactly as entered by the user.
    *
    * <p>This sort spec does not consider any implicit sort fields added by pagination. As a result,
