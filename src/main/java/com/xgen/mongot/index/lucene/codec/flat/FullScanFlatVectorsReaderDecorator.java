@@ -6,6 +6,7 @@ import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.hnsw.FlatVectorsReader;
 import org.apache.lucene.index.ByteVectorValues;
 import org.apache.lucene.index.FloatVectorValues;
+import org.apache.lucene.search.AcceptDocs;
 import org.apache.lucene.search.KnnCollector;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.hnsw.OrdinalTranslatedKnnCollector;
@@ -63,9 +64,9 @@ class FullScanFlatVectorsReaderDecorator extends KnnVectorsReader {
    * @throws IOException if an I/O error occurs during the search
    */
   @Override
-  public void search(String field, float[] target, KnnCollector knnCollector, Bits acceptDocs)
+  public void search(String field, float[] target, KnnCollector knnCollector, AcceptDocs acceptDocs)
       throws IOException {
-    scanAllDocs(knnCollector, acceptDocs, this.reader.getRandomVectorScorer(field, target));
+    scanAllDocs(knnCollector, acceptDocs.bits(), this.reader.getRandomVectorScorer(field, target));
   }
 
   /**
@@ -81,9 +82,9 @@ class FullScanFlatVectorsReaderDecorator extends KnnVectorsReader {
    * @throws IOException if an I/O error occurs
    */
   @Override
-  public void search(String field, byte[] target, KnnCollector knnCollector, Bits acceptDocs)
+  public void search(String field, byte[] target, KnnCollector knnCollector, AcceptDocs acceptDocs)
       throws IOException {
-    scanAllDocs(knnCollector, acceptDocs, this.reader.getRandomVectorScorer(field, target));
+    scanAllDocs(knnCollector, acceptDocs.bits(), this.reader.getRandomVectorScorer(field, target));
   }
 
   /**

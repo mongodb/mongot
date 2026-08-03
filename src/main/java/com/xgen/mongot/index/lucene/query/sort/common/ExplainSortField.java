@@ -2,7 +2,6 @@ package com.xgen.mongot.index.lucene.query.sort.common;
 
 import com.xgen.mongot.index.lucene.explain.explainers.SortFeatureExplainer;
 import java.io.IOException;
-import java.util.Comparator;
 import java.util.Objects;
 import org.apache.lucene.index.IndexSorter;
 import org.apache.lucene.search.FieldComparator;
@@ -10,7 +9,6 @@ import org.apache.lucene.search.FieldComparatorSource;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Pruning;
 import org.apache.lucene.search.SortField;
-import org.apache.lucene.util.BytesRef;
 
 public class ExplainSortField extends SortField {
   private final SortField sortField;
@@ -65,16 +63,6 @@ public class ExplainSortField extends SortField {
   @Override
   public String toString() {
     return "<explain_field: " + this.sortField + "\">";
-  }
-
-  @Override
-  public void setBytesComparator(Comparator<BytesRef> b) {
-    this.sortField.setBytesComparator(b);
-  }
-
-  @Override
-  public Comparator<BytesRef> getBytesComparator() {
-    return this.sortField.getBytesComparator();
   }
 
   @Override

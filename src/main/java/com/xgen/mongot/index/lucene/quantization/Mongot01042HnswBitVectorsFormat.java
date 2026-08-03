@@ -17,6 +17,7 @@
 
 package com.xgen.mongot.index.lucene.quantization;
 
+import static com.xgen.mongot.index.lucene.vector.Lucene99NativeHnswVectorsFormat.DEFAULT_HNSW_GRAPH_THRESHOLD;
 import static org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat.DEFAULT_BEAM_WIDTH;
 import static org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat.DEFAULT_MAX_CONN;
 import static org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat.DEFAULT_NUM_MERGE_WORKER;
@@ -147,7 +148,8 @@ public final class Mongot01042HnswBitVectorsFormat extends KnnVectorsFormat {
             this.beamWidth,
             this.flatVectorsFormat.fieldsWriter(state),
             this.numMergeWorkers,
-            this.mergeExec.orElse(null)));
+            this.mergeExec.orElse(null),
+            DEFAULT_HNSW_GRAPH_THRESHOLD));
   }
 
   @Override

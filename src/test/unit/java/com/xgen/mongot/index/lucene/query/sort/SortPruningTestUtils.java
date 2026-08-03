@@ -7,6 +7,7 @@ import com.xgen.mongot.index.lucene.explain.information.SortStats;
 import com.xgen.mongot.index.lucene.explain.timing.ExplainTimings;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.field.FieldValue;
+import com.xgen.mongot.index.lucene.query.util.DisableBulkScorerQuery;
 import com.xgen.mongot.index.lucene.util.FieldTypeBuilder;
 import com.xgen.mongot.index.lucene.util.LuceneDoubleConversionUtils;
 import com.xgen.mongot.index.query.sort.NullEmptySortPosition;
@@ -40,6 +41,8 @@ import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.NoMergePolicy;
 import org.apache.lucene.search.FieldDoc;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.MatchAllDocsQuery;
+import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.TotalHits;
@@ -168,6 +171,19 @@ class SortPruningTestUtils {
 
   private static BytesRef intToBytesRef(long value) {
     return new BytesRef(Character.toString((char) value));
+  }
+
+  /**
+   * The match-all query pruning tests should use. Lucene 10.4 scores a bare {@code
+   * MatchAllDocsQuery} via {@code DenseConjunctionBulkScorer}, which only consults the comparator's
+   * competitive iterator between fixed 4096-doc windows, defeating per-doc pruning. Production
+   * mitigates this by wrapping sorted queries in {@link DisableBulkScorerQuery} (see {@code
+   * LuceneSearchIndexReader#maybeDisableBulkScorerForSort}, flag default on), which forces {@code
+   * Weight.DefaultBulkScorer} and restores per-doc pruning. Tests wrap the same way so they
+   * exercise the shipped configuration and hit counts stay exact.
+   */
+  public static Query matchAllDocsQuery() {
+    return new DisableBulkScorerQuery(new MatchAllDocsQuery());
   }
 
   public static void assertNonCompetitiveHitsAreSkipped(long collectedHits, long numDocs) {

@@ -45,8 +45,8 @@ import org.junit.Test;
  */
 public class LuceneForkVersionTest {
 
-  private static final String UPSTREAM_VERSION = "10.1.0";
-  private static final String FORK_VERSION = "10.1.0-5";
+  private static final String UPSTREAM_VERSION = "10.4.0";
+  private static final String FORK_VERSION = "10.4.0-2";
 
   @Test
   public void luceneCore_fromFork() {
@@ -67,6 +67,13 @@ public class LuceneForkVersionTest {
     String jarPath = jarLocationOf(DefaultBloomFilterFactory.class);
     Truth.assertThat(jarPath).contains("lucene-codecs-" + FORK_VERSION + ".jar");
     Truth.assertThat(jarPath).doesNotContain("lucene-codecs-" + UPSTREAM_VERSION + ".jar");
+  }
+
+  @Test
+  public void luceneJoin_fromFork() {
+    String jarPath = jarLocationOf(BitSetProducer.class);
+    Truth.assertThat(jarPath).contains("lucene-join-" + FORK_VERSION + ".jar");
+    Truth.assertThat(jarPath).doesNotContain("lucene-join-" + UPSTREAM_VERSION + ".jar");
   }
 
   @Test
@@ -144,13 +151,6 @@ public class LuceneForkVersionTest {
     String jarPath = jarLocationOf(Highlighter.class);
     Truth.assertThat(jarPath).contains("lucene-highlighter-" + UPSTREAM_VERSION + ".jar");
     Truth.assertThat(jarPath).doesNotContain("lucene-highlighter-" + FORK_VERSION + ".jar");
-  }
-
-  @Test
-  public void luceneJoin_fromUpstream() {
-    String jarPath = jarLocationOf(BitSetProducer.class);
-    Truth.assertThat(jarPath).contains("lucene-join-" + UPSTREAM_VERSION + ".jar");
-    Truth.assertThat(jarPath).doesNotContain("lucene-join-" + FORK_VERSION + ".jar");
   }
 
   @Test

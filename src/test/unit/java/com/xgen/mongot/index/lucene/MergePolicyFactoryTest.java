@@ -60,6 +60,10 @@ public class MergePolicyFactoryTest {
     Assert.assertEquals(64, tmp.getMaxMergedSegmentMB(), 0.1);
     Assert.assertEquals(DEFAULT_DELETES_PCT_ALLOWED, tmp.getDeletesPctAllowed(), 0.1);
     Assert.assertEquals(FORCE_MERGE_DELETES_PCT_ALLOWED, tmp.getForceMergeDeletesPctAllowed(), 0.1);
+
+    // Assert that lucene defaults from 10.1 are used.
+    Assert.assertEquals(10, tmp.getSegmentsPerTier(), 0.1);
+    Assert.assertEquals(2, tmp.getFloorSegmentMB(), 0.1);
   }
 
   @Test

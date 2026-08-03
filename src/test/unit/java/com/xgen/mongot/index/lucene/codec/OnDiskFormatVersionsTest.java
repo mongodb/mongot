@@ -7,6 +7,7 @@ import com.xgen.mongot.index.lucene.vector.Lucene99NativeHnswVectorsFormat;
 import java.lang.reflect.Field;
 import org.apache.lucene.backward_codecs.lucene99.Lucene94FieldInfosFormatV1;
 import org.apache.lucene.backward_codecs.lucene99.Lucene99PostingsFormat;
+import org.apache.lucene.backward_codecs.lucene99.Lucene99ScalarQuantizedVectorsFormat;
 import org.apache.lucene.codecs.lucene90.Lucene90CompoundFormat;
 import org.apache.lucene.codecs.lucene90.Lucene90DocValuesFormat;
 import org.apache.lucene.codecs.lucene90.Lucene90LiveDocsFormat;
@@ -16,7 +17,6 @@ import org.apache.lucene.codecs.lucene90.compressing.Lucene90CompressingStoredFi
 import org.apache.lucene.codecs.lucene90.compressing.Lucene90CompressingTermVectorsWriter;
 import org.apache.lucene.codecs.lucene99.Lucene99FlatVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
-import org.apache.lucene.codecs.lucene99.Lucene99ScalarQuantizedVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99SegmentInfoFormat;
 import org.apache.lucene.index.SegmentInfos;
 import org.junit.Test;

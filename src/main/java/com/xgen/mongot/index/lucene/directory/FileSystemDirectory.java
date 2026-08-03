@@ -9,11 +9,13 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import org.apache.commons.io.FilenameUtils;
+import org.apache.lucene.store.DataAccessHint;
 import org.apache.lucene.store.FileSwitchDirectory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.MMapDirectory;
 import org.apache.lucene.store.NIOFSDirectory;
+import org.apache.lucene.store.PreloadHint;
 import org.apache.lucene.store.ReadAdvice;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -80,18 +82,46 @@ public class FileSystemDirectory extends FileSwitchDirectory {
   private static final LinkedHashSet<String> extensionLoadOrder =
       new LinkedHashSet<>(FileSystemDirectory.prioritizedExtensions.reversed());
 
+  // Lucene 10.4 (apache/lucene #14482) moved read-advice off IOContext into an opt-in
+  // per-Directory resolver, and (#15040) flipped the default from RANDOM to NORMAL; with no
+  // resolver installed every read gets MADV_NORMAL. Restore context-aware advice, keeping RANDOM
+  // (not NORMAL) as the floor to match Lucene 10.1 and avoid read-ahead page-cache thrash on the
+  // co-located mongod:
+  //  - MERGE/FLUSH stream segments front-to-back -> SEQUENTIAL (read-ahead, few large reads).
+  //  - Honor explicit codec hints: DataAccessHint.RANDOM -> RANDOM, DataAccessHint.SEQUENTIAL ->
+  // SEQUENTIAL (e.g. flat-vector bulk reads).
+  //  - Everything else (term dict/index, postings, norms, docvalues) is random-access search
+  // traffic -> RANDOM (the pre-10.4 default). NOTE: NORMAL here would coalesce reads into
+  // fewer IOPS and mask the 10.4 query read-amplification on IOPS-bound disks, but risks
+  // page-cache thrash; the amplification is better addressed at the scorer, so we keep RANDOM.
+  private static Optional<ReadAdvice> adviseByContextDefaultRandom(
+      String filename, IOContext context) {
+    if (context.context() == IOContext.Context.MERGE
+        || context.context() == IOContext.Context.FLUSH) {
+      return Optional.of(ReadAdvice.SEQUENTIAL);
+    }
+    if (context.hints().contains(DataAccessHint.RANDOM)) {
+      return Optional.of(ReadAdvice.RANDOM);
+    }
+    if (context.hints().contains(DataAccessHint.SEQUENTIAL)) {
+      return Optional.of(ReadAdvice.SEQUENTIAL);
+    }
+    return Optional.of(ReadAdvice.RANDOM);
+  }
+
   public FileSystemDirectory(Path path, Optional<ByteReadCollector> collector) throws IOException {
     this(new MMapDirectory(path), new NIOFSDirectory(path), collector);
   }
 
+  /** Constructs a directory over the given mmap and niofs directories, installing read advice. */
   public FileSystemDirectory(
       MMapDirectory mmapDirectory,
       NIOFSDirectory niofsDirectory,
-      Optional<ByteReadCollector> collector)
-      throws IOException {
+      Optional<ByteReadCollector> collector) {
     super(MMAP_EXTENSIONS, mmapDirectory, niofsDirectory, true);
     this.mmapDirectory = mmapDirectory;
     this.collector = collector;
+    this.mmapDirectory.setReadAdvice(FileSystemDirectory::adviseByContextDefaultRandom);
   }
 
   // OpenInputBase is used for unit test spying.
@@ -120,7 +150,7 @@ public class FileSystemDirectory extends FileSwitchDirectory {
           .addKeyValue("directory", this.mmapDirectory.getDirectory())
           .log("Cache Warmer: warming directory");
 
-      this.mmapDirectory.setPreload(MMapDirectory.BASED_ON_LOAD_IO_CONTEXT);
+      this.mmapDirectory.setPreload(MMapDirectory.PRELOAD_HINT);
 
       // Scan all the base filenames that have filename extensions we're interested in warming.
       LinkedHashMultimap<String, String> extensionsAndBaseNames = LinkedHashMultimap.create();
@@ -146,9 +176,9 @@ public class FileSystemDirectory extends FileSwitchDirectory {
           LOG.atDebug().addKeyValue("file", fileName).log("Cache Warmer: warming segment");
           try (IndexInput input =
               this.mmapDirectory.openInput(
-                  fileName, IOContext.DEFAULT.withReadAdvice(ReadAdvice.NORMAL))) {
-            // The openInput() call with IOContext.LOAD plus the above setPreload() call is
-            // expected to trigger the preload.
+                  fileName, IOContext.DEFAULT.withHints(PreloadHint.INSTANCE))) {
+            // The openInput() call with PreloadHint plus the above setPreload(PRELOAD_HINT) call
+            // is expected to trigger the preload.
           }
         }
       }

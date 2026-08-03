@@ -11,13 +11,28 @@
     <!-- CLOUDP-272527: Disable our coding standards for these third-party files
          temporarily copied into mongot/index/lucene/quantization/ as a workaround.
          Remove these after Lucene adds support for binary quantization. -->
-    <suppress files="mongot[/\\]index[/\\]lucene[/\\]quantization[/\\]BinaryQuantizer\.java" checks=".*"/>
-    <suppress files="mongot[/\\]index[/\\]lucene[/\\]quantization[/\\]OffHeapQuantizedByteVectorValues\.java" checks=".*"/>
-    <suppress files="mongot[/\\]index[/\\]lucene[/\\]quantization[/\\]BinaryQuantizedFlatVectorsScorer\.java" checks=".*"/>
-    <suppress files="mongot[/\\]index[/\\]lucene[/\\]quantization[/\\]FlatBitVectorsScorer\.java" checks=".*"/>
-    <suppress files="mongot[/\\]index[/\\]lucene[/\\]quantization[/\\]Mongot01042HnswBitVectorsFormat\.java" checks=".*"/>
-    <suppress files="mongot[/\\]index[/\\]lucene[/\\]query[/\\]sort[/\\]comparator[/\\]MongotNumericComparator\.java" checks=".*"/>
-    <suppress files="mongot[/\\]index[/\\]lucene[/\\]codec[/\\]bloom[/\\]MongotBloomFilteringPostingsFormat\.java" checks=".*"/>
+    <suppress files="mongot[/\\]index[/\\]lucene[/\\]quantization[/\\]BinaryQuantizer\.java"
+              checks=".*"/>
+    <suppress
+            files="mongot[/\\]index[/\\]lucene[/\\]quantization[/\\]OffHeapQuantizedByteVectorValues\.java"
+            checks=".*"/>
+    <suppress
+            files="mongot[/\\]index[/\\]lucene[/\\]quantization[/\\]BinaryQuantizedFlatVectorsScorer\.java"
+            checks=".*"/>
+    <suppress files="mongot[/\\]index[/\\]lucene[/\\]quantization[/\\]FlatBitVectorsScorer\.java"
+              checks=".*"/>
+    <suppress
+            files="mongot[/\\]index[/\\]lucene[/\\]quantization[/\\]Mongot01042HnswBitVectorsFormat\.java"
+            checks=".*"/>
+    <suppress
+            files="mongot[/\\]index[/\\]lucene[/\\]query[/\\]sort[/\\]comparator[/\\]MongotNumericComparator\.java"
+            checks=".*"/>
+    <suppress
+            files="mongot[/\\]index[/\\]lucene[/\\]query[/\\]sort[/\\]comparator[/\\]MongotUpdateableDocIdSetIterator\.java"
+            checks=".*"/>
+    <suppress
+            files="mongot[/\\]index[/\\]lucene[/\\]codec[/\\]bloom[/\\]MongotBloomFilteringPostingsFormat\.java"
+            checks=".*"/>
     <!-- Suppress all checks for jextract-generated FFM bindings (regenerate with: make regenerate-vectorlite-ffm) -->
     <suppress files="vectorlite[/\\]ffm[/\\]" checks=".*"/>
     <!-- Ignore ONLY MissingJavadocMethod in test sources -->
@@ -26,10 +41,16 @@
     <suppress id="noPrint" files=".*/src/test/.*"/>
     <suppress id="noPrint" files=".*/testing/.*"/>
     <!-- Suppress MissingJavadocMethod for routine methods -->
-    <suppress-xpath files=".*" checks="MissingJavadocMethod" query="//METHOD_DEF[./IDENT[@text='create']]"/>
-    <suppress-xpath files=".*" checks="MissingJavadocMethod" query="//METHOD_DEF[./IDENT[@text='build']]"/>
-    <suppress-xpath files=".*" checks="MissingJavadocMethod" query="//METHOD_DEF[./IDENT[@text='toBson']]"/>
-    <suppress-xpath files=".*" checks="MissingJavadocMethod" query="//METHOD_DEF[./IDENT[@text='fromBson']]"/>
-    <suppress-xpath files=".*" checks="MissingJavadocMethod" query="//METHOD_DEF[./IDENT[@text='toString']]"/>
-    <suppress-xpath files=".*" checks="MissingJavadocMethod" query="//METHOD_DEF[./IDENT[@text='builder']]"/>
+    <suppress-xpath files=".*" checks="MissingJavadocMethod"
+                    query="//METHOD_DEF[./IDENT[@text='create']]"/>
+    <suppress-xpath files=".*" checks="MissingJavadocMethod"
+                    query="//METHOD_DEF[./IDENT[@text='build']]"/>
+    <suppress-xpath files=".*" checks="MissingJavadocMethod"
+                    query="//METHOD_DEF[./IDENT[@text='toBson']]"/>
+    <suppress-xpath files=".*" checks="MissingJavadocMethod"
+                    query="//METHOD_DEF[./IDENT[@text='fromBson']]"/>
+    <suppress-xpath files=".*" checks="MissingJavadocMethod"
+                    query="//METHOD_DEF[./IDENT[@text='toString']]"/>
+    <suppress-xpath files=".*" checks="MissingJavadocMethod"
+                    query="//METHOD_DEF[./IDENT[@text='builder']]"/>
 </suppressions>

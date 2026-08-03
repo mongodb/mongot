@@ -2,7 +2,9 @@ package com.xgen.mongot.index.lucene.query.sort.comparator;
 
 import java.io.IOException;
 import org.apache.lucene.index.DocValues;
+import org.apache.lucene.index.DocValuesSkipper;
 import org.apache.lucene.index.FieldInfo;
+import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.NumericDocValues;
 import org.apache.lucene.index.PointValues;
@@ -12,7 +14,9 @@ import org.apache.lucene.search.LeafFieldComparator;
 import org.apache.lucene.search.Pruning;
 import org.apache.lucene.search.Scorable;
 import org.apache.lucene.search.Scorer;
+import org.apache.lucene.search.SkipBlockRangeIterator;
 import org.apache.lucene.util.DocIdSetBuilder;
+import org.apache.lucene.util.IntsRef;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -20,26 +24,37 @@ import org.jetbrains.annotations.Nullable;
  * The only changes here are to allow adding hooks to support its child classes. The intended use
  * here is to simply dump the contents of the new version here on Lucene upgrade (or delete this
  * class if no custom hooks are needed). Hence, it's recommended to minimize adding any logical
- * changes here. Logical changes made in this class:
+ * changes here.
+ *
+ * <p>This file was last re-synced from Lucene 10.4's NumericComparator on the 10.1.0 → 10.4.0
+ * upgrade. The two mongot patches called out below are re-applied on top.
+ *
+ * <p>Logical changes made in this class:
  *
  * <ol>
- *   <li>Add forceOriginalPruning boolean param to {@link
- *       MongotNumericComparator.NumericLeafComparator#bottomAsComparableLong} to allow switching
- *       pruning config for different code paths
- *   <li>Move missingValueAsLong from {@link MongotNumericComparator#missingValueAsLong} to {@link
- *       MqlLongComparator#missingValueAsLong} due to dependency on {@link
- *       MqlLongComparator#nullEmptySortPosition}
+ *   <li>Add {@code boolean isComparing} param to {@link
+ *       MongotNumericComparator.NumericLeafComparator#bottomAsComparableLong} to allow subclasses
+ *       to switch pruning config across the encoding vs comparing code paths.
+ *   <li>Move {@code missingValueAsLong} from {@link MongotNumericComparator} to {@link
+ *       MqlLongComparator#missingValueAsLong} because the subclass's missing value depends on
+ *       {@link MqlLongComparator#nullEmptySortPosition}, which is set after {@code super(...)}.
+ *       Lucene 10.4 introduced a {@code missingValueAsLong} field cached at construction in the
+ *       parent class — we cannot use that pattern here because the subclass field isn't ready yet
+ *       when the parent constructor runs. Each caller invokes {@link
+ *       #missingValueAsComparableLong()} directly instead.
  * </ol>
  */
 public abstract class MongotNumericComparator<T extends Number> extends FieldComparator<T> {
 
-  private static final boolean COMPARING = true;
-  private static final boolean ENCODING = false;
+  protected static final boolean COMPARING = true;
+  protected static final boolean ENCODING = false;
 
   // MIN_SKIP_INTERVAL and MAX_SKIP_INTERVAL both should be powers of 2
   private static final int MIN_SKIP_INTERVAL = 32;
   private static final int MAX_SKIP_INTERVAL = 8192;
   protected final T missingValue;
+  // [mongot patch #2] No `missingValueAsLong` field — call missingValueAsComparableLong() at use
+  // sites instead. See class-level comment.
   protected final String field;
   protected final boolean reverse;
   private final int bytesCount; // how many bytes are used to encode this number
@@ -86,63 +101,25 @@ public abstract class MongotNumericComparator<T extends Number> extends FieldCom
   public abstract class NumericLeafComparator implements LeafFieldComparator {
     private final LeafReaderContext context;
     protected final NumericDocValues docValues;
-    private final PointValues pointValues;
-    // lazily constructed to avoid performance overhead when this is not used
-    private PointValues.PointTree pointTree;
-    // if skipping functionality should be enabled on this segment
-    private final boolean enableSkipping;
-    private final int maxDoc;
-
-    /** According to {@link FieldComparator#setTopValue}, topValueSet is final in leafComparator */
-    private final boolean leafTopSet = topValueSet;
-
-    private long minValueAsLong = Long.MIN_VALUE;
-    private long maxValueAsLong = Long.MAX_VALUE;
-
-    private DocIdSetIterator competitiveIterator;
-    private long iteratorCost = -1;
-    private int maxDocVisited = -1;
-    private int updateCounter = 0;
-    private int currentSkipInterval = MIN_SKIP_INTERVAL;
-    // helps to be conservative about increasing the sampling interval
-    private int tryUpdateFailCount = 0;
+    private final CompetitiveDISIBuilder competitiveDISIBuilder;
 
     public NumericLeafComparator(LeafReaderContext context) throws IOException {
       this.context = context;
       this.docValues = getNumericDocValues(context, field);
-      this.pointValues = pruning != Pruning.NONE ? context.reader().getPointValues(field) : null;
-      if (pointValues != null) {
-        FieldInfo info = context.reader().getFieldInfos().fieldInfo(field);
-        if (info == null || info.getPointDimensionCount() == 0) {
-          throw new IllegalStateException(
-              "Field "
-                  + field
-                  + " doesn't index points according to FieldInfos yet returns non-null"
-                  + " PointValues");
-        } else if (info.getPointDimensionCount() > 1) {
-          throw new IllegalArgumentException(
-              "Field " + field + " is indexed with multiple dimensions, sorting is not supported");
-        } else if (info.getPointNumBytes() != bytesCount) {
-          throw new IllegalArgumentException(
-              "Field "
-                  + field
-                  + " is indexed with "
-                  + info.getPointNumBytes()
-                  + " bytes per dimension, but "
-                  + MongotNumericComparator.this
-                  + " expected "
-                  + bytesCount);
+      CompetitiveDISIBuilder builder = null;
+      if (pruning != Pruning.NONE) {
+        LeafReader reader = context.reader();
+        PointValues pointValues = reader.getPointValues(field);
+        if (pointValues != null) {
+          builder = new PointsCompetitiveDISIBuilder(pointValues, this);
+        } else {
+          DocValuesSkipper skipper = reader.getDocValuesSkipper(field);
+          if (skipper != null) {
+            builder = new DVSkipperCompetitiveDISIBuilder(skipper, this);
+          }
         }
-        this.enableSkipping = true; // skipping is enabled when points are available
-        this.maxDoc = context.reader().maxDoc();
-        this.competitiveIterator = DocIdSetIterator.all(maxDoc);
-        if (leafTopSet) {
-          encodeTop();
-        }
-      } else {
-        this.enableSkipping = false;
-        this.maxDoc = 0;
       }
+      competitiveDISIBuilder = builder;
     }
 
     /**
@@ -165,42 +142,86 @@ public abstract class MongotNumericComparator<T extends Number> extends FieldCom
     @Override
     public void setBottom(int slot) throws IOException {
       queueFull = true; // if we are setting bottom, it means that we have collected enough hits
-      updateCompetitiveIterator(); // update an iterator if we set a new bottom
+      if (competitiveDISIBuilder != null) {
+        competitiveDISIBuilder.updateCompetitiveIterator();
+      }
     }
 
     @Override
     public void copy(int slot, int doc) throws IOException {
-      maxDocVisited = doc;
+      if (competitiveDISIBuilder != null) {
+        competitiveDISIBuilder.setMaxDocVisited(doc);
+      }
     }
 
     @Override
     public void setScorer(Scorable scorer) throws IOException {
-      if (iteratorCost == -1) {
-        if (scorer instanceof Scorer) {
-          iteratorCost =
-              ((Scorer) scorer).iterator().cost(); // starting iterator cost is the scorer's cost
-        } else {
-          iteratorCost = maxDoc;
-        }
-        updateCompetitiveIterator(); // update an iterator when we have a new segment
+      if (competitiveDISIBuilder != null) {
+        competitiveDISIBuilder.setScorer(scorer);
       }
     }
 
     @Override
     public void setHitsThresholdReached() throws IOException {
       hitsThresholdReached = true;
-      updateCompetitiveIterator();
+      if (competitiveDISIBuilder != null) {
+        competitiveDISIBuilder.updateCompetitiveIterator();
+      }
     }
 
-    // update its iterator to include possibly only docs that are "stronger" than the current bottom
-    // entry
-    private void updateCompetitiveIterator() throws IOException {
-      if (enableSkipping == false
-          || hitsThresholdReached == false
-          || (leafTopSet == false && queueFull == false)) return;
+    @Override
+    public DocIdSetIterator competitiveIterator() {
+      return competitiveDISIBuilder == null ? null : competitiveDISIBuilder.competitiveIterator;
+    }
+
+    // [mongot patch #1] Takes a `boolean isComparing` parameter so subclasses can switch pruning
+    // config between the encoding and comparing code paths. Lucene's upstream signature is
+    // `bottomAsComparableLong()` (no args); we override at every call site below.
+    protected abstract long bottomAsComparableLong(boolean isComparing);
+
+    protected abstract long topAsComparableLong();
+  }
+
+  private abstract class CompetitiveDISIBuilder {
+
+    final int maxDoc;
+    final NumericLeafComparator leafComparator;
+
+    /** According to {@link FieldComparator#setTopValue}, topValueSet is final in leafComparator */
+    final boolean leafTopSet = topValueSet;
+
+    final MongotUpdateableDocIdSetIterator competitiveIterator =
+        new MongotUpdateableDocIdSetIterator();
+    long minValueAsLong = Long.MIN_VALUE;
+    long maxValueAsLong = Long.MAX_VALUE;
+    int maxDocVisited = -1;
+    int updateCounter = 0;
+    int currentSkipInterval = MIN_SKIP_INTERVAL;
+
+    CompetitiveDISIBuilder(NumericLeafComparator leafComparator) {
+      this.leafComparator = leafComparator;
+      this.maxDoc = leafComparator.context.reader().maxDoc();
+      this.competitiveIterator.update(DocIdSetIterator.all(maxDoc));
+      if (leafTopSet) {
+        encodeTop();
+      }
+    }
+
+    void setScorer(Scorable scorer) throws IOException {}
+
+    abstract int docCount();
+
+    final void updateCompetitiveIterator() throws IOException {
+      if (hitsThresholdReached == false) {
+        return;
+      }
+      if (leafTopSet == false && queueFull == false) {
+        return;
+      }
+
       // if some documents have missing points, check that missing values prohibits optimization
-      if ((pointValues.getDocCount() < maxDoc) && isMissingValueCompetitive()) {
-        return; // we can't filter out documents, as documents with missing values are competitive
+      if (docCount() < maxDoc && isMissingValueCompetitive()) {
+        return;
       }
 
       updateCounter++;
@@ -214,6 +235,172 @@ public abstract class MongotNumericComparator<T extends Number> extends FieldCom
         encodeBottom();
       }
 
+      doUpdateCompetitiveIterator();
+    }
+
+    abstract void doUpdateCompetitiveIterator() throws IOException;
+
+    private void setMaxDocVisited(int maxDocVisited) {
+      this.maxDocVisited = maxDocVisited;
+    }
+
+    /**
+     * If {@link MongotNumericComparator#pruning} equals {@link Pruning#GREATER_THAN_OR_EQUAL_TO},
+     * we could better tune the {@link #maxValueAsLong}/{@link #minValueAsLong}. For instance, if
+     * the sort is ascending and bottom value is 5, we will use a range on [MIN_VALUE, 4].
+     */
+    private void encodeBottom() {
+      if (reverse == false) {
+        maxValueAsLong = leafComparator.bottomAsComparableLong(ENCODING);
+        if (pruning == Pruning.GREATER_THAN_OR_EQUAL_TO && maxValueAsLong != Long.MIN_VALUE) {
+          maxValueAsLong--;
+        }
+      } else {
+        minValueAsLong = leafComparator.bottomAsComparableLong(ENCODING);
+        if (pruning == Pruning.GREATER_THAN_OR_EQUAL_TO && minValueAsLong != Long.MAX_VALUE) {
+          minValueAsLong++;
+        }
+      }
+    }
+
+    /**
+     * If {@link MongotNumericComparator#pruning} equals {@link Pruning#GREATER_THAN_OR_EQUAL_TO},
+     * we could better tune the {@link #minValueAsLong}/{@link #minValueAsLong}. For instance, if
+     * the sort is ascending and top value is 3, we will use a range on [4, MAX_VALUE].
+     */
+    private void encodeTop() {
+      if (reverse == false) {
+        minValueAsLong = leafComparator.topAsComparableLong();
+        if (singleSort
+            && pruning == Pruning.GREATER_THAN_OR_EQUAL_TO
+            && queueFull
+            && minValueAsLong != Long.MAX_VALUE) {
+          minValueAsLong++;
+        }
+      } else {
+        maxValueAsLong = leafComparator.topAsComparableLong();
+        if (singleSort
+            && pruning == Pruning.GREATER_THAN_OR_EQUAL_TO
+            && queueFull
+            && maxValueAsLong != Long.MIN_VALUE) {
+          maxValueAsLong--;
+        }
+      }
+    }
+
+    boolean isMissingValueCompetitive() {
+      // if queue is full, compare with bottom first,
+      // if competitive, then check if we can compare with topValue
+      if (queueFull) {
+        int result =
+            Long.compare(
+                missingValueAsComparableLong(), leafComparator.bottomAsComparableLong(COMPARING));
+        // in reverse (desc) sort missingValue is competitive when it's greater or equal to bottom,
+        // in asc sort missingValue is competitive when it's smaller or equal to bottom
+        final boolean competitive =
+            reverse
+                ? (pruning == Pruning.GREATER_THAN_OR_EQUAL_TO ? result > 0 : result >= 0)
+                : (pruning == Pruning.GREATER_THAN_OR_EQUAL_TO ? result < 0 : result <= 0);
+        if (competitive == false) {
+          return false;
+        }
+      }
+
+      if (leafTopSet) {
+        int result =
+            Long.compare(missingValueAsComparableLong(), leafComparator.topAsComparableLong());
+        // in reverse (desc) sort missingValue is competitive when it's smaller or equal to
+        // topValue,
+        // in asc sort missingValue is competitive when it's greater or equal to topValue
+        return reverse ? (result <= 0) : (result >= 0);
+      }
+
+      // by default competitive
+      return true;
+    }
+  }
+
+  private class PointsCompetitiveDISIBuilder extends CompetitiveDISIBuilder {
+
+    private final PointValues pointValues;
+    // lazily constructed to avoid performance overhead when this is not used
+    private PointValues.PointTree pointTree;
+    private long iteratorCost = -1;
+    // helps to be conservative about increasing the sampling interval
+    private int tryUpdateFailCount = 0;
+
+    PointsCompetitiveDISIBuilder(PointValues pointValues, NumericLeafComparator comparator)
+        throws IOException {
+      super(comparator);
+      LeafReaderContext context = comparator.context;
+      FieldInfo info = context.reader().getFieldInfos().fieldInfo(field);
+      if (info == null || info.getPointDimensionCount() == 0) {
+        throw new IllegalStateException(
+            "Field "
+                + field
+                + " doesn't index points according to FieldInfos yet returns non-null PointValues");
+      } else if (info.getPointDimensionCount() > 1) {
+        throw new IllegalArgumentException(
+            "Field " + field + " is indexed with multiple dimensions, sorting is not supported");
+      } else if (info.getPointNumBytes() != bytesCount) {
+        throw new IllegalArgumentException(
+            "Field "
+                + field
+                + " is indexed with "
+                + info.getPointNumBytes()
+                + " bytes per dimension, but "
+                + MongotNumericComparator.this
+                + " expected "
+                + bytesCount);
+      }
+      this.pointValues = pointValues;
+      postInitializeCompetitiveIterator();
+    }
+
+    @Override
+    void setScorer(Scorable scorer) throws IOException {
+      if (iteratorCost == -1) {
+        if (scorer instanceof Scorer) {
+          iteratorCost =
+              ((Scorer) scorer).iterator().cost(); // starting iterator cost is the scorer's cost
+        } else {
+          iteratorCost = maxDoc;
+        }
+        updateCompetitiveIterator(); // update an iterator when we have a new segment
+      }
+    }
+
+    @Override
+    int docCount() {
+      return pointValues.getDocCount();
+    }
+
+    /**
+     * If queue is full and global min/max point values are not competitive with bottom then set an
+     * empty iterator as competitive iterator.
+     *
+     * @throws IOException i/o exception while fetching min and max values from point values
+     */
+    void postInitializeCompetitiveIterator() throws IOException {
+      if (queueFull && hitsThresholdReached) {
+        // if some documents have missing points, then check that missing values prohibits
+        // optimization
+        if (docCount() < maxDoc && isMissingValueCompetitive()) {
+          return;
+        }
+        long bottom = leafComparator.bottomAsComparableLong(COMPARING);
+        long minValue = sortableBytesToLong(pointValues.getMinPackedValue());
+        long maxValue = sortableBytesToLong(pointValues.getMaxPackedValue());
+        if (reverse == false && bottom < minValue) {
+          competitiveIterator.update(DocIdSetIterator.empty());
+        } else if (reverse && bottom > maxValue) {
+          competitiveIterator.update(DocIdSetIterator.empty());
+        }
+      }
+    }
+
+    @Override
+    void doUpdateCompetitiveIterator() throws IOException {
       DocIdSetBuilder result = new DocIdSetBuilder(maxDoc);
       PointValues.IntersectVisitor visitor =
           new PointValues.IntersectVisitor() {
@@ -241,6 +428,19 @@ public abstract class MongotNumericComparator<T extends Number> extends FieldCom
               if (l >= minValueAsLong && l <= maxValueAsLong) {
                 adder.add(docID); // doc is competitive
               }
+            }
+
+            @Override
+            public void visit(DocIdSetIterator iterator) throws IOException {
+              if (iterator.advance(maxDocVisited + 1) != DocIdSetIterator.NO_MORE_DOCS) {
+                adder.add(iterator.docID());
+                adder.add(iterator);
+              }
+            }
+
+            @Override
+            public void visit(IntsRef ref) {
+              adder.add(ref, maxDocVisited + 1);
             }
 
             @Override
@@ -272,13 +472,14 @@ public abstract class MongotNumericComparator<T extends Number> extends FieldCom
         updateSkipInterval(false);
         if (pointValues.getDocCount() < iteratorCost) {
           // Use the set of doc with values to help drive iteration
-          competitiveIterator = getNumericDocValues(context, field);
+          competitiveIterator.update(
+              leafComparator.getNumericDocValues(leafComparator.context, field));
           iteratorCost = pointValues.getDocCount();
         }
         return;
       }
       pointValues.intersect(visitor);
-      competitiveIterator = result.build().iterator();
+      competitiveIterator.update(result.build().iterator());
       iteratorCost = competitiveIterator.cost();
       updateSkipInterval(true);
     }
@@ -305,114 +506,48 @@ public abstract class MongotNumericComparator<T extends Number> extends FieldCom
         }
       }
     }
+  }
 
-    /**
-     * If {@link MongotNumericComparator#pruning} equals {@link Pruning#GREATER_THAN_OR_EQUAL_TO},
-     * we could better tune the {@link
-     * MongotNumericComparator.NumericLeafComparator#maxValueAsLong}/{@link
-     * MongotNumericComparator.NumericLeafComparator#minValueAsLong}. For instance, if the sort is
-     * ascending and bottom value is 5, we will use a range on [MIN_VALUE, 4].
-     */
-    private void encodeBottom() {
-      if (reverse == false) {
-        maxValueAsLong = bottomAsComparableLong(ENCODING);
-        if (pruning == Pruning.GREATER_THAN_OR_EQUAL_TO && maxValueAsLong != Long.MIN_VALUE) {
-          maxValueAsLong--;
-        }
-      } else {
-        minValueAsLong = bottomAsComparableLong(ENCODING);
-        if (pruning == Pruning.GREATER_THAN_OR_EQUAL_TO && minValueAsLong != Long.MAX_VALUE) {
-          minValueAsLong++;
-        }
-      }
-    }
+  private class DVSkipperCompetitiveDISIBuilder extends CompetitiveDISIBuilder {
 
-    /**
-     * If {@link MongotNumericComparator#pruning} equals {@link Pruning#GREATER_THAN_OR_EQUAL_TO},
-     * we could better tune the {@link
-     * MongotNumericComparator.NumericLeafComparator#minValueAsLong}/{@link
-     * MongotNumericComparator.NumericLeafComparator#maxValueAsLong}. For instance, if the sort is
-     * ascending and top value is 3, we will use a range on [4, MAX_VALUE].
-     */
-    private void encodeTop() {
-      if (reverse == false) {
-        minValueAsLong = topAsComparableLong();
-        if (singleSort
-            && pruning == Pruning.GREATER_THAN_OR_EQUAL_TO
-            && queueFull
-            && minValueAsLong != Long.MAX_VALUE) {
-          minValueAsLong++;
-        }
-      } else {
-        maxValueAsLong = topAsComparableLong();
-        if (singleSort
-            && pruning == Pruning.GREATER_THAN_OR_EQUAL_TO
-            && queueFull
-            && maxValueAsLong != Long.MIN_VALUE) {
-          maxValueAsLong--;
-        }
-      }
-    }
+    private final DocValuesSkipper skipper;
 
-    private boolean isMissingValueCompetitive() {
-      // if queue is full, compare with bottom first,
-      // if competitive, then check if we can compare with topValue
-      if (queueFull) {
-        int result =
-            Long.compare(missingValueAsComparableLong(), bottomAsComparableLong(COMPARING));
-        // in reverse (desc) sort missingValue is competitive when it's greater or equal to bottom,
-        // in asc sort missingValue is competitive when it's smaller or equal to bottom
-        final boolean competitive =
-            reverse
-                ? (pruning == Pruning.GREATER_THAN_OR_EQUAL_TO ? result > 0 : result >= 0)
-                : (pruning == Pruning.GREATER_THAN_OR_EQUAL_TO ? result < 0 : result <= 0);
-        if (competitive == false) {
-          return false;
-        }
-      }
-
-      if (leafTopSet) {
-        int result = Long.compare(missingValueAsComparableLong(), topAsComparableLong());
-        // in reverse (desc) sort missingValue is competitive when it's smaller or equal to
-        // topValue,
-        // in asc sort missingValue is competitive when it's greater or equal to topValue
-        return reverse ? (result <= 0) : (result >= 0);
-      }
-
-      // by default competitive
-      return true;
+    DVSkipperCompetitiveDISIBuilder(
+        DocValuesSkipper skipper, NumericLeafComparator leafComparator) {
+      super(leafComparator);
+      this.skipper = skipper;
+      postInitializeCompetitiveIterator();
     }
 
     @Override
-    public DocIdSetIterator competitiveIterator() {
-      if (enableSkipping == false) return null;
-      return new DocIdSetIterator() {
-        private int docID = competitiveIterator.docID();
-
-        @Override
-        public int nextDoc() throws IOException {
-          return advance(docID + 1);
-        }
-
-        @Override
-        public int docID() {
-          return docID;
-        }
-
-        @Override
-        public long cost() {
-          return competitiveIterator.cost();
-        }
-
-        @Override
-        public int advance(int target) throws IOException {
-          return docID = competitiveIterator.advance(target);
-        }
-      };
+    int docCount() {
+      return skipper.docCount();
     }
 
-    protected abstract long bottomAsComparableLong(boolean isComparing);
+    /**
+     * If queue is full and global min/max skipper are not competitive with bottom then set an empty
+     * iterator as competitive iterator.
+     */
+    void postInitializeCompetitiveIterator() {
+      if (queueFull && hitsThresholdReached) {
+        // if some documents have missing doc values, check that missing values prohibits
+        // optimization
+        if (docCount() < maxDoc && isMissingValueCompetitive()) {
+          return;
+        }
+        long bottom = leafComparator.bottomAsComparableLong(COMPARING);
+        if (reverse == false && bottom < skipper.minValue()) {
+          competitiveIterator.update(DocIdSetIterator.empty());
+        } else if (reverse && bottom > skipper.maxValue()) {
+          competitiveIterator.update(DocIdSetIterator.empty());
+        }
+      }
+    }
 
-    protected abstract long topAsComparableLong();
+    @Override
+    void doUpdateCompetitiveIterator() {
+      competitiveIterator.update(
+          new SkipBlockRangeIterator(skipper, minValueAsLong, maxValueAsLong));
+    }
   }
 }

@@ -52,6 +52,26 @@ public enum DynamicFeatureFlags {
   DISABLE_BULK_SCORER_QUERY_FOR_EMBEDDED_DOCUMENT_CHILD(
       "mongot.featureFlag.disableBulkScorerQueryForEmbeddedDocumentChild", true),
   /**
+   * When enabled, a top-level search query that carries a (non-relevance) {@code sort} is wrapped
+   * so Lucene uses default bulk scoring instead of {@code DenseConjunctionBulkScorer} for the whole
+   * query subtree. {@code DenseConjunctionBulkScorer} (new in Lucene 10.4) streams every matching
+   * doc through a per-window bitset, which defeats the {@code TermOrdValComparator} competitive
+   * iterator that makes sort-without-sorted-index cheap, causing over-collection. Forcing the
+   * default bulk scorer restores the Lucene 10.1 iteration path.
+   */
+  DISABLE_BULK_SCORER_QUERY_FOR_SORT("mongot.featureFlag.disableBulkScorerQueryForSort", true),
+  /**
+   * When enabled, a {@code compound} that translates to a single required clause plus one or more
+   * {@code mustNot} clauses (a {@code +required -mustNot} / {@code ReqExclBulkScorer} shape) has
+   * its required clause wrapped so Lucene uses default bulk scoring instead of {@code
+   * DenseConjunctionBulkScorer} for it. For a single dense required clause the {@code
+   * DenseConjunctionBulkScorer} (new in Lucene 10.4) {@code intoBitSet} + {@code
+   * FixedBitSet.forEach} round trip is pure overhead with no AND-intersection benefit; forcing the
+   * default bulk scorer restores the Lucene 10.1 direct postings iteration.
+   */
+  DISABLE_BULK_SCORER_QUERY_FOR_COMPOUND_REQ_EXCL(
+      "mongot.featureFlag.disableBulkScorerQueryForCompoundReqExcl", true),
+  /**
    * When enabled, {@code $vectorSearch} enforces the wall-clock deadline ({@code
    * deadlineTimestampMs}) supplied by mongod, failing the query with a timeout error once it
    * elapses. When disabled, the deadline is ignored and queries run to completion.

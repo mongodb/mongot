@@ -13,6 +13,14 @@ import org.apache.lucene.index.TieredMergePolicy;
 /** Factory for creating Lucene {@link MergePolicy} instances. */
 public final class MergePolicyFactory {
 
+  /**
+   * FloorSegmentMb and SegsPerTier defaults in Lucene 10.1. TODO(CLOUDP-418396): evaluate
+   * configurations after upgraded to 10.4.
+   */
+  private static final double BASE_FLOOR_SEGMENT_MB = 2;
+
+  private static final int BASE_SEGMENTS_PER_TIER = 10;
+
   private MergePolicyFactory() {}
 
   /**
@@ -54,7 +62,7 @@ public final class MergePolicyFactory {
       return Optional.empty();
     }
     if (featureFlags.isEnabled(Feature.FLOOR_SEGMENT_MB)) {
-      config.floorSegmentMB().ifPresent(tieredMergePolicy::setFloorSegmentMB);
+      config.vectorFloorSegmentMB().ifPresent(tieredMergePolicy::setFloorSegmentMB);
     }
     MergePolicy mergePolicy =
         maybeWrapDiskAware(tieredMergePolicy, config, mergeGate, meterRegistry);
@@ -79,6 +87,8 @@ public final class MergePolicyFactory {
   public static TieredMergePolicy createTieredMergePolicy(LuceneConfig config) {
     TieredMergePolicy tieredMergePolicy = new TieredMergePolicy();
     tieredMergePolicy.setMaxMergedSegmentMB(config.maxMergedSegmentSize().toMebi());
+    tieredMergePolicy.setFloorSegmentMB(BASE_FLOOR_SEGMENT_MB);
+    tieredMergePolicy.setSegmentsPerTier(BASE_SEGMENTS_PER_TIER);
     config.deletesPctAllowed().ifPresent(tieredMergePolicy::setDeletesPctAllowed);
     config
         .forceMergeDeletesPctAllowed()

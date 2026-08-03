@@ -77,7 +77,11 @@ public class RandomSegmentingIndexWriter extends IndexWriter implements AutoClos
   public RandomSegmentingIndexWriter(Directory d, IndexWriterConfig conf, Random rng)
       throws IOException {
     super(
-        d, conf.setMergePolicy(new ForceMergePolicy(conf.getMergePolicy())).setCommitOnClose(true));
+        d,
+        conf.setMergePolicy(new ForceMergePolicy(conf.getMergePolicy()))
+            .setCommitOnClose(true)
+            // Set to 0 to disable merging on full flush
+            .setMaxFullFlushMergeWaitMillis(0));
     this.rng = rng;
   }
 

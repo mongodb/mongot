@@ -475,6 +475,16 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
         enableAttributionMetrics
             ? MergeAttribution.create(this.metricsFactory, meterRegistry)
             : Optional.empty();
+
+    // In Lucene 10.4, ConcurrentMergeScheduler.maybeStall hangs forever when maxMergeCount is
+    // left at AUTO_DETECT_MERGES_AND_THREADS (-1) because `mergeThreadCount() >= -1` is always
+    // true. ConcurrentMergeScheduler.initialize would set proper defaults via initDynamicDefaults,
+    // but PerIndexPartitionMergeScheduler bypasses initialize() on the wrapped scheduler (see
+    // setInfoStream below). Seed reasonable defaults here so the wrapped scheduler works when
+    // production code does not call setMaxMergesAndThreads (e.g. in tests).
+    if (this.getMaxThreadCount() == AUTO_DETECT_MERGES_AND_THREADS) {
+      setDefaultMaxMergesAndThreads(false);
+    }
   }
 
   // Same functionality as calling initialize() in MergeScheduler, used by PerIndexMergeScheduler to
@@ -858,7 +868,7 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
   @Override
   protected synchronized ConcurrentMergeScheduler.MergeThread getMergeThread(
       MergeSource mergeSource, MergePolicy.OneMerge merge) {
-    String threadNamePrefix = "Lucene Merge Thread #" + this.mergeThreadCount++;
+    String threadNamePrefix = "Lucene Merge Thread #" + this.mergeThreadCounter++;
     var taggedMergeSource = (TaggedMergeSource) mergeSource;
     IndexPartitionIdentifier indexPartitionIdentifier =
         taggedMergeSource.getIndexPartitionIdentifier();

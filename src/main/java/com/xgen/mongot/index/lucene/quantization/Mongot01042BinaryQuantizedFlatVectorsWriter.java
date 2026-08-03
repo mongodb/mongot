@@ -61,8 +61,8 @@ import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.hnsw.CloseableRandomVectorScorerSupplier;
-import org.apache.lucene.util.hnsw.RandomVectorScorer;
 import org.apache.lucene.util.hnsw.RandomVectorScorerSupplier;
+import org.apache.lucene.util.hnsw.UpdateableRandomVectorScorer;
 import org.apache.lucene.util.quantization.QuantizedByteVectorValues;
 import org.apache.lucene.util.quantization.ScalarQuantizer;
 import org.jetbrains.annotations.Nullable;
@@ -892,8 +892,8 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
     }
 
     @Override
-    public RandomVectorScorer scorer(int ord) throws IOException {
-      return this.supplier.scorer(ord);
+    public UpdateableRandomVectorScorer scorer() throws IOException {
+      return this.supplier.scorer();
     }
 
     @Override

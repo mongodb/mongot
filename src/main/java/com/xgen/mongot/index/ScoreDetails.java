@@ -110,4 +110,9 @@ public class ScoreDetails implements DocumentEncodable, Comparable<ScoreDetails>
   public int compareTo(ScoreDetails o) {
     return this.description.compareTo(o.getDescription());
   }
+
+  @Override
+  public String toString() {
+    return toBson().toJson();
+  }
 }

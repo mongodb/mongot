@@ -310,7 +310,7 @@ public class MqlUuidSortTest {
         Sort sort = new Sort(new ExplainSortField(sortField, explainer));
         CollectorManager<TopFieldCollector, TopFieldDocs> manager =
             new TopFieldCollectorManager(sort, numHits, null, numHits);
-        TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
+        TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
 
         SortPruningTestUtils.assertOptimizedSort(
             topDocs, numHits, numDocs, SortPruningTestUtils.UUID_STRING_COMPARABLE);
@@ -348,7 +348,7 @@ public class MqlUuidSortTest {
       Sort sort = new Sort(sortField);
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(sort, numHits, null, numHits);
-      TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
+      TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
       SortPruningTestUtils.assertOptimizedSort(
           topDocs, numHits, numDocs, SortPruningTestUtils.UUID_STRING_COMPARABLE);
     }
@@ -375,7 +375,7 @@ public class MqlUuidSortTest {
       Sort sort = new Sort(sortField);
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(sort, numHits, null, numHits);
-      TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
+      TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
       SortPruningTestUtils.assertOptimizedSort(
           topDocs, numHits, numDocs, SortPruningTestUtils.UUID_STRING_COMPARABLE);
     }
@@ -408,7 +408,7 @@ public class MqlUuidSortTest {
       Sort sort = new Sort(sortField);
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(sort, numHits, null, numHits);
-      TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
+      TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
 
       SortPruningTestUtils.assertReversedOptimizedSort(
           topDocs, numHits, numDocs, SortPruningTestUtils.UUID_STRING_COMPARABLE);
@@ -447,7 +447,7 @@ public class MqlUuidSortTest {
 
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(sort, numHits, after, numHits);
-      TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
+      TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
       SortPruningTestUtils.assertOptimizedSort(
           topDocs, numHits, numDocs, SortPruningTestUtils.UUID_STRING_COMPARABLE);
     }
@@ -484,7 +484,7 @@ public class MqlUuidSortTest {
 
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(sort, numHits, null, numHits);
-      TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
+      TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
       SortPruningTestUtils.assertUnoptimizedSort(topDocs, numHits, numDocs);
     }
 
@@ -510,7 +510,7 @@ public class MqlUuidSortTest {
 
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(sort, numHits, null, numHits);
-      TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
+      TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
       // test that if there is the secondary sort on _score, hits are still skipped
       SortPruningTestUtils.assertOptimizedSort(
           topDocs, numHits, numDocs, SortPruningTestUtils.UUID_STRING_COMPARABLE);
@@ -556,7 +556,7 @@ public class MqlUuidSortTest {
       // test that sorting on a single field with equal values uses the optimization
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(sort, numHits, null, totalHitsThreshold);
-      TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
+      TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
       SortPruningTestUtils.assertOptimizedSort(
           topDocs, numHits, numDocs, SortPruningTestUtils.UUID_STRING_COMPARABLE);
     }

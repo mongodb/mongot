@@ -125,14 +125,18 @@ public class LuceneSearchQueryFactoryDistributor {
       LuceneQueryScorer luceneQueryScorer,
       LuceneSortFactory luceneSortFactory,
       SearchQueryFactoryContext queryFactoryContext,
-      QueryOptimizer queryOptimizer) {
+      QueryOptimizer queryOptimizer,
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
     this.allDocsQueryFactory = allDocsQueryFactory;
     this.autocompleteQueryFactory = autocompleteQueryFactory;
     this.embeddedDocumentQueryFactory = embeddedDocumentQueryFactory;
     this.existsQueryFactory = existsQueryFactory;
     this.compoundQueryFactory =
         new CompoundQueryFactory(
-            queryFactoryContext, this::createQuery, this::createSearchExplainQuery);
+            queryFactoryContext,
+            this::createQuery,
+            this::createSearchExplainQuery,
+            dynamicFeatureFlagRegistry);
     this.geoQueryFactory = geoQueryFactory;
     this.hasAncestorQueryFactory = hasAncestorQueryFactory;
     this.hasRootQueryFactory = hasRootQueryFactory;
@@ -251,7 +255,8 @@ public class LuceneSearchQueryFactoryDistributor {
         LuceneQueryScorer.create(queryFactoryContext),
         new LuceneSortFactory(queryFactoryContext),
         queryFactoryContext,
-        queryOptimizer);
+        queryOptimizer,
+        dynamicFeatureFlagRegistry);
   }
 
   /**

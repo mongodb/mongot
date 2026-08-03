@@ -15,6 +15,9 @@ import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.MemorySegmentAccessInput;
 import org.apache.lucene.util.hnsw.RandomVectorScorer;
 import org.apache.lucene.util.hnsw.RandomVectorScorerSupplier;
+import org.apache.lucene.util.hnsw.UpdateableRandomVectorScorer;
+import org.apache.lucene.util.hnsw.UpdateableRandomVectorScorer.AbstractUpdateableRandomVectorScorer;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * A {@link FlatVectorsScorer} that accelerates byte vector comparisons using native SIMD routines
@@ -134,9 +137,20 @@ public class Lucene99NativeMemorySegmentVectorScorer implements FlatVectorsScore
     }
 
     @Override
-    public RandomVectorScorer scorer(int ord) throws IOException {
-      MemorySegment ordSeg = getSegment(this.input, ord, this.vectorByteLength);
-      return new RandomVectorScorer.AbstractRandomVectorScorer(this.values) {
+    public UpdateableRandomVectorScorer scorer() throws IOException {
+      return new AbstractUpdateableRandomVectorScorer(this.values) {
+        @Nullable private MemorySegment ordSeg;
+
+        @Override
+        public void setScoringOrdinal(int node) throws IOException {
+          this.ordSeg =
+              getSegment(
+                  NativeByteVectorScorerSupplier.this.input,
+                  node,
+                  NativeByteVectorScorerSupplier.this.vectorByteLength);
+        }
+
+        @SuppressWarnings("NullAway")
         @Override
         public float score(int node) throws IOException {
           MemorySegment nodeSeg =
@@ -146,7 +160,7 @@ public class Lucene99NativeMemorySegmentVectorScorer implements FlatVectorsScore
                   NativeByteVectorScorerSupplier.this.vectorByteLength);
           return nativeScore(
               NativeByteVectorScorerSupplier.this.similarityFunction,
-              ordSeg,
+              this.ordSeg,
               nodeSeg,
               NativeByteVectorScorerSupplier.this.vectorByteLength);
         }

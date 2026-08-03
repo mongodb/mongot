@@ -113,7 +113,8 @@ public class HasAncestorQueryFactoryTest {
     BooleanQuery.Builder childDocumentQueryBuilder = new BooleanQuery.Builder();
 
     childDocumentQueryBuilder.add(
-        BooleanComposer.filterClause(new TermQuery(new Term("$meta/embeddedPath", "foo"))));
+        BooleanComposer.filterClause(
+            new DisableBulkScorerQuery(new TermQuery(new Term("$meta/embeddedPath", "foo")))));
     childDocumentQueryBuilder.add(
         BooleanComposer.mustNotClause(
             new TermQuery(new Term("$embedded:3/foo/$type:string/foo.title", "godfather"))));
@@ -175,7 +176,9 @@ public class HasAncestorQueryFactoryTest {
     BooleanQuery.Builder innerCompoundBuilder = new BooleanQuery.Builder();
 
     innerCompoundBuilder.add(
-        BooleanComposer.filterClause(new TermQuery(new Term("$meta/embeddedPath", "foo.bar.baz"))));
+        BooleanComposer.filterClause(
+            new DisableBulkScorerQuery(
+                new TermQuery(new Term("$meta/embeddedPath", "foo.bar.baz")))));
     innerCompoundBuilder.add(
         BooleanComposer.mustNotClause(
             BooleanComposer.must(
@@ -198,7 +201,8 @@ public class HasAncestorQueryFactoryTest {
     // Outer compound mustNot clause should have filter applied that only selects documents at
     // embedded root.
     outerCompoundBuilder.add(
-        BooleanComposer.filterClause(new TermQuery(new Term("$meta/embeddedRoot", "T"))));
+        BooleanComposer.filterClause(
+            new DisableBulkScorerQuery(new TermQuery(new Term("$meta/embeddedRoot", "T")))));
     outerCompoundBuilder.add(BooleanComposer.mustNotClause(fooEmbeddedDocumentsQuery));
 
     Query expected = outerCompoundBuilder.build();

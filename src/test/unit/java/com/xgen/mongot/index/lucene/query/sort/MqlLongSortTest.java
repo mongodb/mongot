@@ -384,7 +384,7 @@ public class MqlLongSortTest {
 
         CollectorManager<TopFieldCollector, TopFieldDocs> manager =
             new TopFieldCollectorManager(sort, numHits, null, totalHitsThreshold);
-        TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
+        TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
         if (enablePruning) {
           SortPruningTestUtils.assertOptimizedSort(topDocs, numHits, numDocs);
           SortStats sortExplainResult =
@@ -419,13 +419,13 @@ public class MqlLongSortTest {
       @Var
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(sort, numHits, null, totalHitsThreshold);
-      TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
+      TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
 
       // paging sort with after
       BsonValue afterValue = new BsonInt64(2);
       FieldDoc after = new FieldDoc(2, Float.NaN, new BsonValue[] {afterValue});
       manager = new TopFieldCollectorManager(sort, numHits, after, totalHitsThreshold);
-      TopDocs searchAfterDocs = searcher.search(new MatchAllDocsQuery(), manager);
+      TopDocs searchAfterDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
 
       List<TopDocs> results = List.of(topDocs, searchAfterDocs);
       if (enablePruning) {
@@ -460,13 +460,13 @@ public class MqlLongSortTest {
       @Var
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(sort, numHits, null, totalHitsThreshold);
-      TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
+      TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
 
       // paging sort with after
       BsonValue afterValue = new BsonInt64(2);
       FieldDoc after = new FieldDoc(2, Float.NaN, new BsonValue[] {afterValue});
       manager = new TopFieldCollectorManager(sort, numHits, after, totalHitsThreshold);
-      TopDocs searchAfterDocs = searcher.search(new MatchAllDocsQuery(), manager);
+      TopDocs searchAfterDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
 
       List<TopDocs> results = List.of(topDocs, searchAfterDocs);
       if (enablePruning) {
@@ -500,7 +500,7 @@ public class MqlLongSortTest {
 
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(sort, numHits, null, totalHitsThreshold);
-      TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
+      TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
 
       if (enablePruning) {
         SortPruningTestUtils.assertOptimizedSort(topDocs, numHits, numDocs);
@@ -540,13 +540,14 @@ public class MqlLongSortTest {
       Sort sort = new Sort(ascSortField);
       TopDocs topDocs =
           searcher.search(
-              new MatchAllDocsQuery(), new TopFieldCollectorManager(sort, numHits, null, 3));
+              SortPruningTestUtils.matchAllDocsQuery(),
+              new TopFieldCollectorManager(sort, numHits, null, 3));
 
       // Check that top = null does not throw NPE
       TopDocs afterDocs =
           searcher.searchAfter(
               topDocs.scoreDocs[topDocs.scoreDocs.length - 1],
-              new MatchAllDocsQuery(),
+              SortPruningTestUtils.matchAllDocsQuery(),
               numHits,
               sort,
               false);
@@ -601,7 +602,8 @@ public class MqlLongSortTest {
       Sort sort = new Sort(ascSortField);
       TopDocs topDocs =
           searcher.search(
-              new MatchAllDocsQuery(), new TopFieldCollectorManager(sort, numHits, null, 3));
+              SortPruningTestUtils.matchAllDocsQuery(),
+              new TopFieldCollectorManager(sort, numHits, null, 3));
 
       if (enablePruning) {
         // in LongSort documents with Long.MIN_VALUE are considered competitive and are evaluated
@@ -653,7 +655,8 @@ public class MqlLongSortTest {
       Sort sort = new Sort(ascSortField);
       TopDocs topDocs =
           searcher.search(
-              new MatchAllDocsQuery(), new TopFieldCollectorManager(sort, numHits, null, 3));
+              SortPruningTestUtils.matchAllDocsQuery(),
+              new TopFieldCollectorManager(sort, numHits, null, 3));
 
       if (enablePruning) {
         // Lucene collects all 7000 docs containing missing values, with its sort priority queue
@@ -716,7 +719,7 @@ public class MqlLongSortTest {
               Optional.empty(),
               false);
       var manager = new TopFieldCollectorManager(new Sort(ascSortField), numHits, null, numHits);
-      TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
+      TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
 
       if (enablePruning) {
         Truth.assertThat(topDocs.totalHits.value()).isEqualTo(7);
@@ -762,7 +765,7 @@ public class MqlLongSortTest {
               Optional.empty(),
               false);
       var manager = new TopFieldCollectorManager(new Sort(descSortField), numHits, null, numHits);
-      TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
+      TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
 
       if (enablePruning) {
         Truth.assertThat(topDocs.totalHits.value()).isEqualTo(7);
@@ -826,7 +829,8 @@ public class MqlLongSortTest {
       Sort sort = new Sort(ascSortField);
       TopDocs topDocs =
           searcher.search(
-              new MatchAllDocsQuery(), new TopFieldCollectorManager(sort, numHits, null, 3));
+              SortPruningTestUtils.matchAllDocsQuery(),
+              new TopFieldCollectorManager(sort, numHits, null, 3));
       if (enablePruning) {
         /*
          * Initial search returns 3 documents with only null values for the field being sorted over
@@ -839,7 +843,7 @@ public class MqlLongSortTest {
       TopDocs searchAfterDocs =
           searcher.searchAfter(
               topDocs.scoreDocs[topDocs.scoreDocs.length - 1],
-              new MatchAllDocsQuery(),
+              SortPruningTestUtils.matchAllDocsQuery(),
               numHits,
               sort,
               false);
@@ -907,7 +911,8 @@ public class MqlLongSortTest {
       Sort sort = new Sort(descSortField);
       TopDocs topDocs =
           searcher.search(
-              new MatchAllDocsQuery(), new TopFieldCollectorManager(sort, numHits, null, 3));
+              SortPruningTestUtils.matchAllDocsQuery(),
+              new TopFieldCollectorManager(sort, numHits, null, 3));
       if (enablePruning) {
         /*
          * Initial search returns 3 documents with only null values for the field being sorted over
@@ -920,7 +925,7 @@ public class MqlLongSortTest {
       TopDocs searchAfterDocs =
           searcher.searchAfter(
               topDocs.scoreDocs[topDocs.scoreDocs.length - 1],
-              new MatchAllDocsQuery(),
+              SortPruningTestUtils.matchAllDocsQuery(),
               numHits,
               sort,
               false);
@@ -985,12 +990,13 @@ public class MqlLongSortTest {
       Sort sort = new Sort(ascSortField);
       TopDocs topDocs =
           searcher.search(
-              new MatchAllDocsQuery(), new TopFieldCollectorManager(sort, numHits, null, numHits));
+              SortPruningTestUtils.matchAllDocsQuery(),
+              new TopFieldCollectorManager(sort, numHits, null, numHits));
 
       TopDocs searchAfterDocs =
           searcher.searchAfter(
               topDocs.scoreDocs[topDocs.scoreDocs.length - 1],
-              new MatchAllDocsQuery(),
+              SortPruningTestUtils.matchAllDocsQuery(),
               numHits,
               sort,
               false);
@@ -1056,12 +1062,13 @@ public class MqlLongSortTest {
       Sort sort = new Sort(descSortField);
       TopDocs topDocs =
           searcher.search(
-              new MatchAllDocsQuery(), new TopFieldCollectorManager(sort, numHits, null, numHits));
+              SortPruningTestUtils.matchAllDocsQuery(),
+              new TopFieldCollectorManager(sort, numHits, null, numHits));
 
       TopDocs searchAfterDocs =
           searcher.searchAfter(
               topDocs.scoreDocs[topDocs.scoreDocs.length - 1],
-              new MatchAllDocsQuery(),
+              SortPruningTestUtils.matchAllDocsQuery(),
               numHits,
               sort,
               false);
@@ -1123,7 +1130,7 @@ public class MqlLongSortTest {
       Sort sort = new Sort(descSortField);
       CollectorManager<TopFieldCollector, TopFieldDocs> collectorManager =
           new TopFieldCollectorManager(sort, numHits, null, numHits);
-      TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), collectorManager);
+      TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), collectorManager);
       if (enablePruning) {
         // Initial search yields documents with Long.MAX_VALUE
         SortPruningTestUtils.assertOptimizedSort(topDocs, numHits, numDocs);
@@ -1134,7 +1141,8 @@ public class MqlLongSortTest {
 
       // Emulate AbstractLuceneSearchManager#getMoreTopDocs behavior
       TopDocs searchAfterDocs =
-          searcher.searchAfter(after, new MatchAllDocsQuery(), numHits, sort, true);
+          searcher.searchAfter(
+              after, SortPruningTestUtils.matchAllDocsQuery(), numHits, sort, true);
 
       if (enablePruning) {
         /*
@@ -1191,7 +1199,7 @@ public class MqlLongSortTest {
       Sort sort = new Sort(descSortField);
       CollectorManager<TopFieldCollector, TopFieldDocs> collectorManager =
           new TopFieldCollectorManager(sort, numHits, null, numHits);
-      TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), collectorManager);
+      TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), collectorManager);
       if (enablePruning) {
         // Initial search yields documents with Long.MIN_VALUE
         SortPruningTestUtils.assertReversedOptimizedSort(topDocs, numHits, numDocs);
@@ -1202,7 +1210,8 @@ public class MqlLongSortTest {
 
       // Emulate AbstractLuceneSearchManager#getMoreTopDocs behavior
       TopDocs searchAfterDocs =
-          searcher.searchAfter(after, new MatchAllDocsQuery(), numHits, sort, true);
+          searcher.searchAfter(
+              after, SortPruningTestUtils.matchAllDocsQuery(), numHits, sort, true);
 
       if (enablePruning) {
         /*
@@ -1263,7 +1272,8 @@ public class MqlLongSortTest {
       Sort sort = new Sort(descSortField);
       TopDocs topDocs =
           searcher.search(
-              new MatchAllDocsQuery(), new TopFieldCollectorManager(sort, numHits, null, 3));
+              SortPruningTestUtils.matchAllDocsQuery(),
+              new TopFieldCollectorManager(sort, numHits, null, 3));
       if (enablePruning) {
         /*
          * Initial search yields documents with Long.MAX_VALUE as the field being sorted
@@ -1274,7 +1284,7 @@ public class MqlLongSortTest {
 
       TopDocs searchAfterDocs =
           searcher.search(
-              new MatchAllDocsQuery(),
+              SortPruningTestUtils.matchAllDocsQuery(),
               new TopFieldCollectorManager(
                   sort, numHits, (FieldDoc) topDocs.scoreDocs[topDocs.scoreDocs.length - 1], 3));
       if (enablePruning) {
@@ -1338,7 +1348,8 @@ public class MqlLongSortTest {
 
       TopDocs topDocs =
           searcher.search(
-              new MatchAllDocsQuery(), new TopFieldCollectorManager(sort, numHits, null, numHits));
+              SortPruningTestUtils.matchAllDocsQuery(),
+              new TopFieldCollectorManager(sort, numHits, null, numHits));
       if (enablePruning) {
         SortPruningTestUtils.assertReversedOptimizedSort(topDocs, numHits, numDocs);
       }
@@ -1369,7 +1380,7 @@ public class MqlLongSortTest {
 
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(sort, numHits, null, totalHitsThreshold);
-      TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
+      TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
       SortPruningTestUtils.assertUnoptimizedSort(topDocs, numHits, numDocs);
 
       return List.of(topDocs);
@@ -1401,7 +1412,7 @@ public class MqlLongSortTest {
 
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(sort, numHits, null, totalHitsThreshold);
-      TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
+      TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
       SortPruningTestUtils.assertUnoptimizedSort(topDocs, numHits, numDocs);
       return List.of(topDocs);
     }
@@ -1430,7 +1441,7 @@ public class MqlLongSortTest {
               false);
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(new Sort(ascSortField), numHits, null, totalHitsThreshold);
-      TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
+      TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
       SortPruningTestUtils.assertUnoptimizedSort(topDocs, numHits, numDocs);
       return List.of(topDocs);
     }
@@ -1458,7 +1469,7 @@ public class MqlLongSortTest {
               false);
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(new Sort(ascSortField), numHits, null, totalHitsThreshold);
-      TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
+      TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
       if (enablePruning) {
         SortPruningTestUtils.assertNullOptimizedSort(
             topDocs, numHits, numDocs, NullEmptySortPosition.LOWEST);
@@ -1491,7 +1502,7 @@ public class MqlLongSortTest {
               false);
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(new Sort(descSortField), numHits, null, totalHitsThreshold);
-      TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
+      TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
       if (enablePruning) {
         SortPruningTestUtils.assertReversedOptimizedSort(topDocs, numHits, numDocs);
       }
@@ -1520,7 +1531,7 @@ public class MqlLongSortTest {
               false);
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(new Sort(descSortField), numHits, null, totalHitsThreshold);
-      TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
+      TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
 
       if (enablePruning) {
         // Collect 3 hits into sort queue. Collecting 4th hit triggers pruning of remaining docs in
@@ -1568,7 +1579,7 @@ public class MqlLongSortTest {
       Sort sort = new Sort(ascSortField, FIELD_SCORE);
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(sort, numHits, null, totalHitsThreshold);
-      TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
+      TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
 
       SortPruningTestUtils.assertUnoptimizedSort(topDocs, numHits, numDocs);
       return List.of(topDocs);
@@ -1602,7 +1613,7 @@ public class MqlLongSortTest {
 
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(sort, numHits, null, totalHitsThreshold);
-      TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), manager);
+      TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
       if (enablePruning) {
         SortPruningTestUtils.assertOptimizedSort(topDocs, numHits, numDocs);
       }

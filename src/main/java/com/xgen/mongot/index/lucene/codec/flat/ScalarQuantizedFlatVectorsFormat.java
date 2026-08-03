@@ -4,11 +4,11 @@ import com.google.auto.service.AutoService;
 import com.mongodb.lang.Nullable;
 import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import java.io.IOException;
+import org.apache.lucene.backward_codecs.lucene99.Lucene99ScalarQuantizedVectorsFormat;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
-import org.apache.lucene.codecs.lucene99.Lucene99ScalarQuantizedVectorsFormat;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
 

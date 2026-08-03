@@ -8,6 +8,7 @@ import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.hnsw.CloseableRandomVectorScorerSupplier;
 import org.apache.lucene.util.hnsw.RandomVectorScorer;
 import org.apache.lucene.util.hnsw.RandomVectorScorerSupplier;
+import org.apache.lucene.util.hnsw.UpdateableRandomVectorScorer;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,10 +21,10 @@ import org.slf4j.LoggerFactory;
  * graph building phase (Phase 2) is entirely in-memory with no disk writes, so the IO-level abort
  * detection in AbortableDirectory cannot detect abort requests during this phase.
  *
- * <p>This wrapper intercepts both {@link RandomVectorScorerSupplier#scorer(int)} and {@link
- * RandomVectorScorer#score(int)} calls and periodically checks if the merge has been aborted. When
- * an abort is detected, it throws a {@link MergePolicy.MergeAbortedException}, causing the merge to
- * terminate.
+ * <p>This wrapper intercepts both {@link UpdateableRandomVectorScorer#setScoringOrdinal(int)} and
+ * {@link RandomVectorScorer#score(int)} calls and periodically checks if the merge has been
+ * aborted. When an abort is detected, it throws a {@link MergePolicy.MergeAbortedException},
+ * causing the merge to terminate.
  *
  * <p><b>HNSW Merge Phases:</b>
  *
@@ -36,10 +37,10 @@ import org.slf4j.LoggerFactory;
  * <p><b>Design:</b>
  *
  * <ul>
- *   <li>Checks abort status on every {@code scorer(int)} call. Lucene's HNSW builder creates a new
- *       scorer at least once per inserted node (and additional short-lived scorers during diversity
- *       checks), so this guarantees per-node responsiveness even when individual scorers issue very
- *       few {@code score()} calls (e.g., small segments, low beam widths).
+ *   <li>Checks abort status on every {@code setScoringOrdinal(int)} call. Lucene's HNSW builder
+ *       repositions the scorer at least once per inserted node (and again during diversity checks),
+ *       so this guarantees per-node responsiveness even when individual scorers issue very few
+ *       {@code score()} calls (e.g., small segments, low beam widths).
  *   <li>Also tracks {@code score()} calls in a shared {@link AtomicInteger} on the supplier so that
  *       the {@link #CHECK_ABORT_INTERVAL_SCORE_CALLS} threshold accumulates across all scorers
  *       created by the same supplier rather than resetting per short-lived scorer.
@@ -57,9 +58,9 @@ public class AbortableRandomVectorScorerSupplier implements CloseableRandomVecto
 
   /**
    * Shared counter across all {@link AbortableRandomVectorScorer} instances created by this
-   * supplier. HNSW graph building creates many short-lived scorers (each via {@code scorer(ord)}),
-   * some of which only invoke {@code score()} a handful of times. A per-supplier counter ensures
-   * the threshold is reached regardless of per-scorer call counts.
+   * supplier. HNSW graph building creates many short-lived scorers (each obtained via {@code
+   * scorer()}), some of which only invoke {@code score()} a handful of times. A per-supplier
+   * counter ensures the threshold is reached regardless of per-scorer call counts.
    */
   private final AtomicInteger scoreCallsSinceLastCheck = new AtomicInteger();
 
@@ -114,14 +115,13 @@ public class AbortableRandomVectorScorerSupplier implements CloseableRandomVecto
   }
 
   @Override
-  public RandomVectorScorer scorer(int ord) throws IOException {
-    // Check on every scorer() call: Lucene's HNSW builder invokes this at least once per node
-    // insertion (and again during diversity / connectComponents work), so this provides a
-    // deterministic per-node abort signal independent of how many score() calls the returned
-    // scorer issues.
+  public UpdateableRandomVectorScorer scorer() throws IOException {
+    // Check when a scorer is created. In Lucene 10.x the HNSW builder obtains a single updateable
+    // scorer and repositions it per node via setScoringOrdinal(int), so the per-node abort signal
+    // lives in AbortableRandomVectorScorer.setScoringOrdinal below.
     checkAborted(this.merge);
     return new AbortableRandomVectorScorer(
-        this.delegate.scorer(ord), this.merge, this.scoreCallsSinceLastCheck);
+        this.delegate.scorer(), this.merge, this.scoreCallsSinceLastCheck);
   }
 
   /**
@@ -180,18 +180,27 @@ public class AbortableRandomVectorScorerSupplier implements CloseableRandomVecto
    * score()} calls; a per-scorer counter could fail to reach the threshold and miss abort detection
    * entirely.
    */
-  static class AbortableRandomVectorScorer implements RandomVectorScorer {
-    private final RandomVectorScorer delegate;
+  static class AbortableRandomVectorScorer implements UpdateableRandomVectorScorer {
+    private final UpdateableRandomVectorScorer delegate;
     private final MergePolicy.OneMerge merge;
     private final AtomicInteger scoreCallsSinceLastCheck;
 
     AbortableRandomVectorScorer(
-        RandomVectorScorer delegate,
+        UpdateableRandomVectorScorer delegate,
         MergePolicy.OneMerge merge,
         AtomicInteger scoreCallsSinceLastCheck) {
       this.delegate = delegate;
       this.merge = merge;
       this.scoreCallsSinceLastCheck = scoreCallsSinceLastCheck;
+    }
+
+    @Override
+    public void setScoringOrdinal(int node) throws IOException {
+      // Per-node abort hook: Lucene's HNSW builder repositions the scorer once per inserted node
+      // (and again during diversity / connectComponents work), giving a deterministic per-node
+      // abort signal independent of how many score() calls the scorer issues.
+      checkAborted(this.merge);
+      this.delegate.setScoringOrdinal(node);
     }
 
     @Override
@@ -253,10 +262,10 @@ public class AbortableRandomVectorScorerSupplier implements CloseableRandomVecto
     }
 
     @Override
-    public RandomVectorScorer scorer(int ord) throws IOException {
+    public UpdateableRandomVectorScorer scorer() throws IOException {
       checkAborted(this.merge);
       return new AbortableRandomVectorScorer(
-          this.delegate.scorer(ord), this.merge, this.scoreCallsSinceLastCheck);
+          this.delegate.scorer(), this.merge, this.scoreCallsSinceLastCheck);
     }
 
     @Override

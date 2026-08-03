@@ -414,5 +414,15 @@ public class ReachabilityCheckerTest {
     public NodesIterator getNodesOnLevel(int level) {
       throw new UnsupportedOperationException("No need to implement.");
     }
+
+    @Override
+    public int neighborCount() {
+      throw new UnsupportedOperationException("No need to implement.");
+    }
+
+    @Override
+    public int maxConn() {
+      throw new UnsupportedOperationException("No need to implement.");
+    }
   }
 }

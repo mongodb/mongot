@@ -474,7 +474,7 @@
 <dependency>
   <groupId>com.ibm.icu</groupId>
   <artifactId>icu4j</artifactId>
-  <version>74.2</version>
+  <version>77.1</version>
 </dependency>
 <dependency>
   <groupId>com.microsoft.azure</groupId>
@@ -1220,107 +1220,107 @@
 <dependency>
   <groupId>org.apache.lucene</groupId>
   <artifactId>lucene-analysis-common</artifactId>
-  <version>10.1.0</version>
+  <version>10.4.0</version>
 </dependency>
 <dependency>
   <groupId>org.apache.lucene</groupId>
   <artifactId>lucene-analysis-icu</artifactId>
-  <version>10.1.0</version>
+  <version>10.4.0</version>
 </dependency>
 <dependency>
   <groupId>org.apache.lucene</groupId>
   <artifactId>lucene-analysis-kuromoji</artifactId>
-  <version>10.1.0</version>
+  <version>10.4.0</version>
 </dependency>
 <dependency>
   <groupId>org.apache.lucene</groupId>
   <artifactId>lucene-analysis-morfologik</artifactId>
-  <version>10.1.0</version>
+  <version>10.4.0</version>
 </dependency>
 <dependency>
   <groupId>org.apache.lucene</groupId>
   <artifactId>lucene-analysis-nori</artifactId>
-  <version>10.1.0</version>
+  <version>10.4.0</version>
 </dependency>
 <dependency>
   <groupId>org.apache.lucene</groupId>
   <artifactId>lucene-analysis-phonetic</artifactId>
-  <version>10.1.0</version>
+  <version>10.4.0</version>
 </dependency>
 <dependency>
   <groupId>org.apache.lucene</groupId>
   <artifactId>lucene-analysis-smartcn</artifactId>
-  <version>10.1.0</version>
+  <version>10.4.0</version>
 </dependency>
 <dependency>
   <groupId>org.apache.lucene</groupId>
   <artifactId>lucene-analysis-stempel</artifactId>
-  <version>10.1.0</version>
+  <version>10.4.0</version>
 </dependency>
 <dependency>
   <groupId>org.apache.lucene</groupId>
   <artifactId>lucene-backward-codecs</artifactId>
-  <version>10.1.0</version>
+  <version>10.4.0</version>
 </dependency>
 <dependency>
   <groupId>org.apache.lucene</groupId>
   <artifactId>lucene-codecs</artifactId>
-  <version>10.1.0</version>
+  <version>10.4.0</version>
 </dependency>
 <dependency>
   <groupId>org.apache.lucene</groupId>
   <artifactId>lucene-core</artifactId>
-  <version>10.1.0</version>
+  <version>10.4.0</version>
 </dependency>
 <dependency>
   <groupId>org.apache.lucene</groupId>
   <artifactId>lucene-expressions</artifactId>
-  <version>10.1.0</version>
+  <version>10.4.0</version>
 </dependency>
 <dependency>
   <groupId>org.apache.lucene</groupId>
   <artifactId>lucene-facet</artifactId>
-  <version>10.1.0</version>
+  <version>10.4.0</version>
 </dependency>
 <dependency>
   <groupId>org.apache.lucene</groupId>
   <artifactId>lucene-highlighter</artifactId>
-  <version>10.1.0</version>
+  <version>10.4.0</version>
 </dependency>
 <dependency>
   <groupId>org.apache.lucene</groupId>
   <artifactId>lucene-join</artifactId>
-  <version>10.1.0</version>
+  <version>10.4.0</version>
 </dependency>
 <dependency>
   <groupId>org.apache.lucene</groupId>
   <artifactId>lucene-memory</artifactId>
-  <version>10.1.0</version>
+  <version>10.4.0</version>
 </dependency>
 <dependency>
   <groupId>org.apache.lucene</groupId>
   <artifactId>lucene-misc</artifactId>
-  <version>10.1.0</version>
+  <version>10.4.0</version>
 </dependency>
 <dependency>
   <groupId>org.apache.lucene</groupId>
   <artifactId>lucene-queries</artifactId>
-  <version>10.1.0</version>
+  <version>10.4.0</version>
 </dependency>
 <dependency>
   <groupId>org.apache.lucene</groupId>
   <artifactId>lucene-queryparser</artifactId>
-  <version>10.1.0</version>
+  <version>10.4.0</version>
 </dependency>
 <dependency>
   <groupId>org.apache.lucene</groupId>
   <artifactId>lucene-sandbox</artifactId>
-  <version>10.1.0</version>
+  <version>10.4.0</version>
 </dependency>
 <dependency>
   <groupId>org.apache.lucene</groupId>
   <artifactId>lucene-test-framework</artifactId>
-  <version>10.1.0</version>
+  <version>10.4.0</version>
 </dependency>
 <dependency>
   <groupId>org.apache.maven.doxia</groupId>

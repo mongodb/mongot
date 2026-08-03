@@ -69,9 +69,9 @@ import org.slf4j.LoggerFactory;
  * @param forceMergeDeletesPctAllowed Percentage threshold of deleted documents that triggers
  *     segment merging during forceMergeDeletes operations. Only segments with a deletion percentage
  *     above this threshold will be considered for merging to reclaim space from deleted documents.
- * @param floorSegmentMB Segments smaller than this size are merged more aggressively. This helps
- *     prevent frequent flushing of tiny segments to create a long tail of small segments in the
- *     index.
+ * @param vectorFloorSegmentMB In vector indexes, segments smaller than this size are merged more
+ *     aggressively. This helps prevent frequent flushing of tiny segments to create a long tail of
+ *     small segments in the index.
  */
 public record LuceneConfig(
     Path dataPath,
@@ -100,7 +100,7 @@ public record LuceneConfig(
     Optional<Integer> tokenFacetingCardinalityLimit,
     Optional<Double> deletesPctAllowed,
     Optional<Double> forceMergeDeletesPctAllowed,
-    Optional<Double> floorSegmentMB,
+    Optional<Double> vectorFloorSegmentMB,
     Optional<HysteresisConfig> mergePolicyDiskUtilizationConfig,
     Optional<Long> cancelMergePerThreadTimeoutMs,
     Optional<Long> cancelAllMergesPerThreadTimeoutMs)
@@ -167,7 +167,7 @@ public record LuceneConfig(
     private static final Field.Optional<Double> FORCE_MERGE_DELETES_PCT_ALLOWED =
         Field.builder("forceMergeDeletesPctAllowed").doubleField().optional().noDefault();
 
-    private static final Field.Optional<Double> FLOOR_SEGMENT_MB =
+    private static final Field.Optional<Double> VECTOR_FLOOR_SEGMENT_MB =
         Field.builder("floorSegmentMB").doubleField().optional().noDefault();
 
     private static final Field.Optional<HysteresisConfig> MERGE_POLICY_DISK_UTILIZATION_CONFIG =
@@ -245,7 +245,7 @@ public record LuceneConfig(
       Optional<Integer> tokenFacetingCardinalityLimit,
       Optional<Double> deletesPctAllowed,
       Optional<Double> forceMergeDeletesPctAllowed,
-      Optional<Double> floorSegmentMB,
+      Optional<Double> vectorFloorSegmentMB,
       Optional<HysteresisConfig> mergePolicyDiskUtilizationConfig,
       Optional<Long> cancelMergePerThreadTimeoutMs,
       Optional<Long> cancelAllMergesPerThreadTimeoutMs) {
@@ -277,7 +277,7 @@ public record LuceneConfig(
         tokenFacetingCardinalityLimit,
         deletesPctAllowed,
         forceMergeDeletesPctAllowed,
-        floorSegmentMB,
+        vectorFloorSegmentMB,
         mergePolicyDiskUtilizationConfig,
         cancelMergePerThreadTimeoutMs,
         cancelAllMergesPerThreadTimeoutMs);
@@ -312,7 +312,7 @@ public record LuceneConfig(
       Optional<Integer> tokenFacetingCardinalityLimit,
       Optional<Double> deletesPctAllowed,
       Optional<Double> forceMergeDeletesPctAllowed,
-      Optional<Double> floorSegmentMB,
+      Optional<Double> vectorFloorSegmentMB,
       Optional<HysteresisConfig> mergePolicyDiskUtilizationConfig,
       Optional<Long> cancelMergePerThreadTimeoutMs,
       Optional<Long> cancelAllMergesPerThreadTimeoutMs) {
@@ -360,7 +360,7 @@ public record LuceneConfig(
 
     validateForceMergeDeletesPctAllowed(forceMergeDeletesPctAllowed);
 
-    validateFloorSegmentMB(floorSegmentMB);
+    validateVectorFloorSegmentMB(vectorFloorSegmentMB);
 
     validateMaxClauseLimit(maxClauseLimit);
 
@@ -409,7 +409,7 @@ public record LuceneConfig(
         tokenFacetingCardinalityLimit,
         deletesPctAllowed,
         forceMergeDeletesPctAllowed,
-        floorSegmentMB,
+        vectorFloorSegmentMB,
         mergePolicyDiskUtilizationConfig,
         cancelMergePerThreadTimeoutMs,
         cancelAllMergesPerThreadTimeoutMs);
@@ -443,7 +443,7 @@ public record LuceneConfig(
             this.enableTextOperatorNewSynonymsSyntax)
         .field(Fields.DELETES_PCT_ALLOWED, this.deletesPctAllowed)
         .field(Fields.FORCE_MERGE_DELETES_PCT_ALLOWED, this.forceMergeDeletesPctAllowed)
-        .field(Fields.FLOOR_SEGMENT_MB, this.floorSegmentMB)
+        .field(Fields.VECTOR_FLOOR_SEGMENT_MB, this.vectorFloorSegmentMB)
         .field(Fields.MERGE_POLICY_DISK_UTILIZATION_CONFIG, this.mergePolicyDiskUtilizationConfig)
         .field(Fields.CANCEL_MERGE_PER_THREAD_TIMEOUT_MS, this.cancelMergePerThreadTimeoutMs)
         .field(
@@ -648,11 +648,11 @@ public record LuceneConfig(
         });
   }
 
-  private static void validateFloorSegmentMB(Optional<Double> floorSegmentMB) {
-    floorSegmentMB.ifPresent(
+  private static void validateVectorFloorSegmentMB(Optional<Double> vectorFloorSegmentMB) {
+    vectorFloorSegmentMB.ifPresent(
         value -> {
-          Check.argIsPositive(value, "floorSegmentMB");
-          LOG.atInfo().addKeyValue("floorSegmentMB", value).log("floorSegmentMB set");
+          Check.argIsPositive(value, "vectorFloorSegmentMB");
+          LOG.atInfo().addKeyValue("vectorFloorSegmentMB", value).log("vectorFloorSegmentMB set");
         });
   }
 

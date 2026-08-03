@@ -145,19 +145,10 @@ public class IndexDirectoryHelper {
           isRetainFailedIndexDataOnDiskEnabled);
     }
 
-    if (ExceptionUtils.indexOfThrowable(cause, IndexFormatTooOldException.class) >= 0
-        || ExceptionUtils.indexOfThrowable(cause, IndexFormatTooNewException.class) >= 0) {
-      return handleIndexError(
-          generationId,
-          "incompatible index formats",
-          directory,
-          cause,
-          this.incompatibleIndexFormatCounter,
-          isRetainFailedIndexDataOnDiskEnabled);
-    }
-
+    // Lucene wraps an unknown codec name in IndexFormatTooOldException with a "Could not load
+    // codec" message (see SegmentInfos#readCodec). Check the message first so the codec-mismatch
+    // counter wins over the more generic incompatible-format counter.
     if (ExceptionUtils.getThrowableList(cause).stream()
-        .filter(e -> IllegalArgumentException.class.equals(e.getClass()))
         .map(Throwable::getMessage)
         .map(Optional::ofNullable)
         .flatMap(Optional::stream)
@@ -168,6 +159,17 @@ public class IndexDirectoryHelper {
           directory,
           cause,
           this.incompatibleCodecCounter,
+          isRetainFailedIndexDataOnDiskEnabled);
+    }
+
+    if (ExceptionUtils.indexOfThrowable(cause, IndexFormatTooOldException.class) >= 0
+        || ExceptionUtils.indexOfThrowable(cause, IndexFormatTooNewException.class) >= 0) {
+      return handleIndexError(
+          generationId,
+          "incompatible index formats",
+          directory,
+          cause,
+          this.incompatibleIndexFormatCounter,
           isRetainFailedIndexDataOnDiskEnabled);
     }
 

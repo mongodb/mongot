@@ -23,7 +23,6 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
-import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Stream;
@@ -42,8 +41,6 @@ import org.apache.lucene.search.Sort;
 import org.apache.lucene.search.SortField;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.store.ByteBuffersDirectory;
-import org.apache.lucene.tests.index.AssertingDirectoryReader;
-import org.apache.lucene.tests.search.AssertingIndexSearcher;
 import org.apache.lucene.util.BytesRef;
 import org.bson.BsonBinary;
 import org.bson.BsonBoolean;
@@ -290,8 +287,10 @@ public class CompositeComparatorTest {
       writer.addDocuments(documents);
     }
 
-    DirectoryReader reader = new AssertingDirectoryReader(DirectoryReader.open(directory));
-    searcher = new AssertingIndexSearcher(new Random(), reader);
+    // Lucene 10.4's AssertingLeafCollector calls LuceneTestCase.rarely() during bulk scoring,
+    // which requires a RandomizedRunner context. Use a plain searcher/reader to sidestep that.
+    DirectoryReader reader = DirectoryReader.open(directory);
+    searcher = new IndexSearcher(reader);
   }
 
   private static ImmutableList<BsonValue> getSortedPerDocumentValues(

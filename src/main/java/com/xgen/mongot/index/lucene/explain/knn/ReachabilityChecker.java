@@ -56,6 +56,16 @@ public class ReachabilityChecker {
     }
 
     HnswGraph graph = hnswGraphOpt.get();
+    int maxDoc = context.reader().maxDoc();
+
+    // Lucene 10.4 introduced a tinySegmentsThreshold: segments below it skip the HNSW graph and
+    // fall back to exact scan, so an empty graph reports numLevels=0. Treat every doc that's
+    // actually in the segment as reachable; only flag IDs that fall outside the segment range.
+    if (graph.numLevels() == 0) {
+      return luceneDocIdsToCheck.stream()
+          .filter(id -> id < context.docBase || id >= context.docBase + maxDoc)
+          .collect(Collectors.toSet());
+    }
 
     // convert docIds to leaf ordinals
     Set<Integer> leafOrdinalsToCheck =

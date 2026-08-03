@@ -9,6 +9,7 @@ java_test_suite(
         "CodecSubformatChangeDetectorTest.java",
         "LuceneCodecBloomFilterTest.java",
         "LuceneCodecTest.java",
+        "LuceneCodecTinySegmentHnswGraphTest.java",
         "LuceneStoredFieldsFormatTest.java",
         "OnDiskFormatVersionsTest.java",
         "bloom/BloomCodecPolicyTest.java",

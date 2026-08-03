@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.lucene;
 
+import static com.google.common.truth.Truth.assertThat;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_DEFINITION;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_DEFINITION_GENERATION;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_NAME;
@@ -35,6 +36,7 @@ import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.merge.InstrumentedConcurrentMergeScheduler;
 import com.xgen.mongot.index.lucene.quantization.BinaryQuantizedVectorRescorer;
 import com.xgen.mongot.index.lucene.query.LuceneSearchQueryFactoryDistributor;
+import com.xgen.mongot.index.lucene.query.util.DisableBulkScorerQuery;
 import com.xgen.mongot.index.lucene.searcher.LuceneSearcherFactory;
 import com.xgen.mongot.index.lucene.searcher.LuceneSearcherManager;
 import com.xgen.mongot.index.lucene.searcher.QueryCacheProvider;
@@ -79,7 +81,10 @@ import org.apache.lucene.facet.sortedset.SortedSetDocValuesFacetField;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.NoMergePolicy;
-import org.apache.lucene.index.TieredMergePolicy;
+import org.apache.lucene.index.Term;
+import org.apache.lucene.search.Sort;
+import org.apache.lucene.search.SortField;
+import org.apache.lucene.search.TermQuery;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.junit.Before;
@@ -165,7 +170,10 @@ public class LuceneSearchIndexReaderTest {
             LuceneConfigBuilder.builder().dataPath(indexPath).build(),
             featureFlags,
             new InstrumentedConcurrentMergeScheduler(meterRegistry),
-            new TieredMergePolicy(),
+            // Lucene 10.4 raises TieredMergePolicy's default floor segment size from 2MB to 16MB,
+            // so a TieredMergePolicy would merge the 10 single-doc segments this test creates back
+            // into one and break the slice-split assertion. Keep the segments separate.
+            NoMergePolicy.INSTANCE,
             new QueryCacheProvider.DefaultQueryCacheProvider(),
             mock(NamedScheduledExecutorService.class),
             Optional.of(this.concurrentSearchExecutor),
@@ -277,6 +285,54 @@ public class LuceneSearchIndexReaderTest {
         .thenReturn(true);
 
     return registry;
+  }
+
+  @Test
+  public void maybeDisableBulkScorerForSortWrapsQueryWhenSortPresentAndFlagEnabled() {
+    org.apache.lucene.search.Query query = new TermQuery(new Term("field", "value"));
+    DynamicFeatureFlagRegistry registry = mock(DynamicFeatureFlagRegistry.class);
+    Mockito.when(
+            registry.evaluateClusterInvariant(
+                DynamicFeatureFlags.DISABLE_BULK_SCORER_QUERY_FOR_SORT))
+        .thenReturn(true);
+
+    org.apache.lucene.search.Query result =
+        LuceneSearchIndexReader.maybeDisableBulkScorerForSort(
+            query, Optional.of(new Sort(SortField.FIELD_DOC)), registry);
+
+    assertThat(result).isInstanceOf(DisableBulkScorerQuery.class);
+    assertThat(((DisableBulkScorerQuery) result).innerQuery()).isEqualTo(query);
+  }
+
+  @Test
+  public void maybeDisableBulkScorerForSortDoesNotWrapWhenNoSortPresent() {
+    org.apache.lucene.search.Query query = new TermQuery(new Term("field", "value"));
+    DynamicFeatureFlagRegistry registry = mock(DynamicFeatureFlagRegistry.class);
+    Mockito.when(
+            registry.evaluateClusterInvariant(
+                DynamicFeatureFlags.DISABLE_BULK_SCORER_QUERY_FOR_SORT))
+        .thenReturn(true);
+
+    org.apache.lucene.search.Query result =
+        LuceneSearchIndexReader.maybeDisableBulkScorerForSort(query, Optional.empty(), registry);
+
+    assertThat(result).isSameInstanceAs(query);
+  }
+
+  @Test
+  public void maybeDisableBulkScorerForSortDoesNotWrapWhenFlagDisabled() {
+    org.apache.lucene.search.Query query = new TermQuery(new Term("field", "value"));
+    DynamicFeatureFlagRegistry registry = mock(DynamicFeatureFlagRegistry.class);
+    Mockito.when(
+            registry.evaluateClusterInvariant(
+                DynamicFeatureFlags.DISABLE_BULK_SCORER_QUERY_FOR_SORT))
+        .thenReturn(false);
+
+    org.apache.lucene.search.Query result =
+        LuceneSearchIndexReader.maybeDisableBulkScorerForSort(
+            query, Optional.of(new Sort(SortField.FIELD_DOC)), registry);
+
+    assertThat(result).isSameInstanceAs(query);
   }
 
   @Theory

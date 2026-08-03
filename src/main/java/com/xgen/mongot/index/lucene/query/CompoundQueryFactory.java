@@ -1,7 +1,11 @@
 package com.xgen.mongot.index.lucene.query;
 
+import com.google.errorprone.annotations.Var;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.lucene.query.context.QueryFactoryContext;
 import com.xgen.mongot.index.lucene.query.context.SearchQueryFactoryContext;
+import com.xgen.mongot.index.lucene.query.util.DisableBulkScorerQuery;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.operators.CompoundClause;
 import com.xgen.mongot.index.query.operators.CompoundOperator;
@@ -24,14 +28,17 @@ public class CompoundQueryFactory {
   private final SearchQueryFactoryContext queryFactoryContext;
   private final QueryCreator queryCreator;
   private final QueryCreator explainQueryCreator;
+  private final DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry;
 
   CompoundQueryFactory(
       SearchQueryFactoryContext queryFactoryContext,
       QueryCreator queryCreator,
-      QueryCreator explainQueryCreator) {
+      QueryCreator explainQueryCreator,
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
     this.queryFactoryContext = queryFactoryContext;
     this.queryCreator = queryCreator;
     this.explainQueryCreator = explainQueryCreator;
+    this.dynamicFeatureFlagRegistry = dynamicFeatureFlagRegistry;
   }
 
   public BooleanQuery fromCompound(CompoundOperator operator, SingleQueryContext singleQueryContext)
@@ -39,7 +46,7 @@ public class CompoundQueryFactory {
     boolean onlyMustNot =
         operator.must().isEmpty() && operator.should().isEmpty() && operator.filter().isEmpty();
     if (onlyMustNot) {
-      return handleOnlyMustNot(operator, singleQueryContext);
+      return maybeForceDefaultBulkScorerForReqExcl(handleOnlyMustNot(operator, singleQueryContext));
     }
 
     BooleanQuery.Builder builder = new BooleanQuery.Builder();
@@ -50,7 +57,65 @@ public class CompoundQueryFactory {
     createLuceneQueries(operator.mustNot(), BooleanClause.Occur.MUST_NOT, singleQueryContext)
         .forEach(q -> builder.add(q, BooleanClause.Occur.MUST_NOT));
 
-    return handleShouldClause(operator, builder, singleQueryContext);
+    return maybeForceDefaultBulkScorerForReqExcl(
+        handleShouldClause(operator, builder, singleQueryContext));
+  }
+
+  /**
+   * Mitigates a Lucene 10.4 {@code DenseConjunctionBulkScorer} regression on {@code +required
+   * -mustNot} compounds. When {@code query} has exactly one required ({@code FILTER} or {@code
+   * MUST}) clause, at least one {@code MUST_NOT} clause, and no optional clauses, Lucene's {@code
+   * BooleanScorerSupplier} builds a {@code ReqExclBulkScorer} over the required clause's own {@link
+   * org.apache.lucene.search.BulkScorer}. For a single dense required clause that bulk scorer is a
+   * {@code DenseConjunctionBulkScorer}, whose materialize-to-bitset round trip is pure overhead (no
+   * second clause to AND-intersect). Wrapping the required clause in {@link DisableBulkScorerQuery}
+   * forces {@code Weight.DefaultBulkScorer}, restoring the Lucene 10.1 direct postings iteration.
+   * Gated by {@link DynamicFeatureFlags#DISABLE_BULK_SCORER_QUERY_FOR_COMPOUND_REQ_EXCL}.
+   *
+   * <p>Compounds with two or more required clauses are left untouched: there the {@code
+   * BooleanScorerSupplier} builds its own conjunction from the clauses' scorers (wrapping a leaf
+   * would have no effect) and the bitset AND-intersection is a genuine optimization.
+   */
+  private BooleanQuery maybeForceDefaultBulkScorerForReqExcl(BooleanQuery query) {
+    if (!this.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+        DynamicFeatureFlags.DISABLE_BULK_SCORER_QUERY_FOR_COMPOUND_REQ_EXCL)) {
+      return query;
+    }
+    if (query.getMinimumNumberShouldMatch() != 0) {
+      return query;
+    }
+
+    @Var BooleanClause requiredClause = null;
+    @Var int requiredCount = 0;
+    @Var int mustNotCount = 0;
+    for (BooleanClause clause : query.clauses()) {
+      switch (clause.occur()) {
+        case FILTER, MUST -> {
+          requiredClause = clause;
+          requiredCount++;
+        }
+        case MUST_NOT -> mustNotCount++;
+        case SHOULD -> {
+          // An optional clause changes scorer selection away from the ReqExcl shape.
+          return query;
+        }
+      }
+    }
+
+    if (requiredCount != 1 || mustNotCount < 1) {
+      return query;
+    }
+
+    BooleanQuery.Builder rebuilt = new BooleanQuery.Builder();
+    rebuilt.setMinimumNumberShouldMatch(query.getMinimumNumberShouldMatch());
+    for (BooleanClause clause : query.clauses()) {
+      if (clause == requiredClause) {
+        rebuilt.add(new DisableBulkScorerQuery(clause.query()), clause.occur());
+      } else {
+        rebuilt.add(clause);
+      }
+    }
+    return rebuilt.build();
   }
 
   static BooleanQuery negate(

@@ -2,10 +2,10 @@ package com.xgen.mongot.index.lucene.vector;
 
 import com.google.common.truth.Truth;
 import java.io.IOException;
+import org.apache.lucene.backward_codecs.lucene99.Lucene99Codec;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.KnnVectorsReader;
-import org.apache.lucene.codecs.lucene101.Lucene101Codec;
 import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.KnnByteVectorField;
@@ -21,8 +21,13 @@ import org.junit.Test;
 public class Lucene99NativeHnswVectorsFormatTest extends BaseKnnVectorsFormatTestCase {
 
   @Override
+  protected boolean supportsFloatVectorFallback() {
+    return false;
+  }
+
+  @Override
   protected Codec getCodec() {
-    return new Lucene101Codec() {
+    return new Lucene99Codec() {
       @Override
       public KnnVectorsFormat getKnnVectorsFormatForField(String field) {
         return new Lucene99NativeHnswVectorsFormat();

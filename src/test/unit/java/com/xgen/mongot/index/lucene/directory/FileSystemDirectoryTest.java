@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.lucene.directory;
 
+import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
@@ -13,19 +14,25 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiFunction;
+import org.apache.lucene.store.DataAccessHint;
+import org.apache.lucene.store.FlushInfo;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.MMapDirectory;
+import org.apache.lucene.store.MergeInfo;
 import org.apache.lucene.store.NIOFSDirectory;
+import org.apache.lucene.store.PreloadHint;
 import org.apache.lucene.store.ReadAdvice;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
 public class FileSystemDirectoryTest {
   private static final Path ROOT_PATH = Path.of(System.getenv("TEST_TMPDIR"));
   private static final AtomicInteger COUNTER = new AtomicInteger();
   private static final IOContext PRELOAD_CONTEXT =
-      IOContext.DEFAULT.withReadAdvice(ReadAdvice.NORMAL);
+      IOContext.DEFAULT.withHints(PreloadHint.INSTANCE);
 
   @Test
   public void prewarmVectorFiles_emptyDirectory_doesNotOpenAnyFiles() throws IOException {
@@ -38,7 +45,7 @@ public class FileSystemDirectoryTest {
 
     // Assert
     InOrder inOrder = inOrder(mmapDirectory);
-    inOrder.verify(mmapDirectory).setPreload(MMapDirectory.BASED_ON_LOAD_IO_CONTEXT);
+    inOrder.verify(mmapDirectory).setPreload(MMapDirectory.PRELOAD_HINT);
     inOrder.verify(mmapDirectory).listAll();
     inOrder.verify(mmapDirectory).setPreload(MMapDirectory.NO_FILES);
     verify(mmapDirectory, never()).openInput(anyString(), eq(PRELOAD_CONTEXT));
@@ -84,7 +91,7 @@ public class FileSystemDirectoryTest {
     directory.prewarmVectorFiles();
 
     // Assert
-    verify(mmapDirectory).setPreload(MMapDirectory.BASED_ON_LOAD_IO_CONTEXT);
+    verify(mmapDirectory).setPreload(MMapDirectory.PRELOAD_HINT);
     verify(mmapDirectory).setPreload(MMapDirectory.NO_FILES);
   }
 
@@ -101,7 +108,7 @@ public class FileSystemDirectoryTest {
     directory.prewarmVectorFiles();
 
     // Assert
-    verify(mmapDirectory).setPreload(MMapDirectory.BASED_ON_LOAD_IO_CONTEXT);
+    verify(mmapDirectory).setPreload(MMapDirectory.PRELOAD_HINT);
     verify(mmapDirectory).setPreload(MMapDirectory.NO_FILES);
   }
 
@@ -152,6 +159,43 @@ public class FileSystemDirectoryTest {
     inOrder.verify(mmapDirectory).openInput("segmentC.veq", PRELOAD_CONTEXT);
     inOrder.verify(mmapDirectory).openInput("segmentB.vex", PRELOAD_CONTEXT);
     inOrder.verify(mmapDirectory).openInput("segmentA.vex", PRELOAD_CONTEXT);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void setReadAdvice_resolvesContextThenExplicitHintsWithRandomFloor() throws IOException {
+    // Arrange: constructing the directory installs the read-advice resolver on the MMapDirectory.
+    MMapDirectory mmapDirectory = mock(MMapDirectory.class);
+    createDirectory(mmapDirectory);
+
+    ArgumentCaptor<BiFunction> captor = ArgumentCaptor.forClass(BiFunction.class);
+    verify(mmapDirectory).setReadAdvice(captor.capture());
+    BiFunction readAdvice = captor.getValue();
+
+    IOContext merge = IOContext.merge(new MergeInfo(1, 1L, false, 1));
+    IOContext flush = IOContext.flush(new FlushInfo(1, 1L));
+
+    // Merge/flush stream segments front-to-back (SEQUENTIAL); all other reads default to
+    // random-access search traffic (RANDOM), independent of file name.
+    assertEquals(Optional.of(ReadAdvice.SEQUENTIAL), readAdvice.apply("_0.doc", merge));
+    assertEquals(Optional.of(ReadAdvice.SEQUENTIAL), readAdvice.apply("_0.tim", flush));
+    assertEquals(Optional.of(ReadAdvice.RANDOM), readAdvice.apply("_0.doc", IOContext.DEFAULT));
+
+    // Explicit codec DataAccessHints on a non-merge/flush context are honored: SEQUENTIAL for
+    // flat-vector bulk reads, RANDOM otherwise.
+    assertEquals(
+        Optional.of(ReadAdvice.SEQUENTIAL),
+        readAdvice.apply("_0.vec", IOContext.DEFAULT.withHints(DataAccessHint.SEQUENTIAL)));
+    assertEquals(
+        Optional.of(ReadAdvice.RANDOM),
+        readAdvice.apply("_0.doc", IOContext.DEFAULT.withHints(DataAccessHint.RANDOM)));
+
+    // Merge context wins over an explicit hint: a merge carrying a RANDOM hint is the same as a
+    // merge with no hints at all and still streams SEQUENTIAL.
+    assertEquals(merge, merge.withHints(DataAccessHint.RANDOM));
+    assertEquals(
+        Optional.of(ReadAdvice.SEQUENTIAL),
+        readAdvice.apply("_0.doc", merge.withHints(DataAccessHint.RANDOM)));
   }
 
   private static MMapDirectory mockMMapDirectoryWithFiles(String... files) throws IOException {

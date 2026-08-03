@@ -28,6 +28,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import org.apache.lucene.codecs.CodecUtil;
+import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.hnsw.FlatVectorsReader;
 import org.apache.lucene.codecs.hnsw.FlatVectorsScorer;
 import org.apache.lucene.codecs.lucene95.OrdToDocDISIReaderConfiguration;
@@ -42,9 +43,9 @@ import org.apache.lucene.index.VectorEncoding;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.search.VectorScorer;
 import org.apache.lucene.store.ChecksumIndexInput;
+import org.apache.lucene.store.DataAccessHint;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
-import org.apache.lucene.store.ReadAdvice;
 import org.apache.lucene.util.Accountable;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.RamUsageEstimator;
@@ -115,7 +116,7 @@ public final class Mongot01042BinaryQuantizedFlatVectorsReader extends FlatVecto
               Mongot01042BinaryQuantizedFlatVectorsFormat.VECTOR_DATA_CODEC_NAME,
               // Quantized vectors are accessed randomly from their node ID stored in the HNSW
               // graph.
-              state.context.withReadAdvice(ReadAdvice.RANDOM));
+              state.context.withHints(DataAccessHint.RANDOM));
       success = true;
     } finally {
       if (success == false) {
@@ -296,6 +297,20 @@ public final class Mongot01042BinaryQuantizedFlatVectorsReader extends FlatVecto
   @Override
   public void close() throws IOException {
     IOUtils.close(this.quantizedVectorData, this.rawVectorsReader);
+  }
+
+  @Override
+  public Map<String, Long> getOffHeapByteSize(FieldInfo fieldInfo) {
+    Map<String, Long> raw = this.rawVectorsReader.getOffHeapByteSize(fieldInfo);
+    FieldEntry fieldEntry = this.fields.get(fieldInfo.name);
+    if (fieldEntry == null) {
+      return raw;
+    }
+    Map<String, Long> quant =
+        Map.of(
+            Mongot01042BinaryQuantizedFlatVectorsFormat.VECTOR_DATA_EXTENSION,
+            fieldEntry.vectorDataLength);
+    return KnnVectorsReader.mergeOffHeapByteSizeMaps(raw, quant);
   }
 
   @Override

@@ -35,6 +35,7 @@ import com.xgen.mongot.index.lucene.query.LuceneSearchQueryFactoryDistributor;
 import com.xgen.mongot.index.lucene.query.pushdown.project.ProjectFactory;
 import com.xgen.mongot.index.lucene.query.pushdown.project.ProjectSpec;
 import com.xgen.mongot.index.lucene.query.sort.IndexSortUtils;
+import com.xgen.mongot.index.lucene.query.util.DisableBulkScorerQuery;
 import com.xgen.mongot.index.lucene.searcher.LuceneIndexSearcher;
 import com.xgen.mongot.index.lucene.searcher.LuceneSearcherManager;
 import com.xgen.mongot.index.query.CollectorQuery;
@@ -311,6 +312,7 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
       }
       case SearchQuery searchQuery -> {
         Operator operator = getOperator(searchQuery);
+        @Var
         org.apache.lucene.search.Query luceneQuery =
             Explain.isEnabled()
                 ? this.queryFactory.createSearchExplainQuery(
@@ -354,6 +356,9 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
                 queryOptimizationFlags,
                 indexSort);
         trackIndexSortMetrics(luceneSort, indexSort);
+
+        luceneQuery =
+            maybeDisableBulkScorerForSort(luceneQuery, luceneSort, this.dynamicFeatureFlagRegistry);
 
         yield switch (searchQuery) {
           case OperatorQuery operatorQuery ->
@@ -427,6 +432,7 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
     Operator operator = getOperator(query);
     LuceneIndexSearcher indexSearcher = searcherReference.getIndexSearcher();
 
+    @Var
     org.apache.lucene.search.Query luceneQuery =
         Explain.isEnabled()
             ? this.queryFactory.createSearchExplainQuery(
@@ -468,6 +474,9 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
             queryOptimizationFlags,
             indexSort);
     trackIndexSortMetrics(luceneSort, indexSort);
+
+    luceneQuery =
+        maybeDisableBulkScorerForSort(luceneQuery, luceneSort, this.dynamicFeatureFlagRegistry);
 
     return switch (query) {
       case OperatorQuery operatorQuery ->
@@ -1564,6 +1573,29 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
         && IndexSortUtils.usesIndexSort(luceneSort.get(), indexSort.get())) {
       this.queryingMetricsUpdater.getBenefitFromIndexSortCounter().increment();
     }
+  }
+
+  /**
+   * Mitigates a Lucene 10.4 {@code DenseConjunctionBulkScorer} regression on sorted searches. When
+   * a (non-relevance) {@code sort} is present, the search is collected by a {@code
+   * TopFieldCollector} whose competitive iterator makes sort-without-sorted-index cheap by pruning
+   * non-competitive docs. Lucene 10.4's {@code DenseConjunctionBulkScorer} streams every matching
+   * doc through a per-window bitset, defeating that pruning and causing over-collection. Wrapping
+   * the top-level query in {@link DisableBulkScorerQuery} forces {@code Weight.DefaultBulkScorer},
+   * which honors the collector's competitive iterator, restoring the Lucene 10.1 path. Gated by
+   * {@link DynamicFeatureFlags#DISABLE_BULK_SCORER_QUERY_FOR_SORT}.
+   */
+  @VisibleForTesting
+  static org.apache.lucene.search.Query maybeDisableBulkScorerForSort(
+      org.apache.lucene.search.Query luceneQuery,
+      Optional<Sort> luceneSort,
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
+    if (luceneSort.isPresent()
+        && dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+            DynamicFeatureFlags.DISABLE_BULK_SCORER_QUERY_FOR_SORT)) {
+      return new DisableBulkScorerQuery(luceneQuery);
+    }
+    return luceneQuery;
   }
 
   private static Operator getOperator(SearchQuery query) {

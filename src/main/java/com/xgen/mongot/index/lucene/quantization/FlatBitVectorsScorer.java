@@ -17,13 +17,13 @@
 
 package com.xgen.mongot.index.lucene.quantization;
 
+import com.xgen.mongot.index.lucene.util.VectorSearchUtil;
 import java.io.IOException;
 import org.apache.lucene.codecs.hnsw.FlatVectorsScorer;
 import org.apache.lucene.index.ByteVectorValues;
 import org.apache.lucene.index.KnnVectorValues;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.util.Bits;
-import org.apache.lucene.util.VectorUtil;
 import org.apache.lucene.util.hnsw.RandomVectorScorer;
 import org.apache.lucene.util.hnsw.RandomVectorScorerSupplier;
 
@@ -71,9 +71,8 @@ public class FlatBitVectorsScorer implements FlatVectorsScorer {
 
     @Override
     public float score(int node) throws IOException {
-      return (this.bitDimensions
-              - VectorUtil.xorBitCount(this.query, this.vectorValues.vectorValue(node)))
-          / (float) this.bitDimensions;
+      return VectorSearchUtil.bitSimilarity(
+          this.query, this.vectorValues.vectorValue(node), this.bitDimensions);
     }
 
     @Override
@@ -89,29 +88,6 @@ public class FlatBitVectorsScorer implements FlatVectorsScorer {
     @Override
     public Bits getAcceptOrds(Bits acceptDocs) {
       return this.vectorValues.getAcceptOrds(acceptDocs);
-    }
-  }
-
-  static class BitRandomVectorScorerSupplier implements RandomVectorScorerSupplier {
-    protected final ByteVectorValues vectorValues;
-    protected final ByteVectorValues vectorValues1;
-    protected final ByteVectorValues vectorValues2;
-
-    public BitRandomVectorScorerSupplier(ByteVectorValues vectorValues) throws IOException {
-      this.vectorValues = vectorValues;
-      this.vectorValues1 = vectorValues.copy();
-      this.vectorValues2 = vectorValues.copy();
-    }
-
-    @Override
-    public RandomVectorScorer scorer(int ord) throws IOException {
-      byte[] query = this.vectorValues1.vectorValue(ord);
-      return new BitRandomVectorScorer(this.vectorValues2, query);
-    }
-
-    @Override
-    public RandomVectorScorerSupplier copy() throws IOException {
-      return new BitRandomVectorScorerSupplier(this.vectorValues.copy());
     }
   }
 

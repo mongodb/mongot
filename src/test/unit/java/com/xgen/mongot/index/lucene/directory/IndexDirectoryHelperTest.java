@@ -144,6 +144,33 @@ public class IndexDirectoryHelperTest {
   }
 
   @Test
+  public void attemptToRecoverUnreadableIndex_tooOldWithCodecMessage_prefersCodecCounter()
+      throws IOException {
+    // The case that motivated checking the codec message ahead of the too-old/too-new branch:
+    // Lucene's SegmentInfos#readCodec wraps an unknown "Lucene*" codec name in an
+    // IndexFormatTooOldException whose message begins "Could not load codec" (rather than a plain
+    // IllegalArgumentException). Such an exception matches BOTH the codec branch (by message) and
+    // the too-old branch (by type), so ordering decides attribution -- the codec counter must win.
+    // A plain-IAE codec test cannot catch a regression here because it never matches the too-old
+    // branch. (The full write-then-read path is exercised in InitializedLuceneSearchIndexTest;
+    // this asserts the precedence directly at the decision site.)
+    boolean recovered =
+        recover(
+            new IndexFormatTooOldException(
+                "resource",
+                "Could not load codec 'Lucene9999'. An SPI class of type"
+                    + " org.apache.lucene.codecs.Codec with name 'Lucene9999' does not exist. Did"
+                    + " you forget to add lucene-backward-codecs.jar?"),
+            false,
+            false);
+
+    assertTrue(recovered);
+    assertEquals(1.0, recoveryCount("incompatibleCodec"), 0);
+    assertEquals(0.0, recoveryCount("incompatibleIndexFormat"), 0);
+    assertFalse(directoryExists());
+  }
+
+  @Test
   public void attemptToRecoverUnreadableIndex_spiFormatNotFound_recoversAndIncrementsSpiCounter()
       throws IOException {
     // Source the exception from real Lucene so this test guards the SPI matcher in

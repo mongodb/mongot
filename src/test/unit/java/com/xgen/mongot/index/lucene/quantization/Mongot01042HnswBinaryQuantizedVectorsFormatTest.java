@@ -5,9 +5,9 @@ import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 import com.google.errorprone.annotations.Var;
 import java.io.IOException;
 import java.util.Arrays;
+import org.apache.lucene.backward_codecs.lucene99.Lucene99Codec;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
-import org.apache.lucene.codecs.lucene101.Lucene101Codec;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.KnnFloatVectorField;
@@ -24,6 +24,7 @@ import org.apache.lucene.index.StoredFields;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.VectorEncoding;
 import org.apache.lucene.index.VectorSimilarityFunction;
+import org.apache.lucene.search.AcceptDocs;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.TotalHits;
 import org.apache.lucene.store.Directory;
@@ -32,11 +33,18 @@ import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.VectorUtil;
 
 public class Mongot01042HnswBinaryQuantizedVectorsFormatTest extends BaseKnnVectorsFormatTestCase {
+  // tinySegmentsThreshold=0 forces HNSW for every segment; the base Lucene test asserts the
+  // .vex file is non-empty even for tiny segments.
   private final KnnVectorsFormat format = new Mongot01042HnswBinaryQuantizedVectorsFormat();
 
   @Override
+  protected boolean supportsFloatVectorFallback() {
+    return false;
+  }
+
+  @Override
   protected Codec getCodec() {
-    return new Lucene101Codec() {
+    return new Lucene99Codec() {
       @Override
       public KnnVectorsFormat getKnnVectorsFormatForField(String field) {
         return Mongot01042HnswBinaryQuantizedVectorsFormatTest.this.format;
@@ -112,6 +120,7 @@ public class Mongot01042HnswBinaryQuantizedVectorsFormatTest extends BaseKnnVect
       try (IndexReader reader = DirectoryReader.open(iw)) {
         for (LeafReaderContext ctx : reader.leaves()) {
           Bits liveDocs = ctx.reader().getLiveDocs();
+          AcceptDocs acceptDocs = AcceptDocs.fromLiveDocs(liveDocs, ctx.reader().maxDoc());
           FloatVectorValues vectorValues = ctx.reader().getFloatVectorValues(fieldName);
           if (vectorValues == null) {
             continue;
@@ -122,7 +131,7 @@ public class Mongot01042HnswBinaryQuantizedVectorsFormatTest extends BaseKnnVect
           TopDocs results =
               ctx.reader()
                   .searchNearestVectors(
-                      fieldName, randomNormalizedVector(dimension), k, liveDocs, visitedLimit);
+                      fieldName, randomNormalizedVector(dimension), k, acceptDocs, visitedLimit);
           if (results.totalHits.relation() == TotalHits.Relation.GREATER_THAN_OR_EQUAL_TO) {
             assertEquals(visitedLimit, results.totalHits.value());
           } else {
@@ -135,7 +144,7 @@ public class Mongot01042HnswBinaryQuantizedVectorsFormatTest extends BaseKnnVect
           TopDocs secondResults =
               ctx.reader()
                   .searchNearestVectors(
-                      fieldName, randomNormalizedVector(dimension), k, liveDocs, visitedLimit);
+                      fieldName, randomNormalizedVector(dimension), k, acceptDocs, visitedLimit);
           assertEquals(TotalHits.Relation.EQUAL_TO, secondResults.totalHits.relation());
           assertTrue(secondResults.totalHits.value() <= visitedLimit);
         }
@@ -209,10 +218,15 @@ public class Mongot01042HnswBinaryQuantizedVectorsFormatTest extends BaseKnnVect
           if (k > numLiveDocsWithVectors) {
             k = numLiveDocsWithVectors;
           }
+          AcceptDocs acceptDocs = AcceptDocs.fromLiveDocs(liveDocs, ctx.reader().maxDoc());
           TopDocs results =
               ctx.reader()
                   .searchNearestVectors(
-                      fieldName, randomNormalizedVector(dimension), k, liveDocs, Integer.MAX_VALUE);
+                      fieldName,
+                      randomNormalizedVector(dimension),
+                      k,
+                      acceptDocs,
+                      Integer.MAX_VALUE);
           assertEquals(Math.min(k, size), results.scoreDocs.length);
           for (int i = 0; i < k - 1; i++) {
             assertTrue(results.scoreDocs[i].score >= results.scoreDocs[i + 1].score);

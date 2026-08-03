@@ -11,8 +11,6 @@ import com.google.common.collect.ImmutableSetMultimap;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig;
-import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig.Phase;
-import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig.Scope;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
@@ -78,20 +76,26 @@ import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
+import org.apache.lucene.document.Document;
+import org.apache.lucene.document.Field;
 import org.apache.lucene.document.SortedSetDocValuesField;
+import org.apache.lucene.document.StringField;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.sandbox.search.TokenStreamToTermAutomatonQuery;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.BoostQuery;
+import org.apache.lucene.search.BulkScorer;
 import org.apache.lucene.search.ConstantScoreQuery;
 import org.apache.lucene.search.DisjunctionMaxQuery;
 import org.apache.lucene.search.FuzzyQuery;
 import org.apache.lucene.search.IndexOrDocValuesQuery;
+import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.MultiPhraseQuery;
 import org.apache.lucene.search.PhraseQuery;
@@ -100,6 +104,7 @@ import org.apache.lucene.search.Query;
 import org.apache.lucene.search.RegexpQuery;
 import org.apache.lucene.search.SynonymQuery;
 import org.apache.lucene.search.TermQuery;
+import org.apache.lucene.search.Weight;
 import org.apache.lucene.search.WildcardQuery;
 import org.apache.lucene.search.join.QueryBitSetProducer;
 import org.apache.lucene.search.join.ScoreMode;
@@ -234,7 +239,7 @@ public class LuceneSearchQueryFactoryDistributorTest {
             .build();
 
     BooleanQuery.Builder builder = new BooleanQuery.Builder();
-    builder.add(new MatchAllDocsQuery(), BooleanClause.Occur.FILTER);
+    builder.add(new DisableBulkScorerQuery(new MatchAllDocsQuery()), BooleanClause.Occur.FILTER);
     builder.add(
         BooleanComposer.mustNotClause(new TermQuery(new Term("$type:string/title", "godfather"))));
     Query expected = builder.build();
@@ -250,7 +255,9 @@ public class LuceneSearchQueryFactoryDistributorTest {
 
     BooleanQuery.Builder builder = new BooleanQuery.Builder();
 
-    builder.add(new TermQuery(new Term("$meta/embeddedRoot", "T")), BooleanClause.Occur.FILTER);
+    builder.add(
+        new DisableBulkScorerQuery(new TermQuery(new Term("$meta/embeddedRoot", "T"))),
+        BooleanClause.Occur.FILTER);
     builder.add(
         BooleanComposer.mustNotClause(new TermQuery(new Term("$type:string/title", "godfather"))));
     Query expected = builder.build();
@@ -280,7 +287,9 @@ public class LuceneSearchQueryFactoryDistributorTest {
 
     BooleanQuery.Builder builder = new BooleanQuery.Builder();
 
-    builder.add(new TermQuery(new Term("$meta/embeddedRoot", "T")), BooleanClause.Occur.FILTER);
+    builder.add(
+        new DisableBulkScorerQuery(new TermQuery(new Term("$meta/embeddedRoot", "T"))),
+        BooleanClause.Occur.FILTER);
     builder.add(
         BooleanComposer.mustNotClause(
             new WrappedToParentBlockJoinQuery(
@@ -312,9 +321,136 @@ public class LuceneSearchQueryFactoryDistributorTest {
             .build();
 
     BooleanQuery.Builder builder = new BooleanQuery.Builder();
-    builder.add(BooleanComposer.mustClause(new TermQuery(new Term("$type:string/title", "nemo"))));
+    builder.add(
+        BooleanComposer.mustClause(
+            new DisableBulkScorerQuery(new TermQuery(new Term("$type:string/title", "nemo")))));
     builder.add(
         BooleanComposer.mustNotClause(new TermQuery(new Term("$type:string/title", "godfather"))));
+    Query expected = builder.build();
+    LuceneSearchTranslation.get().assertTranslatedTo(definition, expected);
+  }
+
+  @Test
+  public void testCompoundFilterWithMustNotWrapsRequiredClause() throws Exception {
+    CompoundOperator definition =
+        OperatorBuilder.compound()
+            .filter(OperatorBuilder.term().path("genre").query("action").build())
+            .mustNot(OperatorBuilder.term().path("genre").query("horror").build())
+            .build();
+
+    // +required -mustNot with a single required clause => ReqExclBulkScorer over the required
+    // clause's own bulk scorer. The required (FILTER) clause is wrapped in DisableBulkScorerQuery
+    // so
+    // Lucene uses Weight.DefaultBulkScorer instead of the (regressed) DenseConjunctionBulkScorer.
+    BooleanQuery.Builder builder = new BooleanQuery.Builder();
+    builder.add(
+        new DisableBulkScorerQuery(new TermQuery(new Term("$type:string/genre", "action"))),
+        BooleanClause.Occur.FILTER);
+    builder.add(
+        BooleanComposer.mustNotClause(new TermQuery(new Term("$type:string/genre", "horror"))));
+    Query expected = builder.build();
+    LuceneSearchTranslation.get().assertTranslatedTo(definition, expected);
+  }
+
+  @Test
+  public void testCompoundFilterWithMustNotSelectsDefaultBulkScorer() throws Exception {
+    // Runtime companion to testCompoundFilterWithMustNotWrapsRequiredClause: that test only checks
+    // the query shape, so it would still pass if a future Lucene change stopped the wrapper from
+    // flipping BulkScorer selection. Here we build a real index and assert on the actual BulkScorer
+    // Lucene picks.
+    String field = "$type:string/genre";
+    Term action = new Term(field, "action");
+    Term horror = new Term(field, "horror");
+
+    TemporaryFolder temporaryFolder = TestUtils.getTempFolder();
+    try (Directory directory = new MMapDirectory(temporaryFolder.getRoot().toPath())) {
+      // A dense required clause (docFreq >= maxDoc / DENSITY_THRESHOLD_INVERSE over a segment of at
+      // least WINDOW_SIZE/2 docs) is what makes Lucene select DenseConjunctionBulkScorer for the
+      // unwrapped clause. forceMerge(1) keeps it a single segment.
+      try (IndexWriter writer = new IndexWriter(directory, new IndexWriterConfig())) {
+        for (int i = 0; i < 3000; i++) {
+          Document doc = new Document();
+          doc.add(new StringField(field, "action", Field.Store.NO));
+          if (i % 4 == 0) {
+            doc.add(new StringField(field, "horror", Field.Store.NO));
+          }
+          writer.addDocument(doc);
+        }
+        writer.forceMerge(1);
+      }
+
+      try (IndexReader reader = DirectoryReader.open(directory)) {
+        IndexSearcher searcher = new IndexSearcher(reader);
+
+        // Sanity: without the wrapper the dense required clause selects the (regressed)
+        // DenseConjunctionBulkScorer, so the mitigation has something to disable.
+        assertThat(leafBulkScorer(searcher, new TermQuery(action)).getClass().getSimpleName())
+            .isEqualTo("DenseConjunctionBulkScorer");
+
+        // With the wrapper the required clause's own BulkScorer -- the one BooleanScorerSupplier
+        // forwards verbatim into ReqExclBulkScorer -- is Weight.DefaultBulkScorer.
+        assertThat(
+                leafBulkScorer(searcher, new DisableBulkScorerQuery(new TermQuery(action)))
+                    .getClass()
+                    .getSimpleName())
+            .isEqualTo("DefaultBulkScorer");
+
+        // End to end: the wrapped +filter -mustNot compound runs as a ReqExclBulkScorer.
+        BooleanQuery compound =
+            new BooleanQuery.Builder()
+                .add(new DisableBulkScorerQuery(new TermQuery(action)), BooleanClause.Occur.FILTER)
+                .add(BooleanComposer.mustNotClause(new TermQuery(horror)))
+                .build();
+        assertThat(leafBulkScorer(searcher, compound).getClass().getSimpleName())
+            .isEqualTo("ReqExclBulkScorer");
+      }
+    }
+  }
+
+  private static BulkScorer leafBulkScorer(IndexSearcher searcher, Query query) throws IOException {
+    Query rewritten = searcher.rewrite(query);
+    Weight weight =
+        searcher.createWeight(rewritten, org.apache.lucene.search.ScoreMode.COMPLETE_NO_SCORES, 1f);
+    LeafReaderContext leaf = searcher.getIndexReader().leaves().get(0);
+    return weight.bulkScorer(leaf);
+  }
+
+  @Test
+  public void testCompoundFilterWithMustNotNotWrappedWhenFlagDisabled() throws Exception {
+    CompoundOperator definition =
+        OperatorBuilder.compound()
+            .filter(OperatorBuilder.term().path("genre").query("action").build())
+            .mustNot(OperatorBuilder.term().path("genre").query("horror").build())
+            .build();
+
+    BooleanQuery.Builder builder = new BooleanQuery.Builder();
+    builder.add(
+        new TermQuery(new Term("$type:string/genre", "action")), BooleanClause.Occur.FILTER);
+    builder.add(
+        BooleanComposer.mustNotClause(new TermQuery(new Term("$type:string/genre", "horror"))));
+    Query expected = builder.build();
+    LuceneSearchTranslation.getWithDynamicFeatureFlagDisabled(
+            DynamicFeatureFlags.DISABLE_BULK_SCORER_QUERY_FOR_COMPOUND_REQ_EXCL)
+        .assertTranslatedTo(definition, expected);
+  }
+
+  @Test
+  public void testCompoundTwoRequiredClausesWithMustNotNotWrapped() throws Exception {
+    // Two required clauses (FILTER + MUST): Lucene builds its own conjunction from the clause
+    // scorers (not their bulk scorers), so wrapping a leaf would have no effect; the bitset
+    // AND-intersection is also a genuine optimization. Leave the clauses unwrapped.
+    CompoundOperator definition =
+        OperatorBuilder.compound()
+            .filter(OperatorBuilder.term().path("genre").query("action").build())
+            .must(OperatorBuilder.term().path("title").query("nemo").build())
+            .mustNot(OperatorBuilder.term().path("genre").query("horror").build())
+            .build();
+
+    BooleanQuery.Builder builder = new BooleanQuery.Builder();
+    builder.add(filterClause(new TermQuery(new Term("$type:string/genre", "action"))));
+    builder.add(BooleanComposer.mustClause(new TermQuery(new Term("$type:string/title", "nemo"))));
+    builder.add(
+        BooleanComposer.mustNotClause(new TermQuery(new Term("$type:string/genre", "horror"))));
     Query expected = builder.build();
     LuceneSearchTranslation.get().assertTranslatedTo(definition, expected);
   }
@@ -1094,11 +1230,11 @@ public class LuceneSearchQueryFactoryDistributorTest {
     DynamicFeatureFlagConfig config =
         new DynamicFeatureFlagConfig(
             DynamicFeatureFlags.QUERY_OPTIMIZER.getName(),
-            Phase.ENABLED,
+            DynamicFeatureFlagConfig.Phase.ENABLED,
             List.of(),
             List.of(),
             0,
-            Scope.GROUP);
+            DynamicFeatureFlagConfig.Scope.GROUP);
     DynamicFeatureFlagRegistry dffRegistry =
         new DynamicFeatureFlagRegistry(
             Optional.of(List.of(config)),

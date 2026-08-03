@@ -17,6 +17,7 @@ import org.apache.lucene.store.MMapDirectory;
 import org.apache.lucene.store.MemorySegmentAccessInput;
 import org.apache.lucene.util.hnsw.RandomVectorScorer;
 import org.apache.lucene.util.hnsw.RandomVectorScorerSupplier;
+import org.apache.lucene.util.hnsw.UpdateableRandomVectorScorer;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -129,8 +130,9 @@ public class Lucene99NativeMemorySegmentVectorScorerTest {
           ByteVectorValues values = asHasIndexSlice(vectors, dim, input);
           RandomVectorScorerSupplier supplier = scorer.getRandomVectorScorerSupplier(fn, values);
 
+          UpdateableRandomVectorScorer s = supplier.scorer();
           for (int ord = 0; ord < NUM_VECTORS; ord++) {
-            RandomVectorScorer s = supplier.scorer(ord);
+            s.setScoringOrdinal(ord);
             for (int node = 0; node < NUM_VECTORS; node++) {
               Assert.assertEquals(
                   "fn=" + fn + " dim=" + dim + " ord=" + ord + " node=" + node,
@@ -157,8 +159,9 @@ public class Lucene99NativeMemorySegmentVectorScorerTest {
         ByteVectorValues values = asHasIndexSlice(vectors, dim, input);
         RandomVectorScorerSupplier copy = scorer.getRandomVectorScorerSupplier(fn, values).copy();
 
+        UpdateableRandomVectorScorer s = copy.scorer();
         for (int ord = 0; ord < NUM_VECTORS; ord++) {
-          RandomVectorScorer s = copy.scorer(ord);
+          s.setScoringOrdinal(ord);
           for (int node = 0; node < NUM_VECTORS; node++) {
             Assert.assertEquals(
                 "fn=" + fn + " ord=" + ord + " node=" + node,
@@ -213,8 +216,9 @@ public class Lucene99NativeMemorySegmentVectorScorerTest {
       ByteVectorValues values = ByteVectorValues.fromBytes(vectors, dim);
       RandomVectorScorerSupplier supplier = scorer.getRandomVectorScorerSupplier(fn, values);
 
+      UpdateableRandomVectorScorer s = supplier.scorer();
       for (int ord = 0; ord < NUM_VECTORS; ord++) {
-        RandomVectorScorer s = supplier.scorer(ord);
+        s.setScoringOrdinal(ord);
         for (int node = 0; node < NUM_VECTORS; node++) {
           Assert.assertEquals(
               "fn=" + fn + " ord=" + ord + " node=" + node,

@@ -22,6 +22,7 @@ import com.xgen.mongot.index.lucene.codec.flat.Float32AndByteFlatVectorsFormat;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.quantization.Mongot01042HnswBinaryQuantizedVectorsFormat;
 import com.xgen.mongot.index.lucene.quantization.Mongot01042HnswBitVectorsFormat;
+import com.xgen.mongot.index.lucene.quantization.MongotHnswScalarQuantizedVectorsFormat;
 import com.xgen.mongot.index.lucene.vector.Lucene99NativeHnswVectorsFormat;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
@@ -30,11 +31,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.apache.lucene.backward_codecs.lucene99.Lucene99Codec;
 import org.apache.lucene.backward_codecs.lucene99.Lucene99PostingsFormat;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.PostingsFormat;
-import org.apache.lucene.codecs.lucene99.Lucene99HnswScalarQuantizedVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
 import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
 import org.apache.lucene.codecs.perfield.PerFieldPostingsFormat;
@@ -60,7 +59,7 @@ public class LuceneCodecTest {
           new TestSetup(KNN_VECTOR, Lucene99HnswVectorsFormat.class, 32, 200),
           new TestSetup(KNN_BYTE, Lucene99NativeHnswVectorsFormat.class, 128, 100),
           new TestSetup(KNN_BIT, Mongot01042HnswBitVectorsFormat.class, 512, 1000),
-          new TestSetup(KNN_F32_Q7, Lucene99HnswScalarQuantizedVectorsFormat.class, 2, 30),
+          new TestSetup(KNN_F32_Q7, MongotHnswScalarQuantizedVectorsFormat.class, 2, 30),
           new TestSetup(KNN_F32_Q1, Mongot01042HnswBinaryQuantizedVectorsFormat.class, 49, 66));
 
   @Theory
@@ -239,8 +238,6 @@ public class LuceneCodecTest {
     PostingsFormat defaultFormat = format.getPostingsFormatForField("someOtherField");
 
     assertThat(bloomDelegate).isSameInstanceAs(defaultFormat);
-    assertThat(bloomDelegate.getName())
-        .isEqualTo(new Lucene99Codec().getPostingsFormatForField(idField).getName());
   }
 
   @Test

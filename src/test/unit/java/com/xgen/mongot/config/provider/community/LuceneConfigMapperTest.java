@@ -42,7 +42,7 @@ public class LuceneConfigMapperTest {
     assertEquals(Optional.empty(), lc.fieldLimit());
     assertEquals(Optional.of(LuceneConfig.MAX_DOCS_LIMIT), lc.docsLimit());
     assertEquals(NUM_CPUS, lc.numMaxMergeThreads());
-    assertEquals(Optional.of(64.0), lc.floorSegmentMB());
+    assertEquals(Optional.of(64.0), lc.vectorFloorSegmentMB());
     assertTrue(lc.enableConcurrentSearch());
     assertEquals(
         Optional.of(new HysteresisConfig(0.9, 0.9)), lc.mergePolicyDiskUtilizationConfig());
@@ -71,7 +71,7 @@ public class LuceneConfigMapperTest {
     assertEquals((int) Math.ceil(0.8 * 4096), vmp.globalHeapBudgetMb());
 
     assertEquals(Optional.of(LuceneConfig.MAX_DOCS_LIMIT), lc.docsLimit());
-    assertEquals(Optional.of(128.0), lc.floorSegmentMB());
+    assertEquals(Optional.of(128.0), lc.vectorFloorSegmentMB());
     assertTrue(lc.enableConcurrentSearch());
     assertEquals(Optional.empty(), lc.mergePolicyDiskUtilizationConfig());
   }

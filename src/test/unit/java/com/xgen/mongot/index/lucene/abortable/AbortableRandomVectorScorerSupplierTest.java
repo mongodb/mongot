@@ -19,6 +19,7 @@ import org.apache.lucene.index.MergePolicy;
 import org.apache.lucene.util.hnsw.CloseableRandomVectorScorerSupplier;
 import org.apache.lucene.util.hnsw.RandomVectorScorer;
 import org.apache.lucene.util.hnsw.RandomVectorScorerSupplier;
+import org.apache.lucene.util.hnsw.UpdateableRandomVectorScorer;
 import org.junit.Test;
 
 /** Unit tests for {@link AbortableRandomVectorScorerSupplier}. */
@@ -41,7 +42,7 @@ public class AbortableRandomVectorScorerSupplierTest {
         new AbortableRandomVectorScorerSupplier(mockSupplier, mockMerge);
 
     MergePolicy.MergeAbortedException exception =
-        assertThrows(MergePolicy.MergeAbortedException.class, () -> abortableSupplier.scorer(0));
+        assertThrows(MergePolicy.MergeAbortedException.class, () -> abortableSupplier.scorer());
 
     assertTrue(
         "Exception message should mention HNSW graph building",
@@ -58,17 +59,17 @@ public class AbortableRandomVectorScorerSupplierTest {
     MergePolicy.OneMerge mockMerge = mock(MergePolicy.OneMerge.class);
     when(mockMerge.isAborted()).thenReturn(false).thenReturn(true);
 
-    RandomVectorScorer mockScorer = mock(RandomVectorScorer.class);
+    UpdateableRandomVectorScorer mockScorer = mock(UpdateableRandomVectorScorer.class);
     when(mockScorer.score(anyInt())).thenReturn(0.5f);
 
     CloseableRandomVectorScorerSupplier mockSupplier =
         mock(CloseableRandomVectorScorerSupplier.class);
-    when(mockSupplier.scorer(anyInt())).thenReturn(mockScorer);
+    when(mockSupplier.scorer()).thenReturn(mockScorer);
 
     AbortableRandomVectorScorerSupplier abortableSupplier =
         new AbortableRandomVectorScorerSupplier(mockSupplier, mockMerge);
 
-    RandomVectorScorer scorer = abortableSupplier.scorer(0);
+    RandomVectorScorer scorer = abortableSupplier.scorer();
 
     int callsToTriggerCheck = AbortableRandomVectorScorerSupplier.CHECK_ABORT_INTERVAL_SCORE_CALLS;
 
@@ -108,7 +109,7 @@ public class AbortableRandomVectorScorerSupplierTest {
     // exception can be thrown is via the shared score()-counter check.
     when(mockMerge.isAborted()).thenAnswer(invocation -> scoreCallCount.get() >= interval);
 
-    RandomVectorScorer mockScorer = mock(RandomVectorScorer.class);
+    UpdateableRandomVectorScorer mockScorer = mock(UpdateableRandomVectorScorer.class);
     when(mockScorer.score(anyInt()))
         .thenAnswer(
             invocation -> {
@@ -118,7 +119,7 @@ public class AbortableRandomVectorScorerSupplierTest {
 
     CloseableRandomVectorScorerSupplier mockSupplier =
         mock(CloseableRandomVectorScorerSupplier.class);
-    when(mockSupplier.scorer(anyInt())).thenReturn(mockScorer);
+    when(mockSupplier.scorer()).thenReturn(mockScorer);
 
     AbortableRandomVectorScorerSupplier abortableSupplier =
         new AbortableRandomVectorScorerSupplier(mockSupplier, mockMerge);
@@ -133,7 +134,7 @@ public class AbortableRandomVectorScorerSupplierTest {
             MergePolicy.MergeAbortedException.class,
             () -> {
               for (int s = 0; s < numScorers; s++) {
-                RandomVectorScorer shortLived = abortableSupplier.scorer(s);
+                RandomVectorScorer shortLived = abortableSupplier.scorer();
                 for (int i = 0; i < callsPerScorer; i++) {
                   shortLived.score(i);
                 }
@@ -162,20 +163,20 @@ public class AbortableRandomVectorScorerSupplierTest {
     when(mockMerge.isAborted()).thenReturn(false);
 
     // Create a mock scorer that returns a constant score
-    RandomVectorScorer mockScorer = mock(RandomVectorScorer.class);
+    UpdateableRandomVectorScorer mockScorer = mock(UpdateableRandomVectorScorer.class);
     when(mockScorer.score(anyInt())).thenReturn(0.75f);
 
     // Create a mock supplier
     CloseableRandomVectorScorerSupplier mockSupplier =
         mock(CloseableRandomVectorScorerSupplier.class);
-    when(mockSupplier.scorer(anyInt())).thenReturn(mockScorer);
+    when(mockSupplier.scorer()).thenReturn(mockScorer);
 
     // Create the abortable supplier
     AbortableRandomVectorScorerSupplier abortableSupplier =
         new AbortableRandomVectorScorerSupplier(mockSupplier, mockMerge);
 
     // Get a scorer
-    RandomVectorScorer scorer = abortableSupplier.scorer(0);
+    RandomVectorScorer scorer = abortableSupplier.scorer();
 
     // Call score() many times - should not throw
     int numCalls = AbortableRandomVectorScorerSupplier.CHECK_ABORT_INTERVAL_SCORE_CALLS * 3;
@@ -197,17 +198,17 @@ public class AbortableRandomVectorScorerSupplierTest {
     // Only the third invocation reports aborted.
     when(mockMerge.isAborted()).thenReturn(false, false, true);
 
-    RandomVectorScorer mockScorer = mock(RandomVectorScorer.class);
+    UpdateableRandomVectorScorer mockScorer = mock(UpdateableRandomVectorScorer.class);
     when(mockScorer.score(anyInt())).thenReturn(0.5f);
 
     CloseableRandomVectorScorerSupplier mockSupplier =
         mock(CloseableRandomVectorScorerSupplier.class);
-    when(mockSupplier.scorer(anyInt())).thenReturn(mockScorer);
+    when(mockSupplier.scorer()).thenReturn(mockScorer);
 
     AbortableRandomVectorScorerSupplier abortableSupplier =
         new AbortableRandomVectorScorerSupplier(mockSupplier, mockMerge);
 
-    RandomVectorScorer scorer = abortableSupplier.scorer(0);
+    RandomVectorScorer scorer = abortableSupplier.scorer();
 
     int interval = AbortableRandomVectorScorerSupplier.CHECK_ABORT_INTERVAL_SCORE_CALLS;
 
@@ -329,9 +330,9 @@ public class AbortableRandomVectorScorerSupplierTest {
   public void testCopyFallsBackToAdapterForNonCloseableCopy() throws IOException {
     // Delegate copy() returns a plain RandomVectorScorerSupplier (not closeable)
     RandomVectorScorerSupplier nonCloseableCopy = mock(RandomVectorScorerSupplier.class);
-    RandomVectorScorer mockScorer = mock(RandomVectorScorer.class);
+    UpdateableRandomVectorScorer mockScorer = mock(UpdateableRandomVectorScorer.class);
     when(mockScorer.score(anyInt())).thenReturn(0.25f);
-    when(nonCloseableCopy.scorer(anyInt())).thenReturn(mockScorer);
+    when(nonCloseableCopy.scorer()).thenReturn(mockScorer);
 
     CloseableRandomVectorScorerSupplier mockSupplier =
         mock(CloseableRandomVectorScorerSupplier.class);
@@ -354,7 +355,7 @@ public class AbortableRandomVectorScorerSupplierTest {
         !(copiedSupplier instanceof AbortableRandomVectorScorerSupplier));
 
     // Scorer produced by the adapter should still honor abort detection
-    RandomVectorScorer scorer = copiedSupplier.scorer(0);
+    RandomVectorScorer scorer = copiedSupplier.scorer();
     int interval = AbortableRandomVectorScorerSupplier.CHECK_ABORT_INTERVAL_SCORE_CALLS;
     MergePolicy.MergeAbortedException exception =
         assertThrows(
@@ -428,17 +429,17 @@ public class AbortableRandomVectorScorerSupplierTest {
     MergePolicy.OneMerge mockMerge = mock(MergePolicy.OneMerge.class);
     when(mockMerge.isAborted()).thenReturn(false);
 
-    RandomVectorScorer mockScorer = mock(RandomVectorScorer.class);
+    UpdateableRandomVectorScorer mockScorer = mock(UpdateableRandomVectorScorer.class);
     when(mockScorer.maxOrd()).thenReturn(999);
 
     CloseableRandomVectorScorerSupplier mockSupplier =
         mock(CloseableRandomVectorScorerSupplier.class);
-    when(mockSupplier.scorer(anyInt())).thenReturn(mockScorer);
+    when(mockSupplier.scorer()).thenReturn(mockScorer);
 
     AbortableRandomVectorScorerSupplier abortableSupplier =
         new AbortableRandomVectorScorerSupplier(mockSupplier, mockMerge);
 
-    RandomVectorScorer scorer = abortableSupplier.scorer(0);
+    RandomVectorScorer scorer = abortableSupplier.scorer();
 
     assertEquals(999, scorer.maxOrd());
   }
@@ -449,17 +450,17 @@ public class AbortableRandomVectorScorerSupplierTest {
     MergePolicy.OneMerge mockMerge = mock(MergePolicy.OneMerge.class);
     when(mockMerge.isAborted()).thenReturn(false);
 
-    RandomVectorScorer mockScorer = mock(RandomVectorScorer.class);
+    UpdateableRandomVectorScorer mockScorer = mock(UpdateableRandomVectorScorer.class);
     when(mockScorer.ordToDoc(42)).thenReturn(100);
 
     CloseableRandomVectorScorerSupplier mockSupplier =
         mock(CloseableRandomVectorScorerSupplier.class);
-    when(mockSupplier.scorer(anyInt())).thenReturn(mockScorer);
+    when(mockSupplier.scorer()).thenReturn(mockScorer);
 
     AbortableRandomVectorScorerSupplier abortableSupplier =
         new AbortableRandomVectorScorerSupplier(mockSupplier, mockMerge);
 
-    RandomVectorScorer scorer = abortableSupplier.scorer(0);
+    RandomVectorScorer scorer = abortableSupplier.scorer();
 
     assertEquals(100, scorer.ordToDoc(42));
   }

@@ -6,6 +6,7 @@ import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.KnnCollector;
 import org.apache.lucene.search.knn.KnnCollectorManager;
+import org.apache.lucene.search.knn.KnnSearchStrategy;
 import org.apache.lucene.search.knn.MultiLeafKnnCollector;
 import org.apache.lucene.util.hnsw.BlockingFloatHeap;
 
@@ -30,9 +31,12 @@ public class InstrumentedTopKnnCollectorManager implements KnnCollectorManager {
   }
 
   @Override
-  public KnnCollector newCollector(int visitedLimit, LeafReaderContext context) throws IOException {
+  public KnnCollector newCollector(
+      int visitedLimit, KnnSearchStrategy searchStrategy, LeafReaderContext context)
+      throws IOException {
 
-    var knnCollector = this.instrumentationHelper.getKnnCollector(context, this.k, visitedLimit);
+    var knnCollector =
+        this.instrumentationHelper.getKnnCollector(context, this.k, visitedLimit, searchStrategy);
     if (this.globalScoreQueue.isEmpty()) {
       return knnCollector;
     }

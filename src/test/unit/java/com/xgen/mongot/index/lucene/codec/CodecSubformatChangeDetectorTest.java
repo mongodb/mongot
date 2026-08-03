@@ -22,6 +22,7 @@ import com.xgen.mongot.index.lucene.codec.flat.ScalarQuantizedFlatVectorsFormat;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.quantization.Mongot01042HnswBinaryQuantizedVectorsFormat;
 import com.xgen.mongot.index.lucene.quantization.Mongot01042HnswBitVectorsFormat;
+import com.xgen.mongot.index.lucene.quantization.MongotHnswScalarQuantizedVectorsFormat;
 import com.xgen.mongot.index.lucene.vector.Lucene99NativeHnswVectorsFormat;
 import com.xgen.mongot.util.FieldPath;
 import java.util.Map;
@@ -35,7 +36,6 @@ import org.apache.lucene.codecs.lucene90.Lucene90LiveDocsFormat;
 import org.apache.lucene.codecs.lucene90.Lucene90NormsFormat;
 import org.apache.lucene.codecs.lucene90.Lucene90PointsFormat;
 import org.apache.lucene.codecs.lucene90.Lucene90TermVectorsFormat;
-import org.apache.lucene.codecs.lucene99.Lucene99HnswScalarQuantizedVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99SegmentInfoFormat;
 import org.apache.lucene.codecs.perfield.PerFieldDocValuesFormat;
@@ -82,7 +82,7 @@ public class CodecSubformatChangeDetectorTest {
               .put(KNN_VECTOR, Lucene99HnswVectorsFormat.class)
               .put(KNN_BYTE, Lucene99NativeHnswVectorsFormat.class)
               .put(KNN_BIT, Mongot01042HnswBitVectorsFormat.class)
-              .put(KNN_F32_Q7, Lucene99HnswScalarQuantizedVectorsFormat.class)
+              .put(KNN_F32_Q7, MongotHnswScalarQuantizedVectorsFormat.class)
               .put(KNN_F32_Q1, Mongot01042HnswBinaryQuantizedVectorsFormat.class)
               .put(KNN_BYTE_Q1, Mongot01042HnswBinaryQuantizedVectorsFormat.class)
               .build();

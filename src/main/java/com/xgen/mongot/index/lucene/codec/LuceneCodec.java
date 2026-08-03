@@ -1,6 +1,6 @@
 package com.xgen.mongot.index.lucene.codec;
 
-import static org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat.DEFAULT_NUM_MERGE_WORKER;
+import static com.xgen.mongot.index.lucene.vector.Lucene99NativeHnswVectorsFormat.DEFAULT_HNSW_GRAPH_THRESHOLD;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.flogger.FluentLogger;
@@ -15,6 +15,7 @@ import com.xgen.mongot.index.lucene.codec.flat.ScalarQuantizedFlatVectorsFormat;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.quantization.Mongot01042HnswBinaryQuantizedVectorsFormat;
 import com.xgen.mongot.index.lucene.quantization.Mongot01042HnswBitVectorsFormat;
+import com.xgen.mongot.index.lucene.quantization.MongotHnswScalarQuantizedVectorsFormat;
 import com.xgen.mongot.index.lucene.vector.Lucene99NativeHnswVectorsFormat;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
@@ -28,7 +29,6 @@ import org.apache.lucene.codecs.FilterCodec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.PostingsFormat;
 import org.apache.lucene.codecs.StoredFieldsFormat;
-import org.apache.lucene.codecs.lucene99.Lucene99HnswScalarQuantizedVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
 import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
 import org.apache.lucene.index.SegmentInfos;
@@ -36,6 +36,11 @@ import org.apache.lucene.store.Directory;
 
 /**
  * Customized {@link Lucene99Codec} that overrides stored fields, postings, and KNN vector formats.
+ *
+ * <h3>On-disk format invariant</h3>
+ *
+ * <p>Every byte mongot writes is pinned to the <b>Lucene 9.11.1</b> on-disk format, byte-for-byte
+ * identical to what mongot wrote on Lucene 9.11.1 and 10.1.0.
  *
  * <h3>Stored fields</h3>
  *
@@ -53,12 +58,23 @@ import org.apache.lucene.store.Directory;
  * HybridPostingsFormat} for details on the per-segment format selection, metrics, and rollback
  * behavior.
  *
+ * <h3>KNN vectors</h3>
+ *
+ * <p>The KNN per-field formats target Lucene 9.11.1 classes (or mongot's {@code Mongot01042*} forks
+ * thereof). {@code KNN_F32_Q7} uses {@link MongotHnswScalarQuantizedVectorsFormat} (byte-identical
+ * to {@code backward_codecs.lucene99.Lucene99HnswScalarQuantizedVectorsFormat}, whose writer the
+ * fork keeps alive), {@code KNN_VECTOR} uses {@code Lucene99HnswVectorsFormat}, and the flat scalar
+ * format delegates to {@code backward_codecs.lucene99.Lucene99ScalarQuantizedVectorsFormat}.
+ * Segments written here must remain byte-compatible with a 9.11.1 reader; in particular every HNSW
+ * format passes {@code tinySegmentsThreshold = 0} so a graph is written for every segment — Lucene
+ * 10.4's default (100) writes graph-less tiny segments that 9.11.1/10.1.0 readers crash on at query
+ * time.
+ *
  * <h3>Codec name compatibility</h3>
  *
- * <p>The codec name is kept as "Lucene99" so that Lucene resolves the original codec for reads (the
- * name is looked up from segment metadata in {@link SegmentInfos#readCommit(Directory, String)}).
- * This guarantees that our customizations are compatible with the original codec and no re-indexing
- * is required to upgrade to the next major Lucene version.
+ * <p>Lucene resolves the codec for reads by looking up the name recorded in segment metadata (see
+ * {@link SegmentInfos#readCommit(Directory, String)}), so the {@link #CODEC_NAME} written here must
+ * match an SPI-discoverable codec on the read side.
  */
 public class LuceneCodec extends FilterCodec {
 
@@ -168,20 +184,15 @@ public class LuceneCodec extends FilterCodec {
       String field, FieldName.TypeField typeField, VectorFieldSpecification.HnswOptions options) {
     return switch (typeField) {
       case FieldName.TypeField.KNN_VECTOR ->
-          new Lucene99HnswVectorsFormat(options.maxEdges(), options.numEdgeCandidates());
+          new Lucene99HnswVectorsFormat(
+              options.maxEdges(), options.numEdgeCandidates(), DEFAULT_HNSW_GRAPH_THRESHOLD);
       case FieldName.TypeField.KNN_BYTE ->
           new Lucene99NativeHnswVectorsFormat(options.maxEdges(), options.numEdgeCandidates());
       case FieldName.TypeField.KNN_BIT ->
           new Mongot01042HnswBitVectorsFormat(options.maxEdges(), options.numEdgeCandidates());
       case FieldName.TypeField.KNN_F32_Q7 ->
-          new Lucene99HnswScalarQuantizedVectorsFormat(
-              options.maxEdges(),
-              options.numEdgeCandidates(),
-              DEFAULT_NUM_MERGE_WORKER,
-              7,
-              false,
-              null,
-              null);
+          new MongotHnswScalarQuantizedVectorsFormat(
+              options.maxEdges(), options.numEdgeCandidates());
       case FieldName.TypeField.KNN_F32_Q1, FieldName.TypeField.KNN_BYTE_Q1 ->
           new Mongot01042HnswBinaryQuantizedVectorsFormat(
               options.maxEdges(), options.numEdgeCandidates());

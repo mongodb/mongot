@@ -1,6 +1,7 @@
 package com.xgen.mongot.index.lucene.explain.knn;
 
 import org.apache.lucene.search.TopKnnCollector;
+import org.apache.lucene.search.knn.KnnSearchStrategy;
 
 /** A wrapper around TopKnnCollector for query instrumentation. */
 public class InstrumentedTopKnnCollector extends TopKnnCollector {
@@ -9,8 +10,12 @@ public class InstrumentedTopKnnCollector extends TopKnnCollector {
   private final KnnInstrumentationHelper instrumentationHelper;
 
   public InstrumentedTopKnnCollector(
-      int docBase, KnnInstrumentationHelper instrumentationHelper, int k, int visitLimit) {
-    super(k, visitLimit);
+      int docBase,
+      KnnInstrumentationHelper instrumentationHelper,
+      int k,
+      int visitLimit,
+      KnnSearchStrategy searchStrategy) {
+    super(k, visitLimit, searchStrategy);
     this.docBase = docBase;
     this.instrumentationHelper = instrumentationHelper;
   }

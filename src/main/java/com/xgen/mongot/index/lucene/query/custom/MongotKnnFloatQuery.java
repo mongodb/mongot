@@ -7,6 +7,7 @@ import java.io.IOException;
 import org.apache.lucene.index.FloatVectorValues;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.QueryTimeout;
+import org.apache.lucene.search.AcceptDocs;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.Query;
@@ -15,7 +16,6 @@ import org.apache.lucene.search.TotalHits;
 import org.apache.lucene.search.knn.KnnCollectorManager;
 import org.apache.lucene.util.BitSet;
 import org.apache.lucene.util.BitSetIterator;
-import org.apache.lucene.util.Bits;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -112,16 +112,15 @@ public class MongotKnnFloatQuery extends KnnFloatVectorQuery {
   @Override
   protected TopDocs approximateSearch(
       LeafReaderContext context,
-      @Nullable Bits acceptDocs,
+      AcceptDocs acceptDocs,
       int visitedLimit,
       KnnCollectorManager knnCollectorManager)
       throws IOException {
     // Note: visitedLimit = acceptDocs.cardinality() + 1 if using filtered search, otherwise is
     // Integer.MAX_VALUE.
-    // acceptDocs is null if there is no filter AND there are no deleted docs in the segment
 
     TopDocs result;
-    if (acceptDocs instanceof BitSet bits && shouldUseFullScan(context, visitedLimit)) {
+    if (acceptDocs.bits() instanceof BitSet bits && shouldUseFullScan(context, visitedLimit)) {
 
       // If flag is disabled, we still do hnsw and record whether full scan would have been better.
       if (this.flags.isEnabled(Feature.KNN_FULL_SCAN_HEURISTIC)) {

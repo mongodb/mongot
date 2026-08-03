@@ -199,6 +199,30 @@ class LuceneSearchTranslation {
         Optional.empty(), Optional.of(mapping), Optional.empty(), Optional.empty(), registry);
   }
 
+  /**
+   * Same as {@link #get()} but with the given cluster-invariant {@link DynamicFeatureFlags}
+   * explicitly disabled (cluster phase). Useful for asserting the unwrapped translation of a flag
+   * whose fallback is {@code true} (on by default).
+   */
+  static LuceneSearchTranslation getWithDynamicFeatureFlagDisabled(DynamicFeatureFlags dff) {
+    DynamicFeatureFlagConfig config =
+        new DynamicFeatureFlagConfig(
+            dff.getName(),
+            DynamicFeatureFlagConfig.Phase.DISABLED,
+            List.of(),
+            List.of(),
+            0,
+            DynamicFeatureFlagConfig.Scope.MONGOT_CLUSTER);
+    DynamicFeatureFlagRegistry registry =
+        new DynamicFeatureFlagRegistry(
+            Optional.of(List.of(config)),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.of(new ObjectId()));
+    return new LuceneSearchTranslation(
+        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), registry);
+  }
+
   static LuceneSearchTranslation synonyms(
       AnalyzerRegistry registry,
       SearchIndexDefinition indexDefinition,
