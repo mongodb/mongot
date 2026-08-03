@@ -82,6 +82,20 @@ public class IndexMetricsUpdater implements Closeable {
     0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01
   };
 
+  /**
+   * Metric prefix for per-rule optimizer firing counters. The full metric name is {@code
+   * <prefix><RuleName>}, so each new rule adds one counter. Rule names are matched against the
+   * strings in {@code RewriteRule.name()} when the engine increments on a successful firing.
+   */
+  private static final String OPTIMIZER_RULE_FIRED_PREFIX = "optimizer.rule.fired.";
+
+  /** Rule name constants for the range-bounds merge optimizer rules. */
+  public static final String OPTIMIZER_RULE_RANGE_BOUNDS_MERGE_MQL_SIMPLE_CLAUSE =
+      "RangeBoundsMergeMqlSimpleClauseRule";
+
+  public static final String OPTIMIZER_RULE_RANGE_BOUNDS_MERGE_MQL_AND_CLAUSE =
+      "RangeBoundsMergeMqlAndClauseRule";
+
   private final IndexDefinition indexDefinition;
   private final PerIndexMetricsFactory metricsFactory;
   private final IndexingMetricsUpdater indexingMetricsUpdater;
@@ -619,6 +633,13 @@ public class IndexMetricsUpdater implements Closeable {
     /** Optimize calls that threw and fell back to the unoptimized tree. */
     private final Counter optimizerFailures;
 
+    /**
+     * Counters for individual optimizer rule firings, keyed by rule name. Populated up-front so the
+     * rewrite engines can increment without going through the metrics-factory lookup on every fire.
+     * New rules add an entry here.
+     */
+    private final Map<String, Counter> optimizerRuleFiredCounters;
+
     @VisibleForTesting
     public QueryingMetricsUpdater(PerIndexMetricsFactory metricsFactory) {
       this(
@@ -777,6 +798,15 @@ public class IndexMetricsUpdater implements Closeable {
           processMetricsFactory.histogram(
               "optimizerLatencySeconds", OPTIMIZER_LATENCY_SECONDS_BUCKETS);
       this.optimizerFailures = processMetricsFactory.counter("optimizerFailures");
+      this.optimizerRuleFiredCounters =
+          Map.of(
+              OPTIMIZER_RULE_RANGE_BOUNDS_MERGE_MQL_SIMPLE_CLAUSE,
+              metricsFactory.counter(
+                  OPTIMIZER_RULE_FIRED_PREFIX
+                      + OPTIMIZER_RULE_RANGE_BOUNDS_MERGE_MQL_SIMPLE_CLAUSE),
+              OPTIMIZER_RULE_RANGE_BOUNDS_MERGE_MQL_AND_CLAUSE,
+              metricsFactory.counter(
+                  OPTIMIZER_RULE_FIRED_PREFIX + OPTIMIZER_RULE_RANGE_BOUNDS_MERGE_MQL_AND_CLAUSE));
     }
 
     public Counter getTotalQueryCounter() {
@@ -1020,6 +1050,15 @@ public class IndexMetricsUpdater implements Closeable {
 
     public Counter getOptimizerFailures() {
       return this.optimizerFailures;
+    }
+
+    /**
+     * Returns the {@code optimizer.rule.fired.<ruleName>} counter for the named rule, or {@code
+     * null} if the rule is not registered for metrics. The engine guards on null so a rule without
+     * a pre-instantiated counter is silently skipped instead of throwing.
+     */
+    public Counter getOptimizerRuleFiredCounter(String ruleName) {
+      return this.optimizerRuleFiredCounters.get(ruleName);
     }
 
     public void recordDynamicFeatureFlagLatencyTimer(long durationNs) {

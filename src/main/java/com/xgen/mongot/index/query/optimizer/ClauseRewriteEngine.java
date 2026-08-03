@@ -92,6 +92,10 @@ public final class ClauseRewriteEngine {
       Clause rewritten = rule.apply(clause, context);
       if (rewritten != clause) {
         context.audit().recordFiring(rule.name());
+        var counter = context.metrics().getOptimizerRuleFiredCounter(rule.name());
+        if (counter != null) {
+          counter.increment();
+        }
         return rewritten;
       }
     }

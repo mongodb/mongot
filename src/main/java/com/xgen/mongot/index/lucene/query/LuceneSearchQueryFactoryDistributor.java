@@ -50,7 +50,7 @@ import com.xgen.mongot.index.query.operators.VectorSearchOperator;
 import com.xgen.mongot.index.query.operators.WildcardOperator;
 import com.xgen.mongot.index.query.operators.type.NonNullValueType;
 import com.xgen.mongot.index.query.optimizer.QueryOptimizer;
-import com.xgen.mongot.index.query.optimizer.RuleRegistry;
+import com.xgen.mongot.index.query.optimizer.rules.DefaultRuleRegistry;
 import com.xgen.mongot.index.query.sort.SequenceToken;
 import com.xgen.mongot.index.query.sort.SortSpec;
 import com.xgen.mongot.index.synonym.SynonymRegistry;
@@ -231,7 +231,7 @@ public class LuceneSearchQueryFactoryDistributor {
     AllDocsQueryFactory allDocsQueryFactory = new AllDocsQueryFactory(queryFactoryContext);
     QueryOptimizer queryOptimizer =
         new QueryOptimizer(
-            RuleRegistry.defaults(), queryFactoryContext, dynamicFeatureFlagRegistry);
+            DefaultRuleRegistry.get(), queryFactoryContext, dynamicFeatureFlagRegistry);
     return new LuceneSearchQueryFactoryDistributor(
         allDocsQueryFactory,
         new AutocompleteQueryFactory(queryFactoryContext),

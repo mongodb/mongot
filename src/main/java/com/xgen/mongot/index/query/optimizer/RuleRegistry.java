@@ -20,11 +20,6 @@ public final class RuleRegistry {
     this.operatorRules = operatorRules;
   }
 
-  /** The process-wide registry. */
-  public static RuleRegistry defaults() {
-    return Defaults.INSTANCE;
-  }
-
   /** Test-only: registry with no rules registered. */
   public static RuleRegistry empty() {
     return new RuleRegistry(ImmutableList.of(), ImmutableList.of());
@@ -33,10 +28,6 @@ public final class RuleRegistry {
   /** Test-only: build a custom registry. */
   public static Builder builder() {
     return new Builder();
-  }
-
-  private static final class Defaults {
-    static final RuleRegistry INSTANCE = builder().build();
   }
 
   /** Per-query view excluding rules whose feature flag evaluates false. */

@@ -33,6 +33,7 @@ java_test_suite(
         "ObjectIdRangeQueryFactoryTest.java",
         "PhraseQueryFactoryTest.java",
         "QueryStringParserTest.java",
+        "RangeBoundsMergeVectorQueryTest.java",
         "ScoreDetailsWrappedQueryTest.java",
         "StringRangeQueryFactoryTest.java",
         "SynonymTestUtil.java",

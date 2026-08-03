@@ -114,7 +114,6 @@ public enum DynamicFeatureFlags {
    */
   AUTO_EMBEDDING_CHANGE_STREAM_FULL_UPDATE(
       "mongot.featureFlag.autoEmbeddingChangeStreamFullUpdate", false),
-  QUERY_OPTIMIZER("mongot.featureFlag.queryOptimizer", false),
   ENABLE_OTEL_TRACING("mongot.featureFlag.enableOTELTracing", false),
   /**
    * When enabled, {@link com.xgen.mongot.server.executors.BulkheadCommandExecutor} deliberately
@@ -128,7 +127,9 @@ public enum DynamicFeatureFlags {
    * still reach READY / STEADY with the skipped documents missing. Scoped per index ({@link
    * DynamicFeatureFlagConfig.Scope#MONGOT_INDEX}); off by default so a 400 blocks.
    */
-  AUTO_EMBEDDING_400_SKIP("mongot.featureFlag.autoEmbedding400Skip", false);
+  AUTO_EMBEDDING_400_SKIP("mongot.featureFlag.autoEmbedding400Skip", false),
+  QUERY_OPTIMIZER("mongot.featureFlag.queryOptimizer", false),
+  RANGE_BOUNDS_MERGE_OPTIMIZATION("mongot.featureFlag.rangeBoundsMergeOptimization", false);
 
   private final String name;
   private final boolean fallback;

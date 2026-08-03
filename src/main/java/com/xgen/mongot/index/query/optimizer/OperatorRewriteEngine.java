@@ -155,6 +155,10 @@ public final class OperatorRewriteEngine {
       Operator rewritten = rule.apply(operator, context);
       if (rewritten != operator) {
         context.audit().recordFiring(rule.name());
+        var counter = context.metrics().getOptimizerRuleFiredCounter(rule.name());
+        if (counter != null) {
+          counter.increment();
+        }
         return rewritten;
       }
     }

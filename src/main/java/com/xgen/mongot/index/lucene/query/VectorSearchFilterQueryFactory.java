@@ -33,7 +33,7 @@ import com.xgen.mongot.index.query.operators.mql.OpenRangeBoundComparisonOperato
 import com.xgen.mongot.index.query.operators.mql.OrClause;
 import com.xgen.mongot.index.query.operators.mql.SimpleClause;
 import com.xgen.mongot.index.query.optimizer.QueryOptimizer;
-import com.xgen.mongot.index.query.optimizer.RuleRegistry;
+import com.xgen.mongot.index.query.optimizer.rules.DefaultRuleRegistry;
 import com.xgen.mongot.util.FieldPath;
 import java.io.IOException;
 import java.util.List;
@@ -72,7 +72,7 @@ public class VectorSearchFilterQueryFactory {
         new RangeQueryFactory(factoryContext, equalsQueryFactory, dateRangeQueryFactory);
     var inQueryFactory = new InQueryFactory(factoryContext, dynamicFeatureFlagRegistry);
     var queryOptimizer =
-        new QueryOptimizer(RuleRegistry.defaults(), factoryContext, dynamicFeatureFlagRegistry);
+        new QueryOptimizer(DefaultRuleRegistry.get(), factoryContext, dynamicFeatureFlagRegistry);
     return new VectorSearchFilterQueryFactory(
         factoryContext,
         rangeQueryFactory,
@@ -340,7 +340,7 @@ public class VectorSearchFilterQueryFactory {
     try {
       return RangeQueryUtils.hasNoArrayData(reader, bounds, List.of(path), embeddedRoot);
     } catch (IOException e) {
-      FLOGGER.atFine().atMostEvery(5, TimeUnit.MINUTES).withCause(e).log(
+      FLOGGER.atWarning().atMostEvery(5, TimeUnit.MINUTES).withCause(e).log(
           "Falling back to AND-of-two-opens for closed-range translation; could not read "
               + "PointValues for path=%s",
           path);

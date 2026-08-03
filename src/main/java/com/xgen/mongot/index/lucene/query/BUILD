@@ -87,6 +87,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/query/operators/type",
         "//src/main/java/com/xgen/mongot/index/query/operators/value",
         "//src/main/java/com/xgen/mongot/index/query/optimizer",
+        "//src/main/java/com/xgen/mongot/index/query/optimizer/rules",
         "//src/main/java/com/xgen/mongot/index/query/points",
         "//src/main/java/com/xgen/mongot/index/query/scores",
         "//src/main/java/com/xgen/mongot/index/query/scores/expressions",
