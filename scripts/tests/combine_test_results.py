@@ -20,7 +20,7 @@ def find_test_xml(path):
 
 def combine_test_xml(results):
     if len(results) == 0:
-        print >> sys.stderr, "No test results"
+        print("No test results", file=sys.stderr)
         exit(1)
 
     combined_xml = ElementTree.Element('testsuites')

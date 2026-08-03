@@ -1,0 +1,35 @@
+# Python lint and format configuration, kept aligned with 10gen/mms so the two
+# repos share one Python style.
+#
+# Fix formatting with `ruff format .` and autofix lint findings with
+# `ruff check --fix .`. Nothing enforces this config yet; the bazel targets that
+# do land separately, and will add their own commands here.
+
+# Matches the rules_python toolchain pinned in bazel/python/python.MODULE.bazel.
+target-version = "py311"
+line-length = 100
+
+[lint]
+extend-select = [
+    "I",  # isort
+]
+
+# Inherited from 10gen/mms.
+ignore = [
+    "E402",  # module-import-not-at-top-of-file
+    "F401",  # unused-import
+    "F403",  # undefined-local-with-import-star
+    "F405",  # undefined-local-with-import-star-usage
+    "F811",  # redefined-while-unused
+
+    # Deferred: each of these has existing offenders whose fixes change behavior
+    # rather than formatting. Enabling them here would mean mixing logic edits
+    # into a style sweep. Re-enable one rule at a time once the offenders are
+    # cleaned up. See CLOUDP-428544.
+    "E701",  # multiple-statements-on-one-line-colon
+    "E722",  # bare-except
+    "E731",  # lambda-assignment
+    "E741",  # ambiguous-variable-name
+    "F402",  # import-shadowed-by-loop-var
+    "F841",  # unused-variable
+]
