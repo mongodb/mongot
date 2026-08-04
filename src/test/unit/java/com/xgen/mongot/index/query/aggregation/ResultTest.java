@@ -228,6 +228,11 @@ public class ResultTest {
         return this.childResults;
       }
 
+      @Override
+      public long getDocCount() {
+        return 1L;
+      }
+
       static TermsBucket merge(TermsBucket a, TermsBucket b) {
         List<AggregationResult> merged = new ArrayList<>();
         for (AggregationResult lhs : a.childResults) {

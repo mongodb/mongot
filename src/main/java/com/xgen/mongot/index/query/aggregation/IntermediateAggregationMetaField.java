@@ -3,6 +3,7 @@ package com.xgen.mongot.index.query.aggregation;
 import java.util.List;
 import org.bson.BsonArray;
 import org.bson.BsonDocument;
+import org.bson.BsonNull;
 import org.bson.BsonString;
 import org.bson.BsonValue;
 
@@ -23,6 +24,23 @@ public final class IntermediateAggregationMetaField {
   /** Grouping key path values for one leaf bucket row. */
   public static final String KEYS = PREFIX + "keys";
 
+  /**
+   * Per-bucket document count on the emitting shard. Summed in stage-1 {@code $group} as {@code
+   * count_value} for flat leaf terms top-N.
+   */
+  public static final String BUCKET_DOC_COUNT = "count";
+
+  /**
+   * Field names within merged {@code $group} {@code _id} documents.
+   *
+   * <p>Must not use the {@code $meta/} prefix: expression-object keys starting with {@code $} are
+   * reserved for aggregation operators, so a composite {@code _id} cannot use {@link #GROUP_NAME}
+   * or {@link #KEYS} as literal field names.
+   */
+  public static final String ID_GROUP_NAME = "group_name";
+
+  public static final String ID_KEYS = "keys";
+
   private IntermediateAggregationMetaField() {}
 
   /** Rejects metric partials or other child fields that claim reserved intermediate metadata. */
@@ -32,6 +50,10 @@ public final class IntermediateAggregationMetaField {
     }
     if (doc.containsKey(KEYS)) {
       throw new IllegalStateException("Document must not set grouping-keys field " + KEYS);
+    }
+    if (doc.containsKey(BUCKET_DOC_COUNT)) {
+      throw new IllegalStateException(
+          "Document must not set bucket doc-count field " + BUCKET_DOC_COUNT);
     }
   }
 
@@ -76,28 +98,74 @@ public final class IntermediateAggregationMetaField {
   }
 
   static BsonDocument matchIdFieldExpression(String fieldName, BsonValue expected) {
+    BsonValue actual = idFieldValue(idFieldNameForGroupId(fieldName), expected.isNull());
     return new BsonDocument(
-        "$expr",
-        new BsonDocument(
-            "$eq", new BsonArray(List.of(fieldExpression(fieldName, "$_id"), expected))));
+        "$expr", new BsonDocument("$eq", new BsonArray(List.of(actual, expected))));
+  }
+
+  private static BsonValue idFieldValue(String idFieldName, boolean coalesceMissingToNull) {
+    BsonValue fieldValue = fieldExpression(idFieldName, "$_id");
+    if (!coalesceMissingToNull) {
+      return fieldValue;
+    }
+    return new BsonDocument("$ifNull", new BsonArray(List.of(fieldValue, new BsonNull())));
+  }
+
+  private static String idFieldNameForGroupId(String intermediateFieldName) {
+    if (GROUP_NAME.equals(intermediateFieldName)) {
+      return ID_GROUP_NAME;
+    }
+    if (KEYS.equals(intermediateFieldName)) {
+      return ID_KEYS;
+    }
+    return intermediateFieldName;
   }
 
   private static BsonDocument fieldExpression(String fieldName, String input) {
     return new BsonDocument(
         "$getField",
         new BsonDocument()
-            .append("field", new BsonString(fieldName))
+            .append("field", fieldNameArgument(fieldName))
             .append("input", new BsonString(input)));
+  }
+
+  /**
+   * {@code $getField}'s {@code field} argument must be a string expression. Names with a {@code $}
+   * prefix (e.g. {@link #GROUP_NAME}) are field-path syntax in aggregation and must be wrapped in
+   * {@code $literal}.
+   */
+  private static BsonValue fieldNameArgument(String fieldName) {
+    if (fieldName.startsWith("$")) {
+      return new BsonDocument("$literal", new BsonString(fieldName));
+    }
+    return new BsonString(fieldName);
+  }
+
+  /** Aggregation expression for one grouping key on the current facet-arm document. */
+  public static BsonDocument idKeyExpression(String keyName, String idInput) {
+    return new BsonDocument(
+        "$getField",
+        new BsonDocument()
+            .append("field", new BsonString(keyName))
+            .append("input", idKeysExpression(idInput)));
+  }
+
+  private static BsonDocument idKeysExpression(String idInput) {
+    return fieldExpression(idKeysFieldName(idInput), idInput);
+  }
+
+  private static String idKeysFieldName(String idInput) {
+    return "$_id".equals(idInput) ? ID_KEYS : KEYS;
   }
 
   /** Aggregation expression for one grouping key inside a merged {@code $group} result row. */
   public static String groupedKeyFieldPath(String keyName) {
-    return "$$b._id['" + KEYS + "']." + keyName;
+    return "$$b._id." + ID_KEYS + "." + keyName;
   }
 
   /** Aggregation expression for one grouping key on the current facet-arm document. */
   public static String idKeysFieldPath(String keyName) {
-    return "$_id['" + KEYS + "']." + keyName;
+    return "$_id." + ID_KEYS + "." + keyName;
   }
 
   private static String describeValue(BsonValue value) {

@@ -1,5 +1,7 @@
 package com.xgen.mongot.index.query.aggregation;
 
+import static com.xgen.mongot.util.Check.checkArg;
+
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.util.Check;
 import java.util.ArrayList;
@@ -9,6 +11,7 @@ import java.util.Map;
 import java.util.Optional;
 import org.bson.BsonArray;
 import org.bson.BsonDocument;
+import org.bson.BsonInt32;
 import org.bson.BsonNull;
 import org.bson.BsonString;
 import org.bson.BsonValue;
@@ -56,8 +59,8 @@ import org.bson.BsonValue;
  * // _id reads $meta/group_name and $meta/keys via $getField; metrics are summed per (_id) key.
  * {
  *   _id: {
- *     $meta/group_name: "by_city",
- *     $meta/keys:       {city: "NYC", color: "red"}
+ *     group_name: "by_city",
+ *     keys:       {city: "NYC", color: "red"}
  *   },
  *   sum_sum_price: 30,
  *   count_value:   1
@@ -65,19 +68,19 @@ import org.bson.BsonValue;
  * // ... one grouped document per distinct (group_name, keys) pair ...
  *
  * // --- after Stage 2: $facet ---
- * // Each top-level branch arm $match-es on {@code $_id.$meta/group_name} via {@code $getField};
+ * // Each top-level branch arm $match-es on {@code $_id.group_name} via {@code $getField};
  * // count arm $match-es null routing the same way.
  * {
  *   by_city: [
- *     {_id: {$meta/group_name: "by_city", $meta/keys: {city: "NYC", color: "red"}},  ...},
- *     {_id: {$meta/group_name: "by_city", $meta/keys: {city: "NYC", color: "blue"}}, ...},
- *     {_id: {$meta/group_name: "by_city", $meta/keys: {city: "LA",  color: "red"}},  ...}
+ *     {_id: {group_name: "by_city", keys: {city: "NYC", color: "red"}},  ...},
+ *     {_id: {group_name: "by_city", keys: {city: "NYC", color: "blue"}}, ...},
+ *     {_id: {group_name: "by_city", keys: {city: "LA",  color: "red"}},  ...}
  *   ],
  *   count: [ ... ]
  * }
  *
  * // --- after Stage 3: $replaceWith ---
- * // $map projects _id.$meta/keys and merged metric fields into flat bucket documents.
+ * // $map projects _id.keys and merged metric fields into flat bucket documents.
  * {
  *   count: {lowerBound: 3},
  *   facet: {
@@ -130,6 +133,13 @@ public final class ShardMergePipelineBuilder {
      * rows so metric partials survive bucket reconstruction.
      */
     final List<String> accumulatorFields = new ArrayList<>();
+
+    /**
+     * When the leaf grouping level is terms, the {@code numBuckets} top-N to apply after the
+     * stage-1 {@code $group} merge (sort by {@code count_value} desc, bucket key asc, then {@code
+     * $limit}).
+     */
+    Optional<Integer> leafTermsBucketLimit = Optional.empty();
   }
 
   // Stage 1: $group — metric field accumulators from leaf specs
@@ -189,6 +199,12 @@ public final class ShardMergePipelineBuilder {
     this.pathConfigs.get(groupName).accumulatorFields.add(field);
   }
 
+  /** Records {@code numBuckets} for a flat leaf terms grouping on the current facet branch. */
+  public void configureLeafTermsGrouping(int bucketLimit) {
+    checkArg(bucketLimit > 0, "bucketLimit must be positive, got: %s", bucketLimit);
+    this.pathConfigs.get(requireCurrentGroupName()).leafTermsBucketLimit = Optional.of(bucketLimit);
+  }
+
   /** Called by leaf metric specs — adds finalization expression to final output. */
   public void addMetricProjection(String field, BsonValue expr) {
     this.pathConfigs.get(requireCurrentGroupName()).metricProjections.append(field, expr);
@@ -197,13 +213,9 @@ public final class ShardMergePipelineBuilder {
   /**
    * Assemble the 3-stage pipeline ($group, $facet, $replaceWith).
    *
-   * <p>Known gap: the pipeline emits no bucket ordering or numBuckets top-N. Shards stream full
-   * cardinality (top-N-by-count is not associative, so mongot must not pre-truncate), which means
-   * the limit and the count-desc presentation order must be applied here, after the {@code $group}
-   * merge — like the legacy facet planner's {@code $sort {value: -1, _id: 1}} + {@code $limit
-   * numBuckets} (see ShardedSearchPlanner#buildStringFacetBucket). Until those stages are added,
-   * sharded aggregation results are unordered and unlimited; nested groupings additionally need
-   * per-level top-N inside the reconstructed buckets, which a flat $sort/$limit cannot express.
+   * <p>Flat leaf terms branches apply {@code $sort} (count desc, bucket key asc) and {@code $limit}
+   * ({@code numBuckets}) in the facet arm after the stage-1 {@code $group} merge. Nested groupings
+   * still need per-level top-N inside reconstructed buckets.
    *
    * @param countType "lowerBound" or "total" — determines the count field name in the output
    */
@@ -212,17 +224,21 @@ public final class ShardMergePipelineBuilder {
     BsonDocument groupId =
         new BsonDocument()
             .append(
-                IntermediateAggregationMetaField.GROUP_NAME,
+                IntermediateAggregationMetaField.ID_GROUP_NAME,
                 IntermediateAggregationMetaField.rootFieldExpression(
                     IntermediateAggregationMetaField.GROUP_NAME))
             .append(
-                IntermediateAggregationMetaField.KEYS,
+                IntermediateAggregationMetaField.ID_KEYS,
                 IntermediateAggregationMetaField.rootFieldExpression(
                     IntermediateAggregationMetaField.KEYS));
     BsonDocument groupBody =
         new BsonDocument()
             .append("_id", groupId)
-            .append("count_value", new BsonDocument("$sum", new BsonString("$count")));
+            .append(
+                "count_value",
+                new BsonDocument(
+                    "$sum",
+                    new BsonString("$" + IntermediateAggregationMetaField.BUCKET_DOC_COUNT)));
     // Append all metric accumulators from leaf specs.
     for (Map.Entry<String, BsonValue> entry : this.metricAccumulators.entrySet()) {
       groupBody.append(entry.getKey(), entry.getValue());
@@ -246,6 +262,7 @@ public final class ShardMergePipelineBuilder {
             !config.metricProjections.isEmpty(),
             "single-level facet arm %s requires leaf metric projections",
             groupName);
+        appendFlatTermsTopNStages(arm, config);
         arm.add(buildFlatProjectStage(config));
       }
       // depth == 0: operator-only top-level branch; facet arm stays at $match only.
@@ -368,15 +385,34 @@ public final class ShardMergePipelineBuilder {
     return mapExpr(input, rowVar, rowBody);
   }
 
+  /** Adds {@code $sort} and {@code $limit} for flat leaf terms before {@code $project}. */
+  private static void appendFlatTermsTopNStages(BsonArray arm, PathMergeConfig config) {
+    if (config.leafTermsBucketLimit.isEmpty()) {
+      return;
+    }
+    String keyPath = config.groupLevels.get(0).keyPath();
+    arm.add(buildFlatTermsSortStage(keyPath));
+    arm.add(new BsonDocument("$limit", new BsonInt32(config.leafTermsBucketLimit.get())));
+  }
+
+  private static BsonDocument buildFlatTermsSortStage(String keyPath) {
+    return new BsonDocument(
+        "$sort",
+        new BsonDocument()
+            .append("count_value", new BsonInt32(-1))
+            .append(
+                "_id." + IntermediateAggregationMetaField.ID_KEYS + "." + keyPath,
+                new BsonInt32(1)));
+  }
+
   /** Single-level branch: finalize metrics in the $facet arm. */
   private static BsonDocument buildFlatProjectStage(PathMergeConfig config) {
     BsonDocument projectBody =
         new BsonDocument()
             .append(
                 "_id",
-                new BsonString(
-                    IntermediateAggregationMetaField.idKeysFieldPath(
-                        config.groupLevels.get(0).keyPath())));
+                IntermediateAggregationMetaField.idKeyExpression(
+                    config.groupLevels.get(0).keyPath(), "$_id"));
     for (Map.Entry<String, BsonValue> metric : config.metricProjections.entrySet()) {
       projectBody.append(metric.getKey(), scopeToRoot(metric.getValue()));
     }
@@ -415,22 +451,20 @@ public final class ShardMergePipelineBuilder {
   /** {@code _id} for the innermost facet-arm {@code $group} over flat Stage-1 rows. */
   private static BsonValue flatKeysIdExpr(PathMergeConfig config, int start, int end) {
     if (start == end) {
-      return new BsonString(
-          IntermediateAggregationMetaField.idKeysFieldPath(
-              config.groupLevels.get(start).keyPath()));
+      return IntermediateAggregationMetaField.idKeyExpression(
+          config.groupLevels.get(start).keyPath(), "$_id");
     }
     BsonDocument composite = new BsonDocument();
     for (int i = start; i <= end; i++) {
       String keyPath = config.groupLevels.get(i).keyPath();
-      composite.append(
-          keyPath, new BsonString(IntermediateAggregationMetaField.idKeysFieldPath(keyPath)));
+      composite.append(keyPath, IntermediateAggregationMetaField.idKeyExpression(keyPath, "$_id"));
     }
     return composite;
   }
 
-  private static BsonString flatKeysLeafExpr(PathMergeConfig config) {
+  private static BsonValue flatKeysLeafExpr(PathMergeConfig config) {
     String leafKey = config.groupLevels.get(config.groupLevels.size() - 1).keyPath();
-    return new BsonString(IntermediateAggregationMetaField.idKeysFieldPath(leafKey));
+    return IntermediateAggregationMetaField.idKeyExpression(leafKey, "$_id");
   }
 
   /** {@code _id} for outer facet-arm {@code $group} stages over prior grouped rows. */

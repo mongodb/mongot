@@ -506,8 +506,13 @@ public class ShardedSearchPlannerTest {
             """
             {"$group": {
               "_id": {
-                "$meta/group_name": {"$getField": {"field": "$meta/group_name", "input": "$$ROOT"}},
-                "$meta/keys": {"$getField": {"field": "$meta/keys", "input": "$$ROOT"}}
+                "group_name": {
+                  "$getField": {
+                    "field": {"$literal": "$meta/group_name"},
+                    "input": "$$ROOT"
+                  }
+                },
+                "keys": {"$getField": {"field": {"$literal": "$meta/keys"}, "input": "$$ROOT"}}
               },
               "count_value": {"$sum": "$count"},
               "sum_sum_price": {"$sum": "$sum_sum_price"}
@@ -521,16 +526,23 @@ public class ShardedSearchPlannerTest {
             {"$facet": {
               "by_city": [
                 {"$match": {"$expr": {"$eq": [
-                  {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                  {"$getField": {"field": "group_name", "input": "$_id"}},
                   "by_city"
                 ]}}},
+                {"$sort": {"count_value": -1, "_id.keys.city": 1}},
+                {"$limit": 10},
                 {"$project": {
-                  "_id": "$_id['$meta/keys'].city",
+                  "_id": {
+                    "$getField": {
+                      "field": "city",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
                   "sum_price": "$sum_sum_price"
                 }}
               ],
               "count": [{"$match": {"$expr": {"$eq": [
-                {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                {"$ifNull": [{"$getField": {"field": "group_name", "input": "$_id"}}, null]},
                 null
               ]}}}]
             }}
@@ -580,8 +592,13 @@ public class ShardedSearchPlannerTest {
             """
             {"$group": {
               "_id": {
-                "$meta/group_name": {"$getField": {"field": "$meta/group_name", "input": "$$ROOT"}},
-                "$meta/keys": {"$getField": {"field": "$meta/keys", "input": "$$ROOT"}}
+                "group_name": {
+                  "$getField": {
+                    "field": {"$literal": "$meta/group_name"},
+                    "input": "$$ROOT"
+                  }
+                },
+                "keys": {"$getField": {"field": {"$literal": "$meta/keys"}, "input": "$$ROOT"}}
               },
               "count_value": {"$sum": "$count"},
               "avg_sum_avg_price": {"$sum": "$avg_sum_avg_price"},
@@ -596,11 +613,18 @@ public class ShardedSearchPlannerTest {
             {"$facet": {
               "by_city": [
                 {"$match": {"$expr": {"$eq": [
-                  {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                  {"$getField": {"field": "group_name", "input": "$_id"}},
                   "by_city"
                 ]}}},
+                {"$sort": {"count_value": -1, "_id.keys.city": 1}},
+                {"$limit": 10},
                 {"$project": {
-                  "_id": "$_id['$meta/keys'].city",
+                  "_id": {
+                    "$getField": {
+                      "field": "city",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
                   "avg_price": {
                     "$cond": {
                       "if": {"$eq": ["$avg_count_avg_price", 0]},
@@ -611,7 +635,7 @@ public class ShardedSearchPlannerTest {
                 }}
               ],
               "count": [{"$match": {"$expr": {"$eq": [
-                {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                {"$ifNull": [{"$getField": {"field": "group_name", "input": "$_id"}}, null]},
                 null
               ]}}}]
             }}
@@ -654,8 +678,13 @@ public class ShardedSearchPlannerTest {
             """
             {"$group": {
               "_id": {
-                "$meta/group_name": {"$getField": {"field": "$meta/group_name", "input": "$$ROOT"}},
-                "$meta/keys": {"$getField": {"field": "$meta/keys", "input": "$$ROOT"}}
+                "group_name": {
+                  "$getField": {
+                    "field": {"$literal": "$meta/group_name"},
+                    "input": "$$ROOT"
+                  }
+                },
+                "keys": {"$getField": {"field": {"$literal": "$meta/keys"}, "input": "$$ROOT"}}
               },
               "count_value": {"$sum": "$count"},
               "min_min_price": {"$min": "$min_min_price"}
@@ -669,16 +698,23 @@ public class ShardedSearchPlannerTest {
             {"$facet": {
               "by_city": [
                 {"$match": {"$expr": {"$eq": [
-                  {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                  {"$getField": {"field": "group_name", "input": "$_id"}},
                   "by_city"
                 ]}}},
+                {"$sort": {"count_value": -1, "_id.keys.city": 1}},
+                {"$limit": 10},
                 {"$project": {
-                  "_id": "$_id['$meta/keys'].city",
+                  "_id": {
+                    "$getField": {
+                      "field": "city",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
                   "min_price": "$min_min_price"
                 }}
               ],
               "count": [{"$match": {"$expr": {"$eq": [
-                {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                {"$ifNull": [{"$getField": {"field": "group_name", "input": "$_id"}}, null]},
                 null
               ]}}}]
             }}
@@ -705,8 +741,13 @@ public class ShardedSearchPlannerTest {
             """
             {"$group": {
               "_id": {
-                "$meta/group_name": {"$getField": {"field": "$meta/group_name", "input": "$$ROOT"}},
-                "$meta/keys": {"$getField": {"field": "$meta/keys", "input": "$$ROOT"}}
+                "group_name": {
+                  "$getField": {
+                    "field": {"$literal": "$meta/group_name"},
+                    "input": "$$ROOT"
+                  }
+                },
+                "keys": {"$getField": {"field": {"$literal": "$meta/keys"}, "input": "$$ROOT"}}
               },
               "count_value": {"$sum": "$count"},
               "max_max_price": {"$max": "$max_max_price"}
@@ -720,16 +761,23 @@ public class ShardedSearchPlannerTest {
             {"$facet": {
               "by_city": [
                 {"$match": {"$expr": {"$eq": [
-                  {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                  {"$getField": {"field": "group_name", "input": "$_id"}},
                   "by_city"
                 ]}}},
+                {"$sort": {"count_value": -1, "_id.keys.city": 1}},
+                {"$limit": 10},
                 {"$project": {
-                  "_id": "$_id['$meta/keys'].city",
+                  "_id": {
+                    "$getField": {
+                      "field": "city",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
                   "max_price": "$max_max_price"
                 }}
               ],
               "count": [{"$match": {"$expr": {"$eq": [
-                {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                {"$ifNull": [{"$getField": {"field": "group_name", "input": "$_id"}}, null]},
                 null
               ]}}}]
             }}

@@ -41,12 +41,15 @@ public abstract class MultiBucketAggregationResult implements AggregationResult 
 
     /** Return immediate child results for this bucket. */
     AggregationResults getChildResults();
+
+    /** Document count for this bucket on the emitting shard or partition. */
+    long getDocCount();
   }
 
   // Non-sharded standalone output order: count desc, key-asc tiebreak (CLOUDP-419089), matching
   // the legacy string-facet top-N; see the tiebreak note in TermsAggregationResult#comparator.
-  // The new aggregation shard merge pipeline does not yet enforce this order (or numBuckets)
-  // mongod-side -- known gap, see ShardMergePipelineBuilder#build.
+  // Flat leaf terms on the sharded merge path apply the same order via $sort in
+  // ShardMergePipelineBuilder; nested groupings still need per-level top-N in facet arms.
   private static final BucketOrder STANDALONE_BUCKET_ORDER = BucketOrder.COUNT_DESC;
   // Sharded intermediate wire order: only needs to be deterministic (mongod reconstructs buckets
   // with the shard merge pipeline).
@@ -129,7 +132,7 @@ public abstract class MultiBucketAggregationResult implements AggregationResult 
     // Leaf grouping level: every child is a metric result (empty toIntermediateBson(), partials
     // only). Nested group children would have contributed non-empty subBucketDocs wire rows.
     if (subBucketDocs.isEmpty()) {
-      docs.add(buildLeafIntermediateDoc(keys, metricFields));
+      docs.add(buildLeafIntermediateDoc(keys, metricFields, bucket.getDocCount()));
       return;
     }
 
@@ -141,9 +144,10 @@ public abstract class MultiBucketAggregationResult implements AggregationResult 
   }
 
   private static BsonDocument buildLeafIntermediateDoc(
-      BsonDocument keys, BsonDocument metricFields) {
+      BsonDocument keys, BsonDocument metricFields, long docCount) {
     BsonDocument doc = new BsonDocument();
     doc.append(IntermediateAggregationMetaField.KEYS, keys);
+    doc.append(IntermediateAggregationMetaField.BUCKET_DOC_COUNT, new org.bson.BsonInt64(docCount));
     doc.putAll(metricFields);
     return doc;
   }

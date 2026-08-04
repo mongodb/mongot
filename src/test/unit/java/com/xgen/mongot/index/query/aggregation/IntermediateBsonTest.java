@@ -6,6 +6,7 @@ import static org.junit.Assert.assertThrows;
 import com.xgen.mongot.util.FieldPath;
 import java.util.List;
 import java.util.Optional;
+import org.apache.lucene.util.BytesRef;
 import org.bson.BsonArray;
 import org.bson.BsonDocument;
 import org.bson.BsonDouble;
@@ -19,6 +20,50 @@ public class IntermediateBsonTest extends AggregationTestSupport {
 
   private static final FieldPath CITY = FieldPath.parse("city");
   private static final FieldPath COLOR = FieldPath.parse("color");
+
+  @Test
+  public void productionTerms_emitsPerBucketDocCountForShardMerge() {
+    TermsAggregationResult byCity =
+        new TermsAggregationResult(
+            "agg",
+            CITY,
+            100,
+            List.of(
+                new TermsAggregationResult.TermsBucket(
+                    new BytesRef("NYC"),
+                    2,
+                    AggregationResults.from(List.of(new SumAggregationResult("sum_price", 60.0)))),
+                new TermsAggregationResult.TermsBucket(
+                    new BytesRef("SF"),
+                    2,
+                    AggregationResults.from(List.of(new SumAggregationResult("sum_price", 400.0)))),
+                new TermsAggregationResult.TermsBucket(
+                    new BytesRef("LA"),
+                    1,
+                    AggregationResults.from(
+                        List.of(new SumAggregationResult("sum_price", 350.0))))));
+
+    BsonArray intermediate = new TopLevelAggregationResult(List.of(byCity)).toIntermediateBson();
+
+    assertEquals(2, docCountForCity(intermediate, "NYC"));
+    assertEquals(2, docCountForCity(intermediate, "SF"));
+    assertEquals(1, docCountForCity(intermediate, "LA"));
+  }
+
+  private static long docCountForCity(BsonArray intermediate, String city) {
+    return intermediate.stream()
+        .map(v -> v.asDocument())
+        .filter(
+            doc ->
+                city.equals(
+                    doc.getDocument(IntermediateAggregationMetaField.KEYS)
+                        .getString("city")
+                        .getValue()))
+        .findFirst()
+        .orElseThrow()
+        .getInt64(IntermediateAggregationMetaField.BUCKET_DOC_COUNT)
+        .longValue();
+  }
 
   @Test
   public void flatSingleLevelGroup_emitsGroupNamedRowsWithKeysAndSumPartials() {
@@ -41,8 +86,18 @@ public class IntermediateBsonTest extends AggregationTestSupport {
         BsonArray.parse(
             """
             [
-              {"$meta/group_name": "by_city", "$meta/keys": {"city": "NYC"}, "sum_sum_price": 30.0},
-              {"$meta/group_name": "by_city", "$meta/keys": {"city": "SF"}, "sum_sum_price": 50.0}
+              {
+                "$meta/group_name": "by_city",
+                "$meta/keys": {"city": "NYC"},
+                "count": {"$numberLong": "1"},
+                "sum_sum_price": 30.0
+              },
+              {
+                "$meta/group_name": "by_city",
+                "$meta/keys": {"city": "SF"},
+                "count": {"$numberLong": "1"},
+                "sum_sum_price": 50.0
+              }
             ]
             """);
     assertEquals(expected, intermediate);
@@ -71,6 +126,7 @@ public class IntermediateBsonTest extends AggregationTestSupport {
               {
                 "$meta/group_name": "by_city",
                 "$meta/keys": {"city": "NYC"},
+                "count": {"$numberLong": "1"},
                 "min_m": {"$numberLong": "10"},
                 "max_x": {"$numberLong": "50"}
               }
@@ -101,7 +157,8 @@ public class IntermediateBsonTest extends AggregationTestSupport {
     BsonArray expected =
         BsonArray.parse(
             """
-            [{"$meta/group_name": "by_city", "$meta/keys": {"city": "NYC"}}]
+            [{"$meta/group_name": "by_city", "$meta/keys": {"city": "NYC"}, \
+            "count": {"$numberLong": "1"}}]
             """);
     assertEquals(expected, intermediate);
   }
@@ -153,24 +210,28 @@ public class IntermediateBsonTest extends AggregationTestSupport {
               {
                 "$meta/group_name": "by_city",
                 "$meta/keys": {"city": "NYC", "color": "red"},
+                "count": {"$numberLong": "1"},
                 "avg_sum_avg_price": 30.0,
                 "avg_count_avg_price": {"$numberLong": "2"}
               },
               {
                 "$meta/group_name": "by_city",
                 "$meta/keys": {"city": "NYC", "color": "blue"},
+                "count": {"$numberLong": "1"},
                 "avg_sum_avg_price": 30.0,
                 "avg_count_avg_price": {"$numberLong": "1"}
               },
               {
                 "$meta/group_name": "by_city",
                 "$meta/keys": {"city": "LA", "color": "red"},
+                "count": {"$numberLong": "1"},
                 "avg_sum_avg_price": 5.0,
                 "avg_count_avg_price": {"$numberLong": "1"}
               },
               {
                 "$meta/group_name": "by_city",
                 "$meta/keys": {"city": "LA", "color": "green"},
+                "count": {"$numberLong": "1"},
                 "avg_sum_avg_price": 15.0,
                 "avg_count_avg_price": {"$numberLong": "1"}
               }
@@ -209,9 +270,9 @@ public class IntermediateBsonTest extends AggregationTestSupport {
             """
             [
               {"$meta/group_name": "by_city", "$meta/keys": {"city": "NYC"}, \
-              "sum_sum_price": 10.0},
+              "count": {"$numberLong": "1"}, "sum_sum_price": 10.0},
               {"$meta/group_name": "by_color", "$meta/keys": {"color": "red"}, \
-              "sum_sum_price": 35.0}
+              "count": {"$numberLong": "1"}, "sum_sum_price": 35.0}
             ]
             """);
     assertEquals(expected, intermediate);

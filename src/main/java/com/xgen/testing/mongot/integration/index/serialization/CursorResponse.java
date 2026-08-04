@@ -1,7 +1,6 @@
 package com.xgen.testing.mongot.integration.index.serialization;
 
 import com.xgen.mongot.index.MetaResults;
-import com.xgen.mongot.util.bson.parser.BsonParseException;
 import java.util.List;
 import java.util.Optional;
 import org.bson.BsonValue;
@@ -9,19 +8,24 @@ import org.bson.BsonValue;
 public class CursorResponse {
 
   private final List<TestSearchResult> testSearchResults;
+  private final Optional<BsonValue> metaResultsBson;
   private final Optional<MetaResults> metaResults;
 
-  public CursorResponse(List<TestSearchResult> testSearchResults, Optional<BsonValue> metaResults)
-      throws BsonParseException {
+  public CursorResponse(
+      List<TestSearchResult> testSearchResults,
+      Optional<MetaResults> metaResults,
+      Optional<BsonValue> metaResultsBson) {
     this.testSearchResults = testSearchResults;
-    this.metaResults =
-        metaResults.isPresent()
-            ? Optional.of(MetaResults.fromBson(metaResults.get().asDocument()))
-            : Optional.empty();
+    this.metaResults = metaResults;
+    this.metaResultsBson = metaResultsBson;
   }
 
   public List<TestSearchResult> getTestResults() {
     return this.testSearchResults;
+  }
+
+  public Optional<BsonValue> getMetaResultsBson() {
+    return this.metaResultsBson;
   }
 
   public Optional<MetaResults> getMetaResults() {

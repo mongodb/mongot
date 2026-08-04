@@ -382,17 +382,23 @@ public abstract class AggregationTestSupport {
       // child results are finalized, matching the container contract.
       List<TermsBucket> finalized = new ArrayList<>(this.buckets.size());
       for (TermsBucket b : this.buckets) {
-        finalized.add(new TermsBucket(b.key, b.getChildResults().applyLimit()));
+        finalized.add(new TermsBucket(b.key, b.docCount, b.getChildResults().applyLimit()));
       }
       return new TermsResult(this.name, this.path, finalized);
     }
 
     protected static final class TermsBucket implements Bucket {
       private final String key;
+      private final long docCount;
       private final AggregationResults childResults;
 
       protected TermsBucket(String key, AggregationResults childResults) {
+        this(key, 1L, childResults);
+      }
+
+      protected TermsBucket(String key, long docCount, AggregationResults childResults) {
         this.key = key;
+        this.docCount = docCount;
         this.childResults = childResults;
       }
 
@@ -406,6 +412,11 @@ public abstract class AggregationTestSupport {
         return this.childResults;
       }
 
+      @Override
+      public long getDocCount() {
+        return this.docCount;
+      }
+
       private static TermsBucket merge(TermsBucket a, TermsBucket b) {
         List<AggregationResult> merged = new ArrayList<>();
         for (AggregationResult lhs : a.childResults) {
@@ -414,7 +425,7 @@ public abstract class AggregationTestSupport {
           builder.add(b.childResults.get(lhs.getName()));
           merged.add(builder.build());
         }
-        return new TermsBucket(a.key, AggregationResults.from(merged));
+        return new TermsBucket(a.key, a.docCount + b.docCount, AggregationResults.from(merged));
       }
     }
   }

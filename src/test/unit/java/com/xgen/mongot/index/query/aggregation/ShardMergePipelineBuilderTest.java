@@ -2,6 +2,8 @@ package com.xgen.mongot.index.query.aggregation;
 
 import static org.junit.Assert.assertEquals;
 
+import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
+import com.xgen.mongot.index.query.aggregation.AggregationRegistry.GroupingArgs.TermsArgs;
 import com.xgen.mongot.util.FieldPath;
 import java.util.List;
 import org.bson.BsonArray;
@@ -37,8 +39,13 @@ public class ShardMergePipelineBuilderTest {
             """
             {"$group": {
               "_id": {
-                "$meta/group_name": {"$getField": {"field": "$meta/group_name", "input": "$$ROOT"}},
-                "$meta/keys": {"$getField": {"field": "$meta/keys", "input": "$$ROOT"}}
+                "group_name": {
+                  "$getField": {
+                    "field": {"$literal": "$meta/group_name"},
+                    "input": "$$ROOT"
+                  }
+                },
+                "keys": {"$getField": {"field": {"$literal": "$meta/keys"}, "input": "$$ROOT"}}
               },
               "count_value": {"$sum": "$count"},
               "sum_sum_price": {"$sum": "$sum_sum_price"}
@@ -52,16 +59,21 @@ public class ShardMergePipelineBuilderTest {
             {"$facet": {
               "by_city": [
                 {"$match": {"$expr": {"$eq": [
-                  {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                  {"$getField": {"field": "group_name", "input": "$_id"}},
                   "by_city"
                 ]}}},
                 {"$project": {
-                  "_id": "$_id['$meta/keys'].city",
+                  "_id": {
+                    "$getField": {
+                      "field": "city",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
                   "sum_price": "$sum_sum_price"
                 }}
               ],
               "count": [{"$match": {"$expr": {"$eq": [
-                {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                {"$ifNull": [{"$getField": {"field": "group_name", "input": "$_id"}}, null]},
                 null
               ]}}}]
             }}
@@ -96,8 +108,13 @@ public class ShardMergePipelineBuilderTest {
             """
             {"$group": {
               "_id": {
-                "$meta/group_name": {"$getField": {"field": "$meta/group_name", "input": "$$ROOT"}},
-                "$meta/keys": {"$getField": {"field": "$meta/keys", "input": "$$ROOT"}}
+                "group_name": {
+                  "$getField": {
+                    "field": {"$literal": "$meta/group_name"},
+                    "input": "$$ROOT"
+                  }
+                },
+                "keys": {"$getField": {"field": {"$literal": "$meta/keys"}, "input": "$$ROOT"}}
               },
               "count_value": {"$sum": "$count"},
               "avg_sum_avg_price": {"$sum": "$avg_sum_avg_price"},
@@ -157,13 +174,23 @@ public class ShardMergePipelineBuilderTest {
             """
             [
               {"$match": {"$expr": {"$eq": [
-                {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                {"$getField": {"field": "group_name", "input": "$_id"}},
                 "by_city"
               ]}}},
               {"$group": {
-                "_id": "$_id['$meta/keys'].city",
+                "_id": {
+                  "$getField": {
+                    "field": "city",
+                    "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                  }
+                },
                 "_rows": {"$push": {
-                  "color": "$_id['$meta/keys'].color",
+                  "color": {
+                    "$getField": {
+                      "field": "color",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
                   "sum_sum_price": "$sum_sum_price"
                 }}
               }},
@@ -213,17 +240,37 @@ public class ShardMergePipelineBuilderTest {
             """
             [
               {"$match": {"$expr": {"$eq": [
-                {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                {"$getField": {"field": "group_name", "input": "$_id"}},
                 "by_country"
               ]}}},
               {"$group": {
                 "_id": {
-                  "country": "$_id['$meta/keys'].country",
-                  "region": "$_id['$meta/keys'].region",
-                  "city": "$_id['$meta/keys'].city"
+                  "country": {
+                    "$getField": {
+                      "field": "country",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
+                  "region": {
+                    "$getField": {
+                      "field": "region",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
+                  "city": {
+                    "$getField": {
+                      "field": "city",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  }
                 },
                 "_rows": {"$push": {
-                  "color": "$_id['$meta/keys'].color",
+                  "color": {
+                    "$getField": {
+                      "field": "color",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
                   "sum_sum_price": "$sum_sum_price"
                 }}
               }},
@@ -288,6 +335,26 @@ public class ShardMergePipelineBuilderTest {
   }
 
   @Test
+  public void flatTerms_appliesSortAndLimitBeforeProject() {
+    AggregationSpec leaf = new SumAggregationSpec("sum_price", PRICE);
+    AggregationSpec group =
+        new TermsGroupAggregationSpec(
+            "by_city", CITY, List.of(leaf), new TermsArgs(true, TypeField.TOKEN, 2));
+    TopAggregationSpec top = new TopAggregationSpec(List.of(group));
+
+    ShardMergePipelineBuilder builder = new ShardMergePipelineBuilder();
+    top.buildShardMergePipeline(builder);
+    List<BsonDocument> pipeline = builder.build("lowerBound");
+
+    BsonArray byCityArm = pipeline.get(1).getDocument("$facet").getArray("by_city");
+    assertEquals(4, byCityArm.size());
+    assertEquals(
+        BsonDocument.parse("{\"$sort\": {\"count_value\": -1, \"_id.keys.city\": 1}}"),
+        byCityArm.get(1).asDocument());
+    assertEquals(BsonDocument.parse("{\"$limit\": 2}"), byCityArm.get(2).asDocument());
+  }
+
+  @Test
   public void multipleTopLevelGroupsProduceSeparateFacets() {
     AggregationSpec leaf1 = new SumAggregationSpec("sum_price", PRICE);
     AggregationSpec leaf2 = new SumAggregationSpec("sum_price", PRICE);
@@ -305,26 +372,36 @@ public class ShardMergePipelineBuilderTest {
             {"$facet": {
               "by_city": [
                 {"$match": {"$expr": {"$eq": [
-                  {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                  {"$getField": {"field": "group_name", "input": "$_id"}},
                   "by_city"
                 ]}}},
                 {"$project": {
-                  "_id": "$_id['$meta/keys'].city",
+                  "_id": {
+                    "$getField": {
+                      "field": "city",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
                   "sum_price": "$sum_sum_price"
                 }}
               ],
               "by_color": [
                 {"$match": {"$expr": {"$eq": [
-                  {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                  {"$getField": {"field": "group_name", "input": "$_id"}},
                   "by_color"
                 ]}}},
                 {"$project": {
-                  "_id": "$_id['$meta/keys'].color",
+                  "_id": {
+                    "$getField": {
+                      "field": "color",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
                   "sum_price": "$sum_sum_price"
                 }}
               ],
               "count": [{"$match": {"$expr": {"$eq": [
-                {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                {"$ifNull": [{"$getField": {"field": "group_name", "input": "$_id"}}, null]},
                 null
               ]}}}]
             }}

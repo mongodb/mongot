@@ -99,6 +99,10 @@ public abstract non-sealed class GroupAggregationSpec implements AggregationSpec
     }
     builder.addGroupLevel(this.path.toString(), nestedBranchName);
 
+    if (nestedBranchName.isEmpty() && this instanceof TermsGroupAggregationSpec termsGroup) {
+      builder.configureLeafTermsGrouping(termsGroup.getLimit());
+    }
+
     for (AggregationSpec spec : this.children) {
       spec.buildShardMergePipeline(builder);
     }

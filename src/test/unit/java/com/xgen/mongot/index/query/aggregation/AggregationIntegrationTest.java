@@ -60,16 +60,21 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
             {"$facet": {
               "by_city": [
                 {"$match": {"$expr": {"$eq": [
-                  {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                  {"$getField": {"field": "group_name", "input": "$_id"}},
                   "by_city"
                 ]}}},
                 {"$project": {
-                  "_id": "$_id['$meta/keys'].city",
+                  "_id": {
+                    "$getField": {
+                      "field": "city",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
                   "sum_price": "$sum_sum_price"
                 }}
               ],
               "count": [{"$match": {"$expr": {"$eq": [
-                {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                {"$ifNull": [{"$getField": {"field": "group_name", "input": "$_id"}}, null]},
                 null
               ]}}}]
             }}
@@ -114,11 +119,16 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
             {"$facet": {
               "by_city": [
                 {"$match": {"$expr": {"$eq": [
-                  {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                  {"$getField": {"field": "group_name", "input": "$_id"}},
                   "by_city"
                 ]}}},
                 {"$project": {
-                  "_id": "$_id['$meta/keys'].city",
+                  "_id": {
+                    "$getField": {
+                      "field": "city",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
                   "avg_price": {"$cond": {
                     "if": {"$eq": ["$avg_count_avg_price", 0]},
                     "then": null,
@@ -127,7 +137,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                 }}
               ],
               "count": [{"$match": {"$expr": {"$eq": [
-                {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                {"$ifNull": [{"$getField": {"field": "group_name", "input": "$_id"}}, null]},
                 null
               ]}}}]
             }}
@@ -191,13 +201,23 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
             """
             [
               {"$match": {"$expr": {"$eq": [
-                {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                {"$getField": {"field": "group_name", "input": "$_id"}},
                 "by_city"
               ]}}},
               {"$group": {
-                "_id": "$_id['$meta/keys'].city",
+                "_id": {
+                  "$getField": {
+                    "field": "city",
+                    "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                  }
+                },
                 "_rows": {"$push": {
-                  "color": "$_id['$meta/keys'].color",
+                  "color": {
+                    "$getField": {
+                      "field": "color",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
                   "avg_sum_avg_price": "$avg_sum_avg_price",
                   "avg_count_avg_price": "$avg_count_avg_price"
                 }}
@@ -292,17 +312,37 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
             """
             [
               {"$match": {"$expr": {"$eq": [
-                {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                {"$getField": {"field": "group_name", "input": "$_id"}},
                 "by_country"
               ]}}},
               {"$group": {
                 "_id": {
-                  "country": "$_id['$meta/keys'].country",
-                  "region": "$_id['$meta/keys'].region",
-                  "city": "$_id['$meta/keys'].city"
+                  "country": {
+                    "$getField": {
+                      "field": "country",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
+                  "region": {
+                    "$getField": {
+                      "field": "region",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
+                  "city": {
+                    "$getField": {
+                      "field": "city",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  }
                 },
                 "_rows": {"$push": {
-                  "color": "$_id['$meta/keys'].color",
+                  "color": {
+                    "$getField": {
+                      "field": "color",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
                   "avg_sum_avg_price": "$avg_sum_avg_price",
                   "avg_count_avg_price": "$avg_count_avg_price"
                 }}
@@ -428,24 +468,28 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
               {
                 "$meta/group_name": "by_city",
                 "$meta/keys": {"city": "LA", "color": "red"},
+                "count": {"$numberLong": "1"},
                 "avg_sum_avg_price": 5.0,
                 "avg_count_avg_price": {"$numberLong": "1"}
               },
               {
                 "$meta/group_name": "by_city",
                 "$meta/keys": {"city": "LA", "color": "green"},
+                "count": {"$numberLong": "1"},
                 "avg_sum_avg_price": 15.0,
                 "avg_count_avg_price": {"$numberLong": "1"}
               },
               {
                 "$meta/group_name": "by_city",
                 "$meta/keys": {"city": "NYC", "color": "red"},
+                "count": {"$numberLong": "1"},
                 "avg_sum_avg_price": 30.0,
                 "avg_count_avg_price": {"$numberLong": "2"}
               },
               {
                 "$meta/group_name": "by_color",
                 "$meta/keys": {"color": "red"},
+                "count": {"$numberLong": "1"},
                 "avg_sum_avg_price": 35.0,
                 "avg_count_avg_price": {"$numberLong": "3"}
               }
@@ -459,13 +503,23 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
             {"$facet": {
               "by_city": [
                 {"$match": {"$expr": {"$eq": [
-                  {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                  {"$getField": {"field": "group_name", "input": "$_id"}},
                   "by_city"
                 ]}}},
                 {"$group": {
-                  "_id": "$_id['$meta/keys'].city",
+                  "_id": {
+                    "$getField": {
+                      "field": "city",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
                   "_rows": {"$push": {
-                    "color": "$_id['$meta/keys'].color",
+                    "color": {
+                      "$getField": {
+                        "field": "color",
+                        "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                      }
+                    },
                     "avg_sum_avg_price": "$avg_sum_avg_price",
                     "avg_count_avg_price": "$avg_count_avg_price"
                   }}
@@ -490,11 +544,16 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
               ],
               "by_color": [
                 {"$match": {"$expr": {"$eq": [
-                  {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                  {"$getField": {"field": "group_name", "input": "$_id"}},
                   "by_color"
                 ]}}},
                 {"$project": {
-                  "_id": "$_id['$meta/keys'].color",
+                  "_id": {
+                    "$getField": {
+                      "field": "color",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
                   "avg_price": {"$cond": {
                     "if": {"$eq": ["$avg_count_avg_price", 0]},
                     "then": null,
@@ -503,7 +562,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                 }}
               ],
               "count": [{"$match": {"$expr": {"$eq": [
-                {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                {"$ifNull": [{"$getField": {"field": "group_name", "input": "$_id"}}, null]},
                 null
               ]}}}]
             }}
@@ -576,26 +635,36 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
             {"$facet": {
               "by_city": [
                 {"$match": {"$expr": {"$eq": [
-                  {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                  {"$getField": {"field": "group_name", "input": "$_id"}},
                   "by_city"
                 ]}}},
                 {"$project": {
-                  "_id": "$_id['$meta/keys'].city",
+                  "_id": {
+                    "$getField": {
+                      "field": "city",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
                   "sum_price": "$sum_sum_price"
                 }}
               ],
               "by_color": [
                 {"$match": {"$expr": {"$eq": [
-                  {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                  {"$getField": {"field": "group_name", "input": "$_id"}},
                   "by_color"
                 ]}}},
                 {"$project": {
-                  "_id": "$_id['$meta/keys'].color",
+                  "_id": {
+                    "$getField": {
+                      "field": "color",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
                   "sum_price": "$sum_sum_price"
                 }}
               ],
               "count": [{"$match": {"$expr": {"$eq": [
-                {"$getField": {"field": "$meta/group_name", "input": "$_id"}},
+                {"$ifNull": [{"$getField": {"field": "group_name", "input": "$_id"}}, null]},
                 null
               ]}}}]
             }}
@@ -622,8 +691,8 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
       assertTrue("group stage missing field: " + fieldName, groupBody.containsKey(fieldName));
     }
     BsonDocument id = groupBody.getDocument("_id");
-    assertTrue(id.containsKey(IntermediateAggregationMetaField.GROUP_NAME));
-    assertTrue(id.containsKey(IntermediateAggregationMetaField.KEYS));
+    assertTrue(id.containsKey(IntermediateAggregationMetaField.ID_GROUP_NAME));
+    assertTrue(id.containsKey(IntermediateAggregationMetaField.ID_KEYS));
   }
 
   // ===== inline spec fixtures =====

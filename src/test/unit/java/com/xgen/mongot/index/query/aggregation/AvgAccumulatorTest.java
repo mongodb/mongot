@@ -261,6 +261,11 @@ public class AvgAccumulatorTest extends AggregationTestSupport {
         return this.childResults;
       }
 
+      @Override
+      public long getDocCount() {
+        return 1L;
+      }
+
       static TermsBucket merge(TermsBucket a, TermsBucket b) {
         AggregationResults.Builder builder = new AggregationResults.Builder();
         builder.add(a.childResults);
