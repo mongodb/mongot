@@ -150,15 +150,18 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
 
   private void enqueue(ChangeStreamIndexingInfo info, Optional<ChangeStreamBatch> previousBatch) {
     info.schedulingTimer.reset().start();
+    AtomicLong scheduledGauge =
+        this.getMoresScheduled.get(getIndexTypeTag(info.indexManager.indexDefinition));
+    // Increment before enqueue because an accepted task may begin running immediately on another
+    // thread. Either doGetMore or onDropped performs the matching decrement.
+    scheduledGauge.incrementAndGet();
 
     EnqueueContext context =
         new EnqueueContext(
             info.indexManager.indexDefinition,
             previousBatch,
             () -> {
-              this.getMoresScheduled
-                  .get(getIndexTypeTag(info.indexManager.indexDefinition))
-                  .decrementAndGet();
+              scheduledGauge.decrementAndGet();
               closeMongoClient(
                   "Closing client after task was dropped by executor", info, Optional.empty());
             });

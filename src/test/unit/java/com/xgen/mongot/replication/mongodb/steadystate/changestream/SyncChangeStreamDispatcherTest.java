@@ -30,6 +30,7 @@ import com.xgen.testing.mongot.index.IndexMetricsUpdaterBuilder;
 import com.xgen.testing.mongot.mock.index.IndexMetricsSupplier;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.util.Collections;
@@ -161,6 +162,64 @@ public class SyncChangeStreamDispatcherTest {
       verify(indexManager, never()).failLifecycle(any());
     } finally {
       // Shut down the dispatcher so its scheduled executor threads do not leak across the suite.
+      syncDispatcher.shutdown();
+    }
+  }
+
+  @Test
+  public void testGetMoresScheduledTracksAcceptedTask() throws Exception {
+    var definition = SearchIndex.mockSearchDefinition(new ObjectId());
+    IndexDefinitionGeneration generation =
+        mockIndexGeneration(definition).getDefinitionGeneration();
+
+    ChangeStreamMongoClient<SteadyStateException> mongoClient = mock(ChangeStreamMongoClient.class);
+    ChangeStreamMongoClientFactory mongoClientFactory = mock(ChangeStreamMongoClientFactory.class);
+    when(mongoClientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+        .thenReturn(mongoClient);
+
+    ChangeStreamIndexManager indexManager =
+        spy(
+            DecodingExecutorChangeStreamIndexManager.createWithDecodingScheduler(
+                definition,
+                mock(IndexingWorkScheduler.class),
+                mockDocumentIndexer(),
+                ChangeStreamUtils.PRE_BATCH_RESUME_INFO.getNamespace(),
+                resumeInfo -> {},
+                IGNORE_METRICS,
+                new CompletableFuture<>(),
+                generation.getGenerationId(),
+                DecodingWorkScheduler.create(2, new SimpleMeterRegistry())));
+    when(indexManager.isShutdown()).thenReturn(true);
+
+    AtomicReference<Runnable> acceptedTask = new AtomicReference<>();
+    ChangeStreamTaskExecutor taskExecutor =
+        new ChangeStreamTaskExecutor() {
+          @Override
+          public boolean enqueue(Runnable task, EnqueueContext context) {
+            acceptedTask.set(task);
+            return true;
+          }
+
+          @Override
+          public void shutdown() {}
+        };
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    SyncChangeStreamDispatcher syncDispatcher =
+        new SyncChangeStreamDispatcher(
+            meterRegistry, mongoClientFactory, taskExecutor, CommonReplicationConfig.Type.DEFAULT);
+
+    try {
+      syncDispatcher.add(
+          definition,
+          generation.getGenerationId(),
+          mock(ChangeStreamResumeInfo.class),
+          indexManager,
+          false);
+
+      assertThat(getMoresScheduledTotal(meterRegistry)).isEqualTo(1.0);
+      acceptedTask.get().run();
+      assertThat(getMoresScheduledTotal(meterRegistry)).isEqualTo(0.0);
+    } finally {
       syncDispatcher.shutdown();
     }
   }
@@ -340,5 +399,14 @@ public class SyncChangeStreamDispatcherTest {
               + " embedding permits, but got "
               + dispatcher.getEmbeddingAvailablePermits().get());
     }
+  }
+
+  private static double getMoresScheduledTotal(SimpleMeterRegistry meterRegistry) {
+    return meterRegistry
+        .find("indexing.steadyStateChangeStream.getMoresScheduled")
+        .gauges()
+        .stream()
+        .mapToDouble(Gauge::value)
+        .sum();
   }
 }
