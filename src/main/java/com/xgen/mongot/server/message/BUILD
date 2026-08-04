@@ -5,6 +5,7 @@ java_library(
     srcs = [
         "InboundMessage.java",
         "MessageHeader.java",
+        "MessageLimits.java",
         "MessageMessage.java",
         "MessageSection.java",
         "MessageSectionBody.java",
