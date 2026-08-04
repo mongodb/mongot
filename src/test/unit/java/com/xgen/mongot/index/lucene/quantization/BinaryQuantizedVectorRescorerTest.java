@@ -903,6 +903,67 @@ public class BinaryQuantizedVectorRescorerTest {
     assertScoresValid(subsetResult);
   }
 
+  @Test
+  public void fullFidelityRescoring_trailingCandidateWithoutVector_throws() throws IOException {
+    Assume.assumeTrue(this.similarity == EUCLIDEAN);
+    Assume.assumeFalse(this.sparse);
+    Assume.assumeTrue(this.executor.isEmpty());
+
+    var vectorDoc = new Document();
+    vectorDoc.add(vectorField(new float[] {1, 1}));
+    this.indexWriter.addDocument(vectorDoc);
+    this.indexWriter.addDocument(new Document()); // doc 1: no vector, last doc in the segment
+    this.indexWriter.commit();
+
+    // advance(1) runs off the end of the vector iterator (returns NO_MORE_DOCS), so this case
+    // throws regardless of the exact-match check.
+    assertRescoringThrowsForMissingVector(1);
+  }
+
+  @Test
+  public void fullFidelityRescoring_midSegmentCandidateWithoutVector_throws() throws IOException {
+    Assume.assumeTrue(this.similarity == EUCLIDEAN);
+    Assume.assumeFalse(this.sparse);
+    Assume.assumeTrue(this.executor.isEmpty());
+
+    var firstVectorDoc = new Document();
+    firstVectorDoc.add(vectorField(new float[] {1, 1}));
+    this.indexWriter.addDocument(firstVectorDoc);
+    this.indexWriter.addDocument(new Document());
+    var trailingVectorDoc = new Document();
+    trailingVectorDoc.add(vectorField(new float[] {2, 2}));
+    this.indexWriter.addDocument(trailingVectorDoc);
+    this.indexWriter.commit();
+
+    // advance(1) skips forward to doc 2's vector rather than hitting NO_MORE_DOCS. Without the
+    // exact-match check the rescorer would silently score the wrong doc instead of throwing.
+    assertRescoringThrowsForMissingVector(1);
+  }
+
+  /**
+   * Asserts that full-fidelity rescoring a single candidate whose doc has no vector throws with a
+   * message naming that doc.
+   */
+  private void assertRescoringThrowsForMissingVector(int candidateDoc) throws IOException {
+    LuceneVectorSearchManager manager =
+        createSearchManager(toVector(new float[] {1, 1}, this.type), 10, 100);
+    IndexSearcher searcher = buildSearcher();
+
+    TopDocs candidateWithoutVector =
+        new TopDocs(
+            new TotalHits(1, TotalHits.Relation.EQUAL_TO),
+            new ScoreDoc[] {new ScoreDoc(candidateDoc, 0f)});
+    var rescorer =
+        new BinaryQuantizedVectorRescorer.FullFidelityRescorer(
+            BinaryQuantizedRescoreQuery.from(manager.getLuceneQuery()), this.executor);
+
+    RuntimeException exception =
+        Assert.assertThrows(
+            RuntimeException.class, () -> rescorer.rescore(searcher, candidateWithoutVector, 10));
+    assertThat(exception).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+    assertThat(exception.getCause()).hasMessageThat().contains("Doc " + candidateDoc);
+  }
+
   private static final String NESTED_PARENT_MARKER_FIELD = "$meta/embeddedRoot";
 
   /** Creates a Lucene document block: child docs (with vectors) followed by one parent doc. */

@@ -131,7 +131,7 @@ public class BinaryQuantizedVectorRescorer {
 
     for (int i = start; i < end; i++) {
       int target = scoreDocs[i].doc - segment.docBase;
-      if (scorer.iterator().advance(target) == NO_MORE_DOCS) {
+      if (scorer.iterator().advance(target) != target) {
         throw new IllegalArgumentException("Doc " + scoreDocs[i].doc + " doesn't have a vector");
       }
 
