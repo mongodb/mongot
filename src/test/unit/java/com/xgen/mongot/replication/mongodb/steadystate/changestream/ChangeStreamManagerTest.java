@@ -2124,6 +2124,7 @@ public class ChangeStreamManagerTest {
     assertThat(gauge.getId().getTag("steadyStateSchedulingMethod")).isEqualTo("OPTIME_LAG");
     assertThat(gauge.getId().getTag("steadyStatePriorityRatio")).isEqualTo("3");
     assertThat(gauge.getId().getTag("steadyStatePriorityOptimeThresholdSeconds")).isEqualTo("20");
+    assertThat(gauge.getId().getTag("prioritySchedulingFeatureFlag")).isEqualTo("enabled");
     changeStreamManager.shutdown().get(5, TimeUnit.SECONDS);
   }
 
@@ -2157,6 +2158,7 @@ public class ChangeStreamManagerTest {
     assertThat(gauge.getId().getTag("steadyStateSchedulingMethod")).isEqualTo("HAD_DOCUMENTS");
     assertThat(gauge.getId().getTag("steadyStatePriorityRatio")).isEqualTo("3");
     assertThat(gauge.getId().getTag("steadyStatePriorityOptimeThresholdSeconds")).isEqualTo("20");
+    assertThat(gauge.getId().getTag("prioritySchedulingFeatureFlag")).isEqualTo("enabled");
     changeStreamManager.shutdown().get(5, TimeUnit.SECONDS);
   }
 
@@ -2192,6 +2194,7 @@ public class ChangeStreamManagerTest {
     assertThat(gauge.getId().getTag("steadyStateSchedulingMethod")).isEqualTo("FIFO");
     assertThat(gauge.getId().getTag("steadyStatePriorityRatio")).isEqualTo("3");
     assertThat(gauge.getId().getTag("steadyStatePriorityOptimeThresholdSeconds")).isEqualTo("20");
+    assertThat(gauge.getId().getTag("prioritySchedulingFeatureFlag")).isEqualTo("disabled");
     changeStreamManager.shutdown().get(5, TimeUnit.SECONDS);
   }
 
@@ -2225,6 +2228,9 @@ public class ChangeStreamManagerTest {
             .get("autoEmbedding.replication.steadyState.schedulingConfig")
             .gauge();
     assertThat(gauge.getId().getTag("steadyStateSchedulingMethod")).isEqualTo("FIFO");
+    // The flag is on; AUTO_EMBEDDING simply never takes the dual-queue path. The two tags together
+    // distinguish this from a deployment where the flag itself is off.
+    assertThat(gauge.getId().getTag("prioritySchedulingFeatureFlag")).isEqualTo("enabled");
     changeStreamManager.shutdown().get(5, TimeUnit.SECONDS);
   }
 

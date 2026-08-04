@@ -337,7 +337,10 @@ public class ChangeStreamManager {
         && replicationConfig.getReplicationType() == CommonReplicationConfig.Type.DEFAULT
         && schedulingMethod != SteadyStateSchedulingMethod.FIFO) {
       registerSchedulingConfigGauge(
-          meterAndFtdcRegistry.meterRegistry(), replicationConfig, schedulingMethod);
+          meterAndFtdcRegistry.meterRegistry(),
+          replicationConfig,
+          schedulingMethod,
+          enableChangeStreamPriorityScheduling);
       ChangeStreamDualQueueExecutor dualQueueExecutor =
           new ChangeStreamDualQueueExecutor(
               executorName,
@@ -356,7 +359,10 @@ public class ChangeStreamManager {
 
     // Report FIFO as the scheduling method for non-dualQueue tasks
     registerSchedulingConfigGauge(
-        meterAndFtdcRegistry.meterRegistry(), replicationConfig, SteadyStateSchedulingMethod.FIFO);
+        meterAndFtdcRegistry.meterRegistry(),
+        replicationConfig,
+        SteadyStateSchedulingMethod.FIFO,
+        enableChangeStreamPriorityScheduling);
 
     NamedScheduledExecutorService scheduledExecutor =
         Executors.fixedSizeThreadScheduledExecutor(
@@ -386,7 +392,8 @@ public class ChangeStreamManager {
   private static void registerSchedulingConfigGauge(
       MeterRegistry meterRegistry,
       SteadyStateReplicationConfig replicationConfig,
-      SteadyStateSchedulingMethod effectiveSchedulingMethod) {
+      SteadyStateSchedulingMethod effectiveSchedulingMethod,
+      boolean prioritySchedulingFeatureFlag) {
     String namespace =
         replicationConfig.getReplicationType().metricsNamespacePrefix + "replication.steadyState";
     new MetricsFactory(namespace, meterRegistry)
@@ -398,7 +405,9 @@ public class ChangeStreamManager {
                 "steadyStatePriorityRatio",
                 String.valueOf(replicationConfig.getSteadyStatePriorityRatio()),
                 "steadyStatePriorityOptimeThresholdSeconds",
-                String.valueOf(replicationConfig.getSteadyStatePriorityOptimeThresholdSeconds())))
+                String.valueOf(replicationConfig.getSteadyStatePriorityOptimeThresholdSeconds()),
+                "prioritySchedulingFeatureFlag",
+                prioritySchedulingFeatureFlag ? "enabled" : "disabled"))
         .set(1);
   }
 
