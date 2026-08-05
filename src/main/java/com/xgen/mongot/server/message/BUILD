@@ -28,6 +28,7 @@ java_library(
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
         "@maven//:io_netty_netty_buffer",
+        "@maven//:io_netty_netty_codec",
         "@maven//:org_mongodb_bson",
     ],
 )

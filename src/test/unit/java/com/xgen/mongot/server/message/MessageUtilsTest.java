@@ -7,6 +7,7 @@ import static org.junit.Assert.assertTrue;
 import com.xgen.mongot.util.mongodb.Errors;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.handler.codec.CorruptedFrameException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.bson.BsonArray;
@@ -73,7 +74,25 @@ public class MessageUtilsTest {
     buffer.writeBytes(first.getByteBuffer().asNIO());
 
     assertThrows(
-        IndexOutOfBoundsException.class, () -> MessageUtils.rawBsonDocumentFromBytes(buffer));
+        CorruptedFrameException.class, () -> MessageUtils.rawBsonDocumentFromBytes(buffer));
+  }
+
+  @Test
+  public void readRawBsonDocumentAbsurdLengthRejectedWithoutAllocating() {
+    ByteBuf buffer = Unpooled.buffer(8);
+    buffer.writeIntLE(0x7FFFFFFF);
+
+    assertThrows(
+        CorruptedFrameException.class, () -> MessageUtils.rawBsonDocumentFromBytes(buffer));
+  }
+
+  @Test
+  public void readRawBsonDocumentNegativeLengthRejected() {
+    ByteBuf buffer = Unpooled.buffer(8);
+    buffer.writeIntLE(-1);
+
+    assertThrows(
+        CorruptedFrameException.class, () -> MessageUtils.rawBsonDocumentFromBytes(buffer));
   }
 
   @Test

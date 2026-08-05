@@ -2,6 +2,7 @@ package com.xgen.mongot.server.message;
 
 import com.xgen.mongot.util.mongodb.Errors.Error;
 import io.netty.buffer.ByteBuf;
+import io.netty.handler.codec.CorruptedFrameException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Objects;
@@ -42,6 +43,10 @@ public class MessageUtils {
    */
   static RawBsonDocument rawBsonDocumentFromBytes(ByteBuf bytes) {
     int size = bytes.getIntLE(bytes.readerIndex());
+    if (size < 0 || size > bytes.readableBytes()) {
+      throw new CorruptedFrameException(
+          "invalid bson document length: " + size + ", readable bytes: " + bytes.readableBytes());
+    }
     byte[] docBytes = new byte[size];
     bytes.readBytes(docBytes);
     return new RawBsonDocument(docBytes);
