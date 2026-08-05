@@ -10,6 +10,7 @@ import org.apache.lucene.util.BytesRef;
 import org.bson.BsonArray;
 import org.bson.BsonDocument;
 import org.bson.BsonDouble;
+import org.bson.BsonInt32;
 import org.bson.BsonInt64;
 import org.bson.BsonString;
 import org.bson.BsonValue;
@@ -234,6 +235,46 @@ public class IntermediateBsonTest extends AggregationTestSupport {
                 "count": {"$numberLong": "1"},
                 "avg_sum_avg_price": 15.0,
                 "avg_count_avg_price": {"$numberLong": "1"}
+              }
+            ]
+            """);
+    assertEquals(expected, intermediate);
+  }
+
+  @Test
+  public void boundaryWithEmptyNestedTerms_omitsEmptyRangesFromIntermediateWire() {
+    TermsResult nycAtZero =
+        new TermsResult(
+            "agg",
+            CITY,
+            List.of(
+                new TermsResult.TermsBucket(
+                    "NYC",
+                    AggregationResults.from(
+                        List.of(new SumAggregationResult("sum_price", 60.0))))));
+    TermsResult emptyTermsAtHundred = new TermsResult("agg", CITY, List.of());
+
+    BoundaryAggregationResult byPrice =
+        new BoundaryAggregationResult(
+            "agg",
+            FieldPath.parse("price"),
+            List.of(
+                new BoundaryAggregationResult.BoundaryBucket(
+                    new BsonInt32(0), 2, AggregationResults.from(List.of(nycAtZero))),
+                new BoundaryAggregationResult.BoundaryBucket(
+                    new BsonInt32(100), 0, AggregationResults.from(List.of(emptyTermsAtHundred)))));
+
+    BsonArray intermediate = new TopLevelAggregationResult(List.of(byPrice)).toIntermediateBson();
+
+    BsonArray expected =
+        BsonArray.parse(
+            """
+            [
+              {
+                "$meta/group_name": "agg",
+                "$meta/keys": {"price": 0, "city": "NYC"},
+                "count": {"$numberLong": "1"},
+                "sum_sum_price": 60.0
               }
             ]
             """);

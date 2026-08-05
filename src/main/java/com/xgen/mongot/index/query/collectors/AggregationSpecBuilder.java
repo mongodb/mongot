@@ -41,10 +41,8 @@ public final class AggregationSpecBuilder {
    * branch recursively.
    *
    * @param boundaryResolver index field metadata for number/date boundary group specs. {@link
-   *     Optional#empty()} at shard plan time ({@code planShardedSearch}) because the planner does
-   *     not yet have index field definitions; terms (string) grouping works without it. Required at
-   *     Lucene execution time when the query includes boundary grouping. Boundary shard planning is
-   *     tracked in TODO(CLOUDP-424290).
+   *     Optional#empty()} at shard plan time when the query has no boundary grouping, or when index
+   *     metadata is unavailable. Required when the query includes boundary grouping.
    */
   public static TopAggregationSpec toTopLevelSpec(
       AggregationCollector collector,

@@ -131,7 +131,13 @@ public abstract class MultiBucketAggregationResult implements AggregationResult 
 
     // Leaf grouping level: every child is a metric result (empty toIntermediateBson(), partials
     // only). Nested group children would have contributed non-empty subBucketDocs wire rows.
+    // When a nested group bucket has no leaf wire rows and no metric partials (e.g. an empty
+    // boundary range with an empty inner terms child), omit it from the wire format entirely.
+    // Leaf grouping buckets with metric children still emit even when all partials are absent.
     if (subBucketDocs.isEmpty()) {
+      if (metricFields.isEmpty() && hasGroupChild(bucket)) {
+        return;
+      }
       docs.add(buildLeafIntermediateDoc(keys, metricFields, bucket.getDocCount()));
       return;
     }
@@ -141,6 +147,15 @@ public abstract class MultiBucketAggregationResult implements AggregationResult 
     for (BsonArray subDocs : subBucketDocs) {
       mergeIntoSubDocs(keys, subDocs, docs);
     }
+  }
+
+  private static boolean hasGroupChild(Bucket bucket) {
+    for (AggregationResult child : bucket.getChildResults()) {
+      if (child instanceof MultiBucketAggregationResult) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static BsonDocument buildLeafIntermediateDoc(

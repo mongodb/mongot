@@ -48,8 +48,25 @@ public class ShardedSearchPlanner {
       PlanShardedSearchCommandDefinition.SearchFeatures searchFeatures,
       FeatureFlags featureFlags)
       throws ShardedSearchPlannerException {
+    return planSearch(queryDefinition, searchFeatures, featureFlags, Optional.empty());
+  }
+
+  /**
+   * Accepts a deserialized query and the supported searchFeatures of a MongoDB deployment and
+   * generates a ShardedSearchPlan.
+   *
+   * @param boundaryResolver index field metadata for boundary grouping; required when the query
+   *     includes number/date boundary facets
+   */
+  static PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan planSearch(
+      SearchQuery queryDefinition,
+      PlanShardedSearchCommandDefinition.SearchFeatures searchFeatures,
+      FeatureFlags featureFlags,
+      Optional<AggregationSpecBuilder.BoundaryFieldResolver> boundaryResolver)
+      throws ShardedSearchPlannerException {
     BsonDocument sortSpec = validateQueryAndConstructSortSpec(searchFeatures, queryDefinition);
-    List<BsonDocument> metaPipeline = getShardedSearchMetaPipeline(queryDefinition, featureFlags);
+    List<BsonDocument> metaPipeline =
+        getShardedSearchMetaPipeline(queryDefinition, featureFlags, boundaryResolver);
     return new PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan(metaPipeline, sortSpec);
   }
 
@@ -90,7 +107,10 @@ public class ShardedSearchPlanner {
    * @return the pipeline to execute over the sharded metadata results
    */
   private static List<BsonDocument> getShardedSearchMetaPipeline(
-      SearchQuery query, FeatureFlags featureFlags) throws ShardedSearchPlannerException {
+      SearchQuery query,
+      FeatureFlags featureFlags,
+      Optional<AggregationSpecBuilder.BoundaryFieldResolver> boundaryResolver)
+      throws ShardedSearchPlannerException {
     String countType = query.count().type() == Count.Type.LOWER_BOUND ? "lowerBound" : "total";
 
     // If the Query is a CollectorQuery, then get facet definitions from the FacetCollector and
@@ -108,7 +128,7 @@ public class ShardedSearchPlanner {
               throw new ShardedSearchPlannerException(
                   "Aggregation is not enabled. Please contact support.");
             }
-            yield buildAggregationMetaPipeline(countType, aggregationCollector);
+            yield buildAggregationMetaPipeline(countType, aggregationCollector, boundaryResolver);
           }
         }
       }
@@ -122,15 +142,14 @@ public class ShardedSearchPlanner {
    * {@link com.xgen.mongot.index.query.aggregation.AggregationSpec#buildShardMergePipeline}.
    */
   private static List<BsonDocument> buildAggregationMetaPipeline(
-      String countType, AggregationCollector aggregationCollector)
+      String countType,
+      AggregationCollector aggregationCollector,
+      Optional<AggregationSpecBuilder.BoundaryFieldResolver> boundaryResolver)
       throws ShardedSearchPlannerException {
     try {
-      // TODO(CLOUDP-424290): Wire a BoundaryFieldResolver into planShardedSearch so date/numeric
-      // boundary grouping can build merge pipelines (merge stages are the same as terms once the
-      // spec tree is constructed; planner needs index field metadata to encode boundaries).
       TopAggregationSpec spec =
           AggregationSpecBuilder.toTopLevelSpec(
-              aggregationCollector, AggregationRegistry.getInstance(), Optional.empty());
+              aggregationCollector, AggregationRegistry.getInstance(), boundaryResolver);
       ShardMergePipelineBuilder builder = new ShardMergePipelineBuilder();
       spec.buildShardMergePipeline(builder);
       return builder.build(countType);

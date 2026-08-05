@@ -6,11 +6,13 @@ import com.xgen.mongot.util.bson.parser.DocumentEncodable;
 import com.xgen.mongot.util.bson.parser.DocumentParser;
 import com.xgen.mongot.util.bson.parser.Field;
 import java.util.Optional;
+import java.util.UUID;
 import org.bson.BsonDocument;
 
 public record PlanShardedSearchCommandDefinition(
     String db,
     String collectionName,
+    Optional<UUID> collectionUuid,
     Optional<String> viewName,
     BsonDocument queryDocument,
     SearchFeatures searchFeatures) {
@@ -20,6 +22,9 @@ public record PlanShardedSearchCommandDefinition(
         Field.builder("planShardedSearch").stringField().required();
 
     static final Field.Required<String> DB = Field.builder("$db").stringField().required();
+
+    static final Field.Optional<UUID> COLLECTION_UUID =
+        Field.builder("collectionUUID").uuidField().optional().noDefault();
 
     static final Field.Optional<String> VIEW_NAME =
         Field.builder("viewName").stringField().optional().noDefault();
@@ -42,6 +47,7 @@ public record PlanShardedSearchCommandDefinition(
     return new PlanShardedSearchCommandDefinition(
         parser.getField(Fields.DB).unwrap(),
         parser.getField(Fields.PLAN_SHARDED_SEARCH).unwrap(),
+        parser.getField(Fields.COLLECTION_UUID).unwrap(),
         parser.getField(Fields.VIEW_NAME).unwrap(),
         parser.getField(Fields.QUERY).unwrap(),
         parser.getField(Fields.SEARCH_FEATURES).unwrap());

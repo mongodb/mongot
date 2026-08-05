@@ -84,6 +84,11 @@ public record AggregationCollector(
     return this.facets.values().stream().anyMatch(AggregationFacetDefinition::usesFirstOrLast);
   }
 
+  /** Whether any facet branch groups on number/date boundaries (at any nesting depth). */
+  public boolean usesBoundaryGrouping() {
+    return this.facets.values().stream().anyMatch(AggregationFacetDefinition::usesBoundaryGrouping);
+  }
+
   /**
    * Shallow, non-parsing pre-scan of a search query document to apply the legacy-vs-aggregation
    * discriminator: returns {@code true} iff any top-level {@code facet.facets} entry carries an

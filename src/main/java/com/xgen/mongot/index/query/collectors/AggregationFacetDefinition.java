@@ -158,6 +158,12 @@ public record AggregationFacetDefinition(
         || this.facets.values().stream().anyMatch(AggregationFacetDefinition::usesFirstOrLast);
   }
 
+  /** Whether this node or any descendant groups on number/date boundaries. */
+  public boolean usesBoundaryGrouping() {
+    return this.group instanceof FacetDefinition.BoundaryFacetDefinition<?>
+        || this.facets.values().stream().anyMatch(AggregationFacetDefinition::usesBoundaryGrouping);
+  }
+
   @VisibleForTesting
   public static AggregationFacetDefinition create(
       FacetDefinition group,

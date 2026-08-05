@@ -48,6 +48,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/definition/config",
         "//src/main/java/com/xgen/mongot/index/definition/quantization",
+        "//src/main/java/com/xgen/mongot/index/lucene",
         "//src/main/java/com/xgen/mongot/index/lucene/explain/explainers",
         "//src/main/java/com/xgen/mongot/index/lucene/explain/tracing",
         "//src/main/java/com/xgen/mongot/index/query",

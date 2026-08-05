@@ -97,10 +97,11 @@ public abstract non-sealed class GroupAggregationSpec implements AggregationSpec
           groupChildren.size());
       nestedBranchName = Optional.empty();
     }
-    builder.addGroupLevel(this.path.toString(), nestedBranchName);
+    builder.addGroupLevel(
+        this.path.toString(), nestedBranchName, this instanceof BoundaryGroupAggregationSpec);
 
-    if (nestedBranchName.isEmpty() && this instanceof TermsGroupAggregationSpec termsGroup) {
-      builder.configureLeafTermsGrouping(termsGroup.getLimit());
+    if (this instanceof TermsGroupAggregationSpec termsGroup) {
+      builder.configureTermsGrouping(termsGroup.getLimit());
     }
 
     for (AggregationSpec spec : this.children) {

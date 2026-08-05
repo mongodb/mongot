@@ -2,6 +2,10 @@ package com.xgen.mongot.server.command.search;
 
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.index.definition.NumericFieldOptions;
+import com.xgen.mongot.index.definition.SearchIndexCapabilities;
+import com.xgen.mongot.index.definition.SearchIndexDefinition;
+import com.xgen.mongot.index.lucene.LuceneAggregationPlanResolver;
 import com.xgen.mongot.index.query.CollectorQuery;
 import com.xgen.mongot.index.query.OperatorQuery;
 import com.xgen.mongot.index.query.SearchQuery;
@@ -10,15 +14,22 @@ import com.xgen.mongot.index.query.aggregation.SearchAggregationBootstrap;
 import com.xgen.mongot.index.query.aggregation.TestOperatorSpecs;
 import com.xgen.mongot.index.query.collectors.AggregationCollector;
 import com.xgen.mongot.index.query.collectors.AggregationFacetDefinition;
+import com.xgen.mongot.index.query.collectors.AggregationSpecBuilder;
 import com.xgen.mongot.index.query.collectors.FacetDefinition;
 import com.xgen.mongot.index.query.collectors.MetricSpec;
 import com.xgen.mongot.index.query.counts.Count;
 import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
+import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.server.command.search.definition.PlanShardedSearchCommandResponseDefinition;
 import com.xgen.mongot.server.command.search.definition.request.PlanShardedSearchCommandDefinition;
 import com.xgen.mongot.server.message.MessageUtils;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.TestUtils;
+import com.xgen.testing.mongot.index.definition.DateFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.NumericFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.query.OperatorQueryBuilder;
 import com.xgen.testing.mongot.index.query.operators.OperatorBuilder;
 import com.xgen.testing.mongot.index.query.sort.SortFieldBuilder;
@@ -641,6 +652,357 @@ public class ShardedSearchPlannerTest {
             }}
             """);
     Assert.assertEquals(expectedFacet, pipeline.get(1));
+  }
+
+  @Test
+  public void testFlatBoundarySumAggregationMetaPipeline() throws Exception {
+    CollectorQuery query = createFlatBoundarySumAggregationQuery();
+    AggregationSpecBuilder.BoundaryFieldResolver boundaryResolver =
+        boundaryFieldResolverForTestIndex();
+    PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
+        ShardedSearchPlanner.planSearch(
+            query,
+            new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+            AGGREGATION_ENABLED_FEATURE_FLAGS,
+            Optional.of(boundaryResolver));
+
+    List<BsonDocument> pipeline = result.metaPipeline;
+    Assert.assertEquals(3, pipeline.size());
+
+    BsonDocument expectedGroup =
+        BsonDocument.parse(
+            """
+            {"$group": {
+              "_id": {
+                "group_name": {
+                  "$getField": {
+                    "field": {"$literal": "$meta/group_name"},
+                    "input": "$$ROOT"
+                  }
+                },
+                "keys": {"$getField": {"field": {"$literal": "$meta/keys"}, "input": "$$ROOT"}}
+              },
+              "count_value": {"$sum": "$count"},
+              "sum_sum_price": {"$sum": "$sum_sum_price"}
+            }}
+            """);
+    Assert.assertEquals(expectedGroup, pipeline.get(0));
+
+    BsonDocument expectedFacet =
+        BsonDocument.parse(
+            """
+            {"$facet": {
+              "agg": [
+                {"$match": {"$expr": {"$eq": [
+                  {"$getField": {"field": "group_name", "input": "$_id"}},
+                  "agg"
+                ]}}},
+                {"$sort": {"_id.keys.price": 1}},
+                {"$project": {
+                  "_id": {
+                    "$getField": {
+                      "field": "price",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
+                  "sum_price": "$sum_sum_price"
+                }}
+              ],
+              "count": [{"$match": {"$expr": {"$eq": [
+                {"$ifNull": [{"$getField": {"field": "group_name", "input": "$_id"}}, null]},
+                null
+              ]}}}]
+            }}
+            """);
+    Assert.assertEquals(expectedFacet, pipeline.get(1));
+  }
+
+  @Test
+  public void testFlatBoundaryAvgAggregationMetaPipeline() throws Exception {
+    CollectorQuery query = createFlatBoundaryAvgAggregationQuery();
+    PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
+        ShardedSearchPlanner.planSearch(
+            query,
+            new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+            AGGREGATION_ENABLED_FEATURE_FLAGS,
+            Optional.of(boundaryFieldResolverForTestIndex()));
+
+    List<BsonDocument> pipeline = result.metaPipeline;
+    Assert.assertEquals(3, pipeline.size());
+
+    BsonDocument expectedGroup =
+        BsonDocument.parse(
+            """
+            {"$group": {
+              "_id": {
+                "group_name": {
+                  "$getField": {
+                    "field": {"$literal": "$meta/group_name"},
+                    "input": "$$ROOT"
+                  }
+                },
+                "keys": {"$getField": {"field": {"$literal": "$meta/keys"}, "input": "$$ROOT"}}
+              },
+              "count_value": {"$sum": "$count"},
+              "avg_sum_avg_price": {"$sum": "$avg_sum_avg_price"},
+              "avg_count_avg_price": {"$sum": "$avg_count_avg_price"}
+            }}
+            """);
+    Assert.assertEquals(expectedGroup, pipeline.get(0));
+
+    BsonDocument expectedFacet =
+        BsonDocument.parse(
+            """
+            {"$facet": {
+              "agg": [
+                {"$match": {"$expr": {"$eq": [
+                  {"$getField": {"field": "group_name", "input": "$_id"}},
+                  "agg"
+                ]}}},
+                {"$sort": {"_id.keys.price": 1}},
+                {"$project": {
+                  "_id": {
+                    "$getField": {
+                      "field": "price",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
+                  "avg_price": {
+                    "$cond": {
+                      "if": {"$eq": ["$avg_count_avg_price", 0]},
+                      "then": null,
+                      "else": {"$divide": ["$avg_sum_avg_price", "$avg_count_avg_price"]}
+                    }
+                  }
+                }}
+              ],
+              "count": [{"$match": {"$expr": {"$eq": [
+                {"$ifNull": [{"$getField": {"field": "group_name", "input": "$_id"}}, null]},
+                null
+              ]}}}]
+            }}
+            """);
+    Assert.assertEquals(expectedFacet, pipeline.get(1));
+  }
+
+  @Test
+  public void testFlatDateBoundarySumAggregationMetaPipeline() throws Exception {
+    CollectorQuery query = createFlatDateBoundarySumAggregationQuery();
+    PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
+        ShardedSearchPlanner.planSearch(
+            query,
+            new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+            AGGREGATION_ENABLED_FEATURE_FLAGS,
+            Optional.of(boundaryFieldResolverForDateIndex()));
+
+    List<BsonDocument> pipeline = result.metaPipeline;
+    Assert.assertEquals(3, pipeline.size());
+
+    BsonDocument expectedGroup =
+        BsonDocument.parse(
+            """
+            {"$group": {
+              "_id": {
+                "group_name": {
+                  "$getField": {
+                    "field": {"$literal": "$meta/group_name"},
+                    "input": "$$ROOT"
+                  }
+                },
+                "keys": {"$getField": {"field": {"$literal": "$meta/keys"}, "input": "$$ROOT"}}
+              },
+              "count_value": {"$sum": "$count"},
+              "sum_sum_price": {"$sum": "$sum_sum_price"}
+            }}
+            """);
+    Assert.assertEquals(expectedGroup, pipeline.get(0));
+
+    BsonDocument expectedFacet =
+        BsonDocument.parse(
+            """
+            {"$facet": {
+              "agg": [
+                {"$match": {"$expr": {"$eq": [
+                  {"$getField": {"field": "group_name", "input": "$_id"}},
+                  "agg"
+                ]}}},
+                {"$sort": {"_id.keys.release": 1}},
+                {"$project": {
+                  "_id": {
+                    "$getField": {
+                      "field": "release",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
+                  "sum_price": "$sum_sum_price"
+                }}
+              ],
+              "count": [{"$match": {"$expr": {"$eq": [
+                {"$ifNull": [{"$getField": {"field": "group_name", "input": "$_id"}}, null]},
+                null
+              ]}}}]
+            }}
+            """);
+    Assert.assertEquals(expectedFacet, pipeline.get(1));
+  }
+
+  @Test
+  public void planSearch_flatBoundaryWithoutResolver_throwsShardedSearchPlannerException() {
+    CollectorQuery query = createFlatBoundarySumAggregationQuery();
+
+    TestUtils.assertThrows(
+        "Boundary aggregations require index field definitions for path: price",
+        ShardedSearchPlannerException.class,
+        () ->
+            ShardedSearchPlanner.planSearch(
+                query,
+                new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+                AGGREGATION_ENABLED_FEATURE_FLAGS,
+                Optional.empty()));
+  }
+
+  private static AggregationSpecBuilder.BoundaryFieldResolver boundaryFieldResolverForTestIndex() {
+    return boundaryFieldResolverForIndex(createPriceIndexDefinition());
+  }
+
+  private static AggregationSpecBuilder.BoundaryFieldResolver boundaryFieldResolverForDateIndex() {
+    return boundaryFieldResolverForIndex(createReleaseDateIndexDefinition());
+  }
+
+  private static AggregationSpecBuilder.BoundaryFieldResolver boundaryFieldResolverForIndex(
+      SearchIndexDefinition indexDefinition) {
+    return LuceneAggregationPlanResolver.boundaryFieldResolverForPlanning(
+        indexDefinition, IndexFormatVersion.CURRENT);
+  }
+
+  private static SearchIndexDefinition createPriceIndexDefinition() {
+    return SearchIndexDefinitionBuilder.builder()
+        .defaultMetadata()
+        .indexFeatureVersion(SearchIndexCapabilities.CURRENT_FEATURE_VERSION)
+        .mappings(
+            DocumentFieldDefinitionBuilder.builder()
+                .dynamic(false)
+                .field(
+                    "price",
+                    FieldDefinitionBuilder.builder()
+                        .number(
+                            NumericFieldDefinitionBuilder.builder()
+                                .representation(NumericFieldOptions.Representation.INT64)
+                                .buildNumberField())
+                        .build())
+                .build())
+        .build();
+  }
+
+  private static SearchIndexDefinition createReleaseDateIndexDefinition() {
+    return SearchIndexDefinitionBuilder.builder()
+        .defaultMetadata()
+        .indexFeatureVersion(SearchIndexCapabilities.CURRENT_FEATURE_VERSION)
+        .mappings(
+            DocumentFieldDefinitionBuilder.builder()
+                .dynamic(false)
+                .field(
+                    "price",
+                    FieldDefinitionBuilder.builder()
+                        .number(
+                            NumericFieldDefinitionBuilder.builder()
+                                .representation(NumericFieldOptions.Representation.INT64)
+                                .buildNumberField())
+                        .build())
+                .field(
+                    "release",
+                    FieldDefinitionBuilder.builder()
+                        .date(DateFieldDefinitionBuilder.builder().build())
+                        .build())
+                .build())
+        .build();
+  }
+
+  private static CollectorQuery createFlatBoundarySumAggregationQuery() {
+    AggregationFacetDefinition agg =
+        AggregationFacetDefinition.create(
+            new FacetDefinition.NumericFacetDefinition(
+                "price",
+                Optional.empty(),
+                List.of(
+                    new BsonInt32(0), new BsonInt32(100), new BsonInt32(200), new BsonInt32(300))),
+            Map.of(
+                "sum_price", new MetricSpec(Operator.SUM, Optional.of(FieldPath.parse("price")))),
+            Map.of());
+    AggregationCollector collector =
+        AggregationCollector.create(
+            OperatorBuilder.text().path("title").query("godfather").build(), Map.of("agg", agg));
+    return new CollectorQuery(
+        collector,
+        "default",
+        Count.DEFAULT,
+        Optional.empty(),
+        Optional.empty(),
+        false,
+        false,
+        false,
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty());
+  }
+
+  private static CollectorQuery createFlatBoundaryAvgAggregationQuery() {
+    AggregationFacetDefinition agg =
+        AggregationFacetDefinition.create(
+            new FacetDefinition.NumericFacetDefinition(
+                "price",
+                Optional.empty(),
+                List.of(
+                    new BsonInt32(0), new BsonInt32(100), new BsonInt32(200), new BsonInt32(300))),
+            Map.of(
+                "avg_price", new MetricSpec(Operator.AVG, Optional.of(FieldPath.parse("price")))),
+            Map.of());
+    AggregationCollector collector =
+        AggregationCollector.create(
+            OperatorBuilder.text().path("title").query("godfather").build(), Map.of("agg", agg));
+    return new CollectorQuery(
+        collector,
+        "default",
+        Count.DEFAULT,
+        Optional.empty(),
+        Optional.empty(),
+        false,
+        false,
+        false,
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty());
+  }
+
+  private static CollectorQuery createFlatDateBoundarySumAggregationQuery() {
+    AggregationFacetDefinition agg =
+        AggregationFacetDefinition.create(
+            new FacetDefinition.DateFacetDefinition(
+                "release",
+                Optional.empty(),
+                List.of(
+                    new BsonDateTime(0L),
+                    new BsonDateTime(1_000L),
+                    new BsonDateTime(2_000L),
+                    new BsonDateTime(3_000L))),
+            Map.of(
+                "sum_price", new MetricSpec(Operator.SUM, Optional.of(FieldPath.parse("price")))),
+            Map.of());
+    AggregationCollector collector =
+        AggregationCollector.create(
+            OperatorBuilder.text().path("title").query("godfather").build(), Map.of("agg", agg));
+    return new CollectorQuery(
+        collector,
+        "default",
+        Count.DEFAULT,
+        Optional.empty(),
+        Optional.empty(),
+        false,
+        false,
+        false,
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty());
   }
 
   @Test

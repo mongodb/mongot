@@ -5,10 +5,12 @@ import static com.xgen.mongot.util.Check.checkArg;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.util.Check;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.bson.BsonArray;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
@@ -135,11 +137,16 @@ public final class ShardMergePipelineBuilder {
     final List<String> accumulatorFields = new ArrayList<>();
 
     /**
-     * When the leaf grouping level is terms, the {@code numBuckets} top-N to apply after the
-     * stage-1 {@code $group} merge (sort by {@code count_value} desc, bucket key asc, then {@code
-     * $limit}).
+     * When a grouping level is terms, the {@code numBuckets} top-N to apply after merging shard
+     * rows at that level (sort by {@code count_value} desc, bucket key asc, then {@code $limit}).
      */
-    Optional<Integer> leafTermsBucketLimit = Optional.empty();
+    final Map<Integer, Integer> termsLevelLimits = new LinkedHashMap<>();
+
+    /**
+     * Grouping levels that use boundary (range) bucketing. Boundary buckets have a fixed request
+     * order; shard merge must sort by bucket key ascending after the stage-1 {@code $group}.
+     */
+    final Set<Integer> boundaryLevelIndices = new HashSet<>();
   }
 
   // Stage 1: $group — metric field accumulators from leaf specs
@@ -186,10 +193,23 @@ public final class ShardMergePipelineBuilder {
    *     Optional#empty()} at the leaf grouping level
    */
   public void addGroupLevel(String keyPath, Optional<String> nestedBranchName) {
-    this.pathConfigs
-        .get(requireCurrentGroupName())
-        .groupLevels
-        .add(new GroupMergeLevel(keyPath, nestedBranchName));
+    addGroupLevel(keyPath, nestedBranchName, false);
+  }
+
+  /**
+   * Records one grouping level along a nested group chain.
+   *
+   * @param boundaryGrouping when true, bucket order is fixed by the request's boundary list (key
+   *     ascending), not by doc count
+   */
+  public void addGroupLevel(
+      String keyPath, Optional<String> nestedBranchName, boolean boundaryGrouping) {
+    PathMergeConfig config = this.pathConfigs.get(requireCurrentGroupName());
+    int levelIndex = config.groupLevels.size();
+    config.groupLevels.add(new GroupMergeLevel(keyPath, nestedBranchName));
+    if (boundaryGrouping) {
+      config.boundaryLevelIndices.add(levelIndex);
+    }
   }
 
   /** Called by leaf metric specs — adds accumulator to Stage 1 $group. */
@@ -199,10 +219,12 @@ public final class ShardMergePipelineBuilder {
     this.pathConfigs.get(groupName).accumulatorFields.add(field);
   }
 
-  /** Records {@code numBuckets} for a flat leaf terms grouping on the current facet branch. */
-  public void configureLeafTermsGrouping(int bucketLimit) {
+  /** Records {@code numBuckets} for a terms grouping at the current level. */
+  public void configureTermsGrouping(int bucketLimit) {
     checkArg(bucketLimit > 0, "bucketLimit must be positive, got: %s", bucketLimit);
-    this.pathConfigs.get(requireCurrentGroupName()).leafTermsBucketLimit = Optional.of(bucketLimit);
+    PathMergeConfig config = this.pathConfigs.get(requireCurrentGroupName());
+    int levelIndex = config.groupLevels.size() - 1;
+    config.termsLevelLimits.put(levelIndex, bucketLimit);
   }
 
   /** Called by leaf metric specs — adds finalization expression to final output. */
@@ -256,13 +278,22 @@ public final class ShardMergePipelineBuilder {
         for (int stage = 0; stage < depth - 1; stage++) {
           arm.add(buildNestedGroupStage(config, stage));
         }
+        if (isBoundaryLevel(config, 0)) {
+          appendGroupedBoundarySortStage(arm);
+        } else {
+          appendNestedTermsTopNStages(arm, config, 0);
+        }
         arm.add(buildNestedProjectStage(config));
       } else if (depth == 1) {
         Check.checkState(
             !config.metricProjections.isEmpty(),
             "single-level facet arm %s requires leaf metric projections",
             groupName);
-        appendFlatTermsTopNStages(arm, config);
+        if (isBoundaryLevel(config, 0)) {
+          appendFlatBoundarySortStage(arm, config.groupLevels.get(0).keyPath());
+        } else {
+          appendFlatTermsTopNStages(arm, config);
+        }
         arm.add(buildFlatProjectStage(config));
       }
       // depth == 0: operator-only top-level branch; facet arm stays at $match only.
@@ -337,6 +368,9 @@ public final class ShardMergePipelineBuilder {
       for (String field : config.accumulatorFields) {
         pushDoc.append(field, new BsonString("$" + field));
       }
+      if (config.termsLevelLimits.containsKey(0)) {
+        return innermostGroupStage(groupId, pushDoc);
+      }
       return groupStage(groupId, pushDoc);
     }
 
@@ -352,7 +386,7 @@ public final class ShardMergePipelineBuilder {
 
   /** Strategy B: {@code $project} nested child branch buckets from grouped rows. */
   private static BsonDocument buildNestedProjectStage(PathMergeConfig config) {
-    BsonValue bucketsExpr = buildBucketsAtLevel(config, 0, "$_rows", "row");
+    BsonValue bucketsExpr = buildBucketsAtLevel(config, 0, new BsonString("$_rows"), "row");
     return new BsonDocument(
         "$project",
         new BsonDocument()
@@ -367,16 +401,25 @@ public final class ShardMergePipelineBuilder {
    * levelIndex} 0 is the outermost nested branch.
    */
   private static BsonValue buildBucketsAtLevel(
-      PathMergeConfig config, int levelIndex, String input, String rowVar) {
+      PathMergeConfig config, int levelIndex, BsonValue input, String rowVar) {
     int depth = config.groupLevels.size();
     if (levelIndex == depth - 2) {
-      return mapExpr(input, rowVar, leafRowBody(config, rowVar, depth - 1));
+      int leafKeyIndex = depth - 1;
+      @Var BsonValue mapInput = input;
+      if (isBoundaryLevel(config, leafKeyIndex)) {
+        mapInput = boundarySortArrayExpr(mapInput, config.groupLevels.get(leafKeyIndex).keyPath());
+      }
+      return mapExpr(mapInput, rowVar, leafRowBody(config, rowVar, leafKeyIndex));
     }
 
     String childBranch = config.groupLevels.get(levelIndex + 1).nestedBranchName().orElseThrow();
     String rowKey = config.groupLevels.get(levelIndex + 1).keyPath();
-    BsonValue innerBuckets =
-        buildBucketsAtLevel(config, levelIndex + 1, "$$" + rowVar + "._leaf_rows", "leaf");
+    @Var BsonValue innerInput = new BsonString("$$" + rowVar + "._leaf_rows");
+    if (isBoundaryLevel(config, levelIndex + 1)) {
+      innerInput =
+          boundarySortArrayExpr(innerInput, config.groupLevels.get(levelIndex + 1).keyPath());
+    }
+    BsonValue innerBuckets = buildBucketsAtLevel(config, levelIndex + 1, innerInput, "leaf");
 
     BsonDocument rowBody =
         new BsonDocument()
@@ -386,23 +429,59 @@ public final class ShardMergePipelineBuilder {
   }
 
   /** Adds {@code $sort} and {@code $limit} for flat leaf terms before {@code $project}. */
-  private static void appendFlatTermsTopNStages(BsonArray arm, PathMergeConfig config) {
-    if (config.leafTermsBucketLimit.isEmpty()) {
-      return;
-    }
-    String keyPath = config.groupLevels.get(0).keyPath();
-    arm.add(buildFlatTermsSortStage(keyPath));
-    arm.add(new BsonDocument("$limit", new BsonInt32(config.leafTermsBucketLimit.get())));
+  private static boolean isBoundaryLevel(PathMergeConfig config, int levelIndex) {
+    return config.boundaryLevelIndices.contains(levelIndex);
   }
 
-  private static BsonDocument buildFlatTermsSortStage(String keyPath) {
+  /** Sort flat leaf boundary buckets by grouping key ascending before {@code $project}. */
+  private static void appendFlatBoundarySortStage(BsonArray arm, String keyPath) {
+    arm.add(buildFlatBoundarySortStage(keyPath));
+  }
+
+  /**
+   * Sort nested outer boundary buckets by {@code _id} ascending before {@code $project}. After the
+   * innermost facet-arm {@code $group}, {@code _id} is the outer boundary key.
+   */
+  private static void appendGroupedBoundarySortStage(BsonArray arm) {
+    arm.add(new BsonDocument("$sort", new BsonDocument("_id", new BsonInt32(1))));
+  }
+
+  private static void appendFlatTermsTopNStages(BsonArray arm, PathMergeConfig config) {
+    appendTermsTopNStages(arm, config, 0, true);
+  }
+
+  private static void appendNestedTermsTopNStages(
+      BsonArray arm, PathMergeConfig config, int levelIndex) {
+    appendTermsTopNStages(arm, config, levelIndex, false);
+  }
+
+  private static void appendTermsTopNStages(
+      BsonArray arm, PathMergeConfig config, int levelIndex, boolean flatKeys) {
+    Integer bucketLimit = config.termsLevelLimits.get(levelIndex);
+    if (bucketLimit == null) {
+      return;
+    }
+    String keyPath = config.groupLevels.get(levelIndex).keyPath();
+    arm.add(buildTermsSortStage(keyPath, flatKeys));
+    arm.add(new BsonDocument("$limit", new BsonInt32(bucketLimit)));
+  }
+
+  private static BsonDocument buildTermsSortStage(String keyPath, boolean flatKeys) {
+    BsonDocument sortKeys = new BsonDocument().append("count_value", new BsonInt32(-1));
+    if (flatKeys) {
+      sortKeys.append(
+          "_id." + IntermediateAggregationMetaField.ID_KEYS + "." + keyPath, new BsonInt32(1));
+    } else {
+      sortKeys.append("_id", new BsonInt32(1));
+    }
+    return new BsonDocument("$sort", sortKeys);
+  }
+
+  private static BsonDocument buildFlatBoundarySortStage(String keyPath) {
     return new BsonDocument(
         "$sort",
-        new BsonDocument()
-            .append("count_value", new BsonInt32(-1))
-            .append(
-                "_id." + IntermediateAggregationMetaField.ID_KEYS + "." + keyPath,
-                new BsonInt32(1)));
+        new BsonDocument(
+            "_id." + IntermediateAggregationMetaField.ID_KEYS + "." + keyPath, new BsonInt32(1)));
   }
 
   /** Single-level branch: finalize metrics in the $facet arm. */
@@ -419,6 +498,15 @@ public final class ShardMergePipelineBuilder {
     return new BsonDocument("$project", projectBody);
   }
 
+  private static BsonDocument innermostGroupStage(BsonValue groupId, BsonDocument pushDoc) {
+    return new BsonDocument(
+        "$group",
+        new BsonDocument()
+            .append("_id", groupId)
+            .append("count_value", new BsonDocument("$sum", new BsonString("$count_value")))
+            .append("_rows", new BsonDocument("$push", pushDoc)));
+  }
+
   private static BsonDocument groupStage(BsonValue groupId, BsonDocument pushDoc) {
     return new BsonDocument(
         "$group",
@@ -427,13 +515,21 @@ public final class ShardMergePipelineBuilder {
             .append("_rows", new BsonDocument("$push", pushDoc)));
   }
 
-  private static BsonDocument mapExpr(String input, String rowVar, BsonDocument rowBody) {
+  private static BsonDocument mapExpr(BsonValue input, String rowVar, BsonDocument rowBody) {
     return new BsonDocument(
         "$map",
         new BsonDocument()
-            .append("input", new BsonString(input))
+            .append("input", input)
             .append("as", new BsonString(rowVar))
             .append("in", rowBody));
+  }
+
+  private static BsonValue boundarySortArrayExpr(BsonValue input, String keyPath) {
+    return new BsonDocument(
+        "$sortArray",
+        new BsonDocument()
+            .append("input", input)
+            .append("sortBy", new BsonDocument(keyPath, new BsonInt32(1))));
   }
 
   private static BsonDocument leafRowBody(PathMergeConfig config, String rowVar, int keyIndex) {

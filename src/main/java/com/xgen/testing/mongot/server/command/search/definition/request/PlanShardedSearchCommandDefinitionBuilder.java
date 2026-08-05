@@ -3,12 +3,14 @@ package com.xgen.testing.mongot.server.command.search.definition.request;
 import com.xgen.mongot.server.command.search.definition.request.PlanShardedSearchCommandDefinition;
 import com.xgen.mongot.util.Check;
 import java.util.Optional;
+import java.util.UUID;
 import org.bson.BsonDocument;
 
 public class PlanShardedSearchCommandDefinitionBuilder {
 
   private Optional<String> db = Optional.empty();
   private Optional<String> collectionName = Optional.empty();
+  private Optional<UUID> collectionUuid = Optional.empty();
   private Optional<String> viewName = Optional.empty();
   private Optional<BsonDocument> query = Optional.empty();
 
@@ -26,6 +28,11 @@ public class PlanShardedSearchCommandDefinitionBuilder {
 
   public PlanShardedSearchCommandDefinitionBuilder collectionName(String collectionName) {
     this.collectionName = Optional.of(collectionName);
+    return this;
+  }
+
+  public PlanShardedSearchCommandDefinitionBuilder collectionUuid(UUID collectionUuid) {
+    this.collectionUuid = Optional.of(collectionUuid);
     return this;
   }
 
@@ -54,6 +61,7 @@ public class PlanShardedSearchCommandDefinitionBuilder {
     return new PlanShardedSearchCommandDefinition(
         this.db.get(),
         this.collectionName.get(),
+        this.collectionUuid,
         this.viewName,
         this.query.get(),
         this.searchFeatures.orElse(

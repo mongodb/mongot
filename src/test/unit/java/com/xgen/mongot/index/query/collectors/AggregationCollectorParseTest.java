@@ -17,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
 import org.bson.BsonArray;
+import org.bson.BsonDateTime;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonString;
@@ -458,5 +459,48 @@ public class AggregationCollectorParseTest {
     assertThat(AggregationCollector.isAggregationCapable(legacy)).isFalse();
 
     assertThat(AggregationCollector.isAggregationCapable(new BsonDocument())).isFalse();
+  }
+
+  @Test
+  public void usesBoundaryGrouping_trueForNumberAndDateNodes() throws BsonParseException {
+    AggregationCollector numberCollector =
+        parse(
+            facetWith(
+                new BsonDocument(
+                    "byPrice",
+                    numberNode("price")
+                        .append(
+                            "aggregations",
+                            new BsonDocument("sum_price", metric("sum", "price"))))));
+    assertThat(numberCollector.usesBoundaryGrouping()).isTrue();
+
+    BsonDocument dateNode =
+        new BsonDocument("type", new BsonString("date"))
+            .append("path", new BsonString("release"))
+            .append(
+                "boundaries",
+                new BsonArray(java.util.List.of(new BsonDateTime(0L), new BsonDateTime(1_000L))));
+    AggregationCollector dateCollector =
+        parse(
+            facetWith(
+                new BsonDocument(
+                    "byRelease",
+                    dateNode.append(
+                        "aggregations", new BsonDocument("sum_price", metric("sum", "price"))))));
+    assertThat(dateCollector.usesBoundaryGrouping()).isTrue();
+  }
+
+  @Test
+  public void usesBoundaryGrouping_falseForTermsOnly() throws BsonParseException {
+    AggregationCollector collector =
+        parse(
+            facetWith(
+                new BsonDocument(
+                    "byCategory",
+                    stringNode("category")
+                        .append(
+                            "aggregations",
+                            new BsonDocument("sum_price", metric("sum", "price"))))));
+    assertThat(collector.usesBoundaryGrouping()).isFalse();
   }
 }
