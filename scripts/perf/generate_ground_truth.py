@@ -36,6 +36,12 @@ TEST_CONFIGS = {
     "query-amazon-voyage-129GB-vector-search-unquantized.yml": [
         ("sample_vectors", "amazon_ecommerce_voyage_latest_2048_binData", "unquantized", "vector", 10),
     ],
+    "query-amazon-voyage-30GB-int8-binary-quantized.yml": [
+        ("sample_vectors", "amazon_ecommerce_voyage_latest_2048_binData", "scalar-quantized", "vector", 10),
+    ],
+    "query-sphere-1GB-int8-binary-quantized.yml": [
+        ("sample_vectors", "sphere_1M_int8", "scalar-quantized", "vector", 10),
+    ],
     "query-cohere-14GB-vector-search.yml": [
         ("sample_vectors", "cohere_wikipedia_multilingual_v3", "unquantized", "vector", 10),
     ],
