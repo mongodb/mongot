@@ -4,11 +4,15 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
 
 import com.google.common.collect.Sets;
 import com.xgen.mongot.config.backup.ConfigJournalV1;
+import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.status.IndexStatus;
@@ -19,6 +23,7 @@ import com.xgen.testing.mongot.config.manager.ConfigStateMocks;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionGenerationBuilder;
 import com.xgen.testing.mongot.mock.index.IndexGeneration;
+import com.xgen.testing.mongot.mock.index.VectorIndex;
 import io.micrometer.core.instrument.Tags;
 import java.util.Collections;
 import java.util.HashMap;
@@ -364,6 +369,39 @@ public class StagedIndexesSwapperTest {
             .counter("swappedOutIndexes", Tags.of("indexStatus", "DOES_NOT_EXIST"))
             .count(),
         0.0);
+  }
+
+  @Test
+  public void swapReady_autoEmbeddingCollectionNotFoundReplacesFailedLiveGeneration()
+      throws Exception {
+    ConfigStateMocks mocks = getEmptyMocks();
+    var definitionGeneration =
+        IndexGeneration.mockDefinitionGeneration(
+            VectorIndex.MOCK_MATERIALIZED_VIEW_AUTO_EMBEDDING_INDEX_DEFINITION);
+    var indexActions = IndexActions.withReplication(mocks.configState);
+
+    doThrow(new MaterializedViewTransientException("mongod unavailable"))
+        .when(mocks.configState.materializedViewIndexFactory.get())
+        .getIndex(any());
+    indexActions.addNewIndexes(List.of(definitionGeneration));
+    var failedLiveIndex = mocks.indexCatalog.getIndexById(VectorIndex.MOCK_INDEX_ID).orElseThrow();
+
+    reset(mocks.configState.materializedViewIndexFactory.get());
+    when(mocks
+            .configState
+            .materializedViewIndexFactory
+            .get()
+            .isSourceCollectionAbsentOnMongod(any()))
+        .thenReturn(true);
+    indexActions.addStagedIndex(definitionGeneration.incrementAttempt());
+    var collectionNotFoundStagedIndex =
+        mocks.staged.getIndex(VectorIndex.MOCK_INDEX_ID).orElseThrow();
+    mocks.clearInvocations();
+
+    runSwaps(mocks);
+
+    mocks.assertLiveIndexesAre(collectionNotFoundStagedIndex);
+    mocks.assertPhasingOutIndexesAre(failedLiveIndex);
   }
 
   private void runSwaps(ConfigStateMocks mocks) throws Exception {
