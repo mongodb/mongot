@@ -9,6 +9,7 @@ import static org.junit.Assert.assertTrue;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.lucene.query.context.QueryFactoryContext;
+import com.xgen.mongot.index.query.operators.bound.NumericRangeBound;
 import com.xgen.mongot.index.query.operators.mql.AndClause;
 import com.xgen.mongot.index.query.operators.mql.Clause;
 import com.xgen.mongot.index.query.operators.mql.MqlFilterOperator;
@@ -17,12 +18,15 @@ import com.xgen.mongot.index.query.operators.mql.SimpleClause;
 import com.xgen.mongot.index.query.optimizer.RewriteAudit;
 import com.xgen.mongot.index.query.optimizer.RewriteContext;
 import com.xgen.mongot.index.query.points.DatePoint;
+import com.xgen.mongot.index.query.points.DoublePoint;
+import com.xgen.mongot.index.query.points.LongPoint;
 import com.xgen.testing.mongot.index.query.operators.mql.ClauseBuilder;
 import com.xgen.testing.mongot.index.query.operators.mql.MqlFilterOperatorBuilder;
 import com.xgen.testing.mongot.index.query.operators.mql.ValueBuilder;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 import org.junit.Test;
 import org.mockito.Mockito;
 
@@ -118,6 +122,35 @@ public class RangeBoundsMergeMqlAndClauseRuleTest {
 
     assertEquals(1, result.getClauses().size());
     assertFusedSimpleClause(result.getClauses().get(0), "score");
+  }
+
+  @Test
+  public void gtLongAndLtDouble_mixedNumericPointTypes_fuses() throws Exception {
+    AndClause input =
+        ClauseBuilder.andClause()
+            .addClause(
+                singleOpClause(
+                    "x", MqlFilterOperatorBuilder.gt().value(ValueBuilder.longNumber(1L))))
+            .addClause(
+                singleOpClause(
+                    "x", MqlFilterOperatorBuilder.lt().value(ValueBuilder.doubleNumber(10.5))))
+            .explicitAnd(false)
+            .build();
+
+    AndClause result = applyRule(input);
+
+    assertEquals(1, result.getClauses().size());
+    assertFusedSimpleClause(result.getClauses().get(0), "x");
+    // Each fused operator keeps its own bound untouched — no cross-type coercion.
+    SimpleClause sc = (SimpleClause) result.getClauses().get(0);
+    NumericRangeBound lowerBounds =
+        (NumericRangeBound)
+            ((OpenRangeBoundComparisonOperator) sc.mqlFilterOperators().get(0)).getBounds();
+    NumericRangeBound upperBounds =
+        (NumericRangeBound)
+            ((OpenRangeBoundComparisonOperator) sc.mqlFilterOperators().get(1)).getBounds();
+    assertEquals(Optional.of(new LongPoint(1L)), lowerBounds.getLower());
+    assertEquals(Optional.of(new DoublePoint(10.5)), upperBounds.getUpper());
   }
 
   @Test

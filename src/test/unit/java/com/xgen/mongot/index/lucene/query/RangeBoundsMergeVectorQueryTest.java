@@ -33,6 +33,7 @@ import com.xgen.testing.mongot.mock.index.SearchIndex;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import org.apache.lucene.document.Document;
 import org.apache.lucene.document.NumericDocValuesField;
 import org.apache.lucene.search.BooleanClause.Occur;
 import org.apache.lucene.search.BooleanQuery.Builder;
@@ -100,6 +101,25 @@ public class RangeBoundsMergeVectorQueryTest {
     translation(optimizerEnabled()).assertTranslatedTo(vectorQuery(operators), expected);
   }
 
+  @Test
+  public void gtLongAndLtDouble_optimizerOn_emitsSingleMergedRange() throws Exception {
+    List<MqlFilterOperator> operators =
+        List.of(
+            MqlFilterOperatorBuilder.gt().value(ValueBuilder.longNumber(1L)).build(),
+            MqlFilterOperatorBuilder.lt().value(ValueBuilder.doubleNumber(10.5)).build());
+
+    // Each endpoint of the merged bound converts per its own point type: the long variant of the
+    // exclusive DoublePoint(10.5) upper bound is floor(nextDown(10.5)) = 10, and the double
+    // variant of the exclusive LongPoint(1) lower bound is nextUp(1.0).
+    var expected =
+        knnQuery(
+            singleClosedRangeMust(
+                longRangeQueries(2, 10),
+                doubleRangeQueries(Math.nextUp(1.0), Math.nextDown(10.5))));
+
+    translation(optimizerEnabled()).assertTranslatedTo(vectorQuery(operators), expected);
+  }
+
   /**
    * Wrap the merged single-range {@link ConstantScoreQuery} the way {@code
    * createLuceneFilterForSimpleClause} does: a one-clause {@code BooleanQuery} with the inner range
@@ -141,6 +161,58 @@ public class RangeBoundsMergeVectorQueryTest {
     // time, so the optimizer becomes a no-op and the factory translates the original
     // $gt/$lt operators as it would pre-PR.
     translation(masterOnRuleOff()).assertTranslatedTo(vectorQuery(operators), expected);
+  }
+
+  @Test
+  public void gtLongAndLtDouble_multiValuedField_fallsBackToAndOfTwoOpens() throws Exception {
+    List<MqlFilterOperator> operators =
+        List.of(
+            MqlFilterOperatorBuilder.gt().value(ValueBuilder.longNumber(1L)).build(),
+            MqlFilterOperatorBuilder.lt().value(ValueBuilder.doubleNumber(10.5)).build());
+
+    // One document with two values for the int64Multiple variant makes the field multi-valued, so
+    // the factory must decompose the merged closed range instead of emitting one scan.
+    Document multiValued = new Document();
+    multiValued.add(
+        new org.apache.lucene.document.LongPoint("$type:int64Multiple/" + FILTER_PATH, 3L));
+    multiValued.add(
+        new org.apache.lucene.document.LongPoint("$type:int64Multiple/" + FILTER_PATH, 7L));
+
+    // Unlike the flag-off shape (two sibling MUSTs, one per original operator), the fallback is
+    // nested one level deeper: the single closed-range operator translates to a BooleanQuery of
+    // the two reconstructed opens, each half keeping its endpoint's original point type.
+    var expected =
+        knnQuery(
+            new Builder()
+                .add(
+                    new Builder()
+                        .add(
+                            new ConstantScoreQuery(
+                                new Builder()
+                                    .add(longRangeQueries(2, Long.MAX_VALUE), Occur.SHOULD)
+                                    .add(
+                                        doubleRangeQueries(
+                                            Math.nextUp(1.0), 1.0 * Double.MAX_VALUE),
+                                        Occur.SHOULD)
+                                    .build()),
+                            Occur.MUST)
+                        .add(
+                            new ConstantScoreQuery(
+                                new Builder()
+                                    .add(longRangeQueries(Long.MIN_VALUE, 10), Occur.SHOULD)
+                                    .add(
+                                        doubleRangeQueries(
+                                            -1.0 * Double.MAX_VALUE, Math.nextDown(10.5)),
+                                        Occur.SHOULD)
+                                    .build()),
+                            Occur.MUST)
+                        .build(),
+                    Occur.MUST)
+                .build());
+
+    translation(optimizerEnabled())
+        .withDocuments(List.of(multiValued))
+        .assertTranslatedTo(vectorQuery(operators), expected);
   }
 
   @Test

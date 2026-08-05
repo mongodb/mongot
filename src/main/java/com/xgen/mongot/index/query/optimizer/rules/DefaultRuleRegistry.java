@@ -9,6 +9,7 @@ public final class DefaultRuleRegistry {
       RuleRegistry.builder()
           .addClauseRule(new RangeBoundsMergeMqlAndClauseRule())
           .addClauseRule(new RangeBoundsMergeMqlSimpleClauseRule())
+          .addOperatorRule(new RangeBoundsMergeOperatorRule())
           .build();
 
   private DefaultRuleRegistry() {}

@@ -146,6 +146,12 @@ class LuceneSearchTranslation {
         Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(featureFlags));
   }
 
+  static LuceneSearchTranslation mappedWithDynamicFeatureFlags(
+      DocumentFieldDefinition mapping, DynamicFeatureFlagRegistry registry) {
+    return new LuceneSearchTranslation(
+        Optional.empty(), Optional.of(mapping), Optional.empty(), Optional.empty(), registry);
+  }
+
   static LuceneSearchTranslation gatedWithDynamicFeatureFlags(DynamicFeatureFlags dff) {
     DynamicFeatureFlagConfig config =
         new DynamicFeatureFlagConfig(
@@ -272,6 +278,20 @@ class LuceneSearchTranslation {
         luceneDoc.add(new StringField(kv.getKey(), kv.getValue(), Field.Store.NO));
       }
       index(luceneDoc);
+    }
+
+    return getLuceneQuery(operator, Optional.empty());
+  }
+
+  /**
+   * Translates with the given raw Lucene documents indexed first, for translations whose optimizer
+   * rewrite depends on index state (e.g., the single-valued point-field check).
+   */
+  Query translateWithLuceneDocuments(Operator operator, List<Document> documents)
+      throws IOException, InvalidQueryException {
+    setUp();
+    for (Document document : documents) {
+      index(document);
     }
 
     return getLuceneQuery(operator, Optional.empty());

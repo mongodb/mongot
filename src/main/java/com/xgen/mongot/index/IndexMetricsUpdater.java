@@ -96,6 +96,9 @@ public class IndexMetricsUpdater implements Closeable {
   public static final String OPTIMIZER_RULE_RANGE_BOUNDS_MERGE_MQL_AND_CLAUSE =
       "RangeBoundsMergeMqlAndClauseRule";
 
+  public static final String OPTIMIZER_RULE_RANGE_BOUNDS_MERGE_OPERATOR =
+      "RangeBoundsMergeOperatorRule";
+
   private final IndexDefinition indexDefinition;
   private final PerIndexMetricsFactory metricsFactory;
   private final IndexingMetricsUpdater indexingMetricsUpdater;
@@ -804,6 +807,9 @@ public class IndexMetricsUpdater implements Closeable {
               metricsFactory.counter(
                   OPTIMIZER_RULE_FIRED_PREFIX
                       + OPTIMIZER_RULE_RANGE_BOUNDS_MERGE_MQL_SIMPLE_CLAUSE),
+              OPTIMIZER_RULE_RANGE_BOUNDS_MERGE_OPERATOR,
+              metricsFactory.counter(
+                  OPTIMIZER_RULE_FIRED_PREFIX + OPTIMIZER_RULE_RANGE_BOUNDS_MERGE_OPERATOR),
               OPTIMIZER_RULE_RANGE_BOUNDS_MERGE_MQL_AND_CLAUSE,
               metricsFactory.counter(
                   OPTIMIZER_RULE_FIRED_PREFIX + OPTIMIZER_RULE_RANGE_BOUNDS_MERGE_MQL_AND_CLAUSE));

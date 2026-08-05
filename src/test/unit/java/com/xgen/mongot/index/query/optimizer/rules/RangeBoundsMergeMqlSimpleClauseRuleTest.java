@@ -19,11 +19,14 @@ import com.xgen.mongot.index.query.operators.type.ValueType;
 import com.xgen.mongot.index.query.optimizer.RewriteAudit;
 import com.xgen.mongot.index.query.optimizer.RewriteContext;
 import com.xgen.mongot.index.query.points.DatePoint;
+import com.xgen.mongot.index.query.points.DoublePoint;
+import com.xgen.mongot.index.query.points.LongPoint;
 import com.xgen.testing.mongot.index.query.operators.mql.ClauseBuilder;
 import com.xgen.testing.mongot.index.query.operators.mql.MqlFilterOperatorBuilder;
 import com.xgen.testing.mongot.index.query.operators.mql.ValueBuilder;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import java.util.Date;
+import java.util.Optional;
 import org.junit.Test;
 import org.mockito.Mockito;
 
@@ -93,6 +96,40 @@ public class RangeBoundsMergeMqlSimpleClauseRuleTest {
             .build();
 
     assertClosedRange(applyRule(input), "price", ValueType.NUMBER, true, false);
+  }
+
+  @Test
+  public void gtLongAndLtDouble_mixedNumericPointTypes_collapsesToClosedRange() throws Exception {
+    SimpleClause input =
+        ClauseBuilder.simpleClause()
+            .path("price")
+            .addOperator(MqlFilterOperatorBuilder.gt().value(ValueBuilder.longNumber(1L)))
+            .addOperator(MqlFilterOperatorBuilder.lt().value(ValueBuilder.doubleNumber(10.5)))
+            .build();
+
+    Clause result = applyRule(input);
+
+    assertClosedRange(result, "price", ValueType.NUMBER, false, false);
+    NumericRangeBound bounds = numericBoundsOf(result);
+    assertEquals(Optional.of(new LongPoint(1L)), bounds.getLower());
+    assertEquals(Optional.of(new DoublePoint(10.5)), bounds.getUpper());
+  }
+
+  @Test
+  public void gtDoubleAndLtLong_mixedNumericPointTypes_collapsesToClosedRange() throws Exception {
+    SimpleClause input =
+        ClauseBuilder.simpleClause()
+            .path("price")
+            .addOperator(MqlFilterOperatorBuilder.gt().value(ValueBuilder.doubleNumber(0.5)))
+            .addOperator(MqlFilterOperatorBuilder.lt().value(ValueBuilder.longNumber(100L)))
+            .build();
+
+    Clause result = applyRule(input);
+
+    assertClosedRange(result, "price", ValueType.NUMBER, false, false);
+    NumericRangeBound bounds = numericBoundsOf(result);
+    assertEquals(Optional.of(new DoublePoint(0.5)), bounds.getLower());
+    assertEquals(Optional.of(new LongPoint(100L)), bounds.getUpper());
   }
 
   @Test
@@ -291,6 +328,12 @@ public class RangeBoundsMergeMqlSimpleClauseRuleTest {
     } else if (valueType == ValueType.DATE) {
       assertTrue(bounds instanceof DateRangeBound);
     }
+  }
+
+  private static NumericRangeBound numericBoundsOf(Clause clause) {
+    return (NumericRangeBound)
+        ((ClosedRangeBoundComparisonOperator) ((SimpleClause) clause).mqlFilterOperators().get(0))
+            .bounds();
   }
 
   private static RewriteContext newContext() {

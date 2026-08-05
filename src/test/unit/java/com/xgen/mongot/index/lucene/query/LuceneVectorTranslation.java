@@ -17,6 +17,7 @@ import com.xgen.testing.mongot.mock.index.SearchIndex;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import org.apache.lucene.document.Document;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
@@ -36,12 +37,25 @@ class LuceneVectorTranslation {
   private final FeatureFlags featureFlags;
   private final DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry;
   private final Map<FieldPath, FieldPath> autoEmbeddingFieldsMapping;
+  private List<Document> documents = List.of();
 
   private void setUp() throws IOException {
     var temporaryFolder = TestUtils.getTempFolder();
     this.directory = new MMapDirectory(temporaryFolder.getRoot().toPath());
     this.writer = new IndexWriter(this.directory, new IndexWriterConfig());
+    for (Document document : this.documents) {
+      this.writer.addDocument(document);
+    }
     this.writer.commit();
+  }
+
+  /**
+   * Seeds the index with the given documents before translation, for tests whose expected query
+   * depends on index state (e.g., the single-valued point-field check).
+   */
+  LuceneVectorTranslation withDocuments(List<Document> documents) {
+    this.documents = documents;
+    return this;
   }
 
   private void tearDown() throws IOException {
