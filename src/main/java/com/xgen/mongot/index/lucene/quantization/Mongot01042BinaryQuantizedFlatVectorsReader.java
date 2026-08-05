@@ -55,7 +55,11 @@ import org.apache.lucene.util.quantization.ScalarQuantizer;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Reads Scalar Quantized vectors from the index segments along with index data structures.
+ * Reads binary-quantized vectors from the index segments along with index data structures.
+ *
+ * <p>Supports both {@code float32} and {@code byte} encoded vector fields. Quantized vectors are
+ * stored as packed 1-bit values; the raw, full-fidelity vectors are delegated to the underlying
+ * {@link FlatVectorsReader}.
  *
  * @lucene.experimental
  */
@@ -71,7 +75,7 @@ public final class Mongot01042BinaryQuantizedFlatVectorsReader extends FlatVecto
   private final FieldInfos fieldInfos;
 
   /**
-   * Reads Scalar Quantized vectors from the index segments along with index data structures.
+   * Reads binary-quantized vectors from the index segments along with index data structures.
    *
    * @param state Quantized segment state.
    * @param rawVectorsReader Unquantized vector reader for forwarding to if needed.
@@ -179,6 +183,9 @@ public final class Mongot01042BinaryQuantizedFlatVectorsReader extends FlatVecto
     return new IllegalArgumentException("field=\"" + field + "\" not found");
   }
 
+  // Temporary Fallback: replace this to throw FieldNotFound() on fieldEntry == null when
+  // BINARY_BYTE_QUANTIZATION is fully rolled out. Gating in IndexableFieldFactory for bit quantized
+  // byte vectors means some users will have this feature disabled. [CLOUDP-405857]
   private Optional<FieldEntry> getFieldEntry(String field) {
     FieldInfo info = this.fieldInfos.fieldInfo(field);
     if (info == null) {
@@ -186,8 +193,8 @@ public final class Mongot01042BinaryQuantizedFlatVectorsReader extends FlatVecto
     }
     FieldEntry fieldEntry = this.fields.get(info.name);
     if (fieldEntry == null) {
-      // The field exists but has no quantized entry (the writer only quantizes FLOAT32). Return
-      // empty so the caller can fall back to the raw reader (e.g. byte-encoded fields).
+      // The field exists but has no quantized entry (the writer only quantizes FLOAT32 and BYTE).
+      // Return empty so the caller can fall back to the raw reader (e.g. bit-encoded fields).
       return Optional.empty();
     }
     if (fieldEntry.vectorEncoding != VectorEncoding.FLOAT32
@@ -355,11 +362,13 @@ public final class Mongot01042BinaryQuantizedFlatVectorsReader extends FlatVecto
    * Returns the binary quantizer for {@code fieldName}, or {@code null} when the field has no
    * quantized entry in this reader or the field is empty ({@code size == 0}). It can also return
    * null in the {@code orElse(null)} case because {@link #getFieldEntry} returns an empty optional
-   * for byte fields, which have no corresponding field entry.
+   * for byte fields which have no corresponding field entry.
    */
   @Override
   @Nullable
   public ScalarQuantizer getQuantizationState(String fieldName) {
+    // Note, after CLOUDP-431802 is implemented, {@link #getFieldEntry} will not return an empty
+    // optional, so this will never be null and the @Nullable annotation should be removed
     return getFieldEntry(fieldName).map(fieldEntry -> fieldEntry.scalarQuantizer).orElse(null);
   }
 
@@ -427,6 +436,11 @@ public final class Mongot01042BinaryQuantizedFlatVectorsReader extends FlatVecto
     }
   }
 
+  /**
+   * {@link FloatVectorValues} view that serves raw (full-fidelity) vectors for {@code vectorValue}
+   * but routes {@code scorer} to the quantized values for HNSW traversal. This lets the reader
+   * return a single object that serves both the approximate (quantized) and exact (raw) paths.
+   */
   private static final class QuantizedFloatVectorValues extends FloatVectorValues {
     private final FloatVectorValues rawVectorValues;
     private final OffHeapQuantizedByteVectorValues quantizedVectorValues;
@@ -474,6 +488,11 @@ public final class Mongot01042BinaryQuantizedFlatVectorsReader extends FlatVecto
     }
   }
 
+  /**
+   * {@link ByteVectorValues} view that serves raw (full-fidelity) vectors for {@code vectorValue}
+   * but routes {@code scorer} to the quantized values for HNSW traversal. This lets the reader
+   * return a single object that serves both the approximate (quantized) and exact (raw) paths.
+   */
   private static final class QuantizedByteVectorValues extends ByteVectorValues {
     private final ByteVectorValues rawVectorValues;
     private final OffHeapQuantizedByteVectorValues quantizedVectorValues;

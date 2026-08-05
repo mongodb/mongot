@@ -75,6 +75,13 @@ public class InstrumentableKnnByteVectorQuery extends MongotKnnByteQuery {
         perLeafResults, () -> super.mergeLeafResults(perLeafResults));
   }
 
+  /**
+   * Reports the final rescored results to the instrumentation helper so that tracing docs dropped
+   * during rescoring can be marked. Called by {@code BinaryQuantizedVectorRescorer} after two-stage
+   * rescoring completes.
+   *
+   * @param rescoredDocs the final rescored top docs
+   */
   public void examineResultsAfterRescoring(TopDocs rescoredDocs) {
     this.instrumentationHelper.examineResultsAfterRescoring(rescoredDocs);
   }

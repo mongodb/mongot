@@ -5,8 +5,7 @@ import com.xgen.mongot.util.bson.Vector;
 
 /**
  * Resolves the Lucene {@link FieldName.TypeField} that backs a vector field. The mapping depends on
- * both the field's indexed {@link VectorQuantization} and the {@link Vector.VectorType} of the
- * query vector.
+ * both the field's indexed {@link VectorQuantization} and {@link Vector.VectorType} of the vector.
  */
 public final class VectorTypeFieldResolver {
 
@@ -14,7 +13,7 @@ public final class VectorTypeFieldResolver {
 
   /**
    * Returns the {@link FieldName.TypeField} backing a vector field indexed with {@code
-   * quantization} and queried with a {@code vectorType} vector.
+   * quantization} and of type {@code vectorType}.
    *
    * @param quantization the quantization type
    * @param vectorType the vector type

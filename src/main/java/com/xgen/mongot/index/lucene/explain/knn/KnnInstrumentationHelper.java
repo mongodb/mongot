@@ -206,6 +206,14 @@ public class KnnInstrumentationHelper {
     return competitiveTracingDocs;
   }
 
+  /**
+   * Marks any traced candidates that are absent from the rescored result set with a {@link
+   * VectorSearchTracingSpec.DropReason#RESCORING} drop reason. Called after two-stage rescoring
+   * completes so that explain output can distinguish docs dropped during HNSW traversal from docs
+   * dropped during rescoring.
+   *
+   * @param rescoredDocs the final rescored top docs
+   */
   public void examineResultsAfterRescoring(TopDocs rescoredDocs) {
     Set<Integer> luceneDocIdsAfterRescoring =
         Arrays.stream(rescoredDocs.scoreDocs).map((doc) -> doc.doc).collect(Collectors.toSet());

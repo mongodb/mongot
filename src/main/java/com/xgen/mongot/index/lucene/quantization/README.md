@@ -7,8 +7,9 @@ durable storage. Quantization is a form of compression used to reduce the size o
 
 ## Automatically-Quantized Vectors
 
-A user can provide full-fidelity (float32) vectors to be ingested by MongoDB while requesting for
-MongoDB to automatically quantize the vectors to save space in main memory.
+A user can provide full-fidelity vectors to be ingested by MongoDB while requesting for MongoDB to
+automatically quantize the vectors to save space in main memory. Both `float32` and `int8` (byte)
+vectors are supported as input, depending on the quantization type.
 
 Automatic quantization is controlled by the `quantization` setting which can be either `scalar`
 or `binary` in the index definition of a vector search index.
@@ -31,12 +32,12 @@ so there are no files in this mongot quantization library for implementing scala
 ### Binary Quantization
 
 Binary Quantization, enabled by setting the `quantization` to `binary` in the index definition
-for a vector search index, accepts vectors with 32-bit (float32) elements that are automatically
-quantized into 1-bit elements, saving 31 bits per element.
+for a vector search index, accepts vectors with 32-bit (float32) or 8-bit (int8/byte) elements
+that are automatically quantized into 1-bit elements, saving 31 bits per element for float32
+input and 7 bits per element for byte input.
 
-A binary quantization feature is being developed for Lucene but is not yet available from Lucene
-(as of December 2024). MongoDB provides binary quantization as an enhancement to Lucene developed
-by MongoDB in-house.
+Although Lucene has developed a binary quantization feature, it differs from MongoDB.
+MongoDB provides binary quantization as an enhancement to Lucene developed by MongoDB in-house.
 
 The main class for the binary quantization feature is:
 [Mongot01042HnswBinaryQuantizedVectorsFormat](Mongot01042HnswBinaryQuantizedVectorsFormat.java).
@@ -51,10 +52,25 @@ These two classes calculate vector scores.
 [BinaryQuantizedFlatVectorsScorer](BinaryQuantizedFlatVectorsScorer.java) does very fast Hamming
 distance scoring during HNSW traversal.
 [BinaryQuantizedVectorRescorer](BinaryQuantizedVectorRescorer.java) does full-fidelity rescoring
-on query result candidates after the HNSW algorithm has completed.
+on query result candidates after the HNSW algorithm has completed. It performs two-stage
+rescoring: first against dequantized binary vectors (approximate), then against full-precision
+stored vectors (full-fidelity).
+
+The rescorer operates against the encoding-agnostic interface
+[BinaryQuantizedRescoreQuery](BinaryQuantizedRescoreQuery.java), which wraps the extracted Lucene
+KNN query and provides scorer factories for each stage. Two implementations exist:
+
+- [FloatBinaryQuantizedRescoreQuery](FloatBinaryQuantizedRescoreQuery.java) — backed by a
+  `KnnFloatVectorQuery` for float-encoded vector fields.
+- [ByteBinaryQuantizedRescoreQuery](ByteBinaryQuantizedRescoreQuery.java) — backed by a
+  `KnnByteVectorQuery` for byte-encoded vector fields.
+
+Dispatch is via the static factory `BinaryQuantizedRescoreQuery.from(Query)`, which selects the
+correct implementation based on the concrete `Knn*VectorQuery` subtype.
 
 [BinaryQuantizer](BinaryQuantizer.java) quantizes a full-fidelity vector with float32 elements
-into a quantized vector with 1-bit elements.
+into a quantized vector with 1-bit elements. The stateless static helper
+`BinaryQuantizer.quantizeBytes()` does the same for byte (int8) vectors.
 
 [OffHeapQuantizedByteVectorValues](OffHeapQuantizedByteVectorValues.java) packs and unpacks the
 bits inside quantized vectors. Lucene sometimes refers to bit packing as compression and there is
@@ -69,6 +85,22 @@ quantization, elements are stored eight bits per byte.
 [DequantizedByteVectorValues](DequantizedByteVectorValues.java) are trivial VectorValues classes
 for converting binary-quantized 1-bit elements to `float` and `byte`, respectively. They are used
 by [BinaryQuantizedVectorRescorer](BinaryQuantizedVectorRescorer.java).
+
+### Feature Flag
+
+Byte binary quantization (ingress of `int8`/byte vectors with binary quantization) is gated by
+the `BYTE_BINARY_QUANTIZATION` static feature flag (`byteBinaryQuantization` in config), defined
+in `Feature.java`. This flag is **disk-affecting**: when enabled, the writer produces segments
+with `KNN_BYTE_Q1` fields that older binaries cannot read. It is registered in
+`DISK_AFFECTING_FEATURE_FLAGS` in `feature_flag_downgrade_test.bzl` and must follow the
+[feature flag rollback safety policy](../../../../../docs/internal/development/feature-flag-rollback-safety.md).
+
+## Type Field Resolution
+
+The Lucene `FieldName.TypeField` that backs a vector field is resolved by
+[VectorTypeFieldResolver](../../definition/quantization/VectorTypeFieldResolver.java) (in the
+`index/definition/quantization` package). The mapping depends on both the field's indexed
+`VectorQuantization` and the `VectorType` of the query vector.
 
 ## Pre-Quantized Vectors
 

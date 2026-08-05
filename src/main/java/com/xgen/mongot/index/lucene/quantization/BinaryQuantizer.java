@@ -22,6 +22,12 @@ package com.xgen.mongot.index.lucene.quantization;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.util.quantization.ScalarQuantizer;
 
+/**
+ * Will binary quantize float or byte vectors into 1-bit values. This is a lossy transformation.
+ * Binary quantization works by capturing only the sign of each dimension. Unlike scalar
+ * quantization, binary quantization is stateless: there is no confidence interval or quantiles to
+ * calculate.
+ */
 public class BinaryQuantizer extends ScalarQuantizer {
   // Placeholder quantile values: quantiles are not used for binary quantization.
   // The ScalarQuantizer superclass computes scalar-quantization-specific parameters
@@ -51,6 +57,10 @@ public class BinaryQuantizer extends ScalarQuantizer {
    * Quantizes each byte-valued dimension into a single bit (1 if positive, else 0). Binary
    * quantization is stateless, so this is exposed as a static helper to avoid downcasting a {@link
    * ScalarQuantizer} at call sites.
+   *
+   * <p>note that this does not return a float correction constant because there is no correction
+   * for binary quantization. Since the {@link #quantize} override from {@link ScalarQuantizer}
+   * method is not used (and doesn't exist for bytes), passing 0 is not necessary.
    *
    * @param src source array of raw byte values
    * @param dest destination array of quantized bytes

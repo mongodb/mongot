@@ -123,6 +123,14 @@ public class LuceneVectorSearchManager implements LuceneSearchManager<QueryInfo>
             parentFilter);
   }
 
+  /**
+   * Extracts the underlying KNN vector query from the query tree. Handles three shapes: a bare
+   * {@code KnnFloatVectorQuery}/{@code KnnByteVectorQuery}, a {@link WrappedKnnQuery} wrapping one,
+   * or a {@link BooleanQuery} whose MUST clause is a KNN vector query.
+   *
+   * @param query the top-level query to extract from
+   * @return the extracted {@code KnnFloatVectorQuery} or {@code KnnByteVectorQuery}
+   */
   @VisibleForTesting
   static Query extractKnnQuery(Query query) {
     Query unwrapped = (query instanceof WrappedKnnQuery wkq) ? wkq.getQuery() : query;

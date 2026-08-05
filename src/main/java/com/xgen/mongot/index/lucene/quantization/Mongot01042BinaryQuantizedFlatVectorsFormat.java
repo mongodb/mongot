@@ -21,6 +21,7 @@ package com.xgen.mongot.index.lucene.quantization;
 
 import java.io.IOException;
 import java.util.Optional;
+import org.apache.lucene.backward_codecs.lucene99.Lucene99ScalarQuantizedVectorsFormat;
 import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
 import org.apache.lucene.codecs.hnsw.FlatVectorsReader;
@@ -30,7 +31,8 @@ import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
 
 /**
- * Format supporting vector quantization, storage, and retrieval
+ * Flat vectors format for binary-quantized vectors, supporting quantization, storage, and retrieval
+ * of both {@code float32} and {@code byte} encoded vector fields.
  *
  * @lucene.experimental
  */
@@ -57,8 +59,9 @@ public class Mongot01042BinaryQuantizedFlatVectorsFormat extends FlatVectorsForm
   public static final float DYNAMIC_CONFIDENCE_INTERVAL = 0f;
 
   /**
-   * Controls the confidence interval used to scalar quantize the vectors the default value is
-   * calculated as `1-1/(vector_dimensions + 1)`
+   * Note: the confidence interval is a legacy field carried over from {@link
+   * Lucene99ScalarQuantizedVectorsFormat}; binary quantization is stateless and does not use it for
+   * scoring.
    */
   final Optional<Float> confidenceInterval;
 

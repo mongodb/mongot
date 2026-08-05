@@ -68,7 +68,8 @@ import org.apache.lucene.util.quantization.ScalarQuantizer;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Writes quantized vector values and metadata to index segments.
+ * Writes binary-quantized vector values and metadata to index segments. Supports both {@code
+ * float32} and {@code byte} encoded vector fields.
  *
  * @lucene.experimental
  */
@@ -779,6 +780,11 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
     }
   }
 
+  /**
+   * Merge-time adapter that quantizes {@code float32} vectors on demand into 1-bit binary
+   * representation. Used by {@link MergedQuantizedVectorValues} during segment merges to produce
+   * quantized output without a separate quantization pass.
+   */
   static class BinaryQuantizedFloatVectorValues extends QuantizedByteVectorValues {
     private final FloatVectorValues values;
     private final ScalarQuantizer quantizer;
@@ -832,6 +838,12 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
     }
   }
 
+  /**
+   * Merge-time adapter that quantizes {@code byte} vectors on demand into 1-bit binary
+   * representation. Used by {@link MergedQuantizedVectorValues} during segment merges to produce
+   * quantized output without a separate quantization pass. Unlike the float variant, there is no
+   * offset correction since binary quantization of byte vectors is stateless.
+   */
   static class BinaryQuantizedByteVectorValues extends QuantizedByteVectorValues {
     private final ByteVectorValues values;
     private final byte[] quantizedVector;
