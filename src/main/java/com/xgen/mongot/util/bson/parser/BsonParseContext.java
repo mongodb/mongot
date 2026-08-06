@@ -57,19 +57,33 @@ public class BsonParseContext {
     throw deserializationException(String.format("must be a %s", expected));
   }
 
-  /** Throws a BsonParseException describing the unexpected fields. */
-  public void handleUnexpectedFields(Collection<String> fields) throws BsonParseException {
+  /**
+   * Throws a BsonParseException describing the unexpected fields. {@code expectedFields} are the
+   * fields the parser recognized for this document (used to make typos like {@code
+   * embeddedDocuments} vs {@code embeddedDocument} obvious); when non-empty they are appended to
+   * the message.
+   */
+  public void handleUnexpectedFields(Collection<String> fields, Collection<String> expectedFields)
+      throws BsonParseException {
+    String expectedClause =
+        expectedFields.isEmpty()
+            ? ""
+            : ". Expected fields are: "
+                + expectedFields.stream().sorted().collect(Collectors.joining(", "));
+
     if (fields.size() == 1) {
       throw deserializationException(
-          String.format("unrecognized field \"%s\"", fields.iterator().next()));
+          String.format("unrecognized field \"%s\"%s", fields.iterator().next(), expectedClause));
     }
 
     throw deserializationException(
         String.format(
-            "unrecognized fields [%s]",
+            "unrecognized fields [%s]%s",
             fields.stream()
+                .sorted()
                 .map(s -> String.format("\"%s\"", s))
-                .collect(Collectors.joining(", "))));
+                .collect(Collectors.joining(", ")),
+            expectedClause));
   }
 
   /** Throws a BsonParseException describing the underflow. */

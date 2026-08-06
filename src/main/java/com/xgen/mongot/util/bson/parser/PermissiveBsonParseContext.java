@@ -46,9 +46,9 @@ public class PermissiveBsonParseContext extends BsonParseContext {
   }
 
   @Override
-  public void handleUnexpectedFields(Collection<String> fields) {
+  public void handleUnexpectedFields(Collection<String> fields, Collection<String> expectedFields) {
     try {
-      super.handleUnexpectedFields(fields);
+      super.handleUnexpectedFields(fields, expectedFields);
     } catch (BsonParseException e) {
       this.unknownFieldExceptions.add(e);
     }

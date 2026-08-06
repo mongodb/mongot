@@ -495,6 +495,42 @@ public class FacetCollectorTest {
     }
 
     /**
+     * An unrecognized field on a facet (e.g. the common {@code embeddedDocuments} plural typo)
+     * lists the expected fields, making the fix obvious.
+     */
+    @Test
+    public void unrecognizedFacetField_listsExpectedFields() {
+      var facetWithTypo =
+          new BsonDocument()
+              .append("type", new BsonString("string"))
+              .append("path", new BsonString("variants.color"))
+              .append(
+                  "embeddedDocuments", // plural typo; the field is "embeddedDocument"
+                  new BsonDocument().append("path", new BsonString("variants")));
+      var collector =
+          new BsonDocument()
+              .append(
+                  "operator",
+                  new BsonDocument()
+                      .append(
+                          "text",
+                          new BsonDocument()
+                              .append("path", new BsonString("title"))
+                              .append("query", new BsonString("jacket"))))
+              .append("facets", new BsonDocument().append("colorFacet", facetWithTypo));
+
+      var parser = BsonDocumentParser.fromRoot(collector).build();
+      BsonParseException ex =
+          TestUtils.assertThrows(
+              "unrecognized field \"embeddedDocuments\"",
+              BsonParseException.class,
+              () -> FacetCollector.fromBson(parser));
+      assertThat(ex)
+          .hasMessageThat()
+          .contains("Expected fields are: embeddedDocument, numBuckets, path, type");
+    }
+
+    /**
      * POC boundary: only string/token facets support the inline {@code embeddedDocument} block so
      * far. A number facet carrying one is rejected at parse through the real query path {@link
      * FacetCollector#fromBson}, because the {@code facets} map disallows unknown fields and the

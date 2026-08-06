@@ -136,7 +136,7 @@ public class BsonDocumentParser implements DocumentParser {
         Sets.difference(this.wrapped.keySet(), this.witnessedFields);
 
     if (!fieldsNotRequested.isEmpty()) {
-      this.context.handleUnexpectedFields(fieldsNotRequested);
+      this.context.handleUnexpectedFields(fieldsNotRequested, this.witnessedFields);
     }
   }
 }
