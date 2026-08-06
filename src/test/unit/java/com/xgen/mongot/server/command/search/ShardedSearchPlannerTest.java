@@ -18,6 +18,8 @@ import com.xgen.mongot.index.query.collectors.AggregationSpecBuilder;
 import com.xgen.mongot.index.query.collectors.FacetDefinition;
 import com.xgen.mongot.index.query.collectors.MetricSpec;
 import com.xgen.mongot.index.query.counts.Count;
+import com.xgen.mongot.index.query.sort.Sort;
+import com.xgen.mongot.index.query.sort.SortSpec;
 import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.server.command.search.definition.PlanShardedSearchCommandResponseDefinition;
@@ -1276,48 +1278,113 @@ public class ShardedSearchPlannerTest {
   }
 
   /**
-   * Sharded first/last is not implemented yet. It must fail planning as a {@link
-   * ShardedSearchPlannerException} -- {@code buildAggregationMetaPipeline} only wraps {@code
-   * IllegalArgumentException} / {@code IllegalStateException}, so any other unchecked exception
-   * would escape as an internal error instead of a command error response.
+   * A sorted {@code first} merges across shards with {@code $top} over the sort key each shard put
+   * on its bucket rows -- the query's own sort directions, since the key is emitted the query's way
+   * round for both operators.
    */
   @Test
-  public void planSearch_firstAggregation_throwsShardedSearchPlannerException() {
-    assertFirstLastRejectedAtPlanning(Operator.FIRST, "first");
-  }
-
-  @Test
-  public void planSearch_lastAggregation_throwsShardedSearchPlannerException() {
-    assertFirstLastRejectedAtPlanning(Operator.LAST, "last");
-  }
-
-  private static void assertFirstLastRejectedAtPlanning(Operator operator, String label) {
-    // The production registry, so planning reaches the real buildShardMergePipeline rather than
-    // failing earlier on a missing operator supplier.
+  public void planSearch_sortedFirstAggregation_mergesWithTopOverTheSortKey() throws Exception {
     SearchAggregationBootstrap.installRegistry();
     try {
-      ShardedSearchPlannerException exception =
-          Assert.assertThrows(
-              ShardedSearchPlannerException.class,
-              () ->
-                  ShardedSearchPlanner.planSearch(
-                      createFlatFirstLastAggregationQuery(operator),
-                      new PlanShardedSearchCommandDefinition.SearchFeatures(0),
-                      AGGREGATION_ENABLED_FEATURE_FLAGS));
+      PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
+          ShardedSearchPlanner.planSearch(
+              createFlatFirstLastAggregationQuery(Operator.FIRST, Optional.of(priceThenRating())),
+              new PlanShardedSearchCommandDefinition.SearchFeatures(1),
+              AGGREGATION_ENABLED_FEATURE_FLAGS);
 
-      BsonDocument errorBody = MessageUtils.createErrorBody(exception);
-      Assert.assertEquals(0, errorBody.getInt32("ok").getValue());
       Assert.assertEquals(
-          "Failed to build aggregation merge pipeline: Sharded merge for '"
-              + label
-              + "' aggregations is not implemented yet",
-          errorBody.getString("errmsg").getValue());
+          BsonDocument.parse(
+              """
+              {"$top": {
+                "output": {"$ifNull": ["$first_value_metric", null]},
+                "sortBy": {
+                  "first_has_metric": -1,
+                  "first_key_metric._0": 1,
+                  "first_key_metric._1": -1
+                }
+              }}
+              """),
+          result.metaPipeline.get(0).getDocument("$group").getDocument("first_metric"));
     } finally {
       TestOperatorSpecs.installRegistry();
     }
   }
 
-  private static CollectorQuery createFlatFirstLastAggregationQuery(Operator operator) {
+  /** {@code last} takes the other end of the same key. */
+  @Test
+  public void planSearch_sortedLastAggregation_mergesWithBottomOverTheSortKey() throws Exception {
+    SearchAggregationBootstrap.installRegistry();
+    try {
+      PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
+          ShardedSearchPlanner.planSearch(
+              createFlatFirstLastAggregationQuery(Operator.LAST, Optional.of(priceThenRating())),
+              new PlanShardedSearchCommandDefinition.SearchFeatures(1),
+              AGGREGATION_ENABLED_FEATURE_FLAGS);
+
+      Assert.assertEquals(
+          BsonDocument.parse(
+              """
+              {"$bottom": {
+                "output": {"$ifNull": ["$last_value_metric", null]},
+                "sortBy": {
+                  "last_has_metric": 1,
+                  "last_key_metric._0": 1,
+                  "last_key_metric._1": -1
+                }
+              }}
+              """),
+          result.metaPipeline.get(0).getDocument("$group").getDocument("last_metric"));
+    } finally {
+      TestOperatorSpecs.installRegistry();
+    }
+  }
+
+  /**
+   * With no sort the shards send no key, so the merge takes one shard's winner rather than ordering
+   * by a field that is not there.
+   */
+  @Test
+  public void planSearch_unsortedFirstAggregation_mergesWithFirst() throws Exception {
+    SearchAggregationBootstrap.installRegistry();
+    try {
+      PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
+          ShardedSearchPlanner.planSearch(
+              createFlatFirstLastAggregationQuery(Operator.FIRST, Optional.empty()),
+              new PlanShardedSearchCommandDefinition.SearchFeatures(1),
+              AGGREGATION_ENABLED_FEATURE_FLAGS);
+
+      Assert.assertEquals(
+          BsonDocument.parse(
+              """
+              {"$top": {
+                "output": {"$ifNull": ["$first_value_metric", null]},
+                "sortBy": {"first_has_metric": -1}
+              }}
+              """),
+          result.metaPipeline.get(0).getDocument("$group").getDocument("first_metric"));
+    } finally {
+      TestOperatorSpecs.installRegistry();
+    }
+  }
+
+  /** Price ascending, then rating descending. */
+  private static Sort priceThenRating() {
+    return SortSpecBuilder.builder()
+        .sortField(
+            SortFieldBuilder.builder()
+                .path("price")
+                .sortOption(UserFieldSortOptions.DEFAULT_ASC)
+                .build())
+        .sortField(
+            SortFieldBuilder.builder()
+                .path("rating")
+                .sortOption(UserFieldSortOptions.DEFAULT_DESC)
+                .build())
+        .buildSort();
+  }
+
+  private static CollectorQuery createFlatFirstLastAggregationQuery(
+      Operator operator, Optional<SortSpec> sortSpec) {
     AggregationFacetDefinition agg =
         AggregationFacetDefinition.create(
             new FacetDefinition.StringFacetDefinition("city", 10),
@@ -1336,7 +1403,7 @@ public class ShardedSearchPlannerTest {
         false,
         false,
         false,
-        Optional.empty(),
+        sortSpec,
         Optional.empty(),
         Optional.empty());
   }

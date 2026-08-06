@@ -18,6 +18,11 @@ public final class LastAggregationResult extends FirstLastAggregationResultBase 
   }
 
   @Override
+  Operator operator() {
+    return Operator.LAST;
+  }
+
+  @Override
   public AggregationResultBuilder toBuilder() {
     return new LastBuilder(getName(), collectorSort());
   }

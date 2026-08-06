@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.query.aggregation;
 
+import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.util.Check;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -8,9 +9,11 @@ import java.util.Optional;
 import org.apache.lucene.search.FieldDoc;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.Sort;
+import org.apache.lucene.search.SortField;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.TopFieldDocs;
 import org.apache.lucene.search.TotalHits;
+import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonNull;
 import org.bson.BsonValue;
@@ -25,6 +28,10 @@ import org.bson.BsonValue;
  * <p>That merge is direction-free. Each operator collects under a sort oriented its own way -- the
  * query's sort for {@code first}, its inverse for {@code last} -- so merging is always a matter of
  * taking the top document under {@link #collectorSort}, which is what {@link TopDocs#merge} does.
+ *
+ * <p>Merging across shards cannot work that way -- mongod does it, in MQL, with no access to
+ * Lucene's comparators -- so the winner's sort key travels on the wire instead. See {@link
+ * FirstLastShardMerge}.
  */
 public abstract sealed class FirstLastAggregationResultBase extends MetricAggregationResult
     permits FirstAggregationResult, LastAggregationResult {
@@ -75,13 +82,69 @@ public abstract sealed class FirstLastAggregationResultBase extends MetricAggreg
     return this.candidate.flatMap(Candidate::value).orElse(BsonNull.VALUE);
   }
 
+  /** Which operator this is, and so which partial field names it writes. */
+  abstract Operator operator();
+
+  /**
+   * The winning value and the sort key it won under, for {@link FirstLastShardMerge} to merge
+   * across shards.
+   *
+   * <p>The key is emitted the query's way round, not this operator's: see {@link
+   * FirstLastShardMerge}.
+   */
   @Override
   public final BsonDocument toIntermediateMetricPartials() {
-    // TODO(CLOUDP-425978 follow-up): carry the winning value and its sort key as partials so
-    // mongos can merge across shards with $top/$bottom. Deferred with buildShardMergePipeline in
-    // First/LastAggregationSpec so the wire format and the merge pipeline land as one contract.
-    throw new IllegalStateException(
-        "Sharded merge for 'first'/'last' aggregations is not implemented yet");
+    // A bucket can be empty on one shard and not another: boundary grouping emits every bucket on
+    // every shard, so an empty range reaches the wire with a doc count and no winner. The row still
+    // has to be sent -- it carries that count -- so it announces that it holds no candidate, and
+    // the merge sorts it behind the shards that do. See FirstLastShardMerge#hasValueField.
+    BsonDocument partials = new BsonDocument();
+    if (this.candidate.isEmpty()) {
+      partials.append(FirstLastShardMerge.hasValueField(operator(), getName()), BsonBoolean.FALSE);
+      return partials;
+    }
+
+    Candidate winner = this.candidate.get();
+    partials.append(FirstLastShardMerge.hasValueField(operator(), getName()), BsonBoolean.TRUE);
+    partials.append(
+        FirstLastShardMerge.valueField(operator(), getName()),
+        winner.value().orElse(BsonNull.VALUE));
+    this.collectorSort.ifPresent(
+        sort ->
+            partials.append(
+                FirstLastShardMerge.keyField(operator(), getName()), sortKey(sort, winner)));
+    return partials;
+  }
+
+  /**
+   * The winning document's sort key, one positional component per sort field of the query.
+   *
+   * <p>{@code $nullness} components are dropped, exactly as {@code LuceneSearchBatchProducer} drops
+   * them from {@code $searchSortValues}: whether the query's sort was expanded with them depends on
+   * the index's sort definition, which mongod does not consult when it builds the merge pipeline
+   * from the query alone. Dropping them leaves the order intact, since a nullness component only
+   * restates the missing-value placement its own user field already encodes.
+   *
+   * <p>Values are read straight off the {@link FieldDoc} the collector materialized. mongot's sort
+   * comparators produce order-preserving {@link BsonValue}s for exactly this reason -- so that
+   * mongod can compare two shards' keys with plain BSON ordering -- and a component that is
+   * anything else means a sort no {@code first}/{@code last} query is allowed to carry.
+   */
+  private static BsonValue sortKey(Sort sort, Candidate winner) {
+    SortField[] sortFields = sort.getSort();
+    BsonDocument key = new BsonDocument();
+    for (int i = 0; i < sortFields.length; i++) {
+      if (FieldName.isNullnessFieldName(sortFields[i].getField())) {
+        continue;
+      }
+      Object value = winner.doc().fields[i];
+      if (!(value instanceof BsonValue bsonValue)) {
+        throw new IllegalStateException(
+            "Sort key component " + i + " is not a BsonValue: " + value);
+      }
+      key.append(FirstLastShardMerge.keyComponent(key.size()), bsonValue);
+    }
+    return key;
   }
 
   /**

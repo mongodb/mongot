@@ -194,7 +194,7 @@ public class SearchAggregationBootstrapTest {
 
     // IllegalStateException so ShardedSearchPlanner wraps it into ShardedSearchPlannerException
     // rather than letting it escape planning as an uncaught internal error.
-    ShardMergePipelineBuilder builder = new ShardMergePipelineBuilder();
+    ShardMergePipelineBuilder builder = ShardMergePipelineBuilder.unsorted();
     assertThrows(IllegalStateException.class, () -> first.buildShardMergePipeline(builder));
     assertThrows(IllegalStateException.class, () -> last.buildShardMergePipeline(builder));
   }

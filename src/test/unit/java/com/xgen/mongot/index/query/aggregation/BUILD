@@ -32,6 +32,7 @@ java_test_suite(
         "CountAccumulatorTest.java",
         "FieldValueFetcherTest.java",
         "FirstLastAccumulatorTest.java",
+        "FirstLastShardMergeTest.java",
         "IntermediateBsonTest.java",
         "MetricFieldPathsTest.java",
         "MinMaxAccumulatorTest.java",

@@ -28,7 +28,7 @@ public class ShardMergePipelineBuilderTest {
     AggregationSpec group = new TermsSpec("by_city", CITY, List.of(leaf));
     TopAggregationSpec top = new TopAggregationSpec(List.of(group));
 
-    ShardMergePipelineBuilder builder = new ShardMergePipelineBuilder();
+    ShardMergePipelineBuilder builder = ShardMergePipelineBuilder.unsorted();
     top.buildShardMergePipeline(builder);
     List<BsonDocument> pipeline = builder.build("lowerBound");
 
@@ -99,7 +99,7 @@ public class ShardMergePipelineBuilderTest {
     AggregationSpec group = new TermsSpec("by_city", CITY, List.of(leaf));
     TopAggregationSpec top = new TopAggregationSpec(List.of(group));
 
-    ShardMergePipelineBuilder builder = new ShardMergePipelineBuilder();
+    ShardMergePipelineBuilder builder = ShardMergePipelineBuilder.unsorted();
     top.buildShardMergePipeline(builder);
     List<BsonDocument> pipeline = builder.build("lowerBound");
 
@@ -149,7 +149,7 @@ public class ShardMergePipelineBuilderTest {
     AggregationSpec group = new TermsSpec("by_city", CITY, List.of(leaf));
     TopAggregationSpec top = new TopAggregationSpec(List.of(group));
 
-    ShardMergePipelineBuilder builder = new ShardMergePipelineBuilder();
+    ShardMergePipelineBuilder builder = ShardMergePipelineBuilder.unsorted();
     top.buildShardMergePipeline(builder);
     List<BsonDocument> pipeline = builder.build("total");
 
@@ -165,7 +165,7 @@ public class ShardMergePipelineBuilderTest {
     AggregationSpec outerGroup = new TermsSpec("by_city", CITY, List.of(innerGroup));
     TopAggregationSpec top = new TopAggregationSpec(List.of(outerGroup));
 
-    ShardMergePipelineBuilder builder = new ShardMergePipelineBuilder();
+    ShardMergePipelineBuilder builder = ShardMergePipelineBuilder.unsorted();
     top.buildShardMergePipeline(builder);
     List<BsonDocument> pipeline = builder.build("lowerBound");
 
@@ -231,7 +231,7 @@ public class ShardMergePipelineBuilderTest {
     AggregationSpec byCountry = new TermsSpec("by_country", COUNTRY, List.of(byRegion));
     TopAggregationSpec top = new TopAggregationSpec(List.of(byCountry));
 
-    ShardMergePipelineBuilder builder = new ShardMergePipelineBuilder();
+    ShardMergePipelineBuilder builder = ShardMergePipelineBuilder.unsorted();
     top.buildShardMergePipeline(builder);
     List<BsonDocument> pipeline = builder.build("lowerBound");
 
@@ -342,7 +342,7 @@ public class ShardMergePipelineBuilderTest {
             "by_city", CITY, List.of(leaf), new TermsArgs(true, TypeField.TOKEN, 2));
     TopAggregationSpec top = new TopAggregationSpec(List.of(group));
 
-    ShardMergePipelineBuilder builder = new ShardMergePipelineBuilder();
+    ShardMergePipelineBuilder builder = ShardMergePipelineBuilder.unsorted();
     top.buildShardMergePipeline(builder);
     List<BsonDocument> pipeline = builder.build("lowerBound");
 
@@ -362,7 +362,7 @@ public class ShardMergePipelineBuilderTest {
     AggregationSpec group2 = new TermsSpec("by_color", COLOR, List.of(leaf2));
     TopAggregationSpec top = new TopAggregationSpec(List.of(group1, group2));
 
-    ShardMergePipelineBuilder builder = new ShardMergePipelineBuilder();
+    ShardMergePipelineBuilder builder = ShardMergePipelineBuilder.unsorted();
     top.buildShardMergePipeline(builder);
     List<BsonDocument> pipeline = builder.build("lowerBound");
 

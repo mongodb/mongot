@@ -17,6 +17,11 @@ public final class FirstAggregationResult extends FirstLastAggregationResultBase
   }
 
   @Override
+  Operator operator() {
+    return Operator.FIRST;
+  }
+
+  @Override
   public AggregationResultBuilder toBuilder() {
     return new FirstBuilder(getName(), collectorSort());
   }

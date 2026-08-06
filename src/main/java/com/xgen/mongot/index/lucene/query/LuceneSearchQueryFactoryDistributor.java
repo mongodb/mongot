@@ -400,6 +400,13 @@ public class LuceneSearchQueryFactoryDistributor {
         this.vectorSearchQueryFactory.fromQuery(vectorSearchOperator, singleQueryContext));
   }
 
+  /**
+   * The query's Lucene sort, or empty when it has none or does not need one.
+   *
+   * @param sortDrivesAggregation whether a {@code first}/{@code last} aggregation metric reads the
+   *     sort, in which case it is built even when document results are omitted. See {@link
+   *     com.xgen.mongot.index.query.SearchQuery#sortDrivesAggregation}.
+   */
   public Optional<Sort> createSort(
       Optional<SortSpec> sortSpec,
       Optional<SequenceToken> sequenceToken,

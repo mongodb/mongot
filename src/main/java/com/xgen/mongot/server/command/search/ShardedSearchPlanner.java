@@ -128,7 +128,8 @@ public class ShardedSearchPlanner {
               throw new ShardedSearchPlannerException(
                   "Aggregation is not enabled. Please contact support.");
             }
-            yield buildAggregationMetaPipeline(countType, aggregationCollector, boundaryResolver);
+            yield buildAggregationMetaPipeline(
+                countType, aggregationCollector, boundaryResolver, query.sortSpec());
           }
         }
       }
@@ -144,19 +145,41 @@ public class ShardedSearchPlanner {
   private static List<BsonDocument> buildAggregationMetaPipeline(
       String countType,
       AggregationCollector aggregationCollector,
-      Optional<AggregationSpecBuilder.BoundaryFieldResolver> boundaryResolver)
+      Optional<AggregationSpecBuilder.BoundaryFieldResolver> boundaryResolver,
+      Optional<SortSpec> sortSpec)
       throws ShardedSearchPlannerException {
     try {
       TopAggregationSpec spec =
           AggregationSpecBuilder.toTopLevelSpec(
               aggregationCollector, AggregationRegistry.getInstance(), boundaryResolver);
-      ShardMergePipelineBuilder builder = new ShardMergePipelineBuilder();
+      ShardMergePipelineBuilder builder =
+          sortSpec
+              .map(sort -> ShardMergePipelineBuilder.forSort(sortDirections(sort)))
+              .orElseGet(ShardMergePipelineBuilder::unsorted);
       spec.buildShardMergePipeline(builder);
       return builder.build(countType);
     } catch (IllegalArgumentException | IllegalStateException e) {
       throw new ShardedSearchPlannerException(
           "Failed to build aggregation merge pipeline: " + e.getMessage(), e);
     }
+  }
+
+  /**
+   * Directions of the query's sort fields, for the {@code first}/{@code last} shard merge.
+   *
+   * <p>Both sort syntaxes are read the same way. Unlike the {@code $searchSortValues} merge-sort of
+   * ordinary results, which sortBetaV1 opts out of (CLOUDP-184455) because mongos cannot reproduce
+   * its ordering, this key is materialized by the aggregation accumulators themselves, so the
+   * direction is all mongod needs on top of it.
+   *
+   * <p>A {@code $meta} sort component is not rejected here: {@code
+   * AggregationValidator#validateSort} owns that rule on the shard, and leaving it there keeps one
+   * error message rather than two.
+   */
+  private static List<Integer> sortDirections(SortSpec sortSpec) {
+    return sortSpec.getSortFields().stream()
+        .map(sortField -> sortField.options().order().intValue)
+        .toList();
   }
 
   private static BsonDocument constructSortSpec(Sort sort) {

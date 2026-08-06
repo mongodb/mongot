@@ -673,7 +673,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
   }
 
   private static List<BsonDocument> buildPipeline(AggregationSpec specTree) {
-    ShardMergePipelineBuilder builder = new ShardMergePipelineBuilder();
+    ShardMergePipelineBuilder builder = ShardMergePipelineBuilder.unsorted();
     specTree.buildShardMergePipeline(builder);
     return builder.build("lowerBound");
   }

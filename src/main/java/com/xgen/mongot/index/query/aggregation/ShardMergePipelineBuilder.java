@@ -25,6 +25,7 @@ import org.bson.BsonValue;
  * <p>Usage:
  *
  * <pre>{@code
+ * ShardMergePipelineBuilder builder = ShardMergePipelineBuilder.unsorted();
  * builder.beginPath("byDirector");
  * directorSpec.buildShardMergePipeline(builder);  // recursive
  * builder.endPath();
@@ -167,7 +168,36 @@ public final class ShardMergePipelineBuilder {
   // Per top-level group_name: grouping keys and projection metadata
   private final Map<String, PathMergeConfig> pathConfigs = new LinkedHashMap<>();
 
+  /**
+   * Directions of the query's sort fields, {@code 1} ascending and {@code -1} descending, in query
+   * order; empty when the query has no sort.
+   *
+   * <p>Only {@code first}/{@code last} read this: their merge orders one shard's bucket winner
+   * against another's, which is the query's sort re-run on mongod. It lives on the builder rather
+   * than on those specs because the sort belongs to the query as a whole, not to any one
+   * aggregation node.
+   */
+  private final List<Integer> sortDirections;
+
   @Var private Optional<String> currentGroupName = Optional.empty();
+
+  private ShardMergePipelineBuilder(List<Integer> sortDirections) {
+    this.sortDirections = List.copyOf(sortDirections);
+  }
+
+  /** For a query with a global sort, given as one direction per sort field in query order. */
+  public static ShardMergePipelineBuilder forSort(List<Integer> sortDirections) {
+    return new ShardMergePipelineBuilder(sortDirections);
+  }
+
+  /** For a query with no global sort. */
+  public static ShardMergePipelineBuilder unsorted() {
+    return new ShardMergePipelineBuilder(List.of());
+  }
+
+  List<Integer> sortDirections() {
+    return this.sortDirections;
+  }
 
   private String requireCurrentGroupName() {
     return this.currentGroupName.orElseThrow(

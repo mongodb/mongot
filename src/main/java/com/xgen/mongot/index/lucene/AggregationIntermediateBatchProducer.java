@@ -48,9 +48,8 @@ final class AggregationIntermediateBatchProducer implements BatchProducer {
    * <p>Only the sharded path ever fills this in, because only sharded execution calls {@link
    * #execute}. The non-sharded partitioned path builds a producer per partition and drains it
    * through {@link #getMetaResultsAndClose}, merging nested trees directly. Flattening is therefore
-   * deferred out of the constructor: doing it eagerly would require every leaf metric to define a
-   * cross-shard intermediate format even on a query that is not sharded, which {@code first}/{@code
-   * last} do not yet have (their {@code toIntermediateMetricPartials} throws).
+   * deferred out of the constructor, so that path neither builds nor discards per-partition wire
+   * rows it has no use for.
    *
    * <p>Volatile because a producer is handed to the cursor thread that reads its batches.
    */
