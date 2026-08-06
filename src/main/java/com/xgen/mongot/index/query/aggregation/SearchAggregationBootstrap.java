@@ -22,6 +22,7 @@ public class SearchAggregationBootstrap {
   public static final String TERMS = "terms";
   public static final String NUMBER_BOUNDARY = "numberBoundary";
   public static final String DATE_BOUNDARY = "dateBoundary";
+  public static final String COUNT = Operator.COUNT.registryKey();
   public static final String SUM = Operator.SUM.registryKey();
   public static final String AVG = Operator.AVG.registryKey();
   public static final String MIN = Operator.MIN.registryKey();
@@ -53,6 +54,11 @@ public class SearchAggregationBootstrap {
 
   private static Map<String, AggregationRegistry.OperatorSupplier> operatorSuppliers() {
     return Map.of(
+        COUNT,
+        (name, path) -> {
+          requireNoPath(path, COUNT);
+          return new CountAggregationSpec(name);
+        },
         SUM,
         (name, path) -> new SumAggregationSpec(name, requirePath(path, SUM)),
         AVG,
@@ -65,6 +71,18 @@ public class SearchAggregationBootstrap {
         (name, path) -> new FirstAggregationSpec(name, requirePath(path, FIRST)),
         LAST,
         (name, path) -> new LastAggregationSpec(name, requirePath(path, LAST)));
+  }
+
+  /**
+   * Counterpart to {@link #requirePath}: count is the only operator that takes no path, and this is
+   * the second entry point where that can be enforced. {@code MetricSpec#fromBson} rejects a path
+   * on count while parsing user BSON, but {@code MetricSpec} is a record with no validation in its
+   * canonical constructor, so a programmatically built spec reaches the registry unchecked.
+   */
+  private static void requireNoPath(Optional<FieldPath> path, String operator) {
+    if (path.isPresent()) {
+      throw new IllegalArgumentException(operator + " operator does not take a field path");
+    }
   }
 
   private static FieldPath requirePath(Optional<FieldPath> path, String operator) {

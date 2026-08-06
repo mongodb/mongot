@@ -29,6 +29,7 @@ java_test_suite(
         "AvgAggregationResultTest.java",
         "BoundaryAggregationTest.java",
         "BoundaryEncoderTest.java",
+        "CountAccumulatorTest.java",
         "FieldValueFetcherTest.java",
         "FirstLastAccumulatorTest.java",
         "IntermediateBsonTest.java",

@@ -4,7 +4,8 @@ import org.bson.BsonArray;
 
 /** Base class for leaf metric aggregation results (e.g. {@code sum}, {@code avg}). */
 abstract sealed class MetricAggregationResult implements AggregationResult
-    permits SumAggregationResult,
+    permits CountAggregationResult,
+        SumAggregationResult,
         AvgAggregationResult,
         MinAggregationResult,
         MaxAggregationResult,
