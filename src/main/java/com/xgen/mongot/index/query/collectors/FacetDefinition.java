@@ -145,7 +145,10 @@ public sealed interface FacetDefinition extends DocumentEncodable
   }
 
   record NumericFacetDefinition(
-      String path, Optional<String> defaultBucketName, List<BsonNumber> boundaries)
+      String path,
+      Optional<String> defaultBucketName,
+      List<BsonNumber> boundaries,
+      Optional<EmbeddedDocumentScope> embeddedDocument)
       implements BoundaryFacetDefinition<BsonNumber> {
 
     private static class Validators {
@@ -177,12 +180,19 @@ public sealed interface FacetDefinition extends DocumentEncodable
               .required();
     }
 
+    /** Backwards-compatible constructor for document-indexed (unscoped) number facets. */
+    public NumericFacetDefinition(
+        String path, Optional<String> defaultBucketName, List<BsonNumber> boundaries) {
+      this(path, defaultBucketName, boundaries, Optional.empty());
+    }
+
     private NumericFacetDefinition(DocumentParser parser, boolean allow10k)
         throws BsonParseException {
       this(
           parser.getField(FacetDefinition.Fields.PATH).unwrap(),
           parser.getField(BoundaryFacetDefinition.Fields.DEFAULT).unwrap(),
-          parser.getField(allow10k ? Fields.BOUNDARIES_10K : Fields.BOUNDARIES_1K).unwrap());
+          parser.getField(allow10k ? Fields.BOUNDARIES_10K : Fields.BOUNDARIES_1K).unwrap(),
+          parser.getField(FacetDefinition.Fields.EMBEDDED_DOCUMENT).unwrap());
     }
 
     @Override
@@ -197,12 +207,16 @@ public sealed interface FacetDefinition extends DocumentEncodable
           .field(FacetDefinition.Fields.PATH, this.path())
           .field(BoundaryFacetDefinition.Fields.DEFAULT, this.defaultBucketName())
           .field(Fields.BOUNDARIES_10K, this.boundaries())
+          .field(FacetDefinition.Fields.EMBEDDED_DOCUMENT, this.embeddedDocument())
           .build();
     }
   }
 
   record DateFacetDefinition(
-      String path, Optional<String> defaultBucketName, List<BsonDateTime> boundaries)
+      String path,
+      Optional<String> defaultBucketName,
+      List<BsonDateTime> boundaries,
+      Optional<EmbeddedDocumentScope> embeddedDocument)
       implements BoundaryFacetDefinition<BsonDateTime> {
 
     private static class Validators {
@@ -232,11 +246,18 @@ public sealed interface FacetDefinition extends DocumentEncodable
               .required();
     }
 
+    /** Backwards-compatible constructor for document-indexed (unscoped) date facets. */
+    public DateFacetDefinition(
+        String path, Optional<String> defaultBucketName, List<BsonDateTime> boundaries) {
+      this(path, defaultBucketName, boundaries, Optional.empty());
+    }
+
     private DateFacetDefinition(DocumentParser parser, boolean allow10k) throws BsonParseException {
       this(
           parser.getField(FacetDefinition.Fields.PATH).unwrap(),
           parser.getField(BoundaryFacetDefinition.Fields.DEFAULT).unwrap(),
-          parser.getField(allow10k ? Fields.BOUNDARIES_10K : Fields.BOUNDARIES_1K).unwrap());
+          parser.getField(allow10k ? Fields.BOUNDARIES_10K : Fields.BOUNDARIES_1K).unwrap(),
+          parser.getField(FacetDefinition.Fields.EMBEDDED_DOCUMENT).unwrap());
     }
 
     @Override
@@ -251,6 +272,7 @@ public sealed interface FacetDefinition extends DocumentEncodable
           .field(FacetDefinition.Fields.PATH, this.path())
           .field(BoundaryFacetDefinition.Fields.DEFAULT, this.defaultBucketName())
           .field(Fields.BOUNDARIES_10K, this.boundaries())
+          .field(FacetDefinition.Fields.EMBEDDED_DOCUMENT, this.embeddedDocument())
           .build();
     }
   }

@@ -24,8 +24,6 @@ import java.util.TimeZone;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.LongStream;
-import org.bson.BsonArray;
-import org.bson.BsonBoolean;
 import org.bson.BsonDateTime;
 import org.bson.BsonDocument;
 import org.bson.BsonDouble;
@@ -531,47 +529,57 @@ public class FacetCollectorTest {
     }
 
     /**
-     * POC boundary: only string/token facets support the inline {@code embeddedDocument} block so
-     * far. A number facet carrying one is rejected at parse through the real query path {@link
-     * FacetCollector#fromBson}, because the {@code facets} map disallows unknown fields and the
-     * number-facet parser never reads {@code embeddedDocument}. Semantic support for number/date
-     * scoping (with a friendlier error) arrives in a later milestone; this test locks the current
-     * boundary so it is explicit rather than a silent drop.
+     * A number facet carrying an inline {@code embeddedDocument} block round-trips through
+     * toBson/fromBson, preserving the scope path and child operator.
      */
     @Test
-    public void scopedNumberFacet_isRejectedByFacetCollector() {
-      var scopedNumberFacet =
-          new BsonDocument()
-              .append("type", new BsonString("number"))
-              .append("path", new BsonString("variants.price"))
-              .append("boundaries", new BsonArray(List.of(new BsonInt32(0), new BsonInt32(50))))
-              .append(
-                  "embeddedDocument",
-                  new BsonDocument()
-                      .append("path", new BsonString("variants"))
-                      .append(
-                          "operator",
-                          new BsonDocument()
-                              .append(
-                                  "equals",
-                                  new BsonDocument()
-                                      .append("path", new BsonString("variants.inStock"))
-                                      .append("value", BsonBoolean.TRUE))));
-      var collector =
-          new BsonDocument()
-              .append(
-                  "operator",
-                  new BsonDocument()
-                      .append(
-                          "text",
-                          new BsonDocument()
-                              .append("path", new BsonString("title"))
-                              .append("query", new BsonString("jacket"))))
-              .append("facets", new BsonDocument().append("priceFacet", scopedNumberFacet));
+    public void scopedNumberFacet_roundTripsThroughBson() throws BsonParseException {
+      var childOperator = OperatorBuilder.equals().path("variants.inStock").value(true).build();
+      var scopedDefinition =
+          new FacetDefinition.NumericFacetDefinition(
+              "variants.price",
+              Optional.empty(),
+              List.of(new BsonInt32(0), new BsonInt32(50)),
+              Optional.of(
+                  new EmbeddedDocumentScope(
+                      com.xgen.mongot.util.FieldPath.parse("variants"), childOperator)));
 
-      var parser = BsonDocumentParser.fromRoot(collector).build();
-      TestUtils.assertThrows(
-          "embeddedDocument", BsonParseException.class, () -> FacetCollector.fromBson(parser));
+      try (var parser =
+          BsonDocumentParser.fromRoot(scopedDefinition.toBson().asDocument()).build()) {
+        FacetDefinition result = FacetDefinition.fromBson(parser);
+
+        assertThat(result).isEqualTo(scopedDefinition);
+        assertThat(result.embeddedDocument()).isPresent();
+        assertThat(result.embeddedDocument().get().path().toString()).isEqualTo("variants");
+        assertThat(result.embeddedDocument().get().operator()).isEqualTo(childOperator);
+      }
+    }
+
+    /**
+     * A date facet carrying an inline {@code embeddedDocument} block round-trips through
+     * toBson/fromBson, preserving the scope path and child operator.
+     */
+    @Test
+    public void scopedDateFacet_roundTripsThroughBson() throws BsonParseException {
+      var childOperator = OperatorBuilder.equals().path("branches.inScope").value(true).build();
+      var scopedDefinition =
+          new FacetDefinition.DateFacetDefinition(
+              "branches.startDate",
+              Optional.empty(),
+              List.of(new BsonDateTime(0), new BsonDateTime(1_000_000)),
+              Optional.of(
+                  new EmbeddedDocumentScope(
+                      com.xgen.mongot.util.FieldPath.parse("branches"), childOperator)));
+
+      try (var parser =
+          BsonDocumentParser.fromRoot(scopedDefinition.toBson().asDocument()).build()) {
+        FacetDefinition result = FacetDefinition.fromBson(parser);
+
+        assertThat(result).isEqualTo(scopedDefinition);
+        assertThat(result.embeddedDocument()).isPresent();
+        assertThat(result.embeddedDocument().get().path().toString()).isEqualTo("branches");
+        assertThat(result.embeddedDocument().get().operator()).isEqualTo(childOperator);
+      }
     }
 
     /** FacetCollector.fromBson (1k limit) rejects numBuckets 2000 with BsonParseException. */
