@@ -699,10 +699,28 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     becomeFollower(generationId);
   }
 
+  /**
+   * The cache can hold a lease owned by another host — {@code refreshLeaseFromDatabase} installs
+   * whatever the store returns on the leadership-loss paths, and {@code becomeFollower} leaves the
+   * entry in place as its follower-transition signal — so ownership is checked here against the
+   * same single read the version comes from (CLOUDP-429754).
+   */
   @Override
-  public long getLeaseVersion(MaterializedViewGenerationId generationId) {
+  public long getOwnedLeaseVersion(MaterializedViewGenerationId generationId) {
     Lease lease = this.leases.get(getLeaseKey(generationId));
-    return lease != null ? lease.leaseVersion() : -1;
+    if (lease == null) {
+      return INVALID_LEASE_VERSION;
+    }
+    if (!this.hostname.equals(lease.leaseOwner())) {
+      LOG.atWarn()
+          .addKeyValue("generationId", generationId)
+          .addKeyValue("leaseOwner", lease.leaseOwner())
+          .addKeyValue("hostname", this.hostname)
+          .addKeyValue("leaseVersion", lease.leaseVersion())
+          .log("Refusing to hand out a fencing token for a lease owned by another host");
+      return INVALID_LEASE_VERSION;
+    }
+    return lease.leaseVersion();
   }
 
   @Override

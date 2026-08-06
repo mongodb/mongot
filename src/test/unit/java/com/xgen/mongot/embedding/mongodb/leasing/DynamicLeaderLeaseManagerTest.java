@@ -830,7 +830,6 @@ public class DynamicLeaderLeaseManagerTest {
     // Arrange
     MaterializedViewGenerationId generationId = acquireLeadership();
     String leaseKey = getLeaseKeyFromCatalog(generationId);
-    long localVersionBefore = this.leaseManager.getLeaseVersion(generationId);
     putLeaseInRenewalWindow(generationId);
 
     // Another host owns the lease in the store: this instance is a zombie leader.
@@ -845,10 +844,46 @@ public class DynamicLeaderLeaseManagerTest {
     // A lost renewal implies no MV write, so it is deliberately uncounted.
     assertThat(checkpointRejectedCount()).isEqualTo(0.0);
     assertThat(this.leaseManager.isLeader(generationId)).isFalse();
-    // Pins pre-existing behaviour left alone here: refreshLeaseFromDatabase installs the foreign
-    // lease, which getLeaseVersion then hands out. TODO(CLOUDP-429754): flip these assertions.
+    // refreshLeaseFromDatabase still installs the foreign lease — the cache entry is
+    // becomeFollower's follower-transition signal — but the accessor no longer hands its version
+    // out as a fencing token (CLOUDP-429754).
     assertThat(this.leaseManager.getLeases().get(leaseKey).leaseOwner()).isEqualTo(OTHER_HOSTNAME);
-    assertThat(this.leaseManager.getLeaseVersion(generationId)).isNotEqualTo(localVersionBefore);
+    assertThat(this.leaseManager.getOwnedLeaseVersion(generationId))
+        .isEqualTo(LeaseManager.INVALID_LEASE_VERSION);
+  }
+
+  @Test
+  public void getOwnedLeaseVersion_foreignLeaseInCache_returnsInvalid() {
+    // Arrange - the Issue 2 regression: seed the cache with a lease owned by another host at a
+    // higher version, exactly as refreshLeaseFromDatabase does on the leadership-loss paths.
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    String leaseKey = getLeaseKeyFromCatalog(generationId);
+
+    Lease foreignLease = createLease(generationId, OTHER_HOSTNAME, Instant.now().plusSeconds(60));
+    this.leaseManager.putLease(leaseKey, foreignLease);
+
+    // Act + Assert - no token is handed out, so no MV write can be stamped with the new leader's
+    // version.
+    assertThat(this.leaseManager.getOwnedLeaseVersion(generationId))
+        .isEqualTo(LeaseManager.INVALID_LEASE_VERSION);
+  }
+
+  @Test
+  public void getOwnedLeaseVersion_ownedLease_returnsVersion() {
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    String leaseKey = getLeaseKeyFromCatalog(generationId);
+
+    assertThat(this.leaseManager.getOwnedLeaseVersion(generationId))
+        .isEqualTo(this.leaseManager.getLeases().get(leaseKey).leaseVersion());
+  }
+
+  @Test
+  public void getOwnedLeaseVersion_noLease_returnsInvalid() {
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    this.leaseManager.evictCachedLease(getLeaseKeyFromCatalog(generationId));
+
+    assertThat(this.leaseManager.getOwnedLeaseVersion(generationId))
+        .isEqualTo(LeaseManager.INVALID_LEASE_VERSION);
   }
 
   @Test
@@ -877,7 +912,7 @@ public class DynamicLeaderLeaseManagerTest {
   public void updateCommitInfo_rejected_recordsCheckpointRejected() throws Exception {
     // Arrange
     MaterializedViewGenerationId generationId = acquireLeadership();
-    long localVersionBefore = this.leaseManager.getLeaseVersion(generationId);
+    long localVersionBefore = this.leaseManager.getOwnedLeaseVersion(generationId);
 
     // The commit path is the only place a zombie is caught when its MV writes were silently
     // dropped rather than rejected.
@@ -892,8 +927,8 @@ public class DynamicLeaderLeaseManagerTest {
     assertThat(checkpointRejectedCount()).isEqualTo(1.0);
     assertThat(this.leaseManager.isLeader(generationId)).isFalse();
     // Nothing on this path refreshes the cache, so the local token is untouched.
-    assertThat(this.leaseManager.getLeaseVersion(generationId)).isEqualTo(localVersionBefore);
-    assertThat(this.leaseManager.getLeaseVersion(generationId))
+    assertThat(this.leaseManager.getOwnedLeaseVersion(generationId)).isEqualTo(localVersionBefore);
+    assertThat(this.leaseManager.getOwnedLeaseVersion(generationId))
         .isNotEqualTo(stolenLease.leaseVersion());
   }
 

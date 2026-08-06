@@ -286,14 +286,19 @@ public interface LeaseManager {
   boolean isCurrentVersionQueryable(
       MaterializedViewGenerationId generationId, long indexDefinitionVersion);
 
+  /** Sentinel returned by {@link #getOwnedLeaseVersion} when no usable fencing token exists. */
+  long INVALID_LEASE_VERSION = -1;
+
   /**
-   * Returns the current lease version for the given generation ID. Used as a fencing token for MV
-   * writes.
+   * Returns the current lease version for the given generation ID <em>if this host owns the
+   * lease</em>. Used as a fencing token for MV writes, so a host that does not own the lease must
+   * never receive one: a token it does not own would be indistinguishable from the real leader's.
    *
    * @param generationId the generation ID
-   * @return the current lease version, or Long.MAX_VALUE for static leaders
+   * @return the owned lease version, {@link #INVALID_LEASE_VERSION} if there is no lease or it is
+   *     owned by another host, or Long.MAX_VALUE for static leaders (fencing is skipped)
    */
-  default long getLeaseVersion(MaterializedViewGenerationId generationId) {
+  default long getOwnedLeaseVersion(MaterializedViewGenerationId generationId) {
     return Long.MAX_VALUE;
   }
 

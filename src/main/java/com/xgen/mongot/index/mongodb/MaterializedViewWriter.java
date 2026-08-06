@@ -241,7 +241,7 @@ public class MaterializedViewWriter implements IndexWriter {
       // periodic committer or not have a periodic committer at all since we call commit from the
       // indexing work scheduler directly.
       try {
-        long leaseVersion = this.leaseManager.getLeaseVersion(this.generationId);
+        long leaseVersion = this.leaseManager.getOwnedLeaseVersion(this.generationId);
         if (leaseVersion <= 0) {
           recordMvErrorMetric(
               MaterializedViewNonTransientException.class,
