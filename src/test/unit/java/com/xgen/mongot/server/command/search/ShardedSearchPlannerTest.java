@@ -847,6 +847,58 @@ public class ShardedSearchPlannerTest {
   }
 
   @Test
+  public void testFlatDateBoundarySumWithDefaultAggregationMetaPipeline() throws Exception {
+    CollectorQuery query = createFlatDateBoundarySumWithDefaultAggregationQuery();
+    PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
+        ShardedSearchPlanner.planSearch(
+            query,
+            new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+            AGGREGATION_ENABLED_FEATURE_FLAGS,
+            Optional.of(boundaryFieldResolverForDateIndex()));
+
+    List<BsonDocument> pipeline = result.metaPipeline;
+    Assert.assertEquals(3, pipeline.size());
+
+    BsonDocument expectedFacet =
+        BsonDocument.parse(
+            """
+            {"$facet": {
+              "agg": [
+                {"$match": {"$expr": {"$eq": [
+                  {"$getField": {"field": "group_name", "input": "$_id"}},
+                  "agg"
+                ]}}},
+                {"$addFields": {
+                  "__boundarySortRank": {
+                    "$cond": [
+                      {"$eq": ["$_id.keys.release", "other"]},
+                      1,
+                      0
+                    ]
+                  }
+                }},
+                {"$sort": {"__boundarySortRank": 1, "_id.keys.release": 1}},
+                {"$unset": "__boundarySortRank"},
+                {"$project": {
+                  "_id": {
+                    "$getField": {
+                      "field": "release",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
+                  "sum_price": "$sum_sum_price"
+                }}
+              ],
+              "count": [{"$match": {"$expr": {"$eq": [
+                {"$ifNull": [{"$getField": {"field": "group_name", "input": "$_id"}}, null]},
+                null
+              ]}}}]
+            }}
+            """);
+    Assert.assertEquals(expectedFacet, pipeline.get(1));
+  }
+
+  @Test
   public void planSearch_flatBoundaryWithoutResolver_throwsShardedSearchPlannerException() {
     CollectorQuery query = createFlatBoundarySumAggregationQuery();
 
@@ -980,6 +1032,37 @@ public class ShardedSearchPlannerTest {
             new FacetDefinition.DateFacetDefinition(
                 "release",
                 Optional.empty(),
+                List.of(
+                    new BsonDateTime(0L),
+                    new BsonDateTime(1_000L),
+                    new BsonDateTime(2_000L),
+                    new BsonDateTime(3_000L))),
+            Map.of(
+                "sum_price", new MetricSpec(Operator.SUM, Optional.of(FieldPath.parse("price")))),
+            Map.of());
+    AggregationCollector collector =
+        AggregationCollector.create(
+            OperatorBuilder.text().path("title").query("godfather").build(), Map.of("agg", agg));
+    return new CollectorQuery(
+        collector,
+        "default",
+        Count.DEFAULT,
+        Optional.empty(),
+        Optional.empty(),
+        false,
+        false,
+        false,
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty());
+  }
+
+  private static CollectorQuery createFlatDateBoundarySumWithDefaultAggregationQuery() {
+    AggregationFacetDefinition agg =
+        AggregationFacetDefinition.create(
+            new FacetDefinition.DateFacetDefinition(
+                "release",
+                Optional.of("other"),
                 List.of(
                     new BsonDateTime(0L),
                     new BsonDateTime(1_000L),

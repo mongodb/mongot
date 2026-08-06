@@ -108,6 +108,9 @@ public final class ShardMergePipelineBuilder {
 
   private static final String BUCKET_FIELD_PREFIX = "$$" + FLAT_BUCKET_ROW_VAR + ".";
 
+  /** Temporary merge-pipeline field; stripped before facet output. */
+  private static final String BOUNDARY_SORT_RANK_FIELD = "__boundarySortRank";
+
   /** One grouping level in a top-level facet branch's merge/reconstruction chain. */
   record GroupMergeLevel(String keyPath, Optional<String> nestedBranchName) {}
 
@@ -147,6 +150,12 @@ public final class ShardMergePipelineBuilder {
      * order; shard merge must sort by bucket key ascending after the stage-1 {@code $group}.
      */
     final Set<Integer> boundaryLevelIndices = new HashSet<>();
+
+    /**
+     * When a boundary level has a default bucket, its label ({@link BsonString}) is stored here so
+     * merge sort can place the default after range keys (MongoDB compares String before Date).
+     */
+    final Map<Integer, BsonValue> boundaryDefaultKeys = new LinkedHashMap<>();
   }
 
   // Stage 1: $group — metric field accumulators from leaf specs
@@ -193,7 +202,7 @@ public final class ShardMergePipelineBuilder {
    *     Optional#empty()} at the leaf grouping level
    */
   public void addGroupLevel(String keyPath, Optional<String> nestedBranchName) {
-    addGroupLevel(keyPath, nestedBranchName, false);
+    addGroupLevel(keyPath, nestedBranchName, false, Optional.empty());
   }
 
   /**
@@ -204,11 +213,26 @@ public final class ShardMergePipelineBuilder {
    */
   public void addGroupLevel(
       String keyPath, Optional<String> nestedBranchName, boolean boundaryGrouping) {
+    addGroupLevel(keyPath, nestedBranchName, boundaryGrouping, Optional.empty());
+  }
+
+  /**
+   * Records one grouping level along a nested group chain.
+   *
+   * @param boundaryDefaultKey when present on a boundary level, the default bucket's label used to
+   *     sort the default bucket after range keys in the merge pipeline
+   */
+  public void addGroupLevel(
+      String keyPath,
+      Optional<String> nestedBranchName,
+      boolean boundaryGrouping,
+      Optional<BsonValue> boundaryDefaultKey) {
     PathMergeConfig config = this.pathConfigs.get(requireCurrentGroupName());
     int levelIndex = config.groupLevels.size();
     config.groupLevels.add(new GroupMergeLevel(keyPath, nestedBranchName));
     if (boundaryGrouping) {
       config.boundaryLevelIndices.add(levelIndex);
+      boundaryDefaultKey.ifPresent(key -> config.boundaryDefaultKeys.put(levelIndex, key));
     }
   }
 
@@ -279,7 +303,7 @@ public final class ShardMergePipelineBuilder {
           arm.add(buildNestedGroupStage(config, stage));
         }
         if (isBoundaryLevel(config, 0)) {
-          appendGroupedBoundarySortStage(arm);
+          appendGroupedBoundarySortStage(arm, boundaryDefaultKey(config, 0));
         } else {
           appendNestedTermsTopNStages(arm, config, 0);
         }
@@ -290,7 +314,8 @@ public final class ShardMergePipelineBuilder {
             "single-level facet arm %s requires leaf metric projections",
             groupName);
         if (isBoundaryLevel(config, 0)) {
-          appendFlatBoundarySortStage(arm, config.groupLevels.get(0).keyPath());
+          appendFlatBoundarySortStage(
+              arm, config.groupLevels.get(0).keyPath(), boundaryDefaultKey(config, 0));
         } else {
           appendFlatTermsTopNStages(arm, config);
         }
@@ -407,7 +432,11 @@ public final class ShardMergePipelineBuilder {
       int leafKeyIndex = depth - 1;
       @Var BsonValue mapInput = input;
       if (isBoundaryLevel(config, leafKeyIndex)) {
-        mapInput = boundarySortArrayExpr(mapInput, config.groupLevels.get(leafKeyIndex).keyPath());
+        mapInput =
+            boundarySortArrayExpr(
+                mapInput,
+                config.groupLevels.get(leafKeyIndex).keyPath(),
+                boundaryDefaultKey(config, leafKeyIndex));
       }
       return mapExpr(mapInput, rowVar, leafRowBody(config, rowVar, leafKeyIndex));
     }
@@ -417,7 +446,10 @@ public final class ShardMergePipelineBuilder {
     @Var BsonValue innerInput = new BsonString("$$" + rowVar + "._leaf_rows");
     if (isBoundaryLevel(config, levelIndex + 1)) {
       innerInput =
-          boundarySortArrayExpr(innerInput, config.groupLevels.get(levelIndex + 1).keyPath());
+          boundarySortArrayExpr(
+              innerInput,
+              config.groupLevels.get(levelIndex + 1).keyPath(),
+              boundaryDefaultKey(config, levelIndex + 1));
     }
     BsonValue innerBuckets = buildBucketsAtLevel(config, levelIndex + 1, innerInput, "leaf");
 
@@ -433,17 +465,52 @@ public final class ShardMergePipelineBuilder {
     return config.boundaryLevelIndices.contains(levelIndex);
   }
 
-  /** Sort flat leaf boundary buckets by grouping key ascending before {@code $project}. */
-  private static void appendFlatBoundarySortStage(BsonArray arm, String keyPath) {
-    arm.add(buildFlatBoundarySortStage(keyPath));
+  /** Sort flat leaf boundary buckets by request order before {@code $project}. */
+  private static void appendFlatBoundarySortStage(
+      BsonArray arm, String keyPath, Optional<BsonValue> defaultKey) {
+    if (defaultKey.isEmpty()) {
+      arm.add(buildFlatBoundarySortStage(keyPath));
+      return;
+    }
+    String keyField = "_id." + IntermediateAggregationMetaField.ID_KEYS + "." + keyPath;
+    arm.add(
+        new BsonDocument(
+            "$addFields",
+            new BsonDocument(
+                BOUNDARY_SORT_RANK_FIELD,
+                boundaryDefaultRankExpr(new BsonString("$" + keyField), defaultKey.get()))));
+    arm.add(
+        new BsonDocument(
+            "$sort",
+            new BsonDocument()
+                .append(BOUNDARY_SORT_RANK_FIELD, new BsonInt32(1))
+                .append(keyField, new BsonInt32(1))));
+    arm.add(new BsonDocument("$unset", new BsonString(BOUNDARY_SORT_RANK_FIELD)));
   }
 
   /**
-   * Sort nested outer boundary buckets by {@code _id} ascending before {@code $project}. After the
+   * Sort nested outer boundary buckets by request order before {@code $project}. After the
    * innermost facet-arm {@code $group}, {@code _id} is the outer boundary key.
    */
-  private static void appendGroupedBoundarySortStage(BsonArray arm) {
-    arm.add(new BsonDocument("$sort", new BsonDocument("_id", new BsonInt32(1))));
+  private static void appendGroupedBoundarySortStage(
+      BsonArray arm, Optional<BsonValue> defaultKey) {
+    if (defaultKey.isEmpty()) {
+      arm.add(new BsonDocument("$sort", new BsonDocument("_id", new BsonInt32(1))));
+      return;
+    }
+    arm.add(
+        new BsonDocument(
+            "$addFields",
+            new BsonDocument(
+                BOUNDARY_SORT_RANK_FIELD,
+                boundaryDefaultRankExpr(new BsonString("$_id"), defaultKey.get()))));
+    arm.add(
+        new BsonDocument(
+            "$sort",
+            new BsonDocument()
+                .append(BOUNDARY_SORT_RANK_FIELD, new BsonInt32(1))
+                .append("_id", new BsonInt32(1))));
+    arm.add(new BsonDocument("$unset", new BsonString(BOUNDARY_SORT_RANK_FIELD)));
   }
 
   private static void appendFlatTermsTopNStages(BsonArray arm, PathMergeConfig config) {
@@ -524,12 +591,80 @@ public final class ShardMergePipelineBuilder {
             .append("in", rowBody));
   }
 
-  private static BsonValue boundarySortArrayExpr(BsonValue input, String keyPath) {
+  private static BsonValue boundarySortArrayExpr(
+      BsonValue input, String keyPath, Optional<BsonValue> defaultKey) {
+    if (defaultKey.isEmpty()) {
+      return new BsonDocument(
+          "$sortArray",
+          new BsonDocument()
+              .append("input", input)
+              .append("sortBy", new BsonDocument(keyPath, new BsonInt32(1))));
+    }
+    BsonValue rankedInput =
+        new BsonDocument(
+            "$map",
+            new BsonDocument()
+                .append("input", input)
+                .append("as", new BsonString("row"))
+                .append(
+                    "in",
+                    new BsonDocument(
+                        "$mergeObjects",
+                        new BsonArray(
+                            List.of(
+                                new BsonString("$$row"),
+                                new BsonDocument(
+                                    BOUNDARY_SORT_RANK_FIELD,
+                                    boundaryDefaultRankExpr(
+                                        new BsonString("$$row." + keyPath), defaultKey.get())))))));
+    BsonValue sorted =
+        new BsonDocument(
+            "$sortArray",
+            new BsonDocument()
+                .append("input", rankedInput)
+                .append(
+                    "sortBy",
+                    new BsonDocument()
+                        .append(BOUNDARY_SORT_RANK_FIELD, new BsonInt32(1))
+                        .append(keyPath, new BsonInt32(1))));
     return new BsonDocument(
-        "$sortArray",
+        "$map",
         new BsonDocument()
-            .append("input", input)
-            .append("sortBy", new BsonDocument(keyPath, new BsonInt32(1))));
+            .append("input", sorted)
+            .append("as", new BsonString("row"))
+            .append("in", stripBoundarySortRankField(new BsonString("$$row"))));
+  }
+
+  private static Optional<BsonValue> boundaryDefaultKey(PathMergeConfig config, int levelIndex) {
+    return Optional.ofNullable(config.boundaryDefaultKeys.get(levelIndex));
+  }
+
+  private static BsonValue boundaryDefaultRankExpr(BsonValue keyExpr, BsonValue defaultKey) {
+    return new BsonDocument(
+        "$cond",
+        new BsonArray(
+            List.of(
+                new BsonDocument("$eq", new BsonArray(List.of(keyExpr, defaultKey))),
+                new BsonInt32(1),
+                new BsonInt32(0))));
+  }
+
+  private static BsonValue stripBoundarySortRankField(BsonValue rowExpr) {
+    return new BsonDocument(
+        "$arrayToObject",
+        new BsonDocument(
+            "$filter",
+            new BsonDocument()
+                .append("input", new BsonDocument("$objectToArray", rowExpr))
+                .append("as", new BsonString("entry"))
+                .append(
+                    "cond",
+                    new BsonDocument(
+                        "$ne",
+                        new BsonArray(
+                            List.of(
+                                new BsonString("$$entry.k"),
+                                new BsonString(BOUNDARY_SORT_RANK_FIELD)))))));
   }
 
   private static BsonDocument leafRowBody(PathMergeConfig config, String rowVar, int keyIndex) {

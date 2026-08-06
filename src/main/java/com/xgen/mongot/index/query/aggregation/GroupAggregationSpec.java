@@ -1,11 +1,13 @@
 package com.xgen.mongot.index.query.aggregation;
 
+import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import org.bson.BsonValue;
 
 /**
  * A bucket/ intermediate node in the aggregation spec tree.
@@ -97,8 +99,15 @@ public abstract non-sealed class GroupAggregationSpec implements AggregationSpec
           groupChildren.size());
       nestedBranchName = Optional.empty();
     }
+    @Var Optional<BsonValue> boundaryDefaultKey = Optional.empty();
+    if (this instanceof BoundaryGroupAggregationSpec boundaryGroup) {
+      boundaryDefaultKey = boundaryGroup.defaultBucketKey();
+    }
     builder.addGroupLevel(
-        this.path.toString(), nestedBranchName, this instanceof BoundaryGroupAggregationSpec);
+        this.path.toString(),
+        nestedBranchName,
+        this instanceof BoundaryGroupAggregationSpec,
+        boundaryDefaultKey);
 
     if (this instanceof TermsGroupAggregationSpec termsGroup) {
       builder.configureTermsGrouping(termsGroup.getLimit());
