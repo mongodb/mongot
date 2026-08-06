@@ -3,6 +3,8 @@ package com.xgen.mongot.embedding.providers;
 import static com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.ServiceTier.COLLECTION_SCAN;
 import static com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.ServiceTier.QUERY;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -406,6 +408,10 @@ public class EmbeddingServiceManagerTest {
             registry,
             Optional.empty());
 
+    assertNull(
+        "Counter should not be registered until the first token-estimation failure",
+        registry.find("embeddingServiceManager.tokenEstimationFailsCounter").counter());
+
     Throwable ex =
         assertThrows(
                 CompletionException.class,
@@ -427,6 +433,11 @@ public class EmbeddingServiceManagerTest {
             .getCause();
     assertTrue(ex instanceof EmbeddingProviderNonTransientException);
     assertEquals("Please lower the number of tokens in the batch.", ex.getMessage());
+
+    Counter tokenEstimationFailsCounter =
+        registry.find("embeddingServiceManager.tokenEstimationFailsCounter").counter();
+    assertNotNull(tokenEstimationFailsCounter);
+    assertEquals(1.0, tokenEstimationFailsCounter.count(), 0.0);
   }
 
   @Test

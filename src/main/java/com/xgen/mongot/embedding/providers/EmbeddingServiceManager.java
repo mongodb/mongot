@@ -17,7 +17,6 @@ import com.xgen.mongot.embedding.providers.congestion.AimdCongestionControl.Cong
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.util.FutureUtils;
 import com.xgen.mongot.util.concurrent.NamedScheduledExecutorService;
-import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -44,7 +43,6 @@ public class EmbeddingServiceManager {
   private final NamedScheduledExecutorService namedScheduledExecutorService;
   private final EmbeddingClientFactory embeddingClientFactory;
   private final MetricsFactory metricsFactory;
-  private final Counter tokenEstimationFailsCounter;
   private final Optional<CongestionControlParams> congestionControl;
   private final Optional<Integer> embeddingProviderRpsLimit;
 
@@ -75,7 +73,6 @@ public class EmbeddingServiceManager {
     this.embeddingClientFactory = embeddingClientFactory;
     this.namedScheduledExecutorService = namedScheduledExecutorService;
     this.metricsFactory = new MetricsFactory("embeddingServiceManager", meterRegistry);
-    this.tokenEstimationFailsCounter = this.metricsFactory.counter("tokenEstimationFailsCounter");
     this.congestionControl = congestionControl;
     this.embeddingProviderRpsLimit = embeddingProviderRpsLimit;
 
@@ -217,7 +214,7 @@ public class EmbeddingServiceManager {
                 Throwable unrecoverableEx = unwrapThrowable(unrecoverableThrowable);
                 if (unrecoverableEx
                     instanceof EmbeddingProviderBatchingException batchingException) {
-                  this.tokenEstimationFailsCounter.increment();
+                  this.metricsFactory.counter("tokenEstimationFailsCounter").increment();
                   throw new EmbeddingProviderNonTransientException(
                       Strings.nullToEmpty(batchingException.getMessage()),
                       EmbeddingProviderNonTransientException.Reason.BATCHING_ERROR);

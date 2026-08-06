@@ -2,6 +2,7 @@ package com.xgen.mongot.embedding.utils;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -81,6 +82,10 @@ public class MongoClientOperationExecutorTest {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     MongoClientOperationExecutor executor = newExecutor(registry);
 
+    assertNull(
+        "Counter should not be registered until the first disk-full error",
+        registry.find(PREFIX + ".mongodDiskFullErrors").counter());
+
     try {
       executor.execute(
           "bulkWrite",
@@ -155,6 +160,10 @@ public class MongoClientOperationExecutorTest {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     MongoClientOperationExecutor executor = newExecutor(registry);
 
+    assertNull(
+        "Counter should not be registered until the first user-writes-blocked error",
+        registry.find(PREFIX + ".mongodUserWritesBlockedErrors").counter());
+
     try {
       executor.execute(
           "deleteOne",
@@ -213,6 +222,10 @@ public class MongoClientOperationExecutorTest {
   public void admissionQueueOverflow_commandException_throwsTransient() {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     MongoClientOperationExecutor executor = newExecutor(registry);
+
+    assertNull(
+        "Counter should not be registered until the first system-overload error",
+        registry.find(PREFIX + ".mongodSystemOverloadErrors").counter());
 
     assertThrows(
         MaterializedViewTransientException.class,

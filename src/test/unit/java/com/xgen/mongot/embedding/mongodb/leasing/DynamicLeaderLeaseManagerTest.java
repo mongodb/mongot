@@ -1307,6 +1307,13 @@ public class DynamicLeaderLeaseManagerTest {
 
   @Test
   public void pollFollowerStatuses_malformedCheckpoint_skipsOptimeAndContinues() {
+    assertThat(
+            this.metricsFactory
+                .meterRegistry
+                .find(this.metricsFactory.namespace + ".corruptedLeases")
+                .counter())
+        .isNull();
+
     MaterializedViewIndexGeneration malformedGeneration = createTestIndexGeneration();
     MaterializedViewGenerationId malformedGenerationId = malformedGeneration.getGenerationId();
     this.leaseManager.add(malformedGeneration);

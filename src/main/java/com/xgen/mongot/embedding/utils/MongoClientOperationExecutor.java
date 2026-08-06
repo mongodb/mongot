@@ -35,6 +35,11 @@ import org.slf4j.LoggerFactory;
 public class MongoClientOperationExecutor {
 
   private static final Logger LOG = LoggerFactory.getLogger(MongoClientOperationExecutor.class);
+  private static final String MONGOD_DISK_FULL_ERRORS_COUNTER_NAME = "mongodDiskFullErrors";
+  private static final String MONGOD_USER_WRITES_BLOCKED_ERRORS_COUNTER_NAME =
+      "mongodUserWritesBlockedErrors";
+  private static final String MONGOD_SYSTEM_OVERLOAD_ERRORS_COUNTER_NAME =
+      "mongodSystemOverloadErrors";
   private final RetryPolicy<Object> retryPolicy;
   private final MetricsFactory metricsFactory;
   private final String requestLatencyMetricName;
@@ -46,9 +51,6 @@ public class MongoClientOperationExecutor {
   private final ConcurrentHashMap<String, Counter> successCounterCache = new ConcurrentHashMap<>();
   private final ConcurrentHashMap<String, Counter> failureCounterCache = new ConcurrentHashMap<>();
   private final ConcurrentHashMap<String, Counter> retriedAttemptsCache = new ConcurrentHashMap<>();
-  private final Counter mongodDiskFullErrors;
-  private final Counter mongodUserWritesBlockedErrors;
-  private final Counter mongodSystemOverloadErrors;
 
   /**
    * Creates a new MongoClientOperationExecutor.
@@ -111,9 +113,6 @@ public class MongoClientOperationExecutor {
     this.perAttemptLatencyMetricName = resourceName + ".perAttemptLatency";
     this.failedRequestsMetricName = resourceName + ".failedRequests";
     this.successfulRequestsMetricName = resourceName + ".successfulRequests";
-    this.mongodDiskFullErrors = metricsFactory.counter("mongodDiskFullErrors");
-    this.mongodUserWritesBlockedErrors = metricsFactory.counter("mongodUserWritesBlockedErrors");
-    this.mongodSystemOverloadErrors = metricsFactory.counter("mongodSystemOverloadErrors");
   }
 
   /**
@@ -170,17 +169,17 @@ public class MongoClientOperationExecutor {
       // These are temporary (disk can be freed, auto-scaling kicks in, load subsides), so wrap
       // as transient so the upper retry loop can back off and retry.
       if (isDiskFull(e)) {
-        this.mongodDiskFullErrors.increment();
+        this.metricsFactory.counter(MONGOD_DISK_FULL_ERRORS_COUNTER_NAME).increment();
         throw new MaterializedViewTransientException(
             e, MaterializedViewTransientException.Reason.EXCEEDED_DISK_LIMIT);
       }
       if (isUserWritesBlocked(e)) {
-        this.mongodUserWritesBlockedErrors.increment();
+        this.metricsFactory.counter(MONGOD_USER_WRITES_BLOCKED_ERRORS_COUNTER_NAME).increment();
         throw new MaterializedViewTransientException(
             e, MaterializedViewTransientException.Reason.USER_WRITES_BLOCKED);
       }
       if (isSystemOverloaded(e)) {
-        this.mongodSystemOverloadErrors.increment();
+        this.metricsFactory.counter(MONGOD_SYSTEM_OVERLOAD_ERRORS_COUNTER_NAME).increment();
         throw new MaterializedViewTransientException(
             e, MaterializedViewTransientException.Reason.SYSTEM_OVERLOADED);
       }
@@ -195,13 +194,13 @@ public class MongoClientOperationExecutor {
             bulkEx.getWriteErrors().stream()
                 .anyMatch(err -> Errors.SYSTEM_OVERLOADED_ERROR_CODES.contains(err.getCode()));
         if (hasDiskFull) {
-          this.mongodDiskFullErrors.increment();
+          this.metricsFactory.counter(MONGOD_DISK_FULL_ERRORS_COUNTER_NAME).increment();
         }
         if (hasUserWritesBlocked) {
-          this.mongodUserWritesBlockedErrors.increment();
+          this.metricsFactory.counter(MONGOD_USER_WRITES_BLOCKED_ERRORS_COUNTER_NAME).increment();
         }
         if (hasSystemOverload) {
-          this.mongodSystemOverloadErrors.increment();
+          this.metricsFactory.counter(MONGOD_SYSTEM_OVERLOAD_ERRORS_COUNTER_NAME).increment();
         }
         if (hasDiskFull || hasUserWritesBlocked || hasSystemOverload) {
           // Priority: disk-full > writes-blocked > system-overloaded.

@@ -95,6 +95,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
       "postRestoreLeaseRepairFailure";
   static final String CIRCUIT_BREAKER_OPENED_COUNTER_NAME = "circuitBreakerOpened";
   static final String ACQUISITION_SUPPRESSED_COUNTER_NAME = "acquisitionSuppressed";
+  static final String CORRUPTED_LEASES_COUNTER_NAME = "corruptedLeases";
   static final String LEASE_STORE_STALLED_GAUGE_NAME = "leaseStoreStalled";
   static final String CHECKPOINT_REJECTED_COUNTER_NAME = "checkpointsRejectedNotOwner";
   static final String SKIPPED_CHECKPOINT_COUNTER_NAME = "checkpointsSkippedNotLeader";
@@ -121,7 +122,6 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
   private final AutoEmbeddingMongoClient autoEmbeddingMongoClient;
   // End of give-up blackout (epoch ms). While now < this, do not acquire leadership.
   private final AtomicLong giveUpBlackoutEndTimeMs = new AtomicLong(0);
-  private final Counter corruptedLeaseCounter;
   private final Counter postRestoreLeaseRepairSuccessCounter;
   private final Counter postRestoreLeaseRepairFailureCounter;
   private final boolean isDedicatedCluster;
@@ -162,7 +162,6 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     this.metricsFactory = metricsFactory;
     this.operationExecutor =
         new MongoClientOperationExecutor(metricsFactory, "leaseTableCollection");
-    this.corruptedLeaseCounter = metricsFactory.counter("corruptedLeases");
     this.postRestoreLeaseRepairSuccessCounter =
         metricsFactory.counter(POST_RESTORE_LEASE_REPAIR_SUCCESS_COUNTER_NAME);
     this.postRestoreLeaseRepairFailureCounter =
@@ -362,11 +361,11 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
             this.leases.put(lease.id(), lease);
           } else {
             // TODO(CLOUDP-384971): clean up corrupted leases
-            this.corruptedLeaseCounter.increment();
+            this.metricsFactory.counter(CORRUPTED_LEASES_COUNTER_NAME).increment();
             corruptedLeaseIds.add(parsed.id());
           }
         } catch (BsonParseException e) {
-          // parseLeaseOrThrow already incremented corruptedLeaseCounter
+          // parseLeaseOrThrow already incremented the corruptedLeases counter
           corruptedLeaseIds.add(extractLeaseId(rawLease));
         }
       }
@@ -397,7 +396,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     try {
       return Lease.fromBson(rawLease);
     } catch (BsonParseException e) {
-      this.corruptedLeaseCounter.increment();
+      this.metricsFactory.counter(CORRUPTED_LEASES_COUNTER_NAME).increment();
       throw e;
     }
   }
@@ -1208,7 +1207,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
             if (normalized != null) {
               fetchedLeases.put(normalized.id(), normalized);
             } else {
-              this.corruptedLeaseCounter.increment();
+              this.metricsFactory.counter(CORRUPTED_LEASES_COUNTER_NAME).increment();
             }
           } catch (BsonParseException parseEx) {
             LOG.atError()
@@ -1260,7 +1259,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
                 .extractHighWaterMark()
                 .ifPresent(opTime -> replicationOpTimes.put(generationId, opTime));
           } catch (RuntimeException e) {
-            this.corruptedLeaseCounter.increment();
+            this.metricsFactory.counter(CORRUPTED_LEASES_COUNTER_NAME).increment();
             LOG.atWarn()
                 .addKeyValue("leaseId", lease.id())
                 .addKeyValue("generationId", generationId)
@@ -1965,7 +1964,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     }
     Lease lease = normalizeLeaseIfNeeded(parseLeaseOrThrow(rawLease));
     if (lease == null) {
-      this.corruptedLeaseCounter.increment();
+      this.metricsFactory.counter(CORRUPTED_LEASES_COUNTER_NAME).increment();
     }
     return lease;
   }
