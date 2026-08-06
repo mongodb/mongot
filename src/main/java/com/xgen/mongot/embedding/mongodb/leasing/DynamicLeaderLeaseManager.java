@@ -1252,7 +1252,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
         this.leases.put(leaseKey, lease);
 
         // Extract status from the lease.
-        IndexStatus status = getStatusFromLease(lease, generationId, versionKey);
+        IndexStatus status = getEffectiveMaterializedViewStatus(lease, versionKey, generationId);
         statuses.put(generationId, status);
         if (status.canServiceQueries()) {
           try {
@@ -1291,27 +1291,6 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
       }
     }
     return new LeaseManager.FollowerPollResult(statuses, replicationOpTimes, acquirableLeases);
-  }
-
-  /** Extracts the effective status from a lease for a given generation ID and version key. */
-  private IndexStatus getStatusFromLease(
-      Lease lease, MaterializedViewGenerationId generationId, String versionKey) {
-    @Var
-    Lease.IndexDefinitionVersionStatus requestedStatus =
-        new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.UNKNOWN);
-
-    if (lease.indexDefinitionVersionStatusMap().containsKey(versionKey)) {
-      requestedStatus = lease.indexDefinitionVersionStatusMap().get(versionKey);
-    } else {
-      LOG.warn(
-          "Requested version key {} not found in lease for generation ID {}",
-          versionKey,
-          generationId);
-    }
-    Lease.IndexDefinitionVersionStatus latestStatus =
-        lease.indexDefinitionVersionStatusMap().get(lease.latestIndexDefinitionVersion());
-
-    return getEffectiveMaterializedViewStatus(requestedStatus, latestStatus);
   }
 
   @Override

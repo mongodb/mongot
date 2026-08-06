@@ -374,6 +374,47 @@ public class StaticLeaderLeaseManagerTest {
     assertThat(result.replicationOpTimes()).containsEntry(generationId, replicationOpTime);
   }
 
+  @Test
+  public void pollFollowerStatuses_versionKeyNotPublishedInLease_reportsUnknown() {
+    // Static-leader counterpart of the same race covered by DynamicLeaderLeaseManagerTest
+    // (HELP-97792): the lease does not carry this generation's version key yet, so the previous
+    // version's STEADY status and checkpoint must not be inherited.
+    StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration(1);
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    leaseManager.add(indexGeneration, false);
+    EncodedUserData commitInfo =
+        IndexCommitUserData.createChangeStreamResume(
+                ChangeStreamResumeInfo.create(
+                    new MongoNamespace("test", "collection"),
+                    ChangeStreamUtils.resumeToken(new BsonTimestamp(123, 1))),
+                IndexFormatVersion.CURRENT)
+            .toEncodedData();
+    Lease leaseWithoutVersionOne =
+        new Lease(
+            getLeaseKeyFromCatalog(generationId),
+            Lease.SCHEMA_VERSION,
+            UUID.randomUUID().toString(),
+            "source-collection",
+            HOSTNAME,
+            Instant.now().plusSeconds(60),
+            1L,
+            commitInfo.asString(),
+            "0",
+            Map.of(
+                "0", new Lease.IndexDefinitionVersionStatus(true, IndexStatus.StatusCode.STEADY)),
+            this.mvMetadataCatalog.getMetadata(generationId),
+            null,
+            Lease.CleanupState.NOT_ELIGIBLE);
+    when(this.mockFindIterable.first()).thenReturn(leaseWithoutVersionOne.toBson());
+
+    LeaseManager.FollowerPollResult result = leaseManager.pollFollowerStatuses();
+
+    assertThat(result.statuses().get(generationId).getStatusCode())
+        .isEqualTo(IndexStatus.StatusCode.UNKNOWN);
+    assertThat(result.replicationOpTimes()).doesNotContainKey(generationId);
+  }
+
   // ==================== findGcCandidates / markEligibleForCleanup ====================
   // The GC APIs are leaderless — they must work on followers too, so tests use isLeader=false.
 
@@ -527,8 +568,14 @@ public class StaticLeaderLeaseManagerTest {
    * StaticLeaderLeaseManager.getLeaseKey (which uses catalog) works.
    */
   private MaterializedViewIndexGeneration createTestIndexGeneration() {
+    return createTestIndexGeneration(0);
+  }
+
+  /** As above, for a generation at a specific index definition version. */
+  private MaterializedViewIndexGeneration createTestIndexGeneration(long indexDefinitionVersion) {
     MaterializedViewIndexDefinitionGeneration defGen =
-        MaterializedViewIndex.mockMatViewDefinitionGeneration(new ObjectId());
+        MaterializedViewIndex.mockMatViewDefinitionGeneration(
+            new ObjectId(), indexDefinitionVersion);
     MaterializedViewIndexGeneration gen = mockMatViewIndexGeneration(defGen);
     addCatalogMetadataForGeneration(gen.getGenerationId());
     return gen;

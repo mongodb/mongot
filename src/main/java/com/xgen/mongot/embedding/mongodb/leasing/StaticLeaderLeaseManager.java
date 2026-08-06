@@ -380,39 +380,21 @@ public class StaticLeaderLeaseManager implements LeaseManager {
    */
   private FollowerStatus getMaterializedViewReplicationStatus(
       MaterializedViewGenerationId generationId, String versionKey) {
-    @Var
-    Lease.IndexDefinitionVersionStatus requestedStatus =
-        new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.UNKNOWN);
-    @Var
-    Lease.IndexDefinitionVersionStatus latestStatus =
-        new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.UNKNOWN);
-
     try {
       Lease lease = getLeaseFromDatabase(generationId);
       if (lease != null) {
-        if (lease.indexDefinitionVersionStatusMap().containsKey(versionKey)) {
-          requestedStatus = lease.indexDefinitionVersionStatusMap().get(versionKey);
-        } else {
-          LOG.warn(
-              "Requested version key {} not found in lease for generation ID {}",
-              versionKey,
-              generationId);
-        }
-        latestStatus =
-            lease.indexDefinitionVersionStatusMap().get(lease.latestIndexDefinitionVersion());
         IndexStatus effectiveStatus =
-            getEffectiveMaterializedViewStatus(requestedStatus, latestStatus);
+            getEffectiveMaterializedViewStatus(lease, versionKey, generationId);
         Optional<BsonTimestamp> replicationOpTime =
             effectiveStatus.canServiceQueries() ? lease.extractHighWaterMark() : Optional.empty();
         return new FollowerStatus(effectiveStatus, replicationOpTime);
-      } else {
-        LOG.warn("No lease found in database for generation ID {}", generationId);
       }
+      LOG.warn("No lease found in database for generation ID {}", generationId);
     } catch (Exception e) {
       LOG.warn("Failed to poll status for generation ID {}", generationId, e);
     }
-    return new FollowerStatus(
-        getEffectiveMaterializedViewStatus(requestedStatus, latestStatus), Optional.empty());
+    // No lease, or the read failed: nothing is known about this generation's status.
+    return new FollowerStatus(new IndexStatus(IndexStatus.StatusCode.UNKNOWN), Optional.empty());
   }
 
   private record FollowerStatus(

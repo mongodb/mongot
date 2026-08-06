@@ -1401,6 +1401,64 @@ public class DynamicLeaderLeaseManagerTest {
   }
 
   @Test
+  public void pollFollowerStatuses_versionKeyNotPublishedInLease_reportsUnknown() throws Exception {
+    // A follower that creates its generation inside the leader's publication window polls a lease
+    // that does not carry its version key yet (HELP-97792). The lease's latest version is the
+    // previous definition, STEADY and checkpointed; inheriting it would report a queryable
+    // materialized view for one that is still empty, and that spurious STEADY latches the
+    // "was queryable" ratchet that then authorises a premature staged-index swap.
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration(1);
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    this.leaseManager.add(indexGeneration);
+
+    Lease leaseWithoutVersionOne =
+        createLeaseWithVersionStatuses(
+            generationId,
+            OTHER_HOSTNAME,
+            "0",
+            Map.of(
+                "0", new Lease.IndexDefinitionVersionStatus(true, IndexStatus.StatusCode.STEADY)),
+            checkpointCommitInfo(new BsonTimestamp(123, 1)));
+    setupFindLeaseFromDatabase(leaseWithoutVersionOne);
+
+    LeaseManager.FollowerPollResult result = this.leaseManager.pollFollowerStatuses();
+
+    assertThat(result.statuses().get(generationId).getStatusCode())
+        .isEqualTo(IndexStatus.StatusCode.UNKNOWN);
+    // The previous version's checkpoint must not be adopted as this generation's replication
+    // position either — an unpublished version has no progress to report.
+    assertThat(result.replicationOpTimes()).doesNotContainKey(generationId);
+  }
+
+  @Test
+  public void pollFollowerStatuses_versionKeyPublishedAsInitialSync_reportsInitialSync()
+      throws Exception {
+    // Same shape as the test above, one lease write later: once the leader publishes the version
+    // key, the follower reports the truthful status rather than UNKNOWN.
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration(1);
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    this.leaseManager.add(indexGeneration);
+
+    Lease leaseWithVersionOne =
+        createLeaseWithVersionStatuses(
+            generationId,
+            OTHER_HOSTNAME,
+            "1",
+            Map.of(
+                "0",
+                new Lease.IndexDefinitionVersionStatus(true, IndexStatus.StatusCode.STEADY),
+                "1",
+                new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.INITIAL_SYNC)),
+            "");
+    setupFindLeaseFromDatabase(leaseWithVersionOne);
+
+    LeaseManager.FollowerPollResult result = this.leaseManager.pollFollowerStatuses();
+
+    assertThat(result.statuses().get(generationId).getStatusCode())
+        .isEqualTo(IndexStatus.StatusCode.INITIAL_SYNC);
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   public void pollFollowerStatuses_batchFetchThrows_returnsEmptyStatusesNotUnknown() {
     // Verify that a DB failure (e.g. mongod unreachable during cluster pause) does NOT force
@@ -2755,8 +2813,14 @@ public class DynamicLeaderLeaseManagerTest {
   }
 
   private MaterializedViewIndexGeneration createTestIndexGeneration() {
+    return createTestIndexGeneration(0);
+  }
+
+  /** As above, for a generation at a specific index definition version. */
+  private MaterializedViewIndexGeneration createTestIndexGeneration(long indexDefinitionVersion) {
     MaterializedViewIndexDefinitionGeneration defGen =
-        MaterializedViewIndex.mockMatViewDefinitionGeneration(new ObjectId());
+        MaterializedViewIndex.mockMatViewDefinitionGeneration(
+            new ObjectId(), indexDefinitionVersion);
     MaterializedViewIndexGeneration gen = mockMatViewIndexGeneration(defGen);
     addCatalogMetadataForGeneration(gen.getGenerationId());
     return gen;
@@ -2840,6 +2904,39 @@ public class DynamicLeaderLeaseManagerTest {
         new MaterializedViewCollectionMetadata(VERSION_ZERO, UUID.randomUUID(), "collection-name"),
         null,
         Lease.CleanupState.NOT_ELIGIBLE);
+  }
+
+  /** A lease with an explicit latest version and version-status map. */
+  private Lease createLeaseWithVersionStatuses(
+      MaterializedViewGenerationId generationId,
+      String owner,
+      String latestIndexDefinitionVersion,
+      Map<String, Lease.IndexDefinitionVersionStatus> versionStatusMap,
+      String commitInfo) {
+    return new Lease(
+        getLeaseKeyFromCatalog(generationId),
+        Lease.SCHEMA_VERSION,
+        "fa41efe9-dd13-4976-a6ce-009682ec4257",
+        "collection-name",
+        owner,
+        Instant.now().plusSeconds(60),
+        1L,
+        commitInfo,
+        latestIndexDefinitionVersion,
+        versionStatusMap,
+        new MaterializedViewCollectionMetadata(VERSION_ZERO, UUID.randomUUID(), "collection-name"),
+        null,
+        Lease.CleanupState.NOT_ELIGIBLE);
+  }
+
+  /** Commit info carrying a change-stream checkpoint at {@code opTime}. */
+  private static String checkpointCommitInfo(BsonTimestamp opTime) {
+    return IndexCommitUserData.createChangeStreamResume(
+            ChangeStreamResumeInfo.create(
+                new MongoNamespace("test", "collection"), ChangeStreamUtils.resumeToken(opTime)),
+            IndexFormatVersion.CURRENT)
+        .toEncodedData()
+        .asString();
   }
 
   private Lease createLeaseWithCommitInfo(
