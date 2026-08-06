@@ -3,9 +3,9 @@ package com.xgen.mongot.embedding.utils;
 /**
  * Why an auto-embed index did a full document re-index instead of a partial-embed {@code $set}.
  * Most values come from {@link AutoEmbeddingDocumentUtils#computePartialEmbedChangedTexts}; {@link
- * #REPLACE_EVENT}, {@link #FILTER_EXTRACTION_FAILED} and {@link #NESTED_FILTER_REMAPPING} are
- * recorded at the change-stream routing layer. Exported as the snake_case {@code reason} tag on the
- * {@code partialEmbedFallback} counter.
+ * #REPLACE_EVENT}, {@link #FILTER_EXTRACTION_FAILED}, {@link #NESTED_FILTER_REMAPPING} and {@link
+ * #INTRA_BATCH_PREDECESSOR_REQUIRES_FULL} are recorded at the change-stream routing layer. Exported
+ * as the snake_case {@code reason} tag on the {@code partialEmbedFallback} counter.
  */
 public enum PartialEmbedFallbackReason {
   /** The update description was unavailable, so we can't reason about what changed. */
@@ -41,5 +41,11 @@ public enum PartialEmbedFallbackReason {
    * filter-only {@code $set} writes filters at their source paths and cannot reproduce the {@code
    * _autoEmbed.*} co-location, so the routing layer falls back to a full replace.
    */
-  NESTED_FILTER_REMAPPING
+  NESTED_FILTER_REMAPPING,
+  /**
+   * Intra-batch dedup collapsed away a same-doc predecessor that required full processing
+   * (INSERT/REPLACE, embed-source change, filter-destructive update, etc.), so the surviving event
+   * is forced to a full replace rather than a partial {@code $set}.
+   */
+  INTRA_BATCH_PREDECESSOR_REQUIRES_FULL
 }

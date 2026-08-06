@@ -1264,6 +1264,10 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
     assertEquals(1, batch.finalChangeEvents.size());
     assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
     assertEquals(0, batch.partialEmbedApplied);
+    assertEquals(
+        Integer.valueOf(1),
+        batch.partialEmbedFallbacks.get(
+            PartialEmbedFallbackReason.INTRA_BATCH_PREDECESSOR_REQUIRES_FULL));
   }
 
   @Test
@@ -1384,6 +1388,10 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
 
     assertEquals(1, batch.finalChangeEvents.size());
     assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+    assertEquals(
+        Integer.valueOf(1),
+        batch.partialEmbedFallbacks.get(
+            PartialEmbedFallbackReason.INTRA_BATCH_PREDECESSOR_REQUIRES_FULL));
   }
 
   @Test
@@ -1433,6 +1441,10 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
 
     assertEquals(1, batch.finalChangeEvents.size());
     assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+    assertEquals(
+        Integer.valueOf(1),
+        batch.partialEmbedFallbacks.get(
+            PartialEmbedFallbackReason.INTRA_BATCH_PREDECESSOR_REQUIRES_FULL));
   }
 
   @Test
@@ -1494,6 +1506,10 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
     // The survivor's $set carries BOTH the survivor's own filter change AND the predecessor's.
     assertEquals(new BsonString("updated"), filterFieldUpdates.get("category"));
     assertEquals(BsonBoolean.TRUE, filterFieldUpdates.get("isPublished"));
+    assertTrue(
+        batch.partialEmbedFallbacks.get(
+                PartialEmbedFallbackReason.INTRA_BATCH_PREDECESSOR_REQUIRES_FULL)
+            == null);
   }
 
   @Test
@@ -1526,6 +1542,10 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
 
     assertEquals(1, batch.finalChangeEvents.size());
     assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+    assertEquals(
+        Integer.valueOf(1),
+        batch.partialEmbedFallbacks.get(
+            PartialEmbedFallbackReason.INTRA_BATCH_PREDECESSOR_REQUIRES_FULL));
   }
 
   @Test
@@ -1558,6 +1578,10 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
 
     assertEquals(1, batch.finalChangeEvents.size());
     assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+    assertEquals(
+        Integer.valueOf(1),
+        batch.partialEmbedFallbacks.get(
+            PartialEmbedFallbackReason.INTRA_BATCH_PREDECESSOR_REQUIRES_FULL));
   }
 
   @Test
@@ -1613,6 +1637,10 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
     assertEquals(1, batch.finalChangeEvents.size());
     // A full replacement is emitted (not a filter-only partial update).
     assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+    assertEquals(
+        Integer.valueOf(1),
+        batch.partialEmbedFallbacks.get(
+            PartialEmbedFallbackReason.INTRA_BATCH_PREDECESSOR_REQUIRES_FULL));
   }
 
   @Test
@@ -1653,6 +1681,222 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
 
     assertEquals(1, batch.finalChangeEvents.size());
     assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+    assertEquals(
+        Integer.valueOf(1),
+        batch.partialEmbedFallbacks.get(
+            PartialEmbedFallbackReason.INTRA_BATCH_PREDECESSOR_REQUIRES_FULL));
+  }
+
+  @Test
+  public void nonViewDedup_collapsedFilterDrop_forcesSurvivorFull() {
+    // Non-view mirror of viewDedup_collapsedFilterDrop_forcesSurvivorFull.
+    // Older event $unsets a declared filter; newer survivor is a different filter-only $set.
+    // The pre-pass must force the survivor to a full replace — otherwise the partial $set from
+    // the survivor's fullDocument omits the removed filter and leaves a stale MV value.
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .withFilterPath("status")
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    UpdateDescription unsetDesc = new UpdateDescription(List.of("category"), new BsonDocument());
+    BsonDocument afterUnset =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("d"))
+            .append("status", new BsonString("draft"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> olderUnsetsFilter =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, unsetDesc, afterUnset);
+
+    UpdateDescription statusDesc =
+        new UpdateDescription(null, new BsonDocument("status", new BsonString("published")));
+    BsonDocument afterStatus =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("d"))
+            .append("status", new BsonString("published"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> newerFilterOnly =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, statusDesc, afterStatus);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(olderUnsetsFilter, newerFilterOnly),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    assertFalse(
+        "collapsed $unset of a filter must force full replace on non-view AE indexes",
+        batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+    assertEquals(
+        Integer.valueOf(1),
+        batch.partialEmbedFallbacks.get(
+            PartialEmbedFallbackReason.INTRA_BATCH_PREDECESSOR_REQUIRES_FULL));
+  }
+
+  @Test
+  public void nonViewDedup_collapsedAncestorOverwrite_forcesSurvivorFull() {
+    // Older event $sets a strict ancestor of a nested filter (drops meta.category); newer
+    // survivor is an unrelated filter-only update.
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("meta.category")
+            .withFilterPath("status")
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    UpdateDescription ancestorOverwrite =
+        new UpdateDescription(null, new BsonDocument("meta", new BsonNull()));
+    BsonDocument afterOverwrite =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("d"))
+            .append("meta", new BsonNull())
+            .append("status", new BsonString("draft"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> olderDropsNestedFilter =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, ancestorOverwrite, afterOverwrite);
+
+    UpdateDescription statusDesc =
+        new UpdateDescription(null, new BsonDocument("status", new BsonString("published")));
+    BsonDocument afterStatus =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("d"))
+            .append("meta", new BsonNull())
+            .append("status", new BsonString("published"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> newerFilterOnly =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, statusDesc, afterStatus);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(olderDropsNestedFilter, newerFilterOnly),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    assertFalse(
+        "collapsed ancestor overwrite of a filter must force full replace on non-view AE indexes",
+        batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+    assertEquals(
+        Integer.valueOf(1),
+        batch.partialEmbedFallbacks.get(
+            PartialEmbedFallbackReason.INTRA_BATCH_PREDECESSOR_REQUIRES_FULL));
+  }
+
+  @Test
+  public void nonViewDedup_collapsedFilterDrop_thenPartialEmbed_forcesSurvivorFull() {
+    // Older $unset of a filter, newer survivor is a partial-embed update. Without forcing full
+    // replace the embed $set would land while the removed filter stayed stale on the MV.
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    UpdateDescription unsetDesc = new UpdateDescription(List.of("category"), new BsonDocument());
+    BsonDocument afterUnset =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("old text"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> olderUnsetsFilter =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, unsetDesc, afterUnset);
+
+    UpdateDescription embedDesc =
+        new UpdateDescription(null, new BsonDocument("description", new BsonString("new text")));
+    BsonDocument afterEmbed =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("new text"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> newerEmbedChange =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, embedDesc, afterEmbed);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(olderUnsetsFilter, newerEmbedChange),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    assertFalse(
+        "collapsed $unset of a filter before a partial-embed survivor must force full replace",
+        batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+    assertEquals(
+        Integer.valueOf(1),
+        batch.partialEmbedFallbacks.get(
+            PartialEmbedFallbackReason.INTRA_BATCH_PREDECESSOR_REQUIRES_FULL));
+  }
+
+  @Test
+  public void nonViewDedup_additiveFilterOnlyCollapse_keepsPartialOptimization() {
+    // Two additive filter-only updates must still collapse to a partial $set that aggregates
+    // both filter values from the survivor's fullDocument — the fix must not force full replace
+    // when no predecessor is filter-destructive.
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .withFilterPath("status")
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    UpdateDescription firstFilterDesc =
+        new UpdateDescription(null, new BsonDocument("category", new BsonString("electronics")));
+    BsonDocument afterFirst =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("d"))
+            .append("category", new BsonString("electronics"))
+            .append("status", new BsonString("draft"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> firstFilterEvent =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, firstFilterDesc, afterFirst);
+
+    UpdateDescription secondFilterDesc =
+        new UpdateDescription(null, new BsonDocument("status", new BsonString("published")));
+    BsonDocument afterSecond =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("d"))
+            .append("category", new BsonString("electronics"))
+            .append("status", new BsonString("published"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> secondFilterEvent =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, secondFilterDesc, afterSecond);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(firstFilterEvent, secondFilterEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    DocumentEvent event = batch.finalChangeEvents.getFirst();
+    assertTrue(event.getFilterFieldUpdates().isPresent());
+    assertEquals(
+        new BsonString("electronics"), event.getFilterFieldUpdates().get().get("category"));
+    assertEquals(new BsonString("published"), event.getFilterFieldUpdates().get().get("status"));
+    assertTrue(
+        batch.partialEmbedFallbacks.get(
+                PartialEmbedFallbackReason.INTRA_BATCH_PREDECESSOR_REQUIRES_FULL)
+            == null);
   }
 
   @Test
@@ -1715,6 +1959,10 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
         new BsonString("updated"), doc1Event.getFilterFieldUpdates().get().get("category"));
     // Doc 0 takes the full path because of its embed-source predecessor.
     assertFalse(doc0Event.getFilterFieldUpdates().isPresent());
+    assertEquals(
+        Integer.valueOf(1),
+        batch.partialEmbedFallbacks.get(
+            PartialEmbedFallbackReason.INTRA_BATCH_PREDECESSOR_REQUIRES_FULL));
   }
 
   /**

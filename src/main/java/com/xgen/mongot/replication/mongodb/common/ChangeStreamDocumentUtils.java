@@ -475,6 +475,8 @@ public class ChangeStreamDocumentUtils {
         if (docRequiresFullUpdate) {
           metrics.updateApplicable();
           incrementApplicableDocumentMetrics(metrics, event);
+          metrics.partialEmbedFallback(
+              PartialEmbedFallbackReason.INTRA_BATCH_PREDECESSOR_REQUIRES_FULL);
           return Optional.of(DocumentEvent.createUpdate(metadata, event.getFullDocument()));
         }
 
@@ -663,13 +665,14 @@ public class ChangeStreamDocumentUtils {
    * pre-pass in {@link #handleDocumentEvents} to detect events that would be lost behind a
    * filter-only survivor after intra-batch dedup.
    *
-   * <p>INSERT and REPLACE always require full processing (they are full writes by definition). For
-   * view-based indexes an UPDATE requires full processing when {@link
-   * ViewFieldDependencies#requiresFullProcessing} says so OR when it would destructively drop a
-   * filter ({@link AutoEmbeddingDocumentUtils#filterOnlyPartialUpdateFallbackReason}) — otherwise a
-   * collapsed filter-dropping event would leave a stale filter behind a partial-update survivor.
-   * Non-view UPDATEs delegate to {@link AutoEmbeddingDocumentUtils#requiresEmbeddingGeneration}.
-   * Other operation types (DELETE, INVALIDATE, etc.) do not interact with the partial-update path.
+   * <p>INSERT and REPLACE always require full processing (they are full writes by definition). An
+   * UPDATE requires full processing when it would destructively drop a filter ({@link
+   * AutoEmbeddingDocumentUtils#filterOnlyPartialUpdateFallbackReason}) — otherwise a collapsed
+   * filter-dropping event would leave a stale filter behind a partial-update survivor (views and
+   * non-views alike). View-based indexes additionally consult {@link
+   * ViewFieldDependencies#requiresFullProcessing}. Non-view UPDATEs additionally consult {@link
+   * AutoEmbeddingDocumentUtils#requiresEmbeddingGeneration}. Other operation types (DELETE,
+   * INVALIDATE, etc.) do not interact with the partial-update path.
    */
   private static boolean eventRequiresAutoEmbedFullUpdate(
       ChangeStreamDocument<RawBsonDocument> event,
@@ -679,20 +682,21 @@ public class ChangeStreamDocumentUtils {
     return switch (event.getOperationType()) {
       case INSERT, REPLACE -> true;
       case UPDATE -> {
+        Optional<PartialEmbedFallbackReason> filterOnlyUnsafe =
+            indexDefinition instanceof VectorIndexDefinition vectorDef
+                ? AutoEmbeddingDocumentUtils.filterOnlyPartialUpdateFallbackReason(
+                    event.getUpdateDescription(), autoEmbedMapping, vectorDef.getNestedRoot())
+                : Optional.empty();
         if (indexDefinition.getView().isPresent()) {
           boolean requiresFull =
               viewFieldDependencies
                   .map(deps -> deps.requiresFullProcessing(event.getUpdateDescription()))
                   .orElse(true);
-          Optional<PartialEmbedFallbackReason> filterOnlyUnsafe =
-              indexDefinition instanceof VectorIndexDefinition vectorDef
-                  ? AutoEmbeddingDocumentUtils.filterOnlyPartialUpdateFallbackReason(
-                      event.getUpdateDescription(), autoEmbedMapping, vectorDef.getNestedRoot())
-                  : Optional.empty();
           yield requiresFull || filterOnlyUnsafe.isPresent();
         }
         yield AutoEmbeddingDocumentUtils.requiresEmbeddingGeneration(
-            event.getUpdateDescription(), autoEmbedMapping);
+                event.getUpdateDescription(), autoEmbedMapping)
+            || filterOnlyUnsafe.isPresent();
       }
       default -> false;
     };
