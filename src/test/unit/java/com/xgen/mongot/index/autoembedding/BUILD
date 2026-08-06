@@ -5,6 +5,7 @@ java_test_suite(
     srcs = [
         "AutoEmbeddingCompositeIndexTest.java",
         "AutoEmbeddingFailureMessagesTest.java",
+        "AutoEmbeddingGenerationMetricsTest.java",
         "AutoEmbeddingIndexGenerationFactoryTest.java",
         "AutoEmbeddingIndexGenerationTest.java",
         "AutoEmbeddingOfflineQueryTest.java",

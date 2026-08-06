@@ -1,7 +1,11 @@
 package com.xgen.mongot.index.autoembedding;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.mongodb.MongoNamespace;
@@ -16,6 +20,7 @@ import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils;
+import java.io.IOException;
 import java.util.EnumSet;
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -23,6 +28,71 @@ import org.bson.BsonTimestamp;
 import org.junit.Test;
 
 public class AutoEmbeddingCompositeIndexTest {
+
+  @Test
+  public void close_closesGenerationMetrics() throws Exception {
+    InitializedMaterializedViewIndex materializedViewIndex =
+        mock(InitializedMaterializedViewIndex.class);
+    InitializedVectorIndex derivedIndex = mock(InitializedVectorIndex.class);
+    AutoEmbeddingGenerationMetrics generationMetrics = mock(AutoEmbeddingGenerationMetrics.class);
+    AutoEmbeddingCompositeIndex index =
+        new AutoEmbeddingCompositeIndex(
+            materializedViewIndex, derivedIndex, Optional::empty, () -> false, generationMetrics);
+
+    index.close();
+
+    verify(generationMetrics).close();
+  }
+
+  @Test
+  public void close_attemptsBothIndexesWhenCloseFails() throws Exception {
+    InitializedMaterializedViewIndex materializedViewIndex =
+        mock(InitializedMaterializedViewIndex.class);
+    InitializedVectorIndex derivedIndex = mock(InitializedVectorIndex.class);
+    AutoEmbeddingGenerationMetrics generationMetrics = mock(AutoEmbeddingGenerationMetrics.class);
+    IOException materializedViewFailure = new IOException("materialized view close failed");
+    IOException derivedIndexFailure = new IOException("derived index close failed");
+    doThrow(materializedViewFailure).when(materializedViewIndex).close();
+    doThrow(derivedIndexFailure).when(derivedIndex).close();
+    AutoEmbeddingCompositeIndex index =
+        new AutoEmbeddingCompositeIndex(
+            materializedViewIndex, derivedIndex, Optional::empty, () -> false, generationMetrics);
+
+    IOException thrown = assertThrows(IOException.class, index::close);
+
+    assertSame(materializedViewFailure, thrown);
+    assertEquals(1, thrown.getSuppressed().length);
+    assertSame(derivedIndexFailure, thrown.getSuppressed()[0]);
+    verify(materializedViewIndex).close();
+    verify(derivedIndex).close();
+    verify(generationMetrics).close();
+  }
+
+  @Test
+  public void close_closesGenerationMetricsWhenIndexCloseThrowsUncheckedException()
+      throws Exception {
+    InitializedMaterializedViewIndex materializedViewIndex =
+        mock(InitializedMaterializedViewIndex.class);
+    InitializedVectorIndex derivedIndex = mock(InitializedVectorIndex.class);
+    AutoEmbeddingGenerationMetrics generationMetrics = mock(AutoEmbeddingGenerationMetrics.class);
+    RuntimeException materializedViewFailure =
+        new RuntimeException("materialized view close failed");
+    IOException derivedIndexFailure = new IOException("derived index close failed");
+    doThrow(materializedViewFailure).when(materializedViewIndex).close();
+    doThrow(derivedIndexFailure).when(derivedIndex).close();
+    AutoEmbeddingCompositeIndex index =
+        new AutoEmbeddingCompositeIndex(
+            materializedViewIndex, derivedIndex, Optional::empty, () -> false, generationMetrics);
+
+    RuntimeException thrown = assertThrows(RuntimeException.class, index::close);
+
+    assertSame(materializedViewFailure, thrown);
+    assertEquals(1, thrown.getSuppressed().length);
+    assertSame(derivedIndexFailure, thrown.getSuppressed()[0]);
+    verify(materializedViewIndex).close();
+    verify(derivedIndex).close();
+    verify(generationMetrics).close();
+  }
 
   @Test
   public void testConsolidateStatuses() {

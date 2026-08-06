@@ -56,9 +56,15 @@ public class MaterializedViewIndex {
     Mockito.lenient().doAnswer(setStatus).when(index).setStatus(any());
     Mockito.lenient().when(index.getStatus()).then(ignored -> statusContainer.get());
     Mockito.lenient().when(index.getIndexSize()).thenReturn(0L);
-    Mockito.when(index.getMaterializedViewCollectionUuid()).thenReturn(UUID.randomUUID());
-    Mockito.when(index.getSchemaMetadata())
-        .thenReturn(MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata.VERSION_ZERO);
+    UUID collectionUuid = UUID.randomUUID();
+    var collectionMetadata =
+        new MaterializedViewCollectionMetadata(
+            MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata.VERSION_ZERO,
+            collectionUuid,
+            indexDefinition.getIndexId().toHexString());
+    Mockito.when(index.getMaterializedViewCollectionUuid()).thenReturn(collectionUuid);
+    Mockito.when(index.getSchemaMetadata()).thenReturn(collectionMetadata.schemaMetadata());
+    Mockito.when(index.getMaterializedViewCollectionMetadata()).thenReturn(collectionMetadata);
     return index;
   }
 

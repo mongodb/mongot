@@ -35,12 +35,37 @@ public class UnresolvedAutoEmbeddingIndexGeneration extends IndexGeneration {
       IndexDefinitionGeneration definitionGeneration,
       InitializedIndex reconstructedDerivedIndex,
       Map<FieldPath, FieldPath> autoEmbeddingFieldsMapping) {
+    return createStale(
+        definitionGeneration,
+        reconstructedDerivedIndex,
+        autoEmbeddingFieldsMapping,
+        Optional.empty());
+  }
+
+  static UnresolvedAutoEmbeddingIndexGeneration createStale(
+      IndexDefinitionGeneration definitionGeneration,
+      InitializedIndex reconstructedDerivedIndex,
+      Map<FieldPath, FieldPath> autoEmbeddingFieldsMapping,
+      AutoEmbeddingGenerationMetrics generationMetrics) {
+    return createStale(
+        definitionGeneration,
+        reconstructedDerivedIndex,
+        autoEmbeddingFieldsMapping,
+        Optional.of(generationMetrics));
+  }
+
+  private static UnresolvedAutoEmbeddingIndexGeneration createStale(
+      IndexDefinitionGeneration definitionGeneration,
+      InitializedIndex reconstructedDerivedIndex,
+      Map<FieldPath, FieldPath> autoEmbeddingFieldsMapping,
+      Optional<AutoEmbeddingGenerationMetrics> generationMetrics) {
     var staleIndex =
         new UnresolvedAutoEmbeddingIndex(
             definitionGeneration.getIndexDefinition(),
             reconstructedDerivedIndex.getStatus(),
             Optional.of(reconstructedDerivedIndex),
-            autoEmbeddingFieldsMapping);
+            autoEmbeddingFieldsMapping,
+            generationMetrics);
     return new UnresolvedAutoEmbeddingIndexGeneration(staleIndex, definitionGeneration);
   }
 
@@ -63,6 +88,23 @@ public class UnresolvedAutoEmbeddingIndexGeneration extends IndexGeneration {
       IndexDefinitionGeneration definitionGeneration,
       MaterializedViewTransientException.Reason reason,
       Optional<Index> derivedIndexForCleanup) {
+    return createFailed(definitionGeneration, reason, derivedIndexForCleanup, Optional.empty());
+  }
+
+  static UnresolvedAutoEmbeddingIndexGeneration createFailed(
+      IndexDefinitionGeneration definitionGeneration,
+      MaterializedViewTransientException.Reason reason,
+      Optional<Index> derivedIndexForCleanup,
+      AutoEmbeddingGenerationMetrics generationMetrics) {
+    return createFailed(
+        definitionGeneration, reason, derivedIndexForCleanup, Optional.of(generationMetrics));
+  }
+
+  private static UnresolvedAutoEmbeddingIndexGeneration createFailed(
+      IndexDefinitionGeneration definitionGeneration,
+      MaterializedViewTransientException.Reason reason,
+      Optional<Index> derivedIndexForCleanup,
+      Optional<AutoEmbeddingGenerationMetrics> generationMetrics) {
     Check.checkArg(
         derivedIndexForCleanup.stream().noneMatch(InitializedIndex.class::isInstance),
         "A FAILED generation cannot retain a queryable derived index");
@@ -71,7 +113,8 @@ public class UnresolvedAutoEmbeddingIndexGeneration extends IndexGeneration {
             definitionGeneration.getIndexDefinition(),
             IndexStatus.failed(FAILURE_MESSAGE, failedStatusReason(reason)),
             derivedIndexForCleanup,
-            Map.of());
+            Map.of(),
+            generationMetrics);
     return new UnresolvedAutoEmbeddingIndexGeneration(failedIndex, definitionGeneration);
   }
 
@@ -100,6 +143,21 @@ public class UnresolvedAutoEmbeddingIndexGeneration extends IndexGeneration {
    */
   public static UnresolvedAutoEmbeddingIndexGeneration createCollectionNotFound(
       IndexDefinitionGeneration definitionGeneration, Optional<Index> derivedIndexForCleanup) {
+    return createCollectionNotFound(definitionGeneration, derivedIndexForCleanup, Optional.empty());
+  }
+
+  static UnresolvedAutoEmbeddingIndexGeneration createCollectionNotFound(
+      IndexDefinitionGeneration definitionGeneration,
+      Optional<Index> derivedIndexForCleanup,
+      AutoEmbeddingGenerationMetrics generationMetrics) {
+    return createCollectionNotFound(
+        definitionGeneration, derivedIndexForCleanup, Optional.of(generationMetrics));
+  }
+
+  private static UnresolvedAutoEmbeddingIndexGeneration createCollectionNotFound(
+      IndexDefinitionGeneration definitionGeneration,
+      Optional<Index> derivedIndexForCleanup,
+      Optional<AutoEmbeddingGenerationMetrics> generationMetrics) {
     Check.checkArg(
         derivedIndexForCleanup.stream().noneMatch(InitializedIndex.class::isInstance),
         "A COLLECTION_NOT_FOUND generation cannot retain a queryable derived index");
@@ -108,7 +166,8 @@ public class UnresolvedAutoEmbeddingIndexGeneration extends IndexGeneration {
             definitionGeneration.getIndexDefinition(),
             IndexStatus.doesNotExist(COLLECTION_NOT_FOUND),
             derivedIndexForCleanup,
-            Map.of());
+            Map.of(),
+            generationMetrics);
     return new UnresolvedAutoEmbeddingIndexGeneration(unresolvedIndex, definitionGeneration);
   }
 }

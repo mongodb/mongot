@@ -3,6 +3,7 @@ package com.xgen.mongot.index.autoembedding;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
@@ -139,7 +140,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
   public void getAutoEmbeddingIndexGeneration_sourceCollectionAbsent_skipsMaterializedView()
       throws Exception {
     VectorIndexDefinitionGeneration rawGen = autoEmbedVectorGen();
-    MaterializedViewIndexFactory matViewIndexFactory = mock(MaterializedViewIndexFactory.class);
+    MaterializedViewIndexFactory matViewIndexFactory = matViewIndexFactoryMock();
     IndexFactory indexFactory = indexFactoryWithCommit(Optional.empty());
     InitializedIndexCatalog catalog = mock(InitializedIndexCatalog.class);
     when(matViewIndexFactory.isSourceCollectionAbsentOnMongod(any())).thenReturn(true);
@@ -170,7 +171,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
   public void getAutoEmbeddingIndexGeneration_sourceCollectionAbsentWithCommit_retainsCleanupIndex()
       throws Exception {
     VectorIndexDefinitionGeneration rawGen = autoEmbedVectorGen();
-    MaterializedViewIndexFactory matViewIndexFactory = mock(MaterializedViewIndexFactory.class);
+    MaterializedViewIndexFactory matViewIndexFactory = matViewIndexFactoryMock();
     IndexFactory indexFactory =
         indexFactoryWithCommit(
             Optional.of(IndexCommitUserData.createExceeded("test").toEncodedData()));
@@ -204,10 +205,38 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
   }
 
   @Test
+  public void getAutoEmbeddingIndexGeneration_constructionFails_closesGenerationMetrics()
+      throws Exception {
+    VectorIndexDefinitionGeneration rawGen = autoEmbedVectorGen();
+    MaterializedViewIndexFactory matViewIndexFactory = matViewIndexFactoryMock();
+    AutoEmbeddingGenerationMetrics generationMetrics = mock(AutoEmbeddingGenerationMetrics.class);
+    IndexFactory indexFactory =
+        indexFactoryWithCommit(
+            Optional.of(IndexCommitUserData.createExceeded("test").toEncodedData()));
+    when(matViewIndexFactory.isSourceCollectionAbsentOnMongod(any())).thenReturn(true);
+    when(matViewIndexFactory.createAutoEmbeddingGenerationMetrics(any()))
+        .thenReturn(generationMetrics);
+    when(indexFactory.getIndex(same(rawGen))).thenReturn(mock(InitializedVectorIndex.class));
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            AutoEmbeddingIndexGenerationFactory.getAutoEmbeddingIndexGeneration(
+                indexFactory,
+                matViewIndexFactory,
+                rawGen,
+                mock(InitializedIndexCatalog.class),
+                () -> false));
+
+    verify(generationMetrics).recordCollectionNotFound();
+    verify(generationMetrics).close();
+  }
+
+  @Test
   public void getAutoEmbeddingIndexGeneration_sourceCollectionPresent_buildsCompositeGeneration()
       throws Exception {
     VectorIndexDefinitionGeneration rawGen = autoEmbedVectorGen();
-    MaterializedViewIndexFactory matViewIndexFactory = mock(MaterializedViewIndexFactory.class);
+    MaterializedViewIndexFactory matViewIndexFactory = matViewIndexFactoryMock();
     IndexFactory indexFactory = mock(IndexFactory.class);
     InitializedIndexCatalog catalog = mock(InitializedIndexCatalog.class);
     // Build the mat-view mock before stubbing — matViewIndexMock() does its own stubbing, which
@@ -286,7 +315,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
           throws Exception {
     VectorIndexDefinitionGeneration rawGen = autoEmbedVectorGen();
     BsonTimestamp committedOptime = new BsonTimestamp(42, 1);
-    MaterializedViewIndexFactory matViewIndexFactory = mock(MaterializedViewIndexFactory.class);
+    MaterializedViewIndexFactory matViewIndexFactory = matViewIndexFactoryMock();
     IndexFactory indexFactory =
         indexFactoryWithCommit(
             Optional.of(
@@ -333,7 +362,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
           throws Exception {
     VectorIndexDefinitionGeneration rawGen = autoEmbedVectorGen();
     BsonTimestamp committedOptime = new BsonTimestamp(42, 1);
-    MaterializedViewIndexFactory matViewIndexFactory = mock(MaterializedViewIndexFactory.class);
+    MaterializedViewIndexFactory matViewIndexFactory = matViewIndexFactoryMock();
     IndexFactory indexFactory =
         indexFactoryWithCommit(
             Optional.of(
@@ -381,7 +410,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
     AutoEmbeddingCommitMetadata metadata =
         new AutoEmbeddingCommitMetadata(
             false, Optional.of(TENANT_MV_DATABASE_NAME), Optional.of(collectionMetadata()));
-    MaterializedViewIndexFactory matViewIndexFactory = mock(MaterializedViewIndexFactory.class);
+    MaterializedViewIndexFactory matViewIndexFactory = matViewIndexFactoryMock();
     IndexFactory indexFactory = indexFactoryWithCommit(Optional.of(commitWith(metadata)));
     InitializedIndexCatalog catalog = mock(InitializedIndexCatalog.class);
     when(matViewIndexFactory.isSourceCollectionAbsentOnMongod(any())).thenReturn(false);
@@ -415,7 +444,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
     // not a timestamp payload: optime extraction must degrade (no STALE without an optime) instead
     // of aborting resolution, parking the index in a recoverable RETRY.
     VectorIndexDefinitionGeneration rawGen = autoEmbedVectorGen();
-    MaterializedViewIndexFactory matViewIndexFactory = mock(MaterializedViewIndexFactory.class);
+    MaterializedViewIndexFactory matViewIndexFactory = matViewIndexFactoryMock();
     IndexFactory indexFactory =
         indexFactoryWithCommit(
             Optional.of(
@@ -493,7 +522,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
   public void getAutoEmbeddingIndexGeneration_noPersistedCommit_doesNotCreateCleanupIndex()
       throws Exception {
     VectorIndexDefinitionGeneration rawGen = autoEmbedVectorGen();
-    MaterializedViewIndexFactory matViewIndexFactory = mock(MaterializedViewIndexFactory.class);
+    MaterializedViewIndexFactory matViewIndexFactory = matViewIndexFactoryMock();
     IndexFactory indexFactory = indexFactoryWithCommit(Optional.empty());
     InitializedIndexCatalog catalog = mock(InitializedIndexCatalog.class);
     when(matViewIndexFactory.isSourceCollectionAbsentOnMongod(any())).thenReturn(false);
@@ -515,7 +544,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
       getAutoEmbeddingIndexGeneration_cleanupIndexCreationFails_degradesWithoutCleanupIndex()
           throws Exception {
     VectorIndexDefinitionGeneration rawGen = autoEmbedVectorGen();
-    MaterializedViewIndexFactory matViewIndexFactory = mock(MaterializedViewIndexFactory.class);
+    MaterializedViewIndexFactory matViewIndexFactory = matViewIndexFactoryMock();
     IndexFactory indexFactory =
         indexFactoryWithCommit(Optional.of(IndexCommitUserData.EMPTY.toEncodedData()));
     InitializedIndexCatalog catalog = mock(InitializedIndexCatalog.class);
@@ -611,7 +640,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
   private static IndexGeneration resolveWithBrokenMongod(Optional<EncodedUserData> persistedCommit)
       throws Exception {
     VectorIndexDefinitionGeneration rawGen = autoEmbedVectorGen();
-    MaterializedViewIndexFactory matViewIndexFactory = mock(MaterializedViewIndexFactory.class);
+    MaterializedViewIndexFactory matViewIndexFactory = matViewIndexFactoryMock();
     IndexFactory indexFactory = mock(IndexFactory.class);
     InitializedIndexCatalog catalog = mock(InitializedIndexCatalog.class);
     when(matViewIndexFactory.isSourceCollectionAbsentOnMongod(any())).thenReturn(false);
@@ -639,12 +668,20 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
     return new VectorIndexDefinitionGeneration(def, Generation.CURRENT);
   }
 
+  private static MaterializedViewIndexFactory matViewIndexFactoryMock() {
+    MaterializedViewIndexFactory factory = mock(MaterializedViewIndexFactory.class);
+    when(factory.createAutoEmbeddingGenerationMetrics(any()))
+        .thenReturn(mock(AutoEmbeddingGenerationMetrics.class));
+    return factory;
+  }
+
   private static InitializedMaterializedViewIndex matViewIndexMock() {
     InitializedMaterializedViewIndex matViewIndex = mock(InitializedMaterializedViewIndex.class);
     when(matViewIndex.getMaterializedViewDatabaseName()).thenReturn(MV_DATABASE_NAME);
     when(matViewIndex.getMaterializedViewCollectionUuid()).thenReturn(MV_COLLECTION_UUID);
     when(matViewIndex.getSchemaMetadata())
         .thenReturn(new MaterializedViewSchemaMetadata(0, Map.of()));
+    when(matViewIndex.getMaterializedViewCollectionMetadata()).thenReturn(collectionMetadata());
     return matViewIndex;
   }
 

@@ -1,6 +1,7 @@
 package com.xgen.mongot.index.autoembedding;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -21,6 +22,8 @@ import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.mongodb.MaterializedViewWriter;
 import com.xgen.mongot.index.status.IndexStatus;
+import com.xgen.mongot.index.version.Generation;
+import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.index.version.MaterializedViewGenerationId;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.PerIndexMetricsFactory;
@@ -34,8 +37,10 @@ import org.bson.types.ObjectId;
 import org.junit.Test;
 
 /**
- * Tests for {@link InitializedMaterializedViewIndex}, including that closing the index unregisters
- * the leader-status gauge (Bug: gauge remained after auto-embedding index drop).
+ * Tests for {@link InitializedMaterializedViewIndex}, including metric lifecycle behavior.
+ *
+ * <p>HELP-97792 exposed a host-local materialized-view status divergence that existing Lucene
+ * status metrics could not show.
  */
 public class InitializedMaterializedViewIndexTest {
 
@@ -153,6 +158,84 @@ public class InitializedMaterializedViewIndexTest {
     assertEquals(defGen.getIndexDefinition(), definition);
   }
 
+  @Test
+  public void statusGauges_followUnknownToSteadyTransition() throws Exception {
+    IndexFixture fixture =
+        createStatusMetricIndex(
+            MeterAndFtdcRegistry.createWithSimpleRegistries(), IndexStatus.unknown());
+
+    assertStatusGaugeValue(fixture.meterRegistry(), IndexStatus.StatusCode.UNKNOWN, 1);
+    assertStatusGaugeValue(fixture.meterRegistry(), IndexStatus.StatusCode.STEADY, 0);
+
+    fixture.index().setStatus(IndexStatus.steady());
+
+    assertStatusGaugeValue(fixture.meterRegistry(), IndexStatus.StatusCode.UNKNOWN, 0);
+    assertStatusGaugeValue(fixture.meterRegistry(), IndexStatus.StatusCode.STEADY, 1);
+  }
+
+  @Test
+  public void statusGauges_reportEffectiveRecoveringStatus_notRawInitialSync() throws Exception {
+    IndexFixture fixture =
+        createStatusMetricIndex(
+            MeterAndFtdcRegistry.createWithSimpleRegistries(), IndexStatus.unknown());
+    fixture.index().setStatus(IndexStatus.steady());
+
+    fixture.index().setStatus(IndexStatus.initialSync());
+
+    assertStatusGaugeValue(fixture.meterRegistry(), IndexStatus.StatusCode.RECOVERING_TRANSIENT, 1);
+    assertStatusGaugeValue(fixture.meterRegistry(), IndexStatus.StatusCode.INITIAL_SYNC, 0);
+  }
+
+  @Test
+  public void statusGauges_attemptReplacementOverwritesPredecessorAndSurvivesItsClose()
+      throws Exception {
+    MeterAndFtdcRegistry meterAndFtdcRegistry = MeterAndFtdcRegistry.createWithSimpleRegistries();
+    GenerationId a0 = Generation.CURRENT.generationId(INDEX_ID);
+    GenerationId a1 = Generation.CURRENT.nextAttempt().generationId(INDEX_ID);
+    MaterializedViewGenerationId matViewA0 = MaterializedViewGenerationId.from(a0);
+    MaterializedViewGenerationId matViewA1 = MaterializedViewGenerationId.from(a1);
+    assertNotEquals(a0.uniqueString(), a1.uniqueString());
+    assertEquals(matViewA0, matViewA1);
+
+    IndexFixture predecessor =
+        createStatusMetricIndex(
+            meterAndFtdcRegistry,
+            MaterializedViewIndex.mockMatViewDefinitionGeneration(matViewA0),
+            IndexStatus.steady());
+    assertStatusGaugeValue(meterAndFtdcRegistry.meterRegistry(), IndexStatus.StatusCode.STEADY, 1);
+
+    IndexFixture successor =
+        createStatusMetricIndex(
+            meterAndFtdcRegistry,
+            MaterializedViewIndex.mockMatViewDefinitionGeneration(matViewA1),
+            IndexStatus.unknown());
+    assertStatusGaugeValue(meterAndFtdcRegistry.meterRegistry(), IndexStatus.StatusCode.UNKNOWN, 1);
+    assertStatusGaugeValue(meterAndFtdcRegistry.meterRegistry(), IndexStatus.StatusCode.STEADY, 0);
+    successor.index().setStatus(IndexStatus.steady());
+
+    predecessor.index().close();
+
+    assertEquals(
+        IndexStatus.StatusCode.values().length,
+        countStatusGauges(meterAndFtdcRegistry.meterRegistry()));
+    assertStatusGaugeValue(meterAndFtdcRegistry.meterRegistry(), IndexStatus.StatusCode.STEADY, 1);
+    assertStatusGaugeValue(meterAndFtdcRegistry.meterRegistry(), IndexStatus.StatusCode.UNKNOWN, 0);
+  }
+
+  @Test
+  public void close_finalIndexUnregistersStatusGauges() throws Exception {
+    IndexFixture fixture =
+        createStatusMetricIndex(
+            MeterAndFtdcRegistry.createWithSimpleRegistries(), IndexStatus.unknown());
+
+    assertEquals(
+        IndexStatus.StatusCode.values().length, countStatusGauges(fixture.meterRegistry()));
+
+    fixture.index().close();
+
+    assertEquals(0, countStatusGauges(fixture.meterRegistry()));
+  }
+
   private InitializedMaterializedViewIndex createIndex(IndexStatus initialStatus) throws Exception {
     return createIndex(initialStatus, /* leaseQueryable= */ false);
   }
@@ -229,6 +312,69 @@ public class InitializedMaterializedViewIndexTest {
         leaseManager,
         schemaMetadata,
         "__mdb_internal_search");
+  }
+
+  private IndexFixture createStatusMetricIndex(
+      MeterAndFtdcRegistry meterAndFtdcRegistry, IndexStatus initialStatus) throws Exception {
+    MaterializedViewIndexDefinitionGeneration defGen =
+        MaterializedViewIndex.mockMatViewDefinitionGeneration(INDEX_ID);
+    return createStatusMetricIndex(meterAndFtdcRegistry, defGen, initialStatus);
+  }
+
+  private IndexFixture createStatusMetricIndex(
+      MeterAndFtdcRegistry meterAndFtdcRegistry,
+      MaterializedViewIndexDefinitionGeneration defGen,
+      IndexStatus initialStatus)
+      throws Exception {
+    MaterializedViewGenerationId generationId = defGen.getGenerationId();
+    String uniqueString = generationId.uniqueString();
+    String collectionName = "matview-" + INDEX_ID.toHexString();
+    PerIndexMetricsFactory metricsFactory =
+        new PerIndexMetricsFactory(
+            NAMESPACE,
+            meterAndFtdcRegistry,
+            uniqueString,
+            collectionName,
+            /* identitySafeClose= */ true);
+    IndexMetricValuesSupplier metricValuesSupplier =
+        IndexMetricsSupplier.mockEmptyIndexMetricsSupplier();
+    IndexMetricsUpdater indexMetricsUpdater =
+        new IndexMetricsUpdater(defGen.getIndexDefinition(), metricValuesSupplier, metricsFactory);
+    MaterializedViewWriter writer = mock(MaterializedViewWriter.class);
+    LeaseManager leaseManager = mock(LeaseManager.class);
+    doNothing().when(leaseManager).updateReplicationStatus(any(), anyLong(), any());
+    AtomicReference<IndexStatus> statusRef = new AtomicReference<>(initialStatus);
+    MaterializedViewSchemaMetadata schemaMetadata =
+        new MaterializedViewSchemaMetadata(0, java.util.Map.of());
+    InitializedMaterializedViewIndex index =
+        new InitializedMaterializedViewIndex(
+            defGen,
+            writer,
+            indexMetricsUpdater,
+            statusRef,
+            leaseManager,
+            schemaMetadata,
+            "__mdb_internal_search");
+    index.registerStatusGauges();
+    return new IndexFixture(index, meterAndFtdcRegistry.meterRegistry());
+  }
+
+  private static void assertStatusGaugeValue(
+      MeterRegistry meterRegistry, IndexStatus.StatusCode statusCode, long expectedValue) {
+    double value =
+        meterRegistry
+            .get(NAMESPACE + "." + IndexMetricValuesSupplier.MetricNames.INDEX_STATUS_CODE)
+            .tag("status", statusCode.name())
+            .gauge()
+            .value();
+    assertEquals(expectedValue, value, 0);
+  }
+
+  private static long countStatusGauges(MeterRegistry meterRegistry) {
+    String metricName = NAMESPACE + "." + IndexMetricValuesSupplier.MetricNames.INDEX_STATUS_CODE;
+    return meterRegistry.getMeters().stream()
+        .filter(meter -> meter.getId().getName().equals(metricName))
+        .count();
   }
 
   @Test
@@ -314,4 +460,7 @@ public class InitializedMaterializedViewIndexTest {
     assertTrue(closedIndexOpTimeInfo.unset(() -> true));
     assertTrue(closedIndexOpTimeInfo.snapshot().isEmpty());
   }
+
+  private record IndexFixture(
+      InitializedMaterializedViewIndex index, MeterRegistry meterRegistry) {}
 }

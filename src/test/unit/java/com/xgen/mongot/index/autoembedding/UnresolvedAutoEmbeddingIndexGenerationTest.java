@@ -5,6 +5,7 @@ import static org.junit.Assert.assertThrows;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
@@ -132,6 +133,22 @@ public class UnresolvedAutoEmbeddingIndexGenerationTest {
     var inOrder = inOrder(cleanupIndex);
     inOrder.verify(cleanupIndex).close();
     inOrder.verify(cleanupIndex).drop();
+  }
+
+  @Test
+  public void createFailed_closeClosesGenerationMetrics() throws Exception {
+    AutoEmbeddingGenerationMetrics generationMetrics = mock(AutoEmbeddingGenerationMetrics.class);
+    Index index =
+        UnresolvedAutoEmbeddingIndexGeneration.createFailed(
+                MaterializedViewIndex.mockMatViewDefinitionGeneration(new ObjectId()),
+                MaterializedViewTransientException.Reason.BULK_WRITE_ERROR,
+                Optional.empty(),
+                generationMetrics)
+            .getIndex();
+
+    index.close();
+
+    verify(generationMetrics).close();
   }
 
   @Test

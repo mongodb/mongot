@@ -216,6 +216,8 @@ public class AutoEmbeddingOfflineQueryTest {
     try (LuceneIndexFactory factory = openFactory(dataPath)) {
       MaterializedViewIndexFactory matViewIndexFactory = mock(MaterializedViewIndexFactory.class);
       when(matViewIndexFactory.isSourceCollectionAbsentOnMongod(any())).thenReturn(true);
+      when(matViewIndexFactory.createAutoEmbeddingGenerationMetrics(any()))
+          .thenReturn(mock(AutoEmbeddingGenerationMetrics.class));
       IndexGeneration unresolved =
           AutoEmbeddingIndexGenerationFactory.getAutoEmbeddingIndexGeneration(
               factory,

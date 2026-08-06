@@ -2,6 +2,7 @@ package com.xgen.mongot.index.autoembedding;
 
 import static com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration.MIN_VERSION_FOR_MATERIALIZED_VIEW_EMBEDDING;
 
+import com.google.errorprone.annotations.Var;
 import com.mongodb.lang.Nullable;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata;
 import com.xgen.mongot.index.EncodedUserData;
@@ -49,16 +50,46 @@ public class AutoEmbeddingCompositeIndex implements Index {
   // followers at startup (whose MV is legitimately UNKNOWN because the leader owns it), which
   // breaks host-failover takeover by reporting STEADY before the follower has any MV state.
   private final BooleanSupplier isReplicationStoppedSupplier;
+  private final Optional<AutoEmbeddingGenerationMetrics> generationMetrics;
 
   public AutoEmbeddingCompositeIndex(
       InitializedMaterializedViewIndex matViewIndex,
       Index derivedIndex,
       Supplier<Optional<InitializedIndex>> initializedIndexSupplier,
       BooleanSupplier isReplicationStoppedSupplier) {
+    this(
+        matViewIndex,
+        derivedIndex,
+        initializedIndexSupplier,
+        isReplicationStoppedSupplier,
+        Optional.empty());
+  }
+
+  AutoEmbeddingCompositeIndex(
+      InitializedMaterializedViewIndex matViewIndex,
+      Index derivedIndex,
+      Supplier<Optional<InitializedIndex>> initializedIndexSupplier,
+      BooleanSupplier isReplicationStoppedSupplier,
+      AutoEmbeddingGenerationMetrics generationMetrics) {
+    this(
+        matViewIndex,
+        derivedIndex,
+        initializedIndexSupplier,
+        isReplicationStoppedSupplier,
+        Optional.of(generationMetrics));
+  }
+
+  private AutoEmbeddingCompositeIndex(
+      InitializedMaterializedViewIndex matViewIndex,
+      Index derivedIndex,
+      Supplier<Optional<InitializedIndex>> initializedIndexSupplier,
+      BooleanSupplier isReplicationStoppedSupplier,
+      Optional<AutoEmbeddingGenerationMetrics> generationMetrics) {
     this.matViewIndex = matViewIndex;
     this.derivedIndex = derivedIndex;
     this.initializedIndexSupplier = initializedIndexSupplier;
     this.isReplicationStoppedSupplier = isReplicationStoppedSupplier;
+    this.generationMetrics = generationMetrics;
     this.compositeWasQueryable =
         new AtomicBoolean(matViewIndex.isCurrentVersionQueryablePerLease());
   }
@@ -129,8 +160,32 @@ public class AutoEmbeddingCompositeIndex implements Index {
 
   @Override
   public void close() throws IOException {
-    this.matViewIndex.close();
-    this.derivedIndex.close();
+    try {
+      @Var Exception first = null;
+      // Try each index independently so one close failure does not skip the other.
+      try {
+        this.matViewIndex.close();
+      } catch (IOException | RuntimeException e) {
+        first = e;
+      }
+      try {
+        this.derivedIndex.close();
+      } catch (IOException | RuntimeException e) {
+        if (first == null) {
+          first = e;
+        } else {
+          first.addSuppressed(e);
+        }
+      }
+      if (first instanceof IOException ioException) {
+        throw ioException;
+      }
+      if (first instanceof RuntimeException runtimeException) {
+        throw runtimeException;
+      }
+    } finally {
+      this.generationMetrics.ifPresent(AutoEmbeddingGenerationMetrics::close);
+    }
   }
 
   public MaterializedViewSchemaMetadata getSchemaMetadata() {

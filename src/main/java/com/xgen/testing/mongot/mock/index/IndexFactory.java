@@ -10,6 +10,7 @@ import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.status.IndexStatus;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import org.mockito.Answers;
 import org.mockito.stubbing.Answer;
 
 public class IndexFactory {
@@ -34,7 +35,18 @@ public class IndexFactory {
       Consumer<IndexGeneration> createdIndexesObserver,
       Supplier<IndexStatus> statusForCreatedIndexes)
       throws Exception {
-    T indexFactory = mock(classType);
+    return mockIndexFactory(
+        classType, createdIndexesObserver, statusForCreatedIndexes, Answers.RETURNS_DEFAULTS);
+  }
+
+  /** Generic version with a custom answer for unstubbed methods. */
+  public static <T extends com.xgen.mongot.index.IndexFactory> T mockIndexFactory(
+      Class<T> classType,
+      Consumer<IndexGeneration> createdIndexesObserver,
+      Supplier<IndexStatus> statusForCreatedIndexes,
+      Answer<?> defaultAnswer)
+      throws Exception {
+    T indexFactory = mock(classType, defaultAnswer);
 
     Answer<Index> getIndexAnswer =
         invocation -> {

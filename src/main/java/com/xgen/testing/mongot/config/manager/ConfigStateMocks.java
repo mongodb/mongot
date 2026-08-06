@@ -75,7 +75,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.bson.types.ObjectId;
 import org.junit.Assert;
 import org.junit.rules.TemporaryFolder;
+import org.mockito.Answers;
 import org.mockito.Mockito;
+import org.mockito.stubbing.Answer;
 
 /** Spied versions of all the dependencies of the config.manager package. */
 public class ConfigStateMocks {
@@ -256,9 +258,19 @@ public class ConfigStateMocks {
     AtomicReference<IndexStatus> statusForCreatedIndexes =
         new AtomicReference<>(IndexStatus.steady());
     IndexFactory indexFactory = mockIndexFactory(createdIndexes::add, statusForCreatedIndexes::get);
+    Answer<?> materializedViewFactoryDefaultAnswer =
+        invocation -> {
+          if (invocation.getMethod().getName().equals("createAutoEmbeddingGenerationMetrics")) {
+            return Mockito.mock(invocation.getMethod().getReturnType());
+          }
+          return Answers.RETURNS_DEFAULTS.answer(invocation);
+        };
     MaterializedViewIndexFactory materializedViewFactory =
         mockIndexFactory(
-            MaterializedViewIndexFactory.class, createdIndexes::add, statusForCreatedIndexes::get);
+            MaterializedViewIndexFactory.class,
+            createdIndexes::add,
+            statusForCreatedIndexes::get,
+            materializedViewFactoryDefaultAnswer);
     AnalyzerRegistryFactory analyzerRegistryFactory = spy(AnalyzerRegistry.factory());
     ToggleGate replicationGate = ToggleGate.opened();
     LifecycleManager lifecycleManager =

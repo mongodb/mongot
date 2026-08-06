@@ -32,6 +32,7 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.BooleanSupplier;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import org.apache.commons.codec.DecoderException;
 import org.bson.BsonTimestamp;
@@ -87,8 +88,14 @@ public class AutoEmbeddingIndexGenerationFactory {
           indexFactory.readPersistedCommitUserData(rawDefinitionGeneration).isPresent()
               ? createCleanupIndex(indexFactory, rawDefinitionGeneration)
               : Optional.empty();
-      return UnresolvedAutoEmbeddingIndexGeneration.createCollectionNotFound(
-          rawDefinitionGeneration, derivedIndexForCleanup);
+      return createWithGenerationMetrics(
+          matViewIndexFactory,
+          rawDefinitionGeneration,
+          generationMetrics -> {
+            generationMetrics.recordCollectionNotFound();
+            return UnresolvedAutoEmbeddingIndexGeneration.createCollectionNotFound(
+                rawDefinitionGeneration, derivedIndexForCleanup, generationMetrics);
+          });
     }
 
     InitializedMaterializedViewIndex matViewIndex;
@@ -103,7 +110,14 @@ public class AutoEmbeddingIndexGenerationFactory {
           .log(
               "Failed to create materialized view index, "
                   + "creates unresolved index instead, will retry it when sync source is updated.");
-      return offlineUnresolvedGeneration(indexFactory, rawDefinitionGeneration, e.getReason());
+      return createWithGenerationMetrics(
+          matViewIndexFactory,
+          rawDefinitionGeneration,
+          generationMetrics -> {
+            generationMetrics.recordUnresolved(e.getReason());
+            return offlineUnresolvedGeneration(
+                indexFactory, rawDefinitionGeneration, e.getReason(), generationMetrics);
+          });
     }
 
     IndexDefinitionGeneration derivedDefGen =
@@ -115,11 +129,37 @@ public class AutoEmbeddingIndexGenerationFactory {
     LOG.atInfo()
         .addKeyValue("generationId", rawDefinitionGeneration.getGenerationId())
         .log("Created auto-embedding composite index generation");
-    return new AutoEmbeddingIndexGeneration(
-        new AutoEmbeddingCompositeIndex(
-            matViewIndex, derivedIndex, initializedIndexSupplier, isReplicationStoppedSupplier),
+    return createWithGenerationMetrics(
+        matViewIndexFactory,
         rawDefinitionGeneration,
-        derivedDefGen);
+        generationMetrics -> {
+          generationMetrics.recordResolved(
+              matViewIndex.getGenerationId(),
+              matViewIndex.getMaterializedViewCollectionMetadata().collectionName());
+          return new AutoEmbeddingIndexGeneration(
+              new AutoEmbeddingCompositeIndex(
+                  matViewIndex,
+                  derivedIndex,
+                  initializedIndexSupplier,
+                  isReplicationStoppedSupplier,
+                  generationMetrics),
+              rawDefinitionGeneration,
+              derivedDefGen);
+        });
+  }
+
+  private static IndexGeneration createWithGenerationMetrics(
+      MaterializedViewIndexFactory matViewIndexFactory,
+      IndexDefinitionGeneration rawDefinitionGeneration,
+      Function<AutoEmbeddingGenerationMetrics, IndexGeneration> createGeneration) {
+    AutoEmbeddingGenerationMetrics generationMetrics =
+        matViewIndexFactory.createAutoEmbeddingGenerationMetrics(rawDefinitionGeneration);
+    try {
+      return createGeneration.apply(generationMetrics);
+    } catch (RuntimeException | Error e) {
+      generationMetrics.close();
+      throw e;
+    }
   }
 
   /**
@@ -216,7 +256,8 @@ public class AutoEmbeddingIndexGenerationFactory {
   private static UnresolvedAutoEmbeddingIndexGeneration offlineUnresolvedGeneration(
       IndexFactory indexFactory,
       IndexDefinitionGeneration rawDefinitionGeneration,
-      MaterializedViewTransientException.Reason reason) {
+      MaterializedViewTransientException.Reason reason,
+      AutoEmbeddingGenerationMetrics generationMetrics) {
     Optional<IndexCommitUserData> commit =
         readPersistedCommit(indexFactory, rawDefinitionGeneration);
     Optional<AutoEmbeddingCommitMetadata> metadata =
@@ -241,7 +282,10 @@ public class AutoEmbeddingIndexGenerationFactory {
                           + "is unavailable",
                       optime.get()));
           return UnresolvedAutoEmbeddingIndexGeneration.createStale(
-              rawDefinitionGeneration, served.get(), persistedAutoEmbeddingFieldsMapping(metadata));
+              rawDefinitionGeneration,
+              served.get(),
+              persistedAutoEmbeddingFieldsMapping(metadata),
+              generationMetrics);
         }
       }
     }
@@ -255,7 +299,7 @@ public class AutoEmbeddingIndexGenerationFactory {
                         ? createCleanupIndex(indexFactory, rawDefinitionGeneration)
                         : Optional.empty());
     return UnresolvedAutoEmbeddingIndexGeneration.createFailed(
-        rawDefinitionGeneration, reason, derivedIndexForCleanup);
+        rawDefinitionGeneration, reason, derivedIndexForCleanup, generationMetrics);
   }
 
   /**

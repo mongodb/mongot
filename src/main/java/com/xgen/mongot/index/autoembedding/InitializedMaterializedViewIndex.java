@@ -12,6 +12,7 @@ import com.xgen.mongot.embedding.exceptions.MaterializedViewNonTransientExceptio
 import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
 import com.xgen.mongot.index.EncodedUserData;
+import com.xgen.mongot.index.IndexMetricValuesSupplier;
 import com.xgen.mongot.index.IndexMetrics;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.IndexUnavailableException;
@@ -30,6 +31,7 @@ import com.xgen.mongot.index.query.QueryExecutionContext;
 import com.xgen.mongot.index.query.QueryOptimizationFlags;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.MaterializedViewGenerationId;
+import io.micrometer.core.instrument.Tags;
 import java.io.IOException;
 import java.util.Optional;
 import java.util.UUID;
@@ -76,6 +78,24 @@ public class InitializedMaterializedViewIndex implements InitializedAutoEmbedInd
     this.matViewDatabaseName = matViewDatabaseName;
     this.leaderStatusGauge =
         indexMetricsUpdater.getMetricsFactory().perIndexNumGauge("leaderStatus");
+  }
+
+  /**
+   * Registers one-hot status gauges for on-call RCA.
+   *
+   * <p>These gauges are not a canonical source of truth. Multiple index instances can share one
+   * materialized-view generation and gauge identity, so the latest registration wins.
+   */
+  void registerStatusGauges() {
+    for (IndexStatus.StatusCode statusCode : IndexStatus.StatusCode.values()) {
+      this.indexMetricsUpdater
+          .getMetricsFactory()
+          .perIndexObjectValueGauge(
+              IndexMetricValuesSupplier.MetricNames.INDEX_STATUS_CODE,
+              this,
+              index -> index.getStatus().getStatusCode() == statusCode ? 1 : 0,
+              Tags.of("status", statusCode.name()));
+    }
   }
 
   @Override

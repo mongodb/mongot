@@ -133,6 +133,11 @@ public class MaterializedViewIndexFactory implements IndexFactory {
         .orElse(false);
   }
 
+  AutoEmbeddingGenerationMetrics createAutoEmbeddingGenerationMetrics(
+      IndexDefinitionGeneration rawDefinitionGeneration) {
+    return new AutoEmbeddingGenerationMetrics(this.meterAndFtdcRegistry, rawDefinitionGeneration);
+  }
+
   // Package-private for unit testing: source collection UUIDs present on this node's local mongod.
   Set<UUID> collectionUuidsOnShard(MongoClient resolverClient, String database)
       throws CheckedMongoException {
@@ -193,14 +198,17 @@ public class MaterializedViewIndexFactory implements IndexFactory {
                 true),
             this.featureFlags.isEnabled(Feature.INDEX_FEATURE_VERSION_FOUR));
 
-    return new InitializedMaterializedViewIndex(
-        matViewIndexDefinitionGeneration,
-        writer,
-        indexMetricsUpdaterBuilder.build(metricValuesSupplier),
-        statusRef,
-        this.leaseManager,
-        collectionMetadata.schemaMetadata(),
-        matViewDatabaseName);
+    InitializedMaterializedViewIndex index =
+        new InitializedMaterializedViewIndex(
+            matViewIndexDefinitionGeneration,
+            writer,
+            indexMetricsUpdaterBuilder.build(metricValuesSupplier),
+            statusRef,
+            this.leaseManager,
+            collectionMetadata.schemaMetadata(),
+            matViewDatabaseName);
+    index.registerStatusGauges();
+    return index;
   }
 
   @Override

@@ -26,16 +26,27 @@ public class UnresolvedAutoEmbeddingIndex implements Index {
   // An InitializedIndex is queryable offline; an uninitialized Index is retained only for cleanup.
   private final Optional<Index> derivedIndex;
   private final Map<FieldPath, FieldPath> autoEmbeddingFieldsMapping;
+  private final Optional<AutoEmbeddingGenerationMetrics> generationMetrics;
 
   public UnresolvedAutoEmbeddingIndex(
       IndexDefinition definition,
       IndexStatus status,
       Optional<Index> derivedIndex,
       Map<FieldPath, FieldPath> autoEmbeddingFieldsMapping) {
+    this(definition, status, derivedIndex, autoEmbeddingFieldsMapping, Optional.empty());
+  }
+
+  UnresolvedAutoEmbeddingIndex(
+      IndexDefinition definition,
+      IndexStatus status,
+      Optional<Index> derivedIndex,
+      Map<FieldPath, FieldPath> autoEmbeddingFieldsMapping,
+      Optional<AutoEmbeddingGenerationMetrics> generationMetrics) {
     this.definition = definition;
     this.status = status;
     this.derivedIndex = derivedIndex;
     this.autoEmbeddingFieldsMapping = autoEmbeddingFieldsMapping;
+    this.generationMetrics = generationMetrics;
   }
 
   /** The offline-reconstructed derived Lucene index served while mongod is unreachable, if any. */
@@ -109,8 +120,12 @@ public class UnresolvedAutoEmbeddingIndex implements Index {
   public void close() throws IOException {
     // Release the derived index handle (and its reader, if opened). Closing keeps on-disk data
     // (drop() deletes it) so a shutdown while still offline leaves the files for the next restart.
-    if (this.derivedIndex.isPresent()) {
-      this.derivedIndex.get().close();
+    try {
+      if (this.derivedIndex.isPresent()) {
+        this.derivedIndex.get().close();
+      }
+    } finally {
+      this.generationMetrics.ifPresent(AutoEmbeddingGenerationMetrics::close);
     }
   }
 }
