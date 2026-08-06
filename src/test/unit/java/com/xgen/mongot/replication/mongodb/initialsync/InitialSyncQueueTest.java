@@ -133,6 +133,56 @@ public class InitialSyncQueueTest {
     Assert.assertEquals(RESUME_INFO, result);
   }
 
+  /**
+   * Guards the config plumbing from InitialSyncConfig through InitialSyncQueue onto the
+   * InitialSyncContext handed to the InitialSyncManager. Every other boolean is false so a flag
+   * wired from the wrong source cannot accidentally satisfy the assertion, and the partition count
+   * differs from the default of 4.
+   */
+  @Test
+  public void testParallelNaturalOrderScanConfigReachesContext() throws Exception {
+    InitialSyncMongoClient mongoClient = mock(InitialSyncMongoClient.class);
+    when(mongoClient.resolveAndUpdateCollectionName(any()))
+        .thenReturn(MOCK_INDEX_LAST_OBSERVED_COLLECTION_NAME);
+
+    InitialSyncConfig initialSyncConfig =
+        new InitialSyncConfig(
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.of(false),
+            Optional.of(false),
+            Optional.of(false),
+            Optional.of(true),
+            Optional.of(7));
+
+    Mocks mocks =
+        Mocks.create(
+            Map.of(MOCK_INDEX_GENERATION_ID, () -> RESUME_INFO),
+            initialSyncConfig,
+            DEFAULT_MONGO_HOST_NAME,
+            Map.of(DEFAULT_MONGO_HOST_NAME, mongoClient));
+
+    CountDownLatch startedLatch = new CountDownLatch(1);
+    CompletableFuture<ChangeStreamResumeInfo> future =
+        mocks.initialSyncQueue.enqueue(
+            DOCUMENT_INDEXER,
+            MOCK_INDEX_DEFINITION_GENERATION,
+            startedLatch::countDown,
+            IGNORE_METRICS,
+            false,
+            false);
+
+    Assert.assertTrue(startedLatch.await(5, TimeUnit.SECONDS));
+
+    InitialSyncContext context = mocks.mockInitialSyncManagerFactory.getContext();
+    Assert.assertTrue(context.isParallelNaturalOrderScanEnabled());
+    Assert.assertEquals(7, context.getParallelPartitionCount());
+
+    mocks.mockInitialSyncManagerFactory.completeSync(MOCK_INDEX_GENERATION_ID);
+    future.get(5, TimeUnit.SECONDS);
+  }
+
   @Test
   public void testInitialSyncExceptionBufferlessInitialSync() throws Exception {
     Mocks mocks =
@@ -1743,6 +1793,10 @@ public class InitialSyncQueueTest {
 
       InitialSyncMongoClient getClient(GenerationId generationId) {
         return this.mongoClients.get(generationId);
+      }
+
+      InitialSyncContext getContext() {
+        return this.context;
       }
     }
   }

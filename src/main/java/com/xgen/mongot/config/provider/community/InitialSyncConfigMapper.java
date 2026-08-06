@@ -26,6 +26,8 @@ public final class InitialSyncConfigMapper {
         Optional.empty(),
         Optional.empty(),
         enableNaturalOrderScan,
+        Optional.empty(),
+        Optional.empty(),
         Optional.empty());
   }
 }

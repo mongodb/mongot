@@ -42,7 +42,8 @@ public class InitialSyncConfigTest {
           bufferlessWithCollectionScanTime(),
           bufferlessWithChangeStreamCatchupTimeout(),
           bufferlessWithChangeStreamLagTime(),
-          bufferlessWithEnableNaturalOrderScan());
+          bufferlessWithEnableNaturalOrderScan(),
+          bufferlessWithParallelNaturalOrderScan());
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<InitialSyncConfig> bufferless() {
@@ -78,6 +79,13 @@ public class InitialSyncConfigTest {
           InitialSyncConfigTest.createWithEnableNaturalOrderScan(true));
     }
 
+    private static BsonDeserializationTestSuite.ValidSpec<InitialSyncConfig>
+        bufferlessWithParallelNaturalOrderScan() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "bufferless with parallel natural order scan",
+          InitialSyncConfigTest.createWithParallelNaturalOrderScan(true, 8));
+    }
+
     @Test
     public void runTest() throws Exception {
       TEST_SUITE.runTest(this.testSpec);
@@ -105,7 +113,8 @@ public class InitialSyncConfigTest {
           bufferlessWithCollectionScanTimeMs(),
           bufferlessWithChangeStreamCatchupTimeoutMs(),
           bufferlessWithChangeStreamLagTimeMs(),
-          bufferlessWithEnableNaturalOrderScan());
+          bufferlessWithEnableNaturalOrderScan(),
+          bufferlessWithParallelNaturalOrderScan());
     }
 
     private static BsonSerializationTestSuite.TestSpec<InitialSyncConfig> bufferless() {
@@ -141,6 +150,13 @@ public class InitialSyncConfigTest {
           InitialSyncConfigTest.createWithEnableNaturalOrderScan(true));
     }
 
+    private static BsonSerializationTestSuite.TestSpec<InitialSyncConfig>
+        bufferlessWithParallelNaturalOrderScan() {
+      return BsonSerializationTestSuite.TestSpec.create(
+          "bufferless with parallel natural order scan",
+          InitialSyncConfigTest.createWithParallelNaturalOrderScan(true, 8));
+    }
+
     @Test
     public void runTest() throws Exception {
       TEST_SUITE.runTest(this.testSpec);
@@ -154,7 +170,9 @@ public class InitialSyncConfigTest {
         Optional.empty(),
         Optional.empty(),
         Optional.of(false),
-        Optional.of(false));
+        Optional.of(false),
+        Optional.empty(),
+        Optional.empty());
   }
 
   public static InitialSyncConfig createWithChangeStreamCatchupTimeout(
@@ -162,6 +180,8 @@ public class InitialSyncConfigTest {
     return new InitialSyncConfig(
         Optional.empty(),
         Optional.of(changeStreamCatchupTimeout),
+        Optional.empty(),
+        Optional.empty(),
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
@@ -175,7 +195,22 @@ public class InitialSyncConfigTest {
         Optional.of(changeStreamLagTime),
         Optional.empty(),
         Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
         Optional.empty());
+  }
+
+  public static InitialSyncConfig createWithParallelNaturalOrderScan(
+      boolean enableParallelNaturalOrderScan, int parallelPartitionCount) {
+    return new InitialSyncConfig(
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.of(true),
+        Optional.of(false),
+        Optional.of(enableParallelNaturalOrderScan),
+        Optional.of(parallelPartitionCount));
   }
 
   public static InitialSyncConfig createWithEnableNaturalOrderScan(boolean enableNaturalOrderScan) {
@@ -185,6 +220,8 @@ public class InitialSyncConfigTest {
         Optional.empty(),
         Optional.empty(),
         Optional.of(enableNaturalOrderScan),
-        Optional.of(true));
+        Optional.of(true),
+        Optional.empty(),
+        Optional.empty());
   }
 }

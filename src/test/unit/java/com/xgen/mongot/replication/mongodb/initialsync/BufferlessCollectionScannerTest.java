@@ -117,6 +117,8 @@ public class BufferlessCollectionScannerTest {
                       Optional.empty(),
                       false,
                       enableNaturalOrderScan,
+                      false,
+                      1,
                       initialSyncGate)
                   .withProgress(START_OPTIME));
 

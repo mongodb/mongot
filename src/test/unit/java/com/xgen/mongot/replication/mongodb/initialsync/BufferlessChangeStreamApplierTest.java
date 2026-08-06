@@ -319,6 +319,8 @@ public class BufferlessChangeStreamApplierTest {
                       Optional.empty(),
                       false,
                       enableNaturalOrderScan,
+                      false,
+                      1,
                       ToggleGate.opened())
                   .withProgress(OP_TIME));
       this.applier =

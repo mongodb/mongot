@@ -64,6 +64,21 @@
           "avoidNaturalOrderScanSyncSourceChangeResync": true
         }
       }
+    },
+    {
+      "description": "bufferless with parallel natural order scan",
+      "value": {
+        "bufferless": {
+          "collectionScanTimeMs": 300000,
+          "changeStreamCatchupTimeoutMs": 300000,
+          "changeStreamLagTimeMs": 60000,
+          "useAggregateCommand": true,
+          "enableNaturalOrderScan": true,
+          "avoidNaturalOrderScanSyncSourceChangeResync": false,
+          "enableParallelNaturalOrderScan": true,
+          "parallelPartitionCount": 8
+        }
+      }
     }
   ],
   "invalid": [
@@ -118,6 +133,30 @@
       "value": {
         "buffered": {
           "changeStreamLagTimeMs": 300
+        }
+      }
+    },
+    {
+      "description": "zero parallel partition count",
+      "value": {
+        "bufferless": {
+          "collectionScanTimeMs": 300000,
+          "changeStreamCatchupTimeoutMs": 300000,
+          "changeStreamLagTimeMs": 60000,
+          "useAggregateCommand": true,
+          "parallelPartitionCount": 0
+        }
+      }
+    },
+    {
+      "description": "negative parallel partition count",
+      "value": {
+        "bufferless": {
+          "collectionScanTimeMs": 300000,
+          "changeStreamCatchupTimeoutMs": 300000,
+          "changeStreamLagTimeMs": 60000,
+          "useAggregateCommand": true,
+          "parallelPartitionCount": -2
         }
       }
     }

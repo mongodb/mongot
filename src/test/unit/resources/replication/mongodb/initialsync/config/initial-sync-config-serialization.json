@@ -18,7 +18,9 @@
           "changeStreamLagTimeMs": 60000,
           "useAggregateCommand": true,
           "enableNaturalOrderScan": false,
-          "avoidNaturalOrderScanSyncSourceChangeResync": false
+          "avoidNaturalOrderScanSyncSourceChangeResync": false,
+          "enableParallelNaturalOrderScan": false,
+          "parallelPartitionCount": 4
         }
       },
       "bson": {
@@ -34,7 +36,11 @@
           },
           "useAggregateCommand": true,
           "enableNaturalOrderScan": false,
-          "avoidNaturalOrderScanSyncSourceChangeResync": false
+          "avoidNaturalOrderScanSyncSourceChangeResync": false,
+          "enableParallelNaturalOrderScan": false,
+          "parallelPartitionCount": {
+            "$numberInt": "4"
+          }
         }
       }
     },
@@ -47,7 +53,9 @@
           "changeStreamLagTimeMs": 60000,
           "useAggregateCommand": true,
           "enableNaturalOrderScan": false,
-          "avoidNaturalOrderScanSyncSourceChangeResync": false
+          "avoidNaturalOrderScanSyncSourceChangeResync": false,
+          "enableParallelNaturalOrderScan": false,
+          "parallelPartitionCount": 4
         }
       },
       "bson": {
@@ -63,7 +71,11 @@
           },
           "useAggregateCommand": true,
           "enableNaturalOrderScan": false,
-          "avoidNaturalOrderScanSyncSourceChangeResync": false
+          "avoidNaturalOrderScanSyncSourceChangeResync": false,
+          "enableParallelNaturalOrderScan": false,
+          "parallelPartitionCount": {
+            "$numberInt": "4"
+          }
         }
       }
     },
@@ -76,7 +88,9 @@
           "changeStreamLagTimeMs": 60000,
           "useAggregateCommand": true,
           "enableNaturalOrderScan": false,
-          "avoidNaturalOrderScanSyncSourceChangeResync": false
+          "avoidNaturalOrderScanSyncSourceChangeResync": false,
+          "enableParallelNaturalOrderScan": false,
+          "parallelPartitionCount": 4
         }
       },
       "bson": {
@@ -92,7 +106,11 @@
           },
           "useAggregateCommand": true,
           "enableNaturalOrderScan": false,
-          "avoidNaturalOrderScanSyncSourceChangeResync": false
+          "avoidNaturalOrderScanSyncSourceChangeResync": false,
+          "enableParallelNaturalOrderScan": false,
+          "parallelPartitionCount": {
+            "$numberInt": "4"
+          }
         }
       }
     },
@@ -105,7 +123,9 @@
           "changeStreamLagTimeMs": 600,
           "useAggregateCommand": true,
           "enableNaturalOrderScan": false,
-          "avoidNaturalOrderScanSyncSourceChangeResync": false
+          "avoidNaturalOrderScanSyncSourceChangeResync": false,
+          "enableParallelNaturalOrderScan": false,
+          "parallelPartitionCount": 4
         }
       },
       "bson": {
@@ -121,7 +141,11 @@
           },
           "useAggregateCommand": true,
           "enableNaturalOrderScan": false,
-          "avoidNaturalOrderScanSyncSourceChangeResync": false
+          "avoidNaturalOrderScanSyncSourceChangeResync": false,
+          "enableParallelNaturalOrderScan": false,
+          "parallelPartitionCount": {
+            "$numberInt": "4"
+          }
         }
       }
     },
@@ -134,7 +158,9 @@
           "changeStreamLagTimeMs": 60000,
           "useAggregateCommand": true,
           "enableNaturalOrderScan": true,
-          "avoidNaturalOrderScanSyncSourceChangeResync": true
+          "avoidNaturalOrderScanSyncSourceChangeResync": true,
+          "enableParallelNaturalOrderScan": false,
+          "parallelPartitionCount": 4
         }
       },
       "bson": {
@@ -150,7 +176,46 @@
           },
           "useAggregateCommand": true,
           "enableNaturalOrderScan": true,
-          "avoidNaturalOrderScanSyncSourceChangeResync": true
+          "avoidNaturalOrderScanSyncSourceChangeResync": true,
+          "enableParallelNaturalOrderScan": false,
+          "parallelPartitionCount": {
+            "$numberInt": "4"
+          }
+        }
+      }
+    },
+    {
+      "description": "bufferless with parallel natural order scan",
+      "json": {
+        "bufferless": {
+          "collectionScanTimeMs": 300000,
+          "changeStreamCatchupTimeoutMs": 300000,
+          "changeStreamLagTimeMs": 60000,
+          "useAggregateCommand": true,
+          "enableNaturalOrderScan": true,
+          "avoidNaturalOrderScanSyncSourceChangeResync": false,
+          "enableParallelNaturalOrderScan": true,
+          "parallelPartitionCount": 8
+        }
+      },
+      "bson": {
+        "bufferless": {
+          "collectionScanTimeMs": {
+            "$numberLong": "300000"
+          },
+          "changeStreamCatchupTimeoutMs": {
+            "$numberLong": "300000"
+          },
+          "changeStreamLagTimeMs": {
+            "$numberLong": "60000"
+          },
+          "useAggregateCommand": true,
+          "enableNaturalOrderScan": true,
+          "avoidNaturalOrderScanSyncSourceChangeResync": false,
+          "enableParallelNaturalOrderScan": true,
+          "parallelPartitionCount": {
+            "$numberInt": "8"
+          }
         }
       }
     }

@@ -19,6 +19,11 @@ import org.slf4j.LoggerFactory;
  * @param changeStreamCatchupTimeout The amount of time to spend trying to catch up to the change
  *     stream.
  * @param changeStreamLagTime The amount of time to lag behind the end of the change stream.
+ * @param enableParallelNaturalOrderScan Whether the collection scan may be split into multiple
+ *     disjoint {@code $recordId} partitions scanned in parallel. Only takes effect when
+ *     natural-order scan is also enabled.
+ * @param parallelPartitionCount The number of parallel partitions to use when parallel
+ *     natural-order scan is enabled.
  */
 public record InitialSyncConfig(
     Duration collectionScanTime,
@@ -26,7 +31,9 @@ public record InitialSyncConfig(
     Duration changeStreamLagTime,
     boolean useAggregateCommand,
     boolean enableNaturalOrderScan,
-    boolean avoidNaturalOrderScanSyncSourceChangeResync)
+    boolean avoidNaturalOrderScanSyncSourceChangeResync,
+    boolean enableParallelNaturalOrderScan,
+    int parallelPartitionCount)
     implements DocumentEncodable {
 
   /** Parses InitialSyncConfig from the provided DocumentParser. */
@@ -61,6 +68,19 @@ public record InitialSyncConfig(
                 .optional()
                 .withDefault(false);
 
+    public static final Field.WithDefault<Boolean> ENABLE_PARALLEL_NATURAL_ORDER_SCAN =
+        Field.builder("enableParallelNaturalOrderScan")
+            .booleanField()
+            .optional()
+            .withDefault(false);
+
+    public static final Field.WithDefault<Integer> PARALLEL_PARTITION_COUNT =
+        Field.builder("parallelPartitionCount")
+            .intField()
+            .mustBePositive()
+            .optional()
+            .withDefault(DEFAULT_PARALLEL_PARTITION_COUNT);
+
     public static final Field.Required<InitialSyncConfig> BUFFERLESS_CONFIG =
         Field.builder("bufferless")
             .classField(InitialSyncConfig::fromBson, InitialSyncConfig::initialSyncConfigToBson)
@@ -79,6 +99,9 @@ public record InitialSyncConfig(
   /** Default change stream event max lag time of 1 minute. */
   private static final Duration DEFAULT_CHANGE_STREAM_LAG_TIME = Duration.ofMinutes(1);
 
+  /** Default number of parallel partitions used when parallel natural-order scan is enabled. */
+  private static final int DEFAULT_PARALLEL_PARTITION_COUNT = 4;
+
   public static InitialSyncConfig fromBson(DocumentParser parser) throws BsonParseException {
     Duration collectionScanTime =
         Duration.ofMillis(parser.getField(Fields.COLLECTION_SCAN_TIME_MS).unwrap());
@@ -90,6 +113,9 @@ public record InitialSyncConfig(
     Boolean enableNaturalOrderScan = parser.getField(Fields.ENABLE_NATURAL_ORDER_SCAN).unwrap();
     Boolean avoidNaturalOrderScanSyncSourceChangeResync =
         parser.getField(Fields.AVOID_NATURAL_ORDER_SCAN_SYNC_SOURCE_CHANGE_RESYNC).unwrap();
+    Boolean enableParallelNaturalOrderScan =
+        parser.getField(Fields.ENABLE_PARALLEL_NATURAL_ORDER_SCAN).unwrap();
+    Integer parallelPartitionCount = parser.getField(Fields.PARALLEL_PARTITION_COUNT).unwrap();
 
     return new InitialSyncConfig(
         Optional.of(collectionScanTime),
@@ -97,11 +123,15 @@ public record InitialSyncConfig(
         Optional.of(changeStreamLagTime),
         Optional.of(useAggregateCommand),
         Optional.of(enableNaturalOrderScan),
-        Optional.of(avoidNaturalOrderScanSyncSourceChangeResync));
+        Optional.of(avoidNaturalOrderScanSyncSourceChangeResync),
+        Optional.of(enableParallelNaturalOrderScan),
+        Optional.of(parallelPartitionCount));
   }
 
   public InitialSyncConfig() {
     this(
+        Optional.empty(),
+        Optional.empty(),
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
@@ -118,7 +148,9 @@ public record InitialSyncConfig(
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
-        Optional.of(avoidNaturalOrderScanSyncSourceChangeResync));
+        Optional.of(avoidNaturalOrderScanSyncSourceChangeResync),
+        Optional.empty(),
+        Optional.empty());
   }
 
   @SuppressWarnings("checkstyle:MissingJavadocMethod")
@@ -128,7 +160,9 @@ public record InitialSyncConfig(
       Optional<Duration> changeStreamLagTime,
       Optional<Boolean> useAggregateCommand,
       Optional<Boolean> enableNaturalOrderScan,
-      Optional<Boolean> avoidNaturalOrderScanSyncSourceChangeResync) {
+      Optional<Boolean> avoidNaturalOrderScanSyncSourceChangeResync,
+      Optional<Boolean> enableParallelNaturalOrderScan,
+      Optional<Integer> parallelPartitionCount) {
     this(
         collectionScanTime.orElse(setDefault("collectionScanTimeMs", DEFAULT_COLLECTION_SCAN_TIME)),
         changeStreamCatchupTimeout.orElse(
@@ -137,7 +171,9 @@ public record InitialSyncConfig(
             setDefault("changeStreamLagTimeMs", DEFAULT_CHANGE_STREAM_LAG_TIME)),
         useAggregateCommand.orElse(true),
         enableNaturalOrderScan.orElse(false),
-        avoidNaturalOrderScanSyncSourceChangeResync.orElse(false));
+        avoidNaturalOrderScanSyncSourceChangeResync.orElse(false),
+        enableParallelNaturalOrderScan.orElse(false),
+        parallelPartitionCount.orElse(DEFAULT_PARALLEL_PARTITION_COUNT));
 
     useAggregateCommand.ifPresent(
         value ->
@@ -151,6 +187,10 @@ public record InitialSyncConfig(
     LOG.info(
         "avoidNaturalOrderScanSyncSourceChangeResync is {}",
         avoidNaturalOrderScanSyncSourceChangeResync.orElse(false));
+    LOG.info("enableParallelNaturalOrderScan is {}", enableParallelNaturalOrderScan.orElse(false));
+    LOG.info(
+        "parallelPartitionCount is {}",
+        parallelPartitionCount.orElse(DEFAULT_PARALLEL_PARTITION_COUNT));
   }
 
   @Override
@@ -168,6 +208,8 @@ public record InitialSyncConfig(
         .field(
             Fields.AVOID_NATURAL_ORDER_SCAN_SYNC_SOURCE_CHANGE_RESYNC,
             this.avoidNaturalOrderScanSyncSourceChangeResync)
+        .field(Fields.ENABLE_PARALLEL_NATURAL_ORDER_SCAN, this.enableParallelNaturalOrderScan)
+        .field(Fields.PARALLEL_PARTITION_COUNT, this.parallelPartitionCount)
         .build();
   }
 

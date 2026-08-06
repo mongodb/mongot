@@ -35,6 +35,8 @@ public class InitialSyncContext {
   private final Optional<BsonTimestamp> changeStreamBufferEndOperationTime;
   private final Optional<Integer> embeddingGetMoreBatchSize;
   private final boolean useNaturalOrderScan;
+  private final boolean enableParallelNaturalOrderScan;
+  private final int parallelPartitionCount;
   private final boolean removeMatchCollectionUuid;
   private final Gate initialSyncGate;
   private final Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig;
@@ -49,6 +51,8 @@ public class InitialSyncContext {
       Optional<Integer> embeddingGetMoreBatchSize,
       boolean removeMatchCollectionUuid,
       boolean useNaturalOrderScan,
+      boolean enableParallelNaturalOrderScan,
+      int parallelPartitionCount,
       Gate initialSyncGate,
       Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig) {
 
@@ -63,6 +67,8 @@ public class InitialSyncContext {
             ? embeddingGetMoreBatchSize
             : Optional.empty();
     this.useNaturalOrderScan = useNaturalOrderScan;
+    this.enableParallelNaturalOrderScan = enableParallelNaturalOrderScan;
+    this.parallelPartitionCount = parallelPartitionCount;
     this.removeMatchCollectionUuid = removeMatchCollectionUuid;
     this.initialSyncGate = initialSyncGate;
     this.autoEmbeddingMaterializedViewConfig = autoEmbeddingMaterializedViewConfig;
@@ -76,6 +82,8 @@ public class InitialSyncContext {
       Optional<Integer> embeddingGetMoreBatchSize,
       boolean removeMatchCollectionUuid,
       boolean useNaturalOrderScan,
+      boolean enableParallelNaturalOrderScan,
+      int parallelPartitionCount,
       Gate initialSyncGate) {
     return create(
         indexDefinitionGeneration,
@@ -85,6 +93,8 @@ public class InitialSyncContext {
         embeddingGetMoreBatchSize,
         removeMatchCollectionUuid,
         useNaturalOrderScan,
+        enableParallelNaturalOrderScan,
+        parallelPartitionCount,
         initialSyncGate,
         Optional.empty());
   }
@@ -97,6 +107,8 @@ public class InitialSyncContext {
       Optional<Integer> embeddingGetMoreBatchSize,
       boolean removeMatchCollectionUuid,
       boolean useNaturalOrderScan,
+      boolean enableParallelNaturalOrderScan,
+      int parallelPartitionCount,
       Gate initialSyncGate,
       Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig) {
 
@@ -110,6 +122,8 @@ public class InitialSyncContext {
         embeddingGetMoreBatchSize,
         removeMatchCollectionUuid,
         useNaturalOrderScan,
+        enableParallelNaturalOrderScan,
+        parallelPartitionCount,
         initialSyncGate,
         autoEmbeddingMaterializedViewConfig);
   }
@@ -182,6 +196,19 @@ public class InitialSyncContext {
 
   public boolean useNaturalOrderScan() {
     return this.useNaturalOrderScan;
+  }
+
+  /**
+   * Returns true if the natural-order collection scan may be split into disjoint {@code $recordId}
+   * partitions scanned in parallel. Only meaningful alongside {@link #useNaturalOrderScan()}.
+   */
+  public boolean isParallelNaturalOrderScanEnabled() {
+    return this.enableParallelNaturalOrderScan;
+  }
+
+  /** Returns the number of partitions to use when parallel natural-order scan is enabled. */
+  public int getParallelPartitionCount() {
+    return this.parallelPartitionCount;
   }
 
   /**
@@ -261,6 +288,8 @@ public class InitialSyncContext {
         this.embeddingGetMoreBatchSize,
         this.removeMatchCollectionUuid,
         this.useNaturalOrderScan,
+        this.enableParallelNaturalOrderScan,
+        this.parallelPartitionCount,
         this.initialSyncGate,
         this.autoEmbeddingMaterializedViewConfig);
   }

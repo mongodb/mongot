@@ -941,6 +941,8 @@ public class InitialSyncQueue {
                 this.embeddingGetMoreBatchSize,
                 request.isRemoveMatchCollectionUuid(),
                 request.getUseNaturalOrderScan(),
+                InitialSyncQueue.this.initialSyncConfig.enableParallelNaturalOrderScan(),
+                InitialSyncQueue.this.initialSyncConfig.parallelPartitionCount(),
                 InitialSyncQueue.this.initialSyncGate,
                 InitialSyncQueue.this.autoEmbeddingMaterializedViewConfig);
 
