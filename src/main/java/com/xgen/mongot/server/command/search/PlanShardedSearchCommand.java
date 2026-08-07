@@ -10,16 +10,21 @@ import com.xgen.mongot.index.definition.ViewDefinition;
 import com.xgen.mongot.index.lucene.LuceneAggregationPlanResolver;
 import com.xgen.mongot.index.query.CollectorQuery;
 import com.xgen.mongot.index.query.QueryOptimizationFlags;
+import com.xgen.mongot.index.query.ReturnScope;
 import com.xgen.mongot.index.query.SearchQuery;
 import com.xgen.mongot.index.query.collectors.AggregationCollector;
 import com.xgen.mongot.index.query.collectors.AggregationSpecBuilder;
+import com.xgen.mongot.index.query.collectors.AggregationValidator;
+import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.server.command.Command;
 import com.xgen.mongot.server.command.CommandFactory;
 import com.xgen.mongot.server.command.search.definition.PlanShardedSearchCommandResponseDefinition;
 import com.xgen.mongot.server.command.search.definition.request.PlanShardedSearchCommandDefinition;
 import com.xgen.mongot.server.message.MessageUtils;
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
+import java.util.Objects;
 import java.util.Optional;
 import org.bson.BsonDocument;
 import org.slf4j.Logger;
@@ -100,12 +105,43 @@ public class PlanShardedSearchCommand implements Command {
       }
       SearchIndexDefinition indexDefinition =
           indexGeneration.get().getDefinitionGeneration().asSearch().getIndexDefinition();
+      IndexFormatVersion indexFormatVersion =
+          indexGeneration.get().getGenerationId().generation.indexFormatVersion;
+      validateGroupingFields(
+          aggregationCollector,
+          indexDefinition,
+          indexFormatVersion,
+          queryDefinition.returnScope().map(ReturnScope::path));
       return Optional.of(
           LuceneAggregationPlanResolver.boundaryFieldResolverForPlanning(
-              indexDefinition,
-              indexGeneration.get().getGenerationId().generation.indexFormatVersion));
+              indexDefinition, indexFormatVersion));
     }
     return Optional.empty();
+  }
+
+  /**
+   * Runs the same grouping-field schema check the query path runs per reader ({@code
+   * LuceneSearchIndexReader#aggregationCollectorQuery}). Without it, a grouping field that carries
+   * no v2 doc values -- a legacy {@code numberFacet}/{@code dateFacet} field -- reaches {@code
+   * SearchAggregationBootstrap} boundary setup, whose {@code orElseThrow()} raises a bare {@code
+   * NoSuchElementException} that escapes {@code planShardedSearch} as an UnknownError instead of a
+   * query error.
+   */
+  private void validateGroupingFields(
+      AggregationCollector aggregationCollector,
+      SearchIndexDefinition indexDefinition,
+      IndexFormatVersion indexFormatVersion,
+      Optional<FieldPath> returnScope)
+      throws ShardedSearchPlannerException {
+    try {
+      AggregationValidator.validateAggregationQuery(
+          aggregationCollector,
+          indexDefinition.createFieldDefinitionResolver(indexFormatVersion),
+          returnScope,
+          this.metadata.featureFlags().isEnabled(Feature.SEARCH_AGGREGATION));
+    } catch (AggregationValidator.AggregationValidationException e) {
+      throw new ShardedSearchPlannerException(Objects.requireNonNull(e.getMessage()), e);
+    }
   }
 
   /**

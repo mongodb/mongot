@@ -57,6 +57,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/query/counts",
         "//src/main/java/com/xgen/mongot/index/query/operators",
         "//src/main/java/com/xgen/mongot/index/query/sort",
+        "//src/main/java/com/xgen/mongot/index/version",
         "//src/main/java/com/xgen/mongot/metrics",
         "//src/main/java/com/xgen/mongot/server/command",
         "//src/main/java/com/xgen/mongot/server/command/management/aic",

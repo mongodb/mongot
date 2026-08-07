@@ -329,4 +329,55 @@ public class PlanShardedSearchCommandTest {
     Assert.assertEquals(0, result.getInt32("ok").getValue());
     Assert.assertTrue(result.getString("errmsg").getValue().contains("not found"));
   }
+
+  /**
+   * A legacy numberFacet grouping field carries no v2 doc values, so boundary spec building would
+   * raise a bare NoSuchElementException. Plan time must report the same query error the query path
+   * reports instead.
+   */
+  @Test
+  public void testBoundaryGroupingOnLegacyNumberFacetFieldReturnsError() {
+    IndexCatalog indexCatalog = mock(IndexCatalog.class);
+    IndexGeneration indexGeneration = mockIndexGeneration(legacyNumberFacetPriceIndexDefinition());
+    when(indexCatalog.getIndex(eq(DATABASE_NAME), eq(COLLECTION_UUID), any(), eq(INDEX_NAME)))
+        .thenReturn(Optional.of(indexGeneration));
+
+    PlanShardedSearchCommand command =
+        createCommand(
+            getPlanShardedSearchCommandDefinition(BOUNDARY_SUM_AGGREGATION_QUERY),
+            AGGREGATION_BOOTSTRAPPER_METADATA,
+            indexCatalog);
+
+    BsonDocument result = command.run();
+
+    Assert.assertEquals(0, result.getInt32("ok").getValue());
+    Assert.assertTrue(
+        result
+            .getString("errmsg")
+            .getValue()
+            .contains("because it is indexed as a legacy \"numberFacet\""));
+  }
+
+  private static SearchIndexDefinition legacyNumberFacetPriceIndexDefinition() {
+    return SearchIndexDefinitionBuilder.builder()
+        .defaultMetadata()
+        .database(DATABASE_NAME)
+        .lastObservedCollectionName(COLLECTION_NAME)
+        .collectionUuid(COLLECTION_UUID)
+        .name(INDEX_NAME)
+        .indexFeatureVersion(SearchIndexCapabilities.CURRENT_FEATURE_VERSION)
+        .mappings(
+            DocumentFieldDefinitionBuilder.builder()
+                .dynamic(false)
+                .field(
+                    "price",
+                    FieldDefinitionBuilder.builder()
+                        .numberFacet(
+                            NumericFieldDefinitionBuilder.builder()
+                                .representation(NumericFieldOptions.Representation.INT64)
+                                .buildNumberFacetField())
+                        .build())
+                .build())
+        .build();
+  }
 }
