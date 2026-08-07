@@ -1,10 +1,17 @@
 #define EXPORT __attribute__((visibility("default")))
 #define HIDDEN __attribute__((visibility("hidden")))
 
+#include <errno.h>
 #include <math.h>
+#include <setjmp.h>
+#include <signal.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #if defined(__x86_64__)
 #include <immintrin.h>
@@ -358,38 +365,238 @@ static i8_fn    dot_i8_impl;
 static i8_fn    l2_i8_impl;
 static cos_i8_fn cos_i8_impl;
 
-__attribute__((constructor))
-static void sim_init(void) {
+// --- Execution probe ---
+//
+// CPU-feature bits (has_avx512vnni/has_sve/has_dotprod) only report what the CPU or
+// hypervisor *claims* to support; they don't confirm the instruction actually runs. A
+// wrong report (VM CPUID passthrough bugs, cgroup/seccomp masking, kernel HWCAP bugs)
+// would otherwise bind a kernel that SIGILLs on its first real call. The probe below
+// actually executes a candidate kernel once before trusting it: if it traps, we fall
+// back to the next tier down instead of crashing.
+//
+// sim_probe_i8_in_process (test-only) keeps the in-parent handler swap so
+// mongot_vecsim_probe_test can verify save/restore without a JVM.
+
+#define SIM_PROBE_N 128  // Must clear every kernel's widest SIMD loop (avx512vnni needs n>=64).
+
+// Child exit code when the probed kernel completed without trapping.
+#define SIM_PROBE_CHILD_OK 42
+
+// Child exit code when the probed kernel failed to set up (couldn't allocate memory, etc.)
+#define SIM_PROBE_CHILD_SETUP_FAILED 2
+
+// Worst-case time we'll wait for a probe's forked child before giving up on that tier.
+// The probe body is one short kernel call, so 2s is generous slack, not a tight bound.
+#define SIM_PROBE_TIMEOUT_US (2 * 1000 * 1000)
+#define SIM_PROBE_POLL_INTERVAL_US 1000
+
+static sigjmp_buf g_sim_probe_jmpbuf;
+static volatile sig_atomic_t g_sim_probe_active;
+static struct sigaction g_sim_probe_old_action;
+
+static void sim_probe_sigill_handler(int sig) {
+  if (g_sim_probe_active) {
+    siglongjmp(g_sim_probe_jmpbuf, 1);
+  }
+  sigaction(SIGILL, &g_sim_probe_old_action, NULL);
+  raise(sig);
+}
+
+#if defined(MONGOT_VECSIM_TEST)
+// In-process probe for tests only. Never used on the production init path (sim_probe_i8
+// below is), and only compiled in test builds so it isn't left unused in production.
+static int sim_probe_i8_in_process(i8_fn fn) {
+  int8_t probe_a[SIM_PROBE_N] = {0};
+  int8_t probe_b[SIM_PROBE_N] = {0};
+
+  struct sigaction probe_action;
+  memset(&probe_action, 0, sizeof(probe_action));
+  probe_action.sa_handler = sim_probe_sigill_handler;
+  sigemptyset(&probe_action.sa_mask);
+
+  if (sigaction(SIGILL, &probe_action, &g_sim_probe_old_action) != 0) {
+    return 0;
+  }
+
+  g_sim_probe_active = 1;
+  int ok;
+  if (sigsetjmp(g_sim_probe_jmpbuf, 1) == 0) {
+    fn(probe_a, probe_b, SIM_PROBE_N);
+    ok = 1;
+  } else {
+    ok = 0;
+  }
+  g_sim_probe_active = 0;
+
+  sigaction(SIGILL, &g_sim_probe_old_action, NULL);
+  return ok;
+}
+#endif  // MONGOT_VECSIM_TEST
+
+// waitpid() wrapper that retries on EINTR (an unrelated signal interrupting the syscall)
+// instead of treating it as the child's own failure
+static pid_t sim_waitpid_retry_eintr(pid_t pid, int* status, int options) {
+  pid_t result;
+  do {
+    result = waitpid(pid, status, options);
+  } while (result < 0 && errno == EINTR);
+  return result;
+}
+
+// Fork a child to run fn once; parent never touches SIGILL. fn's address is valid in
+// the child (fork snapshot). Returns 1 if the kernel ran without trapping, 0 otherwise.
+static int sim_probe_i8(i8_fn fn) {
+  pid_t pid = fork();
+  if (pid < 0) {
+    fprintf(stderr, "mongot_vecsim: fork() failed during kernel probe: %s\n", strerror(errno));
+    return 0;
+  }
+  if (pid == 0) {
+    int8_t probe_a[SIM_PROBE_N] = {0};
+    int8_t probe_b[SIM_PROBE_N] = {0};
+
+    struct sigaction probe_action;
+    memset(&probe_action, 0, sizeof(probe_action));
+    probe_action.sa_handler = sim_probe_sigill_handler;
+    sigemptyset(&probe_action.sa_mask);
+    if (sigaction(SIGILL, &probe_action, &g_sim_probe_old_action) != 0) {
+      _exit(SIM_PROBE_CHILD_SETUP_FAILED);
+    }
+
+    g_sim_probe_active = 1;
+    int ok;
+    if (sigsetjmp(g_sim_probe_jmpbuf, 1) == 0) {
+      fn(probe_a, probe_b, SIM_PROBE_N);
+      ok = 1;
+    } else {
+      ok = 0;
+    }
+    g_sim_probe_active = 0;
+    _exit(ok ? SIM_PROBE_CHILD_OK : 1);
+  }
+
+  // Bounded wait: the probe body is a single short-lived call to fn followed by _exit(),
+  // so it should return almost immediately.
+  int status = 0;
+  int elapsed_us = 0;
+  pid_t waited;
+  while ((waited = sim_waitpid_retry_eintr(pid, &status, WNOHANG)) == 0) {
+    if (elapsed_us >= SIM_PROBE_TIMEOUT_US) {
+      fprintf(stderr, "mongot_vecsim: kernel probe timed out after %dus; killing child\n",
+              SIM_PROBE_TIMEOUT_US);
+      kill(pid, SIGKILL);
+      // Reap the now-dead child so it doesn't linger as a zombie.
+      sim_waitpid_retry_eintr(pid, &status, 0);
+      return 0;
+    }
+    usleep(SIM_PROBE_POLL_INTERVAL_US);
+    elapsed_us += SIM_PROBE_POLL_INTERVAL_US;
+  }
+  if (waited < 0) {
+    fprintf(stderr, "mongot_vecsim: waitpid() failed during kernel probe: %s\n", strerror(errno));
+    return 0;
+  }
+  if (!WIFEXITED(status)) {
+    fprintf(stderr,
+            "mongot_vecsim: kernel probe child exited abnormally (%s)\n",
+            WIFSIGNALED(status) ? strsignal(WTERMSIG(status)) : "not exited, not signaled");
+    return 0;
+  }
+  if (WEXITSTATUS(status) == SIM_PROBE_CHILD_SETUP_FAILED) {
+    fprintf(stderr, "mongot_vecsim: kernel probe child failed to install its SIGILL handler\n");
+    return 0;
+  }
+  if (WEXITSTATUS(status) != SIM_PROBE_CHILD_OK) {
+    fprintf(stderr, "mongot_vecsim: kernel probe child caught an instruction trap\n");
+    return 0;
+  }
+  return 1;
+}
+
+static void sim_log_fallback(const char* tier) {
+  fprintf(stderr,
+          "mongot_vecsim: %s kernel failed its execution probe (CPU reported support, but "
+          "the probe did not confirm it works: instruction trap, or a fork/wait error); "
+          "falling back\n",
+          tier);
+}
+
+#if defined(MONGOT_VECSIM_TEST)
+// Test-only: a "kernel" that always SIGILLs, for exercising sim_probe_i8's fallback and
+// handler-restore behavior without needing genuinely mismatched hardware.
+static int32_t sim_test_force_sigill_kernel(const int8_t* a, const int8_t* b, size_t n) {
+  (void)a;
+  (void)b;
+  (void)n;
+  raise(SIGILL);
+  return 0;  // Unreachable.
+}
+
+// Returns 1 if the in-process probe correctly caught the forced fault and reported failure.
+EXPORT int mongot_vecsim_test_probe_force_sigill(void) {
+  return sim_probe_i8_in_process(sim_test_force_sigill_kernel) == 0;
+}
+
+// Returns 1 if the forked probe correctly caught the forced fault and reported failure.
+EXPORT int mongot_vecsim_test_probe_force_sigill_forked(void) {
+  return sim_probe_i8(sim_test_force_sigill_kernel) == 0;
+}
+#endif  // MONGOT_VECSIM_TEST
+
+// Exported so tests can invoke dispatch directly and confirm production probing never
+// touches the caller's SIGILL handler; the constructor below is what makes this run
+// automatically in production.
+EXPORT void mongot_vecsim_init(void) {
 #if defined(__x86_64__)
-  int vnni = has_avx512vnni();
-  dot_i8_impl = vnni ? sim_dot_i8_avx512vnni : sim_dot_i8_scalar;
-  l2_i8_impl  = vnni ? sim_l2_i8_avx512vnni  : sim_l2_i8_scalar;
-  cos_i8_impl = vnni ? sim_cos_i8_avx512vnni  : sim_cos_i8_scalar;
+  int has_vnni = has_avx512vnni();
+  if (has_vnni && sim_probe_i8(sim_dot_i8_avx512vnni)) {
+    dot_i8_impl = sim_dot_i8_avx512vnni;
+    l2_i8_impl  = sim_l2_i8_avx512vnni;
+    cos_i8_impl = sim_cos_i8_avx512vnni;
+    return;
+  }
+  if (has_vnni) {
+    sim_log_fallback("avx512vnni");
+  }
+  dot_i8_impl = sim_dot_i8_scalar;
+  l2_i8_impl  = sim_l2_i8_scalar;
+  cos_i8_impl = sim_cos_i8_scalar;
 #elif defined(__aarch64__)
 #if defined(__ARM_FEATURE_SVE)
   if (has_sve()) {
-    dot_i8_impl = sim_dot_i8_sve;
-    l2_i8_impl  = sim_l2_i8_sve;
-    cos_i8_impl = sim_cos_i8_sve;
-  } else
+    if (sim_probe_i8(sim_dot_i8_sve)) {
+      dot_i8_impl = sim_dot_i8_sve;
+      l2_i8_impl  = sim_l2_i8_sve;
+      cos_i8_impl = sim_cos_i8_sve;
+      return;
+    }
+    sim_log_fallback("sve");
+  }
 #endif
 #if defined(__ARM_NEON) && defined(__ARM_FEATURE_DOTPROD)
   if (has_dotprod()) {
-    dot_i8_impl = sim_dot_i8_dotprod;
-    l2_i8_impl  = sim_l2_i8_dotprod;
-    cos_i8_impl = sim_cos_i8_dotprod;
-  } else
-#endif
-  {
-    dot_i8_impl = sim_dot_i8_scalar;
-    l2_i8_impl  = sim_l2_i8_scalar;
-    cos_i8_impl = sim_cos_i8_scalar;
+    if (sim_probe_i8(sim_dot_i8_dotprod)) {
+      dot_i8_impl = sim_dot_i8_dotprod;
+      l2_i8_impl  = sim_l2_i8_dotprod;
+      cos_i8_impl = sim_cos_i8_dotprod;
+      return;
+    }
+    sim_log_fallback("dotprod");
   }
+#endif
+  dot_i8_impl = sim_dot_i8_scalar;
+  l2_i8_impl  = sim_l2_i8_scalar;
+  cos_i8_impl = sim_cos_i8_scalar;
 #else
   dot_i8_impl = sim_dot_i8_scalar;
   l2_i8_impl  = sim_l2_i8_scalar;
   cos_i8_impl = sim_cos_i8_scalar;
 #endif
+}
+
+__attribute__((constructor))
+static void sim_init(void) {
+  mongot_vecsim_init();
 }
 
 // --- Exported functions ---
