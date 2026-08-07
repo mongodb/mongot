@@ -4,6 +4,9 @@ load("@rules_java//toolchains:default_java_toolchain.bzl", "default_java_toolcha
 load("@rules_jvm_external//:defs.bzl", "artifact")
 load("//bazel/java:package.bzl", "java_library")
 
+# Exported to expose _LUCENE_FORK_VERSION to mongot Java code.
+exports_files(["maven_search_query.MODULE.bazel"])
+
 java_plugin(
     name = "nullaway_annotation_processor",
     visibility = ["//visibility:public"],

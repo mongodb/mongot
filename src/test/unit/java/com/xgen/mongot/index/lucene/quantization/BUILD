@@ -14,6 +14,7 @@ java_test_suite(
         "OffHeapQuantizedByteVectorValuesTest.java",
         "PackingUnpackingTest.java",
     ],
+    data = ["//bazel/java:maven_search_query.MODULE.bazel"],
     tags = ["unit"],
     deps = [
         "//src/main/java/com/xgen/mongot/featureflag",

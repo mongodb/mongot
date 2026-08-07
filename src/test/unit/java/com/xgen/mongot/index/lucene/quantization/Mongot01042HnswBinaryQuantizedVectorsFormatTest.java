@@ -4,10 +4,15 @@ import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 
 import com.google.errorprone.annotations.Var;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.apache.lucene.backward_codecs.lucene99.Lucene99Codec;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.KnnFloatVectorField;
@@ -33,6 +38,10 @@ import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.VectorUtil;
 
 public class Mongot01042HnswBinaryQuantizedVectorsFormatTest extends BaseKnnVectorsFormatTestCase {
+  private static final String LUCENE_PIN_REPO_PATH = "bazel/java/maven_search_query.MODULE.bazel";
+  private static final Pattern LUCENE_FORK_VERSION_PATTERN =
+      Pattern.compile("_LUCENE_FORK_VERSION = \"([^\"]+)\"");
+
   // tinySegmentsThreshold=0 forces HNSW for every segment; the base Lucene test asserts the
   // .vex file is non-empty even for tiny segments.
   private final KnnVectorsFormat format = new Mongot01042HnswBinaryQuantizedVectorsFormat();
@@ -86,14 +95,44 @@ public class Mongot01042HnswBinaryQuantizedVectorsFormatTest extends BaseKnnVect
     return v;
   }
 
-  // Copied from Lucene's BaseKnnVectorsFormatTestCase to fix flaky test failure CLOUDP-391552.
-  // Lucene's testSearchWithVisitedLimit() assumes the relation will always be returned as
-  // GREATER_THAN_OR_EQUAL_TO which may be true for their codecs but our valid codec can rarely
-  // cause the EQUAL_TO relation to be returned. So, here we copy the test function and tweak
+  /**
+   * Canary that fails whenever the pinned Lucene version changes, as a reminder that the methods
+   * copied from Lucene into this class may need upstream's changes ported. On failure, re-diff the
+   * copied methods against Lucene's BaseKnnVectorsFormatTestCase, port any upstream test changes,
+   * and then update the expected version here.
+   */
+  private static void assertLucenePinUnchanged() throws IOException {
+    // TEST_SRCDIR and TEST_WORKSPACE locate the runfiles tree under bazel test; fall back to a
+    // repo-relative path for non-bazel runners such as plain IDE JUnit run configurations.
+    String testSrcdir = System.getenv("TEST_SRCDIR");
+    String testWorkspace = System.getenv("TEST_WORKSPACE");
+    Path lucenePinFile =
+        testSrcdir != null && testWorkspace != null
+            ? Path.of(testSrcdir, testWorkspace, LUCENE_PIN_REPO_PATH)
+            : Path.of(LUCENE_PIN_REPO_PATH);
+    Matcher lucenePinMatcher = LUCENE_FORK_VERSION_PATTERN.matcher(Files.readString(lucenePinFile));
+    assertTrue(
+        "Lucene version pin not found in " + lucenePinFile + "; update this canary",
+        lucenePinMatcher.find());
+    assertEquals(
+        "The pinned Lucene version changed: re-diff the copied methods in this class against"
+            + " Lucene's BaseKnnVectorsFormatTestCase and port any upstream test changes, then"
+            + " update the expected version here",
+        "10.4.0-2",
+        lucenePinMatcher.group(1));
+  }
+
+  // Copied from Lucene 10.4.0's BaseKnnVectorsFormatTestCase to fix flaky test failures
+  // CLOUDP-391552 and CLOUDP-432100. Lucene's testSearchWithVisitedLimit() asserts that the
+  // relation is always GREATER_THAN_OR_EQUAL_TO, which holds for Lucene's codecs, but our valid
+  // codec can rarely return EQUAL_TO: because mongot's binary quantization is simpler than
+  // Lucene's BBQ and we have more collisions. So, here we copy the test function and tweak
   // the asserts to be more tolerant. Note that Lucene's add() is also copied into this file as
-  // add2() because add() is private when it could have been protected.
+  // add2() because add() is private when it maybe should have been protected.
   @Override
   public void testSearchWithVisitedLimit() throws Exception {
+    assertLucenePinUnchanged();
+
     IndexWriterConfig iwc = newIndexWriterConfig();
     String fieldName = "field";
 
@@ -133,7 +172,13 @@ public class Mongot01042HnswBinaryQuantizedVectorsFormatTest extends BaseKnnVect
                   .searchNearestVectors(
                       fieldName, randomNormalizedVector(dimension), k, acceptDocs, visitedLimit);
           if (results.totalHits.relation() == TotalHits.Relation.GREATER_THAN_OR_EQUAL_TO) {
-            assertEquals(visitedLimit, results.totalHits.value());
+            int size = Lucene99HnswVectorsReader.EXHAUSTIVE_BULK_SCORE_ORDS;
+            // visit limit is a "best effort" limit given our bulk scoring logic; assert that we
+            // are within reasonable bounds
+            assertTrue(
+                results.totalHits.value() == visitedLimit
+                    || results.totalHits.value()
+                        <= ((visitedLimit + size - 1) / size) * ((long) size));
           } else {
             assertEquals(TotalHits.Relation.EQUAL_TO, results.totalHits.relation());
             assertTrue(results.totalHits.value() <= visitedLimit);
@@ -147,12 +192,15 @@ public class Mongot01042HnswBinaryQuantizedVectorsFormatTest extends BaseKnnVect
                       fieldName, randomNormalizedVector(dimension), k, acceptDocs, visitedLimit);
           assertEquals(TotalHits.Relation.EQUAL_TO, secondResults.totalHits.relation());
           assertTrue(secondResults.totalHits.value() <= visitedLimit);
+          assertOffHeapByteSize(ctx.reader(), fieldName);
         }
       }
     }
   }
 
   // Copied from Lucene's BaseKnnVectorsFormatTestCase testRandomWithUpdatesAndGraph().
+  // Note that Lucene's add() is also copied into this file as add2() because add() is private when
+  // it maybe should have been protected.
   @Override
   public void testRandomWithUpdatesAndGraph() throws Exception {
     IndexWriterConfig iwc = newIndexWriterConfig();
@@ -214,7 +262,7 @@ public class Mongot01042HnswBinaryQuantizedVectorsFormatTest extends BaseKnnVect
           // assert that searchNearestVectors returns the expected number of documents,
           // in descending score order
           int size = ctx.reader().getFloatVectorValues(fieldName).size();
-          @Var int k = random().nextInt(size / 2 + 1) + 1;
+          @Var int k = random().nextInt(size / 10 + 1) + 1;
           if (k > numLiveDocsWithVectors) {
             k = numLiveDocsWithVectors;
           }
@@ -231,6 +279,7 @@ public class Mongot01042HnswBinaryQuantizedVectorsFormatTest extends BaseKnnVect
           for (int i = 0; i < k - 1; i++) {
             assertTrue(results.scoreDocs[i].score >= results.scoreDocs[i + 1].score);
           }
+          assertOffHeapByteSize(ctx.reader(), fieldName);
         }
       }
     }
