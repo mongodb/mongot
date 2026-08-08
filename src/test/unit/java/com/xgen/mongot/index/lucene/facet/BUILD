@@ -3,6 +3,7 @@ load("//bazel/java:test.bzl", "java_test_suite")
 java_test_suite(
     name = "facet",
     srcs = [
+        "ParentDedupedLongRangeFacetCountsTest.java",
         "ParentDedupedSortedSetDocValuesFacetCountsTest.java",
         "TokenFacetOrdinalMapMismatchTest.java",
         "TokenSsdvFacetStateTest.java",

@@ -5,6 +5,7 @@ java_library(
     srcs = [
         "AbstractSortedSetDocValuesFacetCounts.java",
         "ConcurrentSortedSetDocValuesFacetCounts.java",
+        "ParentDedupedLongRangeFacetCounts.java",
         "ParentDedupedSortedSetDocValuesFacetCounts.java",
         "SortedSetDocValuesFacetCounts.java",
         "TokenFacetsCardinalityLimitExceededException.java",
