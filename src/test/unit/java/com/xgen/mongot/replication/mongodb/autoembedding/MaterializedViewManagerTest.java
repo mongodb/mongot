@@ -2237,6 +2237,42 @@ public class MaterializedViewManagerTest {
     // tryAcquireLeadership should be called and becomeLeader() invoked.
     verify(mocks.leaseManager).tryAcquireLeadership(matViewGenId);
     verify(generator).becomeLeader();
+    assertEquals(
+        0.0,
+        mocks
+            .meterRegistry
+            .counter(MaterializedViewManager.UNSAFE_LEADERSHIP_REACQUISITION_COUNTER_NAME)
+            .count(),
+        0.0);
+  }
+
+  @Test
+  public void dynamicLeader_acquireLease_recordsUnsafeReacquisitionWithActiveLeader() {
+    Mocks mocks = Mocks.createDynamicFollowerWithAcquirableLeases();
+
+    MaterializedViewIndexGeneration matViewIndexGen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator generator = mocks.mockMaterializedViewGenerator(matViewIndexGen);
+    mocks.addIndexForReplication(matViewIndexGen);
+    doReturn(IndexManager.State.STEADY_STATE).when(generator).getState();
+    doReturn(true).when(generator).isLeader();
+
+    MaterializedViewGenerationId matViewGenId = matViewIndexGen.getGenerationId();
+    when(mocks.leaseManager.pollFollowerStatuses())
+        .thenReturn(
+            new LeaseManager.FollowerPollResult(
+                Map.of(matViewGenId, IndexStatus.unknown()), Set.of(matViewGenId)));
+    when(mocks.leaseManager.tryAcquireLeadership(matViewGenId)).thenReturn(true);
+
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    assertEquals(
+        1.0,
+        mocks
+            .meterRegistry
+            .counter(MaterializedViewManager.UNSAFE_LEADERSHIP_REACQUISITION_COUNTER_NAME)
+            .count(),
+        0.0);
   }
 
   @Test

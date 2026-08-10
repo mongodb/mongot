@@ -128,6 +128,10 @@ public class MaterializedViewManager implements ReplicationManager {
   public static final String GENERATOR_CREATION_RETRY_COUNTER_NAME =
       "matViewGeneratorCreationRetries";
 
+  /** Counts lease reacquisitions granted while the prior local generator still leads. */
+  public static final String UNSAFE_LEADERSHIP_REACQUISITION_COUNTER_NAME =
+      "matViewUnsafeLeadershipReacquisitions";
+
   public static final String STATE_LABEL = "state";
 
   public static final String MAT_VIEW_GC_SCANNER_ALIVE_GAUGE = "matViewGcScannerAlive";
@@ -1479,6 +1483,7 @@ public class MaterializedViewManager implements ReplicationManager {
           generator.ifPresent(MaterializedViewGenerator::shutdown);
           continue;
         }
+        MaterializedViewGenerator generatorBeforeAcquisition = generator.get();
         if (this.leaseManager.tryAcquireLeadership(generationId)) {
           // Synchronize on the manager monitor (same lock as transitionToFollower) to
           // prevent the generator from being replaced between re-read and becomeLeader().
@@ -1493,6 +1498,15 @@ public class MaterializedViewManager implements ReplicationManager {
                           + "releasing lease");
               this.leaseManager.releaseLeadership(generationId);
               continue;
+            }
+            if (currentGenerator.get() == generatorBeforeAcquisition
+                && currentGenerator.get().isLeader()) {
+              this.meterRegistry.counter(UNSAFE_LEADERSHIP_REACQUISITION_COUNTER_NAME).increment();
+              LOG.atError()
+                  .addKeyValue("generationId", generationId)
+                  .log(
+                      "Reacquired materialized-view leadership while the prior local generator"
+                          + " still leads; in-flight work from the prior tenure may be unsafe");
             }
             LOG.atInfo()
                 .addKeyValue("indexId", generationId.indexId)
