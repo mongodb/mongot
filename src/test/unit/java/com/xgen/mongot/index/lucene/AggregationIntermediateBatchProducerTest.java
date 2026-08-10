@@ -12,6 +12,7 @@ import com.xgen.mongot.index.CountResult;
 import com.xgen.mongot.index.MetaResults;
 import com.xgen.mongot.index.query.aggregation.AggregationResult;
 import com.xgen.mongot.index.query.aggregation.AggregationResultBuilder;
+import com.xgen.mongot.index.query.aggregation.GroupingKeyAliases;
 import com.xgen.mongot.index.query.counts.Count;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.Bytes;
@@ -209,7 +210,7 @@ public class AggregationIntermediateBatchProducerTest {
   private static BsonDocument intermediateDoc(String city, double sum) {
     return new BsonDocument()
         .append("group_name", new BsonString("by_city"))
-        .append("keys", new BsonDocument("city", new BsonString(city)))
+        .append("keys", new BsonDocument(GroupingKeyAliases.alias(0), new BsonString(city)))
         .append("sum_sum_price", new BsonDouble(sum));
   }
 

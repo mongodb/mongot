@@ -98,27 +98,40 @@ public abstract class MultiBucketAggregationResult implements AggregationResult 
    *
    * // Flat intermediate rows emitted here (group_name added by TopLevelAggregationResult):
    * [
-   *   {$meta/keys: {city: "NYC", color: "red"}, avg_sum_avg_price: 30, avg_count_avg_price: 2},
-   *   {$meta/keys: {city: "LA",  color: "red"}, avg_sum_avg_price: 5,  avg_count_avg_price: 1}
+   *   {$meta/keys: {k0: "NYC", k1: "red"}, avg_sum_avg_price: 30, avg_count_avg_price: 2},
+   *   {$meta/keys: {k0: "LA",  k1: "red"}, avg_sum_avg_price: 5,  avg_count_avg_price: 1}
    * ]
    * }</pre>
    */
   @Override
   public final BsonArray toIntermediateBson() {
+    return toIntermediateBsonAtLevel(0);
+  }
+
+  /**
+   * Emits intermediate rows with grouping keys aliased as {@code k<levelIndex>} so dotted index
+   * paths never appear as BSON field names on the merge wire.
+   */
+  final BsonArray toIntermediateBsonAtLevel(int levelIndex) {
     BsonArray docs = new BsonArray();
     for (Bucket bucket : this.getBuckets(INTERMEDIATE_BUCKET_ORDER)) {
-      BsonDocument keys = new BsonDocument().append(this.path.toString(), bucket.getKey());
-      collectBucketDocs(keys, bucket, docs);
+      BsonDocument keys =
+          new BsonDocument().append(GroupingKeyAliases.alias(levelIndex), bucket.getKey());
+      collectBucketDocs(keys, bucket, docs, levelIndex);
     }
     return docs;
   }
 
-  private static void collectBucketDocs(BsonDocument keys, Bucket bucket, BsonArray docs) {
+  private static void collectBucketDocs(
+      BsonDocument keys, Bucket bucket, BsonArray docs, int levelIndex) {
     BsonDocument metricFields = new BsonDocument();
     List<BsonArray> subBucketDocs = new ArrayList<>();
 
     for (AggregationResult child : bucket.getChildResults()) {
-      BsonArray childRows = child.toIntermediateBson();
+      BsonArray childRows =
+          child instanceof MultiBucketAggregationResult multiBucket
+              ? multiBucket.toIntermediateBsonAtLevel(levelIndex + 1)
+              : child.toIntermediateBson();
       if (!childRows.isEmpty()) {
         subBucketDocs.add(childRows);
       }

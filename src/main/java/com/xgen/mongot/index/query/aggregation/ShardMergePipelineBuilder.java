@@ -54,16 +54,16 @@ import org.bson.BsonValue;
  * //           └── sum_price
  *
  * // --- shard intermediate rows (merge-pipeline input) ---
- * { $meta/group_name: "by_city", $meta/keys: {city: "NYC", color: "red"},  sum_sum_price: 30 }
- * { $meta/group_name: "by_city", $meta/keys: {city: "NYC", color: "blue"}, sum_sum_price: 20 }
- * { $meta/group_name: "by_city", $meta/keys: {city: "LA",  color: "red"},  sum_sum_price: 5  }
+ * { $meta/group_name: "by_city", $meta/keys: {k0: "NYC", k1: "red"},  sum_sum_price: 30 }
+ * { $meta/group_name: "by_city", $meta/keys: {k0: "NYC", k1: "blue"}, sum_sum_price: 20 }
+ * { $meta/group_name: "by_city", $meta/keys: {k0: "LA",  k1: "red"},  sum_sum_price: 5  }
  *
  * // --- after Stage 1: $group ---
  * // _id reads $meta/group_name and $meta/keys via $getField; metrics are summed per (_id) key.
  * {
  *   _id: {
  *     group_name: "by_city",
- *     keys:       {city: "NYC", color: "red"}
+ *     keys:       {k0: "NYC", k1: "red"}
  *   },
  *   sum_sum_price: 30,
  *   count_value:   1
@@ -75,9 +75,9 @@ import org.bson.BsonValue;
  * // count arm $match-es null routing the same way.
  * {
  *   by_city: [
- *     {_id: {group_name: "by_city", keys: {city: "NYC", color: "red"}},  ...},
- *     {_id: {group_name: "by_city", keys: {city: "NYC", color: "blue"}}, ...},
- *     {_id: {group_name: "by_city", keys: {city: "LA",  color: "red"}},  ...}
+ *     {_id: {group_name: "by_city", keys: {k0: "NYC", k1: "red"}},  ...},
+ *     {_id: {group_name: "by_city", keys: {k0: "NYC", k1: "blue"}}, ...},
+ *     {_id: {group_name: "by_city", keys: {k0: "LA",  k1: "red"}},  ...}
  *   ],
  *   count: [ ... ]
  * }
@@ -344,8 +344,7 @@ public final class ShardMergePipelineBuilder {
             "single-level facet arm %s requires leaf metric projections",
             groupName);
         if (isBoundaryLevel(config, 0)) {
-          appendFlatBoundarySortStage(
-              arm, config.groupLevels.get(0).keyPath(), boundaryDefaultKey(config, 0));
+          appendFlatBoundarySortStage(arm, 0, boundaryDefaultKey(config, 0));
         } else {
           appendFlatTermsTopNStages(arm, config);
         }
@@ -384,7 +383,7 @@ public final class ShardMergePipelineBuilder {
               "_id",
               new BsonString(
                   IntermediateAggregationMetaField.groupedKeyFieldPath(
-                      config.groupLevels.get(0).keyPath())));
+                      GroupingKeyAliases.alias(0))));
         }
         inFields.putAll(config.metricProjections);
         BsonDocument mapExpr =
@@ -416,10 +415,9 @@ public final class ShardMergePipelineBuilder {
       // Innermost facet-arm $group: bucket flat Stage-1 rows by all parent grouping keys
       // (indices 0..depth-2). The leaf grouping dimension (depth-1) is stored in each pushed
       // row, not in _id — there are depth-1 $group stages for depth grouping levels.
-      BsonValue groupId = flatKeysIdExpr(config, 0, depth - 2);
+      BsonValue groupId = flatKeysIdExpr(0, depth - 2);
       BsonDocument pushDoc =
-          new BsonDocument()
-              .append(config.groupLevels.get(depth - 1).keyPath(), flatKeysLeafExpr(config));
+          new BsonDocument().append(GroupingKeyAliases.alias(depth - 1), flatKeysLeafExpr(config));
       for (String field : config.accumulatorFields) {
         pushDoc.append(field, new BsonString("$" + field));
       }
@@ -430,11 +428,11 @@ public final class ShardMergePipelineBuilder {
     }
 
     int prefixEnd = depth - 2 - stageIndex;
-    BsonValue groupId = priorStageIdExpr(config, prefixEnd);
-    String pushedKey = config.groupLevels.get(depth - 1 - stageIndex).keyPath();
+    BsonValue groupId = priorStageIdExpr(prefixEnd);
+    String pushedAlias = GroupingKeyAliases.alias(depth - 1 - stageIndex);
     BsonDocument pushDoc =
         new BsonDocument()
-            .append(pushedKey, new BsonString("$_id." + pushedKey))
+            .append(pushedAlias, new BsonString("$_id." + pushedAlias))
             .append("_leaf_rows", new BsonString("$_rows"));
     return groupStage(groupId, pushDoc);
   }
@@ -465,27 +463,27 @@ public final class ShardMergePipelineBuilder {
         mapInput =
             boundarySortArrayExpr(
                 mapInput,
-                config.groupLevels.get(leafKeyIndex).keyPath(),
+                GroupingKeyAliases.alias(leafKeyIndex),
                 boundaryDefaultKey(config, leafKeyIndex));
       }
       return mapExpr(mapInput, rowVar, leafRowBody(config, rowVar, leafKeyIndex));
     }
 
     String childBranch = config.groupLevels.get(levelIndex + 1).nestedBranchName().orElseThrow();
-    String rowKey = config.groupLevels.get(levelIndex + 1).keyPath();
+    String rowAlias = GroupingKeyAliases.alias(levelIndex + 1);
     @Var BsonValue innerInput = new BsonString("$$" + rowVar + "._leaf_rows");
     if (isBoundaryLevel(config, levelIndex + 1)) {
       innerInput =
           boundarySortArrayExpr(
               innerInput,
-              config.groupLevels.get(levelIndex + 1).keyPath(),
+              GroupingKeyAliases.alias(levelIndex + 1),
               boundaryDefaultKey(config, levelIndex + 1));
     }
     BsonValue innerBuckets = buildBucketsAtLevel(config, levelIndex + 1, innerInput, "leaf");
 
     BsonDocument rowBody =
         new BsonDocument()
-            .append("_id", new BsonString("$$" + rowVar + "." + rowKey))
+            .append("_id", new BsonString("$$" + rowVar + "." + rowAlias))
             .append(childBranch, new BsonDocument("buckets", innerBuckets));
     return mapExpr(input, rowVar, rowBody);
   }
@@ -497,12 +495,13 @@ public final class ShardMergePipelineBuilder {
 
   /** Sort flat leaf boundary buckets by request order before {@code $project}. */
   private static void appendFlatBoundarySortStage(
-      BsonArray arm, String keyPath, Optional<BsonValue> defaultKey) {
+      BsonArray arm, int levelIndex, Optional<BsonValue> defaultKey) {
+    String keyAlias = GroupingKeyAliases.alias(levelIndex);
     if (defaultKey.isEmpty()) {
-      arm.add(buildFlatBoundarySortStage(keyPath));
+      arm.add(buildFlatBoundarySortStage(keyAlias));
       return;
     }
-    String keyField = "_id." + IntermediateAggregationMetaField.ID_KEYS + "." + keyPath;
+    String keyField = "_id." + IntermediateAggregationMetaField.ID_KEYS + "." + keyAlias;
     arm.add(
         new BsonDocument(
             "$addFields",
@@ -558,27 +557,27 @@ public final class ShardMergePipelineBuilder {
     if (bucketLimit == null) {
       return;
     }
-    String keyPath = config.groupLevels.get(levelIndex).keyPath();
-    arm.add(buildTermsSortStage(keyPath, flatKeys));
+    arm.add(buildTermsSortStage(levelIndex, flatKeys));
     arm.add(new BsonDocument("$limit", new BsonInt32(bucketLimit)));
   }
 
-  private static BsonDocument buildTermsSortStage(String keyPath, boolean flatKeys) {
+  private static BsonDocument buildTermsSortStage(int levelIndex, boolean flatKeys) {
+    String keyAlias = GroupingKeyAliases.alias(levelIndex);
     BsonDocument sortKeys = new BsonDocument().append("count_value", new BsonInt32(-1));
     if (flatKeys) {
       sortKeys.append(
-          "_id." + IntermediateAggregationMetaField.ID_KEYS + "." + keyPath, new BsonInt32(1));
+          "_id." + IntermediateAggregationMetaField.ID_KEYS + "." + keyAlias, new BsonInt32(1));
     } else {
       sortKeys.append("_id", new BsonInt32(1));
     }
     return new BsonDocument("$sort", sortKeys);
   }
 
-  private static BsonDocument buildFlatBoundarySortStage(String keyPath) {
+  private static BsonDocument buildFlatBoundarySortStage(String keyAlias) {
     return new BsonDocument(
         "$sort",
         new BsonDocument(
-            "_id." + IntermediateAggregationMetaField.ID_KEYS + "." + keyPath, new BsonInt32(1)));
+            "_id." + IntermediateAggregationMetaField.ID_KEYS + "." + keyAlias, new BsonInt32(1)));
   }
 
   /** Single-level branch: finalize metrics in the $facet arm. */
@@ -588,7 +587,7 @@ public final class ShardMergePipelineBuilder {
             .append(
                 "_id",
                 IntermediateAggregationMetaField.idKeyExpression(
-                    config.groupLevels.get(0).keyPath(), "$_id"));
+                    GroupingKeyAliases.alias(0), "$_id"));
     for (Map.Entry<String, BsonValue> metric : config.metricProjections.entrySet()) {
       projectBody.append(metric.getKey(), scopeToRoot(metric.getValue()));
     }
@@ -622,13 +621,13 @@ public final class ShardMergePipelineBuilder {
   }
 
   private static BsonValue boundarySortArrayExpr(
-      BsonValue input, String keyPath, Optional<BsonValue> defaultKey) {
+      BsonValue input, String keyAlias, Optional<BsonValue> defaultKey) {
     if (defaultKey.isEmpty()) {
       return new BsonDocument(
           "$sortArray",
           new BsonDocument()
               .append("input", input)
-              .append("sortBy", new BsonDocument(keyPath, new BsonInt32(1))));
+              .append("sortBy", new BsonDocument(keyAlias, new BsonInt32(1))));
     }
     BsonValue rankedInput =
         new BsonDocument(
@@ -646,7 +645,8 @@ public final class ShardMergePipelineBuilder {
                                 new BsonDocument(
                                     BOUNDARY_SORT_RANK_FIELD,
                                     boundaryDefaultRankExpr(
-                                        new BsonString("$$row." + keyPath), defaultKey.get())))))));
+                                        new BsonString("$$row." + keyAlias),
+                                        defaultKey.get())))))));
     BsonValue sorted =
         new BsonDocument(
             "$sortArray",
@@ -656,7 +656,7 @@ public final class ShardMergePipelineBuilder {
                     "sortBy",
                     new BsonDocument()
                         .append(BOUNDARY_SORT_RANK_FIELD, new BsonInt32(1))
-                        .append(keyPath, new BsonInt32(1))));
+                        .append(keyAlias, new BsonInt32(1))));
     return new BsonDocument(
         "$map",
         new BsonDocument()
@@ -701,8 +701,7 @@ public final class ShardMergePipelineBuilder {
     BsonDocument rowBody =
         new BsonDocument()
             .append(
-                "_id",
-                new BsonString("$$" + rowVar + "." + config.groupLevels.get(keyIndex).keyPath()));
+                "_id", new BsonString("$$" + rowVar + "." + GroupingKeyAliases.alias(keyIndex)));
     for (Map.Entry<String, BsonValue> metric : config.metricProjections.entrySet()) {
       rowBody.append(metric.getKey(), scopeToVar(metric.getValue(), rowVar));
     }
@@ -710,33 +709,35 @@ public final class ShardMergePipelineBuilder {
   }
 
   /** {@code _id} for the innermost facet-arm {@code $group} over flat Stage-1 rows. */
-  private static BsonValue flatKeysIdExpr(PathMergeConfig config, int start, int end) {
+  private static BsonValue flatKeysIdExpr(int start, int end) {
     if (start == end) {
       return IntermediateAggregationMetaField.idKeyExpression(
-          config.groupLevels.get(start).keyPath(), "$_id");
+          GroupingKeyAliases.alias(start), "$_id");
     }
     BsonDocument composite = new BsonDocument();
     for (int i = start; i <= end; i++) {
-      String keyPath = config.groupLevels.get(i).keyPath();
-      composite.append(keyPath, IntermediateAggregationMetaField.idKeyExpression(keyPath, "$_id"));
+      composite.append(
+          GroupingKeyAliases.alias(i),
+          IntermediateAggregationMetaField.idKeyExpression(GroupingKeyAliases.alias(i), "$_id"));
     }
     return composite;
   }
 
   private static BsonValue flatKeysLeafExpr(PathMergeConfig config) {
-    String leafKey = config.groupLevels.get(config.groupLevels.size() - 1).keyPath();
-    return IntermediateAggregationMetaField.idKeyExpression(leafKey, "$_id");
+    int leafIndex = config.groupLevels.size() - 1;
+    return IntermediateAggregationMetaField.idKeyExpression(
+        GroupingKeyAliases.alias(leafIndex), "$_id");
   }
 
   /** {@code _id} for outer facet-arm {@code $group} stages over prior grouped rows. */
-  private static BsonValue priorStageIdExpr(PathMergeConfig config, int prefixEnd) {
+  private static BsonValue priorStageIdExpr(int prefixEnd) {
     if (prefixEnd == 0) {
-      return new BsonString("$_id." + config.groupLevels.get(0).keyPath());
+      return new BsonString("$_id." + GroupingKeyAliases.alias(0));
     }
     BsonDocument composite = new BsonDocument();
     for (int i = 0; i <= prefixEnd; i++) {
-      String keyPath = config.groupLevels.get(i).keyPath();
-      composite.append(keyPath, new BsonString("$_id." + keyPath));
+      String keyAlias = GroupingKeyAliases.alias(i);
+      composite.append(keyAlias, new BsonString("$_id." + keyAlias));
     }
     return composite;
   }

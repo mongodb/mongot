@@ -65,7 +65,7 @@ public class ShardMergePipelineBuilderTest {
                 {"$project": {
                   "_id": {
                     "$getField": {
-                      "field": "city",
+                      "field": "k0",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
@@ -180,14 +180,14 @@ public class ShardMergePipelineBuilderTest {
               {"$group": {
                 "_id": {
                   "$getField": {
-                    "field": "city",
+                    "field": "k0",
                     "input": {"$getField": {"field": "keys", "input": "$_id"}}
                   }
                 },
                 "_rows": {"$push": {
-                  "color": {
+                  "k1": {
                     "$getField": {
-                      "field": "color",
+                      "field": "k1",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
@@ -200,7 +200,7 @@ public class ShardMergePipelineBuilderTest {
                   "input": "$_rows",
                   "as": "row",
                   "in": {
-                    "_id": "$$row.color",
+                    "_id": "$$row.k1",
                     "sum_price": "$$row.sum_sum_price"
                   }
                 }}}
@@ -245,29 +245,29 @@ public class ShardMergePipelineBuilderTest {
               ]}}},
               {"$group": {
                 "_id": {
-                  "country": {
+                  "k0": {
                     "$getField": {
-                      "field": "country",
+                      "field": "k0",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
-                  "region": {
+                  "k1": {
                     "$getField": {
-                      "field": "region",
+                      "field": "k1",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
-                  "city": {
+                  "k2": {
                     "$getField": {
-                      "field": "city",
+                      "field": "k2",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   }
                 },
                 "_rows": {"$push": {
-                  "color": {
+                  "k3": {
                     "$getField": {
-                      "field": "color",
+                      "field": "k3",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
@@ -276,18 +276,18 @@ public class ShardMergePipelineBuilderTest {
               }},
               {"$group": {
                 "_id": {
-                  "country": "$_id.country",
-                  "region": "$_id.region"
+                  "k0": "$_id.k0",
+                  "k1": "$_id.k1"
                 },
                 "_rows": {"$push": {
-                  "city": "$_id.city",
+                  "k2": "$_id.k2",
                   "_leaf_rows": "$_rows"
                 }}
               }},
               {"$group": {
-                "_id": "$_id.country",
+                "_id": "$_id.k0",
                 "_rows": {"$push": {
-                  "region": "$_id.region",
+                  "k1": "$_id.k1",
                   "_leaf_rows": "$_rows"
                 }}
               }},
@@ -297,17 +297,17 @@ public class ShardMergePipelineBuilderTest {
                   "input": "$_rows",
                   "as": "row",
                   "in": {
-                    "_id": "$$row.region",
+                    "_id": "$$row.k1",
                     "by_city": {"buckets": {"$map": {
                       "input": "$$row._leaf_rows",
                       "as": "leaf",
                       "in": {
-                        "_id": "$$leaf.city",
+                        "_id": "$$leaf.k2",
                         "by_color": {"buckets": {"$map": {
                           "input": "$$leaf._leaf_rows",
                           "as": "leaf",
                           "in": {
-                            "_id": "$$leaf.color",
+                            "_id": "$$leaf.k3",
                             "sum_price": "$$leaf.sum_sum_price"
                           }
                         }}}
@@ -349,7 +349,7 @@ public class ShardMergePipelineBuilderTest {
     BsonArray byCityArm = pipeline.get(1).getDocument("$facet").getArray("by_city");
     assertEquals(4, byCityArm.size());
     assertEquals(
-        BsonDocument.parse("{\"$sort\": {\"count_value\": -1, \"_id.keys.city\": 1}}"),
+        BsonDocument.parse("{\"$sort\": {\"count_value\": -1, \"_id.keys.k0\": 1}}"),
         byCityArm.get(1).asDocument());
     assertEquals(BsonDocument.parse("{\"$limit\": 2}"), byCityArm.get(2).asDocument());
   }
@@ -378,7 +378,7 @@ public class ShardMergePipelineBuilderTest {
                 {"$project": {
                   "_id": {
                     "$getField": {
-                      "field": "city",
+                      "field": "k0",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
@@ -393,7 +393,7 @@ public class ShardMergePipelineBuilderTest {
                 {"$project": {
                   "_id": {
                     "$getField": {
-                      "field": "color",
+                      "field": "k0",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
@@ -407,6 +407,27 @@ public class ShardMergePipelineBuilderTest {
             }}
             """);
     assertEquals(expectedFacet, pipeline.get(1));
+  }
+
+  @Test
+  public void dottedGroupingPath_usesKeyAliasInProject() {
+    FieldPath dottedPath = FieldPath.parse("meta.color");
+    AggregationSpec leaf = new SumAggregationSpec("sum_price", PRICE);
+    AggregationSpec group = new TermsSpec("by_meta", dottedPath, List.of(leaf));
+    TopAggregationSpec top = new TopAggregationSpec(List.of(group));
+
+    ShardMergePipelineBuilder builder = ShardMergePipelineBuilder.unsorted();
+    top.buildShardMergePipeline(builder);
+    String facetJson = builder.build("lowerBound").get(1).toJson();
+
+    assertEquals(-1, facetJson.indexOf("_id.keys.meta.color"));
+    assertTrueContains(facetJson, "\"field\": \"k0\"");
+  }
+
+  private static void assertTrueContains(String haystack, String needle) {
+    if (!haystack.contains(needle)) {
+      throw new AssertionError("Expected to contain: " + needle);
+    }
   }
 
   private static final class TermsSpec extends GroupAggregationSpec {

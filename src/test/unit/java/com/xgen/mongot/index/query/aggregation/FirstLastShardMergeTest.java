@@ -275,10 +275,10 @@ public class FirstLastShardMergeTest {
                 "by_city"
               ]}}},
               {"$group": {
-                "_id": {"$getField": {"field": "city",
+                "_id": {"$getField": {"field": "k0",
                   "input": {"$getField": {"field": "keys", "input": "$_id"}}}},
                 "_rows": {"$push": {
-                  "color": {"$getField": {"field": "color",
+                  "k1": {"$getField": {"field": "k1",
                     "input": {"$getField": {"field": "keys", "input": "$_id"}}}},
                   "first_cheapest": "$first_cheapest"
                 }}
@@ -289,7 +289,7 @@ public class FirstLastShardMergeTest {
                   "input": "$_rows",
                   "as": "row",
                   "in": {
-                    "_id": "$$row.color",
+                    "_id": "$$row.k1",
                     "cheapest": "$$row.first_cheapest"
                   }
                 }}}

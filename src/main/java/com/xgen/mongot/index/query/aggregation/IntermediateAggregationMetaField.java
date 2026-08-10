@@ -141,12 +141,12 @@ public final class IntermediateAggregationMetaField {
     return new BsonString(fieldName);
   }
 
-  /** Aggregation expression for one grouping key on the current facet-arm document. */
-  public static BsonDocument idKeyExpression(String keyName, String idInput) {
+  /** Aggregation expression for one grouping key alias on the current facet-arm document. */
+  public static BsonDocument idKeyExpression(String keyAlias, String idInput) {
     return new BsonDocument(
         "$getField",
         new BsonDocument()
-            .append("field", new BsonString(keyName))
+            .append("field", fieldNameArgument(keyAlias))
             .append("input", idKeysExpression(idInput)));
   }
 
@@ -155,12 +155,15 @@ public final class IntermediateAggregationMetaField {
   }
 
   private static String idKeysFieldName(String idInput) {
-    return "$_id".equals(idInput) ? ID_KEYS : KEYS;
+    if ("$_id".equals(idInput) || idInput.endsWith("._id")) {
+      return ID_KEYS;
+    }
+    return KEYS;
   }
 
-  /** Aggregation expression for one grouping key inside a merged {@code $group} result row. */
-  public static String groupedKeyFieldPath(String keyName) {
-    return "$$b._id." + ID_KEYS + "." + keyName;
+  /** Field path for one grouping key alias inside a flat {@code $map} bucket row. */
+  public static String groupedKeyFieldPath(String keyAlias) {
+    return "$$b._id." + ID_KEYS + "." + keyAlias;
   }
 
   /** Aggregation expression for one grouping key on the current facet-arm document. */

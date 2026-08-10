@@ -58,7 +58,7 @@ public class IntermediateBsonTest extends AggregationTestSupport {
             doc ->
                 city.equals(
                     doc.getDocument(IntermediateAggregationMetaField.KEYS)
-                        .getString("city")
+                        .getString("k0")
                         .getValue()))
         .findFirst()
         .orElseThrow()
@@ -89,13 +89,13 @@ public class IntermediateBsonTest extends AggregationTestSupport {
             [
               {
                 "$meta/group_name": "by_city",
-                "$meta/keys": {"city": "NYC"},
+                "$meta/keys": {"k0": "NYC"},
                 "count": {"$numberLong": "1"},
                 "sum_sum_price": 30.0
               },
               {
                 "$meta/group_name": "by_city",
-                "$meta/keys": {"city": "SF"},
+                "$meta/keys": {"k0": "SF"},
                 "count": {"$numberLong": "1"},
                 "sum_sum_price": 50.0
               }
@@ -126,7 +126,7 @@ public class IntermediateBsonTest extends AggregationTestSupport {
             [
               {
                 "$meta/group_name": "by_city",
-                "$meta/keys": {"city": "NYC"},
+                "$meta/keys": {"k0": "NYC"},
                 "count": {"$numberLong": "1"},
                 "min_m": {"$numberLong": "10"},
                 "max_x": {"$numberLong": "50"}
@@ -158,7 +158,7 @@ public class IntermediateBsonTest extends AggregationTestSupport {
     BsonArray expected =
         BsonArray.parse(
             """
-            [{"$meta/group_name": "by_city", "$meta/keys": {"city": "NYC"}, \
+            [{"$meta/group_name": "by_city", "$meta/keys": {"k0": "NYC"}, \
             "count": {"$numberLong": "1"}}]
             """);
     assertEquals(expected, intermediate);
@@ -210,28 +210,28 @@ public class IntermediateBsonTest extends AggregationTestSupport {
             [
               {
                 "$meta/group_name": "by_city",
-                "$meta/keys": {"city": "NYC", "color": "red"},
+                "$meta/keys": {"k0": "NYC", "k1": "red"},
                 "count": {"$numberLong": "1"},
                 "avg_sum_avg_price": 30.0,
                 "avg_count_avg_price": {"$numberLong": "2"}
               },
               {
                 "$meta/group_name": "by_city",
-                "$meta/keys": {"city": "NYC", "color": "blue"},
+                "$meta/keys": {"k0": "NYC", "k1": "blue"},
                 "count": {"$numberLong": "1"},
                 "avg_sum_avg_price": 30.0,
                 "avg_count_avg_price": {"$numberLong": "1"}
               },
               {
                 "$meta/group_name": "by_city",
-                "$meta/keys": {"city": "LA", "color": "red"},
+                "$meta/keys": {"k0": "LA", "k1": "red"},
                 "count": {"$numberLong": "1"},
                 "avg_sum_avg_price": 5.0,
                 "avg_count_avg_price": {"$numberLong": "1"}
               },
               {
                 "$meta/group_name": "by_city",
-                "$meta/keys": {"city": "LA", "color": "green"},
+                "$meta/keys": {"k0": "LA", "k1": "green"},
                 "count": {"$numberLong": "1"},
                 "avg_sum_avg_price": 15.0,
                 "avg_count_avg_price": {"$numberLong": "1"}
@@ -272,7 +272,7 @@ public class IntermediateBsonTest extends AggregationTestSupport {
             [
               {
                 "$meta/group_name": "agg",
-                "$meta/keys": {"price": 0, "city": "NYC"},
+                "$meta/keys": {"k0": 0, "k1": "NYC"},
                 "count": {"$numberLong": "1"},
                 "sum_sum_price": 60.0
               }
@@ -310,9 +310,9 @@ public class IntermediateBsonTest extends AggregationTestSupport {
         BsonArray.parse(
             """
             [
-              {"$meta/group_name": "by_city", "$meta/keys": {"city": "NYC"}, \
+              {"$meta/group_name": "by_city", "$meta/keys": {"k0": "NYC"}, \
               "count": {"$numberLong": "1"}, "sum_sum_price": 10.0},
-              {"$meta/group_name": "by_color", "$meta/keys": {"color": "red"}, \
+              {"$meta/group_name": "by_color", "$meta/keys": {"k0": "red"}, \
               "count": {"$numberLong": "1"}, "sum_sum_price": 35.0}
             ]
             """);
@@ -352,7 +352,7 @@ public class IntermediateBsonTest extends AggregationTestSupport {
                             IntermediateAggregationMetaField.GROUP_NAME, new BsonString("wrong"))
                         .append(
                             IntermediateAggregationMetaField.KEYS,
-                            new BsonDocument("city", new BsonString("NYC")))
+                            new BsonDocument("k0", new BsonString("NYC")))
                         .append("sum_sum_price", new BsonDouble(10.0))));
           }
         };
@@ -423,14 +423,14 @@ public class IntermediateBsonTest extends AggregationTestSupport {
 
   @Test
   public void mergeGroupingKeys_rejectsConflictingValues() {
-    BsonDocument parent = new BsonDocument("city", new BsonString("NYC"));
-    BsonDocument child = new BsonDocument("city", new BsonString("LA"));
+    BsonDocument parent = new BsonDocument("k0", new BsonString("NYC"));
+    BsonDocument child = new BsonDocument("k0", new BsonString("LA"));
 
     IllegalStateException error =
         assertThrows(
             IllegalStateException.class,
             () -> IntermediateAggregationMetaField.mergeGroupingKeys(parent, child));
-    assertEquals("Conflicting grouping key 'city': \"NYC\" vs \"LA\"", error.getMessage());
+    assertEquals("Conflicting grouping key 'k0': \"NYC\" vs \"LA\"", error.getMessage());
   }
 
   @Test

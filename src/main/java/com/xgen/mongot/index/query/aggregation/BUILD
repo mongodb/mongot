@@ -36,6 +36,7 @@ java_library(
         "FirstLastAggregationResultBase.java",
         "FirstLastShardMerge.java",
         "GroupAggregationSpec.java",
+        "GroupingKeyAliases.java",
         "IntermediateAggregationMetaField.java",
         "LastAccumulator.java",
         "LastAggregationResult.java",

@@ -542,12 +542,12 @@ public class ShardedSearchPlannerTest {
                   {"$getField": {"field": "group_name", "input": "$_id"}},
                   "by_city"
                 ]}}},
-                {"$sort": {"count_value": -1, "_id.keys.city": 1}},
+                {"$sort": {"count_value": -1, "_id.keys.k0": 1}},
                 {"$limit": 10},
                 {"$project": {
                   "_id": {
                     "$getField": {
-                      "field": "city",
+                      "field": "k0",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
@@ -629,12 +629,12 @@ public class ShardedSearchPlannerTest {
                   {"$getField": {"field": "group_name", "input": "$_id"}},
                   "by_city"
                 ]}}},
-                {"$sort": {"count_value": -1, "_id.keys.city": 1}},
+                {"$sort": {"count_value": -1, "_id.keys.k0": 1}},
                 {"$limit": 10},
                 {"$project": {
                   "_id": {
                     "$getField": {
-                      "field": "city",
+                      "field": "k0",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
@@ -699,11 +699,11 @@ public class ShardedSearchPlannerTest {
                   {"$getField": {"field": "group_name", "input": "$_id"}},
                   "agg"
                 ]}}},
-                {"$sort": {"_id.keys.price": 1}},
+                {"$sort": {"_id.keys.k0": 1}},
                 {"$project": {
                   "_id": {
                     "$getField": {
-                      "field": "price",
+                      "field": "k0",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
@@ -761,11 +761,11 @@ public class ShardedSearchPlannerTest {
                   {"$getField": {"field": "group_name", "input": "$_id"}},
                   "agg"
                 ]}}},
-                {"$sort": {"_id.keys.price": 1}},
+                {"$sort": {"_id.keys.k0": 1}},
                 {"$project": {
                   "_id": {
                     "$getField": {
-                      "field": "price",
+                      "field": "k0",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
@@ -828,11 +828,11 @@ public class ShardedSearchPlannerTest {
                   {"$getField": {"field": "group_name", "input": "$_id"}},
                   "agg"
                 ]}}},
-                {"$sort": {"_id.keys.release": 1}},
+                {"$sort": {"_id.keys.k0": 1}},
                 {"$project": {
                   "_id": {
                     "$getField": {
-                      "field": "release",
+                      "field": "k0",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
@@ -873,18 +873,18 @@ public class ShardedSearchPlannerTest {
                 {"$addFields": {
                   "__boundarySortRank": {
                     "$cond": [
-                      {"$eq": ["$_id.keys.release", "other"]},
+                      {"$eq": ["$_id.keys.k0", "other"]},
                       1,
                       0
                     ]
                   }
                 }},
-                {"$sort": {"__boundarySortRank": 1, "_id.keys.release": 1}},
+                {"$sort": {"__boundarySortRank": 1, "_id.keys.k0": 1}},
                 {"$unset": "__boundarySortRank"},
                 {"$project": {
                   "_id": {
                     "$getField": {
-                      "field": "release",
+                      "field": "k0",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
@@ -1148,12 +1148,12 @@ public class ShardedSearchPlannerTest {
                   {"$getField": {"field": "group_name", "input": "$_id"}},
                   "by_city"
                 ]}}},
-                {"$sort": {"count_value": -1, "_id.keys.city": 1}},
+                {"$sort": {"count_value": -1, "_id.keys.k0": 1}},
                 {"$limit": 10},
                 {"$project": {
                   "_id": {
                     "$getField": {
-                      "field": "city",
+                      "field": "k0",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
@@ -1211,12 +1211,12 @@ public class ShardedSearchPlannerTest {
                   {"$getField": {"field": "group_name", "input": "$_id"}},
                   "by_city"
                 ]}}},
-                {"$sort": {"count_value": -1, "_id.keys.city": 1}},
+                {"$sort": {"count_value": -1, "_id.keys.k0": 1}},
                 {"$limit": 10},
                 {"$project": {
                   "_id": {
                     "$getField": {
-                      "field": "city",
+                      "field": "k0",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },

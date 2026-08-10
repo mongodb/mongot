@@ -66,7 +66,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                 {"$project": {
                   "_id": {
                     "$getField": {
-                      "field": "city",
+                      "field": "k0",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
@@ -125,7 +125,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                 {"$project": {
                   "_id": {
                     "$getField": {
-                      "field": "city",
+                      "field": "k0",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
@@ -207,14 +207,14 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
               {"$group": {
                 "_id": {
                   "$getField": {
-                    "field": "city",
+                    "field": "k0",
                     "input": {"$getField": {"field": "keys", "input": "$_id"}}
                   }
                 },
                 "_rows": {"$push": {
-                  "color": {
+                  "k1": {
                     "$getField": {
-                      "field": "color",
+                      "field": "k1",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
@@ -228,7 +228,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                   "input": "$_rows",
                   "as": "row",
                   "in": {
-                    "_id": "$$row.color",
+                    "_id": "$$row.k1",
                     "avg_price": {"$cond": {
                       "if": {"$eq": ["$$row.avg_count_avg_price", 0]},
                       "then": null,
@@ -302,10 +302,10 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
         "avg_count_avg_price");
     BsonDocument keys =
         intermediate.get(0).asDocument().getDocument(IntermediateAggregationMetaField.KEYS);
-    assertEquals("US", keys.getString("country").getValue());
-    assertEquals("West", keys.getString("region").getValue());
-    assertEquals("LA", keys.getString("city").getValue());
-    assertEquals("red", keys.getString("color").getValue());
+    assertEquals("US", keys.getString("k0").getValue());
+    assertEquals("West", keys.getString("k1").getValue());
+    assertEquals("LA", keys.getString("k2").getValue());
+    assertEquals("red", keys.getString("k3").getValue());
 
     assertEquals(
         BsonArray.parse(
@@ -317,29 +317,29 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
               ]}}},
               {"$group": {
                 "_id": {
-                  "country": {
+                  "k0": {
                     "$getField": {
-                      "field": "country",
+                      "field": "k0",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
-                  "region": {
+                  "k1": {
                     "$getField": {
-                      "field": "region",
+                      "field": "k1",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
-                  "city": {
+                  "k2": {
                     "$getField": {
-                      "field": "city",
+                      "field": "k2",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   }
                 },
                 "_rows": {"$push": {
-                  "color": {
+                  "k3": {
                     "$getField": {
-                      "field": "color",
+                      "field": "k3",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
@@ -349,18 +349,18 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
               }},
               {"$group": {
                 "_id": {
-                  "country": "$_id.country",
-                  "region": "$_id.region"
+                  "k0": "$_id.k0",
+                  "k1": "$_id.k1"
                 },
                 "_rows": {"$push": {
-                  "city": "$_id.city",
+                  "k2": "$_id.k2",
                   "_leaf_rows": "$_rows"
                 }}
               }},
               {"$group": {
-                "_id": "$_id.country",
+                "_id": "$_id.k0",
                 "_rows": {"$push": {
-                  "region": "$_id.region",
+                  "k1": "$_id.k1",
                   "_leaf_rows": "$_rows"
                 }}
               }},
@@ -370,17 +370,17 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                   "input": "$_rows",
                   "as": "row",
                   "in": {
-                    "_id": "$$row.region",
+                    "_id": "$$row.k1",
                     "by_city": {"buckets": {"$map": {
                       "input": "$$row._leaf_rows",
                       "as": "leaf",
                       "in": {
-                        "_id": "$$leaf.city",
+                        "_id": "$$leaf.k2",
                         "by_color": {"buckets": {"$map": {
                           "input": "$$leaf._leaf_rows",
                           "as": "leaf",
                           "in": {
-                            "_id": "$$leaf.color",
+                            "_id": "$$leaf.k3",
                             "avg_price": {"$cond": {
                               "if": {"$eq": ["$$leaf.avg_count_avg_price", 0]},
                               "then": null,
@@ -467,28 +467,28 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
             [
               {
                 "$meta/group_name": "by_city",
-                "$meta/keys": {"city": "LA", "color": "red"},
+                "$meta/keys": {"k0": "LA", "k1": "red"},
                 "count": {"$numberLong": "1"},
                 "avg_sum_avg_price": 5.0,
                 "avg_count_avg_price": {"$numberLong": "1"}
               },
               {
                 "$meta/group_name": "by_city",
-                "$meta/keys": {"city": "LA", "color": "green"},
+                "$meta/keys": {"k0": "LA", "k1": "green"},
                 "count": {"$numberLong": "1"},
                 "avg_sum_avg_price": 15.0,
                 "avg_count_avg_price": {"$numberLong": "1"}
               },
               {
                 "$meta/group_name": "by_city",
-                "$meta/keys": {"city": "NYC", "color": "red"},
+                "$meta/keys": {"k0": "NYC", "k1": "red"},
                 "count": {"$numberLong": "1"},
                 "avg_sum_avg_price": 30.0,
                 "avg_count_avg_price": {"$numberLong": "2"}
               },
               {
                 "$meta/group_name": "by_color",
-                "$meta/keys": {"color": "red"},
+                "$meta/keys": {"k0": "red"},
                 "count": {"$numberLong": "1"},
                 "avg_sum_avg_price": 35.0,
                 "avg_count_avg_price": {"$numberLong": "3"}
@@ -509,14 +509,14 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                 {"$group": {
                   "_id": {
                     "$getField": {
-                      "field": "city",
+                      "field": "k0",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
                   "_rows": {"$push": {
-                    "color": {
+                    "k1": {
                       "$getField": {
-                        "field": "color",
+                        "field": "k1",
                         "input": {"$getField": {"field": "keys", "input": "$_id"}}
                       }
                     },
@@ -530,7 +530,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                     "input": "$_rows",
                     "as": "row",
                     "in": {
-                      "_id": "$$row.color",
+                      "_id": "$$row.k1",
                       "avg_price": {"$cond": {
                         "if": {"$eq": ["$$row.avg_count_avg_price", 0]},
                         "then": null,
@@ -550,7 +550,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                 {"$project": {
                   "_id": {
                     "$getField": {
-                      "field": "color",
+                      "field": "k0",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
@@ -641,7 +641,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                 {"$project": {
                   "_id": {
                     "$getField": {
-                      "field": "city",
+                      "field": "k0",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
@@ -656,7 +656,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                 {"$project": {
                   "_id": {
                     "$getField": {
-                      "field": "color",
+                      "field": "k0",
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
