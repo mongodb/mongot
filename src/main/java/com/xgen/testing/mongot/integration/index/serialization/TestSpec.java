@@ -1,6 +1,7 @@
 package com.xgen.testing.mongot.integration.index.serialization;
 
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig;
+import com.xgen.mongot.index.query.collectors.AggregationCollector;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
@@ -11,7 +12,11 @@ import com.xgen.mongot.util.bson.parser.Value;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 import org.bson.BsonDocument;
+import org.bson.BsonNull;
+import org.bson.BsonString;
+import org.bson.BsonValue;
 
 public abstract class TestSpec implements DocumentEncodable {
 
@@ -86,6 +91,11 @@ public abstract class TestSpec implements DocumentEncodable {
     // If adding fields to this class, considering also adding them to the fingerprint definition in
     // //scripts/tools/find_duplicate_tests.py
   }
+
+  /** Pipeline stage names whose payload is a search request document. */
+  private static final String SEARCH_STAGE = "$search";
+
+  private static final String SEARCH_META_STAGE = "$searchMeta";
 
   public enum Type {
     AGGREGATION,
@@ -306,6 +316,83 @@ public abstract class TestSpec implements DocumentEncodable {
   public boolean isLexicalVectorSearch() {
     return this.isQueryTestSpec()
         && this.query.map(document -> document.containsKey("vectorSearch")).orElse(false);
+  }
+
+  /**
+   * Returns true if this spec sends a search request that mongot would route onto the aggregation
+   * path, wherever its expectations live: {@code result.aggregationMeta} for a {@code $searchMeta}
+   * spec, or {@code result.aggregationResults} for a pipeline spec reading the buckets out of
+   * {@code $$SEARCH_META}.
+   *
+   * <p>Delegates to {@link AggregationCollector#isAggregationCapable}, the same discriminator
+   * {@link com.xgen.mongot.index.query.SearchQuery#fromBson} applies, so a spec is classified
+   * exactly as the server would classify it -- including a purely nested {@code facets} tree that
+   * declares no {@code aggregations} at all. Lanes where {@code SEARCH_AGGREGATION} is unavailable
+   * for every operator -- community, which has no conf call to turn it on -- filter on this.
+   *
+   * <p>Keyed off the request rather than the result shape because a pipeline spec's result shape
+   * does not reveal that it needs the feature.
+   */
+  public boolean usesSearchAggregation() {
+    return this.searchRequests().anyMatch(AggregationCollector::isAggregationCapable);
+  }
+
+  /**
+   * Returns true if this spec exercises the {@code first}/{@code last} feature: either it requests
+   * one of those two metrics, or it pairs an aggregation with a query-level {@code sort}, which is
+   * only accepted alongside them and is otherwise rejected.
+   *
+   * <p>Narrower than {@link #usesSearchAggregation()} on purpose. These two operators have no shard
+   * merge yet ({@code FirstAggregationSpec#buildShardMergePipeline} throws), so the sharded lanes
+   * have to skip them specifically -- skipping every aggregation spec there would silently drop
+   * coverage for the operators that do support it.
+   */
+  public boolean usesFirstLastAggregation() {
+    return this.searchRequests()
+        .anyMatch(
+            request ->
+                hasFirstOrLastMetric(request)
+                    || (AggregationCollector.isAggregationCapable(request)
+                        && request.containsKey("sort")));
+  }
+
+  /**
+   * The search request documents this spec sends: the {@code query} for a {@code $search} /{@code
+   * $searchMeta} spec, plus the payload of every {@code $search} stage of a pipeline spec. These
+   * are the documents {@code SearchQuery.fromBson} sees, so they are what the aggregation
+   * discriminator has to be applied to.
+   */
+  private Stream<BsonDocument> searchRequests() {
+    Stream<BsonDocument> fromPipeline =
+        this.aggregation.stream()
+            .flatMap(List::stream)
+            .map(stage -> stage.get(SEARCH_STAGE, stage.get(SEARCH_META_STAGE, BsonNull.VALUE)))
+            .filter(BsonValue::isDocument)
+            .map(BsonValue::asDocument);
+    return Stream.concat(this.query.stream(), fromPipeline);
+  }
+
+  /** Whether {@code request} declares a {@code first} or {@code last} metric at any facet level. */
+  private static boolean hasFirstOrLastMetric(BsonValue request) {
+    if (request.isDocument()) {
+      BsonDocument document = request.asDocument();
+      BsonValue aggregations = document.get("aggregations", BsonNull.VALUE);
+      if (aggregations.isDocument()
+          && aggregations.asDocument().values().stream().anyMatch(TestSpec::isFirstOrLast)) {
+        return true;
+      }
+      return document.values().stream().anyMatch(TestSpec::hasFirstOrLastMetric);
+    }
+    if (request.isArray()) {
+      return request.asArray().stream().anyMatch(TestSpec::hasFirstOrLastMetric);
+    }
+    return false;
+  }
+
+  private static boolean isFirstOrLast(BsonValue metric) {
+    return metric.isDocument()
+        && List.of("first", "last")
+            .contains(metric.asDocument().getString("type", new BsonString("")).getValue());
   }
 
   public abstract boolean usesStoredSource();
