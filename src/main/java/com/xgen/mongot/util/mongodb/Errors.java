@@ -60,6 +60,11 @@ public class Errors {
   public static final Error SEARCH_REQUEST_REJECTED_DUE_TO_OVERLOAD =
       new Error(489, "SearchRequestRejectedDueToOverload");
 
+  // Returned by mongod's search index management coordinator when it cannot reach mongot (e.g.
+  // mongot is still answering UNAVAILABLE in the brief window after a restart).
+  public static final Error SEARCH_INDEX_MANAGEMENT_HOST_UNREACHABLE =
+      new Error(508, "SearchIndexManagementHostUnreachable");
+
   public static final Error USER_WRITES_BLOCKED = new Error(371, "UserWritesBlocked");
 
   // SystemOverloadedError category — server under resource pressure.
