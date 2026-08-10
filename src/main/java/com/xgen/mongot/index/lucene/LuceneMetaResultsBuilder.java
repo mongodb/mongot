@@ -10,6 +10,7 @@ import com.xgen.mongot.index.MetaResults;
 import com.xgen.mongot.index.definition.FieldTypeDefinition;
 import com.xgen.mongot.index.lucene.explain.explainers.FacetFeatureExplainer;
 import com.xgen.mongot.index.lucene.explain.timing.ExplainTimings;
+import com.xgen.mongot.index.lucene.facet.ParentDedupedLongRangeFacetCounts;
 import com.xgen.mongot.index.lucene.facet.TokenFacetsStateCache;
 import com.xgen.mongot.index.lucene.facet.TokenSsdvFacetState;
 import com.xgen.mongot.index.lucene.field.FieldName;
@@ -117,6 +118,25 @@ class LuceneMetaResultsBuilder {
           }
         }
 
+        // Partition number/date (boundary) facets the same way: document-indexed ones count off the
+        // main-query collector; embeddedDocument-scoped ones each run their own child query and
+        // count with per-root dedup (including a per-root default bucket).
+        Map<String, FacetDefinition> unscopedBoundaryDefs = new HashMap<>();
+        Map<String, FacetDefinition.BoundaryFacetDefinition<?>> scopedBoundaryDefs =
+            new HashMap<>();
+        for (FacetDefinition.Type type :
+            List.of(FacetDefinition.Type.NUMBER, FacetDefinition.Type.DATE)) {
+          for (Map.Entry<String, FacetDefinition> entry :
+              typeToFacetToDefinition.get(type).entrySet()) {
+            if (entry.getValue() instanceof FacetDefinition.BoundaryFacetDefinition<?> boundaryDef
+                && boundaryDef.embeddedDocument().isPresent()) {
+              scopedBoundaryDefs.put(entry.getKey(), boundaryDef);
+            } else {
+              unscopedBoundaryDefs.put(entry.getKey(), entry.getValue());
+            }
+          }
+        }
+
         Map<String, FacetInfo> facets =
             Stream.of(
                     getStringFacetResult(
@@ -131,17 +151,16 @@ class LuceneMetaResultsBuilder {
                         collector,
                         embeddedScopedFacetsEnabled),
                     getBoundaryFacetResults(
-                        typeToFacetToDefinition.get(FacetDefinition.Type.NUMBER),
+                        unscopedBoundaryDefs,
                         collector,
                         this.facetContext,
                         totalCount,
                         returnScopePath),
-                    getBoundaryFacetResults(
-                        typeToFacetToDefinition.get(FacetDefinition.Type.DATE),
+                    getScopedBoundaryFacetResults(
+                        searcherReference,
+                        scopedBoundaryDefs,
                         collector,
-                        this.facetContext,
-                        totalCount,
-                        returnScopePath))
+                        embeddedScopedFacetsEnabled))
                 .flatMap(map -> map.entrySet().stream())
                 .collect(CollectionUtils.toMapUnsafe(Map.Entry::getKey, Map.Entry::getValue));
 
@@ -558,6 +577,57 @@ class LuceneMetaResultsBuilder {
           Stream.of(children.labelValues)
               .map(child -> new FacetBucket(new BsonString(child.label), child.value.longValue()))
               .collect(Collectors.toList());
+      result.put(entry.getKey(), new FacetInfo(buckets));
+    }
+    return result;
+  }
+
+  /**
+   * Computes embeddedDocument-scoped number/date (boundary) facets: for each facet, run its own
+   * {@code embeddedDocument.operator} as a child query, then count the matching children bucketed
+   * by the facet's boundaries and deduplicated to the root document (each root at most once per
+   * bucket) via {@link ParentDedupedLongRangeFacetCounts}. The default bucket count is taken
+   * directly from the counter — it cannot be derived by subtracting range counts from the
+   * result-parent total, as the document-indexed path does, because per-root dedup lets one root
+   * land in several buckets.
+   */
+  private Map<String, FacetInfo> getScopedBoundaryFacetResults(
+      LuceneIndexSearcherReference searcherReference,
+      Map<String, FacetDefinition.BoundaryFacetDefinition<?>> scopedBoundaryDefinitions,
+      FacetsCollector resultParentHits,
+      boolean embeddedScopedFacetsEnabled)
+      throws IOException, InvalidQueryException {
+    if (scopedBoundaryDefinitions.isEmpty()) {
+      return Map.of();
+    }
+    if (!embeddedScopedFacetsEnabled) {
+      throw new InvalidQueryException(
+          "embeddedDocument-scoped facets are not enabled. Please contact support.");
+    }
+    LuceneSearchQueryFactoryDistributor scopedQueryFactory =
+        Check.isNotNull(
+            this.queryFactory, "queryFactory required for embeddedDocument-scoped facets");
+    LuceneIndexSearcher searcher = searcherReference.getIndexSearcher();
+
+    Map<String, FacetInfo> result = new HashMap<>();
+    for (Map.Entry<String, FacetDefinition.BoundaryFacetDefinition<?>> entry :
+        scopedBoundaryDefinitions.entrySet()) {
+      FacetDefinition.BoundaryFacetDefinition<?> definition = entry.getValue();
+      ParentDedupedLongRangeFacetCounts counts =
+          EmbeddedScopedBoundaryFacetCounter.count(
+                  searcher, scopedQueryFactory, this.facetContext, definition, resultParentHits)
+              .counts();
+
+      List<FacetBucket> buckets = new ArrayList<>();
+      int[] rangeCounts = counts.counts();
+      for (int i = 0; i < rangeCounts.length; i++) {
+        buckets.add(new FacetBucket(definition.boundaries().get(i), rangeCounts[i]));
+      }
+      if (definition.defaultBucketName().isPresent()) {
+        buckets.add(
+            new FacetBucket(
+                new BsonString(definition.defaultBucketName().get()), counts.defaultCount()));
+      }
       result.put(entry.getKey(), new FacetInfo(buckets));
     }
     return result;

@@ -2,10 +2,12 @@ package com.xgen.mongot.index.lucene;
 
 import static com.xgen.mongot.util.Check.checkState;
 
+import com.xgen.mongot.index.IntermediateFacetBucket;
 import com.xgen.mongot.index.definition.FieldTypeDefinition;
 import com.xgen.mongot.index.lucene.explain.explainers.FacetFeatureExplainer;
 import com.xgen.mongot.index.lucene.explain.timing.ExplainTimings;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
+import com.xgen.mongot.index.lucene.facet.ParentDedupedLongRangeFacetCounts;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.query.LuceneSearchQueryFactoryDistributor;
 import com.xgen.mongot.index.lucene.searcher.LuceneIndexSearcher;
@@ -33,6 +35,7 @@ import org.apache.lucene.facet.sortedset.ConcurrentSortedSetDocValuesFacetCounts
 import org.apache.lucene.facet.sortedset.SortedSetDocValuesFacetCounts;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.TotalHits;
+import org.bson.BsonString;
 
 public class LuceneFacetCollectorMetaBatchProducerFactory {
 
@@ -69,19 +72,28 @@ public class LuceneFacetCollectorMetaBatchProducerFactory {
           }
         }
 
+        // Partition number/date (boundary) facets into document-indexed and scoped, as above.
+        Map<String, FacetDefinition> unscopedBoundaryDefs = new HashMap<>();
+        Map<String, FacetDefinition.BoundaryFacetDefinition<?>> scopedBoundaryDefs =
+            new HashMap<>();
+        for (FacetDefinition.Type type :
+            List.of(FacetDefinition.Type.NUMBER, FacetDefinition.Type.DATE)) {
+          for (Map.Entry<String, FacetDefinition> entry :
+              typeToFacetToDefinition.get(type).entrySet()) {
+            if (entry.getValue() instanceof FacetDefinition.BoundaryFacetDefinition<?> boundaryDef
+                && boundaryDef.embeddedDocument().isPresent()) {
+              scopedBoundaryDefs.put(entry.getKey(), boundaryDef);
+            } else {
+              unscopedBoundaryDefs.put(entry.getKey(), entry.getValue());
+            }
+          }
+        }
+
         Queue<LuceneMetaBucketProducer> bucketProducers = new LinkedList<>();
         // Add bucket producers for number, date, and string facets.
         bucketProducers.addAll(
             getBoundaryBucketProducers(
-                typeToFacetToDefinition.get(FacetDefinition.Type.NUMBER),
-                facetContext,
-                facetsCollector,
-                topDocs.totalHits.value(),
-                returnScopePath));
-
-        bucketProducers.addAll(
-            getBoundaryBucketProducers(
-                typeToFacetToDefinition.get(FacetDefinition.Type.DATE),
+                unscopedBoundaryDefs,
                 facetContext,
                 facetsCollector,
                 topDocs.totalHits.value(),
@@ -99,6 +111,15 @@ public class LuceneFacetCollectorMetaBatchProducerFactory {
         bucketProducers.addAll(
             getScopedStringBucketProducers(
                 scopedStringDefs,
+                searcherReference,
+                facetsCollector,
+                queryFactory,
+                embeddedScopedFacetsEnabled));
+
+        bucketProducers.addAll(
+            getScopedBoundaryBucketProducers(
+                scopedBoundaryDefs,
+                facetContext,
                 searcherReference,
                 facetsCollector,
                 queryFactory,
@@ -146,6 +167,63 @@ public class LuceneFacetCollectorMetaBatchProducerFactory {
       if (facetResult != null) {
         result.add(LuceneStringFacetMetaBucketProducer.create(facetResult, entry.getKey()));
       }
+    }
+    return result;
+  }
+
+  /**
+   * Intermediate (cross-partition) bucket producers for embeddedDocument-scoped number/date facets.
+   * Each facet runs its own child query and counts matching children bucketed by boundaries and
+   * deduplicated to the root. Buckets (and the default bucket) are emitted directly from the
+   * per-root-deduped counts — the document-indexed {@code totalCount - sum} default-bucket
+   * derivation is invalid under dedup, since a root can land in several buckets.
+   */
+  private static List<LuceneMetaBucketProducer> getScopedBoundaryBucketProducers(
+      Map<String, FacetDefinition.BoundaryFacetDefinition<?>> definitions,
+      LuceneFacetContext facetContext,
+      LuceneIndexSearcherReference searcherReference,
+      FacetsCollector resultParentHits,
+      LuceneSearchQueryFactoryDistributor queryFactory,
+      boolean embeddedScopedFacetsEnabled)
+      throws IOException, InvalidQueryException {
+    if (definitions.isEmpty()) {
+      return List.of();
+    }
+    if (!embeddedScopedFacetsEnabled) {
+      throw new InvalidQueryException(
+          "embeddedDocument-scoped facets are not enabled. Please contact support.");
+    }
+    LuceneIndexSearcher searcher = searcherReference.getIndexSearcher();
+    List<LuceneMetaBucketProducer> result = new ArrayList<>();
+    for (Map.Entry<String, FacetDefinition.BoundaryFacetDefinition<?>> entry :
+        definitions.entrySet()) {
+      String facetName = entry.getKey();
+      FacetDefinition.BoundaryFacetDefinition<?> definition = entry.getValue();
+      ParentDedupedLongRangeFacetCounts counts =
+          EmbeddedScopedBoundaryFacetCounter.count(
+                  searcher, queryFactory, facetContext, definition, resultParentHits)
+              .counts();
+
+      List<IntermediateFacetBucket> buckets = new ArrayList<>();
+      int[] rangeCounts = counts.counts();
+      for (int i = 0; i < rangeCounts.length; i++) {
+        buckets.add(
+            new IntermediateFacetBucket(
+                IntermediateFacetBucket.Type.FACET,
+                facetName,
+                definition.boundaries().get(i),
+                rangeCounts[i]));
+      }
+      Optional<IntermediateFacetBucket> defaultBucket =
+          definition.defaultBucketName().isPresent()
+              ? Optional.of(
+                  new IntermediateFacetBucket(
+                      IntermediateFacetBucket.Type.FACET,
+                      facetName,
+                      new BsonString(definition.defaultBucketName().get()),
+                      counts.defaultCount()))
+              : Optional.empty();
+      result.add(new LuceneBoundaryFacetMetaBucketProducer(buckets, defaultBucket));
     }
     return result;
   }
