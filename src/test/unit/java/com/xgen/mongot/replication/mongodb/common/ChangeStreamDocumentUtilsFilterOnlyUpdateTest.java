@@ -96,6 +96,7 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
     // Filter-only changes need no embedding work — neither applied nor a full-re-index fallback.
     assertEquals(0, batch.partialEmbedApplied);
     assertTrue(batch.partialEmbedFallbacks.isEmpty());
+    assertEquals(1, batch.filterOnlyPartialApplied);
   }
 
   @Test

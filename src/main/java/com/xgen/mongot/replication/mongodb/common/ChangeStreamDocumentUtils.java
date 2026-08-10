@@ -71,6 +71,9 @@ public class ChangeStreamDocumentUtils {
     // full-re-index fallback counts.
     public final int partialEmbedApplied;
     public final Map<PartialEmbedFallbackReason, Integer> partialEmbedFallbacks;
+    // Non-view auto-embed observability: filter-only partials applied (the non-view analog of
+    // viewFilterOnlyPartialApplied below).
+    public final int filterOnlyPartialApplied;
     // View auto-embed observability: per-decision reasons, view filter-only partials applied, and
     // (first batch per index only) the derivation fallback reason.
     public final Map<ViewFullProcessingReason, Integer> viewDecisions;
@@ -86,6 +89,7 @@ public class ChangeStreamDocumentUtils {
         long applicableDocumentsTotalBytes,
         int partialEmbedApplied,
         Map<PartialEmbedFallbackReason, Integer> partialEmbedFallbacks,
+        int filterOnlyPartialApplied,
         Map<ViewFullProcessingReason, Integer> viewDecisions,
         int viewFilterOnlyPartialApplied,
         Optional<ViewDerivationFallbackReason> viewDerivationFallbackReason) {
@@ -97,6 +101,7 @@ public class ChangeStreamDocumentUtils {
       this.applicableDocumentsTotalBytes = applicableDocumentsTotalBytes;
       this.partialEmbedApplied = partialEmbedApplied;
       this.partialEmbedFallbacks = partialEmbedFallbacks;
+      this.filterOnlyPartialApplied = filterOnlyPartialApplied;
       this.viewDecisions = viewDecisions;
       this.viewFilterOnlyPartialApplied = viewFilterOnlyPartialApplied;
       this.viewDerivationFallbackReason = viewDerivationFallbackReason;
@@ -112,6 +117,7 @@ public class ChangeStreamDocumentUtils {
     private int partialEmbedAppliedCounter;
     private final EnumMap<PartialEmbedFallbackReason, Integer> partialEmbedFallbackCounters =
         new EnumMap<>(PartialEmbedFallbackReason.class);
+    private int filterOnlyPartialAppliedCounter;
     private final EnumMap<ViewFullProcessingReason, Integer> viewDecisionCounters =
         new EnumMap<>(ViewFullProcessingReason.class);
     private int viewFilterOnlyPartialAppliedCounter;
@@ -143,6 +149,11 @@ public class ChangeStreamDocumentUtils {
     /** A view-based UPDATE was classified partial|full, tagged with the reason. */
     public void viewDecision(ViewFullProcessingReason reason) {
       this.viewDecisionCounters.merge(reason, 1, Integer::sum);
+    }
+
+    /** A non-view UPDATE took the filter-only partial path (no embed field changed). */
+    public void filterOnlyPartialApplied() {
+      this.filterOnlyPartialAppliedCounter++;
     }
 
     /** A view-based UPDATE took the filter-only partial path. */
@@ -197,6 +208,10 @@ public class ChangeStreamDocumentUtils {
 
     public Map<PartialEmbedFallbackReason, Integer> getPartialEmbedFallbacks() {
       return this.partialEmbedFallbackCounters;
+    }
+
+    public int getFilterOnlyPartialApplied() {
+      return this.filterOnlyPartialAppliedCounter;
     }
 
     public Map<ViewFullProcessingReason, Integer> getViewDecisions() {
@@ -416,6 +431,7 @@ public class ChangeStreamDocumentUtils {
         metrics.getApplicableDocumentsTotalBytes(),
         metrics.getPartialEmbedApplied(),
         metrics.getPartialEmbedFallbacks(),
+        metrics.getFilterOnlyPartialApplied(),
         metrics.getViewDecisions(),
         metrics.getViewFilterOnlyPartialApplied(),
         metrics.getViewDerivationFallbackReason());
@@ -609,6 +625,8 @@ public class ChangeStreamDocumentUtils {
                     && (!changedEmbedTexts.isEmpty() || !filterFieldUpdates.get().isEmpty())) {
                   if (embedFieldChanged) {
                     metrics.partialEmbedApplied();
+                  } else {
+                    metrics.filterOnlyPartialApplied();
                   }
                   return Optional.of(
                       DocumentEvent.createPartialUpdate(

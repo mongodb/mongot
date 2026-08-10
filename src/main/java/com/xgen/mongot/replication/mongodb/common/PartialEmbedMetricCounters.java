@@ -12,17 +12,21 @@ import java.util.EnumMap;
 
 /**
  * Counters for the partial-embed optimization (CLOUDP-412617), incremented from the per-batch
- * tallies on {@link DocumentEventBatch}: {@code partialEmbedApplied} for updates kept partial, and
- * {@code partialEmbedFallback{reason}} for full re-indexes tagged by {@link
- * PartialEmbedFallbackReason}.
+ * tallies on {@link DocumentEventBatch}: {@code partialEmbedApplied} for updates kept partial,
+ * {@code filterOnlyPartialApplied} for updates that touched only filter fields (the non-view analog
+ * of {@code viewFilterOnlyPartialApplied}), and {@code partialEmbedFallback{reason}} for full
+ * re-indexes tagged by {@link PartialEmbedFallbackReason}.
  */
 public class PartialEmbedMetricCounters {
 
   private final Counter appliedCounter;
+  private final Counter filterOnlyPartialAppliedCounter;
   private final ImmutableMap<PartialEmbedFallbackReason, Counter> fallbackCounters;
 
   public PartialEmbedMetricCounters(MetricsFactory metricsFactory, Tags baseTags) {
     this.appliedCounter = metricsFactory.counter("partialEmbedApplied", baseTags);
+    this.filterOnlyPartialAppliedCounter =
+        metricsFactory.counter("filterOnlyPartialApplied", baseTags);
     EnumMap<PartialEmbedFallbackReason, Counter> byReason =
         new EnumMap<>(PartialEmbedFallbackReason.class);
     for (PartialEmbedFallbackReason reason : PartialEmbedFallbackReason.values()) {
@@ -39,6 +43,9 @@ public class PartialEmbedMetricCounters {
   public void recordBatch(DocumentEventBatch batch) {
     if (batch.partialEmbedApplied > 0) {
       this.appliedCounter.increment(batch.partialEmbedApplied);
+    }
+    if (batch.filterOnlyPartialApplied > 0) {
+      this.filterOnlyPartialAppliedCounter.increment(batch.filterOnlyPartialApplied);
     }
     batch.partialEmbedFallbacks.forEach(
         (reason, count) -> this.fallbackCounters.get(reason).increment(count));
