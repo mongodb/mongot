@@ -37,6 +37,7 @@ java_test_suite(
         "MetricsFactoryTest.java",
         "PerIndexMetricsFactoryTest.java",
         "ServerStatusDataExtractorTest.java",
+        "SubsystemResourceHistoryTest.java",
         "ThreadPoolResourceMetricsTest.java",
         "TimerTest.java",
     ],

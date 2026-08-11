@@ -9,6 +9,7 @@ java_library(
         "MetricsFactory.java",
         "PerIndexMetricsFactory.java",
         "ServerStatusDataExtractor.java",
+        "SubsystemResourceHistory.java",
         "ThreadPoolResourceMetrics.java",
         "Timed.java",
     ],
