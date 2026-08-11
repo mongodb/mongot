@@ -32,6 +32,7 @@ java_library(
         "MongoDbServerInfo.java",
         "MongoDbServerInfoProvider.java",
         "MongoDbVersion.java",
+        "ReadConcernMajorityOpTimeProvider.java",
         "RefreshSessionsCommand.java",
         "ReplicaSetSignature.java",
         "SamplingAggregateCommand.java",

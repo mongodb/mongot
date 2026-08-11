@@ -9,6 +9,7 @@ import com.xgen.mongot.util.CollectionUtils;
 import com.xgen.mongot.util.Optionals;
 import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
 import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfos;
+import com.xgen.mongot.util.mongodb.serialization.MongoDbInvalidReplStatusFormatException;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import java.io.Closeable;
@@ -18,18 +19,20 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
+import org.bson.BsonTimestamp;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class MongoDbMetadataClient implements MongoDbServerInfoProvider, Closeable {
+public class MongoDbMetadataClient
+    implements MongoDbServerInfoProvider, ReadConcernMajorityOpTimeProvider, Closeable {
   private static final Logger LOG = LoggerFactory.getLogger(MongoDbMetadataClient.class);
   private static final String MONGODB_VERSION_METRIC_NAME = "version";
 
   private Optional<SyncSourceConfig> syncSource;
   private final MeterRegistry meterRegistry;
   private final MetricsFactory mongodbMetricsFactory;
-  private Optional<MongoClient> mongosPreferredClient;
-  private Optional<MongoClient> directMongodClient;
+  private volatile Optional<MongoClient> mongosPreferredClient;
+  private volatile Optional<MongoClient> directMongodClient;
   private volatile MongoDbServerInfo mongoDbServerInfo;
   private volatile boolean closed;
   private volatile Optional<String> previousVersionString;
@@ -53,18 +56,27 @@ public class MongoDbMetadataClient implements MongoDbServerInfoProvider, Closeab
 
   private void createMongoClients(SyncSourceConfig syncSource) {
     syncSource.validateReplicationUrisAvailable();
-    this.mongosPreferredClient =
-        Optional.of(
-            MongoClientBuilder.buildNonReplicationPreferringMongos(
-                syncSource, "database metadata resolver", this.meterRegistry));
-    this.directMongodClient =
-        Optional.of(
-            MongoClientBuilder.buildNonReplicationWithDefaults(
-                Optionals.orElseThrow(
-                    syncSource.mongodSingleHostReplicationUri,
-                    "mongodSingleHostReplicationUri must be present"),
-                "server info resolver",
-                this.meterRegistry));
+    // Build both clients before publishing either, so readers never observe a half-initialized
+    // pair if client construction throws partway through.
+    var newMongosPreferredClient =
+        MongoClientBuilder.buildNonReplicationPreferringMongos(
+            syncSource, "database metadata resolver", this.meterRegistry);
+    MongoClient newDirectMongodClient;
+    try {
+      newDirectMongodClient =
+          MongoClientBuilder.buildNonReplicationWithDefaults(
+              Optionals.orElseThrow(
+                  syncSource.mongodSingleHostReplicationUri,
+                  "mongodSingleHostReplicationUri must be present"),
+              "server info resolver",
+              this.meterRegistry);
+    } catch (RuntimeException e) {
+      // The mongos client is not reachable from any field yet, so close it here to avoid a leak.
+      newMongosPreferredClient.close();
+      throw e;
+    }
+    this.mongosPreferredClient = Optional.of(newMongosPreferredClient);
+    this.directMongodClient = Optional.of(newDirectMongodClient);
   }
 
   private static MongoDbCollectionInfos resolveCollectionInfos(
@@ -88,22 +100,48 @@ public class MongoDbMetadataClient implements MongoDbServerInfoProvider, Closeab
 
   public MongoDbCollectionInfos resolveCollectionInfos(Set<String> databases)
       throws CheckedMongoException {
-    if (this.closed || this.mongosPreferredClient.isEmpty()) {
-      throw new CheckedMongoException(
-          new MongoException("mongod unavailable, cannot resolve collection infos"));
-    }
-
-    return resolveCollectionInfos(databases, this.mongosPreferredClient.get());
+    return resolveCollectionInfos(
+        databases, requireMongosPreferredClient("resolve collection infos"));
   }
 
   public MongoDbCollectionInfos resolveCollectionInfosOnDirectMongod(Set<String> databases)
       throws CheckedMongoException {
-    if (this.closed || this.directMongodClient.isEmpty()) {
-      throw new CheckedMongoException(
-          new MongoException("mongod unavailable, cannot resolve collection infos"));
-    }
+    return resolveCollectionInfos(databases, requireDirectMongodClient("resolve collection infos"));
+  }
 
-    return resolveCollectionInfos(databases, this.directMongodClient.get());
+  private MongoClient requireMongosPreferredClient(String action) throws CheckedMongoException {
+    var client = this.mongosPreferredClient;
+    if (this.closed || client.isEmpty()) {
+      throw new CheckedMongoException(new MongoException("mongod unavailable, cannot " + action));
+    }
+    return client.get();
+  }
+
+  private MongoClient requireDirectMongodClient(String action) throws CheckedMongoException {
+    var client = this.directMongodClient;
+    if (this.closed || client.isEmpty()) {
+      throw new CheckedMongoException(new MongoException("mongod unavailable, cannot " + action));
+    }
+    return client.get();
+  }
+
+  /**
+   * Returns the majority-committed optime of the sync source, as reported by replSetGetStatus on
+   * the direct mongod connection. mongos cannot serve replica set status, so the direct connection
+   * is required here.
+   */
+  @Override
+  public BsonTimestamp getReadConcernMajorityOpTime() throws CheckedMongoException {
+    var client = requireDirectMongodClient("resolve readConcernMajorityOpTime");
+    try {
+      return MongoDbReplSetStatus.getReadConcernMajorityOpTime(client);
+    } catch (MongoDbInvalidReplStatusFormatException e) {
+      throw new CheckedMongoException(
+          new MongoException(
+              "could not parse replica set status while resolving readConcernMajorityOpTime", e));
+    } catch (MongoException e) {
+      throw new CheckedMongoException(e);
+    }
   }
 
   public synchronized void refreshServerInfo() {

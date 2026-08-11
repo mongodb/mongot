@@ -218,6 +218,61 @@ public class MongoDbMetadataClientTest {
   }
 
   @Test
+  public void getReadConcernMajorityOpTime_noMongodClient_throwsCheckedMongoException() {
+    var client = new MongoDbMetadataClient(Optional.empty(), new SimpleMeterRegistry());
+
+    Assert.assertThrows(CheckedMongoException.class, client::getReadConcernMajorityOpTime);
+  }
+
+  @Test
+  public void getReadConcernMajorityOpTime_afterClose_throwsCheckedMongoException()
+      throws Exception {
+    // Starts from a config that does produce a direct mongod client, so this covers the
+    // "was connected, then closed" lifecycle rather than repeating the never-connected case above.
+    var client =
+        new MongoDbMetadataClient(Optional.of(validSyncSourceConfig()), new SimpleMeterRegistry());
+    client.close();
+
+    Assert.assertThrows(CheckedMongoException.class, client::getReadConcernMajorityOpTime);
+  }
+
+  @Test
+  public void getReadConcernMajorityOpTime_mongodUriRemoved_throwsCheckedMongoException()
+      throws Exception {
+    var configWithoutMongodUri =
+        SyncSourceConfig.builder()
+            .mongodClusterReplicationUri(
+                // kingfisher:ignore
+                ConnectionStringUtil.toConnectionInfo("mongodb://user:pass@mongod:27017/"))
+            .mongodClusterReadWriteUri(
+                // kingfisher:ignore
+                ConnectionStringUtil.toConnectionInfo("mongodb://user:pass@mongod:27017/"))
+            .build();
+
+    try (var client =
+        new MongoDbMetadataClient(
+            Optional.of(validSyncSourceConfig()), new SimpleMeterRegistry())) {
+      client.maybeUpdateSyncSource(configWithoutMongodUri);
+
+      Assert.assertThrows(CheckedMongoException.class, client::getReadConcernMajorityOpTime);
+    }
+  }
+
+  private static SyncSourceConfig validSyncSourceConfig() throws Exception {
+    return SyncSourceConfig.builder()
+        .mongodSingleHostReplicationUri(
+            // kingfisher:ignore
+            ConnectionStringUtil.toConnectionInfo("mongodb://user:pass@mongod:27017/"))
+        .mongodClusterReplicationUri(
+            // kingfisher:ignore
+            ConnectionStringUtil.toConnectionInfo("mongodb://user:pass@mongod:27017/"))
+        .mongodClusterReadWriteUri(
+            // kingfisher:ignore
+            ConnectionStringUtil.toConnectionInfo("mongodb://user:pass@mongod:27017/"))
+        .build();
+  }
+
+  @Test
   public void testUpdateMongoDbVersionMetric() throws Exception {
     MeterRegistry meterRegistry = new SimpleMeterRegistry();
     MongoDbMetadataClient client = new MongoDbMetadataClient(Optional.empty(), meterRegistry);
