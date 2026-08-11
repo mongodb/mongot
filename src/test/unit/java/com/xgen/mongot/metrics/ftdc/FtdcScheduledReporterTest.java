@@ -1288,6 +1288,35 @@ public class FtdcScheduledReporterTest {
     verifyNoInteractions(ftdc);
   }
 
+  @Test
+  public void report_ioExceptionDuringAddSample_incrementsFailureCounterUnlessDiskIsFull()
+      throws Exception {
+    // A full disk is not an FTDC failure: it must not increment the counter the alert pages on.
+    assertThat(failureCountAfterAddSampleThrows(new IOException("No space left on device")))
+        .isEqualTo(0.0);
+    // Nested causes count too, since the ENOSPC error is usually wrapped.
+    assertThat(
+            failureCountAfterAddSampleThrows(
+                new IOException("write failed", new IOException("No space left on device"))))
+        .isEqualTo(0.0);
+    // Any other IO failure still increments.
+    assertThat(failureCountAfterAddSampleThrows(new IOException("disk on fire"))).isEqualTo(1.0);
+  }
+
+  private double failureCountAfterAddSampleThrows(IOException e) throws Exception {
+    var ftdc = mockFtdc();
+    Mockito.doThrow(e).when(ftdc).addSample(any(), anyLong());
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    new FtdcScheduledReporter.Reporter(registry, registry, ftdc).report();
+
+    Counter counter =
+        registry
+            .find("mongot.ftdc_executor_failure")
+            .tag("context", "ioExceptionDuringAddSample")
+            .counter();
+    return counter == null ? 0.0 : counter.count();
+  }
+
   private Ftdc mockFtdc() {
     return Mockito.mock(Ftdc.class);
   }
