@@ -261,7 +261,14 @@ def mongot_java_fuzz_test(size = "small", timeout = "short", tags = [], **kwargs
         **kwargs
     )
 
-def mongot_java_fuzz_test_suite(name, deps = [], resources = False, exclude_files = [], sizes = {}, timeouts = {}):
+def mongot_java_fuzz_test_suite(
+        name,
+        deps = [],
+        resources = False,
+        exclude_files = [],
+        sizes = {},
+        timeouts = {},
+        tags = {}):
     _mongot_java_test_suite(
         name,
         "fuzz",
@@ -272,6 +279,7 @@ def mongot_java_fuzz_test_suite(name, deps = [], resources = False, exclude_file
         exclude_files = exclude_files,
         sizes = sizes,
         timeouts = timeouts,
+        tags = tags,
     )
 
 def mongot_java_bench_suite(name, deps = [], exclude_files = [], resources = False, profile_gc = True):
