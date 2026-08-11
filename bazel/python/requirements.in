@@ -8,6 +8,10 @@ PyJWT[crypto]==2.13.0 #from PyGithub
 PyNaCl==1.6.2 #from PyGithub
 fire
 PyGithub
+# Used by scripts/release/verify_mms_offline_packages_ack.py to read the
+# release-gate ack YAML file. See docs/internal/development/
+# mms-offline-packages-release-gate.md.
+PyYAML
 # PyMongo for the load-shedding driver no-retry e2e probe (driver_retry_probe.py). 4.x gives the
 # retryReads default + command-monitoring API the probe relies on.
 pymongo>=4.6,<5
