@@ -25,6 +25,7 @@ java_test_suite(
         "IdTypeObservingDocumentIndexerTest.java",
         "IndexCommitUserDataTest.java",
         "IndexingWorkSchedulerFactoryTest.java",
+        "IndexingWorkSchedulerShutdownTest.java",
         "InitialSyncExceptionTest.java",
         "InitialSyncResumeInfoTest.java",
         "MongoDbReplicationConfigTest.java",

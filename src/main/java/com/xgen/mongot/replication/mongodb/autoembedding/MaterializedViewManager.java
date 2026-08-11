@@ -54,6 +54,7 @@ import com.xgen.mongot.replication.mongodb.common.ClientSessionRecord;
 import com.xgen.mongot.replication.mongodb.common.DecodingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.DefaultDocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
+import com.xgen.mongot.replication.mongodb.common.IndexingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
 import com.xgen.mongot.replication.mongodb.common.PeriodicIndexCommitter;
 import com.xgen.mongot.replication.mongodb.initialsync.InitialSyncQueue;
@@ -1358,11 +1359,13 @@ public class MaterializedViewManager implements ReplicationManager {
         // Fire and forget, no need to wait for it to complete.
         .thenRunAsync(this.matViewGeneratorFactory::shutdown, shutdownExecutor)
         .thenRunAsync(this.decodingWorkScheduler::shutdown, shutdownExecutor)
+        // Several IndexingStrategy keys can map to the same scheduler instance, so shut each
+        // distinct one down once rather than once per key.
         .thenRunAsync(
             () ->
-                this.indexingWorkSchedulerFactory
-                    .getIndexingWorkSchedulers()
-                    .forEach((strategy, scheduler) -> scheduler.shutdown()),
+                this.indexingWorkSchedulerFactory.getIndexingWorkSchedulers().values().stream()
+                    .distinct()
+                    .forEach(IndexingWorkScheduler::shutdown),
             shutdownExecutor)
         .thenRunAsync(() -> Executors.shutdownOrFail(this.heartbeatExecutor), shutdownExecutor)
         .thenRunAsync(() -> Executors.shutdownOrFail(this.optimeUpdaterExecutor), shutdownExecutor)
