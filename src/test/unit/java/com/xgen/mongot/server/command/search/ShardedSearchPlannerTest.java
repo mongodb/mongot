@@ -528,7 +528,7 @@ public class ShardedSearchPlannerTest {
                 "keys": {"$getField": {"field": {"$literal": "$meta/keys"}, "input": "$$ROOT"}}
               },
               "count_value": {"$sum": "$count"},
-              "sum_sum_price": {"$sum": "$sum_sum_price"}
+              "m0": {"$sum": "$m0"}
             }}
             """);
     Assert.assertEquals(expectedGroup, pipeline.get(0));
@@ -537,10 +537,10 @@ public class ShardedSearchPlannerTest {
         BsonDocument.parse(
             """
             {"$facet": {
-              "by_city": [
+              "f0": [
                 {"$match": {"$expr": {"$eq": [
                   {"$getField": {"field": "group_name", "input": "$_id"}},
-                  "by_city"
+                  "f0"
                 ]}}},
                 {"$sort": {"count_value": -1, "_id.keys.k0": 1}},
                 {"$limit": 10},
@@ -551,7 +551,7 @@ public class ShardedSearchPlannerTest {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
-                  "sum_price": "$sum_sum_price"
+                  "sum_price": "$m0"
                 }}
               ],
               "count": [{"$match": {"$expr": {"$eq": [
@@ -614,8 +614,8 @@ public class ShardedSearchPlannerTest {
                 "keys": {"$getField": {"field": {"$literal": "$meta/keys"}, "input": "$$ROOT"}}
               },
               "count_value": {"$sum": "$count"},
-              "avg_sum_avg_price": {"$sum": "$avg_sum_avg_price"},
-              "avg_count_avg_price": {"$sum": "$avg_count_avg_price"}
+              "m0": {"$sum": "$m0"},
+              "m1": {"$sum": "$m1"}
             }}
             """);
     Assert.assertEquals(expectedGroup, pipeline.get(0));
@@ -624,10 +624,10 @@ public class ShardedSearchPlannerTest {
         BsonDocument.parse(
             """
             {"$facet": {
-              "by_city": [
+              "f0": [
                 {"$match": {"$expr": {"$eq": [
                   {"$getField": {"field": "group_name", "input": "$_id"}},
-                  "by_city"
+                  "f0"
                 ]}}},
                 {"$sort": {"count_value": -1, "_id.keys.k0": 1}},
                 {"$limit": 10},
@@ -640,9 +640,9 @@ public class ShardedSearchPlannerTest {
                   },
                   "avg_price": {
                     "$cond": {
-                      "if": {"$eq": ["$avg_count_avg_price", 0]},
-                      "then": null,
-                      "else": {"$divide": ["$avg_sum_avg_price", "$avg_count_avg_price"]}
+                    "if": {"$eq": ["$m1", 0]},
+                    "then": null,
+                    "else": {"$divide": ["$m0", "$m1"]}
                     }
                   }
                 }}
@@ -685,7 +685,7 @@ public class ShardedSearchPlannerTest {
                 "keys": {"$getField": {"field": {"$literal": "$meta/keys"}, "input": "$$ROOT"}}
               },
               "count_value": {"$sum": "$count"},
-              "sum_sum_price": {"$sum": "$sum_sum_price"}
+              "m0": {"$sum": "$m0"}
             }}
             """);
     Assert.assertEquals(expectedGroup, pipeline.get(0));
@@ -694,10 +694,10 @@ public class ShardedSearchPlannerTest {
         BsonDocument.parse(
             """
             {"$facet": {
-              "agg": [
+              "f0": [
                 {"$match": {"$expr": {"$eq": [
                   {"$getField": {"field": "group_name", "input": "$_id"}},
-                  "agg"
+                  "f0"
                 ]}}},
                 {"$sort": {"_id.keys.k0": 1}},
                 {"$project": {
@@ -707,7 +707,7 @@ public class ShardedSearchPlannerTest {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
-                  "sum_price": "$sum_sum_price"
+                  "sum_price": "$m0"
                 }}
               ],
               "count": [{"$match": {"$expr": {"$eq": [
@@ -746,8 +746,8 @@ public class ShardedSearchPlannerTest {
                 "keys": {"$getField": {"field": {"$literal": "$meta/keys"}, "input": "$$ROOT"}}
               },
               "count_value": {"$sum": "$count"},
-              "avg_sum_avg_price": {"$sum": "$avg_sum_avg_price"},
-              "avg_count_avg_price": {"$sum": "$avg_count_avg_price"}
+              "m0": {"$sum": "$m0"},
+              "m1": {"$sum": "$m1"}
             }}
             """);
     Assert.assertEquals(expectedGroup, pipeline.get(0));
@@ -756,10 +756,10 @@ public class ShardedSearchPlannerTest {
         BsonDocument.parse(
             """
             {"$facet": {
-              "agg": [
+              "f0": [
                 {"$match": {"$expr": {"$eq": [
                   {"$getField": {"field": "group_name", "input": "$_id"}},
-                  "agg"
+                  "f0"
                 ]}}},
                 {"$sort": {"_id.keys.k0": 1}},
                 {"$project": {
@@ -771,9 +771,9 @@ public class ShardedSearchPlannerTest {
                   },
                   "avg_price": {
                     "$cond": {
-                      "if": {"$eq": ["$avg_count_avg_price", 0]},
-                      "then": null,
-                      "else": {"$divide": ["$avg_sum_avg_price", "$avg_count_avg_price"]}
+                    "if": {"$eq": ["$m1", 0]},
+                    "then": null,
+                    "else": {"$divide": ["$m0", "$m1"]}
                     }
                   }
                 }}
@@ -814,7 +814,7 @@ public class ShardedSearchPlannerTest {
                 "keys": {"$getField": {"field": {"$literal": "$meta/keys"}, "input": "$$ROOT"}}
               },
               "count_value": {"$sum": "$count"},
-              "sum_sum_price": {"$sum": "$sum_sum_price"}
+              "m0": {"$sum": "$m0"}
             }}
             """);
     Assert.assertEquals(expectedGroup, pipeline.get(0));
@@ -823,10 +823,10 @@ public class ShardedSearchPlannerTest {
         BsonDocument.parse(
             """
             {"$facet": {
-              "agg": [
+              "f0": [
                 {"$match": {"$expr": {"$eq": [
                   {"$getField": {"field": "group_name", "input": "$_id"}},
-                  "agg"
+                  "f0"
                 ]}}},
                 {"$sort": {"_id.keys.k0": 1}},
                 {"$project": {
@@ -836,7 +836,7 @@ public class ShardedSearchPlannerTest {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
-                  "sum_price": "$sum_sum_price"
+                  "sum_price": "$m0"
                 }}
               ],
               "count": [{"$match": {"$expr": {"$eq": [
@@ -865,10 +865,10 @@ public class ShardedSearchPlannerTest {
         BsonDocument.parse(
             """
             {"$facet": {
-              "agg": [
+              "f0": [
                 {"$match": {"$expr": {"$eq": [
                   {"$getField": {"field": "group_name", "input": "$_id"}},
-                  "agg"
+                  "f0"
                 ]}}},
                 {"$addFields": {
                   "__boundarySortRank": {
@@ -888,7 +888,7 @@ public class ShardedSearchPlannerTest {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
-                  "sum_price": "$sum_sum_price"
+                  "sum_price": "$m0"
                 }}
               ],
               "count": [{"$match": {"$expr": {"$eq": [
@@ -1134,7 +1134,7 @@ public class ShardedSearchPlannerTest {
                 "keys": {"$getField": {"field": {"$literal": "$meta/keys"}, "input": "$$ROOT"}}
               },
               "count_value": {"$sum": "$count"},
-              "min_min_price": {"$min": "$min_min_price"}
+              "m0": {"$min": "$m0"}
             }}
             """);
     Assert.assertEquals(expectedGroup, pipeline.get(0));
@@ -1143,10 +1143,10 @@ public class ShardedSearchPlannerTest {
         BsonDocument.parse(
             """
             {"$facet": {
-              "by_city": [
+              "f0": [
                 {"$match": {"$expr": {"$eq": [
                   {"$getField": {"field": "group_name", "input": "$_id"}},
-                  "by_city"
+                  "f0"
                 ]}}},
                 {"$sort": {"count_value": -1, "_id.keys.k0": 1}},
                 {"$limit": 10},
@@ -1157,7 +1157,7 @@ public class ShardedSearchPlannerTest {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
-                  "min_price": "$min_min_price"
+                  "min_price": "$m0"
                 }}
               ],
               "count": [{"$match": {"$expr": {"$eq": [
@@ -1197,7 +1197,7 @@ public class ShardedSearchPlannerTest {
                 "keys": {"$getField": {"field": {"$literal": "$meta/keys"}, "input": "$$ROOT"}}
               },
               "count_value": {"$sum": "$count"},
-              "max_max_price": {"$max": "$max_max_price"}
+              "m0": {"$max": "$m0"}
             }}
             """);
     Assert.assertEquals(expectedGroup, pipeline.get(0));
@@ -1206,10 +1206,10 @@ public class ShardedSearchPlannerTest {
         BsonDocument.parse(
             """
             {"$facet": {
-              "by_city": [
+              "f0": [
                 {"$match": {"$expr": {"$eq": [
                   {"$getField": {"field": "group_name", "input": "$_id"}},
-                  "by_city"
+                  "f0"
                 ]}}},
                 {"$sort": {"count_value": -1, "_id.keys.k0": 1}},
                 {"$limit": 10},
@@ -1220,7 +1220,7 @@ public class ShardedSearchPlannerTest {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
-                  "max_price": "$max_max_price"
+                  "max_price": "$m0"
                 }}
               ],
               "count": [{"$match": {"$expr": {"$eq": [
@@ -1296,15 +1296,15 @@ public class ShardedSearchPlannerTest {
           BsonDocument.parse(
               """
               {"$top": {
-                "output": {"$ifNull": ["$first_value_metric", null]},
+                "output": {"$ifNull": ["$m0", null]},
                 "sortBy": {
-                  "first_has_metric": -1,
-                  "first_key_metric._0": 1,
-                  "first_key_metric._1": -1
+                  "m1": -1,
+                  "m2._0": 1,
+                  "m2._1": -1
                 }
               }}
               """),
-          result.metaPipeline.get(0).getDocument("$group").getDocument("first_metric"));
+          result.metaPipeline.get(0).getDocument("$group").getDocument("m3"));
     } finally {
       TestOperatorSpecs.installRegistry();
     }
@@ -1325,15 +1325,15 @@ public class ShardedSearchPlannerTest {
           BsonDocument.parse(
               """
               {"$bottom": {
-                "output": {"$ifNull": ["$last_value_metric", null]},
+                "output": {"$ifNull": ["$m0", null]},
                 "sortBy": {
-                  "last_has_metric": 1,
-                  "last_key_metric._0": 1,
-                  "last_key_metric._1": -1
+                  "m1": 1,
+                  "m2._0": 1,
+                  "m2._1": -1
                 }
               }}
               """),
-          result.metaPipeline.get(0).getDocument("$group").getDocument("last_metric"));
+          result.metaPipeline.get(0).getDocument("$group").getDocument("m3"));
     } finally {
       TestOperatorSpecs.installRegistry();
     }
@@ -1357,11 +1357,11 @@ public class ShardedSearchPlannerTest {
           BsonDocument.parse(
               """
               {"$top": {
-                "output": {"$ifNull": ["$first_value_metric", null]},
-                "sortBy": {"first_has_metric": -1}
+                "output": {"$ifNull": ["$m0", null]},
+                "sortBy": {"m1": -1}
               }}
               """),
-          result.metaPipeline.get(0).getDocument("$group").getDocument("first_metric"));
+          result.metaPipeline.get(0).getDocument("$group").getDocument("m2"));
     } finally {
       TestOperatorSpecs.installRegistry();
     }

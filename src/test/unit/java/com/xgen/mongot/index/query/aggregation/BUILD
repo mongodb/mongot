@@ -41,6 +41,7 @@ java_test_suite(
         "PrimitiveArrayTest.java",
         "ResultTest.java",
         "SearchAggregationBootstrapTest.java",
+        "ShardMergeAliasPlanTest.java",
         "ShardMergePipelineBuilderTest.java",
         "SpecTest.java",
         "SumAccumulatorTest.java",

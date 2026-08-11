@@ -45,23 +45,24 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                             AggregationResults.from(
                                 List.of(new SumAggregationResult("sum_price", 50.0))))))));
 
-    BsonArray intermediate = resultTree.toIntermediateBson();
+    BsonArray intermediate =
+        aliasedIntermediate((TopAggregationSpec) specTree, resultTree.toIntermediateBson());
     List<BsonDocument> pipeline = buildPipeline(specTree);
 
     assertIntermediateDocHasFields(
         intermediate.get(0).asDocument(),
         IntermediateAggregationMetaField.GROUP_NAME,
         IntermediateAggregationMetaField.KEYS,
-        "sum_sum_price");
-    assertGroupStageReferencesFields(pipeline.get(0), "sum_sum_price", "count_value");
+        "m0");
+    assertGroupStageReferencesFields(pipeline.get(0), "m0", "count_value");
     assertEquals(
         BsonDocument.parse(
             """
             {"$facet": {
-              "by_city": [
+              "f0": [
                 {"$match": {"$expr": {"$eq": [
                   {"$getField": {"field": "group_name", "input": "$_id"}},
-                  "by_city"
+                  "f0"
                 ]}}},
                 {"$project": {
                   "_id": {
@@ -70,7 +71,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
-                  "sum_price": "$sum_sum_price"
+                  "sum_price": "$m0"
                 }}
               ],
               "count": [{"$match": {"$expr": {"$eq": [
@@ -102,25 +103,25 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                             AggregationResults.from(
                                 List.of(new AvgAggregationResult("avg_price", 30.0, 2))))))));
 
-    BsonArray intermediate = resultTree.toIntermediateBson();
+    BsonArray intermediate =
+        aliasedIntermediate((TopAggregationSpec) specTree, resultTree.toIntermediateBson());
     List<BsonDocument> pipeline = buildPipeline(specTree);
 
     assertIntermediateDocHasFields(
         intermediate.get(0).asDocument(),
         IntermediateAggregationMetaField.GROUP_NAME,
         IntermediateAggregationMetaField.KEYS,
-        "avg_sum_avg_price",
-        "avg_count_avg_price");
-    assertGroupStageReferencesFields(
-        pipeline.get(0), "avg_sum_avg_price", "avg_count_avg_price", "count_value");
+        "m0",
+        "m1");
+    assertGroupStageReferencesFields(pipeline.get(0), "m0", "m1", "count_value");
     assertEquals(
         BsonDocument.parse(
             """
             {"$facet": {
-              "by_city": [
+              "f0": [
                 {"$match": {"$expr": {"$eq": [
                   {"$getField": {"field": "group_name", "input": "$_id"}},
-                  "by_city"
+                  "f0"
                 ]}}},
                 {"$project": {
                   "_id": {
@@ -130,9 +131,9 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                     }
                   },
                   "avg_price": {"$cond": {
-                    "if": {"$eq": ["$avg_count_avg_price", 0]},
+                    "if": {"$eq": ["$m1", 0]},
                     "then": null,
-                    "else": {"$divide": ["$avg_sum_avg_price", "$avg_count_avg_price"]}
+                    "else": {"$divide": ["$m0", "$m1"]}
                   }}
                 }}
               ],
@@ -179,11 +180,12 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                         new TermsResult.TermsBucket(
                             "LA", AggregationResults.from(List.of(laColors)))))));
 
-    BsonArray intermediate = resultTree.toIntermediateBson();
+    BsonArray intermediate =
+        aliasedIntermediate((TopAggregationSpec) specTree, resultTree.toIntermediateBson());
     List<BsonDocument> pipeline = buildPipeline(specTree);
 
     assertEquals(
-        "by_city",
+        "f0",
         intermediate
             .get(0)
             .asDocument()
@@ -193,8 +195,8 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
         intermediate.get(0).asDocument(),
         IntermediateAggregationMetaField.GROUP_NAME,
         IntermediateAggregationMetaField.KEYS,
-        "avg_sum_avg_price",
-        "avg_count_avg_price");
+        "m0",
+        "m1");
 
     assertEquals(
         BsonArray.parse(
@@ -202,7 +204,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
             [
               {"$match": {"$expr": {"$eq": [
                 {"$getField": {"field": "group_name", "input": "$_id"}},
-                "by_city"
+                "f0"
               ]}}},
               {"$group": {
                 "_id": {
@@ -218,8 +220,8 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
-                  "avg_sum_avg_price": "$avg_sum_avg_price",
-                  "avg_count_avg_price": "$avg_count_avg_price"
+                  "m0": "$m0",
+                  "m1": "$m1"
                 }}
               }},
               {"$project": {
@@ -230,16 +232,16 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                   "in": {
                     "_id": "$$row.k1",
                     "avg_price": {"$cond": {
-                      "if": {"$eq": ["$$row.avg_count_avg_price", 0]},
+                      "if": {"$eq": ["$$row.m1", 0]},
                       "then": null,
-                      "else": {"$divide": ["$$row.avg_sum_avg_price", "$$row.avg_count_avg_price"]}
+                      "else": {"$divide": ["$$row.m0", "$$row.m1"]}
                     }}
                   }
                 }}}
               }}
             ]
             """),
-        pipeline.get(1).getDocument("$facet").getArray("by_city"));
+        pipeline.get(1).getDocument("$facet").getArray("f0"));
   }
 
   @Test
@@ -284,11 +286,12 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                         new TermsResult.TermsBucket(
                             "US", AggregationResults.from(List.of(westRegions)))))));
 
-    BsonArray intermediate = resultTree.toIntermediateBson();
+    BsonArray intermediate =
+        aliasedIntermediate((TopAggregationSpec) specTree, resultTree.toIntermediateBson());
     List<BsonDocument> pipeline = buildPipeline(specTree);
 
     assertEquals(
-        "by_country",
+        "f0",
         intermediate
             .get(0)
             .asDocument()
@@ -298,8 +301,8 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
         intermediate.get(0).asDocument(),
         IntermediateAggregationMetaField.GROUP_NAME,
         IntermediateAggregationMetaField.KEYS,
-        "avg_sum_avg_price",
-        "avg_count_avg_price");
+        "m0",
+        "m1");
     BsonDocument keys =
         intermediate.get(0).asDocument().getDocument(IntermediateAggregationMetaField.KEYS);
     assertEquals("US", keys.getString("k0").getValue());
@@ -313,7 +316,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
             [
               {"$match": {"$expr": {"$eq": [
                 {"$getField": {"field": "group_name", "input": "$_id"}},
-                "by_country"
+                "f0"
               ]}}},
               {"$group": {
                 "_id": {
@@ -343,8 +346,8 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
-                  "avg_sum_avg_price": "$avg_sum_avg_price",
-                  "avg_count_avg_price": "$avg_count_avg_price"
+                  "m0": "$m0",
+                  "m1": "$m1"
                 }}
               }},
               {"$group": {
@@ -382,12 +385,12 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                           "in": {
                             "_id": "$$leaf.k3",
                             "avg_price": {"$cond": {
-                              "if": {"$eq": ["$$leaf.avg_count_avg_price", 0]},
+                              "if": {"$eq": ["$$leaf.m1", 0]},
                               "then": null,
                               "else": {
                                 "$divide": [
-                                  "$$leaf.avg_sum_avg_price",
-                                  "$$leaf.avg_count_avg_price"
+                                  "$$leaf.m0",
+                                  "$$leaf.m1"
                                 ]
                               }
                             }}
@@ -400,7 +403,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
               }}
             ]
             """),
-        pipeline.get(1).getDocument("$facet").getArray("by_country"));
+        pipeline.get(1).getDocument("$facet").getArray("f0"));
   }
 
   @Test
@@ -457,7 +460,8 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
     AggregationResult resultTree =
         new TopLevelAggregationResult(List.of(byCityResult, byColorResult));
 
-    BsonArray intermediate = resultTree.toIntermediateBson();
+    BsonArray intermediate =
+        aliasedIntermediate((TopAggregationSpec) specTree, resultTree.toIntermediateBson());
     List<BsonDocument> pipeline = buildPipeline(specTree);
 
     assertEquals(4, intermediate.size());
@@ -466,32 +470,32 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
             """
             [
               {
-                "$meta/group_name": "by_city",
+                "$meta/group_name": "f0",
                 "$meta/keys": {"k0": "LA", "k1": "red"},
                 "count": {"$numberLong": "1"},
-                "avg_sum_avg_price": 5.0,
-                "avg_count_avg_price": {"$numberLong": "1"}
+                "m0": 5.0,
+                "m1": {"$numberLong": "1"}
               },
               {
-                "$meta/group_name": "by_city",
+                "$meta/group_name": "f0",
                 "$meta/keys": {"k0": "LA", "k1": "green"},
                 "count": {"$numberLong": "1"},
-                "avg_sum_avg_price": 15.0,
-                "avg_count_avg_price": {"$numberLong": "1"}
+                "m0": 15.0,
+                "m1": {"$numberLong": "1"}
               },
               {
-                "$meta/group_name": "by_city",
+                "$meta/group_name": "f0",
                 "$meta/keys": {"k0": "NYC", "k1": "red"},
                 "count": {"$numberLong": "1"},
-                "avg_sum_avg_price": 30.0,
-                "avg_count_avg_price": {"$numberLong": "2"}
+                "m0": 30.0,
+                "m1": {"$numberLong": "2"}
               },
               {
-                "$meta/group_name": "by_color",
+                "$meta/group_name": "f1",
                 "$meta/keys": {"k0": "red"},
                 "count": {"$numberLong": "1"},
-                "avg_sum_avg_price": 35.0,
-                "avg_count_avg_price": {"$numberLong": "3"}
+                "m0": 35.0,
+                "m1": {"$numberLong": "3"}
               }
             ]
             """),
@@ -501,10 +505,10 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
         BsonDocument.parse(
             """
             {"$facet": {
-              "by_city": [
+              "f0": [
                 {"$match": {"$expr": {"$eq": [
                   {"$getField": {"field": "group_name", "input": "$_id"}},
-                  "by_city"
+                  "f0"
                 ]}}},
                 {"$group": {
                   "_id": {
@@ -520,8 +524,8 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                         "input": {"$getField": {"field": "keys", "input": "$_id"}}
                       }
                     },
-                    "avg_sum_avg_price": "$avg_sum_avg_price",
-                    "avg_count_avg_price": "$avg_count_avg_price"
+                    "m0": "$m0",
+                    "m1": "$m1"
                   }}
                 }},
                 {"$project": {
@@ -532,20 +536,20 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                     "in": {
                       "_id": "$$row.k1",
                       "avg_price": {"$cond": {
-                        "if": {"$eq": ["$$row.avg_count_avg_price", 0]},
+                        "if": {"$eq": ["$$row.m1", 0]},
                         "then": null,
                         "else": {
-                          "$divide": ["$$row.avg_sum_avg_price", "$$row.avg_count_avg_price"]
+                          "$divide": ["$$row.m0", "$$row.m1"]
                         }
                       }}
                     }
                   }}}
                 }}
               ],
-              "by_color": [
+              "f1": [
                 {"$match": {"$expr": {"$eq": [
                   {"$getField": {"field": "group_name", "input": "$_id"}},
-                  "by_color"
+                  "f1"
                 ]}}},
                 {"$project": {
                   "_id": {
@@ -555,9 +559,9 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                     }
                   },
                   "avg_price": {"$cond": {
-                    "if": {"$eq": ["$avg_count_avg_price", 0]},
+                    "if": {"$eq": ["$m1", 0]},
                     "then": null,
-                    "else": {"$divide": ["$avg_sum_avg_price", "$avg_count_avg_price"]}
+                    "else": {"$divide": ["$m0", "$m1"]}
                   }}
                 }}
               ],
@@ -575,8 +579,8 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
             {"$replaceWith": {
               "count": {"lowerBound": {"$first": "$count.count_value"}},
               "facet": {
-                "by_city": {"buckets": "$by_city"},
-                "by_color": {"buckets": "$by_color"}
+                "by_city": {"buckets": "$f0"},
+                "by_color": {"buckets": "$f1"}
               }
             }}
             """),
@@ -612,18 +616,19 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                             AggregationResults.from(
                                 List.of(new SumAggregationResult("sum_price", 35.0))))))));
 
-    BsonArray intermediate = resultTree.toIntermediateBson();
+    BsonArray intermediate =
+        aliasedIntermediate((TopAggregationSpec) specTree, resultTree.toIntermediateBson());
     List<BsonDocument> pipeline = buildPipeline(specTree);
 
     assertEquals(
-        "by_city",
+        "f0",
         intermediate
             .get(0)
             .asDocument()
             .getString(IntermediateAggregationMetaField.GROUP_NAME)
             .getValue());
     assertEquals(
-        "by_color",
+        "f1",
         intermediate
             .get(1)
             .asDocument()
@@ -633,10 +638,10 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
         BsonDocument.parse(
             """
             {"$facet": {
-              "by_city": [
+              "f0": [
                 {"$match": {"$expr": {"$eq": [
                   {"$getField": {"field": "group_name", "input": "$_id"}},
-                  "by_city"
+                  "f0"
                 ]}}},
                 {"$project": {
                   "_id": {
@@ -645,13 +650,13 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
-                  "sum_price": "$sum_sum_price"
+                  "sum_price": "$m0"
                 }}
               ],
-              "by_color": [
+              "f1": [
                 {"$match": {"$expr": {"$eq": [
                   {"$getField": {"field": "group_name", "input": "$_id"}},
-                  "by_color"
+                  "f1"
                 ]}}},
                 {"$project": {
                   "_id": {
@@ -660,7 +665,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
-                  "sum_price": "$sum_sum_price"
+                  "sum_price": "$m0"
                 }}
               ],
               "count": [{"$match": {"$expr": {"$eq": [
@@ -673,9 +678,12 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
   }
 
   private static List<BsonDocument> buildPipeline(AggregationSpec specTree) {
-    ShardMergePipelineBuilder builder = ShardMergePipelineBuilder.unsorted();
-    specTree.buildShardMergePipeline(builder);
-    return builder.build("lowerBound");
+    TopAggregationSpec top = (TopAggregationSpec) specTree;
+    return top.newShardMergePipelineBuilder(List.of()).build("lowerBound");
+  }
+
+  private static BsonArray aliasedIntermediate(TopAggregationSpec spec, BsonArray raw) {
+    return ShardMergeAliasPlan.from(spec, List.of()).rewriteIntermediateBson(raw);
   }
 
   private static void assertIntermediateDocHasFields(BsonDocument doc, String... fieldNames) {

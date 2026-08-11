@@ -1,6 +1,7 @@
 package com.xgen.mongot.index.query.aggregation;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
 import com.xgen.mongot.index.query.aggregation.AggregationRegistry.GroupingArgs.TermsArgs;
@@ -22,15 +23,21 @@ public class ShardMergePipelineBuilderTest {
   private static final FieldPath COUNTRY = FieldPath.parse("country");
   private static final FieldPath PRICE = FieldPath.parse("price");
 
+  private static List<BsonDocument> buildPipeline(TopAggregationSpec top, String countType) {
+    return top.newShardMergePipelineBuilder(List.of()).build(countType);
+  }
+
+  private static List<BsonDocument> buildPipeline(TopAggregationSpec top) {
+    return buildPipeline(top, "lowerBound");
+  }
+
   @Test
   public void singleGroupWithMetricLowerBound() {
     AggregationSpec leaf = new SumAggregationSpec("sum_price", PRICE);
     AggregationSpec group = new TermsSpec("by_city", CITY, List.of(leaf));
     TopAggregationSpec top = new TopAggregationSpec(List.of(group));
 
-    ShardMergePipelineBuilder builder = ShardMergePipelineBuilder.unsorted();
-    top.buildShardMergePipeline(builder);
-    List<BsonDocument> pipeline = builder.build("lowerBound");
+    List<BsonDocument> pipeline = buildPipeline(top);
 
     assertEquals(3, pipeline.size());
 
@@ -48,7 +55,7 @@ public class ShardMergePipelineBuilderTest {
                 "keys": {"$getField": {"field": {"$literal": "$meta/keys"}, "input": "$$ROOT"}}
               },
               "count_value": {"$sum": "$count"},
-              "sum_sum_price": {"$sum": "$sum_sum_price"}
+              "m0": {"$sum": "$m0"}
             }}
             """);
     assertEquals(expectedGroup, pipeline.get(0));
@@ -57,10 +64,10 @@ public class ShardMergePipelineBuilderTest {
         BsonDocument.parse(
             """
             {"$facet": {
-              "by_city": [
+              "f0": [
                 {"$match": {"$expr": {"$eq": [
                   {"$getField": {"field": "group_name", "input": "$_id"}},
-                  "by_city"
+                  "f0"
                 ]}}},
                 {"$project": {
                   "_id": {
@@ -69,7 +76,7 @@ public class ShardMergePipelineBuilderTest {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
-                  "sum_price": "$sum_sum_price"
+                  "sum_price": "$m0"
                 }}
               ],
               "count": [{"$match": {"$expr": {"$eq": [
@@ -86,7 +93,7 @@ public class ShardMergePipelineBuilderTest {
             {"$replaceWith": {
               "count": {"lowerBound": {"$first": "$count.count_value"}},
               "facet": {
-                "by_city": {"buckets": "$by_city"}
+                "by_city": {"buckets": "$f0"}
               }
             }}
             """);
@@ -99,9 +106,7 @@ public class ShardMergePipelineBuilderTest {
     AggregationSpec group = new TermsSpec("by_city", CITY, List.of(leaf));
     TopAggregationSpec top = new TopAggregationSpec(List.of(group));
 
-    ShardMergePipelineBuilder builder = ShardMergePipelineBuilder.unsorted();
-    top.buildShardMergePipeline(builder);
-    List<BsonDocument> pipeline = builder.build("lowerBound");
+    List<BsonDocument> pipeline = buildPipeline(top);
 
     BsonDocument expectedGroup =
         BsonDocument.parse(
@@ -117,8 +122,8 @@ public class ShardMergePipelineBuilderTest {
                 "keys": {"$getField": {"field": {"$literal": "$meta/keys"}, "input": "$$ROOT"}}
               },
               "count_value": {"$sum": "$count"},
-              "avg_sum_avg_price": {"$sum": "$avg_sum_avg_price"},
-              "avg_count_avg_price": {"$sum": "$avg_count_avg_price"}
+              "m0": {"$sum": "$m0"},
+              "m1": {"$sum": "$m1"}
             }}
             """);
     assertEquals(expectedGroup, pipeline.get(0));
@@ -127,7 +132,7 @@ public class ShardMergePipelineBuilderTest {
         pipeline
             .get(1)
             .getDocument("$facet")
-            .getArray("by_city")
+            .getArray("f0")
             .get(1)
             .asDocument()
             .getDocument("$project");
@@ -135,9 +140,9 @@ public class ShardMergePipelineBuilderTest {
         BsonDocument.parse(
             """
             {"$cond": {
-              "if": {"$eq": ["$avg_count_avg_price", 0]},
+              "if": {"$eq": ["$m1", 0]},
               "then": null,
-              "else": {"$divide": ["$avg_sum_avg_price", "$avg_count_avg_price"]}
+              "else": {"$divide": ["$m0", "$m1"]}
             }}
             """);
     assertEquals(expectedAvgPrice, projectStage.get("avg_price"));
@@ -149,9 +154,7 @@ public class ShardMergePipelineBuilderTest {
     AggregationSpec group = new TermsSpec("by_city", CITY, List.of(leaf));
     TopAggregationSpec top = new TopAggregationSpec(List.of(group));
 
-    ShardMergePipelineBuilder builder = ShardMergePipelineBuilder.unsorted();
-    top.buildShardMergePipeline(builder);
-    List<BsonDocument> pipeline = builder.build("total");
+    List<BsonDocument> pipeline = buildPipeline(top, "total");
 
     BsonDocument replaceWith = pipeline.get(2);
     BsonDocument count = replaceWith.getDocument("$replaceWith").getDocument("count");
@@ -165,9 +168,7 @@ public class ShardMergePipelineBuilderTest {
     AggregationSpec outerGroup = new TermsSpec("by_city", CITY, List.of(innerGroup));
     TopAggregationSpec top = new TopAggregationSpec(List.of(outerGroup));
 
-    ShardMergePipelineBuilder builder = ShardMergePipelineBuilder.unsorted();
-    top.buildShardMergePipeline(builder);
-    List<BsonDocument> pipeline = builder.build("lowerBound");
+    List<BsonDocument> pipeline = buildPipeline(top);
 
     BsonArray expectedByCityArm =
         BsonArray.parse(
@@ -175,7 +176,7 @@ public class ShardMergePipelineBuilderTest {
             [
               {"$match": {"$expr": {"$eq": [
                 {"$getField": {"field": "group_name", "input": "$_id"}},
-                "by_city"
+                "f0"
               ]}}},
               {"$group": {
                 "_id": {
@@ -191,7 +192,7 @@ public class ShardMergePipelineBuilderTest {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
-                  "sum_sum_price": "$sum_sum_price"
+                  "m0": "$m0"
                 }}
               }},
               {"$project": {
@@ -201,13 +202,13 @@ public class ShardMergePipelineBuilderTest {
                   "as": "row",
                   "in": {
                     "_id": "$$row.k1",
-                    "sum_price": "$$row.sum_sum_price"
+                    "sum_price": "$$row.m0"
                   }
                 }}}
               }}
             ]
             """);
-    assertEquals(expectedByCityArm, pipeline.get(1).getDocument("$facet").getArray("by_city"));
+    assertEquals(expectedByCityArm, pipeline.get(1).getDocument("$facet").getArray("f0"));
 
     BsonDocument expectedReplaceWith =
         BsonDocument.parse(
@@ -215,7 +216,7 @@ public class ShardMergePipelineBuilderTest {
             {"$replaceWith": {
               "count": {"lowerBound": {"$first": "$count.count_value"}},
               "facet": {
-                "by_city": {"buckets": "$by_city"}
+                "by_city": {"buckets": "$f0"}
               }
             }}
             """);
@@ -231,9 +232,7 @@ public class ShardMergePipelineBuilderTest {
     AggregationSpec byCountry = new TermsSpec("by_country", COUNTRY, List.of(byRegion));
     TopAggregationSpec top = new TopAggregationSpec(List.of(byCountry));
 
-    ShardMergePipelineBuilder builder = ShardMergePipelineBuilder.unsorted();
-    top.buildShardMergePipeline(builder);
-    List<BsonDocument> pipeline = builder.build("lowerBound");
+    List<BsonDocument> pipeline = buildPipeline(top);
 
     BsonArray expectedByCountryArm =
         BsonArray.parse(
@@ -241,7 +240,7 @@ public class ShardMergePipelineBuilderTest {
             [
               {"$match": {"$expr": {"$eq": [
                 {"$getField": {"field": "group_name", "input": "$_id"}},
-                "by_country"
+                "f0"
               ]}}},
               {"$group": {
                 "_id": {
@@ -271,7 +270,7 @@ public class ShardMergePipelineBuilderTest {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
-                  "sum_sum_price": "$sum_sum_price"
+                  "m0": "$m0"
                 }}
               }},
               {"$group": {
@@ -308,7 +307,7 @@ public class ShardMergePipelineBuilderTest {
                           "as": "leaf",
                           "in": {
                             "_id": "$$leaf.k3",
-                            "sum_price": "$$leaf.sum_sum_price"
+                            "sum_price": "$$leaf.m0"
                           }
                         }}}
                       }
@@ -318,8 +317,7 @@ public class ShardMergePipelineBuilderTest {
               }}
             ]
             """);
-    assertEquals(
-        expectedByCountryArm, pipeline.get(1).getDocument("$facet").getArray("by_country"));
+    assertEquals(expectedByCountryArm, pipeline.get(1).getDocument("$facet").getArray("f0"));
 
     BsonDocument expectedReplaceWith =
         BsonDocument.parse(
@@ -327,7 +325,7 @@ public class ShardMergePipelineBuilderTest {
             {"$replaceWith": {
               "count": {"lowerBound": {"$first": "$count.count_value"}},
               "facet": {
-                "by_country": {"buckets": "$by_country"}
+                "by_country": {"buckets": "$f0"}
               }
             }}
             """);
@@ -342,11 +340,9 @@ public class ShardMergePipelineBuilderTest {
             "by_city", CITY, List.of(leaf), new TermsArgs(true, TypeField.TOKEN, 2));
     TopAggregationSpec top = new TopAggregationSpec(List.of(group));
 
-    ShardMergePipelineBuilder builder = ShardMergePipelineBuilder.unsorted();
-    top.buildShardMergePipeline(builder);
-    List<BsonDocument> pipeline = builder.build("lowerBound");
+    List<BsonDocument> pipeline = buildPipeline(top);
 
-    BsonArray byCityArm = pipeline.get(1).getDocument("$facet").getArray("by_city");
+    BsonArray byCityArm = pipeline.get(1).getDocument("$facet").getArray("f0");
     assertEquals(4, byCityArm.size());
     assertEquals(
         BsonDocument.parse("{\"$sort\": {\"count_value\": -1, \"_id.keys.k0\": 1}}"),
@@ -362,18 +358,16 @@ public class ShardMergePipelineBuilderTest {
     AggregationSpec group2 = new TermsSpec("by_color", COLOR, List.of(leaf2));
     TopAggregationSpec top = new TopAggregationSpec(List.of(group1, group2));
 
-    ShardMergePipelineBuilder builder = ShardMergePipelineBuilder.unsorted();
-    top.buildShardMergePipeline(builder);
-    List<BsonDocument> pipeline = builder.build("lowerBound");
+    List<BsonDocument> pipeline = buildPipeline(top);
 
     BsonDocument expectedFacet =
         BsonDocument.parse(
             """
             {"$facet": {
-              "by_city": [
+              "f0": [
                 {"$match": {"$expr": {"$eq": [
                   {"$getField": {"field": "group_name", "input": "$_id"}},
-                  "by_city"
+                  "f0"
                 ]}}},
                 {"$project": {
                   "_id": {
@@ -382,13 +376,13 @@ public class ShardMergePipelineBuilderTest {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
-                  "sum_price": "$sum_sum_price"
+                  "sum_price": "$m0"
                 }}
               ],
-              "by_color": [
+              "f1": [
                 {"$match": {"$expr": {"$eq": [
                   {"$getField": {"field": "group_name", "input": "$_id"}},
-                  "by_color"
+                  "f1"
                 ]}}},
                 {"$project": {
                   "_id": {
@@ -397,7 +391,7 @@ public class ShardMergePipelineBuilderTest {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
-                  "sum_price": "$sum_sum_price"
+                  "sum_price": "$m0"
                 }}
               ],
               "count": [{"$match": {"$expr": {"$eq": [
@@ -416,12 +410,26 @@ public class ShardMergePipelineBuilderTest {
     AggregationSpec group = new TermsSpec("by_meta", dottedPath, List.of(leaf));
     TopAggregationSpec top = new TopAggregationSpec(List.of(group));
 
-    ShardMergePipelineBuilder builder = ShardMergePipelineBuilder.unsorted();
-    top.buildShardMergePipeline(builder);
-    String facetJson = builder.build("lowerBound").get(1).toJson();
+    String facetJson = buildPipeline(top).get(1).toJson();
 
     assertEquals(-1, facetJson.indexOf("_id.keys.meta.color"));
     assertTrueContains(facetJson, "\"field\": \"k0\"");
+  }
+
+  @Test
+  public void dottedFacetAndMetricNames_useFacetAndMetricAliases() {
+    AggregationSpec leaf = new SumAggregationSpec("sum.Amt", PRICE);
+    AggregationSpec group = new TermsSpec("by.city", CITY, List.of(leaf));
+    TopAggregationSpec top = new TopAggregationSpec(List.of(group));
+
+    String pipelineJson = buildPipeline(top).toString();
+
+    assertTrue(pipelineJson.contains("\"f0\""));
+    assertTrue(pipelineJson.contains("\"m0\""));
+    assertTrue(pipelineJson.contains("\"by.city\""));
+    assertTrue(pipelineJson.contains("\"sum.Amt\""));
+    assertEquals(-1, pipelineJson.indexOf("sum_sum.Amt"));
+    assertEquals(-1, pipelineJson.indexOf("$by.city"));
   }
 
   private static void assertTrueContains(String haystack, String needle) {

@@ -116,6 +116,13 @@ public final class ShardMergePipelineBuilder {
   record GroupMergeLevel(String keyPath, Optional<String> nestedBranchName) {}
 
   private static final class PathMergeConfig {
+    /** User-facing top-level facet branch name in the response. */
+    final String userFacetName;
+
+    PathMergeConfig(String userFacetName) {
+      this.userFacetName = userFacetName;
+    }
+
     /**
      * Grouping levels along one top-level facet branch, outermost first.
      *
@@ -165,8 +172,10 @@ public final class ShardMergePipelineBuilder {
   // Stage 2: $facet — per-path sub-pipelines from top-level specs
   private final BsonDocument facetPipelines = new BsonDocument();
 
-  // Per top-level group_name: grouping keys and projection metadata
+  // Per facet arm alias: grouping keys and projection metadata
   private final Map<String, PathMergeConfig> pathConfigs = new LinkedHashMap<>();
+
+  private final ShardMergeAliasPlan aliasPlan;
 
   /**
    * Directions of the query's sort fields, {@code 1} ascending and {@code -1} descending, in query
@@ -179,49 +188,69 @@ public final class ShardMergePipelineBuilder {
    */
   private final List<Integer> sortDirections;
 
-  @Var private Optional<String> currentGroupName = Optional.empty();
+  @Var private Optional<String> currentFacetAlias = Optional.empty();
 
-  private ShardMergePipelineBuilder(List<Integer> sortDirections) {
+  private ShardMergePipelineBuilder(ShardMergeAliasPlan aliasPlan, List<Integer> sortDirections) {
+    this.aliasPlan = aliasPlan;
     this.sortDirections = List.copyOf(sortDirections);
   }
 
   /** For a query with a global sort, given as one direction per sort field in query order. */
+  public static ShardMergePipelineBuilder forSort(
+      ShardMergeAliasPlan aliasPlan, List<Integer> sortDirections) {
+    return new ShardMergePipelineBuilder(aliasPlan, sortDirections);
+  }
+
+  /** For a query with a global sort, given as one direction per sort field in query order. */
   public static ShardMergePipelineBuilder forSort(List<Integer> sortDirections) {
-    return new ShardMergePipelineBuilder(sortDirections);
+    throw new UnsupportedOperationException(
+        "Use forSort(ShardMergeAliasPlan, List<Integer>) with a plan built from the spec tree");
+  }
+
+  /** For a query with no global sort. */
+  public static ShardMergePipelineBuilder create(ShardMergeAliasPlan aliasPlan) {
+    return new ShardMergePipelineBuilder(aliasPlan, List.of());
   }
 
   /** For a query with no global sort. */
   public static ShardMergePipelineBuilder unsorted() {
-    return new ShardMergePipelineBuilder(List.of());
+    throw new UnsupportedOperationException(
+        "Use create(ShardMergeAliasPlan) with a plan built from the spec tree");
   }
 
   List<Integer> sortDirections() {
     return this.sortDirections;
   }
 
-  private String requireCurrentGroupName() {
-    return this.currentGroupName.orElseThrow(
+  private String requireCurrentFacetAlias() {
+    return this.currentFacetAlias.orElseThrow(
         () -> new IllegalStateException("beginPath() must be called first"));
   }
 
+  private String wirePartialAlias(String wirePartial) {
+    return this.aliasPlan.wirePartialAlias(wirePartial);
+  }
+
   /**
-   * Called by the coordinator before traversing each top-level spec. Registers the group name for
-   * Stage 2 $facet sub-pipeline ($match on {@link IntermediateAggregationMetaField#GROUP_NAME}).
+   * Called by the coordinator before traversing each top-level spec. Registers the facet arm alias
+   * for Stage 2 $facet sub-pipeline ($match on {@link
+   * IntermediateAggregationMetaField#GROUP_NAME}).
    */
-  public void beginPath(String groupName) {
-    this.currentGroupName = Optional.of(groupName);
-    this.pathConfigs.putIfAbsent(groupName, new PathMergeConfig());
+  public void beginPath(String userFacetName) {
+    String facetAlias = this.aliasPlan.facetAlias(userFacetName);
+    this.currentFacetAlias = Optional.of(facetAlias);
+    this.pathConfigs.putIfAbsent(facetAlias, new PathMergeConfig(userFacetName));
     this.facetPipelines.append(
-        groupName,
+        facetAlias,
         new BsonArray(
             List.of(
                 IntermediateAggregationMetaField.matchIdFieldStage(
-                    IntermediateAggregationMetaField.GROUP_NAME, new BsonString(groupName)))));
+                    IntermediateAggregationMetaField.GROUP_NAME, new BsonString(facetAlias)))));
   }
 
   /** Called by the coordinator after traversing each top-level spec. */
   public void endPath() {
-    this.currentGroupName = Optional.empty();
+    this.currentFacetAlias = Optional.empty();
   }
 
   /**
@@ -257,7 +286,7 @@ public final class ShardMergePipelineBuilder {
       Optional<String> nestedBranchName,
       boolean boundaryGrouping,
       Optional<BsonValue> boundaryDefaultKey) {
-    PathMergeConfig config = this.pathConfigs.get(requireCurrentGroupName());
+    PathMergeConfig config = this.pathConfigs.get(requireCurrentFacetAlias());
     int levelIndex = config.groupLevels.size();
     config.groupLevels.add(new GroupMergeLevel(keyPath, nestedBranchName));
     if (boundaryGrouping) {
@@ -267,23 +296,33 @@ public final class ShardMergePipelineBuilder {
   }
 
   /** Called by leaf metric specs — adds accumulator to Stage 1 $group. */
-  public void addMetricAccumulator(String field, BsonDocument expr) {
-    String groupName = requireCurrentGroupName();
-    this.metricAccumulators.append(field, expr);
-    this.pathConfigs.get(groupName).accumulatorFields.add(field);
+  public void addMetricAccumulator(String wireField, BsonDocument expr) {
+    String facetAlias = requireCurrentFacetAlias();
+    String alias = wirePartialAlias(wireField);
+    this.metricAccumulators.append(
+        alias,
+        ShardMergeAliasExpressions.rewriteWireRefs(expr, this.aliasPlan.wirePartialToAliasMap())
+            .asDocument());
+    this.pathConfigs.get(facetAlias).accumulatorFields.add(alias);
   }
 
   /** Records {@code numBuckets} for a terms grouping at the current level. */
   public void configureTermsGrouping(int bucketLimit) {
     checkArg(bucketLimit > 0, "bucketLimit must be positive, got: %s", bucketLimit);
-    PathMergeConfig config = this.pathConfigs.get(requireCurrentGroupName());
+    PathMergeConfig config = this.pathConfigs.get(requireCurrentFacetAlias());
     int levelIndex = config.groupLevels.size() - 1;
     config.termsLevelLimits.put(levelIndex, bucketLimit);
   }
 
   /** Called by leaf metric specs — adds finalization expression to final output. */
-  public void addMetricProjection(String field, BsonValue expr) {
-    this.pathConfigs.get(requireCurrentGroupName()).metricProjections.append(field, expr);
+  public void addMetricProjection(String userOutputField, BsonValue expr) {
+    this.pathConfigs
+        .get(requireCurrentFacetAlias())
+        .metricProjections
+        .append(
+            userOutputField,
+            ShardMergeAliasExpressions.rewriteWireRefs(
+                expr, this.aliasPlan.wirePartialToAliasMap()));
   }
 
   /**
@@ -323,9 +362,9 @@ public final class ShardMergePipelineBuilder {
 
     // Stage2: $facet — append reconstruction stages per path
     for (Map.Entry<String, PathMergeConfig> entry : this.pathConfigs.entrySet()) {
-      String groupName = entry.getKey();
+      String facetAlias = entry.getKey();
       PathMergeConfig config = entry.getValue();
-      BsonArray arm = this.facetPipelines.get(groupName).asArray();
+      BsonArray arm = this.facetPipelines.get(facetAlias).asArray();
 
       int depth = config.groupLevels.size();
       if (depth >= 2) {
@@ -342,7 +381,7 @@ public final class ShardMergePipelineBuilder {
         Check.checkState(
             !config.metricProjections.isEmpty(),
             "single-level facet arm %s requires leaf metric projections",
-            groupName);
+            config.userFacetName);
         if (isBoundaryLevel(config, 0)) {
           appendFlatBoundarySortStage(arm, 0, boundaryDefaultKey(config, 0));
         } else {
@@ -371,11 +410,13 @@ public final class ShardMergePipelineBuilder {
 
     BsonDocument facetBody = new BsonDocument();
     for (Map.Entry<String, PathMergeConfig> entry : this.pathConfigs.entrySet()) {
-      String groupName = entry.getKey();
+      String facetAlias = entry.getKey();
       PathMergeConfig config = entry.getValue();
+      String userFacetName = config.userFacetName;
 
       if (usesDirectFacetReference(config)) {
-        facetBody.append(groupName, new BsonDocument("buckets", new BsonString("$" + groupName)));
+        facetBody.append(
+            userFacetName, new BsonDocument("buckets", new BsonString("$" + facetAlias)));
       } else if (!config.metricProjections.isEmpty()) {
         BsonDocument inFields = new BsonDocument();
         if (!config.groupLevels.isEmpty()) {
@@ -388,10 +429,11 @@ public final class ShardMergePipelineBuilder {
         inFields.putAll(config.metricProjections);
         BsonDocument mapExpr =
             new BsonDocument()
-                .append("input", new BsonString("$" + groupName))
+                .append("input", new BsonString("$" + facetAlias))
                 .append("as", new BsonString(FLAT_BUCKET_ROW_VAR))
                 .append("in", inFields);
-        facetBody.append(groupName, new BsonDocument("buckets", new BsonDocument("$map", mapExpr)));
+        facetBody.append(
+            userFacetName, new BsonDocument("buckets", new BsonDocument("$map", mapExpr)));
       }
     }
     replaceWithBody.append("facet", facetBody);

@@ -48,6 +48,7 @@ import com.xgen.mongot.index.query.QueryOptimizationFlags;
 import com.xgen.mongot.index.query.ReturnScope;
 import com.xgen.mongot.index.query.SearchQuery;
 import com.xgen.mongot.index.query.VectorSearchQuery;
+import com.xgen.mongot.index.query.aggregation.ShardMergeAliasPlan;
 import com.xgen.mongot.index.query.collectors.AggregationCollector;
 import com.xgen.mongot.index.query.collectors.AggregationValidator;
 import com.xgen.mongot.index.query.collectors.Collector;
@@ -1085,10 +1086,16 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
         collectorQueryInfo.topDocs.totalHits.relation() == TotalHits.Relation.EQUAL_TO,
         "AggregationIntermediateBatchProducer requires an exact count.");
 
+    List<Integer> sortDirections =
+        query.sortSpec().map(LuceneSearchIndexReader::aggregationSortDirections).orElse(List.of());
+    ShardMergeAliasPlan aliasPlan =
+        ShardMergeAliasPlan.from(aggregationPlan.rootSpec(), sortDirections);
+
     BatchProducer intermediateProducer =
         new AggregationIntermediateBatchProducer(
             collectorQueryInfo.getAggregationResult(),
-            collectorQueryInfo.topDocs.totalHits.value());
+            collectorQueryInfo.topDocs.totalHits.value(),
+            aliasPlan);
 
     return new SearchProducerAndMetaProducer(
         searchBatchProducer(
@@ -1662,5 +1669,11 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
         return 0;
       }
     }
+  }
+
+  private static List<Integer> aggregationSortDirections(SortSpec sortSpec) {
+    return sortSpec.getSortFields().stream()
+        .map(sortField -> sortField.options().order().intValue)
+        .toList();
   }
 }

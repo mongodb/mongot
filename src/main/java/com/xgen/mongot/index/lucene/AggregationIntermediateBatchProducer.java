@@ -10,6 +10,7 @@ import com.xgen.mongot.index.MetaResults;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.query.aggregation.AggregationResult;
 import com.xgen.mongot.index.query.aggregation.AggregationResultBuilder;
+import com.xgen.mongot.index.query.aggregation.ShardMergeAliasPlan;
 import com.xgen.mongot.index.query.counts.Count;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.Bytes;
@@ -41,6 +42,7 @@ final class AggregationIntermediateBatchProducer implements BatchProducer {
 
   private final AggregationResult aggregationResult;
   private final long totalHits;
+  private final Optional<ShardMergeAliasPlan> aliasPlan;
 
   /**
    * Flattened wire rows, populated by {@link #execute} and empty until then.
@@ -60,7 +62,20 @@ final class AggregationIntermediateBatchProducer implements BatchProducer {
   private boolean closed;
 
   AggregationIntermediateBatchProducer(AggregationResult aggregationResult, long totalHits) {
+    this(aggregationResult, totalHits, Optional.empty());
+  }
+
+  AggregationIntermediateBatchProducer(
+      AggregationResult aggregationResult, long totalHits, ShardMergeAliasPlan aliasPlan) {
+    this(aggregationResult, totalHits, Optional.of(aliasPlan));
+  }
+
+  private AggregationIntermediateBatchProducer(
+      AggregationResult aggregationResult,
+      long totalHits,
+      Optional<ShardMergeAliasPlan> aliasPlan) {
     this.aggregationResult = aggregationResult;
+    this.aliasPlan = aliasPlan;
     this.intermediateDocs = Optional.empty();
     this.totalHits = totalHits;
     this.nextDocIndex = 0;
@@ -112,7 +127,12 @@ final class AggregationIntermediateBatchProducer implements BatchProducer {
         IOUtils.closeWhileHandlingException(producers);
       }
     }
-    return new AggregationIntermediateBatchProducer(resultBuilder.build(), totalHits);
+    AggregationResult mergedResult = resultBuilder.build();
+    Optional<ShardMergeAliasPlan> aliasPlan = producers.get(0).aliasPlan;
+    if (aliasPlan.isPresent()) {
+      return new AggregationIntermediateBatchProducer(mergedResult, totalHits, aliasPlan.get());
+    }
+    return new AggregationIntermediateBatchProducer(mergedResult, totalHits);
   }
 
   /**
@@ -142,7 +162,9 @@ final class AggregationIntermediateBatchProducer implements BatchProducer {
   @Override
   public void execute(Bytes sizeLimit, BatchCursorOptions queryCursorOptions) throws IOException {
     if (this.intermediateDocs.isEmpty()) {
-      this.intermediateDocs = Optional.of(this.aggregationResult.toIntermediateBson());
+      BsonArray docs = this.aggregationResult.toIntermediateBson();
+      this.intermediateDocs =
+          Optional.of(this.aliasPlan.map(plan -> plan.rewriteIntermediateBson(docs)).orElse(docs));
     }
   }
 

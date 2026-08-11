@@ -32,6 +32,17 @@ public record TopAggregationSpec(List<AggregationSpec> children) implements Aggr
     }
   }
 
+  /** Builds a merge-pipeline builder with facet/metric aliases for this spec tree. */
+  public ShardMergePipelineBuilder newShardMergePipelineBuilder(List<Integer> sortDirections) {
+    ShardMergeAliasPlan plan = ShardMergeAliasPlan.from(this, sortDirections);
+    ShardMergePipelineBuilder builder =
+        sortDirections.isEmpty()
+            ? ShardMergePipelineBuilder.create(plan)
+            : ShardMergePipelineBuilder.forSort(plan, sortDirections);
+    buildShardMergePipeline(builder);
+    return builder;
+  }
+
   private static final class TopLevelAccumulator extends Accumulator {
     private final BucketCollector multiBucketCollector;
 

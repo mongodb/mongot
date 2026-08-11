@@ -8,6 +8,7 @@ import static org.junit.Assert.assertTrue;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.util.FieldPath;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.After;
@@ -194,7 +195,9 @@ public class SearchAggregationBootstrapTest {
 
     // IllegalStateException so ShardedSearchPlanner wraps it into ShardedSearchPlannerException
     // rather than letting it escape planning as an uncaught internal error.
-    ShardMergePipelineBuilder builder = ShardMergePipelineBuilder.unsorted();
+    ShardMergePipelineBuilder builder =
+        ShardMergePipelineBuilder.create(
+            ShardMergeAliasPlan.from(new TopAggregationSpec(List.of()), List.of()));
     assertThrows(IllegalStateException.class, () -> first.buildShardMergePipeline(builder));
     assertThrows(IllegalStateException.class, () -> last.buildShardMergePipeline(builder));
   }

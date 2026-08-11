@@ -187,18 +187,18 @@ public class FirstLastShardMergeTest {
                 "keys": {"$getField": {"field": {"$literal": "$meta/keys"}, "input": "$$ROOT"}}
               },
               "count_value": {"$sum": "$count"},
-              "first_cheapest": {"$top": {
-                "output": {"$ifNull": ["$first_value_cheapest", null]},
+              "m3": {"$top": {
+                "output": {"$ifNull": ["$m0", null]},
                 "sortBy": {
-                  "first_has_cheapest": -1,
-                  "first_key_cheapest._0": 1,
-                  "first_key_cheapest._1": -1
+                  "m1": -1,
+                  "m2._0": 1,
+                  "m2._1": -1
                 }
               }}
             }}
             """),
         pipeline.get(0));
-    assertEquals(new BsonString("$first_cheapest"), leafProjection(pipeline, "cheapest"));
+    assertEquals(new BsonString("$m3"), leafProjection(pipeline, "cheapest"));
   }
 
   /** The same key read from the other end: {@code last} wants the bottom document under it. */
@@ -211,16 +211,16 @@ public class FirstLastShardMergeTest {
         BsonDocument.parse(
             """
             {"$bottom": {
-              "output": {"$ifNull": ["$last_value_dearest", null]},
+              "output": {"$ifNull": ["$m0", null]},
               "sortBy": {
-                "last_has_dearest": 1,
-                "last_key_dearest._0": 1,
-                "last_key_dearest._1": -1
+                "m1": 1,
+                "m2._0": 1,
+                "m2._1": -1
               }
             }}
             """),
-        mergeAccumulator(pipeline, "last_dearest"));
-    assertEquals(new BsonString("$last_dearest"), leafProjection(pipeline, "dearest"));
+        mergeAccumulator(pipeline, "m3"));
+    assertEquals(new BsonString("$m3"), leafProjection(pipeline, "dearest"));
   }
 
   /**
@@ -233,22 +233,20 @@ public class FirstLastShardMergeTest {
         BsonDocument.parse(
             """
             {"$top": {
-              "output": {"$ifNull": ["$first_value_newest", null]},
-              "sortBy": {"first_has_newest": -1}
+              "output": {"$ifNull": ["$m0", null]},
+              "sortBy": {"m1": -1}
             }}
             """),
-        mergeAccumulator(
-            pipelineFor(new FirstAggregationSpec("newest", COLOR), List.of()), "first_newest"));
+        mergeAccumulator(pipelineFor(new FirstAggregationSpec("newest", COLOR), List.of()), "m2"));
     assertEquals(
         BsonDocument.parse(
             """
             {"$bottom": {
-              "output": {"$ifNull": ["$last_value_oldest", null]},
-              "sortBy": {"last_has_oldest": 1}
+              "output": {"$ifNull": ["$m0", null]},
+              "sortBy": {"m1": 1}
             }}
             """),
-        mergeAccumulator(
-            pipelineFor(new LastAggregationSpec("oldest", COLOR), List.of()), "last_oldest"));
+        mergeAccumulator(pipelineFor(new LastAggregationSpec("oldest", COLOR), List.of()), "m2"));
   }
 
   /**
@@ -262,9 +260,8 @@ public class FirstLastShardMergeTest {
     AggregationSpec byColor = new TermsSpec("by_color", COLOR, List.of(leaf));
     AggregationSpec byCity = new TermsSpec("by_city", CITY, List.of(byColor));
 
-    ShardMergePipelineBuilder builder = ShardMergePipelineBuilder.forSort(List.of(1));
-    new TopAggregationSpec(List.of(byCity)).buildShardMergePipeline(builder);
-    List<BsonDocument> pipeline = builder.build("lowerBound");
+    TopAggregationSpec top = new TopAggregationSpec(List.of(byCity));
+    List<BsonDocument> pipeline = top.newShardMergePipelineBuilder(List.of(1)).build("lowerBound");
 
     BsonArray expectedByCityArm =
         BsonArray.parse(
@@ -272,7 +269,7 @@ public class FirstLastShardMergeTest {
             [
               {"$match": {"$expr": {"$eq": [
                 {"$getField": {"field": "group_name", "input": "$_id"}},
-                "by_city"
+                "f0"
               ]}}},
               {"$group": {
                 "_id": {"$getField": {"field": "k0",
@@ -280,7 +277,7 @@ public class FirstLastShardMergeTest {
                 "_rows": {"$push": {
                   "k1": {"$getField": {"field": "k1",
                     "input": {"$getField": {"field": "keys", "input": "$_id"}}}},
-                  "first_cheapest": "$first_cheapest"
+                  "m3": "$m3"
                 }}
               }},
               {"$project": {
@@ -290,20 +287,19 @@ public class FirstLastShardMergeTest {
                   "as": "row",
                   "in": {
                     "_id": "$$row.k1",
-                    "cheapest": "$$row.first_cheapest"
+                    "cheapest": "$$row.m3"
                   }
                 }}}
               }}
             ]
             """);
-    assertEquals(expectedByCityArm, pipeline.get(1).getDocument("$facet").getArray("by_city"));
+    assertEquals(expectedByCityArm, pipeline.get(1).getDocument("$facet").getArray("f0"));
   }
 
   private static List<BsonDocument> pipelineFor(AggregationSpec leaf, List<Integer> directions) {
-    ShardMergePipelineBuilder builder = ShardMergePipelineBuilder.forSort(directions);
-    new TopAggregationSpec(List.of(new TermsSpec("by_city", CITY, List.of(leaf))))
-        .buildShardMergePipeline(builder);
-    return builder.build("lowerBound");
+    TopAggregationSpec top =
+        new TopAggregationSpec(List.of(new TermsSpec("by_city", CITY, List.of(leaf))));
+    return top.newShardMergePipelineBuilder(directions).build("lowerBound");
   }
 
   private static BsonDocument mergeAccumulator(List<BsonDocument> pipeline, String field) {
@@ -311,7 +307,7 @@ public class FirstLastShardMergeTest {
   }
 
   private static BsonValue leafProjection(List<BsonDocument> pipeline, String name) {
-    BsonArray arm = pipeline.get(1).getDocument("$facet").getArray("by_city");
+    BsonArray arm = pipeline.get(1).getDocument("$facet").getArray("f0");
     return arm.get(arm.size() - 1).asDocument().getDocument("$project").get(name);
   }
 

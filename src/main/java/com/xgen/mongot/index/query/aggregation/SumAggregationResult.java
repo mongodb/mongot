@@ -9,6 +9,10 @@ import org.bson.BsonValue;
 public final class SumAggregationResult extends MetricAggregationResult {
   private static final String SUM_PREFIX = "sum_";
 
+  static String wirePartialName(String name) {
+    return SUM_PREFIX + name;
+  }
+
   private final double value;
 
   public SumAggregationResult(String name, double value) {
@@ -37,7 +41,7 @@ public final class SumAggregationResult extends MetricAggregationResult {
 
   @Override
   public BsonDocument toIntermediateMetricPartials() {
-    return new BsonDocument(SUM_PREFIX + getName(), new BsonDouble(this.value));
+    return new BsonDocument(wirePartialName(getName()), new BsonDouble(this.value));
   }
 
   private static final class Builder implements AggregationResultBuilder {

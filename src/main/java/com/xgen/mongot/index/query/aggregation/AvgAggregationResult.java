@@ -12,6 +12,14 @@ public final class AvgAggregationResult extends MetricAggregationResult {
   private static final String AVG_SUM_PREFIX = "avg_sum_";
   private static final String AVG_COUNT_PREFIX = "avg_count_";
 
+  static String wireSumPartialName(String name) {
+    return AVG_SUM_PREFIX + name;
+  }
+
+  static String wireCountPartialName(String name) {
+    return AVG_COUNT_PREFIX + name;
+  }
+
   private final double sum;
   private final long count;
 
@@ -48,8 +56,8 @@ public final class AvgAggregationResult extends MetricAggregationResult {
   @Override
   public BsonDocument toIntermediateMetricPartials() {
     return new BsonDocument()
-        .append(AVG_SUM_PREFIX + getName(), new BsonDouble(this.sum))
-        .append(AVG_COUNT_PREFIX + getName(), new BsonInt64(this.count));
+        .append(wireSumPartialName(getName()), new BsonDouble(this.sum))
+        .append(wireCountPartialName(getName()), new BsonInt64(this.count));
   }
 
   private static final class Builder implements AggregationResultBuilder {

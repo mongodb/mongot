@@ -152,11 +152,8 @@ public class ShardedSearchPlanner {
       TopAggregationSpec spec =
           AggregationSpecBuilder.toTopLevelSpec(
               aggregationCollector, AggregationRegistry.getInstance(), boundaryResolver);
-      ShardMergePipelineBuilder builder =
-          sortSpec
-              .map(sort -> ShardMergePipelineBuilder.forSort(sortDirections(sort)))
-              .orElseGet(ShardMergePipelineBuilder::unsorted);
-      spec.buildShardMergePipeline(builder);
+      List<Integer> sortDirs = sortSpec.map(ShardedSearchPlanner::sortDirections).orElse(List.of());
+      ShardMergePipelineBuilder builder = spec.newShardMergePipelineBuilder(sortDirs);
       return builder.build(countType);
     } catch (IllegalArgumentException | IllegalStateException e) {
       throw new ShardedSearchPlannerException(
