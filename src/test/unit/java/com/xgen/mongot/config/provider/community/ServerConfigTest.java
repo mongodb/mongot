@@ -62,6 +62,8 @@ public class ServerConfigTest {
     verify(this.context, never()).handleSemanticError(anyString());
   }
 
+  // 253 is the inclusive upper bound: a name of exactly 253 characters is valid, and only
+  // longer names are rejected.
   @Test
   public void testValidateServerName_ValidMaxLength253_NoError() throws Exception {
     String maxLengthName = this.stringUtils.nextAlphanumeric(253);
@@ -107,7 +109,7 @@ public class ServerConfigTest {
     String tooLongName = this.stringUtils.nextAlphanumeric(254);
     assertThrows(
         BsonParseException.class, () -> ServerConfig.validateServerName(this.context, tooLongName));
-    verify(this.context).handleSemanticError("server name must be less than 253 characters");
+    verify(this.context).handleSemanticError("server name must be at most 253 characters");
   }
 
   @Test

@@ -63,7 +63,7 @@ public record ServerConfig(GrpcServerConfig grpc, Optional<String> name)
     }
 
     if (serverName.length() > 253) {
-      context.handleSemanticError("server name must be less than 253 characters");
+      context.handleSemanticError("server name must be at most 253 characters");
     }
 
     if (!SERVER_NAME_VALID_REGEX.matcher(serverName).matches()) {
