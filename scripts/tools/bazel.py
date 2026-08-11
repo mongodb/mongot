@@ -1,13 +1,12 @@
 import subprocess
 from enum import Enum
-from typing import List, Tuple, Optional, Union
+from typing import List, Optional, Tuple, Union
 
 from scripts.tools.mongot import MONGOT_ROOT
 from scripts.tools.process import Process
 
 
 class Label:
-
     def __init__(self, value: str):
         self._value = value
 
@@ -18,16 +17,15 @@ class Label:
         return self._value
 
     @staticmethod
-    def all() -> 'Label':
-        return Label('//...')
+    def all() -> "Label":
+        return Label("//...")
 
     @staticmethod
-    def join(*labels: 'Label') -> 'Label':
-        return Label(' '.join(str(label) for label in labels))
+    def join(*labels: "Label") -> "Label":
+        return Label(" ".join(str(label) for label in labels))
 
 
 class Query:
-
     def __init__(self, value: str):
         self._value = value
 
@@ -38,24 +36,24 @@ class Query:
         return self._value
 
     @staticmethod
-    def all_tests() -> 'Query':
+    def all_tests() -> "Query":
         return Query.tests(Label.all())
 
     @staticmethod
-    def tests(label: Label) -> 'Query':
-        return Query(f'tests({str(label)})')
+    def tests(label: Label) -> "Query":
+        return Query(f"tests({str(label)})")
 
     @staticmethod
-    def tags(tag: str) -> 'Query':
-        return Query.attr('tags', tag, Query(str(Label.all())))
+    def tags(tag: str) -> "Query":
+        return Query.attr("tags", tag, Query(str(Label.all())))
 
     @staticmethod
-    def attr(attribute: str, pattern: str, query: 'Query') -> 'Query':
-        return Query(f'attr({attribute}, {pattern}, {str(query)})')
+    def attr(attribute: str, pattern: str, query: "Query") -> "Query":
+        return Query(f"attr({attribute}, {pattern}, {str(query)})")
 
     @staticmethod
-    def intersect(*queries: 'Query') -> 'Query':
-        return Query(f'( {" intersect ".join(str(query) for query in queries)} )')
+    def intersect(*queries: "Query") -> "Query":
+        return Query(f"( {' intersect '.join(str(query) for query in queries)} )")
 
 
 class Bazel:
@@ -69,16 +67,20 @@ class Bazel:
         TEST = "test"
 
     class FailedCommandError(Exception):
-
-        def __init__(self, command: 'Bazel.Command', args: Tuple[str, ...], exit_code: int,
-                     stderr: Optional[str]):
+        def __init__(
+            self,
+            command: "Bazel.Command",
+            args: Tuple[str, ...],
+            exit_code: int,
+            stderr: Optional[str],
+        ):
             self.command = command
             self.args = args
             self.exit_code = exit_code
             self.stderr = stderr
 
         def __str__(self):
-            message = f"""Bazel command '{self.command.value} {' '.join(self.args)}' failed (exit code {self.exit_code})"""
+            message = f"""Bazel command '{self.command.value} {" ".join(self.args)}' failed (exit code {self.exit_code})"""
             if self.stderr is not None:
                 message += f""":
 {self.stderr}
@@ -117,19 +119,23 @@ class Bazel:
         Bazel._execute(True, Bazel.Command.TEST, bazel_flags, str(label))
 
     @staticmethod
-    def _execute(stream: bool, command: 'Bazel.Command', bazel_flags: List[str],
-                 *args: str) -> subprocess.CompletedProcess:
-        result = (Process()
-                  .command(Bazel.BAZELISK)
-                  .cwd(Bazel.WORKSPACE)
-                  .stream(stream)
-                  .arg(command.value)
-                  .args(*bazel_flags)
-                  .args(*args)
-                  .execute())
+    def _execute(
+        stream: bool, command: "Bazel.Command", bazel_flags: List[str], *args: str
+    ) -> subprocess.CompletedProcess:
+        result = (
+            Process()
+            .command(Bazel.BAZELISK)
+            .cwd(Bazel.WORKSPACE)
+            .stream(stream)
+            .arg(command.value)
+            .args(*bazel_flags)
+            .args(*args)
+            .execute()
+        )
 
         if result.returncode != 0:
-            raise Bazel.FailedCommandError(command, args, result.returncode,
-                                           result.stderr if not stream else None)
+            raise Bazel.FailedCommandError(
+                command, args, result.returncode, result.stderr if not stream else None
+            )
 
         return result

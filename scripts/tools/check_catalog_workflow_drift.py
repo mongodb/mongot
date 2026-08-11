@@ -20,11 +20,19 @@ from pathlib import Path
 import yaml
 
 # The fields a fully-synced task must match across the two workflows.
-_COMPARED_FIELDS = ("Activity", "Notes", "DisplayName", "Description", "ExecutionMode", "Type", "Data")
+_COMPARED_FIELDS = (
+    "Activity",
+    "Notes",
+    "DisplayName",
+    "Description",
+    "ExecutionMode",
+    "Type",
+    "Data",
+)
 
 # Free-text fields that are written per workflow (patch vs. non-patch give
 # different human instructions) and are therefore allowed to differ for tasks
-# opted into partial sync. Everything else — structure and execution semantics 
+# opted into partial sync. Everything else — structure and execution semantics
 # must still match.
 _SYNC_EXCEPT_DESCRIPTIVE = set(_COMPARED_FIELDS) - {"Notes", "Description"}
 
@@ -85,11 +93,7 @@ def check_drift(catalog_path):
     with open(catalog_path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
-    workflow_types = (
-        data.get("spec", {})
-        .get("releaseConfig", {})
-        .get("WorkflowTypes", [])
-    )
+    workflow_types = data.get("spec", {}).get("releaseConfig", {}).get("WorkflowTypes", [])
     by_workflow = {wf["Name"]: _tasks_by_name(wf.get("Tasks", [])) for wf in workflow_types}
 
     non_patch = by_workflow.get("NonPatchRelease", {})
@@ -139,7 +143,7 @@ def check_drift(catalog_path):
 
 
 if __name__ == "__main__":
-    # Accept an explicit path so the Bazel test can pass $(location //:catalog-info.yaml) 
+    # Accept an explicit path so the Bazel test can pass $(location //:catalog-info.yaml)
     # from the sandboxed runfiles tree; fall back to cwd for manual local runs.
     catalog = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("catalog-info.yaml")
     if not catalog.exists():

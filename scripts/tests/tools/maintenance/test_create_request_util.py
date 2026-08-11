@@ -13,7 +13,7 @@ import tempfile
 import unittest
 from io import StringIO
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 # Add the maintenance directory to the path so we can import the module
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "tools" / "maintenance"))
@@ -30,11 +30,16 @@ class TestAddMetadataArguments(unittest.TestCase):
         create_request_util.add_metadata_arguments(parser)
 
         # Parse with all metadata arguments
-        args = parser.parse_args([
-            "--requested-at", "2026-02-05T10:00:00Z",
-            "--requested-by", "test-user",
-            "--reason", "Test reason"
-        ])
+        args = parser.parse_args(
+            [
+                "--requested-at",
+                "2026-02-05T10:00:00Z",
+                "--requested-by",
+                "test-user",
+                "--reason",
+                "Test reason",
+            ]
+        )
 
         self.assertEqual(args.requested_at, "2026-02-05T10:00:00Z")
         self.assertEqual(args.requested_by, "test-user")
@@ -46,12 +51,18 @@ class TestAddMetadataArguments(unittest.TestCase):
         create_request_util.add_metadata_arguments(parser)
 
         # Parse with output argument
-        args = parser.parse_args([
-            "--requested-at", "2026-02-05T10:00:00Z",
-            "--requested-by", "test-user",
-            "--reason", "Test reason",
-            "--output", "/tmp/test.json"
-        ])
+        args = parser.parse_args(
+            [
+                "--requested-at",
+                "2026-02-05T10:00:00Z",
+                "--requested-by",
+                "test-user",
+                "--reason",
+                "Test reason",
+                "--output",
+                "/tmp/test.json",
+            ]
+        )
 
         self.assertEqual(args.output, Path("/tmp/test.json"))
 
@@ -61,7 +72,7 @@ class TestAddMetadataArguments(unittest.TestCase):
         all_required_args = {
             "--requested-at": "2026-02-05T10:00:00Z",
             "--requested-by": "test-user",
-            "--reason": "Test reason"
+            "--reason": "Test reason",
         }
 
         # Test each required argument by omitting it
@@ -81,8 +92,9 @@ class TestAddMetadataArguments(unittest.TestCase):
                     parser.parse_args(test_args)
 
                 # Verify it's a non-zero exit code (error)
-                self.assertNotEqual(cm.exception.code, 0,
-                                    f"Parser should fail when {missing_arg} is missing")
+                self.assertNotEqual(
+                    cm.exception.code, 0, f"Parser should fail when {missing_arg} is missing"
+                )
 
 
 class TestAddMetadataToRequest(unittest.TestCase):
@@ -101,18 +113,13 @@ class TestAddMetadataToRequest(unittest.TestCase):
         create_request_util.add_metadata_to_request(request_json, args)
 
         self.assertIn("metadata", request_json)
-        self.assertEqual(request_json["metadata"]["requestedAt"],
-                         "2026-02-05T10:00:00Z")
+        self.assertEqual(request_json["metadata"]["requestedAt"], "2026-02-05T10:00:00Z")
         self.assertEqual(request_json["metadata"]["requestedBy"], "test-user")
         self.assertEqual(request_json["metadata"]["reason"], "Test reason")
 
     def test_preserves_existing_fields_in_request(self):
         """Test that existing fields in request JSON are preserved"""
-        request_json = {
-            "tool": "TEST_TOOL",
-            "generationId": "test_gen_123",
-            "otherField": "value"
-        }
+        request_json = {"tool": "TEST_TOOL", "generationId": "test_gen_123", "otherField": "value"}
 
         args = MagicMock()
         args.requested_at = "2026-02-05T10:00:00Z"
@@ -143,7 +150,7 @@ class TestSetOutputFile(unittest.TestCase):
         """Test that default filename includes generation ID and is formatted correctly"""
         import re
 
-        with patch('sys.stderr', new_callable=StringIO):
+        with patch("sys.stderr", new_callable=StringIO):
             result = create_request_util.set_output_file(None, "test_gen_456")
 
         # Should match pattern: request_test_gen_456_YYYYMMDD_HHMMSS.json
@@ -153,7 +160,7 @@ class TestSetOutputFile(unittest.TestCase):
         self.assertIsNotNone(
             re.match(filename_pattern, filename),
             f"Filename '{filename}' does not match expected format "
-            f"'request_<generation-id>_YYYYMMDD_HHMMSS.json'"
+            f"'request_<generation-id>_YYYYMMDD_HHMMSS.json'",
         )
 
         # Verify the timestamp portion is valid
@@ -163,26 +170,25 @@ class TestSetOutputFile(unittest.TestCase):
 
     def test_uses_build_workspace_directory_when_available(self):
         """Test that BUILD_WORKSPACE_DIRECTORY is used when set"""
-        with patch.dict('os.environ',
-                        {'BUILD_WORKSPACE_DIRECTORY': '/workspace/root'}):
-            with patch('sys.stderr', new_callable=StringIO):
+        with patch.dict("os.environ", {"BUILD_WORKSPACE_DIRECTORY": "/workspace/root"}):
+            with patch("sys.stderr", new_callable=StringIO):
                 result = create_request_util.set_output_file(None, "gen_789")
 
         # Result should start with the workspace directory
-        self.assertTrue(str(result).startswith('/workspace/root'))
+        self.assertTrue(str(result).startswith("/workspace/root"))
 
     def test_uses_current_directory_when_build_workspace_not_set(self):
         """Test that current directory is used when BUILD_WORKSPACE_DIRECTORY is not set"""
         # Ensure BUILD_WORKSPACE_DIRECTORY is not set
         env = os.environ.copy()
-        env.pop('BUILD_WORKSPACE_DIRECTORY', None)
+        env.pop("BUILD_WORKSPACE_DIRECTORY", None)
 
-        with patch.dict('os.environ', env, clear=True):
-            with patch('sys.stderr', new_callable=StringIO):
+        with patch.dict("os.environ", env, clear=True):
+            with patch("sys.stderr", new_callable=StringIO):
                 result = create_request_util.set_output_file(None, "gen_abc")
 
         # Result should be a relative path (not starting with /workspace)
-        self.assertFalse(str(result).startswith('/workspace'))
+        self.assertFalse(str(result).startswith("/workspace"))
 
 
 class TestWriteRequestFile(unittest.TestCase):
@@ -205,19 +211,19 @@ class TestWriteRequestFile(unittest.TestCase):
             "metadata": {
                 "requestedAt": "2026-02-05T10:00:00Z",
                 "requestedBy": "test-user",
-                "reason": "Test"
-            }
+                "reason": "Test",
+            },
         }
         output_file = self.temp_path / "test_output.json"
 
-        with patch('sys.stdout', new_callable=StringIO):
+        with patch("sys.stdout", new_callable=StringIO):
             create_request_util.write_request_file(request_json, output_file)
 
         # Verify file was created
         self.assertTrue(output_file.exists())
 
         # Verify JSON content
-        with open(output_file, 'r') as f:
+        with open(output_file, "r") as f:
             loaded_json = json.load(f)
 
         self.assertEqual(loaded_json, request_json)
@@ -230,7 +236,7 @@ class TestWriteRequestFile(unittest.TestCase):
         # Verify parent directories don't exist yet
         self.assertFalse(output_file.parent.exists())
 
-        with patch('sys.stdout', new_callable=StringIO):
+        with patch("sys.stdout", new_callable=StringIO):
             create_request_util.write_request_file(request_json, output_file)
 
         # Verify parent directories were created
@@ -243,10 +249,9 @@ class TestWriteRequestFile(unittest.TestCase):
         # Use an invalid path that will cause an OSError
         output_file = Path("/invalid/path/that/cannot/be/created/output.json")
 
-        with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
+        with patch("sys.stderr", new_callable=StringIO) as mock_stderr:
             with self.assertRaises(SystemExit) as cm:
-                create_request_util.write_request_file(request_json,
-                                                       output_file)
+                create_request_util.write_request_file(request_json, output_file)
 
             # Verify exit code is 1
             self.assertEqual(cm.exception.code, 1)
@@ -262,15 +267,15 @@ class TestWriteRequestFile(unittest.TestCase):
         output_file = self.temp_path / "overwrite.json"
 
         # Write first version
-        with patch('sys.stdout', new_callable=StringIO):
+        with patch("sys.stdout", new_callable=StringIO):
             create_request_util.write_request_file(request_json_v1, output_file)
 
         # Write second version (should overwrite)
-        with patch('sys.stdout', new_callable=StringIO):
+        with patch("sys.stdout", new_callable=StringIO):
             create_request_util.write_request_file(request_json_v2, output_file)
 
         # Verify file contains second version
-        with open(output_file, 'r') as f:
+        with open(output_file, "r") as f:
             loaded_json = json.load(f)
 
         self.assertEqual(loaded_json["version"], 2)

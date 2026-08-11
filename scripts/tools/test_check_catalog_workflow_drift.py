@@ -71,14 +71,29 @@ class CheckDriftTest(unittest.TestCase):
     # --- default (unlisted) task: fully synced, protected automatically ------
 
     def test_default_task_in_sync_passes(self):
-        task = _task(_DEFAULT_NAME, Activity="A", Notes="N", DisplayName="D",
-                     Description="Desc", ExecutionMode="manual", Type="T", Data="X")
+        task = _task(
+            _DEFAULT_NAME,
+            Activity="A",
+            Notes="N",
+            DisplayName="D",
+            Description="Desc",
+            ExecutionMode="manual",
+            Type="T",
+            Data="X",
+        )
         self.assertTrue(self._check([task], [dict(task)]))
 
     def test_default_task_drift_in_any_field_fails(self):
         # A new/unlisted shared task is guarded on ALL fields by default.
-        base = dict(Activity="A", Notes="N", DisplayName="D", Description="Desc",
-                    ExecutionMode="manual", Type="T", Data="X")
+        base = dict(
+            Activity="A",
+            Notes="N",
+            DisplayName="D",
+            Description="Desc",
+            ExecutionMode="manual",
+            Type="T",
+            Data="X",
+        )
         for field in drift_check._COMPARED_FIELDS:
             with self.subTest(field=field):
                 np_task = _task(_DEFAULT_NAME, **base)
@@ -94,10 +109,12 @@ class CheckDriftTest(unittest.TestCase):
     # --- exempt task: allowed to diverge entirely ----------------------------
 
     def test_exempt_task_drift_is_allowed(self):
-        np_task = _task(_EXEMPT_NAME, ExecutionMode="manual", Activity="A",
-                        Notes="a", Description="a")
-        p_task = _task(_EXEMPT_NAME, ExecutionMode="automatic", Activity="B",
-                       Notes="b", Description="b")
+        np_task = _task(
+            _EXEMPT_NAME, ExecutionMode="manual", Activity="A", Notes="a", Description="a"
+        )
+        p_task = _task(
+            _EXEMPT_NAME, ExecutionMode="automatic", Activity="B", Notes="b", Description="b"
+        )
         self.assertTrue(self._check([np_task], [p_task]))
 
     def test_exempt_task_missing_from_one_workflow_is_allowed(self):
@@ -108,18 +125,32 @@ class CheckDriftTest(unittest.TestCase):
 
     def test_partial_sync_descriptive_drift_passes(self):
         # Notes AND Description may differ; the guarded fields match -> allowed.
-        np_task = _task(_PARTIAL_SYNC_NAME, ExecutionMode="manual", Activity="A",
-                        DisplayName="D", Notes="non-patch notes", Description="np")
-        p_task = _task(_PARTIAL_SYNC_NAME, ExecutionMode="manual", Activity="A",
-                       DisplayName="D", Notes="patch notes", Description="p")
+        np_task = _task(
+            _PARTIAL_SYNC_NAME,
+            ExecutionMode="manual",
+            Activity="A",
+            DisplayName="D",
+            Notes="non-patch notes",
+            Description="np",
+        )
+        p_task = _task(
+            _PARTIAL_SYNC_NAME,
+            ExecutionMode="manual",
+            Activity="A",
+            DisplayName="D",
+            Notes="patch notes",
+            Description="p",
+        )
         self.assertTrue(self._check([np_task], [p_task]))
 
     def test_partial_sync_structural_drift_fails(self):
         # A non-descriptive field (e.g. DisplayName) is still guarded.
-        np_task = _task(_PARTIAL_SYNC_NAME, ExecutionMode="manual", Activity="A",
-                        DisplayName="Non-patch label")
-        p_task = _task(_PARTIAL_SYNC_NAME, ExecutionMode="manual", Activity="A",
-                       DisplayName="Patch label")
+        np_task = _task(
+            _PARTIAL_SYNC_NAME, ExecutionMode="manual", Activity="A", DisplayName="Non-patch label"
+        )
+        p_task = _task(
+            _PARTIAL_SYNC_NAME, ExecutionMode="manual", Activity="A", DisplayName="Patch label"
+        )
         self.assertFalse(self._check([np_task], [p_task]))
 
     def test_partial_sync_execution_mode_drift_fails(self):

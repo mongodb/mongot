@@ -24,9 +24,9 @@ from scripts.perf.pprof import profile_pb2
 
 def load_profile(path: str) -> profile_pb2.Profile:
     """Load a pprof profile from .pb or .pb.gz file."""
-    with open(path, 'rb') as f:
+    with open(path, "rb") as f:
         data = f.read()
-    if data[:2] == b'\x1f\x8b':
+    if data[:2] == b"\x1f\x8b":
         data = gzip.decompress(data)
     prof = profile_pb2.Profile()
     prof.ParseFromString(data)
@@ -51,8 +51,9 @@ def build_location_index(prof: profile_pb2.Profile) -> dict:
     return {loc.id: loc for loc in prof.location}
 
 
-def location_func_name(prof: profile_pb2.Profile, loc_id: int,
-                       loc_idx: dict, func_idx: dict) -> str:
+def location_func_name(
+    prof: profile_pb2.Profile, loc_id: int, loc_idx: dict, func_idx: dict
+) -> str:
     """Get the function name for a location ID (uses first line entry)."""
     loc = loc_idx.get(loc_id)
     if loc and loc.line:
@@ -62,8 +63,9 @@ def location_func_name(prof: profile_pb2.Profile, loc_id: int,
     return f"<loc:{loc_id}>"
 
 
-def location_full_name(prof: profile_pb2.Profile, loc_id: int,
-                       loc_idx: dict, func_idx: dict) -> str:
+def location_full_name(
+    prof: profile_pb2.Profile, loc_id: int, loc_idx: dict, func_idx: dict
+) -> str:
     """Get function name with file and line info."""
     loc = loc_idx.get(loc_id)
     if loc and loc.line:
@@ -73,7 +75,7 @@ def location_full_name(prof: profile_pb2.Profile, loc_id: int,
             name = prof.string_table[fn.name]
             filename = prof.string_table[fn.filename] if fn.filename else ""
             if filename and line.line:
-                short = filename.rsplit('/', 1)[-1] if '/' in filename else filename
+                short = filename.rsplit("/", 1)[-1] if "/" in filename else filename
                 return f"{name} ({short}:{line.line})"
             return name
     return f"<loc:{loc_id}>"
@@ -116,7 +118,7 @@ def compute_flat_cum(prof: profile_pb2.Profile, value_idx: int = 0) -> tuple:
 def format_value(val: int, unit: str) -> str:
     """Format a value with its unit in human-readable form."""
     u = unit.lower()
-    if u in ('nanoseconds', 'nanosecond', 'ns'):
+    if u in ("nanoseconds", "nanosecond", "ns"):
         if abs(val) >= 1_000_000_000:
             return f"{val / 1e9:.2f}s"
         if abs(val) >= 1_000_000:
@@ -124,25 +126,25 @@ def format_value(val: int, unit: str) -> str:
         if abs(val) >= 1_000:
             return f"{val / 1e3:.1f}us"
         return f"{val}ns"
-    if u in ('microseconds', 'microsecond', 'us'):
+    if u in ("microseconds", "microsecond", "us"):
         if abs(val) >= 1_000_000:
             return f"{val / 1e6:.2f}s"
         if abs(val) >= 1_000:
             return f"{val / 1e3:.1f}ms"
         return f"{val}us"
-    if u in ('milliseconds', 'millisecond', 'ms'):
+    if u in ("milliseconds", "millisecond", "ms"):
         if abs(val) >= 1000:
             return f"{val / 1e3:.2f}s"
         return f"{val}ms"
-    if u in ('bytes', 'byte'):
+    if u in ("bytes", "byte"):
         if abs(val) >= 1_073_741_824:
-            return f"{val / (1024 ** 3):.1f}GB"
+            return f"{val / (1024**3):.1f}GB"
         if abs(val) >= 1_048_576:
-            return f"{val / (1024 ** 2):.1f}MB"
+            return f"{val / (1024**2):.1f}MB"
         if abs(val) >= 1024:
             return f"{val / 1024:.1f}KB"
         return f"{val}B"
-    if u == 'count':
+    if u == "count":
         if abs(val) >= 1_000_000:
             return f"{val / 1e6:.1f}M"
         if abs(val) >= 1_000:
@@ -171,7 +173,7 @@ def print_profile_info(prof: profile_pb2.Profile):
         typ = prof.string_table[prof.period_type.type]
         print(f"  Period:    {prof.period} {unit} ({typ})")
 
-    print(f"  Sample types:")
+    print("  Sample types:")
     for i, st in enumerate(prof.sample_type):
         typ = prof.string_table[st.type]
         unit = prof.string_table[st.unit]
@@ -179,8 +181,14 @@ def print_profile_info(prof: profile_pb2.Profile):
     print()
 
 
-def print_top(prof: profile_pb2.Profile, n: int = 30, sort_cum: bool = False,
-              filter_str: str = "", value_idx: int = 0, use_regex: bool = False):
+def print_top(
+    prof: profile_pb2.Profile,
+    n: int = 30,
+    sort_cum: bool = False,
+    filter_str: str = "",
+    value_idx: int = 0,
+    use_regex: bool = False,
+):
     """Print top functions by flat or cumulative value."""
     flat, cum = compute_flat_cum(prof, value_idx)
     unit = get_unit(prof, value_idx)
@@ -221,13 +229,16 @@ def print_top(prof: profile_pb2.Profile, n: int = 30, sort_cum: bool = False,
         cv = cum.get(f, 0)
         fpct = (fv / total * 100) if total else 0
         cpct = (cv / total * 100) if total else 0
-        print(f"  {format_value(fv, unit):>{max_flat_w}}  {fpct:5.1f}%  "
-              f"{format_value(cv, unit):>{max_cum_w}}  {cpct:5.1f}%  {f}")
+        print(
+            f"  {format_value(fv, unit):>{max_flat_w}}  {fpct:5.1f}%  "
+            f"{format_value(cv, unit):>{max_cum_w}}  {cpct:5.1f}%  {f}"
+        )
     print()
 
 
-def print_stacks(prof: profile_pb2.Profile, filter_str: str,
-                 value_idx: int = 0, max_stacks: int = 20):
+def print_stacks(
+    prof: profile_pb2.Profile, filter_str: str, value_idx: int = 0, max_stacks: int = 20
+):
     """Print call stacks containing a function matching filter_str."""
     unit = get_unit(prof, value_idx)
     loc_idx = build_location_index(prof)
@@ -259,8 +270,9 @@ def print_stacks(prof: profile_pb2.Profile, filter_str: str,
         print()
 
 
-def print_diff(prof1: profile_pb2.Profile, prof2: profile_pb2.Profile,
-               n: int = 30, value_idx: int = 0):
+def print_diff(
+    prof1: profile_pb2.Profile, prof2: profile_pb2.Profile, n: int = 30, value_idx: int = 0
+):
     """Compare two profiles and show the differences."""
     flat1, cum1 = compute_flat_cum(prof1, value_idx)
     flat2, cum2 = compute_flat_cum(prof2, value_idx)
@@ -281,16 +293,16 @@ def print_diff(prof1: profile_pb2.Profile, prof2: profile_pb2.Profile,
 
     ranked = sorted(all_funcs, key=lambda f: abs(diffs[f]), reverse=True)[:n]
 
-    print(f"=== Diff: profile2 - profile1 (by flat% change) ===")
+    print("=== Diff: profile2 - profile1 (by flat% change) ===")
     print(f"  Profile 1 total: {format_value(total1, unit)}")
     print(f"  Profile 2 total: {format_value(total2, unit)}")
     print()
-    print(f"  Perf tests run queries in a loop, so absolute cycles are not comparable")
-    print(f"  across profiles — a faster patch processes more queries and accumulates")
-    print(f"  more total CPU. Read flat1%/flat2%/diff% (primary columns below). The")
-    print(f"  flat1/flat2 absolute columns are trailing context, useful only when you")
-    print(f"  know both profiles cover identical work. Also watch for new hotspots")
-    print(f"  (0% → N%) and call-stack shape changes (use --stacks to inspect).")
+    print("  Perf tests run queries in a loop, so absolute cycles are not comparable")
+    print("  across profiles — a faster patch processes more queries and accumulates")
+    print("  more total CPU. Read flat1%/flat2%/diff% (primary columns below). The")
+    print("  flat1/flat2 absolute columns are trailing context, useful only when you")
+    print("  know both profiles cover identical work. Also watch for new hotspots")
+    print("  (0% → N%) and call-stack shape changes (use --stacks to inspect).")
     print()
     print(f"  {'flat1%':>6}  {'flat2%':>6}  {'diff%':>7}  {'flat1':>8}  {'flat2':>8}  function")
     print(f"  {'─' * 6}  {'─' * 6}  {'─' * 7}  {'─' * 8}  {'─' * 8}  {'─' * 40}")
@@ -302,8 +314,10 @@ def print_diff(prof1: profile_pb2.Profile, prof2: profile_pb2.Profile,
         p2 = pcts2[f]
         d = diffs[f]
         sign = "+" if d > 0 else ""
-        print(f"  {p1:5.1f}%  {p2:5.1f}%  {sign}{d:5.1f}%  "
-              f"{format_value(f1, unit):>8}  {format_value(f2, unit):>8}  {f}")
+        print(
+            f"  {p1:5.1f}%  {p2:5.1f}%  {sign}{d:5.1f}%  "
+            f"{format_value(f1, unit):>8}  {format_value(f2, unit):>8}  {f}"
+        )
     print()
 
 
@@ -313,9 +327,11 @@ def print_raw(prof: profile_pb2.Profile, value_idx: int = 0, max_samples: int = 
     loc_idx = build_location_index(prof)
     func_idx = build_func_index(prof)
 
-    sorted_samples = sorted(prof.sample,
-                            key=lambda s: s.value[value_idx] if value_idx < len(s.value) else 0,
-                            reverse=True)
+    sorted_samples = sorted(
+        prof.sample,
+        key=lambda s: s.value[value_idx] if value_idx < len(s.value) else 0,
+        reverse=True,
+    )
 
     print(f"=== Raw samples (top {min(max_samples, len(sorted_samples))}) ===")
     print()
@@ -333,21 +349,29 @@ def main():
     parser = argparse.ArgumentParser(
         description="Parse and analyze pprof protobuf profiles",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__)
+        epilog=__doc__,
+    )
     parser.add_argument("profile", help="Path to .pb or .pb.gz pprof file")
     parser.add_argument("--top", type=int, default=30, help="Number of top functions (default: 30)")
     parser.add_argument("--cum", action="store_true", help="Sort by cumulative instead of flat")
-    parser.add_argument("--filter", type=str, default="",
-                        help="Filter functions by substring (or regex with --regex)")
-    parser.add_argument("--regex", action="store_true",
-                        help="Treat --filter as regex instead of substring")
-    parser.add_argument("--stacks", type=str, default="",
-                        help="Show call stacks containing function")
+    parser.add_argument(
+        "--filter",
+        type=str,
+        default="",
+        help="Filter functions by substring (or regex with --regex)",
+    )
+    parser.add_argument(
+        "--regex", action="store_true", help="Treat --filter as regex instead of substring"
+    )
+    parser.add_argument(
+        "--stacks", type=str, default="", help="Show call stacks containing function"
+    )
     parser.add_argument("--diff", type=str, default="", help="Path to second profile for diff")
     parser.add_argument("--raw", action="store_true", help="Dump raw samples")
     parser.add_argument("--value", type=int, default=0, help="Sample value index (default: 0)")
-    parser.add_argument("--max-stacks", type=int, default=20,
-                        help="Max stacks to show (default: 20)")
+    parser.add_argument(
+        "--max-stacks", type=int, default=20, help="Max stacks to show (default: 20)"
+    )
     args = parser.parse_args()
 
     prof = load_profile(args.profile)
@@ -361,8 +385,14 @@ def main():
     elif args.raw:
         print_raw(prof, value_idx=args.value)
     else:
-        print_top(prof, n=args.top, sort_cum=args.cum, filter_str=args.filter,
-                  value_idx=args.value, use_regex=args.regex)
+        print_top(
+            prof,
+            n=args.top,
+            sort_cum=args.cum,
+            filter_str=args.filter,
+            value_idx=args.value,
+            use_regex=args.regex,
+        )
 
 
 if __name__ == "__main__":

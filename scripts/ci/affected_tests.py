@@ -14,14 +14,11 @@ import os
 import subprocess
 import sys
 
-
 __CRITICAL_FILES = [".bazelrc", ".evergreen.yml", "conf/evergreen"]
 
 
 def run(cmd):
-    result = subprocess.run(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-    )
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     return result.returncode, result.stdout.strip(), result.stderr.strip()
 
 
@@ -123,9 +120,7 @@ def main():
     for filepath in changed_files:
         for cf in __CRITICAL_FILES:
             if cf in filepath:
-                print(
-                    f"Critical file {filepath} affected (pattern: {cf}); running all tests"
-                )
+                print(f"Critical file {filepath} affected (pattern: {cf}); running all tests")
                 return 1
 
         target = query_bazel_target(args.bazel, filepath)

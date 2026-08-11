@@ -7,11 +7,28 @@ from pymongo import MongoClient
 
 def parse_arguments():
     """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(description="Upload structured MongoDB logs to a MongoDB collection.")
+    parser = argparse.ArgumentParser(
+        description="Upload structured MongoDB logs to a MongoDB collection."
+    )
     parser.add_argument("--log_file", type=str, required=True, help="Path to the log file.")
-    parser.add_argument("--connection_string", type=str, required=True, help="MongoDB connection string (i.e., mongodb://localhost:37017/).")
-    parser.add_argument("--db_name", type=str, default="mongot_logs", help="Name of the MongoDB database to upload logs to. Defaults to 'mongot_logs'.")
-    parser.add_argument("--collection_name", type=str, default="logs", help="Name of the MongoDB collection to upload logs to. Defaults to 'logs'.")
+    parser.add_argument(
+        "--connection_string",
+        type=str,
+        required=True,
+        help="MongoDB connection string (i.e., mongodb://localhost:37017/).",
+    )
+    parser.add_argument(
+        "--db_name",
+        type=str,
+        default="mongot_logs",
+        help="Name of the MongoDB database to upload logs to. Defaults to 'mongot_logs'.",
+    )
+    parser.add_argument(
+        "--collection_name",
+        type=str,
+        default="logs",
+        help="Name of the MongoDB collection to upload logs to. Defaults to 'logs'.",
+    )
     return parser.parse_args()
 
 

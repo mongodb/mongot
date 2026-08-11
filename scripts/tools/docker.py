@@ -15,7 +15,6 @@ class Docker:
         LOAD = "load"
 
     class FailedCommandError(Exception):
-
         def __init__(self, target: str, exit_code: int, stderr: str):
             self.target = target
             self.exit_code = exit_code
@@ -50,20 +49,20 @@ class Docker:
     def metrics(container: str, port: int = 9946) -> str:
         """Fetch the Prometheus metrics page from inside the container."""
         result = Docker._execute(
-            Docker.Command.EXEC, container,
-            "curl", "--silent", "--fail", f"http://localhost:{port}/metrics",
+            Docker.Command.EXEC,
+            container,
+            "curl",
+            "--silent",
+            "--fail",
+            f"http://localhost:{port}/metrics",
         )
         if not result.stdout:
             raise Exception("failed to scrape prometheus metrics")
         return result.stdout
 
     @staticmethod
-    def _execute(command: 'Docker.Command', *args: str) -> 'subprocess.CompletedProcess':
-        result = (Process()
-                  .command(Docker.DOCKER)
-                  .stream(False)
-                  .args(command.value, *args)
-                  .execute())
+    def _execute(command: "Docker.Command", *args: str) -> "subprocess.CompletedProcess":
+        result = Process().command(Docker.DOCKER).stream(False).args(command.value, *args).execute()
 
         if result.returncode != 0:
             raise Docker.FailedCommandError(command.value, result.returncode, result.stderr)

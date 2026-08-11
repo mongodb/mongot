@@ -1,6 +1,5 @@
 import os
 import re
-
 import sys
 
 named_rules = {
@@ -29,7 +28,7 @@ def normalize(line):
     match = re.match(r'"(?P<package>com\.xgen\.([a-z]+\.)*[a-z]+)(?P<lib>:[a-z]+)?",', line.strip())
     if match:
         # Preserve indentation
-        indent = line[:len(line) - len(line.lstrip())]
+        indent = line[: len(line) - len(line.lstrip())]
         matches = match.groupdict()
         lib = matches.get("lib") or ":lib"
         package = match.group("package").replace(".", "/")
@@ -75,4 +74,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-    os.system('make tools.buildifier.fix')
+    os.system("make tools.buildifier.fix")

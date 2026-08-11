@@ -3,9 +3,11 @@ import sys
 
 
 def update_one_test(test):
-    if (not test["result"]["valid"]
-            or "explain" not in test["result"]
-            or "query" in test["result"]["explain"]):
+    if (
+        not test["result"]["valid"]
+        or "explain" not in test["result"]
+        or "query" in test["result"]["explain"]
+    ):
         return
 
     test["result"]["explain"] = {"query": test["result"]["explain"]}

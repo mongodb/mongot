@@ -27,14 +27,22 @@ except ImportError:
     sys.exit(1)
 
 NUM_QUERY_VECTORS = 100
-OUTPUT_BASE = Path(__file__).resolve().parent.parent.parent / "src" / "resources" / "perf" / "ground-truth"
+OUTPUT_BASE = (
+    Path(__file__).resolve().parent.parent.parent / "src" / "resources" / "perf" / "ground-truth"
+)
 
 # Each entry: (database, collection, index_name, vector_field, limit)
 # Derived from the 6 YAML evaluation configs.
 # Keys are the yml file names, values are arrays of config tuples.
 TEST_CONFIGS = {
     "query-amazon-voyage-129GB-vector-search-unquantized.yml": [
-        ("sample_vectors", "amazon_ecommerce_voyage_latest_2048_binData", "unquantized", "vector", 10),
+        (
+            "sample_vectors",
+            "amazon_ecommerce_voyage_latest_2048_binData",
+            "unquantized",
+            "vector",
+            10,
+        ),
     ],
     "query-amazon-voyage-30GB-int8-binary-quantized.yml": [
         ("sample_vectors", "amazon_ecommerce_voyage_latest_2048_binData", "scalar-quantized", "vector", 10),
@@ -54,11 +62,29 @@ TEST_CONFIGS = {
         ("sample_vectors", "sphere_1M", "default", "vector", 10),
     ],
     "query-cohere-14GB-vector-search-increased-hnsw-params.yml": [
-        ("sample_vectors", "cohere_wikipedia_multilingual_v3", "increase-hnsw-construction-params", "vector", 10),
-        ("sample_vectors", "cohere_wikipedia_multilingual_v3", "max-out-hnsw-construction-params", "vector", 10)
+        (
+            "sample_vectors",
+            "cohere_wikipedia_multilingual_v3",
+            "increase-hnsw-construction-params",
+            "vector",
+            10,
+        ),
+        (
+            "sample_vectors",
+            "cohere_wikipedia_multilingual_v3",
+            "max-out-hnsw-construction-params",
+            "vector",
+            10,
+        ),
     ],
     "query-nested-30GB-vector-search.yml": [
-        ("sample_vectors", "cohere_wikipedia_multilingual_v3_nested", "unquantized", "sections.vector", 10),
+        (
+            "sample_vectors",
+            "cohere_wikipedia_multilingual_v3_nested",
+            "unquantized",
+            "sections.vector",
+            10,
+        ),
     ],
 }
 
@@ -76,14 +102,11 @@ def select_query_docs(db, collection_name, field, n=NUM_QUERY_VECTORS):
         query_filter = {array_field: {"$elemMatch": {sub_field: {"$exists": True}}}}
     else:
         query_filter = {field: {"$exists": True}}
-    docs = list(
-        coll.find(query_filter)
-        .sort("_id", 1)
-        .limit(n)
-    )
+    docs = list(coll.find(query_filter).sort("_id", 1).limit(n))
     if len(docs) < n:
-        raise ValueError(f"Only found {len(docs)} docs with field '{field}' "
-                         f"in {collection_name} (wanted {n})")
+        raise ValueError(
+            f"Only found {len(docs)} docs with field '{field}' in {collection_name} (wanted {n})"
+        )
     return docs
 
 
@@ -132,7 +155,7 @@ def generate_ground_truth(client, db_name, collection_name, index_name, field, l
 
     # Write the header and start of the JSON structure
     with open(out_path, "w") as f:
-        f.write('{\n')
+        f.write("{\n")
         f.write(f'  "database": {json.dumps(db_name)},\n')
         f.write(f'  "collection": {json.dumps(collection_name)},\n')
         f.write(f'  "index": {json.dumps(index_name)},\n')
@@ -152,10 +175,12 @@ def generate_ground_truth(client, db_name, collection_name, index_name, field, l
 
         result_entries = []
         for r in results:
-            result_entries.append({
-                "_id": str(r["_id"]),
-                "score": r["score"],
-            })
+            result_entries.append(
+                {
+                    "_id": str(r["_id"]),
+                    "score": r["score"],
+                }
+            )
 
         query_entry = {
             "queryDocId": str(doc_id),
@@ -165,10 +190,10 @@ def generate_ground_truth(client, db_name, collection_name, index_name, field, l
         # Append this query result to the file
         with open(out_path, "a") as f:
             if num_queries_written > 0:
-                f.write(',\n')
+                f.write(",\n")
             # Indent the query entry properly (4 spaces for array items)
             query_json = json.dumps(query_entry, indent=2)
-            indented = '\n'.join('    ' + line for line in query_json.split('\n'))
+            indented = "\n".join("    " + line for line in query_json.split("\n"))
             f.write(indented)
 
         num_queries_written += 1
@@ -176,8 +201,8 @@ def generate_ground_truth(client, db_name, collection_name, index_name, field, l
 
     # Close the JSON structure
     with open(out_path, "a") as f:
-        f.write('\n  ]\n')
-        f.write('}\n')
+        f.write("\n  ]\n")
+        f.write("}\n")
 
     return num_queries_written
 
@@ -185,13 +210,18 @@ def generate_ground_truth(client, db_name, collection_name, index_name, field, l
 def main():
     parser = argparse.ArgumentParser(description="Generate ground truth for ANN recall tests")
     parser.add_argument("--uri", required=True, help="MongoDB connection URI")
-    parser.add_argument("--dataset-file", required=True,
-                        choices=list(TEST_CONFIGS.keys()),
-                        help="The YAML data set file key to generate ground truth for")
-    parser.add_argument("--output", default=str(OUTPUT_BASE),
-                        help=f"Output directory (default: {OUTPUT_BASE})")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Print what would be generated without connecting")
+    parser.add_argument(
+        "--dataset-file",
+        required=True,
+        choices=list(TEST_CONFIGS.keys()),
+        help="The YAML data set file key to generate ground truth for",
+    )
+    parser.add_argument(
+        "--output", default=str(OUTPUT_BASE), help=f"Output directory (default: {OUTPUT_BASE})"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print what would be generated without connecting"
+    )
     args = parser.parse_args()
 
     configs = TEST_CONFIGS[args.dataset_file]

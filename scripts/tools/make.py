@@ -8,7 +8,6 @@ class Make:
     MAKE = "make"
 
     class FailedCommandError(Exception):
-
         def __init__(self, target: str, exit_code: int):
             self.target = target
             self.exit_code = exit_code
@@ -22,14 +21,16 @@ class Make:
             env = {}
 
         args = [f"{key}={value}" for (key, value) in args.items()] if args is not None else []
-        result = (Process()
-                  .command(Make.MAKE)
-                  .cwd(MONGOT_ROOT)
-                  .stream(True)
-                  .arg(target)
-                  .args(*args)
-                  .envs(env)
-                  .execute())
+        result = (
+            Process()
+            .command(Make.MAKE)
+            .cwd(MONGOT_ROOT)
+            .stream(True)
+            .arg(target)
+            .args(*args)
+            .envs(env)
+            .execute()
+        )
 
         if result.returncode != 0:
             raise Make.FailedCommandError(target, result.returncode)

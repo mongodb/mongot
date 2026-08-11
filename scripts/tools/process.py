@@ -5,7 +5,6 @@ from typing import Dict
 
 
 class Process:
-
     def __init__(self):
         self._command = None
         self._cwd = None
@@ -13,31 +12,31 @@ class Process:
         self._args = []
         self._env = {}
 
-    def command(self, command: str) -> 'Process':
+    def command(self, command: str) -> "Process":
         self._command = command
         return self
 
-    def cwd(self, cwd: str) -> 'Process':
+    def cwd(self, cwd: str) -> "Process":
         self._cwd = cwd
         return self
 
-    def stream(self, stream: bool) -> 'Process':
+    def stream(self, stream: bool) -> "Process":
         self._stream = stream
         return self
 
-    def env(self, key: str, value: str) -> 'Process':
+    def env(self, key: str, value: str) -> "Process":
         self._env[key] = value
         return self
 
-    def envs(self, envs: Dict[str, str]) -> 'Process':
+    def envs(self, envs: Dict[str, str]) -> "Process":
         self._env.update(envs)
         return self
 
-    def arg(self, arg: str) -> 'Process':
+    def arg(self, arg: str) -> "Process":
         self._args += [arg]
         return self
 
-    def args(self, *args: str) -> 'Process':
+    def args(self, *args: str) -> "Process":
         self._args += args
         return self
 
@@ -52,8 +51,6 @@ class Process:
         else:
             kwargs = {"capture_output": True}
 
-        return subprocess.run([self._command, *self._args],
-                              cwd=self._cwd,
-                              env=env,
-                              text=True,
-                              **kwargs)
+        return subprocess.run(
+            [self._command, *self._args], cwd=self._cwd, env=env, text=True, **kwargs
+        )

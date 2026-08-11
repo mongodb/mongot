@@ -8,7 +8,7 @@ made up from a list of targets supplied to stdin,
 import json
 from sys import stdin
 
-_TEMPLATE = '''
+_TEMPLATE = """
 load("@com_github_bazel_common//tools/maven:pom_file.bzl", "pom_file")
 load("@rules_java//java:defs.bzl", "java_library")
 
@@ -26,7 +26,7 @@ pom_file(
     name = "pom",
     template_file = "pom_template.xml"
 )
-'''
+"""
 
 
 def main():
@@ -36,5 +36,5 @@ def main():
     print(rule)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

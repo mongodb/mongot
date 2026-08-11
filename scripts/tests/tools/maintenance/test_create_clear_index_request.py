@@ -14,8 +14,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 # Add the maintenance directory to the path so we can import the script
-sys.path.insert(0, str(Path(
-    __file__).parent.parent.parent.parent / "tools" / "maintenance"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "tools" / "maintenance"))
 
 import create_clear_index_request
 
@@ -38,21 +37,26 @@ class TestCreateClearIndexRequest(unittest.TestCase):
 
         test_args = [
             "create_clear_index_request.py",
-            "--generation-id", "test_gen_123_f6_u0_a0",
-            "--requested-at", "2026-02-05T10:30:00Z",
-            "--requested-by", "test-engineer",
-            "--reason", "Testing clear index request",
-            "--output", str(output_file)
+            "--generation-id",
+            "test_gen_123_f6_u0_a0",
+            "--requested-at",
+            "2026-02-05T10:30:00Z",
+            "--requested-by",
+            "test-engineer",
+            "--reason",
+            "Testing clear index request",
+            "--output",
+            str(output_file),
         ]
 
-        with patch.object(sys, 'argv', test_args):
+        with patch.object(sys, "argv", test_args):
             create_clear_index_request.main()
 
         # Verify file was created
         self.assertTrue(output_file.exists(), "Output file should be created")
 
         # Verify JSON structure
-        with open(output_file, 'r') as f:
+        with open(output_file, "r") as f:
             request_json = json.load(f)
 
         # Check required fields
@@ -72,28 +76,29 @@ class TestCreateClearIndexRequest(unittest.TestCase):
 
         test_args = [
             "create_clear_index_request.py",
-            "--generation-id", "minimal_gen_id",
-            "--requested-at", "2026-02-05T12:00:00Z",
-            "--requested-by", "automation",
-            "--reason", "Automated test"
+            "--generation-id",
+            "minimal_gen_id",
+            "--requested-at",
+            "2026-02-05T12:00:00Z",
+            "--requested-by",
+            "automation",
+            "--reason",
+            "Automated test",
         ]
 
         # Mock the BUILD_WORKSPACE_DIRECTORY to use our temp directory
-        with patch.dict('os.environ',
-                        {'BUILD_WORKSPACE_DIRECTORY': str(self.temp_path)}):
-            with patch.object(sys, 'argv', test_args):
+        with patch.dict("os.environ", {"BUILD_WORKSPACE_DIRECTORY": str(self.temp_path)}):
+            with patch.object(sys, "argv", test_args):
                 create_clear_index_request.main()
 
         # Find the generated file (it will have a timestamp in the name)
-        generated_files = list(
-            self.temp_path.glob("request_minimal_gen_id_*.json"))
-        self.assertEqual(len(generated_files), 1,
-                         "Should create exactly one output file")
+        generated_files = list(self.temp_path.glob("request_minimal_gen_id_*.json"))
+        self.assertEqual(len(generated_files), 1, "Should create exactly one output file")
 
         output_file = generated_files[0]
 
         # Verify the JSON content
-        with open(output_file, 'r') as f:
+        with open(output_file, "r") as f:
             request_json = json.load(f)
 
         self.assertEqual(request_json["tool"], "CLEAR_INDEX")
@@ -105,21 +110,25 @@ class TestCreateClearIndexRequest(unittest.TestCase):
 
         test_args = [
             "create_clear_index_request.py",
-            "--generation-id", "507f191e810c19729de860ea_f6_u2_a3",
-            "--requested-at", "2026-02-05T14:00:00Z",
-            "--requested-by", "test-user",
-            "--reason", "Test special characters",
-            "--output", str(output_file)
+            "--generation-id",
+            "507f191e810c19729de860ea_f6_u2_a3",
+            "--requested-at",
+            "2026-02-05T14:00:00Z",
+            "--requested-by",
+            "test-user",
+            "--reason",
+            "Test special characters",
+            "--output",
+            str(output_file),
         ]
 
-        with patch.object(sys, 'argv', test_args):
+        with patch.object(sys, "argv", test_args):
             create_clear_index_request.main()
 
-        with open(output_file, 'r') as f:
+        with open(output_file, "r") as f:
             request_json = json.load(f)
 
-        self.assertEqual(request_json["generationId"],
-                         "507f191e810c19729de860ea_f6_u2_a3")
+        self.assertEqual(request_json["generationId"], "507f191e810c19729de860ea_f6_u2_a3")
 
 
 if __name__ == "__main__":
