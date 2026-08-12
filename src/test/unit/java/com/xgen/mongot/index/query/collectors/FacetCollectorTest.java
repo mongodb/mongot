@@ -582,6 +582,29 @@ public class FacetCollectorTest {
       }
     }
 
+    /**
+     * Embedded-scoped facets report count only — per-bucket value accumulators are not part of the
+     * facet syntax. A stray accumulator field (e.g. {@code sum}) is rejected by the
+     * no-unknown-field invariant, which is enforced on {@code close()}.
+     */
+    @Test
+    public void numberFacetWithAccumulatorField_isRejected() {
+      var definition =
+          new FacetDefinition.NumericFacetDefinition(
+              "variants.price", Optional.empty(), List.of(new BsonInt32(0), new BsonInt32(50)));
+      BsonDocument doc =
+          definition.toBson().asDocument().append("sum", new BsonString("variants.price"));
+
+      TestUtils.assertThrows(
+          "unrecognized field \"sum\"",
+          BsonParseException.class,
+          () -> {
+            try (var parser = BsonDocumentParser.fromRoot(doc).build()) {
+              FacetDefinition.fromBson(parser);
+            }
+          });
+    }
+
     /** FacetCollector.fromBson (1k limit) rejects numBuckets 2000 with BsonParseException. */
     @Test
     public void facetCollectorNumBuckets2000_fromBson_throwsBsonParseException() {
