@@ -296,6 +296,193 @@ public class EmbeddingServiceManagerTest {
   }
 
   @Test
+  public void testQueryTierLocalErrorCountsAsFailedNotSuccessful() {
+    // QUERY-tier embed() swallows a per-input provider error into a VectorOrError instead of
+    // throwing (see VoyageClient's QUERY-tier 400 handling), so the outer embed() call can return
+    // normally even though the request failed. It must still be counted as a failure, not a
+    // success, on the SLO's success/failure counters.
+    EmbeddingServiceConfig embeddingServiceConfig =
+        new EmbeddingServiceConfig(
+            EmbeddingServiceConfig.EmbeddingProvider.VOYAGE,
+            "voyage-3-large",
+            Optional.empty(),
+            VOYAGE_3_CONFIG);
+
+    MeterRegistry registry = new SimpleMeterRegistry();
+    EmbeddingServiceManager embeddingServiceManager =
+        new EmbeddingServiceManager(
+            List.of(embeddingServiceConfig),
+            new FakeEmbeddingClientFactory(
+                new SimpleMeterRegistry(),
+                ImmutableSet.of("invalid token"),
+                ImmutableSet.of(),
+                ImmutableSet.of()),
+            EXECUTOR,
+            registry,
+            Optional.empty());
+
+    List<VectorOrError> result =
+        embeddingServiceManager.embed(
+            Arrays.asList("invalid token"),
+            EmbeddingModelConfig.create(
+                "voyage-3-large", EmbeddingServiceConfig.EmbeddingProvider.VOYAGE, VOYAGE_3_CONFIG),
+            QUERY,
+            dummyContext());
+
+    assertTrue(result.get(0).errorMessage.isPresent());
+
+    Map<String, Double> expectedMetrics =
+        Map.of(
+            "embeddingServiceManager.failedRequests",
+            1.0,
+            "embeddingServiceManager.successfulRequests",
+            0.0);
+    List<Counter> counters =
+        registry.getMeters().stream()
+            .filter(meter -> expectedMetrics.containsKey(meter.getId().getName()))
+            .map(meter -> (Counter) meter)
+            .toList();
+    for (Counter counter : counters) {
+      if (QUERY.name().equals(counter.getId().getTag("workload"))) {
+        assertEquals(
+            counter.getId().getName(),
+            expectedMetrics.get(counter.getId().getName()),
+            counter.count(),
+            1E-7);
+      }
+    }
+  }
+
+  @Test
+  public void testAllEmptyInputExcludedFromBothCounters() throws Exception {
+    // VectorOrError.EMPTY_INPUT_ERROR is a local, pre-HTTP-call check (empty input text). When
+    // every input is empty, VoyageClient never issues an HTTP call at all, so this isn't a
+    // provider availability event - it must not count as either a success or a failure.
+    EmbeddingServiceConfig embeddingServiceConfig =
+        new EmbeddingServiceConfig(
+            EmbeddingServiceConfig.EmbeddingProvider.VOYAGE,
+            "voyage-3-large",
+            Optional.empty(),
+            VOYAGE_3_CONFIG);
+
+    ClientInterface mockClient = mock(ClientInterface.class);
+    doReturn(List.of(VectorOrError.EMPTY_INPUT_ERROR)).when(mockClient).embed(any(), any());
+    FakeEmbeddingClientFactory embeddingClientFactory = mock(FakeEmbeddingClientFactory.class);
+    doReturn(mockClient)
+        .when(embeddingClientFactory)
+        .createEmbeddingClient(
+            any(EmbeddingModelConfig.class),
+            any(EmbeddingServiceConfig.ServiceTier.class),
+            any(EmbeddingModelConfig.ConsolidatedWorkloadParams.class),
+            any(Optional.class));
+
+    MeterRegistry registry = new SimpleMeterRegistry();
+    EmbeddingServiceManager embeddingServiceManager =
+        new EmbeddingServiceManager(
+            List.of(embeddingServiceConfig),
+            embeddingClientFactory,
+            EXECUTOR,
+            registry,
+            Optional.empty());
+
+    List<VectorOrError> result =
+        embeddingServiceManager.embed(
+            Arrays.asList(""),
+            EmbeddingModelConfig.create(
+                "voyage-3-large", EmbeddingServiceConfig.EmbeddingProvider.VOYAGE, VOYAGE_3_CONFIG),
+            QUERY,
+            dummyContext());
+
+    assertEquals(VectorOrError.EMPTY_INPUT_ERROR, result.get(0));
+
+    Map<String, Double> expectedMetrics =
+        Map.of(
+            "embeddingServiceManager.failedRequests",
+            0.0,
+            "embeddingServiceManager.successfulRequests",
+            0.0);
+    List<Counter> counters =
+        registry.getMeters().stream()
+            .filter(meter -> expectedMetrics.containsKey(meter.getId().getName()))
+            .map(meter -> (Counter) meter)
+            .toList();
+    for (Counter counter : counters) {
+      if (QUERY.name().equals(counter.getId().getTag("workload"))) {
+        assertEquals(
+            counter.getId().getName(),
+            expectedMetrics.get(counter.getId().getName()),
+            counter.count(),
+            1E-7);
+      }
+    }
+  }
+
+  @Test
+  public void testMixedEmptyAndValidInputCountsAsSuccess() throws Exception {
+    // A batch mixing empty and non-empty inputs does reach the provider for the non-empty
+    // inputs, unlike an all-empty batch - it should still count as a successful provider call.
+    EmbeddingServiceConfig embeddingServiceConfig =
+        new EmbeddingServiceConfig(
+            EmbeddingServiceConfig.EmbeddingProvider.VOYAGE,
+            "voyage-3-large",
+            Optional.empty(),
+            VOYAGE_3_CONFIG);
+
+    ClientInterface mockClient = mock(ClientInterface.class);
+    doReturn(
+            List.of(
+                VectorOrError.EMPTY_INPUT_ERROR,
+                new VectorOrError(Vector.fromBytes(new byte[] {1, 2, 3, 4}))))
+        .when(mockClient)
+        .embed(any(), any());
+    FakeEmbeddingClientFactory embeddingClientFactory = mock(FakeEmbeddingClientFactory.class);
+    doReturn(mockClient)
+        .when(embeddingClientFactory)
+        .createEmbeddingClient(
+            any(EmbeddingModelConfig.class),
+            any(EmbeddingServiceConfig.ServiceTier.class),
+            any(EmbeddingModelConfig.ConsolidatedWorkloadParams.class),
+            any(Optional.class));
+
+    MeterRegistry registry = new SimpleMeterRegistry();
+    EmbeddingServiceManager embeddingServiceManager =
+        new EmbeddingServiceManager(
+            List.of(embeddingServiceConfig),
+            embeddingClientFactory,
+            EXECUTOR,
+            registry,
+            Optional.empty());
+
+    embeddingServiceManager.embed(
+        Arrays.asList("", "one"),
+        EmbeddingModelConfig.create(
+            "voyage-3-large", EmbeddingServiceConfig.EmbeddingProvider.VOYAGE, VOYAGE_3_CONFIG),
+        QUERY,
+        dummyContext());
+
+    Map<String, Double> expectedMetrics =
+        Map.of(
+            "embeddingServiceManager.failedRequests",
+            0.0,
+            "embeddingServiceManager.successfulRequests",
+            1.0);
+    List<Counter> counters =
+        registry.getMeters().stream()
+            .filter(meter -> expectedMetrics.containsKey(meter.getId().getName()))
+            .map(meter -> (Counter) meter)
+            .toList();
+    for (Counter counter : counters) {
+      if (QUERY.name().equals(counter.getId().getTag("workload"))) {
+        assertEquals(
+            counter.getId().getName(),
+            expectedMetrics.get(counter.getId().getName()),
+            counter.count(),
+            1E-7);
+      }
+    }
+  }
+
+  @Test
   public void testNonTransientErrorThrowWithRebatches() {
     EmbeddingServiceConfig embeddingServiceConfig =
         new EmbeddingServiceConfig(

@@ -73,6 +73,22 @@ public class VoyageClient implements ClientInterface {
   private static final Duration HTTP_CLIENT_SHUTDOWN_NOW_AWAIT = Duration.ofSeconds(2);
   private static final String BATCH_SIZE_TOO_LARGE_ERROR_MESSAGE =
       "Please lower the number of tokens in the batch";
+
+  /**
+   * Above this many input tokens, Voyage serves the request from its document-tier serving queue
+   * (the one indexing workloads share) regardless of the {@value #VOYAGE_HEADER_TIER} header we
+   * sent; at or under it, Voyage serves from the query-dedicated queue. This is an implicit
+   * agreement with Voyage, not something mongot can discover dynamically, so it is hardcoded rather
+   * than configured.
+   */
+  private static final int VOYAGE_LATENCY_TIER_TOKEN_THRESHOLD = 512;
+
+  /**
+   * Bucket boundaries (seconds) for {@code embeddingRequestLatencySeconds}; must include exact 1s
+   * and 5s cutoffs to match the auto-embedding-query-latency SLO thresholds.
+   */
+  private static final double[] REQUEST_LATENCY_SECONDS_BUCKETS = {0.1, 0.25, 0.5, 1, 2, 5, 10};
+
   private final String inputType;
   private final String modelId;
   private URI endpoint;
@@ -294,6 +310,7 @@ public class VoyageClient implements ClientInterface {
       // HTTP status of a failure (e.g. 408/429/500); "none" when the failure carries no HTTP
       // status.
       @Var String failureErrorCode = "none";
+      long requestStartNanos = System.nanoTime();
       try {
         HttpResponse<String> response =
             clientForRequest.send(request, HttpResponse.BodyHandlers.ofString());
@@ -302,7 +319,8 @@ public class VoyageClient implements ClientInterface {
             this.modelId,
             response.statusCode(),
             filteredInput.size());
-        var vectorResponse = extractVectorsFromResponse(response, inputs, context);
+        var vectorResponse =
+            extractVectorsFromResponse(response, inputs, context, requestStartNanos);
         isAck = true;
         requestSucceeded = true;
         return vectorResponse;
@@ -750,7 +768,10 @@ public class VoyageClient implements ClientInterface {
   }
 
   private List<VectorOrError> extractVectorsFromResponse(
-      HttpResponse<String> response, List<String> inputs, EmbeddingRequestContext context)
+      HttpResponse<String> response,
+      List<String> inputs,
+      EmbeddingRequestContext context,
+      long requestStartNanos)
       throws EmbeddingProviderTransientException,
           EmbeddingProviderBatchingException,
           HttpTimeoutException {
@@ -759,6 +780,8 @@ public class VoyageClient implements ClientInterface {
       // TODO(CLOUDP-344098): Formalize the voyage response format or error code to avoid
       // miscategorizing the oversized batch request (VOYAGE-471)
       if (response.body().contains(BATCH_SIZE_TOO_LARGE_ERROR_MESSAGE)) {
+        recordProviderErrorMetric(
+            EmbeddingProviderTransientException.Reason.PAYLOAD_TOO_LARGE, Optional.of(400));
         throw new EmbeddingProviderBatchingException(
             String.format(
                 "Got invalid request, fail fast and give up retries. Response body: %s.",
@@ -770,6 +793,8 @@ public class VoyageClient implements ClientInterface {
         // EmbeddingProviderTransientException isn't a UserFacingException. Preserve the pre-fix
         // swallow behavior for this tier only; indexing tiers (below) still throw.
         this.invalidRequestCounter.increment();
+        recordProviderErrorMetric(
+            EmbeddingProviderTransientException.Reason.HTTP_INVALID_REQUEST, Optional.of(400));
         String errorMessage =
             String.format(
                 "Got invalid request, fail fast and give up retries. Response body: %s.",
@@ -778,6 +803,8 @@ public class VoyageClient implements ClientInterface {
       } else {
         // TODO(CLOUDP-344098): Add alerts in Control Plane to notify clients directly.
         this.invalidRequestCounter.increment();
+        recordProviderErrorMetric(
+            EmbeddingProviderTransientException.Reason.HTTP_INVALID_REQUEST, Optional.of(400));
         // Retried indefinitely at the index's checkpoint (BLOCK) unless AUTO_EMBEDDING_400_SKIP
         // is enabled for this index; not logged here to avoid spamming the raw response body on
         // every retry — the rate-limited logging in EmbeddingIndexingWorkScheduler covers it.
@@ -829,6 +856,24 @@ public class VoyageClient implements ClientInterface {
           results.add(new VectorOrError(iterator.next().embedding));
         }
       }
+      // Recorded only once results are fully built, so a schema-valid response with too few
+      // data entries (iterator.next() throws) isn't counted as a successful latency sample.
+      double elapsedSeconds = (System.nanoTime() - requestStartNanos) / 1_000_000_000.0;
+      // The declared X-Voyage-Tier only gets silently overridden to "document" when we
+      // declared "query" and the input is over the token threshold; indexing tiers (which
+      // always declare "document") and flex-tier requests are never subject to this
+      // token-based override, so they keep whatever tier they actually declared.
+      @Var String actualTier = voyageTierHeaderValue();
+      if (VOYAGE_TIER_HEADER_QUERY.equals(actualTier)
+          && embedResponse.embedUsage.totalTokens > VOYAGE_LATENCY_TIER_TOKEN_THRESHOLD) {
+        actualTier = VOYAGE_TIER_HEADER_DOCUMENT;
+      }
+      this.metricsFactory
+          .histogram(
+              "embeddingRequestLatencySeconds",
+              Tags.of("tier", actualTier),
+              REQUEST_LATENCY_SECONDS_BUCKETS)
+          .record(elapsedSeconds);
       return results;
     } catch (BsonParseException e) {
       // The Voyage HTTP response itself succeeded; only the body failed to parse, so there is no

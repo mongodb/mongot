@@ -306,7 +306,31 @@ public class EmbeddingProviderManager {
           this.requestTimers.get(serviceTier),
           () -> {
             var result = this.clients.get(serviceTier).embed(texts, context);
-            this.successfulRequestCounters.get(serviceTier).increment();
+            // An all-empty-input batch never reaches the provider at all (VoyageClient
+            // short-circuits before any HTTP call), so it's not a provider availability event -
+            // don't count it as either a success or a failure. A batch mixing empty and
+            // non-empty inputs did reach the provider for the non-empty ones, so it's excluded
+            // from this check and falls through to the success/failure logic below.
+            boolean noProviderCallMade =
+                result.stream()
+                    .allMatch(
+                        vectorOrError -> vectorOrError.equals(VectorOrError.EMPTY_INPUT_ERROR));
+            if (!noProviderCallMade) {
+              // QUERY tier swallows provider-side per-input errors (e.g. HTTP 400) into
+              // individual VectorOrError entries instead of throwing, so the call above can
+              // return normally even though the request failed. Count that as a failure rather
+              // than a success - except for VectorOrError.EMPTY_INPUT_ERROR entries mixed into
+              // an otherwise-successful batch, which aren't provider errors.
+              if (result.stream()
+                  .anyMatch(
+                      vectorOrError ->
+                          vectorOrError.errorMessage.isPresent()
+                              && !vectorOrError.equals(VectorOrError.EMPTY_INPUT_ERROR))) {
+                this.failedRequestCounters.get(serviceTier).increment();
+              } else {
+                this.successfulRequestCounters.get(serviceTier).increment();
+              }
+            }
             return result;
           });
     } catch (EmbeddingProviderBatchingException e) {

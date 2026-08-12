@@ -72,6 +72,8 @@ public class EmbeddingProviderTransientException extends RuntimeException {
     HTTP_NON_OK_STATUS,
     /** Provider returned HTTP 400 for a reason other than an oversized batch. */
     HTTP_INVALID_REQUEST,
+    /** Provider returned HTTP 400 because the batch was too large; fails fast, no retry. */
+    PAYLOAD_TOO_LARGE,
     /** Failed to parse the provider's response body (BsonParseException). */
     RESPONSE_PARSE_ERROR,
     /** Default for legacy constructors or unclassified transient failures. */
