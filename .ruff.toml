@@ -1,9 +1,12 @@
 # Python lint and format configuration, kept aligned with 10gen/mms so the two
 # repos share one Python style.
 #
-# Fix formatting with `ruff format .` and autofix lint findings with
-# `ruff check --fix .`. Nothing enforces this config yet; the bazel targets that
-# do land separately, and will add their own commands here.
+# Enforced by `make lint` through two lint-tagged targets:
+#   //bazel/tools/format:format_test  formatting
+#   //bazel/python:ruff_check_test     lint rules
+#
+# Fix formatting with `bazel run //bazel/tools/format`, and autofix lint findings
+# with `bazel run @aspect_rules_lint//lint:ruff_bin -- check --fix "$(bazel info workspace)"`.
 
 # Matches the rules_python toolchain pinned in bazel/python/python.MODULE.bazel.
 target-version = "py311"

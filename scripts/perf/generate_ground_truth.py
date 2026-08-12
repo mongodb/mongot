@@ -45,7 +45,13 @@ TEST_CONFIGS = {
         ),
     ],
     "query-amazon-voyage-30GB-int8-binary-quantized.yml": [
-        ("sample_vectors", "amazon_ecommerce_voyage_latest_2048_binData", "scalar-quantized", "vector", 10),
+        (
+            "sample_vectors",
+            "amazon_ecommerce_voyage_latest_2048_binData",
+            "scalar-quantized",
+            "vector",
+            10,
+        ),
     ],
     "query-sphere-1GB-int8-binary-quantized.yml": [
         ("sample_vectors", "sphere_1M_int8", "scalar-quantized", "vector", 10),

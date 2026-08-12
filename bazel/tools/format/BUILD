@@ -25,6 +25,7 @@ java_binary(
 format_multirun(
     name = "format",
     java = ":java-format",
+    python = "@aspect_rules_lint//lint:ruff_bin",
     rust = "@rules_rust//tools/upstream_wrapper:rustfmt",
     rust_check_args = [
         "--edition",
