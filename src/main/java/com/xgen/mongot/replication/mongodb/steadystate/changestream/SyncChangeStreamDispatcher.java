@@ -13,6 +13,7 @@ import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.metrics.ServerStatusDataExtractor.ReplicationMeterData.ChangeStreamMeterData;
 import com.xgen.mongot.metrics.ServerStatusDataExtractor.Scope;
+import com.xgen.mongot.metrics.Timed;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamDocumentUtils.DocumentEventBatch;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoClient;
@@ -174,7 +175,7 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
         .get(getIndexTypeTag(info.indexManager.indexDefinition))
         .decrementAndGet();
     Duration schedulingElapsed = info.schedulingTimer.stop().elapsed();
-    this.getMoresSchedulingTimer.record(schedulingElapsed);
+    Timed.recordSampleIgnoringMetricsFailure(this.getMoresSchedulingTimer, schedulingElapsed);
     var steadyStateMetrics =
         info.indexManager
             .indexMetricsUpdater
@@ -232,7 +233,8 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
       batchInfo.indexingFuture.get();
 
       // Record the total duration, excluding failures.
-      this.batchesInProgressTotalTimer.record(getNextTimer.stop().elapsed());
+      Timed.recordSampleIgnoringMetricsFailure(
+          this.batchesInProgressTotalTimer, getNextTimer.stop().elapsed());
     } catch (Exception ex) {
       GenerationId generationId = info.indexManager.getGenerationId();
       LOG.atError()
@@ -305,7 +307,7 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
     try {
       var batch = getMoreProducer.apply(mongoClient);
       Duration duration = timer.stop().elapsed();
-      this.getMoresInFlightTimer.record(duration);
+      Timed.recordSampleIgnoringMetricsFailure(this.getMoresInFlightTimer, duration);
       metricsUpdater.getBatchGetMoreTimer().record(duration);
       metricsUpdater.getPerIndexGetMoreTimer().record(duration);
       return batch;

@@ -56,5 +56,6 @@ java_test_suite(
         "@maven//:io_micrometer_micrometer_core",
         "@maven//:io_micrometer_micrometer_registry_prometheus",
         "@maven//:junit_junit",
+        "@maven//:org_mockito_mockito_core",
     ],
 )

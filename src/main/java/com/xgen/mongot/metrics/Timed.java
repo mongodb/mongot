@@ -4,10 +4,41 @@ import com.xgen.mongot.util.functionalinterfaces.CheckedRunnable;
 import com.xgen.mongot.util.functionalinterfaces.CheckedSupplier;
 import com.xgen.mongot.util.functionalinterfaces.CheckedSupplier2;
 import io.micrometer.core.instrument.Timer;
+import java.time.Duration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class Timed {
 
+  private static final Logger LOG = LoggerFactory.getLogger(Timed.class);
+
   private Timed() {}
+
+  /**
+   * Records one timing sample, dropping the sample instead of propagating a failure from the
+   * metrics layer (CLOUDP-433931).
+   *
+   * <p>Use this for samples taken on a thread where a metrics failure costs more than a data point.
+   * Timers that publish percentiles are backed by HdrHistogram's {@code ConcurrentHistogram}, whose
+   * time-window reset is not safe against a concurrent record and can compute a negative array
+   * index. The resulting error if escaped into change stream batch error handling, can stall
+   * indexes.
+   *
+   * <p>Every failure drops the sample, but the log level distinguishes them: WARN for that known
+   * race, which needs no operator action, and ERROR for anything else.
+   */
+  public static void recordSampleIgnoringMetricsFailure(Timer timer, Duration sample) {
+    try {
+      timer.record(sample);
+    } catch (ArrayIndexOutOfBoundsException e) {
+      LOG.warn("Dropped timing sample for metric {}.", timer.getId().getName(), e);
+    } catch (RuntimeException e) {
+      LOG.error(
+          "Dropped timing sample for metric {} after an unexpected metrics failure.",
+          timer.getId().getName(),
+          e);
+    }
+  }
 
   /** Runs the given supplier, timing its execution with the given timer. */
   public static <T, E extends Exception> T supplier(Timer timer, CheckedSupplier<T, E> supplier)

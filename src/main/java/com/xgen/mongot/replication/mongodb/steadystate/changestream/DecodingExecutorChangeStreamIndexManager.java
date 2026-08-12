@@ -16,6 +16,7 @@ import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.logging.DefaultKeyValueLogger;
+import com.xgen.mongot.metrics.Timed;
 import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamDocumentUtils;
@@ -172,7 +173,7 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
       // completed exceptionally after indexing completes.
       Optional<SteadyStateException> lifecycleEvent = getMaybeLifecycleEventException(batch);
 
-      preprocessingBatchTimer.record(timer.stop().elapsed());
+      Timed.recordSampleIgnoringMetricsFailure(preprocessingBatchTimer, timer.stop().elapsed());
 
       // Whether this batch includes a lifecycleEvent. Note: on RENAME events, a lifecycle event is
       // triggered when processing the following event. To successfully catch and remove RENAME we
