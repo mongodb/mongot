@@ -2176,7 +2176,8 @@ public class ChangeStreamIndexManagerTest {
 
   private static IndexingWorkScheduler scheduler() {
     IndexingWorkSchedulerFactory dispatcher =
-        IndexingWorkSchedulerFactory.create(2, mock(Supplier.class), new SimpleMeterRegistry());
+        IndexingWorkSchedulerFactory.create(
+            2, mock(Supplier.class), new SimpleMeterRegistry(), true);
     return dispatcher.getIndexingWorkScheduler(MOCK_INDEX_DEFINITION);
   }
 }

@@ -664,7 +664,8 @@ public class BulkheadCommandExecutorTest {
   @Test
   public void constructor_queryMemoryAttributionDisabled_doesNotRegisterResourceMetrics() {
     SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
-    FeatureFlags off = FeatureFlags.getDefault();
+    FeatureFlags off =
+        FeatureFlags.withDefaults().disable(Feature.QUERY_MEMORY_ATTRIBUTION_METRICS).build();
     try (BulkheadCommandExecutor exec =
         new BulkheadCommandExecutor(
             meterRegistry, RegularBlockingRequestSettings.defaults(), off)) {

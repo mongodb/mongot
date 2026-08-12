@@ -1602,7 +1602,7 @@ public class InitialSyncQueueTest {
           syncSourceHost,
           spy(
               IndexingWorkSchedulerFactory.create(
-                  2, mock(Supplier.class), new SimpleMeterRegistry())),
+                  2, mock(Supplier.class), new SimpleMeterRegistry(), true)),
           blockingQueue,
           new HashMap<>(),
           new HashSet<>(),

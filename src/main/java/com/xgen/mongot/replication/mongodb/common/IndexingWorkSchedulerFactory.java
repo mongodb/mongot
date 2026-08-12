@@ -41,14 +41,6 @@ public class IndexingWorkSchedulerFactory {
     return this.indexingWorkSchedulers;
   }
 
-  // TODO(CLOUDP-405327): remove test-only overload once LIFECYCLE_ATTRIBUTION_METRICS rolls out.
-  public static IndexingWorkSchedulerFactory create(
-      int numIndexingThreads,
-      Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
-      MeterRegistry registry) {
-    return create(numIndexingThreads, embeddingServiceManagerSupplier, registry, false);
-  }
-
   /**
    * Creates a new IndexingWorkSchedulerFactory with a work scheduler for each supported strategy,
    * including the EMBEDDING strategy.
@@ -78,12 +70,6 @@ public class IndexingWorkSchedulerFactory {
             IndexingStrategy.DEFAULT, defaultIndexingWorkScheduler,
             IndexingStrategy.CUSTOM_VECTOR_ENGINE, customVectorEngineIndexingWorkScheduler,
             IndexingStrategy.EMBEDDING, embeddingIndexingWorkScheduler));
-  }
-
-  // TODO(CLOUDP-405327): remove test-only overload once LIFECYCLE_ATTRIBUTION_METRICS rolls out.
-  public static IndexingWorkSchedulerFactory createWithoutEmbeddingStrategy(
-      int numIndexingThreads, MeterRegistry registry) {
-    return createWithoutEmbeddingStrategy(numIndexingThreads, registry, false);
   }
 
   /**
@@ -116,7 +102,6 @@ public class IndexingWorkSchedulerFactory {
    * @param perBatchMemoryBudgetHeapPercent percentage of JVM max heap for the per-batch embedding
    *     memory budget (1–100; 100 disables the limit)
    */
-  // TODO(CLOUDP-405327): remove test-only overload once LIFECYCLE_ATTRIBUTION_METRICS rolls out.
   public static IndexingWorkSchedulerFactory createEmbeddingIndexingSchedulerOnly(
       int numIndexingThreads,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
@@ -131,7 +116,7 @@ public class IndexingWorkSchedulerFactory {
         registry,
         globalMemoryBudgetHeapPercent,
         perBatchMemoryBudgetHeapPercent,
-        false,
+        true,
         EmbeddingRetryCache.noOp(),
         () -> false,
         id -> false);
@@ -221,7 +206,8 @@ public class IndexingWorkSchedulerFactory {
   /**
    * Each indexing strategy must correspond to a {@link IndexingWorkScheduler} in the
    * indexingWorkSchedulers map. When adding a new indexing strategy, ensure that the corresponding
-   * {@link IndexingWorkScheduler} is added in {@link #create(int, Supplier, MeterRegistry)}.
+   * {@link IndexingWorkScheduler} is added in {@link #create(int, Supplier, MeterRegistry,
+   * boolean)}.
    *
    * <ul>
    *   <li>DEFAULT: Uses the {@link DefaultIndexingWorkScheduler} to exclusively index a batch.

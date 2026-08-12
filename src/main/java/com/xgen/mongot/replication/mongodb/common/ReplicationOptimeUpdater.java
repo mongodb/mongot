@@ -90,17 +90,6 @@ public class ReplicationOptimeUpdater implements AutoCloseable {
     }
   }
 
-  // TODO(CLOUDP-405327): remove test-only overload once LIFECYCLE_ATTRIBUTION_METRICS rolls out.
-  public static ReplicationOptimeUpdater create(
-      IndexCatalog indexCatalog,
-      InitializedIndexCatalog initializedIndexCatalog,
-      Optional<SyncSourceConfig> syncSource,
-      Duration updateInterval,
-      MeterRegistry meterRegistry) {
-    return create(
-        indexCatalog, initializedIndexCatalog, syncSource, updateInterval, meterRegistry, false);
-  }
-
   public static ReplicationOptimeUpdater create(
       IndexCatalog indexCatalog,
       InitializedIndexCatalog initializedIndexCatalog,

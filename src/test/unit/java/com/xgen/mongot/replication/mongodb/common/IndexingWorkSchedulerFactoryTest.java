@@ -32,7 +32,8 @@ public class IndexingWorkSchedulerFactoryTest {
   @Test
   public void testContainsSchedulerForEveryIndexingStrategy() {
     IndexingWorkSchedulerFactory indexingWorkSchedulerFactory =
-        IndexingWorkSchedulerFactory.create(2, mock(Supplier.class), new SimpleMeterRegistry());
+        IndexingWorkSchedulerFactory.create(
+            2, mock(Supplier.class), new SimpleMeterRegistry(), true);
 
     // create() only provides DEFAULT and EMBEDDING; EMBEDDING_MATERIALIZED_VIEW is handled
     // exclusively by MaterializedViewManager via createEmbeddingIndexingSchedulerOnly().
@@ -48,7 +49,8 @@ public class IndexingWorkSchedulerFactoryTest {
   @Test
   public void testCreateWithoutEmbeddingStrategy() {
     IndexingWorkSchedulerFactory indexingWorkSchedulerFactory =
-        IndexingWorkSchedulerFactory.createWithoutEmbeddingStrategy(2, new SimpleMeterRegistry());
+        IndexingWorkSchedulerFactory.createWithoutEmbeddingStrategy(
+            2, new SimpleMeterRegistry(), true);
 
     for (IndexingWorkSchedulerFactory.IndexingStrategy strategy :
         IndexingWorkSchedulerFactory.IndexingStrategy.values()) {
@@ -86,7 +88,8 @@ public class IndexingWorkSchedulerFactoryTest {
   @Test
   public void testReturnsProperScheduler() {
     IndexingWorkSchedulerFactory indexingWorkSchedulerFactory =
-        IndexingWorkSchedulerFactory.create(2, mock(Supplier.class), new SimpleMeterRegistry());
+        IndexingWorkSchedulerFactory.create(
+            2, mock(Supplier.class), new SimpleMeterRegistry(), true);
 
     IndexingWorkScheduler embeddingIndexingWorkScheduler =
         indexingWorkSchedulerFactory.getIndexingWorkScheduler(MOCK_AUTO_EMBEDDING_INDEX_DEFINITION);
@@ -107,7 +110,8 @@ public class IndexingWorkSchedulerFactoryTest {
   @Test
   public void testThrowsIfIndexingStrategyNotPresent() {
     IndexingWorkSchedulerFactory indexingWorkSchedulerFactory =
-        IndexingWorkSchedulerFactory.createWithoutEmbeddingStrategy(2, new SimpleMeterRegistry());
+        IndexingWorkSchedulerFactory.createWithoutEmbeddingStrategy(
+            2, new SimpleMeterRegistry(), true);
 
     assertThrows(
         "EMBEDDING indexing strategy is not supported. "

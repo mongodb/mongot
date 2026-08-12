@@ -2273,7 +2273,8 @@ public class ChangeStreamManagerTest {
   }
 
   private IndexingWorkSchedulerFactory indexingWorkSchedulerFactory() {
-    return IndexingWorkSchedulerFactory.create(2, mock(Supplier.class), new SimpleMeterRegistry());
+    return IndexingWorkSchedulerFactory.create(
+        2, mock(Supplier.class), new SimpleMeterRegistry(), true);
   }
 
   private AutoCloseable extractMockedMongoClient(

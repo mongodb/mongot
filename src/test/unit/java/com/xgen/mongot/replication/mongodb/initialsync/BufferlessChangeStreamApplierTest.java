@@ -304,7 +304,7 @@ public class BufferlessChangeStreamApplierTest {
       IndexingWorkSchedulerFactory indexingWorkSchedulerFactory =
           spy(
               IndexingWorkSchedulerFactory.create(
-                  2, mock(Supplier.class), new SimpleMeterRegistry()));
+                  2, mock(Supplier.class), new SimpleMeterRegistry(), true));
       DocumentIndexer indexer =
           com.xgen.testing.mongot.mock.replication.mongodb.common.DocumentIndexer
               .mockDocumentIndexer();

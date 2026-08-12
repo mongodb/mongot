@@ -201,7 +201,6 @@ public class ChangeStreamManager {
         activityObserverFactory);
   }
 
-  // TODO(CLOUDP-405327): remove test-only overload once LIFECYCLE_ATTRIBUTION_METRICS rolls out.
   @VisibleForTesting
   static ChangeStreamManager createSync(
       MeterAndFtdcRegistry meterAndFtdcRegistry,
@@ -217,7 +216,7 @@ public class ChangeStreamManager {
         indexingWorkSchedulerFactory,
         replicationConfig,
         indexManagerFactory,
-        false,
+        true,
         false,
         Optional.empty());
   }
@@ -238,7 +237,7 @@ public class ChangeStreamManager {
         indexingWorkSchedulerFactory,
         replicationConfig,
         indexManagerFactory,
-        false,
+        true,
         false,
         activityObserverFactory);
   }
@@ -259,7 +258,7 @@ public class ChangeStreamManager {
         indexingWorkSchedulerFactory,
         replicationConfig,
         indexManagerFactory,
-        false,
+        true,
         enableChangeStreamPriorityScheduling,
         Optional.empty());
   }

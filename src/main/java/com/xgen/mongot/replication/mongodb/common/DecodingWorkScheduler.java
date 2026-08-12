@@ -91,14 +91,8 @@ public class DecodingWorkScheduler extends Thread {
         metricsFactory.timer("decodingBatchSchedulingDurations", Tags.of(replicationTag));
   }
 
-  // TODO(CLOUDP-405327): remove test-only overloads once LIFECYCLE_ATTRIBUTION_METRICS rolls out.
   public static DecodingWorkScheduler create(int numDecodingThreads, MeterRegistry registry) {
-    return create(numDecodingThreads, DEFAULT, registry, false);
-  }
-
-  public static DecodingWorkScheduler create(
-      int numDecodingThreads, CommonReplicationConfig.Type type, MeterRegistry registry) {
-    return create(numDecodingThreads, type, registry, false);
+    return create(numDecodingThreads, DEFAULT, registry, true);
   }
 
   /**
