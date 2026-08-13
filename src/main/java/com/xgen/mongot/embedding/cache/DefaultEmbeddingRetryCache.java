@@ -263,7 +263,8 @@ final class DefaultEmbeddingRetryCache implements EmbeddingRetryCache {
   private static long byteSize(Vector vector) {
     return switch (vector.getVectorType()) {
       case FLOAT -> (long) vector.asFloatVector().getFloatVector().length * Float.BYTES;
-      case BYTE, BIT -> vector.getBytes().length;
+      // f16 and byte/bit vectors are all backed by their raw byte buffer.
+      case FLOAT16, BYTE, BIT -> vector.getBytes().length;
     };
   }
 }

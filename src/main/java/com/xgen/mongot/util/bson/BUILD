@@ -12,6 +12,7 @@ java_library(
         "ByteUtils.java",
         "ByteVector.java",
         "DocumentUtil.java",
+        "Float16Vector.java",
         "FloatVector.java",
         "JsonCodec.java",
         "OptionalCodec.java",

@@ -29,6 +29,7 @@ import org.junit.runners.Suite;
       BsonVectorParserTest.ValidBsonVectorParserTest.class,
       BsonVectorParserTest.InvalidBsonVectorParserTest.class,
       BsonVectorParserTest.BsonFloatVectorEncodeDecodeTest.class,
+      BsonVectorParserTest.BsonFloat16VectorEncodeDecodeTest.class,
       BsonVectorParserTest.BsonByteVectorEncodeDecodeTest.class,
       BsonVectorParserTest.BsonBitVectorEncodeDecodeTest.class,
       BsonVectorParserTest.PaddingTest.class,
@@ -226,6 +227,90 @@ public class BsonVectorParserTest {
       float[] decodedVector = decoded.asFloatVector().getFloatVector();
       assertEquals(this.floatVector.length, decodedVector.length);
       assertArrayEquals(this.floatVector, decodedVector, TestUtils.EPSILON);
+    }
+  }
+
+  @RunWith(Parameterized.class)
+  public static class BsonFloat16VectorEncodeDecodeTest {
+    private final float[] sourceFloats;
+
+    public BsonFloat16VectorEncodeDecodeTest(float[] sourceFloats) {
+      this.sourceFloats = sourceFloats;
+    }
+
+    @Parameterized.Parameters
+    public static Collection<float[]> data() {
+      return Arrays.asList(
+          new float[][] {
+            {
+              /* empty */
+            },
+            {1f, 2.5f, -0.8f, 0f}
+          });
+    }
+
+    /** Little-endian raw f16 bytes for {@link #sourceFloats}. */
+    private byte[] toFloat16Bytes() {
+      byte[] bytes = new byte[this.sourceFloats.length * Short.BYTES];
+      for (int i = 0; i < this.sourceFloats.length; i++) {
+        short bits = Float.floatToFloat16(this.sourceFloats[i]);
+        bytes[i * Short.BYTES] = (byte) (bits & 0xFF);
+        bytes[i * Short.BYTES + 1] = (byte) ((bits >> 8) & 0xFF);
+      }
+      return bytes;
+    }
+
+    @Test
+    public void testDecodeThenEncodeFloat16Vector() {
+      byte[] f16Bytes = toFloat16Bytes();
+      int size = f16Bytes.length + BSON_VECTOR_HEADER_SIZE;
+      ByteBuffer buffer = ByteBuffer.allocate(size).order(ByteOrder.LITTLE_ENDIAN);
+      buffer.put(BsonVectorParser.VectorDataType.FLOAT16_VECTOR_DATA_TYPE.getValue());
+      buffer.put((byte) 0x00);
+      buffer.put(f16Bytes);
+      BsonBinary bsonBinary = new BsonBinary(BsonVectorParser.VECTOR_SUB_TYPE, buffer.array());
+
+      Vector decoded = BsonVectorParser.parse(bsonBinary);
+      assertEquals(Vector.VectorType.FLOAT16, decoded.getVectorType());
+      Float16Vector float16Vector = decoded.asFloat16Vector();
+      assertEquals(this.sourceFloats.length, float16Vector.numDimensions());
+      assertArrayEquals(f16Bytes, float16Vector.getFloat16Bytes());
+
+      BsonBinary encoded = BsonVectorParser.encode(float16Vector);
+      assertEquals(size, encoded.getData().length);
+      byte[] encodedArray = encoded.getData();
+      assertEquals((byte) 0x25, encodedArray[0]);
+      assertEquals((byte) 0x00, encodedArray[1]);
+      assertArrayEquals(f16Bytes, Arrays.copyOfRange(encodedArray, 2, encodedArray.length));
+    }
+
+    @Test
+    public void testEncodeThenDecodeFloat16Vector() {
+      byte[] f16Bytes = toFloat16Bytes();
+      BsonBinary encoded = BsonVectorParser.encode(Vector.fromFloat16Bytes(f16Bytes));
+      assertEquals(BsonVectorParser.VECTOR_SUB_TYPE, encoded.getType());
+      assertEquals(
+          BsonVectorParser.VectorDataType.FLOAT16_VECTOR_DATA_TYPE.getValue(),
+          encoded.getData()[0]);
+      assertEquals(0x00, encoded.getData()[1]);
+
+      Vector decoded = BsonVectorParser.parse(encoded);
+      assertEquals(Vector.VectorType.FLOAT16, decoded.getVectorType());
+      assertArrayEquals(f16Bytes, decoded.asFloat16Vector().getFloat16Bytes());
+    }
+
+    @Test
+    public void testNonZeroPaddingRejected() {
+      byte[] f16Bytes = toFloat16Bytes();
+      ByteBuffer buffer =
+          ByteBuffer.allocate(f16Bytes.length + BSON_VECTOR_HEADER_SIZE)
+              .order(ByteOrder.LITTLE_ENDIAN);
+      buffer.put(BsonVectorParser.VectorDataType.FLOAT16_VECTOR_DATA_TYPE.getValue());
+      buffer.put((byte) 0x01); // non-zero padding is invalid for f16
+      buffer.put(f16Bytes);
+      BsonBinary bsonBinary = new BsonBinary(BsonVectorParser.VECTOR_SUB_TYPE, buffer.array());
+      Exception ex = assertThrows(BSONException.class, () -> BsonVectorParser.parse(bsonBinary));
+      assertTrue(ex.getMessage().contains("Padding should be zero"));
     }
   }
 

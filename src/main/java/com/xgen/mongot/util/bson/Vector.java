@@ -14,20 +14,26 @@ import org.bson.BsonValue;
  * (scalar quantized vector) or a bit vector (binary quantized vector).
  */
 public abstract sealed class Vector implements Encodable
-    permits BitVector, ByteVector, FloatVector {
+    permits BitVector, ByteVector, FloatVector, Float16Vector {
 
   /**
-   * The data type of the vector. This indicates whether the vector consists of floats, int8s/bytes
-   * or bits.
+   * The data type of the vector. This indicates whether the vector consists of floats, half-floats
+   * (f16), int8s/bytes or bits.
    */
   public enum VectorType {
     FLOAT,
+    FLOAT16,
     BYTE,
     BIT
   }
 
   public static FloatVector fromFloats(float[] floats, FloatVector.OriginalType originalType) {
     return new FloatVector(floats, originalType);
+  }
+
+  /** Build a half-precision vector from its raw little-endian f16 bytes (two per dimension). */
+  public static Float16Vector fromFloat16Bytes(byte[] bytes) {
+    return new Float16Vector(bytes);
   }
 
   public static ByteVector fromBytes(byte[] bytes) {
@@ -41,6 +47,11 @@ public abstract sealed class Vector implements Encodable
   public FloatVector asFloatVector() {
     Check.expectedType(VectorType.FLOAT, getVectorType());
     return (FloatVector) this;
+  }
+
+  public Float16Vector asFloat16Vector() {
+    Check.expectedType(VectorType.FLOAT16, getVectorType());
+    return (Float16Vector) this;
   }
 
   public ByteVector asByteVector() {

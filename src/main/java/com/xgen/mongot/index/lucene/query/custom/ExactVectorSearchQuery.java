@@ -252,6 +252,10 @@ public class ExactVectorSearchQuery extends Query {
           yield VectorSearchUtil.bitSimilarity(
               this.target.getBytes(), byteValues.vectorValue(byteIterator.index()), dimensions);
         }
+        // float16 input is only supported by the vectorlite engine, never the Lucene path.
+        case FLOAT16 ->
+            throw new IllegalStateException(
+                "float16 vectors are not supported by the Lucene engine");
       };
     }
 

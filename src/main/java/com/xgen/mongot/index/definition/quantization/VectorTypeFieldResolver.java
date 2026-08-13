@@ -33,6 +33,11 @@ public final class VectorTypeFieldResolver {
             case BINARY -> FieldName.TypeField.KNN_BYTE_Q1;
           };
       case BIT -> FieldName.TypeField.KNN_BIT;
+      // float16 input is only supported by the vectorlite engine, which does not use
+      // Lucene type fields; it must never reach this resolver.
+      case FLOAT16 ->
+          throw new IllegalArgumentException(
+              "float16 vectors are not supported by the Lucene engine");
     };
   }
 }

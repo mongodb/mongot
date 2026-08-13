@@ -137,6 +137,7 @@ public class VectorIndexingAndQueryingLargeScaleTest {
                   .map(VectorIndexingAndQueryingTestHarness::fromNativeFloats)
                   .toList();
         }
+        case FLOAT16 -> throw new AssertionError();
         case BYTE -> {
           byte[][] byteVectors = harness.generateRandomByteVectors(NUM_VECTORS, DIMENSIONS);
           this.docs = harness.createVectorDocs(byteVectors, 0, Vector::fromBytes);

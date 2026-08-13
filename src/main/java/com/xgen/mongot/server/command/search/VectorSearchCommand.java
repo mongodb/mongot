@@ -763,6 +763,7 @@ public class VectorSearchCommand implements Command {
           this.metrics.bsonFloatVectorQueries.increment();
         }
       }
+      case FLOAT16 -> this.metrics.bsonFloat16VectorQueries.increment();
       case BYTE -> this.metrics.bsonByteVectorQueries.increment();
       case BIT -> this.metrics.bsonBitVectorQueries.increment();
     }
@@ -1282,6 +1283,7 @@ public class VectorSearchCommand implements Command {
     private final Counter autoEmbeddingTextQueries;
     private final Counter autoEmbeddingMultiModalQueries;
     private final Counter bsonFloatVectorQueries;
+    private final Counter bsonFloat16VectorQueries;
     private final Counter bsonByteVectorQueries;
     private final Counter bsonBitVectorQueries;
     private final Counter vectorStoredSourceQueries;
@@ -1314,6 +1316,7 @@ public class VectorSearchCommand implements Command {
       this.autoEmbeddingMultiModalQueries =
           metricsFactory.counter("autoEmbeddingMultiModalVectorSearchQueries");
       this.bsonFloatVectorQueries = metricsFactory.counter("bsonFloatVectorQueries");
+      this.bsonFloat16VectorQueries = metricsFactory.counter("bsonFloat16VectorQueries");
       this.bsonByteVectorQueries = metricsFactory.counter("bsonByteVectorQueries");
       this.bsonBitVectorQueries = metricsFactory.counter("bsonBitVectorQueries");
       this.vectorStoredSourceQueries = metricsFactory.counter("vectorStoredSourceQueries");

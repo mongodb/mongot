@@ -457,6 +457,7 @@ public class VectorIndexingAndQueryingTestHarness implements AutoCloseable {
       case BIT ->
           euclideanSimilarityBitVector(
               vector1.asBitVector().getBitVector(), vector2.asBitVector().getBitVector());
+      case FLOAT16 -> throw new RuntimeException("float16 vectors are not supported by Lucene");
     };
   }
 
@@ -494,6 +495,7 @@ public class VectorIndexingAndQueryingTestHarness implements AutoCloseable {
           dotProductSimilarityByteVector(
               vector1.asByteVector().getByteVector(), vector2.asByteVector().getByteVector());
       case BIT -> throw new RuntimeException("dot product similarity not supported for bit vector");
+      case FLOAT16 -> throw new RuntimeException("float16 vectors are not supported by Lucene");
     };
   }
 
@@ -525,6 +527,7 @@ public class VectorIndexingAndQueryingTestHarness implements AutoCloseable {
           cosineSimilarityByteVector(
               vector1.asByteVector().getByteVector(), vector2.asByteVector().getByteVector());
       case BIT -> throw new RuntimeException("dot product similarity not supported for bit vector");
+      case FLOAT16 -> throw new RuntimeException("float16 vectors are not supported by Lucene");
     };
   }
 

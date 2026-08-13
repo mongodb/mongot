@@ -57,6 +57,7 @@ public final class AutoEmbedQueryVectorReconciler {
   private static String dtypeName(Vector.VectorType type) {
     return switch (type) {
       case FLOAT -> "float32";
+      case FLOAT16 -> "float16";
       case BYTE -> "int8";
       case BIT -> "packedBit";
     };

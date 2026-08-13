@@ -34,6 +34,7 @@ import org.bson.BsonBinary;
  * values of the first byte is listed in the table below
  * +-----------------------------------------------+ | binary (1 bit) | 0x10 |
  * |-----------------------------------------------| | int8 (signed 8 bit int) | 0x03 |
+ * |-----------------------------------------------| | float16 (16 bit floating point) | 0x25 |
  * |-----------------------------------------------| | float32 (32 bit floating point) | 0x27 |
  * +-----------------------------------------------+
  *
@@ -73,16 +74,18 @@ public class BsonVectorParser {
 
     return switch (vectorDataType) {
       case FLOAT32_VECTOR_DATA_TYPE -> parseFloatVector(bsonInput, padding);
+      case FLOAT16_VECTOR_DATA_TYPE -> parseFloat16Vector(bsonInput, padding);
       case BYTE_VECTOR_DATA_TYPE -> parseByteVector(bsonInput, padding);
       case BIT_VECTOR_DATA_TYPE -> parseBitVector(bsonInput, padding);
     };
   }
 
-  // only encodes float32 and int8 vector types for now
+  // only encodes float32, float16 and int8 vector types for now
   public static BsonBinary encode(Vector vector) {
     Vector.VectorType vectorType = vector.getVectorType();
     return switch (vectorType) {
       case FLOAT -> encodeFloatVector(vector.asFloatVector());
+      case FLOAT16 -> encodeFloat16Vector(vector.asFloat16Vector());
       case BYTE -> encodeByteVector(vector.asByteVector());
       case BIT -> encodeBitVector(vector.asBitVector());
     };
@@ -98,6 +101,17 @@ public class BsonVectorParser {
       while (floatBuffer.hasRemaining()) {
         buffer.putFloat(floatBuffer.get());
       }
+    }
+    return new BsonBinary(VECTOR_SUB_TYPE, buffer.array());
+  }
+
+  private static BsonBinary encodeFloat16Vector(Float16Vector vector) {
+    int bufferSize = BSON_VECTOR_HEADER_SIZE + vector.getFloat16Bytes().length;
+    ByteBuffer buffer = ByteBuffer.allocate(bufferSize).order(ByteOrder.LITTLE_ENDIAN);
+    buffer.put(VectorDataType.FLOAT16_VECTOR_DATA_TYPE.getValue());
+    buffer.put((byte) 0x00); // padding is always 0 in case of float16 vectors
+    if (!vector.isEmpty()) {
+      buffer.put(vector.getFloat16Bytes());
     }
     return new BsonBinary(VECTOR_SUB_TYPE, buffer.array());
   }
@@ -139,6 +153,15 @@ public class BsonVectorParser {
     return Vector.fromFloats(vector, FloatVector.OriginalType.BSON);
   }
 
+  private static Vector parseFloat16Vector(ByteBuffer bsonInput, int padding) {
+    if (padding != 0) {
+      throw new BSONException("Padding should be zero");
+    }
+    byte[] float16Bytes = new byte[bsonInput.remaining()];
+    bsonInput.get(float16Bytes);
+    return Vector.fromFloat16Bytes(float16Bytes);
+  }
+
   private static Vector parseByteVector(ByteBuffer bsonInput, int padding) {
     if (padding != 0) {
       throw new BSONException("Padding should be zero");
@@ -164,6 +187,7 @@ public class BsonVectorParser {
   @VisibleForTesting
   public enum VectorDataType {
     BYTE_VECTOR_DATA_TYPE((byte) 0x03),
+    FLOAT16_VECTOR_DATA_TYPE((byte) 0x25),
     FLOAT32_VECTOR_DATA_TYPE((byte) 0x27),
     BIT_VECTOR_DATA_TYPE((byte) 0x10);
 

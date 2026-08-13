@@ -523,6 +523,15 @@ public class IndexableFieldFactory {
       return;
     }
 
+    // f16 input is only supported by the vectorlite engine; the Lucene path cannot index it.
+    if (vector.getVectorType() == Vector.VectorType.FLOAT16) {
+      FLOGGER.atWarning().atMostEvery(1, TimeUnit.HOURS).log(
+          "float16 vectors are not supported by the Lucene engine, skipping. _id=%s",
+          lazy(() -> getLoggingId(document)));
+      document.markVectorFieldInvalid(checkFieldName);
+      return;
+    }
+
     VectorSimilarityFunction similarityFunction = similarity.getLuceneSimilarityFunction();
     String vectorFieldName =
         VectorTypeFieldResolver.resolveTypeField(quantization, vector.getVectorType())
@@ -535,6 +544,10 @@ public class IndexableFieldFactory {
                   vectorFieldName, vector.asFloatVector().getFloatVector(), similarityFunction),
               checkFieldName);
         }
+        // float16 is guarded out above (vectorlite-only); unreachable here.
+        case FLOAT16 ->
+            throw new IllegalStateException(
+                "float16 vectors are not supported by the Lucene engine");
         case BYTE -> {
           if (quantization.equals(VectorQuantization.SCALAR)) {
             FLOGGER.atWarning().atMostEvery(10, TimeUnit.MINUTES).log(

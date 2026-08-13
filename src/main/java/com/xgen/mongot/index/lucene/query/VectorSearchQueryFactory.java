@@ -28,6 +28,7 @@ import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.BitVector;
 import com.xgen.mongot.util.bson.ByteVector;
+import com.xgen.mongot.util.bson.Float16Vector;
 import com.xgen.mongot.util.bson.FloatVector;
 import com.xgen.mongot.util.bson.Vector;
 import java.io.IOException;
@@ -143,6 +144,11 @@ class VectorSearchQueryFactory {
               + indexedVectorSimilarity);
     }
 
+    if (queryVector.getVectorType() == Vector.VectorType.FLOAT16) {
+      throw new InvalidQueryException(
+          "float16 query vectors are not supported by the Lucene engine");
+    }
+
     String fieldName = getLuceneFieldName(path, embeddedRoot, queryVector.getVectorType());
 
     Query childQuery;
@@ -176,6 +182,12 @@ class VectorSearchQueryFactory {
                   queryCreator.query(byteVector, fieldName, numCandidates, limit, luceneFilter);
               case BitVector bitVector ->
                   queryCreator.query(bitVector, fieldName, numCandidates, limit, luceneFilter);
+              // float16 query vectors are only supported by the vectorlite engine.
+              // This should be unreachable as we catch this condition before we get the lucene
+              // field name.
+              case Float16Vector unusedFloat16 ->
+                  throw new InvalidQueryException(
+                      "float16 query vectors are not supported by the Lucene engine");
             };
         break;
 
