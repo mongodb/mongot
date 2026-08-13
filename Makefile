@@ -46,6 +46,12 @@ lint:
 		--test_output=errors \
 		//...
 
+# Auto-fix any format and lint violations
+# Note: cannot call this `make lint.fix` because it will interfere with Claude's `make lint` hook.
+.PHONY: fix
+fix:
+	bash ./bazel/tools/format/fix.sh
+
 .PHONY: sync
 sync:
 	@$(call BAZEL) sync

@@ -1,6 +1,17 @@
+default_install_hook_types:
+  - pre-commit
+  - pre-push
+
 repos:
   - repo: local
     hooks:
+      - id: bazel-format
+        name: Bazel Format
+        stages: [ pre-commit ]
+        entry: ./scripts/pre-commit/format.sh
+        language: system
+        pass_filenames: true
+
       - id: kingfisher
         name: kingfisher
         description: Runs kingfisher hook to scan staged changes for exposed secrets
@@ -15,5 +26,5 @@ repos:
         stages: [ pre-commit ]
         entry: ./scripts/sync-agent-skills.sh
         always_run: false
-        files: (^|/)AGENTS\.md$|^\.agents/skills/[^/]+/SKILL\.md$
+        files: (^|/)AGENTS\.md$|^\.agents/skills/[^/]+/SKILL\.md$|^\.claude/rules/[^/]+\.md$
         pass_filenames: false

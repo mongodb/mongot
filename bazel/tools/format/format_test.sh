@@ -23,5 +23,11 @@ if ! "$CHECK_BIN"; then
     echo "  bazel run //bazel/tools/format"
     echo "================================================================="
     echo ""
+    HOOKS_DIR="$(git rev-parse --git-path hooks)"
+    if ! grep -q "pre-commit" "$HOOKS_DIR/pre-commit" 2>/dev/null; then
+      echo "You do not have pre-commit hooks installed"
+      echo "Run the following command to have this error resolved automatically on commit:"
+      echo "pre-commit install"
+    fi
     exit 1
 fi
