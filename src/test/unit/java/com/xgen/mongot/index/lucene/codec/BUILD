@@ -10,6 +10,7 @@ java_test_suite(
         "LuceneCodecBloomFilterTest.java",
         "LuceneCodecTest.java",
         "LuceneCodecTinySegmentHnswGraphTest.java",
+        "LuceneCodecWrittenFormatVersionsTest.java",
         "LuceneStoredFieldsFormatTest.java",
         "OnDiskFormatVersionsTest.java",
         "bloom/BloomCodecPolicyTest.java",

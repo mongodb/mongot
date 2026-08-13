@@ -25,7 +25,6 @@ import com.xgen.mongot.index.MeteredSearchIndexReader;
 import com.xgen.mongot.index.ReaderClosedException;
 import com.xgen.mongot.index.analyzer.AnalyzerRegistry;
 import com.xgen.mongot.index.lucene.backing.IndexBackingStrategy;
-import com.xgen.mongot.index.lucene.codec.LuceneCodec;
 import com.xgen.mongot.index.lucene.directory.IndexDirectoryFactory;
 import com.xgen.mongot.index.lucene.directory.IndexDirectoryHelper;
 import com.xgen.mongot.index.lucene.merge.InstrumentedConcurrentMergeScheduler;
@@ -61,6 +60,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+import org.apache.lucene.backward_codecs.lucene99.Lucene99Codec;
+import org.apache.lucene.codecs.FilterCodec;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.StringField;
@@ -644,9 +645,13 @@ public class InitializedLuceneSearchIndexTest {
     var indexPath = directoryFactory.getPath();
     var metadataPath = directoryFactory.getMetadataPath();
 
-    // Create an IndexWriter with an unregistered Codec.
+    // Create an IndexWriter with an unregistered Codec: any codec whose recorded name has no SPI
+    // entry reproduces the incompatible-codec state on read.
     IndexWriter writer =
-        new IndexWriter(directory, new IndexWriterConfig().setCodec(new LuceneCodec("Lucene9999")));
+        new IndexWriter(
+            directory,
+            new IndexWriterConfig()
+                .setCodec(new FilterCodec("Lucene9999", new Lucene99Codec()) {}));
 
     // Add a document using the IndexWriter.
     BsonDocument bson = new BsonDocument().append("_id", new BsonInt32(0));

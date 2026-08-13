@@ -8,7 +8,10 @@ java_library(
         "LuceneStoredFieldsFormat.java",
     ],
     visibility = ["//visibility:public"],
-    exports = ["@maven//:org_apache_lucene_lucene_core"],
+    exports = [
+        "//src/main/java/com/xgen/mongot/index/lucene/vector",
+        "@maven//:org_apache_lucene_lucene_core",
+    ],
     deps = [
         "//src/main/java/com/xgen/mongot/index",
         "//src/main/java/com/xgen/mongot/index/definition",

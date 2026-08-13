@@ -28,19 +28,29 @@ import org.apache.lucene.document.Document;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
+/** Runs under every {@link LuceneCodec.WriteFormat}: results must be write-format-invariant. */
+@RunWith(Parameterized.class)
 public class LuceneCachingVectorSearchManagerTest {
+
+  @Parameterized.Parameters(name = "{0}")
+  public static LuceneCodec.WriteFormat[] writeFormats() {
+    return LuceneCodec.WriteFormat.values();
+  }
 
   private static final IndexMetricsUpdater.QueryingMetricsUpdater metrics =
       new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory());
 
   private final IndexWriter indexWriter;
 
-  public LuceneCachingVectorSearchManagerTest() throws IOException {
+  public LuceneCachingVectorSearchManagerTest(LuceneCodec.WriteFormat writeFormat)
+      throws IOException {
     this.indexWriter =
         new IndexWriter(
             new ByteBuffersDirectory(),
-            new org.apache.lucene.index.IndexWriterConfig().setCodec(new LuceneCodec()));
+            new org.apache.lucene.index.IndexWriterConfig().setCodec(new LuceneCodec(writeFormat)));
   }
 
   @Test

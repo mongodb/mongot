@@ -28,24 +28,21 @@ import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.util.hnsw.HnswGraph;
 import org.junit.experimental.theories.DataPoints;
 import org.junit.experimental.theories.Theories;
 import org.junit.experimental.theories.Theory;
 import org.junit.runner.RunWith;
 
 /**
- * Guards mongot's HNSW tiny-segment invariant: every production vector format must write an HNSW
- * graph for every segment, no matter how small. Lucene 10.4's upstream default ({@code
+ * Guards mongot's write-format-dependent HNSW tiny-segment behavior.
+ *
+ * <p>Under {@link LuceneCodec.WriteFormat#LUCENE99}, every production vector format must write an
+ * HNSW graph for every segment, no matter how small: Lucene 10.4's upstream default ({@code
  * HNSW_GRAPH_THRESHOLD} = 100) skips the graph for segments with fewer vectors, writing {@code
  * numLevels=0} metadata that pre-10.4 readers (mongot on Lucene 9.11.1/10.1.0) NPE on at query time
  * — so a rollback would crash queries. LuceneCodec therefore passes {@link
  * com.xgen.mongot.index.lucene.vector.Lucene99NativeHnswVectorsFormat#DEFAULT_HNSW_GRAPH_THRESHOLD}
  * (0) to every HNSW writer.
- *
- * <p>This test indexes fewer than 100 vectors per KNN type field through the production {@link
- * LuceneCodec} dispatch and fails if the flushed segment lacks a graph — catching any format (or
- * future Lucene default) that reverts to threshold 100.
  */
 @RunWith(Theories.class)
 public class LuceneCodecTinySegmentHnswGraphTest {
@@ -63,14 +60,29 @@ public class LuceneCodecTinySegmentHnswGraphTest {
   };
 
   @Theory
-  public void tinySegment_everyHnswFormat_writesGraph(FieldName.TypeField typeField)
+  public void tinySegment_lucene99_everyHnswFormat_writesGraph(FieldName.TypeField typeField)
       throws IOException {
+    int numLevels =
+        writeTinySegmentAndGetGraphNumLevels(typeField, LuceneCodec.WriteFormat.LUCENE99);
+    assertWithMessage(
+            "expected an HNSW graph for %s on a %s-vector segment under LUCENE99. Graph-less"
+                + " segments break rollback: 9.11.1/10.1.0 readers NPE at query time. Every HNSW"
+                + " format must pass tinySegmentsThreshold=0 (DEFAULT_HNSW_GRAPH_THRESHOLD), not"
+                + " Lucene 10.4's default of 100.",
+            typeField, NUM_DOCS)
+        .that(numLevels)
+        .isAtLeast(1);
+  }
+
+  private static int writeTinySegmentAndGetGraphNumLevels(
+      FieldName.TypeField typeField, LuceneCodec.WriteFormat writeFormat) throws IOException {
     String fieldName = typeField.getLuceneFieldName(FieldPath.parse("vector"), Optional.empty());
     Random random = new Random(42);
 
     try (Directory directory = new ByteBuffersDirectory();
         IndexWriter writer =
-            new IndexWriter(directory, new IndexWriterConfig().setCodec(new LuceneCodec()))) {
+            new IndexWriter(
+                directory, new IndexWriterConfig().setCodec(new LuceneCodec(writeFormat)))) {
       for (int i = 0; i < NUM_DOCS; i++) {
         Document doc = new Document();
         doc.add(createVectorField(typeField, fieldName, random));
@@ -87,15 +99,7 @@ public class LuceneCodecTinySegmentHnswGraphTest {
         assertWithMessage("the reader for %s must expose its HNSW graph", typeField)
             .that(fieldReader)
             .isInstanceOf(HnswGraphProvider.class);
-        HnswGraph graph = ((HnswGraphProvider) fieldReader).getGraph(fieldName);
-        assertWithMessage(
-                "expected an HNSW graph for %s on a %s-vector segment. Graph-less segments break"
-                    + " rollback: 9.11.1/10.1.0 readers NPE at query time. Every HNSW format must"
-                    + " pass tinySegmentsThreshold=0 (DEFAULT_HNSW_GRAPH_THRESHOLD), not Lucene"
-                    + " 10.4's default of 100.",
-                typeField, NUM_DOCS)
-            .that(graph.numLevels())
-            .isAtLeast(1);
+        return ((HnswGraphProvider) fieldReader).getGraph(fieldName).numLevels();
       }
     }
   }

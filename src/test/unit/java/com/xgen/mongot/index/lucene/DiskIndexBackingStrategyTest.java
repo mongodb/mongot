@@ -31,8 +31,19 @@ import org.apache.lucene.index.NoMergePolicy;
 import org.apache.lucene.store.FSDirectory;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
+/** Runs under every {@link LuceneCodec.WriteFormat}: results must be write-format-invariant. */
+@RunWith(Parameterized.class)
 public class DiskIndexBackingStrategyTest {
+
+  @Parameterized.Parameters(name = "{0}")
+  public static LuceneCodec.WriteFormat[] writeFormats() {
+    return LuceneCodec.WriteFormat.values();
+  }
+
+  @Parameterized.Parameter public LuceneCodec.WriteFormat writeFormat;
 
   private static final Duration REFRESH_INTERVAL = Duration.ofSeconds(1);
   private static final ScheduledExecutorService REFRESH_EXECUTOR =
@@ -59,7 +70,7 @@ public class DiskIndexBackingStrategyTest {
     for (Path partitionDir : partitions) {
       IndexWriterConfig config =
           new IndexWriterConfig()
-              .setCodec(new LuceneCodec())
+              .setCodec(new LuceneCodec(this.writeFormat))
               .setMergePolicy(NoMergePolicy.INSTANCE)
               .setCommitOnClose(true);
 

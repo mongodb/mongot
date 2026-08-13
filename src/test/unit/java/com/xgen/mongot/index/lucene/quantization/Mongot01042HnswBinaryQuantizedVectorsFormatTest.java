@@ -118,7 +118,7 @@ public class Mongot01042HnswBinaryQuantizedVectorsFormatTest extends BaseKnnVect
         "The pinned Lucene version changed: re-diff the copied methods in this class against"
             + " Lucene's BaseKnnVectorsFormatTestCase and port any upstream test changes, then"
             + " update the expected version here",
-        "10.4.0-2",
+        "10.4.0-3",
         lucenePinMatcher.group(1));
   }
 

@@ -33,7 +33,8 @@ _LUCENE_VERSION = "10.4.0"
 # - CLOUDP-426099 - Restore HnswGraphSearcher's behavior in 10.1 to interleave incVisitedCount(1)
 #     and collect (#27)
 # - CLOUDP-422277 - Fix the fully deleted window and align the bulk drain with upstream (#31)
-_LUCENE_FORK_VERSION = "10.4.0-2"
+# - CLOUDP-429612 - Expose public write version constructors in codec formats (#32)
+_LUCENE_FORK_VERSION = "10.4.0-3"
 
 # lucene-core, lucene-backward-codecs and lucene-codecs are resolved from the fork and override the
 # upstream artifacts (which are listed at _LUCENE_VERSION below so the main install's transitive

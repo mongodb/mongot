@@ -185,13 +185,15 @@ public class SingleLuceneIndexWriter implements LuceneIndexWriter {
     Map<FieldPath, VectorFieldSpecification> vectorFields =
         LuceneCodecUtils.extractVectorFieldsFromVectorIndex(indexDefinition.getFields());
 
+    LuceneCodec codec =
+        LuceneCodec.Factory.forIndexWithBloomFilter(
+            vectorFields, useIdBloomFilter, Optional.of(indexingMetricsUpdater));
     IndexWriterConfig indexWriterConfig =
         new org.apache.lucene.index.IndexWriterConfig()
-            .setCodec(
-                LuceneCodec.Factory.forIndexWithBloomFilter(
-                    vectorFields, useIdBloomFilter, Optional.of(indexingMetricsUpdater)))
-            // This is needed to separate lucene codec upgrade from code upgrade.
-            .setIndexCreatedVersionMajor(LuceneCodec.CODEC_VERSION_MAJOR)
+            .setCodec(codec)
+            // This is needed to separate lucene codec upgrade from code upgrade. Only applies
+            // when creating a new index; existing indexes keep their stamp.
+            .setIndexCreatedVersionMajor(codec.getIndexCreatedVersionMajor())
             .setMergePolicy(mergePolicy)
             .setRAMBufferSizeMB(ramBufferSizeMb)
             .setMergeScheduler(mergeScheduler)
@@ -257,13 +259,15 @@ public class SingleLuceneIndexWriter implements LuceneIndexWriter {
     Map<FieldPath, VectorFieldSpecification> pathToField =
         LuceneCodecUtils.extractVectorFieldsFromSearchMappings(resolver.getFields());
 
+    LuceneCodec codec =
+        LuceneCodec.Factory.forIndexWithBloomFilter(
+            pathToField, useIdBloomFilter, Optional.of(indexingMetricsUpdater));
     IndexWriterConfig indexWriterConfig =
         new org.apache.lucene.index.IndexWriterConfig(indexAnalyzer)
-            .setCodec(
-                LuceneCodec.Factory.forIndexWithBloomFilter(
-                    pathToField, useIdBloomFilter, Optional.of(indexingMetricsUpdater)))
-            // This is needed to separate lucene codec upgrade from code upgrade.
-            .setIndexCreatedVersionMajor(LuceneCodec.CODEC_VERSION_MAJOR)
+            .setCodec(codec)
+            // This is needed to separate lucene codec upgrade from code upgrade. Only applies
+            // when creating a new index; existing indexes keep their stamp.
+            .setIndexCreatedVersionMajor(codec.getIndexCreatedVersionMajor())
             .setSimilarity(similarity)
             .setMergePolicy(mergePolicy)
             .setRAMBufferSizeMB(ramBufferSizeMb)

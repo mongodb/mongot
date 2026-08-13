@@ -3,6 +3,7 @@ load("//bazel/java:test.bzl", "java_test_suite")
 java_test_suite(
     name = "vector",
     srcs = [
+        "HnswWriteParamsTest.java",
         "Lucene99NativeHnswVectorsFormatTest.java",
         "Lucene99NativeMemorySegmentVectorScorerTest.java",
         "Lucene99NativeTestCodec.java",

@@ -3,6 +3,7 @@ load("//bazel/java:package.bzl", "java_library")
 java_library(
     name = "vector",
     srcs = [
+        "HnswWriteParams.java",
         "Lucene99NativeHnswVectorsFormat.java",
         "Lucene99NativeMemorySegmentVectorScorer.java",
         "Similarity.java",

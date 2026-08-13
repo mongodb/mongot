@@ -3,7 +3,6 @@ package com.xgen.mongot.index.lucene.codec;
 import static com.google.common.truth.Truth.assertWithMessage;
 
 import com.xgen.mongot.index.lucene.quantization.Mongot01042BinaryQuantizedFlatVectorsFormat;
-import com.xgen.mongot.index.lucene.vector.Lucene99NativeHnswVectorsFormat;
 import java.lang.reflect.Field;
 import org.apache.lucene.backward_codecs.lucene99.Lucene94FieldInfosFormatV1;
 import org.apache.lucene.backward_codecs.lucene99.Lucene99PostingsFormat;
@@ -60,9 +59,13 @@ public class OnDiskFormatVersionsTest {
   // Per-field codec formats (Lucene 9.0 family).
   // ---------------------------------------------------------------------------------------------
 
+  // Lucene90PointsFormat.VERSION_CURRENT matches upstream 10.4 (v1). The 9.11-compatible write
+  // path opts DOWN explicitly: the fork's backward_codecs Lucene99Codec passes VERSION_START to
+  // its points writer. Written-byte identity is enforced end-to-end by
+  // LuceneCodecWrittenFormatVersionsTest.
   @Test
   public void lucene90PointsFormat_versionCurrent() {
-    assertVersionPin(Lucene90PointsFormat.class, "VERSION_CURRENT", 0);
+    assertVersionPin(Lucene90PointsFormat.class, "VERSION_CURRENT", 1);
   }
 
   @Test
@@ -147,9 +150,14 @@ public class OnDiskFormatVersionsTest {
   // VERSION_CURRENT of its own; its on-disk shape is covered by the entries below.
   // ---------------------------------------------------------------------------------------------
 
+  // Lucene99HnswVectorsFormat.VERSION_CURRENT matches upstream 10.4 (v1, group-varint). The
+  // 9.11-compatible write path opts DOWN explicitly: LuceneCodec passes the WriteFormat's graph
+  // write version to every HNSW format, and the fork's backward_codecs writers pass
+  // VERSION_START. Written-byte identity is enforced end-to-end by
+  // LuceneCodecWrittenFormatVersionsTest.
   @Test
   public void lucene99HnswVectorsFormat_versionCurrent() {
-    assertVersionPin(Lucene99HnswVectorsFormat.class, "VERSION_CURRENT", 0);
+    assertVersionPin(Lucene99HnswVectorsFormat.class, "VERSION_CURRENT", 1);
   }
 
   @Test
@@ -163,13 +171,10 @@ public class OnDiskFormatVersionsTest {
   }
 
   // ---------------------------------------------------------------------------------------------
-  // mongot's custom formats.
+  // mongot's custom formats. Lucene99NativeHnswVectorsFormat has no version constant of its own:
+  // its writer version comes from HnswWriteParams (fork Lucene99HnswVectorsFormat constants,
+  // pinned above); the bytes it writes are locked by LuceneCodecWrittenFormatVersionsTest.
   // ---------------------------------------------------------------------------------------------
-
-  @Test
-  public void lucene99NativeHnswVectorsFormat_versionCurrent() {
-    assertVersionPin(Lucene99NativeHnswVectorsFormat.class, "VERSION_CURRENT", 0);
-  }
 
   @Test
   public void mongot01042BinaryQuantizedFlatVectorsFormat_versionCurrent() {

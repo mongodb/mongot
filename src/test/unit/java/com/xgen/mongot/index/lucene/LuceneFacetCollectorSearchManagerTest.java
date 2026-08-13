@@ -48,14 +48,24 @@ import org.bson.BsonString;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
+/** Runs under every {@link LuceneCodec.WriteFormat}: results must be write-format-invariant. */
+@RunWith(Parameterized.class)
 public class LuceneFacetCollectorSearchManagerTest {
+
+  @Parameterized.Parameters(name = "{0}")
+  public static LuceneCodec.WriteFormat[] writeFormats() {
+    return LuceneCodec.WriteFormat.values();
+  }
 
   private final IndexWriter indexWriter;
   private final Directory directory;
   private final SearchQueryFactoryContext queryFactoryContext;
 
-  public LuceneFacetCollectorSearchManagerTest() throws IOException {
+  public LuceneFacetCollectorSearchManagerTest(LuceneCodec.WriteFormat writeFormat)
+      throws IOException {
     this.directory = new ByteBuffersDirectory();
     this.indexWriter =
         new IndexWriter(
@@ -63,7 +73,7 @@ public class LuceneFacetCollectorSearchManagerTest {
             new org.apache.lucene.index.IndexWriterConfig(
                     LuceneAnalyzer.indexAnalyzer(
                         SearchIndex.MOCK_INDEX_DEFINITION, AnalyzerRegistryBuilder.empty()))
-                .setCodec(new LuceneCodec()));
+                .setCodec(new LuceneCodec(writeFormat)));
     var fieldDefinitionResolver =
         SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
             SearchIndex.MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion);

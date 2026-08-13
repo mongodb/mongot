@@ -106,6 +106,9 @@ public class CodecSubformatChangeDetectorTest {
   @DataPoints("allTypeFields")
   public static final FieldName.TypeField[] allTypeFields = FieldName.TypeField.values();
 
+  @DataPoints("writeFormats")
+  public static final LuceneCodec.WriteFormat[] writeFormats = LuceneCodec.WriteFormat.values();
+
   private static final String DISPATCH_CHANGE_DETECTOR_MESSAGE =
       "LuceneCodec vector-format dispatch changed for type field '%s'. Changing which "
           + "KnnVectorsFormat a writer dispatches to -- or adding a new KNN type field -- can "
@@ -169,29 +172,32 @@ public class CodecSubformatChangeDetectorTest {
 
   /**
    * Exhaustive change-detector over every {@link FieldName.TypeField} for the writer's default HNSW
-   * per-field vector dispatch. It fails whenever a dispatched format class changes, and -- because
-   * it iterates every enum value and requires non-vector types to throw -- whenever a new KNN type
+   * per-field vector dispatch, under every {@link LuceneCodec.WriteFormat} (KNN dispatch must be
+   * flag-invariant). It fails whenever a dispatched format class changes, and -- because it
+   * iterates every enum value and requires non-vector types to throw -- whenever a new KNN type
    * field is wired into dispatch without a golden-table entry. Both are rollback-unsafe changes
    * that must follow the codec sub-format rollout policy linked in the class Javadoc.
    */
   @Theory
   public void knnVectorsFormat_hnswDispatch_everyTypeField_matchesGoldenTable(
-      @FromDataPoints("allTypeFields") FieldName.TypeField typeField) {
-    LuceneCodec codec = new LuceneCodec();
+      @FromDataPoints("allTypeFields") FieldName.TypeField typeField,
+      @FromDataPoints("writeFormats") LuceneCodec.WriteFormat writeFormat) {
+    LuceneCodec codec = new LuceneCodec(writeFormat);
 
     assertDispatchMatchesGoldenTable(codec, typeField, EXPECTED_HNSW_VECTOR_FORMATS);
   }
 
   /**
    * Exhaustive change-detector over every {@link FieldName.TypeField} for the writer's flat
-   * per-field vector dispatch. See {@link
+   * per-field vector dispatch, under every {@link LuceneCodec.WriteFormat}. See {@link
    * #knnVectorsFormat_hnswDispatch_everyTypeField_matchesGoldenTable}.
    */
   @Theory
   public void knnVectorsFormat_flatDispatch_everyTypeField_matchesGoldenTable(
-      @FromDataPoints("allTypeFields") FieldName.TypeField typeField) {
+      @FromDataPoints("allTypeFields") FieldName.TypeField typeField,
+      @FromDataPoints("writeFormats") LuceneCodec.WriteFormat writeFormat) {
     FieldPath path = FieldPath.parse("vector");
-    LuceneCodec codec = new LuceneCodec(Map.of(path, flatVectorFieldDefinition()));
+    LuceneCodec codec = new LuceneCodec(writeFormat, Map.of(path, flatVectorFieldDefinition()));
 
     assertDispatchMatchesGoldenTable(codec, typeField, EXPECTED_FLAT_VECTOR_FORMATS);
   }

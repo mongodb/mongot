@@ -1,8 +1,6 @@
 package com.xgen.mongot.index.lucene.quantization;
 
 import static com.google.common.truth.Truth.assertWithMessage;
-import static org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat.DEFAULT_BEAM_WIDTH;
-import static org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat.DEFAULT_MAX_CONN;
 
 import com.google.common.truth.Truth;
 import java.io.IOException;
@@ -27,8 +25,7 @@ import org.junit.Test;
 
 public class MongotHnswScalarQuantizedVectorsFormatTest extends BaseKnnVectorsFormatTestCase {
 
-  private final KnnVectorsFormat format =
-      new MongotHnswScalarQuantizedVectorsFormat(DEFAULT_MAX_CONN, DEFAULT_BEAM_WIDTH);
+  private final KnnVectorsFormat format = new MongotHnswScalarQuantizedVectorsFormat();
 
   // Matches the fork's TestLucene99HnswScalarQuantizedVectorsFormat: the 9.9-era scalar-quantized
   // reader does not serve dequantized floats when the raw vector data is missing.

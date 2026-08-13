@@ -39,8 +39,19 @@ import org.bson.BsonString;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
+/** Runs under every {@link LuceneCodec.WriteFormat}: results must be write-format-invariant. */
+@RunWith(Parameterized.class)
 public class LuceneOperatorSearchManagerTest {
+
+  @Parameterized.Parameters(name = "{0}")
+  public static LuceneCodec.WriteFormat[] writeFormats() {
+    return LuceneCodec.WriteFormat.values();
+  }
+
+  @Parameterized.Parameter public LuceneCodec.WriteFormat writeFormat;
 
   private IndexWriter indexWriter;
   private Directory directory;
@@ -55,7 +66,7 @@ public class LuceneOperatorSearchManagerTest {
             new org.apache.lucene.index.IndexWriterConfig(
                     LuceneAnalyzer.indexAnalyzer(
                         SearchIndex.MOCK_INDEX_DEFINITION, AnalyzerRegistryBuilder.empty()))
-                .setCodec(new LuceneCodec()));
+                .setCodec(new LuceneCodec(this.writeFormat)));
 
     var fieldDefinitionResolver =
         SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
