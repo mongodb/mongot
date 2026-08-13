@@ -36,6 +36,10 @@ _COMPARED_FIELDS = (
 # must still match.
 _SYNC_EXCEPT_DESCRIPTIVE = set(_COMPARED_FIELDS) - {"Notes", "Description"}
 
+# Same as partial sync, but the collected Data payload is also intentionally
+# per-workflow. Structural/execution fields still must match.
+_SYNC_EXCEPT_DESCRIPTIVE_AND_DATA = _SYNC_EXCEPT_DESCRIPTIVE - {"Data"}
+
 # Per-task overrides on the default "must match on every field, in both
 # workflows" policy. A task NOT listed here is fully synced. Map a task to:
 #   * an empty set              -> allowed to diverge entirely: present in only
@@ -61,13 +65,17 @@ TASK_SYNC_POLICY = {
     "ANNOUNCE_PATCH_INITIATION": set(),
     "CREATE_PATCH_TAG": set(),
     "UPDATE_BACKPORTED_TICKETS_FIXVERSION": set(),
+    # Present in both workflows, but the collected inputs differ: PatchRelease
+    # also gathers release_major_minor and gives release_sha branch-specific
+    # guidance, so Data/Description/Notes are intentionally workflow-specific.
+    # Structure and execution semantics must still stay aligned.
+    "SET_RELEASE_INPUTS": _SYNC_EXCEPT_DESCRIPTIVE_AND_DATA,
     # Partial sync: same task in both workflows with per-workflow Notes/
     # Description instructions, but structure and execution must stay
     # aligned.
     "ANNOUNCE_PRE_PROD_DEPLOYMENTS": _SYNC_EXCEPT_DESCRIPTIVE,
     "CLOUD_DEV_RELEASE": _SYNC_EXCEPT_DESCRIPTIVE,
     "CREATE_JIRA_RELEASE": _SYNC_EXCEPT_DESCRIPTIVE,
-    "CREATE_URP_RELEASE": _SYNC_EXCEPT_DESCRIPTIVE,
     "EVERGREEN_WATERFALL_CHECKS": _SYNC_EXCEPT_DESCRIPTIVE,
     "NON_PROD_ENV_PVM_ROLLOUT": _SYNC_EXCEPT_DESCRIPTIVE,
     "RELEASE_TO_10_PERCENT_PROD": _SYNC_EXCEPT_DESCRIPTIVE,
