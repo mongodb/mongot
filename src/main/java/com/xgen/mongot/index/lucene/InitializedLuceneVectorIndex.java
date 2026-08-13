@@ -158,7 +158,8 @@ class InitializedLuceneVectorIndex implements InitializedVectorIndex {
         new IndexMetricsUpdater.Builder(
             definition,
             vectorIndexProperties.metricsFactory,
-            featureFlags.isEnabled(Feature.INDEX_FEATURE_VERSION_FOUR));
+            featureFlags.isEnabled(Feature.INDEX_FEATURE_VERSION_FOUR),
+            featureFlags.isEnabled(Feature.SEARCH_AGGREGATION));
     LuceneSearcherFactory searcherFactory =
         new LuceneSearcherFactory(
             definition,

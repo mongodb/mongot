@@ -82,7 +82,8 @@ public class IndexMetricsUpdaterBuilder {
           this.metricsFactory.get(),
           IndexTypeData.IndexTypeTag.TAG_SEARCH,
           SearchIndexCapabilities.CURRENT_FEATURE_VERSION,
-          true);
+          true,
+          /* isSearchAggregationEnabled= */ true);
     }
 
     public static IndexMetricsUpdater.QueryingMetricsUpdater empty() {
@@ -93,7 +94,8 @@ public class IndexMetricsUpdaterBuilder {
               GenerationIdBuilder.create()),
           IndexTypeData.IndexTypeTag.TAG_SEARCH,
           SearchIndexCapabilities.CURRENT_FEATURE_VERSION,
-          true);
+          true,
+          /* isSearchAggregationEnabled= */ true);
     }
 
     public static class QueryFeaturesMetricsUpdaterBuilder {
@@ -112,15 +114,21 @@ public class IndexMetricsUpdaterBuilder {
       public IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater build() {
         Check.isPresent(this.metricsFactory, "metricsFactory");
         return new IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater(
-            this.metricsFactory.get());
+            this.metricsFactory.get(), /* aggregationEnabled= */ true);
       }
 
       public static IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater empty() {
+        return empty(/* aggregationEnabled= */ true);
+      }
+
+      public static IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater empty(
+          boolean aggregationEnabled) {
         return new IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater(
             new PerIndexMetricsFactory(
                 IndexMetricsUpdater.QueryingMetricsUpdater.NAMESPACE,
                 MeterAndFtdcRegistry.createWithSimpleRegistries(),
-                GenerationIdBuilder.create()));
+                GenerationIdBuilder.create()),
+            aggregationEnabled);
       }
     }
   }

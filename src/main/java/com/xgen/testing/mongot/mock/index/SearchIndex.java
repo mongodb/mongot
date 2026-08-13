@@ -491,7 +491,8 @@ public class SearchIndex {
         type == IndexDefinition.Type.VECTOR_SEARCH
             ? VectorIndexCapabilities.CURRENT_FEATURE_VERSION
             : SearchIndexCapabilities.CURRENT_FEATURE_VERSION,
-        true);
+        true,
+        /* isSearchAggregationEnabled= */ true);
   }
 
   /** create a IndexMetricsUpdater.ReplicationMetricsUpdater for the Mock Index class. */

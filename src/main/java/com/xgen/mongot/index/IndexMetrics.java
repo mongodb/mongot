@@ -653,7 +653,8 @@ public record IndexMetrics(
       public static QueryFeaturesMetrics fromBson(DocumentParser parser) throws BsonParseException {
 
         return new QueryFeaturesMetrics(
-            collectorTypeCountFromBson(parser.getField(Fields.COLLECTOR_TYPE_COUNT).unwrap()),
+            bsonToStatsMap(
+                parser.getField(Fields.COLLECTOR_TYPE_COUNT).unwrap(), Collector.Type.class),
             bsonToStatsMap(
                 parser.getField(Fields.OPERATOR_TYPE_COUNT).unwrap(), Operator.Type.class),
             bsonToStatsMap(parser.getField(Fields.SCORE_TYPE_COUNT).unwrap(), Score.Type.class),
@@ -728,14 +729,6 @@ public record IndexMetrics(
                 (prevCountBson, newCountBson) ->
                     Check.unreachable("Duplicate enum key should not occur"),
                 BsonDocument::new));
-  }
-
-  // Aggregation isn't ready: it is intentionally excluded from the reported `collectorTypeCount`
-  // metric.
-  private static Map<Collector.Type, Double> collectorTypeCountFromBson(BsonDocument document) {
-    Map<Collector.Type, Double> map = bsonToStatsMap(document, Collector.Type.class);
-    map.remove(Collector.Type.AGGREGATION);
-    return map;
   }
 
   private static <T extends Enum<T>> Map<T, Double> bsonToStatsMap(

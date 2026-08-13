@@ -161,7 +161,8 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
         new IndexMetricsUpdater.Builder(
             index.getDefinition(),
             searchIndexProperties.metricsFactory,
-            featureFlags.isEnabled(Feature.INDEX_FEATURE_VERSION_FOUR));
+            featureFlags.isEnabled(Feature.INDEX_FEATURE_VERSION_FOUR),
+            featureFlags.isEnabled(Feature.SEARCH_AGGREGATION));
     Analyzer indexAnalyzer =
         LuceneAnalyzer.indexAnalyzer(definition, searchIndexProperties.analyzerRegistry);
     LuceneSearcherFactory searcherFactory =

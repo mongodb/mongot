@@ -4,6 +4,8 @@ import static com.xgen.mongot.util.bson.FloatVector.OriginalType.NATIVE;
 import static com.xgen.testing.BsonTestUtils.bson;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_NAME;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import com.xgen.mongot.cursor.batch.QueryCursorOptions;
 import com.xgen.mongot.index.IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater;
@@ -14,12 +16,15 @@ import com.xgen.mongot.index.query.ReturnScope;
 import com.xgen.mongot.index.query.SearchQuery;
 import com.xgen.mongot.index.query.Tracking;
 import com.xgen.mongot.index.query.VectorSearchQuery;
+import com.xgen.mongot.index.query.collectors.AggregationCollector;
+import com.xgen.mongot.index.query.collectors.AggregationFacetDefinition;
 import com.xgen.mongot.index.query.collectors.Collector;
 import com.xgen.mongot.index.query.collectors.DrillSidewaysInfoBuilder.DrillSidewaysInfo;
 import com.xgen.mongot.index.query.collectors.DrillSidewaysInfoBuilder.DrillSidewaysInfo.QueryOptimizationStatus;
 import com.xgen.mongot.index.query.collectors.EmbeddedDocumentScope;
 import com.xgen.mongot.index.query.collectors.FacetCollector;
 import com.xgen.mongot.index.query.collectors.FacetDefinition;
+import com.xgen.mongot.index.query.collectors.MetricSpec;
 import com.xgen.mongot.index.query.operators.CompoundOperator;
 import com.xgen.mongot.index.query.operators.Operator;
 import com.xgen.mongot.index.query.operators.TextOperator;
@@ -65,6 +70,169 @@ import org.junit.Test;
 public class QueryMetricsRecorderTest {
 
   private static final double EPSILON = 0.0;
+
+  @Test
+  public void testAggregationCollectorQueryMetrics() {
+    var queryFeaturesStatsUpdater = QueryFeaturesMetricsUpdaterBuilder.empty();
+    var queryMetricsRecorder = new QueryMetricsRecorder(queryFeaturesStatsUpdater);
+
+    // Two levels of nesting: root groups on "outer", its single nested leaf carries sum + count.
+    AggregationFacetDefinition leaf =
+        AggregationFacetDefinition.create(
+            FacetDefinitionBuilder.string().numBuckets(5).path("inner").build(),
+            Map.of(
+                "total",
+                new MetricSpec(
+                    com.xgen.mongot.index.query.aggregation.Operator.SUM,
+                    Optional.of(FieldPath.parse("amount"))),
+                "count",
+                new MetricSpec(
+                    com.xgen.mongot.index.query.aggregation.Operator.COUNT, Optional.empty())),
+            Map.of());
+    AggregationFacetDefinition root =
+        AggregationFacetDefinition.create(
+            FacetDefinitionBuilder.string().numBuckets(5).path("outer").build(),
+            Map.of(),
+            Map.of("byInner", leaf));
+
+    SearchQuery query =
+        CollectorQueryBuilder.builder()
+            .collector(
+                new AggregationCollector(
+                    OperatorBuilder.text().path("path").query("empty").build(),
+                    Map.of("byOuter", root),
+                    Optional.empty()))
+            .returnStoredSource(false)
+            .build();
+
+    queryMetricsRecorder.record(query, QueryCursorOptions.empty());
+
+    assertEquals(
+        1,
+        queryFeaturesStatsUpdater.getCollectorTypeCounter(Collector.Type.AGGREGATION).count(),
+        0);
+    assertEquals(
+        1,
+        queryFeaturesStatsUpdater
+            .getAggregationMetricCounter(com.xgen.mongot.index.query.aggregation.Operator.SUM)
+            .count(),
+        0);
+    assertEquals(
+        1,
+        queryFeaturesStatsUpdater
+            .getAggregationMetricCounter(com.xgen.mongot.index.query.aggregation.Operator.COUNT)
+            .count(),
+        0);
+    assertEquals(
+        0,
+        queryFeaturesStatsUpdater
+            .getAggregationMetricCounter(com.xgen.mongot.index.query.aggregation.Operator.AVG)
+            .count(),
+        0);
+    var nestingHistogram = queryFeaturesStatsUpdater.getAggregationNestingHistogram().orElseThrow();
+    assertEquals(1, nestingHistogram.count());
+    assertEquals(2, nestingHistogram.max(), 0);
+  }
+
+  /**
+   * Several independent top-level trees of differing depth must land in exactly one nesting band --
+   * the deepest -- so the histogram count cannot exceed the {@code aggregation} collector count.
+   */
+  @Test
+  public void testAggregationNestingSampleUsesDeepestTopLevelTree() {
+    var queryFeaturesStatsUpdater = QueryFeaturesMetricsUpdaterBuilder.empty();
+    var queryMetricsRecorder = new QueryMetricsRecorder(queryFeaturesStatsUpdater);
+
+    AggregationFacetDefinition shallowRoot =
+        AggregationFacetDefinition.create(
+            FacetDefinitionBuilder.string().numBuckets(5).path("shallow").build(),
+            Map.of(
+                "count",
+                new MetricSpec(
+                    com.xgen.mongot.index.query.aggregation.Operator.COUNT, Optional.empty())),
+            Map.of());
+    AggregationFacetDefinition deepLeaf =
+        AggregationFacetDefinition.create(
+            FacetDefinitionBuilder.string().numBuckets(5).path("inner").build(),
+            Map.of(
+                "total",
+                new MetricSpec(
+                    com.xgen.mongot.index.query.aggregation.Operator.SUM,
+                    Optional.of(FieldPath.parse("amount")))),
+            Map.of());
+    AggregationFacetDefinition deepRoot =
+        AggregationFacetDefinition.create(
+            FacetDefinitionBuilder.string().numBuckets(5).path("outer").build(),
+            Map.of(),
+            Map.of("byInner", deepLeaf));
+
+    SearchQuery query =
+        CollectorQueryBuilder.builder()
+            .collector(
+                new AggregationCollector(
+                    OperatorBuilder.text().path("path").query("empty").build(),
+                    Map.of("byShallow", shallowRoot, "byOuter", deepRoot),
+                    Optional.empty()))
+            .returnStoredSource(false)
+            .build();
+
+    queryMetricsRecorder.record(query, QueryCursorOptions.empty());
+
+    // Exactly one sample, at the deepest tree's depth, even though the shallow tree bottoms out at
+    // depth 1.
+    var nestingHistogram = queryFeaturesStatsUpdater.getAggregationNestingHistogram().orElseThrow();
+    assertEquals(1, nestingHistogram.count());
+    assertEquals(2, nestingHistogram.max(), 0);
+
+    // Metrics are still collected across every tree, shallow one included.
+    assertEquals(
+        1,
+        queryFeaturesStatsUpdater
+            .getAggregationMetricCounter(com.xgen.mongot.index.query.aggregation.Operator.COUNT)
+            .count(),
+        0);
+    assertEquals(
+        1,
+        queryFeaturesStatsUpdater
+            .getAggregationMetricCounter(com.xgen.mongot.index.query.aggregation.Operator.SUM)
+            .count(),
+        0);
+  }
+
+  /** With the feature flag off no aggregation metric is registered, so nothing is emitted. */
+  @Test
+  public void testAggregationMetricsAreNotRegisteredWhenDisabled() {
+    var queryFeaturesStatsUpdater =
+        QueryFeaturesMetricsUpdaterBuilder.empty(/* aggregationEnabled= */ false);
+    var queryMetricsRecorder = new QueryMetricsRecorder(queryFeaturesStatsUpdater);
+
+    SearchQuery query =
+        CollectorQueryBuilder.builder()
+            .collector(
+                new AggregationCollector(
+                    OperatorBuilder.text().path("path").query("empty").build(),
+                    Map.of(
+                        "byOuter",
+                        AggregationFacetDefinition.create(
+                            FacetDefinitionBuilder.string().numBuckets(5).path("outer").build(),
+                            Map.of(
+                                "count",
+                                new MetricSpec(
+                                    com.xgen.mongot.index.query.aggregation.Operator.COUNT,
+                                    Optional.empty())),
+                            Map.of())),
+                    Optional.empty()))
+            .returnStoredSource(false)
+            .build();
+
+    queryMetricsRecorder.record(query, QueryCursorOptions.empty());
+
+    assertNull(queryFeaturesStatsUpdater.getCollectorTypeCounter(Collector.Type.AGGREGATION));
+    assertNull(
+        queryFeaturesStatsUpdater.getAggregationMetricCounter(
+            com.xgen.mongot.index.query.aggregation.Operator.COUNT));
+    assertTrue(queryFeaturesStatsUpdater.getAggregationNestingHistogram().isEmpty());
+  }
 
   @Test
   public void testCollectorQueryMetric() {

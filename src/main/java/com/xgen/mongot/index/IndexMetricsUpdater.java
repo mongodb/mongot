@@ -37,6 +37,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -157,7 +158,8 @@ public class IndexMetricsUpdater implements Closeable {
             metricsFactory.childMetricsFactory(QueryingMetricsUpdater.NAMESPACE),
             getIndexTypeTag(indexDefinition),
             indexDefinition.getParsedIndexFeatureVersion(),
-            true),
+            true,
+            /* isSearchAggregationEnabled= */ true),
         new ReplicationMetricsUpdater(
             metricsFactory.childMetricsFactory(ReplicationMetricsUpdater.NAMESPACE),
             indexDefinition),
@@ -649,7 +651,8 @@ public class IndexMetricsUpdater implements Closeable {
           metricsFactory,
           IndexTypeData.IndexTypeTag.TAG_SEARCH,
           SearchIndexCapabilities.CURRENT_FEATURE_VERSION,
-          true);
+          true,
+          /* isSearchAggregationEnabled= */ true);
     }
 
     /** An updater for query time metrics. */
@@ -657,7 +660,8 @@ public class IndexMetricsUpdater implements Closeable {
         PerIndexMetricsFactory metricsFactory,
         IndexTypeData.IndexTypeTag indexTypeTag,
         int indexFeatureVersion,
-        boolean isIndexFeatureVersionFourEnabled) {
+        boolean isIndexFeatureVersionFourEnabled,
+        boolean isSearchAggregationEnabled) {
       // Search indices don't need per-index vector metrics, and likewise when roles are reversed.
       boolean isSearchIndex = indexTypeTag == IndexTypeData.IndexTypeTag.TAG_SEARCH;
       Tags indexFeatureVersionTag =
@@ -714,7 +718,8 @@ public class IndexMetricsUpdater implements Closeable {
       this.vectorSearchGetMoreTopDocsLatencyTimer =
           processMetricsFactory.timer(
               "vectorSearchGetMoreTopDocsLatencyTimer", TimeUnit.MILLISECONDS);
-      this.queryFeaturesMetricsUpdater = new QueryFeaturesMetricsUpdater(metricsFactory);
+      this.queryFeaturesMetricsUpdater =
+          new QueryFeaturesMetricsUpdater(metricsFactory, isSearchAggregationEnabled);
 
       this.orphanedDeletedDocsRatio = processMetricsFactory.summary("orphanedDeletedDocsRatio");
 
@@ -1150,6 +1155,16 @@ public class IndexMetricsUpdater implements Closeable {
       private static final String FACET_DRILL_SIDEWAYS_COUNTER_NAME =
           "query_collector_facet_drill_sideways";
 
+      /** Tag prefix for the metric type of a search-aggregation {@code aggregations} leaf. */
+      static final String AGGREGATION_METRIC_TAG_PREFIX = "aggregation_metric_";
+
+      /**
+       * Histogram of the nesting depth of a search-aggregation facet tree, one sample per query.
+       */
+      static final String AGGREGATION_NESTING_HISTOGRAM_NAME = "aggregationNestingPerQuery";
+
+      private static final double[] AGGREGATION_NESTING_BUCKETS = {1, 2, 3, 4};
+
       private final PerIndexMetricsFactory metricsFactory;
       private final Map<Collector.Type, Counter> collectorTypeCounterMap;
       private final Map<Operator.Type, Counter> operatorTypeCounterMap;
@@ -1186,12 +1201,27 @@ public class IndexMetricsUpdater implements Closeable {
       private final Counter explainCounter;
       private final Map<QueryOptimizationStatus, Counter> facetDrillSidewaysCounterMap;
 
+      /**
+       * Whether search aggregation is enabled; when it is off no aggregation metric is registered,
+       * so we don't export a permanently-zero timeseries per metric type.
+       */
+      private final boolean aggregationEnabled;
+
+      /** Counter per search-aggregation metric type (count/sum/avg/min/max/first/last). */
+      private final Map<com.xgen.mongot.index.query.aggregation.Operator, Counter>
+          aggregationMetricCounterMap;
+
+      /** Nesting depth of the deepest facet tree, one sample per aggregation query. */
+      private final Optional<DistributionSummary> aggregationNestingHistogram;
+
       /** Counts the number vector search queries with a pre-filter. */
       private final Counter vectorSearchFilterCounter;
 
       @SuppressWarnings("checkstyle:MissingJavadocMethod")
-      public QueryFeaturesMetricsUpdater(PerIndexMetricsFactory metricsFactory) {
+      public QueryFeaturesMetricsUpdater(
+          PerIndexMetricsFactory metricsFactory, boolean aggregationEnabled) {
         this.metricsFactory = metricsFactory;
+        this.aggregationEnabled = aggregationEnabled;
         this.synonymsCounter = createCounter(metricsFactory, SYNONYMS_COUNTER_NAME);
         this.textSynonymsCounter = createCounter(metricsFactory, TEXT_SYNONYMS_COUNTER_NAME);
         this.phraseSynonymsCounter = createCounter(metricsFactory, PHRASE_SYNONYMS_COUNTER_NAME);
@@ -1225,7 +1255,22 @@ public class IndexMetricsUpdater implements Closeable {
                 createCounter(
                     metricsFactory,
                     facetDrillSidewaysCounterName(QueryOptimizationStatus.GENERIC)));
-        this.collectorTypeCounterMap = createReportedCollectorTypeCounterMap(metricsFactory);
+        this.collectorTypeCounterMap =
+            createCollectorTypeCounterMap(metricsFactory, aggregationEnabled);
+        this.aggregationMetricCounterMap =
+            aggregationEnabled
+                ? createPerProcessEnumCounterMap(
+                    metricsFactory,
+                    com.xgen.mongot.index.query.aggregation.Operator.class,
+                    AGGREGATION_METRIC_TAG_PREFIX)
+                : Map.of();
+        this.aggregationNestingHistogram =
+            aggregationEnabled
+                ? Optional.of(
+                    metricsFactory
+                        .getProcessMetricsFactory()
+                        .histogram(AGGREGATION_NESTING_HISTOGRAM_NAME, AGGREGATION_NESTING_BUCKETS))
+                : Optional.empty();
         this.operatorTypeCounterMap = createEnumCounterMap(metricsFactory, Operator.Type.class);
         this.scoreTypeCounterMap = createEnumCounterMap(metricsFactory, Score.Type.class);
         this.textMatchCriteriaCounterMap =
@@ -1271,17 +1316,36 @@ public class IndexMetricsUpdater implements Closeable {
                     Tags.of(NAME_TAG, String.format("%s%s", featureNameTagPrefix, featureName))));
       }
 
-      // Aggregation isn't ready: it is intentionally excluded from the reported
-      // `collectorTypeCount` metric.
-      private static Map<Collector.Type, Counter> createReportedCollectorTypeCounterMap(
-          PerIndexMetricsFactory metricsFactory) {
+      /**
+       * Like {@link #createEnumCounterMap}, but registers only the process-wide timeseries: these
+       * counters have no per-index consumer, so the per-index fanout would be pure prometheus cost.
+       */
+      private static <T extends Enum<T>> Map<T, Counter> createPerProcessEnumCounterMap(
+          PerIndexMetricsFactory metricsFactory, Class<T> enumClass, String featureNameTagPrefix) {
+        MetricsFactory processMetricsFactory = metricsFactory.getProcessMetricsFactory();
+        return metricsFactory.getEnumCounterMap(
+            enumClass,
+            (featureName) ->
+                processMetricsFactory.counter(
+                    METRIC_NAME,
+                    Tags.of(NAME_TAG, String.format("%s%s", featureNameTagPrefix, featureName))));
+      }
+
+      /**
+       * Skips the {@code aggregation} counter while search aggregation is disabled, so {@code
+       * collectorTypeCount} doesn't report a feature that cannot be used.
+       */
+      private static Map<Collector.Type, Counter> createCollectorTypeCounterMap(
+          PerIndexMetricsFactory metricsFactory, boolean aggregationEnabled) {
         Map<Collector.Type, Counter> counters = new EnumMap<>(Collector.Type.class);
-        for (Collector.Type type : EnumSet.complementOf(EnumSet.of(Collector.Type.AGGREGATION))) {
+        EnumSet<Collector.Type> types =
+            aggregationEnabled
+                ? EnumSet.allOf(Collector.Type.class)
+                : EnumSet.complementOf(EnumSet.of(Collector.Type.AGGREGATION));
+        for (Collector.Type type : types) {
           counters.put(
               type,
-              metricsFactory.counter(
-                  METRIC_NAME,
-                  Tags.of(NAME_TAG, Enums.convertNameTo(CaseFormat.LOWER_CAMEL, type))));
+              createCounter(metricsFactory, Enums.convertNameTo(CaseFormat.LOWER_CAMEL, type)));
         }
         return counters;
       }
@@ -1336,6 +1400,25 @@ public class IndexMetricsUpdater implements Closeable {
 
       public Counter getCollectorTypeCounter(Collector.Type collectorType) {
         return this.collectorTypeCounterMap.get(collectorType);
+      }
+
+      public boolean isAggregationEnabled() {
+        return this.aggregationEnabled;
+      }
+
+      public Counter getAggregationMetricCounter(
+          com.xgen.mongot.index.query.aggregation.Operator operator) {
+        return this.aggregationMetricCounterMap.get(operator);
+      }
+
+      /** Records the nesting depth of a single aggregation query's deepest facet tree. */
+      public void recordAggregationNesting(int depth) {
+        this.aggregationNestingHistogram.ifPresent(histogram -> histogram.record(depth));
+      }
+
+      @VisibleForTesting
+      public Optional<DistributionSummary> getAggregationNestingHistogram() {
+        return this.aggregationNestingHistogram;
       }
 
       public Counter getFacetDrillSidewaysCounter(QueryOptimizationStatus status) {
@@ -1733,7 +1816,8 @@ public class IndexMetricsUpdater implements Closeable {
     public Builder(
         IndexDefinition indexDefinition,
         PerIndexMetricsFactory metricsFactory,
-        boolean isIndexFeatureVersionFourEnabled) {
+        boolean isIndexFeatureVersionFourEnabled,
+        boolean isSearchAggregationEnabled) {
       this.indexDefinition = indexDefinition;
       this.metricsFactory = metricsFactory;
       this.indexingMetricsUpdater =
@@ -1748,7 +1832,8 @@ public class IndexMetricsUpdater implements Closeable {
               metricsFactory.childMetricsFactory(QueryingMetricsUpdater.NAMESPACE),
               getIndexTypeTag(indexDefinition),
               indexDefinition.getParsedIndexFeatureVersion(),
-              isIndexFeatureVersionFourEnabled);
+              isIndexFeatureVersionFourEnabled,
+              isSearchAggregationEnabled);
       this.replicationMetricsUpdater =
           new ReplicationMetricsUpdater(
               metricsFactory.childMetricsFactory(ReplicationMetricsUpdater.NAMESPACE),

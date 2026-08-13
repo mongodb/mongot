@@ -291,9 +291,8 @@ public class IndexMetricsBuilder {
 
     public static class QueryFeaturesMetricsBuilder {
 
-      // Aggregation isn't ready and excluded from the reported collectorTypeCount metric.
       private final Map<Collector.Type, Double> collectorTypeCountMap =
-          initReportedCollectorTypeCountMap();
+          initEnumMap(Collector.Type.class);
       private final Map<Operator.Type, Double> operatorTypeCountMap =
           initEnumMap(Operator.Type.class);
       private final Map<Score.Type, Double> scoreTypeCountMap = initEnumMap(Score.Type.class);
@@ -649,12 +648,5 @@ public class IndexMetricsBuilder {
                 type -> 0.0,
                 (oldVal, newVal) -> Check.unreachable(),
                 () -> new EnumMap<>(enumClass)));
-  }
-
-  private static Map<Collector.Type, Double> initReportedCollectorTypeCountMap() {
-    Map<Collector.Type, Double> map = initEnumMap(Collector.Type.class);
-    // Aggregation is not yet supported and excluded from the reported collectorTypeCount metric.
-    map.remove(Collector.Type.AGGREGATION);
-    return map;
   }
 }

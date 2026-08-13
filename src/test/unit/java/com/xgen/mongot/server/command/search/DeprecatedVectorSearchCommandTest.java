@@ -589,7 +589,8 @@ public class DeprecatedVectorSearchCommandTest {
         new PerIndexMetricsFactory(
             "testNamespace", meterAndFtdcRegistry, "testGenerationId", "testId");
     var indexMetricsUpdaterBuilder =
-        new IndexMetricsUpdater.Builder(indexGeneration.getDefinition(), metricsFactory, true);
+        new IndexMetricsUpdater.Builder(
+            indexGeneration.getDefinition(), metricsFactory, true, true);
     var indexMetricsSupplier = Mockito.mock(IndexMetricValuesSupplier.class);
     IndexMetricsUpdater indexMetricsUpdater =
         indexMetricsUpdaterBuilder.build(indexMetricsSupplier);
@@ -777,7 +778,7 @@ public class DeprecatedVectorSearchCommandTest {
             "testNamespace", meterAndFtdcRegistry, "testGenerationId", "testId");
     var indexMetricsUpdaterBuilder =
         new IndexMetricsUpdater.Builder(
-            mockVectorIndexGeneration().getDefinition(), metricsFactory, true);
+            mockVectorIndexGeneration().getDefinition(), metricsFactory, true, true);
     var indexMetricsSupplier = Mockito.mock(IndexMetricValuesSupplier.class);
     IndexMetricsUpdater indexMetricsUpdater =
         indexMetricsUpdaterBuilder.build(indexMetricsSupplier);

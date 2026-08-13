@@ -243,7 +243,8 @@ public class VectorIndex {
             .childMetricsFactory(IndexMetricsUpdater.QueryingMetricsUpdater.NAMESPACE),
         IndexTypeData.IndexTypeTag.TAG_VECTOR_SEARCH,
         VectorIndexCapabilities.CURRENT_FEATURE_VERSION,
-        true);
+        true,
+        /* isSearchAggregationEnabled= */ true);
   }
 
   public static IndexMetricsUpdater.IndexingMetricsUpdater mockIndexingMetricsUpdater() {

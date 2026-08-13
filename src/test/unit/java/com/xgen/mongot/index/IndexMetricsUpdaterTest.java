@@ -691,7 +691,8 @@ public class IndexMetricsUpdaterTest {
                 metricsFactory,
                 IndexTypeData.IndexTypeTag.TAG_VECTOR_SEARCH,
                 VectorIndexCapabilities.CURRENT_FEATURE_VERSION,
-                true);
+                true,
+                /* isSearchAggregationEnabled= */ true);
         vectorIndexQueryingMetricsUpdater
             .getVectorResultLatencyTimer()
             .record(Duration.ofMillis(100));
@@ -708,7 +709,8 @@ public class IndexMetricsUpdaterTest {
                 metricsFactory,
                 IndexTypeData.IndexTypeTag.TAG_SEARCH,
                 SearchIndexCapabilities.CURRENT_FEATURE_VERSION,
-                false);
+                false,
+                /* isSearchAggregationEnabled= */ true);
         queryingMetricsUpdater.getFailedQueryCounter().increment();
         assertThrows(
             "No meters have the required tag 'indexFeatureVersion'.",
@@ -746,7 +748,8 @@ public class IndexMetricsUpdaterTest {
                 metricsFactory,
                 IndexTypeData.IndexTypeTag.TAG_VECTOR_SEARCH,
                 VectorIndexCapabilities.CURRENT_FEATURE_VERSION,
-                false);
+                false,
+                /* isSearchAggregationEnabled= */ true);
         vectorIndexQueryingMetricsUpdater
             .getVectorResultLatencyTimer()
             .record(Duration.ofMillis(100));
@@ -862,7 +865,7 @@ public class IndexMetricsUpdaterTest {
           var metricsFactory = SearchIndex.mockMetricsFactory();
           var metricsUpdater =
               new IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater(
-                  metricsFactory);
+                  metricsFactory, /* aggregationEnabled= */ true);
           metricsUpdater.getCollectorTypeCounter(Collector.Type.FACET).increment();
 
           var result = metricsUpdater.getMetrics();
@@ -879,7 +882,7 @@ public class IndexMetricsUpdaterTest {
           var metricsFactory = SearchIndex.mockMetricsFactory();
           IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater metricsUpdater =
               new IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater(
-                  metricsFactory);
+                  metricsFactory, /* aggregationEnabled= */ true);
           metricsUpdater.getCollectorTypeCounter(Collector.Type.FACET).increment();
 
           var counter =
@@ -1009,7 +1012,7 @@ public class IndexMetricsUpdaterTest {
           var metricsFactory = SearchIndex.mockMetricsFactory();
           var metricsUpdater =
               new IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater(
-                  metricsFactory);
+                  metricsFactory, /* aggregationEnabled= */ true);
           metricsUpdater
               .getVectorSearchQueryTypeCounter(VectorSearchCriteria.Type.APPROXIMATE)
               .increment();
@@ -1032,7 +1035,7 @@ public class IndexMetricsUpdaterTest {
           var metricsFactory = SearchIndex.mockMetricsFactory();
           IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater metricsUpdater =
               new IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater(
-                  metricsFactory);
+                  metricsFactory, /* aggregationEnabled= */ true);
           metricsUpdater
               .getSearchVectorSearchFilterOperatorTypeCounterMap(Operator.Type.GEO_WITHIN)
               .increment();
@@ -1057,7 +1060,7 @@ public class IndexMetricsUpdaterTest {
           var metricsFactory = SearchIndex.mockMetricsFactory();
           IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater metricsUpdater =
               new IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater(
-                  metricsFactory);
+                  metricsFactory, /* aggregationEnabled= */ true);
           metricsUpdater
               .getKnnBetaFilterOperatorTypeCounterMap(Operator.Type.GEO_WITHIN)
               .increment();

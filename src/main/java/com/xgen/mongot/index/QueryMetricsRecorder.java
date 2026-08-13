@@ -12,6 +12,7 @@ import com.xgen.mongot.index.query.Query;
 import com.xgen.mongot.index.query.SearchQuery;
 import com.xgen.mongot.index.query.VectorSearchQuery;
 import com.xgen.mongot.index.query.collectors.AggregationCollector;
+import com.xgen.mongot.index.query.collectors.AggregationFacetDefinition;
 import com.xgen.mongot.index.query.collectors.Collector;
 import com.xgen.mongot.index.query.collectors.DrillSidewaysInfoBuilder.DrillSidewaysInfo;
 import com.xgen.mongot.index.query.collectors.DrillSidewaysInfoBuilder.DrillSidewaysInfo.QueryOptimizationStatus;
@@ -52,6 +53,7 @@ import com.xgen.mongot.index.query.operators.mql.SimpleClause;
 import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
 import io.micrometer.core.instrument.Counter;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 
@@ -225,10 +227,50 @@ public class QueryMetricsRecorder {
                   .filter(status -> status != QueryOptimizationStatus.NON_DRILL_SIDEWAYS)
                   .map(this.queryFeaturesMetricsUpdater::getFacetDrillSidewaysCounter)
                   .stream());
-      case AggregationCollector aggregationCollector ->
-          // Aggregation is not supported yet
-          Stream.empty();
+      case AggregationCollector aggregationCollector -> {
+        if (!this.queryFeaturesMetricsUpdater.isAggregationEnabled()) {
+          // No aggregation counter is registered while the feature flag is off.
+          yield Stream.empty();
+        }
+        this.queryFeaturesMetricsUpdater.recordAggregationNesting(
+            nestingDepth(aggregationCollector.facets()));
+        yield Streams.concat(
+            getOperatorCounters(aggregationCollector.operator()),
+            collectorTypeCounter,
+            aggregationCollector.facets().values().stream()
+                .flatMap(this::getAggregationMetricCounters));
+      }
     };
+  }
+
+  /**
+   * Counter for the metric type of every {@code aggregations} leaf in a search-aggregation facet
+   * subtree. Repeated metric types collapse in {@link #record}'s {@code distinct()}, so these count
+   * queries using a metric type, not occurrences of it.
+   */
+  private Stream<Counter> getAggregationMetricCounters(AggregationFacetDefinition facet) {
+    return Stream.concat(
+        facet.aggregations().values().stream()
+            .map(
+                metric ->
+                    this.queryFeaturesMetricsUpdater.getAggregationMetricCounter(
+                        metric.operator())),
+        facet.facets().values().stream().flatMap(this::getAggregationMetricCounters));
+  }
+
+  /**
+   * Deepest nesting level over all top-level facet trees, so a query contributes exactly one
+   * histogram sample. A query may declare several independent top-level trees of differing depth;
+   * recording one sample per tree would inflate the histogram count past the {@code aggregation}
+   * collector count that is its denominator.
+   */
+  private static int nestingDepth(Map<String, AggregationFacetDefinition> facets) {
+    return facets.values().stream().mapToInt(QueryMetricsRecorder::subtreeDepth).max().orElse(0);
+  }
+
+  /** Levels in this subtree, counting the node itself. */
+  private static int subtreeDepth(AggregationFacetDefinition facet) {
+    return 1 + nestingDepth(facet.facets());
   }
 
   private Stream<Counter> getOperatorCounters(Operator operator) {

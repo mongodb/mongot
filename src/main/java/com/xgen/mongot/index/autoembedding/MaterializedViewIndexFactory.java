@@ -196,7 +196,8 @@ public class MaterializedViewIndexFactory implements IndexFactory {
                 matViewIndexDefinitionGeneration.getGenerationId().uniqueString(),
                 collectionMetadata.collectionName(),
                 true),
-            this.featureFlags.isEnabled(Feature.INDEX_FEATURE_VERSION_FOUR));
+            this.featureFlags.isEnabled(Feature.INDEX_FEATURE_VERSION_FOUR),
+            this.featureFlags.isEnabled(Feature.SEARCH_AGGREGATION));
 
     InitializedMaterializedViewIndex index =
         new InitializedMaterializedViewIndex(
