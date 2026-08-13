@@ -1,11 +1,13 @@
 package com.xgen.mongot.replication.mongodb.common;
 
+import com.google.errorprone.annotations.Var;
+import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.FieldExceededLimitsException;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory.IndexingStrategy;
 import com.xgen.mongot.util.FutureUtils;
 import com.xgen.mongot.util.concurrent.NamedExecutorService;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.stream.Collectors;
 
 /**
  * Indexing work scheduler for indexes that use a custom vector engine. Performs batch preparation
@@ -29,20 +31,38 @@ final class CustomVectorEngineIndexingWorkScheduler extends IndexingWorkSchedule
     return scheduler;
   }
 
+  /**
+   * This setting enables publishing resume userdata to Vectorlite when each replication batch
+   * completes.
+   */
+  @Override
+  protected boolean shouldCommitOnFinalize() {
+    return true;
+  }
+
   @Override
   CompletableFuture<Void> getBatchTasksFuture(IndexingSchedulerBatch batch) {
     return CompletableFuture.supplyAsync(
             () -> batch.indexer.prepareBatch(batch.events), this.executor)
-        .thenCompose(
-            preparedEvents ->
-                FutureUtils.allOf(
-                    preparedEvents.stream()
-                        .map(event -> new IndexingTask(batch.indexer, event))
-                        .map(
-                            task ->
-                                FutureUtils.checkedRunAsync(
-                                    task, this.executor, FieldExceededLimitsException.class))
-                        .collect(Collectors.toList())));
+        // Index events one-at-a-time so we do not flood Vectorlite's single-threaded inbound
+        // queue. Each thenCompose waits for the prior IndexingTask before submitting the next,
+        // which applies backpressure from the VL worker into this scheduler.
+        .thenCompose(preparedEvents -> indexPreparedEventsSequentially(batch, preparedEvents));
+  }
+
+  private CompletableFuture<Void> indexPreparedEventsSequentially(
+      IndexingSchedulerBatch batch, List<DocumentEvent> preparedEvents) {
+    @Var CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
+    for (DocumentEvent event : preparedEvents) {
+      chain =
+          chain.thenCompose(
+              ignored ->
+                  FutureUtils.checkedRunAsync(
+                      new IndexingTask(batch.indexer, event),
+                      this.executor,
+                      FieldExceededLimitsException.class));
+    }
+    return chain;
   }
 
   @Override
