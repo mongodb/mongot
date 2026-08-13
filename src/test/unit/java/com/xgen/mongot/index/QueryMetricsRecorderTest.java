@@ -17,6 +17,7 @@ import com.xgen.mongot.index.query.VectorSearchQuery;
 import com.xgen.mongot.index.query.collectors.Collector;
 import com.xgen.mongot.index.query.collectors.DrillSidewaysInfoBuilder.DrillSidewaysInfo;
 import com.xgen.mongot.index.query.collectors.DrillSidewaysInfoBuilder.DrillSidewaysInfo.QueryOptimizationStatus;
+import com.xgen.mongot.index.query.collectors.EmbeddedDocumentScope;
 import com.xgen.mongot.index.query.collectors.FacetCollector;
 import com.xgen.mongot.index.query.collectors.FacetDefinition;
 import com.xgen.mongot.index.query.operators.CompoundOperator;
@@ -105,6 +106,68 @@ public class QueryMetricsRecorderTest {
             .getFacetDrillSidewaysCounter(QueryOptimizationStatus.GENERIC)
             .count(),
         EPSILON);
+  }
+
+  @Test
+  public void testUnscopedFacet_doesNotIncrementScopedFacetCounter() {
+    var queryFeaturesStatsUpdater =
+        IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.QueryFeaturesMetricsUpdaterBuilder
+            .empty();
+    var queryMetricsRecorder = new QueryMetricsRecorder(queryFeaturesStatsUpdater);
+
+    SearchQuery query =
+        CollectorQueryBuilder.builder()
+            .collector(
+                CollectorBuilder.facet()
+                    .facetDefinitions(
+                        Map.of(
+                            "stringFacet",
+                            FacetDefinitionBuilder.string().numBuckets(5).path("path").build()))
+                    .operator(OperatorBuilder.text().path("path").query("empty").build())
+                    .build())
+            .returnStoredSource(false)
+            .build();
+
+    queryMetricsRecorder.record(query, QueryCursorOptions.empty());
+
+    Assert.assertEquals(0, queryFeaturesStatsUpdater.getScopedFacetCounter().count(), EPSILON);
+  }
+
+  @Test
+  public void testScopedFacet_incrementsScopedFacetCounterOnce() {
+    var queryFeaturesStatsUpdater =
+        IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.QueryFeaturesMetricsUpdaterBuilder
+            .empty();
+    var queryMetricsRecorder = new QueryMetricsRecorder(queryFeaturesStatsUpdater);
+
+    var childOperator = OperatorBuilder.equals().path("variants.inStock").value(true).build();
+    var scopedColorFacet =
+        new FacetDefinition.StringFacetDefinition(
+            "variants.color",
+            10,
+            Optional.of(new EmbeddedDocumentScope(FieldPath.parse("variants"), childOperator)));
+    var scopedSizeFacet =
+        new FacetDefinition.StringFacetDefinition(
+            "variants.size",
+            10,
+            Optional.of(new EmbeddedDocumentScope(FieldPath.parse("variants"), childOperator)));
+
+    SearchQuery query =
+        CollectorQueryBuilder.builder()
+            .collector(
+                CollectorBuilder.facet()
+                    // Two scoped facets: the counter records feature usage once per query, not once
+                    // per scoped facet.
+                    .facetDefinitions(
+                        Map.of("colorFacet", scopedColorFacet, "sizeFacet", scopedSizeFacet))
+                    .operator(OperatorBuilder.text().path("title").query("jacket").build())
+                    .build())
+            .returnStoredSource(false)
+            .build();
+
+    queryMetricsRecorder.record(query, QueryCursorOptions.empty());
+
+    Assert.assertEquals(1, queryFeaturesStatsUpdater.getScopedFacetCounter().count(), EPSILON);
   }
 
   @Test

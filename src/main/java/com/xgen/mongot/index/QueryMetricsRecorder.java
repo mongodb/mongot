@@ -188,6 +188,19 @@ public class QueryMetricsRecorder {
         : Stream.empty();
   }
 
+  /**
+   * Increments once (deduped by {@link #record}) if any facet in the collector carries an inline
+   * {@code embeddedDocument} block, so we can track adoption of embeddedDocument-scoped faceting.
+   */
+  private Stream<Counter> getScopedFacetCounter(FacetCollector facetCollector) {
+    boolean hasScopedFacet =
+        facetCollector.facetDefinitions().values().stream()
+            .anyMatch(definition -> definition.embeddedDocument().isPresent());
+    return hasScopedFacet
+        ? Stream.of(this.queryFeaturesMetricsUpdater.getScopedFacetCounter())
+        : Stream.empty();
+  }
+
   private Stream<Counter> getQueryTypeSpecificCounters(SearchQuery query) {
     return switch (query) {
       case CollectorQuery collectorQuery -> getCollectorCounters(collectorQuery.collector());
@@ -202,7 +215,10 @@ public class QueryMetricsRecorder {
     return switch (collector) {
       case FacetCollector facetCollector ->
           Stream.concat(
-              Stream.concat(getOperatorCounters(facetCollector.operator()), collectorTypeCounter),
+              Stream.concat(
+                  Stream.concat(
+                      getOperatorCounters(facetCollector.operator()), collectorTypeCounter),
+                  getScopedFacetCounter(facetCollector)),
               facetCollector
                   .drillSidewaysInfo()
                   .map(DrillSidewaysInfo::optimizationStatus)

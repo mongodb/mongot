@@ -429,6 +429,7 @@ public record IndexMetrics(
         double sortCount,
         double trackingCount,
         double returnScopeCount,
+        double embeddedScopedFacetCount,
         double facetDrillSidewaysOptimizableCount,
         double facetDrillSidewaysGenericCount)
         implements DocumentEncodable {
@@ -487,6 +488,9 @@ public record IndexMetrics(
 
         private static final Field.WithDefault<Double> RETURNSCOPE_COUNT =
             Field.builder("returnScopeCount").doubleField().optional().withDefault(0.0);
+
+        private static final Field.WithDefault<Double> EMBEDDED_SCOPED_FACET_COUNT =
+            Field.builder("embeddedScopedFacetCount").doubleField().optional().withDefault(0.0);
 
         private static final Field.Required<BsonDocument> COLLECTOR_TYPE_COUNT =
             Field.builder("collectorTypeCount").documentField().required();
@@ -568,6 +572,7 @@ public record IndexMetrics(
           Counter trackingCounter,
           Counter requireSequenceTokensCounter,
           Counter returnScopeCounter,
+          Counter embeddedScopedFacetCounter,
           double facetDrillSidewaysOptimizableCount,
           double facetDrillSidewaysGenericCount) {
         return new QueryFeaturesMetrics(
@@ -598,6 +603,7 @@ public record IndexMetrics(
             sortCounter.count(),
             trackingCounter.count(),
             returnScopeCounter.count(),
+            embeddedScopedFacetCounter.count(),
             facetDrillSidewaysOptimizableCount,
             facetDrillSidewaysGenericCount);
       }
@@ -622,6 +628,7 @@ public record IndexMetrics(
             .field(Fields.SORT_COUNT, this.sortCount)
             .field(Fields.TRACKING_COUNT, this.trackingCount)
             .field(Fields.RETURNSCOPE_COUNT, this.returnScopeCount)
+            .field(Fields.EMBEDDED_SCOPED_FACET_COUNT, this.embeddedScopedFacetCount)
             .field(Fields.COLLECTOR_TYPE_COUNT, statsMapToBson(this.collectorTypeCountMap))
             .field(Fields.OPERATOR_TYPE_COUNT, statsMapToBson(this.operatorTypeCountMap))
             .field(Fields.SCORE_TYPE_COUNT, statsMapToBson(this.scoreTypeCountMap))
@@ -681,6 +688,7 @@ public record IndexMetrics(
             parser.getField(Fields.SORT_COUNT).unwrap(),
             parser.getField(Fields.TRACKING_COUNT).unwrap(),
             parser.getField(Fields.RETURNSCOPE_COUNT).unwrap(),
+            parser.getField(Fields.EMBEDDED_SCOPED_FACET_COUNT).unwrap(),
             parser.getField(Fields.FACET_DRILL_SIDEWAYS_OPTIMIZABLE_COUNT).unwrap(),
             parser.getField(Fields.FACET_DRILL_SIDEWAYS_GENERIC_COUNT).unwrap());
       }

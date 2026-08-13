@@ -123,6 +123,7 @@
           "concurrentCount": 10.0,
           "returnStoredSourceCount": 2.0,
           "returnScopeCount": 12.0,
+          "embeddedScopedFacetCount": 0.0,
           "facetDrillSidewaysOptimizableCount": 0.0,
           "facetDrillSidewaysGenericCount": 0.0,
           "sequenceTokenCount": 4.0,

@@ -322,6 +322,7 @@ public class IndexMetricsBuilder {
       private double sortCount = 0.0;
       private double trackingCount = 0.0;
       private double returnScopeCount = 0.0;
+      private double embeddedScopedFacetCount = 0.0;
       private double explainCount = 0.0;
       private double facetDrillSidewaysOptimizableCount = 0.0;
       private double facetDrillSidewaysGenericCount = 0.0;
@@ -404,6 +405,11 @@ public class IndexMetricsBuilder {
 
       public QueryFeaturesMetricsBuilder returnScopeCount(double returnScopeCount) {
         this.returnScopeCount = returnScopeCount;
+        return this;
+      }
+
+      public QueryFeaturesMetricsBuilder embeddedScopedFacetCount(double embeddedScopedFacetCount) {
+        this.embeddedScopedFacetCount = embeddedScopedFacetCount;
         return this;
       }
 
@@ -492,6 +498,7 @@ public class IndexMetricsBuilder {
             this.sortCount,
             this.trackingCount,
             this.returnScopeCount,
+            this.embeddedScopedFacetCount,
             this.facetDrillSidewaysOptimizableCount,
             this.facetDrillSidewaysGenericCount);
       }
