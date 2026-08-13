@@ -9,14 +9,18 @@ import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
 import com.xgen.mongot.embedding.providers.congestion.DynamicSemaphore;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class FakeEmbeddingClientFactory extends EmbeddingClientFactory {
   private final Set<String> localErrorInputSet;
   private final Set<String> transientErrorInputSet;
   private final Set<String> nonTransientErrorInputSet;
   private final int maxBatchSizeCharLimit;
+  private final Map<EmbeddingServiceConfig.ServiceTier, FakeEmbeddingProviderClient>
+      createdClients = new ConcurrentHashMap<>();
 
   public FakeEmbeddingClientFactory(
       MeterRegistry meterRegistry,
@@ -63,10 +67,22 @@ public class FakeEmbeddingClientFactory extends EmbeddingClientFactory {
       EmbeddingServiceConfig.ServiceTier serviceTier,
       EmbeddingModelConfig.ConsolidatedWorkloadParams workloadParams,
       Optional<DynamicSemaphore> congestionControlSemaphore) {
-    return new FakeEmbeddingProviderClient(
-        this.localErrorInputSet,
-        this.transientErrorInputSet,
-        this.nonTransientErrorInputSet,
-        this.maxBatchSizeCharLimit);
+    FakeEmbeddingProviderClient client =
+        new FakeEmbeddingProviderClient(
+            this.localErrorInputSet,
+            this.transientErrorInputSet,
+            this.nonTransientErrorInputSet,
+            this.maxBatchSizeCharLimit);
+    this.createdClients.put(serviceTier, client);
+    return client;
+  }
+
+  /**
+   * Returns the fake client created for {@code serviceTier}, once {@code createEmbeddingClient} has
+   * been called for it (e.g. via constructing an {@code EmbeddingServiceManager}).
+   */
+  public FakeEmbeddingProviderClient getCreatedClient(
+      EmbeddingServiceConfig.ServiceTier serviceTier) {
+    return this.createdClients.get(serviceTier);
   }
 }

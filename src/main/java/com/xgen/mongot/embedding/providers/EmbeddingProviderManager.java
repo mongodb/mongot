@@ -35,6 +35,7 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -59,6 +60,7 @@ public class EmbeddingProviderManager {
   private static final Tag CHANGE_STREAM_TAG = Tag.of("workload", CHANGE_STREAM.name());
   private final Map<ServiceTier, ClientInterface> clients;
   private final EmbeddingClientFactory embeddingClientFactory;
+  private final MetricsFactory metricsFactory;
   private final Map<ServiceTier, FailsafeExecutor<List<VectorOrError>>> failsafeExecutors;
   private final Map<String, RateLimiter> rateLimiters;
   private final NamedScheduledExecutorService namedScheduledExecutorService;
@@ -113,6 +115,7 @@ public class EmbeddingProviderManager {
       Optional<CongestionControlParams> congestionControl,
       Optional<Integer> embeddingProviderRpsLimit) {
     initializeMetrics(embeddingModelConfig, metricsFactory);
+    this.metricsFactory = metricsFactory;
     this.embeddingClientFactory = embeddingClientFactory;
     this.embeddingModelConfig = embeddingModelConfig;
     this.namedScheduledExecutorService = namedScheduledExecutorService;
@@ -390,6 +393,15 @@ public class EmbeddingProviderManager {
                     result.size());
               } else if (exception != null) {
                 this.failedRequestCounters.get(serviceTier).increment();
+                this.metricsFactory
+                    .counter(
+                        "failedRequestsByReason",
+                        Tags.of(
+                            Tag.of("provider", this.embeddingModelConfig.provider().name()),
+                            Tag.of("canonicalModel", this.embeddingModelConfig.name()),
+                            Tag.of("workload", serviceTier.name()),
+                            Tag.of("reason", terminalFailureReason(exception))))
+                    .increment();
                 LOG.error(
                     "embedAsync failed after all retries: model={}, tier={}, database={}",
                     this.embeddingModelConfig.name(),
@@ -398,5 +410,36 @@ public class EmbeddingProviderManager {
                     exception);
               }
             });
+  }
+
+  /**
+   * Derives a metric-tag-friendly reason from the terminal (post-retry) failure of an {@code
+   * embedAsync} call, for {@code failedRequestsByReason}. Unlike {@code
+   * embeddingClient_embeddingProviderErrors_total} (incremented on every Failsafe attempt,
+   * including ones later retried successfully), this reflects only the final outcome once retries
+   * are exhausted. {@code exception} is the value {@code whenComplete} received directly off the
+   * Failsafe-wrapped future returned by {@code getAsync} - Failsafe completes that future with the
+   * actual cause, not a {@code CompletionException} wrapper, so no unwrapping is needed here
+   * (unlike {@code EmbeddingServiceManager.unwrapThrowable}, which handles a further-chained stage
+   * where the JDK does introduce that wrapping).
+   */
+  private static String terminalFailureReason(Throwable exception) {
+    if (exception instanceof EmbeddingProviderTransientException e) {
+      return reasonTag(e.getReason());
+    }
+    if (exception instanceof EmbeddingProviderNonTransientException e) {
+      return reasonTag(e.getReason());
+    }
+    if (exception instanceof EmbeddingProviderBatchingException) {
+      // EmbeddingProviderBatchingException carries no Reason of its own - it's thrown only for
+      // this one case (VoyageClient's oversized-batch/payload-too-large 400), so its type alone
+      // identifies the reason.
+      return reasonTag(EmbeddingProviderTransientException.Reason.PAYLOAD_TOO_LARGE);
+    }
+    return reasonTag(EmbeddingProviderTransientException.Reason.UNKNOWN);
+  }
+
+  private static String reasonTag(Enum<?> reason) {
+    return reason.name().toLowerCase(Locale.ROOT);
   }
 }

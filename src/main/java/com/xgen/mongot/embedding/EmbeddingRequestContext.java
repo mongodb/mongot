@@ -12,13 +12,20 @@ import com.xgen.mongot.util.Check;
  *
  * <p>{@link #outputDimension()} carries the resolved vector index {@code numDimensions} for
  * auto-embedding fields so providers (e.g. Voyage) can request a matching {@code output_dimension}.
+ *
+ * <p>{@link #isRebatchAttempt()} distinguishes a request re-submitted by {@link
+ * com.xgen.mongot.embedding.providers.EmbeddingServiceManager#handleBatchingException} at a more
+ * conservative batch size after the original batch hit an oversized-batch (payload-too-large)
+ * error, from the original attempt. This lets metrics tell apart a payload-too-large failure that
+ * self-heals via rebatch from one that persists even at the smaller size.
  */
 public record EmbeddingRequestContext(
     String database,
     String indexName,
     String collectionName,
     Integer outputDimension,
-    VectorAutoEmbedQuantization autoEmbedQuantization) {
+    VectorAutoEmbedQuantization autoEmbedQuantization,
+    boolean isRebatchAttempt) {
 
   public EmbeddingRequestContext {
     Check.argNotNull(database, "database");
@@ -27,5 +34,25 @@ public record EmbeddingRequestContext(
     Check.argNotNull(outputDimension, "outputDimension");
     Check.checkArg(outputDimension > 0, "outputDimension must be positive");
     Check.argNotNull(autoEmbedQuantization, "autoEmbedQuantization");
+  }
+
+  public EmbeddingRequestContext(
+      String database,
+      String indexName,
+      String collectionName,
+      Integer outputDimension,
+      VectorAutoEmbedQuantization autoEmbedQuantization) {
+    this(database, indexName, collectionName, outputDimension, autoEmbedQuantization, false);
+  }
+
+  /** Returns a copy of this context marked as a rebatch attempt. */
+  public EmbeddingRequestContext withRebatchAttempt() {
+    return new EmbeddingRequestContext(
+        database(),
+        indexName(),
+        collectionName(),
+        outputDimension(),
+        autoEmbedQuantization(),
+        true);
   }
 }

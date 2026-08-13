@@ -260,7 +260,8 @@ public class VoyageClient implements ClientInterface {
         } catch (InterruptedException e) {
           Thread.currentThread().interrupt();
           recordProviderErrorMetric(
-              EmbeddingProviderTransientException.Reason.CLIENT_SIDE_CONGESTION_CONTROL);
+              EmbeddingProviderTransientException.Reason.CLIENT_SIDE_CONGESTION_CONTROL,
+              context.isRebatchAttempt());
           throw new EmbeddingProviderTransientException(
               "Interrupted while acquiring semaphore",
               EmbeddingProviderTransientException.Reason.CLIENT_SIDE_CONGESTION_CONTROL);
@@ -276,7 +277,7 @@ public class VoyageClient implements ClientInterface {
 
       // Extract tenant ID if needed and select appropriate credentials
       Optional<String> tenantId = extractTenantIdIfNeeded(context);
-      String apiToken = selectApiToken(tenantId);
+      String apiToken = selectApiToken(tenantId, context.isRebatchAttempt());
 
       LOG.debug(
           "Sending Voyage embedding request: model={}, endpoint={},"
@@ -297,7 +298,9 @@ public class VoyageClient implements ClientInterface {
         IllegalArgumentException cleanedException =
             new IllegalArgumentException(cleanedMessage, e.getCause());
         LOG.error("HTTP Request Error", cleanedException);
-        recordProviderErrorMetric(EmbeddingProviderTransientException.Reason.HTTP_REQUEST_ERROR);
+        recordProviderErrorMetric(
+            EmbeddingProviderTransientException.Reason.HTTP_REQUEST_ERROR,
+            context.isRebatchAttempt());
         throw new EmbeddingProviderTransientException(
             cleanedException, EmbeddingProviderTransientException.Reason.HTTP_REQUEST_ERROR);
       }
@@ -332,7 +335,9 @@ public class VoyageClient implements ClientInterface {
         isAck = false;
         failureErrorCode = "408";
         recordProviderErrorMetric(
-            EmbeddingProviderTransientException.Reason.HTTP_TIMEOUT, Optional.of(408));
+            EmbeddingProviderTransientException.Reason.HTTP_TIMEOUT,
+            Optional.of(408),
+            context.isRebatchAttempt());
         throw new EmbeddingProviderTransientException(
             e, EmbeddingProviderTransientException.Reason.HTTP_TIMEOUT);
       } catch (EmbeddingProviderRateLimitException e) {
@@ -342,13 +347,17 @@ public class VoyageClient implements ClientInterface {
         // EmbeddingProviderRateLimitException is only thrown from the HTTP 429 branch in
         // extractVectorsFromResponse, so the status code is always 429.
         recordProviderErrorMetric(
-            EmbeddingProviderTransientException.Reason.RATE_LIMIT_EXCEEDED, Optional.of(429));
+            EmbeddingProviderTransientException.Reason.RATE_LIMIT_EXCEEDED,
+            Optional.of(429),
+            context.isRebatchAttempt());
         // Rethrow the original subclass to preserve the UserFacingException marker.
         throw e;
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         LOG.error("Got an error when sending voyage API request", e);
-        recordProviderErrorMetric(EmbeddingProviderTransientException.Reason.THREAD_INTERRUPTED);
+        recordProviderErrorMetric(
+            EmbeddingProviderTransientException.Reason.THREAD_INTERRUPTED,
+            context.isRebatchAttempt());
         throw new EmbeddingProviderTransientException(
             e, EmbeddingProviderTransientException.Reason.THREAD_INTERRUPTED);
       } catch (IOException e) {
@@ -356,7 +365,9 @@ public class VoyageClient implements ClientInterface {
           renewHttpClientAfterConnectionFailure(e, clientForRequest);
         }
         LOG.error("Got an error when sending voyage API request", e);
-        recordProviderErrorMetric(EmbeddingProviderTransientException.Reason.HTTP_IO_EXCEPTION);
+        recordProviderErrorMetric(
+            EmbeddingProviderTransientException.Reason.HTTP_IO_EXCEPTION,
+            context.isRebatchAttempt());
         throw new EmbeddingProviderTransientException(
             e, EmbeddingProviderTransientException.Reason.HTTP_IO_EXCEPTION);
       } catch (EmbeddingProviderTransientException e) {
@@ -390,8 +401,9 @@ public class VoyageClient implements ClientInterface {
     }
   }
 
-  private void recordProviderErrorMetric(EmbeddingProviderTransientException.Reason reason) {
-    recordProviderErrorMetric(reason, Optional.empty());
+  private void recordProviderErrorMetric(
+      EmbeddingProviderTransientException.Reason reason, boolean isRebatchAttempt) {
+    recordProviderErrorMetric(reason, Optional.empty(), isRebatchAttempt);
   }
 
   /**
@@ -401,9 +413,16 @@ public class VoyageClient implements ClientInterface {
    * otherwise-successful (2xx) responses — it is empty and the {@code errorCode} tag is set to
    * {@code "none"}. Both server-side HTTP 408 and client-side request timeouts are tagged as {@code
    * 408}.
+   *
+   * <p>{@code isRebatchAttempt} (from {@link EmbeddingRequestContext#isRebatchAttempt()})
+   * distinguishes a payload-too-large failure that persists even after {@link
+   * com.xgen.mongot.embedding.providers.EmbeddingServiceManager} rebatches at a smaller size from
+   * the original oversized-batch attempt, which self-heals via that rebatch.
    */
   private void recordProviderErrorMetric(
-      EmbeddingProviderTransientException.Reason reason, Optional<Integer> httpStatusCode) {
+      EmbeddingProviderTransientException.Reason reason,
+      Optional<Integer> httpStatusCode,
+      boolean isRebatchAttempt) {
     this.metricsFactory
         .counter(
             "embeddingProviderErrors",
@@ -413,7 +432,9 @@ public class VoyageClient implements ClientInterface {
                 "reason",
                 reason.name().toLowerCase(Locale.ROOT),
                 "errorCode",
-                httpStatusCode.map(Object::toString).orElse("none")))
+                httpStatusCode.map(Object::toString).orElse("none"),
+                "rebatchAttempt",
+                String.valueOf(isRebatchAttempt)))
         .increment();
   }
 
@@ -441,7 +462,7 @@ public class VoyageClient implements ClientInterface {
    * Select the appropriate API token based on cluster type and tenant ID. For dedicated clusters,
    * use the default credentialToken. For MTM clusters, look up tenant-specific credentials.
    */
-  private String selectApiToken(Optional<String> tenantId)
+  private String selectApiToken(Optional<String> tenantId, boolean isRebatchAttempt)
       throws EmbeddingProviderTransientException, IllegalStateException {
     if (this.isDedicatedCluster) {
       if (this.credentialToken == null) {
@@ -456,7 +477,8 @@ public class VoyageClient implements ClientInterface {
       if (tenantId.isEmpty()) {
         LOG.error("Unable to extract tenant ID from database name for MTM cluster");
         recordProviderErrorMetric(
-            EmbeddingProviderTransientException.Reason.TENANT_CREDENTIALS_FAILURE);
+            EmbeddingProviderTransientException.Reason.TENANT_CREDENTIALS_FAILURE,
+            isRebatchAttempt);
         throw new EmbeddingProviderTransientException(
             "Unable to extract tenant ID from database name for MTM cluster. "
                 + "Database name must be in format 'tenantId_dbName'.",
@@ -470,7 +492,8 @@ public class VoyageClient implements ClientInterface {
             tenant,
             this.tenantCredentials.keySet());
         recordProviderErrorMetric(
-            EmbeddingProviderTransientException.Reason.TENANT_CREDENTIALS_FAILURE);
+            EmbeddingProviderTransientException.Reason.TENANT_CREDENTIALS_FAILURE,
+            isRebatchAttempt);
         throw new EmbeddingProviderTransientException(
             String.format("Unable to find credentials for tenant: %s", tenant),
             EmbeddingProviderTransientException.Reason.TENANT_CREDENTIALS_FAILURE);
@@ -781,7 +804,9 @@ public class VoyageClient implements ClientInterface {
       // miscategorizing the oversized batch request (VOYAGE-471)
       if (response.body().contains(BATCH_SIZE_TOO_LARGE_ERROR_MESSAGE)) {
         recordProviderErrorMetric(
-            EmbeddingProviderTransientException.Reason.PAYLOAD_TOO_LARGE, Optional.of(400));
+            EmbeddingProviderTransientException.Reason.PAYLOAD_TOO_LARGE,
+            Optional.of(400),
+            context.isRebatchAttempt());
         throw new EmbeddingProviderBatchingException(
             String.format(
                 "Got invalid request, fail fast and give up retries. Response body: %s.",
@@ -794,7 +819,9 @@ public class VoyageClient implements ClientInterface {
         // swallow behavior for this tier only; indexing tiers (below) still throw.
         this.invalidRequestCounter.increment();
         recordProviderErrorMetric(
-            EmbeddingProviderTransientException.Reason.HTTP_INVALID_REQUEST, Optional.of(400));
+            EmbeddingProviderTransientException.Reason.HTTP_INVALID_REQUEST,
+            Optional.of(400),
+            context.isRebatchAttempt());
         String errorMessage =
             String.format(
                 "Got invalid request, fail fast and give up retries. Response body: %s.",
@@ -804,7 +831,9 @@ public class VoyageClient implements ClientInterface {
         // TODO(CLOUDP-344098): Add alerts in Control Plane to notify clients directly.
         this.invalidRequestCounter.increment();
         recordProviderErrorMetric(
-            EmbeddingProviderTransientException.Reason.HTTP_INVALID_REQUEST, Optional.of(400));
+            EmbeddingProviderTransientException.Reason.HTTP_INVALID_REQUEST,
+            Optional.of(400),
+            context.isRebatchAttempt());
         // Retried indefinitely at the index's checkpoint (BLOCK) unless AUTO_EMBEDDING_400_SKIP
         // is enabled for this index; not logged here to avoid spamming the raw response body on
         // every retry — the rate-limited logging in EmbeddingIndexingWorkScheduler covers it.
@@ -831,7 +860,9 @@ public class VoyageClient implements ClientInterface {
     }
     if (statusCode > 400) {
       recordProviderErrorMetric(
-          EmbeddingProviderTransientException.Reason.HTTP_NON_OK_STATUS, Optional.of(statusCode));
+          EmbeddingProviderTransientException.Reason.HTTP_NON_OK_STATUS,
+          Optional.of(statusCode),
+          context.isRebatchAttempt());
       throw new EmbeddingProviderTransientException(
           String.format("Got non OK status from response, status code: %s", statusCode),
           EmbeddingProviderTransientException.Reason.HTTP_NON_OK_STATUS,
@@ -878,7 +909,9 @@ public class VoyageClient implements ClientInterface {
     } catch (BsonParseException e) {
       // The Voyage HTTP response itself succeeded; only the body failed to parse, so there is no
       // meaningful error code to report.
-      recordProviderErrorMetric(EmbeddingProviderTransientException.Reason.RESPONSE_PARSE_ERROR);
+      recordProviderErrorMetric(
+          EmbeddingProviderTransientException.Reason.RESPONSE_PARSE_ERROR,
+          context.isRebatchAttempt());
       throw new EmbeddingProviderTransientException(
           e, EmbeddingProviderTransientException.Reason.RESPONSE_PARSE_ERROR);
     }

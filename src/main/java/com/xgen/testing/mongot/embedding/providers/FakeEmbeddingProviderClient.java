@@ -14,6 +14,7 @@ import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.util.bson.Vector;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 
 /** Fake Embedding Provider client used for tests. It generates vectors from input hashes. */
@@ -24,6 +25,7 @@ public class FakeEmbeddingProviderClient implements ClientInterface {
   private final Set<String> transientErrorInputSet;
   private final Set<String> nonTransientErrorInputSet;
   private final int maxBatchSizeCharLimit;
+  private final List<EmbeddingRequestContext> receivedContexts = new CopyOnWriteArrayList<>();
 
   public FakeEmbeddingProviderClient(
       Set<String> localErrorInputSet,
@@ -36,9 +38,15 @@ public class FakeEmbeddingProviderClient implements ClientInterface {
     this.maxBatchSizeCharLimit = maxBatchSizeCharLimit;
   }
 
+  /** Returns the context passed to every {@link #embed} call so far, in call order. */
+  public List<EmbeddingRequestContext> getReceivedContexts() {
+    return List.copyOf(this.receivedContexts);
+  }
+
   @Override
   public List<VectorOrError> embed(List<String> input, EmbeddingRequestContext context)
       throws EmbeddingProviderTransientException, EmbeddingProviderNonTransientException {
+    this.receivedContexts.add(context);
     if (input.stream().mapToInt(String::length).sum() > this.maxBatchSizeCharLimit) {
       throw new EmbeddingProviderBatchingException(
           "Please lower the number of tokens in the batch.");

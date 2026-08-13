@@ -538,7 +538,49 @@ public class VoyageClientTest {
                 Tags.of(
                     "exceptionType", "EmbeddingProviderTransientException",
                     "reason", "payload_too_large",
-                    "errorCode", "400"))
+                    "errorCode", "400",
+                    "rebatchAttempt", "false"))
+            .counter()
+            .count();
+    assertEquals(1.0, count, 1E-7);
+  }
+
+  @Test
+  public void embed_batchingException_rebatchAttempt_tagsMetricRebatchAttemptTrue()
+      throws Exception {
+    HttpClient mockClient =
+        httpResponseClient(400, "Please lower the number of tokens in the batch, and try again.");
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MetricsFactory metricsFactory = new MetricsFactory("test", registry);
+    VoyageClient voyageClient =
+        new VoyageClient(
+            VOYAGE_3_LARGE,
+            EmbeddingServiceConfig.ServiceTier.COLLECTION_SCAN,
+            VOYAGE_3_LARGE.collectionScan(),
+            metricsFactory,
+            Optional.empty(),
+            false,
+            false);
+    VoyageClient.injectVoyageClient(voyageClient, mockClient);
+
+    // Simulates the sub-batch call EmbeddingServiceManager.handleBatchingException makes after an
+    // original batch already hit payload_too_large — a payload_too_large here means rebatching at
+    // the smaller size didn't help, unlike the original attempt.
+    assertThrows(
+        EmbeddingProviderBatchingException.class,
+        () ->
+            voyageClient.embed(
+                List.of("still too many tokens"), dummyContext().withRebatchAttempt()));
+
+    double count =
+        registry
+            .find("test.embeddingProviderErrors")
+            .tags(
+                Tags.of(
+                    "exceptionType", "EmbeddingProviderTransientException",
+                    "reason", "payload_too_large",
+                    "errorCode", "400",
+                    "rebatchAttempt", "true"))
             .counter()
             .count();
     assertEquals(1.0, count, 1E-7);

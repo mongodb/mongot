@@ -194,6 +194,11 @@ public class EmbeddingServiceManager {
       // Rebatches it by using FALLBACK_AVG_CHAR_SIZE_PER_TOKEN, which we
       // use to divide total char length and we just rebatch it once since
       // this token estimation should be conservative enough.
+      // Marks the sub-batch context as a rebatch attempt so a payload-too-large failure here
+      // (which persisted even at the smaller size) is distinguishable from the original
+      // oversized-batch attempt, which self-heals via this rebatch and shouldn't count as a
+      // real availability failure.
+      EmbeddingRequestContext rebatchContext = context.withRebatchAttempt();
       return FutureUtils.transposeList(
               generateBatches(
                       inputList,
@@ -201,7 +206,9 @@ public class EmbeddingServiceManager {
                       workloadModelConfig.getBatchTokenLimit(),
                       FALLBACK_AVG_CHAR_SIZE_PER_TOKEN)
                   .stream()
-                  .map(subInputList -> clientManager.embedAsync(subInputList, serviceTier, context))
+                  .map(
+                      subInputList ->
+                          clientManager.embedAsync(subInputList, serviceTier, rebatchContext))
                   .toList())
           // Merge responses from rebatched requests into one list.
           .thenApply(

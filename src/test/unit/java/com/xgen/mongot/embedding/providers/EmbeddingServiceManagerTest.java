@@ -3,6 +3,7 @@ package com.xgen.mongot.embedding.providers;
 import static com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.ServiceTier.COLLECTION_SCAN;
 import static com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.ServiceTier.QUERY;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
@@ -33,6 +34,7 @@ import com.xgen.mongot.util.concurrent.NamedScheduledExecutorService;
 import com.xgen.testing.mongot.embedding.providers.FakeEmbeddingClientFactory;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Arrays;
 import java.util.List;
@@ -293,6 +295,16 @@ public class EmbeddingServiceManagerTest {
             1E-7);
       }
     }
+
+    // The terminal, post-retry failure is also tagged by reason. Single-arg
+    // EmbeddingProviderTransientException("Transient error") defaults to Reason.UNKNOWN.
+    double failedByReasonCount =
+        registry
+            .find("embeddingServiceManager.failedRequestsByReason")
+            .tags(Tags.of("workload", QUERY.name(), "reason", "unknown"))
+            .counter()
+            .count();
+    assertEquals(1.0, failedByReasonCount, 1E-7);
   }
 
   @Test
@@ -492,15 +504,17 @@ public class EmbeddingServiceManagerTest {
             VOYAGE_3_CONFIG);
 
     MeterRegistry registry = new SimpleMeterRegistry();
+    FakeEmbeddingClientFactory embeddingClientFactory =
+        new FakeEmbeddingClientFactory(
+            new SimpleMeterRegistry(),
+            ImmutableSet.of(),
+            ImmutableSet.of(),
+            ImmutableSet.of(),
+            47); // only allow single text to pass.
     EmbeddingServiceManager embeddingServiceManager =
         new EmbeddingServiceManager(
             List.of(embeddingServiceConfig),
-            new FakeEmbeddingClientFactory(
-                new SimpleMeterRegistry(),
-                ImmutableSet.of(),
-                ImmutableSet.of(),
-                ImmutableSet.of(),
-                47), // only allow single text to pass.
+            embeddingClientFactory,
             EXECUTOR,
             registry,
             Optional.empty());
@@ -520,6 +534,16 @@ public class EmbeddingServiceManagerTest {
                 COLLECTION_SCAN,
                 dummyContext())
             .join();
+
+    // The original oversized batch attempt is not a rebatch, but every sub-batch resubmitted
+    // after it hit EmbeddingProviderBatchingException is.
+    List<EmbeddingRequestContext> receivedContexts =
+        embeddingClientFactory.getCreatedClient(COLLECTION_SCAN).getReceivedContexts();
+    assertEquals(4, receivedContexts.size());
+    assertFalse(receivedContexts.get(0).isRebatchAttempt());
+    for (EmbeddingRequestContext rebatchedContext : receivedContexts.subList(1, 4)) {
+      assertTrue(rebatchedContext.isRebatchAttempt());
+    }
 
     // Verify the result
     assertEquals(
@@ -625,6 +649,20 @@ public class EmbeddingServiceManagerTest {
         registry.find("embeddingServiceManager.tokenEstimationFailsCounter").counter();
     assertNotNull(tokenEstimationFailsCounter);
     assertEquals(1.0, tokenEstimationFailsCounter.count(), 0.0);
+
+    // The original batch and every rebatch sub-attempt each independently record their own
+    // terminal (post-retry) failure as payload_too_large - the outer BATCHING_ERROR thrown by
+    // EmbeddingServiceManager never itself reaches EmbeddingProviderManager's failedRequests
+    // counters, since it's constructed one layer above the failsafe-wrapped embedAsync calls.
+    // 1 original attempt + 3 rebatch sub-batches (one per input text, per generateBatches at
+    // FALLBACK_AVG_CHAR_SIZE_PER_TOKEN for these 48-char inputs) = 4.
+    double payloadTooLargeFailures =
+        registry
+            .find("embeddingServiceManager.failedRequestsByReason")
+            .tags(Tags.of("workload", COLLECTION_SCAN.name(), "reason", "payload_too_large"))
+            .counter()
+            .count();
+    assertEquals(4.0, payloadTooLargeFailures, 1E-7);
   }
 
   @Test
@@ -656,12 +694,13 @@ public class EmbeddingServiceManagerTest {
             Optional.of(rpsLimit),
             disabledRetriesConfig);
 
+    MeterRegistry registry = new SimpleMeterRegistry();
     EmbeddingServiceManager embeddingServiceManager =
         new EmbeddingServiceManager(
             List.of(embeddingServiceConfig),
             new FakeEmbeddingClientFactory(),
             EXECUTOR,
-            new SimpleMeterRegistry(),
+            registry,
             Optional.empty());
 
     Throwable ex =
@@ -686,6 +725,17 @@ public class EmbeddingServiceManagerTest {
     assertTrue(ex instanceof EmbeddingProviderRateLimitException);
     assertTrue(UserFacingException.isUserFacing(ex));
     assertEquals("Client side rate limit exceeded, retry it later", ex.getMessage());
+
+    // Distinguishable from Reason.UNKNOWN (unlike the plain "Transient error" test case above),
+    // so this actually proves terminalFailureReason reads the exception's real Reason rather than
+    // coincidentally landing on the same fallback value.
+    double rateLimitedByReasonCount =
+        registry
+            .find("embeddingServiceManager.failedRequestsByReason")
+            .tags(Tags.of("workload", QUERY.name(), "reason", "rate_limit_exceeded"))
+            .counter()
+            .count();
+    assertTrue(rateLimitedByReasonCount >= 1.0);
   }
 
   @Test
