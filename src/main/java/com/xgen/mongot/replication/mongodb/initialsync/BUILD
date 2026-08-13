@@ -19,6 +19,8 @@ java_library(
         "InitialSyncNamespaceChangeCheck.java",
         "InitialSyncQueue.java",
         "InitialSyncRequest.java",
+        "ParallelCollectionScanPartitionState.java",
+        "ParallelCollectionScanResumeState.java",
         "ServerClusterTimeProvider.java",
     ],
     visibility = ["//visibility:public"],

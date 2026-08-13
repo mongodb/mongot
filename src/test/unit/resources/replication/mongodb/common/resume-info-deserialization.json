@@ -77,6 +77,68 @@
           "syncSourceHost": "testHost"
         }
       }
+    },
+    {
+      "description": "bufferlessParallelNaturalOrder",
+      "value": {
+        "bufferlessParallelNaturalOrderInitialSync": {
+          "highWaterMark": {
+            "$numberLong": "1234567890"
+          },
+          "initialSyncId": {
+            "$binary": {
+              "base64": "OQpgSkl5TRCfTz0lUiJK7g==",
+              "subType": "04"
+            }
+          },
+          "partitions": [
+            {
+              "partitionId": 0,
+              "upperRecordId": {
+                "$numberLong": "1000"
+              },
+              "resumeRecordId": {
+                "$numberLong": "950"
+              },
+              "isDone": false
+            },
+            {
+              "partitionId": 1,
+              "lowerRecordId": {
+                "$numberLong": "1000"
+              },
+              "upperRecordId": {
+                "$numberLong": "2000"
+              },
+              "resumeRecordId": {
+                "$numberLong": "2000"
+              },
+              "isDone": true
+            },
+            {
+              "partitionId": 2,
+              "lowerRecordId": {
+                "$numberLong": "2000"
+              },
+              "upperRecordId": {
+                "$numberLong": "3000"
+              },
+              "isDone": false
+            },
+            {
+              "partitionId": 3,
+              "lowerRecordId": {
+                "$numberLong": "3000"
+              },
+              "resumeRecordId": {
+                "$numberLong": "3500"
+              },
+              "isDone": false
+            }
+          ],
+          "syncSourceHost": "testHost"
+        }
+      }
     }
   ],
   "invalid": [
@@ -85,6 +147,133 @@
       "value": {
         "newInitialSyncStage": {}
       }
+    },
+    {
+      "description": "bufferlessParallelNaturalOrder without partitions",
+      "value": {
+        "bufferlessParallelNaturalOrderInitialSync": {
+          "highWaterMark": {
+            "$numberLong": "1234567890"
+          },
+          "initialSyncId": {
+            "$binary": {
+              "base64": "OQpgSkl5TRCfTz0lUiJK7g==",
+              "subType": "04"
+            }
+          }
+        }
+      },
+      "errorMessageContains": "partitions\" is required"
+    },
+    {
+      "description": "bufferlessParallelNaturalOrder with empty partitions",
+      "value": {
+        "bufferlessParallelNaturalOrderInitialSync": {
+          "highWaterMark": {
+            "$numberLong": "1234567890"
+          },
+          "initialSyncId": {
+            "$binary": {
+              "base64": "OQpgSkl5TRCfTz0lUiJK7g==",
+              "subType": "04"
+            }
+          },
+          "partitions": []
+        }
+      },
+      "errorMessageContains": "partitions\" cannot be empty"
+    },
+    {
+      "description": "bufferlessParallelNaturalOrder with non-uuid initialSyncId",
+      "value": {
+        "bufferlessParallelNaturalOrderInitialSync": {
+          "highWaterMark": {
+            "$numberLong": "1234567890"
+          },
+          "initialSyncId": {
+            "$numberLong": "42"
+          },
+          "partitions": [
+            {
+              "partitionId": 0,
+              "isDone": false
+            }
+          ]
+        }
+      },
+      "errorMessageContains": "initialSyncId\" must be a UUID"
+    },
+    {
+      "description": "bufferlessParallelNaturalOrder with non-standard initialSyncId subtype",
+      "value": {
+        "bufferlessParallelNaturalOrderInitialSync": {
+          "highWaterMark": {
+            "$numberLong": "1234567890"
+          },
+          "initialSyncId": {
+            "$binary": {
+              "base64": "OQpgSkl5TRCfTz0lUiJK7g==",
+              "subType": "00"
+            }
+          },
+          "partitions": [
+            {
+              "partitionId": 0,
+              "isDone": false
+            }
+          ]
+        }
+      },
+      "errorMessageContains": "initialSyncId\" must be a UUID"
+    },
+    {
+      "description": "bufferlessParallelNaturalOrder with partition missing isDone",
+      "value": {
+        "bufferlessParallelNaturalOrderInitialSync": {
+          "highWaterMark": {
+            "$numberLong": "1234567890"
+          },
+          "initialSyncId": {
+            "$binary": {
+              "base64": "OQpgSkl5TRCfTz0lUiJK7g==",
+              "subType": "04"
+            }
+          },
+          "partitions": [
+            {
+              "partitionId": 0,
+              "upperRecordId": {
+                "$numberLong": "1000"
+              }
+            }
+          ]
+        }
+      },
+      "errorMessageContains": "isDone\" is required"
+    },
+    {
+      "description": "bufferlessParallelNaturalOrder with unknown field in partition",
+      "value": {
+        "bufferlessParallelNaturalOrderInitialSync": {
+          "highWaterMark": {
+            "$numberLong": "1234567890"
+          },
+          "initialSyncId": {
+            "$binary": {
+              "base64": "OQpgSkl5TRCfTz0lUiJK7g==",
+              "subType": "04"
+            }
+          },
+          "partitions": [
+            {
+              "partitionId": 0,
+              "sliceId": 0,
+              "isDone": false
+            }
+          ]
+        }
+      },
+      "errorMessageContains": "unrecognized field \"sliceId\""
     }
   ]
 }

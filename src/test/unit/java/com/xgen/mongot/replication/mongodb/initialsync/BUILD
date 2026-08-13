@@ -10,6 +10,7 @@ java_test_suite(
         "DefaultInitialSyncMongoClientTest.java",
         "InitialSyncNamespaceChangeCheckTest.java",
         "InitialSyncQueueTest.java",
+        "ParallelCollectionScanResumeStateTest.java",
     ],
     tags = ["unit"],
     deps = [

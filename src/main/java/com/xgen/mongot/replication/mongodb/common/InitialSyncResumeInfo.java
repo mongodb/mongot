@@ -58,6 +58,20 @@ public abstract class InitialSyncResumeInfo implements DocumentEncodable {
                 .disallowUnknownFields()
                 .optional()
                 .noDefault();
+
+    /**
+     * BufferlessParallelNaturalOrderInitialSyncResumeInfo stores K-cursor parallel natural-order
+     * scan resume info.
+     */
+    protected static final Field.Optional<BufferlessParallelNaturalOrderInitialSyncResumeInfo>
+        BUFFERLESS_PARALLEL_NATURAL_ORDER_INITIAL_SYNC_RESUME_INFO =
+            Field.builder("bufferlessParallelNaturalOrderInitialSync")
+                .classField(
+                    BufferlessParallelNaturalOrderInitialSyncResumeInfo::deserialize,
+                    InitialSyncResumeInfo::resumeInfoToBson)
+                .disallowUnknownFields()
+                .optional()
+                .noDefault();
   }
 
   /** Parses InitialSyncResumeInfo from the provided document. */
@@ -89,6 +103,16 @@ public abstract class InitialSyncResumeInfo implements DocumentEncodable {
         .isPresent()) {
       return parser
           .getField(Fields.BUFFERLESS_NATURAL_ORDER_INITIAL_SYNC_RESUME_INFO)
+          .unwrap()
+          .map(Function.identity());
+    }
+
+    if (parser
+        .getField(Fields.BUFFERLESS_PARALLEL_NATURAL_ORDER_INITIAL_SYNC_RESUME_INFO)
+        .unwrap()
+        .isPresent()) {
+      return parser
+          .getField(Fields.BUFFERLESS_PARALLEL_NATURAL_ORDER_INITIAL_SYNC_RESUME_INFO)
           .unwrap()
           .map(Function.identity());
     }

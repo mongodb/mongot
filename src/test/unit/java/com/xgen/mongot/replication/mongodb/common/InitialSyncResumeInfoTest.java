@@ -3,6 +3,7 @@ package com.xgen.mongot.replication.mongodb.common;
 import com.xgen.testing.BsonDeserializationTestSuite;
 import com.xgen.testing.BsonDeserializationTestSuite.TestSpecWrapper;
 import com.xgen.testing.BsonSerializationTestSuite;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -12,8 +13,10 @@ import org.bson.BsonInt64;
 import org.bson.BsonString;
 import org.bson.BsonTimestamp;
 import org.bson.UuidRepresentation;
+import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.junit.runners.JUnit4;
 import org.junit.runners.Parameterized;
 import org.junit.runners.Suite;
 
@@ -22,6 +25,7 @@ import org.junit.runners.Suite;
     value = {
       InitialSyncResumeInfoTest.DeserializationTest.class,
       InitialSyncResumeInfoTest.SerializationTest.class,
+      InitialSyncResumeInfoTest.ParallelResumeTokenTest.class,
     })
 public class InitialSyncResumeInfoTest {
 
@@ -48,7 +52,8 @@ public class InitialSyncResumeInfoTest {
           changeStream(),
           changeStreamWithoutResumeToken(),
           bufferless(),
-          bufferlessNaturalOrder());
+          bufferlessNaturalOrder(),
+          bufferlessParallelNaturalOrder());
     }
 
     @Test
@@ -103,6 +108,12 @@ public class InitialSyncResumeInfoTest {
                               UuidRepresentation.STANDARD)),
                   Optional.of("testHost"))));
     }
+
+    private static BsonDeserializationTestSuite.ValidSpec<Optional<InitialSyncResumeInfo>>
+        bufferlessParallelNaturalOrder() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "bufferlessParallelNaturalOrder", Optional.of(buildParallelExample()));
+    }
   }
 
   @RunWith(Parameterized.class)
@@ -121,7 +132,7 @@ public class InitialSyncResumeInfoTest {
     /** Test data. */
     @Parameterized.Parameters(name = "{0}")
     public static Iterable<BsonSerializationTestSuite.TestSpec<InitialSyncResumeInfo>> data() {
-      return List.of(bufferless(), bufferlessNaturalOrder());
+      return List.of(bufferless(), bufferlessNaturalOrder(), bufferlessParallelNaturalOrder());
     }
 
     @Test
@@ -151,5 +162,63 @@ public class InitialSyncResumeInfoTest {
                           UuidRepresentation.STANDARD)),
               Optional.of("testHost")));
     }
+
+    private static BsonSerializationTestSuite.TestSpec<InitialSyncResumeInfo>
+        bufferlessParallelNaturalOrder() {
+      return BsonSerializationTestSuite.TestSpec.create(
+          "bufferlessParallelNaturalOrder", buildParallelExample());
+    }
+  }
+
+  /** Behavioral tests for the parallel variant that don't fit the BSON round-trip suites above. */
+  @RunWith(JUnit4.class)
+  public static class ParallelResumeTokenTest {
+
+    /**
+     * Returning a partial token instead would look like a natural-order token missing {@code
+     * $recordId}, which a single-cursor caller would accept and then scan from the wrong position.
+     */
+    @Test
+    public void getResumeToken_throws() {
+      BufferlessParallelNaturalOrderInitialSyncResumeInfo resumeInfo = buildParallelExample();
+
+      Assert.assertThrows(UnsupportedOperationException.class, resumeInfo::getResumeToken);
+    }
+
+    /** The accessors that replace {@code getResumeToken()} keep working. */
+    @Test
+    public void perPartitionAccessorsRemainAvailable() {
+      BufferlessParallelNaturalOrderInitialSyncResumeInfo resumeInfo = buildParallelExample();
+
+      Assert.assertEquals(new BsonTimestamp(1234567890L), resumeInfo.getResumeOperationTime());
+      Assert.assertEquals(4, resumeInfo.getPartitions().size());
+      Assert.assertEquals(
+          UUID.fromString("390a604a-4979-4d10-9f4f-3d2552224aee"), resumeInfo.getInitialSyncId());
+    }
+  }
+
+  /**
+   * K=4 mid-flight example covering every combination of empty bounds and progress: first partition
+   * (no lower) in flight, a finished middle one, a middle one with no progress yet, and the last
+   * partition (no upper).
+   */
+  private static BufferlessParallelNaturalOrderInitialSyncResumeInfo buildParallelExample() {
+    List<PartitionResumeInfo> partitions = new ArrayList<>(4);
+    partitions.add(
+        new PartitionResumeInfo(0, Optional.empty(), Optional.of(1000L), Optional.of(950L), false));
+    partitions.add(
+        new PartitionResumeInfo(
+            1, Optional.of(1000L), Optional.of(2000L), Optional.of(2000L), true));
+    partitions.add(
+        new PartitionResumeInfo(
+            2, Optional.of(2000L), Optional.of(3000L), Optional.empty(), false));
+    partitions.add(
+        new PartitionResumeInfo(
+            3, Optional.of(3000L), Optional.empty(), Optional.of(3500L), false));
+    return new BufferlessParallelNaturalOrderInitialSyncResumeInfo(
+        new BsonTimestamp(1234567890L),
+        UUID.fromString("390a604a-4979-4d10-9f4f-3d2552224aee"),
+        partitions,
+        Optional.of("testHost"));
   }
 }

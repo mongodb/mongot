@@ -90,6 +90,87 @@
           "syncSourceHost": "testHost"
         }
       }
+    },
+    {
+      "description": "bufferlessParallelNaturalOrder",
+      "bson": {
+        "bufferlessParallelNaturalOrderInitialSync": {
+          "highWaterMark": {
+            "$numberLong": "1234567890"
+          },
+          "initialSyncId": {
+            "$binary": {
+              "base64": "OQpgSkl5TRCfTz0lUiJK7g==",
+              "subType": "04"
+            }
+          },
+          "partitions": [
+            {
+              "partitionId": 0,
+              "upperRecordId": {
+                "$numberLong": "1000"
+              },
+              "resumeRecordId": {
+                "$numberLong": "950"
+              },
+              "isDone": false
+            },
+            {
+              "partitionId": 1,
+              "lowerRecordId": {
+                "$numberLong": "1000"
+              },
+              "upperRecordId": {
+                "$numberLong": "2000"
+              },
+              "resumeRecordId": {
+                "$numberLong": "2000"
+              },
+              "isDone": true
+            },
+            {
+              "partitionId": 2,
+              "lowerRecordId": {
+                "$numberLong": "2000"
+              },
+              "upperRecordId": {
+                "$numberLong": "3000"
+              },
+              "isDone": false
+            },
+            {
+              "partitionId": 3,
+              "lowerRecordId": {
+                "$numberLong": "3000"
+              },
+              "resumeRecordId": {
+                "$numberLong": "3500"
+              },
+              "isDone": false
+            }
+          ],
+          "syncSourceHost": "testHost"
+        }
+      },
+      "json": {
+        "bufferlessParallelNaturalOrderInitialSync": {
+          "highWaterMark": 1234567890,
+          "initialSyncId": "390a604a-4979-4d10-9f4f-3d2552224aee",
+          "partitions": [
+            { "partitionId": 0, "upperRecordId": 1000, "resumeRecordId": 950, "isDone": false },
+            {
+              "partitionId": 1,
+              "lowerRecordId": 1000,
+              "upperRecordId": 2000,
+              "resumeRecordId": 2000,
+              "isDone": true
+            },
+            { "partitionId": 2, "lowerRecordId": 2000, "upperRecordId": 3000, "isDone": false },
+            { "partitionId": 3, "lowerRecordId": 3000, "resumeRecordId": 3500, "isDone": false }
+          ],
+          "syncSourceHost": "testHost"
+        }
+      }
     }
   ]
 }
