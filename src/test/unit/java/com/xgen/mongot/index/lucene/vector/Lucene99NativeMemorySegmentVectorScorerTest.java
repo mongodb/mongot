@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
+import org.apache.lucene.codecs.hnsw.FlatVectorsScorer;
 import org.apache.lucene.codecs.lucene95.HasIndexSlice;
 import org.apache.lucene.index.ByteVectorValues;
 import org.apache.lucene.index.KnnVectorValues;
@@ -18,6 +19,7 @@ import org.apache.lucene.store.MemorySegmentAccessInput;
 import org.apache.lucene.util.hnsw.RandomVectorScorer;
 import org.apache.lucene.util.hnsw.RandomVectorScorerSupplier;
 import org.apache.lucene.util.hnsw.UpdateableRandomVectorScorer;
+import org.apache.lucene.util.quantization.QuantizedByteVectorValues;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -115,6 +117,82 @@ public class Lucene99NativeMemorySegmentVectorScorerTest {
 
   private static ByteVectorValues asHasIndexSlice(List<byte[]> vectors, int dim, IndexInput slice) {
     return new HasSliceByteVectorValues(vectors, dim, slice);
+  }
+
+  /**
+   * Minimal {@link QuantizedByteVectorValues} (Q7) stand-in. {@code getSlice()} returns a real
+   * MMap-backed {@link MemorySegmentAccessInput} so the only thing stopping the delegation test
+   * below from taking the native path is the {@code instanceof QuantizedByteVectorValues} exclusion
+   * -- not an incidentally-null slice, which the base class's default {@code getSlice()} would
+   * otherwise supply. {@code getScalarQuantizer()} is unused: the exclusion check short-circuits
+   * before it would be called.
+   */
+  private static final class FakeQuantizedByteVectorValues extends QuantizedByteVectorValues {
+    private final List<byte[]> vectors;
+    private final int dim;
+    private final IndexInput slice;
+
+    FakeQuantizedByteVectorValues(List<byte[]> vectors, int dim, IndexInput slice) {
+      this.vectors = vectors;
+      this.dim = dim;
+      this.slice = slice;
+    }
+
+    @Override
+    public int size() {
+      return this.vectors.size();
+    }
+
+    @Override
+    public int dimension() {
+      return this.dim;
+    }
+
+    @Override
+    public byte[] vectorValue(int ord) {
+      return this.vectors.get(ord);
+    }
+
+    @Override
+    public float getScoreCorrectionConstant(int ord) {
+      return 0f;
+    }
+
+    @Override
+    public KnnVectorValues.DocIndexIterator iterator() {
+      return createDenseIterator();
+    }
+
+    @Override
+    public IndexInput getSlice() {
+      return this.slice;
+    }
+  }
+
+  /** {@link FlatVectorsScorer} that records whether it was actually invoked. */
+  private static final class SpyFlatVectorsScorer implements FlatVectorsScorer {
+    boolean called;
+
+    @Override
+    public RandomVectorScorerSupplier getRandomVectorScorerSupplier(
+        VectorSimilarityFunction fn, KnnVectorValues values) throws IOException {
+      this.called = true;
+      return DefaultFlatVectorScorer.INSTANCE.getRandomVectorScorerSupplier(fn, values);
+    }
+
+    @Override
+    public RandomVectorScorer getRandomVectorScorer(
+        VectorSimilarityFunction fn, KnnVectorValues values, float[] target) throws IOException {
+      this.called = true;
+      return DefaultFlatVectorScorer.INSTANCE.getRandomVectorScorer(fn, values, target);
+    }
+
+    @Override
+    public RandomVectorScorer getRandomVectorScorer(
+        VectorSimilarityFunction fn, KnnVectorValues values, byte[] target) throws IOException {
+      this.called = true;
+      return DefaultFlatVectorScorer.INSTANCE.getRandomVectorScorer(fn, values, target);
+    }
   }
 
   @Test
@@ -227,6 +305,35 @@ public class Lucene99NativeMemorySegmentVectorScorerTest {
               DELTA);
         }
       }
+    }
+  }
+
+  /**
+   * The {@code instanceof QuantizedByteVectorValues} check is the only thing stopping Q7 from
+   * taking this scorer's native path, which uses the wrong stride and formula for it. A regression
+   * here wouldn't crash; scores would just be subtly wrong.
+   */
+  @Test
+  public void testQuantizedByteVectorValuesDelegates() throws IOException {
+    int dim = 32;
+    Random rng = new Random(SEED);
+    List<byte[]> vectors = randomVectors(rng, NUM_VECTORS, dim);
+    SpyFlatVectorsScorer spyDelegate = new SpyFlatVectorsScorer();
+    Lucene99NativeMemorySegmentVectorScorer scorer =
+        new Lucene99NativeMemorySegmentVectorScorer(spyDelegate);
+    try (IndexInput slice = writeVectors(vectors, "q7_delegate")) {
+      QuantizedByteVectorValues qv = new FakeQuantizedByteVectorValues(vectors, dim, slice);
+
+      scorer.getRandomVectorScorerSupplier(VectorSimilarityFunction.EUCLIDEAN, qv);
+      Assert.assertTrue(
+          "Q7 (QuantizedByteVectorValues) must delegate, never be natively scored",
+          spyDelegate.called);
+
+      spyDelegate.called = false;
+      scorer.getRandomVectorScorer(VectorSimilarityFunction.EUCLIDEAN, qv, vectors.get(0));
+      Assert.assertTrue(
+          "Q7 (QuantizedByteVectorValues) must delegate, never be natively scored",
+          spyDelegate.called);
     }
   }
 }

@@ -604,13 +604,13 @@ public class DynamicFeatureFlagRegistry {
   @RestrictedApi(
       explanation =
           "DynamicFeatureFlagRegistry.getStatic() should only be used in the Lucene"
-              + " codec/quantization layer or in DynamicFeatureFlagRegistryTest.java."
+              + " codec/quantization/vector layer or in DynamicFeatureFlagRegistryTest.java."
               + " If you're in the Lucene SPI/codec layer where"
               + " injection is impossible add the path to allowedOnPath"
               + " in the @RestrictedApi annotation of DynamicFeatureFlagRegistry.getStatic().",
       link = "https://jira.mongodb.org/browse/CLOUDP-412425",
       allowedOnPath =
-          ".*/index/lucene/(codec|quantization)/.*|.*DynamicFeatureFlagRegistryTest\\.java")
+          ".*/index/lucene/(codec|quantization|vector)/.*|.*DynamicFeatureFlagRegistryTest\\.java")
   public static synchronized DynamicFeatureFlagRegistry getStatic() {
     return globalDynamicFeatureFlagRegistry.orElseThrow(
         () ->
@@ -618,8 +618,16 @@ public class DynamicFeatureFlagRegistry {
                 "global DynamicFeatureFlagRegistry not initialized or has been reset"));
   }
 
+  @RestrictedApi(
+      explanation =
+          "DynamicFeatureFlagRegistry.resetForTest() must only be called from test code -- it"
+              + " clears the process-global registry and could silently change feature-flag"
+              + " evaluation mid-process if called from production code paths.",
+      link = "https://jira.mongodb.org/browse/CLOUDP-415881",
+      allowedOnPath =
+          ".*/index/lucene/vector/.*Test\\.java|.*DynamicFeatureFlagRegistryTest\\.java")
   @VisibleForTesting
-  static synchronized void resetForTest() {
+  public static synchronized void resetForTest() {
     globalDynamicFeatureFlagRegistry = Optional.empty();
   }
 }

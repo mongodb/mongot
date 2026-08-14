@@ -6,6 +6,9 @@ java_library(
         "HnswWriteParams.java",
         "Lucene99NativeHnswVectorsFormat.java",
         "Lucene99NativeMemorySegmentVectorScorer.java",
+        "NativeHnswScalarQuantizedVectorsFormat.java",
+        "NativeScalarQuantizedFlatVectorsFormat.java",
+        "NativeScalarQuantizedVectorsScorer.java",
         "Similarity.java",
     ],
     # mongot_vecsim has no CC toolchain on macOS x86_64; Similarity degrades gracefully when absent.
@@ -17,9 +20,11 @@ java_library(
     visibility = ["//:__subpackages__"],
     exports = ["@maven//:org_apache_lucene_lucene_core"],
     deps = [
+        "//src/main/java/com/xgen/mongot/featureflag/dynamic",
         "//src/main/java/com/xgen/mongot/index/definition",
         "@maven//:com_google_auto_service_auto_service_annotations",
         "@maven//:com_google_errorprone_error_prone_annotations",
+        "@maven//:org_apache_lucene_lucene_backward_codecs",
         "@maven//:org_apache_lucene_lucene_core",
         "@maven//:org_jetbrains_annotations",
         "@maven//:org_slf4j_slf4j_api",

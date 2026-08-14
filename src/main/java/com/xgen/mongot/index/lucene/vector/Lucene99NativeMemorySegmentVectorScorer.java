@@ -17,6 +17,7 @@ import org.apache.lucene.util.hnsw.RandomVectorScorer;
 import org.apache.lucene.util.hnsw.RandomVectorScorerSupplier;
 import org.apache.lucene.util.hnsw.UpdateableRandomVectorScorer;
 import org.apache.lucene.util.hnsw.UpdateableRandomVectorScorer.AbstractUpdateableRandomVectorScorer;
+import org.apache.lucene.util.quantization.QuantizedByteVectorValues;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -39,6 +40,9 @@ public class Lucene99NativeMemorySegmentVectorScorer implements FlatVectorsScore
       throws IOException {
     if (vectorValues instanceof ByteVectorValues byteValues
         && byteValues instanceof HasIndexSlice hasSlice
+        // Q7 values subtype ByteVectorValues but use a different stride/formula; they are
+        // handled by NativeScalarQuantizedVectorsScorer, never here.
+        && !(byteValues instanceof QuantizedByteVectorValues)
         && Similarity.I8_ACCELERATION) {
       IndexInput slice = hasSlice.getSlice();
       if (slice != null) {
@@ -72,6 +76,9 @@ public class Lucene99NativeMemorySegmentVectorScorer implements FlatVectorsScore
     }
     if (vectorValues instanceof ByteVectorValues byteValues
         && byteValues instanceof HasIndexSlice hasSlice
+        // Q7 values subtype ByteVectorValues but use a different stride/formula; they are
+        // handled by NativeScalarQuantizedVectorsScorer, never here.
+        && !(byteValues instanceof QuantizedByteVectorValues)
         && Similarity.I8_ACCELERATION) {
       IndexInput slice = hasSlice.getSlice();
       if (slice != null) {

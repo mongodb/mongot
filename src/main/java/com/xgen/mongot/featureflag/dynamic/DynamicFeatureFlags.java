@@ -84,6 +84,13 @@ public enum DynamicFeatureFlags {
    */
   INACTIVE_CURSOR_PARKING("mongot.featureFlag.enableInactiveCursorParking", false),
   /**
+   * When enabled, 7-bit scalar-quantized (Q7) HNSW vectors are scored with the native SIMD
+   * implementation ({@code mongot_vecsim}) instead of Lucene's Java scorer. Falls back to the Java
+   * scorer when disabled, on unaccelerated hardware, or for non-memory-mapped inputs. Toggling
+   * requires no reindex; the on-disk format is unchanged.
+   */
+  NATIVE_SCALAR_VECTOR_SCORING("mongot.featureFlag.enableNativeScalarVectorScoring", false),
+  /**
    * When enabled, runs the auto-embedding stale lease / materialized-view garbage collection sweep:
    * marks superseded MV leases eligible for cleanup, then drops the MV collection and deletes the
    * lease once the grace periods lapse. Evaluated per sweep tick so cleanup can be turned on or off
