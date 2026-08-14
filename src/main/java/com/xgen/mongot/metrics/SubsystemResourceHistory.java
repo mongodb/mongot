@@ -19,11 +19,9 @@ import java.util.function.LongSupplier;
  * buffers and native allocations.
  *
  * <p>Each attribution source obtains a {@link Recorder} via {@link #recorderFor} and pushes the
- * cumulative, monotonic values of heap allocation and CPU nanos.
- *
- * <p>History is appended by {@link #recordSample}, which must be driven by a periodic caller. Every
- * series is written at the same index on the same tick, so samples across pools and subsystems are
- * aligned in time and a subsystem total is the sum of its pools at a shared index.
+ * cumulative, monotonic values of heap allocation and CPU time. History is appended by {@link
+ * ThreadPoolResourceMetrics.Bindings#recordResourceHistorySample}. Values share the same sampling
+ * timestamp.
  *
  * <p>All methods are safe for concurrent use.
  */
@@ -77,8 +75,11 @@ public final class SubsystemResourceHistory {
         .computeIfAbsent(pool, ignored -> new Recorder(this.sampleTimestampMs.length));
   }
 
-  /** Appends one sample of every registered pool's slots. Intended for a periodic caller. */
-  public synchronized void recordSample() {
+  /**
+   * Appends the current slots without refreshing them. Callers with resource bindings must use
+   * {@link ThreadPoolResourceMetrics.Bindings#recordResourceHistorySample}.
+   */
+  synchronized void appendCurrentSlots() {
     int writeIndex = this.nextIndex;
     this.sampleTimestampMs[writeIndex] = this.clockMs.getAsLong();
 
@@ -186,7 +187,7 @@ public final class SubsystemResourceHistory {
                     .sum());
   }
 
-  /** Time since {@link #recordSample} last ran. Empty before the first sample. */
+  /** Time since {@link #appendCurrentSlots} last ran. Empty before the first sample. */
   public synchronized Optional<Duration> sinceLastSample() {
     if (this.sampleCount == 0) {
       return Optional.empty();
@@ -234,14 +235,14 @@ public final class SubsystemResourceHistory {
   private static final class Series {
     // The current cumulative value.
     private final AtomicLong slot = new AtomicLong();
-    // The history of dimensionvalues.
+    // The history of dimension values.
     private final long[] values;
 
     Series(int retainedSamples) {
       this.values = new long[retainedSamples];
     }
 
-    /** Perist the current cumulative value to the history. */
+    /** Persist the current cumulative value to the history. */
     void append(int index) {
       this.values[index] = this.slot.get();
     }

@@ -68,18 +68,6 @@ public class BulkheadCommandExecutor implements Closeable {
         Optional.empty());
   }
 
-  public BulkheadCommandExecutor(
-      MeterRegistry meterRegistry,
-      RegularBlockingRequestSettings settings,
-      FeatureFlags featureFlags) {
-    this(
-        meterRegistry,
-        settings,
-        featureFlags,
-        DynamicFeatureFlagRegistry.empty(),
-        Optional.empty());
-  }
-
   /**
    * Creates a bulkhead executor using the provided sizing settings.
    *

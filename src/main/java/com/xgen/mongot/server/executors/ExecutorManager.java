@@ -56,18 +56,6 @@ public class ExecutorManager implements Closeable {
   public ExecutorManager(
       MeterRegistry meterRegistry,
       RegularBlockingRequestSettings regularBlockingRequestSettings,
-      FeatureFlags featureFlags) {
-    this(
-        meterRegistry,
-        regularBlockingRequestSettings,
-        featureFlags,
-        DynamicFeatureFlagRegistry.empty(),
-        Optional.empty());
-  }
-
-  public ExecutorManager(
-      MeterRegistry meterRegistry,
-      RegularBlockingRequestSettings regularBlockingRequestSettings,
       FeatureFlags featureFlags,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
       Optional<ThreadPoolResourceMetrics.Bindings> threadPoolResourceBindings) {

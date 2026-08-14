@@ -667,9 +667,14 @@ public class BulkheadCommandExecutorTest {
     SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     FeatureFlags off =
         FeatureFlags.withDefaults().disable(Feature.QUERY_MEMORY_ATTRIBUTION_METRICS).build();
+    // Bindings are supplied, so only the flag can suppress the counters.
     try (BulkheadCommandExecutor exec =
         new BulkheadCommandExecutor(
-            meterRegistry, RegularBlockingRequestSettings.defaults(), off)) {
+            meterRegistry,
+            RegularBlockingRequestSettings.defaults(),
+            off,
+            DynamicFeatureFlagRegistry.empty(),
+            Optional.of(new ThreadPoolResourceMetrics.Bindings()))) {
       assertThat(meterRegistry.find("executor.thread.allocatedBytes").functionCounter()).isNull();
       assertThat(meterRegistry.find("executor.thread.cpuTime").functionCounter()).isNull();
     }

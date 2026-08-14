@@ -411,6 +411,116 @@ public class ThreadPoolResourceMetricsTest {
     }
   }
 
+  @Test
+  public void recordResourceHistorySample_refreshesSlotsWithoutCounterScrape() throws Exception {
+    var registry = new SimpleMeterRegistry();
+    SubsystemResourceHistory history = this.bindings.resourceHistory();
+    try (NamedExecutorService executor = Executors.fixedSizeThreadPool(POOL_NAME, 1, registry)) {
+      this.bindings.forSubsystem(SUBSYSTEM).register(executor, registry);
+
+      executor
+          .submit(
+              () -> {
+                byte[] allocation = new byte[1024 * 1024];
+                allocation[0] = 1;
+                LongStream.range(0, 5_000_000L).sum();
+              })
+          .get(1, TimeUnit.MINUTES);
+
+      // Do not call FunctionCounter.count(): the history refresh must read the MXBean itself.
+      this.bindings.recordResourceHistorySample();
+
+      assertThat(
+              history
+                  .currentTotal(SUBSYSTEM, SubsystemResourceHistory.Dimension.ALLOC_BYTES)
+                  .orElseThrow())
+          .isGreaterThan(0L);
+      assertThat(
+              history
+                  .currentTotal(SUBSYSTEM, SubsystemResourceHistory.Dimension.CPU_NANOS)
+                  .orElseThrow())
+          .isGreaterThan(0L);
+      assertThat(history.sampleCount()).isEqualTo(1);
+    }
+  }
+
+  @Test
+  public void counterScrapes_feedTheHistorySummedAcrossPools() throws Exception {
+    var registry = new SimpleMeterRegistry();
+    SubsystemResourceHistory history = this.bindings.resourceHistory();
+    try (NamedExecutorService poolA = Executors.fixedSizeThreadPool(POOL_NAME + "-a", 1, registry);
+        NamedExecutorService poolB = Executors.fixedSizeThreadPool(POOL_NAME + "-b", 1, registry)) {
+      ThreadPoolResourceMetrics metrics = this.bindings.forSubsystem(SUBSYSTEM);
+      metrics.register(poolA, registry);
+      metrics.register(poolB, registry);
+
+      poolA.submit(() -> {}).get(1, TimeUnit.MINUTES);
+      poolB.submit(() -> {}).get(1, TimeUnit.MINUTES);
+
+      long allocated =
+          (long) counter(registry, ALLOCATED_BYTES, SUBSYSTEM, POOL_NAME + "-a").count()
+              + (long) counter(registry, ALLOCATED_BYTES, SUBSYSTEM, POOL_NAME + "-b").count();
+      long cpu =
+          (long) counter(registry, CPU_TIME, SUBSYSTEM, POOL_NAME + "-a").count()
+              + (long) counter(registry, CPU_TIME, SUBSYSTEM, POOL_NAME + "-b").count();
+
+      // Both pools ran, so agreeing on zero would not show the scrape reaches the history.
+      assertThat(allocated).isGreaterThan(0L);
+      assertThat(cpu).isGreaterThan(0L);
+
+      assertThat(history.currentTotal(SUBSYSTEM, SubsystemResourceHistory.Dimension.ALLOC_BYTES))
+          .hasValue(allocated);
+      assertThat(history.currentTotal(SUBSYSTEM, SubsystemResourceHistory.Dimension.CPU_NANOS))
+          .hasValue(cpu);
+    }
+  }
+
+  @Test
+  public void counterScrapes_keepSubsystemsIsolatedInTheHistory() throws Exception {
+    var registry = new SimpleMeterRegistry();
+    SubsystemResourceHistory history = this.bindings.resourceHistory();
+    try (NamedExecutorService queryPool =
+            Executors.fixedSizeThreadPool(POOL_NAME + "-query", 1, registry);
+        NamedExecutorService replicationPool =
+            Executors.fixedSizeThreadPool(POOL_NAME + "-replication", 1, registry)) {
+      this.bindings.forSubsystem("query").register(queryPool, registry);
+      this.bindings.forSubsystem("replication").register(replicationPool, registry);
+
+      queryPool.submit(() -> {}).get(1, TimeUnit.MINUTES);
+      replicationPool.submit(() -> {}).get(1, TimeUnit.MINUTES);
+
+      long queryValue =
+          (long) counter(registry, ALLOCATED_BYTES, "query", POOL_NAME + "-query").count();
+      long replicationValue =
+          (long)
+              counter(registry, ALLOCATED_BYTES, "replication", POOL_NAME + "-replication").count();
+
+      assertThat(history.currentTotal("query", SubsystemResourceHistory.Dimension.ALLOC_BYTES))
+          .hasValue(queryValue);
+      assertThat(
+              history.currentTotal("replication", SubsystemResourceHistory.Dimension.ALLOC_BYTES))
+          .hasValue(replicationValue);
+    }
+  }
+
+  @Test
+  public void rebuildingAPool_keepsASingleHistorySeries() {
+    var registry = new SimpleMeterRegistry();
+    SubsystemResourceHistory history = this.bindings.resourceHistory();
+
+    ThreadPoolResourceMetrics metrics = this.bindings.forSubsystem(SUBSYSTEM);
+    metrics.register(POOL_NAME, new LiveThreadIdsRegistry(), registry);
+    metrics.register(POOL_NAME, new LiveThreadIdsRegistry(), registry);
+
+    // A rebound pool reuses its binding, so it must keep writing into the series it already had.
+    assertThat(history.pools(SUBSYSTEM)).containsExactly(POOL_NAME);
+  }
+
+  private static FunctionCounter counter(
+      SimpleMeterRegistry registry, String metric, String subsystem, String pool) {
+    return registry.find(metric).tag("subsystem", subsystem).tag("name", pool).functionCounter();
+  }
+
   private static Thread allocatingThread(
       CountDownLatch started, CountDownLatch allowExit, int bytes) {
     return new Thread(

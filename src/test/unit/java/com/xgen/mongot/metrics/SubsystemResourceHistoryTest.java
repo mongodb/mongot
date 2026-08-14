@@ -85,7 +85,7 @@ public class SubsystemResourceHistoryTest {
     for (int step = 0; step <= 12; step++) {
       clock.setMillis(step * 5000L);
       indexing.recordAllocBytes(1000 + step * 100L);
-      history.recordSample();
+      history.appendCurrentSlots();
     }
 
     assertThat(history.increaseOver(SUBSYSTEM, Dimension.ALLOC_BYTES, Duration.ofMinutes(1)))
@@ -108,7 +108,7 @@ public class SubsystemResourceHistoryTest {
     for (int step = 0; step <= 2; step++) {
       clock.setMillis(step * 5000L);
       indexing.recordAllocBytes(1000 + step * 100L);
-      history.recordSample();
+      history.appendCurrentSlots();
     }
 
     assertThat(history.increaseOver(SUBSYSTEM, Dimension.ALLOC_BYTES, Duration.ofSeconds(20)))
@@ -128,7 +128,7 @@ public class SubsystemResourceHistoryTest {
     for (int step = 0; step <= 2; step++) {
       clock.setMillis(step * 5000L);
       indexing.recordAllocBytes(1000 + step * 100L);
-      history.recordSample();
+      history.appendCurrentSlots();
     }
 
     assertThat(history.increaseOver(SUBSYSTEM, Dimension.ALLOC_BYTES, Duration.ofSeconds(30)))
@@ -141,7 +141,7 @@ public class SubsystemResourceHistoryTest {
     var clock = new TestClock();
     var history = new SubsystemResourceHistory(12, clock);
     history.recorderFor(SUBSYSTEM, INDEXING).recordAllocBytes(1000);
-    history.recordSample();
+    history.appendCurrentSlots();
 
     assertThat(history.increaseOver(SUBSYSTEM, Dimension.ALLOC_BYTES, Duration.ofSeconds(5)))
         .isEmpty();
@@ -162,12 +162,12 @@ public class SubsystemResourceHistoryTest {
     clock.setMillis(0);
     indexing.recordAllocBytes(1000);
     decoding.recordAllocBytes(500);
-    history.recordSample();
+    history.appendCurrentSlots();
 
     clock.setMillis(5000);
     indexing.recordAllocBytes(1300);
     decoding.recordAllocBytes(600);
-    history.recordSample();
+    history.appendCurrentSlots();
 
     var horizon = Duration.ofSeconds(5);
     assertThat(history.increaseOver(SUBSYSTEM, INDEXING, Dimension.ALLOC_BYTES, horizon))
@@ -191,7 +191,7 @@ public class SubsystemResourceHistoryTest {
     for (int step = 0; step <= 2; step++) {
       clock.setMillis(step * 5000L);
       indexing.recordAllocBytes(1000 + step * 100L);
-      history.recordSample();
+      history.appendCurrentSlots();
     }
 
     // Pools are registered as they are built, so a newly created pool's threads start near zero.
@@ -199,12 +199,12 @@ public class SubsystemResourceHistoryTest {
     clock.setMillis(15000);
     indexing.recordAllocBytes(1300);
     decoding.recordAllocBytes(0);
-    history.recordSample();
+    history.appendCurrentSlots();
 
     clock.setMillis(20000);
     indexing.recordAllocBytes(1400);
     decoding.recordAllocBytes(200);
-    history.recordSample();
+    history.appendCurrentSlots();
 
     assertThat(history.increaseOver(SUBSYSTEM, Dimension.ALLOC_BYTES, Duration.ofSeconds(20)))
         .hasValue(600L);
@@ -228,7 +228,7 @@ public class SubsystemResourceHistoryTest {
     for (int step = 0; step <= 3; step++) {
       clock.setMillis(step * 5000L);
       indexing.recordAllocBytes(100 + step * 100L);
-      history.recordSample();
+      history.appendCurrentSlots();
     }
 
     assertThat(history.sampleCount()).isEqualTo(3);
@@ -246,12 +246,12 @@ public class SubsystemResourceHistoryTest {
     clock.setMillis(0);
     indexing.recordAllocBytes(1000);
     indexing.recordCpuNanos(70);
-    history.recordSample();
+    history.appendCurrentSlots();
 
     clock.setMillis(5000);
     indexing.recordAllocBytes(1300);
     indexing.recordCpuNanos(90);
-    history.recordSample();
+    history.appendCurrentSlots();
 
     var horizon = Duration.ofSeconds(5);
     assertThat(history.increaseOver(SUBSYSTEM, Dimension.ALLOC_BYTES, horizon)).hasValue(300L);
@@ -266,7 +266,7 @@ public class SubsystemResourceHistoryTest {
     history.recorderFor(SUBSYSTEM, INDEXING).recordAllocBytes(1000);
 
     clock.setMillis(1000);
-    history.recordSample();
+    history.appendCurrentSlots();
     clock.setMillis(4000);
 
     assertThat(history.sinceLastSample()).hasValue(Duration.ofMillis(3000));

@@ -1,5 +1,6 @@
 package com.xgen.mongot.metrics;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.flogger.FluentLogger;
 import com.sun.management.ThreadMXBean;
 import com.xgen.mongot.util.concurrent.LiveThreadIdsRegistry;
@@ -48,9 +49,15 @@ public final class ThreadPoolResourceMetrics {
   // of registering duplicate meters.
   private final ConcurrentMap<String, PoolBinding> bindingsByPool = new ConcurrentHashMap<>();
 
-  private ThreadPoolResourceMetrics(Optional<ThreadMXBean> threadMxBean, String subsystem) {
+  private final SubsystemResourceHistory resourceHistory;
+
+  private ThreadPoolResourceMetrics(
+      Optional<ThreadMXBean> threadMxBean,
+      String subsystem,
+      SubsystemResourceHistory resourceHistory) {
     this.threadMxBean = threadMxBean;
     this.subsystem = subsystem;
+    this.resourceHistory = resourceHistory;
   }
 
   /**
@@ -58,7 +65,8 @@ public final class ThreadPoolResourceMetrics {
    * {@code subsystem}. Obtain one from {@link Bindings#forSubsystem}, which keeps it alive across
    * pool rebuilds.
    */
-  static ThreadPoolResourceMetrics create(String subsystem) {
+  static ThreadPoolResourceMetrics create(
+      String subsystem, SubsystemResourceHistory resourceHistory) {
     Optional<ThreadMXBean> mxBean =
         (ManagementFactory.getThreadMXBean() instanceof ThreadMXBean s)
             ? Optional.of(s)
@@ -71,7 +79,7 @@ public final class ThreadPoolResourceMetrics {
         // Enable both tracking knobs explicitly (though HotSpot enables them by default).
         mxBean.get().setThreadAllocatedMemoryEnabled(true);
         mxBean.get().setThreadCpuTimeEnabled(true);
-        return new ThreadPoolResourceMetrics(mxBean, subsystem);
+        return new ThreadPoolResourceMetrics(mxBean, subsystem, resourceHistory);
       } catch (UnsupportedOperationException | SecurityException e) {
         LOG.warn("Per-thread allocation/CPU tracking unsupported on this JVM, counters will be 0.");
       }
@@ -80,7 +88,7 @@ public final class ThreadPoolResourceMetrics {
           "Per-thread allocation or CPU tracking is unavailable on this JVM, counters will be 0.");
     }
 
-    return new ThreadPoolResourceMetrics(Optional.empty(), subsystem);
+    return new ThreadPoolResourceMetrics(Optional.empty(), subsystem, resourceHistory);
   }
 
   /**
@@ -111,7 +119,8 @@ public final class ThreadPoolResourceMetrics {
 
     // The map only hands out the binding. Registering meters and sweeping the outgoing pool's
     // threads happen under the binding.
-    var created = new PoolBinding(liveThreadIds, bean);
+    var recorder = this.resourceHistory.recorderFor(this.subsystem, name);
+    var created = new PoolBinding(liveThreadIds, bean, recorder);
     Optional.ofNullable(this.bindingsByPool.putIfAbsent(name, created))
         .ifPresentOrElse(
             existing -> existing.rebind(liveThreadIds),
@@ -130,18 +139,56 @@ public final class ThreadPoolResourceMetrics {
    * <p>A pool's counters have to outlive the object that registered them: rebuilding a pool
    * re-registers the same meter which causes metrics to be suppressed. Holding one {@link
    * ThreadPoolResourceMetrics} per subsystem fixes the issue.
+   *
+   * <p>Also owns the {@link SubsystemResourceHistory} that stores the rolling history of every pool
+   * registered here.
    */
   public static final class Bindings {
 
     private final ConcurrentMap<String, ThreadPoolResourceMetrics> bySubsystem =
         new ConcurrentHashMap<>();
 
+    private final SubsystemResourceHistory resourceHistory;
+
+    public Bindings() {
+      this(new SubsystemResourceHistory());
+    }
+
+    @VisibleForTesting
+    Bindings(SubsystemResourceHistory resourceHistory) {
+      this.resourceHistory = resourceHistory;
+    }
+
     /**
      * Metrics for {@code subsystem}, created on first use and returned unchanged thereafter. The
      * subsystem is emitted as a meter tag, to avoid name conflicts between different pools.
      */
     public ThreadPoolResourceMetrics forSubsystem(String subsystem) {
-      return this.bySubsystem.computeIfAbsent(subsystem, ThreadPoolResourceMetrics::create);
+      return this.bySubsystem.computeIfAbsent(
+          subsystem, s -> ThreadPoolResourceMetrics.create(s, this.resourceHistory));
+    }
+
+    /**
+     * The rolling history fed by every pool registered through these bindings. Holds current values
+     * as soon as counters are scraped.
+     */
+    public SubsystemResourceHistory resourceHistory() {
+      return this.resourceHistory;
+    }
+
+    /** Refreshes every pool and appends one aligned history sample. */
+    public void recordResourceHistorySample() {
+      for (ThreadPoolResourceMetrics metrics : this.bySubsystem.values()) {
+        for (PoolBinding binding : metrics.bindingsByPool.values()) {
+          // Corner case for locking: Since rebind() can swap the threadid pool underneath, ensure
+          // both reads are atomic.
+          synchronized (binding) {
+            binding.allocatedBytesValue();
+            binding.cpuValue();
+          }
+        }
+      }
+      this.resourceHistory.appendCurrentSlots();
     }
   }
 
@@ -152,10 +199,15 @@ public final class ThreadPoolResourceMetrics {
   private static final class PoolBinding {
     private final Registration bytesAllocated;
     private final Registration cpu;
+    private final SubsystemResourceHistory.Recorder recorder;
     private LiveThreadIdsRegistry liveThreadIds;
 
-    PoolBinding(LiveThreadIdsRegistry liveThreadIds, ThreadMXBean bean) {
+    PoolBinding(
+        LiveThreadIdsRegistry liveThreadIds,
+        ThreadMXBean bean,
+        SubsystemResourceHistory.Recorder recorder) {
       this.liveThreadIds = liveThreadIds;
+      this.recorder = recorder;
       this.bytesAllocated = new Registration(bean::getThreadAllocatedBytes);
       this.cpu = new Registration(bean::getThreadCpuTime);
     }
@@ -190,11 +242,15 @@ public final class ThreadPoolResourceMetrics {
     }
 
     synchronized double allocatedBytesValue() {
-      return this.bytesAllocated.value(this.liveThreadIds);
+      long value = this.bytesAllocated.value(this.liveThreadIds);
+      this.recorder.recordAllocBytes(value);
+      return value;
     }
 
     synchronized double cpuValue() {
-      return this.cpu.value(this.liveThreadIds);
+      long value = this.cpu.value(this.liveThreadIds);
+      this.recorder.recordCpuNanos(value);
+      return value;
     }
   }
 
@@ -215,7 +271,7 @@ public final class ThreadPoolResourceMetrics {
       this.beanReader = beanReader;
     }
 
-    double value(LiveThreadIdsRegistry liveThreadIds) {
+    long value(LiveThreadIdsRegistry liveThreadIds) {
       refresh(liveThreadIds);
       return sumBeanValues();
     }
