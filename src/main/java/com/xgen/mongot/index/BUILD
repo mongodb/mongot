@@ -47,6 +47,7 @@ java_library(
         "MeteredSearchIndexReader.java",
         "MeteredVectorIndexReader.java",
         "QueryMetricsRecorder.java",
+        "QueryShape.java",
         "ReaderClosedException.java",
         "ReplicationOpTimeInfo.java",
         "ResultFactory.java",

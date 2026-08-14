@@ -46,7 +46,8 @@ public class MeteredSearchIndexReader implements SearchIndexReader {
       this.queryMetricsRecorder.record(query, queryCursorOptions);
       return result;
     } catch (Exception e) {
-      this.queryingMetricsUpdater.handleQueryException(e, query.toBson().toString());
+      this.queryingMetricsUpdater.handleQueryException(
+          e, "from SearchIndexReader.query, shape=" + QueryShape.of(query));
       throw e;
     }
   }
@@ -68,7 +69,8 @@ public class MeteredSearchIndexReader implements SearchIndexReader {
       this.queryMetricsRecorder.record(query, queryCursorOptions);
       return result;
     } catch (Exception e) {
-      this.queryingMetricsUpdater.handleQueryException(e, query.toBson().toString());
+      this.queryingMetricsUpdater.handleQueryException(
+          e, "from SearchIndexReader.intermediateQuery, shape=" + QueryShape.of(query));
       throw e;
     }
   }

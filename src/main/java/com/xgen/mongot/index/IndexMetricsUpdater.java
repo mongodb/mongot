@@ -918,19 +918,28 @@ public class IndexMetricsUpdater implements Closeable {
       return this.npeQueryCounter;
     }
 
-    // Increments the total failedQueryCounter. And depending on the exception is from malformed
-    // user query, or the internal query processing error, increases corresponding counters.
-    public void handleQueryException(Exception e, String queryDebugString) {
+    /**
+     * Increments the total failedQueryCounter. And depending on the exception is from malformed
+     * user query, or the internal query processing error, increases corresponding counters.
+     *
+     * <p>{@code queryContext} is written to the service log, so it must carry no customer content:
+     * a caller-supplied constant identifying the call site, optionally with a {@link QueryShape}
+     * describing the query's operator structure. Never pass the query body or any value read off it
+     * — search terms, filter values and embedding vectors are customer content, and this log is
+     * operator-readable and shipped to log aggregation. The exception's own message and stack
+     * trace, attached via {@code withCause}, are what identify the failure itself.
+     */
+    public void handleQueryException(Exception e, String queryContext) {
       this.failedQueryCounter.increment();
       if (e instanceof InvalidQueryException) {
         flogger.atWarning().atMostEvery(1, TimeUnit.HOURS).withCause(e).log(
-            "Hit an invalid query: %s", queryDebugString);
+            "Hit an invalid query: %s", queryContext);
         this.invalidQueryCounter.increment();
       } else {
         // Mongot internal processing error should be rare, log with a low limit. We still need a
         // limit because the warning log level may cause a flush().
         flogger.atWarning().atMostEvery(1, TimeUnit.MINUTES).withCause(e).log(
-            "Internal processing error for query: %s", queryDebugString);
+            "Internal processing error for query: %s", queryContext);
 
         if (e instanceof NullPointerException) {
           this.npeQueryCounter.increment();

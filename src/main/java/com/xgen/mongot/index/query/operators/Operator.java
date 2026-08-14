@@ -204,7 +204,7 @@ public sealed interface Operator extends DocumentEncodable
       this.name = name;
     }
 
-    String getName() {
+    public String getName() {
       return this.name;
     }
   }

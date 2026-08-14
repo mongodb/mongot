@@ -229,9 +229,10 @@ public class SearchCommand implements Command {
       if (!isUserFacing) {
         // Mongot internal processing error should be rare, log with a low limit. We still need a
         // limit because the warning log level may cause a flush().
+        // The query document is deliberately not logged: it holds customer search terms and
+        // filter values. See VectorSearchCommand for the equivalent path.
         FLOGGER.atWarning().atMostEvery(1, TimeUnit.MINUTES).withCause(e).log(
-            "Failed to process a searchCommand. queryDocument: %s",
-            this.definition.queryDocument());
+            "Failed to process a searchCommand.");
       }
       return MessageUtils.createErrorBody(e);
     }
@@ -240,8 +241,10 @@ public class SearchCommand implements Command {
   // Utility method to handle invalid query exceptions that are caught explicitly or wrapped.
   private BsonDocument handleInvalidQueryException(Exception e) {
     this.metrics.searchCommandInvalidQueries.increment();
+    // The query document is deliberately not logged: it holds customer search terms and filter
+    // values. The parse exception attached via withCause names the offending field.
     FLOGGER.atWarning().atMostEvery(1, TimeUnit.HOURS).withCause(e).log(
-        "searchCommand query is invalid. queryDocument: %s", this.definition.queryDocument());
+        "searchCommand query is invalid");
     return MessageUtils.createErrorBody(e);
   }
 

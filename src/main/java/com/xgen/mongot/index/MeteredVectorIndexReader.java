@@ -36,7 +36,9 @@ public class MeteredVectorIndexReader implements VectorIndexReader {
       return result;
     } catch (Exception e) {
       this.metricsUpdater.handleQueryException(
-          e, materializedQuery.vectorSearchQuery().toBson().toString());
+          e,
+          "from VectorIndexReader.query, shape="
+              + QueryShape.of(materializedQuery.vectorSearchQuery()));
       throw e;
     }
   }
@@ -57,7 +59,8 @@ public class MeteredVectorIndexReader implements VectorIndexReader {
       this.queryMetricsRecorder.record(query.vectorSearchQuery());
       return result;
     } catch (Exception e) {
-      this.metricsUpdater.handleQueryException(e, query.vectorSearchQuery().toBson().toString());
+      this.metricsUpdater.handleQueryException(
+          e, "from VectorIndexReader.query, shape=" + QueryShape.of(query.vectorSearchQuery()));
       throw e;
     }
   }
