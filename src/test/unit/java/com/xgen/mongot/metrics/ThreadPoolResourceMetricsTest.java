@@ -12,6 +12,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.lang.management.ManagementFactory;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.LongStream;
 import org.junit.Test;
 
@@ -231,20 +232,23 @@ public class ThreadPoolResourceMetricsTest {
       var ready = new CountDownLatch(2);
       executor.submit(ready::countDown);
       executor.submit(ready::countDown);
-      ready.await(1, TimeUnit.MINUTES);
+      assertThat(ready.await(1, TimeUnit.MINUTES)).isTrue();
 
       double before = allocated.count();
 
       // Allocate ~1 MB on a pool thread, the precise byte count is JVM-internal but must increase.
-      executor
-          .submit(
-              () -> {
-                byte[] junk = new byte[1024 * 1024];
-                junk[0] = 1;
-              })
-          .get(1, TimeUnit.MINUTES);
+      byte[] allocation =
+          executor
+              .submit(
+                  () -> {
+                    byte[] bytes = new byte[1024 * 1024];
+                    bytes[0] = 1;
+                    return bytes;
+                  })
+              .get(1, TimeUnit.MINUTES);
 
       double after = allocated.count();
+      assertThat(allocation[0]).isEqualTo((byte) 1);
 
       // On JVMs without thread allocation tracking the counter is constant 0, skip the
       // monotonicity assertion in that case rather than flaking.
@@ -321,13 +325,14 @@ public class ThreadPoolResourceMetricsTest {
 
     var threadStarted = new CountDownLatch(1);
     var allowExit = new CountDownLatch(1);
+    var allocation = new AtomicReference<byte[]>();
 
     Thread worker =
         new Thread(
             () -> {
               // Touch ~1 MB so the thread has a non-zero allocation footprint to be folded.
-              byte[] randomAlloc = new byte[1024 * 1024];
-              randomAlloc[0] = 1;
+              allocation.set(new byte[1024 * 1024]);
+              allocation.get()[0] = 1;
               threadStarted.countDown();
               try {
                 allowExit.await(1, TimeUnit.MINUTES);
@@ -336,7 +341,8 @@ public class ThreadPoolResourceMetricsTest {
               }
             });
     worker.start();
-    threadStarted.await(1, TimeUnit.MINUTES);
+    assertThat(threadStarted.await(1, TimeUnit.MINUTES)).isTrue();
+    assertThat(allocation.get()[0]).isEqualTo((byte) 1);
 
     long tid = worker.getId();
     liveIds.register(tid);
@@ -353,6 +359,7 @@ public class ThreadPoolResourceMetricsTest {
     // Scrape while the thread is alive so lastSeenAllocByTid captures a positive value.
     double whileAlive = alloc.count();
 
+    allocation.set(null);
     allowExit.countDown();
     worker.join(TimeUnit.MINUTES.toMillis(1));
 

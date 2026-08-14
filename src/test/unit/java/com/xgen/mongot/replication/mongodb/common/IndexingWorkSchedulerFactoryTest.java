@@ -20,12 +20,10 @@ import com.xgen.mongot.index.definition.quantization.VectorQuantization;
 import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
-import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 import org.bson.types.ObjectId;
 import org.junit.Test;
 
@@ -138,50 +136,25 @@ public class IndexingWorkSchedulerFactoryTest {
   }
 
   @Test
-  public void create_lifecycleAttributionEnabled_indexingPoolCounterIncreasesUnderLoad()
-      throws Exception {
+  public void create_lifecycleAttributionEnabled_registersIndexingPoolCounters() {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
-    IndexingWorkSchedulerFactory factory =
-        IndexingWorkSchedulerFactory.create(
-            2,
-            mock(Supplier.class),
-            registry,
-            Optional.of(new ThreadPoolResourceMetrics.Bindings()));
+    IndexingWorkSchedulerFactory.create(
+        2, mock(Supplier.class), registry, Optional.of(new ThreadPoolResourceMetrics.Bindings()));
 
-    FunctionCounter allocated =
-        registry
-            .find("executor.thread.allocatedBytes")
-            .tag("subsystem", "replication")
-            .tag("name", "indexing-work")
-            .functionCounter();
-    assertThat(allocated).isNotNull();
-
-    // Reach into the package-private executor field rather than going through the heavyweight
-    // IndexingWorkScheduler.schedule() path with its DocumentEvent / DocumentIndexer scaffolding.
-    IndexingWorkScheduler scheduler =
-        factory
-            .getIndexingWorkSchedulers()
-            .get(IndexingWorkSchedulerFactory.IndexingStrategy.DEFAULT);
-
-    // Warm a worker thread so getThreadAllocatedBytes has a non-zero baseline.
-    scheduler.executor.submit(() -> {}).get(5, TimeUnit.SECONDS);
-    double before = allocated.count();
-
-    // Allocate ~1 MB on an indexing-pool thread.
-    scheduler
-        .executor
-        .submit(
-            () -> {
-              byte[] dummy = new byte[1024 * 1024];
-              dummy[0] = 1;
-            })
-        .get(5, TimeUnit.SECONDS);
-    double after = allocated.count();
-
-    // JVMs without per-thread allocation tracking report 0 for both reads; skip rather than flake.
-    if (before != 0.0 || after != 0.0) {
-      assertThat(after).isGreaterThan(before);
-    }
+    assertThat(
+            registry
+                .find("executor.thread.allocatedBytes")
+                .tag("subsystem", "replication")
+                .tag("name", "indexing-work")
+                .functionCounter())
+        .isNotNull();
+    assertThat(
+            registry
+                .find("executor.thread.cpuTime")
+                .tag("subsystem", "replication")
+                .tag("name", "indexing-work")
+                .functionCounter())
+        .isNotNull();
   }
 
   private static VectorIndexDefinition mockCustomVectorEngineDefinition() {
