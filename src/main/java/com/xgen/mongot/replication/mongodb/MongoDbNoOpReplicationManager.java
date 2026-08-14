@@ -15,6 +15,7 @@ import com.xgen.mongot.index.ReplicationOpTimeInfo;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
+import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import com.xgen.mongot.replication.ReplicationManager;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
@@ -87,10 +88,13 @@ public class MongoDbNoOpReplicationManager implements ReplicationManager {
       IndexCatalog indexCatalog,
       InitializedIndexCatalog initializedIndexCatalog,
       FeatureFlags featureFlags,
-      MeterRegistry meterRegistry) {
+      MeterRegistry meterRegistry,
+      ThreadPoolResourceMetrics.Bindings threadPoolResourceBindings) {
 
-    boolean enableLifecycleAttributionMetrics =
-        featureFlags.isEnabled(Feature.LIFECYCLE_ATTRIBUTION_METRICS);
+    Optional<ThreadPoolResourceMetrics.Bindings> attributionBindings =
+        featureFlags.isEnabled(Feature.LIFECYCLE_ATTRIBUTION_METRICS)
+            ? Optional.of(threadPoolResourceBindings)
+            : Optional.empty();
     var replicationOptimeMetricUpdater =
         ReplicationOptimeUpdater.create(
             indexCatalog,
@@ -98,7 +102,7 @@ public class MongoDbNoOpReplicationManager implements ReplicationManager {
             syncSourceConfig,
             ReplicationOptimeUpdater.DEFAULT_UPDATE_INTERVAL,
             meterRegistry,
-            enableLifecycleAttributionMetrics);
+            attributionBindings);
 
     return new MongoDbNoOpReplicationManager(
         syncSourceConfig,

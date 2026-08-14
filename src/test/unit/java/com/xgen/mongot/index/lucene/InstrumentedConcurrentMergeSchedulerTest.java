@@ -7,7 +7,9 @@ import static org.junit.Assert.assertNotEquals;
 import com.xgen.mongot.index.lucene.merge.InstrumentedConcurrentMergeScheduler;
 import com.xgen.mongot.index.lucene.merge.InstrumentedConcurrentMergeScheduler.PerIndexPartitionMergeScheduler;
 import com.xgen.mongot.index.version.GenerationId;
+import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.util.Optional;
 import org.apache.lucene.index.ConcurrentMergeScheduler;
 import org.apache.lucene.store.Directory;
 import org.junit.Test;
@@ -75,7 +77,7 @@ public class InstrumentedConcurrentMergeSchedulerTest {
         registry,
         InstrumentedConcurrentMergeScheduler.DEFAULT_CANCEL_MERGE_PER_THREAD_TIMEOUT_MS,
         InstrumentedConcurrentMergeScheduler.DEFAULT_CANCEL_ALL_MERGES_PER_THREAD_TIMEOUT_MS,
-        true);
+        Optional.of(new ThreadPoolResourceMetrics.Bindings()));
 
     assertThat(
             registry

@@ -49,6 +49,7 @@ import com.xgen.mongot.lifecycle.LifecycleConfig;
 import com.xgen.mongot.logging.Logging;
 import com.xgen.mongot.metrics.Instrumentation;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
+import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import com.xgen.mongot.metrics.cache.ScrapeCacheConfig;
 import com.xgen.mongot.metrics.ftdc.Ftdc;
 import com.xgen.mongot.metrics.ftdc.FtdcConfig;
@@ -189,7 +190,8 @@ public class CommunityMongotBootstrapper {
             meterAndFtdcRegistry.ftdcRegistry(),
             config,
             mongotConfigs,
-            mongotVersion);
+            mongotVersion,
+            meterAndFtdcRegistry.threadPoolResourceBindings());
 
     // Initialize global metrics for community
     GlobalMetricFactory.initialize(meterRegistry);
@@ -302,7 +304,8 @@ public class CommunityMongotBootstrapper {
             mongotConfigs.indexDefinitionConfig,
             embeddingServiceManagerSupplier,
             mongotConfigs.featureFlags,
-            dynamicFeatureFlagRegistry);
+            dynamicFeatureFlagRegistry,
+            meterAndFtdcRegistry.threadPoolResourceBindings());
 
     var readinessChecker =
         new CommunityReadinessChecker(
@@ -430,7 +433,8 @@ public class CommunityMongotBootstrapper {
       MeterRegistry reportingRegistry,
       CommunityConfig communityConfig,
       MongotConfigs mongotConfigs,
-      String mongotVersion) {
+      String mongotVersion,
+      ThreadPoolResourceMetrics.Bindings threadPoolResourceBindings) {
 
     FtdcCommunityConfig ftdcCommunityConfig = communityConfig.ftdcConfig();
     if (!ftdcCommunityConfig.enabled()) {
@@ -473,7 +477,8 @@ public class CommunityMongotBootstrapper {
             executorRegistry,
             ftdc,
             useCombinedRegistryForExecutorMetrics,
-            ftdcConfig.maxMeterCount());
+            ftdcConfig.maxMeterCount(),
+            threadPoolResourceBindings);
 
     return Optional.of(
         new MetricsLifecycles(
@@ -820,7 +825,8 @@ public class CommunityMongotBootstrapper {
             autoEmbeddingMaterializedViewManagerFactory,
             meterAndFtdcRegistry.meterRegistry(),
             replicationStateMonitor.getReplicationGate(),
-            mongotConfigs.featureFlags);
+            mongotConfigs.featureFlags,
+            meterAndFtdcRegistry.threadPoolResourceBindings());
 
     return DefaultConfigManager.initialize(
         indexCatalog,
@@ -854,7 +860,8 @@ public class CommunityMongotBootstrapper {
       IndexDefinitionConfig indexDefinitionConfig,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
       FeatureFlags featureFlags,
-      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
+      ThreadPoolResourceMetrics.Bindings threadPoolResourceBindings) {
     // Create the ExecutorManager that can serve requests for the tcpServer (and the grpcServer).
     // noinspection resource
     var executorManager =
@@ -862,7 +869,8 @@ public class CommunityMongotBootstrapper {
             meterRegistry,
             regularBlockingRequestSettings,
             featureFlags,
-            dynamicFeatureFlagRegistry);
+            dynamicFeatureFlagRegistry,
+            Optional.of(threadPoolResourceBindings));
 
     var grpcServer =
         GrpcStreamingServer.createCommunity(

@@ -54,19 +54,30 @@ public class BulkheadCommandExecutor implements Closeable {
         meterRegistry,
         RegularBlockingRequestSettings.defaults(),
         FeatureFlags.getDefault(),
-        DynamicFeatureFlagRegistry.empty());
+        DynamicFeatureFlagRegistry.empty(),
+        Optional.empty());
   }
 
   public BulkheadCommandExecutor(
       MeterRegistry meterRegistry, RegularBlockingRequestSettings settings) {
-    this(meterRegistry, settings, FeatureFlags.getDefault(), DynamicFeatureFlagRegistry.empty());
+    this(
+        meterRegistry,
+        settings,
+        FeatureFlags.getDefault(),
+        DynamicFeatureFlagRegistry.empty(),
+        Optional.empty());
   }
 
   public BulkheadCommandExecutor(
       MeterRegistry meterRegistry,
       RegularBlockingRequestSettings settings,
       FeatureFlags featureFlags) {
-    this(meterRegistry, settings, featureFlags, DynamicFeatureFlagRegistry.empty());
+    this(
+        meterRegistry,
+        settings,
+        featureFlags,
+        DynamicFeatureFlagRegistry.empty(),
+        Optional.empty());
   }
 
   /**
@@ -77,12 +88,14 @@ public class BulkheadCommandExecutor implements Closeable {
    * @param featureFlags gates optional metrics (e.g. per-pool allocation/CPU attribution)
    * @param dynamicFeatureFlagRegistry gates {@link
    *     DynamicFeatureFlags#CRASH_ON_THREAD_CREATION_OOM}
+   * @param threadPoolResourceBindings process-wide bindings, empty when attribution is unavailable
    */
   public BulkheadCommandExecutor(
       MeterRegistry meterRegistry,
       RegularBlockingRequestSettings settings,
       FeatureFlags featureFlags,
-      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
+      Optional<ThreadPoolResourceMetrics.Bindings> threadPoolResourceBindings) {
     this.dynamicFeatureFlagRegistry = dynamicFeatureFlagRegistry;
     int numCpus = Runtime.INSTANCE.getNumCpus();
     int poolSize = settings.resolvedPoolSize(numCpus);
@@ -153,9 +166,12 @@ public class BulkheadCommandExecutor implements Closeable {
 
     // Per-pool heap allocation + CPU attribution.
     if (featureFlags.isEnabled(Feature.QUERY_MEMORY_ATTRIBUTION_METRICS)) {
-      ThreadPoolResourceMetrics resourceMetrics = ThreadPoolResourceMetrics.create("query");
-      resourceMetrics.register(this.regularBlockingCommandExecutor, meterRegistry);
-      resourceMetrics.register(this.guaranteedBlockingCommandExecutor, meterRegistry);
+      threadPoolResourceBindings.ifPresent(
+          bindings -> {
+            var resourceMetrics = bindings.forSubsystem("query");
+            resourceMetrics.register(this.regularBlockingCommandExecutor, meterRegistry);
+            resourceMetrics.register(this.guaranteedBlockingCommandExecutor, meterRegistry);
+          });
     }
   }
 

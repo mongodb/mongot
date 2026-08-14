@@ -295,6 +295,10 @@ public class MongoDbReplicationManager implements ReplicationManager {
     meterRegistry.gauge("replication.manager", 1);
     boolean enableLifecycleAttributionMetrics =
         featureFlags.isEnabled(Feature.LIFECYCLE_ATTRIBUTION_METRICS);
+    Optional<ThreadPoolResourceMetrics.Bindings> attributionBindings =
+        enableLifecycleAttributionMetrics
+            ? Optional.of(meterAndFtdcRegistry.threadPoolResourceBindings())
+            : Optional.empty();
     boolean enableChangeStreamPriorityScheduling =
         featureFlags.isEnabled(Feature.CHANGE_STREAM_PRIORITY_SCHEDULING);
     boolean enableChangeStreamActivityObserver =
@@ -303,9 +307,9 @@ public class MongoDbReplicationManager implements ReplicationManager {
     var lifecycleExecutor =
         Executors.fixedSizeThreadPool(
             "indexing-lifecycle", Math.max(1, Runtime.INSTANCE.getNumCpus() / 4), meterRegistry);
-    if (enableLifecycleAttributionMetrics) {
-      ThreadPoolResourceMetrics.create("replication").register(lifecycleExecutor, meterRegistry);
-    }
+    attributionBindings.ifPresent(
+        bindings ->
+            bindings.forSubsystem("replication").register(lifecycleExecutor, meterRegistry));
 
     var indexingWorkSchedulerFactory =
         embeddingServiceManagerSupplier
@@ -315,27 +319,24 @@ public class MongoDbReplicationManager implements ReplicationManager {
                         replicationConfig.numIndexingThreads,
                         supplier,
                         meterRegistry,
-                        enableLifecycleAttributionMetrics))
+                        attributionBindings))
             .orElseGet(
                 () ->
                     IndexingWorkSchedulerFactory.createWithoutEmbeddingStrategy(
-                        replicationConfig.numIndexingThreads,
-                        meterRegistry,
-                        enableLifecycleAttributionMetrics));
+                        replicationConfig.numIndexingThreads, meterRegistry, attributionBindings));
 
     var decodingWorkScheduler =
         DecodingWorkScheduler.create(
             replicationConfig.numChangeStreamDecodingThreads,
             CommonReplicationConfig.Type.DEFAULT,
             meterRegistry,
-            enableLifecycleAttributionMetrics);
+            attributionBindings);
 
     var sessionRefreshExecutor =
         Executors.singleThreadScheduledExecutor("session-refresh", meterRegistry);
-    if (enableLifecycleAttributionMetrics) {
-      ThreadPoolResourceMetrics.create("replication")
-          .register(sessionRefreshExecutor, meterRegistry);
-    }
+    attributionBindings.ifPresent(
+        bindings ->
+            bindings.forSubsystem("replication").register(sessionRefreshExecutor, meterRegistry));
 
     // There should only be one sync source host
     var syncSourceHost = getSyncSourceHost(syncSourceConfig.get());
@@ -420,9 +421,8 @@ public class MongoDbReplicationManager implements ReplicationManager {
     var commitExecutor =
         Executors.fixedSizeThreadScheduledExecutor(
             "index-commit", durabilityConfig.numCommittingThreads, meterRegistry);
-    if (enableLifecycleAttributionMetrics) {
-      ThreadPoolResourceMetrics.create("replication").register(commitExecutor, meterRegistry);
-    }
+    attributionBindings.ifPresent(
+        bindings -> bindings.forSubsystem("replication").register(commitExecutor, meterRegistry));
 
     var replicationOptimeMetricUpdater =
         ReplicationOptimeUpdater.create(
@@ -431,7 +431,7 @@ public class MongoDbReplicationManager implements ReplicationManager {
             syncSourceConfig,
             replicationOptimeUpdaterInterval,
             meterRegistry,
-            enableLifecycleAttributionMetrics);
+            attributionBindings);
 
     return MongoDbReplicationManager.create(
         lifecycleExecutor,

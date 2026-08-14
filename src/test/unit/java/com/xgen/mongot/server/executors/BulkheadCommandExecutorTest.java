@@ -9,6 +9,7 @@ import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
+import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import com.xgen.mongot.server.command.Command;
 import com.xgen.mongot.util.Crash;
 import io.micrometer.core.instrument.Counter;
@@ -686,7 +687,8 @@ public class BulkheadCommandExecutorTest {
               new SimpleMeterRegistry(),
               RegularBlockingRequestSettings.defaults(),
               FeatureFlags.getDefault(),
-              DynamicFeatureFlagRegistry.empty())) {
+              DynamicFeatureFlagRegistry.empty(),
+              Optional.empty())) {
         Supplier<CompletableFuture<BsonDocument>> throwingSubmission =
             () -> {
               throw new OutOfMemoryError("unable to create native thread");
@@ -730,7 +732,8 @@ public class BulkheadCommandExecutorTest {
               new SimpleMeterRegistry(),
               RegularBlockingRequestSettings.defaults(),
               FeatureFlags.getDefault(),
-              registryWithFlagEnabled)) {
+              registryWithFlagEnabled,
+              Optional.empty())) {
         OutOfMemoryError heapOom = new OutOfMemoryError("Java heap space");
         Supplier<CompletableFuture<BsonDocument>> throwingSubmission =
             () -> {
@@ -783,7 +786,8 @@ public class BulkheadCommandExecutorTest {
               new SimpleMeterRegistry(),
               RegularBlockingRequestSettings.defaults(),
               FeatureFlags.getDefault(),
-              registryWithFlagEnabled)) {
+              registryWithFlagEnabled,
+              Optional.empty())) {
         Supplier<CompletableFuture<BsonDocument>> throwingSubmission =
             () -> {
               throw new OutOfMemoryError("unable to create native thread");
@@ -820,7 +824,12 @@ public class BulkheadCommandExecutorTest {
     FeatureFlags on =
         FeatureFlags.withDefaults().enable(Feature.QUERY_MEMORY_ATTRIBUTION_METRICS).build();
     try (BulkheadCommandExecutor exec =
-        new BulkheadCommandExecutor(meterRegistry, RegularBlockingRequestSettings.defaults(), on)) {
+        new BulkheadCommandExecutor(
+            meterRegistry,
+            RegularBlockingRequestSettings.defaults(),
+            on,
+            DynamicFeatureFlagRegistry.empty(),
+            Optional.of(new ThreadPoolResourceMetrics.Bindings()))) {
       FunctionCounter regular =
           meterRegistry
               .find("executor.thread.allocatedBytes")

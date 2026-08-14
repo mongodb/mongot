@@ -92,7 +92,11 @@ public class DecodingWorkScheduler extends Thread {
   }
 
   public static DecodingWorkScheduler create(int numDecodingThreads, MeterRegistry registry) {
-    return create(numDecodingThreads, DEFAULT, registry, true);
+    return create(
+        numDecodingThreads,
+        DEFAULT,
+        registry,
+        Optional.of(new ThreadPoolResourceMetrics.Bindings()));
   }
 
   /**
@@ -105,14 +109,13 @@ public class DecodingWorkScheduler extends Thread {
       int numDecodingThreads,
       CommonReplicationConfig.Type type,
       MeterRegistry registry,
-      boolean enableLifecycleAttributionMetrics) {
+      Optional<ThreadPoolResourceMetrics.Bindings> attributionBindings) {
     var executor =
         Executors.fixedSizeThreadPool(
             type.metricsNamespacePrefix + "decoding", numDecodingThreads, registry);
-    if (enableLifecycleAttributionMetrics) {
-      ThreadPoolResourceMetrics.create(type.resourceAttributionSubsystem)
-          .register(executor, registry);
-    }
+    attributionBindings.ifPresent(
+        bindings ->
+            bindings.forSubsystem(type.resourceAttributionSubsystem).register(executor, registry));
     var scheduler =
         new DecodingWorkScheduler(
             numDecodingThreads,

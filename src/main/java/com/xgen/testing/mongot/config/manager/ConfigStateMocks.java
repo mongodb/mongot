@@ -49,6 +49,7 @@ import com.xgen.mongot.lifecycle.DefaultLifecycleManager;
 import com.xgen.mongot.lifecycle.LifecycleConfig;
 import com.xgen.mongot.lifecycle.LifecycleManager;
 import com.xgen.mongot.metrics.MetricsFactory;
+import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import com.xgen.mongot.monitor.Gate;
 import com.xgen.mongot.monitor.ToggleGate;
 import com.xgen.mongot.replication.ReplicationManager;
@@ -285,7 +286,8 @@ public class ConfigStateMocks {
                 new SimpleMeterRegistry(),
                 replicationGate,
                 DEFAULT_LIFECYCLE_CONFIG,
-                false));
+                false,
+                new ThreadPoolResourceMetrics.Bindings()));
 
     return new ConfigStateMocks(
         indexCatalog,

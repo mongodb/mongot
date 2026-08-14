@@ -55,6 +55,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/index/lucene/config",
         "//src/main/java/com/xgen/mongot/index/status",
         "//src/main/java/com/xgen/mongot/index/version",
+        "//src/main/java/com/xgen/mongot/metrics",
         "//src/main/java/com/xgen/mongot/replication/mongodb/common",
         "//src/main/java/com/xgen/mongot/server",
         "//src/main/java/com/xgen/mongot/server/executors",

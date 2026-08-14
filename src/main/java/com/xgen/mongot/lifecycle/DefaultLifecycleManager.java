@@ -145,7 +145,8 @@ public class DefaultLifecycleManager implements LifecycleManager {
       MeterRegistry meterRegistry,
       Gate replicationGate,
       LifecycleConfig lifecycleConfig,
-      boolean enableInitAttributionMetrics) {
+      boolean enableInitAttributionMetrics,
+      ThreadPoolResourceMetrics.Bindings threadPoolResourceBindings) {
     this(
         replicationManagerFactory,
         syncSourceConfig,
@@ -157,7 +158,8 @@ public class DefaultLifecycleManager implements LifecycleManager {
         replicationGate,
         ToggleGate.opened(),
         lifecycleConfig,
-        enableInitAttributionMetrics);
+        enableInitAttributionMetrics,
+        threadPoolResourceBindings);
   }
 
   public DefaultLifecycleManager(
@@ -170,7 +172,8 @@ public class DefaultLifecycleManager implements LifecycleManager {
       MeterRegistry meterRegistry,
       ReplicationStateMonitor replicationStateMonitor,
       LifecycleConfig lifecycleConfig,
-      boolean enableInitAttributionMetrics) {
+      boolean enableInitAttributionMetrics,
+      ThreadPoolResourceMetrics.Bindings threadPoolResourceBindings) {
     this(
         replicationManagerFactory,
         syncSourceConfig,
@@ -182,7 +185,8 @@ public class DefaultLifecycleManager implements LifecycleManager {
         replicationStateMonitor.getReplicationGate(),
         replicationStateMonitor.getAutoEmbeddingReplicationGate(),
         lifecycleConfig,
-        enableInitAttributionMetrics);
+        enableInitAttributionMetrics,
+        threadPoolResourceBindings);
   }
 
   private DefaultLifecycleManager(
@@ -196,7 +200,8 @@ public class DefaultLifecycleManager implements LifecycleManager {
       Gate replicationGate,
       Gate autoEmbeddingReplicationGate,
       LifecycleConfig lifecycleConfig,
-      boolean enableInitAttributionMetrics) {
+      boolean enableInitAttributionMetrics,
+      ThreadPoolResourceMetrics.Bindings threadPoolResourceBindings) {
     this(
         replicationManagerFactory,
         syncSourceConfig,
@@ -214,7 +219,8 @@ public class DefaultLifecycleManager implements LifecycleManager {
         Executors.fixedSizeThreadPool(
             "index-lifecycle", Math.max(1, Runtime.INSTANCE.getNumCpus() / 4), meterRegistry),
         Executors.fixedSizeThreadPool("blobstore-lifecycle", 1, meterRegistry),
-        enableInitAttributionMetrics);
+        enableInitAttributionMetrics,
+        threadPoolResourceBindings);
   }
 
   @VisibleForTesting
@@ -230,7 +236,8 @@ public class DefaultLifecycleManager implements LifecycleManager {
       NamedExecutorService initExecutor,
       NamedExecutorService lifecycleExecutor,
       NamedExecutorService blobstoreExecutor,
-      boolean enableInitAttributionMetrics) {
+      boolean enableInitAttributionMetrics,
+      ThreadPoolResourceMetrics.Bindings threadPoolResourceBindings) {
     this(
         replicationManagerFactory,
         syncSourceConfig,
@@ -244,7 +251,8 @@ public class DefaultLifecycleManager implements LifecycleManager {
         initExecutor,
         lifecycleExecutor,
         blobstoreExecutor,
-        enableInitAttributionMetrics);
+        enableInitAttributionMetrics,
+        threadPoolResourceBindings);
   }
 
   @VisibleForTesting
@@ -261,7 +269,8 @@ public class DefaultLifecycleManager implements LifecycleManager {
       NamedExecutorService initExecutor,
       NamedExecutorService lifecycleExecutor,
       NamedExecutorService blobstoreExecutor,
-      boolean enableInitAttributionMetrics) {
+      boolean enableInitAttributionMetrics,
+      ThreadPoolResourceMetrics.Bindings threadPoolResourceBindings) {
     this.initExecutor = initExecutor;
     this.lifecycleExecutor = lifecycleExecutor;
     this.blobstoreExecutor = blobstoreExecutor;
@@ -294,7 +303,7 @@ public class DefaultLifecycleManager implements LifecycleManager {
         new MetricsFactory("readiness", meterRegistry).numGauge("lifecycleInitialized");
     this.lifecycleInitialized.set(0);
     if (enableInitAttributionMetrics) {
-      ThreadPoolResourceMetrics.create("init").register(initExecutor, meterRegistry);
+      threadPoolResourceBindings.forSubsystem("init").register(initExecutor, meterRegistry);
     }
   }
 

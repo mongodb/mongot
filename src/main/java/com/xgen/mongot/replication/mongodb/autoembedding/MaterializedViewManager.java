@@ -482,15 +482,19 @@ public class MaterializedViewManager implements ReplicationManager {
     meterRegistry.gauge("materializedView.replication.manager", 1);
     boolean enableLifecycleAttributionMetrics =
         featureFlags.isEnabled(Feature.LIFECYCLE_ATTRIBUTION_METRICS);
+    Optional<ThreadPoolResourceMetrics.Bindings> attributionBindings =
+        enableLifecycleAttributionMetrics
+            ? Optional.of(meterAndFtdcRegistry.threadPoolResourceBindings())
+            : Optional.empty();
 
     var lifecycleExecutor =
         Executors.fixedSizeThreadPool(
             "materialized-view-lifecycle",
             Math.max(1, Runtime.INSTANCE.getNumCpus() / 4),
             meterRegistry);
-    if (enableLifecycleAttributionMetrics) {
-      ThreadPoolResourceMetrics.create("autoembedding").register(lifecycleExecutor, meterRegistry);
-    }
+    attributionBindings.ifPresent(
+        bindings ->
+            bindings.forSubsystem("autoembedding").register(lifecycleExecutor, meterRegistry));
 
     // Constructed here, not in the factory, so the drop path below can release claims on the same
     // instance the scheduler caches into. The cache is always created, but the scheduler only
@@ -520,7 +524,7 @@ public class MaterializedViewManager implements ReplicationManager {
             meterRegistry,
             materializedViewConfig.globalMemoryBudgetHeapPercent,
             materializedViewConfig.perBatchMemoryBudgetHeapPercent,
-            enableLifecycleAttributionMetrics,
+            attributionBindings,
             embeddingRetryCache,
             embeddingRetryCacheEnabled,
             skipInvalidRequestEnabledForIndex);
@@ -530,7 +534,7 @@ public class MaterializedViewManager implements ReplicationManager {
             materializedViewConfig.numChangeStreamDecodingThreads,
             AUTO_EMBEDDING,
             meterRegistry,
-            enableLifecycleAttributionMetrics);
+            attributionBindings);
 
     var materializedViewGeneratorFactory =
         new MaterializedViewGeneratorFactory(

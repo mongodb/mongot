@@ -3,6 +3,7 @@ package com.xgen.mongot.server.executors;
 import com.google.common.collect.HashBasedTable;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
+import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import com.xgen.mongot.server.util.NettyUtil;
 import com.xgen.mongot.util.CheckedStream;
 import com.xgen.mongot.util.Crash;
@@ -10,6 +11,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.netty.channel.EventLoopGroup;
 import java.io.Closeable;
 import java.util.Collection;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,7 +39,8 @@ public class ExecutorManager implements Closeable {
         meterRegistry,
         RegularBlockingRequestSettings.defaults(),
         FeatureFlags.getDefault(),
-        DynamicFeatureFlagRegistry.empty());
+        DynamicFeatureFlagRegistry.empty(),
+        Optional.empty());
   }
 
   public ExecutorManager(
@@ -46,7 +49,8 @@ public class ExecutorManager implements Closeable {
         meterRegistry,
         regularBlockingRequestSettings,
         FeatureFlags.getDefault(),
-        DynamicFeatureFlagRegistry.empty());
+        DynamicFeatureFlagRegistry.empty(),
+        Optional.empty());
   }
 
   public ExecutorManager(
@@ -57,20 +61,23 @@ public class ExecutorManager implements Closeable {
         meterRegistry,
         regularBlockingRequestSettings,
         featureFlags,
-        DynamicFeatureFlagRegistry.empty());
+        DynamicFeatureFlagRegistry.empty(),
+        Optional.empty());
   }
 
   public ExecutorManager(
       MeterRegistry meterRegistry,
       RegularBlockingRequestSettings regularBlockingRequestSettings,
       FeatureFlags featureFlags,
-      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
+      Optional<ThreadPoolResourceMetrics.Bindings> threadPoolResourceBindings) {
     this.commandExecutor =
         new BulkheadCommandExecutor(
             meterRegistry,
             regularBlockingRequestSettings,
             featureFlags,
-            dynamicFeatureFlagRegistry);
+            dynamicFeatureFlagRegistry,
+            threadPoolResourceBindings);
     this.eventLoopGroups = HashBasedTable.create();
   }
 

@@ -96,7 +96,7 @@ public class ReplicationOptimeUpdater implements AutoCloseable {
       Optional<SyncSourceConfig> syncSource,
       Duration updateInterval,
       MeterRegistry meterRegistry,
-      boolean enableLifecycleAttributionMetrics) {
+      Optional<ThreadPoolResourceMetrics.Bindings> attributionBindings) {
     // mongodSingleHostReplicationUri may be absent when this updater is created alongside a
     // NoOpReplicationManager (i.e. no healthy sync-source host has been selected yet).
     Optional<MongoClient> mongoClient =
@@ -108,9 +108,8 @@ public class ReplicationOptimeUpdater implements AutoCloseable {
                             uri, "periodic optime fetcher", meterRegistry)));
     var executor =
         Executors.singleThreadScheduledExecutor("replicationOptimeUpdater", meterRegistry);
-    if (enableLifecycleAttributionMetrics) {
-      ThreadPoolResourceMetrics.create("replication").register(executor, meterRegistry);
-    }
+    attributionBindings.ifPresent(
+        bindings -> bindings.forSubsystem("replication").register(executor, meterRegistry));
     return new ReplicationOptimeUpdater(
         indexCatalog,
         initializedIndexCatalog,

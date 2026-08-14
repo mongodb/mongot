@@ -18,6 +18,7 @@ import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.metrics.ServerStatusDataExtractor;
+import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.Enums;
 import com.xgen.mongot.util.concurrent.Executors;
@@ -613,7 +614,11 @@ public class DecodingWorkSchedulerTest {
   @Test
   public void create_autoEmbeddingType_tagsCounterUnderAutoEmbeddingSubsystem() {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
-    DecodingWorkScheduler.create(2, CommonReplicationConfig.Type.AUTO_EMBEDDING, registry, true);
+    DecodingWorkScheduler.create(
+        2,
+        CommonReplicationConfig.Type.AUTO_EMBEDDING,
+        registry,
+        Optional.of(new ThreadPoolResourceMetrics.Bindings()));
 
     assertThat(
             registry
@@ -634,7 +639,8 @@ public class DecodingWorkSchedulerTest {
   @Test
   public void create_lifecycleAttributionDisabled_doesNotRegisterResourceMetrics() {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
-    DecodingWorkScheduler.create(2, CommonReplicationConfig.Type.DEFAULT, registry, false);
+    DecodingWorkScheduler.create(
+        2, CommonReplicationConfig.Type.DEFAULT, registry, Optional.empty());
 
     assertThat(
             registry
@@ -649,7 +655,11 @@ public class DecodingWorkSchedulerTest {
       throws Exception {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     DecodingWorkScheduler scheduler =
-        DecodingWorkScheduler.create(2, CommonReplicationConfig.Type.DEFAULT, registry, true);
+        DecodingWorkScheduler.create(
+            2,
+            CommonReplicationConfig.Type.DEFAULT,
+            registry,
+            Optional.of(new ThreadPoolResourceMetrics.Bindings()));
 
     FunctionCounter allocated =
         registry

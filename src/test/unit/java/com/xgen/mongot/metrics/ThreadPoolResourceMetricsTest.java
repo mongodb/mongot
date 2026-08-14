@@ -22,11 +22,15 @@ public class ThreadPoolResourceMetricsTest {
   private static final String ALLOCATED_BYTES = "executor.thread.allocatedBytes";
   private static final String CPU_TIME = "executor.thread.cpuTime";
 
+  // Fresh per test method, so bindings never leak between tests the way a static map would.
+  private final ThreadPoolResourceMetrics.Bindings bindings =
+      new ThreadPoolResourceMetrics.Bindings();
+
   @Test
   public void register_addsBothCountersTaggedWithSubsystemAndPoolName() {
     var registry = new SimpleMeterRegistry();
     try (NamedExecutorService executor = Executors.fixedSizeThreadPool(POOL_NAME, 1, registry)) {
-      ThreadPoolResourceMetrics.create(SUBSYSTEM).register(executor, registry);
+      this.bindings.forSubsystem(SUBSYSTEM).register(executor, registry);
 
       FunctionCounter allocated =
           registry
@@ -61,7 +65,7 @@ public class ThreadPoolResourceMetricsTest {
       liveIds.register(fakeDeadId);
       assertThat(liveIds.contains(fakeDeadId)).isTrue();
 
-      ThreadPoolResourceMetrics.create(SUBSYSTEM).register(executor, registry);
+      this.bindings.forSubsystem(SUBSYSTEM).register(executor, registry);
       // Trigger a counter scrape (the path Prometheus follows) which sums + prunes.
       registry
           .find(ALLOCATED_BYTES)
@@ -87,7 +91,7 @@ public class ThreadPoolResourceMetricsTest {
       liveIds.register(fakeDeadId);
       assertThat(liveIds.contains(fakeDeadId)).isTrue();
 
-      ThreadPoolResourceMetrics.create(SUBSYSTEM).register(executor, registry);
+      this.bindings.forSubsystem(SUBSYSTEM).register(executor, registry);
       registry
           .find(CPU_TIME)
           .tag("subsystem", SUBSYSTEM)
@@ -104,8 +108,8 @@ public class ThreadPoolResourceMetricsTest {
     var registry = new SimpleMeterRegistry();
     try (NamedExecutorService poolA = Executors.fixedSizeThreadPool(POOL_NAME, 1, registry);
         NamedExecutorService poolB = Executors.fixedSizeThreadPool(POOL_NAME + "-b", 1, registry)) {
-      ThreadPoolResourceMetrics.create("query").register(poolA, registry);
-      ThreadPoolResourceMetrics.create("replication").register(poolB, registry);
+      this.bindings.forSubsystem("query").register(poolA, registry);
+      this.bindings.forSubsystem("replication").register(poolB, registry);
 
       assertThat(registry.find(ALLOCATED_BYTES).tag("subsystem", "query").functionCounter())
           .isNotNull();
@@ -115,10 +119,107 @@ public class ThreadPoolResourceMetricsTest {
   }
 
   @Test
+  public void register_sameMeterId_rebindsCountersToReplacementPool() {
+    var registry = new SimpleMeterRegistry();
+    var originalLiveIds = new LiveThreadIdsRegistry();
+    this.bindings.forSubsystem(SUBSYSTEM).register(POOL_NAME, originalLiveIds, registry);
+    FunctionCounter originalAllocated =
+        registry
+            .find(ALLOCATED_BYTES)
+            .tag("subsystem", SUBSYSTEM)
+            .tag("name", POOL_NAME)
+            .functionCounter();
+    FunctionCounter originalCpu =
+        registry
+            .find(CPU_TIME)
+            .tag("subsystem", SUBSYSTEM)
+            .tag("name", POOL_NAME)
+            .functionCounter();
+    assertThat(originalAllocated).isNotNull();
+    assertThat(originalCpu).isNotNull();
+
+    var replacementLiveIds = new LiveThreadIdsRegistry();
+    this.bindings.forSubsystem(SUBSYSTEM).register(POOL_NAME, replacementLiveIds, registry);
+
+    FunctionCounter reboundAllocated =
+        registry
+            .find(ALLOCATED_BYTES)
+            .tag("subsystem", SUBSYSTEM)
+            .tag("name", POOL_NAME)
+            .functionCounter();
+    FunctionCounter reboundCpu =
+        registry
+            .find(CPU_TIME)
+            .tag("subsystem", SUBSYSTEM)
+            .tag("name", POOL_NAME)
+            .functionCounter();
+    assertThat(reboundAllocated).isSameInstanceAs(originalAllocated);
+    assertThat(reboundCpu).isSameInstanceAs(originalCpu);
+
+    long fakeCpuThreadId = Long.MAX_VALUE - 1;
+    replacementLiveIds.register(fakeCpuThreadId);
+    reboundCpu.count();
+    assertThat(replacementLiveIds.contains(fakeCpuThreadId)).isFalse();
+
+    long fakeAllocatedThreadId = Long.MAX_VALUE - 2;
+    replacementLiveIds.register(fakeAllocatedThreadId);
+    reboundAllocated.count();
+    assertThat(replacementLiveIds.contains(fakeAllocatedThreadId)).isFalse();
+  }
+
+  @Test
+  public void register_sameMeterId_preservesTotalAcrossPoolReplacement() throws Exception {
+    var registry = new SimpleMeterRegistry();
+    var originalLiveIds = new LiveThreadIdsRegistry();
+    var originalStarted = new CountDownLatch(1);
+    var allowOriginalExit = new CountDownLatch(1);
+    Thread originalThread = allocatingThread(originalStarted, allowOriginalExit, 1024 * 1024);
+    originalThread.start();
+    originalStarted.await(1, TimeUnit.MINUTES);
+    originalLiveIds.register(originalThread.threadId());
+
+    this.bindings.forSubsystem(SUBSYSTEM).register(POOL_NAME, originalLiveIds, registry);
+    FunctionCounter allocated =
+        registry
+            .find(ALLOCATED_BYTES)
+            .tag("subsystem", SUBSYSTEM)
+            .tag("name", POOL_NAME)
+            .functionCounter();
+    assertThat(allocated).isNotNull();
+    double beforeReplacement = allocated.count();
+
+    allowOriginalExit.countDown();
+    originalThread.join(TimeUnit.MINUTES.toMillis(1));
+    waitUntilThreadIsDead(originalThread.threadId());
+
+    var replacementLiveIds = new LiveThreadIdsRegistry();
+    var replacementStarted = new CountDownLatch(1);
+    var allowReplacementExit = new CountDownLatch(1);
+    Thread replacementThread =
+        allocatingThread(replacementStarted, allowReplacementExit, 2 * 1024 * 1024);
+    replacementThread.start();
+    replacementStarted.await(1, TimeUnit.MINUTES);
+    replacementLiveIds.register(replacementThread.threadId());
+
+    try {
+      this.bindings.forSubsystem(SUBSYSTEM).register(POOL_NAME, replacementLiveIds, registry);
+      double afterReplacement = allocated.count();
+
+      if (beforeReplacement != 0.0 || afterReplacement != 0.0) {
+        assertThat(afterReplacement).isAtLeast(beforeReplacement);
+        assertThat(afterReplacement).isGreaterThan(beforeReplacement);
+      }
+    } finally {
+      allowReplacementExit.countDown();
+      replacementThread.join(TimeUnit.MINUTES.toMillis(1));
+    }
+  }
+
+  @Test
   public void allocatedBytes_increasesAfterPoolAllocates() throws Exception {
     var registry = new SimpleMeterRegistry();
     try (NamedExecutorService executor = Executors.fixedSizeThreadPool(POOL_NAME, 2, registry)) {
-      ThreadPoolResourceMetrics.create(SUBSYSTEM).register(executor, registry);
+      this.bindings.forSubsystem(SUBSYSTEM).register(executor, registry);
       FunctionCounter allocated =
           registry
               .find(ALLOCATED_BYTES)
@@ -157,7 +258,7 @@ public class ThreadPoolResourceMetricsTest {
   public void register_withRegistry_emitsCountersTaggedWithSubsystemAndName() {
     var registry = new SimpleMeterRegistry();
     LiveThreadIdsRegistry liveIds = new LiveThreadIdsRegistry();
-    ThreadPoolResourceMetrics.create("merge").register("lucene-merge", liveIds, registry);
+    this.bindings.forSubsystem("merge").register("lucene-merge", liveIds, registry);
 
     assertThat(
             registry
@@ -179,7 +280,7 @@ public class ThreadPoolResourceMetricsTest {
   public void register_withRegistry_summingZeroIdsReportsZero() {
     var registry = new SimpleMeterRegistry();
     LiveThreadIdsRegistry liveIds = new LiveThreadIdsRegistry();
-    ThreadPoolResourceMetrics.create("merge").register("lucene-merge", liveIds, registry);
+    this.bindings.forSubsystem("merge").register("lucene-merge", liveIds, registry);
 
     FunctionCounter alloc =
         registry
@@ -199,7 +300,7 @@ public class ThreadPoolResourceMetricsTest {
     long fakeDeadId = Long.MAX_VALUE - 1;
     liveIds.register(fakeDeadId);
 
-    ThreadPoolResourceMetrics.create("merge").register("lucene-merge", liveIds, registry);
+    this.bindings.forSubsystem("merge").register("lucene-merge", liveIds, registry);
 
     FunctionCounter alloc =
         registry
@@ -240,7 +341,7 @@ public class ThreadPoolResourceMetricsTest {
     long tid = worker.getId();
     liveIds.register(tid);
 
-    ThreadPoolResourceMetrics.create(SUBSYSTEM).register(POOL_NAME, liveIds, registry);
+    this.bindings.forSubsystem(SUBSYSTEM).register(POOL_NAME, liveIds, registry);
     FunctionCounter alloc =
         registry
             .find(ALLOCATED_BYTES)
@@ -279,7 +380,7 @@ public class ThreadPoolResourceMetricsTest {
   public void cpuTime_increasesAfterPoolBurnsCpu() throws Exception {
     var registry = new SimpleMeterRegistry();
     try (NamedExecutorService executor = Executors.fixedSizeThreadPool(POOL_NAME, 1, registry)) {
-      ThreadPoolResourceMetrics.create(SUBSYSTEM).register(executor, registry);
+      this.bindings.forSubsystem(SUBSYSTEM).register(executor, registry);
       FunctionCounter cpuTime =
           registry
               .find(CPU_TIME)
@@ -301,5 +402,31 @@ public class ThreadPoolResourceMetricsTest {
         assertThat(after).isGreaterThan(before);
       }
     }
+  }
+
+  private static Thread allocatingThread(
+      CountDownLatch started, CountDownLatch allowExit, int bytes) {
+    return new Thread(
+        () -> {
+          byte[] allocation = new byte[bytes];
+          allocation[0] = 1;
+          started.countDown();
+          try {
+            allowExit.await(1, TimeUnit.MINUTES);
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+          }
+        });
+  }
+
+  private static void waitUntilThreadIsDead(long threadId) throws InterruptedException {
+    var bean = (ThreadMXBean) ManagementFactory.getThreadMXBean();
+    long deadline = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(1);
+    while (bean.getThreadAllocatedBytes(threadId) >= 0 && System.currentTimeMillis() < deadline) {
+      Thread.sleep(50);
+    }
+    assertWithMessage("JVM did not report thread death within deadline")
+        .that(bean.getThreadAllocatedBytes(threadId))
+        .isLessThan(0L);
   }
 }

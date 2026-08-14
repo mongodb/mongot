@@ -14,6 +14,7 @@ import com.xgen.mongot.util.Runtime;
 import com.xgen.mongot.util.concurrent.Executors;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import org.bson.types.ObjectId;
@@ -41,6 +42,20 @@ public class IndexingWorkSchedulerFactory {
     return this.indexingWorkSchedulers;
   }
 
+  public static IndexingWorkSchedulerFactory create(
+      int numIndexingThreads,
+      Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
+      MeterRegistry registry,
+      boolean enableLifecycleAttributionMetrics) {
+    return create(
+        numIndexingThreads,
+        embeddingServiceManagerSupplier,
+        registry,
+        enableLifecycleAttributionMetrics
+            ? Optional.of(new ThreadPoolResourceMetrics.Bindings())
+            : Optional.empty());
+  }
+
   /**
    * Creates a new IndexingWorkSchedulerFactory with a work scheduler for each supported strategy,
    * including the EMBEDDING strategy.
@@ -51,14 +66,13 @@ public class IndexingWorkSchedulerFactory {
       int numIndexingThreads,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
       MeterRegistry registry,
-      boolean enableLifecycleAttributionMetrics) {
+      Optional<ThreadPoolResourceMetrics.Bindings> attributionBindings) {
     log.info(
         "Creating IndexingWorkSchedulerFactory with DEFAULT, CUSTOM_VECTOR_ENGINE and "
             + "EMBEDDING strategies");
     var executor = Executors.fixedSizeThreadPool("indexing-work", numIndexingThreads, registry);
-    if (enableLifecycleAttributionMetrics) {
-      ThreadPoolResourceMetrics.create("replication").register(executor, registry);
-    }
+    attributionBindings.ifPresent(
+        bindings -> bindings.forSubsystem("replication").register(executor, registry));
     DefaultIndexingWorkScheduler defaultIndexingWorkScheduler =
         DefaultIndexingWorkScheduler.create(executor);
     CustomVectorEngineIndexingWorkScheduler customVectorEngineIndexingWorkScheduler =
@@ -78,11 +92,22 @@ public class IndexingWorkSchedulerFactory {
    */
   public static IndexingWorkSchedulerFactory createWithoutEmbeddingStrategy(
       int numIndexingThreads, MeterRegistry registry, boolean enableLifecycleAttributionMetrics) {
+    return createWithoutEmbeddingStrategy(
+        numIndexingThreads,
+        registry,
+        enableLifecycleAttributionMetrics
+            ? Optional.of(new ThreadPoolResourceMetrics.Bindings())
+            : Optional.empty());
+  }
+
+  public static IndexingWorkSchedulerFactory createWithoutEmbeddingStrategy(
+      int numIndexingThreads,
+      MeterRegistry registry,
+      Optional<ThreadPoolResourceMetrics.Bindings> attributionBindings) {
     log.info("Creating IndexingWorkSchedulerFactory without EMBEDDING strategy");
     var executor = Executors.fixedSizeThreadPool("indexing", numIndexingThreads, registry);
-    if (enableLifecycleAttributionMetrics) {
-      ThreadPoolResourceMetrics.create("replication").register(executor, registry);
-    }
+    attributionBindings.ifPresent(
+        bindings -> bindings.forSubsystem("replication").register(executor, registry));
     DefaultIndexingWorkScheduler defaultIndexingWorkScheduler =
         DefaultIndexingWorkScheduler.create(executor);
     CustomVectorEngineIndexingWorkScheduler customVectorEngineIndexingWorkScheduler =
@@ -116,7 +141,7 @@ public class IndexingWorkSchedulerFactory {
         registry,
         globalMemoryBudgetHeapPercent,
         perBatchMemoryBudgetHeapPercent,
-        true,
+        Optional.of(new ThreadPoolResourceMetrics.Bindings()),
         EmbeddingRetryCache.noOp(),
         () -> false,
         id -> false);
@@ -138,16 +163,15 @@ public class IndexingWorkSchedulerFactory {
       MeterRegistry registry,
       int globalMemoryBudgetHeapPercent,
       int perBatchMemoryBudgetHeapPercent,
-      boolean enableLifecycleAttributionMetrics,
+      Optional<ThreadPoolResourceMetrics.Bindings> attributionBindings,
       EmbeddingRetryCache embeddingRetryCache,
       BooleanSupplier cacheEnabled,
       Predicate<ObjectId> skipInvalidRequestEnabledForIndex) {
     log.info("Creating IndexingWorkSchedulerFactory with EmbeddingIndexingWorkScheduler only");
     var executor =
         Executors.fixedSizeThreadPool("indexing-auto-embedding", numIndexingThreads, registry);
-    if (enableLifecycleAttributionMetrics) {
-      ThreadPoolResourceMetrics.create("autoembedding").register(executor, registry);
-    }
+    attributionBindings.ifPresent(
+        bindings -> bindings.forSubsystem("autoembedding").register(executor, registry));
     // A single global budget is shared across all embedding schedulers so that the limit is
     // enforced at the mongot level across all indexes.
     var globalBudget =

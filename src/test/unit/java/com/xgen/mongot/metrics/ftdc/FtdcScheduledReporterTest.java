@@ -17,6 +17,7 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import com.google.common.collect.MoreCollectors;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.metrics.MetricsFactory;
+import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.FunctionCounter;
@@ -48,7 +49,12 @@ public class FtdcScheduledReporterTest {
     CompositeMeterRegistry combinedRegistry = new CompositeMeterRegistry();
     combinedRegistry.add(registry);
     FtdcScheduledReporter.create(
-        registry, combinedRegistry, ftdc, false, FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT);
+        registry,
+        combinedRegistry,
+        ftdc,
+        false,
+        FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT,
+        new ThreadPoolResourceMetrics.Bindings());
     Thread.sleep(100);
     verifyNoMoreInteractions(ftdc);
   }
@@ -61,7 +67,12 @@ public class FtdcScheduledReporterTest {
     combinedRegistry.add(registry);
     var reporter =
         FtdcScheduledReporter.create(
-            registry, combinedRegistry, ftdc, false, FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT);
+            registry,
+            combinedRegistry,
+            ftdc,
+            false,
+            FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT,
+            new ThreadPoolResourceMetrics.Bindings());
     reporter.start(10, TimeUnit.MILLISECONDS);
     // we report every 10 ms, so we can report 10 times in under a second.
     verify(ftdc, timeout(1000).atLeast(10)).addSample(any(), anyLong());
@@ -495,7 +506,8 @@ public class FtdcScheduledReporterTest {
             combinedRegistry,
             ftdc,
             false,
-            FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT);
+            FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT,
+            new ThreadPoolResourceMetrics.Bindings());
 
     // Set up captor to capture all successful reports before starting
     ArgumentCaptor<BsonDocument> docCaptor = ArgumentCaptor.forClass(BsonDocument.class);
@@ -838,7 +850,8 @@ public class FtdcScheduledReporterTest {
             combinedRegistry,
             ftdc,
             false,
-            FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT);
+            FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT,
+            new ThreadPoolResourceMetrics.Bindings());
     ArgumentCaptor<BsonDocument> docCaptor = ArgumentCaptor.forClass(BsonDocument.class);
     String gaugeBeforeKey = getFormattedKey("gauge_before", Optional.empty());
     String gaugeMiddleKey = getFormattedKey("gauge_middle", Optional.empty());
@@ -933,7 +946,8 @@ public class FtdcScheduledReporterTest {
             combinedRegistry,
             ftdc,
             false,
-            FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT);
+            FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT,
+            new ThreadPoolResourceMetrics.Bindings());
     ArgumentCaptor<BsonDocument> docCaptor = ArgumentCaptor.forClass(BsonDocument.class);
     String gaugeBeforeKey = getFormattedKey("gauge_before", Optional.empty());
     String gaugeMiddleKey = getFormattedKey("gauge_middle", Optional.empty());
@@ -992,7 +1006,8 @@ public class FtdcScheduledReporterTest {
             combinedRegistry,
             ftdc,
             true,
-            FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT);
+            FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT,
+            new ThreadPoolResourceMetrics.Bindings());
     reporter.start(10, TimeUnit.MILLISECONDS);
 
     try {
@@ -1048,7 +1063,12 @@ public class FtdcScheduledReporterTest {
     combinedRegistry.add(registry);
     var reporter =
         FtdcScheduledReporter.create(
-            registry, combinedRegistry, ftdc, false, FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT);
+            registry,
+            combinedRegistry,
+            ftdc,
+            false,
+            FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT,
+            new ThreadPoolResourceMetrics.Bindings());
 
     FunctionCounter allocated =
         registry
@@ -1079,7 +1099,13 @@ public class FtdcScheduledReporterTest {
     CompositeMeterRegistry combinedRegistry = new CompositeMeterRegistry();
     combinedRegistry.add(reportingRegistry);
     var reporter =
-        FtdcScheduledReporter.create(reportingRegistry, combinedRegistry, ftdc, false, 1);
+        FtdcScheduledReporter.create(
+            reportingRegistry,
+            combinedRegistry,
+            ftdc,
+            false,
+            1,
+            new ThreadPoolResourceMetrics.Bindings());
     reporter.start(10, TimeUnit.MILLISECONDS);
 
     try {
@@ -1125,7 +1151,8 @@ public class FtdcScheduledReporterTest {
             combinedRegistry,
             ftdc,
             false,
-            FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT);
+            FtdcScheduledReporter.DEFAULT_MAX_METER_COUNT,
+            new ThreadPoolResourceMetrics.Bindings());
     reporter.start(10, TimeUnit.MILLISECONDS);
 
     try {

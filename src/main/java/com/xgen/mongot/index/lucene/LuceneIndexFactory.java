@@ -94,7 +94,11 @@ public class LuceneIndexFactory implements IndexFactory {
       var meterRegistry = meterAndFtdcRegistry.meterRegistry();
 
       var mergeScheduler =
-          getInstrumentedConcurrentMergeScheduler(config, featureFlags, meterRegistry);
+          getInstrumentedConcurrentMergeScheduler(
+              config,
+              featureFlags,
+              meterRegistry,
+              meterAndFtdcRegistry.threadPoolResourceBindings());
 
       Gate mergeGate = DiskUtilizationAwareMergePolicy.createMergeGate(config, diskMonitor);
       // Pass the merge gate to the scheduler for disk-based pause/resume support
@@ -140,7 +144,8 @@ public class LuceneIndexFactory implements IndexFactory {
               : Optional.empty();
 
       if (featureFlags.isEnabled(Feature.QUERY_MEMORY_ATTRIBUTION_METRICS)) {
-        ThreadPoolResourceMetrics resourceMetrics = ThreadPoolResourceMetrics.create("query");
+        ThreadPoolResourceMetrics resourceMetrics =
+            meterAndFtdcRegistry.threadPoolResourceBindings().forSubsystem("query");
         concurrentSearchExecutor.ifPresent(e -> resourceMetrics.register(e, meterRegistry));
         concurrentVectorRescoringExecutor.ifPresent(
             e -> resourceMetrics.register(e, meterRegistry));
@@ -164,7 +169,10 @@ public class LuceneIndexFactory implements IndexFactory {
     }
 
     private static InstrumentedConcurrentMergeScheduler getInstrumentedConcurrentMergeScheduler(
-        LuceneConfig config, FeatureFlags featureFlags, MeterRegistry meterRegistry) {
+        LuceneConfig config,
+        FeatureFlags featureFlags,
+        MeterRegistry meterRegistry,
+        ThreadPoolResourceMetrics.Bindings threadPoolResourceBindings) {
       long cancelMergeTimeout =
           config
               .cancelMergePerThreadTimeoutMs()
@@ -181,7 +189,9 @@ public class LuceneIndexFactory implements IndexFactory {
               meterRegistry,
               cancelMergeTimeout,
               cancelAllMergesTimeout,
-              featureFlags.isEnabled(Feature.MERGE_ATTRIBUTION_METRICS));
+              featureFlags.isEnabled(Feature.MERGE_ATTRIBUTION_METRICS)
+                  ? Optional.of(threadPoolResourceBindings)
+                  : Optional.empty());
       mergeScheduler.setMaxMergesAndThreads(config.numMaxMerges(), config.numMaxMergeThreads());
       return mergeScheduler;
     }

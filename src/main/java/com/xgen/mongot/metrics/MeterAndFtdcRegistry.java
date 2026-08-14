@@ -10,7 +10,10 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
  *
  * <p>This class is required to be thread-safe.
  */
-public record MeterAndFtdcRegistry(MeterRegistry meterRegistry, MeterRegistry ftdcRegistry) {
+public record MeterAndFtdcRegistry(
+    MeterRegistry meterRegistry,
+    MeterRegistry ftdcRegistry,
+    ThreadPoolResourceMetrics.Bindings threadPoolResourceBindings) {
 
   public static MeterAndFtdcRegistry createWithCompositeMeterRegistry() {
     return createWithMeterRegistry(new CompositeMeterRegistry());
@@ -26,7 +29,8 @@ public record MeterAndFtdcRegistry(MeterRegistry meterRegistry, MeterRegistry ft
 
   public static MeterAndFtdcRegistry create(
       MeterRegistry meterRegistry, MeterRegistry ftdcRegistry) {
-    return new MeterAndFtdcRegistry(meterRegistry, ftdcRegistry);
+    return new MeterAndFtdcRegistry(
+        meterRegistry, ftdcRegistry, new ThreadPoolResourceMetrics.Bindings());
   }
 
   public CompositeMeterRegistry getCompositeMeterRegistry() {

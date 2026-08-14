@@ -17,6 +17,7 @@ import com.xgen.mongot.config.provider.MongotConfigs;
 import com.xgen.mongot.config.provider.community.embedding.EmbeddingConfig;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelCatalog;
+import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import com.xgen.mongot.util.Crash;
 import com.xgen.mongot.util.mongodb.CheckedMongoException;
 import com.xgen.mongot.util.mongodb.Databases;
@@ -272,7 +273,8 @@ public class CommunityMongotBootstrapperTest {
                 TestUtils.getTempFolderPath().toString(),
                 Optional.of(new FtdcCommunityConfig(false, 100, 10, 1000))),
             MongotConfigs.getDefault(TestUtils.getTempFolderPath()),
-            "1.0.0");
+            "1.0.0",
+            new ThreadPoolResourceMetrics.Bindings());
     assertTrue(metricsLifecycles.isEmpty());
   }
 
@@ -297,7 +299,8 @@ public class CommunityMongotBootstrapperTest {
                   this.createMinimalConfigWithFtdc(
                       file.getPath(), Optional.of(new FtdcCommunityConfig(true, 100, 10, 1000))),
                   MongotConfigs.getDefault(Path.of(file.getPath())),
-                  "1.0.0"));
+                  "1.0.0",
+                  new ThreadPoolResourceMetrics.Bindings()));
     } finally {
       folder.delete();
     }
@@ -317,7 +320,8 @@ public class CommunityMongotBootstrapperTest {
               this.createMinimalConfigWithFtdc(
                   folderPath.toString(), Optional.of(new FtdcCommunityConfig(true, 100, 10, 100))),
               MongotConfigs.getDefault(folderPath),
-              "1.0.0");
+              "1.0.0",
+              new ThreadPoolResourceMetrics.Bindings());
       assertFalse(metricsLifecycles.isEmpty());
 
       metricsLifecycles.get().start().run();

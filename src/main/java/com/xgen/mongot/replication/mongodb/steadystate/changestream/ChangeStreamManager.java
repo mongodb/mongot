@@ -11,7 +11,6 @@ import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.MetricsFactory;
-import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamModeSelector;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamModeSelector.ChangeStreamMode;
@@ -136,8 +135,9 @@ public class ChangeStreamManager {
             new MetricsFactory("indexing.changeStreamModeSelector", meterRegistry));
 
     if (enableLifecycleAttributionMetrics) {
-      ThreadPoolResourceMetrics.create(
-              replicationConfig.getReplicationType().resourceAttributionSubsystem)
+      meterAndFtdcRegistry
+          .threadPoolResourceBindings()
+          .forSubsystem(replicationConfig.getReplicationType().resourceAttributionSubsystem)
           .register(modeSelectorExecutor, meterRegistry);
     }
 
@@ -349,8 +349,9 @@ public class ChangeStreamManager {
               schedulingMethod,
               replicationConfig.getSteadyStatePriorityRatio());
       if (enableLifecycleAttributionMetrics) {
-        ThreadPoolResourceMetrics.create(
-                replicationConfig.getReplicationType().resourceAttributionSubsystem)
+        meterAndFtdcRegistry
+            .threadPoolResourceBindings()
+            .forSubsystem(replicationConfig.getReplicationType().resourceAttributionSubsystem)
             .register(dualQueueExecutor.getDelegate(), meterAndFtdcRegistry.meterRegistry());
       }
       return dualQueueExecutor;
@@ -369,8 +370,9 @@ public class ChangeStreamManager {
             replicationConfig.getNumConcurrentChangeStreams(),
             meterAndFtdcRegistry.meterRegistry());
     if (enableLifecycleAttributionMetrics) {
-      ThreadPoolResourceMetrics.create(
-              replicationConfig.getReplicationType().resourceAttributionSubsystem)
+      meterAndFtdcRegistry
+          .threadPoolResourceBindings()
+          .forSubsystem(replicationConfig.getReplicationType().resourceAttributionSubsystem)
           .register(scheduledExecutor, meterAndFtdcRegistry.meterRegistry());
     }
 

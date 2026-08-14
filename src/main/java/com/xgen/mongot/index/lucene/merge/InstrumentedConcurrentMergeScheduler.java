@@ -398,7 +398,7 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
         meterRegistry,
         DEFAULT_CANCEL_MERGE_PER_THREAD_TIMEOUT_MS,
         DEFAULT_CANCEL_ALL_MERGES_PER_THREAD_TIMEOUT_MS,
-        false);
+        Optional.empty());
   }
 
   /**
@@ -409,7 +409,11 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
       MeterRegistry meterRegistry,
       long cancelMergePerThreadTimeoutMs,
       long cancelAllMergesPerThreadTimeoutMs) {
-    this(meterRegistry, cancelMergePerThreadTimeoutMs, cancelAllMergesPerThreadTimeoutMs, false);
+    this(
+        meterRegistry,
+        cancelMergePerThreadTimeoutMs,
+        cancelAllMergesPerThreadTimeoutMs,
+        Optional.empty());
   }
 
   /**
@@ -422,15 +426,15 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
    * @param cancelAllMergesPerThreadTimeoutMs timeout in milliseconds for waiting on each merge
    *     thread during global cancellation of all merges (used by cancelAllMerges()). Must be
    *     positive.
-   * @param enableAttributionMetrics if true, register per-merge ThreadMXBean memory and cpu time
-   *     attribution metrics.
+   * @param attributionBindings when present, register per-merge ThreadMXBean memory and cpu time
+   *     attribution metrics against these bindings.
    * @throws IllegalArgumentException if either timeout is not positive
    */
   public InstrumentedConcurrentMergeScheduler(
       MeterRegistry meterRegistry,
       long cancelMergePerThreadTimeoutMs,
       long cancelAllMergesPerThreadTimeoutMs,
-      boolean enableAttributionMetrics) {
+      Optional<ThreadPoolResourceMetrics.Bindings> attributionBindings) {
     super();
 
     if (cancelMergePerThreadTimeoutMs <= 0) {
@@ -472,9 +476,8 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
     this.mergeElapsedStopwatches = new WeakHashMap<>();
 
     this.mergeAttribution =
-        enableAttributionMetrics
-            ? MergeAttribution.create(this.metricsFactory, meterRegistry)
-            : Optional.empty();
+        attributionBindings.flatMap(
+            bindings -> MergeAttribution.create(this.metricsFactory, meterRegistry, bindings));
 
     // In Lucene 10.4, ConcurrentMergeScheduler.maybeStall hangs forever when maxMergeCount is
     // left at AUTO_DETECT_MERGES_AND_THREADS (-1) because `mergeThreadCount() >= -1` is always
@@ -1093,7 +1096,9 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
     }
 
     static Optional<MergeAttribution> create(
-        MetricsFactory metricsFactory, MeterRegistry meterRegistry) {
+        MetricsFactory metricsFactory,
+        MeterRegistry meterRegistry,
+        ThreadPoolResourceMetrics.Bindings threadPoolResourceBindings) {
       if (!(ManagementFactory.getThreadMXBean() instanceof ThreadMXBean bean)) {
         LOG.warn("Per-thread tracking unavailable on this JVM, merge attribution disabled.");
         return Optional.empty();
@@ -1113,7 +1118,8 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
       LiveThreadIdsRegistry liveThreadIds = new LiveThreadIdsRegistry();
 
       // Aggregate live-merge FunctionCounters.
-      ThreadPoolResourceMetrics.create(MERGE_SUBSYSTEM)
+      threadPoolResourceBindings
+          .forSubsystem(MERGE_SUBSYSTEM)
           .register(MERGE_POOL_NAME, liveThreadIds, meterRegistry);
 
       return Optional.of(new MergeAttribution(bean, liveThreadIds, metricsFactory));

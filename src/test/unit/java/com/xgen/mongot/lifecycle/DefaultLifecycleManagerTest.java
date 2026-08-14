@@ -30,6 +30,7 @@ import com.xgen.mongot.index.blobstore.IndexBlobstoreSnapshotter;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.GenerationId;
+import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import com.xgen.mongot.monitor.Gate;
 import com.xgen.mongot.monitor.ToggleGate;
 import com.xgen.mongot.replication.ReplicationManager;
@@ -118,7 +119,8 @@ public class DefaultLifecycleManagerTest {
                 this.initExecutor,
                 this.lifecycleExecutor,
                 this.blobstoreExecutor,
-                false);
+                false,
+                new ThreadPoolResourceMetrics.Bindings());
       } catch (Exception e) {
         throw new RuntimeException(e);
       }
@@ -486,7 +488,8 @@ public class DefaultLifecycleManagerTest {
         Executors.fixedSizeThreadPool("init", 1, meterRegistry),
         Executors.fixedSizeThreadPool("lifecycle", 1, meterRegistry),
         Executors.fixedSizeThreadPool("blobstore", 1, meterRegistry),
-        false);
+        false,
+        new ThreadPoolResourceMetrics.Bindings());
   }
 
   @Test

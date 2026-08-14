@@ -17,11 +17,13 @@ import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
 import com.xgen.mongot.index.definition.VectorSearchEngine;
 import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.index.definition.quantization.VectorQuantization;
+import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.bson.types.ObjectId;
@@ -125,7 +127,7 @@ public class IndexingWorkSchedulerFactoryTest {
   @Test
   public void create_lifecycleAttributionDisabled_doesNotRegisterResourceMetrics() {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
-    IndexingWorkSchedulerFactory.create(2, mock(Supplier.class), registry, false);
+    IndexingWorkSchedulerFactory.create(2, mock(Supplier.class), registry, Optional.empty());
 
     assertThat(
             registry
@@ -140,7 +142,11 @@ public class IndexingWorkSchedulerFactoryTest {
       throws Exception {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     IndexingWorkSchedulerFactory factory =
-        IndexingWorkSchedulerFactory.create(2, mock(Supplier.class), registry, true);
+        IndexingWorkSchedulerFactory.create(
+            2,
+            mock(Supplier.class),
+            registry,
+            Optional.of(new ThreadPoolResourceMetrics.Bindings()));
 
     FunctionCounter allocated =
         registry

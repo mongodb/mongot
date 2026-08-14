@@ -74,6 +74,7 @@ public class FtdcScheduledReporter {
    *     executor metrics
    * @param maxMeterCount the maximum number of meters before FTDC reporting is skipped. Use {@link
    *     Integer#MAX_VALUE} to disable the limit.
+   * @param threadPoolResourceBindings bindings used to attribute the reporter's own executor
    * @return the newly created FtdcScheduledReporter
    */
   public static FtdcScheduledReporter create(
@@ -81,11 +82,13 @@ public class FtdcScheduledReporter {
       CompositeMeterRegistry combinedMeterRegistry,
       Ftdc ftdc,
       boolean useCombinedRegistryForExecutorMetrics,
-      int maxMeterCount) {
+      int maxMeterCount,
+      ThreadPoolResourceMetrics.Bindings threadPoolResourceBindings) {
     Check.argIsPositive(maxMeterCount, "maxMeterCount");
     MeterRegistry executorRegistry =
         useCombinedRegistryForExecutorMetrics ? combinedMeterRegistry : reportingMeterRegistry;
-    return new FtdcScheduledReporter(executorRegistry, reportingMeterRegistry, ftdc, maxMeterCount);
+    return new FtdcScheduledReporter(
+        executorRegistry, reportingMeterRegistry, ftdc, maxMeterCount, threadPoolResourceBindings);
   }
 
   /**
@@ -99,14 +102,16 @@ public class FtdcScheduledReporter {
    *     ftdcRegistry to ensure only FTDC-specific metrics are reported.
    * @param ftdc the FTDC instance to write metrics to
    * @param maxMeterCount the maximum number of meters before FTDC reporting is skipped
+   * @param threadPoolResourceBindings bindings used to attribute the reporter's own executor
    */
   private FtdcScheduledReporter(
       MeterRegistry executorRegistry,
       MeterRegistry reportingRegistry,
       Ftdc ftdc,
-      int maxMeterCount) {
+      int maxMeterCount,
+      ThreadPoolResourceMetrics.Bindings threadPoolResourceBindings) {
     this.executor = Executors.singleThreadScheduledExecutor("ftdc-reporter", executorRegistry);
-    ThreadPoolResourceMetrics.create("ftdc").register(this.executor, executorRegistry);
+    threadPoolResourceBindings.forSubsystem("ftdc").register(this.executor, executorRegistry);
     this.reporter = new Reporter(executorRegistry, reportingRegistry, ftdc, maxMeterCount);
   }
 

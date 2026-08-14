@@ -9,6 +9,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.lang.management.ManagementFactory;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
@@ -43,6 +44,10 @@ public final class ThreadPoolResourceMetrics {
 
   private final String subsystem;
 
+  // One stable binding per pool, so that rebuilding a pool rebinds its existing counters instead
+  // of registering duplicate meters.
+  private final ConcurrentMap<String, PoolBinding> bindingsByPool = new ConcurrentHashMap<>();
+
   private ThreadPoolResourceMetrics(Optional<ThreadMXBean> threadMxBean, String subsystem) {
     this.threadMxBean = threadMxBean;
     this.subsystem = subsystem;
@@ -50,10 +55,10 @@ public final class ThreadPoolResourceMetrics {
 
   /**
    * Creates an instance backed by the platform {@link java.lang.management.ThreadMXBean}, scoped by
-   * {@code subsystem}. The subsystem is emitted as a meter tag, so two callers using distinct
-   * subsystems can register pools that share a name without colliding in the meter registry.
+   * {@code subsystem}. Obtain one from {@link Bindings#forSubsystem}, which keeps it alive across
+   * pool rebuilds.
    */
-  public static ThreadPoolResourceMetrics create(String subsystem) {
+  static ThreadPoolResourceMetrics create(String subsystem) {
     Optional<ThreadMXBean> mxBean =
         (ManagementFactory.getThreadMXBean() instanceof ThreadMXBean s)
             ? Optional.of(s)
@@ -103,27 +108,14 @@ public final class ThreadPoolResourceMetrics {
       return;
     }
     ThreadMXBean bean = this.threadMxBean.get();
-    Registration bytesAllocated = new Registration(liveThreadIds, bean::getThreadAllocatedBytes);
-    Registration cpu = new Registration(liveThreadIds, bean::getThreadCpuTime);
 
-    // Capture the Registration in the lambda because Micrometer takes a WeakReference.
-    FunctionCounter.builder(
-            ALLOCATED_BYTES_METRIC, bytesAllocated, ignored -> bytesAllocated.value())
-        .description(
-            "Cumulative bytes allocated into the Java heap by all threads this source has ever"
-                + " created. Excludes direct ByteBuffers and native allocations.")
-        .baseUnit("bytes")
-        .tag(SUBSYSTEM_TAG, this.subsystem)
-        .tag(NAME_TAG, name)
-        .register(meterRegistry);
-
-    FunctionCounter.builder(CPU_TIME_METRIC, cpu, ignored -> cpu.value())
-        .description(
-            "Cumulative on-CPU nanoseconds across all threads this source has ever created.")
-        .baseUnit("nanoseconds")
-        .tag(SUBSYSTEM_TAG, this.subsystem)
-        .tag(NAME_TAG, name)
-        .register(meterRegistry);
+    // The map only hands out the binding. Registering meters and sweeping the outgoing pool's
+    // threads happen under the binding.
+    var created = new PoolBinding(liveThreadIds, bean);
+    Optional.ofNullable(this.bindingsByPool.putIfAbsent(name, created))
+        .ifPresentOrElse(
+            existing -> existing.rebind(liveThreadIds),
+            () -> created.register(meterRegistry, this.subsystem, name));
   }
 
   private static void logUnsupportedExecutor(NamedExecutorService executor) {
@@ -133,32 +125,116 @@ public final class ThreadPoolResourceMetrics {
   }
 
   /**
+   * Process-wide owner of the per-pool attribution state behind {@link ThreadPoolResourceMetrics}.
+   *
+   * <p>A pool's counters have to outlive the object that registered them: rebuilding a pool
+   * re-registers the same meter which causes metrics to be suppressed. Holding one {@link
+   * ThreadPoolResourceMetrics} per subsystem fixes the issue.
+   */
+  public static final class Bindings {
+
+    private final ConcurrentMap<String, ThreadPoolResourceMetrics> bySubsystem =
+        new ConcurrentHashMap<>();
+
+    /**
+     * Metrics for {@code subsystem}, created on first use and returned unchanged thereafter. The
+     * subsystem is emitted as a meter tag, to avoid name conflicts between different pools.
+     */
+    public ThreadPoolResourceMetrics forSubsystem(String subsystem) {
+      return this.bySubsystem.computeIfAbsent(subsystem, ThreadPoolResourceMetrics::create);
+    }
+  }
+
+  /**
+   * Stable state behind one pool's two FunctionCounters. Rebinding preserves the counters' process-
+   * lifetime monotonic totals while moving their live reads to a replacement pool.
+   */
+  private static final class PoolBinding {
+    private final Registration bytesAllocated;
+    private final Registration cpu;
+    private LiveThreadIdsRegistry liveThreadIds;
+
+    PoolBinding(LiveThreadIdsRegistry liveThreadIds, ThreadMXBean bean) {
+      this.liveThreadIds = liveThreadIds;
+      this.bytesAllocated = new Registration(bean::getThreadAllocatedBytes);
+      this.cpu = new Registration(bean::getThreadCpuTime);
+    }
+
+    synchronized void register(MeterRegistry meterRegistry, String subsystem, String name) {
+      FunctionCounter.builder(ALLOCATED_BYTES_METRIC, this, PoolBinding::allocatedBytesValue)
+          .description(
+              "Cumulative bytes allocated into the Java heap by all threads this source has ever"
+                  + " created. Excludes direct ByteBuffers and native allocations.")
+          .baseUnit("bytes")
+          .tag(SUBSYSTEM_TAG, subsystem)
+          .tag(NAME_TAG, name)
+          .register(meterRegistry);
+
+      FunctionCounter.builder(CPU_TIME_METRIC, this, PoolBinding::cpuValue)
+          .description(
+              "Cumulative on-CPU nanoseconds across all threads this source has ever created.")
+          .baseUnit("nanoseconds")
+          .tag(SUBSYSTEM_TAG, subsystem)
+          .tag(NAME_TAG, name)
+          .register(meterRegistry);
+    }
+
+    synchronized void rebind(LiveThreadIdsRegistry replacement) {
+      if (this.liveThreadIds == replacement) {
+        return;
+      }
+
+      this.bytesAllocated.retireCurrentPool(this.liveThreadIds);
+      this.cpu.retireCurrentPool(this.liveThreadIds);
+      this.liveThreadIds = replacement;
+    }
+
+    synchronized double allocatedBytesValue() {
+      return this.bytesAllocated.value(this.liveThreadIds);
+    }
+
+    synchronized double cpuValue() {
+      return this.cpu.value(this.liveThreadIds);
+    }
+  }
+
+  /**
    * Holds the sum of values for a single MXBean channel (allocation bytes or CPU nanoseconds).
    * Holds the last observed bean value per live thread id and a retired-total accumulator for
    * threads the JVM has reported as dead.
    */
   private static final class Registration {
 
-    private final LiveThreadIdsRegistry liveThreadIds;
     // Function of [ThreadIds] -> [Bean values].
     private final Function<long[], long[]> beanReader;
     // Map of thread id -> last seen bean value.
     private final ConcurrentHashMap<Long, Long> lastSeen = new ConcurrentHashMap<>();
     private final AtomicLong retiredSum = new AtomicLong();
 
-    Registration(LiveThreadIdsRegistry liveThreadIds, Function<long[], long[]> beanReader) {
-      this.liveThreadIds = liveThreadIds;
+    Registration(Function<long[], long[]> beanReader) {
       this.beanReader = beanReader;
     }
 
-    double value() {
-      long[] ids = this.liveThreadIds.stream().mapToLong(Long::longValue).toArray();
+    double value(LiveThreadIdsRegistry liveThreadIds) {
+      refresh(liveThreadIds);
+      return sumBeanValues();
+    }
+
+    void retireCurrentPool(LiveThreadIdsRegistry liveThreadIds) {
+      refresh(liveThreadIds);
+      this.retiredSum.set(sumBeanValues());
+      this.lastSeen.clear();
+    }
+
+    /** Refresh the bean values. */
+    private void refresh(LiveThreadIdsRegistry liveThreadIds) {
+      long[] ids = liveThreadIds.stream().mapToLong(Long::longValue).toArray();
       if (ids.length > 0) {
         long[] beanValues;
         try {
           beanValues = this.beanReader.apply(ids);
         } catch (UnsupportedOperationException | SecurityException e) {
-          return sumBeanValues();
+          return;
         }
         for (int i = 0; i < ids.length; i++) {
           long tid = ids[i];
@@ -170,13 +246,12 @@ public final class ThreadPoolResourceMetrics {
             if (last != null) {
               this.retiredSum.addAndGet(last);
             }
-            this.liveThreadIds.remove(tid);
+            liveThreadIds.remove(tid);
           } else {
             this.lastSeen.put(tid, val);
           }
         }
       }
-      return sumBeanValues();
     }
 
     private long sumBeanValues() {

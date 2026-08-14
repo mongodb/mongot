@@ -23,6 +23,7 @@ import com.xgen.mongot.index.blobstore.BlobstoreSnapshotterManager;
 import com.xgen.mongot.lifecycle.DefaultLifecycleManager;
 import com.xgen.mongot.lifecycle.LifecycleConfig;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
+import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import com.xgen.mongot.monitor.Gate;
 import com.xgen.mongot.monitor.ReplicationStateMonitor;
 import com.xgen.mongot.monitor.ToggleGate;
@@ -115,7 +116,8 @@ public class CommonUtils {
             indexCatalog,
             initializedIndexCatalog,
             featureFlags,
-            meterAndFtdcRegistry.meterRegistry());
+            meterAndFtdcRegistry.meterRegistry(),
+            meterAndFtdcRegistry.threadPoolResourceBindings());
       }
 
       return MongoDbReplicationManager.create(
@@ -145,7 +147,8 @@ public class CommonUtils {
       AutoEmbeddingMaterializedViewManagerFactory autoEmbeddingMatViewManagerFactory,
       MeterRegistry meterRegistry,
       Gate replicationGate,
-      FeatureFlags featureFlags) {
+      FeatureFlags featureFlags,
+      ThreadPoolResourceMetrics.Bindings threadPoolResourceBindings) {
     return new DefaultLifecycleManager(
         factory,
         syncConfig,
@@ -156,7 +159,8 @@ public class CommonUtils {
         meterRegistry,
         replicationGate,
         lifecycleConfig,
-        featureFlags.isEnabled(Feature.LIFECYCLE_ATTRIBUTION_METRICS));
+        featureFlags.isEnabled(Feature.LIFECYCLE_ATTRIBUTION_METRICS),
+        threadPoolResourceBindings);
   }
 
   public static DefaultLifecycleManager getLifecycleManager(
@@ -169,7 +173,8 @@ public class CommonUtils {
       AutoEmbeddingMaterializedViewManagerFactory autoEmbeddingMatViewManagerFactory,
       MeterRegistry meterRegistry,
       ReplicationStateMonitor replicationStateMonitor,
-      FeatureFlags featureFlags) {
+      FeatureFlags featureFlags,
+      ThreadPoolResourceMetrics.Bindings threadPoolResourceBindings) {
     return new DefaultLifecycleManager(
         factory,
         syncConfig,
@@ -180,7 +185,8 @@ public class CommonUtils {
         meterRegistry,
         replicationStateMonitor,
         lifecycleConfig,
-        featureFlags.isEnabled(Feature.LIFECYCLE_ATTRIBUTION_METRICS));
+        featureFlags.isEnabled(Feature.LIFECYCLE_ATTRIBUTION_METRICS),
+        threadPoolResourceBindings);
   }
 
   /**
