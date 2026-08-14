@@ -1,6 +1,7 @@
 package com.xgen.mongot.config.provider.community;
 
 import com.xgen.mongot.catalogservice.CatalogAccessGuard;
+import com.xgen.mongot.catalogservice.IndexStatusMapper;
 import com.xgen.mongot.catalogservice.MetadataService;
 import com.xgen.mongot.catalogservice.MetadataServiceException;
 import com.xgen.mongot.catalogservice.TopologyMismatchException;
@@ -155,7 +156,8 @@ class DroppedCollectionIndexCleaner {
 
   private static boolean indexDoesNotExist(Optional<IndexStatsEntry.DetailedIndexStats> detail) {
     return detail.isEmpty()
-        || detail.get().status().getStatusCode() == IndexStatus.StatusCode.DOES_NOT_EXIST;
+        || IndexStatusMapper.fromPersisted(detail.get().status().statusCode())
+            == IndexStatus.StatusCode.DOES_NOT_EXIST;
   }
 
   /**

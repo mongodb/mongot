@@ -20,6 +20,7 @@ import static org.mockito.Mockito.when;
 import com.mongodb.MongoException;
 import com.xgen.mongot.catalogservice.CatalogAccessGuard;
 import com.xgen.mongot.catalogservice.IndexStats;
+import com.xgen.mongot.catalogservice.IndexStatusMapper;
 import com.xgen.mongot.catalogservice.MetadataService;
 import com.xgen.mongot.catalogservice.MetadataServiceException;
 import com.xgen.mongot.catalogservice.ServerState;
@@ -803,7 +804,9 @@ public class CommunityMetadataUpdaterTest {
         IndexDefinition.Type.SEARCH,
         Optional.of(
             new IndexStatsEntry.DetailedIndexStats(
-                status, definition, Optional.of(Collections.emptyMap()))),
+                IndexStatusMapper.toPersisted(status),
+                definition,
+                Optional.of(Collections.emptyMap()))),
         Optional.empty());
   }
 

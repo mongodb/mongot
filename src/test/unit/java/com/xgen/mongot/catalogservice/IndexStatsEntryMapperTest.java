@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.xgen.mongot.catalogservice.schema.IndexStatsEntry;
+import com.xgen.mongot.catalogservice.schema.IndexStatusP;
 import com.xgen.mongot.index.AggregatedIndexMetrics;
 import com.xgen.mongot.index.IndexDetailedStatus;
 import com.xgen.mongot.index.IndexInformation;
@@ -74,7 +75,7 @@ public class IndexStatsEntryMapperTest {
     assertEquals(INDEX_ID, result.key().indexId());
     assertEquals(IndexDefinition.Type.SEARCH, result.type());
     assertTrue(result.mainIndex().isPresent());
-    assertEquals(IndexStatus.StatusCode.STEADY, result.mainIndex().get().status().getStatusCode());
+    assertEquals(IndexStatusP.StatusCode.STEADY, result.mainIndex().get().status().statusCode());
     assertEquals(searchDef, result.mainIndex().get().definition());
     assertTrue(result.mainIndex().get().synonymDetailedStatusMap().isPresent());
     assertEquals(synonymStatusMap, result.mainIndex().get().synonymDetailedStatusMap().get());
@@ -133,12 +134,12 @@ public class IndexStatsEntryMapperTest {
     assertEquals(INDEX_ID, result.key().indexId());
     assertEquals(IndexDefinition.Type.SEARCH, result.type());
     assertTrue(result.mainIndex().isPresent());
-    assertEquals(IndexStatus.StatusCode.STEADY, result.mainIndex().get().status().getStatusCode());
+    assertEquals(IndexStatusP.StatusCode.STEADY, result.mainIndex().get().status().statusCode());
     assertTrue(result.mainIndex().get().synonymDetailedStatusMap().isPresent());
     assertEquals(mainSynonymStatusMap, result.mainIndex().get().synonymDetailedStatusMap().get());
     assertTrue(result.stagedIndex().isPresent());
     assertEquals(
-        IndexStatus.StatusCode.INITIAL_SYNC, result.stagedIndex().get().status().getStatusCode());
+        IndexStatusP.StatusCode.INITIAL_SYNC, result.stagedIndex().get().status().statusCode());
     assertTrue(result.stagedIndex().get().synonymDetailedStatusMap().isPresent());
     assertEquals(
         stagedSynonymStatusMap, result.stagedIndex().get().synonymDetailedStatusMap().get());
@@ -219,7 +220,7 @@ public class IndexStatsEntryMapperTest {
     assertEquals(INDEX_ID, result.key().indexId());
     assertEquals(IndexDefinition.Type.VECTOR_SEARCH, result.type());
     assertTrue(result.mainIndex().isPresent());
-    assertEquals(IndexStatus.StatusCode.STEADY, result.mainIndex().get().status().getStatusCode());
+    assertEquals(IndexStatusP.StatusCode.STEADY, result.mainIndex().get().status().statusCode());
     assertEquals(vectorDef, result.mainIndex().get().definition());
     assertFalse(result.mainIndex().get().synonymDetailedStatusMap().isPresent());
     assertFalse(result.stagedIndex().isPresent());
@@ -266,11 +267,11 @@ public class IndexStatsEntryMapperTest {
     assertEquals(INDEX_ID, result.key().indexId());
     assertEquals(IndexDefinition.Type.VECTOR_SEARCH, result.type());
     assertTrue(result.mainIndex().isPresent());
-    assertEquals(IndexStatus.StatusCode.STEADY, result.mainIndex().get().status().getStatusCode());
+    assertEquals(IndexStatusP.StatusCode.STEADY, result.mainIndex().get().status().statusCode());
     assertFalse(result.mainIndex().get().synonymDetailedStatusMap().isPresent());
     assertTrue(result.stagedIndex().isPresent());
     assertEquals(
-        IndexStatus.StatusCode.INITIAL_SYNC, result.stagedIndex().get().status().getStatusCode());
+        IndexStatusP.StatusCode.INITIAL_SYNC, result.stagedIndex().get().status().statusCode());
     assertFalse(result.stagedIndex().get().synonymDetailedStatusMap().isPresent());
   }
 

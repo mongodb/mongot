@@ -29,7 +29,7 @@ public class IndexStatsEntryMapper {
   private static IndexStatsEntry.DetailedIndexStats fromSearchIndexDetailedStatus(
       IndexDetailedStatus.Search indexDetailedStatus) {
     return new IndexStatsEntry.DetailedIndexStats(
-        indexDetailedStatus.indexStatus(),
+        IndexStatusMapper.toPersisted(indexDetailedStatus.indexStatus()),
         indexDetailedStatus.definition(),
         Optional.of(indexDetailedStatus.synonymStatusMap()));
   }
@@ -37,6 +37,8 @@ public class IndexStatsEntryMapper {
   private static IndexStatsEntry.DetailedIndexStats fromVectorIndexDetailedStatus(
       IndexDetailedStatus.Vector indexDetailedStatus) {
     return new IndexStatsEntry.DetailedIndexStats(
-        indexDetailedStatus.indexStatus(), indexDetailedStatus.definition(), Optional.empty());
+        IndexStatusMapper.toPersisted(indexDetailedStatus.indexStatus()),
+        indexDetailedStatus.definition(),
+        Optional.empty());
   }
 }

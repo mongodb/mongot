@@ -4,6 +4,7 @@ import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.catalogservice.CatalogAccessGuard;
+import com.xgen.mongot.catalogservice.IndexStatusMapper;
 import com.xgen.mongot.catalogservice.MetadataService;
 import com.xgen.mongot.catalogservice.MetadataServiceException;
 import com.xgen.mongot.catalogservice.TopologyMismatchException;
@@ -212,7 +213,11 @@ public class CommunityReadinessChecker implements ReadinessChecker {
       if (isInvalidDefinitionFailure(status.get())
           && indexStatsEntries.stream()
               .map(IndexStatsEntry::mainIndex)
-              .allMatch(i -> i.isEmpty() || isInvalidDefinitionFailure(i.get().status()))) {
+              .allMatch(
+                  i ->
+                      i.isEmpty()
+                          || isInvalidDefinitionFailure(
+                              IndexStatusMapper.fromPersisted(i.get().status())))) {
         LOG.info(
             "Bypassing failed index status check for index '{}' "
                 + "because index has invalid definition",

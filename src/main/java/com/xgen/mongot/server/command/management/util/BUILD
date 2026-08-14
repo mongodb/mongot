@@ -14,6 +14,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/server/command/management/definition/common",
     ],
     deps = [
+        "//src/main/java/com/xgen/mongot/catalogservice",
         "//src/main/java/com/xgen/mongot/catalogservice/schema",
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/status",

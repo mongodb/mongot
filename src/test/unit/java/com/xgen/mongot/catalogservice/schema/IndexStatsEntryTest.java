@@ -4,7 +4,6 @@ import static com.xgen.testing.BsonDeserializationTestSuite.fromDocument;
 import static com.xgen.testing.BsonSerializationTestSuite.fromEncodable;
 
 import com.xgen.mongot.index.definition.IndexDefinition;
-import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.status.SynonymStatus;
 import com.xgen.mongot.index.synonym.SynonymDetailedStatus;
 import com.xgen.testing.BsonDeserializationTestSuite;
@@ -276,18 +275,18 @@ public class IndexStatsEntryTest {
         new IndexStatsEntry.IndexStatsKey(serverId, indexId),
         IndexDefinition.Type.SEARCH,
         Optional.of(
-            createDetailedSearchIndexStats(indexId, IndexStatus.StatusCode.STEADY, withSynonyms)),
+            createDetailedSearchIndexStats(indexId, IndexStatusP.StatusCode.STEADY, withSynonyms)),
         Optional.ofNullable(
             withStaged
                 ? createDetailedSearchIndexStats(
-                    indexId, IndexStatus.StatusCode.INITIAL_SYNC, withSynonyms)
+                    indexId, IndexStatusP.StatusCode.INITIAL_SYNC, withSynonyms)
                 : null));
   }
 
   private static IndexStatsEntry.DetailedIndexStats createDetailedSearchIndexStats(
-      ObjectId indexId, IndexStatus.StatusCode status, boolean withSynonyms) {
+      ObjectId indexId, IndexStatusP.StatusCode status, boolean withSynonyms) {
     return new IndexStatsEntry.DetailedIndexStats(
-        new IndexStatus(status),
+        new IndexStatusP(status, Optional.empty(), Optional.empty(), Optional.empty()),
         SearchIndexDefinitionBuilder.builder()
             .indexId(indexId)
             .name("index")
@@ -309,17 +308,17 @@ public class IndexStatsEntryTest {
     return new IndexStatsEntry(
         new IndexStatsEntry.IndexStatsKey(serverId, indexId),
         IndexDefinition.Type.VECTOR_SEARCH,
-        Optional.of(createDetailedVectorSearchIndex(indexId, IndexStatus.StatusCode.STEADY)),
+        Optional.of(createDetailedVectorSearchIndex(indexId, IndexStatusP.StatusCode.STEADY)),
         Optional.ofNullable(
             withStaged
-                ? createDetailedVectorSearchIndex(indexId, IndexStatus.StatusCode.INITIAL_SYNC)
+                ? createDetailedVectorSearchIndex(indexId, IndexStatusP.StatusCode.INITIAL_SYNC)
                 : null));
   }
 
   private static IndexStatsEntry.DetailedIndexStats createDetailedVectorSearchIndex(
-      ObjectId indexId, IndexStatus.StatusCode status) {
+      ObjectId indexId, IndexStatusP.StatusCode status) {
     return new IndexStatsEntry.DetailedIndexStats(
-        new IndexStatus(status),
+        new IndexStatusP(status, Optional.empty(), Optional.empty(), Optional.empty()),
         VectorIndexDefinitionBuilder.builder()
             .indexId(indexId)
             .name("index")

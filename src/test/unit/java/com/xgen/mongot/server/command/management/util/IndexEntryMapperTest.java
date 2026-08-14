@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import com.xgen.mongot.catalogservice.IndexStatusMapper;
 import com.xgen.mongot.catalogservice.schema.IndexStatsEntry;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
@@ -707,7 +708,8 @@ public class IndexEntryMapperTest {
     Map<String, IndexStatsEntry> indexStats = new HashMap<>();
     IndexStatus statusWithMessage = IndexStatus.failed("Test error message");
     IndexStatsEntry.DetailedIndexStats detailedStats =
-        new IndexStatsEntry.DetailedIndexStats(statusWithMessage, definition, Optional.empty());
+        new IndexStatsEntry.DetailedIndexStats(
+            IndexStatusMapper.toPersisted(statusWithMessage), definition, Optional.empty());
     IndexStatsEntry entry =
         new IndexStatsEntry(
             new IndexStatsEntry.IndexStatsKey(TEST_SERVER_ID, TEST_INDEX_ID),
@@ -817,7 +819,8 @@ public class IndexEntryMapperTest {
     // Create PENDING status (NOT_STARTED maps to PENDING)
     IndexStatus status = IndexStatus.notStarted();
     IndexStatsEntry.DetailedIndexStats detailedStats =
-        new IndexStatsEntry.DetailedIndexStats(status, definition, Optional.empty());
+        new IndexStatsEntry.DetailedIndexStats(
+            IndexStatusMapper.toPersisted(status), definition, Optional.empty());
     IndexStatsEntry entry =
         new IndexStatsEntry(
             new IndexStatsEntry.IndexStatsKey(TEST_SERVER_ID, TEST_INDEX_ID),
@@ -865,7 +868,8 @@ public class IndexEntryMapperTest {
     // Create BUILDING status with message
     IndexStatus statusWithMessage = IndexStatus.initialSync("Building index");
     IndexStatsEntry.DetailedIndexStats detailedStats =
-        new IndexStatsEntry.DetailedIndexStats(statusWithMessage, definition, Optional.empty());
+        new IndexStatsEntry.DetailedIndexStats(
+            IndexStatusMapper.toPersisted(statusWithMessage), definition, Optional.empty());
     IndexStatsEntry entry =
         new IndexStatsEntry(
             new IndexStatsEntry.IndexStatsKey(TEST_SERVER_ID, TEST_INDEX_ID),
@@ -933,9 +937,11 @@ public class IndexEntryMapperTest {
     IndexStatus stagedStatus = IndexStatus.initialSync("Building new index version");
 
     IndexStatsEntry.DetailedIndexStats mainStats =
-        new IndexStatsEntry.DetailedIndexStats(mainStatus, mainDefinition, Optional.empty());
+        new IndexStatsEntry.DetailedIndexStats(
+            IndexStatusMapper.toPersisted(mainStatus), mainDefinition, Optional.empty());
     IndexStatsEntry.DetailedIndexStats stagedStats =
-        new IndexStatsEntry.DetailedIndexStats(stagedStatus, stagedDefinition, Optional.empty());
+        new IndexStatsEntry.DetailedIndexStats(
+            IndexStatusMapper.toPersisted(stagedStatus), stagedDefinition, Optional.empty());
 
     IndexStatsEntry entry =
         new IndexStatsEntry(
@@ -986,7 +992,8 @@ public class IndexEntryMapperTest {
     // Staged index is being built
     IndexStatus stagedStatus = IndexStatus.initialSync("Building new index");
     IndexStatsEntry.DetailedIndexStats stagedStats =
-        new IndexStatsEntry.DetailedIndexStats(stagedStatus, definition, Optional.empty());
+        new IndexStatsEntry.DetailedIndexStats(
+            IndexStatusMapper.toPersisted(stagedStatus), definition, Optional.empty());
 
     IndexStatsEntry entry =
         new IndexStatsEntry(
@@ -1069,7 +1076,8 @@ public class IndexEntryMapperTest {
             new IndexStatsEntry.IndexStatsKey(TEST_SERVER_ID, TEST_INDEX_ID),
             IndexDefinition.Type.SEARCH,
             Optional.of(
-                new IndexStatsEntry.DetailedIndexStats(staleStatus, definition, Optional.empty())),
+                new IndexStatsEntry.DetailedIndexStats(
+                    IndexStatusMapper.toPersisted(staleStatus), definition, Optional.empty())),
             Optional.empty());
     indexStats.put(TEST_HOSTNAME, entry);
 
@@ -1104,7 +1112,7 @@ public class IndexEntryMapperTest {
             IndexDefinition.Type.SEARCH,
             Optional.of(
                 new IndexStatsEntry.DetailedIndexStats(
-                    unresolvedStatus, definition, Optional.empty())),
+                    IndexStatusMapper.toPersisted(unresolvedStatus), definition, Optional.empty())),
             Optional.empty());
     indexStats.put(TEST_HOSTNAME, entry);
 
@@ -1208,7 +1216,8 @@ public class IndexEntryMapperTest {
             .build();
 
     IndexStatsEntry.DetailedIndexStats detailedStats =
-        new IndexStatsEntry.DetailedIndexStats(new IndexStatus(status), definition, synonymMap);
+        new IndexStatsEntry.DetailedIndexStats(
+            IndexStatusMapper.toPersisted(new IndexStatus(status)), definition, synonymMap);
 
     return new IndexStatsEntry(
         new IndexStatsEntry.IndexStatsKey(TEST_SERVER_ID, TEST_INDEX_ID),
@@ -1235,7 +1244,8 @@ public class IndexEntryMapperTest {
             .build();
 
     IndexStatsEntry.DetailedIndexStats detailedStats =
-        new IndexStatsEntry.DetailedIndexStats(new IndexStatus(status), definition, synonymMap);
+        new IndexStatsEntry.DetailedIndexStats(
+            IndexStatusMapper.toPersisted(new IndexStatus(status)), definition, synonymMap);
 
     return new IndexStatsEntry(
         new IndexStatsEntry.IndexStatsKey(TEST_SERVER_ID, TEST_INDEX_ID),
@@ -1278,10 +1288,12 @@ public class IndexEntryMapperTest {
 
     IndexStatsEntry.DetailedIndexStats mainStats =
         new IndexStatsEntry.DetailedIndexStats(
-            new IndexStatus(mainStatus), mainDefinition, synonymMap);
+            IndexStatusMapper.toPersisted(new IndexStatus(mainStatus)), mainDefinition, synonymMap);
     IndexStatsEntry.DetailedIndexStats stagedStats =
         new IndexStatsEntry.DetailedIndexStats(
-            new IndexStatus(stagedStatus), stagedDefinition, synonymMap);
+            IndexStatusMapper.toPersisted(new IndexStatus(stagedStatus)),
+            stagedDefinition,
+            synonymMap);
 
     return new IndexStatsEntry(
         new IndexStatsEntry.IndexStatsKey(TEST_SERVER_ID, TEST_INDEX_ID),

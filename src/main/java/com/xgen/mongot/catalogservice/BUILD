@@ -11,6 +11,7 @@ java_library(
         "DefaultServerState.java",
         "IndexStats.java",
         "IndexStatsEntryMapper.java",
+        "IndexStatusMapper.java",
         "MetadataClient.java",
         "MetadataService.java",
         "MetadataServiceException.java",
@@ -22,6 +23,7 @@ java_library(
     exports = [
         "//src/main/java/com/xgen/mongot/catalogservice/schema",
         "//src/main/java/com/xgen/mongot/index/definition",
+        "//src/main/java/com/xgen/mongot/index/status",
         "@maven//:org_mongodb_bson",
         "@maven//:org_mongodb_mongodb_driver_core",
     ],
@@ -29,6 +31,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/catalogservice/schema",
         "//src/main/java/com/xgen/mongot/index",
         "//src/main/java/com/xgen/mongot/index/definition",
+        "//src/main/java/com/xgen/mongot/index/status",
         "//src/main/java/com/xgen/mongot/replication/mongodb/common",
         "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/bson/parser",

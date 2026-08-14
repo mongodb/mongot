@@ -1,6 +1,8 @@
 package com.xgen.mongot.server.command.management.util;
 
+import com.xgen.mongot.catalogservice.IndexStatusMapper;
 import com.xgen.mongot.catalogservice.schema.IndexStatsEntry;
+import com.xgen.mongot.catalogservice.schema.IndexStatusP;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.status.SynonymStatus;
@@ -84,16 +86,17 @@ public class IndexEntryMapper {
    */
   private static ListSearchIndexesResponseDefinition.HostIndexStatusDetail toHostIndexStatusDetail(
       IndexStatsEntry.DetailedIndexStats detailedIndexStats) {
+    IndexStatus status = IndexStatusMapper.fromPersisted(detailedIndexStats.status());
     return new ListSearchIndexesResponseDefinition.HostIndexStatusDetail(
-        IndexMapper.toExternalStatus(detailedIndexStats.status().getStatusCode()),
-        detailedIndexStats.status().canServiceQueries(),
+        IndexMapper.toExternalStatus(status.getStatusCode()),
+        status.canServiceQueries(),
         computeSynonymStatus(detailedIndexStats).map(IndexMapper::toExternalSynonymStatus),
         toSynonymStatusDetails(detailedIndexStats),
         toDefinitionVersion(
             detailedIndexStats.definition().getDefinitionVersion(),
             detailedIndexStats.definition().getDefinitionVersionCreatedAt()),
         IndexMapper.toExternal(detailedIndexStats.definition()),
-        detailedIndexStats.status().getMessage());
+        status.getMessage());
   }
 
   /** Generates the DefinitionVersion object. */
@@ -132,12 +135,14 @@ public class IndexEntryMapper {
       return IndexStatus.StatusCode.UNKNOWN;
     }
 
-    IndexStatus.StatusCode mainIndexStatus = entry.mainIndex().get().status().getStatusCode();
+    IndexStatus.StatusCode mainIndexStatus =
+        IndexStatusMapper.fromPersisted(entry.mainIndex().get().status().statusCode());
     IndexStatus.StatusCode stagedIndexStatus =
         entry
             .stagedIndex()
             .map(IndexStatsEntry.DetailedIndexStats::status)
-            .map(IndexStatus::getStatusCode)
+            .map(IndexStatusP::statusCode)
+            .map(IndexStatusMapper::fromPersisted)
             .orElse(IndexStatus.StatusCode.DOES_NOT_EXIST);
 
     boolean isMainIndexLatestVersion =
@@ -173,7 +178,8 @@ public class IndexEntryMapper {
             .filter(
                 i ->
                     i.mainIndex().isPresent()
-                        && i.mainIndex().get().status().getStatusCode()
+                        && IndexStatusMapper.fromPersisted(
+                                i.mainIndex().get().status().statusCode())
                             != IndexStatus.StatusCode.DOES_NOT_EXIST)
             .toList();
 
@@ -184,7 +190,8 @@ public class IndexEntryMapper {
   /** Checks that a given index is queryable. */
   private static boolean isIndexQueryable(IndexStatsEntry indexStatsEntry) {
     return indexStatsEntry.mainIndex().isPresent()
-        && indexStatsEntry.mainIndex().get().status().canServiceQueries();
+        && IndexStatusMapper.fromPersisted(indexStatsEntry.mainIndex().get().status())
+            .canServiceQueries();
   }
 
   /**

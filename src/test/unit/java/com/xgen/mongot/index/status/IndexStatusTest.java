@@ -1,139 +1,198 @@
 package com.xgen.mongot.index.status;
 
-import static com.xgen.testing.BsonDeserializationTestSuite.fromDocument;
-import static com.xgen.testing.BsonSerializationTestSuite.fromEncodable;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 
-import com.xgen.testing.BsonDeserializationTestSuite;
-import com.xgen.testing.BsonSerializationTestSuite;
-import java.util.Arrays;
+import java.util.Optional;
 import org.bson.BsonTimestamp;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
-import org.junit.runners.Suite;
 
-@RunWith(Suite.class)
-@Suite.SuiteClasses(
-    value = {IndexStatusTest.DeserializationTest.class, IndexStatusTest.SerializationTest.class})
+/**
+ * Unit tests for the in-memory behavior of {@link IndexStatus}: its factory methods, the
+ * reason/statusCode validation performed in its constructors, and its derived accessors. BSON
+ * serialization now lives on {@code IndexStatusP} and is covered by {@code IndexStatusPTest}.
+ */
 public class IndexStatusTest {
 
-  @RunWith(Parameterized.class)
-  public static class DeserializationTest {
-    private static final String SUITE_NAME = "index-status-deserialization";
-    private static final BsonDeserializationTestSuite<IndexStatus> TEST_SUITE =
-        fromDocument("src/test/unit/resources/index/status", SUITE_NAME, IndexStatus::fromBson);
+  @Test
+  public void basicConstructor_setsStatusCodeAndLeavesRestEmpty() {
+    IndexStatus status = new IndexStatus(IndexStatus.StatusCode.STEADY);
 
-    private final BsonDeserializationTestSuite.TestSpecWrapper<IndexStatus> testSpec;
-
-    public DeserializationTest(BsonDeserializationTestSuite.TestSpecWrapper<IndexStatus> testSpec) {
-      this.testSpec = testSpec;
-    }
-
-    @Parameterized.Parameters(name = "{0}")
-    public static Iterable<BsonDeserializationTestSuite.TestSpecWrapper<IndexStatus>> data() {
-      return TEST_SUITE.withExamples(
-          simple(),
-          initialSyncWithMessage(),
-          stale(),
-          recoveringNonTransient(),
-          recoveringTransient(),
-          failed());
-    }
-
-    @Test
-    public void runTest() throws Exception {
-      TEST_SUITE.runTest(this.testSpec);
-    }
-
-    private static BsonDeserializationTestSuite.ValidSpec<IndexStatus> simple() {
-      return BsonDeserializationTestSuite.TestSpec.valid(
-          "simple", new IndexStatus(IndexStatus.StatusCode.INITIAL_SYNC));
-    }
-
-    private static BsonDeserializationTestSuite.ValidSpec<IndexStatus> initialSyncWithMessage() {
-      return BsonDeserializationTestSuite.TestSpec.valid(
-          "initial sync with message", IndexStatus.initialSync("foo-bar"));
-    }
-
-    private static BsonDeserializationTestSuite.ValidSpec<IndexStatus> stale() {
-      return BsonDeserializationTestSuite.TestSpec.valid(
-          "stale index", IndexStatus.stale("foo-bar", new BsonTimestamp(1000)));
-    }
-
-    private static BsonDeserializationTestSuite.ValidSpec<IndexStatus> recoveringNonTransient() {
-      return BsonDeserializationTestSuite.TestSpec.valid(
-          "recovering non transient", IndexStatus.recoveringNonTransient(new BsonTimestamp(1000)));
-    }
-
-    private static BsonDeserializationTestSuite.ValidSpec<IndexStatus> recoveringTransient() {
-      return BsonDeserializationTestSuite.TestSpec.valid(
-          "recovering transient", IndexStatus.recoveringTransient("recovering"));
-    }
-
-    private static BsonDeserializationTestSuite.ValidSpec<IndexStatus> failed() {
-      return BsonDeserializationTestSuite.TestSpec.valid(
-          "failed",
-          IndexStatus.failed("recovering", IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED));
-    }
+    assertEquals(IndexStatus.StatusCode.STEADY, status.getStatusCode());
+    assertTrue(status.getMessage().isEmpty());
+    assertTrue(status.getOptime().isEmpty());
+    assertTrue(status.getReason().isEmpty());
   }
 
-  @RunWith(Parameterized.class)
-  public static class SerializationTest {
-    private static final String SUITE_NAME = "index-status-serialization";
-    private static final BsonSerializationTestSuite<IndexStatus> TEST_SUITE =
-        fromEncodable("src/test/unit/resources/index/status", SUITE_NAME);
+  @Test
+  public void factories_populateExpectedFields() {
+    assertTrue(IndexStatus.unknown().isUnknown());
+    assertEquals(IndexStatus.StatusCode.NOT_STARTED, IndexStatus.notStarted().getStatusCode());
+    assertEquals(IndexStatus.StatusCode.INITIAL_SYNC, IndexStatus.initialSync().getStatusCode());
+    assertEquals(IndexStatus.StatusCode.STEADY, IndexStatus.steady().getStatusCode());
 
-    private final BsonSerializationTestSuite.TestSpec<IndexStatus> testSpec;
+    IndexStatus initialSyncWithMessage = IndexStatus.initialSync("syncing");
+    assertEquals(IndexStatus.StatusCode.INITIAL_SYNC, initialSyncWithMessage.getStatusCode());
+    assertEquals(Optional.of("syncing"), initialSyncWithMessage.getMessage());
 
-    public SerializationTest(BsonSerializationTestSuite.TestSpec<IndexStatus> testSpec) {
-      this.testSpec = testSpec;
-    }
+    BsonTimestamp optime = new BsonTimestamp(1000);
+    IndexStatus stale = IndexStatus.stale("stale reason", optime);
+    assertEquals(IndexStatus.StatusCode.STALE, stale.getStatusCode());
+    assertEquals(Optional.of("stale reason"), stale.getMessage());
+    assertEquals(Optional.of(optime), stale.getOptime());
 
-    @Parameterized.Parameters(name = "{0}")
-    public static Iterable<BsonSerializationTestSuite.TestSpec<IndexStatus>> data() {
-      return Arrays.asList(
-          simple(),
-          initialSyncWithMessage(),
-          stale(),
-          recoveringNonTransient(),
-          recoveringTransient(),
-          failed());
-    }
+    IndexStatus recoveringNonTransient = IndexStatus.recoveringNonTransient(optime);
+    assertEquals(
+        IndexStatus.StatusCode.RECOVERING_NON_TRANSIENT, recoveringNonTransient.getStatusCode());
+    assertEquals(Optional.of(optime), recoveringNonTransient.getOptime());
 
-    @Test
-    public void runTest() throws Exception {
-      TEST_SUITE.runTest(this.testSpec);
-    }
+    IndexStatus recoveringTransient = IndexStatus.recoveringTransient("retrying");
+    assertEquals(IndexStatus.StatusCode.RECOVERING_TRANSIENT, recoveringTransient.getStatusCode());
+    assertEquals(Optional.of("retrying"), recoveringTransient.getMessage());
+  }
 
-    private static BsonSerializationTestSuite.TestSpec<IndexStatus> simple() {
-      return BsonSerializationTestSuite.TestSpec.create(
-          "simple", new IndexStatus(IndexStatus.StatusCode.INITIAL_SYNC));
-    }
+  @Test
+  public void failedFactories_setStatusAndReason() {
+    IndexStatus failed = IndexStatus.failed("boom");
+    assertEquals(IndexStatus.StatusCode.FAILED, failed.getStatusCode());
+    assertEquals(Optional.of("boom"), failed.getMessage());
+    assertTrue(failed.getReason().isEmpty());
 
-    private static BsonSerializationTestSuite.TestSpec<IndexStatus> initialSyncWithMessage() {
-      return BsonSerializationTestSuite.TestSpec.create(
-          "initial sync with message", IndexStatus.initialSync("foo-bar"));
-    }
+    IndexStatus failedWithReason = IndexStatus.failed("boom", IndexStatus.Reason.EXCEED_MAX_LIMIT);
+    assertEquals(IndexStatus.StatusCode.FAILED, failedWithReason.getStatusCode());
+    assertEquals(Optional.of(IndexStatus.Reason.EXCEED_MAX_LIMIT), failedWithReason.getReason());
+  }
 
-    private static BsonSerializationTestSuite.TestSpec<IndexStatus> stale() {
-      return BsonSerializationTestSuite.TestSpec.create(
-          "stale index", IndexStatus.stale("foo-bar", new BsonTimestamp(1000)));
-    }
+  @Test
+  public void doesNotExist_setsReasonAndFlags() {
+    IndexStatus dropped = IndexStatus.doesNotExist(IndexStatus.Reason.INDEX_DROPPED);
+    assertEquals(IndexStatus.StatusCode.DOES_NOT_EXIST, dropped.getStatusCode());
+    assertEquals(Optional.of(IndexStatus.Reason.INDEX_DROPPED), dropped.getReason());
+    assertTrue(dropped.isIndexDropped());
+    assertFalse(dropped.isCollectionNotFound());
 
-    private static BsonSerializationTestSuite.TestSpec<IndexStatus> recoveringNonTransient() {
-      return BsonSerializationTestSuite.TestSpec.create(
-          "recovering non transient", IndexStatus.recoveringNonTransient(new BsonTimestamp(1000)));
-    }
+    IndexStatus collectionNotFound =
+        IndexStatus.doesNotExist(IndexStatus.Reason.COLLECTION_NOT_FOUND);
+    assertTrue(collectionNotFound.isCollectionNotFound());
+    assertFalse(collectionNotFound.isIndexDropped());
+  }
 
-    private static BsonSerializationTestSuite.TestSpec<IndexStatus> recoveringTransient() {
-      return BsonSerializationTestSuite.TestSpec.create(
-          "recovering transient", IndexStatus.recoveringTransient("recovering"));
-    }
+  @Test
+  public void isIndexDropped_isTrueForDoesNotExistWithoutReason() {
+    IndexStatus status =
+        IndexStatus.fromPersisted(
+            IndexStatus.StatusCode.DOES_NOT_EXIST,
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty());
+    assertTrue(status.isIndexDropped());
+  }
 
-    private static BsonSerializationTestSuite.TestSpec<IndexStatus> failed() {
-      return BsonSerializationTestSuite.TestSpec.create(
-          "failed",
-          IndexStatus.failed("recovering", IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED));
-    }
+  @Test
+  public void canServiceQueries_trueOnlyForServiceableStatuses() {
+    assertTrue(IndexStatus.steady().canServiceQueries());
+    assertTrue(IndexStatus.stale("s", new BsonTimestamp(1)).canServiceQueries());
+    assertTrue(IndexStatus.recoveringTransient("r").canServiceQueries());
+    assertTrue(IndexStatus.recoveringNonTransient(new BsonTimestamp(1)).canServiceQueries());
+
+    assertFalse(IndexStatus.unknown().canServiceQueries());
+    assertFalse(IndexStatus.notStarted().canServiceQueries());
+    assertFalse(IndexStatus.initialSync().canServiceQueries());
+    assertFalse(IndexStatus.failed("f").canServiceQueries());
+    assertFalse(IndexStatus.doesNotExist(IndexStatus.Reason.INDEX_DROPPED).canServiceQueries());
+  }
+
+  @Test
+  public void canBeRecovered_trueOnlyForRecoverableReasons() {
+    assertTrue(IndexStatus.failed("f", IndexStatus.Reason.INITIALIZATION_FAILED).canBeRecovered());
+    assertTrue(
+        IndexStatus.fromIndexStateInfo(
+                IndexStatus.StatusCode.FAILED, IndexStatus.Reason.AUTO_EMBEDDING_RESOLUTION_RETRY)
+            .canBeRecovered());
+
+    assertFalse(IndexStatus.failed("f", IndexStatus.Reason.EXCEED_MAX_LIMIT).canBeRecovered());
+    assertFalse(IndexStatus.steady().canBeRecovered());
+  }
+
+  @Test
+  public void constructor_acceptsValidReasonForStatus() {
+    // FAILED-scoped reasons.
+    IndexStatus.fromIndexStateInfo(
+        IndexStatus.StatusCode.FAILED, IndexStatus.Reason.INITIALIZATION_FAILED);
+    // DOES_NOT_EXIST-scoped reasons.
+    IndexStatus.fromIndexStateInfo(
+        IndexStatus.StatusCode.DOES_NOT_EXIST, IndexStatus.Reason.COLLECTION_NOT_FOUND);
+    IndexStatus.fromIndexStateInfo(
+        IndexStatus.StatusCode.DOES_NOT_EXIST, IndexStatus.Reason.INDEX_DROPPED);
+    // USER_ERROR is unconstrained and valid for any status code.
+    IndexStatus.fromIndexStateInfo(IndexStatus.StatusCode.STEADY, IndexStatus.Reason.USER_ERROR);
+  }
+
+  @Test
+  public void constructor_rejectsReasonThatRequiresFailedStatus() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            IndexStatus.fromIndexStateInfo(
+                IndexStatus.StatusCode.STEADY, IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED));
+  }
+
+  @Test
+  public void constructor_rejectsReasonThatRequiresDoesNotExistStatus() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            IndexStatus.fromIndexStateInfo(
+                IndexStatus.StatusCode.INITIAL_SYNC, IndexStatus.Reason.INDEX_DROPPED));
+  }
+
+  @Test
+  public void failedFactory_rejectsReasonScopedToDoesNotExist() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> IndexStatus.failed("boom", IndexStatus.Reason.COLLECTION_NOT_FOUND));
+  }
+
+  @Test
+  public void fromPersisted_populatesFieldsForValidCombination() {
+    BsonTimestamp optime = new BsonTimestamp(1000);
+    IndexStatus status =
+        IndexStatus.fromPersisted(
+            IndexStatus.StatusCode.FAILED,
+            Optional.of("boom"),
+            Optional.of(optime),
+            Optional.of(IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED));
+
+    assertEquals(IndexStatus.StatusCode.FAILED, status.getStatusCode());
+    assertEquals(Optional.of("boom"), status.getMessage());
+    assertEquals(Optional.of(optime), status.getOptime());
+    assertEquals(
+        Optional.of(IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED), status.getReason());
+  }
+
+  @Test
+  public void fromPersisted_rejectsMismatchedReasonAndStatusCode() {
+    // fromPersisted goes through the same validating constructor as the other factories, so a
+    // mismatched (statusCode, reason) combination is rejected here too.
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            IndexStatus.fromPersisted(
+                IndexStatus.StatusCode.UNKNOWN,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.of(IndexStatus.Reason.INITIAL_SYNC_REPLICATION_FAILED)));
+  }
+
+  @Test
+  public void equalsAndHashCode_dependOnAllFields() {
+    assertEquals(IndexStatus.steady(), IndexStatus.steady());
+    assertEquals(IndexStatus.steady().hashCode(), IndexStatus.steady().hashCode());
+
+    assertEquals(IndexStatus.failed("same"), IndexStatus.failed("same"));
+    assertFalse(IndexStatus.failed("a").equals(IndexStatus.failed("b")));
+    assertFalse(IndexStatus.steady().equals(IndexStatus.initialSync()));
   }
 }

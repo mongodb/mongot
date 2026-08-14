@@ -2,7 +2,6 @@ package com.xgen.mongot.catalogservice.schema;
 
 import com.mongodb.client.model.Filters;
 import com.xgen.mongot.index.definition.IndexDefinition;
-import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.synonym.SynonymDetailedStatus;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
@@ -147,14 +146,17 @@ public record IndexStatsEntry(
   }
 
   public record DetailedIndexStats(
-      IndexStatus status,
+      IndexStatusP status,
       IndexDefinition definition,
       Optional<Map<String, SynonymDetailedStatus>> synonymDetailedStatusMap)
       implements DocumentEncodable {
 
     static class Fields {
-      static final Field.Required<IndexStatus> INDEX_STATUS =
-          Field.builder("status").classField(IndexStatus::fromBson).allowUnknownFields().required();
+      static final Field.Required<IndexStatusP> INDEX_STATUS =
+          Field.builder("status")
+              .classField(IndexStatusP::fromBson)
+              .allowUnknownFields()
+              .required();
 
       static final Field.Required<IndexDefinition> INDEX_DEFINITION =
           Field.builder("definition")

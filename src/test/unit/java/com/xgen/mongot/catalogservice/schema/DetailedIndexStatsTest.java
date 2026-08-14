@@ -5,7 +5,6 @@ import static com.xgen.testing.BsonSerializationTestSuite.fromEncodable;
 
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
-import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.status.SynonymStatus;
 import com.xgen.mongot.index.synonym.SynonymDetailedStatus;
 import com.xgen.testing.BsonDeserializationTestSuite;
@@ -70,7 +69,11 @@ public class DetailedIndexStatsTest {
       return BsonDeserializationTestSuite.TestSpec.valid(
           "simple search index",
           new IndexStatsEntry.DetailedIndexStats(
-              new IndexStatus(IndexStatus.StatusCode.INITIAL_SYNC),
+              new IndexStatusP(
+                  IndexStatusP.StatusCode.INITIAL_SYNC,
+                  Optional.empty(),
+                  Optional.empty(),
+                  Optional.empty()),
               createSearchIndexDef(),
               Optional.empty()));
     }
@@ -80,7 +83,11 @@ public class DetailedIndexStatsTest {
       return BsonDeserializationTestSuite.TestSpec.valid(
           "simple vector index",
           new IndexStatsEntry.DetailedIndexStats(
-              new IndexStatus(IndexStatus.StatusCode.INITIAL_SYNC),
+              new IndexStatusP(
+                  IndexStatusP.StatusCode.INITIAL_SYNC,
+                  Optional.empty(),
+                  Optional.empty(),
+                  Optional.empty()),
               createVectorSearchDef(),
               Optional.empty()));
     }
@@ -90,7 +97,11 @@ public class DetailedIndexStatsTest {
       return BsonDeserializationTestSuite.TestSpec.valid(
           "search with empty synonym detailed status map",
           new IndexStatsEntry.DetailedIndexStats(
-              new IndexStatus(IndexStatus.StatusCode.INITIAL_SYNC),
+              new IndexStatusP(
+                  IndexStatusP.StatusCode.INITIAL_SYNC,
+                  Optional.empty(),
+                  Optional.empty(),
+                  Optional.empty()),
               createSearchIndexDef(),
               Optional.of(Collections.emptyMap())));
     }
@@ -100,7 +111,11 @@ public class DetailedIndexStatsTest {
       return BsonDeserializationTestSuite.TestSpec.valid(
           "search with synonym detailed status map",
           new IndexStatsEntry.DetailedIndexStats(
-              new IndexStatus(IndexStatus.StatusCode.INITIAL_SYNC),
+              new IndexStatusP(
+                  IndexStatusP.StatusCode.INITIAL_SYNC,
+                  Optional.empty(),
+                  Optional.empty(),
+                  Optional.empty()),
               createSearchIndexDef(),
               Optional.of(
                   Map.of(
@@ -144,7 +159,11 @@ public class DetailedIndexStatsTest {
       return BsonSerializationTestSuite.TestSpec.create(
           "simple search index",
           new IndexStatsEntry.DetailedIndexStats(
-              new IndexStatus(IndexStatus.StatusCode.INITIAL_SYNC),
+              new IndexStatusP(
+                  IndexStatusP.StatusCode.INITIAL_SYNC,
+                  Optional.empty(),
+                  Optional.empty(),
+                  Optional.empty()),
               createSearchIndexDef(),
               Optional.empty()));
     }
@@ -154,7 +173,11 @@ public class DetailedIndexStatsTest {
       return BsonSerializationTestSuite.TestSpec.create(
           "simple vector index",
           new IndexStatsEntry.DetailedIndexStats(
-              new IndexStatus(IndexStatus.StatusCode.INITIAL_SYNC),
+              new IndexStatusP(
+                  IndexStatusP.StatusCode.INITIAL_SYNC,
+                  Optional.empty(),
+                  Optional.empty(),
+                  Optional.empty()),
               createVectorSearchDef(),
               Optional.empty()));
     }
@@ -164,7 +187,11 @@ public class DetailedIndexStatsTest {
       return BsonSerializationTestSuite.TestSpec.create(
           "search with empty synonym detailed status map",
           new IndexStatsEntry.DetailedIndexStats(
-              new IndexStatus(IndexStatus.StatusCode.INITIAL_SYNC),
+              new IndexStatusP(
+                  IndexStatusP.StatusCode.INITIAL_SYNC,
+                  Optional.empty(),
+                  Optional.empty(),
+                  Optional.empty()),
               createSearchIndexDef(),
               Optional.of(Collections.emptyMap())));
     }
@@ -174,7 +201,11 @@ public class DetailedIndexStatsTest {
       return BsonSerializationTestSuite.TestSpec.create(
           "search with synonym detailed status map",
           new IndexStatsEntry.DetailedIndexStats(
-              new IndexStatus(IndexStatus.StatusCode.INITIAL_SYNC),
+              new IndexStatusP(
+                  IndexStatusP.StatusCode.INITIAL_SYNC,
+                  Optional.empty(),
+                  Optional.empty(),
+                  Optional.empty()),
               createSearchIndexDef(),
               Optional.of(
                   Map.of(

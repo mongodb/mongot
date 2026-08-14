@@ -12,6 +12,7 @@ import com.mongodb.MongoException;
 import com.xgen.mongot.catalogservice.AuthoritativeIndexCatalog;
 import com.xgen.mongot.catalogservice.CatalogAccessGuard;
 import com.xgen.mongot.catalogservice.IndexStats;
+import com.xgen.mongot.catalogservice.IndexStatusMapper;
 import com.xgen.mongot.catalogservice.MetadataService;
 import com.xgen.mongot.catalogservice.MetadataServiceException;
 import com.xgen.mongot.catalogservice.ServerState;
@@ -630,7 +631,8 @@ public class CommunityReadinessCheckerTest {
   private IndexStatsEntry createIndexStatsEntry(
       ObjectId serverId, ObjectId indexId, SearchIndexDefinition definition, IndexStatus status) {
     IndexStatsEntry.DetailedIndexStats detailedStats =
-        new IndexStatsEntry.DetailedIndexStats(status, definition, Optional.empty());
+        new IndexStatsEntry.DetailedIndexStats(
+            IndexStatusMapper.toPersisted(status), definition, Optional.empty());
 
     return new IndexStatsEntry(
         new IndexStatsEntry.IndexStatsKey(serverId, indexId),

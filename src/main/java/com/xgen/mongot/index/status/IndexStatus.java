@@ -1,20 +1,14 @@
 package com.xgen.mongot.index.status;
 
 import com.google.common.base.Objects;
-import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
-import com.xgen.mongot.util.bson.parser.BsonParseException;
-import com.xgen.mongot.util.bson.parser.DocumentEncodable;
-import com.xgen.mongot.util.bson.parser.DocumentParser;
-import com.xgen.mongot.util.bson.parser.Field;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
-import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
 
-public class IndexStatus implements DocumentEncodable {
+public class IndexStatus {
   public static final String INVALID_DEFINITION_MESSAGE_PREFIX = "Invalid definition: ";
 
   private static final Map<Reason, Predicate<StatusCode>> reasonValidationMap =
@@ -76,20 +70,6 @@ public class IndexStatus implements DocumentEncodable {
     this.message = message;
     this.optime = optime;
     this.reason = reason;
-  }
-
-  abstract static class Fields {
-    static final Field.Required<StatusCode> STATUS_CODE =
-        Field.builder("statusCode").enumField(StatusCode.class).asUpperUnderscore().required();
-
-    static final Field.Optional<String> MESSAGE =
-        Field.builder("message").stringField().optional().noDefault();
-
-    static final Field.Optional<BsonTimestamp> OP_TIME =
-        Field.builder("optime").bsonTimestampField().optional().noDefault();
-
-    static final Field.Optional<Reason> REASON =
-        Field.builder("reason").enumField(Reason.class).asUpperUnderscore().optional().noDefault();
   }
 
   private void validateReasonForStatus(StatusCode statusCode, Optional<Reason> reason) {
@@ -233,6 +213,20 @@ public class IndexStatus implements DocumentEncodable {
     return new IndexStatus(statusCode, Optional.empty(), Optional.empty(), Optional.of(reason));
   }
 
+  /**
+   * Reconstructs an in-memory {@link IndexStatus} from fields read out of persisted state (see
+   * {@link com.xgen.mongot.catalogservice.schema.IndexStatusP}). This is a distinct factory so any
+   * future exemption from reason/statusCode validation for persisted reads has a clear, single
+   * place to be made.
+   */
+  public static IndexStatus fromPersisted(
+      StatusCode statusCode,
+      Optional<String> message,
+      Optional<BsonTimestamp> optime,
+      Optional<Reason> reason) {
+    return new IndexStatus(statusCode, message, optime, reason);
+  }
+
   public StatusCode getStatusCode() {
     return this.statusCode;
   }
@@ -260,30 +254,6 @@ public class IndexStatus implements DocumentEncodable {
 
   public Optional<Reason> getReason() {
     return this.reason;
-  }
-
-  @Override
-  public BsonDocument toBson() {
-    return BsonDocumentBuilder.builder()
-        .field(Fields.STATUS_CODE, this.statusCode)
-        .field(Fields.MESSAGE, this.message)
-        .field(Fields.OP_TIME, this.optime)
-        .field(Fields.REASON, this.reason)
-        .build();
-  }
-
-  public static IndexStatus fromBson(DocumentParser parser) throws BsonParseException {
-    try {
-      return new IndexStatus(
-          parser.getField(Fields.STATUS_CODE).unwrap(),
-          parser.getField(Fields.MESSAGE).unwrap(),
-          parser.getField(Fields.OP_TIME).unwrap(),
-          parser.getField(Fields.REASON).unwrap());
-    } catch (IllegalArgumentException e) {
-      // Wrap the illegal argument exception when validating #validateReasonForStatus() with a
-      // BsonParseException when deserializing.
-      throw new BsonParseException(e);
-    }
   }
 
   @Override
