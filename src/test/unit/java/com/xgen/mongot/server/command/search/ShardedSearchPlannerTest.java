@@ -1000,6 +1000,121 @@ public class ShardedSearchPlannerTest {
         Optional.empty());
   }
 
+  /**
+   * Boundary grouping with {@code min}. CLOUDP-424290 wired the boundary field resolver through
+   * planning for {@code sum}/{@code avg}; the resolver is keyed on the grouping rather than the
+   * metric, so min/max inherit it -- this pins that, including the boundary key sort.
+   */
+  @Test
+  public void testFlatBoundaryMinAggregationMetaPipeline() throws Exception {
+    assertBoundaryMinMaxMetaPipeline(Operator.MIN, "min_price", "$min");
+  }
+
+  /**
+   * Boundary grouping with {@code max}; see {@link #testFlatBoundaryMinAggregationMetaPipeline}.
+   */
+  @Test
+  public void testFlatBoundaryMaxAggregationMetaPipeline() throws Exception {
+    assertBoundaryMinMaxMetaPipeline(Operator.MAX, "max_price", "$max");
+  }
+
+  private static void assertBoundaryMinMaxMetaPipeline(
+      Operator operator, String metricName, String mergeOperator) throws Exception {
+    // The production specs, not TestOperatorSpecs' fakes: the point is the real merge shape.
+    SearchAggregationBootstrap.installRegistry();
+    CollectorQuery query = createFlatBoundaryMinMaxAggregationQuery(operator, metricName);
+    PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
+        ShardedSearchPlanner.planSearch(
+            query,
+            new PlanShardedSearchCommandDefinition.SearchFeatures(0),
+            AGGREGATION_ENABLED_FEATURE_FLAGS,
+            Optional.of(boundaryFieldResolverForTestIndex()));
+
+    List<BsonDocument> pipeline = result.metaPipeline;
+    Assert.assertEquals(3, pipeline.size());
+
+    // Metrics are aliased positionally in the merge pipeline; the request name only reappears in
+    // the final $project.
+    String partial = "m0";
+    BsonDocument expectedGroup =
+        BsonDocument.parse(
+            """
+            {"$group": {
+              "_id": {
+                "group_name": {
+                  "$getField": {
+                    "field": {"$literal": "$meta/group_name"},
+                    "input": "$$ROOT"
+                  }
+                },
+                "keys": {"$getField": {"field": {"$literal": "$meta/keys"}, "input": "$$ROOT"}}
+              },
+              "count_value": {"$sum": "$count"},
+              "%s": {"%s": "$%s"}
+            }}
+            """
+                .formatted(partial, mergeOperator, partial));
+    Assert.assertEquals(expectedGroup, pipeline.get(0));
+
+    // Boundary buckets order by the request's boundary list (key ascending), not by doc count.
+    BsonDocument expectedFacet =
+        BsonDocument.parse(
+            """
+            {"$facet": {
+              "f0": [
+                {"$match": {"$expr": {"$eq": [
+                  {"$getField": {"field": "group_name", "input": "$_id"}},
+                  "f0"
+                ]}}},
+                {"$sort": {"_id.keys.k0": 1}},
+                {"$project": {
+                  "_id": {
+                    "$getField": {
+                      "field": "k0",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
+                  "%s": "$%s"
+                }}
+              ],
+              "count": [{"$match": {"$expr": {"$eq": [
+                {"$ifNull": [{"$getField": {"field": "group_name", "input": "$_id"}}, null]},
+                null
+              ]}}}]
+            }}
+            """
+                .formatted(metricName, partial));
+    Assert.assertEquals(expectedFacet, pipeline.get(1));
+  }
+
+  private static CollectorQuery createFlatBoundaryMinMaxAggregationQuery(
+      Operator operator, String metricName) {
+    AggregationFacetDefinition agg =
+        AggregationFacetDefinition.create(
+            new FacetDefinition.NumericFacetDefinition(
+                "price",
+                Optional.empty(),
+                List.of(
+                    new BsonInt32(0), new BsonInt32(100), new BsonInt32(200), new BsonInt32(300))),
+            Map.of(metricName, new MetricSpec(operator, Optional.of(FieldPath.parse("price")))),
+            Map.of());
+    AggregationCollector collector =
+        AggregationCollector.create(
+            OperatorBuilder.text().path("title").query("godfather").build(), Map.of("agg", agg));
+    return new CollectorQuery(
+        collector,
+        "default",
+        Count.DEFAULT,
+        Optional.empty(),
+        Optional.empty(),
+        false,
+        false,
+        false,
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty());
+  }
+
   private static CollectorQuery createFlatBoundaryAvgAggregationQuery() {
     AggregationFacetDefinition agg =
         AggregationFacetDefinition.create(

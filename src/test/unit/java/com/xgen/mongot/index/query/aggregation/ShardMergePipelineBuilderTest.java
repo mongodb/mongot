@@ -223,6 +223,85 @@ public class ShardMergePipelineBuilderTest {
     assertEquals(expectedReplaceWith, pipeline.get(2));
   }
 
+  /**
+   * Nested grouping with {@code min} and {@code max} siblings. Unlike {@code sum}, these merge with
+   * selective accumulators, and their partials have to survive the same flat-row push and bucket
+   * reconstruction -- the combination the flat terms coverage in {@code ShardedSearchPlannerTest}
+   * never exercises.
+   */
+  @Test
+  public void nestedGroupsCarryMinAndMaxPartialsThroughReconstruction() {
+    AggregationSpec min = new MinAggregationSpec("cheapest", PRICE);
+    AggregationSpec max = new MaxAggregationSpec("priciest", PRICE);
+    AggregationSpec innerGroup = new TermsSpec("by_color", COLOR, List.of(min, max));
+    AggregationSpec outerGroup = new TermsSpec("by_city", CITY, List.of(innerGroup));
+    TopAggregationSpec top = new TopAggregationSpec(List.of(outerGroup));
+
+    List<BsonDocument> pipeline = buildPipeline(top);
+
+    BsonDocument expectedGroup =
+        BsonDocument.parse(
+            """
+            {"$group": {
+              "_id": {
+                "group_name": {
+                  "$getField": {
+                    "field": {"$literal": "$meta/group_name"},
+                    "input": "$$ROOT"
+                  }
+                },
+                "keys": {"$getField": {"field": {"$literal": "$meta/keys"}, "input": "$$ROOT"}}
+              },
+              "count_value": {"$sum": "$count"},
+              "m0": {"$min": "$m0"},
+              "m1": {"$max": "$m1"}
+            }}
+            """);
+    assertEquals(expectedGroup, pipeline.get(0));
+
+    BsonArray expectedByCityArm =
+        BsonArray.parse(
+            """
+            [
+              {"$match": {"$expr": {"$eq": [
+                {"$getField": {"field": "group_name", "input": "$_id"}},
+                "f0"
+              ]}}},
+              {"$group": {
+                "_id": {
+                  "$getField": {
+                    "field": "k0",
+                    "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                  }
+                },
+                "_rows": {"$push": {
+                  "k1": {
+                    "$getField": {
+                      "field": "k1",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
+                  "m0": "$m0",
+                  "m1": "$m1"
+                }}
+              }},
+              {"$project": {
+                "_id": "$_id",
+                "by_color": {"buckets": {"$map": {
+                  "input": "$_rows",
+                  "as": "row",
+                  "in": {
+                    "_id": "$$row.k1",
+                    "cheapest": "$$row.m0",
+                    "priciest": "$$row.m1"
+                  }
+                }}}
+              }}
+            ]
+            """);
+    assertEquals(expectedByCityArm, pipeline.get(1).getDocument("$facet").getArray("f0"));
+  }
+
   @Test
   public void nestedDepth4_emitsThreeGroupStagesAndTripleNestedProject() {
     AggregationSpec leaf = new SumAggregationSpec("sum_price", PRICE);
