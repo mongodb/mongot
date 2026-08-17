@@ -130,12 +130,14 @@ tools.precommit.enabled:
     		echo "WARNING: pre-commit is not installed on your system."; \
     		echo "Install it via 'pip install pre-commit' or 'brew install pre-commit'."; \
             echo "****************************************************************"; \
-    	elif [ ! -f .git/hooks/pre-commit ] || ! grep -q "pre-commit" .git/hooks/pre-commit; then \
-    		echo "****************************************************************"; \
-    		echo "WARNING: Local pre-commit hooks are not installed."; \
-    		echo "Run 'pre-commit install' to enable it."; \
-    		echo "****************************************************************"; \
-    	fi
+	elif HOOKS="$$(git rev-parse --git-path hooks)/pre-commit"; then \
+		if [ ! -f "$$HOOKS" ] || ! grep -q "pre-commit" "$$HOOKS"; then \
+			echo "****************************************************************"; \
+			echo "WARNING: Local pre-commit hooks are not installed."; \
+			echo "Run 'pre-commit install' to enable it."; \
+			echo "****************************************************************"; \
+		fi; \
+	fi
 
 # dependency rules
 .PHONY: deps.update
