@@ -9,7 +9,7 @@
       "markdownDescription": "Field type to use to index string, number, and boolean values for pre-filtering the data. To learn more, see [filter Type](https://dochub.mongodb.org/core/avs-vector-search-filter-type/)",
       "description": "Field type to use to index string, number, and boolean values for pre-filtering the data. Use dot notation for embedded fields. ",
       "const": "filter",
-      "$ref": "../fields.json#/definitions/typeErrorMessage"
+      "errorMessage": "Unsupported vector field type."
     },
     "path": {
       "suggestSortText": "1",

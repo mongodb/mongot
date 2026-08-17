@@ -9,7 +9,7 @@
       "markdownDescription": "Field type to use to generate auto-embeddings for vector search.",
       "description": "Field type to use to generate auto-embeddings for vector search.",
       "const": "text",
-      "$ref": "../fields.json#/definitions/typeErrorMessage"
+      "errorMessage": "Unsupported vector field type."
     },
     "path": {
       "suggestSortText": "1",

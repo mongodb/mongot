@@ -9,7 +9,7 @@
       "markdownDescription": "Field type to use to index text data for semantic search. Automated Embedding automatically generates vector embeddings for the selected field, using the embedding model chosen by you. To learn more about this data type, see [autoEmbed type](https://dochub.mongodb.org/core/avs-autoembed-type/).",
       "description": "Field type to use to index text data for semantic search. Automated Embedding automatically generates vector embeddings for the selected field, using the embedding model chosen by you.",
       "const": "autoEmbed",
-      "$ref": "../fields.json#/definitions/typeErrorMessage"
+      "errorMessage": "Unsupported vector field type."
     },
     "modality": {
       "suggestSortText": "1",

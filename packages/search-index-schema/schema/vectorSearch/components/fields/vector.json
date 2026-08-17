@@ -9,7 +9,7 @@
       "markdownDescription": "Field type to use to index array of numbers for vector search. To learn more, see [vector Type](https://dochub.mongodb.org/core/avs-vector-type/).",
       "description": "Field type to use to index array of numbers for vector search.",
       "const": "vector",
-      "$ref": "../fields.json#/definitions/typeErrorMessage"
+      "errorMessage": "Unsupported vector field type."
     },
     "path": {
       "suggestSortText": "1",

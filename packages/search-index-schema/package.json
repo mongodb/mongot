@@ -1,6 +1,6 @@
 {
   "name": "@mongodb-js/search-index-schema",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "MongoDB Atlas Search Index JSON schemas",
   "main": "index.js",
   "types": "index.d.ts",
