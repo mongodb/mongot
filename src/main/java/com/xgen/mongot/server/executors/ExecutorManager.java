@@ -90,10 +90,14 @@ public class ExecutorManager implements Closeable {
 
   void shutdown() throws InterruptedException {
     this.commandExecutor.close();
-    shutdownEventLoopGroupsInParallel(
-        this.eventLoopGroups.column(EventLoopGroupType.WORKER).values());
+    // BOSS groups must go down first: shutting down a boss group closes its listen channels and
+    // stops accepting. If the workers die first, the still-accepting boss accepts connections it
+    // cannot register; those are force-closed after a successful TCP handshake instead of being
+    // refused (CLOUDP-434454 / HELP-98178).
     shutdownEventLoopGroupsInParallel(
         this.eventLoopGroups.column(EventLoopGroupType.BOSS).values());
+    shutdownEventLoopGroupsInParallel(
+        this.eventLoopGroups.column(EventLoopGroupType.WORKER).values());
   }
 
   private static void shutdownEventLoopGroupsInParallel(Collection<EventLoopGroup> eventLoopGroups)
