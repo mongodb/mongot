@@ -92,8 +92,8 @@ public class DefaultConfigManagerTest {
   }
 
   /**
-   * On clean shutdown an offline-serving unresolved auto-embedding index is closed even though it
-   * is absent from the initialized-index catalog, so its reconstructed Lucene reader does not leak.
+   * On clean shutdown an offline-serving unresolved auto-embedding index's reconstructed Lucene
+   * reader is closed via its initialized-index catalog registration, so it does not leak.
    */
   @Test
   public void close_offlineServingAutoEmbeddingIndex_closesReconstructedReader() throws Exception {
@@ -104,9 +104,12 @@ public class DefaultConfigManagerTest {
     IndexGeneration offlineServing =
         UnresolvedAutoEmbeddingIndexGeneration.createStale(
             MOCK_VECTOR_INDEX_DEFINITION_GENERATION_CURRENT, reconstructed, Map.of());
-    // Present in the index catalog but never initialized, so absent from the initialized-index
-    // catalog -- the case that previously left the reconstructed reader unclosed on shutdown.
+    when(reconstructed.getGenerationId()).thenReturn(offlineServing.getGenerationId());
+    // The generation is in the index catalog, and production registers its reconstructed derived
+    // index in the initialized-index catalog under the same generation id, so shutdown closes the
+    // reconstructed reader via that registration.
     mocks.indexCatalog.addIndex(offlineServing);
+    mocks.mockedDependencies.initializedIndexCatalog.addIndex(reconstructed);
 
     mocks.configManager.close();
 

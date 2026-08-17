@@ -432,9 +432,10 @@ public class DefaultConfigManager implements ConfigManager {
                               initializedIndex.get().close();
                             } else if (indexGen.getIndex()
                                 instanceof UnresolvedAutoEmbeddingIndex unresolved) {
-                              // An offline-serving unresolved auto-embedding index holds an open
-                              // reconstructed Lucene reader but is intentionally kept out of the
-                              // initialized-index catalog, so close it here to release the reader.
+                              // An unresolved auto-embedding index that is not in the initialized
+                              // catalog (a failed generation retaining an unopened derived handle;
+                              // offline-serving ones register and are closed by the branch above)
+                              // may still hold a derived index handle, so close it here.
                               unresolved.close();
                             } else {
                               GenerationId generationId = indexGen.getGenerationId();

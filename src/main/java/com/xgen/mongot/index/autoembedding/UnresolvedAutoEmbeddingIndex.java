@@ -14,9 +14,10 @@ import java.util.Optional;
  * Auto-embedding index that could not resolve its materialized view (mongod unreachable or missing
  * sync source), kept to track status for retry. When the derived Lucene was committed to local disk
  * it carries a reconstructed derived index rebuilt offline from the persisted commit metadata:
- * status delegates to it (STALE) and {@code VectorSearchCommand} serves queries from it until
- * mongod returns. Otherwise it reports its FAILED/DOES_NOT_EXIST status but may still retain an
- * unopened derived index handle so {@code drop()} can reclaim the generation's on-disk data.
+ * status delegates to it (STALE) and it is registered in the initialized-index catalog so queries
+ * resolve it like any other index until mongod returns. Otherwise it reports its
+ * FAILED/DOES_NOT_EXIST status but may still retain an unopened derived index handle so {@code
+ * drop()} can reclaim the generation's on-disk data.
  */
 public class UnresolvedAutoEmbeddingIndex implements Index {
 

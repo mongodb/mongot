@@ -7,13 +7,12 @@ import com.google.common.base.Supplier;
 import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.embedding.EmbeddingRequestContext;
 import com.xgen.mongot.embedding.VectorOrError;
-import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelCatalog;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGeneration;
-import com.xgen.mongot.index.autoembedding.InitializedMaterializedViewIndex;
+import com.xgen.mongot.index.autoembedding.UnresolvedAutoEmbeddingIndex;
 import com.xgen.mongot.index.definition.FieldDefinition;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
@@ -64,7 +63,9 @@ final class SearchAutoEmbeddingHelper {
 
   /**
    * Resolves the source-path to materialized-view-path mapping for the auto-embedding index backing
-   * a query. Empty when no auto-embedding index backs the query.
+   * a query: from the live materialized view when the index is resolved, otherwise (offline, view
+   * unresolved) from the mapping persisted with the reconstructed derived index. Empty when no
+   * auto-embedding index backs the query.
    */
   static Map<FieldPath, FieldPath> resolveAutoEmbeddingFieldsMapping(
       IndexCatalog indexCatalog,
@@ -72,14 +73,23 @@ final class SearchAutoEmbeddingHelper {
       UUID collectionUuid,
       Optional<String> viewName,
       String indexName) {
-    return indexCatalog
-        .getIndex(databaseName, collectionUuid, viewName, indexName)
-        .filter(indexGeneration -> indexGeneration.getType() == AUTO_EMBEDDING)
-        .map(indexGeneration -> (AutoEmbeddingIndexGeneration) indexGeneration)
-        .map(generation -> generation.getMaterializedViewIndexGeneration().getIndex())
-        .map(InitializedMaterializedViewIndex::getSchemaMetadata)
-        .map(MaterializedViewSchemaMetadata::autoEmbeddingFieldsMapping)
-        .orElse(Map.of());
+    Optional<IndexGeneration> maybeGeneration =
+        indexCatalog.getIndex(databaseName, collectionUuid, viewName, indexName);
+    if (maybeGeneration.isEmpty()) {
+      return Map.of();
+    }
+    IndexGeneration generation = maybeGeneration.get();
+    if (generation.getType() == AUTO_EMBEDDING) {
+      return ((AutoEmbeddingIndexGeneration) generation)
+          .getMaterializedViewIndexGeneration()
+          .getIndex()
+          .getSchemaMetadata()
+          .autoEmbeddingFieldsMapping();
+    }
+    if (generation.getIndex() instanceof UnresolvedAutoEmbeddingIndex unresolved) {
+      return unresolved.getAutoEmbeddingFieldsMapping();
+    }
+    return Map.of();
   }
 
   /**

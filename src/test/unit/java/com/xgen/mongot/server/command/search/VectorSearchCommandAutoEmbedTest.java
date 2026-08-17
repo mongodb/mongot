@@ -193,8 +193,9 @@ public class VectorSearchCommandAutoEmbedTest {
     lenient().when(reconstructed.getStatus()).thenReturn(IndexStatus.steady());
 
     // The catalog holds an UnresolvedAutoEmbeddingIndexGeneration (materialized view
-    // unresolved) that carries the reconstructed derived index; it is absent from the
-    // initialized-index catalog, so the query falls through to the offline-reconstructed index.
+    // unresolved) that carries the reconstructed derived index, and the initialized-index catalog
+    // holds that reconstructed index under the raw generation id, as registered when it started
+    // serving offline.
     var rawGen =
         new VectorIndexDefinitionGeneration(
             VectorIndexDefinitionBuilder.builder().withAutoEmbedField(PATH.toString()).build(),
@@ -204,7 +205,7 @@ public class VectorSearchCommandAutoEmbedTest {
     when(mocks.catalog.getIndex(DATABASE_NAME, COLLECTION_UUID, Optional.empty(), INDEX_NAME))
         .thenReturn(Optional.of(unresolvedGeneration));
     when(mocks.initializedIndexCatalog.getIndex(unresolvedGeneration.getGenerationId()))
-        .thenReturn(Optional.empty());
+        .thenReturn(Optional.of(reconstructed));
 
     var command =
         buildAutoEmbeddingVectorSearchCommandWithMocks(
@@ -221,9 +222,9 @@ public class VectorSearchCommandAutoEmbedTest {
                 .build());
     var result = command.run();
 
-    // Served from the reconstructed derived index's reader via the offline fallback, not the
-    // initialized-index catalog. This covers the fallback routing and serving only; it does not
-    // exercise user-to-internal path remapping, which is not applied for an unresolved generation.
+    // Served from the reconstructed derived index's reader. This covers the offline routing and
+    // serving only; it does not exercise user-to-internal path remapping, which is not applied for
+    // an unresolved generation.
     Mockito.verify(mocks.reader, times(1)).query(any(), any());
     var expected =
         mockInitialMongotCursorBatchForVectorSearch(0, new VectorSearchResultBatch(4), NAMESPACE)

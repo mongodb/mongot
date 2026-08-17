@@ -8,6 +8,7 @@ java_test_suite(
         "KillCursorsCommandTest.java",
         "PlanShardedSearchCommandTest.java",
         "SearchAutoEmbeddingHelperTest.java",
+        "SearchCommandOfflineServeTest.java",
         "SearchCommandTest.java",
         "ShardedSearchPlannerTest.java",
         "VectorSearchCommandAutoEmbedTest.java",

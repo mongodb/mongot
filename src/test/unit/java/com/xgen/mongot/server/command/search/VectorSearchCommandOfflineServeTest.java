@@ -146,16 +146,16 @@ public class VectorSearchCommandOfflineServeTest {
 
       // Reconstruct offline and make it queryable.
       Optional<InitializedIndex> reconstructed =
-          AutoEmbeddingIndexGenerationFactory.reconstructOfflineDerivedVectorIndex(factory, rawGen);
+          AutoEmbeddingIndexGenerationFactory.reconstructOfflineDerivedIndex(factory, rawGen);
       assertThat(reconstructed).isPresent();
       InitializedVectorIndex reconstructedVectorIndex =
           Check.instanceOf(reconstructed.get(), InitializedVectorIndex.class);
       reconstructedVectorIndex.setStatus(IndexStatus.steady());
       reconstructedVectorIndex.getReader().refresh();
 
-      // Catalog holds the unresolved auto-embedding generation carrying the reconstructed index and
-      // the persisted user->internal field mapping; it is absent from the initialized-index
-      // catalog, forcing the offline fallback.
+      // Catalog holds the unresolved auto-embedding generation carrying the persisted
+      // user->internal field mapping, and the initialized-index catalog holds the reconstructed
+      // derived index under the raw generation id, as registered while serving offline.
       IndexGeneration unresolvedGeneration =
           UnresolvedAutoEmbeddingIndexGeneration.createStale(
               rawGen, reconstructedVectorIndex, schema.autoEmbeddingFieldsMapping());
@@ -163,7 +163,8 @@ public class VectorSearchCommandOfflineServeTest {
       when(indexCatalog.getIndex(any(), any(), any(), any()))
           .thenReturn(Optional.of(unresolvedGeneration));
       InitializedIndexCatalog initializedIndexCatalog = mock(InitializedIndexCatalog.class);
-      when(initializedIndexCatalog.getIndex(any())).thenReturn(Optional.empty());
+      when(initializedIndexCatalog.getIndex(any()))
+          .thenReturn(Optional.of(reconstructedVectorIndex));
 
       VectorSearchCommand command =
           new VectorSearchCommand(
@@ -208,8 +209,7 @@ public class VectorSearchCommandOfflineServeTest {
   /**
    * Auto-embedding indexes do not support stored source (the derived vector definition carries no
    * {@code storedSource}), so a {@code returnStoredSource: true} query served offline is rejected
-   * with a clear error rather than silently routed through the cursor path (which cannot find the
-   * reconstructed index in the initialized-index catalog and would return an empty batch).
+   * up front with a clear error rather than routed to the reconstructed index that cannot honor it.
    */
   @Test
   public void run_returnStoredSourceOnOfflineAutoEmbedding_rejectedNotSilentlyEmpty() {
@@ -251,7 +251,7 @@ public class VectorSearchCommandOfflineServeTest {
     when(indexCatalog.getIndex(any(), any(), any(), any()))
         .thenReturn(Optional.of(unresolvedGeneration));
     InitializedIndexCatalog initializedIndexCatalog = mock(InitializedIndexCatalog.class);
-    when(initializedIndexCatalog.getIndex(any())).thenReturn(Optional.empty());
+    when(initializedIndexCatalog.getIndex(any())).thenReturn(Optional.of(reconstructed));
 
     Vector queryVector =
         Vector.fromFloats(new float[] {1f, 0f, 0f, 0f}, FloatVector.OriginalType.NATIVE);

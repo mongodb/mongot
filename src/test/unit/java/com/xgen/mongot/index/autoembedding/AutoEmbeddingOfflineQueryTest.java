@@ -82,7 +82,7 @@ public class AutoEmbeddingOfflineQueryTest {
   private static final int DIMENSIONS = 4;
 
   @Test
-  public void reconstructOfflineDerivedVectorIndex_servesQueryFromCommitMetadataWithoutMatView()
+  public void reconstructOfflineDerivedIndex_servesQueryFromCommitMetadataWithoutMatView()
       throws Exception {
     ObjectId indexId = new ObjectId();
 
@@ -139,7 +139,7 @@ public class AutoEmbeddingOfflineQueryTest {
       // 2) Simulate offline serving: reconstruct the derived index using ONLY the persisted
       // AutoEmbeddingCommitMetadata (no materialized view, lease, or mongod).
       Optional<InitializedIndex> reconstructed =
-          AutoEmbeddingIndexGenerationFactory.reconstructOfflineDerivedVectorIndex(factory, rawGen);
+          AutoEmbeddingIndexGenerationFactory.reconstructOfflineDerivedIndex(factory, rawGen);
       assertThat(reconstructed).isPresent();
       assertThat(reconstructed.get()).isInstanceOf(InitializedVectorIndex.class);
       InitializedVectorIndex vectorIndex = (InitializedVectorIndex) reconstructed.get();

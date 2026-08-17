@@ -1,5 +1,6 @@
 package com.xgen.mongot.config.manager;
 
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -13,10 +14,12 @@ import com.xgen.mongot.index.IndexDetailedStatus;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.IndexInformation;
 import com.xgen.mongot.index.InitializedIndex;
+import com.xgen.mongot.index.InitializedSearchIndex;
 import com.xgen.mongot.index.ReplicationOpTimeInfo;
 import com.xgen.mongot.index.autoembedding.AutoEmbeddingCompositeIndex;
 import com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.autoembedding.InitializedMaterializedViewIndex;
+import com.xgen.mongot.index.autoembedding.UnresolvedAutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
@@ -35,6 +38,7 @@ import com.xgen.testing.mongot.index.definition.SynonymMappingDefinitionBuilder;
 import com.xgen.testing.mongot.mock.index.MaterializedViewIndex;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import java.util.Collections;
+import java.util.Map;
 import java.util.Set;
 import org.bson.BsonTimestamp;
 import org.bson.types.ObjectId;
@@ -481,6 +485,37 @@ public class AllPresentIndexesTest {
         Set.of("mySynonyms"),
         searchInfo.getSynonymStatus().keySet());
     Assert.assertEquals(SynonymStatus.READY, searchInfo.getSynonymStatus().get("mySynonyms"));
+  }
+
+  /**
+   * An unresolved auto-embedding generation serving offline reports its raw definition's type
+   * (SEARCH here), but its index is a stub with no synonym registry, so the detailed status must be
+   * derived from the definition without touching the stub.
+   */
+  @Test
+  public void testOfflineServingAutoEmbeddingSearchIndex_DetailedStatusReportsStale() {
+    ObjectId indexId = new ObjectId();
+
+    SearchIndexDefinition rawDef = SearchIndex.mockAutoEmbeddingSearchDefinition(indexId);
+    SearchIndexDefinitionGeneration rawGen =
+        com.xgen.testing.mongot.mock.index.IndexGeneration.mockDefinitionGeneration(rawDef);
+
+    // The derived Lucene reconstructed offline owns the STALE status served to the user.
+    InitializedSearchIndex reconstructed = mock(InitializedSearchIndex.class);
+    when(reconstructed.getStatus())
+        .thenReturn(IndexStatus.stale("serving offline", new BsonTimestamp(7L)));
+
+    this.mocks.indexCatalog.addIndex(
+        UnresolvedAutoEmbeddingIndexGeneration.createStale(rawGen, reconstructed, Map.of()));
+
+    IndexDetailedStatus mainStatus = getIndexInfo(indexId).getMainIndex().orElseThrow();
+    Assert.assertTrue(
+        "expected Search detailed status, got " + mainStatus.getClass().getSimpleName(),
+        mainStatus instanceof IndexDetailedStatus.Search);
+    IndexDetailedStatus.Search searchStatus = (IndexDetailedStatus.Search) mainStatus;
+    Assert.assertEquals(rawDef, searchStatus.definition());
+    Assert.assertTrue(searchStatus.synonymStatusMap().isEmpty());
+    Assert.assertEquals(IndexStatus.StatusCode.STALE, searchStatus.indexStatus().getStatusCode());
   }
 
   private IndexInformation getIndexInfo(ObjectId indexId) {

@@ -23,6 +23,7 @@ import com.xgen.mongot.index.Index;
 import com.xgen.mongot.index.IndexFactory;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.InitializedIndex;
+import com.xgen.mongot.index.InitializedSearchIndex;
 import com.xgen.mongot.index.InitializedVectorIndex;
 import com.xgen.mongot.index.definition.AnalyzerBoundSearchIndexDefinition;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
@@ -483,9 +484,8 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
   }
 
   @Test
-  public void
-      reconstructOfflineDerivedVectorIndex_persistedTenantMetadata_rebuildsWithTenantDatabase()
-          throws Exception {
+  public void reconstructOfflineDerivedIndex_persistedTenantMetadata_rebuildsWithTenantDatabase()
+      throws Exception {
     IndexFactory indexFactory =
         indexFactoryWithCommit(
             Optional.of(commitWith(reconstructableMetadata(TENANT_MV_DATABASE_NAME))));
@@ -496,7 +496,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
     when(indexFactory.getInitializedIndex(any(), any())).thenReturn(reconstructed);
 
     Optional<InitializedIndex> result =
-        AutoEmbeddingIndexGenerationFactory.reconstructOfflineDerivedVectorIndex(
+        AutoEmbeddingIndexGenerationFactory.reconstructOfflineDerivedIndex(
             indexFactory, autoEmbedVectorGen());
 
     assertThat(result).isPresent();
@@ -509,11 +509,10 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
   }
 
   @Test
-  public void reconstructOfflineDerivedVectorIndex_noPersistedCommit_returnsEmpty()
-      throws Exception {
+  public void reconstructOfflineDerivedIndex_noPersistedCommit_returnsEmpty() throws Exception {
     IndexFactory indexFactory = indexFactoryWithCommit(Optional.empty());
     assertThat(
-            AutoEmbeddingIndexGenerationFactory.reconstructOfflineDerivedVectorIndex(
+            AutoEmbeddingIndexGenerationFactory.reconstructOfflineDerivedIndex(
                 indexFactory, autoEmbedVectorGen()))
         .isEmpty();
   }
@@ -570,65 +569,76 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
   }
 
   @Test
-  public void reconstructOfflineDerivedVectorIndex_commitWithoutAutoEmbeddingMetadata_returnsEmpty()
+  public void reconstructOfflineDerivedIndex_commitWithoutAutoEmbeddingMetadata_returnsEmpty()
       throws Exception {
     IndexFactory indexFactory =
         indexFactoryWithCommit(Optional.of(IndexCommitUserData.EMPTY.toEncodedData()));
     assertThat(
-            AutoEmbeddingIndexGenerationFactory.reconstructOfflineDerivedVectorIndex(
+            AutoEmbeddingIndexGenerationFactory.reconstructOfflineDerivedIndex(
                 indexFactory, autoEmbedVectorGen()))
         .isEmpty();
   }
 
   @Test
-  public void reconstructOfflineDerivedVectorIndex_metadataMissingDatabaseName_returnsEmpty()
+  public void reconstructOfflineDerivedIndex_metadataMissingDatabaseName_returnsEmpty()
       throws Exception {
     AutoEmbeddingCommitMetadata metadata =
         new AutoEmbeddingCommitMetadata(true, Optional.empty(), Optional.of(collectionMetadata()));
     IndexFactory indexFactory = indexFactoryWithCommit(Optional.of(commitWith(metadata)));
     assertThat(
-            AutoEmbeddingIndexGenerationFactory.reconstructOfflineDerivedVectorIndex(
+            AutoEmbeddingIndexGenerationFactory.reconstructOfflineDerivedIndex(
                 indexFactory, autoEmbedVectorGen()))
         .isEmpty();
   }
 
   @Test
-  public void reconstructOfflineDerivedVectorIndex_metadataMissingCollectionMetadata_returnsEmpty()
+  public void reconstructOfflineDerivedIndex_metadataMissingCollectionMetadata_returnsEmpty()
       throws Exception {
     AutoEmbeddingCommitMetadata metadata =
         new AutoEmbeddingCommitMetadata(
             true, Optional.of(TENANT_MV_DATABASE_NAME), Optional.empty());
     IndexFactory indexFactory = indexFactoryWithCommit(Optional.of(commitWith(metadata)));
     assertThat(
-            AutoEmbeddingIndexGenerationFactory.reconstructOfflineDerivedVectorIndex(
+            AutoEmbeddingIndexGenerationFactory.reconstructOfflineDerivedIndex(
                 indexFactory, autoEmbedVectorGen()))
         .isEmpty();
   }
 
   @Test
-  public void reconstructOfflineDerivedVectorIndex_searchAutoEmbedSource_returnsEmpty()
+  public void reconstructOfflineDerivedIndex_searchAutoEmbedSource_rebuildsDerivedSearchIndex()
       throws Exception {
-    // Full reconstruction metadata is present, but a search auto-embed source is outside the
-    // vector-only proof scope, so reconstruction degrades to empty rather than throwing.
     IndexFactory indexFactory =
         indexFactoryWithCommit(
             Optional.of(commitWith(reconstructableMetadata(TENANT_MV_DATABASE_NAME))));
-    assertThat(
-            AutoEmbeddingIndexGenerationFactory.reconstructOfflineDerivedVectorIndex(
-                indexFactory, autoEmbedSearchGen()))
-        .isEmpty();
+    InitializedIndex reconstructed = mock(InitializedSearchIndex.class);
+    ArgumentCaptor<IndexDefinitionGeneration> derivedGen =
+        ArgumentCaptor.forClass(IndexDefinitionGeneration.class);
+    when(indexFactory.getIndex(derivedGen.capture())).thenReturn(mock(Index.class));
+    when(indexFactory.getInitializedIndex(any(), any())).thenReturn(reconstructed);
+
+    Optional<InitializedIndex> result =
+        AutoEmbeddingIndexGenerationFactory.reconstructOfflineDerivedIndex(
+            indexFactory, autoEmbedSearchGen());
+
+    assertThat(result).isPresent();
+    assertEquals(reconstructed, result.get());
+    // The derived search definition is rebuilt against the persisted materialized-view database
+    // and collection UUID, same as the vector path.
+    assertThat(derivedGen.getValue()).isInstanceOf(SearchIndexDefinitionGeneration.class);
+    assertEquals(TENANT_MV_DATABASE_NAME, derivedGen.getValue().getIndexDefinition().getDatabase());
+    assertEquals(
+        MV_COLLECTION_UUID, derivedGen.getValue().getIndexDefinition().getCollectionUuid());
   }
 
   @Test
-  public void reconstructOfflineDerivedVectorIndex_openingIndexThrows_returnsEmpty()
-      throws Exception {
+  public void reconstructOfflineDerivedIndex_openingIndexThrows_returnsEmpty() throws Exception {
     IndexFactory indexFactory =
         indexFactoryWithCommit(
             Optional.of(commitWith(reconstructableMetadata(TENANT_MV_DATABASE_NAME))));
     when(indexFactory.getIndex(any())).thenReturn(mock(Index.class));
     when(indexFactory.getInitializedIndex(any(), any())).thenThrow(new IOException("disk gone"));
     assertThat(
-            AutoEmbeddingIndexGenerationFactory.reconstructOfflineDerivedVectorIndex(
+            AutoEmbeddingIndexGenerationFactory.reconstructOfflineDerivedIndex(
                 indexFactory, autoEmbedVectorGen()))
         .isEmpty();
   }

@@ -408,7 +408,9 @@ public class IndexRecoveryStagerTest {
     inOrder.verify(cleanupIndex).close();
     inOrder.verify(cleanupIndex).drop();
     assertThat(mocks.phasingOut.getIndexes()).isEmpty();
-    verify(mocks.lifecycleManager).dropIndex(failedIndex.getGenerationId());
+    // An unresolved auto-embedding generation never entered the lifecycle, so its teardown skips
+    // the lifecycle drop rather than invoking it.
+    verify(mocks.lifecycleManager, never()).dropIndex(failedIndex.getGenerationId());
   }
 
   @Test

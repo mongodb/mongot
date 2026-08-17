@@ -15,6 +15,7 @@ import com.xgen.mongot.index.IndexMetrics;
 import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.SearchIndex;
 import com.xgen.mongot.index.autoembedding.AutoEmbeddingCompositeIndex;
+import com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGenerationFactory;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
@@ -244,6 +245,27 @@ class AllPresentIndexes {
           Optional.ofNullable(this.initializedIndexes.get(indexGeneration.getGenerationId()))
               .map(InitializedIndex::getMetrics)
               .map(metrics -> AggregatedIndexMetrics.createFromOrderedMetrics(List.of(metrics)));
+
+      // An unresolved auto-embedding generation reports the raw definition's type (SEARCH or
+      // VECTOR), but its index is a stub with neither a derived search index nor a synonym
+      // registry, so the detailed status is built from the definition alone.
+      if (AutoEmbeddingIndexGenerationFactory.isAutoEmbeddingResolutionFailed(indexGeneration)) {
+        return switch (indexGeneration.getDefinition()) {
+          case SearchIndexDefinition searchDef ->
+              new IndexDetailedStatus.Search(
+                  Map.of(),
+                  searchDef,
+                  this.indexStatuses.get(indexGeneration),
+                  indexGeneration.getGenerationId(),
+                  indexMetrics);
+          case VectorIndexDefinition vectorDef ->
+              new IndexDetailedStatus.Vector(
+                  vectorDef,
+                  this.indexStatuses.get(indexGeneration),
+                  indexGeneration.getGenerationId(),
+                  indexMetrics);
+        };
+      }
 
       return switch (indexGeneration.getType()) {
         case SEARCH ->

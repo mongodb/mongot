@@ -701,9 +701,6 @@ public class VectorSearchCommand implements Command {
     InitializedIndex initializedIndex =
         this.initializedIndexCatalog
             .getIndex(index.getGenerationId())
-            // Offline fallback: an unresolved auto-embedding index (mongod unreachable) is absent
-            // from the catalog but may carry a derived Lucene reconstructed from its last commit.
-            .or(() -> offlineReconstructedIndex(index))
             .orElseThrow(
                 () ->
                     new IndexUnavailableException(
@@ -718,22 +715,6 @@ public class VectorSearchCommand implements Command {
     }
 
     return Optional.of(initializedIndex);
-  }
-
-  /**
-   * The derived Lucene index reconstructed offline from an unresolved auto-embedding index's
-   * persisted commit metadata, when present, so a $vectorSearch can serve from the last-committed
-   * data while mongod is unreachable.
-   *
-   * <p>TODO(CLOUDP-363302): stored source is not supported for auto-embedding (the derived
-   * definition carries no {@code storedSource}), so {@code returnStoredSource: true} is rejected
-   * upstream rather than served offline; enable it here once auto-embedding supports stored source.
-   */
-  static Optional<InitializedIndex> offlineReconstructedIndex(IndexGeneration indexGeneration) {
-    if (indexGeneration.getIndex() instanceof UnresolvedAutoEmbeddingIndex unresolved) {
-      return unresolved.getReconstructedDerivedIndex();
-    }
-    return Optional.empty();
   }
 
   private void addMetadataIfExplain(VectorSearchQuery vectorSearchQuery) {
@@ -987,40 +968,30 @@ public class VectorSearchCommand implements Command {
   // generations. Resolve the catalog entry once per query instead.
   private Map<FieldPath, FieldPath> findAutoEmbeddingFieldsMapping(
       VectorSearchQuery vectorSearchQuery) {
+    Optional<IndexGeneration> maybeGeneration =
+        this.indexCatalog.getIndex(
+            this.definition.db(),
+            this.definition.collectionUuid(),
+            this.definition.viewName(),
+            vectorSearchQuery.index());
+    if (maybeGeneration.isEmpty()) {
+      return Map.of();
+    }
+    IndexGeneration generation = maybeGeneration.get();
     // Resolved index: the mapping comes from the materialized view.
-    Optional<InitializedMaterializedViewIndex> materializedViewIndex =
-        resolveMaterializedViewIndex(vectorSearchQuery);
-    if (materializedViewIndex.isPresent()) {
-      return materializedViewIndex.get().getSchemaMetadata().autoEmbeddingFieldsMapping();
+    if (generation.getType() == AUTO_EMBEDDING) {
+      return ((AutoEmbeddingIndexGeneration) generation)
+          .getMaterializedViewIndexGeneration()
+          .getIndex()
+          .getSchemaMetadata()
+          .autoEmbeddingFieldsMapping();
     }
     // Offline (view unresolved): fall back to the mapping persisted with the reconstructed index,
     // without which query paths would not be remapped to the derived Lucene path.
-    return this.indexCatalog
-        .getIndex(
-            this.definition.db(),
-            this.definition.collectionUuid(),
-            this.definition.viewName(),
-            vectorSearchQuery.index())
-        .map(IndexGeneration::getIndex)
-        .flatMap(
-            index ->
-                index instanceof UnresolvedAutoEmbeddingIndex unresolved
-                    ? Optional.of(unresolved.getAutoEmbeddingFieldsMapping())
-                    : Optional.empty())
-        .orElse(Map.of());
-  }
-
-  private Optional<InitializedMaterializedViewIndex> resolveMaterializedViewIndex(
-      VectorSearchQuery vectorSearchQuery) {
-    return this.indexCatalog
-        .getIndex(
-            this.definition.db(),
-            this.definition.collectionUuid(),
-            this.definition.viewName(),
-            vectorSearchQuery.index())
-        .filter(indexGeneration -> indexGeneration.getType() == AUTO_EMBEDDING)
-        .map(indexGeneration -> (AutoEmbeddingIndexGeneration) indexGeneration)
-        .map(it -> it.getMaterializedViewIndexGeneration().getIndex());
+    if (generation.getIndex() instanceof UnresolvedAutoEmbeddingIndex unresolved) {
+      return unresolved.getAutoEmbeddingFieldsMapping();
+    }
+    return Map.of();
   }
 
   private void updateVectorSearchQueryCounters(VectorSearchCriteria criteria) {

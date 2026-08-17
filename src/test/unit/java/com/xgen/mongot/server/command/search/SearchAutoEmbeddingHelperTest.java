@@ -5,18 +5,25 @@ import static com.xgen.mongot.util.bson.FloatVector.OriginalType.NATIVE;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.embedding.EmbeddingRequestContext;
 import com.xgen.mongot.embedding.VectorOrError;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelCatalog;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
+import com.xgen.mongot.index.IndexGeneration;
+import com.xgen.mongot.index.InitializedSearchIndex;
+import com.xgen.mongot.index.autoembedding.UnresolvedAutoEmbeddingIndexGeneration;
+import com.xgen.mongot.index.definition.AnalyzerBoundSearchIndexDefinition;
 import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
+import com.xgen.mongot.index.definition.SearchIndexDefinitionGeneration;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.OperatorQuery;
 import com.xgen.mongot.index.query.counts.Count;
@@ -25,6 +32,8 @@ import com.xgen.mongot.index.query.operators.ExactVectorSearchCriteria;
 import com.xgen.mongot.index.query.operators.VectorSearchCriteria;
 import com.xgen.mongot.index.query.operators.VectorSearchOperator;
 import com.xgen.mongot.index.query.operators.VectorSearchQueryInput;
+import com.xgen.mongot.index.status.IndexStatus;
+import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.Vector;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
@@ -32,10 +41,12 @@ import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.query.ApproximateVectorQueryCriteriaBuilder;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.bson.BsonTimestamp;
 import org.bson.types.ObjectId;
 import org.junit.After;
 import org.junit.Assert;
@@ -321,6 +332,35 @@ public class SearchAutoEmbeddingHelperTest {
     assertThat(result.index()).isEqualTo("testIndex");
     assertThat(result.count()).isEqualTo(Count.DEFAULT);
     assertThat(result.returnStoredSource()).isFalse();
+  }
+
+  @Test
+  public void resolveAutoEmbeddingFieldsMapping_unresolvedOfflineIndex_usesPersistedMapping() {
+    SearchIndexDefinition rawDef = SearchIndex.mockAutoEmbeddingSearchDefinition(new ObjectId());
+    SearchIndexDefinitionGeneration rawGen =
+        new SearchIndexDefinitionGeneration(
+            AnalyzerBoundSearchIndexDefinition.create(rawDef, Collections.emptyList()),
+            Generation.CURRENT);
+    InitializedSearchIndex reconstructed = mock(InitializedSearchIndex.class);
+    when(reconstructed.getStatus())
+        .thenReturn(IndexStatus.stale("serving offline", new BsonTimestamp(7, 1)));
+    // Offline: the catalog holds an unresolved generation (no materialized view to supply the
+    // mapping), which carries the mapping persisted with the reconstructed derived index.
+    IndexGeneration unresolved =
+        UnresolvedAutoEmbeddingIndexGeneration.createStale(
+            rawGen, reconstructed, AUTO_EMBED_FIELDS_MAPPING);
+    IndexCatalog indexCatalog = mock(IndexCatalog.class);
+    when(indexCatalog.getIndex(any(), any(), any(), any())).thenReturn(Optional.of(unresolved));
+
+    Map<FieldPath, FieldPath> mapping =
+        SearchAutoEmbeddingHelper.resolveAutoEmbeddingFieldsMapping(
+            indexCatalog,
+            rawDef.getDatabase(),
+            rawDef.getCollectionUuid(),
+            Optional.empty(),
+            rawDef.getName());
+
+    assertThat(mapping).isEqualTo(AUTO_EMBED_FIELDS_MAPPING);
   }
 
   private static Supplier<EmbeddingServiceManager> mockEmbeddingServiceManager(

@@ -27,9 +27,10 @@ public class UnresolvedAutoEmbeddingIndexGeneration extends IndexGeneration {
 
   /**
    * Creates a STALE (not FAILED) generation: the materialized view could not be resolved but the
-   * derived Lucene was reconstructed offline. Status delegates to {@code reconstructedDerivedIndex}
-   * and {@code VectorSearchCommand} serves queries from it, remapping paths via {@code
-   * autoEmbeddingFieldsMapping}. The recovery stager keeps retrying full resolution.
+   * derived Lucene was reconstructed offline. Status delegates to {@code
+   * reconstructedDerivedIndex}, which is registered in the initialized-index catalog so queries
+   * resolve it like any other index, remapping paths via {@code autoEmbeddingFieldsMapping}. The
+   * recovery stager keeps retrying full resolution.
    */
   public static UnresolvedAutoEmbeddingIndexGeneration createStale(
       IndexDefinitionGeneration definitionGeneration,

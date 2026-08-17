@@ -7,6 +7,7 @@ import static com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGe
 import com.google.common.annotations.VisibleForTesting;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
+import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
 import com.xgen.mongot.index.Index;
 import com.xgen.mongot.index.IndexFactory;
@@ -31,6 +32,7 @@ import com.xgen.mongot.util.FieldPath;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -171,9 +173,19 @@ public class AutoEmbeddingIndexGenerationFactory {
         || indexGeneration.getIndex() instanceof UnresolvedAutoEmbeddingIndex;
   }
 
-  /** TEST ONLY: do not use this helper in production recovery. */
+  /** The derived Lucene index rebuilt offline from the commit, paired with its definition. */
+  private record ReconstructedDerived(
+      Index index, IndexDefinitionGeneration definitionGeneration) {}
+
+  /**
+   * TEST ONLY: do not use this helper in production recovery.
+   *
+   * <p>Rebuilds the derived Lucene index (vector or search) for offline querying from the raw
+   * definition plus the {@link AutoEmbeddingCommitMetadata} in its last commit, without a
+   * materialized view or mongod. Reuses the raw generation, so it maps to the same directory.
+   */
   @VisibleForTesting
-  public static Optional<InitializedIndex> reconstructOfflineDerivedVectorIndex(
+  public static Optional<InitializedIndex> reconstructOfflineDerivedIndex(
       IndexFactory indexFactory, IndexDefinitionGeneration rawDefinitionGeneration) {
     Optional<AutoEmbeddingCommitMetadata> metadata =
         readPersistedCommit(indexFactory, rawDefinitionGeneration)
@@ -181,10 +193,6 @@ public class AutoEmbeddingIndexGenerationFactory {
     return reconstructOfflineDerivedIndex(indexFactory, rawDefinitionGeneration, metadata)
         .flatMap(derived -> initializeDerivedIndexForOfflineServing(indexFactory, derived));
   }
-
-  /** The derived Lucene index rebuilt offline from the commit, paired with its definition. */
-  private record ReconstructedDerived(
-      Index index, IndexDefinitionGeneration definitionGeneration) {}
 
   /** Reconstructs from already-read commit metadata without opening a reader. */
   private static Optional<ReconstructedDerived> reconstructOfflineDerivedIndex(
@@ -200,24 +208,15 @@ public class AutoEmbeddingIndexGenerationFactory {
     if (databaseName.isEmpty() || collectionMetadata.isEmpty()) {
       return Optional.empty();
     }
-    // TODO(CLOUDP-353553): support SearchIndexDefinition here.
-    if (!(rawDefinitionGeneration.getIndexDefinition()
-        instanceof VectorIndexDefinition vectorDef)) {
-      // Proof scope: only vector auto-embedding indexes are reconstructed offline for now.
-      return Optional.empty();
-    }
     try {
       // Rebuilding from persisted schema metadata can throw unchecked (malformed/incompatible); the
       // catch degrades to empty. Returned as the base InitializedIndex (always Lucene-backed).
-      VectorIndexDefinition derivedDefinition =
-          getDerivedVectorIndexDefinition(
-              vectorDef,
+      IndexDefinitionGeneration derivedDefGen =
+          derivedIndexDefinitionGeneration(
+              rawDefinitionGeneration,
               databaseName.get(),
               collectionMetadata.get().collectionUuid(),
               collectionMetadata.get().schemaMetadata());
-      IndexDefinitionGeneration derivedDefGen =
-          new VectorIndexDefinitionGeneration(
-              derivedDefinition, rawDefinitionGeneration.generation());
       Index derivedIndex = indexFactory.getIndex(derivedDefGen);
       return Optional.of(new ReconstructedDerived(derivedIndex, derivedDefGen));
     } catch (IOException | InvalidAnalyzerDefinitionException | RuntimeException e) {
@@ -378,23 +377,40 @@ public class AutoEmbeddingIndexGenerationFactory {
   static IndexDefinitionGeneration derivedIndexDefinitionGeneration(
       IndexDefinitionGeneration rawDefinitionGeneration,
       InitializedMaterializedViewIndex matViewIndex) {
+    return derivedIndexDefinitionGeneration(
+        rawDefinitionGeneration,
+        matViewIndex.getMaterializedViewDatabaseName(),
+        matViewIndex.getMaterializedViewCollectionUuid(),
+        matViewIndex.getSchemaMetadata());
+  }
+
+  /**
+   * Builds the derived index definition generation from explicit materialized-view attributes,
+   * which may come from a live materialized view (online) or from the persisted commit metadata
+   * (offline reconstruction, when the view is unresolvable).
+   */
+  static IndexDefinitionGeneration derivedIndexDefinitionGeneration(
+      IndexDefinitionGeneration rawDefinitionGeneration,
+      String materializedViewDatabaseName,
+      UUID materializedViewCollectionUuid,
+      MaterializedViewSchemaMetadata schemaMetadata) {
     IndexDefinition def = rawDefinitionGeneration.getIndexDefinition();
     return switch (def) {
       case VectorIndexDefinition vectorDef ->
           new VectorIndexDefinitionGeneration(
               getDerivedVectorIndexDefinition(
                   vectorDef,
-                  matViewIndex.getMaterializedViewDatabaseName(),
-                  matViewIndex.getMaterializedViewCollectionUuid(),
-                  matViewIndex.getSchemaMetadata()),
+                  materializedViewDatabaseName,
+                  materializedViewCollectionUuid,
+                  schemaMetadata),
               rawDefinitionGeneration.generation());
       case SearchIndexDefinition searchDef -> {
         SearchIndexDefinition derivedSearchDef =
             getDerivedSearchIndexDefinition(
                 searchDef,
-                matViewIndex.getMaterializedViewDatabaseName(),
-                matViewIndex.getMaterializedViewCollectionUuid(),
-                matViewIndex.getSchemaMetadata());
+                materializedViewDatabaseName,
+                materializedViewCollectionUuid,
+                schemaMetadata);
         // A search-typed definition reaches the factory only via SearchIndexDefinitionGeneration;
         // MaterializedViewIndexDefinitionGeneration is built here, not passed in.
         SearchIndexDefinitionGeneration rawSearchGen =

@@ -2,16 +2,24 @@ package com.xgen.mongot.config.manager;
 
 import static com.xgen.testing.mongot.mock.index.IndexGeneration.mockDefinitionGeneration;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
+import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
+import com.xgen.mongot.index.EncodedUserData;
 import com.xgen.mongot.index.InitializedIndex;
+import com.xgen.mongot.index.InitializedVectorIndex;
 import com.xgen.mongot.index.analyzer.InvalidAnalyzerDefinitionException;
 import com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGeneration;
+import com.xgen.mongot.index.autoembedding.UnresolvedAutoEmbeddingIndex;
 import com.xgen.mongot.index.autoembedding.UnresolvedAutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.VectorDataFieldDefinition;
@@ -23,7 +31,11 @@ import com.xgen.mongot.index.definition.VectorSearchEngine;
 import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.index.definition.quantization.VectorQuantization;
 import com.xgen.mongot.index.status.IndexStatus;
+import com.xgen.mongot.index.status.StaleStatusReason;
 import com.xgen.mongot.index.version.GenerationId;
+import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingCommitMetadata;
+import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
+import com.xgen.mongot.replication.mongodb.common.StaleStateInfo;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.TestUtils;
 import com.xgen.testing.mongot.config.manager.ConfigStateMocks;
@@ -33,9 +45,12 @@ import com.xgen.testing.mongot.mock.index.SearchIndex;
 import com.xgen.testing.mongot.mock.index.VectorIndex;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
+import org.bson.BsonTimestamp;
 import org.bson.types.ObjectId;
 import org.junit.Assert;
 import org.junit.Before;
@@ -492,5 +507,239 @@ public class IndexActionsTest {
         "Staged index with UNKNOWN reason should be recoverable immediately",
         stagedIndex.getIndex().getStatus().canBeRecovered());
     verify(this.mocks.lifecycleManager, never()).add(any());
+  }
+
+  @Test
+  public void addNewIndexes_offlineServingUnresolvedIndex_registersReconstructedIndex()
+      throws Exception {
+    // The materialized view is unresolvable, but the last on-disk commit carries everything needed
+    // to rebuild and timestamp the derived Lucene, so the generation serves offline.
+    when(this.mocks.indexFactory.readPersistedCommitUserData(any()))
+        .thenReturn(Optional.of(offlineServableCommit()));
+    doThrow(new MaterializedViewTransientException("Transient MongoDB error"))
+        .when(this.mocks.configState.materializedViewIndexFactory.get())
+        .getIndex(any(IndexDefinitionGeneration.class));
+
+    var definitionGeneration =
+        mockDefinitionGeneration(
+            VectorIndex.MOCK_MATERIALIZED_VIEW_AUTO_EMBEDDING_INDEX_DEFINITION);
+    this.actions.addNewIndexes(List.of(definitionGeneration));
+
+    var catalogIndex =
+        this.mocks.indexCatalog.getIndexById(VectorIndex.MOCK_INDEX_ID).orElseThrow();
+    Assert.assertEquals(
+        IndexStatus.StatusCode.STALE, catalogIndex.getIndex().getStatus().getStatusCode());
+    var reconstructed =
+        ((UnresolvedAutoEmbeddingIndex) catalogIndex.getIndex()).getReconstructedDerivedIndex();
+    Assert.assertTrue(
+        "Offline-serving generation must carry a reconstructed derived index",
+        reconstructed.isPresent());
+    // The reconstructed index is registered under the raw generation id, so queries and cursors
+    // resolve it from the initialized-index catalog like any other index...
+    Assert.assertEquals(
+        reconstructed,
+        this.mocks.initializedIndexCatalog.getIndex(definitionGeneration.getGenerationId()));
+    // ...while the generation itself stays out of replication.
+    verify(this.mocks.lifecycleManager, never()).add(any());
+  }
+
+  @Test
+  public void addNewIndexes_offlineServingUnresolvedIndex_duplicateRegistrationSkipped()
+      throws Exception {
+    when(this.mocks.indexFactory.readPersistedCommitUserData(any()))
+        .thenReturn(Optional.of(offlineServableCommit()));
+    doThrow(new MaterializedViewTransientException("Transient MongoDB error"))
+        .when(this.mocks.configState.materializedViewIndexFactory.get())
+        .getIndex(any(IndexDefinitionGeneration.class));
+
+    var definitionGeneration =
+        mockDefinitionGeneration(
+            VectorIndex.MOCK_MATERIALIZED_VIEW_AUTO_EMBEDDING_INDEX_DEFINITION);
+    // Occupy the generation id the reconstructed index registers under. The add paths make this
+    // unreachable, but registering over it would throw and fail the whole update cycle, so the
+    // registration skips instead -- and leaves the entry queries may be serving from in place.
+    InitializedVectorIndex alreadyRegistered = mock(InitializedVectorIndex.class);
+    when(alreadyRegistered.getGenerationId()).thenReturn(definitionGeneration.getGenerationId());
+    this.mocks.initializedIndexCatalog.addIndex(alreadyRegistered);
+
+    this.actions.addNewIndexes(List.of(definitionGeneration));
+
+    Assert.assertEquals(
+        Optional.of(alreadyRegistered),
+        this.mocks.initializedIndexCatalog.getIndex(definitionGeneration.getGenerationId()));
+    // The generation is still catalogued and still out of replication, exactly as it would be had
+    // the registration gone through.
+    Assert.assertTrue(this.mocks.indexCatalog.getIndexById(VectorIndex.MOCK_INDEX_ID).isPresent());
+    verify(this.mocks.lifecycleManager, never()).add(any());
+  }
+
+  @Test
+  public void dropFromCatalog_offlineServingUnresolvedIndex_tearsDownWithoutLifecycleDrop()
+      throws Exception {
+    // Add an offline-serving generation so its reconstructed derived index is registered in the
+    // initialized-index catalog, mirroring the add-path coverage above.
+    when(this.mocks.indexFactory.readPersistedCommitUserData(any()))
+        .thenReturn(Optional.of(offlineServableCommit()));
+    doThrow(new MaterializedViewTransientException("Transient MongoDB error"))
+        .when(this.mocks.configState.materializedViewIndexFactory.get())
+        .getIndex(any(IndexDefinitionGeneration.class));
+
+    var definitionGeneration =
+        mockDefinitionGeneration(
+            VectorIndex.MOCK_MATERIALIZED_VIEW_AUTO_EMBEDDING_INDEX_DEFINITION);
+    this.actions.addNewIndexes(List.of(definitionGeneration));
+
+    var catalogIndex =
+        this.mocks.indexCatalog.getIndexById(VectorIndex.MOCK_INDEX_ID).orElseThrow();
+    InitializedIndex reconstructed =
+        ((UnresolvedAutoEmbeddingIndex) catalogIndex.getIndex())
+            .getReconstructedDerivedIndex()
+            .orElseThrow();
+    var generationId = definitionGeneration.getGenerationId();
+    this.mocks.clearInvocations();
+
+    this.actions.dropFromCatalog(List.of(catalogIndex));
+
+    // The reconstructed index is removed from the initialized-index catalog and its reader closed.
+    Assert.assertTrue(
+        "Reconstructed index must be removed from the initialized-index catalog after drop",
+        this.mocks.initializedIndexCatalog.getIndex(generationId).isEmpty());
+    verify(reconstructed, atLeastOnce()).close();
+    // Its cursors are killed directly, since the generation never entered the lifecycle...
+    verify(this.mocks.cursorManager).killIndexCursors(generationId);
+    // ...and the lifecycle drop is skipped entirely (it would only log a spurious "not added").
+    verify(this.mocks.lifecycleManager, never()).dropIndex(any());
+  }
+
+  @Test
+  public void dropFromPhasingOut_offlineServingUnresolvedIndex_tearsDownWithoutLifecycleDrop()
+      throws Exception {
+    // The recovery-swap route: once full resolution succeeds, the offline-serving generation is
+    // moved to phasing out and dropped by PhasingOutIndexesDropper. That drop must tear down the
+    // reconstructed index the same way the catalog drop does, since the generation never entered
+    // the lifecycle.
+    when(this.mocks.indexFactory.readPersistedCommitUserData(any()))
+        .thenReturn(Optional.of(offlineServableCommit()));
+    doThrow(new MaterializedViewTransientException("Transient MongoDB error"))
+        .when(this.mocks.configState.materializedViewIndexFactory.get())
+        .getIndex(any(IndexDefinitionGeneration.class));
+
+    var definitionGeneration =
+        mockDefinitionGeneration(
+            VectorIndex.MOCK_MATERIALIZED_VIEW_AUTO_EMBEDDING_INDEX_DEFINITION);
+    this.actions.addNewIndexes(List.of(definitionGeneration));
+
+    var catalogIndex =
+        this.mocks.indexCatalog.getIndexById(VectorIndex.MOCK_INDEX_ID).orElseThrow();
+    InitializedIndex reconstructed =
+        ((UnresolvedAutoEmbeddingIndex) catalogIndex.getIndex())
+            .getReconstructedDerivedIndex()
+            .orElseThrow();
+    var generationId = definitionGeneration.getGenerationId();
+    // Move the generation from the live catalog to phasing out, mirroring the swap.
+    this.mocks.indexCatalog.removeIndex(VectorIndex.MOCK_INDEX_ID);
+    this.mocks.phaseOutIndex(catalogIndex);
+    this.mocks.clearInvocations();
+
+    this.actions.dropFromPhasingOut(List.of(catalogIndex));
+
+    Assert.assertTrue(
+        "Reconstructed index must be removed from the initialized-index catalog after drop",
+        this.mocks.initializedIndexCatalog.getIndex(generationId).isEmpty());
+    verify(reconstructed, atLeastOnce()).close();
+    verify(this.mocks.cursorManager).killIndexCursors(generationId);
+    verify(this.mocks.lifecycleManager, never()).dropIndex(any());
+  }
+
+  @Test
+  public void addStagedIndex_offlineServingUnresolvedIndex_registersReconstructedIndex()
+      throws Exception {
+    // Covers that the staged path registers what it reconstructs, the same as the live path. The
+    // commit is stubbed for every generation, whereas a real staged attempt reads its own directory
+    // and only finds a commit when replaying a generation that previously replicated.
+    //
+    // The materialized view cannot resolve, but the last on-disk commit lets the generation
+    // reconstruct and serve offline. Staging requires a corresponding live index in the catalog, so
+    // add one first (also offline-serving) and stage a new attempt on top of it.
+    when(this.mocks.indexFactory.readPersistedCommitUserData(any()))
+        .thenReturn(Optional.of(offlineServableCommit()));
+    doThrow(new MaterializedViewTransientException("Transient MongoDB error"))
+        .when(this.mocks.configState.materializedViewIndexFactory.get())
+        .getIndex(any(IndexDefinitionGeneration.class));
+
+    var definitionGeneration =
+        mockDefinitionGeneration(
+            VectorIndex.MOCK_MATERIALIZED_VIEW_AUTO_EMBEDDING_INDEX_DEFINITION);
+    this.actions.addNewIndexes(List.of(definitionGeneration));
+    this.mocks.clearInvocations();
+
+    var stagedDefinitionGeneration =
+        definitionGeneration.incrementUser(definitionGeneration.definition());
+    this.actions.addStagedIndex(stagedDefinitionGeneration);
+
+    var stagedIndex = this.mocks.staged.getIndex(VectorIndex.MOCK_INDEX_ID).orElseThrow();
+    Assert.assertEquals(
+        IndexStatus.StatusCode.STALE, stagedIndex.getIndex().getStatus().getStatusCode());
+    var reconstructed =
+        ((UnresolvedAutoEmbeddingIndex) stagedIndex.getIndex()).getReconstructedDerivedIndex();
+    Assert.assertTrue(
+        "Offline-serving staged generation must carry a reconstructed derived index",
+        reconstructed.isPresent());
+    // The staged reconstructed index is registered under its own generation id, so it resolves from
+    // the initialized-index catalog like any other index...
+    Assert.assertEquals(
+        reconstructed,
+        this.mocks.initializedIndexCatalog.getIndex(stagedDefinitionGeneration.getGenerationId()));
+    // ...while the staged generation itself stays out of replication.
+    verify(this.mocks.lifecycleManager, never()).add(any());
+  }
+
+  @Test
+  public void addNewIndexes_failedUnresolvedIndex_registersNothing() throws Exception {
+    // No persisted commit (the index factory's default), so there is nothing to reconstruct and the
+    // generation is FAILED rather than offline-serving.
+    doThrow(new MaterializedViewTransientException("Transient MongoDB error"))
+        .when(this.mocks.configState.materializedViewIndexFactory.get())
+        .getIndex(any(IndexDefinitionGeneration.class));
+
+    var definitionGeneration =
+        mockDefinitionGeneration(
+            VectorIndex.MOCK_MATERIALIZED_VIEW_AUTO_EMBEDDING_INDEX_DEFINITION);
+    this.actions.addNewIndexes(List.of(definitionGeneration));
+
+    var catalogIndex =
+        this.mocks.indexCatalog.getIndexById(VectorIndex.MOCK_INDEX_ID).orElseThrow();
+    Assert.assertEquals(
+        IndexStatus.StatusCode.FAILED, catalogIndex.getIndex().getStatus().getStatusCode());
+    Assert.assertTrue(
+        ((UnresolvedAutoEmbeddingIndex) catalogIndex.getIndex())
+            .getReconstructedDerivedIndex()
+            .isEmpty());
+    Assert.assertTrue(
+        this.mocks
+            .initializedIndexCatalog
+            .getIndex(definitionGeneration.getGenerationId())
+            .isEmpty());
+    verify(this.mocks.lifecycleManager, never()).add(any());
+  }
+
+  /**
+   * A commit whose auto-embedding metadata is complete enough to rebuild the derived Lucene offline
+   * (ready view, resolved database name and collection metadata) and whose stale-state info
+   * supplies the optime the reconstructed index is served STALE as of.
+   */
+  private static EncodedUserData offlineServableCommit() {
+    MaterializedViewSchemaMetadata schema =
+        new MaterializedViewSchemaMetadata(
+            1L, Map.of(FieldPath.parse("field"), FieldPath.parse("_autoEmbed.field")));
+    var collectionMetadata =
+        new MaterializedViewCollectionMetadata(
+            schema, UUID.randomUUID(), VectorIndex.MOCK_INDEX_ID.toHexString());
+    return IndexCommitUserData.createStale(
+            StaleStateInfo.create(new BsonTimestamp(42, 1), StaleStatusReason.DOCS_EXCEEDED))
+        .withAutoEmbeddingMetadata(
+            new AutoEmbeddingCommitMetadata(
+                true, Optional.of("acme___mdb_internal_search"), Optional.of(collectionMetadata)))
+        .toEncodedData();
   }
 }

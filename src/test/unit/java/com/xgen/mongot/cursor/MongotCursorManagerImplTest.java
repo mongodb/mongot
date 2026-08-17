@@ -4,6 +4,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static com.xgen.testing.mongot.mock.index.IndexGeneration.mockIndexGeneration;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_COLLECTION_UUID;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_DATABASE_NAME;
+import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_DEFINITION_GENERATION;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_GENERATION_ID;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_LAST_OBSERVED_COLLECTION_NAME;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.mockIndex;
@@ -19,6 +20,8 @@ import com.xgen.mongot.catalog.DefaultIndexCatalog;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
 import com.xgen.mongot.cursor.batch.QueryCursorOptions;
 import com.xgen.mongot.index.IndexGeneration;
+import com.xgen.mongot.index.InitializedIndex;
+import com.xgen.mongot.index.autoembedding.UnresolvedAutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinitionGeneration;
 import com.xgen.mongot.index.query.InvalidQueryException;
@@ -49,6 +52,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -387,6 +391,84 @@ public class MongotCursorManagerImplTest {
                 Tags.of("indexStatus", IndexStatus.StatusCode.STALE.name()))
             .count(),
         0.01);
+  }
+
+  @Test
+  public void
+      newCursor_unresolvedAutoEmbeddingIndexServingOffline_returnsReconstructedIndexResults()
+          throws Exception {
+    // An unresolved auto-embedding generation serving offline registers the index it reconstructed
+    // from its last commit under the raw generation id, so its cursors read that index rather than
+    // the empty cursors used for indexes that do not exist.
+    DefaultIndexCatalog indexCatalog = new DefaultIndexCatalog();
+    InitializedIndex reconstructedIndex = mockInitializedIndex(mockIndexGeneration(), 1);
+    indexCatalog.addIndex(
+        UnresolvedAutoEmbeddingIndexGeneration.createStale(
+            MOCK_INDEX_DEFINITION_GENERATION, reconstructedIndex, Map.of()));
+    InitializedIndexCatalog initializedIndexCatalog = new InitializedIndexCatalog();
+    initializedIndexCatalog.addIndex(reconstructedIndex);
+    MongotCursorManagerImpl cursorManager =
+        new MongotCursorManagerImpl(
+            indexCatalog,
+            initializedIndexCatalog,
+            mock(NamedScheduledExecutorService.class),
+            new MetricsFactory("factory", new SimpleMeterRegistry()),
+            CursorIdSupplier.createDefault());
+
+    long cursorId =
+        cursorManager.newCursor(
+                MOCK_INDEX_DATABASE_NAME,
+                MOCK_INDEX_LAST_OBSERVED_COLLECTION_NAME,
+                MOCK_INDEX_COLLECTION_UUID,
+                Optional.empty(),
+                mockQuery(),
+                QueryCursorOptions.empty(),
+                QueryOptimizationFlags.DEFAULT_OPTIONS,
+                Optional.empty())
+            .cursorId;
+
+    MongotCursorResultInfo batch =
+        cursorManager.getNextBatch(
+            cursorId, CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT, QueryCursorOptions.empty());
+    Assert.assertEquals(BatchProducer.MOCK_BATCH_SIZE, batch.batch.asArray().size());
+  }
+
+  @Test
+  public void hasOpenCursors_unresolvedAutoEmbeddingIndexServingOffline_seesOfflineCursor()
+      throws Exception {
+    // Phasing out a generation is gated on hasOpenCursors, so an offline cursor has to be visible
+    // there. Otherwise recovery closes and drops the reconstructed reader while the cursor is still
+    // reading from it, and killIndexCursors cannot reach the cursor either.
+    DefaultIndexCatalog indexCatalog = new DefaultIndexCatalog();
+    InitializedIndex reconstructedIndex =
+        mockInitializedIndex(mockIndexGeneration(), Integer.MAX_VALUE);
+    indexCatalog.addIndex(
+        UnresolvedAutoEmbeddingIndexGeneration.createStale(
+            MOCK_INDEX_DEFINITION_GENERATION, reconstructedIndex, Map.of()));
+    InitializedIndexCatalog initializedIndexCatalog = new InitializedIndexCatalog();
+    initializedIndexCatalog.addIndex(reconstructedIndex);
+    MongotCursorManagerImpl cursorManager =
+        new MongotCursorManagerImpl(
+            indexCatalog,
+            initializedIndexCatalog,
+            mock(NamedScheduledExecutorService.class),
+            new MetricsFactory("factory", new SimpleMeterRegistry()),
+            CursorIdSupplier.createDefault());
+
+    cursorManager.newCursor(
+        MOCK_INDEX_DATABASE_NAME,
+        MOCK_INDEX_LAST_OBSERVED_COLLECTION_NAME,
+        MOCK_INDEX_COLLECTION_UUID,
+        Optional.empty(),
+        mockQuery(),
+        QueryCursorOptions.empty(),
+        QueryOptimizationFlags.DEFAULT_OPTIONS,
+        Optional.empty());
+
+    Assert.assertTrue(cursorManager.hasOpenCursors(MOCK_INDEX_GENERATION_ID));
+
+    cursorManager.killIndexCursors(MOCK_INDEX_GENERATION_ID);
+    Assert.assertFalse(cursorManager.hasOpenCursors(MOCK_INDEX_GENERATION_ID));
   }
 
   @Test

@@ -108,11 +108,9 @@ public class DeprecatedVectorSearchCommand implements Command {
               this.definition.viewName(),
               query.index());
       Optional<InitializedIndex> initializedIndex =
-          index
-              .flatMap(
-                  indexGeneration ->
-                      this.initializedIndexCatalog.getIndex(indexGeneration.getGenerationId()))
-              .or(() -> index.flatMap(VectorSearchCommand::offlineReconstructedIndex));
+          index.flatMap(
+              indexGeneration ->
+                  this.initializedIndexCatalog.getIndex(indexGeneration.getGenerationId()));
 
       if (index.isPresent() && initializedIndex.isEmpty()) {
         throw new IndexUnavailableException(
