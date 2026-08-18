@@ -5,6 +5,7 @@ import static com.xgen.mongot.util.Check.checkArg;
 import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
 import com.xgen.mongot.index.query.aggregation.AggregationRegistry.GroupingArgs.BoundaryArgs;
 import com.xgen.mongot.util.FieldPath;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.bson.BsonValue;
@@ -39,6 +40,30 @@ public final class BoundaryGroupAggregationSpec extends GroupAggregationSpec {
       List<BsonValue> rangeKeys,
       boolean lastEdgeInclusive,
       BoundaryArgs args) {
+    this(
+        name,
+        path,
+        children,
+        boundaryEdges,
+        rangeKeys,
+        lastEdgeInclusive,
+        args.defaultKey(),
+        args.typeField()
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "type field is required when field metadata is present")));
+  }
+
+  private BoundaryGroupAggregationSpec(
+      String name,
+      FieldPath path,
+      List<AggregationSpec> children,
+      long[] boundaryEdges,
+      List<BsonValue> rangeKeys,
+      boolean lastEdgeInclusive,
+      Optional<BsonValue> defaultBucketKey,
+      TypeField typeField) {
     super(path, name, children);
     checkArg(
         boundaryEdges.length >= 2,
@@ -57,9 +82,41 @@ public final class BoundaryGroupAggregationSpec extends GroupAggregationSpec {
         boundaryEdges.length - 1);
     this.boundaryEdges = boundaryEdges.clone();
     this.rangeKeys = List.copyOf(rangeKeys);
-    this.defaultBucketKey = args.defaultKey();
+    this.defaultBucketKey = defaultBucketKey;
     this.lastEdgeInclusive = lastEdgeInclusive;
-    this.typeField = args.typeField();
+    this.typeField = typeField;
+  }
+
+  /**
+   * Builds a boundary group spec for shard merge planning when index field metadata is unavailable.
+   *
+   * <p>Encoded doc-value edges are unused by {@link GroupAggregationSpec#buildShardMergePipeline};
+   * placeholder edges keep the constructor's ascending-edge invariant while range keys carry the
+   * request's boundary values.
+   */
+  public static BoundaryGroupAggregationSpec createBoundarySpecWithoutResolving(
+      String name, FieldPath path, List<AggregationSpec> children, BoundaryArgs args) {
+    List<? extends BsonValue> boundaries = args.boundaries();
+    int n = boundaries.size();
+    long[] edges = new long[n];
+    for (int i = 0; i < n; i++) {
+      edges[i] = i;
+    }
+    List<BsonValue> rangeKeys = new ArrayList<>(n - 1);
+    for (int i = 0; i < n - 1; i++) {
+      rangeKeys.add(boundaries.get(i));
+    }
+    return new BoundaryGroupAggregationSpec(
+        name,
+        path,
+        children,
+        edges,
+        rangeKeys,
+        false,
+        args.defaultKey(),
+        // Merge planning omits typeField; encoded edges are unused and a dummy keeps the
+        // accumulator field populated for the constructor invariant.
+        args.typeField().orElse(TypeField.NUMBER_INT64));
   }
 
   // Package-private accessors consumed once by BoundaryAccumulator's constructor.

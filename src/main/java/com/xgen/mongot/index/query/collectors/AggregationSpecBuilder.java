@@ -41,8 +41,8 @@ public final class AggregationSpecBuilder {
    * branch recursively.
    *
    * @param boundaryResolver index field metadata for number/date boundary group specs. {@link
-   *     Optional#empty()} at shard plan time when the query has no boundary grouping, or when index
-   *     metadata is unavailable. Required when the query includes boundary grouping.
+   *     Optional#empty()} at shard plan time; the Search registry then builds boundary specs from
+   *     the query alone. Required at execution time so edges can be encoded into doc-values space.
    */
   public static TopAggregationSpec toTopLevelSpec(
       AggregationCollector collector,
@@ -104,47 +104,41 @@ public final class AggregationSpecBuilder {
                   new AggregationRegistry.GroupingArgs.TermsArgs(
                       isRoot, TypeField.TOKEN, stringFacetDefinition.numBuckets()),
                   registry);
-      case FacetDefinition.DateFacetDefinition dateFacetDefinition -> {
-        BoundaryFieldResolver resolver = requireBoundaryResolver(boundaryResolver, path);
-        FieldDefinition fieldDef = resolver.getFieldDefinition(path);
-        yield registry
-            .getGroupSpecSupplier(SearchAggregationBootstrap.DATE_BOUNDARY)
-            .build(
-                name,
-                path,
-                childrenSpecs,
-                new AggregationRegistry.GroupingArgs.BoundaryArgs(
-                    dateFacetDefinition.boundaries(),
-                    dateFacetDefinition.defaultBucketName().map(BsonString::new),
-                    resolver.getBoundaryFacetFieldType(dateFacetDefinition),
-                    fieldDef),
-                registry);
-      }
-      case FacetDefinition.NumericFacetDefinition numericFacetDefinition -> {
-        BoundaryFieldResolver resolver = requireBoundaryResolver(boundaryResolver, path);
-        FieldDefinition fieldDef = resolver.getFieldDefinition(path);
-        yield registry
-            .getGroupSpecSupplier(SearchAggregationBootstrap.NUMBER_BOUNDARY)
-            .build(
-                name,
-                path,
-                childrenSpecs,
-                new AggregationRegistry.GroupingArgs.BoundaryArgs(
-                    numericFacetDefinition.boundaries(),
-                    numericFacetDefinition.defaultBucketName().map(BsonString::new),
-                    resolver.getBoundaryFacetFieldType(numericFacetDefinition),
-                    fieldDef),
-                registry);
-      }
+      case FacetDefinition.DateFacetDefinition dateFacetDefinition ->
+          registry
+              .getGroupSpecSupplier(SearchAggregationBootstrap.DATE_BOUNDARY)
+              .build(
+                  name,
+                  path,
+                  childrenSpecs,
+                  toBoundaryArgs(dateFacetDefinition, path, boundaryResolver),
+                  registry);
+      case FacetDefinition.NumericFacetDefinition numericFacetDefinition ->
+          registry
+              .getGroupSpecSupplier(SearchAggregationBootstrap.NUMBER_BOUNDARY)
+              .build(
+                  name,
+                  path,
+                  childrenSpecs,
+                  toBoundaryArgs(numericFacetDefinition, path, boundaryResolver),
+                  registry);
     };
   }
 
-  private static BoundaryFieldResolver requireBoundaryResolver(
-      Optional<BoundaryFieldResolver> boundaryResolver, FieldPath path) {
-    return boundaryResolver.orElseThrow(
-        () ->
-            new IllegalStateException(
-                "Boundary aggregations require index field definitions for path: " + path));
+  /**
+   * When {@code boundaryResolver} is empty, {@code typeField} and {@code fieldDefinition} are empty
+   * so {@link SearchAggregationBootstrap} can build a merge-planning spec from the query boundaries
+   * alone.
+   */
+  private static AggregationRegistry.GroupingArgs.BoundaryArgs toBoundaryArgs(
+      BoundaryFacetDefinition<?> facetDefinition,
+      FieldPath path,
+      Optional<BoundaryFieldResolver> boundaryResolver) {
+    return new AggregationRegistry.GroupingArgs.BoundaryArgs(
+        facetDefinition.boundaries(),
+        facetDefinition.defaultBucketName().map(BsonString::new),
+        boundaryResolver.map(resolver -> resolver.getBoundaryFacetFieldType(facetDefinition)),
+        boundaryResolver.map(resolver -> resolver.getFieldDefinition(path)));
   }
 
   private static AggregationSpec operatorSpec(

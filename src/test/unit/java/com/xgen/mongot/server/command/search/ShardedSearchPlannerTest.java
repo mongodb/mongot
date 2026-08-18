@@ -2,10 +2,6 @@ package com.xgen.mongot.server.command.search;
 
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
-import com.xgen.mongot.index.definition.NumericFieldOptions;
-import com.xgen.mongot.index.definition.SearchIndexCapabilities;
-import com.xgen.mongot.index.definition.SearchIndexDefinition;
-import com.xgen.mongot.index.lucene.LuceneAggregationPlanResolver;
 import com.xgen.mongot.index.query.CollectorQuery;
 import com.xgen.mongot.index.query.OperatorQuery;
 import com.xgen.mongot.index.query.SearchQuery;
@@ -14,24 +10,17 @@ import com.xgen.mongot.index.query.aggregation.SearchAggregationBootstrap;
 import com.xgen.mongot.index.query.aggregation.TestOperatorSpecs;
 import com.xgen.mongot.index.query.collectors.AggregationCollector;
 import com.xgen.mongot.index.query.collectors.AggregationFacetDefinition;
-import com.xgen.mongot.index.query.collectors.AggregationSpecBuilder;
 import com.xgen.mongot.index.query.collectors.FacetDefinition;
 import com.xgen.mongot.index.query.collectors.MetricSpec;
 import com.xgen.mongot.index.query.counts.Count;
 import com.xgen.mongot.index.query.sort.Sort;
 import com.xgen.mongot.index.query.sort.SortSpec;
 import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
-import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.server.command.search.definition.PlanShardedSearchCommandResponseDefinition;
 import com.xgen.mongot.server.command.search.definition.request.PlanShardedSearchCommandDefinition;
 import com.xgen.mongot.server.message.MessageUtils;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.TestUtils;
-import com.xgen.testing.mongot.index.definition.DateFieldDefinitionBuilder;
-import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
-import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
-import com.xgen.testing.mongot.index.definition.NumericFieldDefinitionBuilder;
-import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.query.OperatorQueryBuilder;
 import com.xgen.testing.mongot.index.query.operators.OperatorBuilder;
 import com.xgen.testing.mongot.index.query.sort.SortFieldBuilder;
@@ -659,14 +648,11 @@ public class ShardedSearchPlannerTest {
   @Test
   public void testFlatBoundarySumAggregationMetaPipeline() throws Exception {
     CollectorQuery query = createFlatBoundarySumAggregationQuery();
-    AggregationSpecBuilder.BoundaryFieldResolver boundaryResolver =
-        boundaryFieldResolverForTestIndex();
     PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan result =
         ShardedSearchPlanner.planSearch(
             query,
             new PlanShardedSearchCommandDefinition.SearchFeatures(0),
-            AGGREGATION_ENABLED_FEATURE_FLAGS,
-            Optional.of(boundaryResolver));
+            AGGREGATION_ENABLED_FEATURE_FLAGS);
 
     List<BsonDocument> pipeline = result.metaPipeline;
     Assert.assertEquals(3, pipeline.size());
@@ -726,8 +712,7 @@ public class ShardedSearchPlannerTest {
         ShardedSearchPlanner.planSearch(
             query,
             new PlanShardedSearchCommandDefinition.SearchFeatures(0),
-            AGGREGATION_ENABLED_FEATURE_FLAGS,
-            Optional.of(boundaryFieldResolverForTestIndex()));
+            AGGREGATION_ENABLED_FEATURE_FLAGS);
 
     List<BsonDocument> pipeline = result.metaPipeline;
     Assert.assertEquals(3, pipeline.size());
@@ -794,8 +779,7 @@ public class ShardedSearchPlannerTest {
         ShardedSearchPlanner.planSearch(
             query,
             new PlanShardedSearchCommandDefinition.SearchFeatures(0),
-            AGGREGATION_ENABLED_FEATURE_FLAGS,
-            Optional.of(boundaryFieldResolverForDateIndex()));
+            AGGREGATION_ENABLED_FEATURE_FLAGS);
 
     List<BsonDocument> pipeline = result.metaPipeline;
     Assert.assertEquals(3, pipeline.size());
@@ -855,8 +839,7 @@ public class ShardedSearchPlannerTest {
         ShardedSearchPlanner.planSearch(
             query,
             new PlanShardedSearchCommandDefinition.SearchFeatures(0),
-            AGGREGATION_ENABLED_FEATURE_FLAGS,
-            Optional.of(boundaryFieldResolverForDateIndex()));
+            AGGREGATION_ENABLED_FEATURE_FLAGS);
 
     List<BsonDocument> pipeline = result.metaPipeline;
     Assert.assertEquals(3, pipeline.size());
@@ -900,78 +883,6 @@ public class ShardedSearchPlannerTest {
     Assert.assertEquals(expectedFacet, pipeline.get(1));
   }
 
-  @Test
-  public void planSearch_flatBoundaryWithoutResolver_throwsShardedSearchPlannerException() {
-    CollectorQuery query = createFlatBoundarySumAggregationQuery();
-
-    TestUtils.assertThrows(
-        "Boundary aggregations require index field definitions for path: price",
-        ShardedSearchPlannerException.class,
-        () ->
-            ShardedSearchPlanner.planSearch(
-                query,
-                new PlanShardedSearchCommandDefinition.SearchFeatures(0),
-                AGGREGATION_ENABLED_FEATURE_FLAGS,
-                Optional.empty()));
-  }
-
-  private static AggregationSpecBuilder.BoundaryFieldResolver boundaryFieldResolverForTestIndex() {
-    return boundaryFieldResolverForIndex(createPriceIndexDefinition());
-  }
-
-  private static AggregationSpecBuilder.BoundaryFieldResolver boundaryFieldResolverForDateIndex() {
-    return boundaryFieldResolverForIndex(createReleaseDateIndexDefinition());
-  }
-
-  private static AggregationSpecBuilder.BoundaryFieldResolver boundaryFieldResolverForIndex(
-      SearchIndexDefinition indexDefinition) {
-    return LuceneAggregationPlanResolver.boundaryFieldResolverForPlanning(
-        indexDefinition, IndexFormatVersion.CURRENT);
-  }
-
-  private static SearchIndexDefinition createPriceIndexDefinition() {
-    return SearchIndexDefinitionBuilder.builder()
-        .defaultMetadata()
-        .indexFeatureVersion(SearchIndexCapabilities.CURRENT_FEATURE_VERSION)
-        .mappings(
-            DocumentFieldDefinitionBuilder.builder()
-                .dynamic(false)
-                .field(
-                    "price",
-                    FieldDefinitionBuilder.builder()
-                        .number(
-                            NumericFieldDefinitionBuilder.builder()
-                                .representation(NumericFieldOptions.Representation.INT64)
-                                .buildNumberField())
-                        .build())
-                .build())
-        .build();
-  }
-
-  private static SearchIndexDefinition createReleaseDateIndexDefinition() {
-    return SearchIndexDefinitionBuilder.builder()
-        .defaultMetadata()
-        .indexFeatureVersion(SearchIndexCapabilities.CURRENT_FEATURE_VERSION)
-        .mappings(
-            DocumentFieldDefinitionBuilder.builder()
-                .dynamic(false)
-                .field(
-                    "price",
-                    FieldDefinitionBuilder.builder()
-                        .number(
-                            NumericFieldDefinitionBuilder.builder()
-                                .representation(NumericFieldOptions.Representation.INT64)
-                                .buildNumberField())
-                        .build())
-                .field(
-                    "release",
-                    FieldDefinitionBuilder.builder()
-                        .date(DateFieldDefinitionBuilder.builder().build())
-                        .build())
-                .build())
-        .build();
-  }
-
   private static CollectorQuery createFlatBoundarySumAggregationQuery() {
     AggregationFacetDefinition agg =
         AggregationFacetDefinition.create(
@@ -1001,9 +912,8 @@ public class ShardedSearchPlannerTest {
   }
 
   /**
-   * Boundary grouping with {@code min}. CLOUDP-424290 wired the boundary field resolver through
-   * planning for {@code sum}/{@code avg}; the resolver is keyed on the grouping rather than the
-   * metric, so min/max inherit it -- this pins that, including the boundary key sort.
+   * Boundary grouping with {@code min}. Query-only merge planning is keyed on the grouping rather
+   * than the metric, so min/max inherit the same boundary key sort as {@code sum}/{@code avg}.
    */
   @Test
   public void testFlatBoundaryMinAggregationMetaPipeline() throws Exception {
@@ -1027,8 +937,7 @@ public class ShardedSearchPlannerTest {
         ShardedSearchPlanner.planSearch(
             query,
             new PlanShardedSearchCommandDefinition.SearchFeatures(0),
-            AGGREGATION_ENABLED_FEATURE_FLAGS,
-            Optional.of(boundaryFieldResolverForTestIndex()));
+            AGGREGATION_ENABLED_FEATURE_FLAGS);
 
     List<BsonDocument> pipeline = result.metaPipeline;
     Assert.assertEquals(3, pipeline.size());

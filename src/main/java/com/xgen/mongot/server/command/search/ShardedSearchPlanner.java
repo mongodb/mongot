@@ -42,31 +42,18 @@ public class ShardedSearchPlanner {
   /**
    * Accepts a deserialized query and the supported searchFeatures of a MongoDB deployment and
    * generates a ShardedSearchPlan.
+   *
+   * <p>Aggregation merge planning does not use index field metadata: boundary grouping keys and
+   * default-bucket labels come from the query. Execution-time encoding still requires a {@link
+   * AggregationSpecBuilder.BoundaryFieldResolver}.
    */
   static PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan planSearch(
       SearchQuery queryDefinition,
       PlanShardedSearchCommandDefinition.SearchFeatures searchFeatures,
       FeatureFlags featureFlags)
       throws ShardedSearchPlannerException {
-    return planSearch(queryDefinition, searchFeatures, featureFlags, Optional.empty());
-  }
-
-  /**
-   * Accepts a deserialized query and the supported searchFeatures of a MongoDB deployment and
-   * generates a ShardedSearchPlan.
-   *
-   * @param boundaryResolver index field metadata for boundary grouping; required when the query
-   *     includes number/date boundary facets
-   */
-  static PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan planSearch(
-      SearchQuery queryDefinition,
-      PlanShardedSearchCommandDefinition.SearchFeatures searchFeatures,
-      FeatureFlags featureFlags,
-      Optional<AggregationSpecBuilder.BoundaryFieldResolver> boundaryResolver)
-      throws ShardedSearchPlannerException {
     BsonDocument sortSpec = validateQueryAndConstructSortSpec(searchFeatures, queryDefinition);
-    List<BsonDocument> metaPipeline =
-        getShardedSearchMetaPipeline(queryDefinition, featureFlags, boundaryResolver);
+    List<BsonDocument> metaPipeline = getShardedSearchMetaPipeline(queryDefinition, featureFlags);
     return new PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan(metaPipeline, sortSpec);
   }
 
@@ -107,10 +94,7 @@ public class ShardedSearchPlanner {
    * @return the pipeline to execute over the sharded metadata results
    */
   private static List<BsonDocument> getShardedSearchMetaPipeline(
-      SearchQuery query,
-      FeatureFlags featureFlags,
-      Optional<AggregationSpecBuilder.BoundaryFieldResolver> boundaryResolver)
-      throws ShardedSearchPlannerException {
+      SearchQuery query, FeatureFlags featureFlags) throws ShardedSearchPlannerException {
     String countType = query.count().type() == Count.Type.LOWER_BOUND ? "lowerBound" : "total";
 
     // If the Query is a CollectorQuery, then get facet definitions from the FacetCollector and
@@ -128,8 +112,7 @@ public class ShardedSearchPlanner {
               throw new ShardedSearchPlannerException(
                   "Aggregation is not enabled. Please contact support.");
             }
-            yield buildAggregationMetaPipeline(
-                countType, aggregationCollector, boundaryResolver, query.sortSpec());
+            yield buildAggregationMetaPipeline(countType, aggregationCollector, query.sortSpec());
           }
         }
       }
@@ -143,15 +126,12 @@ public class ShardedSearchPlanner {
    * {@link com.xgen.mongot.index.query.aggregation.AggregationSpec#buildShardMergePipeline}.
    */
   private static List<BsonDocument> buildAggregationMetaPipeline(
-      String countType,
-      AggregationCollector aggregationCollector,
-      Optional<AggregationSpecBuilder.BoundaryFieldResolver> boundaryResolver,
-      Optional<SortSpec> sortSpec)
+      String countType, AggregationCollector aggregationCollector, Optional<SortSpec> sortSpec)
       throws ShardedSearchPlannerException {
     try {
       TopAggregationSpec spec =
           AggregationSpecBuilder.toTopLevelSpec(
-              aggregationCollector, AggregationRegistry.getInstance(), boundaryResolver);
+              aggregationCollector, AggregationRegistry.getInstance(), Optional.empty());
       List<Integer> sortDirs = sortSpec.map(ShardedSearchPlanner::sortDirections).orElse(List.of());
       ShardMergePipelineBuilder builder = spec.newShardMergePipelineBuilder(sortDirs);
       return builder.build(countType);

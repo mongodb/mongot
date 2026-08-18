@@ -51,7 +51,8 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
             EDGES,
             RANGE_KEYS,
             lastEdgeInclusive,
-            new BoundaryArgs(RANGE_KEYS, defaultKey, TypeField.NUMBER_INT64_V2, null));
+            new BoundaryArgs(
+                RANGE_KEYS, defaultKey, Optional.of(TypeField.NUMBER_INT64_V2), Optional.empty()));
     return new TopAggregationSpec(List.of(byPrice));
   }
 
@@ -188,7 +189,10 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
             RANGE_KEYS,
             false,
             new BoundaryArgs(
-                RANGE_KEYS, Optional.of(DEFAULT_KEY), TypeField.NUMBER_INT64_V2, null));
+                RANGE_KEYS,
+                Optional.of(DEFAULT_KEY),
+                Optional.of(TypeField.NUMBER_INT64_V2),
+                Optional.empty()));
     AggregationSpec byCity =
         new TermsGroupAggregationSpec(
             "by_city",
@@ -280,8 +284,8 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
                 new BoundaryArgs(
                     List.of(new BsonInt32(0), new BsonInt32(100)),
                     Optional.empty(),
-                    TypeField.NUMBER_INT64_V2,
-                    null)));
+                    Optional.of(TypeField.NUMBER_INT64_V2),
+                    Optional.empty())));
   }
 
   @Test
@@ -297,7 +301,41 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
                 List.of(new BsonInt32(0)), // only 1 key
                 false,
                 new BoundaryArgs(
-                    List.of(new BsonInt32(0)), Optional.empty(), TypeField.NUMBER_INT64_V2, null)));
+                    List.of(new BsonInt32(0)),
+                    Optional.empty(),
+                    Optional.of(TypeField.NUMBER_INT64_V2),
+                    Optional.empty())));
+  }
+
+  @Test
+  public void constructor_missingTypeField_throws() {
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            new BoundaryGroupAggregationSpec(
+                "by_price",
+                FieldPath.parse(PRICE_FIELD),
+                List.of(),
+                EDGES,
+                RANGE_KEYS,
+                false,
+                new BoundaryArgs(
+                    RANGE_KEYS, Optional.empty(), Optional.empty(), Optional.empty())));
+  }
+
+  @Test
+  public void createBoundarySpecWithoutResolving_missingTypeField_buildsRangeKeysFromQuery() {
+    BoundaryGroupAggregationSpec spec =
+        BoundaryGroupAggregationSpec.createBoundarySpecWithoutResolving(
+            "by_price",
+            FieldPath.parse(PRICE_FIELD),
+            List.of(),
+            new BoundaryArgs(
+                List.of(new BsonInt32(0), new BsonInt32(100)),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty()));
+    assertEquals(List.of(new BsonInt32(0)), spec.rangeKeys());
   }
 
   private static BoundaryAggregationResult firstBoundary(Accumulator top) throws IOException {

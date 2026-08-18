@@ -32,11 +32,18 @@ public class AggregationRegistry {
 
     record TermsArgs(boolean isRoot, TypeField typeField, int numBuckets) implements GroupingArgs {}
 
+    /**
+     * Arguments for a number or date boundary grouping level.
+     *
+     * <p>{@code typeField} and {@code fieldDefinition} are present at execution time, when edges
+     * must be encoded into the stored doc-values long space. They are empty at shard plan time:
+     * merge planning only needs the request's boundary keys and default-bucket label.
+     */
     record BoundaryArgs(
         List<? extends BsonValue> boundaries,
         Optional<BsonValue> defaultKey,
-        TypeField typeField,
-        FieldDefinition fieldDefinition)
+        Optional<TypeField> typeField,
+        Optional<FieldDefinition> fieldDefinition)
         implements GroupingArgs {}
   }
 

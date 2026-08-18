@@ -113,8 +113,20 @@ public class SearchAggregationBootstrap {
       String boundaryType) {
     GroupingArgs.BoundaryArgs boundaryArgs =
         Check.instanceOf(args, GroupingArgs.BoundaryArgs.class);
-    TypeField typeField = boundaryArgs.typeField();
-    FieldDefinition fieldDef = boundaryArgs.fieldDefinition();
+    if (boundaryArgs.fieldDefinition().isEmpty()) {
+      return BoundaryGroupAggregationSpec.createBoundarySpecWithoutResolving(
+          name, path, children, boundaryArgs);
+    }
+    TypeField typeField =
+        boundaryArgs
+            .typeField()
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "Boundary aggregations require a type field when a field definition is"
+                            + " present"));
+    FieldDefinition fieldDef =
+        boundaryArgs.fieldDefinition().orElseThrow(IllegalStateException::new);
     // We only expect V2 number and date field indexing definition.
     FieldTypeDefinition fieldTypeDefinition =
         switch (boundaryType) {

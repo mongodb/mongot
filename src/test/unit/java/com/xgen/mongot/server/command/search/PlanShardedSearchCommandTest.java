@@ -1,31 +1,18 @@
 package com.xgen.mongot.server.command.search;
 
-import static com.xgen.testing.mongot.mock.index.IndexGeneration.mockIndexGeneration;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
-import com.xgen.mongot.index.IndexGeneration;
-import com.xgen.mongot.index.definition.NumericFieldOptions;
-import com.xgen.mongot.index.definition.SearchIndexCapabilities;
-import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.query.aggregation.TestOperatorSpecs;
 import com.xgen.mongot.server.command.search.definition.PlanShardedSearchCommandResponseDefinition;
 import com.xgen.mongot.server.command.search.definition.request.PlanShardedSearchCommandDefinition;
 import com.xgen.mongot.util.mongodb.MongoDbServerInfo;
-import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
-import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
-import com.xgen.testing.mongot.index.definition.NumericFieldDefinitionBuilder;
-import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.server.command.search.definition.request.PlanShardedSearchCommandDefinitionBuilder;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 import org.bson.BsonArray;
 import org.bson.BsonDocument;
@@ -146,41 +133,15 @@ public class PlanShardedSearchCommandTest {
 
   private static PlanShardedSearchCommand createCommand(
       PlanShardedSearchCommandDefinition definition,
-      SearchCommandsRegister.BootstrapperMetadata metadata,
-      IndexCatalog indexCatalog) {
-    return new PlanShardedSearchCommand(definition, metadata, indexCatalog);
-  }
-
-  private static SearchIndexDefinition priceIndexDefinition() {
-    return SearchIndexDefinitionBuilder.builder()
-        .defaultMetadata()
-        .database(DATABASE_NAME)
-        .lastObservedCollectionName(COLLECTION_NAME)
-        .collectionUuid(COLLECTION_UUID)
-        .name(INDEX_NAME)
-        .indexFeatureVersion(SearchIndexCapabilities.CURRENT_FEATURE_VERSION)
-        .mappings(
-            DocumentFieldDefinitionBuilder.builder()
-                .dynamic(false)
-                .field(
-                    "price",
-                    FieldDefinitionBuilder.builder()
-                        .number(
-                            NumericFieldDefinitionBuilder.builder()
-                                .representation(NumericFieldOptions.Representation.INT64)
-                                .buildNumberField())
-                        .build())
-                .build())
-        .build();
+      SearchCommandsRegister.BootstrapperMetadata metadata) {
+    return new PlanShardedSearchCommand(definition, metadata);
   }
 
   @Test
   public void testValidQuery() {
     PlanShardedSearchCommand command =
         createCommand(
-            getPlanShardedSearchCommandDefinition(VALID_OPERATOR_QUERY),
-            BOOTSTRAPPER_METADATA,
-            mock(IndexCatalog.class));
+            getPlanShardedSearchCommandDefinition(VALID_OPERATOR_QUERY), BOOTSTRAPPER_METADATA);
 
     List<BsonDocument> metaPipeline =
         List.of(
@@ -230,8 +191,7 @@ public class PlanShardedSearchCommandTest {
     PlanShardedSearchCommand command =
         createCommand(
             getPlanShardedSearchCommandDefinition(FACET_QUERY_NUM_BUCKETS_2000),
-            BOOTSTRAPPER_METADATA,
-            mock(IndexCatalog.class));
+            BOOTSTRAPPER_METADATA);
 
     BsonDocument result = command.run();
 
@@ -254,9 +214,7 @@ public class PlanShardedSearchCommandTest {
 
     PlanShardedSearchCommand command =
         createCommand(
-            getPlanShardedSearchCommandDefinition(FACET_QUERY_NUM_BUCKETS_2000),
-            metadata,
-            mock(IndexCatalog.class));
+            getPlanShardedSearchCommandDefinition(FACET_QUERY_NUM_BUCKETS_2000), metadata);
 
     BsonDocument result = command.run();
 
@@ -269,21 +227,11 @@ public class PlanShardedSearchCommandTest {
   }
 
   @Test
-  public void testFlatBoundarySumAggregationPlansWithoutCollectionUuid() {
-    IndexCatalog indexCatalog = mock(IndexCatalog.class);
-    SearchIndexDefinition indexDefinition = priceIndexDefinition();
-    IndexGeneration indexGeneration = mockIndexGeneration(indexDefinition);
-    when(indexCatalog.getIndexes()).thenReturn(List.of(indexGeneration));
-
-    PlanShardedSearchCommandDefinition definition =
-        PlanShardedSearchCommandDefinitionBuilder.builder()
-            .db(DATABASE_NAME)
-            .collectionName(COLLECTION_NAME)
-            .query(BOUNDARY_SUM_AGGREGATION_QUERY)
-            .build();
-
+  public void testFlatBoundarySumAggregationPlansWithoutIndexCatalog() {
     PlanShardedSearchCommand command =
-        createCommand(definition, AGGREGATION_BOOTSTRAPPER_METADATA, indexCatalog);
+        createCommand(
+            getPlanShardedSearchCommandDefinition(BOUNDARY_SUM_AGGREGATION_QUERY),
+            AGGREGATION_BOOTSTRAPPER_METADATA);
 
     BsonDocument result = command.run();
 
@@ -292,92 +240,19 @@ public class PlanShardedSearchCommandTest {
   }
 
   @Test
-  public void testFlatBoundarySumAggregationPlansWithIndexCatalog() {
-    IndexCatalog indexCatalog = mock(IndexCatalog.class);
-    SearchIndexDefinition indexDefinition = priceIndexDefinition();
-    IndexGeneration indexGeneration = mockIndexGeneration(indexDefinition);
-    when(indexCatalog.getIndex(eq(DATABASE_NAME), eq(COLLECTION_UUID), any(), eq(INDEX_NAME)))
-        .thenReturn(Optional.of(indexGeneration));
+  public void testFlatBoundarySumAggregationPlansOnExtensionPathWithEmptyDbAndCollection() {
+    PlanShardedSearchCommandDefinition definition =
+        PlanShardedSearchCommandDefinitionBuilder.builder()
+            .db("")
+            .collectionName("")
+            .query(BOUNDARY_SUM_AGGREGATION_QUERY)
+            .build();
 
-    PlanShardedSearchCommand command =
-        createCommand(
-            getPlanShardedSearchCommandDefinition(BOUNDARY_SUM_AGGREGATION_QUERY),
-            AGGREGATION_BOOTSTRAPPER_METADATA,
-            indexCatalog);
+    PlanShardedSearchCommand command = createCommand(definition, AGGREGATION_BOOTSTRAPPER_METADATA);
 
     BsonDocument result = command.run();
 
     Assert.assertEquals(1, result.getInt32("ok").getValue());
-    BsonArray metaPipeline = result.getArray("metaPipeline");
-    Assert.assertEquals(3, metaPipeline.size());
-  }
-
-  @Test
-  public void testFlatBoundarySumAggregationIndexNotFoundReturnsError() {
-    IndexCatalog indexCatalog = mock(IndexCatalog.class);
-    when(indexCatalog.getIndex(eq(DATABASE_NAME), eq(COLLECTION_UUID), any(), eq(INDEX_NAME)))
-        .thenReturn(Optional.empty());
-
-    PlanShardedSearchCommand command =
-        createCommand(
-            getPlanShardedSearchCommandDefinition(BOUNDARY_SUM_AGGREGATION_QUERY),
-            AGGREGATION_BOOTSTRAPPER_METADATA,
-            indexCatalog);
-
-    BsonDocument result = command.run();
-
-    Assert.assertEquals(0, result.getInt32("ok").getValue());
-    Assert.assertTrue(result.getString("errmsg").getValue().contains("not found"));
-  }
-
-  /**
-   * A legacy numberFacet grouping field carries no v2 doc values, so boundary spec building would
-   * raise a bare NoSuchElementException. Plan time must report the same query error the query path
-   * reports instead.
-   */
-  @Test
-  public void testBoundaryGroupingOnLegacyNumberFacetFieldReturnsError() {
-    IndexCatalog indexCatalog = mock(IndexCatalog.class);
-    IndexGeneration indexGeneration = mockIndexGeneration(legacyNumberFacetPriceIndexDefinition());
-    when(indexCatalog.getIndex(eq(DATABASE_NAME), eq(COLLECTION_UUID), any(), eq(INDEX_NAME)))
-        .thenReturn(Optional.of(indexGeneration));
-
-    PlanShardedSearchCommand command =
-        createCommand(
-            getPlanShardedSearchCommandDefinition(BOUNDARY_SUM_AGGREGATION_QUERY),
-            AGGREGATION_BOOTSTRAPPER_METADATA,
-            indexCatalog);
-
-    BsonDocument result = command.run();
-
-    Assert.assertEquals(0, result.getInt32("ok").getValue());
-    Assert.assertTrue(
-        result
-            .getString("errmsg")
-            .getValue()
-            .contains("because it is indexed as a legacy \"numberFacet\""));
-  }
-
-  private static SearchIndexDefinition legacyNumberFacetPriceIndexDefinition() {
-    return SearchIndexDefinitionBuilder.builder()
-        .defaultMetadata()
-        .database(DATABASE_NAME)
-        .lastObservedCollectionName(COLLECTION_NAME)
-        .collectionUuid(COLLECTION_UUID)
-        .name(INDEX_NAME)
-        .indexFeatureVersion(SearchIndexCapabilities.CURRENT_FEATURE_VERSION)
-        .mappings(
-            DocumentFieldDefinitionBuilder.builder()
-                .dynamic(false)
-                .field(
-                    "price",
-                    FieldDefinitionBuilder.builder()
-                        .numberFacet(
-                            NumericFieldDefinitionBuilder.builder()
-                                .representation(NumericFieldOptions.Representation.INT64)
-                                .buildNumberFacetField())
-                        .build())
-                .build())
-        .build();
+    Assert.assertEquals(3, result.getArray("metaPipeline").size());
   }
 }

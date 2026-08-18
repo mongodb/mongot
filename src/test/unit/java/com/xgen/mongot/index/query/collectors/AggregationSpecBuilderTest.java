@@ -12,8 +12,10 @@ import com.xgen.mongot.index.query.aggregation.TopAggregationSpec;
 import com.xgen.mongot.index.query.operators.AllDocumentsOperator;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.bson.BsonInt32;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -96,5 +98,25 @@ public class AggregationSpecBuilderTest {
     assertEquals(FieldPath.parse("color"), colorSpec.getPath());
     assertEquals(1, colorSpec.children().size());
     assertEquals("count", colorSpec.children().get(0).name());
+  }
+
+  @Test
+  public void numberBoundaryWithoutResolver_lowersThroughRegistry() {
+    AggregationFacetDefinition leaf =
+        AggregationFacetDefinition.create(
+            new FacetDefinition.NumericFacetDefinition(
+                "price", Optional.empty(), List.of(new BsonInt32(0), new BsonInt32(100))),
+            Map.of(),
+            Map.of());
+
+    TopAggregationSpec top = lower(Map.of("byPrice", leaf));
+
+    assertEquals(1, top.children().size());
+    GroupAggregationSpec group =
+        Check.instanceOf(top.children().get(0), GroupAggregationSpec.class);
+    assertEquals("byPrice", group.name());
+    assertEquals(FieldPath.parse("price"), group.getPath());
+    assertEquals(1, group.children().size());
+    assertEquals("count", group.children().get(0).name());
   }
 }

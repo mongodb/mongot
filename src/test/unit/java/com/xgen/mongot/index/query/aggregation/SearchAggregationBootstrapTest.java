@@ -11,6 +11,7 @@ import com.xgen.mongot.util.FieldPath;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.bson.BsonInt32;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -200,5 +201,27 @@ public class SearchAggregationBootstrapTest {
             ShardMergeAliasPlan.from(new TopAggregationSpec(List.of()), List.of()));
     assertThrows(IllegalStateException.class, () -> first.buildShardMergePipeline(builder));
     assertThrows(IllegalStateException.class, () -> last.buildShardMergePipeline(builder));
+  }
+
+  @Test
+  public void numberBoundaryWithoutFieldDefinition_buildsRangeKeysFromQuery() {
+    SearchAggregationBootstrap.installRegistry();
+
+    GroupAggregationSpec spec =
+        AggregationRegistry.getInstance()
+            .getGroupSpecSupplier(SearchAggregationBootstrap.NUMBER_BOUNDARY)
+            .build(
+                "by_price",
+                PRICE,
+                List.of(),
+                new AggregationRegistry.GroupingArgs.BoundaryArgs(
+                    List.of(new BsonInt32(0), new BsonInt32(100)),
+                    Optional.empty(),
+                    Optional.empty(),
+                    Optional.empty()),
+                AggregationRegistry.getInstance());
+
+    assertTrue(spec instanceof BoundaryGroupAggregationSpec);
+    assertEquals(List.of(new BsonInt32(0)), ((BoundaryGroupAggregationSpec) spec).rangeKeys());
   }
 }
