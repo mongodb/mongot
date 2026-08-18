@@ -286,12 +286,25 @@ public class ChangeStreamDocumentUtils {
             (raw) -> raw.decode(CHANGE_STREAM_DOCUMENT_CODEC), eventChecker));
   }
 
-  public static void recordChangeStreamEventSizes(
+  /**
+   * Records the on-the-wire size of every raw event in a change-stream batch via {@code
+   * eventSizeRecorder} and returns the batch's total raw size in bytes, traversing the batch once.
+   * Callers that need both the per-event sizes (e.g. large-event thresholds) and the batch total
+   * (e.g. batch-fullness classification) thus pay for only a single pass (CLOUDP-353521,
+   * CLOUDP-425971).
+   *
+   * <p>The returned total is the sum of per-event raw payload bytes — roughly what counts against
+   * the server's ~16MB response cap — as opposed to the post-filter applicable byte count.
+   */
+  public static long recordChangeStreamEventSizes(
       List<RawBsonDocument> batch, Consumer<Integer> eventSizeRecorder) {
+    @Var long total = 0;
     for (RawBsonDocument rawDoc : batch) {
       int size = rawDoc.getByteBuffer().remaining();
       eventSizeRecorder.accept(size);
+      total += size;
     }
+    return total;
   }
 
   /**

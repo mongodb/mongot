@@ -31,6 +31,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.apache.commons.codec.DecoderException;
 import org.bson.BsonTimestamp;
@@ -41,6 +42,41 @@ import org.bson.types.ObjectId;
 abstract class ChangeStreamIndexManager {
 
   /**
+   * Classification of a change-stream batch by its raw (on-the-wire) size. Used to observe
+   * replication backlog while removing mongot from mongod load-shedding exemptions (CLOUDP-425971):
+   * a run of {@link #FULL} batches means mongot is behind, while {@link #EMPTY} batches mean the
+   * change stream is idle / caught up.
+   */
+  enum BatchFullness {
+    EMPTY("empty"),
+    PARTIAL("partial"),
+    FULL("full");
+
+    /**
+     * A batch whose raw payload is at or above this many bytes is treated as "full": it likely hit
+     * the server's ~16MB change-stream response-size cap, meaning more data was waiting.
+     */
+    static final long FULL_BATCH_RAW_BYTES_THRESHOLD = 15L * 1024 * 1024;
+
+    private final String tagValue;
+
+    BatchFullness(String tagValue) {
+      this.tagValue = tagValue;
+    }
+
+    String tagValue() {
+      return this.tagValue;
+    }
+
+    static BatchFullness classify(int eventCount, long rawBatchBytes) {
+      if (eventCount == 0) {
+        return EMPTY;
+      }
+      return rawBatchBytes >= FULL_BATCH_RAW_BYTES_THRESHOLD ? FULL : PARTIAL;
+    }
+  }
+
+  /**
    * Encapsulates the results of an indexBatch call. Holds a future representing when the indexing
    * finishes. Also holds whether or not the batch had a lifecycle event.
    */
@@ -48,15 +84,26 @@ abstract class ChangeStreamIndexManager {
     final CompletableFuture<Void> indexingFuture;
     final Optional<SteadyStateException> lifecycleEvent;
 
+    /**
+     * The batch's size classification. Populated on the decoding thread before the batch is indexed
+     * and read once {@link #indexingFuture} completes, so it is non-null on the success path. Empty
+     * (null holder value) for batches that never reach classification (e.g. those rejected at
+     * shutdown).
+     */
+    final AtomicReference<BatchFullness> fullness;
+
     BatchInfo(
-        CompletableFuture<Void> indexingFuture, Optional<SteadyStateException> lifecycleEvent) {
+        CompletableFuture<Void> indexingFuture,
+        Optional<SteadyStateException> lifecycleEvent,
+        AtomicReference<BatchFullness> fullness) {
 
       this.indexingFuture = indexingFuture;
       this.lifecycleEvent = lifecycleEvent;
+      this.fullness = fullness;
     }
 
     BatchInfo(CompletableFuture<Void> indexingFuture) {
-      this(indexingFuture, Optional.empty());
+      this(indexingFuture, Optional.empty(), new AtomicReference<>());
     }
   }
 

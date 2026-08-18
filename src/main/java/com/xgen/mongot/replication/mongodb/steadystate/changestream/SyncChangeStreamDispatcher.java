@@ -23,6 +23,7 @@ import com.xgen.mongot.replication.mongodb.common.PartialEmbedMetricCounters;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
 import com.xgen.mongot.replication.mongodb.common.ViewFieldDependenciesMetricCounters;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.Tags;
@@ -31,6 +32,7 @@ import java.time.Duration;
 import java.util.EnumSet;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.jetbrains.annotations.TestOnly;
 import org.jetbrains.annotations.VisibleForTesting;
@@ -46,6 +48,20 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
 
   private static final Logger LOG = LoggerFactory.getLogger(SyncChangeStreamDispatcher.class);
 
+  private static final double NANOS_PER_SECOND = 1_000_000_000.0;
+
+  // Explicit histogram buckets (seconds) for getMore latency, so fleet-wide percentiles can be
+  // computed with histogram_quantile (CLOUDP-425971). getMore latency is bimodal: batches with
+  // events waiting return quickly, while an idle change stream waits out our own maxTimeMS
+  // (changeStreamMaxTimeMs, 1s by default) and returns empty. The buckets are therefore dense
+  // around 1s to separate those two modes, and extend past it because anything materially beyond
+  // maxTimeMS means the getMore was delayed before mongod started awaiting -- which is how
+  // execution-control deprioritization shows up, since it adds ticket wait rather than returning
+  // an error.
+  private static final double[] GET_MORE_DURATION_BUCKETS_SECONDS = {
+    0.01, 0.05, 0.1, 0.25, 0.5, 0.7, 0.8, 0.9, 0.95, 1.0, 1.1, 1.5, 2.0, 3.0, 5.0, 10.0
+  };
+
   private final ChangeStreamMongoClientFactory syncMongoClientFactory;
   private final ChangeStreamTaskExecutor taskExecutor;
 
@@ -58,6 +74,9 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
   /* Tracks count and duration of in progress getMore operations (server calls only) */
   private final AtomicLong getMoresInFlight;
   private final Timer getMoresInFlightTimer;
+  /* Mergeable histogram of getMore latency (seconds) with explicit buckets around the 1s
+  load-shedding threshold; supports fleet-wide histogram_quantile() unlike getMoresInFlightTimer. */
+  private final DistributionSummary getMoreDurationHistogram;
   /* Tracks count and duration of queued getMore operations */
   private final ImmutableMap<IndexTypeData.IndexTypeTag, AtomicLong> getMoresScheduled;
   private final Timer getMoresSchedulingTimer;
@@ -65,6 +84,11 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
   (includes: server call, preprocessing and indexing)  */
   private final ImmutableMap<IndexTypeData.IndexTypeTag, AtomicLong> batchesInProgressTotal;
   private final Timer batchesInProgressTotalTimer;
+  /* Same total batch duration as batchesInProgressTotalTimer, but tagged by batch fullness
+  (empty/partial/full). The per-fullness sample count also gives the empty/partial/full batch
+  counts, surfacing empty (idle) and full (backlog) batches (CLOUDP-425971). */
+  private final ImmutableMap<ChangeStreamIndexManager.BatchFullness, Timer>
+      batchDurationsByFullness;
   /* Tracks the total number of change-stream ended exceptionally */
   private final Counter unexpectedBatchFailures;
   /* Tracks duration of preprocessing a batch */
@@ -86,8 +110,15 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
     Tag replicationTypeTag = Tag.of("replicationType", type.name());
     this.getMoresInFlight =
         metricsFactory.numGauge("getMoresInFlight", Tags.of(replicationTypeTag));
-    // TODO(CLOUDP-289914): Remove this getMoresInFlightTimer after switching to new one.
+    // TODO(CLOUDP-426135): remove this timer (and the per-index getPerIndexGetMoreTimer) in favor
+    // of the mergeable getMoreDurationSeconds histogram below, and migrate dashboards to it. Kept
+    // for now so this metrics-add stays additive. Subsumes CLOUDP-289914.
     this.getMoresInFlightTimer = metricsFactory.timerSec("getMoreDurations");
+    this.getMoreDurationHistogram =
+        metricsFactory.histogram(
+            "getMoreDurationSeconds",
+            Tags.of(replicationTypeTag),
+            GET_MORE_DURATION_BUCKETS_SECONDS);
     // Both maps are keyed over every IndexTypeTag: looked up unchecked by getIndexTypeTag, so a
     // missing tag would NPE the first batch of that index type.
     String getMoresScheduledName = "getMoresScheduled";
@@ -103,6 +134,14 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
             tag ->
                 getNumGauge(metricsFactory, batchesInProgressTotalName, tag, replicationTypeTag));
     this.batchesInProgressTotalTimer = metricsFactory.timerSec("batchesInProgressTotalDurations");
+    this.batchDurationsByFullness =
+        Maps.toMap(
+            EnumSet.allOf(ChangeStreamIndexManager.BatchFullness.class),
+            fullness ->
+                metricsFactory.timer(
+                    "batchDurationsByFullness",
+                    Tags.of(replicationTypeTag).and("fullness", fullness.tagValue()),
+                    TimeUnit.SECONDS));
     this.unexpectedBatchFailures = metricsFactory.counter("unexpectedBatchFailures");
     this.preprocessingBatchTimer = metricsFactory.timerSec("preprocessingBatchDurations");
 
@@ -233,8 +272,15 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
       batchInfo.indexingFuture.get();
 
       // Record the total duration, excluding failures.
-      Timed.recordSampleIgnoringMetricsFailure(
-          this.batchesInProgressTotalTimer, getNextTimer.stop().elapsed());
+      Duration batchDuration = getNextTimer.stop().elapsed();
+      Timed.recordSampleIgnoringMetricsFailure(this.batchesInProgressTotalTimer, batchDuration);
+      // Also record it tagged by batch fullness. The fullness is classified on the decoding thread
+      // and is set by the time indexingFuture completes; guard against null defensively.
+      ChangeStreamIndexManager.BatchFullness fullness = batchInfo.fullness.get();
+      if (fullness != null) {
+        Timed.recordSampleIgnoringMetricsFailure(
+            this.batchDurationsByFullness.get(fullness), batchDuration);
+      }
     } catch (Exception ex) {
       GenerationId generationId = info.indexManager.getGenerationId();
       LOG.atError()
@@ -308,6 +354,7 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
       var batch = getMoreProducer.apply(mongoClient);
       Duration duration = timer.stop().elapsed();
       Timed.recordSampleIgnoringMetricsFailure(this.getMoresInFlightTimer, duration);
+      this.getMoreDurationHistogram.record(duration.toNanos() / NANOS_PER_SECOND);
       metricsUpdater.getBatchGetMoreTimer().record(duration);
       metricsUpdater.getPerIndexGetMoreTimer().record(duration);
       return batch;

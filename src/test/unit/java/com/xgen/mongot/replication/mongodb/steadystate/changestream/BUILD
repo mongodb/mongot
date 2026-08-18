@@ -4,6 +4,7 @@ java_test_suite(
     name = "changestream",
     srcs = [
         "AutoEmbeddingExecutorTest.java",
+        "BatchFullnessTest.java",
         "ChangeStreamActivityObserverTest.java",
         "ChangeStreamDualQueueExecutorTest.java",
         "ChangeStreamIndexManagerTest.java",

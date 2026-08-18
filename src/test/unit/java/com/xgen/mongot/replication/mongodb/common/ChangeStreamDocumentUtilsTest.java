@@ -13,6 +13,7 @@ import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils;
+import java.util.ArrayList;
 import java.util.List;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
@@ -319,5 +320,33 @@ public class ChangeStreamDocumentUtilsTest {
     var updateDescription =
         new UpdateDescription(null, new BsonDocument(nonIndexedFieldName, new BsonString("value")));
     return ChangeStreamUtils.updateEvent(id, updateDescription, indexDefinition);
+  }
+
+  @Test
+  public void testRecordChangeStreamEventSizesEmptyBatchReturnsZero() {
+    List<Integer> recorded = new ArrayList<>();
+
+    long total = ChangeStreamDocumentUtils.recordChangeStreamEventSizes(List.of(), recorded::add);
+
+    assertThat(total).isEqualTo(0L);
+    assertThat(recorded).isEmpty();
+  }
+
+  @Test
+  public void testRecordChangeStreamEventSizesRecordsPerEventAndReturnsSum() {
+    RawBsonDocument first = RawBsonDocument.parse("{a: 1}");
+    RawBsonDocument second = RawBsonDocument.parse("{b: 'a considerably longer value'}");
+    List<Integer> recorded = new ArrayList<>();
+
+    long total =
+        ChangeStreamDocumentUtils.recordChangeStreamEventSizes(
+            List.of(first, second), recorded::add);
+
+    // One pass records every event's size and returns their sum.
+    assertThat(recorded)
+        .containsExactly(first.getByteBuffer().remaining(), second.getByteBuffer().remaining())
+        .inOrder();
+    assertThat(total)
+        .isEqualTo((long) first.getByteBuffer().remaining() + second.getByteBuffer().remaining());
   }
 }

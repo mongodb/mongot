@@ -38,6 +38,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.bson.RawBsonDocument;
 
@@ -182,6 +183,10 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
 
       CompletableFuture<Void> schedulingFuture = new CompletableFuture<>();
 
+      // Classified on the decoding thread (below) and read by the dispatcher once indexing
+      // completes, to tag batch metrics by size (CLOUDP-425971).
+      AtomicReference<BatchFullness> fullness = new AtomicReference<>();
+
       // Schedule the given batch for decoding. Decoding will be done in-order (FIFO) per index
       // (generation id). In case a batch decoding ended exceptionally, no further decoding will get
       // scheduled for that index and schedulingFuture will end exceptionally. Resulting with
@@ -193,12 +198,17 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
               batch.getRawEvents(),
               Priority.STEADY_STATE_CHANGE_STREAM,
               events -> {
-                // Record the size of every raw event in the batch. This runs on the decoding
-                // thread rather than the IO/dispatch thread so the (batch-length) traversal doesn't
-                // block the thread that fetches the next change-stream batch (CLOUDP-353521).
-                ChangeStreamDocumentUtils.recordChangeStreamEventSizes(
-                    events,
-                    this.indexMetricsUpdater.getIndexingMetricsUpdater()::recordDocumentSizeBytes);
+                // In a single traversal, record the size of every raw event (for large-event
+                // thresholds) and get the batch's total raw size, then classify the batch by size.
+                // Runs on the decoding thread rather than the IO/dispatch thread so the
+                // batch-length traversal doesn't block the thread that fetches the next
+                // change-stream batch (CLOUDP-353521, CLOUDP-425971).
+                long rawBatchBytes =
+                    ChangeStreamDocumentUtils.recordChangeStreamEventSizes(
+                        events,
+                        this.indexMetricsUpdater.getIndexingMetricsUpdater()
+                            ::recordDocumentSizeBytes);
+                fullness.set(BatchFullness.classify(events.size(), rawBatchBytes));
 
                 // A list view of change-stream documents based on given raw documents. The view
                 // excludes non-CRUD events from the end of the list. Note: decoding from raw
@@ -257,7 +267,7 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
               lifecycleEvent,
               batch.getCommandOperationTime());
 
-      return new BatchInfo(indexingFuture, lifecycleEvent);
+      return new BatchInfo(indexingFuture, lifecycleEvent, fullness);
     }
   }
 
