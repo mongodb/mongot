@@ -1,0 +1,19 @@
+# SPI service-file overrides applied at binary-stamp time by
+# java_binary_stamped_manifest (see bazel/java/package.bzl).
+#
+# singlejar concatenates each dependency jar's META-INF/services file in
+# dependency-topological order (deps before dependents), and the JDK/Lucene SPI
+# loaders are first-wins, so a third-party entry (e.g. lucene-core) can shadow a
+# mongot @AutoService override that registers the SAME SPI name. For each row
+# below, the stamp step verifies BOTH the source and target entries are present
+# in the named service file -- failing the build loudly otherwise -- then strips
+# the source entry so the target format becomes the sole provider of that SPI
+# name. The target reads source-written segments unchanged (identical on-disk
+# layout); it just wins forName() resolution on the read path.
+#
+# Columns (whitespace/tab separated):
+#   <service-resource-path>  <source-format-to-strip>  <target-format-to-keep>
+#
+# Lines beginning with '#' and blank lines are ignored.
+
+META-INF/services/org.apache.lucene.codecs.KnnVectorsFormat	org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat	com.xgen.mongot.index.lucene.vector.Lucene99NativeHnswVectorsFormat

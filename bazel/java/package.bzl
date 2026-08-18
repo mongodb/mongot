@@ -102,6 +102,9 @@ def _looks_like_absolute_label(dep):
 def _looks_like_internal_package(dep):
     return dep.startswith("com.xgen")
 
+_SPI_SERVICE_OVERRIDES = "//bazel/java:spi_service_overrides.tsv"
+_APPLY_SPI_OVERRIDES_TOOL = "//scripts/deploy:apply_spi_service_overrides"
+
 def java_binary_stamped_manifest(name, manifest_lines = [], visibility = [], **kwargs):
     """
         Same as java_binary rule but also has a manifest_lines to allow stamping over values
@@ -115,7 +118,11 @@ def java_binary_stamped_manifest(name, manifest_lines = [], visibility = [], **k
     native.genrule(
         name = name,
         stamp = 1,
-        srcs = [name + "__non_stamped_deploy.jar"],
+        srcs = [
+            name + "__non_stamped_deploy.jar",
+            _SPI_SERVICE_OVERRIDES,
+        ],
+        tools = [_APPLY_SPI_OVERRIDES_TOOL],
         cmd = "\n".join(
             [
                 # Ensure pipelines fail if any command in the pipe fails (e.g. unzip -p).
@@ -124,8 +131,11 @@ def java_binary_stamped_manifest(name, manifest_lines = [], visibility = [], **k
                 "sed 's| |=\\\"|' < bazel-out/stable-status.txt | sed 's|$$|\\\"|' | sed 's|^|export |' > vars.sh",
                 "sed 's| |=\\\"|' < bazel-out/volatile-status.txt | sed 's|$$|\\\"|' | sed 's|^|export |' >> vars.sh",
                 "source vars.sh",
-                "export INPUT=\"$$PWD/$<\"",  # points to "{name}__non_stamped_deploy.jar" location
+                # points to "{name}__non_stamped_deploy.jar" location
+                "export INPUT=\"$$PWD/$(location " + name + "__non_stamped_deploy.jar)\"",
                 "export OUTPUT=\"$$PWD/$@\"",  # points to "{name}_deploy.jar" location
+                # points to the SPI service-override data file
+                "export OVERRIDES=\"$$PWD/$(location " + _SPI_SERVICE_OVERRIDES + ")\"",
                 # Copy the jar and make it writable so we can modify it in-place.
                 # This avoids extracting and re-zipping the entire jar (61K+ files)
                 # just to update the manifest, which previously took ~70s.
@@ -142,6 +152,9 @@ def java_binary_stamped_manifest(name, manifest_lines = [], visibility = [], **k
                 # Replace the manifest entry in the jar without touching other entries.
                 "zip -d -q $$OUTPUT META-INF/MANIFEST.MF",
                 "(cd tmp && zip -q $$OUTPUT META-INF/MANIFEST.MF)",
+                # Apply the data-driven SPI service-file overrides (see the tool
+                # and spi_service_overrides.tsv for rationale and format).
+                "$(location " + _APPLY_SPI_OVERRIDES_TOOL + ") $$OUTPUT $$OVERRIDES",
                 "rm -rf tmp vars.sh",
             ],
         ),

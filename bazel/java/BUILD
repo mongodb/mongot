@@ -4,8 +4,14 @@ load("@rules_java//toolchains:default_java_toolchain.bzl", "default_java_toolcha
 load("@rules_jvm_external//:defs.bzl", "artifact")
 load("//bazel/java:package.bzl", "java_library")
 
-# Exported to expose _LUCENE_FORK_VERSION to mongot Java code.
-exports_files(["maven_search_query.MODULE.bazel"])
+exports_files([
+    # Exported to expose _LUCENE_FORK_VERSION to mongot Java code.
+    "maven_search_query.MODULE.bazel",
+    # Data file consumed by java_binary_stamped_manifest to rewrite SPI service
+    # files at binary-stamp time (see bazel/java/package.bzl). The script that
+    # applies it lives at //scripts/deploy:apply_spi_service_overrides.
+    "spi_service_overrides.tsv",
+])
 
 java_plugin(
     name = "nullaway_annotation_processor",
