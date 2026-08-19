@@ -27,10 +27,10 @@ import org.bson.BsonValue;
  */
 final class FieldValueFetcher {
 
-  private final StoredSourceReader storedSource;
+  private final ValueSource source;
 
-  private FieldValueFetcher(StoredSourceReader storedSource) {
-    this.storedSource = storedSource;
+  private FieldValueFetcher(ValueSource source) {
+    this.source = source;
   }
 
   static FieldValueFetcher create(ResolvedTokenField field, LeafReaderContext leaf)
@@ -38,13 +38,19 @@ final class FieldValueFetcher {
     return new FieldValueFetcher(new StoredSourceReader(field.storedSourcePath(), leaf));
   }
 
-  /** The value for {@code leafDoc}, or empty when stored source holds none. */
+  /** The value for {@code leafDoc}, or empty when the source holds none for it. */
   Optional<BsonValue> fetch(int leafDoc) throws IOException {
-    return this.storedSource.read(leafDoc);
+    return this.source.read(leafDoc);
+  }
+
+  /** One segment's supply of a token-valued metric's values. */
+  interface ValueSource {
+    /** The value for {@code leafDoc}, or empty when this source holds none for it. */
+    Optional<BsonValue> read(int leafDoc) throws IOException;
   }
 
   /** Reads the document's stored source and walks it to the path. */
-  private static final class StoredSourceReader {
+  private static final class StoredSourceReader implements ValueSource {
     private static final String STORED_SOURCE_FIELD =
         FieldName.StaticField.STORED_SOURCE.getLuceneFieldName();
     private static final Set<String> STORED_FIELDS = Set.of(STORED_SOURCE_FIELD);
@@ -57,7 +63,8 @@ final class FieldValueFetcher {
       this.storedFields = leaf.reader().storedFields();
     }
 
-    Optional<BsonValue> read(int leafDoc) throws IOException {
+    @Override
+    public Optional<BsonValue> read(int leafDoc) throws IOException {
       // getBinaryValue returns null for a document with no stored source.
       return Optional.ofNullable(
               this.storedFields

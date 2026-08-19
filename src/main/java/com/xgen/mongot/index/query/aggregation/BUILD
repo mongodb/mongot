@@ -27,6 +27,7 @@ java_library(
         "CountAggregationResult.java",
         "CountAggregationSpec.java",
         "DenseTermsAccumulator.java",
+        "DocValuesFieldReader.java",
         "DoubleArray.java",
         "FacetMetricAliases.java",
         "FieldValueFetcher.java",
