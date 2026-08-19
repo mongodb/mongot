@@ -543,7 +543,16 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
 
       if (weOwnLease && !leaseExpired) {
         // We own the lease - this is likely an index definition update (e.g., filter field change).
-        // Add to leaderGenerationIds so the generator can become leader immediately.
+        // Add to leaderGenerationIds so the generator can become leader immediately. Also clear any
+        // followerGenerationIds membership: becomeFollower() can have added this generationId there
+        // moments earlier in the same refreshStatus() tick (e.g. a terminal-generator demotion
+        // immediately followed by retryFailedGeneratorCreations() re-adding it here), and leaving
+        // it
+        // in both sets makes the next pollFollowerStatuses() report this already-active lease as
+        // acquirable, causing refreshStatus()'s acquirableLeases loop to redundantly reacquire
+        // leadership on the generator this call just activated and trip the unsafe-reacquisition
+        // detector on a same-tenure, non-corrupting reacquisition (CLOUDP-437181).
+        this.followerGenerationIds.remove(generationId);
         this.leaderGenerationIds.add(generationId);
         LOG.atInfo()
             .addKeyValue("generationId", generationId)

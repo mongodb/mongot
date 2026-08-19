@@ -350,6 +350,36 @@ public class DynamicLeaderLeaseManagerTest {
   }
 
   @Test
+  public void add_reownedLeaseAfterLocalDemotion_removesFromFollowerGenerationIds() {
+    // Regression test for CLOUDP-437181: retryFailedGeneratorCreations() calls add() again for a
+    // generationId that becomeFollower() (via releaseLeadership()) demoted moments earlier in the
+    // same refreshStatus() tick, e.g. after a terminal-state generator (collection drop) is
+    // recreated while this host still owns an unexpired lease. add()'s "we own the lease" branch
+    // must clear any lingering followerGenerationIds membership left by that becomeFollower() call,
+    // or the next pollFollowerStatuses() reports the already-active lease as acquirable and
+    // refreshStatus() redundantly reacquires leadership, tripping the unsafe-reacquisition alert.
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    String leaseKey = getLeaseKeyFromCatalog(generationId);
+    this.leaseManager.putLease(
+        leaseKey, createLease(generationId, HOSTNAME, Instant.now().plusSeconds(3600)));
+
+    this.leaseManager.add(indexGeneration);
+    assertThat(this.leaseManager.isLeader(generationId)).isTrue();
+
+    this.leaseManager.releaseLeadership(generationId);
+    assertThat(this.leaseManager.isLeader(generationId)).isFalse();
+    assertThat(this.leaseManager.getFollowerGenerationIds()).contains(generationId);
+
+    this.leaseManager.add(indexGeneration);
+
+    assertThat(this.leaseManager.isLeader(generationId)).isTrue();
+    assertThat(this.leaseManager.getFollowerGenerationIds()).doesNotContain(generationId);
+    LeaseManager.FollowerPollResult result = this.leaseManager.pollFollowerStatuses();
+    assertThat(result.acquirableLeases()).doesNotContain(generationId);
+  }
+
+  @Test
   public void getLeaderAndFollowerGenerationIds_afterAddAndDrop_returnsCorrectSets() {
     // Arrange
     MaterializedViewIndexGeneration indexGeneration1 = createTestIndexGeneration();
