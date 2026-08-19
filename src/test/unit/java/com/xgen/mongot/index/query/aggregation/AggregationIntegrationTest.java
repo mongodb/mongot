@@ -213,6 +213,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                     "input": {"$getField": {"field": "keys", "input": "$_id"}}
                   }
                 },
+                "count_value": {"$sum": "$count_value"},
                 "_rows": {"$push": {
                   "k1": {
                     "$getField": {
@@ -220,6 +221,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
+                  "count_value": "$count_value",
                   "m0": "$m0",
                   "m1": "$m1"
                 }}
@@ -339,6 +341,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                     }
                   }
                 },
+                "count_value": {"$sum": "$count_value"},
                 "_rows": {"$push": {
                   "k3": {
                     "$getField": {
@@ -346,6 +349,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
+                  "count_value": "$count_value",
                   "m0": "$m0",
                   "m1": "$m1"
                 }}
@@ -355,15 +359,19 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                   "k0": "$_id.k0",
                   "k1": "$_id.k1"
                 },
+                "count_value": {"$sum": "$count_value"},
                 "_rows": {"$push": {
                   "k2": "$_id.k2",
+                  "count_value": "$count_value",
                   "_leaf_rows": "$_rows"
                 }}
               }},
               {"$group": {
                 "_id": "$_id.k0",
+                "count_value": {"$sum": "$count_value"},
                 "_rows": {"$push": {
                   "k1": "$_id.k1",
+                  "count_value": "$count_value",
                   "_leaf_rows": "$_rows"
                 }}
               }},
@@ -517,6 +525,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
+                  "count_value": {"$sum": "$count_value"},
                   "_rows": {"$push": {
                     "k1": {
                       "$getField": {
@@ -524,6 +533,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                         "input": {"$getField": {"field": "keys", "input": "$_id"}}
                       }
                     },
+                    "count_value": "$count_value",
                     "m0": "$m0",
                     "m1": "$m1"
                   }}

@@ -26,7 +26,7 @@ public final class IntermediateAggregationMetaField {
 
   /**
    * Per-bucket document count on the emitting shard. Summed in stage-1 {@code $group} as {@code
-   * count_value} for flat leaf terms top-N.
+   * count_value} and propagated through nested facet-arm {@code $group}s for terms top-N.
    */
   public static final String BUCKET_DOC_COUNT = "count";
 

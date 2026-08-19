@@ -1,14 +1,20 @@
 package com.xgen.mongot.index.query.aggregation;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
+import com.xgen.mongot.index.query.aggregation.AggregationRegistry.GroupingArgs.BoundaryArgs;
 import com.xgen.mongot.index.query.aggregation.AggregationRegistry.GroupingArgs.TermsArgs;
 import com.xgen.mongot.util.FieldPath;
 import java.util.List;
+import java.util.Optional;
 import org.bson.BsonArray;
 import org.bson.BsonDocument;
+import org.bson.BsonInt32;
+import org.bson.BsonString;
+import org.bson.BsonValue;
 import org.junit.Test;
 
 /**
@@ -185,6 +191,7 @@ public class ShardMergePipelineBuilderTest {
                     "input": {"$getField": {"field": "keys", "input": "$_id"}}
                   }
                 },
+                "count_value": {"$sum": "$count_value"},
                 "_rows": {"$push": {
                   "k1": {
                     "$getField": {
@@ -192,6 +199,7 @@ public class ShardMergePipelineBuilderTest {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
+                  "count_value": "$count_value",
                   "m0": "$m0"
                 }}
               }},
@@ -274,6 +282,7 @@ public class ShardMergePipelineBuilderTest {
                     "input": {"$getField": {"field": "keys", "input": "$_id"}}
                   }
                 },
+                "count_value": {"$sum": "$count_value"},
                 "_rows": {"$push": {
                   "k1": {
                     "$getField": {
@@ -281,6 +290,7 @@ public class ShardMergePipelineBuilderTest {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
+                  "count_value": "$count_value",
                   "m0": "$m0",
                   "m1": "$m1"
                 }}
@@ -342,6 +352,7 @@ public class ShardMergePipelineBuilderTest {
                     }
                   }
                 },
+                "count_value": {"$sum": "$count_value"},
                 "_rows": {"$push": {
                   "k3": {
                     "$getField": {
@@ -349,6 +360,7 @@ public class ShardMergePipelineBuilderTest {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
+                  "count_value": "$count_value",
                   "m0": "$m0"
                 }}
               }},
@@ -357,15 +369,19 @@ public class ShardMergePipelineBuilderTest {
                   "k0": "$_id.k0",
                   "k1": "$_id.k1"
                 },
+                "count_value": {"$sum": "$count_value"},
                 "_rows": {"$push": {
                   "k2": "$_id.k2",
+                  "count_value": "$count_value",
                   "_leaf_rows": "$_rows"
                 }}
               }},
               {"$group": {
                 "_id": "$_id.k0",
+                "count_value": {"$sum": "$count_value"},
                 "_rows": {"$push": {
                   "k1": "$_id.k1",
+                  "count_value": "$count_value",
                   "_leaf_rows": "$_rows"
                 }}
               }},
@@ -427,6 +443,381 @@ public class ShardMergePipelineBuilderTest {
         BsonDocument.parse("{\"$sort\": {\"count_value\": -1, \"_id.keys.k0\": 1}}"),
         byCityArm.get(1).asDocument());
     assertEquals(BsonDocument.parse("{\"$limit\": 2}"), byCityArm.get(2).asDocument());
+  }
+
+  @Test
+  public void nestedTerms_appliesPerLevelTopN_outerSortLimit_innerSlice() {
+    AggregationSpec leaf = new SumAggregationSpec("sum_price", PRICE);
+    AggregationSpec inner = termsGroup("by_color", COLOR, List.of(leaf), 1);
+    AggregationSpec outer = termsGroup("by_city", CITY, List.of(inner), 2);
+    TopAggregationSpec top = new TopAggregationSpec(List.of(outer));
+
+    List<BsonDocument> pipeline = buildPipeline(top);
+    BsonArray arm = pipeline.get(1).getDocument("$facet").getArray("f0");
+
+    assertEquals(
+        BsonArray.parse(
+            """
+            [
+              {"$match": {"$expr": {"$eq": [
+                {"$getField": {"field": "group_name", "input": "$_id"}},
+                "f0"
+              ]}}},
+              {"$group": {
+                "_id": {
+                  "$getField": {
+                    "field": "k0",
+                    "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                  }
+                },
+                "count_value": {"$sum": "$count_value"},
+                "_rows": {"$push": {
+                  "k1": {
+                    "$getField": {
+                      "field": "k1",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
+                  "count_value": "$count_value",
+                  "m0": "$m0"
+                }}
+              }},
+              {"$sort": {"count_value": -1, "_id": 1}},
+              {"$limit": 2},
+              {"$project": {
+                "_id": "$_id",
+                "by_color": {"buckets": {"$map": {
+                  "input": {"$slice": [
+                    {"$sortArray": {
+                      "input": "$_rows",
+                      "sortBy": {"count_value": -1, "k1": 1}
+                    }},
+                    1
+                  ]},
+                  "as": "row",
+                  "in": {
+                    "_id": "$$row.k1",
+                    "sum_price": "$$row.m0"
+                  }
+                }}}
+              }}
+            ]
+            """),
+        arm);
+    BsonDocument innerRow =
+        arm.get(4)
+            .asDocument()
+            .getDocument("$project")
+            .getDocument("by_color")
+            .getDocument("buckets")
+            .getDocument("$map")
+            .getDocument("in");
+    assertFalse(innerRow.containsKey("count_value"));
+  }
+
+  @Test
+  public void nestedDepth4_appliesDistinctTopNAtEachTermsLevel() {
+    AggregationSpec leaf = new SumAggregationSpec("sum_price", PRICE);
+    AggregationSpec byColor = termsGroup("by_color", COLOR, List.of(leaf), 2);
+    AggregationSpec byCity = termsGroup("by_city", CITY, List.of(byColor), 3);
+    AggregationSpec byRegion = termsGroup("by_region", REGION, List.of(byCity), 4);
+    AggregationSpec byCountry = termsGroup("by_country", COUNTRY, List.of(byRegion), 5);
+    TopAggregationSpec top = new TopAggregationSpec(List.of(byCountry));
+
+    BsonArray arm = buildPipeline(top).get(1).getDocument("$facet").getArray("f0");
+    assertEquals(
+        BsonArray.parse(
+            """
+            [
+              {"$match": {"$expr": {"$eq": [
+                {"$getField": {"field": "group_name", "input": "$_id"}},
+                "f0"
+              ]}}},
+              {"$group": {
+                "_id": {
+                  "k0": {
+                    "$getField": {
+                      "field": "k0",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
+                  "k1": {
+                    "$getField": {
+                      "field": "k1",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
+                  "k2": {
+                    "$getField": {
+                      "field": "k2",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  }
+                },
+                "count_value": {"$sum": "$count_value"},
+                "_rows": {"$push": {
+                  "k3": {
+                    "$getField": {
+                      "field": "k3",
+                      "input": {"$getField": {"field": "keys", "input": "$_id"}}
+                    }
+                  },
+                  "count_value": "$count_value",
+                  "m0": "$m0"
+                }}
+              }},
+              {"$group": {
+                "_id": {
+                  "k0": "$_id.k0",
+                  "k1": "$_id.k1"
+                },
+                "count_value": {"$sum": "$count_value"},
+                "_rows": {"$push": {
+                  "k2": "$_id.k2",
+                  "count_value": "$count_value",
+                  "_leaf_rows": "$_rows"
+                }}
+              }},
+              {"$group": {
+                "_id": "$_id.k0",
+                "count_value": {"$sum": "$count_value"},
+                "_rows": {"$push": {
+                  "k1": "$_id.k1",
+                  "count_value": "$count_value",
+                  "_leaf_rows": "$_rows"
+                }}
+              }},
+              {"$sort": {"count_value": -1, "_id": 1}},
+              {"$limit": 5},
+              {"$project": {
+                "_id": "$_id",
+                "by_region": {"buckets": {"$map": {
+                  "input": {"$slice": [
+                    {"$sortArray": {
+                      "input": "$_rows",
+                      "sortBy": {"count_value": -1, "k1": 1}
+                    }},
+                    4
+                  ]},
+                  "as": "row",
+                  "in": {
+                    "_id": "$$row.k1",
+                    "by_city": {"buckets": {"$map": {
+                      "input": {"$slice": [
+                        {"$sortArray": {
+                          "input": "$$row._leaf_rows",
+                          "sortBy": {"count_value": -1, "k2": 1}
+                        }},
+                        3
+                      ]},
+                      "as": "leaf",
+                      "in": {
+                        "_id": "$$leaf.k2",
+                        "by_color": {"buckets": {"$map": {
+                          "input": {"$slice": [
+                            {"$sortArray": {
+                              "input": "$$leaf._leaf_rows",
+                              "sortBy": {"count_value": -1, "k3": 1}
+                            }},
+                            2
+                          ]},
+                          "as": "leaf",
+                          "in": {
+                            "_id": "$$leaf.k3",
+                            "sum_price": "$$leaf.m0"
+                          }
+                        }}}
+                      }
+                    }}}
+                  }
+                }}}
+              }}
+            ]
+            """),
+        arm);
+  }
+
+  @Test
+  public void nestedTermsOuterBoundaryInner_sortsInnerByKey_notTermsTopN() {
+    AggregationSpec leaf = new SumAggregationSpec("sum_price", PRICE);
+    AggregationSpec inner = boundaryGroup("by_price", PRICE, List.of(leaf));
+    AggregationSpec outer = termsGroup("by_city", CITY, List.of(inner), 2);
+    TopAggregationSpec top = new TopAggregationSpec(List.of(outer));
+
+    BsonArray arm = buildPipeline(top).get(1).getDocument("$facet").getArray("f0");
+    assertEquals(
+        BsonDocument.parse("{\"$sort\": {\"count_value\": -1, \"_id\": 1}}"),
+        arm.get(2).asDocument());
+    assertEquals(BsonDocument.parse("{\"$limit\": 2}"), arm.get(3).asDocument());
+    assertEquals(
+        BsonDocument.parse(
+            """
+            {"$project": {
+              "_id": "$_id",
+              "by_price": {"buckets": {"$map": {
+                "input": {"$sortArray": {"input": "$_rows", "sortBy": {"k1": 1}}},
+                "as": "row",
+                "in": {
+                  "_id": "$$row.k1",
+                  "sum_price": "$$row.m0"
+                }
+              }}}
+            }}
+            """),
+        arm.get(4).asDocument());
+  }
+
+  @Test
+  public void nestedBoundaryOuterTermsInner_sortsOuterByKey_slicesInnerTopN() {
+    AggregationSpec leaf = new SumAggregationSpec("sum_price", PRICE);
+    AggregationSpec inner = termsGroup("by_color", COLOR, List.of(leaf), 1);
+    AggregationSpec outer = boundaryGroup("by_price", PRICE, List.of(inner));
+    TopAggregationSpec top = new TopAggregationSpec(List.of(outer));
+
+    BsonArray arm = buildPipeline(top).get(1).getDocument("$facet").getArray("f0");
+    assertEquals(BsonDocument.parse("{\"$sort\": {\"_id\": 1}}"), arm.get(2).asDocument());
+    assertEquals(
+        BsonDocument.parse(
+            """
+            {"$project": {
+              "_id": "$_id",
+              "by_color": {"buckets": {"$map": {
+                "input": {"$slice": [
+                  {"$sortArray": {
+                    "input": "$_rows",
+                    "sortBy": {"count_value": -1, "k1": 1}
+                  }},
+                  1
+                ]},
+                "as": "row",
+                "in": {
+                  "_id": "$$row.k1",
+                  "sum_price": "$$row.m0"
+                }
+              }}}
+            }}
+            """),
+        arm.get(3).asDocument());
+  }
+
+  @Test
+  public void nestedTermsBoundaryTerms_sortsMiddleBoundaryOnParentRows() {
+    AggregationSpec leaf = new SumAggregationSpec("sum_price", PRICE);
+    AggregationSpec byColor = termsGroup("by_color", COLOR, List.of(leaf), 1);
+    AggregationSpec byPrice = boundaryGroup("by_price", PRICE, List.of(byColor));
+    AggregationSpec byCountry = termsGroup("by_country", COUNTRY, List.of(byPrice), 2);
+    TopAggregationSpec top = new TopAggregationSpec(List.of(byCountry));
+
+    BsonArray arm = buildPipeline(top).get(1).getDocument("$facet").getArray("f0");
+    assertEquals(
+        BsonDocument.parse("{\"$sort\": {\"count_value\": -1, \"_id\": 1}}"),
+        arm.get(3).asDocument());
+    assertEquals(BsonDocument.parse("{\"$limit\": 2}"), arm.get(4).asDocument());
+    assertEquals(
+        BsonDocument.parse(
+            """
+            {"$project": {
+              "_id": "$_id",
+              "by_price": {"buckets": {"$map": {
+                "input": {"$sortArray": {"input": "$_rows", "sortBy": {"k1": 1}}},
+                "as": "row",
+                "in": {
+                  "_id": "$$row.k1",
+                  "by_color": {"buckets": {"$map": {
+                    "input": {"$slice": [
+                      {"$sortArray": {
+                        "input": "$$row._leaf_rows",
+                        "sortBy": {"count_value": -1, "k2": 1}
+                      }},
+                      1
+                    ]},
+                    "as": "leaf",
+                    "in": {
+                      "_id": "$$leaf.k2",
+                      "sum_price": "$$leaf.m0"
+                    }
+                  }}}
+                }
+              }}}
+            }}
+            """),
+        arm.get(5).asDocument());
+  }
+
+  @Test
+  public void nestedTermsBoundaryTerms_defaultBucket_ranksParentKey() {
+    AggregationSpec leaf = new SumAggregationSpec("sum_price", PRICE);
+    AggregationSpec byColor = termsGroup("by_color", COLOR, List.of(leaf), 1);
+    List<BsonValue> rangeKeys = List.of(new BsonInt32(0), new BsonInt32(100));
+    AggregationSpec byPrice =
+        new BoundaryGroupAggregationSpec(
+            "by_price",
+            PRICE,
+            List.of(byColor),
+            new long[] {0L, 100L, 200L},
+            rangeKeys,
+            false,
+            new BoundaryArgs(
+                rangeKeys,
+                Optional.of(new BsonString("other")),
+                Optional.of(TypeField.NUMBER_INT64_V2),
+                Optional.empty()));
+    AggregationSpec byCountry = termsGroup("by_country", COUNTRY, List.of(byPrice), 2);
+    TopAggregationSpec top = new TopAggregationSpec(List.of(byCountry));
+
+    BsonDocument project =
+        buildPipeline(top).get(1).getDocument("$facet").getArray("f0").get(5).asDocument();
+    assertEquals(
+        BsonDocument.parse(
+            """
+            {"$project": {
+              "_id": "$_id",
+              "by_price": {"buckets": {"$map": {
+                "input": {"$map": {
+                  "input": {"$sortArray": {
+                    "input": {"$map": {
+                      "input": "$_rows",
+                      "as": "row",
+                      "in": {"$mergeObjects": [
+                        "$$row",
+                        {"__boundarySortRank": {"$cond": [
+                          {"$eq": ["$$row.k1", "other"]},
+                          1,
+                          0
+                        ]}}
+                      ]}
+                    }},
+                    "sortBy": {"__boundarySortRank": 1, "k1": 1}
+                  }},
+                  "as": "row",
+                  "in": {"$arrayToObject": {"$filter": {
+                    "input": {"$objectToArray": "$$row"},
+                    "as": "entry",
+                    "cond": {"$ne": ["$$entry.k", "__boundarySortRank"]}
+                  }}}
+                }},
+                "as": "row",
+                "in": {
+                  "_id": "$$row.k1",
+                  "by_color": {"buckets": {"$map": {
+                    "input": {"$slice": [
+                      {"$sortArray": {
+                        "input": "$$row._leaf_rows",
+                        "sortBy": {"count_value": -1, "k2": 1}
+                      }},
+                      1
+                    ]},
+                    "as": "leaf",
+                    "in": {
+                      "_id": "$$leaf.k2",
+                      "sum_price": "$$leaf.m0"
+                    }
+                  }}}
+                }
+              }}}
+            }}
+            """),
+        project);
   }
 
   @Test
@@ -515,6 +906,26 @@ public class ShardMergePipelineBuilderTest {
     if (!haystack.contains(needle)) {
       throw new AssertionError("Expected to contain: " + needle);
     }
+  }
+
+  private static TermsGroupAggregationSpec termsGroup(
+      String name, FieldPath path, List<AggregationSpec> children, int numBuckets) {
+    return new TermsGroupAggregationSpec(
+        name, path, children, new TermsArgs(true, TypeField.TOKEN, numBuckets));
+  }
+
+  private static BoundaryGroupAggregationSpec boundaryGroup(
+      String name, FieldPath path, List<AggregationSpec> children) {
+    List<BsonValue> rangeKeys = List.of(new BsonInt32(0), new BsonInt32(100));
+    return new BoundaryGroupAggregationSpec(
+        name,
+        path,
+        children,
+        new long[] {0L, 100L, 200L},
+        rangeKeys,
+        false,
+        new BoundaryArgs(
+            rangeKeys, Optional.empty(), Optional.of(TypeField.NUMBER_INT64_V2), Optional.empty()));
   }
 
   private static final class TermsSpec extends GroupAggregationSpec {

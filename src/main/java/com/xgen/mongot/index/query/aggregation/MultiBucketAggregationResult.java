@@ -49,7 +49,7 @@ public abstract class MultiBucketAggregationResult implements AggregationResult 
   // Non-sharded standalone output order: count desc, key-asc tiebreak (CLOUDP-419089), matching
   // the legacy string-facet top-N; see the tiebreak note in TermsAggregationResult#comparator.
   // Flat leaf terms on the sharded merge path apply the same order via $sort in
-  // ShardMergePipelineBuilder; nested groupings still need per-level top-N in facet arms.
+  // ShardMergePipelineBuilder; nested terms apply per-level top-N in facet arms.
   private static final BucketOrder STANDALONE_BUCKET_ORDER = BucketOrder.COUNT_DESC;
   // Sharded intermediate wire order: only needs to be deterministic (mongod reconstructs buckets
   // with the shard merge pipeline).

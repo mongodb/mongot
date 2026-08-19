@@ -274,9 +274,11 @@ public class FirstLastShardMergeTest {
               {"$group": {
                 "_id": {"$getField": {"field": "k0",
                   "input": {"$getField": {"field": "keys", "input": "$_id"}}}},
+                "count_value": {"$sum": "$count_value"},
                 "_rows": {"$push": {
                   "k1": {"$getField": {"field": "k1",
                     "input": {"$getField": {"field": "keys", "input": "$_id"}}}},
+                  "count_value": "$count_value",
                   "m3": "$m3"
                 }}
               }},

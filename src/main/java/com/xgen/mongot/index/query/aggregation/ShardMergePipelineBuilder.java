@@ -112,6 +112,13 @@ public final class ShardMergePipelineBuilder {
   /** Temporary merge-pipeline field; stripped before facet output. */
   private static final String BOUNDARY_SORT_RANK_FIELD = "__boundarySortRank";
 
+  /**
+   * Per-row bucket doc count pushed through nested {@code $group} reconstruction so inner terms
+   * levels can {@code $sortArray} by count desc. Same name as the {@code $group} accumulator.
+   * Dropped by {@code $map} output bodies.
+   */
+  private static final String COUNT_VALUE_FIELD = "count_value";
+
   /** One grouping level in a top-level facet branch's merge/reconstruction chain. */
   record GroupMergeLevel(String keyPath, Optional<String> nestedBranchName) {}
 
@@ -149,7 +156,8 @@ public final class ShardMergePipelineBuilder {
 
     /**
      * When a grouping level is terms, the {@code numBuckets} top-N to apply after merging shard
-     * rows at that level (sort by {@code count_value} desc, bucket key asc, then {@code $limit}).
+     * rows at that level (count desc, bucket key asc). Flat and nested-outer levels use document
+     * {@code $sort}/{@code $limit}; nested inner levels use {@code $sortArray}/{@code $slice}.
      */
     final Map<Integer, Integer> termsLevelLimits = new LinkedHashMap<>();
 
@@ -329,8 +337,9 @@ public final class ShardMergePipelineBuilder {
    * Assemble the 3-stage pipeline ($group, $facet, $replaceWith).
    *
    * <p>Flat leaf terms branches apply {@code $sort} (count desc, bucket key asc) and {@code $limit}
-   * ({@code numBuckets}) in the facet arm after the stage-1 {@code $group} merge. Nested groupings
-   * still need per-level top-N inside reconstructed buckets.
+   * ({@code numBuckets}) in the facet arm after the stage-1 {@code $group} merge. Nested outer
+   * terms use the same document {@code $sort}/{@code $limit}; inner nested terms apply per-parent
+   * top-N via {@code $sortArray}+{@code $slice} while reconstructing buckets.
    *
    * @param countType "lowerBound" or "total" — determines the count field name in the output
    */
@@ -459,12 +468,11 @@ public final class ShardMergePipelineBuilder {
       // row, not in _id — there are depth-1 $group stages for depth grouping levels.
       BsonValue groupId = flatKeysIdExpr(0, depth - 2);
       BsonDocument pushDoc =
-          new BsonDocument().append(GroupingKeyAliases.alias(depth - 1), flatKeysLeafExpr(config));
+          new BsonDocument()
+              .append(GroupingKeyAliases.alias(depth - 1), flatKeysLeafExpr(config))
+              .append(COUNT_VALUE_FIELD, new BsonString("$" + COUNT_VALUE_FIELD));
       for (String field : config.accumulatorFields) {
         pushDoc.append(field, new BsonString("$" + field));
-      }
-      if (config.termsLevelLimits.containsKey(0)) {
-        return innermostGroupStage(groupId, pushDoc);
       }
       return groupStage(groupId, pushDoc);
     }
@@ -475,6 +483,7 @@ public final class ShardMergePipelineBuilder {
     BsonDocument pushDoc =
         new BsonDocument()
             .append(pushedAlias, new BsonString("$_id." + pushedAlias))
+            .append(COUNT_VALUE_FIELD, new BsonString("$" + COUNT_VALUE_FIELD))
             .append("_leaf_rows", new BsonString("$_rows"));
     return groupStage(groupId, pushDoc);
   }
@@ -500,37 +509,27 @@ public final class ShardMergePipelineBuilder {
     int depth = config.groupLevels.size();
     if (levelIndex == depth - 2) {
       int leafKeyIndex = depth - 1;
-      @Var BsonValue mapInput = input;
-      if (isBoundaryLevel(config, leafKeyIndex)) {
-        mapInput =
-            boundarySortArrayExpr(
-                mapInput,
-                GroupingKeyAliases.alias(leafKeyIndex),
-                boundaryDefaultKey(config, leafKeyIndex));
-      }
-      return mapExpr(mapInput, rowVar, leafRowBody(config, rowVar, leafKeyIndex));
+      return mapExpr(
+          orderLevelBuckets(config, leafKeyIndex, input),
+          rowVar,
+          leafRowBody(config, rowVar, leafKeyIndex));
     }
 
     String childBranch = config.groupLevels.get(levelIndex + 1).nestedBranchName().orElseThrow();
     String rowAlias = GroupingKeyAliases.alias(levelIndex + 1);
-    @Var BsonValue innerInput = new BsonString("$$" + rowVar + "._leaf_rows");
-    if (isBoundaryLevel(config, levelIndex + 1)) {
-      innerInput =
-          boundarySortArrayExpr(
-              innerInput,
-              GroupingKeyAliases.alias(levelIndex + 1),
-              boundaryDefaultKey(config, levelIndex + 1));
-    }
+    // Sort/trim this level's child rows; pass unwrapped _leaf_rows so the recursive call
+    // applies the next level's own order (parent keys are not present on grandchild rows).
+    BsonValue mapInput = orderLevelBuckets(config, levelIndex + 1, input);
+    BsonValue innerInput = new BsonString("$$" + rowVar + "._leaf_rows");
     BsonValue innerBuckets = buildBucketsAtLevel(config, levelIndex + 1, innerInput, "leaf");
 
     BsonDocument rowBody =
         new BsonDocument()
             .append("_id", new BsonString("$$" + rowVar + "." + rowAlias))
             .append(childBranch, new BsonDocument("buckets", innerBuckets));
-    return mapExpr(input, rowVar, rowBody);
+    return mapExpr(mapInput, rowVar, rowBody);
   }
 
-  /** Adds {@code $sort} and {@code $limit} for flat leaf terms before {@code $project}. */
   private static boolean isBoundaryLevel(PathMergeConfig config, int levelIndex) {
     return config.boundaryLevelIndices.contains(levelIndex);
   }
@@ -605,7 +604,7 @@ public final class ShardMergePipelineBuilder {
 
   private static BsonDocument buildTermsSortStage(int levelIndex, boolean flatKeys) {
     String keyAlias = GroupingKeyAliases.alias(levelIndex);
-    BsonDocument sortKeys = new BsonDocument().append("count_value", new BsonInt32(-1));
+    BsonDocument sortKeys = new BsonDocument().append(COUNT_VALUE_FIELD, new BsonInt32(-1));
     if (flatKeys) {
       sortKeys.append(
           "_id." + IntermediateAggregationMetaField.ID_KEYS + "." + keyAlias, new BsonInt32(1));
@@ -636,21 +635,52 @@ public final class ShardMergePipelineBuilder {
     return new BsonDocument("$project", projectBody);
   }
 
-  private static BsonDocument innermostGroupStage(BsonValue groupId, BsonDocument pushDoc) {
-    return new BsonDocument(
-        "$group",
-        new BsonDocument()
-            .append("_id", groupId)
-            .append("count_value", new BsonDocument("$sum", new BsonString("$count_value")))
-            .append("_rows", new BsonDocument("$push", pushDoc)));
-  }
-
   private static BsonDocument groupStage(BsonValue groupId, BsonDocument pushDoc) {
     return new BsonDocument(
         "$group",
         new BsonDocument()
             .append("_id", groupId)
+            .append(
+                COUNT_VALUE_FIELD,
+                new BsonDocument("$sum", new BsonString("$" + COUNT_VALUE_FIELD)))
             .append("_rows", new BsonDocument("$push", pushDoc)));
+  }
+
+  /**
+   * Apply this grouping level's output order to {@code input} (the child-row array being {@code
+   * $map}ped). Terms levels take count-desc / key-asc top-N; boundary levels take request key
+   * order. Mutually exclusive per level.
+   */
+  private static BsonValue orderLevelBuckets(
+      PathMergeConfig config, int keyIndex, BsonValue input) {
+    if (isBoundaryLevel(config, keyIndex)) {
+      return boundarySortArrayExpr(
+          input, GroupingKeyAliases.alias(keyIndex), boundaryDefaultKey(config, keyIndex));
+    }
+    return maybeTermsTopN(config, keyIndex, input);
+  }
+
+  /**
+   * Sort+trim a reconstructed child-bucket array by doc count desc, key asc, keeping {@code n}
+   * buckets. No-op when this grouping level has no terms {@code numBuckets}.
+   */
+  private static BsonValue maybeTermsTopN(PathMergeConfig config, int keyIndex, BsonValue input) {
+    Integer bucketLimit = config.termsLevelLimits.get(keyIndex);
+    if (bucketLimit == null) {
+      return input;
+    }
+    return termsTopNArrayExpr(input, GroupingKeyAliases.alias(keyIndex), bucketLimit);
+  }
+
+  private static BsonValue termsTopNArrayExpr(BsonValue input, String keyAlias, int n) {
+    BsonDocument sortBy =
+        new BsonDocument()
+            .append(COUNT_VALUE_FIELD, new BsonInt32(-1))
+            .append(keyAlias, new BsonInt32(1));
+    BsonDocument sorted =
+        new BsonDocument(
+            "$sortArray", new BsonDocument().append("input", input).append("sortBy", sortBy));
+    return new BsonDocument("$slice", new BsonArray(List.of(sorted, new BsonInt32(n))));
   }
 
   private static BsonDocument mapExpr(BsonValue input, String rowVar, BsonDocument rowBody) {
