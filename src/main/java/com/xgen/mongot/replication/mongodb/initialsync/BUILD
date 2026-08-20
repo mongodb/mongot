@@ -17,6 +17,7 @@ java_library(
         "InitialSyncMetricsMetadata.java",
         "InitialSyncMongoClient.java",
         "InitialSyncNamespaceChangeCheck.java",
+        "InitialSyncPartitionPlan.java",
         "InitialSyncQueue.java",
         "InitialSyncRequest.java",
         "ParallelCollectionScanPartitionState.java",

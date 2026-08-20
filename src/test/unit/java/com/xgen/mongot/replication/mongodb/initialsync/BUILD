@@ -9,6 +9,7 @@ java_test_suite(
         "BufferlessInitialSyncManagerTest.java",
         "DefaultInitialSyncMongoClientTest.java",
         "InitialSyncNamespaceChangeCheckTest.java",
+        "InitialSyncPartitionPlanTest.java",
         "InitialSyncQueueTest.java",
         "ParallelCollectionScanResumeStateTest.java",
     ],
