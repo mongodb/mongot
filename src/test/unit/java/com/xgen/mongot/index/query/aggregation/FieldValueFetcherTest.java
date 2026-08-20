@@ -84,7 +84,7 @@ public class FieldValueFetcherTest {
 
   private Optional<BsonValue> fetch(FieldPath path) throws IOException {
     LeafReaderContext leaf = this.reader.leaves().get(0);
-    return FieldValueFetcher.create(new ResolvedTokenField(path), leaf).fetch(0);
+    return FieldValueFetcher.create(new ResolvedTokenField.FromStoredSource(path), leaf).fetch(0);
   }
 
   private void openIndex(BsonDocument source) throws IOException {

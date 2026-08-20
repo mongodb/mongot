@@ -19,8 +19,16 @@ public final class LuceneAggregationPlanResolver {
 
   private LuceneAggregationPlanResolver() {}
 
+  /**
+   * Resolves the aggregation spec tree and its metric field paths.
+   *
+   * @param returnStoredSource the query's {@code returnStoredSource}, which decides where
+   *     token-valued metrics read their values from
+   */
   public static AggregationPlan resolveAggregationPlan(
-      LuceneFacetContext facetContext, AggregationCollector aggregationCollector)
+      LuceneFacetContext facetContext,
+      AggregationCollector aggregationCollector,
+      boolean returnStoredSource)
       throws InvalidQueryException {
     LuceneAggregationContextFieldResolver contextFieldResolver =
         new LuceneAggregationContextFieldResolver(facetContext);
@@ -29,7 +37,8 @@ public final class LuceneAggregationPlanResolver {
             aggregationCollector,
             AggregationRegistry.getInstance(),
             Optional.of(boundaryFieldResolver(facetContext)));
-    AggregationFieldResolver fieldResolver = contextFieldResolver.withResolvedFields(rootSpec);
+    AggregationFieldResolver fieldResolver =
+        contextFieldResolver.withResolvedFields(rootSpec, returnStoredSource);
     return new AggregationPlan(rootSpec, fieldResolver);
   }
 

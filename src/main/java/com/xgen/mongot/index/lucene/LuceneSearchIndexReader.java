@@ -985,7 +985,7 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
     }
     LuceneAggregationPlanResolver.AggregationPlan aggregationPlan =
         LuceneAggregationPlanResolver.resolveAggregationPlan(
-            this.facetContext, aggregationCollector);
+            this.facetContext, aggregationCollector, query.returnStoredSource());
     // Always 0 here: a partitioned index routes aggregation through
     // intermediateAggregationCollectorQuery instead, so this path only ever serves a
     // single-partition index.
@@ -1056,7 +1056,7 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
 
     LuceneAggregationPlanResolver.AggregationPlan aggregationPlan =
         LuceneAggregationPlanResolver.resolveAggregationPlan(
-            this.facetContext, aggregationCollector);
+            this.facetContext, aggregationCollector, query.returnStoredSource());
     // The reader's own partition, since a partitioned index has one reader per partition and
     // fans out over them. first/last need it because doc ids only order documents within a
     // single partition.

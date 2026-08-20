@@ -14,6 +14,7 @@ import com.xgen.mongot.util.FieldPath;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.SortedNumericDocValuesField;
 import org.apache.lucene.document.SortedSetDocValuesField;
@@ -47,16 +48,24 @@ public class FirstLastAccumulatorTest extends AggregationTestSupport {
   private static final FieldPath COLOR_PATH = FieldPath.parse(COLOR_FIELD);
   private static final FieldPath PRICE_PATH = FieldPath.parse(PRICE_FIELD);
 
-  private static final ResolvedTokenField COLOR_TOKEN = new ResolvedTokenField(COLOR_PATH);
+  private static final ResolvedTokenField COLOR_TOKEN =
+      new ResolvedTokenField.FromStoredSource(COLOR_PATH);
+
+  /** The same path resolved to its token doc-values column rather than to stored source. */
+  private static final ResolvedTokenField COLOR_DOC_VALUES =
+      new ResolvedTokenField.FromDocValues(COLOR_PATH, Set.of(TypeField.TOKEN, TypeField.NULL));
+
   private static final SearchIndexCapabilities INDEX_CAPABILITIES = SearchIndexCapabilities.CURRENT;
 
-  private static final ResolvedTokenField PRICE_INT64 = new ResolvedTokenField(PRICE_PATH);
+  private static final ResolvedTokenField PRICE_INT64 =
+      new ResolvedTokenField.FromStoredSource(PRICE_PATH);
 
   private static final String RATING_FIELD = "rating";
   private static final FieldPath RATING_PATH = FieldPath.parse(RATING_FIELD);
   private static final String RATING_LUCENE_FIELD =
       TypeField.NUMBER_DOUBLE_V2.getLuceneFieldName(RATING_PATH, Optional.empty());
-  private static final ResolvedTokenField RATING_DOUBLE = new ResolvedTokenField(RATING_PATH);
+  private static final ResolvedTokenField RATING_DOUBLE =
+      new ResolvedTokenField.FromStoredSource(RATING_PATH);
 
   private static final String SIZE_FIELD = "size";
   private static final FieldPath SIZE_PATH = FieldPath.parse(SIZE_FIELD);
@@ -67,7 +76,8 @@ public class FirstLastAccumulatorTest extends AggregationTestSupport {
   private static final FieldPath CREATED_PATH = FieldPath.parse(CREATED_FIELD);
   private static final String CREATED_LUCENE_FIELD =
       TypeField.DATE_V2.getLuceneFieldName(CREATED_PATH, Optional.empty());
-  private static final ResolvedTokenField CREATED_DATE = new ResolvedTokenField(CREATED_PATH);
+  private static final ResolvedTokenField CREATED_DATE =
+      new ResolvedTokenField.FromStoredSource(CREATED_PATH);
 
   /** The sortable type backing each field these tests sort on. */
   private static final Map<FieldPath, TypeField> SORTABLE_TYPES =
@@ -223,6 +233,41 @@ public class FirstLastAccumulatorTest extends AggregationTestSupport {
     assertEquals(new BsonString("blue"), metric(bucket(byCity, "NYC"), "last_color"));
     assertEquals(new BsonString("black"), metric(bucket(byCity, "LA"), "first_color"));
     assertEquals(new BsonString("black"), metric(bucket(byCity, "LA"), "last_color"));
+  }
+
+  /** The same winners as the stored-source path, read out of the token column instead. */
+  @Test
+  public void docValuesSource_readsTheWinnersValueFromTheTokenColumn() throws Exception {
+    buildIndex(
+        List.of(
+            new TestDoc("NYC", "red", 10),
+            new TestDoc("NYC", "blue", 30),
+            new TestDoc("NYC", "green", 5)),
+        Integer.MAX_VALUE);
+
+    TermsAggregationResult byCity =
+        runByCity(
+            firstAndLastColorByCity(),
+            contextWith(
+                Map.of(COLOR_PATH, COLOR_DOC_VALUES), priceSpec(UserFieldSortOptions.DEFAULT_ASC)));
+
+    assertEquals(new BsonString("green"), metric(bucket(byCity, "NYC"), "first_color"));
+    assertEquals(new BsonString("blue"), metric(bucket(byCity, "NYC"), "last_color"));
+  }
+
+  @Test
+  public void docValuesSource_winningDocumentMissingTheField_reportsNull() throws Exception {
+    // The cheapest NYC document has no color, so it wins the ascending sort with no value to read.
+    buildIndexWithOptionalColor();
+
+    TermsAggregationResult byCity =
+        runByCity(
+            firstAndLastColorByCity(),
+            contextWith(
+                Map.of(COLOR_PATH, COLOR_DOC_VALUES), priceSpec(UserFieldSortOptions.DEFAULT_ASC)));
+
+    assertEquals(BsonNull.VALUE, metric(bucket(byCity, "NYC"), "first_color"));
+    assertEquals(new BsonString("blue"), metric(bucket(byCity, "NYC"), "last_color"));
   }
 
   @Test
@@ -435,7 +480,7 @@ public class FirstLastAccumulatorTest extends AggregationTestSupport {
         runByCity(
             spec,
             contextWith(
-                Map.of(nested, new ResolvedTokenField(nested)),
+                Map.of(nested, new ResolvedTokenField.FromStoredSource(nested)),
                 priceSpec(UserFieldSortOptions.DEFAULT_ASC)));
 
     // Arrays round-trip through stored source, unlike the doc-values path.
@@ -456,7 +501,10 @@ public class FirstLastAccumulatorTest extends AggregationTestSupport {
             List.of(byCity(List.of(new FirstAggregationSpec("first_missing", absent)))));
 
     TermsAggregationResult byCity =
-        runByCity(spec, contextWith(Map.of(absent, new ResolvedTokenField(absent)), List.of()));
+        runByCity(
+            spec,
+            contextWith(
+                Map.of(absent, new ResolvedTokenField.FromStoredSource(absent)), List.of()));
 
     assertEquals(BsonNull.VALUE, metric(bucket(byCity, "NYC"), "first_missing"));
   }

@@ -13,6 +13,7 @@ import com.xgen.mongot.index.query.collectors.FacetDefinition.BoundaryFacetDefin
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -75,8 +76,8 @@ public final class LuceneAggregationContextFieldResolver implements AggregationF
    *
    * <p>Call before Lucene execution so invalid queries surface as {@link InvalidQueryException}.
    */
-  public LuceneAggregationContextFieldResolver withResolvedFields(TopAggregationSpec rootSpec)
-      throws InvalidQueryException {
+  public LuceneAggregationContextFieldResolver withResolvedFields(
+      TopAggregationSpec rootSpec, boolean returnStoredSource) throws InvalidQueryException {
     // Collected paths are de-duplicated: the same path referenced from different branches of the
     // spec tree resolves identically, so one entry serves all of them. The put-returns-null checks
     // guard that invariant against a collector regression.
@@ -91,7 +92,8 @@ public final class LuceneAggregationContextFieldResolver implements AggregationF
     Map<FieldPath, ResolvedTokenField> token = new LinkedHashMap<>();
     for (FieldPath path : tokenPaths) {
       Check.checkState(
-          token.put(path, resolveTokenMetricField(path, Optional.empty())) == null,
+          token.put(path, resolveTokenMetricField(path, Optional.empty(), returnStoredSource))
+              == null,
           "Token metric paths must be resolved at most once");
     }
     return new LuceneAggregationContextFieldResolver(
@@ -110,13 +112,17 @@ public final class LuceneAggregationContextFieldResolver implements AggregationF
   }
 
   /**
-   * Resolves a token-valued metric path to its stored-source read.
+   * Resolves a token-valued metric path to the source its value is read from.
    *
-   * <p>Private preview reads only stored source, for full BSON fidelity, so the path must be
-   * covered by the index's stored source; otherwise the query is rejected. A scalar doc-values fast
-   * path is deferred (see the scalar-optimization follow-up ticket).
+   * <p>Stored source is preferred when the query asked for it and the path is covered, since it
+   * reads back exactly what was indexed. Otherwise the value comes from the path's doc-values
+   * columns, which cost no stored-fields fetch but carry the fidelity limits documented on {@code
+   * DocValuesFieldReader}. A path neither source can serve is rejected.
+   *
+   * @param returnStoredSource the query's {@code returnStoredSource}
    */
-  public ResolvedTokenField resolveTokenMetricField(FieldPath path, Optional<FieldPath> returnScope)
+  public ResolvedTokenField resolveTokenMetricField(
+      FieldPath path, Optional<FieldPath> returnScope, boolean returnStoredSource)
       throws InvalidQueryException {
     // TODO(CLOUDP-426510): support token-valued aggregation over embedded documents.
     if (returnScope.isPresent()) {
@@ -131,14 +137,79 @@ public final class LuceneAggregationContextFieldResolver implements AggregationF
             .getStoredSource()
             .isStored(path);
 
-    if (!storedSourceCovers) {
-      throw new InvalidQueryException(
-          String.format(
-              "Cannot use a token-valued aggregation on field \"%s\" because it is not covered by"
-                  + " the index's storedSource.",
-              path));
+    if (returnStoredSource && storedSourceCovers) {
+      return new ResolvedTokenField.FromStoredSource(path);
     }
-    return new ResolvedTokenField(path);
+
+    Set<FieldName.TypeField> docValuesTypes = readableDocValuesTypes(path, returnScope);
+    if (!docValuesTypes.isEmpty()) {
+      return new ResolvedTokenField.FromDocValues(path, docValuesTypes);
+    }
+
+    // Neither source can serve the path. Which remedy to name depends on why: a path the index does
+    // store is only unreachable because the query did not ask for stored source.
+    throw new InvalidQueryException(
+        storedSourceCovers
+            ? String.format(
+                "Cannot use a token-valued aggregation on field \"%s\" because it is indexed with"
+                    + " no type search aggregation can read from doc values. Set"
+                    + " \"returnStoredSource\" to read it from the index's storedSource instead.",
+                path)
+            : String.format(
+                "Cannot use a token-valued aggregation on field \"%s\" because it is indexed with"
+                    + " no type search aggregation can read from doc values, and it is not covered"
+                    + " by the index's storedSource.",
+                path));
+  }
+
+  /**
+   * The BSON types a token-valued metric can read {@code path} back as from doc values.
+   *
+   * <p>Derived from the index definition rather than a live reader, so every shard resolves a path
+   * to the same set; a segment whose documents never carried one of these types simply has no
+   * column for it. Only the types {@code DocValuesFieldReader} can decode are included, so an empty
+   * result means doc values cannot serve the path at all.
+   *
+   * <p>{@code NULL} is always included: a null at an indexed path writes the null column whatever
+   * the field's declared types are.
+   */
+  private Set<FieldName.TypeField> readableDocValuesTypes(
+      FieldPath path, Optional<FieldPath> returnScope) throws InvalidQueryException {
+    Optional<FieldDefinition> fieldDefinition =
+        this.facetContext.getFieldDefinitionResolver().getFieldDefinition(path, returnScope);
+    if (fieldDefinition.isEmpty()) {
+      return Set.of();
+    }
+    FieldDefinition definition = fieldDefinition.get();
+    boolean supportsObjectIdAndBooleanDocValues =
+        this.facetContext
+            .getFieldDefinitionResolver()
+            .getIndexCapabilities()
+            .supportsObjectIdAndBooleanDocValues();
+
+    EnumSet<FieldName.TypeField> types = EnumSet.of(FieldName.TypeField.NULL);
+    if (definition.tokenFieldDefinition().isPresent()) {
+      types.add(FieldName.TypeField.TOKEN);
+    }
+    if (definition.dateFieldDefinition().isPresent()) {
+      types.add(FieldName.TypeField.DATE_V2);
+    }
+    if (definition.uuidFieldDefinition().isPresent()) {
+      types.add(FieldName.TypeField.UUID);
+    }
+    if (definition.numberFieldDefinition().isPresent()) {
+      types.add(getNumericTypeField(definition.numberFieldDefinition().get()));
+    }
+    if (definition.booleanFieldDefinition().isPresent() && supportsObjectIdAndBooleanDocValues) {
+      types.add(FieldName.TypeField.BOOLEAN);
+    }
+    if (definition.objectIdFieldDefinition().isPresent() && supportsObjectIdAndBooleanDocValues) {
+      types.add(FieldName.TypeField.OBJECT_ID);
+    }
+
+    // A path whose only readable column is NULL holds no values search aggregation can return, so
+    // it is treated as unreadable rather than as a field that always aggregates to null.
+    return types.size() == 1 ? Set.of() : Set.copyOf(types);
   }
 
   @Override

@@ -20,10 +20,10 @@ import org.bson.BsonValue;
  * access, so callers should request documents in increasing segment-local doc-id order (Lucene
  * collection and bucket-winner reads both satisfy this).
  *
- * <p>For private preview this reads only stored source, so the value is exactly what was indexed --
- * full BSON type/shape fidelity, including arrays and mixed types -- at the cost of a per-document
- * stored-fields fetch. A scalar doc-values fast path for single-valued documents is deferred to a
- * follow-up ticket.
+ * <p>Values come from whichever source the path resolved to: stored source, for full BSON
+ * type/shape fidelity at the cost of a per-document stored-fields fetch, or the path's per-type
+ * doc-values columns. {@code LuceneAggregationContextFieldResolver#resolveTokenMetricField} picks
+ * between them once per query.
  */
 final class FieldValueFetcher {
 
@@ -35,7 +35,13 @@ final class FieldValueFetcher {
 
   static FieldValueFetcher create(ResolvedTokenField field, LeafReaderContext leaf)
       throws IOException {
-    return new FieldValueFetcher(new StoredSourceReader(field.storedSourcePath(), leaf));
+    return new FieldValueFetcher(
+        switch (field) {
+          case ResolvedTokenField.FromStoredSource storedSource ->
+              new StoredSourceReader(storedSource.path(), leaf);
+          case ResolvedTokenField.FromDocValues docValues ->
+              DocValuesFieldReader.create(docValues.path(), docValues.types(), leaf);
+        });
   }
 
   /** The value for {@code leafDoc}, or empty when the source holds none for it. */
