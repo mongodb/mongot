@@ -11,13 +11,11 @@ import java.util.UUID;
  * Result of the initial sync partition planning stage, which decides whether a collection scan can
  * be split across several concurrent {@code $natural} cursors.
  *
- * <p>Planning is the best effort and must never fail an initial sync. Every expected condition that
- * makes partitioning unsafe or not worthwhile yields a {@link SequentialFallback} carrying the
- * reason, and the caller runs the existing single cursor scan. {@link ShortCircuitReason} lists
- * them all.
- *
- * <p>Only a malformed plan throws: a null component, a {@link PartitionedResult} with fewer than
- * two partitions, or partitions that are not contiguous. Those are planner bugs.
+ * <p>Planning is the best effort and must never fail an initial sync. It always produces one of two
+ * variants: a {@link PartitionedResult} to scan in parallel, or a {@link SequentialFallback} that
+ * tells the caller to run the existing single cursor scan. Every condition that makes partitioning
+ * unsafe or not worthwhile yields a {@link SequentialFallback} carrying the reason. {@link
+ * ShortCircuitReason} lists them all. Callers never have to handle a failed plan.
  */
 public sealed interface InitialSyncPartitionPlan
     permits InitialSyncPartitionPlan.PartitionedResult,
