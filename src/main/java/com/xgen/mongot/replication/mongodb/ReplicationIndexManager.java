@@ -698,9 +698,10 @@ public class ReplicationIndexManager implements IndexManager {
     switch (initialSyncException.getType()) {
       case DROPPED -> {
         this.logger.info(
-            "Collection dropped or does not exist. Stopping replication and dropping index: {}",
+            "Collection was dropped during initial sync. Stopping replication and dropping "
+                + "index: {}",
             initialSyncException.getMessage());
-        dropIndex();
+        handleCollectionDropped();
         return;
       }
       case FAILED -> {
@@ -1020,7 +1021,7 @@ public class ReplicationIndexManager implements IndexManager {
     switch (steadyStateException.getType()) {
       case DROPPED -> {
         this.logger.info("Collection was dropped. Stopping replication and dropping index.");
-        dropIndex();
+        handleCollectionDropped();
         return;
       }
       case REQUIRES_RESYNC -> {
@@ -1486,6 +1487,21 @@ public class ReplicationIndexManager implements IndexManager {
               this.index.close();
               this.synonymMappingManagers.forEach(SynonymMappingManager::shutdown);
             });
+  }
+
+  /**
+   * Handles the tailed collection being dropped out from under this generation — a change-stream
+   * drop event during steady state, or the collection no longer resolving mid-initial-sync after it
+   * had been resolved. Base behavior shuts the generation down and drops the local index.
+   * Subclasses that own shared resources keyed to the dropped collection can override to clean
+   * those up first, while the generation — and any leadership tied to it — is still live; once
+   * {@link #dropIndex()} runs, the state is terminal.
+   *
+   * <p>A collection that is merely not visible yet (start-of-sync resolution failure) never reaches
+   * this: it is classified {@code DOES_NOT_EXIST} and retried.
+   */
+  protected void handleCollectionDropped() {
+    dropIndex();
   }
 
   private void dropIndex() {

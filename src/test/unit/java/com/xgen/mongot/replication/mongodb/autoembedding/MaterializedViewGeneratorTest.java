@@ -4,6 +4,8 @@ import static com.xgen.testing.mongot.mock.index.MaterializedViewIndex.mockMatVi
 import static com.xgen.testing.mongot.mock.index.MaterializedViewIndex.mockMatViewIndexGeneration;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.atLeastOnce;
@@ -15,6 +17,7 @@ import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.autoembedding.InitializedMaterializedViewIndex;
 import com.xgen.mongot.index.autoembedding.MaterializedViewIndexGeneration;
+import com.xgen.mongot.replication.mongodb.IndexManager;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.PeriodicIndexCommitter;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
@@ -192,6 +195,59 @@ public class MaterializedViewGeneratorTest {
         0.0, registry.counter("materializedViewGenerator.oplogFalloffResyncEvents").count(), 0.0);
   }
 
+  @Test
+  public void handleCollectionDropped_cleansUpSharedResourcesBeforeTerminalTransition() {
+    java.util.concurrent.atomic.AtomicReference<IndexManager.State> stateAtCleanup =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    MaterializedViewGenerator[] holder = new MaterializedViewGenerator[1];
+    // The cleanup callback must run before the generator turns terminal: a terminal state is
+    // what makes the heartbeat release the lease, and the cleanup is only safe while this
+    // generator still holds it.
+    holder[0] = createGeneratorWithDropCallback(() -> stateAtCleanup.set(holder[0].getState()));
+
+    holder[0].handleCollectionDropped();
+
+    assertNotNull("cleanup callback never ran", stateAtCleanup.get());
+    assertNotEquals(IndexManager.State.SHUT_DOWN, stateAtCleanup.get());
+    assertEquals(IndexManager.State.SHUT_DOWN, holder[0].getState());
+  }
+
+  @Test
+  public void handleCollectionDropped_callbackThrows_stillTearsDown() {
+    MaterializedViewGenerator generator =
+        createGeneratorWithDropCallback(
+            () -> {
+              throw new RuntimeException("cleanup failed");
+            });
+
+    generator.handleCollectionDropped();
+
+    assertEquals(IndexManager.State.SHUT_DOWN, generator.getState());
+  }
+
+  private MaterializedViewGenerator createGeneratorWithDropCallback(
+      Runnable onSourceCollectionDropped) {
+    MaterializedViewIndexGeneration indexGeneration =
+        mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(new ObjectId()));
+    return new MaterializedViewGenerator(
+        this.executorService,
+        mock(MongotCursorManager.class),
+        mock(InitialSyncQueue.class),
+        mock(SteadyStateManager.class),
+        indexGeneration,
+        mock(InitializedMaterializedViewIndex.class),
+        mock(DocumentIndexer.class),
+        mock(PeriodicIndexCommitter.class),
+        new com.xgen.mongot.metrics.MetricsFactory(
+            "materializedViewGenerator", new SimpleMeterRegistry()),
+        mock(FeatureFlags.class),
+        Duration.ofSeconds(30),
+        Duration.ofSeconds(30),
+        Duration.ofSeconds(1),
+        false,
+        onSourceCollectionDropped);
+  }
+
   private MaterializedViewGenerator createGeneratorForMetricsTest(SimpleMeterRegistry registry) {
     MaterializedViewIndexGeneration indexGeneration =
         mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(new ObjectId()));
@@ -213,7 +269,8 @@ public class MaterializedViewGeneratorTest {
         Duration.ofSeconds(30),
         Duration.ofSeconds(30),
         Duration.ofSeconds(1),
-        false) {
+        false,
+        () -> {}) {
       @Override
       protected synchronized void enqueueInitialSync(
           com.xgen.mongot.index.status.IndexStatus status) {
@@ -251,6 +308,7 @@ public class MaterializedViewGeneratorTest {
         Duration.ofSeconds(1),
         registry,
         mock(FeatureFlags.class),
-        false);
+        false,
+        () -> {});
   }
 }

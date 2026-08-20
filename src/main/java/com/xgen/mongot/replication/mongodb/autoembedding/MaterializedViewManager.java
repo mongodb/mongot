@@ -94,6 +94,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.ToDoubleFunction;
 import java.util.stream.Collectors;
@@ -156,6 +157,7 @@ public class MaterializedViewManager implements ReplicationManager {
   public static final String DROP_OUTCOME_TAG = "outcome";
   public static final String DROP_SCENARIO_GC = "gc";
   public static final String DROP_SCENARIO_INDEX_DELETION = "indexDeletion";
+  public static final String DROP_SCENARIO_SOURCE_COLLECTION_DROP = "sourceCollectionDrop";
 
   // Sticky terminal states that disqualify a generator from holding a matview lease. Shared
   // by emitHeartbeat (release these leases), refreshStatus (skip acquisition for these), and
@@ -352,6 +354,8 @@ public class MaterializedViewManager implements ReplicationManager {
     this.indexingWorkSchedulerFactory = indexingWorkSchedulerFactory;
     this.decodingWorkScheduler = decodingWorkScheduler;
     this.matViewGeneratorFactory = matViewGeneratorFactory;
+    matViewGeneratorFactory.setOnSourceCollectionDropped(
+        this::cleanUpMatViewResourcesForDroppedSourceCollection);
     this.meterRegistry = meterRegistry;
     this.managedMaterializedViewGenerators = new ConcurrentHashMap<>();
     this.activeGenerationIdCatalog = new ActiveGenerationIdCatalog(matViewMetadataCatalog);
@@ -1279,17 +1283,21 @@ public class MaterializedViewManager implements ReplicationManager {
                             + "leaving its lease for the stale-lease GC");
               }
             })
-        .exceptionally(throwable -> logDetachedCleanupFailure(throwable, generationId, leaseKey));
+        .exceptionally(
+            throwable ->
+                logDetachedCleanupFailure(
+                    throwable, generationId, leaseKey, DROP_SCENARIO_INDEX_DELETION));
     return generatorShutdownFuture;
   }
 
   private Void logDetachedCleanupFailure(
-      Throwable throwable, GenerationId generationId, String leaseKey) {
+      Throwable throwable, GenerationId generationId, String leaseKey, String scenario) {
     LOG.atWarn()
         .addKeyValue("generationId", generationId)
         .addKeyValue("collectionName", leaseKey)
+        .addKeyValue("scenario", scenario)
         .setCause(throwable)
-        .log("Deleted-index cleanup failed; leaving the rest for the stale-lease GC");
+        .log("Materialized view cleanup failed; leaving the rest for the stale-lease GC");
     return null;
   }
 
@@ -1326,6 +1334,72 @@ public class MaterializedViewManager implements ReplicationManager {
           .addKeyValue("leaseKey", leaseKey)
           .log("Could not delete a deleted index's lease; leaving it for the stale-lease GC");
     }
+  }
+
+  /**
+   * Cleans up a generation's MV collection and lease when the source collection it tails was
+   * dropped. The change stream binds to the source collection's uuid, which never returns, so the
+   * pair can never ingest again no matter what the config later says — and the config-driven
+   * deletion that follows arrives only after this generator's shutdown has released the lease,
+   * leaving nobody entitled to delete it (see the non-leader branch of {@code
+   * cleanUpMatViewResources}).
+   *
+   * <p>Runs from the generator's own drop handling, while this node still holds the lease. That
+   * ordering is what makes the eager cleanup safe: the lease holder is the only MV writer, and the
+   * drop closes its writer first, so the dropped collection cannot be re-created behind us.
+   * Best-effort — without leadership, or on any failure, the pair stays where the stale-lease GC
+   * finds it after the graces.
+   */
+  private void cleanUpMatViewResourcesForDroppedSourceCollection(
+      MaterializedViewIndexGeneration generation) {
+    MaterializedViewGenerationId generationId = generation.getGenerationId();
+    if (!this.leaseManager.isLeader(generationId)) {
+      LOG.atInfo()
+          .addKeyValue("generationId", generationId)
+          .log(
+              "Source collection dropped; not the lease holder, leaving cleanup to the "
+                  + "stale-lease GC");
+      return;
+    }
+    var metadata = this.matViewMetadataCatalog.getMetadataIfPresent(generationId);
+    if (metadata.isEmpty()) {
+      return;
+    }
+    String leaseKey = metadata.get().collectionName();
+    LOG.atInfo()
+        .addKeyValue("generationId", generationId)
+        .addKeyValue("collectionName", leaseKey)
+        .log("Source collection dropped; cleaning up its materialized view collection and lease");
+    // Detached: the caller is the generator's lifecycle handling and must not block on mongod
+    // I/O. Drop-before-delete, as in the deletion path: a surviving MV's lease must stay
+    // visible to the lease-driven GC scanner.
+    generation
+        .getIndex()
+        .getWriter()
+        .dropMaterializedViewCollection()
+        .handle(
+            (unusedResult, dropError) -> {
+              boolean dropped = dropError == null;
+              recordCollectionDrop(DROP_SCENARIO_SOURCE_COLLECTION_DROP, dropped);
+              return dropped;
+            })
+        .thenAccept(
+            mvDropped -> {
+              if (mvDropped) {
+                deleteLeaseOrLeaveForGc(leaseKey);
+              } else {
+                LOG.atWarn()
+                    .addKeyValue("generationId", generationId)
+                    .addKeyValue("collectionName", leaseKey)
+                    .log(
+                        "Failed to drop the materialized view collection of a dropped source "
+                            + "collection; leaving its lease for the stale-lease GC");
+              }
+            })
+        .exceptionally(
+            throwable ->
+                logDetachedCleanupFailure(
+                    throwable, generationId, leaseKey, DROP_SCENARIO_SOURCE_COLLECTION_DROP));
   }
 
   @Override
@@ -2252,6 +2326,15 @@ public class MaterializedViewManager implements ReplicationManager {
     private Optional<InitialSyncQueue> initialSyncQueue;
     private Optional<SteadyStateManager> steadyStateManager;
 
+    // Wired by the owning MaterializedViewManager's constructor (the factory is built before the
+    // manager exists); every generator created afterwards reports its source-collection drops
+    // through this handler.
+    private Consumer<MaterializedViewIndexGeneration> onSourceCollectionDropped = ignored -> {};
+
+    void setOnSourceCollectionDropped(Consumer<MaterializedViewIndexGeneration> handler) {
+      this.onSourceCollectionDropped = handler;
+    }
+
     MaterializedViewGeneratorFactory(
         Path resolvedPath,
         NamedExecutorService lifecycleExecutor,
@@ -2315,7 +2398,8 @@ public class MaterializedViewManager implements ReplicationManager {
           this.requestRateLimitBackoffMs,
           this.meterAndFtdcRegistry.meterRegistry(),
           this.featureFlags,
-          this.enableNaturalOrderScan);
+          this.enableNaturalOrderScan,
+          () -> this.onSourceCollectionDropped.accept(matViewIndexGeneration));
     }
 
     boolean isInitialized() {

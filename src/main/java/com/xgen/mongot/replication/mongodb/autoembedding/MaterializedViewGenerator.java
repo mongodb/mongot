@@ -86,6 +86,12 @@ public class MaterializedViewGenerator extends ReplicationIndexManager {
 
   private final Counter oplogFalloffResyncCounter;
 
+  /**
+   * Invoked when the source collection this generator tails is dropped, before the generator
+   * transitions to a terminal state. See {@link #handleCollectionDropped()}.
+   */
+  private final Runnable onSourceCollectionDropped;
+
   MaterializedViewGenerator(
       Executor lifecycleExecutor,
       MongotCursorManager cursorManager,
@@ -100,7 +106,8 @@ public class MaterializedViewGenerator extends ReplicationIndexManager {
       Duration resyncBackoff,
       Duration transientBackoff,
       Duration requestRateLimitBackoffMs,
-      boolean enableNaturalOrderScan) {
+      boolean enableNaturalOrderScan,
+      Runnable onSourceCollectionDropped) {
     super(
         lifecycleExecutor,
         cursorManager,
@@ -121,6 +128,29 @@ public class MaterializedViewGenerator extends ReplicationIndexManager {
     this.isLeader = false; // All generators start as followers
     this.matViewIndex = matViewIndex;
     this.oplogFalloffResyncCounter = metricsFactory.counter("oplogFalloffResyncEvents");
+    this.onSourceCollectionDropped = onSourceCollectionDropped;
+  }
+
+  /**
+   * The source collection is gone for good — replication binds to its uuid, which never returns —
+   * so the materialized view and its lease can never ingest again no matter what the config later
+   * says. Clean them up now, while this generator still holds the lease: the teardown below makes
+   * the state terminal, the heartbeat then releases the lease, and cleanup would otherwise wait out
+   * the stale-lease GC graces. The callback is best-effort; the local teardown must run regardless.
+   */
+  @Override
+  protected void handleCollectionDropped() {
+    try {
+      this.onSourceCollectionDropped.run();
+    } catch (RuntimeException e) {
+      this.logger
+          .atWarn()
+          .setCause(e)
+          .log(
+              "Shared resource cleanup on source collection drop failed; the stale-lease GC "
+                  + "cleans up after the graces");
+    }
+    super.handleCollectionDropped();
   }
 
   /** Returns whether this generator is currently acting as the leader. */
@@ -235,7 +265,8 @@ public class MaterializedViewGenerator extends ReplicationIndexManager {
       Duration requestRateLimitBackoffMs,
       MeterRegistry meterRegistry,
       FeatureFlags featureFlags,
-      boolean enableNaturalOrderScan) {
+      boolean enableNaturalOrderScan,
+      Runnable onSourceCollectionDropped) {
     return new MaterializedViewGenerator(
         lifecycleExecutor,
         cursorManager,
@@ -250,7 +281,8 @@ public class MaterializedViewGenerator extends ReplicationIndexManager {
         resyncBackoff,
         transientBackoff,
         requestRateLimitBackoffMs,
-        enableNaturalOrderScan);
+        enableNaturalOrderScan,
+        onSourceCollectionDropped);
   }
 
   public MaterializedViewIndexGeneration getIndexGeneration() {

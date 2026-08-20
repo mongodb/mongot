@@ -365,7 +365,11 @@ public class InitialSyncException extends Exception {
     /** Index has exceeded docs limit */
     DOCS_EXCEEDED,
 
-    /** The collection that is being replicated has been dropped or never existed. */
+    /**
+     * The collection that is being replicated was dropped: a witnessed change-stream drop event, or
+     * the collection stopped resolving after it had been resolved. A collection that was never
+     * resolvable is {@link #DOES_NOT_EXIST}, not this.
+     */
     DROPPED,
 
     /** The initial sync itself was cooperatively shut down. */

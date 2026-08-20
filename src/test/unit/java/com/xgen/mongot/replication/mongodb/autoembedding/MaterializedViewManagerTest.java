@@ -106,6 +106,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.LongStream;
 import org.bson.BsonDocument;
@@ -894,6 +895,64 @@ public class MaterializedViewManagerTest {
     verify(mocks.leaseManager, timeout(5000))
         .cleanupLeaseForDeletedIndex("test_" + INDEX_ID.toHexString());
     verify(gen.getIndex().getWriter()).dropMaterializedViewCollection();
+  }
+
+  @Test
+  public void sourceCollectionDrop_leaseHolder_dropsMvThenDeletesLease() {
+    Mocks mocks = Mocks.create(); // leaseManager.isLeader() returns true by default
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+
+    mocks.onSourceCollectionDropped().accept(gen);
+
+    // The cleanup chain is detached; sync on its last action (the lease delete).
+    verify(mocks.leaseManager, timeout(5000))
+        .cleanupLeaseForDeletedIndex("test_" + INDEX_ID.toHexString());
+    verify(gen.getIndex().getWriter()).dropMaterializedViewCollection();
+    assertEquals(
+        1.0,
+        collectionDropCount(
+            mocks, MaterializedViewManager.DROP_SCENARIO_SOURCE_COLLECTION_DROP, "success"),
+        0.0);
+  }
+
+  @Test
+  public void sourceCollectionDrop_notLeaseHolder_leavesEverythingForGc() {
+    Mocks mocks = Mocks.create();
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+    when(mocks.leaseManager.isLeader(any())).thenReturn(false);
+
+    mocks.onSourceCollectionDropped().accept(gen);
+
+    verify(gen.getIndex().getWriter(), never()).dropMaterializedViewCollection();
+    verify(mocks.leaseManager, never()).cleanupLeaseForDeletedIndex(any(String.class));
+  }
+
+  @Test
+  public void sourceCollectionDrop_dropFails_leavesLeaseForGc() {
+    Mocks mocks = Mocks.create();
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+    // Deleting the lease after a failed drop would strand the surviving MV (the GC scanner is
+    // lease-driven), so the lease must stay in place.
+    when(gen.getIndex().getWriter().dropMaterializedViewCollection())
+        .thenReturn(CompletableFuture.failedFuture(new RuntimeException("drop failed")));
+
+    mocks.onSourceCollectionDropped().accept(gen);
+
+    verify(mocks.leaseManager, never()).cleanupLeaseForDeletedIndex(any(String.class));
+    assertEquals(
+        1.0,
+        collectionDropCount(
+            mocks, MaterializedViewManager.DROP_SCENARIO_SOURCE_COLLECTION_DROP, "failure"),
+        0.0);
   }
 
   @Test
@@ -4850,6 +4909,19 @@ public class MaterializedViewManagerTest {
       this.manager.setIsReplicationEnabled(true);
     }
 
+    /**
+     * Returns the source-collection-drop handler the manager wired into the generator factory, i.e.
+     * what a generator's DROPPED handling invokes.
+     */
+    Consumer<MaterializedViewIndexGeneration> onSourceCollectionDropped() {
+      @SuppressWarnings("unchecked")
+      ArgumentCaptor<Consumer<MaterializedViewIndexGeneration>> captor =
+          ArgumentCaptor.forClass(Consumer.class);
+      verify(this.materializedViewGeneratorFactory, atLeast(1))
+          .setOnSourceCollectionDropped(captor.capture());
+      return captor.getValue();
+    }
+
     public void recreateManager() {
       this.manager = this.managerSupplier.get();
       this.manager.setIsReplicationEnabled(true);
@@ -5351,7 +5423,8 @@ public class MaterializedViewManagerTest {
                   Duration.ofSeconds(1),
                   Duration.ofSeconds(1),
                   Duration.ofSeconds(1),
-                  false));
+                  false,
+                  () -> {}));
       // Mock shutdown() to return a completed future so thenRun() callbacks execute immediately
       doReturn(CompletableFuture.completedFuture(null)).when(materializedViewGenerator).shutdown();
       // Mock becomeLeader() to set isLeader=true without starting real async tasks.
