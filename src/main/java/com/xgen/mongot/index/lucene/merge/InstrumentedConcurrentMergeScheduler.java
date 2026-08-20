@@ -1002,7 +1002,7 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
       attribution.ifPresent(a -> a.markStarted(threadId));
       String indexType = this.indexPartitionIdentifier.getIndexType();
 
-      MongotBloomReadPolicy.setLoadBloomOnHeap(
+      MongotBloomReadPolicy.setLoadBloomOnRead(
           this.taggedMergeSource.indexPartitionDirectory,
           this.taggedMergeSource.useIdBloomFilter.getAsBoolean());
       // Do not remove. Exposes the current merge to in-memory merge code (e.g. HNSW graph

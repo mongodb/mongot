@@ -5,8 +5,10 @@ import static com.google.common.truth.Truth.assertWithMessage;
 
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.lucene.codec.bloom.MongotBloomFilterFactory;
 import com.xgen.mongot.index.lucene.codec.bloom.MongotBloomFilteringPostingsFormat;
 import com.xgen.mongot.index.lucene.codec.bloom.MongotBloomReadPolicy;
+import com.xgen.mongot.index.lucene.codec.bloom.MongotFuzzySet;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.util.GlobalMetricFactory;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
@@ -26,8 +28,6 @@ import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.CompoundDirectory;
 import org.apache.lucene.codecs.FilterCodec;
 import org.apache.lucene.codecs.PostingsFormat;
-import org.apache.lucene.codecs.bloom.DefaultBloomFilterFactory;
-import org.apache.lucene.codecs.bloom.FuzzySet;
 import org.apache.lucene.codecs.perfield.PerFieldPostingsFormat;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
@@ -86,7 +86,7 @@ public class LuceneCodecBloomFilterTest {
     public void bloomFilteredTermsEnum_prefersSeekExact() throws IOException {
       try (Directory dir = new ByteBuffersDirectory()) {
         writeDocuments(dir, () -> DFF_ENABLED, DOC_1);
-        MongotBloomReadPolicy.setLoadBloomOnHeap(dir, true);
+        MongotBloomReadPolicy.setLoadBloomOnRead(dir, true);
         try (DirectoryReader reader = DirectoryReader.open(dir)) {
           for (LeafReaderContext ctx : reader.leaves()) {
             Terms terms = ctx.reader().terms(ID_FIELD);
@@ -95,7 +95,7 @@ public class LuceneCodecBloomFilterTest {
             assertThat(termsEnum.preferSeekExact()).isTrue();
           }
         } finally {
-          MongotBloomReadPolicy.setLoadBloomOnHeap(dir, false);
+          MongotBloomReadPolicy.setLoadBloomOnRead(dir, false);
         }
       }
     }
@@ -250,7 +250,7 @@ public class LuceneCodecBloomFilterTest {
     }
 
     @Test
-    public void readWithBloomOnHeap_absentIdSkips_presentIdProbes() throws IOException {
+    public void readWithBloomEnabled_absentIdSkips_presentIdProbes() throws IOException {
       // Bloom lookup counters are published process-wide via GlobalMetricFactory; install a fresh
       // registry so this test observes only its own increments.
       SimpleMeterRegistry registry = new SimpleMeterRegistry();
@@ -274,13 +274,13 @@ public class LuceneCodecBloomFilterTest {
         double falsePositivesBefore =
             counterCount(registry, "bloom_filter_id_lookup_false_positive");
 
-        MongotBloomReadPolicy.setLoadBloomOnHeap(dir, true);
+        MongotBloomReadPolicy.setLoadBloomOnRead(dir, true);
         try (DirectoryReader reader = DirectoryReader.open(dir)) {
           IndexSearcher searcher = new IndexSearcher(reader);
           assertThat(searcher.count(new TermQuery(new Term(ID_FIELD, DOC_1)))).isEqualTo(1);
           assertThat(searcher.count(new TermQuery(new Term(ID_FIELD, "missing")))).isEqualTo(0);
         } finally {
-          MongotBloomReadPolicy.setLoadBloomOnHeap(dir, false);
+          MongotBloomReadPolicy.setLoadBloomOnRead(dir, false);
         }
 
         double skipDelta = counterCount(registry, "bloom_filter_id_lookup_skipped") - skipsBefore;
@@ -308,10 +308,10 @@ public class LuceneCodecBloomFilterTest {
       GlobalMetricFactory.resetForTest();
       GlobalMetricFactory.initialize(registry);
       // A factory that always reports saturation forces close() to drop every accumulated filter.
-      DefaultBloomFilterFactory alwaysSaturated =
-          new DefaultBloomFilterFactory() {
+      MongotBloomFilterFactory alwaysSaturated =
+          new MongotBloomFilterFactory() {
             @Override
-            public boolean isSaturated(FuzzySet bloomFilter, FieldInfo fieldInfo) {
+            public boolean isSaturated(MongotFuzzySet bloomFilter, FieldInfo fieldInfo) {
               return true;
             }
           };

@@ -6,6 +6,7 @@ java_test_suite(
         "ByteReadCollectorTest.java",
         "FileSystemDirectoryTest.java",
         "IndexDirectoryHelperTest.java",
+        "InstrumentedRandomAccessInputTest.java",
     ],
     tags = ["unit"],
     deps = [
@@ -13,6 +14,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/index/version",
         "//src/main/java/com/xgen/mongot/metrics",
         "//src/main/java/com/xgen/mongot/util",
+        "@maven//:com_google_truth_truth",
         "@maven//:io_micrometer_micrometer_core",
         "@maven//:junit_junit",
         "@maven//:org_apache_lucene_lucene_core",

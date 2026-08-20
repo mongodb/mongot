@@ -16,6 +16,7 @@ import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.MMapDirectory;
 import org.apache.lucene.store.NIOFSDirectory;
 import org.apache.lucene.store.PreloadHint;
+import org.apache.lucene.store.RandomAccessInput;
 import org.apache.lucene.store.ReadAdvice;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -259,6 +260,90 @@ public class FileSystemDirectory extends FileSwitchDirectory {
     public void readBytes(byte[] b, int offset, int len, boolean useBuffer) throws IOException {
       this.collector.collect(this.extension, len);
       this.delegate.readBytes(b, offset, len, useBuffer);
+    }
+
+    /**
+     * Delegates to the wrapped input's random-access slice instead of inheriting {@link
+     * IndexInput}'s fallback.
+     *
+     * <p>That fallback implements positional reads as {@code seek} followed by a relative read on a
+     * single mutable slice, so it is not safe for concurrent use. Callers may share one slice
+     * across threads — the {@code _id} bloom filter does exactly that, handing one slice per field
+     * to a {@code MongotFuzzySet} that every query thread probes (see {@code
+     * MongotFuzzySet#fromInput}) — and concurrent positional reads through the fallback race the
+     * file pointer and return the wrong bytes. Reading the wrong bloom word yields a false
+     * negative, which suppresses a document that should have matched.
+     *
+     * <p>The wrapped input's own implementation is positional and stateless (for {@code
+     * MMapDirectory} it reads straight from the mapped segment), so delegating keeps both the
+     * thread safety and the byte accounting.
+     */
+    @Override
+    public RandomAccessInput randomAccessSlice(long offset, long length) throws IOException {
+      return new InstrumentedRandomAccessInput(
+          this.extension, this.collector, this.delegate.randomAccessSlice(offset, length));
+    }
+  }
+
+  /**
+   * Counts bytes read through a {@link RandomAccessInput} without adding mutable state, so it stays
+   * as safe for concurrent positional reads as the input it wraps.
+   */
+  static class InstrumentedRandomAccessInput implements RandomAccessInput {
+    private final String extension;
+    private final ByteReadCollector collector;
+    private final RandomAccessInput delegate;
+
+    InstrumentedRandomAccessInput(
+        String extension, ByteReadCollector collector, RandomAccessInput delegate) {
+      this.extension = extension;
+      this.collector = collector;
+      this.delegate = delegate;
+    }
+
+    @Override
+    public long length() {
+      return this.delegate.length();
+    }
+
+    @Override
+    public byte readByte(long pos) throws IOException {
+      this.collector.collect(this.extension, 1);
+      return this.delegate.readByte(pos);
+    }
+
+    @Override
+    public void readBytes(long pos, byte[] bytes, int offset, int length) throws IOException {
+      this.collector.collect(this.extension, length);
+      this.delegate.readBytes(pos, bytes, offset, length);
+    }
+
+    @Override
+    public short readShort(long pos) throws IOException {
+      this.collector.collect(this.extension, Short.BYTES);
+      return this.delegate.readShort(pos);
+    }
+
+    @Override
+    public int readInt(long pos) throws IOException {
+      this.collector.collect(this.extension, Integer.BYTES);
+      return this.delegate.readInt(pos);
+    }
+
+    @Override
+    public long readLong(long pos) throws IOException {
+      this.collector.collect(this.extension, Long.BYTES);
+      return this.delegate.readLong(pos);
+    }
+
+    @Override
+    public void prefetch(long offset, long length) throws IOException {
+      this.delegate.prefetch(offset, length);
+    }
+
+    @Override
+    public java.util.Optional<Boolean> isLoaded() {
+      return this.delegate.isLoaded();
     }
   }
 }

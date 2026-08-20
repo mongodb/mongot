@@ -25,7 +25,6 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import org.apache.lucene.codecs.FieldsProducer;
-import org.apache.lucene.codecs.bloom.FuzzySet;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.StringField;
@@ -36,6 +35,8 @@ import org.apache.lucene.index.SegmentReader;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FilterDirectory;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
 /**
@@ -44,6 +45,18 @@ import org.junit.Test;
  * Directory} stay open.
  */
 public class LuceneSearcherManagerBloomEvictionTest {
+
+  // Eviction is asserted against the input read path, so pin the storage mode rather than
+  // inheriting whatever Feature.BLOOM_FILTER_ON_HEAP resolves to.
+  @Before
+  public void forceOffHeapBloom() {
+    BloomStoragePolicy.setStorageModeForTest(MongotFuzzySet.StorageMode.INPUT);
+  }
+
+  @After
+  public void restoreBloomStorageMode() {
+    BloomStoragePolicy.setStorageModeForTest(null);
+  }
 
   private static final String ID_FIELD = FieldName.MetaField.ID.getLuceneFieldName();
   private static final boolean BLOOM_DISABLED_IN_STEADY_STATE = false;
@@ -296,10 +309,14 @@ public class LuceneSearcherManagerBloomEvictionTest {
   @Test
   public void initialSync_reportsBloomHeapGauges() throws IOException {
     try (Harness harness = newHarness(BLOOM_DISABLED_IN_STEADY_STATE)) {
-      // Bloom is loaded on heap during initial sync, so the heap gauges reflect the live segment.
+      // Bloom fast-fail is wired up during initial sync, so the loaded-segments gauge reflects the
+      // live segment. The heap-bytes gauge is zero: bloom bitsets are read through the input
+      // (OS page cache), not on the JVM heap. The mapped-bytes gauge carries the real footprint.
       assertThat(gauge(harness.metrics, LuceneSearcherManager.BLOOM_HEAP_LOADED_SEGMENTS_METRIC))
           .isAtLeast(1.0);
       assertThat(gauge(harness.metrics, LuceneSearcherManager.BLOOM_HEAP_BYTES_METRIC))
+          .isEqualTo(0.0);
+      assertThat(gauge(harness.metrics, LuceneSearcherManager.BLOOM_MAPPED_BYTES_METRIC))
           .isGreaterThan(0.0);
     }
   }
@@ -313,7 +330,7 @@ public class LuceneSearcherManagerBloomEvictionTest {
    * from the searcher manager), and must drop back to zero once that reader closes.
    */
   @Test
-  public void bloomHeapStats_reflectResidentBloomFromAnyReader() throws IOException {
+  public void bloomStats_reflectResidentBloomFromAnyReader() throws IOException {
     try (Directory directory = new ByteBuffersDirectory()) {
       IndexWriterConfig config =
           new IndexWriterConfig()
@@ -324,8 +341,7 @@ public class LuceneSearcherManagerBloomEvictionTest {
       IndexWriter writer = new IndexWriter(directory, config);
       try {
         // No reader has opened bloom segments yet.
-        assertThat(MongotBloomFieldsProducerRegistry.bloomHeapStats().loadedSegments())
-            .isEqualTo(0);
+        assertThat(MongotBloomFieldsProducerRegistry.bloomStats().loadedSegments()).isEqualTo(0);
 
         Document doc = new Document();
         doc.add(new StringField(ID_FIELD, "doc1", Field.Store.YES));
@@ -334,21 +350,23 @@ public class LuceneSearcherManagerBloomEvictionTest {
 
         // Initial-sync policy is active; a reader other than any searcher manager opens the segment
         // and loads bloom on heap, registering it in the process-wide registry.
-        MongotBloomReadPolicy.setLoadBloomOnHeap(writer.getDirectory(), true);
+        MongotBloomReadPolicy.setLoadBloomOnRead(writer.getDirectory(), true);
         try (DirectoryReader reader = DirectoryReader.open(writer)) {
-          MongotBloomHeapEvictor.BloomHeapStats stats =
-              MongotBloomFieldsProducerRegistry.bloomHeapStats();
+          MongotBloomEvictor.BloomStats stats = MongotBloomFieldsProducerRegistry.bloomStats();
           assertThat(stats.loadedSegments()).isAtLeast(1);
-          assertThat(stats.heapBytes()).isGreaterThan(0L);
+          // Bloom bitsets are read through the input: nothing on the JVM heap; the
+          // footprint is in page cache.
+          assertThat(stats.heapBytes()).isEqualTo(0L);
+          assertThat(stats.mappedBytes()).isGreaterThan(0L);
         }
       } finally {
         // Closing the writer closes its pooled segment readers, unregistering their producers.
         writer.close();
-        MongotBloomReadPolicy.setLoadBloomOnHeap(directory, false);
+        MongotBloomReadPolicy.setLoadBloomOnRead(directory, false);
       }
 
       // With every reader (including the writer's pool) closed, the registry reports zero again.
-      assertThat(MongotBloomFieldsProducerRegistry.bloomHeapStats().loadedSegments()).isEqualTo(0);
+      assertThat(MongotBloomFieldsProducerRegistry.bloomStats().loadedSegments()).isEqualTo(0);
     }
   }
 
@@ -396,7 +414,7 @@ public class LuceneSearcherManagerBloomEvictionTest {
         writer.commit();
 
         // Initial-sync registration uses the writer's directory handle.
-        MongotBloomReadPolicy.setLoadBloomOnHeap(writer.getDirectory(), true);
+        MongotBloomReadPolicy.setLoadBloomOnRead(writer.getDirectory(), true);
         try (DirectoryReader reader = DirectoryReader.open(writer)) {
           SegmentReader segment = (SegmentReader) reader.leaves().get(0).reader();
 
@@ -404,13 +422,15 @@ public class LuceneSearcherManagerBloomEvictionTest {
           assertThat(MongotBloomReadPolicy.shouldLoadBloomOnRead(segment.getSegmentInfo().info.dir))
               .isTrue();
 
-          MongotBloomHeapEvictor.BloomHeapStats stats =
-              MongotBloomHeapEvictor.bloomHeapStats(reader);
+          MongotBloomEvictor.BloomStats stats = MongotBloomEvictor.bloomStats(reader);
           assertThat(stats.loadedSegments()).isAtLeast(1);
-          assertThat(stats.heapBytes()).isGreaterThan(0L);
+          // Bloom bitsets are read through the input: nothing on the JVM heap; the
+          // footprint is in page cache.
+          assertThat(stats.heapBytes()).isEqualTo(0L);
+          assertThat(stats.mappedBytes()).isGreaterThan(0L);
         }
       } finally {
-        MongotBloomReadPolicy.setLoadBloomOnHeap(base, false);
+        MongotBloomReadPolicy.setLoadBloomOnRead(base, false);
       }
     }
   }
@@ -437,16 +457,16 @@ public class LuceneSearcherManagerBloomEvictionTest {
         writer.commit();
 
         // Steady state: policy not enabled, so segments open via the delegate without heap bloom.
-        MongotBloomReadPolicy.setLoadBloomOnHeap(writer.getDirectory(), false);
+        MongotBloomReadPolicy.setLoadBloomOnRead(writer.getDirectory(), false);
         try (DirectoryReader reader = DirectoryReader.open(writer)) {
           SegmentReader segment = (SegmentReader) reader.leaves().get(0).reader();
           assertThat(MongotBloomReadPolicy.shouldLoadBloomOnRead(segment.getSegmentInfo().info.dir))
               .isFalse();
 
-          MongotBloomHeapEvictor.BloomHeapStats stats =
-              MongotBloomHeapEvictor.bloomHeapStats(reader);
+          MongotBloomEvictor.BloomStats stats = MongotBloomEvictor.bloomStats(reader);
           assertThat(stats.loadedSegments()).isEqualTo(0);
           assertThat(stats.heapBytes()).isEqualTo(0L);
+          assertThat(stats.mappedBytes()).isEqualTo(0L);
         }
       }
     }
@@ -528,10 +548,10 @@ public class LuceneSearcherManagerBloomEvictionTest {
     }
   }
 
-  private static Optional<FuzzySet> heapLoadedBloomForIdField(DirectoryReader reader) {
+  private static Optional<MongotFuzzySet> heapLoadedBloomForIdField(DirectoryReader reader) {
     SegmentReader segment = (SegmentReader) reader.leaves().get(0).reader();
     return unwrapBloomFieldsProducer(segment, ID_FIELD)
-        .map(producer -> producer.getHeapLoadedBloomForField(ID_FIELD));
+        .map(producer -> producer.getLoadedBloomForField(ID_FIELD));
   }
 
   private static Optional<MongotBloomFilteringPostingsFormat.MongotBloomFilteredFieldsProducer>

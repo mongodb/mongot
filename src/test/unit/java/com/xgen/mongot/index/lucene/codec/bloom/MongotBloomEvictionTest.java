@@ -11,9 +11,6 @@ import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.FieldsProducer;
 import org.apache.lucene.codecs.FilterCodec;
 import org.apache.lucene.codecs.PostingsFormat;
-import org.apache.lucene.codecs.bloom.BloomFilterFactory;
-import org.apache.lucene.codecs.bloom.DefaultBloomFilterFactory;
-import org.apache.lucene.codecs.bloom.FuzzySet;
 import org.apache.lucene.codecs.perfield.PerFieldPostingsFormat;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
@@ -30,24 +27,24 @@ import org.apache.lucene.store.ChecksumIndexInput;
 import org.apache.lucene.store.Directory;
 import org.junit.Test;
 
-/** Heap eviction tests for {@link MongotBloomFilteringPostingsFormat}. */
-public class MongotBloomHeapEvictionTest {
+/** Bloom eviction tests for {@link MongotBloomFilteringPostingsFormat}. */
+public class MongotBloomEvictionTest {
 
   private static final String ID_FIELD = FieldName.MetaField.ID.getLuceneFieldName();
 
-  private static final BloomFilterFactory SMALL_BLOOM_FILTER_FACTORY =
-      new DefaultBloomFilterFactory() {
+  private static final MongotBloomFilterFactory SMALL_BLOOM_FILTER_FACTORY =
+      new MongotBloomFilterFactory() {
         @Override
-        public FuzzySet getSetForField(SegmentWriteState state, FieldInfo fieldInfo) {
+        public MongotFuzzySet getSetForField(SegmentWriteState state, FieldInfo fieldInfo) {
           if (!ID_FIELD.equals(fieldInfo.name)) {
             return super.getSetForField(state, fieldInfo);
           }
-          return FuzzySet.createSetBasedOnMaxMemory(4096);
+          return MongotFuzzySet.createSetBasedOnMaxMemory(4096);
         }
       };
 
   @Test
-  public void bloomEviction_readerClose_clearsHeapBloomFromProducer() throws IOException {
+  public void bloomEviction_readerClose_dropsBloomFromProducer() throws IOException {
     MongotBloomFilteredFieldsProducer bloomProducer;
 
     try (Directory directory = new ByteBuffersDirectory()) {
@@ -58,21 +55,21 @@ public class MongotBloomHeapEvictionTest {
         writer.commit();
       }
 
-      MongotBloomReadPolicy.setLoadBloomOnHeap(directory, true);
+      MongotBloomReadPolicy.setLoadBloomOnRead(directory, true);
       try {
         try (DirectoryReader bloomReader = DirectoryReader.open(directory)) {
           SegmentReader segment = (SegmentReader) bloomReader.leaves().get(0).reader();
-          assertThat(getHeapLoadedBloomForField(segment, ID_FIELD)).isPresent();
+          assertThat(getLoadedBloomForField(segment, ID_FIELD)).isPresent();
           bloomProducer = unwrapBloomFieldsProducer(segment, ID_FIELD).orElseThrow();
-          assertThat(bloomProducer.getHeapLoadedBloomForField(ID_FIELD) != null).isTrue();
+          assertThat(bloomProducer.getLoadedBloomForField(ID_FIELD) != null).isTrue();
         }
       } finally {
-        MongotBloomReadPolicy.setLoadBloomOnHeap(directory, false);
+        MongotBloomReadPolicy.setLoadBloomOnRead(directory, false);
       }
     }
 
-    // Producer outlives the reader; close() must drop in-heap bloom without relying on GC.
-    assertThat(bloomProducer.getHeapLoadedBloomForField(ID_FIELD) != null).isFalse();
+    // Producer outlives the reader; close() must drop the loaded bloom sets without relying on GC.
+    assertThat(bloomProducer.getLoadedBloomForField(ID_FIELD) != null).isFalse();
   }
 
   @Test
@@ -81,12 +78,12 @@ public class MongotBloomHeapEvictionTest {
         Directory directoryB = new ByteBuffersDirectory()) {
       assertThat(MongotBloomReadPolicy.shouldLoadBloomOnRead(directoryA)).isFalse();
 
-      MongotBloomReadPolicy.setLoadBloomOnHeap(directoryA, true);
+      MongotBloomReadPolicy.setLoadBloomOnRead(directoryA, true);
       assertThat(MongotBloomReadPolicy.shouldLoadBloomOnRead(directoryA)).isTrue();
       assertThat(MongotBloomReadPolicy.shouldLoadBloomOnRead(directoryB)).isFalse();
 
-      MongotBloomReadPolicy.setLoadBloomOnHeap(directoryB, true);
-      MongotBloomReadPolicy.setLoadBloomOnHeap(directoryA, false);
+      MongotBloomReadPolicy.setLoadBloomOnRead(directoryB, true);
+      MongotBloomReadPolicy.setLoadBloomOnRead(directoryA, false);
       assertThat(MongotBloomReadPolicy.shouldLoadBloomOnRead(directoryA)).isFalse();
       assertThat(MongotBloomReadPolicy.shouldLoadBloomOnRead(directoryB)).isTrue();
     }
@@ -111,7 +108,7 @@ public class MongotBloomHeapEvictionTest {
   }
 
   @Test
-  public void bloomEviction_steadyStateRead_skipsHeapBloom() throws IOException {
+  public void bloomEviction_steadyStateRead_skipsBloom() throws IOException {
     try (Directory directory = new ByteBuffersDirectory()) {
       try (IndexWriter writer = new IndexWriter(directory, smallBloomWriterConfig())) {
         Document doc = new Document();
@@ -123,7 +120,7 @@ public class MongotBloomHeapEvictionTest {
       try (DirectoryReader reader = DirectoryReader.open(directory)) {
         SegmentReader segment = (SegmentReader) reader.leaves().get(0).reader();
         assertThat(unwrapBloomFieldsProducer(segment, ID_FIELD)).isEmpty();
-        assertThat(getHeapLoadedBloomForField(segment, ID_FIELD)).isEmpty();
+        assertThat(getLoadedBloomForField(segment, ID_FIELD)).isEmpty();
         assertThat(segment.terms(ID_FIELD)).isNotNull();
       }
     }
@@ -190,9 +187,10 @@ public class MongotBloomHeapEvictionTest {
     }
   }
 
-  private static Optional<FuzzySet> getHeapLoadedBloomForField(SegmentReader reader, String field) {
+  private static Optional<MongotFuzzySet> getLoadedBloomForField(
+      SegmentReader reader, String field) {
     return unwrapBloomFieldsProducer(reader, field)
-        .map(producer -> producer.getHeapLoadedBloomForField(field));
+        .map(producer -> producer.getLoadedBloomForField(field));
   }
 
   private static Optional<MongotBloomFilteredFieldsProducer> unwrapBloomFieldsProducer(

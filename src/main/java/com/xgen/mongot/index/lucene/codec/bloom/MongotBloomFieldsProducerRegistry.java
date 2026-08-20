@@ -1,8 +1,8 @@
 package com.xgen.mongot.index.lucene.codec.bloom;
 
 import com.google.errorprone.annotations.Var;
+import com.xgen.mongot.index.lucene.codec.bloom.MongotBloomEvictor.BloomStats;
 import com.xgen.mongot.index.lucene.codec.bloom.MongotBloomFilteringPostingsFormat.MongotBloomFilteredFieldsProducer;
-import com.xgen.mongot.index.lucene.codec.bloom.MongotBloomHeapEvictor.BloomHeapStats;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
@@ -12,11 +12,11 @@ import org.apache.lucene.index.SegmentReader;
 import org.apache.lucene.store.Directory;
 
 /**
- * Tracks heap-loaded {@link MongotBloomFilteredFieldsProducer} instances by segment and field.
+ * Tracks loaded {@link MongotBloomFilteredFieldsProducer} instances by segment and field.
  *
  * <p>Lucene's {@code PerFieldPostingsFormat.FieldsReader} nests per-field producers without a
  * public accessor (unlike {@code PerFieldKnnVectorsFormat.FieldsReader#getFieldReader}).
- * Registration lets {@link MongotBloomHeapEvictor} reach the {@code _id} bloom producer without
+ * Registration lets {@link MongotBloomEvictor} reach the {@code _id} bloom producer without
  * reflection.
  */
 public final class MongotBloomFieldsProducerRegistry {
@@ -43,28 +43,29 @@ public final class MongotBloomFieldsProducerRegistry {
   }
 
   /**
-   * Sums the heap-resident {@code _id} bloom footprint across <em>every</em> registered producer on
-   * the process, regardless of index. Backs the process-wide bloom heap gauges: bloom is a
-   * feature-level concern (see PR discussion on this metric being process- rather than
-   * index-scoped) and aggregating here keeps the exported timeseries count independent of the
-   * number of indexes.
+   * Sums the {@code _id} bloom footprint across <em>every</em> registered producer on the process,
+   * regardless of index. Backs the process-wide bloom gauges: bloom is a feature-level concern (see
+   * PR discussion on this metric being process- rather than index-scoped) and aggregating here
+   * keeps the exported timeseries count independent of the number of indexes.
    *
    * <p>Reading from this registry rather than a {@link org.apache.lucene.index.DirectoryReader}
-   * lets the heap gauges report resident bloom during initial sync, when the searcher's reader is
-   * not refreshed and therefore never opens the bloom segments. The scan is {@code O(registered
+   * lets the gauges report loaded bloom during initial sync, when the searcher's reader is not
+   * refreshed and therefore never opens the bloom segments. The scan is {@code O(registered
    * producers)} but the gauges cache it (see {@code LuceneSearcherManager}), so it runs at most a
    * couple times a minute off any hot path.
    */
-  public static BloomHeapStats bloomHeapStats() {
+  public static BloomStats bloomStats() {
     @Var int loadedSegments = 0;
     @Var long heapBytes = 0;
+    @Var long mappedBytes = 0;
     for (MongotBloomFilteredFieldsProducer producer : PRODUCERS.values()) {
-      if (producer.hasHeapLoadedBloom()) {
+      if (producer.hasLoadedBloom()) {
         loadedSegments++;
         heapBytes += producer.heapBloomRamBytesUsed();
+        mappedBytes += producer.mappedBloomBytes();
       }
     }
-    return new BloomHeapStats(loadedSegments, heapBytes);
+    return new BloomStats(loadedSegments, heapBytes, mappedBytes);
   }
 
   static final class Key {

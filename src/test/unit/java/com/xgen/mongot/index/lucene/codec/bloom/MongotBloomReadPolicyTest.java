@@ -11,27 +11,27 @@ import org.junit.Test;
 public class MongotBloomReadPolicyTest {
 
   @Test
-  public void setLoadBloomOnHeap_registersUnderlyingStorageDirectory() throws IOException {
+  public void setLoadBloomOnRead_registersUnderlyingStorageDirectory() throws IOException {
     try (Directory base = new ByteBuffersDirectory();
         Directory wrapped = new FilterDirectory(base) {}) {
-      MongotBloomReadPolicy.setLoadBloomOnHeap(wrapped, true);
+      MongotBloomReadPolicy.setLoadBloomOnRead(wrapped, true);
       assertThat(MongotBloomReadPolicy.shouldLoadBloomOnRead(base)).isTrue();
       assertThat(MongotBloomReadPolicy.shouldLoadBloomOnRead(wrapped)).isTrue();
 
-      MongotBloomReadPolicy.setLoadBloomOnHeap(base, false);
+      MongotBloomReadPolicy.setLoadBloomOnRead(base, false);
       assertThat(MongotBloomReadPolicy.shouldLoadBloomOnRead(base)).isFalse();
       assertThat(MongotBloomReadPolicy.shouldLoadBloomOnRead(wrapped)).isFalse();
     }
   }
 
   @Test
-  public void setLoadBloomOnHeap_unwrapsNestedFilterDirectories() throws IOException {
+  public void setLoadBloomOnRead_unwrapsNestedFilterDirectories() throws IOException {
     try (Directory base = new ByteBuffersDirectory();
         Directory outer = new FilterDirectory(new FilterDirectory(base) {}) {}) {
-      MongotBloomReadPolicy.setLoadBloomOnHeap(outer, true);
+      MongotBloomReadPolicy.setLoadBloomOnRead(outer, true);
       assertThat(MongotBloomReadPolicy.shouldLoadBloomOnRead(base)).isTrue();
 
-      MongotBloomReadPolicy.setLoadBloomOnHeap(outer, false);
+      MongotBloomReadPolicy.setLoadBloomOnRead(outer, false);
       assertThat(MongotBloomReadPolicy.shouldLoadBloomOnRead(base)).isFalse();
     }
   }

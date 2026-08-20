@@ -33,6 +33,8 @@
     <suppress
             files="mongot[/\\]index[/\\]lucene[/\\]codec[/\\]bloom[/\\]MongotBloomFilteringPostingsFormat\.java"
             checks=".*"/>
+    <!-- Exact copy of Lucene's FuzzySet; keep upstream style so it stays a clean copy. -->
+    <suppress files="mongot[/\\]index[/\\]lucene[/\\]codec[/\\]bloom[/\\]MongotFuzzySet\.java" checks=".*"/>
     <!-- Suppress all checks for jextract-generated FFM bindings (regenerate with: make regenerate-vectorlite-ffm) -->
     <suppress files="vectorlite[/\\]ffm[/\\]" checks=".*"/>
     <!-- Ignore ONLY MissingJavadocMethod in test sources -->

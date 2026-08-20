@@ -14,9 +14,12 @@ java_test_suite(
         "LuceneStoredFieldsFormatTest.java",
         "OnDiskFormatVersionsTest.java",
         "bloom/BloomCodecPolicyTest.java",
+        "bloom/BloomStorageModeTest.java",
         "bloom/LuceneSearcherManagerBloomEvictionTest.java",
-        "bloom/MongotBloomHeapEvictionTest.java",
+        "bloom/MongotBloomEvictionTest.java",
+        "bloom/MongotBloomInputRiskTest.java",
         "bloom/MongotBloomReadPolicyTest.java",
+        "bloom/MongotFuzzySetInputTest.java",
     ],
     tags = ["unit"],
     deps = [

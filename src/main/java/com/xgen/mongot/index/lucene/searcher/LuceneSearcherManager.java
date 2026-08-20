@@ -5,8 +5,8 @@ import static com.xgen.mongot.util.Check.checkArg;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Suppliers;
 import com.google.errorprone.annotations.Var;
+import com.xgen.mongot.index.lucene.codec.bloom.MongotBloomEvictor;
 import com.xgen.mongot.index.lucene.codec.bloom.MongotBloomFieldsProducerRegistry;
-import com.xgen.mongot.index.lucene.codec.bloom.MongotBloomHeapEvictor;
 import com.xgen.mongot.index.lucene.codec.bloom.MongotBloomReadPolicy;
 import com.xgen.mongot.metrics.CachedGauge;
 import com.xgen.mongot.metrics.PerIndexMetricsFactory;
@@ -34,7 +34,22 @@ public class LuceneSearcherManager extends ReferenceManager<LuceneIndexSearcher>
 
   @VisibleForTesting static final String SEGMENT_COUNT_METRIC = "segment_count";
 
+  /**
+   * JVM heap bytes held by loaded {@code _id} bloom bitsets. Non-zero when {@link
+   * com.xgen.mongot.featureflag.Feature#BLOOM_FILTER_ON_HEAP} is enabled, where each segment's
+   * bitset is copied onto the heap at open; {@code 0} by default, where {@link
+   * #BLOOM_MAPPED_BYTES_METRIC} carries the footprint instead.
+   */
   @VisibleForTesting public static final String BLOOM_HEAP_BYTES_METRIC = "bloomFilterHeapBytes";
+
+  /**
+   * Page-cache footprint (bytes) of the {@code _id} bloom bitsets read via the memory-mapped {@code
+   * .blm}, and the gauge the memory-pressure alert reads. The counterpart to {@link
+   * #BLOOM_HEAP_BYTES_METRIC}: exactly one of the two is non-zero, depending on {@link
+   * com.xgen.mongot.featureflag.Feature#BLOOM_FILTER_ON_HEAP}.
+   */
+  @VisibleForTesting
+  public static final String BLOOM_MAPPED_BYTES_METRIC = "bloomFilterMappedBytes";
 
   @VisibleForTesting
   public static final String BLOOM_HEAP_LOADED_SEGMENTS_METRIC = "bloomFilterHeapLoadedSegments";
@@ -49,14 +64,15 @@ public class LuceneSearcherManager extends ReferenceManager<LuceneIndexSearcher>
   private final BooleanSupplier useIdBloomFilter;
 
   /**
-   * Counts segments whose heap-resident bloom bitsets were evicted at the initial-sync → steady
-   * state transition.
+   * Counts segments whose loaded bloom sets were evicted at the initial-sync → steady state
+   * transition. Eviction drops the fast-fail references; the {@code .blm} stays mapped.
    */
-  private final Counter bloomHeapEvictionCounter;
+  private final Counter bloomEvictionCounter;
 
   /**
    * Tracks whether bloom bitsets were loaded on the last reader open. Used to detect the
-   * initial-sync → steady-state transition so bloom can be proactively evicted from heap.
+   * initial-sync → steady-state transition so the fast-fail sets can be proactively dropped from
+   * live readers, which stops bloom probing (see {@link MongotBloomEvictor}).
    *
    * <p>Accessed only inside {@link #refreshIfNeeded}, which {@link ReferenceManager} calls under
    * its refresh lock, so no additional synchronization is needed.
@@ -77,12 +93,12 @@ public class LuceneSearcherManager extends ReferenceManager<LuceneIndexSearcher>
     this.factory = factory;
     this.indexWriter = writer;
     this.useIdBloomFilter = useIdBloomFilter;
-    this.bloomHeapEvictionCounter =
+    this.bloomEvictionCounter =
         metrics.getProcessMetricsFactory().counter(BLOOM_HEAP_EVICTIONS_METRIC);
 
     boolean initialBloomLoad = useIdBloomFilter.getAsBoolean();
     this.lastBloomLoadState = initialBloomLoad;
-    MongotBloomReadPolicy.setLoadBloomOnHeap(writer.getDirectory(), initialBloomLoad);
+    MongotBloomReadPolicy.setLoadBloomOnRead(writer.getDirectory(), initialBloomLoad);
 
     this.current = getSearcher(DirectoryReader.open(writer));
   }
@@ -104,21 +120,26 @@ public class LuceneSearcherManager extends ReferenceManager<LuceneIndexSearcher>
         manager,
         CachedGauge.of(LuceneSearcherManager::getSegmentCount, Duration.ofMinutes(1)));
 
-    // Bloom heap footprint changes on every refresh (segments open/merge, policy flips), and
-    // summing FuzzySet.ramBytesUsed walks every registered producer. Cache one stats snapshot
-    // shared by both gauges so the walk runs at most once a minute, not once per gauge.
-    var cachedBloomHeapStats =
+    // The bloom footprint snapshot (mapped page-cache bytes, loaded segment count, heap bytes)
+    // changes on every refresh (segments open/merge, policy flips), and computing it walks every
+    // registered producer. Cache one snapshot shared by all three gauges so the walk runs at most
+    // once a minute, not once per gauge.
+    var cachedBloomStats =
         Suppliers.memoizeWithExpiration(
-            MongotBloomFieldsProducerRegistry::bloomHeapStats, Duration.ofMinutes(1));
+            MongotBloomFieldsProducerRegistry::bloomStats, Duration.ofMinutes(1));
     metrics
         .getProcessMetricsFactory()
         .objectValueGauge(
-            BLOOM_HEAP_BYTES_METRIC, cachedBloomHeapStats, s -> (double) s.get().heapBytes());
+            BLOOM_HEAP_BYTES_METRIC, cachedBloomStats, s -> (double) s.get().heapBytes());
+    metrics
+        .getProcessMetricsFactory()
+        .objectValueGauge(
+            BLOOM_MAPPED_BYTES_METRIC, cachedBloomStats, s -> (double) s.get().mappedBytes());
     metrics
         .getProcessMetricsFactory()
         .objectValueGauge(
             BLOOM_HEAP_LOADED_SEGMENTS_METRIC,
-            cachedBloomHeapStats,
+            cachedBloomStats,
             s -> (double) s.get().loadedSegments());
 
     return manager;
@@ -141,27 +162,27 @@ public class LuceneSearcherManager extends ReferenceManager<LuceneIndexSearcher>
     checkArg(oldReader instanceof DirectoryReader, "IndexReader should be a DirectoryReader");
     var oldDirectoryReader = (DirectoryReader) oldReader;
 
-    boolean loadBloomOnHeap = this.useIdBloomFilter.getAsBoolean();
-    MongotBloomReadPolicy.setLoadBloomOnHeap(this.indexWriter.getDirectory(), loadBloomOnHeap);
-    boolean evictBloom = this.lastBloomLoadState && !loadBloomOnHeap;
-    this.lastBloomLoadState = loadBloomOnHeap;
+    boolean loadBloomOnRead = this.useIdBloomFilter.getAsBoolean();
+    MongotBloomReadPolicy.setLoadBloomOnRead(this.indexWriter.getDirectory(), loadBloomOnRead);
+    boolean evictBloom = this.lastBloomLoadState && !loadBloomOnRead;
+    this.lastBloomLoadState = loadBloomOnRead;
     @Var DirectoryReader newReader;
     if (evictBloom) {
       // Bloom eviction reopens only the DirectoryReader, not the Directory or IndexWriter.
       // The writer and on-disk index stay open for the life of the index partition.
       //
       // openIfChanged and DirectoryReader.open(IndexWriter) can reuse unchanged SegmentReaders
-      // from a prior reader; those readers still hold heap-resident bloom bitsets opened under the
-      // initial-sync policy. Clear heap bloom on the live segment readers, then reopen from the
-      // writer so near-real-time refresh is preserved and we do not consult a stale IndexCommit
-      // (which may reference a deleted segments_N file after the writer commits).
+      // from a prior reader; those readers still have bloom sets wired up under the initial-sync
+      // policy. Drop the bloom sets on the live segment readers, then reopen from the writer so
+      // near-real-time refresh is preserved and we do not consult a stale IndexCommit (which may
+      // reference a deleted segments_N file after the writer commits).
       //
       // ReferenceManager swaps to the returned searcher and release()s the previous one, which
-      // decRefs and closes the old DirectoryReader. That closes bloom FieldsProducers and clears
-      // their in-heap bitsets (see MongotBloomFilteredFieldsProducer#close).
-      int evicted = MongotBloomHeapEvictor.evictHeapBloomFromReader(oldDirectoryReader);
+      // decRefs and closes the old DirectoryReader. That closes bloom FieldsProducers and unmaps
+      // their .blm inputs (see MongotBloomFilteredFieldsProducer#close).
+      int evicted = MongotBloomEvictor.evictBloomFromReader(oldDirectoryReader);
       if (evicted > 0) {
-        this.bloomHeapEvictionCounter.increment(evicted);
+        this.bloomEvictionCounter.increment(evicted);
       }
       newReader = DirectoryReader.openIfChanged(oldDirectoryReader, this.indexWriter);
       if (newReader == null) {

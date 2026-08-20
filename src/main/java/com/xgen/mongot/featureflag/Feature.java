@@ -93,7 +93,12 @@ public enum Feature {
   // ReplicationIndexManager. Enabled by default; disable to skip the reset without a rollback.
   RESET_STALE_INTERNAL_SEARCH_CHECKPOINT("resetStaleInternalSearchCheckpoint", State.ENABLED),
   CHANGE_STREAM_PRIORITY_SCHEDULING("enableChangeStreamPriorityScheduling", State.DISABLED),
-  CHANGE_STREAM_ACTIVITY_OBSERVER("changeStreamActivityObserver", State.DISABLED);
+  CHANGE_STREAM_ACTIVITY_OBSERVER("changeStreamActivityObserver", State.DISABLED),
+  // Kill-switch for the CLOUDP-429731 mmap bloom read path. Disabled by default, so bloom bitsets
+  // are read in place from the memory-mapped .blm and occupy OS page cache rather than JVM heap.
+  // Enable, and restart, to fall back to copying each segment's bitset onto the heap at open. The
+  // .blm is byte-identical either way, so flipping this needs no reindex in either direction.
+  BLOOM_FILTER_ON_HEAP("bloomFilterOnHeap", State.DISABLED);
 
   private final String name;
   private final State defaultState;

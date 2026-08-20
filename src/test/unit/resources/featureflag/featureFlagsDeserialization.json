@@ -64,7 +64,8 @@
         "byteBinaryQuantization": true,
         "resetStaleInternalSearchCheckpoint": true,
         "enableChangeStreamPriorityScheduling": true,
-        "changeStreamActivityObserver": true
+        "changeStreamActivityObserver": true,
+        "bloomFilterOnHeap": true
       }
     },
     {
@@ -114,7 +115,8 @@
         "searchAggregation": false,
         "byteBinaryQuantization": false,
         "resetStaleInternalSearchCheckpoint": false,
-        "changeStreamActivityObserver": false
+        "changeStreamActivityObserver": false,
+        "bloomFilterOnHeap": false
       }
     }
   ],
