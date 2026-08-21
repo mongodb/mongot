@@ -1464,6 +1464,265 @@ public class MaterializedViewManagerTest {
         .count();
   }
 
+  // ================== Retired generations — MV collection missing (CLOUDP-437172)
+  // ==================
+  //
+  // Recreating such a generator only restarts the flap, because it hands back the lease this host
+  // still owns in the database and then shuts down again on the replayed COLLECTION_NOT_FOUND.
+
+  private static double retiredCount(Mocks mocks) {
+    return mocks
+        .meterRegistry
+        .counter(MaterializedViewManager.RETIRED_GENERATION_COUNTER_NAME)
+        .count();
+  }
+
+  private static void runHeartbeatOnce(Mocks mocks) {
+    ArgumentCaptor<Runnable> heartbeatCaptor = ArgumentCaptor.forClass(Runnable.class);
+    verify(mocks.heartbeatExecutor)
+        .scheduleWithFixedDelay(heartbeatCaptor.capture(), anyLong(), anyLong(), any());
+    heartbeatCaptor.getValue().run();
+  }
+
+  // Retired once on first observation, then never recreated and never re-counted — by later refresh
+  // ticks, by restartReplication, or once the status the retirement was derived from is
+  // overwritten.
+  @Test
+  public void refreshStatus_shutDownForCollectionNotFound_retiresGenerationAndStopsRecreating() {
+    Mocks mocks = Mocks.createStaticLeaderWithRefreshCapture();
+    when(mocks.materializedViewGeneratorFactory.isInitialized()).thenReturn(true);
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(new ObjectId()));
+    MaterializedViewGenerator deadGenerator = mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+    doReturn(IndexManager.State.SHUT_DOWN).when(deadGenerator).getState();
+    gen.getIndex().setStatus(IndexStatus.doesNotExist(IndexStatus.Reason.COLLECTION_NOT_FOUND));
+
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    assertTrue(
+        "generation should be retired",
+        mocks.manager.retiredGenerations.contains(gen.getGenerationId()));
+    assertSame(
+        "the dead generator must not be replaced",
+        deadGenerator,
+        mocks.manager.getMatViewGenerator(gen.getGenerationId()).orElseThrow());
+
+    // refreshStatus overwrites this status from the lease on every tick a generator is not leader.
+    gen.getIndex().setStatus(IndexStatus.steady());
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    mocks.manager.restartReplication();
+
+    // The one create is addIndexForReplication's; nothing recreated the generator since.
+    verify(mocks.materializedViewGeneratorFactory, times(1)).create(gen);
+    assertEquals("retirement is observed once", 1.0, retiredCount(mocks), 0.0);
+    assertEquals(0.0, retryCount(mocks, "success"), 0.0);
+    assertEquals("a retirement is not a retry failure", 0.0, retryCount(mocks, "failure"), 0.0);
+  }
+
+  // Retirement is keyed by generation id, so recreating the index — the only way this state
+  // recovers — still gets a generator.
+  @Test
+  public void refreshStatus_newUserGenerationForRetiredIndex_isNotBlocked() {
+    Mocks mocks = Mocks.createStaticLeaderWithRefreshCapture();
+    when(mocks.materializedViewGeneratorFactory.isInitialized()).thenReturn(true);
+    MaterializedViewIndexGeneration deadGen =
+        mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(MOCK_MAT_VIEW_GENERATION_ID));
+    MaterializedViewGenerator deadGenerator = mocks.mockMaterializedViewGenerator(deadGen);
+    mocks.addIndexForReplication(deadGen);
+    doReturn(IndexManager.State.SHUT_DOWN).when(deadGenerator).getState();
+    deadGen.getIndex().setStatus(IndexStatus.doesNotExist(IndexStatus.Reason.COLLECTION_NOT_FOUND));
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+    assertTrue(mocks.manager.retiredGenerations.contains(deadGen.getGenerationId()));
+
+    // The index is recreated: same indexId, incremented user index version, new generation id.
+    var newGenId =
+        new MaterializedViewGenerationId(
+            MOCK_MAT_VIEW_GENERATION_ID.indexId,
+            MOCK_MAT_VIEW_GENERATION_ID.generation.incrementUser());
+    MaterializedViewIndexGeneration newGen =
+        mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(newGenId, 1));
+    MaterializedViewGenerator newGenerator = mocks.mockMaterializedViewGenerator(newGen);
+    mocks.addIndexForReplication(newGen);
+
+    assertFalse(
+        "a new generation must not inherit the retirement",
+        mocks.manager.retiredGenerations.contains(newGenId));
+    assertSame(newGenerator, mocks.manager.getMatViewGenerator(newGenId).orElseThrow());
+  }
+
+  // Heartbeat pass 1 releases the lease for any terminal generator, but retires the generation only
+  // when the collection is missing: a transient terminal must stay acquirable by a healthy node.
+  @Test
+  public void dynamicLeader_heartbeat_retiresPermanentTerminalsOnly() {
+    Mocks collectionGone = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+    MaterializedViewIndexGeneration goneGen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator goneGenerator = collectionGone.mockMaterializedViewGenerator(goneGen);
+    collectionGone.addIndexForReplication(goneGen);
+    doReturn(IndexManager.State.SHUT_DOWN).when(goneGenerator).getState();
+    goneGen.getIndex().setStatus(IndexStatus.doesNotExist(IndexStatus.Reason.COLLECTION_NOT_FOUND));
+
+    runHeartbeatOnce(collectionGone);
+
+    verify(collectionGone.leaseManager).releaseLeadership(goneGen.getGenerationId());
+    assertTrue(
+        "a missing MV collection should retire the generation",
+        collectionGone.manager.retiredGenerations.contains(goneGen.getGenerationId()));
+    assertEquals(1.0, retiredCount(collectionGone), 0.0);
+
+    Mocks transientTerminal = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+    MaterializedViewIndexGeneration failedGen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator failedGenerator =
+        transientTerminal.mockMaterializedViewGenerator(failedGen);
+    transientTerminal.addIndexForReplication(failedGen);
+    doReturn(IndexManager.State.FAILED).when(failedGenerator).getState();
+
+    runHeartbeatOnce(transientTerminal);
+
+    verify(transientTerminal.leaseManager).releaseLeadership(failedGen.getGenerationId());
+    assertFalse(
+        "a transient terminal must not retire the generation",
+        transientTerminal.manager.retiredGenerations.contains(failedGen.getGenerationId()));
+    assertEquals(0.0, retiredCount(transientTerminal), 0.0);
+  }
+
+  // A recovery attempt bumps the search attempt but keeps the MV generation id, so it reaches
+  // add() → computeGenerator() → replaceGenerator() rather than the recreation path.
+  @Test
+  public void add_sameGenerationAfterRetirement_doesNotReplaceGenerator() {
+    Mocks mocks = Mocks.createStaticLeaderWithRefreshCapture();
+    when(mocks.materializedViewGeneratorFactory.isInitialized()).thenReturn(true);
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(MOCK_MAT_VIEW_GENERATION_ID));
+    MaterializedViewGenerator deadGenerator = mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+    doReturn(IndexManager.State.SHUT_DOWN).when(deadGenerator).getState();
+    gen.getIndex().setStatus(IndexStatus.doesNotExist(IndexStatus.Reason.COLLECTION_NOT_FOUND));
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    // Same generation id, higher definition version: a retry attempt for the retired generation.
+    MaterializedViewIndexGeneration retryGen =
+        mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(MOCK_MAT_VIEW_GENERATION_ID, 1));
+    MaterializedViewGenerator retryGenerator = mocks.mockMaterializedViewGenerator(retryGen);
+    mocks.addIndexForReplication(retryGen);
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    assertSame(
+        "the retired generator must not be replaced",
+        deadGenerator,
+        mocks.manager.getMatViewGenerator(gen.getGenerationId()).orElseThrow());
+    verify(retryGenerator, never()).becomeLeader();
+  }
+
+  // shutdownReplication clears the generator map, so a retired generation then looks like a missing
+  // one on every refresh.
+  @Test
+  public void refreshStatus_afterShutdownClearsRetiredGenerator_recordsNoRetryFailures()
+      throws Exception {
+    Mocks mocks = Mocks.createStaticLeaderWithRefreshCapture();
+    when(mocks.materializedViewGeneratorFactory.isInitialized()).thenReturn(true);
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(new ObjectId()));
+    MaterializedViewGenerator deadGenerator = mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+    doReturn(IndexManager.State.SHUT_DOWN).when(deadGenerator).getState();
+    gen.getIndex().setStatus(IndexStatus.doesNotExist(IndexStatus.Reason.COLLECTION_NOT_FOUND));
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    // shutdownReplication clears the generator map; restartReplication skips the retired
+    // generation, so every later refresh sees no generator for a still-active generation.
+    mocks.manager.shutdownReplication().get(5, TimeUnit.SECONDS);
+    mocks.manager.restartReplication();
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    assertEquals("a retirement is not a retry failure", 0.0, retryCount(mocks, "failure"), 0.0);
+    assertEquals(0.0, retryCount(mocks, "success"), 0.0);
+    verify(mocks.materializedViewGeneratorFactory, times(1)).create(gen);
+  }
+
+  // The retired generation's lease still carries the status this host published before the
+  // collection went missing, so copying it back would report a missing collection as queryable.
+  @Test
+  public void refreshStatus_retiredGeneration_keepsCollectionNotFoundStatus() {
+    Mocks mocks = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+    when(mocks.materializedViewGeneratorFactory.isInitialized()).thenReturn(true);
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator deadGenerator = mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+    MaterializedViewGenerationId genId = gen.getGenerationId();
+    doReturn(IndexManager.State.SHUT_DOWN).when(deadGenerator).getState();
+    // Retirement clears leader state, which is what opens the follower status-update branch.
+    doReturn(false).when(deadGenerator).isLeader();
+    gen.getIndex().setStatus(IndexStatus.doesNotExist(IndexStatus.Reason.COLLECTION_NOT_FOUND));
+    // The lease still reports the healthy status published before the collection disappeared.
+    when(mocks.leaseManager.pollFollowerStatuses())
+        .thenReturn(
+            new LeaseManager.FollowerPollResult(
+                Map.of(genId, IndexStatus.steady()), Set.of(genId)));
+
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    assertTrue(mocks.manager.retiredGenerations.contains(genId));
+    assertTrue(
+        "a retired generation must not be reported queryable",
+        gen.getIndex().getStatus().isCollectionNotFound());
+  }
+
+  // This host keeps the retired generation's lease row, so the lease stays acquirable on every
+  // poll and must be skipped rather than re-entering the election path each tick.
+  @Test
+  public void refreshStatus_retiredGenerationStillAcquirable_isNotReconsideredForElection() {
+    Mocks mocks = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+    when(mocks.materializedViewGeneratorFactory.isInitialized()).thenReturn(true);
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator deadGenerator = mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+    MaterializedViewGenerationId genId = gen.getGenerationId();
+    doReturn(IndexManager.State.SHUT_DOWN).when(deadGenerator).getState();
+    gen.getIndex().setStatus(IndexStatus.doesNotExist(IndexStatus.Reason.COLLECTION_NOT_FOUND));
+    when(mocks.leaseManager.pollFollowerStatuses())
+        .thenReturn(
+            new LeaseManager.FollowerPollResult(
+                Map.of(genId, IndexStatus.unknown()), Set.of(genId)));
+
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    assertTrue(mocks.manager.retiredGenerations.contains(genId));
+    verify(mocks.leaseManager, never()).tryAcquireLeadership(genId);
+    // The disqualification branch shuts the generator down; a retired generation must not re-enter
+    // it on every tick.
+    verify(deadGenerator, never()).shutdown();
+  }
+
+  // A shutdown between retiring and the next heartbeat would otherwise leave the lease manager
+  // renewing a lease that no generator will ever claim.
+  @Test
+  public void refreshStatus_retiringGeneration_releasesLeadershipImmediately() {
+    Mocks mocks = Mocks.createStaticLeaderWithRefreshCapture();
+    when(mocks.materializedViewGeneratorFactory.isInitialized()).thenReturn(true);
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(new ObjectId()));
+    MaterializedViewGenerator deadGenerator = mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+    doReturn(IndexManager.State.SHUT_DOWN).when(deadGenerator).getState();
+    gen.getIndex().setStatus(IndexStatus.doesNotExist(IndexStatus.Reason.COLLECTION_NOT_FOUND));
+
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    verify(mocks.leaseManager).releaseLeadership(gen.getGenerationId());
+    verify(deadGenerator).clearLeaderState();
+  }
+
   @Test
   public void testShutdownReplication_clearsGeneratorsAndDisablesReplication() throws Exception {
     Mocks mocks = Mocks.create();
@@ -5415,7 +5674,8 @@ public class MaterializedViewManagerTest {
                   this.initialSyncQueue,
                   this.steadyStateManager,
                   materializedViewIndexGeneration,
-                  mock(InitializedMaterializedViewIndex.class),
+                  // Same index instance the generation exposes, as the production factory does.
+                  materializedViewIndexGeneration.getIndex(),
                   mock(DocumentIndexer.class),
                   mock(PeriodicIndexCommitter.class),
                   new SimpleMetricsFactory(),

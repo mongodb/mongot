@@ -134,6 +134,9 @@ public class MaterializedViewManager implements ReplicationManager {
   public static final String UNSAFE_LEADERSHIP_REACQUISITION_COUNTER_NAME =
       "matViewUnsafeLeadershipReacquisitions";
 
+  /** Counts generations retired because their materialized-view collection is missing. */
+  public static final String RETIRED_GENERATION_COUNTER_NAME = "matViewRetiredGenerations";
+
   public static final String STATE_LABEL = "state";
 
   public static final String MAT_VIEW_GC_SCANNER_ALIVE_GAUGE = "matViewGcScannerAlive";
@@ -284,6 +287,14 @@ public class MaterializedViewManager implements ReplicationManager {
   @VisibleForTesting
   final Map<MaterializedViewGenerationId, CompletableFuture<Void>> pendingShutdowns =
       new ConcurrentHashMap<>();
+
+  /**
+   * Generations that can never make progress on this shard because their materialized-view
+   * collection is missing, so they must be neither recreated nor re-elected (CLOUDP-437172).
+   * Lock-free: read and written both inside and outside the manager monitor.
+   */
+  @VisibleForTesting
+  final Set<MaterializedViewGenerationId> retiredGenerations = ConcurrentHashMap.newKeySet();
 
   /**
    * Package-private constructor for testing - registers gauges and starts periodic tasks. This
@@ -754,6 +765,17 @@ public class MaterializedViewManager implements ReplicationManager {
   private MaterializedViewGenerator computeGenerator(
       MaterializedViewGenerator existingGenerator,
       MaterializedViewIndexGeneration matViewIndexGeneration) {
+    // A recovery attempt bumps the search attempt but keeps this MV generation id, so it arrives
+    // here and would hand the retained lease to a fresh generator, restarting the flap.
+    if (isRetired(matViewIndexGeneration.getGenerationId())) {
+      LOG.atInfo()
+          .addKeyValue("generationId", matViewIndexGeneration.getGenerationId())
+          .log(
+              "Skipping generator for retired generation, its materialized view collection is "
+                  + "missing");
+      return existingGenerator;
+    }
+
     if (existingGenerator == null) {
       LOG.atInfo()
           .addKeyValue("generationId", matViewIndexGeneration.getGenerationId())
@@ -998,6 +1020,15 @@ public class MaterializedViewManager implements ReplicationManager {
           .log("Shutdown already pending, skipping duplicate transitionToFollower");
       return;
     }
+    // Third path that builds a generator, alongside computeGenerator and createAndStoreGenerator.
+    // Heartbeat pass 2 already excludes terminal generators, so a retired one should never reach
+    // here; the check keeps that from depending on pass 2's guard.
+    if (isRetired(generationId)) {
+      LOG.atInfo()
+          .addKeyValue("generationId", generationId)
+          .log("Skipping follower transition for retired generation");
+      return;
+    }
     // Block leadership acquisition early, before the slow factory.create() call.
     this.pendingShutdowns.put(generationId, new CompletableFuture<>());
     try {
@@ -1118,6 +1149,7 @@ public class MaterializedViewManager implements ReplicationManager {
     // MaterializedViewGenerationIds.
     this.leaseManager.drop(matViewGenerationId);
     this.pendingShutdowns.remove(matViewGenerationId);
+    this.retiredGenerations.remove(matViewGenerationId);
     this.activeGenerationIdCatalog.genIdByMatViewGenId.remove(matViewGeneratorId);
     this.matViewMetadataCatalog.removeMetadata(matViewGenerationId);
     // The generator is fully gone (last attempt dropped): release any embeddings its generation
@@ -1482,6 +1514,13 @@ public class MaterializedViewManager implements ReplicationManager {
         .forEach(
             generator -> {
               var generationId = generator.getIndexGeneration().getGenerationId();
+              // A retired generation's lease still carries the status this host published before
+              // its collection went missing. Copying that back would overwrite the committed
+              // COLLECTION_NOT_FOUND and report the index queryable, and no recreated generator
+              // will ever restore it.
+              if (isRetired(generationId)) {
+                return;
+              }
               // Check generator.isLeader again before setting.
               if (pollResult.statuses().containsKey(generationId) && !generator.isLeader()) {
                 var matViewIndex = generator.getIndexGeneration().getIndex();
@@ -1515,7 +1554,9 @@ public class MaterializedViewManager implements ReplicationManager {
       // Activate deferred leadership from replaceGenerator: the generator is in
       // leaderGenerationIds but was never activated because the queue was dirty.
       try {
-        if (this.leaseManager.isLeader(genId)) {
+        // Retirement releases leadership, so isLeader is normally already false here; the explicit
+        // check keeps a retired generation from being re-activated if that ever stops holding.
+        if (this.leaseManager.isLeader(genId) && !isRetired(genId)) {
           var gen = getMatViewGenerator(genId);
           if (gen.isPresent() && !gen.get().isLeader()) {
             LOG.atInfo()
@@ -1542,6 +1583,11 @@ public class MaterializedViewManager implements ReplicationManager {
       for (MaterializedViewGenerationId generationId : pollResult.acquirableLeases()) {
         if (this.pendingShutdowns.containsKey(generationId)) {
           skippedForShutdown.add(generationId);
+          continue;
+        }
+        // This host still owns the retired generation's lease row, so it stays acquirable on every
+        // poll. Skip before the disqualification branch below, which would warn once per tick.
+        if (isRetired(generationId)) {
           continue;
         }
         // Get a fresh snapshot from managedMaterializedViewGenerators instead of the snapshot
@@ -2022,7 +2068,15 @@ public class MaterializedViewManager implements ReplicationManager {
                   // without this, we could release the new generator's lease.
                   synchronized (this) {
                     var current = getMatViewGenerator(generationId);
-                    if (current.isPresent() && current.get() == generator) {
+                    if (current.isEmpty() || current.get() != generator) {
+                      LOG.atWarn()
+                          .addKeyValue("generationId", generationId)
+                          .log(
+                              "Skipped lease release: snapshot generator no longer matches "
+                                  + "live map (same-genId replaceGenerator race)");
+                    } else if (!retireIfCollectionMissing(generator)) {
+                      // Retirement, when it applies, already released the lease and cleared
+                      // leader state.
                       LOG.atWarn()
                           .addKeyValue("generationId", generationId)
                           .addKeyValue("state", generator.getState())
@@ -2035,12 +2089,6 @@ public class MaterializedViewManager implements ReplicationManager {
                       // failAndRetainIndex / shutDownReplicationOnStale* paths never reach
                       // index.close(), so without this the gauge stays at 1 indefinitely.
                       generator.clearLeaderState();
-                    } else {
-                      LOG.atWarn()
-                          .addKeyValue("generationId", generationId)
-                          .log(
-                              "Skipped lease release: snapshot generator no longer matches "
-                                  + "live map (same-genId replaceGenerator race)");
                     }
                   }
                 }
@@ -2218,17 +2266,31 @@ public class MaterializedViewManager implements ReplicationManager {
         this::createAndStoreGenerator);
   }
 
+  /** Outcome of {@link #createAndStoreGenerator}. A deliberate skip is not a retry outcome. */
+  private enum GeneratorCreation {
+    CREATED,
+    SKIPPED_RETIRED,
+    FAILED
+  }
+
   /**
    * Creates a generator for the collection and stores it, swallowing transient failures so they
    * don't crash mongot. Rolls back the lease registration on a transient failure and leaves the
-   * retry to {@link #refreshStatus}; non-transient exceptions propagate. Returns {@code true} if a
-   * generator was created and stored.
+   * retry to {@link #refreshStatus}; non-transient exceptions propagate.
    */
-  private synchronized boolean createAndStoreGenerator(
+  private synchronized GeneratorCreation createAndStoreGenerator(
       UUID uuid, MaterializedViewIndexGeneration matViewIndexGeneration) {
+    // restartReplication rebuilds every active generation without consulting
+    // needsGeneratorRecreation, so the retirement check is repeated at this shared choke point.
+    if (isRetired(matViewIndexGeneration.getGenerationId())) {
+      LOG.atInfo()
+          .addKeyValue("generationId", matViewIndexGeneration.getGenerationId())
+          .log("Skipping generator creation for retired generation");
+      return GeneratorCreation.SKIPPED_RETIRED;
+    }
     try {
       this.managedMaterializedViewGenerators.put(uuid, createNewGenerator(matViewIndexGeneration));
-      return true;
+      return GeneratorCreation.CREATED;
     } catch (MaterializedViewTransientException e) {
       this.leaseManager.drop(matViewIndexGeneration.getGenerationId());
       LOG.atWarn()
@@ -2236,7 +2298,7 @@ public class MaterializedViewManager implements ReplicationManager {
           .addKeyValue("reason", e.getReason())
           .setCause(e)
           .log("Skipping generator creation for index; will retry on next refresh.");
-      return false;
+      return GeneratorCreation.FAILED;
     }
   }
 
@@ -2253,7 +2315,7 @@ public class MaterializedViewManager implements ReplicationManager {
     }
     this.activeGenerationIdCatalog.latestMatViewIndexGenerationByCollection.forEach(
         (uuid, matViewIndexGeneration) -> {
-          if (!needsGeneratorRecreation(uuid)) {
+          if (!needsGeneratorRecreation(uuid, matViewIndexGeneration)) {
             return;
           }
           try {
@@ -2261,7 +2323,7 @@ public class MaterializedViewManager implements ReplicationManager {
           } catch (Exception e) {
             // Last line of defense: a throw out of the status-refresh runnable would permanently
             // cancel scheduleWithFixedDelay. Log and move on; the next tick retries.
-            recordGeneratorRetry(false);
+            recordGeneratorRetry(GeneratorCreation.FAILED);
             LOG.atError()
                 .addKeyValue("collectionUuid", uuid)
                 .setCause(e)
@@ -2270,10 +2332,16 @@ public class MaterializedViewManager implements ReplicationManager {
         });
   }
 
-  private void recordGeneratorRetry(boolean succeeded) {
+  /** Retirement is intentional, so it is neither a successful retry nor a failed one. */
+  private void recordGeneratorRetry(GeneratorCreation outcome) {
+    if (outcome == GeneratorCreation.SKIPPED_RETIRED) {
+      return;
+    }
     this.meterRegistry
         .counter(
-            GENERATOR_CREATION_RETRY_COUNTER_NAME, "outcome", succeeded ? "success" : "failure")
+            GENERATOR_CREATION_RETRY_COUNTER_NAME,
+            "outcome",
+            outcome == GeneratorCreation.CREATED ? "success" : "failure")
         .increment();
   }
 
@@ -2281,15 +2349,62 @@ public class MaterializedViewManager implements ReplicationManager {
    * True when a collection's active generation has no usable generator: none is stored, or the
    * stored one was left {@code SHUT_DOWN} (e.g. a failed transition to follower) with no shutdown
    * still in flight for it. Runtime-error states (FAILED/FAILED_EXCEEDED) are left alone —
-   * recreating them would churn without resolving the underlying failure.
+   * recreating them would churn without resolving the underlying failure. Retired generations never
+   * need one.
    */
-  private synchronized boolean needsGeneratorRecreation(UUID uuid) {
+  private synchronized boolean needsGeneratorRecreation(
+      UUID uuid, MaterializedViewIndexGeneration matViewIndexGeneration) {
+    // Tested by generation id before the generator is read, because shutdownReplication clears the
+    // generator: otherwise a retired generation looks like a missing one and every later refresh
+    // records a creation-retry failure.
+    if (isRetired(matViewIndexGeneration.getGenerationId())) {
+      return false;
+    }
     var generator = this.managedMaterializedViewGenerators.get(uuid);
     if (generator == null) {
       return true;
     }
+    if (retireIfCollectionMissing(generator)) {
+      return false;
+    }
     return generator.getState() == SHUT_DOWN
         && !this.pendingShutdowns.containsKey(generator.getIndexGeneration().getGenerationId());
+  }
+
+  /**
+   * Whether this generation has been retired. Membership is the authority: the condition retirement
+   * is derived from is not stable, because {@link #refreshStatus()} overwrites the index status
+   * from the lease on every tick a generator is not leader.
+   */
+  private boolean isRetired(MaterializedViewGenerationId generationId) {
+    return this.retiredGenerations.contains(generationId);
+  }
+
+  /**
+   * Retires {@code generator}'s generation if its materialized view collection is missing, so that
+   * only a new generation can recover it — never a recreated generator. Idempotent.
+   *
+   * <p>Releases leadership here rather than leaving it to the heartbeat, because a shutdown between
+   * retiring and the next heartbeat would leave the lease manager renewing a lease no generator
+   * will ever claim.
+   */
+  private boolean retireIfCollectionMissing(MaterializedViewGenerator generator) {
+    if (!generator.isCollectionMissing()) {
+      return false;
+    }
+    var generationId = generator.getIndexGeneration().getGenerationId();
+    if (this.retiredGenerations.add(generationId)) {
+      this.meterRegistry.counter(RETIRED_GENERATION_COUNTER_NAME).increment();
+      LOG.atWarn()
+          .addKeyValue("indexId", generationId.indexId)
+          .addKeyValue("generationId", generationId)
+          .log(
+              "Materialized view collection is missing on this shard; retiring generation until "
+                  + "the index is recreated");
+      this.leaseManager.releaseLeadership(generationId);
+      generator.clearLeaderState();
+    }
+    return true;
   }
 
   @VisibleForTesting

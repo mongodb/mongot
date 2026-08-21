@@ -178,6 +178,17 @@ public class MaterializedViewGenerator extends ReplicationIndexManager {
   }
 
   /**
+   * True if replication shut down because this generation's materialized view collection is missing
+   * on this shard. {@link ReplicationIndexManager} commits that reason to the index user data and
+   * replays it at every init, so no recreated generator can clear it.
+   */
+  synchronized boolean isCollectionMissing() {
+    // SHUT_DOWN rather than any terminal state: it is the only state the collection-missing path
+    // produces, and the status is shared with the follower refresh that copies the leader's.
+    return getState() == State.SHUT_DOWN && this.matViewIndex.getStatus().isCollectionNotFound();
+  }
+
+  /**
    * Transitions this generator to leader mode and starts the replication loop. In leader mode, the
    * generator runs the full replication lifecycle (initial sync, steady state) and writes to the
    * materialized view collection.
