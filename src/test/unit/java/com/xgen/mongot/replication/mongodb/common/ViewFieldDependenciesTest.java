@@ -199,6 +199,34 @@ public class ViewFieldDependenciesTest {
   }
 
   @Test
+  public void computedFilter_usesMostSpecificCoveringDefinition() {
+    // The later definition of `a.b` shadows the value inherited from computed ancestor `a`.
+    List<BsonDocument> pipeline =
+        List.of(
+            BsonDocument.parse("{\"$set\": {\"a\": \"$x\"}}"),
+            BsonDocument.parse("{\"$set\": {\"a.b\": \"$y\"}}"));
+
+    ViewFieldDependencies deps =
+        ViewFieldDependencies.derive(pipeline, Set.of(), Set.of(FieldPath.parse("a.b")));
+
+    assertThat(deps.getTriggerFields()).containsExactly(FieldPath.parse("y"));
+    assertThat(deps.requiresFullProcessing(updated("x"))).isFalse();
+    assertThat(deps.requiresFullProcessing(updated("y"))).isTrue();
+  }
+
+  @Test
+  public void passthroughFilterAncestor_usesOnlyComputedDescendantFeeders() {
+    List<BsonDocument> pipeline = List.of(BsonDocument.parse("{\"$set\": {\"a.b\": \"$y\"}}"));
+
+    ViewFieldDependencies deps =
+        ViewFieldDependencies.derive(pipeline, Set.of(), Set.of(FieldPath.parse("a")));
+
+    assertThat(deps.getTriggerFields()).containsExactly(FieldPath.parse("y"));
+    assertThat(deps.requiresFullProcessing(updated("a.c"))).isFalse();
+    assertThat(deps.requiresFullProcessing(updated("y"))).isTrue();
+  }
+
+  @Test
   public void sameStageParentAndChild_keepsBothFeeders() {
     // One $set defines both `a` and its sub-path `a.b`. Both feeders must survive regardless of
     // map iteration order — the parent's descendant-invalidation must not drop a same-stage child.

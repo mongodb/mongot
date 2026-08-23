@@ -90,6 +90,11 @@ public final class ViewFieldDependencies {
     return new ViewFieldDependencies(ImmutableSet.of(), ImmutableMap.of(), Optional.of(reason));
   }
 
+  /** A dependency set for an index shape whose fields cannot be statically enumerated. */
+  static ViewFieldDependencies fullProcessingForUnsupportedShape() {
+    return fullProcessing(ViewDerivationFallbackReason.UNSUPPORTED_SHAPE);
+  }
+
   /**
    * Convenience overload for indexes with no declared filter fields. Match-field and embed-feeder
    * triggers are still extracted from the pipeline; only the computed-filter-feeder pass is skipped
@@ -183,13 +188,22 @@ public final class ViewFieldDependencies {
                 ImmutableMap.toImmutableMap(
                     path -> path, path -> resolveRefs(Set.of(path), computed)));
 
-    // A filter field COMPUTED by the view also contributes its feeders: the filter-only partial
-    // update re-extracts present filter values but cannot delete one that the view drops (e.g.
-    // $cond -> $$REMOVE), so a change to such a feeder must take the full path. Passthrough filter
-    // fields (not computed by the pipeline) are excluded, preserving the optimization for them.
-    filterPaths.stream()
-        .filter(path -> isComputed(path, computed))
-        .forEach(path -> triggers.addAll(resolveRefs(Set.of(path), computed)));
+    // A filter field computed by the view, or containing a computed descendant, contributes those
+    // computed paths' feeders: the filter-only partial update re-extracts present filter values but
+    // cannot delete one that the view drops (e.g. $cond -> $$REMOVE), so a change to such a feeder
+    // must take the full path. Add only the computed feeders, not a passthrough ancestor itself, so
+    // unrelated updates under that ancestor remain partial-eligible.
+    for (FieldPath path : filterPaths) {
+      if (isComputed(path, computed)) {
+        // Preserve shadowing between computed ancestors and the filter path itself.
+        triggers.addAll(resolveRefs(Set.of(path), computed));
+      } else {
+        // A passthrough ancestor contributes only the feeders of its computed descendants.
+        computed.entrySet().stream()
+            .filter(entry -> entry.getKey().isChildOf(path))
+            .forEach(entry -> triggers.addAll(entry.getValue()));
+      }
+    }
 
     // triggers now holds match-referenced ∪ computed-filter feeders — the non-embed triggers.
     return new ViewFieldDependencies(canonicalize(triggers), embedFeeders, Optional.empty());

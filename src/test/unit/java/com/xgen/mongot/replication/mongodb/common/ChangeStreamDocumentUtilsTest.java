@@ -5,16 +5,27 @@ import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_DEFINITI
 import static com.xgen.testing.mongot.mock.index.SearchIndex.mockDefinitionBuilder;
 
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
+import com.mongodb.client.model.changestream.OperationType;
 import com.mongodb.client.model.changestream.UpdateDescription;
+import com.xgen.mongot.index.definition.BooleanFieldDefinition;
+import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.IllegalEmbeddedFieldException;
 import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
+import com.xgen.mongot.index.definition.SearchIndexDefinition;
+import com.xgen.mongot.index.definition.ViewDefinition;
 import com.xgen.mongot.index.version.IndexFormatVersion;
+import com.xgen.mongot.replication.mongodb.common.ViewFieldDependencies.ViewDerivationFallbackReason;
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.EmbeddedDocumentsFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.bson.RawBsonDocument;
@@ -348,5 +359,280 @@ public class ChangeStreamDocumentUtilsTest {
         .inOrder();
     assertThat(total)
         .isEqualTo((long) first.getByteBuffer().remaining() + second.getByteBuffer().remaining());
+  }
+
+  @Test
+  public void deriveViewFieldDependencies_staticSearch_derivesRecursiveDependencies() {
+    SearchIndexDefinition indexDefinition =
+        searchAutoEmbedViewIndex(
+            staticSearchMappings(false),
+            List.of(
+                BsonDocument.parse(
+                    "{\"$set\": {\"summary\": {\"$concat\": [\"$title\", \"$body\"]},"
+                        + " \"category\": {\"$cond\": [\"$featured\", \"top\","
+                        + " \"other\"]}}}"),
+                BsonDocument.parse(
+                    "{\"$addFields\": {\"language\": \"$metadata.language\","
+                        + " \"itemText\": \"$items.name\"}}"),
+                BsonDocument.parse(
+                    "{\"$match\": {\"$expr\": {\"$eq\": [\"$published\", true]}}}")));
+
+    ViewFieldDependencies dependencies =
+        ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDefinition).orElseThrow();
+
+    assertThat(dependencies.dependsOnEverything()).isFalse();
+    assertThat(dependencies.getEmbedFeeders())
+        .containsExactly(
+            FieldPath.parse("summary"),
+            Set.of(FieldPath.parse("title"), FieldPath.parse("body")),
+            FieldPath.parse("language"),
+            Set.of(FieldPath.parse("metadata.language")),
+            FieldPath.parse("itemText"),
+            Set.of(FieldPath.parse("items.name")));
+    assertThat(dependencies.getTriggerFields())
+        .containsExactly(
+            FieldPath.parse("title"),
+            FieldPath.parse("body"),
+            FieldPath.parse("metadata.language"),
+            FieldPath.parse("items.name"),
+            FieldPath.parse("featured"),
+            FieldPath.parse("published"));
+  }
+
+  @Test
+  public void deriveViewFieldDependencies_staticSearch_classifiesMultiEmbedAndNumericPaths() {
+    SearchIndexDefinition indexDefinition =
+        searchAutoEmbedViewIndex(
+            staticSearchMappings(false),
+            List.of(
+                BsonDocument.parse(
+                    "{\"$set\": {\"summary\": {\"$concat\": [\"$title\", \"$body\"]}}}"),
+                BsonDocument.parse(
+                    "{\"$addFields\": {\"language\": \"$metadata.language\","
+                        + " \"itemText\": \"$items.name\"}}")));
+    ViewFieldDependencies dependencies =
+        ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDefinition).orElseThrow();
+
+    ViewFieldDependencies.ViewUpdateClassification multiEmbed =
+        dependencies.classifyViewUpdate(
+            new UpdateDescription(
+                null,
+                new BsonDocument()
+                    .append("title", new BsonString("new title"))
+                    .append("metadata.language", new BsonString("fr"))));
+    ViewFieldDependencies.ViewUpdateClassification numericPath =
+        dependencies.classifyViewUpdate(
+            new UpdateDescription(
+                null, new BsonDocument("items.0.name", new BsonString("new item"))));
+
+    assertThat(multiEmbed.requiresFull()).isFalse();
+    assertThat(multiEmbed.changedEmbedPaths())
+        .containsExactly(FieldPath.parse("summary"), FieldPath.parse("language"));
+    assertThat(numericPath.requiresFull()).isFalse();
+    assertThat(numericPath.changedEmbedPaths()).containsExactly(FieldPath.parse("itemText"));
+  }
+
+  @Test
+  public void deriveViewFieldDependencies_staticSearch_computedDescendantOfPassthrough() {
+    DocumentFieldDefinition metaMappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "category",
+                FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build())
+            .build();
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("summary")))
+                    .build())
+            .field("meta", FieldDefinitionBuilder.builder().document(metaMappings).build())
+            .build();
+    SearchIndexDefinition indexDefinition =
+        searchAutoEmbedViewIndex(
+            mappings,
+            List.of(BsonDocument.parse("{\"$set\": {\"meta.category\": \"$categorySource\"}}")));
+
+    ViewFieldDependencies dependencies =
+        ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDefinition).orElseThrow();
+    ViewFieldDependencies.ViewUpdateClassification computedFilterFeeder =
+        dependencies.classifyViewUpdate(
+            new UpdateDescription(
+                null, new BsonDocument("categorySource", new BsonString("updated"))));
+    ViewFieldDependencies.ViewUpdateClassification unrelatedPassthroughDescendant =
+        dependencies.classifyViewUpdate(
+            new UpdateDescription(
+                null, new BsonDocument("meta.unrelated", new BsonString("updated"))));
+
+    assertThat(computedFilterFeeder.requiresFull()).isTrue();
+    assertThat(unrelatedPassthroughDescendant.requiresFull()).isFalse();
+    assertThat(unrelatedPassthroughDescendant.changedEmbedPaths()).isEmpty();
+  }
+
+  @Test
+  public void deriveViewFieldDependencies_dynamicSearch_dependsOnEverything() {
+    SearchIndexDefinition indexDefinition =
+        searchAutoEmbedViewIndex(
+            DocumentFieldDefinitionBuilder.builder()
+                .dynamic(true)
+                .field(
+                    "embedding",
+                    FieldDefinitionBuilder.builder()
+                        .searchAutoEmbed(
+                            new SearchAutoEmbedFieldDefinition(
+                                "voyage-3-large", FieldPath.parse("summary")))
+                        .build())
+                .build(),
+            List.of(BsonDocument.parse("{\"$set\": {\"summary\": \"$title\"}}")));
+
+    ViewFieldDependencies dependencies =
+        ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDefinition).orElseThrow();
+
+    assertThat(dependencies.dependsOnEverything()).isTrue();
+    assertThat(dependencies.derivationFallbackReason())
+        .hasValue(ViewDerivationFallbackReason.UNSUPPORTED_SHAPE);
+  }
+
+  @Test
+  public void deriveViewFieldDependencies_nestedDynamicSearch_dependsOnEverything() {
+    SearchIndexDefinition indexDefinition =
+        searchAutoEmbedViewIndex(
+            staticSearchMappings(true),
+            List.of(BsonDocument.parse("{\"$set\": {\"summary\": \"$title\"}}")));
+
+    ViewFieldDependencies dependencies =
+        ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDefinition).orElseThrow();
+
+    assertThat(dependencies.dependsOnEverything()).isTrue();
+    assertThat(dependencies.derivationFallbackReason())
+        .hasValue(ViewDerivationFallbackReason.UNSUPPORTED_SHAPE);
+  }
+
+  @Test
+  public void deriveViewFieldDependencies_dynamicEmbeddedDocuments_dependsOnEverything() {
+    var dynamicItems = EmbeddedDocumentsFieldDefinitionBuilder.builder().dynamic(true).build();
+    SearchIndexDefinition indexDefinition =
+        searchAutoEmbedViewIndex(
+            DocumentFieldDefinitionBuilder.builder()
+                .dynamic(false)
+                .field(
+                    "embedding",
+                    FieldDefinitionBuilder.builder()
+                        .searchAutoEmbed(
+                            new SearchAutoEmbedFieldDefinition(
+                                "voyage-3-large", FieldPath.parse("summary")))
+                        .build())
+                .field(
+                    "items",
+                    FieldDefinitionBuilder.builder().embeddedDocuments(dynamicItems).build())
+                .build(),
+            List.of(BsonDocument.parse("{\"$set\": {\"summary\": \"$title\"}}")));
+
+    ViewFieldDependencies dependencies =
+        ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDefinition).orElseThrow();
+
+    assertThat(dependencies.dependsOnEverything()).isTrue();
+    assertThat(dependencies.derivationFallbackReason())
+        .hasValue(ViewDerivationFallbackReason.UNSUPPORTED_SHAPE);
+  }
+
+  @Test
+  public void deriveViewFieldDependencies_unsupportedSearchView_dependsOnEverything() {
+    SearchIndexDefinition indexDefinition =
+        searchAutoEmbedViewIndex(
+            staticSearchMappings(false),
+            List.of(BsonDocument.parse("{\"$project\": {\"summary\": 1}}")));
+
+    ViewFieldDependencies dependencies =
+        ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDefinition).orElseThrow();
+
+    assertThat(dependencies.dependsOnEverything()).isTrue();
+    assertThat(dependencies.derivationFallbackReason())
+        .hasValue(ViewDerivationFallbackReason.UNSUPPORTED_SHAPE);
+  }
+
+  @Test
+  public void handleDocumentEvents_staticSearchView_keepsFullWriteBehavior() {
+    SearchIndexDefinition indexDefinition =
+        searchAutoEmbedViewIndex(
+            staticSearchMappings(false),
+            List.of(BsonDocument.parse("{\"$set\": {\"summary\": \"$title\"}}")));
+    UpdateDescription updateDescription =
+        new UpdateDescription(null, new BsonDocument("category", new BsonString("updated")));
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonString("id"))
+            .append("summary", new BsonString("summary"))
+            .append("category", new BsonString("updated"))
+            .append(
+                indexDefinition.getIndexId().toString(),
+                new BsonDocument("_id", new BsonString("id")));
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(
+                ChangeStreamUtils.dataEvent(
+                    OperationType.UPDATE, 0, updateDescription, fullDocument)),
+            indexDefinition,
+            indexDefinition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            true,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDefinition));
+
+    assertThat(batch.finalChangeEvents).hasSize(1);
+    assertThat(batch.finalChangeEvents.getFirst().getDocument()).isPresent();
+    assertThat(batch.finalChangeEvents.getFirst().getDocument().get()).isEqualTo(fullDocument);
+    assertThat(batch.finalChangeEvents.getFirst().getFilterFieldUpdates()).isEmpty();
+    assertThat(batch.partialEmbedApplied).isEqualTo(0);
+    assertThat(batch.filterOnlyPartialApplied).isEqualTo(0);
+    assertThat(batch.viewFilterOnlyPartialApplied).isEqualTo(0);
+    assertThat(batch.viewDecisions).isEmpty();
+  }
+
+  private static SearchIndexDefinition searchAutoEmbedViewIndex(
+      DocumentFieldDefinition mappings, List<BsonDocument> pipeline) {
+    return SearchIndexDefinitionBuilder.builder()
+        .defaultMetadata()
+        .mappings(mappings)
+        .view(ViewDefinition.existing("myView", pipeline))
+        .build();
+  }
+
+  private static DocumentFieldDefinition staticSearchMappings(boolean nestedDynamic) {
+    var embedDeclarations =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(nestedDynamic)
+            .field(
+                "summaryEmbedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("summary")))
+                    .build())
+            .field(
+                "languageEmbedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("language")))
+                    .build())
+            .field(
+                "itemEmbedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("itemText")))
+                    .build())
+            .build();
+    return DocumentFieldDefinitionBuilder.builder()
+        .dynamic(false)
+        .field("embeddings", FieldDefinitionBuilder.builder().document(embedDeclarations).build())
+        .field(
+            "category", FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build())
+        .build();
   }
 }

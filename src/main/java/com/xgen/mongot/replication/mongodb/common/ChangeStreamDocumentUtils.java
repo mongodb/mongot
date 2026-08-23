@@ -9,6 +9,7 @@ import com.mongodb.MongoClientSettings;
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.client.model.changestream.OperationType;
 import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
+import com.xgen.mongot.embedding.AutoEmbedFieldMapping.AutoEmbedField;
 import com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator;
 import com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils;
 import com.xgen.mongot.embedding.utils.PartialEmbedClassification;
@@ -16,10 +17,11 @@ import com.xgen.mongot.embedding.utils.PartialEmbedFallbackReason;
 import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.DocumentMetadata;
 import com.xgen.mongot.index.definition.FieldDefinitionResolver;
+import com.xgen.mongot.index.definition.HierarchicalFieldDefinition;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
-import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
 import com.xgen.mongot.replication.mongodb.common.ViewFieldDependencies.ViewDerivationFallbackReason;
 import com.xgen.mongot.replication.mongodb.common.ViewFieldDependencies.ViewFullProcessingReason;
 import com.xgen.mongot.util.BsonUtils;
@@ -743,26 +745,45 @@ public class ChangeStreamDocumentUtils {
   }
 
   /**
+   * Creates the source-side auto-embed mapping for materialized-view indexes. This helper is also
+   * introduced by CLOUDP-424650's change-stream applicability work; keeping the same implementation
+   * here allows view-dependency derivation to be reviewed independently until that work merges.
+   */
+  public static Optional<AutoEmbedFieldMapping> deriveAutoEmbedFieldMapping(
+      IndexDefinition indexDefinition) {
+    if (!MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDefinition)) {
+      return Optional.empty();
+    }
+    return Optional.of(AutoEmbedFieldMappingCreator.createAutoEmbedMapping(indexDefinition));
+  }
+
+  /**
    * Derives the view-pipeline field dependencies for a materialized-view auto-embedding index, or
    * empty for any other index. This is a pure function of the immutable index definition, so
    * callers should compute it once per index (e.g. memoized) rather than per change-stream batch.
    */
   public static Optional<ViewFieldDependencies> deriveViewFieldDependencies(
       IndexDefinition indexDefinition) {
-    if (!(indexDefinition instanceof VectorIndexDefinition)
-        || !MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(
-            indexDefinition)) {
-      return Optional.empty();
-    }
-    return indexDefinition
-        .getView()
-        .flatMap(view -> view.getEffectivePipeline())
-        .map(
-            pipeline ->
-                ViewFieldDependencies.derive(
-                    pipeline,
-                    embedSourcePaths(indexDefinition),
-                    fieldPathsOfType(indexDefinition, VectorIndexFieldDefinition.Type.FILTER)));
+    return deriveAutoEmbedFieldMapping(indexDefinition)
+        .flatMap(
+            mapping ->
+                indexDefinition
+                    .getView()
+                    .flatMap(view -> view.getEffectivePipeline())
+                    .map(
+                        pipeline -> {
+                          if (hasNonEnumerableDynamicSearchMapping(indexDefinition)) {
+                            // Dynamic Search has open-ended passthroughs, so any source update may
+                            // change indexed view output.
+                            return ViewFieldDependencies.fullProcessingForUnsupportedShape();
+                          }
+                          // Vector and static Search enumerate indexed paths, allowing bounded
+                          // dependency derivation.
+                          return ViewFieldDependencies.derive(
+                              pipeline,
+                              embedSourcePaths(mapping),
+                              filterOrPassthroughPaths(mapping));
+                        }));
   }
 
   /**
@@ -770,27 +791,44 @@ public class ChangeStreamDocumentUtils {
    * sources (see AutoEmbedFieldMappingCreator), so both must be tracked — omitting TEXT would
    * under-collect and serve stale embeddings on a mixed index.
    */
-  private static Set<FieldPath> embedSourcePaths(IndexDefinition indexDefinition) {
-    // TODO(CLOUDP-353553): handle SearchIndexDefinition once auto-embedding is supported there.
-    if (!(indexDefinition instanceof VectorIndexDefinition vectorDef)) {
-      return Set.of();
-    }
-    return vectorDef.getFields().stream()
-        .filter(VectorIndexFieldDefinition::isAutoEmbedField)
-        .map(VectorIndexFieldDefinition::getPath)
+  private static Set<FieldPath> embedSourcePaths(AutoEmbedFieldMapping mapping) {
+    return mapping.embedFields().keySet();
+  }
+
+  /**
+   * Returns the enumerated source paths copied through to the materialized view. For Vector these
+   * are FILTER fields; for static Search these are explicit lexical/passthrough fields.
+   */
+  private static Set<FieldPath> filterOrPassthroughPaths(AutoEmbedFieldMapping mapping) {
+    return mapping.fieldMap().entrySet().stream()
+        .filter(entry -> entry.getValue() instanceof AutoEmbedField.PassthroughField)
+        .map(Map.Entry::getKey)
         .collect(Collectors.toSet());
   }
 
-  /** Returns the paths of the index's fields of the given type. */
-  private static Set<FieldPath> fieldPathsOfType(
-      IndexDefinition indexDefinition, VectorIndexFieldDefinition.Type type) {
-    if (!(indexDefinition instanceof VectorIndexDefinition vectorDef)) {
-      return Set.of();
-    }
-    return vectorDef.getFields().stream()
-        .filter(field -> field.getType() == type)
-        .map(VectorIndexFieldDefinition::getPath)
-        .collect(Collectors.toSet());
+  /**
+   * Dynamic Search mappings cannot enumerate all lexical fields that may be computed by the view.
+   * Dependency derivation must therefore conservatively force full processing.
+   */
+  private static boolean hasNonEnumerableDynamicSearchMapping(IndexDefinition indexDefinition) {
+    return indexDefinition instanceof SearchIndexDefinition searchDefinition
+        && hasEnabledDynamicMapping(searchDefinition.getMappings());
+  }
+
+  private static boolean hasEnabledDynamicMapping(
+      HierarchicalFieldDefinition hierarchicalDefinition) {
+    return hierarchicalDefinition.dynamic().isEnabled()
+        || hierarchicalDefinition.fields().values().stream()
+            .anyMatch(
+                field ->
+                    field
+                            .documentFieldDefinition()
+                            .map(ChangeStreamDocumentUtils::hasEnabledDynamicMapping)
+                            .orElse(false)
+                        || field
+                            .embeddedDocumentsFieldDefinition()
+                            .map(ChangeStreamDocumentUtils::hasEnabledDynamicMapping)
+                            .orElse(false));
   }
 
   private static DocumentMetadata createMetadata(
