@@ -37,6 +37,8 @@ import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.VectorFieldAutoEmbeddingSpecification;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
+import com.xgen.mongot.index.version.GenerationId;
+import com.xgen.mongot.index.version.MaterializedViewGenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory.IndexingStrategy;
 import com.xgen.mongot.replication.mongodb.common.SchedulerQueue.Priority;
@@ -66,6 +68,7 @@ import java.util.stream.Collectors;
 import net.jodah.failsafe.FailsafeException;
 import org.bson.BsonDocument;
 import org.bson.types.ObjectId;
+import org.jetbrains.annotations.TestOnly;
 
 /**
  * The embedding indexing work scheduler accepts embedding and indexing work and schedules it to be
@@ -142,6 +145,8 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
    */
   private final Predicate<ObjectId> skipInvalidRequestEnabledForIndex;
 
+  private final Predicate<MaterializedViewGenerationId> ownsUsableLease;
+
   EmbeddingIndexingWorkScheduler(
       NamedExecutorService indexingExecutor,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
@@ -151,7 +156,8 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
       long perBatchBudgetBytes,
       EmbeddingRetryCache embeddingRetryCache,
       BooleanSupplier cacheEnabled,
-      Predicate<ObjectId> skipInvalidRequestEnabledForIndex) {
+      Predicate<ObjectId> skipInvalidRequestEnabledForIndex,
+      Predicate<MaterializedViewGenerationId> ownsUsableLease) {
     super(indexingExecutor, indexingStrategy);
     this.embeddingServiceManagerSupplier = embeddingServiceManagerSupplier;
     this.materializedViewCollectionMetadataCatalog = materializedViewCollectionMetadataCatalog;
@@ -161,6 +167,7 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
     this.embeddingRetryCache = embeddingRetryCache;
     this.cacheEnabled = cacheEnabled;
     this.skipInvalidRequestEnabledForIndex = skipInvalidRequestEnabledForIndex;
+    this.ownsUsableLease = ownsUsableLease;
     this.metricsFactory =
         new MetricsFactory("embeddingIndexingWorkScheduler", indexingExecutor.getMeterRegistry());
   }
@@ -198,7 +205,8 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
             EmbeddingRetryCache.noOp(),
             () -> false,
             // AUTO_EMBEDDING_400_SKIP does not cover the legacy EMBEDDING strategy.
-            id -> false);
+            id -> false,
+            id -> true);
     scheduler.start();
     return scheduler;
   }
@@ -209,6 +217,7 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
    *
    * @return an EmbeddingIndexingWorkScheduler.
    */
+  @TestOnly
   public static EmbeddingIndexingWorkScheduler createForMaterializedViewIndex(
       NamedExecutorService indexingExecutor,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
@@ -220,6 +229,7 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
         AutoEmbeddingMemoryBudget.createDefault());
   }
 
+  @TestOnly
   static EmbeddingIndexingWorkScheduler createForMaterializedViewIndex(
       NamedExecutorService indexingExecutor,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
@@ -233,6 +243,7 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
         PER_BATCH_AUTO_EMBEDDING_MEMORY_BUDGET_BYTES);
   }
 
+  @TestOnly
   static EmbeddingIndexingWorkScheduler createForMaterializedViewIndex(
       NamedExecutorService indexingExecutor,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
@@ -250,6 +261,7 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
         id -> false);
   }
 
+  @TestOnly
   static EmbeddingIndexingWorkScheduler createForMaterializedViewIndex(
       NamedExecutorService indexingExecutor,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
@@ -269,6 +281,7 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
         id -> false);
   }
 
+  @TestOnly
   static EmbeddingIndexingWorkScheduler createForMaterializedViewIndex(
       NamedExecutorService indexingExecutor,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
@@ -278,6 +291,28 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
       EmbeddingRetryCache embeddingRetryCache,
       BooleanSupplier cacheEnabled,
       Predicate<ObjectId> skipInvalidRequestEnabledForIndex) {
+    return createForMaterializedViewIndex(
+        indexingExecutor,
+        embeddingServiceManagerSupplier,
+        matViewCollectionMetadataCatalog,
+        globalBudget,
+        perBatchBudgetBytes,
+        embeddingRetryCache,
+        cacheEnabled,
+        skipInvalidRequestEnabledForIndex,
+        id -> true);
+  }
+
+  static EmbeddingIndexingWorkScheduler createForMaterializedViewIndex(
+      NamedExecutorService indexingExecutor,
+      Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
+      MaterializedViewCollectionMetadataCatalog matViewCollectionMetadataCatalog,
+      AutoEmbeddingMemoryBudget globalBudget,
+      long perBatchBudgetBytes,
+      EmbeddingRetryCache embeddingRetryCache,
+      BooleanSupplier cacheEnabled,
+      Predicate<ObjectId> skipInvalidRequestEnabledForIndex,
+      Predicate<MaterializedViewGenerationId> ownsUsableLease) {
     EmbeddingIndexingWorkScheduler scheduler =
         new EmbeddingIndexingWorkScheduler(
             indexingExecutor,
@@ -288,7 +323,8 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
             perBatchBudgetBytes,
             embeddingRetryCache,
             cacheEnabled,
-            skipInvalidRequestEnabledForIndex);
+            skipInvalidRequestEnabledForIndex,
+            ownsUsableLease);
     scheduler.start();
     return scheduler;
   }
@@ -329,6 +365,12 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
                       + " not present for generationId: %s",
                   batch.generationId),
               EmbeddingProviderNonTransientException.Reason.MV_METADATA_NOT_PRESENT));
+    }
+
+    try {
+      ensureValidLease(batch.generationId);
+    } catch (RuntimeException e) {
+      return CompletableFuture.failedFuture(e);
     }
 
     ImmutableMap<FieldPath, EmbeddingModelConfig> modelConfigPerPath =
@@ -386,7 +428,8 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
                 embedBatchKeyPerPath,
                 matViewCollectionMetadataOpt,
                 subBatchSize,
-                generationKey);
+                generationKey,
+                batch.generationId);
       } else {
         // No per-batch budget: process all bundles in parallel.
         List<CompletableFuture<List<DocumentEvent>>> indexingBundles =
@@ -398,7 +441,8 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
                 embedBatchKeyPerPath,
                 matViewCollectionMetadataOpt,
                 generationKey,
-                batchClaimedKeys);
+                batchClaimedKeys,
+                batch.generationId);
 
         batchFuture =
             FutureUtils.allOf(
@@ -445,7 +489,8 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
       ImmutableMap<FieldPath, EmbedConfigurationForBatch> embedBatchKeyPerPath,
       Optional<MaterializedViewSchemaMetadata> matViewSchemaMetadata,
       int subBatchSize,
-      String generationKey) {
+      String generationKey,
+      GenerationId generationId) {
     List<EmbedBundle> bundles;
     try {
       bundles =
@@ -491,7 +536,8 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
                             batch.priority,
                             indexDefinition,
                             generationKey,
-                            subBatchClaimedKeys)
+                            subBatchClaimedKeys,
+                            generationId)
                         .handleAsync(
                             (embeddingsPerModel, throwable) -> {
                               if (throwable != null) {
@@ -687,7 +733,14 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
     } else if (cause instanceof MaterializedViewNonTransientException ex) {
       recordBatchErrorMetric(
           MaterializedViewNonTransientException.class.getSimpleName(), ex.getReason().name());
-      if (batch.priority == Priority.INITIAL_SYNC_COLLECTION_SCAN
+      if (ex.getReason() == MaterializedViewNonTransientException.Reason.INVALID_LEASE) {
+        if (batch.priority == Priority.INITIAL_SYNC_COLLECTION_SCAN
+            || batch.priority == Priority.INITIAL_SYNC_CHANGE_STREAM) {
+          batch.future.completeExceptionally(InitialSyncException.createShutDown());
+        } else {
+          batch.future.completeExceptionally(SteadyStateException.createShutDown());
+        }
+      } else if (batch.priority == Priority.INITIAL_SYNC_COLLECTION_SCAN
           || batch.priority == Priority.INITIAL_SYNC_CHANGE_STREAM) {
         batch.future.completeExceptionally(InitialSyncException.createFailed(ex));
       } else {
@@ -755,7 +808,8 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
       ImmutableMap<FieldPath, EmbedConfigurationForBatch> embedBatchKeyPerPath,
       Optional<MaterializedViewSchemaMetadata> matViewSchemaMetadata,
       String generationKey,
-      Set<EmbeddingCacheKey> claimedKeys) {
+      Set<EmbeddingCacheKey> claimedKeys,
+      GenerationId generationId) {
     List<EmbedBundle> embedBundles =
         getTextValueBundles(
             allEventsInBatch,
@@ -771,7 +825,12 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
       resultFutures.add(
           // Change executor to use indexing executor here for better chaining with indexer.
           getEmbeddings(
-                  bundle.textsPerBatchKey(), priority, indexDefinition, generationKey, claimedKeys)
+                  bundle.textsPerBatchKey(),
+                  priority,
+                  indexDefinition,
+                  generationKey,
+                  claimedKeys,
+                  generationId)
               .handleAsync(
                   (embeddingsPerModel, throwable) -> {
                     if (throwable != null) {
@@ -987,7 +1046,8 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
       Priority priority,
       IndexDefinition indexDefinition,
       String generationKey,
-      Set<EmbeddingCacheKey> claimedKeys) {
+      Set<EmbeddingCacheKey> claimedKeys,
+      GenerationId generationId) {
     if (stringsToEmbedPerBatchKey.isEmpty()) {
       FLOGGER.atFine().log(
           "No strings to embed for index %s, skipping embedding call", indexDefinition.getName());
@@ -1045,8 +1105,10 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
                   claimedKeys,
                   serviceManager,
                   tier,
-                  context)
-              : embedWithoutCache(batchKey, stringsToEmbed, serviceManager, tier, context));
+                  context,
+                  generationId)
+              : embedWithoutCache(
+                  batchKey, stringsToEmbed, serviceManager, tier, context, generationId));
     }
     return FutureUtils.transposeMap(futuresPerBatchKey);
   }
@@ -1061,8 +1123,10 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
       Set<String> stringsToEmbed,
       EmbeddingServiceManager serviceManager,
       ServiceTier tier,
-      EmbeddingRequestContext context) {
+      EmbeddingRequestContext context,
+      GenerationId generationId) {
     List<String> orderedStrings = new ArrayList<>(stringsToEmbed);
+    ensureValidLease(generationId);
     return serviceManager
         .embedAsync(orderedStrings, batchKey.modelConfig(), tier, context)
         .thenApply(
@@ -1099,7 +1163,8 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
       Set<EmbeddingCacheKey> claimedKeys,
       EmbeddingServiceManager serviceManager,
       ServiceTier tier,
-      EmbeddingRequestContext context) {
+      EmbeddingRequestContext context,
+      GenerationId generationId) {
     Map<EmbeddingCacheKey, String> textByCacheKey = new HashMap<>();
     for (String text : stringsToEmbed) {
       textByCacheKey.put(
@@ -1117,7 +1182,13 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
             cacheKeys,
             missingKeys ->
                 embedMissingKeys(
-                    missingKeys, textByCacheKey, batchKey, serviceManager, tier, context));
+                    missingKeys,
+                    textByCacheKey,
+                    batchKey,
+                    serviceManager,
+                    tier,
+                    context,
+                    generationId));
     // Claim every key — hits, freshly-loaded keys, and failed embeds alike. A hit loaded by another
     // batch still needs to be held under this generation so it is not evicted before this batch
     // commits; a failed embed simply has no cached entry, so its claim is released as a no-op.
@@ -1138,10 +1209,12 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
       EmbedConfigurationForBatch batchKey,
       EmbeddingServiceManager serviceManager,
       ServiceTier tier,
-      EmbeddingRequestContext context) {
+      EmbeddingRequestContext context,
+      GenerationId generationId) {
     List<EmbeddingCacheKey> orderedKeys = new ArrayList<>(missingKeys);
     List<String> orderedStrings =
         orderedKeys.stream().map(textByCacheKey::get).collect(Collectors.toList());
+    ensureValidLease(generationId);
     return serviceManager
         .embedAsync(orderedStrings, batchKey.modelConfig(), tier, context)
         .thenApply(
@@ -1164,6 +1237,18 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
               }
               return vectors;
             });
+  }
+
+  private void ensureValidLease(GenerationId generationId) {
+    if (this.indexingStrategy != IndexingStrategy.EMBEDDING_MATERIALIZED_VIEW
+        || !(generationId instanceof MaterializedViewGenerationId matViewGenerationId)) {
+      return;
+    }
+    if (!this.ownsUsableLease.test(matViewGenerationId)) {
+      throw new MaterializedViewNonTransientException(
+          "Cannot process materialized view embeddings without a valid lease for " + generationId,
+          MaterializedViewNonTransientException.Reason.INVALID_LEASE);
+    }
   }
 
   /**

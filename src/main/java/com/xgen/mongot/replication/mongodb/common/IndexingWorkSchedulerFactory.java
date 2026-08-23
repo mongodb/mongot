@@ -9,6 +9,7 @@ import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalo
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
+import com.xgen.mongot.index.version.MaterializedViewGenerationId;
 import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import com.xgen.mongot.util.Runtime;
 import com.xgen.mongot.util.concurrent.Executors;
@@ -18,6 +19,7 @@ import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import org.bson.types.ObjectId;
+import org.jetbrains.annotations.TestOnly;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -127,6 +129,7 @@ public class IndexingWorkSchedulerFactory {
    * @param perBatchMemoryBudgetHeapPercent percentage of JVM max heap for the per-batch embedding
    *     memory budget (1–100; 100 disables the limit)
    */
+  @TestOnly
   public static IndexingWorkSchedulerFactory createEmbeddingIndexingSchedulerOnly(
       int numIndexingThreads,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
@@ -144,7 +147,8 @@ public class IndexingWorkSchedulerFactory {
         Optional.of(new ThreadPoolResourceMetrics.Bindings()),
         EmbeddingRetryCache.noOp(),
         () -> false,
-        id -> false);
+        id -> false,
+        id -> true);
   }
 
   /**
@@ -155,6 +159,7 @@ public class IndexingWorkSchedulerFactory {
    *     budget (1-100; 100 disables the limit)
    * @param perBatchMemoryBudgetHeapPercent percentage of JVM max heap for the per-batch embedding
    *     memory budget (1-100; 100 disables the limit)
+   * @param ownsUsableLease checks whether this host still owns a usable materialized view lease
    */
   public static IndexingWorkSchedulerFactory createEmbeddingIndexingSchedulerOnly(
       int numIndexingThreads,
@@ -166,7 +171,8 @@ public class IndexingWorkSchedulerFactory {
       Optional<ThreadPoolResourceMetrics.Bindings> attributionBindings,
       EmbeddingRetryCache embeddingRetryCache,
       BooleanSupplier cacheEnabled,
-      Predicate<ObjectId> skipInvalidRequestEnabledForIndex) {
+      Predicate<ObjectId> skipInvalidRequestEnabledForIndex,
+      Predicate<MaterializedViewGenerationId> ownsUsableLease) {
     log.info("Creating IndexingWorkSchedulerFactory with EmbeddingIndexingWorkScheduler only");
     var executor =
         Executors.fixedSizeThreadPool("indexing-auto-embedding", numIndexingThreads, registry);
@@ -189,7 +195,8 @@ public class IndexingWorkSchedulerFactory {
             perBatchBudgetBytes,
             embeddingRetryCache,
             cacheEnabled,
-            skipInvalidRequestEnabledForIndex);
+            skipInvalidRequestEnabledForIndex,
+            ownsUsableLease);
     return new IndexingWorkSchedulerFactory(
         Map.of(
             IndexingStrategy.EMBEDDING_MATERIALIZED_VIEW,

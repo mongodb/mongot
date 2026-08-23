@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -28,6 +29,7 @@ import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
 import com.xgen.mongot.embedding.exceptions.EmbeddingProviderNonTransientException;
 import com.xgen.mongot.embedding.exceptions.EmbeddingProviderTransientException;
+import com.xgen.mongot.embedding.exceptions.MaterializedViewNonTransientException;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceRegistry;
@@ -79,6 +81,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import org.bson.BsonDocument;
@@ -485,6 +488,197 @@ public class EmbeddingIndexingWorkSchedulerTest {
   }
 
   @Test
+  public void testAutoEmbeddingInvalidLeaseShutsDownReplication() throws IOException {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    ObjectId indexId = new ObjectId();
+    var generationId =
+        new MaterializedViewGenerationId(
+            indexId, new MaterializedViewGeneration(Generation.CURRENT));
+    EmbeddingIndexingWorkScheduler scheduler =
+        schedulerForMaterializedViewIndex(
+            Suppliers.ofInstance(
+                new EmbeddingServiceManager(
+                    List.of(TEST_EMBEDDING_CONFIG_V3_LARGE),
+                    new FakeEmbeddingClientFactory(),
+                    Executors.singleThreadScheduledExecutor("indexing", meterRegistry),
+                    meterRegistry,
+                    Optional.empty())),
+            generationId);
+
+    VectorIndexDefinition vectorIndexDefinition =
+        VectorIndexDefinitionBuilder.builder().withAutoEmbedField(indexId + ".a").build();
+    DocumentIndexer indexer = mockDocumentRequiresAutoEmbedding(vectorIndexDefinition);
+    doThrow(
+            new MaterializedViewNonTransientException(
+                "leadership lost", MaterializedViewNonTransientException.Reason.INVALID_LEASE))
+        .when(indexer)
+        .commit();
+    RawBsonDocument rawBsonDoc =
+        BsonUtils.documentToRaw(new BsonDocument(indexId.toString(), createBasicBson()));
+    DocumentEvent event =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromMetadataNamespace(Optional.of(rawBsonDoc), indexId), rawBsonDoc);
+
+    CompletableFuture<Void> indexingFuture = schedule(scheduler, event, indexer, generationId);
+
+    var e = assertThrows(ExecutionException.class, indexingFuture::get);
+    assertThat(e.getCause()).isInstanceOf(SteadyStateException.class);
+    assertThat(((SteadyStateException) e.getCause()).isShutdown()).isTrue();
+  }
+
+  @Test
+  public void testInvalidLeasePreventsEmbeddingRequest() throws Exception {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    ObjectId indexId = new ObjectId();
+    var generationId =
+        new MaterializedViewGenerationId(
+            indexId, new MaterializedViewGeneration(Generation.CURRENT));
+    EmbeddingServiceManager serviceManager =
+        spy(
+            new EmbeddingServiceManager(
+                List.of(TEST_EMBEDDING_CONFIG_V3_LARGE),
+                new FakeEmbeddingClientFactory(),
+                Executors.singleThreadScheduledExecutor("indexing", meterRegistry),
+                meterRegistry,
+                Optional.empty()));
+    EmbeddingIndexingWorkScheduler scheduler =
+        schedulerForMaterializedViewIndex(
+            Suppliers.ofInstance(serviceManager), generationId, id -> false);
+
+    VectorIndexDefinition vectorIndexDefinition =
+        VectorIndexDefinitionBuilder.builder().withAutoEmbedField(indexId + ".a").build();
+    DocumentIndexer indexer = mockDocumentRequiresAutoEmbedding(vectorIndexDefinition);
+    RawBsonDocument rawBsonDoc =
+        BsonUtils.documentToRaw(new BsonDocument(indexId.toString(), createBasicBson()));
+    DocumentEvent event =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromMetadataNamespace(Optional.of(rawBsonDoc), indexId), rawBsonDoc);
+
+    CompletableFuture<Void> indexingFuture = schedule(scheduler, event, indexer, generationId);
+
+    var e = assertThrows(ExecutionException.class, indexingFuture::get);
+    assertThat(e.getCause()).isInstanceOf(SteadyStateException.class);
+    assertThat(((SteadyStateException) e.getCause()).isShutdown()).isTrue();
+    verify(serviceManager, never()).embedAsync(any(), any(), any(), any());
+    verify(indexer, never()).indexDocumentEvent(any());
+  }
+
+  @Test
+  public void invalidLease_initialSyncCollectionScan_shutsDownWithoutEmbedding() throws Exception {
+    assertInvalidLeaseShutsDownInitialSync(SchedulerQueue.Priority.INITIAL_SYNC_COLLECTION_SCAN);
+  }
+
+  @Test
+  public void invalidLease_initialSyncChangeStream_shutsDownWithoutEmbedding() throws Exception {
+    assertInvalidLeaseShutsDownInitialSync(SchedulerQueue.Priority.INITIAL_SYNC_CHANGE_STREAM);
+  }
+
+  private void assertInvalidLeaseShutsDownInitialSync(SchedulerQueue.Priority priority)
+      throws Exception {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    ObjectId indexId = new ObjectId();
+    var generationId =
+        new MaterializedViewGenerationId(
+            indexId, new MaterializedViewGeneration(Generation.CURRENT));
+    EmbeddingServiceManager serviceManager =
+        spy(
+            new EmbeddingServiceManager(
+                List.of(TEST_EMBEDDING_CONFIG_V3_LARGE),
+                new FakeEmbeddingClientFactory(),
+                Executors.singleThreadScheduledExecutor("indexing", meterRegistry),
+                meterRegistry,
+                Optional.empty()));
+    EmbeddingIndexingWorkScheduler scheduler =
+        schedulerForMaterializedViewIndex(
+            Suppliers.ofInstance(serviceManager), generationId, id -> false);
+
+    VectorIndexDefinition vectorIndexDefinition =
+        VectorIndexDefinitionBuilder.builder().withAutoEmbedField(indexId + ".a").build();
+    DocumentIndexer indexer = mockDocumentRequiresAutoEmbedding(vectorIndexDefinition);
+    RawBsonDocument rawBsonDoc =
+        BsonUtils.documentToRaw(new BsonDocument(indexId.toString(), createBasicBson()));
+    DocumentEvent event =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromMetadataNamespace(Optional.of(rawBsonDoc), indexId), rawBsonDoc);
+
+    CompletableFuture<Void> indexingFuture =
+        scheduler.schedule(
+            new ArrayList<>(List.of(event)),
+            priority,
+            indexer,
+            generationId,
+            Optional.of(new ObjectId()),
+            Optional.of(COMMIT_USER_DATA),
+            IGNORE_METRICS);
+
+    var e = assertThrows(ExecutionException.class, indexingFuture::get);
+    assertThat(e.getCause()).isInstanceOf(InitialSyncException.class);
+    assertThat(((InitialSyncException) e.getCause()).isShutdown()).isTrue();
+    verify(serviceManager, never()).embedAsync(any(), any(), any(), any());
+    verify(indexer, never()).indexDocumentEvent(any());
+    verify(indexer, never()).commit();
+  }
+
+  @Test
+  public void testLeaseLossImmediatelyBeforeEmbeddingPreventsRequest() throws Exception {
+    assertLeaseLossBeforeProviderCallPreventsRequest(false);
+  }
+
+  @Test
+  public void testLeaseLossBeforeCacheMissLoadPreventsEmbeddingRequest() throws Exception {
+    assertLeaseLossBeforeProviderCallPreventsRequest(true);
+  }
+
+  private void assertLeaseLossBeforeProviderCallPreventsRequest(boolean cacheEnabled)
+      throws Exception {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    ObjectId indexId = new ObjectId();
+    var generationId =
+        new MaterializedViewGenerationId(
+            indexId, new MaterializedViewGeneration(Generation.CURRENT));
+    EmbeddingServiceManager serviceManager =
+        spy(
+            new EmbeddingServiceManager(
+                List.of(TEST_EMBEDDING_CONFIG_V3_LARGE),
+                new FakeEmbeddingClientFactory(),
+                Executors.singleThreadScheduledExecutor("indexing", meterRegistry),
+                meterRegistry,
+                Optional.empty()));
+    AtomicInteger leaseChecks = new AtomicInteger();
+    Predicate<MaterializedViewGenerationId> ownsUsableLease =
+        id -> leaseChecks.getAndIncrement() == 0;
+    EmbeddingIndexingWorkScheduler scheduler =
+        cacheEnabled
+            ? schedulerForMaterializedViewIndex(
+                Suppliers.ofInstance(serviceManager),
+                generationId,
+                EmbeddingRetryCache.create(meterRegistry),
+                () -> true,
+                id -> false,
+                ownsUsableLease)
+            : schedulerForMaterializedViewIndex(
+                Suppliers.ofInstance(serviceManager), generationId, ownsUsableLease);
+
+    VectorIndexDefinition vectorIndexDefinition =
+        VectorIndexDefinitionBuilder.builder().withAutoEmbedField(indexId + ".a").build();
+    DocumentIndexer indexer = mockDocumentRequiresAutoEmbedding(vectorIndexDefinition);
+    RawBsonDocument rawBsonDoc =
+        BsonUtils.documentToRaw(new BsonDocument(indexId.toString(), createBasicBson()));
+    DocumentEvent event =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromMetadataNamespace(Optional.of(rawBsonDoc), indexId), rawBsonDoc);
+
+    CompletableFuture<Void> indexingFuture = schedule(scheduler, event, indexer, generationId);
+
+    var e = assertThrows(ExecutionException.class, indexingFuture::get);
+    assertThat(e.getCause()).isInstanceOf(SteadyStateException.class);
+    assertThat(((SteadyStateException) e.getCause()).isShutdown()).isTrue();
+    assertThat(leaseChecks.get()).isAtLeast(2);
+    verify(serviceManager, never()).embedAsync(any(), any(), any(), any());
+    verify(indexer, never()).indexDocumentEvent(any());
+  }
+
+  @Test
   public void testAutoEmbeddingHttpInvalidRequestBlocksByDefault() throws IOException {
     MeterRegistry meterRegistry = new SimpleMeterRegistry();
     ObjectId indexId = new ObjectId();
@@ -835,7 +1029,9 @@ public class EmbeddingIndexingWorkSchedulerTest {
     // Setup: Use a materialized view scheduler but with a generationId that has no metadata
     MeterRegistry meterRegistry = new SimpleMeterRegistry();
     ObjectId indexId = new ObjectId();
-    var generationId = new GenerationId(indexId, Generation.CURRENT);
+    var generationId =
+        new MaterializedViewGenerationId(
+            indexId, new MaterializedViewGeneration(Generation.CURRENT));
 
     // Create scheduler for materialized view but DON'T add metadata for the generationId
     SimpleMeterRegistry schedulerRegistry = new SimpleMeterRegistry();
@@ -852,7 +1048,13 @@ public class EmbeddingIndexingWorkSchedulerTest {
                     Executors.singleThreadScheduledExecutor("indexing", meterRegistry),
                     meterRegistry,
                     Optional.empty())),
-            matViewCollectionMetadataCatalog);
+            matViewCollectionMetadataCatalog,
+            AutoEmbeddingMemoryBudget.createDefault(),
+            EmbeddingIndexingWorkScheduler.PER_BATCH_AUTO_EMBEDDING_MEMORY_BUDGET_BYTES,
+            EmbeddingRetryCache.noOp(),
+            () -> false,
+            id -> false,
+            id -> false);
 
     VectorIndexDefinition vectorIndexDefinition =
         VectorIndexDefinitionBuilder.builder().withAutoEmbedField(indexId + ".a").build();
@@ -1881,6 +2083,29 @@ public class EmbeddingIndexingWorkSchedulerTest {
   private EmbeddingIndexingWorkScheduler schedulerForMaterializedViewIndex(
       Supplier<EmbeddingServiceManager> supplier,
       MaterializedViewGenerationId generationId,
+      Predicate<MaterializedViewGenerationId> ownsUsableLease) {
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    NamedExecutorService executor = Executors.fixedSizeThreadPool("indexing", 2, meterRegistry);
+    var matViewCollectionMetadataCatalog = new MaterializedViewCollectionMetadataCatalog();
+    matViewCollectionMetadataCatalog.addMetadata(
+        generationId,
+        new MaterializedViewCollectionMetadata(
+            VERSION_ZERO, UUID.randomUUID(), generationId.indexId.toHexString()));
+    return EmbeddingIndexingWorkScheduler.createForMaterializedViewIndex(
+        executor,
+        supplier,
+        matViewCollectionMetadataCatalog,
+        AutoEmbeddingMemoryBudget.createDefault(),
+        EmbeddingIndexingWorkScheduler.PER_BATCH_AUTO_EMBEDDING_MEMORY_BUDGET_BYTES,
+        EmbeddingRetryCache.noOp(),
+        () -> false,
+        id -> false,
+        ownsUsableLease);
+  }
+
+  private EmbeddingIndexingWorkScheduler schedulerForMaterializedViewIndex(
+      Supplier<EmbeddingServiceManager> supplier,
+      MaterializedViewGenerationId generationId,
       EmbeddingRetryCache embeddingRetryCache) {
     return schedulerForMaterializedViewIndex(
         supplier, generationId, embeddingRetryCache, () -> true);
@@ -1901,6 +2126,22 @@ public class EmbeddingIndexingWorkSchedulerTest {
       EmbeddingRetryCache embeddingRetryCache,
       BooleanSupplier cacheEnabled,
       Predicate<ObjectId> skipInvalidRequestEnabledForIndex) {
+    return schedulerForMaterializedViewIndex(
+        supplier,
+        generationId,
+        embeddingRetryCache,
+        cacheEnabled,
+        skipInvalidRequestEnabledForIndex,
+        id -> true);
+  }
+
+  private EmbeddingIndexingWorkScheduler schedulerForMaterializedViewIndex(
+      Supplier<EmbeddingServiceManager> supplier,
+      MaterializedViewGenerationId generationId,
+      EmbeddingRetryCache embeddingRetryCache,
+      BooleanSupplier cacheEnabled,
+      Predicate<ObjectId> skipInvalidRequestEnabledForIndex,
+      Predicate<MaterializedViewGenerationId> ownsUsableLease) {
     SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     NamedExecutorService executor = Executors.fixedSizeThreadPool("indexing", 2, meterRegistry);
     var matViewCollectionMetadataCatalog = new MaterializedViewCollectionMetadataCatalog();
@@ -1916,7 +2157,8 @@ public class EmbeddingIndexingWorkSchedulerTest {
         EmbeddingIndexingWorkScheduler.PER_BATCH_AUTO_EMBEDDING_MEMORY_BUDGET_BYTES,
         embeddingRetryCache,
         cacheEnabled,
-        skipInvalidRequestEnabledForIndex);
+        skipInvalidRequestEnabledForIndex,
+        ownsUsableLease);
   }
 
   private EmbeddingIndexingWorkScheduler schedulerForMaterializedViewIndexWithBudget(

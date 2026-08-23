@@ -1443,17 +1443,138 @@ public class MaterializedViewManagerTest {
     when(mocks.materializedViewGeneratorFactory.create(gen)).thenReturn(healthyGenerator);
 
     // In-flight shutdown for this generation: the SHUT_DOWN generator must not be recreated.
+    Mockito.clearInvocations(
+        shutDownGenerator, healthyGenerator, mocks.materializedViewGeneratorFactory);
     mocks.manager.pendingShutdowns.put(gen.getGenerationId(), new CompletableFuture<>());
     mocks.runnableCaptor.orElseThrow().getValue().run();
     assertSame(
         shutDownGenerator, mocks.manager.getMatViewGenerator(gen.getGenerationId()).orElseThrow());
+    verify(shutDownGenerator, never()).clearLeaderState();
+    verify(mocks.materializedViewGeneratorFactory, never()).create(gen);
+    verify(healthyGenerator, never()).becomeLeader();
     assertEquals(0.0, retryCount(mocks, "success"), 0.0);
 
     // Shutdown no longer in flight: the SHUT_DOWN generator is replaced by a fresh one.
     mocks.manager.pendingShutdowns.remove(gen.getGenerationId());
+    Mockito.clearInvocations(
+        shutDownGenerator, healthyGenerator, mocks.materializedViewGeneratorFactory);
     mocks.runnableCaptor.orElseThrow().getValue().run();
     assertSame(
         healthyGenerator, mocks.manager.getMatViewGenerator(gen.getGenerationId()).orElseThrow());
+    InOrder replacementOrder =
+        Mockito.inOrder(
+            shutDownGenerator, mocks.materializedViewGeneratorFactory, healthyGenerator);
+    replacementOrder.verify(shutDownGenerator).clearLeaderState();
+    replacementOrder.verify(mocks.materializedViewGeneratorFactory).create(gen);
+    replacementOrder.verify(healthyGenerator).becomeLeader();
+    assertEquals(1.0, retryCount(mocks, "success"), 0.0);
+  }
+
+  @Test
+  public void refreshStatus_dynamicShutDownLeaderStaysFollowerUntilLeaseReacquired() {
+    Mocks mocks = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+    when(mocks.materializedViewGeneratorFactory.isInitialized()).thenReturn(true);
+
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(new ObjectId()));
+    MaterializedViewGenerationId generationId = gen.getGenerationId();
+    AtomicBoolean ownsLease = new AtomicBoolean(true);
+    when(mocks.leaseManager.isLeader(generationId)).thenAnswer(ignored -> ownsLease.get());
+
+    MaterializedViewGenerator shutDownGenerator = mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+    verify(shutDownGenerator).becomeLeader();
+
+    ownsLease.set(false);
+    doReturn(IndexManager.State.SHUT_DOWN).when(shutDownGenerator).getState();
+    MaterializedViewGenerator replacement = mocks.mockMaterializedViewGenerator(gen);
+    doReturn(IndexManager.State.INITIAL_SYNC).when(replacement).getState();
+    when(mocks.leaseManager.pollFollowerStatuses())
+        .thenReturn(LeaseManager.FollowerPollResult.EMPTY);
+    Mockito.clearInvocations(
+        shutDownGenerator, replacement, mocks.materializedViewGeneratorFactory, mocks.leaseManager);
+
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    assertSame(replacement, mocks.manager.getMatViewGenerator(generationId).orElseThrow());
+    InOrder replacementOrder =
+        Mockito.inOrder(shutDownGenerator, mocks.materializedViewGeneratorFactory);
+    replacementOrder.verify(shutDownGenerator).clearLeaderState();
+    replacementOrder.verify(mocks.materializedViewGeneratorFactory).create(gen);
+    verify(replacement, never()).becomeLeader();
+    verify(mocks.leaseManager, never()).tryAcquireLeadership(generationId);
+
+    when(mocks.leaseManager.pollFollowerStatuses())
+        .thenReturn(
+            new LeaseManager.FollowerPollResult(
+                Map.of(generationId, IndexStatus.unknown()), Set.of(generationId)));
+    when(mocks.leaseManager.tryAcquireLeadership(generationId))
+        .thenAnswer(
+            ignored -> {
+              ownsLease.set(true);
+              return true;
+            });
+
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    InOrder acquisitionOrder = Mockito.inOrder(mocks.leaseManager, replacement);
+    acquisitionOrder.verify(mocks.leaseManager).tryAcquireLeadership(generationId);
+    acquisitionOrder.verify(replacement).becomeLeader();
+  }
+
+  @Test
+  public void refreshStatus_transientFailureRecreatingShutDownGenerator_retries() {
+    Mocks mocks = Mocks.createStaticLeaderWithRefreshCapture();
+    when(mocks.materializedViewGeneratorFactory.isInitialized()).thenReturn(true);
+
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(new ObjectId()));
+    MaterializedViewGenerator shutDownGenerator = mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+    doReturn(IndexManager.State.SHUT_DOWN).when(shutDownGenerator).getState();
+
+    MaterializedViewGenerator healthyGenerator = mock(MaterializedViewGenerator.class);
+    when(healthyGenerator.getIndexGeneration()).thenReturn(gen);
+    when(mocks.materializedViewGeneratorFactory.create(gen))
+        .thenThrow(
+            new MaterializedViewTransientException(
+                "simulated lease read failure",
+                MaterializedViewTransientException.Reason.READ_LEASE_FAILED))
+        .thenReturn(healthyGenerator);
+    Mockito.clearInvocations(
+        shutDownGenerator,
+        healthyGenerator,
+        mocks.materializedViewGeneratorFactory,
+        mocks.leaseManager);
+
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    assertSame(
+        shutDownGenerator, mocks.manager.getMatViewGenerator(gen.getGenerationId()).orElseThrow());
+    verify(shutDownGenerator).clearLeaderState();
+    verify(mocks.materializedViewGeneratorFactory).create(gen);
+    verify(mocks.leaseManager).drop(gen.getGenerationId());
+    verify(healthyGenerator, never()).becomeLeader();
+    assertEquals(1.0, retryCount(mocks, "failure"), 0.0);
+    assertEquals(0.0, retryCount(mocks, "success"), 0.0);
+
+    Mockito.clearInvocations(
+        shutDownGenerator,
+        healthyGenerator,
+        mocks.materializedViewGeneratorFactory,
+        mocks.leaseManager);
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    assertSame(
+        healthyGenerator, mocks.manager.getMatViewGenerator(gen.getGenerationId()).orElseThrow());
+    InOrder replacementOrder =
+        Mockito.inOrder(
+            shutDownGenerator, mocks.materializedViewGeneratorFactory, healthyGenerator);
+    replacementOrder.verify(shutDownGenerator).clearLeaderState();
+    replacementOrder.verify(mocks.materializedViewGeneratorFactory).create(gen);
+    replacementOrder.verify(healthyGenerator).becomeLeader();
+    verify(mocks.leaseManager, never()).drop(gen.getGenerationId());
+    assertEquals(1.0, retryCount(mocks, "failure"), 0.0);
     assertEquals(1.0, retryCount(mocks, "success"), 0.0);
   }
 
@@ -3021,7 +3142,10 @@ public class MaterializedViewManagerTest {
         .scheduleWithFixedDelay(heartbeatCaptor.capture(), anyLong(), anyLong(), any());
     heartbeatCaptor.getValue().run();
 
-    verify(mocks.leaseManager).releaseLeadership(matViewGenId);
+    InOrder demotionOrder = Mockito.inOrder(mocks.leaseManager, generator);
+    demotionOrder.verify(mocks.leaseManager).releaseLeadership(matViewGenId);
+    demotionOrder.verify(generator).clearLeaderState();
+    demotionOrder.verify(mocks.leaseManager).heartbeat();
   }
 
   @Test

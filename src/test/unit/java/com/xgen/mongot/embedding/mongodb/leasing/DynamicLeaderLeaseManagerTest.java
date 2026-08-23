@@ -322,6 +322,25 @@ public class DynamicLeaderLeaseManagerTest {
   }
 
   @Test
+  public void add_missingCachedLease_clearsStaleLeaderState() {
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    String leaseKey = getLeaseKeyFromCatalog(generationId);
+    this.leaseManager.putLease(
+        leaseKey, createLease(generationId, HOSTNAME, Instant.now().plusSeconds(3600)));
+    this.leaseManager.add(indexGeneration);
+    assertThat(this.leaseManager.isLeader(generationId)).isTrue();
+
+    this.leaseManager.evictCachedLease(leaseKey);
+    assertThat(this.leaseManager.isLeader(generationId)).isTrue();
+
+    this.leaseManager.add(indexGeneration);
+
+    assertThat(this.leaseManager.isLeader(generationId)).isFalse();
+    assertThat(this.leaseManager.getFollowerGenerationIds()).contains(generationId);
+  }
+
+  @Test
   public void add_expiredOwnedLeaseWithNewRemoteOwner_demotesExistingLeader() {
     MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
     MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
@@ -880,6 +899,8 @@ public class DynamicLeaderLeaseManagerTest {
     assertThat(this.leaseManager.getLeases().get(leaseKey).leaseOwner()).isEqualTo(OTHER_HOSTNAME);
     assertThat(this.leaseManager.getOwnedLeaseVersion(generationId))
         .isEqualTo(LeaseManager.INVALID_LEASE_VERSION);
+    assertThat(this.leaseManager.isLeader(generationId)).isFalse();
+    assertThat(this.leaseManager.getFollowerGenerationIds()).contains(generationId);
   }
 
   @Test
@@ -896,6 +917,22 @@ public class DynamicLeaderLeaseManagerTest {
     // version.
     assertThat(this.leaseManager.getOwnedLeaseVersion(generationId))
         .isEqualTo(LeaseManager.INVALID_LEASE_VERSION);
+    assertThat(this.leaseManager.isLeader(generationId)).isTrue();
+    assertThat(this.leaseManager.getFollowerGenerationIds()).doesNotContain(generationId);
+  }
+
+  @Test
+  public void getOwnedLeaseVersion_expiredOwnedLeaseBeforeHeartbeat_returnsInvalid() {
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    String leaseKey = getLeaseKeyFromCatalog(generationId);
+    Lease expiredOwnedLease = createLease(generationId, HOSTNAME, Instant.now().minusSeconds(60));
+    this.leaseManager.putLease(leaseKey, expiredOwnedLease);
+
+    assertThat(this.leaseManager.isLeader(generationId)).isTrue();
+    assertThat(this.leaseManager.getOwnedLeaseVersion(generationId))
+        .isEqualTo(LeaseManager.INVALID_LEASE_VERSION);
+    assertThat(this.leaseManager.isLeader(generationId)).isTrue();
+    assertThat(this.leaseManager.getFollowerGenerationIds()).doesNotContain(generationId);
   }
 
   @Test
@@ -908,12 +945,35 @@ public class DynamicLeaderLeaseManagerTest {
   }
 
   @Test
+  public void isUsableLeaseVersion_onlyAcceptsPositiveVersions() {
+    assertThat(LeaseManager.isUsableLeaseVersion(LeaseManager.INVALID_LEASE_VERSION)).isFalse();
+    assertThat(LeaseManager.isUsableLeaseVersion(0)).isFalse();
+    assertThat(LeaseManager.isUsableLeaseVersion(1)).isTrue();
+    assertThat(LeaseManager.isUsableLeaseVersion(Long.MAX_VALUE)).isTrue();
+  }
+
+  @Test
+  public void getOwnedLeaseVersion_metadataRemoved_returnsInvalidWithoutDemotion() {
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    String leaseKey = getLeaseKeyFromCatalog(generationId);
+    this.mvMetadataCatalog.removeMetadata(generationId);
+
+    assertThat(this.leaseManager.getOwnedLeaseVersion(generationId))
+        .isEqualTo(LeaseManager.INVALID_LEASE_VERSION);
+    assertThat(this.leaseManager.isLeader(generationId)).isTrue();
+    assertThat(this.leaseManager.getFollowerGenerationIds()).doesNotContain(generationId);
+    assertThat(this.leaseManager.getLeases()).containsKey(leaseKey);
+  }
+
+  @Test
   public void getOwnedLeaseVersion_noLease_returnsInvalid() {
     MaterializedViewGenerationId generationId = acquireLeadership();
     this.leaseManager.evictCachedLease(getLeaseKeyFromCatalog(generationId));
 
     assertThat(this.leaseManager.getOwnedLeaseVersion(generationId))
         .isEqualTo(LeaseManager.INVALID_LEASE_VERSION);
+    assertThat(this.leaseManager.isLeader(generationId)).isTrue();
+    assertThat(this.leaseManager.getFollowerGenerationIds()).doesNotContain(generationId);
   }
 
   @Test

@@ -542,7 +542,9 @@ public class MaterializedViewManager implements ReplicationManager {
             attributionBindings,
             embeddingRetryCache,
             embeddingRetryCacheEnabled,
-            skipInvalidRequestEnabledForIndex);
+            skipInvalidRequestEnabledForIndex,
+            generationId ->
+                LeaseManager.isUsableLeaseVersion(leaseManager.getOwnedLeaseVersion(generationId)));
 
     var decodingWorkScheduler =
         DecodingWorkScheduler.create(
@@ -2319,6 +2321,13 @@ public class MaterializedViewManager implements ReplicationManager {
             return;
           }
           try {
+            MaterializedViewGenerator shutDownGenerator =
+                this.managedMaterializedViewGenerators.get(uuid);
+            if (shutDownGenerator != null) {
+              // The replacement reuses the same materialized-view index, including its gauge.
+              // Clear stale leadership before installing the fresh follower.
+              shutDownGenerator.clearLeaderState();
+            }
             recordGeneratorRetry(createAndStoreGenerator(uuid, matViewIndexGeneration));
           } catch (Exception e) {
             // Last line of defense: a throw out of the status-refresh runnable would permanently

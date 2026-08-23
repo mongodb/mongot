@@ -242,7 +242,7 @@ public class MaterializedViewWriter implements IndexWriter {
       // indexing work scheduler directly.
       try {
         long leaseVersion = this.leaseManager.getOwnedLeaseVersion(this.generationId);
-        if (leaseVersion <= 0) {
+        if (!LeaseManager.isUsableLeaseVersion(leaseVersion)) {
           recordMvErrorMetric(
               MaterializedViewNonTransientException.class,
               MaterializedViewNonTransientException.Reason.INVALID_LEASE);

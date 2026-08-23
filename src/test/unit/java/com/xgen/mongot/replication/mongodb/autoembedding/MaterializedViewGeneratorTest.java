@@ -100,6 +100,18 @@ public class MaterializedViewGeneratorTest {
   }
 
   @Test
+  public void clearLeaderState_whenLeader_clearsFlagAndGauge() {
+    InitializedMaterializedViewIndex matViewIndex = mock(InitializedMaterializedViewIndex.class);
+    MaterializedViewGenerator generator = createGeneratorWithIndex(matViewIndex);
+    generator.becomeLeader();
+
+    generator.clearLeaderState();
+
+    assertFalse(generator.isLeader());
+    verify(matViewIndex).setLeaderMode(false);
+  }
+
+  @Test
   public void shutdown_callsSetLeaderModeFalse() throws Exception {
     InitializedMaterializedViewIndex matViewIndex = mock(InitializedMaterializedViewIndex.class);
     MaterializedViewGenerator generator = createGeneratorWithIndex(matViewIndex);
