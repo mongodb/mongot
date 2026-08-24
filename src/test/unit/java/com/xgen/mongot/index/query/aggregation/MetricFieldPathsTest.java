@@ -22,11 +22,13 @@ public class MetricFieldPathsTest {
   private static final FieldPath CITY = FieldPath.parse("city");
 
   @Test
-  public void collectNumeric_includesMinAndMaxPaths() {
+  public void collectNumeric_includesSumAndAvgPathsOnly() {
     Set<FieldPath> paths =
         MetricFieldPaths.collectNumeric(
             new TopAggregationSpec(
                 List.of(
+                    new SumAggregationSpec("sum_price", PRICE),
+                    new AvgAggregationSpec("avg_rating", RATING),
                     new MinAggregationSpec("min_price", PRICE),
                     new MaxAggregationSpec("max_rating", RATING))));
 
@@ -34,9 +36,23 @@ public class MetricFieldPathsTest {
   }
 
   @Test
-  public void collectNumeric_dedupesPathSharedByMinMaxAndSum() {
-    // min, max and sum over the same field is the obvious user query, and it is exactly the shape
-    // that would trip the resolver's "resolved at most once" state check if paths were not a set.
+  public void collectMixed_includesMinAndMaxPaths() {
+    Set<FieldPath> paths =
+        MetricFieldPaths.collectMixed(
+            new TopAggregationSpec(
+                List.of(
+                    new MinAggregationSpec("min_price", PRICE),
+                    new MaxAggregationSpec("max_rating", RATING),
+                    new SumAggregationSpec("sum_price", PRICE))));
+
+    assertEquals(Set.of(PRICE, RATING), paths);
+  }
+
+  @Test
+  public void collectNumeric_dedupesPathSharedBySumAndAvg() {
+    // min, max and sum over the same field is the obvious user query. min/max are collected
+    // separately, so this set is only the numeric metrics -- still a set, because a duplicate
+    // would trip the resolver's "resolved at most once" state check.
     Set<FieldPath> paths =
         MetricFieldPaths.collectNumeric(
             new TopAggregationSpec(
@@ -50,9 +66,37 @@ public class MetricFieldPathsTest {
   }
 
   @Test
+  public void collectMixed_dedupesPathSharedByMinAndMax() {
+    Set<FieldPath> paths =
+        MetricFieldPaths.collectMixed(
+            new TopAggregationSpec(
+                List.of(
+                    new MinAggregationSpec("min_price", PRICE),
+                    new MaxAggregationSpec("max_price", PRICE),
+                    new SumAggregationSpec("sum_price", PRICE))));
+
+    assertEquals(Set.of(PRICE), paths);
+  }
+
+  @Test
   public void collectNumeric_recursesIntoNestedGroups() {
     // Metrics nested under a grouping stage must still be pre-resolved; missing them would surface
     // as an unresolved-path failure only once execution reached the inner bucket.
+    AggregationSpec innerTerms =
+        new TermsGroupAggregationSpec(
+            "by_city",
+            CITY,
+            List.of(new SumAggregationSpec("sum_price", PRICE)),
+            new TermsArgs(true, TypeField.TOKEN, 100));
+
+    Set<FieldPath> paths =
+        MetricFieldPaths.collectNumeric(new TopAggregationSpec(List.of(innerTerms)));
+
+    assertEquals(Set.of(PRICE), paths);
+  }
+
+  @Test
+  public void collectMixed_recursesIntoNestedGroups() {
     AggregationSpec innerTerms =
         new TermsGroupAggregationSpec(
             "by_city",
@@ -61,7 +105,7 @@ public class MetricFieldPathsTest {
             new TermsArgs(true, TypeField.TOKEN, 100));
 
     Set<FieldPath> paths =
-        MetricFieldPaths.collectNumeric(new TopAggregationSpec(List.of(innerTerms)));
+        MetricFieldPaths.collectMixed(new TopAggregationSpec(List.of(innerTerms)));
 
     assertEquals(Set.of(PRICE), paths);
   }

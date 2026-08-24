@@ -98,8 +98,8 @@ public abstract class AggregationTestSupport {
         luceneDoc.add(new SortedSetDocValuesField(CITY_LUCENE_FIELD, new BytesRef(doc.city())));
         luceneDoc.add(new SortedSetDocValuesField(COLOR_LUCENE_FIELD, new BytesRef(doc.color())));
         luceneDoc.add(new SortedNumericDocValuesField(PRICE_LUCENE_FIELD, doc.price()));
-        // Token-valued metrics (first/last, min/max) read stored source, so every fixture document
-        // carries one alongside its doc values.
+        // Token-valued metrics (first/last) read stored source, so every fixture document carries
+        // one alongside its doc values.
         addStoredSource(
             luceneDoc,
             new BsonDocument()

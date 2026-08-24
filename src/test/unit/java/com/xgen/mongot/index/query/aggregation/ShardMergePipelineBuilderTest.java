@@ -302,8 +302,16 @@ public class ShardMergePipelineBuilderTest {
                   "as": "row",
                   "in": {
                     "_id": "$$row.k1",
-                    "cheapest": "$$row.m0",
-                    "priciest": "$$row.m1"
+                    "cheapest": {"$cond": {
+                      "if": {"$eq": [{"$type": "$$row.m0"}, "minKey"]},
+                      "then": null,
+                      "else": "$$row.m0"
+                    }},
+                    "priciest": {"$cond": {
+                      "if": {"$eq": [{"$type": "$$row.m1"}, "minKey"]},
+                      "then": null,
+                      "else": "$$row.m1"
+                    }}
                   }
                 }}}
               }}

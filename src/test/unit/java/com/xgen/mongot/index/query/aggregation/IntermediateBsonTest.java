@@ -12,6 +12,7 @@ import org.bson.BsonDocument;
 import org.bson.BsonDouble;
 import org.bson.BsonInt32;
 import org.bson.BsonInt64;
+import org.bson.BsonNull;
 import org.bson.BsonString;
 import org.bson.BsonValue;
 import org.junit.Test;
@@ -138,9 +139,9 @@ public class IntermediateBsonTest extends AggregationTestSupport {
 
   @Test
   public void bucketWithNoValue_omitsMinAndMaxPartialsEntirely() {
-    // The cross-shard merge runs $min/$max over these partials. An absent partial is skipped, but
-    // an explicit null would be compared -- and BSON null sorts below every number, so a shard that
-    // saw nothing would hijack every other shard's minimum. The omission is the whole contract.
+    // The cross-shard merge runs $min/$max over these partials. An absent partial is skipped.
+    // A real BSON null is sent as MinKey (mongod $min ignores null); an empty bucket must not
+    // use that encoding, or a shard that saw nothing would hijack every other shard's minimum.
     TermsResult byCity =
         new TermsResult(
             "by_city",
@@ -160,6 +161,38 @@ public class IntermediateBsonTest extends AggregationTestSupport {
             """
             [{"$meta/group_name": "by_city", "$meta/keys": {"k0": "NYC"}, \
             "count": {"$numberLong": "1"}}]
+            """);
+    assertEquals(expected, intermediate);
+  }
+
+  @Test
+  public void bucketWithNullExtremum_encodesMinKeyOnTheWire() {
+    TermsResult byCity =
+        new TermsResult(
+            "by_city",
+            CITY,
+            List.of(
+                new TermsResult.TermsBucket(
+                    "NYC",
+                    AggregationResults.from(
+                        List.of(
+                            new MinAggregationResult("m", Optional.of(BsonNull.VALUE)),
+                            new MaxAggregationResult("x", Optional.of(BsonNull.VALUE)))))));
+
+    BsonArray intermediate = new TopLevelAggregationResult(List.of(byCity)).toIntermediateBson();
+
+    BsonArray expected =
+        BsonArray.parse(
+            """
+            [
+              {
+                "$meta/group_name": "by_city",
+                "$meta/keys": {"k0": "NYC"},
+                "count": {"$numberLong": "1"},
+                "min_m": {"$minKey": 1},
+                "max_x": {"$minKey": 1}
+              }
+            ]
             """);
     assertEquals(expected, intermediate);
   }

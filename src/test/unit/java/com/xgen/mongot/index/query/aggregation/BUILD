@@ -38,6 +38,7 @@ java_test_suite(
         "MetricFieldPathsTest.java",
         "MinMaxAccumulatorTest.java",
         "MinMaxSelectionTest.java",
+        "MinMaxShardMergeTest.java",
         "NumericMetricValuesTest.java",
         "PrimitiveArrayTest.java",
         "ResultTest.java",

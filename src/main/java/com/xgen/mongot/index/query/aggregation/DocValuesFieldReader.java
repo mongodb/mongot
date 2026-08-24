@@ -41,6 +41,10 @@ import org.bson.BsonValue;
  * <p>Built once per segment, and doc values are forward-only: callers must request documents in
  * increasing segment-local doc-id order.
  *
+ * <p>{@code min}/{@code max} open the same columns under {@link Selection#MIN} / {@link
+ * Selection#MAX} and pick the BSON-order extremum across {@link Column#values}. {@link #read} is
+ * not used there: several columns would come back as a {@link BsonArray} rather than as that pick.
+ *
  * <p>A column holds the indexed form, not the source form, and the differences reach users of
  * {@code first}/{@code last}:
  *
@@ -70,6 +74,9 @@ final class DocValuesFieldReader implements FieldValueFetcher.ValueSource {
           TypeField.OBJECT_ID,
           TypeField.BOOLEAN,
           TypeField.DATE_V2);
+
+  /** Every type this reader can decode. */
+  static final Set<TypeField> SUPPORTED_TYPES = Set.copyOf(TYPE_ORDER);
 
   /** Which of a document's values in a column are decoded. */
   enum Selection {

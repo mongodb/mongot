@@ -47,11 +47,11 @@ public final class MinAggregationResult extends MetricAggregationResult {
 
   @Override
   public BsonDocument toIntermediateMetricPartials() {
-    // Omit the partial when this shard/partition saw no value, so the cross-shard $min skips it
-    // (matching MongoDB $min's ignore-missing semantics); a bucket with no values anywhere yields
-    // null after the merge's $min over zero inputs.
+    // Omit the partial when this shard/partition saw no value, so the cross-shard $min skips it.
+    // A real BSON null is encoded (see MinMaxShardMerge): mongod $min ignores null, which would
+    // let a numeric partial on another shard beat it.
     return this.value
-        .map(v -> new BsonDocument(partialFieldName(getName()), v))
+        .map(v -> new BsonDocument(partialFieldName(getName()), MinMaxShardMerge.encode(v)))
         .orElseGet(BsonDocument::new);
   }
 

@@ -3,17 +3,21 @@ package com.xgen.mongot.index.query.aggregation;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import org.bson.BsonBoolean;
+import org.bson.BsonDateTime;
 import org.bson.BsonDouble;
 import org.bson.BsonInt32;
 import org.bson.BsonInt64;
+import org.bson.BsonNull;
+import org.bson.BsonString;
 import org.junit.Test;
 
 /**
  * Ordering rules used when min/max partials are folded across partitions and shards.
  *
  * <p>These are only reached from the {@link MinAggregationResult} / {@link MaxAggregationResult}
- * builders -- collection compares encoded longs inside {@link MinMaxAccumulator} -- so every case
- * here is a numeric comparison, including across BSON numeric types.
+ * builders -- collection compares decoded BSON values inside {@link MinMaxAccumulator} -- so cases
+ * here cover both cross-numeric-type ordering and cross-bracket BSON order.
  */
 public class MinMaxSelectionTest {
 
@@ -75,5 +79,16 @@ public class MinMaxSelectionTest {
     assertTrue(
         MinMaxSelection.isSmaller(
             new BsonDouble(Double.NEGATIVE_INFINITY), new BsonInt64(Long.MIN_VALUE)));
+  }
+
+  @Test
+  public void comparesAcrossBsonBrackets() {
+    // Merge now sees non-numeric partials, so bracket order must match BSON total ordering:
+    // null < number < string < boolean < date.
+    assertTrue(MinMaxSelection.isSmaller(BsonNull.VALUE, new BsonInt64(0)));
+    assertTrue(MinMaxSelection.isSmaller(new BsonInt64(42), new BsonString("apple")));
+    assertTrue(MinMaxSelection.isSmaller(new BsonString("z"), BsonBoolean.TRUE));
+    assertTrue(MinMaxSelection.isSmaller(BsonBoolean.TRUE, new BsonDateTime(1)));
+    assertTrue(MinMaxSelection.isLarger(new BsonDateTime(1), new BsonInt64(Long.MAX_VALUE)));
   }
 }

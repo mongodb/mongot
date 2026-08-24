@@ -983,7 +983,11 @@ public class ShardedSearchPlannerTest {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
-                  "%s": "$%s"
+                  "%s": {"$cond": {
+                    "if": {"$eq": [{"$type": "$%s"}, "minKey"]},
+                    "then": null,
+                    "else": "$%s"
+                  }}
                 }}
               ],
               "count": [{"$match": {"$expr": {"$eq": [
@@ -992,7 +996,7 @@ public class ShardedSearchPlannerTest {
               ]}}}]
             }}
             """
-                .formatted(metricName, partial));
+                .formatted(metricName, partial, partial));
     Assert.assertEquals(expectedFacet, pipeline.get(1));
   }
 
@@ -1142,8 +1146,9 @@ public class ShardedSearchPlannerTest {
     List<BsonDocument> pipeline = result.metaPipeline;
     Assert.assertEquals(3, pipeline.size());
 
-    // The cross-shard merge is $min over each shard's partial, which is why the shard-side
-    // selection must ignore null/missing exactly as $min does -- see MinMaxSelection.
+    // mongod $min ignores BSON null, so shards encode a real null as MinKey and the $project
+    // below turns that stand-in back into null. Missing extrema are omitted, not encoded.
+
     BsonDocument expectedGroup =
         BsonDocument.parse(
             """
@@ -1181,7 +1186,11 @@ public class ShardedSearchPlannerTest {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
-                  "min_price": "$m0"
+                  "min_price": {"$cond": {
+                    "if": {"$eq": [{"$type": "$m0"}, "minKey"]},
+                    "then": null,
+                    "else": "$m0"
+                  }}
                 }}
               ],
               "count": [{"$match": {"$expr": {"$eq": [
@@ -1244,7 +1253,11 @@ public class ShardedSearchPlannerTest {
                       "input": {"$getField": {"field": "keys", "input": "$_id"}}
                     }
                   },
-                  "max_price": "$m0"
+                  "max_price": {"$cond": {
+                    "if": {"$eq": [{"$type": "$m0"}, "minKey"]},
+                    "then": null,
+                    "else": "$m0"
+                  }}
                 }}
               ],
               "count": [{"$match": {"$expr": {"$eq": [

@@ -13,7 +13,7 @@ import java.util.function.Function;
 public final class MetricFieldPaths {
   private MetricFieldPaths() {}
 
-  /** Paths referenced by numeric metric specs (sum/avg/min/max). */
+  /** Paths referenced by numeric metric specs (sum/avg). */
   public static Set<FieldPath> collectNumeric(TopAggregationSpec root) {
     return collect(
         root,
@@ -21,11 +21,29 @@ public final class MetricFieldPaths {
             switch (spec) {
               case SumAggregationSpec sum -> Optional.of(sum.getPath());
               case AvgAggregationSpec avg -> Optional.of(avg.getPath());
+              // AggregationSpec is sealed (Top/Group/Operator). Sum/Avg are the only Operator
+              // subtypes that contribute a numeric path; a default covers the rest without
+              // listing every remaining subtype.
+              default -> Optional.empty();
+            });
+  }
+
+  /**
+   * Paths referenced by multi-typed metric specs (min/max).
+   *
+   * <p>These are not resolved to a single doc-values column the way numeric paths are -- min/max
+   * probes every column its path is indexed under at collection time. Schema eligibility is checked
+   * in {@code AggregationValidator}, not here.
+   */
+  public static Set<FieldPath> collectMixed(TopAggregationSpec root) {
+    return collect(
+        root,
+        spec ->
+            switch (spec) {
               case MinAggregationSpec min -> Optional.of(min.getPath());
               case MaxAggregationSpec max -> Optional.of(max.getPath());
-              case TopAggregationSpec top -> Optional.empty();
-              case GroupAggregationSpec group -> Optional.empty();
-              case OperatorAggregationSpec operator -> Optional.empty();
+              // Same sealed-hierarchy default as collectNumeric.
+              default -> Optional.empty();
             });
   }
 
@@ -37,9 +55,8 @@ public final class MetricFieldPaths {
             switch (spec) {
               case FirstAggregationSpec first -> Optional.of(first.getPath());
               case LastAggregationSpec last -> Optional.of(last.getPath());
-              case TopAggregationSpec top -> Optional.empty();
-              case GroupAggregationSpec group -> Optional.empty();
-              case OperatorAggregationSpec operator -> Optional.empty();
+              // Same sealed-hierarchy default as collectNumeric.
+              default -> Optional.empty();
             });
   }
 

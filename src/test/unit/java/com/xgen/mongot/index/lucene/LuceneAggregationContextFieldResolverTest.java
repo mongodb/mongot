@@ -93,17 +93,13 @@ public class LuceneAggregationContextFieldResolverTest {
   }
 
   @Test
-  public void withResolvedFields_minOnDateField_throws() {
+  public void withResolvedFields_minOnDateField_succeeds() throws InvalidQueryException {
     LuceneAggregationContextFieldResolver fieldResolver =
         new LuceneAggregationContextFieldResolver(
             createFacetContext(dateMappings(PRICE_FIELD), Optional.empty()));
 
-    assertThrows(
-        InvalidQueryException.class,
-        () ->
-            fieldResolver.withResolvedFields(
-                new TopAggregationSpec(List.of(new MinAggregationSpec("min_price", PRICE_PATH))),
-                true));
+    fieldResolver.withResolvedFields(
+        new TopAggregationSpec(List.of(new MinAggregationSpec("min_price", PRICE_PATH))), true);
   }
 
   @Test
@@ -281,37 +277,25 @@ public class LuceneAggregationContextFieldResolverTest {
   }
 
   @Test
-  public void withResolvedFields_minMaxOnNumberField_resolvesNumericMetric()
-      throws InvalidQueryException {
+  public void withResolvedFields_minMaxOnNumberField_succeeds() throws InvalidQueryException {
     LuceneAggregationContextFieldResolver fieldResolver =
         createFieldResolverWithNumberField(NumericFieldOptions.Representation.INT64);
 
-    LuceneAggregationContextFieldResolver resolved =
-        fieldResolver.withResolvedFields(
-            new TopAggregationSpec(
-                List.of(
-                    new MinAggregationSpec("min_price", PRICE_PATH),
-                    new MaxAggregationSpec("max_price", PRICE_PATH))),
-            true);
-
-    assertEquals(
-        FieldName.TypeField.NUMBER_INT64_V2.getLuceneFieldName(PRICE_PATH, Optional.empty()),
-        resolved.resolveNumeric(PRICE_PATH).luceneFieldName());
+    fieldResolver.withResolvedFields(
+        new TopAggregationSpec(
+            List.of(
+                new MinAggregationSpec("min_price", PRICE_PATH),
+                new MaxAggregationSpec("max_price", PRICE_PATH))),
+        true);
   }
 
   @Test
-  public void withResolvedFields_minOnNonNumberField_throws() {
-    // min/max read NUMBER_*_V2 doc values, so a non-number path must be rejected before execution
-    // -- this is the only validation gate for the operator.
+  public void withResolvedFields_minOnTokenField_succeeds() throws InvalidQueryException {
     LuceneAggregationContextFieldResolver fieldResolver =
         createFieldResolverWithTokenField(CITY_FIELD);
 
-    assertThrows(
-        InvalidQueryException.class,
-        () ->
-            fieldResolver.withResolvedFields(
-                new TopAggregationSpec(List.of(new MinAggregationSpec("min_city", CITY_PATH))),
-                true));
+    fieldResolver.withResolvedFields(
+        new TopAggregationSpec(List.of(new MinAggregationSpec("min_city", CITY_PATH))), true);
   }
 
   @Test

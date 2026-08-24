@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
+import com.xgen.mongot.index.lucene.field.FieldValue;
 import com.xgen.mongot.index.lucene.util.LuceneDoubleConversionUtils;
 import com.xgen.mongot.index.query.aggregation.AggregationRegistry.GroupingArgs.TermsArgs;
 import com.xgen.mongot.util.FieldPath;
@@ -13,7 +14,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import org.apache.lucene.document.Document;
+import org.apache.lucene.document.SortedDocValuesField;
 import org.apache.lucene.document.SortedNumericDocValuesField;
 import org.apache.lucene.document.SortedSetDocValuesField;
 import org.apache.lucene.index.DirectoryReader;
@@ -23,17 +26,25 @@ import org.apache.lucene.index.NoMergePolicy;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.util.BytesRef;
+import org.bson.BsonBinary;
+import org.bson.BsonBoolean;
+import org.bson.BsonDateTime;
 import org.bson.BsonDocument;
 import org.bson.BsonDouble;
 import org.bson.BsonInt64;
+import org.bson.BsonMinKey;
 import org.bson.BsonNull;
+import org.bson.BsonObjectId;
+import org.bson.BsonString;
 import org.bson.BsonValue;
+import org.bson.types.ObjectId;
 import org.junit.Test;
 
 /**
- * Tests for doc-values-backed {@code min}/{@code max}. Values are read from the {@code NUMBER_*_V2}
- * columns of a {@code number} field, so only numeric paths are supported (non-numeric paths are
- * rejected during field resolution, covered in {@code LuceneAggregationContextFieldResolverTest}).
+ * Tests for doc-values-backed {@code min}/{@code max}. Values are read from every sortable column
+ * the metric path is indexed under, so a path carrying several types at once contributes all of
+ * them, ordered by the BSON total ordering. Paths indexed under none of those types are rejected
+ * during field resolution, covered in {@code LuceneAggregationContextFieldResolverTest}.
  *
  * <p>Unlike sum/avg, a multi-valued metric field contributes the extremum of its values rather than
  * being skipped, matching Elasticsearch {@code min}/{@code max} over arrays. Also unlike sum/avg, a
@@ -146,9 +157,8 @@ public class MinMaxAccumulatorTest extends AggregationTestSupport {
 
   @Test
   public void manyBuckets_growPerBucketStateInStep() throws Exception {
-    // Per-bucket state is a LongArray seeded at capacity 8 plus a separate BitSet. They are indexed
-    // by the same bucket ord, so a resize that shifted one and not the other would misreport
-    // extrema only once the bucket count passes the initial capacity.
+    // Per-bucket state is an ObjectArray seeded at capacity 8. An unset slot is empty, so a resize
+    // that dropped values would misreport extrema only once the bucket count passes that capacity.
     List<CityDoc> docs = new ArrayList<>();
     for (int i = 0; i < 30; i++) {
       docs.add(new CityDoc("city" + i, values(i)));
@@ -167,8 +177,7 @@ public class MinMaxAccumulatorTest extends AggregationTestSupport {
 
   @Test
   public void zeroValue_isDistinguishedFromNoValue() throws Exception {
-    // Per-bucket state is a zero-filled long array, so 0 would look like "unset" without the
-    // separate seen-bucket tracking.
+    // Per-bucket state uses null for "unset", so a real zero must not be treated as missing.
     buildInt64PriceIndex(List.of(values(0)));
 
     assertEquals(Optional.of(new BsonInt64(0)), minValue(runTopLevel(minSpec(), int64Context())));
@@ -330,12 +339,205 @@ public class MinMaxAccumulatorTest extends AggregationTestSupport {
   }
 
   @Test
+  public void mergeBuilder_nullIsSmallerThanNumber() {
+    MinAggregationResult min =
+        (MinAggregationResult)
+            merge(
+                new MinAggregationResult("m", Optional.of(BsonNull.VALUE)),
+                new MinAggregationResult("m", Optional.of(new BsonInt64(5))));
+    assertEquals(Optional.of(BsonNull.VALUE), min.getValue());
+
+    MaxAggregationResult max =
+        (MaxAggregationResult)
+            merge(
+                new MaxAggregationResult("m", Optional.of(BsonNull.VALUE)),
+                new MaxAggregationResult("m", Optional.of(new BsonInt64(5))));
+    assertEquals(Optional.of(new BsonInt64(5)), max.getValue());
+  }
+
+  @Test
   public void intermediatePartials_carryValueWhenPresent() {
     MinAggregationResult min = new MinAggregationResult("m", Optional.of(new BsonInt64(7)));
     assertEquals(new BsonDocument("min_m", new BsonInt64(7)), min.toIntermediateMetricPartials());
 
     MaxAggregationResult max = new MaxAggregationResult("m", Optional.of(new BsonInt64(7)));
     assertEquals(new BsonDocument("max_m", new BsonInt64(7)), max.toIntermediateMetricPartials());
+  }
+
+  @Test
+  public void intermediatePartials_encodeNullAsMinKey() {
+    // mongod $min/$max ignore BSON null, so a shard whose extremum is null would lose to any
+    // non-null on another shard. MinKey is the stand-in; standalone still reports null.
+    MinAggregationResult min = new MinAggregationResult("m", Optional.of(BsonNull.VALUE));
+    assertEquals(new BsonDocument("min_m", new BsonMinKey()), min.toIntermediateMetricPartials());
+    assertEquals(BsonNull.VALUE, min.toStandaloneBson());
+
+    MaxAggregationResult max = new MaxAggregationResult("m", Optional.of(BsonNull.VALUE));
+    assertEquals(new BsonDocument("max_m", new BsonMinKey()), max.toIntermediateMetricPartials());
+    assertEquals(BsonNull.VALUE, max.toStandaloneBson());
+  }
+
+  @Test
+  public void mixedTypes_selectAcrossBsonBrackets() throws Exception {
+    BsonDateTime date = new BsonDateTime(1_700_000_000_000L);
+    BsonObjectId oid = new BsonObjectId(new ObjectId("507f1f77bcf86cd799439011"));
+    buildMixedPriceIndex(
+        List.of(
+            List.of(new BsonInt64(42)),
+            List.of(new BsonString("apple")),
+            List.of(BsonBoolean.TRUE),
+            List.of(date),
+            List.of(oid)));
+
+    assertEquals(Optional.of(new BsonInt64(42)), minValue(runTopLevel(minSpec(), newContext())));
+    assertEquals(Optional.of(date), maxValue(runTopLevel(maxSpec(), newContext())));
+  }
+
+  @Test
+  public void mixedTypes_numericBracketMixesIntAndDouble() throws Exception {
+    buildMixedPriceIndex(List.of(List.of(new BsonInt64(5)), List.of(new BsonDouble(2.5))));
+
+    assertEquals(Optional.of(new BsonDouble(2.5)), minValue(runTopLevel(minSpec(), newContext())));
+    assertEquals(Optional.of(new BsonInt64(5)), maxValue(runTopLevel(maxSpec(), newContext())));
+  }
+
+  @Test
+  public void mixedTypes_multiValuedArrayWithinAndAcrossTypes() throws Exception {
+    // One doc carries [3, 8] int64 and ["a", "z"] token. Within each column the selector collapses
+    // to that column's extremum; across columns BSON order picks 3 as min and "z" as max.
+    buildMixedPriceIndex(
+        List.of(
+            List.of(new BsonInt64(3), new BsonInt64(8), new BsonString("a"), new BsonString("z"))));
+
+    assertEquals(Optional.of(new BsonInt64(3)), minValue(runTopLevel(minSpec(), newContext())));
+    assertEquals(Optional.of(new BsonString("z")), maxValue(runTopLevel(maxSpec(), newContext())));
+  }
+
+  @Test
+  public void mixedTypes_nullParticipatesInBsonOrder() throws Exception {
+    buildMixedPriceIndex(List.of(List.of(BsonNull.VALUE), List.of(new BsonInt64(5))));
+
+    assertEquals(Optional.of(BsonNull.VALUE), minValue(runTopLevel(minSpec(), newContext())));
+    assertEquals(Optional.of(new BsonInt64(5)), maxValue(runTopLevel(maxSpec(), newContext())));
+  }
+
+  @Test
+  public void mixedTypes_nanBelowAllNumbers() throws Exception {
+    buildMixedPriceIndex(
+        List.of(
+            List.of(new BsonDouble(Double.NaN)),
+            List.of(new BsonInt64(-1)),
+            List.of(new BsonString("z"))));
+
+    Optional<BsonValue> min = minValue(runTopLevel(minSpec(), newContext()));
+    assertTrue(Double.isNaN(((BsonDouble) min.orElseThrow()).getValue()));
+    assertEquals(Optional.of(new BsonString("z")), maxValue(runTopLevel(maxSpec(), newContext())));
+  }
+
+  @Test
+  public void mixedTypes_stringOrderingUsesTermOrder() throws Exception {
+    buildMixedPriceIndex(
+        List.of(
+            List.of(new BsonString("banana")),
+            List.of(new BsonString("apple")),
+            List.of(new BsonString("cherry"))));
+
+    assertEquals(
+        Optional.of(new BsonString("apple")), minValue(runTopLevel(minSpec(), newContext())));
+    assertEquals(
+        Optional.of(new BsonString("cherry")), maxValue(runTopLevel(maxSpec(), newContext())));
+  }
+
+  @Test
+  public void mixedTypes_booleanFalseBeforeTrue() throws Exception {
+    buildMixedPriceIndex(List.of(List.of(BsonBoolean.TRUE), List.of(BsonBoolean.FALSE)));
+
+    assertEquals(Optional.of(BsonBoolean.FALSE), minValue(runTopLevel(minSpec(), newContext())));
+    assertEquals(Optional.of(BsonBoolean.TRUE), maxValue(runTopLevel(maxSpec(), newContext())));
+  }
+
+  @Test
+  public void mixedTypes_objectIdOrdering() throws Exception {
+    BsonObjectId low = new BsonObjectId(new ObjectId("0".repeat(24)));
+    BsonObjectId high = new BsonObjectId(new ObjectId("f".repeat(24)));
+    buildMixedPriceIndex(List.of(List.of(high), List.of(low)));
+
+    assertEquals(Optional.of(low), minValue(runTopLevel(minSpec(), newContext())));
+    assertEquals(Optional.of(high), maxValue(runTopLevel(maxSpec(), newContext())));
+  }
+
+  @Test
+  public void mixedTypes_binaryUuidOrdering() throws Exception {
+    BsonBinary low = new BsonBinary(UUID.fromString("11111111-1111-1111-1111-111111111111"));
+    BsonBinary high = new BsonBinary(UUID.fromString("22222222-2222-2222-2222-222222222222"));
+    buildMixedPriceIndex(List.of(List.of(high), List.of(low)));
+
+    assertEquals(Optional.of(low), minValue(runTopLevel(minSpec(), newContext())));
+    assertEquals(Optional.of(high), maxValue(runTopLevel(maxSpec(), newContext())));
+  }
+
+  @Test
+  public void mixedTypes_underTermsGrouping() throws Exception {
+    buildMixedGroupedIndex(
+        List.of(
+            new CityMixedDoc("NYC", List.of(new BsonInt64(10), new BsonString("z"))),
+            new CityMixedDoc("NYC", List.of(new BsonInt64(3))),
+            new CityMixedDoc("LA", List.of(BsonBoolean.TRUE)),
+            new CityMixedDoc("LA", List.of(BsonBoolean.FALSE))));
+
+    Map<String, Optional<BsonValue>> minByCity = runGroupedByCity(minSpec());
+    Map<String, Optional<BsonValue>> maxByCity = runGroupedByCity(maxSpec());
+
+    assertEquals(Optional.of(new BsonInt64(3)), minByCity.get("NYC"));
+    assertEquals(Optional.of(new BsonString("z")), maxByCity.get("NYC"));
+    assertEquals(Optional.of(BsonBoolean.FALSE), minByCity.get("LA"));
+    assertEquals(Optional.of(BsonBoolean.TRUE), maxByCity.get("LA"));
+  }
+
+  @Test
+  public void mixedTypes_missingInSomeColumns() throws Exception {
+    buildMixedPriceIndex(List.of(List.of(new BsonString("only-token")), List.of(new BsonInt64(7))));
+
+    assertEquals(Optional.of(new BsonInt64(7)), minValue(runTopLevel(minSpec(), newContext())));
+    assertEquals(
+        Optional.of(new BsonString("only-token")), maxValue(runTopLevel(maxSpec(), newContext())));
+  }
+
+  @Test
+  public void mixedTypes_acrossSegments_matchesSingleSegment() throws Exception {
+    List<List<BsonValue>> docs =
+        List.of(
+            List.of(new BsonInt64(10)),
+            List.of(new BsonString("apple")),
+            List.of(BsonBoolean.TRUE),
+            List.of(new BsonDateTime(50)));
+
+    buildMixedPriceIndex(docs);
+    Optional<BsonValue> singleMin = minValue(runTopLevel(minSpec(), newContext()));
+    Optional<BsonValue> singleMax = maxValue(runTopLevel(maxSpec(), newContext()));
+    this.reader.close();
+    this.directory.close();
+
+    buildMixedPriceIndex(docs, 1);
+    assertEquals(singleMin, minValue(runTopLevel(minSpec(), newContext())));
+    assertEquals(singleMax, maxValue(runTopLevel(maxSpec(), newContext())));
+  }
+
+  @Test
+  public void mixedTypes_largeInt64VsDouble_pinsSortUtilBehavior() throws Exception {
+    // 2^53+1 cannot be represented as a double. SortUtil promotes the int64, treating the two as
+    // equal, so the first-seen value wins both min and max. MqlComparator (merge) would consider
+    // the int64 strictly larger. Collection follows the sort path; pin that here.
+    long justAbovePrecise = (1L << 53) + 1;
+    buildMixedPriceIndex(
+        List.of(List.of(new BsonInt64(justAbovePrecise)), List.of(new BsonDouble(1L << 53))));
+
+    assertEquals(
+        Optional.of(new BsonInt64(justAbovePrecise)),
+        minValue(runTopLevel(minSpec(), newContext())));
+    assertEquals(
+        Optional.of(new BsonInt64(justAbovePrecise)),
+        maxValue(runTopLevel(maxSpec(), newContext())));
   }
 
   // ===== helpers =====
@@ -519,5 +721,99 @@ public class MinMaxAccumulatorTest extends AggregationTestSupport {
   private void openReader() throws IOException {
     this.reader = DirectoryReader.open(this.directory);
     this.searcher = new IndexSearcher(this.reader);
+  }
+
+  private record CityMixedDoc(List<String> cities, List<BsonValue> values) {
+    CityMixedDoc(String city, List<BsonValue> values) {
+      this(List.of(city), values);
+    }
+  }
+
+  private void buildMixedPriceIndex(List<List<BsonValue>> docs) throws IOException {
+    buildMixedPriceIndex(docs, Integer.MAX_VALUE);
+  }
+
+  private void buildMixedPriceIndex(List<List<BsonValue>> docs, int docsPerSegment)
+      throws IOException {
+    this.directory = new ByteBuffersDirectory();
+    IndexWriterConfig config = new IndexWriterConfig().setMergePolicy(NoMergePolicy.INSTANCE);
+    try (IndexWriter writer = new IndexWriter(this.directory, config)) {
+      for (int i = 0; i < docs.size(); i++) {
+        Document luceneDoc = new Document();
+        for (BsonValue value : docs.get(i)) {
+          addTypedValue(luceneDoc, value);
+        }
+        writer.addDocument(luceneDoc);
+        if ((i + 1) % docsPerSegment == 0) {
+          writer.commit();
+        }
+      }
+    }
+    openReader();
+  }
+
+  private void buildMixedGroupedIndex(List<CityMixedDoc> docs) throws IOException {
+    this.directory = new ByteBuffersDirectory();
+    IndexWriterConfig config = new IndexWriterConfig().setMergePolicy(NoMergePolicy.INSTANCE);
+    try (IndexWriter writer = new IndexWriter(this.directory, config)) {
+      for (CityMixedDoc doc : docs) {
+        Document luceneDoc = new Document();
+        for (String city : doc.cities()) {
+          luceneDoc.add(new SortedSetDocValuesField(CITY_LUCENE_FIELD, new BytesRef(city)));
+        }
+        for (BsonValue value : doc.values()) {
+          addTypedValue(luceneDoc, value);
+        }
+        writer.addDocument(luceneDoc);
+      }
+    }
+    openReader();
+  }
+
+  private static void addTypedValue(Document luceneDoc, BsonValue value) {
+    FieldPath path = FieldPath.parse(PRICE_FIELD);
+    switch (value.getBsonType()) {
+      case INT64 ->
+          luceneDoc.add(
+              new SortedNumericDocValuesField(
+                  TypeField.NUMBER_INT64_V2.getLuceneFieldName(path, Optional.empty()),
+                  value.asInt64().getValue()));
+      case DOUBLE ->
+          luceneDoc.add(
+              new SortedNumericDocValuesField(
+                  TypeField.NUMBER_DOUBLE_V2.getLuceneFieldName(path, Optional.empty()),
+                  LuceneDoubleConversionUtils.toMqlSortableLong(value.asDouble().getValue())));
+      case STRING ->
+          luceneDoc.add(
+              new SortedSetDocValuesField(
+                  TypeField.TOKEN.getLuceneFieldName(path, Optional.empty()),
+                  new BytesRef(value.asString().getValue())));
+      case BOOLEAN ->
+          luceneDoc.add(
+              new SortedSetDocValuesField(
+                  TypeField.BOOLEAN.getLuceneFieldName(path, Optional.empty()),
+                  new BytesRef(FieldValue.fromBoolean(value.asBoolean().getValue()))));
+      case DATE_TIME ->
+          luceneDoc.add(
+              new SortedNumericDocValuesField(
+                  TypeField.DATE_V2.getLuceneFieldName(path, Optional.empty()),
+                  value.asDateTime().getValue()));
+      case OBJECT_ID ->
+          luceneDoc.add(
+              new SortedSetDocValuesField(
+                  TypeField.OBJECT_ID.getLuceneFieldName(path, Optional.empty()),
+                  new BytesRef(value.asObjectId().getValue().toByteArray())));
+      case BINARY ->
+          luceneDoc.add(
+              new SortedSetDocValuesField(
+                  TypeField.UUID.getLuceneFieldName(path, Optional.empty()),
+                  new BytesRef(value.asBinary().asUuid().toString())));
+      case NULL ->
+          luceneDoc.add(
+              new SortedDocValuesField(
+                  TypeField.NULL.getLuceneFieldName(path, Optional.empty()),
+                  new BytesRef(FieldValue.NULL_FIELD_VALUE)));
+      default -> throw new IllegalArgumentException("unsupported test value: " + value);
+    }
   }
 }

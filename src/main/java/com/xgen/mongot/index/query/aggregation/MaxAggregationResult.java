@@ -47,11 +47,11 @@ public final class MaxAggregationResult extends MetricAggregationResult {
 
   @Override
   public BsonDocument toIntermediateMetricPartials() {
-    // Omit the partial when this shard/partition saw no value, so the cross-shard $max skips it
-    // (matching MongoDB $max's ignore-missing semantics); a bucket with no values anywhere yields
-    // null after the merge's $max over zero inputs.
+    // Omit the partial when this shard/partition saw no value, so the cross-shard $max skips it.
+    // A real BSON null is encoded the same way as min (see MinMaxShardMerge) so an all-null shard
+    // still round-trips after $max.
     return this.value
-        .map(v -> new BsonDocument(partialFieldName(getName()), v))
+        .map(v -> new BsonDocument(partialFieldName(getName()), MinMaxShardMerge.encode(v)))
         .orElseGet(BsonDocument::new);
   }
 

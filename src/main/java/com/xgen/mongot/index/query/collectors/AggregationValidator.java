@@ -2,6 +2,7 @@ package com.xgen.mongot.index.query.collectors;
 
 import com.xgen.mongot.index.definition.FieldDefinition;
 import com.xgen.mongot.index.definition.SearchFieldDefinitionResolver;
+import com.xgen.mongot.index.query.aggregation.Operator;
 import com.xgen.mongot.index.query.sort.MetaSortOptions;
 import com.xgen.mongot.index.query.sort.SortSpec;
 import com.xgen.mongot.util.FieldPath;
@@ -78,7 +79,9 @@ public class AggregationValidator {
    * Validates an aggregation collector against the index schema it was issued against, rejecting it
    * up front rather than letting it fail deeper in boundary accumulator setup, where the failure
    * could not surface as a query error: spec building reaches fields through {@code
-   * BoundaryFieldResolver}, whose method cannot declare a checked exception.
+   * BoundaryFieldResolver}, whose method cannot declare a checked exception. {@code min}/{@code
+   * max} metric paths are checked here for the same reason: they do not resolve to a single column,
+   * so an unmapped or legacy-facet-only path would otherwise collect as empty rather than fail.
    *
    * <p>{@code aggregationEnabled} carries the {@code SEARCH_AGGREGATION} feature flag. It is
    * checked first so a query that is invalid on both counts reports a disabled feature rather than
@@ -99,6 +102,56 @@ public class AggregationValidator {
           "Aggregation is not enabled. Please contact support.");
     }
     validateGroupingFieldDefinitions(collector, fieldDefinitionResolver, returnScope);
+    validateMixedMetricFields(collector, fieldDefinitionResolver, returnScope);
+  }
+
+  /**
+   * Rejects {@code min}/{@code max} paths that no sortable doc-values column backs, and rejects
+   * those metrics under an embedded-document return scope.
+   *
+   * <p>Run here rather than during Lucene field resolution: {@link #validateAggregationQuery} is
+   * the per-reader schema gate, so an invalid path fails once as a query error instead of being
+   * re-checked while resolving the spec tree.
+   */
+  private static void validateMixedMetricFields(
+      AggregationCollector collector,
+      SearchFieldDefinitionResolver fieldDefinitionResolver,
+      Optional<FieldPath> returnScope)
+      throws AggregationValidationException {
+    for (AggregationFacetDefinition facet : collector.facets().values()) {
+      validateMixedMetricFields(facet, fieldDefinitionResolver, returnScope);
+    }
+  }
+
+  private static void validateMixedMetricFields(
+      AggregationFacetDefinition facet,
+      SearchFieldDefinitionResolver fieldDefinitionResolver,
+      Optional<FieldPath> returnScope)
+      throws AggregationValidationException {
+    for (MetricSpec metric : facet.aggregations().values()) {
+      if (metric.operator() != Operator.MIN && metric.operator() != Operator.MAX) {
+        continue;
+      }
+      // TODO(CLOUDP-426510): support min/max aggregation over embedded documents.
+      if (returnScope.isPresent()) {
+        throw new AggregationValidationException(
+            "Multi-typed aggregation over embedded documents is not supported.");
+      }
+      FieldPath path = metric.path().orElseThrow();
+      Optional<FieldDefinition> fieldDef =
+          fieldDefinitionResolver.getFieldDefinition(path, returnScope);
+      if (fieldDef.isEmpty()
+          || !fieldDef.get().hasAnyFieldDefinitionOf(FieldDefinition.getIndexingSortableTypes())) {
+        throw new AggregationValidationException(
+            String.format(
+                "Cannot use a min/max aggregation on field \"%s\" because it was not indexed as any"
+                    + " of the following types: %s.",
+                path, FieldDefinition.getIndexingSortableTypes()));
+      }
+    }
+    for (AggregationFacetDefinition child : facet.facets().values()) {
+      validateMixedMetricFields(child, fieldDefinitionResolver, returnScope);
+    }
   }
 
   /**

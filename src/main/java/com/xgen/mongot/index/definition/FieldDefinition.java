@@ -147,6 +147,14 @@ public record FieldDefinition(
                     && definition.get().getType() != FieldTypeDefinition.Type.DOCUMENT);
   }
 
+  /** Returns true if the field has at least one type definition among the given types. */
+  public boolean hasAnyFieldDefinitionOf(Set<FieldTypeDefinition.Type> includedTypes) {
+    return getAllDefinitions()
+        .anyMatch(
+            definition ->
+                definition.isPresent() && includedTypes.contains(definition.get().getType()));
+  }
+
   /** Returns true if the field has any type definition other than the given types. */
   public boolean hasFieldDefinitionsOtherThan(FieldTypeDefinition.Type... excludedTypes) {
     ImmutableSet<FieldTypeDefinition.Type> excluded = ImmutableSet.copyOf(excludedTypes);

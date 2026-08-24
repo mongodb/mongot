@@ -1,15 +1,13 @@
 package com.xgen.mongot.index.query.aggregation;
 
 import com.xgen.mongot.util.FieldPath;
-import org.bson.BsonDocument;
-import org.bson.BsonString;
 
 /**
  * Production leaf spec for the {@code max} aggregation operator.
  *
- * <p>Max resolves its path to a {@link ResolvedNumericMetricField} and reads {@code NUMBER_*_V2}
- * doc values, so it is supported only on {@code number} fields; other field types are rejected at
- * field-resolution time.
+ * <p>Max reads every doc-values column its path is indexed under, so it is supported on any
+ * sortable field type and on paths carrying several types at once. Paths indexed under none of
+ * those types are rejected at field-resolution time.
  */
 public final class MaxAggregationSpec extends OperatorAggregationSpec {
   private final FieldPath path;
@@ -25,19 +23,11 @@ public final class MaxAggregationSpec extends OperatorAggregationSpec {
 
   @Override
   public Accumulator buildAccumulator(AggregationContext context) {
-    ResolvedNumericMetricField metricField =
-        context
-            .getFieldResolver()
-            .orElseThrow(
-                () -> new IllegalStateException("Aggregation field resolver is not configured"))
-            .resolveNumeric(this.path);
-    return new MinMaxAccumulator(this.name, metricField, MinMaxAccumulator.Extremum.MAX, context);
+    return new MinMaxAccumulator(this.name, this.path, MinMaxAccumulator.Extremum.MAX, context);
   }
 
   @Override
   public void buildShardMergePipeline(ShardMergePipelineBuilder builder) {
-    String partial = MaxAggregationResult.partialFieldName(this.name);
-    builder.addMetricAccumulator(partial, new BsonDocument("$max", new BsonString("$" + partial)));
-    builder.addMetricProjection(this.name, new BsonString("$$b." + partial));
+    MinMaxShardMerge.buildShardMergePipeline(builder, this.operator, this.name);
   }
 }
