@@ -5,10 +5,12 @@ import com.google.errorprone.annotations.Var;
 import com.mongodb.client.model.changestream.TruncatedArray;
 import com.mongodb.client.model.changestream.UpdateDescription;
 import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.StoredSourceDefinition;
 import com.xgen.mongot.index.definition.ViewDefinition;
 import com.xgen.mongot.index.version.IndexFormatVersion;
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
@@ -72,6 +74,107 @@ public class ChangeStreamsTest {
           new UpdateDescription(
               Collections.emptyList(), new BsonDocument(), List.of(new TruncatedArray("a.bb", 2)));
       assertAppliesToDefinition(description, DYNAMIC_DEFINITION);
+    }
+
+    @Test
+    public void searchAutoEmbedSourceField_staticExactUpdate_applies() {
+      SearchIndexDefinition definition =
+          createSearchAutoEmbedDefinition(false, FieldPath.parse("content.body"));
+      var description =
+          new UpdateDescription(
+              Collections.emptyList(), new BsonDocument("content.body", new BsonString("updated")));
+
+      assertAppliesToDefinition(description, definition);
+    }
+
+    @Test
+    public void searchAutoEmbedSourceField_dynamicExactUpdate_applies() {
+      SearchIndexDefinition definition =
+          createSearchAutoEmbedDefinition(true, FieldPath.parse("content.body"));
+      var description =
+          new UpdateDescription(
+              Collections.emptyList(), new BsonDocument("content.body", new BsonString("updated")));
+
+      assertAppliesToDefinition(description, definition);
+    }
+
+    @Test
+    public void searchAutoEmbedSourceField_nestedDeclaration_applies() {
+      SearchIndexDefinition definition =
+          createNestedSearchAutoEmbedDefinition(FieldPath.parse("content.body"));
+      var description =
+          new UpdateDescription(
+              Collections.emptyList(), new BsonDocument("content.body", new BsonString("updated")));
+
+      assertAppliesToDefinition(description, definition);
+    }
+
+    @Test
+    public void searchAutoEmbedSourceField_ancestorUpdate_applies() {
+      SearchIndexDefinition definition =
+          createSearchAutoEmbedDefinition(false, FieldPath.parse("content.body"));
+      var description =
+          new UpdateDescription(
+              Collections.emptyList(), new BsonDocument("content", new BsonString("updated")));
+
+      assertAppliesToDefinition(description, definition);
+    }
+
+    @Test
+    public void searchAutoEmbedSourceField_descendantUpdate_applies() {
+      SearchIndexDefinition definition =
+          createSearchAutoEmbedDefinition(false, FieldPath.parse("content"));
+      var description =
+          new UpdateDescription(
+              Collections.emptyList(), new BsonDocument("content.body", new BsonString("updated")));
+
+      assertAppliesToDefinition(description, definition);
+    }
+
+    @Test
+    public void searchAutoEmbedSourceField_numericArrayUpdate_applies() {
+      SearchIndexDefinition definition =
+          createSearchAutoEmbedDefinition(false, FieldPath.parse("items.content"));
+      var description =
+          new UpdateDescription(
+              Collections.emptyList(),
+              new BsonDocument("items.0.content", new BsonString("updated")));
+
+      assertAppliesToDefinition(description, definition);
+    }
+
+    @Test
+    public void searchAutoEmbedSourceField_removed_applies() {
+      SearchIndexDefinition definition =
+          createSearchAutoEmbedDefinition(false, FieldPath.parse("content.body"));
+      var description = new UpdateDescription(List.of("content.body"), new BsonDocument());
+
+      assertAppliesToDefinition(description, definition);
+    }
+
+    @Test
+    public void searchAutoEmbedSourceField_truncatedArray_applies() {
+      SearchIndexDefinition definition =
+          createSearchAutoEmbedDefinition(false, FieldPath.parse("content.body"));
+      var description =
+          new UpdateDescription(
+              Collections.emptyList(),
+              new BsonDocument(),
+              List.of(new TruncatedArray("content.body", 1)));
+
+      assertAppliesToDefinition(description, definition);
+    }
+
+    @Test
+    public void searchAutoEmbedSourceField_prefixCollision_doesNotApply() {
+      SearchIndexDefinition definition =
+          createSearchAutoEmbedDefinition(false, FieldPath.parse("content.body"));
+      var description =
+          new UpdateDescription(
+              Collections.emptyList(),
+              new BsonDocument("content.bodyguard", new BsonString("updated")));
+
+      assertDoesNotApplyToDefinition(description, definition);
     }
 
     @Theory
@@ -435,6 +538,7 @@ public class ChangeStreamsTest {
       Assert.assertTrue(
           ChangeStreams.updateDescriptionAppliesToIndex(
               updateDescription,
+              definition,
               definition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
               view));
     }
@@ -451,6 +555,7 @@ public class ChangeStreamsTest {
       Assert.assertFalse(
           ChangeStreams.updateDescriptionAppliesToIndex(
               updateDescription,
+              definition,
               definition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
               view));
     }
@@ -527,6 +632,43 @@ public class ChangeStreamsTest {
                           .build())
                   .build())
           .storedSource(StoredSourceDefinition.create(mode, dotSeparatedPaths))
+          .build();
+    }
+
+    private static SearchIndexDefinition createSearchAutoEmbedDefinition(
+        boolean dynamic, FieldPath sourceField) {
+      SearchAutoEmbedFieldDefinition autoEmbed =
+          new SearchAutoEmbedFieldDefinition("voyage-3-large", sourceField);
+      return SearchIndexDefinitionBuilder.builder()
+          .defaultMetadata()
+          .mappings(
+              DocumentFieldDefinitionBuilder.builder()
+                  .dynamic(dynamic)
+                  .field(
+                      "embedding",
+                      FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbed).build())
+                  .build())
+          .build();
+    }
+
+    private static SearchIndexDefinition createNestedSearchAutoEmbedDefinition(
+        FieldPath sourceField) {
+      SearchAutoEmbedFieldDefinition autoEmbed =
+          new SearchAutoEmbedFieldDefinition("voyage-3-large", sourceField);
+      var nestedMappings =
+          DocumentFieldDefinitionBuilder.builder()
+              .dynamic(false)
+              .field(
+                  "embedding", FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbed).build())
+              .build();
+      return SearchIndexDefinitionBuilder.builder()
+          .defaultMetadata()
+          .mappings(
+              DocumentFieldDefinitionBuilder.builder()
+                  .dynamic(false)
+                  .field(
+                      "nested", FieldDefinitionBuilder.builder().document(nestedMappings).build())
+                  .build())
           .build();
     }
 

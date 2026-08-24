@@ -378,23 +378,18 @@ public class ChangeStreamDocumentUtils {
     }
     Set<BsonDocument> processedDocs = new HashSet<>();
 
-    // TODO(CLOUDP-424650): Split full-update eligibility from this vector-only partial-update
-    // mapping so search autoEmbedVector indexes are covered without enabling partial updates.
-    Optional<AutoEmbedFieldMapping> autoEmbedMapping =
-        (indexDefinition instanceof VectorIndexDefinition vectorDef
-                && MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(
-                    indexDefinition))
-            ? Optional.of(AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef))
-            : Optional.empty();
+    Optional<AutoEmbedFieldMapping> autoEmbedMapping = deriveAutoEmbedFieldMapping(indexDefinition);
+    boolean partialUpdatesSupported =
+        autoEmbedMapping.isPresent() && supportsPartialUpdates(indexDefinition);
     boolean forceFullUpdate =
-        autoEmbedMapping.isPresent()
+        partialUpdatesSupported
             && autoEmbeddingMaterializedViewConfig
                 .map(AutoEmbeddingMaterializedViewConfig::forceChangeStreamFullUpdate)
                 .orElse(false);
 
     // Identify docs whose collapsed-away predecessors required full processing.
     Set<BsonDocument> autoEmbedDocsRequiringFullUpdate = new HashSet<>();
-    if (autoEmbedMapping.isPresent() && !forceFullUpdate) {
+    if (partialUpdatesSupported && !forceFullUpdate) {
       Set<BsonDocument> seenSurvivor = new HashSet<>();
       for (var event : Lists.reverse(batch)) {
         BsonDocument key = event.getDocumentKey();
@@ -428,7 +423,8 @@ public class ChangeStreamDocumentUtils {
                 autoEmbedMapping,
                 viewFieldDependencies,
                 autoEmbedDocsRequiringFullUpdate.contains(event.getDocumentKey()),
-                forceFullUpdate);
+                forceFullUpdate,
+                partialUpdatesSupported);
         if (docEvent.isPresent()) {
           finalChangeEvents.add(docEvent.get());
 
@@ -465,7 +461,8 @@ public class ChangeStreamDocumentUtils {
       Optional<AutoEmbedFieldMapping> autoEmbedMapping,
       Optional<ViewFieldDependencies> viewFieldDependencies,
       boolean docRequiresFullUpdate,
-      boolean forceFullUpdate) {
+      boolean forceFullUpdate,
+      boolean partialUpdatesSupported) {
 
     DocumentMetadata metadata = createMetadata(event, indexDefinition);
 
@@ -515,11 +512,14 @@ public class ChangeStreamDocumentUtils {
         // filtered at an earlier iteration.
         if (areUpdateEventsPrefiltered
             || ChangeStreams.updateDescriptionAppliesToIndex(
-                event.getUpdateDescription(), fieldDefinitionResolver, indexDefinition.getView())) {
+                event.getUpdateDescription(),
+                indexDefinition,
+                fieldDefinitionResolver,
+                indexDefinition.getView())) {
           metrics.updateApplicable();
           incrementApplicableDocumentMetrics(metrics, event);
 
-          if (autoEmbedMapping.isPresent() && forceFullUpdate) {
+          if (forceFullUpdate) {
             metrics.partialEmbedFallback(
                 PartialEmbedFallbackReason.FEATURE_FLAG_FORCED_FULL_UPDATE);
             return Optional.of(DocumentEvent.createUpdate(metadata, event.getFullDocument()));
@@ -542,7 +542,7 @@ public class ChangeStreamDocumentUtils {
           //
           // The old EMBEDDING strategy (TEXT fields, version 1) writes directly to Lucene and
           // does not support partial updates.
-          if (autoEmbedMapping.isPresent()) {
+          if (partialUpdatesSupported) {
             AutoEmbedFieldMapping mapping = autoEmbedMapping.get();
             if (indexDefinition.getView().isPresent()) {
               // Classify the view update: re-embed only the embed sources whose base feeders
@@ -674,7 +674,7 @@ public class ChangeStreamDocumentUtils {
         incrementApplicableDocumentMetrics(metrics, event);
         // A REPLACE re-embeds the whole document; count it as a full-re-index fallback
         // (CLOUDP-412617), gated to the same MV-backed non-view population as the UPDATE path.
-        if (autoEmbedMapping.isPresent() && indexDefinition.getView().isEmpty()) {
+        if (partialUpdatesSupported && indexDefinition.getView().isEmpty()) {
           metrics.partialEmbedFallback(PartialEmbedFallbackReason.REPLACE_EVENT);
         }
         return Optional.of(DocumentEvent.createUpdate(metadata, event.getFullDocument()));
@@ -745,9 +745,9 @@ public class ChangeStreamDocumentUtils {
   }
 
   /**
-   * Creates the source-side auto-embed mapping for materialized-view indexes. This helper is also
-   * introduced by CLOUDP-424650's change-stream applicability work; keeping the same implementation
-   * here allows view-dependency derivation to be reviewed independently until that work merges.
+   * Creates the source-side auto-embed mapping for materialized-view indexes. Kept separate from
+   * partial-update eligibility so unsupported Search shapes can retain full-update behavior while
+   * sharing the same mapping model.
    */
   public static Optional<AutoEmbedFieldMapping> deriveAutoEmbedFieldMapping(
       IndexDefinition indexDefinition) {
@@ -755,6 +755,13 @@ public class ChangeStreamDocumentUtils {
       return Optional.empty();
     }
     return Optional.of(AutoEmbedFieldMappingCreator.createAutoEmbedMapping(indexDefinition));
+  }
+
+  private static boolean supportsPartialUpdates(IndexDefinition indexDefinition) {
+    return switch (indexDefinition) {
+      case VectorIndexDefinition ignored -> true;
+      case SearchIndexDefinition ignored -> false;
+    };
   }
 
   /**

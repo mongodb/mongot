@@ -451,6 +451,7 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
           Check.argNotNull(updateDescription, "updateDescription");
           if (!ChangeStreams.updateDescriptionAppliesToIndex(
               updateDescription,
+              this.context.getIndexDefinition(),
               this.context
                   .getIndexDefinition()
                   .createFieldDefinitionResolver(this.context.getIndexFormatVersion()),

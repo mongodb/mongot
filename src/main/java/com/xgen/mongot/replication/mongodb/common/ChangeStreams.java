@@ -9,6 +9,8 @@ import com.mongodb.client.model.changestream.OperationType;
 import com.mongodb.client.model.changestream.TruncatedArray;
 import com.mongodb.client.model.changestream.UpdateDescription;
 import com.xgen.mongot.index.definition.FieldDefinitionResolver;
+import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.ViewDefinition;
 import com.xgen.mongot.util.CollectionUtils;
 import com.xgen.mongot.util.FieldPath;
@@ -32,6 +34,7 @@ public class ChangeStreams {
    */
   public static boolean updateDescriptionAppliesToIndex(
       UpdateDescription updateDescription,
+      IndexDefinition indexDefinition,
       FieldDefinitionResolver fieldDefinitionResolver,
       Optional<ViewDefinition> view) {
 
@@ -67,12 +70,23 @@ public class ChangeStreams {
 
     // Convert all the fields in the UpdateDescription to the field we need to check for being
     // configured to be indexed or stored, and return true if any of the fields are configured.
-    // TODO(CLOUDP-424650): Include search autoEmbedVector sourceField dependencies when deciding
-    // whether an update applies.
     return fields.stream()
         .map(FieldPath::parse)
         .map(ChangeStreams::filterFieldPath)
-        .anyMatch(fieldDefinitionResolver::isUsed);
+        .anyMatch(
+            fieldPath ->
+                fieldDefinitionResolver.isUsed(fieldPath)
+                    || isSearchAutoEmbedSourceField(indexDefinition, fieldPath));
+  }
+
+  private static boolean isSearchAutoEmbedSourceField(
+      IndexDefinition indexDefinition, FieldPath updatedFieldPath) {
+    if (!(indexDefinition instanceof SearchIndexDefinition searchIndexDefinition)) {
+      return false;
+    }
+
+    return searchIndexDefinition.getModelNamePerPath().keySet().stream()
+        .anyMatch(updatedFieldPath::isDirectRelation);
   }
 
   /**

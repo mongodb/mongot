@@ -7,11 +7,14 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.google.common.base.Supplier;
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.client.model.changestream.OperationType;
+import com.mongodb.client.model.changestream.UpdateDescription;
+import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.FieldExceededLimitsException;
 import com.xgen.mongot.index.IndexMetricValuesSupplier;
 import com.xgen.mongot.index.IndexMetricsUpdater;
@@ -24,9 +27,11 @@ import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoClient;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
+import com.xgen.mongot.replication.mongodb.common.SchedulerQueue;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.mongodb.ChangeStreamAggregateCommand;
 import com.xgen.testing.mongot.index.IndexMetricsUpdaterBuilder;
+import com.xgen.testing.mongot.mock.index.IndexGeneration;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -72,7 +77,7 @@ public class BufferlessChangeStreamApplierTest {
 
   @Parameterized.Parameter public static boolean enableNaturalOrderScan;
 
-  @Parameterized.Parameters
+  @Parameterized.Parameters(name = "enableNaturalOrderScan={0}")
   public static List<Boolean> data() {
     return Arrays.asList(true, false);
   }
@@ -145,6 +150,60 @@ public class BufferlessChangeStreamApplierTest {
                   .getTotalApplicableBytes()
                   .count()
               > 0);
+    }
+  }
+
+  @Test
+  public void applyEvents_searchAutoEmbedSourceFieldUpdate_schedulesOnlyApplicableUpdate()
+      throws Exception {
+    var indexDefinition = SearchIndex.MOCK_SEARCH_AUTO_EMBEDDING_INDEX_DEFINITION;
+    var definitionGeneration = IndexGeneration.mockDefinitionGeneration(indexDefinition);
+    var sourceUpdateDescription =
+        new UpdateDescription(null, new BsonDocument("content", new BsonString("updated")));
+    var sourceUpdate =
+        ChangeStreamUtils.dataEvent(
+            OperationType.UPDATE,
+            0,
+            sourceUpdateDescription,
+            new BsonDocument()
+                .append("_id", new BsonInt32(0))
+                .append("content", new BsonString("updated"))
+                .append(
+                    indexDefinition.getIndexId().toString(),
+                    new BsonDocument("_id", new BsonInt32(0))));
+    var unrelatedUpdateDescription =
+        new UpdateDescription(null, new BsonDocument("unrelated", new BsonString("updated")));
+    var unrelatedUpdate =
+        ChangeStreamUtils.updateEvent(1, unrelatedUpdateDescription, indexDefinition);
+
+    try (Mocks mocks = Mocks.createMocks(Optional.of(definitionGeneration))) {
+      when(mocks.changeStreamMongoClient.getNext())
+          .thenReturn(
+              new ChangeStreamBatch(
+                  toRawBsonDocuments(List.of(sourceUpdate, unrelatedUpdate)),
+                  ChangeStreamUtils.resumeToken(OP_TIME),
+                  OP_TIME));
+      doReturn(CompletableFuture.completedFuture(null))
+          .when(mocks.context)
+          .schedule(any(), any(), any());
+
+      BsonValue lastScannedToken =
+          enableNaturalOrderScan ? POST_BATCH_RESUME_TOKEN : LAST_SCANNED_ID;
+      ArgumentCaptor<List<DocumentEvent>> scheduledBatch = ArgumentCaptor.captor();
+      ArgumentCaptor<SchedulerQueue.Priority> scheduledPriority = ArgumentCaptor.captor();
+
+      mocks.applier.applyEvents(lastScannedToken, OP_TIME, false);
+
+      verify(mocks.context).schedule(scheduledBatch.capture(), scheduledPriority.capture(), any());
+      Assert.assertEquals(
+          SchedulerQueue.Priority.INITIAL_SYNC_CHANGE_STREAM, scheduledPriority.getValue());
+      Assert.assertEquals(1, scheduledBatch.getValue().size());
+      DocumentEvent scheduledEvent = scheduledBatch.getValue().getFirst();
+      Assert.assertEquals(DocumentEvent.EventType.UPDATE, scheduledEvent.getEventType());
+      Assert.assertEquals(
+          sourceUpdate.getFullDocument(), scheduledEvent.getDocument().orElseThrow());
+      Assert.assertFalse(scheduledEvent.getFilterFieldUpdates().isPresent());
+      Assert.assertTrue(scheduledEvent.getChangedEmbedTexts().isEmpty());
     }
   }
 
@@ -311,7 +370,7 @@ public class BufferlessChangeStreamApplierTest {
       this.context =
           spy(
               InitialSyncContext.create(
-                      SearchIndex.MOCK_INDEX_DEFINITION_GENERATION,
+                      indexDefinitionGeneration,
                       indexingWorkSchedulerFactory.getIndexingWorkScheduler(
                           indexDefinitionGeneration.getIndexDefinition()),
                       indexer,

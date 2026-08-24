@@ -10,7 +10,10 @@ import com.mongodb.client.model.changestream.OperationType;
 import com.mongodb.client.model.changestream.UpdateDescription;
 import com.xgen.mongot.embedding.utils.PartialEmbedFallbackReason;
 import com.xgen.mongot.index.DocumentEvent;
+import com.xgen.mongot.index.definition.BooleanFieldDefinition;
 import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
+import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.ViewDefinition;
 import com.xgen.mongot.index.version.IndexFormatVersion;
@@ -18,6 +21,9 @@ import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.replication.mongodb.common.ViewFieldDependencies.ViewDerivationFallbackReason;
 import com.xgen.mongot.replication.mongodb.common.ViewFieldDependencies.ViewFullProcessingReason;
 import com.xgen.mongot.util.FieldPath;
+import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils;
 import io.micrometer.core.instrument.Tags;
@@ -173,6 +179,155 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
     assertTrue(event.getChangedEmbedTexts().isEmpty());
     assertEquals(changeEvent.getFullDocument(), event.getDocument().orElseThrow());
     assertTrue(batch.partialEmbedFallbacks.isEmpty());
+  }
+
+  @Test
+  public void searchAutoEmbed_sourceFieldUpdate_featureFlagEnabled_remainsNormalFullUpdate() {
+    SearchIndexDefinition indexDef = searchAutoEmbedIndex();
+    ChangeStreamDocument<RawBsonDocument> changeEvent = createSearchUpdateEvent(indexDef, "body");
+    AutoEmbeddingMaterializedViewConfig materializedViewConfig =
+        AutoEmbeddingMaterializedViewConfig.getDefault();
+    materializedViewConfig.setControlKnobEvaluator(controlKnob -> true);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef),
+            Optional.of(materializedViewConfig));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    DocumentEvent event = batch.finalChangeEvents.getFirst();
+    assertFalse(event.getFilterFieldUpdates().isPresent());
+    assertTrue(event.getChangedEmbedTexts().isEmpty());
+    assertEquals(changeEvent.getFullDocument(), event.getDocument().orElseThrow());
+    assertTrue(batch.partialEmbedFallbacks.isEmpty());
+  }
+
+  @Test
+  public void searchAutoEmbed_derivesMappingFromSourceField() {
+    SearchIndexDefinition indexDef = searchAutoEmbedIndex();
+
+    var mapping = ChangeStreamDocumentUtils.deriveAutoEmbedFieldMapping(indexDef).orElseThrow();
+
+    assertEquals(ImmutableSet.of(FieldPath.parse("body")), mapping.embedFields().keySet());
+    assertTrue(mapping.isPassthrough(FieldPath.parse("category")));
+  }
+
+  @Test
+  public void searchAutoEmbed_unrelatedUpdate_featureFlagEnabled_isDiscardedBeforeFullUpdate() {
+    SearchIndexDefinition indexDef = searchAutoEmbedIndex();
+    ChangeStreamDocument<RawBsonDocument> changeEvent =
+        createSearchUpdateEvent(indexDef, "unrelated");
+    AutoEmbeddingMaterializedViewConfig materializedViewConfig =
+        AutoEmbeddingMaterializedViewConfig.getDefault();
+    materializedViewConfig.setControlKnobEvaluator(controlKnob -> true);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef),
+            Optional.of(materializedViewConfig));
+
+    assertTrue(batch.finalChangeEvents.isEmpty());
+    assertTrue(batch.partialEmbedFallbacks.isEmpty());
+  }
+
+  @Test
+  public void searchAutoEmbed_sourceFieldUpdate_featureFlagDisabled_remainsFullUpdate() {
+    SearchIndexDefinition indexDef = searchAutoEmbedIndex();
+    ChangeStreamDocument<RawBsonDocument> changeEvent = createSearchUpdateEvent(indexDef, "body");
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    DocumentEvent event = batch.finalChangeEvents.getFirst();
+    assertFalse(event.getFilterFieldUpdates().isPresent());
+    assertTrue(event.getChangedEmbedTexts().isEmpty());
+    assertEquals(changeEvent.getFullDocument(), event.getDocument().orElseThrow());
+    assertEquals(0, batch.partialEmbedApplied);
+    assertEquals(0, batch.filterOnlyPartialApplied);
+    assertTrue(batch.partialEmbedFallbacks.isEmpty());
+  }
+
+  @Test
+  public void searchAutoEmbed_sourceFieldRemoval_remainsFullUpdate() {
+    SearchIndexDefinition indexDef = searchAutoEmbedIndex();
+    UpdateDescription updateDescription =
+        new UpdateDescription(List.of("body"), new BsonDocument());
+    ChangeStreamDocument<RawBsonDocument> changeEvent =
+        ChangeStreamUtils.updateEvent(0, updateDescription, indexDef);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    DocumentEvent event = batch.finalChangeEvents.getFirst();
+    assertFalse(event.getFilterFieldUpdates().isPresent());
+    assertTrue(event.getChangedEmbedTexts().isEmpty());
+    assertEquals(changeEvent.getFullDocument(), event.getDocument().orElseThrow());
+    assertEquals(0, batch.partialEmbedApplied);
+    assertEquals(0, batch.filterOnlyPartialApplied);
+    assertTrue(batch.partialEmbedFallbacks.isEmpty());
+  }
+
+  @Test
+  public void searchAutoEmbed_declaredFieldUpdate_doesNotCreateFilterOnlyUpdate() {
+    SearchIndexDefinition indexDef = searchAutoEmbedIndex();
+    ChangeStreamDocument<RawBsonDocument> changeEvent =
+        createSearchUpdateEvent(indexDef, "category");
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    DocumentEvent event = batch.finalChangeEvents.getFirst();
+    assertFalse(event.getFilterFieldUpdates().isPresent());
+    assertTrue(event.getChangedEmbedTexts().isEmpty());
+    assertEquals(changeEvent.getFullDocument(), event.getDocument().orElseThrow());
+    assertEquals(0, batch.filterOnlyPartialApplied);
+  }
+
+  @Test
+  public void searchAutoEmbed_collapsedPredecessor_doesNotEnterPartialUpdateClassification() {
+    SearchIndexDefinition indexDef = searchAutoEmbedIndex();
+    ChangeStreamDocument<RawBsonDocument> survivor = createSearchUpdateEvent(indexDef, "body");
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(ChangeStreamUtils.replaceEvent(0, indexDef), survivor),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    assertEquals(
+        survivor.getFullDocument(), batch.finalChangeEvents.getFirst().getDocument().get());
+    assertFalse(
+        batch.partialEmbedFallbacks.containsKey(
+            PartialEmbedFallbackReason.INTRA_BATCH_PREDECESSOR_REQUIRES_FULL));
   }
 
   @Test
@@ -1992,6 +2147,31 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
         new UpdateDescription(
             null, new BsonDocument(vectorFieldName, new BsonString("deep learning")));
     return ChangeStreamUtils.updateEvent(0, updateDesc, indexDef);
+  }
+
+  private static SearchIndexDefinition searchAutoEmbedIndex() {
+    SearchAutoEmbedFieldDefinition autoEmbed =
+        new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("body"));
+    return SearchIndexDefinitionBuilder.builder()
+        .defaultMetadata()
+        .mappings(
+            DocumentFieldDefinitionBuilder.builder()
+                .dynamic(false)
+                .field(
+                    "embedding",
+                    FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbed).build())
+                .field(
+                    "category",
+                    FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build())
+                .build())
+        .build();
+  }
+
+  private static ChangeStreamDocument<RawBsonDocument> createSearchUpdateEvent(
+      SearchIndexDefinition indexDef, String fieldName) {
+    UpdateDescription updateDescription =
+        new UpdateDescription(null, new BsonDocument(fieldName, new BsonString("updated")));
+    return ChangeStreamUtils.updateEvent(0, updateDescription, indexDef);
   }
 
   // View auto-embed decision metrics.
