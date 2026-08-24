@@ -1799,31 +1799,31 @@
     },
     "org.bouncycastle:bc-fips": {
       "shasums": {
-        "jar": "0809410197b36bf7c333c264f8021543ab674a4c27113e07630fb4622bede9fc",
-        "sources": "a629a48b585a9b8eef6404e2695e4643a64289894000a211521126a54d0e76dd"
+        "jar": "f55fc476ede820d5c03fe87e6ced5bb0095e1dc30b387445846a3ff0274f8c0e",
+        "sources": "9da8a0fa619d5e46ea321e2abf6b9e2c88d9aaa04cf8dbf80c4fec6943a40aad"
       },
-      "version": "2.0.2"
+      "version": "2.1.3"
     },
     "org.bouncycastle:bcpkix-fips": {
       "shasums": {
-        "jar": "2ac182972e927055c0a5ab4483d7c62feb62e6df1f6752cb89ed97de03ffbe81",
-        "sources": "6469f459b8ce725009cfebaa27dcad2e59fe52c2d712c4730945fefd0144b6c2"
+        "jar": "48f418d70c9551ac9225f333e5e9dfe872b4501cc566728b6d2bc7364a2223d4",
+        "sources": "fa104ecfe5a6e1f386980c0455433239dc41eb9ecc2bea1639efff1b89786e4a"
       },
-      "version": "2.0.12"
+      "version": "2.1.12"
     },
     "org.bouncycastle:bctls-fips": {
       "shasums": {
-        "jar": "cc8b1a66e017f21ef1d3d7868b96ade6d29a1516738a27b96baf7e40a9fd883a",
-        "sources": "ce0b4394298c64bbfd60c8ece6ad6dc6495e00fb6831bd364f2e71de417dd944"
+        "jar": "d2233207daecc2dfccdc317a53bd874b12c21a6dc5be78e390d8826eb726194c",
+        "sources": "c758cbe2a9f4ca0a8c77f8e20748ceec9c43480bcc32217f323568d35bdc8644"
       },
-      "version": "2.0.24"
+      "version": "2.1.24"
     },
     "org.bouncycastle:bcutil-fips": {
       "shasums": {
-        "jar": "2281fbb1b89eeb6fb24078618a8382d575ada4b8a0d26ed710a5c4d6037e7c16",
-        "sources": "ba3ff5068f2defeadadd89cbfda04ea193b046c3436b5733fc5deb4910ed77e4"
+        "jar": "a30e550f06dcfa0fd7da1e9a501f111421406fa237467522b3ca05187429832d",
+        "sources": "779ceac4ad0464469bf49f09984d38986f11d9212d4a93d8df109c9728a8d08d"
       },
-      "version": "2.0.7"
+      "version": "2.1.7"
     },
     "org.carrot2:morfologik-fsa": {
       "shasums": {
@@ -3545,11 +3545,9 @@
       "org.apache.maven.doxia:doxia-logging-api"
     ],
     "org.bouncycastle:bcpkix-fips": [
-      "org.bouncycastle:bc-fips",
       "org.bouncycastle:bcutil-fips"
     ],
     "org.bouncycastle:bctls-fips": [
-      "org.bouncycastle:bc-fips",
       "org.bouncycastle:bcutil-fips"
     ],
     "org.bouncycastle:bcutil-fips": [
@@ -6722,6 +6720,7 @@
       "org.bouncycastle.crypto.internal.util",
       "org.bouncycastle.crypto.internal.wrappers",
       "org.bouncycastle.crypto.util",
+      "org.bouncycastle.crypto.util.dispose",
       "org.bouncycastle.internal.asn1.bsi",
       "org.bouncycastle.internal.asn1.cms",
       "org.bouncycastle.internal.asn1.eac",
