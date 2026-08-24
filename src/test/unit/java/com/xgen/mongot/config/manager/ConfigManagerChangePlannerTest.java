@@ -904,6 +904,141 @@ public class ConfigManagerChangePlannerTest {
   }
 
   @Test
+  public void
+      testSingleVectorIndexExistsModifiedAutoEmbeddingDefinitionVersionProducesModification()
+          throws Exception {
+    var indexId = new ObjectId();
+
+    var originalDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .indexId(indexId)
+            .withCosineVectorField("vector", 1024)
+            .autoEmbeddingDefinitionVersion(1L)
+            .build();
+
+    var mocks = Mocks.withIndexes(originalDefinition);
+
+    // Bump only the autoEmbeddingDefinitionVersion.
+    var desiredDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .indexId(indexId)
+            .withCosineVectorField("vector", 1024)
+            .autoEmbeddingDefinitionVersion(2L)
+            .build();
+
+    var plan = mocks.plan(singletonList(desiredDefinition), emptyList(), emptyList());
+
+    assertNoAddedIndexes(plan);
+    assertNoUnmodifiedIndexes(plan);
+    assertNoDroppedIndexes(plan);
+    var modified = assertIndexModified(desiredDefinition, plan);
+
+    Assert.assertEquals(
+        ModifiedIndexInformation.Type.DIFFERENT_FROM_LIVE_NO_STAGED, modified.getType());
+    TestUtils.assertContains(modified.getReasons(), "autoEmbeddingDefinitionVersion has changed");
+  }
+
+  @Test
+  public void testSingleVectorIndexExistsFirstAutoEmbeddingDefinitionVersionProducesModification()
+      throws Exception {
+    var indexId = new ObjectId();
+
+    // The existing index has no autoEmbeddingDefinitionVersion set.
+    var originalDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .indexId(indexId)
+            .withCosineVectorField("vector", 1024)
+            .build();
+
+    var mocks = Mocks.withIndexes(originalDefinition);
+
+    var desiredDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .indexId(indexId)
+            .withCosineVectorField("vector", 1024)
+            .autoEmbeddingDefinitionVersion(1L)
+            .build();
+
+    var plan = mocks.plan(singletonList(desiredDefinition), emptyList(), emptyList());
+
+    assertNoAddedIndexes(plan);
+    assertNoUnmodifiedIndexes(plan);
+    assertNoDroppedIndexes(plan);
+    var modified = assertIndexModified(desiredDefinition, plan);
+
+    Assert.assertEquals(
+        ModifiedIndexInformation.Type.DIFFERENT_FROM_LIVE_NO_STAGED, modified.getType());
+    TestUtils.assertContains(modified.getReasons(), "autoEmbeddingDefinitionVersion has changed");
+  }
+
+  @Test
+  public void
+      testSingleVectorIndexExistsDesiredAutoEmbeddingDefinitionVersionZeroProducesNoChanges()
+          throws Exception {
+    var indexId = new ObjectId();
+
+    // The existing index has no autoEmbeddingDefinitionVersion set; an explicit 0 is equivalent.
+    var originalDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .indexId(indexId)
+            .withCosineVectorField("vector", 1024)
+            .build();
+
+    var mocks = Mocks.withIndexes(originalDefinition);
+
+    var desiredDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .indexId(indexId)
+            .withCosineVectorField("vector", 1024)
+            .autoEmbeddingDefinitionVersion(0L)
+            .build();
+
+    var plan = mocks.plan(singletonList(desiredDefinition), emptyList(), emptyList());
+
+    assertNoAddedIndexes(plan);
+    assertIndexUnmodified(indexId, plan);
+    assertNoModifiedIndexes(plan);
+    assertNoDroppedIndexes(plan);
+    Assert.assertFalse(plan.hasChanges());
+  }
+
+  @Test
+  public void
+      testSingleSearchIndexExistsModifiedAutoEmbeddingDefinitionVersionProducesModification()
+          throws Exception {
+    var indexId = new ObjectId();
+
+    var originalDefinition =
+        SearchIndexDefinitionBuilder.builder()
+            .defaultMetadata()
+            .indexId(indexId)
+            .dynamicMapping()
+            .autoEmbeddingDefinitionVersion(1L)
+            .build();
+    var mocks = Mocks.withIndexes(originalDefinition);
+
+    // Bump only the autoEmbeddingDefinitionVersion.
+    var desiredDefinition =
+        SearchIndexDefinitionBuilder.builder()
+            .defaultMetadata()
+            .indexId(indexId)
+            .dynamicMapping()
+            .autoEmbeddingDefinitionVersion(2L)
+            .build();
+
+    var plan = mocks.plan(emptyList(), singletonList(desiredDefinition), emptyList());
+
+    assertNoAddedIndexes(plan);
+    assertNoUnmodifiedIndexes(plan);
+    assertNoDroppedIndexes(plan);
+    var modified = assertIndexModified(desiredDefinition, plan);
+
+    Assert.assertEquals(
+        ModifiedIndexInformation.Type.DIFFERENT_FROM_LIVE_NO_STAGED, modified.getType());
+    TestUtils.assertContains(modified.getReasons(), "autoEmbeddingDefinitionVersion has changed");
+  }
+
+  @Test
   public void testSingleSearchIndexExistsNoIndexesDesiredProducesDrop() throws Exception {
     var indexId = new ObjectId();
 

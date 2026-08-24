@@ -6,6 +6,7 @@ public enum IndexChangeReason {
   FIELDS("vector fields or filters have changed"),
   NUM_PARTITIONS("numPartitions has changed"),
   DEFINITION_VERSION("definitionVersion has changed"),
+  AUTO_EMBEDDING_DEFINITION_VERSION("autoEmbeddingDefinitionVersion has changed"),
   VIEW("view has changed"),
   INDEX_FEATURE_VERSION("indexFeatureVersion has changed"),
   ANALYZER("analyzer has changed"),

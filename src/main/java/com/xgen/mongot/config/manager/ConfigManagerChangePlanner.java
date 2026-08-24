@@ -296,6 +296,12 @@ class ConfigManagerChangePlanner {
       reasons.add(IndexChangeReason.DEFINITION_VERSION.getDescription());
     }
 
+    if (!Objects.equals(
+        existing.getAutoEmbeddingDefinitionVersion().orElse(0L),
+        desired.getAutoEmbeddingDefinitionVersion().orElse(0L))) {
+      reasons.add(IndexChangeReason.AUTO_EMBEDDING_DEFINITION_VERSION.getDescription());
+    }
+
     if (!existing.getView().equals(desired.getView())) {
       reasons.add(IndexChangeReason.VIEW.getDescription());
     }
@@ -347,6 +353,12 @@ class ConfigManagerChangePlanner {
     if (!Objects.equals(
         existing.getDefinitionVersion().orElse(0L), desired.getDefinitionVersion().orElse(0L))) {
       reasons.add(IndexChangeReason.DEFINITION_VERSION.getDescription());
+    }
+
+    if (!Objects.equals(
+        existing.getAutoEmbeddingDefinitionVersion().orElse(0L),
+        desired.getAutoEmbeddingDefinitionVersion().orElse(0L))) {
+      reasons.add(IndexChangeReason.AUTO_EMBEDDING_DEFINITION_VERSION.getDescription());
     }
 
     if (!existing.getView().equals(desired.getView())) {
