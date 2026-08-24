@@ -222,11 +222,6 @@ public class IndexDirectoryHelper {
     return Paths.get(this.rootPath.toString(), getNameForGeneration(definition));
   }
 
-  public Path getCustomEngineIndexPath(IndexDefinitionGeneration definition, String engineName) {
-    Path indexDirectoryPath = this.getIndexDirectoryPath(definition);
-    return Paths.get(indexDirectoryPath.toString(), engineName);
-  }
-
   /**
    * Retrieve path where index metadata (eg: mapping of index files in blobstore) will be stored.
    */

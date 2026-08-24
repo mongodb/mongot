@@ -167,8 +167,14 @@ def perf_java_integration_test_suite(
         timeouts = timeouts,
     )
 
+# Tags for integration runs that need a cluster `make docker.up` does not provide. A test carrying
+# one must not also carry `integration`, or the default run picks it up and fails on the missing
+# cluster.
+_SPECIALIZED_INTEGRATION_TAGS = ["integration_community_sharded", "integration_vectorlite"]
+
 def mongot_java_integration_test(size = "small", timeout = "short", tags = [], **kwargs):
-    final_tags = tags if "integration_community_sharded" in tags else tags + ["integration"]
+    specialized = any([tag in tags for tag in _SPECIALIZED_INTEGRATION_TAGS])
+    final_tags = tags if specialized else tags + ["integration"]
     java_test(
         tags = _disable_spotbugs_for_tests(final_tags),
         size = size,
@@ -329,16 +335,19 @@ def _mongot_java_test_suite(
         default_tags = [],
         tags = {},
         jvm_flags = {},
+        javacopts = [],
         classpath_resources = [],
         **kwargs):
     deps = deps + TEST_ONLY_ARTIFACTS + ["org.mockito:mockito-core"]
 
     # Create a package with the dependencies that can be used by the individual tests.
+    # javacopts is opt-in: FFM (preview API) sources need --enable-preview here too.
     mongot_java_package(
         name = name,
         deps = deps,
         testonly = True,
         tags = ["no-java-spotbugs"],
+        javacopts = javacopts,
     )
 
     if not "//conf/mongot/test:conf" in classpath_resources:
