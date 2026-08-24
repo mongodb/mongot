@@ -22,8 +22,8 @@ import com.xgen.mongot.index.lucene.codec.flat.ScalarQuantizedFlatVectorsFormat;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.quantization.Mongot01042HnswBinaryQuantizedVectorsFormat;
 import com.xgen.mongot.index.lucene.quantization.Mongot01042HnswBitVectorsFormat;
-import com.xgen.mongot.index.lucene.quantization.MongotHnswScalarQuantizedVectorsFormat;
 import com.xgen.mongot.index.lucene.vector.Lucene99NativeHnswVectorsFormat;
+import com.xgen.mongot.index.lucene.vector.NativeHnswScalarQuantizedVectorsFormat;
 import com.xgen.mongot.util.FieldPath;
 import java.util.Map;
 import java.util.Optional;
@@ -82,7 +82,7 @@ public class CodecSubformatChangeDetectorTest {
               .put(KNN_VECTOR, Lucene99HnswVectorsFormat.class)
               .put(KNN_BYTE, Lucene99NativeHnswVectorsFormat.class)
               .put(KNN_BIT, Mongot01042HnswBitVectorsFormat.class)
-              .put(KNN_F32_Q7, MongotHnswScalarQuantizedVectorsFormat.class)
+              .put(KNN_F32_Q7, NativeHnswScalarQuantizedVectorsFormat.class)
               .put(KNN_F32_Q1, Mongot01042HnswBinaryQuantizedVectorsFormat.class)
               .put(KNN_BYTE_Q1, Mongot01042HnswBinaryQuantizedVectorsFormat.class)
               .build();

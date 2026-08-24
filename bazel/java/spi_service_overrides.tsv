@@ -17,3 +17,4 @@
 # Lines beginning with '#' and blank lines are ignored.
 
 META-INF/services/org.apache.lucene.codecs.KnnVectorsFormat	org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat	com.xgen.mongot.index.lucene.vector.Lucene99NativeHnswVectorsFormat
+META-INF/services/org.apache.lucene.codecs.KnnVectorsFormat	org.apache.lucene.backward_codecs.lucene99.Lucene99HnswScalarQuantizedVectorsFormat	com.xgen.mongot.index.lucene.vector.NativeHnswScalarQuantizedVectorsFormat

@@ -17,6 +17,7 @@ import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.hnsw.HnswGraphProvider;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
 import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.KnnFloatVectorField;
@@ -101,7 +102,8 @@ public class NativeHnswScalarQuantizedVectorsFormatTest extends BaseKnnVectorsFo
                 DEFAULT_BEAM_WIDTH,
                 0,
                 Optional.empty(),
-                DEFAULT_HNSW_GRAPH_THRESHOLD));
+                new HnswWriteParams(
+                    DEFAULT_HNSW_GRAPH_THRESHOLD, Lucene99HnswVectorsFormat.VERSION_START)));
   }
 
   @Test
@@ -114,7 +116,8 @@ public class NativeHnswScalarQuantizedVectorsFormatTest extends BaseKnnVectorsFo
                 DEFAULT_BEAM_WIDTH,
                 -1,
                 Optional.empty(),
-                DEFAULT_HNSW_GRAPH_THRESHOLD));
+                new HnswWriteParams(
+                    DEFAULT_HNSW_GRAPH_THRESHOLD, Lucene99HnswVectorsFormat.VERSION_START)));
   }
 
   /**

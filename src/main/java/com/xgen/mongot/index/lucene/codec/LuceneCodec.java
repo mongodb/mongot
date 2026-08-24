@@ -15,9 +15,9 @@ import com.xgen.mongot.index.lucene.codec.flat.ScalarQuantizedFlatVectorsFormat;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.quantization.Mongot01042HnswBinaryQuantizedVectorsFormat;
 import com.xgen.mongot.index.lucene.quantization.Mongot01042HnswBitVectorsFormat;
-import com.xgen.mongot.index.lucene.quantization.MongotHnswScalarQuantizedVectorsFormat;
 import com.xgen.mongot.index.lucene.vector.HnswWriteParams;
 import com.xgen.mongot.index.lucene.vector.Lucene99NativeHnswVectorsFormat;
+import com.xgen.mongot.index.lucene.vector.NativeHnswScalarQuantizedVectorsFormat;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
 import java.util.HashMap;
@@ -74,12 +74,19 @@ import org.apache.lucene.store.Directory;
  * <h3>KNN vectors</h3>
  *
  * <p>The KNN per-field formats target Lucene 9.11.1 classes (or mongot's {@code Mongot01042*} forks
- * thereof). {@code KNN_F32_Q7} uses {@link MongotHnswScalarQuantizedVectorsFormat} (byte-identical
- * to {@code backward_codecs.lucene99.Lucene99HnswScalarQuantizedVectorsFormat}, whose writer the
- * fork keeps alive), {@code KNN_VECTOR} uses {@code Lucene99HnswVectorsFormat}, and the flat scalar
- * format delegates to {@code backward_codecs.lucene99.Lucene99ScalarQuantizedVectorsFormat}.
- * Per-field KNN formats are SPI-resolved by name; the format classes are identical under every
- * write format. Every HNSW format takes the write-format-dependent parameters — the graph write
+ * thereof). {@code KNN_F32_Q7} uses {@link
+ * com.xgen.mongot.index.lucene.vector.NativeHnswScalarQuantizedVectorsFormat} (a drop-in,
+ * byte-identical replacement for {@code
+ * backward_codecs.lucene99.Lucene99HnswScalarQuantizedVectorsFormat} that accelerates scoring with
+ * native SIMD kernels when available), {@code KNN_VECTOR} uses {@code Lucene99HnswVectorsFormat},
+ * and the flat scalar format delegates to {@code
+ * backward_codecs.lucene99.Lucene99ScalarQuantizedVectorsFormat}. Per-field KNN formats are
+ * SPI-resolved by name on read; the format classes are identical under every write format. {@code
+ * KNN_F32_Q7} (like {@code KNN_BYTE}) shares its on-disk name with a stock Lucene class, so {@code
+ * bazel/java/spi_service_overrides.tsv} strips the stock SPI registration from the packaged binary
+ * at stamp time, making the native format the sole, deterministic {@code forName()} result; see
+ * {@link com.xgen.mongot.index.lucene.vector.NativeHnswScalarQuantizedVectorsFormat}'s own javadoc
+ * for details. Every HNSW format takes the write-format-dependent parameters — the graph write
  * version and the tiny-segment graph threshold — explicitly, grouped and validated as {@link
  * com.xgen.mongot.index.lucene.vector.HnswWriteParams}; see {@link
  * WriteFormat#getHnswWriteParams()}.
@@ -314,8 +321,12 @@ public class LuceneCodec extends FilterCodec {
               Optional.empty(),
               hnswWriteParams);
       case FieldName.TypeField.KNN_F32_Q7 ->
-          new MongotHnswScalarQuantizedVectorsFormat(
-              options.maxEdges(), options.numEdgeCandidates(), hnswWriteParams);
+          new NativeHnswScalarQuantizedVectorsFormat(
+              options.maxEdges(),
+              options.numEdgeCandidates(),
+              Lucene99HnswVectorsFormat.DEFAULT_NUM_MERGE_WORKER,
+              Optional.empty(),
+              hnswWriteParams);
       case FieldName.TypeField.KNN_F32_Q1, FieldName.TypeField.KNN_BYTE_Q1 ->
           new Mongot01042HnswBinaryQuantizedVectorsFormat(
               options.maxEdges(),
