@@ -10,6 +10,7 @@ java_library(
         "JournalEntry.java",
         "JournalEntryIdentity.java",
         "JournalWriter.java",
+        "QuarantinePolicy.java",
     ],
     visibility = ["//visibility:public"],
     exports = [
@@ -29,5 +30,6 @@ java_library(
         "@maven//:com_google_guava_guava",
         "@maven//:org_jetbrains_annotations",
         "@maven//:org_mongodb_bson",
+        "@maven//:org_slf4j_slf4j_api",
     ],
 )

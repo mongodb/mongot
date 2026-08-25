@@ -27,6 +27,7 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
+import org.bson.BsonArray;
 import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
@@ -507,6 +508,194 @@ public class ConfigJournalV1Test {
           "must be a integer", BsonParseException.class, () -> loadExisting(path));
       TestUtils.assertThrows(
           "must be a integer", BsonParseException.class, () -> loadExisting(path));
+    }
+
+    /**
+     * A journal holding a single valid entry in one of the six index arrays, so that each array's
+     * quarantine behaviour can be exercised the same way.
+     */
+    public record SingleEntryJournal(String arrayName, ConfigJournalV1 journal) {
+      @Override
+      public String toString() {
+        return this.arrayName;
+      }
+    }
+
+    @DataPoints("singleEntryJournals")
+    public static List<SingleEntryJournal> singleEntryJournals() {
+      IndexDefinitionGeneration search = searchDefinition("012345678901234567890123", "foo", 1, 2);
+      IndexDefinitionGeneration vector = VectorIndex.MOCK_INDEX_DEFINITION_GENERATION;
+
+      return List.of(
+          new SingleEntryJournal(
+              "stagedIndexes", ConfigJournalV1Builder.builder().stagedIndex(search).build()),
+          new SingleEntryJournal(
+              "indexes", ConfigJournalV1Builder.builder().liveIndex(search).build()),
+          new SingleEntryJournal(
+              "deletedIndexes", ConfigJournalV1Builder.builder().deletedIndex(search).build()),
+          new SingleEntryJournal(
+              "stagedVectorIndexes", ConfigJournalV1Builder.builder().stagedIndex(vector).build()),
+          new SingleEntryJournal(
+              "vectorIndexes", ConfigJournalV1Builder.builder().liveIndex(vector).build()),
+          new SingleEntryJournal(
+              "deletedVectorIndexes",
+              ConfigJournalV1Builder.builder().deletedIndex(vector).build()));
+    }
+
+    @DataPoints("policies")
+    public static List<QuarantinePolicy> policies() {
+      return List.of(QuarantinePolicy.FAIL_FAST, QuarantinePolicy.QUARANTINE);
+    }
+
+    @Theory
+    public void fromFileIfExists_quarantine_unparseableEntryRoundTripsVerbatim(
+        @FromDataPoints("singleEntryJournals") SingleEntryJournal singleEntryJournal)
+        throws Exception {
+      Path path = getFilePath();
+      BsonDocument corrupted =
+          withUnknownFieldInFirstElement(
+              singleEntryJournal.journal().toBson(), singleEntryJournal.arrayName());
+      write(path, corrupted);
+
+      ConfigJournalV1 parsed =
+          ConfigJournalV1.fromFileIfExists(path, QuarantinePolicy.QUARANTINE).orElseThrow();
+
+      Assert.assertEquals(JsonCodec.toJson(corrupted), JsonCodec.toJson(parsed.toBson()));
+      Assert.assertEquals(1, parsed.getQuarantinedEntries().size());
+      Assert.assertTrue(parsed.getStagedIndexes().isEmpty());
+      Assert.assertTrue(parsed.getLiveIndexes().isEmpty());
+      Assert.assertTrue(parsed.getDeletedIndexes().isEmpty());
+    }
+
+    @Theory
+    public void fromFileIfExists_failFast_unparseableEntryThrows(
+        @FromDataPoints("singleEntryJournals") SingleEntryJournal singleEntryJournal)
+        throws Exception {
+      Path path = getFilePath();
+      write(
+          path,
+          withUnknownFieldInFirstElement(
+              singleEntryJournal.journal().toBson(), singleEntryJournal.arrayName()));
+
+      TestUtils.assertThrows(
+          "unrecognized field \"fieldFromTheFuture\"",
+          BsonParseException.class,
+          () -> ConfigJournalV1.fromFileIfExists(path, QuarantinePolicy.FAIL_FAST));
+    }
+
+    @Test
+    public void fromFileIfExists_quarantine_healthyEntriesInSameArrayStillParse() throws Exception {
+      Path path = getFilePath();
+      var journal =
+          ConfigJournalV1Builder.builder()
+              .liveIndex(searchDefinition("012345678901234567890123", "foo", 1, 2))
+              .liveIndex(searchDefinition("012345678901234567890124", "baz", 1, 2))
+              .build();
+      write(path, withUnknownFieldInFirstElement(journal.toBson(), "indexes"));
+
+      ConfigJournalV1 parsed =
+          ConfigJournalV1.fromFileIfExists(path, QuarantinePolicy.QUARANTINE).orElseThrow();
+
+      Assert.assertEquals(1, parsed.getLiveIndexes().size());
+      Assert.assertEquals("baz", parsed.getLiveIndexes().get(0).getIndexDefinition().getName());
+      Assert.assertEquals(1, parsed.getQuarantinedEntries().size());
+    }
+
+    /**
+     * The corrupted entry is the one that sorts first, so a byte-identical round trip is only
+     * possible if it sorted into the same slot its parseable twin would have.
+     */
+    @Test
+    public void fromFileIfExists_quarantine_quarantinedEntrySortsLikeItsParseableTwin()
+        throws Exception {
+      Path path = getFilePath();
+      var journal =
+          ConfigJournalV1Builder.builder()
+              .liveIndex(searchDefinition("012345678901234567890123", "foo", 1, 2))
+              .liveIndex(searchDefinition("012345678901234567890124", "baz", 1, 2))
+              .build();
+      BsonDocument corrupted = withUnknownFieldInFirstElement(journal.toBson(), "indexes");
+      write(path, corrupted);
+
+      ConfigJournalV1 parsed =
+          ConfigJournalV1.fromFileIfExists(path, QuarantinePolicy.QUARANTINE).orElseThrow();
+
+      Assert.assertEquals(JsonCodec.toJson(corrupted), JsonCodec.toJson(parsed.toBson()));
+    }
+
+    @Theory
+    public void fromFileIfExists_entryWithoutIdentity_throwsUnderEitherPolicy(
+        @FromDataPoints("policies") QuarantinePolicy policy) throws Exception {
+      Path path = getFilePath();
+      BsonDocument journal =
+          ConfigJournalV1Builder.builder()
+              .liveIndex(searchDefinition("012345678901234567890123", "foo", 1, 2))
+              .build()
+              .toBson();
+      journal.getArray("indexes").get(0).asDocument().getDocument("index").remove("indexID");
+      write(path, journal);
+
+      TestUtils.assertThrows(
+          "is required",
+          BsonParseException.class,
+          () -> ConfigJournalV1.fromFileIfExists(path, policy));
+    }
+
+    @Theory
+    public void fromFileIfExists_entryIsNotADocument_throwsUnderEitherPolicy(
+        @FromDataPoints("policies") QuarantinePolicy policy) throws Exception {
+      Path path = getFilePath();
+      BsonDocument journal = ConfigJournalV1Builder.builder().build().toBson();
+      journal.put("indexes", new BsonArray(List.of(new BsonInt32(5))));
+      write(path, journal);
+
+      TestUtils.assertThrows(
+          "must be a document",
+          BsonParseException.class,
+          () -> ConfigJournalV1.fromFileIfExists(path, policy));
+    }
+
+    @Theory
+    public void fromFileIfExists_arrayIsNotAnArray_throwsUnderEitherPolicy(
+        @FromDataPoints("policies") QuarantinePolicy policy) throws Exception {
+      Path path = getFilePath();
+      BsonDocument journal = ConfigJournalV1Builder.builder().build().toBson();
+      journal.put("indexes", new BsonInt32(5));
+      write(path, journal);
+
+      TestUtils.assertThrows(
+          "must be a array",
+          BsonParseException.class,
+          () -> ConfigJournalV1.fromFileIfExists(path, policy));
+    }
+
+    @Theory
+    public void fromFileIfExists_requiredArrayMissing_throwsUnderEitherPolicy(
+        @FromDataPoints("policies") QuarantinePolicy policy) throws Exception {
+      Path path = getFilePath();
+      BsonDocument journal = ConfigJournalV1Builder.builder().build().toBson();
+      journal.remove("indexes");
+      write(path, journal);
+
+      TestUtils.assertThrows(
+          "is required",
+          BsonParseException.class,
+          () -> ConfigJournalV1.fromFileIfExists(path, policy));
+    }
+
+    /**
+     * Adds a field no version of mongot knows about, which makes the entry unparseable while
+     * leaving its identity readable.
+     */
+    private static BsonDocument withUnknownFieldInFirstElement(
+        BsonDocument journal, String arrayName) {
+      BsonDocument corrupted = journal.clone();
+      corrupted
+          .getArray(arrayName)
+          .get(0)
+          .asDocument()
+          .append("fieldFromTheFuture", new BsonBoolean(true));
+      return corrupted;
     }
 
     private Path getFilePath() throws Exception {
