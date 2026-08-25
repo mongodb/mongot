@@ -103,6 +103,7 @@ import org.apache.lucene.search.PrefixQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.RegexpQuery;
 import org.apache.lucene.search.SynonymQuery;
+import org.apache.lucene.search.TermInSetQuery;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.Weight;
 import org.apache.lucene.search.WildcardQuery;
@@ -1304,6 +1305,32 @@ public class LuceneSearchQueryFactoryDistributorTest {
     var expected =
         new ConstantScoreQuery(
             new TermQuery(new Term("$type:objectId/objId", new BytesRef(objId.toByteArray()))));
+
+    LuceneSearchTranslation.get().assertTranslatedTo(definition, expected);
+  }
+
+  @Test
+  public void testInWithSingleValueAndMultiplePathsDoesNotDelegateToEquals() throws Exception {
+    InOperator definition =
+        OperatorBuilder.in().paths(List.of("title", "description")).strings(List.of("foo")).build();
+
+    var fooBytes = List.of(new BytesRef("foo"));
+
+    var titleQuery =
+        new IndexOrDocValuesQuery(
+            new TermInSetQuery("$type:token/title", fooBytes),
+            SortedSetDocValuesField.newSlowSetQuery("$type:token/title", fooBytes));
+    var descriptionQuery =
+        new IndexOrDocValuesQuery(
+            new TermInSetQuery("$type:token/description", fooBytes),
+            SortedSetDocValuesField.newSlowSetQuery("$type:token/description", fooBytes));
+
+    var expected =
+        new ConstantScoreQuery(
+            new BooleanQuery.Builder()
+                .add(titleQuery, BooleanClause.Occur.SHOULD)
+                .add(descriptionQuery, BooleanClause.Occur.SHOULD)
+                .build());
 
     LuceneSearchTranslation.get().assertTranslatedTo(definition, expected);
   }

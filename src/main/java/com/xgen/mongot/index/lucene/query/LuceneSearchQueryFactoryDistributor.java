@@ -464,6 +464,7 @@ public class LuceneSearchQueryFactoryDistributor {
         case InOperator inOperator ->
             // delegating to equals under these conditions achieves better performance
             (inOperator.values().size() == 1
+                    && inOperator.paths().size() == 1
                     && (inOperator.getValueType() == NonNullValueType.STRING
                         || inOperator.getValueType() == NonNullValueType.UUID
                         || inOperator.getValueType() == NonNullValueType.OBJECT_ID))
