@@ -17,7 +17,7 @@ public sealed interface IndexDefinitionGeneration extends DocumentEncodable
         MaterializedViewIndexDefinitionGeneration {
 
   class Fields {
-    static final Field.Required<Generation> GENERATION =
+    public static final Field.Required<Generation> GENERATION =
         Field.builder("generation")
             .classField(Generation::fromBson)
             .disallowUnknownFields()

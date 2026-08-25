@@ -7,6 +7,7 @@ java_library(
         "DeploymentEnvironment.java",
         "HysteresisConfig.java",
         "IndexDefinitions.java",
+        "IndexIdentity.java",
         "Invariants.java",
         "TlsMode.java",
         "ViewValidator.java",

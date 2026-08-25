@@ -548,8 +548,8 @@ public class Invariants {
               .collect(
                   Collectors.groupingBy(
                       i ->
-                          String.format(
-                              "(%s %s %s)", i.getDatabase(), i.getCollectionUuid(), i.getName()),
+                          IndexIdentity.namespaceKey(
+                              i.getDatabase(), i.getCollectionUuid(), i.getName()),
                       Collectors.toList()));
 
       return indexesByUniqueTuple.values().stream()

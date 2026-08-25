@@ -7,11 +7,15 @@ java_library(
         "DynamicFeatureFlagJournal.java",
         "DynamicFeatureFlagJournalWriter.java",
         "JournalEditor.java",
+        "JournalEntry.java",
+        "JournalEntryIdentity.java",
         "JournalWriter.java",
     ],
     visibility = ["//visibility:public"],
     exports = [
+        "//src/main/java/com/xgen/mongot/config/util",
         "//src/main/java/com/xgen/mongot/index/definition",
+        "//src/main/java/com/xgen/mongot/index/version",
         "@maven//:org_mongodb_bson",
     ],
     deps = [
