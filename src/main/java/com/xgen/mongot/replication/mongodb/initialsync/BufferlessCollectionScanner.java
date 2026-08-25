@@ -351,10 +351,19 @@ public class BufferlessCollectionScanner {
 
   protected void updateLastScannedToken(
       List<DocumentEvent> batch, Optional<BsonDocument> postBatchResumeToken) {
-    this.lastScannedToken =
-        this.context.useNaturalOrderScan()
-            ? postBatchResumeToken.get()
-            : batch.getLast().getDocumentId();
+    if (this.context.useNaturalOrderScan()) {
+      // A null $recordId marks the end of the collection scan (mongod 8.2.1+), and mongod refuses
+      // to resume from such a token with KeyNotFound. Keep the previous resumable position instead:
+      // on resume this costs one batch of rescan rather than a full resync. This token also flows
+      // into the change stream applier via the scan Result, so guarding it here keeps the whole
+      // end-of-scan window resumable.
+      BsonDocument token = postBatchResumeToken.get();
+      if (!token.isNull("$recordId")) {
+        this.lastScannedToken = token;
+      }
+      return;
+    }
+    this.lastScannedToken = batch.getLast().getDocumentId();
   }
 
   private IndexCommitUserData getCommitUserData(List<DocumentEvent> batch) {

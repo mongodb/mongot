@@ -54,11 +54,13 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonInt64;
+import org.bson.BsonNull;
 import org.bson.BsonObjectId;
 import org.bson.BsonString;
 import org.bson.BsonTimestamp;
 import org.bson.BsonValue;
 import org.junit.Assert;
+import org.junit.Assume;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -406,6 +408,52 @@ public class BufferlessCollectionScannerTest {
     verify(mocks.indexingWorkScheduler).schedule(any(), any(), any(), any(), any(), any(), any());
     BsonValue expected = enableNaturalOrderScan ? resumeToken : new BsonInt32(3);
     Assert.assertEquals(expected, result.getLastScannedToken());
+    Assert.assertFalse(result.getContinueSync());
+  }
+
+  @Test
+  public void testEndOfScanNullRecordIdKeepsPreviousToken() throws Exception {
+    // Only the natural-order scan carries post-batch resume tokens; the _id scan tracks the last
+    // document id and never sees a null $recordId.
+    Assume.assumeTrue(enableNaturalOrderScan);
+
+    Mocks mocks = Mocks.createMocks(MOCK_INDEX_DEFINITION_GENERATION);
+
+    // Two batches: the first ends on a resumable $recordId, the second finishes the scan and comes
+    // back with a null $recordId (mongod 8.2.1+), which mongod refuses to resume from.
+    when(mocks.findCommandMongoClient.hasNext())
+        .thenReturn(true)
+        .thenReturn(true)
+        .thenReturn(false);
+    when(mocks.findCommandMongoClient.getNext())
+        .thenReturn(
+            List.of(
+                BsonUtils.documentToRaw(
+                    new BsonDocument("_id", new BsonInt32(1))
+                        .append(
+                            MOCK_INDEX_DEFINITION_GENERATION.getIndexId().toString(),
+                            new BsonDocument("_id", new BsonInt32(1))))))
+        .thenReturn(
+            List.of(
+                BsonUtils.documentToRaw(
+                    new BsonDocument("_id", new BsonInt32(2))
+                        .append(
+                            MOCK_INDEX_DEFINITION_GENERATION.getIndexId().toString(),
+                            new BsonDocument("_id", new BsonInt32(2))))));
+
+    BsonDocument resumableToken = new BsonDocument().append("$recordId", new BsonInt64(1));
+    BsonDocument endOfScanToken = new BsonDocument().append("$recordId", BsonNull.VALUE);
+    when(mocks.findCommandMongoClient.getPostBatchResumeToken())
+        .thenReturn(Optional.of(resumableToken))
+        .thenReturn(Optional.of(endOfScanToken));
+
+    BufferlessCollectionScanner.Result result =
+        mocks.collectionScanner.scanWithTimeLimit(DEFAULT_SCAN_TIME);
+
+    verify(mocks.documentIndexer, times(2)).indexDocumentEvent(any());
+    // The scan finished, but the last resumable position is kept instead of the unresumable
+    // null-$recordId token, so a restart in the end-of-scan window rescans rather than resyncs.
+    Assert.assertEquals(resumableToken, result.getLastScannedToken());
     Assert.assertFalse(result.getContinueSync());
   }
 
