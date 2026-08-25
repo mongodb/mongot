@@ -187,7 +187,7 @@ public class SingleLuceneIndexWriter implements LuceneIndexWriter {
 
     LuceneCodec codec =
         LuceneCodec.Factory.forIndexWithBloomFilter(
-            vectorFields, useIdBloomFilter, Optional.of(indexingMetricsUpdater));
+            vectorFields, useIdBloomFilter, Optional.of(indexingMetricsUpdater), featureFlags);
     IndexWriterConfig indexWriterConfig =
         new org.apache.lucene.index.IndexWriterConfig()
             .setCodec(codec)
@@ -261,7 +261,7 @@ public class SingleLuceneIndexWriter implements LuceneIndexWriter {
 
     LuceneCodec codec =
         LuceneCodec.Factory.forIndexWithBloomFilter(
-            pathToField, useIdBloomFilter, Optional.of(indexingMetricsUpdater));
+            pathToField, useIdBloomFilter, Optional.of(indexingMetricsUpdater), featureFlags);
     IndexWriterConfig indexWriterConfig =
         new org.apache.lucene.index.IndexWriterConfig(indexAnalyzer)
             .setCodec(codec)

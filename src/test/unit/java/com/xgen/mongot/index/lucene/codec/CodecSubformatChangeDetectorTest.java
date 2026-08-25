@@ -30,12 +30,14 @@ import java.util.Optional;
 import org.apache.lucene.backward_codecs.lucene99.Lucene94FieldInfosFormatV1;
 import org.apache.lucene.backward_codecs.lucene99.Lucene99PostingsFormat;
 import org.apache.lucene.codecs.KnnVectorsFormat;
+import org.apache.lucene.codecs.lucene104.Lucene104PostingsFormat;
 import org.apache.lucene.codecs.lucene90.Lucene90CompoundFormat;
 import org.apache.lucene.codecs.lucene90.Lucene90DocValuesFormat;
 import org.apache.lucene.codecs.lucene90.Lucene90LiveDocsFormat;
 import org.apache.lucene.codecs.lucene90.Lucene90NormsFormat;
 import org.apache.lucene.codecs.lucene90.Lucene90PointsFormat;
 import org.apache.lucene.codecs.lucene90.Lucene90TermVectorsFormat;
+import org.apache.lucene.codecs.lucene94.Lucene94FieldInfosFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99SegmentInfoFormat;
 import org.apache.lucene.codecs.perfield.PerFieldDocValuesFormat;
@@ -162,6 +164,50 @@ public class CodecSubformatChangeDetectorTest {
     // overrides with its own LuceneStoredFieldsFormat).
     assertThat(codec.storedFieldsFormat()).isInstanceOf(LuceneStoredFieldsFormat.class);
     assertThat(codec.fieldInfosFormat()).isInstanceOf(Lucene94FieldInfosFormatV1.class);
+    assertThat(codec.segmentInfoFormat()).isInstanceOf(Lucene99SegmentInfoFormat.class);
+    assertThat(codec.termVectorsFormat()).isInstanceOf(Lucene90TermVectorsFormat.class);
+    assertThat(codec.liveDocsFormat()).isInstanceOf(Lucene90LiveDocsFormat.class);
+    assertThat(codec.compoundFormat()).isInstanceOf(Lucene90CompoundFormat.class);
+    assertThat(codec.normsFormat()).isInstanceOf(Lucene90NormsFormat.class);
+    assertThat(codec.pointsFormat()).isInstanceOf(Lucene90PointsFormat.class);
+  }
+
+  /**
+   * Golden table for the {@link LuceneCodec.WriteFormat#LUCENE104} delegate ({@code
+   * Lucene104Codec}). Relative to the flag-off Lucene99 golden above, exactly two slots change: the
+   * codec name and the default postings format. FieldInfos moves from the fork's V1 shim to the
+   * core class (same "Lucene94FieldInfos" file format, higher version — the written version is
+   * locked by {@code LuceneCodecWrittenFormatVersionsTest}). Everything else must stay identical to
+   * flag-off.
+   */
+  @Test
+  public void subformatNames_lucene104Codec_matchExpectedLucene104Formats() {
+    LuceneCodec codec = new LuceneCodec(LuceneCodec.WriteFormat.LUCENE104);
+
+    assertEquals("Lucene104", codec.getName());
+
+    assertThat(codec.postingsFormat()).isInstanceOf(PerFieldPostingsFormat.class);
+    PerFieldPostingsFormat postingsFormat = (PerFieldPostingsFormat) codec.postingsFormat();
+    assertEquals("PerField40", postingsFormat.getName());
+    assertThat(postingsFormat.getPostingsFormatForField("any"))
+        .isInstanceOf(Lucene104PostingsFormat.class);
+
+    assertThat(codec.docValuesFormat()).isInstanceOf(PerFieldDocValuesFormat.class);
+    PerFieldDocValuesFormat docValuesFormat = (PerFieldDocValuesFormat) codec.docValuesFormat();
+    assertEquals("PerFieldDV40", docValuesFormat.getName());
+    assertThat(docValuesFormat.getDocValuesFormatForField("any"))
+        .isInstanceOf(Lucene90DocValuesFormat.class);
+
+    assertThat(codec.knnVectorsFormat()).isInstanceOf(PerFieldKnnVectorsFormat.class);
+    PerFieldKnnVectorsFormat knnVectorsFormat = (PerFieldKnnVectorsFormat) codec.knnVectorsFormat();
+    assertEquals("PerFieldVectors90", knnVectorsFormat.getName());
+    assertThat(
+            knnVectorsFormat.getKnnVectorsFormatForField(
+                KNN_VECTOR.getLuceneFieldName(FieldPath.parse("any"), Optional.empty())))
+        .isInstanceOf(Lucene99HnswVectorsFormat.class);
+
+    assertThat(codec.storedFieldsFormat()).isInstanceOf(LuceneStoredFieldsFormat.class);
+    assertThat(codec.fieldInfosFormat()).isInstanceOf(Lucene94FieldInfosFormat.class);
     assertThat(codec.segmentInfoFormat()).isInstanceOf(Lucene99SegmentInfoFormat.class);
     assertThat(codec.termVectorsFormat()).isInstanceOf(Lucene90TermVectorsFormat.class);
     assertThat(codec.liveDocsFormat()).isInstanceOf(Lucene90LiveDocsFormat.class);

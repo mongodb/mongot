@@ -98,7 +98,13 @@ public enum Feature {
   // are read in place from the memory-mapped .blm and occupy OS page cache rather than JVM heap.
   // Enable, and restart, to fall back to copying each segment's bitset onto the heap at open. The
   // .blm is byte-identical either way, so flipping this needs no reindex in either direction.
-  BLOOM_FILTER_ON_HEAP("bloomFilterOnHeap", State.DISABLED);
+  BLOOM_FILTER_ON_HEAP("bloomFilterOnHeap", State.DISABLED),
+  // Writes new segments in the native Lucene 10.4 on-disk format instead of the 9.11.1 format,
+  // and stamps newly created indexes with indexCreatedVersionMajor 10 (index-wide, permanent).
+  // Enabling is one-way for rollback purposes: anything written under the flag is unreadable by
+  // binaries carrying Lucene < 10.4, and a created-10 index stays that way even after the flag is
+  // disabled — only a re-index clears it. Do not enable until the fleet minimum carries 10.4 jars.
+  LUCENE_104_CODEC("lucene104Codec", State.DISABLED);
 
   private final String name;
   private final State defaultState;

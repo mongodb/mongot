@@ -65,7 +65,8 @@
         "resetStaleInternalSearchCheckpoint": true,
         "enableChangeStreamPriorityScheduling": true,
         "changeStreamActivityObserver": true,
-        "bloomFilterOnHeap": true
+        "bloomFilterOnHeap": true,
+        "lucene104Codec": true
       }
     },
     {
@@ -116,7 +117,8 @@
         "byteBinaryQuantization": false,
         "resetStaleInternalSearchCheckpoint": false,
         "changeStreamActivityObserver": false,
-        "bloomFilterOnHeap": false
+        "bloomFilterOnHeap": false,
+        "lucene104Codec": false
       }
     }
   ],

@@ -2,6 +2,7 @@ package com.xgen.mongot.index.lucene.codec.bloom;
 
 import static com.google.common.truth.Truth.assertThat;
 
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.lucene.codec.LuceneCodec;
 import com.xgen.mongot.index.lucene.codec.bloom.MongotBloomFilteringPostingsFormat.MongotBloomFilteredFieldsProducer;
 import com.xgen.mongot.index.lucene.codec.bloom.MongotFuzzySet.ContainsResult;
@@ -108,7 +109,7 @@ public class MongotFuzzySetInputTest {
           new IndexWriterConfig()
               .setCodec(
                   LuceneCodec.Factory.forIndexWithBloomFilter(
-                      Map.of(), () -> true, Optional.empty()))
+                      Map.of(), () -> true, Optional.empty(), FeatureFlags.getDefault()))
               .setUseCompoundFile(false);
       try (IndexWriter writer = new IndexWriter(dir, config)) {
         for (int i = 0; i < 1_000; i++) {

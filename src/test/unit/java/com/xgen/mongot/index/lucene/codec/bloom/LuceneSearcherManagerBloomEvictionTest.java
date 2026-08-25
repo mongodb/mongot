@@ -4,6 +4,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.definition.IndexDefinition;
@@ -336,7 +337,7 @@ public class LuceneSearcherManagerBloomEvictionTest {
           new IndexWriterConfig()
               .setCodec(
                   LuceneCodec.Factory.forIndexWithBloomFilter(
-                      Map.of(), () -> true, Optional.empty()))
+                      Map.of(), () -> true, Optional.empty(), FeatureFlags.getDefault()))
               .setUseCompoundFile(true);
       IndexWriter writer = new IndexWriter(directory, config);
       try {
@@ -405,7 +406,7 @@ public class LuceneSearcherManagerBloomEvictionTest {
           new IndexWriterConfig()
               .setCodec(
                   LuceneCodec.Factory.forIndexWithBloomFilter(
-                      Map.of(), () -> true, Optional.empty()))
+                      Map.of(), () -> true, Optional.empty(), FeatureFlags.getDefault()))
               .setUseCompoundFile(true);
       try (IndexWriter writer = new IndexWriter(wrapped, config)) {
         Document doc = new Document();
@@ -448,7 +449,7 @@ public class LuceneSearcherManagerBloomEvictionTest {
           new IndexWriterConfig()
               .setCodec(
                   LuceneCodec.Factory.forIndexWithBloomFilter(
-                      Map.of(), () -> true, Optional.empty()))
+                      Map.of(), () -> true, Optional.empty(), FeatureFlags.getDefault()))
               .setUseCompoundFile(true);
       try (IndexWriter writer = new IndexWriter(wrapped, config)) {
         Document doc = new Document();
@@ -493,7 +494,8 @@ public class LuceneSearcherManagerBloomEvictionTest {
     IndexWriterConfig config =
         new IndexWriterConfig()
             .setCodec(
-                LuceneCodec.Factory.forIndexWithBloomFilter(Map.of(), () -> true, Optional.empty()))
+                LuceneCodec.Factory.forIndexWithBloomFilter(
+                    Map.of(), () -> true, Optional.empty(), FeatureFlags.getDefault()))
             .setUseCompoundFile(true);
     IndexWriter writer = new IndexWriter(directory, config);
     Document doc = new Document();

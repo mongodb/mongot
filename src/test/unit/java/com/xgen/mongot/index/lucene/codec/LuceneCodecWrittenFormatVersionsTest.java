@@ -43,12 +43,19 @@ import org.junit.Test;
  * writes one segment per write format and parses the raw index headers of the emitted files.
  *
  * <p>This complements {@code OnDiskFormatVersionsTest} (which pins the version <i>constants</i>) by
- * locking the version each writer actually stamps on disk: under {@link
- * LuceneCodec.WriteFormat#LUCENE99} every header must carry the 9.11-compatible version. The fork's
- * write-version defaults match upstream 10.4 and the 9.11 path opts DOWN explicitly (the fork's
- * {@code backward_codecs.lucene99.Lucene99Codec} internally; {@code LuceneCodec.WriteFormat} for
- * the per-field HNSW formats) — this test catches any missed opt-down, which would silently break
- * binary rollback.
+ * locking the version each writer actually stamps on disk, in both directions:
+ *
+ * <ul>
+ *   <li><b>{@link LuceneCodec.WriteFormat#LUCENE99} (flag off):</b> every header carries the
+ *       9.11-compatible version. The fork's write-version defaults match upstream 10.4 and the 9.11
+ *       path opts DOWN explicitly (the fork's {@code backward_codecs.lucene99.Lucene99Codec}
+ *       internally; {@code LuceneCodec.WriteFormat} for the per-field HNSW formats) — this
+ *       direction catches any missed opt-down, which would silently break binary rollback.
+ *   <li><b>{@link LuceneCodec.WriteFormat#LUCENE104} (flag on):</b> every header carries the
+ *       vanilla 10.4 version (points, fieldInfos, default postings, codec name, and all five HNSW
+ *       graph encodings) — catches a missed slot that would make flag-on output diverge from
+ *       vanilla.
+ * </ul>
  */
 public class LuceneCodecWrittenFormatVersionsTest {
 
@@ -68,6 +75,15 @@ public class LuceneCodecWrittenFormatVersionsTest {
           KNN_F32_Q7, 0,
           KNN_F32_Q1, 0);
 
+  /** Every HNSW format writes the vanilla 10.4 group-varint graph encoding under LUCENE104. */
+  private static final ImmutableMap<FieldName.TypeField, Integer> LUCENE104_EXPECTED_VEM_VERSIONS =
+      ImmutableMap.of(
+          KNN_VECTOR, 1,
+          KNN_BYTE, 1,
+          KNN_BIT, 1,
+          KNN_F32_Q7, 1,
+          KNN_F32_Q1, 1);
+
   @Test
   public void lucene99WriteFormat_writes911CompatibleVersions() throws IOException {
     assertWrittenVersions(
@@ -78,6 +94,18 @@ public class LuceneCodecWrittenFormatVersionsTest {
         /* expectedFnmVersion= */ 1,
         /* expectedPointsMetaVersion= */ 0,
         LUCENE99_EXPECTED_VEM_VERSIONS);
+  }
+
+  @Test
+  public void lucene104WriteFormat_writesVanilla104Versions() throws IOException {
+    assertWrittenVersions(
+        LuceneCodec.WriteFormat.LUCENE104,
+        "Lucene104",
+        "Lucene104",
+        /* expectedIndexCreatedVersionMajor= */ 10,
+        /* expectedFnmVersion= */ 2,
+        /* expectedPointsMetaVersion= */ 1,
+        LUCENE104_EXPECTED_VEM_VERSIONS);
   }
 
   private static void assertWrittenVersions(
@@ -96,7 +124,8 @@ public class LuceneCodecWrittenFormatVersionsTest {
       SegmentInfos segmentInfos = SegmentInfos.readLatestCommit(directory);
       assertThat(segmentInfos.size()).isEqualTo(1);
       assertThat(segmentInfos.info(0).info.getCodec().getName()).isEqualTo(expectedCodecName);
-      // Index-wide created version: 9 keeps new indexes openable by 9.11 rollback binaries.
+      // Index-wide created version: 9 keeps new indexes openable by 9.11 rollback binaries;
+      // LUCENE104 stamps 10 (index-wide, permanent).
       assertWithMessage("indexCreatedVersionMajor under %s", writeFormat)
           .that(segmentInfos.getIndexCreatedVersionMajor())
           .isEqualTo(expectedIndexCreatedVersionMajor);

@@ -7,6 +7,7 @@ import java.lang.reflect.Field;
 import org.apache.lucene.backward_codecs.lucene99.Lucene94FieldInfosFormatV1;
 import org.apache.lucene.backward_codecs.lucene99.Lucene99PostingsFormat;
 import org.apache.lucene.backward_codecs.lucene99.Lucene99ScalarQuantizedVectorsFormat;
+import org.apache.lucene.codecs.lucene104.Lucene104PostingsFormat;
 import org.apache.lucene.codecs.lucene90.Lucene90CompoundFormat;
 import org.apache.lucene.codecs.lucene90.Lucene90DocValuesFormat;
 import org.apache.lucene.codecs.lucene90.Lucene90LiveDocsFormat;
@@ -14,6 +15,7 @@ import org.apache.lucene.codecs.lucene90.Lucene90NormsFormat;
 import org.apache.lucene.codecs.lucene90.Lucene90PointsFormat;
 import org.apache.lucene.codecs.lucene90.compressing.Lucene90CompressingStoredFieldsWriter;
 import org.apache.lucene.codecs.lucene90.compressing.Lucene90CompressingTermVectorsWriter;
+import org.apache.lucene.codecs.lucene94.Lucene94FieldInfosFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99FlatVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99SegmentInfoFormat;
@@ -127,6 +129,13 @@ public class OnDiskFormatVersionsTest {
     assertVersionPin(Lucene99PostingsFormat.class, "VERSION_CURRENT", 0);
   }
 
+  // The default postings format under WriteFormat.LUCENE104 (Feature.LUCENE_104_CODEC on).
+
+  @Test
+  public void lucene104PostingsFormat_versionCurrent() {
+    assertVersionPin(Lucene104PostingsFormat.class, "VERSION_CURRENT", 0);
+  }
+
   // ---------------------------------------------------------------------------------------------
   // FieldInfos — mongot uses the fork's V1 shim that emits FORMAT_PARENT_FIELD (= 1, the 9.11
   // header value) rather than the v2 FORMAT_DOCVALUE_SKIPPER (= 2) that upstream defaults to.
@@ -142,6 +151,13 @@ public class OnDiskFormatVersionsTest {
   @Test
   public void lucene94FieldInfosFormatV1_formatParentField() {
     assertVersionPin(Lucene94FieldInfosFormatV1.class, "FORMAT_PARENT_FIELD", 1);
+  }
+
+  // The fieldInfos format under WriteFormat.LUCENE104 is the core class, which writes v2.
+
+  @Test
+  public void lucene94FieldInfosFormat_formatCurrent() {
+    assertVersionPin(Lucene94FieldInfosFormat.class, "FORMAT_CURRENT", 2);
   }
 
   // ---------------------------------------------------------------------------------------------

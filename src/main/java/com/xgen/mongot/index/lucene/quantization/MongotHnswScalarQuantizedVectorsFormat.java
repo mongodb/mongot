@@ -25,9 +25,10 @@ import org.apache.lucene.index.SegmentWriteState;
  * Mongot's construction of the 7-bit scalar-quantized HNSW vector format ({@code KNN_F32_Q7}),
  * replicating {@link Lucene99HnswScalarQuantizedVectorsFormat} except that the {@link
  * Lucene99HnswVectorsWriter} is built with configurable {@link HnswWriteParams} (threshold 0 /
- * 9.11-varint under {@code WriteFormat.LUCENE99} so every segment gets a 9.11-readable graph).
- * {@link Lucene99HnswScalarQuantizedVectorsFormat} offers no way to override either parameter,
- * hence this wrapper.
+ * 9.11-varint under {@code WriteFormat.LUCENE99} so every segment gets a 9.11-readable graph; the
+ * Lucene defaults under {@code WriteFormat.LUCENE104}). {@link
+ * Lucene99HnswScalarQuantizedVectorsFormat} offers no way to override either parameter, hence this
+ * wrapper.
  *
  * <p>Lucene 10.4's default threshold (100) skips the graph for smaller segments, writing {@code
  * numLevels = 0} metadata that pre-10.4 readers (mongot on Lucene 9.11.1 / 10.1.0) cannot handle:
@@ -37,7 +38,8 @@ import org.apache.lucene.index.SegmentWriteState;
  * real {@link Lucene99HnswScalarQuantizedVectorsFormat} on read. This class must therefore never be
  * registered with SPI itself, and its output must stay decodable by the delegate's reader:
  * byte-identical to the delegate's under {@code WriteFormat.LUCENE99} (readable by rolled-back
- * binaries).
+ * binaries), group-varint graphs under {@code WriteFormat.LUCENE104} (readable by the delegate's
+ * version-widened reader on 10.4 binaries).
  */
 public final class MongotHnswScalarQuantizedVectorsFormat extends KnnVectorsFormat {
 

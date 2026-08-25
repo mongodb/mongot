@@ -187,7 +187,8 @@ public class BloomStorageModeTest {
     IndexWriterConfig config =
         new IndexWriterConfig()
             .setCodec(
-                LuceneCodec.Factory.forIndexWithBloomFilter(Map.of(), () -> true, Optional.empty()))
+                LuceneCodec.Factory.forIndexWithBloomFilter(
+                    Map.of(), () -> true, Optional.empty(), FeatureFlags.getDefault()))
             .setUseCompoundFile(false);
     try (IndexWriter writer = new IndexWriter(dir, config)) {
       for (int i = 0; i < 1_000; i++) {

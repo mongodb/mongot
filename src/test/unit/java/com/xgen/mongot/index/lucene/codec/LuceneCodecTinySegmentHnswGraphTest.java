@@ -43,6 +43,10 @@ import org.junit.runner.RunWith;
  * — so a rollback would crash queries. LuceneCodec therefore passes {@link
  * com.xgen.mongot.index.lucene.vector.Lucene99NativeHnswVectorsFormat#DEFAULT_HNSW_GRAPH_THRESHOLD}
  * (0) to every HNSW writer.
+ *
+ * <p>Under {@link LuceneCodec.WriteFormat#LUCENE104} (flag on), the rollback floor is a 10.4-jar
+ * binary whose readers handle graph-less segments, so LuceneCodec uses the Lucene default
+ * threshold: tiny segments skip the graph, matching vanilla 10.4 behavior.
  */
 @RunWith(Theories.class)
 public class LuceneCodecTinySegmentHnswGraphTest {
@@ -72,6 +76,20 @@ public class LuceneCodecTinySegmentHnswGraphTest {
             typeField, NUM_DOCS)
         .that(numLevels)
         .isAtLeast(1);
+  }
+
+  @Theory
+  public void tinySegment_lucene104_everyHnswFormat_skipsGraph(FieldName.TypeField typeField)
+      throws IOException {
+    int numLevels =
+        writeTinySegmentAndGetGraphNumLevels(typeField, LuceneCodec.WriteFormat.LUCENE104);
+    assertWithMessage(
+            "expected NO HNSW graph for %s on a %s-vector segment under LUCENE104: the flag-on"
+                + " path uses Lucene's default tiny-segment threshold, matching vanilla 10.4"
+                + " output.",
+            typeField, NUM_DOCS)
+        .that(numLevels)
+        .isEqualTo(0);
   }
 
   private static int writeTinySegmentAndGetGraphNumLevels(

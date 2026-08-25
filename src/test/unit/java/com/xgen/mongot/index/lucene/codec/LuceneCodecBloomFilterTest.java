@@ -3,6 +3,8 @@ package com.xgen.mongot.index.lucene.codec;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
 
+import com.xgen.mongot.featureflag.Feature;
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.lucene.codec.bloom.MongotBloomFilterFactory;
@@ -61,6 +63,7 @@ public class LuceneCodecBloomFilterTest {
   private static final String ID_FIELD = FieldName.MetaField.ID.getLuceneFieldName();
   private static final String BLOOM_FORMAT = MongotBloomFilteringPostingsFormat.BLOOM_CODEC_NAME;
   private static final String LUCENE99_FORMAT = "Lucene99";
+  private static final String LUCENE104_FORMAT = "Lucene104";
   private static final String POSTINGS_FORMAT_ATTR = PerFieldPostingsFormat.PER_FIELD_FORMAT_KEY;
   private static final String DOC_1 = "doc1";
   private static final String DOC_2 = "doc2";
@@ -112,6 +115,35 @@ public class LuceneCodecBloomFilterTest {
         assertIdLookupFindsDoc(dir, DOC_1);
         assertIdLookupFindsDoc(dir, DOC_2);
         assertIdLookupFindsDoc(dir, DOC_3);
+      }
+    }
+
+    /**
+     * The bloom wrapper is delegate-agnostic: under {@link LuceneCodec.WriteFormat#LUCENE104} the
+     * {@code _id} field records the bloom format when the toggle is on and the Lucene104 default
+     * postings format when it is off, and documents stay readable either way.
+     */
+    @Test
+    public void writeAndRead_lucene104WriteFormat_bloomToggleSelectsFormat() throws IOException {
+      FeatureFlags lucene104Flags =
+          FeatureFlags.withDefaults().enable(Feature.LUCENE_104_CODEC).build();
+
+      try (Directory dir = new ByteBuffersDirectory()) {
+        writeDocuments(dir, lucene104Flags, () -> DFF_ENABLED, DOC_1, DOC_2);
+
+        assertThat(getIdPostingsFormatNames(dir)).containsExactly(BLOOM_FORMAT);
+        assertAllSegmentsHaveBlmFiles(dir, true);
+        assertIdLookupFindsDoc(dir, DOC_1);
+        assertIdLookupFindsDoc(dir, DOC_2);
+      }
+
+      try (Directory dir = new ByteBuffersDirectory()) {
+        writeDocuments(dir, lucene104Flags, () -> DFF_DISABLED, DOC_1, DOC_2);
+
+        assertThat(getIdPostingsFormatNames(dir)).containsExactly(LUCENE104_FORMAT);
+        assertAllSegmentsHaveBlmFiles(dir, false);
+        assertIdLookupFindsDoc(dir, DOC_1);
+        assertIdLookupFindsDoc(dir, DOC_2);
       }
     }
 
@@ -211,7 +243,10 @@ public class LuceneCodecBloomFilterTest {
             new IndexWriterConfig()
                 .setCodec(
                     LuceneCodec.Factory.forIndexWithBloomFilter(
-                        Map.of(), () -> DFF_ENABLED, Optional.of(metricsUpdater)));
+                        Map.of(),
+                        () -> DFF_ENABLED,
+                        Optional.of(metricsUpdater),
+                        FeatureFlags.getDefault()));
         try (IndexWriter writer = new IndexWriter(dir, config)) {
           addDoc(writer, DOC_1);
           addDoc(writer, DOC_2);
@@ -237,7 +272,10 @@ public class LuceneCodecBloomFilterTest {
             new IndexWriterConfig()
                 .setCodec(
                     LuceneCodec.Factory.forIndexWithBloomFilter(
-                        Map.of(), () -> DFF_DISABLED, Optional.of(metricsUpdater)));
+                        Map.of(),
+                        () -> DFF_DISABLED,
+                        Optional.of(metricsUpdater),
+                        FeatureFlags.getDefault()));
         try (IndexWriter writer = new IndexWriter(dir, config)) {
           addDoc(writer, DOC_1);
           writer.commit();
@@ -262,7 +300,7 @@ public class LuceneCodecBloomFilterTest {
             new IndexWriterConfig()
                 .setCodec(
                     LuceneCodec.Factory.forIndexWithBloomFilter(
-                        Map.of(), () -> DFF_ENABLED, Optional.empty()))
+                        Map.of(), () -> DFF_ENABLED, Optional.empty(), FeatureFlags.getDefault()))
                 .setUseCompoundFile(false);
         try (IndexWriter writer = new IndexWriter(dir, config)) {
           addDoc(writer, DOC_1);
@@ -414,17 +452,28 @@ public class LuceneCodecBloomFilterTest {
 
   private static IndexWriter newWriter(Directory dir, BooleanSupplier bloomSupplier)
       throws IOException {
+    return newWriter(dir, FeatureFlags.getDefault(), bloomSupplier);
+  }
+
+  private static IndexWriter newWriter(
+      Directory dir, FeatureFlags featureFlags, BooleanSupplier bloomSupplier) throws IOException {
     IndexWriterConfig config =
         new IndexWriterConfig()
             .setCodec(
                 LuceneCodec.Factory.forIndexWithBloomFilter(
-                    Map.of(), bloomSupplier, Optional.empty()));
+                    Map.of(), bloomSupplier, Optional.empty(), featureFlags));
     return new IndexWriter(dir, config);
   }
 
   private static void writeDocuments(Directory dir, BooleanSupplier bloomSupplier, String... ids)
       throws IOException {
-    try (IndexWriter writer = newWriter(dir, bloomSupplier)) {
+    writeDocuments(dir, FeatureFlags.getDefault(), bloomSupplier, ids);
+  }
+
+  private static void writeDocuments(
+      Directory dir, FeatureFlags featureFlags, BooleanSupplier bloomSupplier, String... ids)
+      throws IOException {
+    try (IndexWriter writer = newWriter(dir, featureFlags, bloomSupplier)) {
       for (String id : ids) {
         addDoc(writer, id);
       }
@@ -534,7 +583,7 @@ public class LuceneCodecBloomFilterTest {
           new IndexWriterConfig()
               .setCodec(
                   LuceneCodec.Factory.forIndexWithBloomFilter(
-                      Map.of(), bloomEnabled::get, Optional.empty()));
+                      Map.of(), bloomEnabled::get, Optional.empty(), FeatureFlags.getDefault()));
 
       try (IndexWriter writer = new IndexWriter(dir, config)) {
         bloomEnabled.set(seg1Bloom);

@@ -4,6 +4,8 @@ import static com.xgen.mongot.index.lucene.vector.Lucene99NativeHnswVectorsForma
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.flogger.FluentLogger;
+import com.xgen.mongot.featureflag.Feature;
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
@@ -31,6 +33,7 @@ import org.apache.lucene.codecs.FilterCodec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.PostingsFormat;
 import org.apache.lucene.codecs.StoredFieldsFormat;
+import org.apache.lucene.codecs.lucene104.Lucene104Codec;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
 import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
 import org.apache.lucene.codecs.perfield.PerFieldPostingsFormat;
@@ -43,13 +46,21 @@ import org.apache.lucene.store.Directory;
  *
  * <h3>On-disk write formats</h3>
  *
- * <p>The delegate codec is selected by {@link WriteFormat}, fixed per codec instance (the codec
- * name is recorded in segment metadata, so per-segment gating is impossible). The only write format
- * today is {@link WriteFormat#LUCENE99}, which delegates to the fork's writable {@link
- * Lucene99Codec}: every byte written is pinned to the <b>Lucene 9.11.1</b> on-disk format,
- * byte-for-byte identical to what mongot wrote on Lucene 9.11.1 and 10.1.0, preserving binary-swap
- * rollback with no re-index. {@link WriteFormat} exists so a future format (the native Lucene 10.4
- * codec) can be added without rewiring every write-format-dependent parameter.
+ * <p>The delegate codec is selected by {@link WriteFormat}, driven by the static {@link
+ * Feature#LUCENE_104_CODEC} flag (evaluated once per {@link org.apache.lucene.index.IndexWriter}
+ * construction — the codec name is fixed per codec instance, so per-segment gating is impossible):
+ *
+ * <ul>
+ *   <li>{@link WriteFormat#LUCENE99} (flag off, default): delegates to the fork's writable {@link
+ *       Lucene99Codec}. Every byte written is pinned to the <b>Lucene 9.11.1</b> on-disk format,
+ *       byte-for-byte identical to what mongot wrote on Lucene 9.11.1 and 10.1.0, preserving
+ *       binary-swap rollback with no re-index.
+ *   <li>{@link WriteFormat#LUCENE104} (flag on): delegates to the native {@link Lucene104Codec},
+ *       producing vanilla 10.4 output. Segments are readable only by binaries carrying Lucene &gt;=
+ *       10.4; enabling the flag moves the rollback floor to the first 10.4-lib release. Newly
+ *       created indexes are stamped {@code indexCreatedVersionMajor = 10}, which is index-wide and
+ *       permanent — see {@link WriteFormat#getIndexCreatedVersionMajor()}.
+ * </ul>
  *
  * <p>The fork's write-version defaults match upstream 10.4; the 9.11-compatible write path opts
  * down explicitly ({@code backward_codecs.lucene99.Lucene99Codec} internally for points, {@link
@@ -59,7 +70,7 @@ import org.apache.lucene.store.Directory;
  *
  * <p>Uses {@link LuceneStoredFieldsFormat} to improve Stored Source query latency by sacrificing
  * some compression improvements introduced in Lucene 8.7. See <a
- * href="https://tinyurl.com/mrx22sav">this</a> for details. Same class under every write format.
+ * href="https://tinyurl.com/mrx22sav">this</a> for details. Same class under both write formats.
  *
  * <h3>Postings</h3>
  *
@@ -112,7 +123,13 @@ public class LuceneCodec extends FilterCodec {
     /** The fork's writable 9.11.1 format ({@code backward_codecs.lucene99.Lucene99Codec}). */
     LUCENE99(
         9,
-        new HnswWriteParams(DEFAULT_HNSW_GRAPH_THRESHOLD, Lucene99HnswVectorsFormat.VERSION_START));
+        new HnswWriteParams(DEFAULT_HNSW_GRAPH_THRESHOLD, Lucene99HnswVectorsFormat.VERSION_START)),
+    /** The native Lucene 10.4 format ({@code Lucene104Codec}). */
+    LUCENE104(
+        10,
+        new HnswWriteParams(
+            Lucene99HnswVectorsFormat.HNSW_GRAPH_THRESHOLD,
+            Lucene99HnswVectorsFormat.VERSION_GROUPVARINT));
 
     private final int indexCreatedVersionMajor;
     private final HnswWriteParams hnswWriteParams;
@@ -120,6 +137,11 @@ public class LuceneCodec extends FilterCodec {
     WriteFormat(int indexCreatedVersionMajor, HnswWriteParams hnswWriteParams) {
       this.indexCreatedVersionMajor = indexCreatedVersionMajor;
       this.hnswWriteParams = hnswWriteParams;
+    }
+
+    /** Single point where the static feature flag is interpreted into a write format. */
+    public static WriteFormat fromFeatureFlags(FeatureFlags featureFlags) {
+      return featureFlags.isEnabled(Feature.LUCENE_104_CODEC) ? LUCENE104 : LUCENE99;
     }
 
     /**
@@ -130,7 +152,11 @@ public class LuceneCodec extends FilterCodec {
      * <p>{@code indexCreatedVersionMajor} is an index-wide, immutable property: it is stamped once
      * when the index is created and ignored when appending to an existing index, and no merge
      * (including {@code forceMerge}) ever changes it. {@link #LUCENE99} stamps 9 so new indexes
-     * stay openable by 9.11 rollback binaries.
+     * stay openable by 9.11 rollback binaries. {@link #LUCENE104} stamps 10: indexes created under
+     * the flag are permanently unreadable by binaries carrying Lucene &lt; 10, even after the flag
+     * is turned off and every segment is rewritten — only a re-index clears the stamp. Existing
+     * created-9 indexes keep their stamp under both write formats; Lucene104 segments inside a
+     * created-9 index are the normal N-1 compatibility scenario.
      */
     public int getIndexCreatedVersionMajor() {
       return this.indexCreatedVersionMajor;
@@ -141,8 +167,12 @@ public class LuceneCodec extends FilterCodec {
      * (always build a graph — Lucene 10.4's graph-skip writes {@code numLevels=0} metadata that
      * 9.11.1/10.1.0 rollback readers NPE on at query time) and {@link
      * Lucene99HnswVectorsFormat#VERSION_START} (the 9.11-readable varint {@code .vem}/{@code .vex}
-     * encoding). Always passed explicitly — the fork class defaults match upstream 10.4
-     * (group-varint), so mongot never relies on them.
+     * encoding). {@link #LUCENE104} passes the Lucene defaults: threshold {@link
+     * Lucene99HnswVectorsFormat#HNSW_GRAPH_THRESHOLD}, matching vanilla 10.4 graph-skip behavior
+     * (the rollback floor under the flag is a 10.4-jar binary, whose readers handle graph-less
+     * segments), and {@link Lucene99HnswVectorsFormat#VERSION_GROUPVARINT} (vanilla 10.4
+     * group-varint). Always passed explicitly — the fork class defaults match upstream 10.4, so
+     * mongot never relies on them.
      */
     public HnswWriteParams getHnswWriteParams() {
       return this.hnswWriteParams;
@@ -170,9 +200,14 @@ public class LuceneCodec extends FilterCodec {
 
   private final Map<FieldPath, VectorIndexingAlgorithm> fieldConfigs;
 
+  /**
+   * Tracks the default state of {@link Feature#LUCENE_104_CODEC}, so tests using this constructor
+   * always exercise the write format that production writes by default — and flip automatically
+   * when the flag's default flips.
+   */
   @VisibleForTesting
   public LuceneCodec() {
-    this(WriteFormat.LUCENE99, Map.of());
+    this(WriteFormat.fromFeatureFlags(FeatureFlags.getDefault()), Map.of());
   }
 
   @VisibleForTesting
@@ -237,6 +272,7 @@ public class LuceneCodec extends FilterCodec {
   private static Codec delegateForWriteFormat(WriteFormat writeFormat) {
     return switch (writeFormat) {
       case LUCENE99 -> new Lucene99Codec();
+      case LUCENE104 -> new Lucene104Codec();
     };
   }
 
@@ -268,9 +304,9 @@ public class LuceneCodec extends FilterCodec {
     return this.storedFieldsFormat;
   }
 
-  // No pointsFormat() override: the delegate selects the right BKD version natively — the
-  // fork's Lucene99Codec passes the 9.11-compatible VERSION_START explicitly to its points
-  // writer (the class default matches upstream 10.4).
+  // No pointsFormat() override: both delegates select the right BKD version natively — the
+  // fork's Lucene99Codec passes the 9.11-compatible VERSION_START explicitly, and
+  // Lucene104Codec uses the (upstream) class default.
 
   @Override
   public final KnnVectorsFormat knnVectorsFormat() {
@@ -370,9 +406,13 @@ public class LuceneCodec extends FilterCodec {
     public static LuceneCodec forIndexWithBloomFilter(
         Map<FieldPath, VectorFieldSpecification> fieldMap,
         BooleanSupplier bloomFilterForIdFieldEnabled,
-        Optional<IndexMetricsUpdater.IndexingMetricsUpdater> indexingMetricsUpdater) {
+        Optional<IndexMetricsUpdater.IndexingMetricsUpdater> indexingMetricsUpdater,
+        FeatureFlags featureFlags) {
       return new LuceneCodec(
-          WriteFormat.LUCENE99, fieldMap, bloomFilterForIdFieldEnabled, indexingMetricsUpdater);
+          WriteFormat.fromFeatureFlags(featureFlags),
+          fieldMap,
+          bloomFilterForIdFieldEnabled,
+          indexingMetricsUpdater);
     }
   }
 }
