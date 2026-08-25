@@ -48,7 +48,8 @@ public class IndexStatusPTest {
           stale(),
           recoveringNonTransient(),
           recoveringTransient(),
-          failed());
+          failed(),
+          reasonMismatchAllowed());
     }
 
     @Test
@@ -114,6 +115,18 @@ public class IndexStatusPTest {
           status(
               IndexStatusP.StatusCode.FAILED,
               Optional.of("recovering"),
+              Optional.empty(),
+              Optional.of(IndexStatusP.Reason.INITIAL_SYNC_REPLICATION_FAILED)));
+    }
+
+    // IndexStatusP is a plain record: it does not validate reason/statusCode consistency, so a
+    // combination that IndexStatus's constructor would reject parses cleanly here.
+    private static BsonDeserializationTestSuite.ValidSpec<IndexStatusP> reasonMismatchAllowed() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "status code doesn't match reason",
+          status(
+              IndexStatusP.StatusCode.UNKNOWN,
+              Optional.empty(),
               Optional.empty(),
               Optional.of(IndexStatusP.Reason.INITIAL_SYNC_REPLICATION_FAILED)));
     }

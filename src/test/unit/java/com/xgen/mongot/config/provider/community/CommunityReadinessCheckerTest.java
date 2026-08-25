@@ -18,6 +18,7 @@ import com.xgen.mongot.catalogservice.MetadataServiceException;
 import com.xgen.mongot.catalogservice.ServerState;
 import com.xgen.mongot.catalogservice.TopologyMismatchException;
 import com.xgen.mongot.catalogservice.schema.IndexStatsEntry;
+import com.xgen.mongot.catalogservice.schema.IndexStatusP;
 import com.xgen.mongot.catalogservice.schema.ServerStateEntry;
 import com.xgen.mongot.config.manager.CachedIndexInfoProvider;
 import com.xgen.mongot.config.manager.ConfigManager;
@@ -537,6 +538,38 @@ public class CommunityReadinessCheckerTest {
         this.checker.isReady(false));
   }
 
+  @Test
+  public void testIsReady_invalidDefinitionFailure_withStatsEntryReasonMismatch_shouldBeReady()
+      throws Exception {
+    when(this.commandServer.getServerStatus()).thenReturn(CommandServer.ServerStatus.STARTED);
+    when(this.configManager.isReplicationInitialized()).thenReturn(true);
+
+    ObjectId indexId = new ObjectId();
+    ObjectId serverId = new ObjectId();
+    SearchIndexDefinition def = createIndexDefinition(indexId, "index1");
+    IndexInformation indexInfo =
+        createIndexInformation(def, IndexStatus.failed("Invalid definition: bad config"));
+
+    when(this.indexInfoProvider.getIndexInfos()).thenReturn(List.of(indexInfo));
+    when(this.authoritativeIndexCatalog.listIndexDefinitions()).thenReturn(List.of(def));
+
+    // COLLECTION_NOT_FOUND paired with FAILED is a combination the internal IndexStatus constructor
+    // would reject. The readiness check reads statusCode/message straight off IndexStatusP, so it
+    // must still classify this as an invalid-definition failure rather than throwing.
+    IndexStatusP reasonMismatchStatus =
+        new IndexStatusP(
+            IndexStatusP.StatusCode.FAILED,
+            Optional.of("Invalid definition: schema error"),
+            Optional.empty(),
+            Optional.of(IndexStatusP.Reason.COLLECTION_NOT_FOUND));
+    when(this.indexStats.list())
+        .thenReturn(List.of(createIndexStatsEntry(serverId, indexId, def, reasonMismatchStatus)));
+
+    assertTrue(
+        "When the persisted status has an inconsistent reason, should still be ready",
+        this.checker.isReady(false));
+  }
+
   @Test(expected = MetadataServiceException.class)
   public void testIsReady_getIndexStatsPerIndexThrowsException_ExceptionThrown() throws Exception {
     when(this.commandServer.getServerStatus()).thenReturn(CommandServer.ServerStatus.STARTED);
@@ -630,9 +663,14 @@ public class CommunityReadinessCheckerTest {
 
   private IndexStatsEntry createIndexStatsEntry(
       ObjectId serverId, ObjectId indexId, SearchIndexDefinition definition, IndexStatus status) {
+    return createIndexStatsEntry(
+        serverId, indexId, definition, IndexStatusMapper.toPersisted(status));
+  }
+
+  private IndexStatsEntry createIndexStatsEntry(
+      ObjectId serverId, ObjectId indexId, SearchIndexDefinition definition, IndexStatusP status) {
     IndexStatsEntry.DetailedIndexStats detailedStats =
-        new IndexStatsEntry.DetailedIndexStats(
-            IndexStatusMapper.toPersisted(status), definition, Optional.empty());
+        new IndexStatsEntry.DetailedIndexStats(status, definition, Optional.empty());
 
     return new IndexStatsEntry(
         new IndexStatsEntry.IndexStatsKey(serverId, indexId),

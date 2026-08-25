@@ -9,6 +9,7 @@ import com.xgen.mongot.catalogservice.MetadataService;
 import com.xgen.mongot.catalogservice.MetadataServiceException;
 import com.xgen.mongot.catalogservice.TopologyMismatchException;
 import com.xgen.mongot.catalogservice.schema.IndexStatsEntry;
+import com.xgen.mongot.catalogservice.schema.IndexStatusP;
 import com.xgen.mongot.catalogservice.schema.ServerStateEntry;
 import com.xgen.mongot.config.manager.CachedIndexInfoProvider;
 import com.xgen.mongot.config.manager.ConfigManager;
@@ -213,11 +214,7 @@ public class CommunityReadinessChecker implements ReadinessChecker {
       if (isInvalidDefinitionFailure(status.get())
           && indexStatsEntries.stream()
               .map(IndexStatsEntry::mainIndex)
-              .allMatch(
-                  i ->
-                      i.isEmpty()
-                          || isInvalidDefinitionFailure(
-                              IndexStatusMapper.fromPersisted(i.get().status())))) {
+              .allMatch(i -> i.isEmpty() || isInvalidDefinitionFailure(i.get().status()))) {
         LOG.info(
             "Bypassing failed index status check for index '{}' "
                 + "because index has invalid definition",
@@ -239,6 +236,17 @@ public class CommunityReadinessChecker implements ReadinessChecker {
     return status.getStatusCode() == IndexStatus.StatusCode.FAILED
         && status.getMessage().isPresent()
         && status.getMessage().get().startsWith(IndexStatus.INVALID_DEFINITION_MESSAGE_PREFIX);
+  }
+
+  /**
+   * Same as {@link #isInvalidDefinitionFailure(IndexStatus)} but reads directly off a persisted
+   * {@link IndexStatusP}, so it never needs to fully reconstruct (and validate) an {@link
+   * IndexStatus} from potentially-unvalidated persisted state.
+   */
+  private boolean isInvalidDefinitionFailure(IndexStatusP status) {
+    return IndexStatusMapper.fromPersisted(status.statusCode()) == IndexStatus.StatusCode.FAILED
+        && status.message().isPresent()
+        && status.message().get().startsWith(IndexStatus.INVALID_DEFINITION_MESSAGE_PREFIX);
   }
 
   private IndexesInAicSupplierOutput getIndexesInAic() {

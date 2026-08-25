@@ -7,6 +7,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.xgen.mongot.catalogservice.IndexStatusMapper;
 import com.xgen.mongot.catalogservice.schema.IndexStatsEntry;
+import com.xgen.mongot.catalogservice.schema.IndexStatusP;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
@@ -732,6 +733,43 @@ public class IndexEntryMapperTest {
         "message should be present for failed status",
         hostDetail.mainIndex().get().message().isPresent());
     assertEquals("Test error message", hostDetail.mainIndex().get().message().get());
+  }
+
+  @Test
+  public void testToIndexEntry_statusCodeInconsistentWithReason_surfacesEntry() {
+    // A persisted status whose reason/statusCode combination the internal IndexStatus constructor
+    // would reject. IndexEntryMapper reads statusCode/message straight off IndexStatusP, so the
+    // entry must still be surfaced instead of failing the whole listSearchIndexes response.
+    SearchIndexDefinition definition = createSearchIndexDefinition(1L, TEST_INSTANT);
+    IndexStatusP inconsistentStatus =
+        new IndexStatusP(
+            IndexStatusP.StatusCode.STEADY,
+            Optional.of("Test message"),
+            Optional.empty(),
+            Optional.of(IndexStatusP.Reason.INITIAL_SYNC_REPLICATION_FAILED));
+    IndexStatsEntry entry =
+        new IndexStatsEntry(
+            new IndexStatsEntry.IndexStatsKey(TEST_SERVER_ID, TEST_INDEX_ID),
+            IndexDefinition.Type.SEARCH,
+            Optional.of(
+                new IndexStatsEntry.DetailedIndexStats(
+                    inconsistentStatus, definition, Optional.empty())),
+            Optional.empty());
+    Map<String, IndexStatsEntry> indexStats = new HashMap<>();
+    indexStats.put(TEST_HOSTNAME, entry);
+
+    ListSearchIndexesResponseDefinition.IndexEntry result =
+        IndexEntryMapper.toIndexEntry(
+            definition, definition.toBson(), indexStats, Optional.empty());
+
+    assertEquals("READY", result.status());
+    assertTrue(result.queryable());
+    assertEquals(1, result.hostStatusDetails().size());
+    ListSearchIndexesResponseDefinition.HostIndexStatusDetail mainIndex =
+        result.hostStatusDetails().get(0).mainIndex().get();
+    assertEquals("READY", mainIndex.status());
+    assertTrue(mainIndex.queryable());
+    assertEquals(Optional.of("Test message"), mainIndex.message());
   }
 
   @Test

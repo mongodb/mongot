@@ -53,16 +53,16 @@
         "message": "recovering",
         "reason": "INITIAL_SYNC_REPLICATION_FAILED"
       }
-    }
-  ],
-  "invalid": [
+    },
     {
       "description": "status code doesn't match reason",
       "value": {
         "statusCode": "UNKNOWN",
         "reason": "INITIAL_SYNC_REPLICATION_FAILED"
       }
-    },
+    }
+  ],
+  "invalid": [
     {
       "description": "status code does not exist",
       "value": {

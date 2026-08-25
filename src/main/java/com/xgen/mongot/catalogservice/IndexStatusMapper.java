@@ -54,15 +54,6 @@ public class IndexStatusMapper {
     };
   }
 
-  /** Reconstructs an in-memory {@link IndexStatus} from a persisted record read back from state. */
-  public static IndexStatus fromPersisted(IndexStatusP persisted) {
-    return IndexStatus.fromPersisted(
-        fromPersisted(persisted.statusCode()),
-        persisted.message(),
-        persisted.optime(),
-        persisted.reason().map(IndexStatusMapper::fromPersisted));
-  }
-
   public static IndexStatus.StatusCode fromPersisted(IndexStatusP.StatusCode statusCode) {
     return switch (statusCode) {
       case UNKNOWN -> IndexStatus.StatusCode.UNKNOWN;

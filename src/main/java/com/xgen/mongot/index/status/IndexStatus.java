@@ -240,7 +240,15 @@ public class IndexStatus {
   }
 
   public boolean canServiceQueries() {
-    return QUERIES_SERVICEABLE_STATUS_CODES.contains(this.statusCode);
+    return canServiceQueries(this.statusCode);
+  }
+
+  /**
+   * Same as {@link #canServiceQueries()} but callable from a bare {@link StatusCode}, without
+   * needing a fully-constructed (and validated) {@link IndexStatus}.
+   */
+  public static boolean canServiceQueries(StatusCode statusCode) {
+    return QUERIES_SERVICEABLE_STATUS_CODES.contains(statusCode);
   }
 
   public boolean canBeRecovered() {

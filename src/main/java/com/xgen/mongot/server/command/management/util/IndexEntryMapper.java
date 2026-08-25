@@ -86,17 +86,20 @@ public class IndexEntryMapper {
    */
   private static ListSearchIndexesResponseDefinition.HostIndexStatusDetail toHostIndexStatusDetail(
       IndexStatsEntry.DetailedIndexStats detailedIndexStats) {
-    IndexStatus status = IndexStatusMapper.fromPersisted(detailedIndexStats.status());
+    // Reads statusCode/message directly off the persisted IndexStatusP rather than reconstructing
+    // a full (validated) IndexStatus, which this response only ever needed statusCode/message from.
+    IndexStatus.StatusCode statusCode =
+        IndexStatusMapper.fromPersisted(detailedIndexStats.status().statusCode());
     return new ListSearchIndexesResponseDefinition.HostIndexStatusDetail(
-        IndexMapper.toExternalStatus(status.getStatusCode()),
-        status.canServiceQueries(),
+        IndexMapper.toExternalStatus(statusCode),
+        IndexStatus.canServiceQueries(statusCode),
         computeSynonymStatus(detailedIndexStats).map(IndexMapper::toExternalSynonymStatus),
         toSynonymStatusDetails(detailedIndexStats),
         toDefinitionVersion(
             detailedIndexStats.definition().getDefinitionVersion(),
             detailedIndexStats.definition().getDefinitionVersionCreatedAt()),
         IndexMapper.toExternal(detailedIndexStats.definition()),
-        status.getMessage());
+        detailedIndexStats.status().message());
   }
 
   /** Generates the DefinitionVersion object. */
@@ -190,8 +193,9 @@ public class IndexEntryMapper {
   /** Checks that a given index is queryable. */
   private static boolean isIndexQueryable(IndexStatsEntry indexStatsEntry) {
     return indexStatsEntry.mainIndex().isPresent()
-        && IndexStatusMapper.fromPersisted(indexStatsEntry.mainIndex().get().status())
-            .canServiceQueries();
+        && IndexStatus.canServiceQueries(
+            IndexStatusMapper.fromPersisted(
+                indexStatsEntry.mainIndex().get().status().statusCode()));
   }
 
   /**
