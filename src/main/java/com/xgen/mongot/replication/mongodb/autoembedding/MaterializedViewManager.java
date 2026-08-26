@@ -1383,10 +1383,17 @@ public class MaterializedViewManager implements ReplicationManager {
    * drop closes its writer first, so the dropped collection cannot be re-created behind us.
    * Best-effort — without leadership, or on any failure, the pair stays where the stale-lease GC
    * finds it after the graces.
+   *
+   * <p>Deregistering the generation is not best-effort and not leader-only: it must happen on every
+   * node that witnesses the drop, before the teardown closes the index. See {@link
+   * #deregisterGenerationOfDroppedSourceCollection}.
    */
   private void cleanUpMatViewResourcesForDroppedSourceCollection(
       MaterializedViewIndexGeneration generation) {
     MaterializedViewGenerationId generationId = generation.getGenerationId();
+    // Leadership decides who cleans up the shared resources, but nobody should be replicating a
+    // collection that no longer exists, so this runs on every node that witnesses the drop.
+    deregisterGenerationOfDroppedSourceCollection(generation);
     if (!this.leaseManager.isLeader(generationId)) {
       LOG.atInfo()
           .addKeyValue("generationId", generationId)
@@ -1434,6 +1441,46 @@ public class MaterializedViewManager implements ReplicationManager {
             throwable ->
                 logDetachedCleanupFailure(
                     throwable, generationId, leaseKey, DROP_SCENARIO_SOURCE_COLLECTION_DROP));
+  }
+
+  /**
+   * Takes a generation whose source collection is gone out of the buffer that {@link
+   * #retryFailedGeneratorCreations()} and {@link #restartReplication()} rebuild generators from.
+   *
+   * <p>Both rebuild a generator for every buffered generation whose own generator is shut down --
+   * exactly the state the teardown after this callback leaves behind. The rebuilt generator would
+   * reuse the same, by then closed, index, and would find no checkpoint either, because the
+   * checkpoint lives in the lease document this cleanup deletes. It would therefore start an
+   * initial sync instead of resuming, fail to resolve the dropped collection, and take the process
+   * down committing the resulting status. The rest of this generation's bookkeeping is left alone:
+   * the config-driven deletion still finds its generator and unwinds normally.
+   */
+  private void deregisterGenerationOfDroppedSourceCollection(
+      MaterializedViewIndexGeneration generation) {
+    // Resolve the key the same way ActiveGenerationIdCatalog#add resolved it when it buffered the
+    // generation -- through the metadata catalog, not the index's own accessor -- so that a
+    // divergence between the two can never turn this removal into a silent no-op.
+    var metadata = this.matViewMetadataCatalog.getMetadataIfPresent(generation.getGenerationId());
+    if (metadata.isEmpty()) {
+      return;
+    }
+    UUID matViewCollectionUuid = metadata.get().collectionUuid();
+    // Value-matched, and deliberately not under the manager monitor: this runs on the generator's
+    // thread while it holds the generator's own lock, and the config-driven cleanup takes those
+    // two locks in the opposite order. A newer generation of the same index may already own the
+    // entry -- a definition update racing the drop -- and has to keep its place in the buffer.
+    @SuppressWarnings("GuardedBy") // ConcurrentHashMap: a single keyed removal is atomic on its own
+    boolean deregistered =
+        this.activeGenerationIdCatalog.latestMatViewIndexGenerationByCollection.remove(
+            matViewCollectionUuid, generation);
+    if (deregistered) {
+      LOG.atInfo()
+          .addKeyValue("generationId", generation.getGenerationId())
+          .addKeyValue("collectionUuid", matViewCollectionUuid)
+          .log(
+              "Source collection dropped; deregistered its generation so the status refresh "
+                  + "cannot rebuild a generator on the closed index");
+    }
   }
 
   @Override
@@ -2272,6 +2319,7 @@ public class MaterializedViewManager implements ReplicationManager {
   private enum GeneratorCreation {
     CREATED,
     SKIPPED_RETIRED,
+    SKIPPED_DEREGISTERED,
     FAILED
   }
 
@@ -2289,6 +2337,18 @@ public class MaterializedViewManager implements ReplicationManager {
           .addKeyValue("generationId", matViewIndexGeneration.getGenerationId())
           .log("Skipping generator creation for retired generation");
       return GeneratorCreation.SKIPPED_RETIRED;
+    }
+    // Presence in the buffer is the mandate to rebuild, so re-read it here: both callers iterate
+    // that map, and a weakly consistent iteration can carry an entry that a source-collection drop
+    // deregistered in the meantime. Rebuilding then would resurrect a generation whose index the
+    // drop teardown has already closed. Ordering makes this read decisive rather than lucky: a
+    // rebuild only follows the old generator reaching SHUT_DOWN, which follows the deregistration.
+    if (this.activeGenerationIdCatalog.latestMatViewIndexGenerationByCollection.get(uuid)
+        != matViewIndexGeneration) {
+      LOG.atInfo()
+          .addKeyValue("generationId", matViewIndexGeneration.getGenerationId())
+          .log("Skipping generator creation for a generation that is no longer registered");
+      return GeneratorCreation.SKIPPED_DEREGISTERED;
     }
     try {
       this.managedMaterializedViewGenerators.put(uuid, createNewGenerator(matViewIndexGeneration));
@@ -2343,7 +2403,8 @@ public class MaterializedViewManager implements ReplicationManager {
 
   /** Retirement is intentional, so it is neither a successful retry nor a failed one. */
   private void recordGeneratorRetry(GeneratorCreation outcome) {
-    if (outcome == GeneratorCreation.SKIPPED_RETIRED) {
+    if (outcome == GeneratorCreation.SKIPPED_RETIRED
+        || outcome == GeneratorCreation.SKIPPED_DEREGISTERED) {
       return;
     }
     this.meterRegistry

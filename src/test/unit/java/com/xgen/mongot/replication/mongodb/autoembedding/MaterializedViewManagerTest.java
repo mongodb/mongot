@@ -18,6 +18,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doReturn;
@@ -918,6 +919,78 @@ public class MaterializedViewManagerTest {
         0.0);
   }
 
+  /**
+   * The buffer {@code retryFailedGeneratorCreations} and {@code restartReplication} rebuild from.
+   */
+  private static Map<UUID, MaterializedViewIndexGeneration> bufferedGenerations(Mocks mocks) {
+    return mocks.manager.getActiveGenerationIdCatalog().latestMatViewIndexGenerationByCollection;
+  }
+
+  /** The key the catalog buffered {@code generation} under, without assuming how it derived it. */
+  private static UUID bufferedKeyOf(Mocks mocks, MaterializedViewIndexGeneration generation) {
+    return bufferedGenerations(mocks).entrySet().stream()
+        .filter(entry -> entry.getValue() == generation)
+        .map(Map.Entry::getKey)
+        .findFirst()
+        .orElseThrow(() -> new AssertionError("generation is not buffered for generator rebuilds"));
+  }
+
+  @Test
+  public void sourceCollectionDrop_deregistersGenerationSoRefreshCannotRebuildIt() {
+    Mocks mocks = Mocks.create();
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+    assertTrue(
+        "precondition: the generation is buffered for generator rebuilds",
+        bufferedGenerations(mocks).containsValue(gen));
+
+    mocks.onSourceCollectionDropped().accept(gen);
+
+    // The teardown that follows this callback shuts the generator down and closes its index, which
+    // is precisely what retryFailedGeneratorCreations rebuilds from. Leaving the generation
+    // buffered lets it rebuild a generator on the closed index.
+    assertFalse(
+        "the dropped generation must not be left for the status refresh to rebuild",
+        bufferedGenerations(mocks).containsValue(gen));
+  }
+
+  @Test
+  public void sourceCollectionDrop_notLeaseHolder_stillDeregistersGeneration() {
+    Mocks mocks = Mocks.create();
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+    when(mocks.leaseManager.isLeader(any())).thenReturn(false);
+
+    mocks.onSourceCollectionDropped().accept(gen);
+
+    // Leadership governs who cleans up the shared MV and lease, not whether this node keeps
+    // trying to replicate a collection that no longer exists.
+    assertFalse(bufferedGenerations(mocks).containsValue(gen));
+  }
+
+  @Test
+  public void sourceCollectionDrop_newerGenerationBuffered_leavesItRegistered() {
+    Mocks mocks = Mocks.create();
+    MaterializedViewIndexGeneration dropped =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.mockMaterializedViewGenerator(dropped);
+    mocks.addIndexForReplication(dropped);
+    UUID matViewCollectionUuid = bufferedKeyOf(mocks, dropped);
+    // A definition update racing the drop: a newer generation already owns the buffer entry, and
+    // dropping the older one must not evict it.
+    MaterializedViewIndexGeneration newer =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    bufferedGenerations(mocks).put(matViewCollectionUuid, newer);
+
+    mocks.onSourceCollectionDropped().accept(dropped);
+
+    assertEquals(newer, bufferedGenerations(mocks).get(matViewCollectionUuid));
+  }
+
   @Test
   public void sourceCollectionDrop_notLeaseHolder_leavesEverythingForGc() {
     Mocks mocks = Mocks.create();
@@ -953,6 +1026,31 @@ public class MaterializedViewManagerTest {
         collectionDropCount(
             mocks, MaterializedViewManager.DROP_SCENARIO_SOURCE_COLLECTION_DROP, "failure"),
         0.0);
+  }
+
+  @Test
+  public void sourceCollectionDrop_thenIndexDeletion_stillUnwindsTheGeneration() throws Exception {
+    // Deregistering at drop time removes the generation from the rebuild buffer but deliberately
+    // leaves the rest of its bookkeeping, so the config-driven deletion that follows still finds
+    // its generator and unwinds normally -- releasing leadership rather than returning early.
+    Mocks mocks = Mocks.create();
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator generator = mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+
+    mocks.onSourceCollectionDropped().accept(gen);
+    assertFalse(bufferedGenerations(mocks).containsValue(gen));
+
+    mocks.markIndexDeleted();
+    mocks.manager.dropIndex(MOCK_GENERATION_ID).get(5, TimeUnit.SECONDS);
+
+    // Both only happen past the "already dropped" early return, so they distinguish a real unwind
+    // from one that bailed out because the drop-time cleanup took too much bookkeeping with it.
+    verify(generator).shutdown();
+    verify(mocks.leaseManager, atLeastOnce())
+        .cleanupLeaseForDeletedIndex("test_" + INDEX_ID.toHexString());
+    assertTrue(mocks.manager.getMatViewGenerator(gen.getGenerationId()).isEmpty());
   }
 
   @Test
@@ -1421,6 +1519,45 @@ public class MaterializedViewManagerTest {
     verify(mocks.materializedViewGeneratorFactory, times(3)).create(gen);
     assertEquals(1.0, retryCount(mocks, "success"), 0.0);
     assertEquals(1.0, retryCount(mocks, "failure"), 0.0);
+  }
+
+  // The drop-time deregistration and the status refresh run on different threads without a shared
+  // lock, so a weakly consistent iteration can carry an entry that was deregistered in the
+  // meantime -- modelled here by deregistering on the state read that decides the rebuild.
+  // Rebuilding then would resurrect a generation whose index the drop teardown closed, which is
+  // what crashed mongot; the rebuild path re-reads the buffer and refuses.
+  @Test
+  public void refreshStatus_doesNotRebuildGenerationDeregisteredMidIteration() {
+    Mocks mocks = Mocks.createStaticLeaderWithRefreshCapture();
+    when(mocks.materializedViewGeneratorFactory.isInitialized()).thenReturn(true);
+
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(new ObjectId()));
+    MaterializedViewGenerator shutDownGenerator = mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+    UUID matViewCollectionUuid = bufferedKeyOf(mocks, gen);
+
+    doAnswer(
+            invocation -> {
+              bufferedGenerations(mocks).remove(matViewCollectionUuid, gen);
+              return IndexManager.State.SHUT_DOWN;
+            })
+        .when(shutDownGenerator)
+        .getState();
+
+    MaterializedViewGenerator rebuilt = mock(MaterializedViewGenerator.class);
+    when(rebuilt.getIndexGeneration()).thenReturn(gen);
+    when(mocks.materializedViewGeneratorFactory.create(gen)).thenReturn(rebuilt);
+    Mockito.clearInvocations(mocks.materializedViewGeneratorFactory);
+
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    verify(mocks.materializedViewGeneratorFactory, never()).create(gen);
+    assertSame(
+        shutDownGenerator, mocks.manager.getMatViewGenerator(gen.getGenerationId()).orElseThrow());
+    // A deliberate skip, not a retry outcome: neither counter moves.
+    assertEquals(0.0, retryCount(mocks, "success"), 0.0);
+    assertEquals(0.0, retryCount(mocks, "failure"), 0.0);
   }
 
   // A failed transition to follower leaves a SHUT_DOWN generator in the map. refreshStatus
