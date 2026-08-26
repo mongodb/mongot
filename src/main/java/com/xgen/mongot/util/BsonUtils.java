@@ -1,16 +1,19 @@
 package com.xgen.mongot.util;
 
 import java.nio.ByteBuffer;
+import java.time.Instant;
 import java.util.UUID;
 import java.util.function.Function;
 import org.apache.lucene.util.BytesRef;
 import org.bson.BsonBinary;
+import org.bson.BsonDateTime;
 import org.bson.BsonDocument;
 import org.bson.BsonDocumentReader;
 import org.bson.BsonMaxKey;
 import org.bson.BsonMinKey;
 import org.bson.BsonObjectId;
 import org.bson.BsonString;
+import org.bson.BsonTimestamp;
 import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.RawBsonDocument;
@@ -120,5 +123,33 @@ public class BsonUtils {
     DocumentCodec codec = new DocumentCodec();
     DecoderContext decoderContext = DecoderContext.builder().build();
     return codec.decode(new BsonDocumentReader(bsonDocument), decoderContext);
+  }
+
+  /**
+   * Extracts the time component from a BSON timestamp.
+   *
+   * <p>{@link Instant} precision is higher (nanoseconds) than {@link BsonTimestamp} time precision
+   * (seconds), so this conversion is lossless.
+   */
+  public static Instant extractInstant(BsonTimestamp timestamp) {
+    return Instant.ofEpochSecond(Integer.toUnsignedLong(timestamp.getTime()));
+  }
+
+  /**
+   * Converts a {@link BsonDateTime} to an {@link Instant}.
+   *
+   * <p>{@link Instant} precision is higher (nanoseconds) than {@link BsonDateTime} time precision
+   * (milliseconds), so this conversion is lossless.
+   */
+  public static Instant toInstant(BsonDateTime dateTime) {
+    return Instant.ofEpochMilli(dateTime.getValue());
+  }
+
+  /**
+   * Converts an {@link Instant} to a {@link BsonDateTime} by truncating from nanosecond to
+   * millisecond precision.
+   */
+  public static BsonDateTime truncateToDateTime(Instant instant) {
+    return new BsonDateTime(instant.toEpochMilli());
   }
 }
