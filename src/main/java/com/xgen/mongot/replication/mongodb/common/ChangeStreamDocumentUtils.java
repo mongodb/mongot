@@ -685,8 +685,8 @@ public class ChangeStreamDocumentUtils {
       case REPLACE -> {
         incrementApplicableDocumentMetrics(metrics, event);
         // A REPLACE re-embeds the whole document; count it as a full-re-index fallback
-        // (CLOUDP-412617), gated to the same MV-backed non-view population as the UPDATE path.
-        if (partialUpdatesSupported && indexDefinition.getView().isEmpty()) {
+        // (CLOUDP-412617) for every index that can take a partial UPDATE.
+        if (partialUpdatesSupported) {
           metrics.partialEmbedFallback(PartialEmbedFallbackReason.REPLACE_EVENT);
         }
         return Optional.of(DocumentEvent.createUpdate(metadata, event.getFullDocument()));
@@ -776,8 +776,7 @@ public class ChangeStreamDocumentUtils {
     return switch (indexDefinition) {
       case VectorIndexDefinition ignored -> true;
       case SearchIndexDefinition ignored ->
-          indexDefinition.getView().isEmpty()
-              && mapping.enumeratesAllIndexedPaths()
+          mapping.enumeratesAllIndexedPaths()
               && !hasPassthroughInMaterializedViewNamespace(mapping);
     };
   }

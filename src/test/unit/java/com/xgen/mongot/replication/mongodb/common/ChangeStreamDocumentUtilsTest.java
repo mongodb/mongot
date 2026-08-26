@@ -16,6 +16,7 @@ import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.ViewDefinition;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.replication.mongodb.common.ViewFieldDependencies.ViewDerivationFallbackReason;
+import com.xgen.mongot.replication.mongodb.common.ViewFieldDependencies.ViewFullProcessingReason;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.EmbeddedDocumentsFieldDefinitionBuilder;
@@ -557,7 +558,7 @@ public class ChangeStreamDocumentUtilsTest {
   }
 
   @Test
-  public void handleDocumentEvents_staticSearchView_keepsFullWriteBehavior() {
+  public void handleDocumentEvents_staticSearchView_appliesFilterOnlyPartialWrite() {
     SearchIndexDefinition indexDefinition =
         searchAutoEmbedViewIndex(
             staticSearchMappings(false),
@@ -584,13 +585,19 @@ public class ChangeStreamDocumentUtilsTest {
             ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDefinition));
 
     assertThat(batch.finalChangeEvents).hasSize(1);
-    assertThat(batch.finalChangeEvents.getFirst().getDocument()).isPresent();
-    assertThat(batch.finalChangeEvents.getFirst().getDocument().get()).isEqualTo(fullDocument);
-    assertThat(batch.finalChangeEvents.getFirst().getFilterFieldUpdates()).isEmpty();
+    assertThat(
+            batch
+                .finalChangeEvents
+                .getFirst()
+                .getFilterFieldUpdates()
+                .orElseThrow()
+                .getString("category")
+                .getValue())
+        .isEqualTo("updated");
     assertThat(batch.partialEmbedApplied).isEqualTo(0);
     assertThat(batch.filterOnlyPartialApplied).isEqualTo(0);
-    assertThat(batch.viewFilterOnlyPartialApplied).isEqualTo(0);
-    assertThat(batch.viewDecisions).isEmpty();
+    assertThat(batch.viewFilterOnlyPartialApplied).isEqualTo(1);
+    assertThat(batch.viewDecisions).containsExactly(ViewFullProcessingReason.NONE, 1);
   }
 
   private static SearchIndexDefinition searchAutoEmbedViewIndex(

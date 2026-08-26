@@ -3,11 +3,9 @@ package com.xgen.mongot.replication.mongodb.common;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.flogger.FluentLogger;
-import com.mongodb.client.model.changestream.TruncatedArray;
 import com.mongodb.client.model.changestream.UpdateDescription;
 import com.xgen.mongot.index.definition.ViewDefinition.SupportedStage;
 import com.xgen.mongot.util.FieldPath;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -17,7 +15,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.bson.BsonDocument;
 import org.bson.BsonValue;
 import org.jetbrains.annotations.Nullable;
@@ -62,6 +59,17 @@ public final class ViewFieldDependencies {
   /** Per embed source, the base fields its (possibly computed) value depends on. */
   private final ImmutableMap<FieldPath, ImmutableSet<FieldPath>> embedFeeders;
 
+  /**
+   * Containers of exact nested computed embed paths. An update that replaces one of these
+   * containers (or an ancestor) must use a full write because a dotted $set cannot clear a missing
+   * embed value from the materialized view.
+   *
+   * <p>For example, if a view computes {@code items.text} with {@code $set: {"items.text":
+   * "$seed"}}, replacing {@code items} with {@code []} removes {@code items.text} from the view. A
+   * full write then removes its obsolete embedding and hash.
+   */
+  private final ImmutableSet<FieldPath> nestedComputedEmbedContainers;
+
   /** Union of nonEmbedTriggers and all embed feeders; any change here needs embedding/full work. */
   private final ImmutableSet<FieldPath> triggerFields;
 
@@ -74,9 +82,11 @@ public final class ViewFieldDependencies {
   private ViewFieldDependencies(
       ImmutableSet<FieldPath> nonEmbedTriggers,
       ImmutableMap<FieldPath, ImmutableSet<FieldPath>> embedFeeders,
+      ImmutableSet<FieldPath> nestedComputedEmbedContainers,
       Optional<ViewDerivationFallbackReason> derivationFallbackReason) {
     this.nonEmbedTriggers = nonEmbedTriggers;
     this.embedFeeders = embedFeeders;
+    this.nestedComputedEmbedContainers = nestedComputedEmbedContainers;
     this.triggerFields =
         ImmutableSet.<FieldPath>builder()
             .addAll(nonEmbedTriggers)
@@ -87,7 +97,8 @@ public final class ViewFieldDependencies {
 
   /** A dependency set that couldn't be bounded, tagged with why, forcing all updates full. */
   private static ViewFieldDependencies fullProcessing(ViewDerivationFallbackReason reason) {
-    return new ViewFieldDependencies(ImmutableSet.of(), ImmutableMap.of(), Optional.of(reason));
+    return new ViewFieldDependencies(
+        ImmutableSet.of(), ImmutableMap.of(), ImmutableSet.of(), Optional.of(reason));
   }
 
   /** A dependency set for an index shape whose fields cannot be statically enumerated. */
@@ -187,6 +198,12 @@ public final class ViewFieldDependencies {
             .collect(
                 ImmutableMap.toImmutableMap(
                     path -> path, path -> resolveRefs(Set.of(path), computed)));
+    ImmutableSet<FieldPath> nestedComputedEmbedContainers =
+        embedPaths.stream()
+            .filter(computed::containsKey)
+            .map(FieldPath::getParent)
+            .flatMap(Optional::stream)
+            .collect(ImmutableSet.toImmutableSet());
 
     // A filter field computed by the view, or containing a computed descendant, contributes those
     // computed paths' feeders: the filter-only partial update re-extracts present filter values but
@@ -206,7 +223,8 @@ public final class ViewFieldDependencies {
     }
 
     // triggers now holds match-referenced ∪ computed-filter feeders — the non-embed triggers.
-    return new ViewFieldDependencies(canonicalize(triggers), embedFeeders, Optional.empty());
+    return new ViewFieldDependencies(
+        canonicalize(triggers), embedFeeders, nestedComputedEmbedContainers, Optional.empty());
   }
 
   /** True if the path (or an ancestor) is produced by a $set/$addFields stage. */
@@ -282,7 +300,9 @@ public final class ViewFieldDependencies {
     }
     Set<FieldPath> changed = changedPaths(updateDescription);
     // An empty update can't prove the indexed document is unaffected — force full.
-    return changed.isEmpty() || hitsAny(changed, this.triggerFields);
+    return changed.isEmpty()
+        || hitsAny(changed, this.triggerFields)
+        || overwritesNestedComputedEmbedContainer(changed, this.nestedComputedEmbedContainers);
   }
 
   /**
@@ -298,14 +318,15 @@ public final class ViewFieldDependencies {
       return ViewFullProcessingReason.NULL_UPDATE_DESCRIPTION;
     }
     if (forcesFull(updateDescription)) {
-      // A removal can't be applied through the $set-only partial path.
-      return ViewFullProcessingReason.REMOVED_FIELDS;
+      // A removal or truncation can't be applied through the $set-only partial path.
+      return ViewFullProcessingReason.REMOVED_OR_TRUNCATED_FIELDS;
     }
     Set<FieldPath> changed = changedPaths(updateDescription);
     if (changed.isEmpty()) {
       return ViewFullProcessingReason.EMPTY_UPDATE_DESCRIPTION;
     }
     return hitsAny(changed, this.triggerFields)
+            || overwritesNestedComputedEmbedContainer(changed, this.nestedComputedEmbedContainers)
         ? ViewFullProcessingReason.TRIGGER_HIT
         : ViewFullProcessingReason.NONE;
   }
@@ -322,8 +343,11 @@ public final class ViewFieldDependencies {
       return ViewUpdateClassification.full();
     }
     Set<FieldPath> changed = changedPaths(updateDescription);
-    // Empty update, or a change to a membership/computed-filter feeder, can't take a partial $set.
-    if (changed.isEmpty() || hitsAny(changed, this.nonEmbedTriggers)) {
+    // Empty update, membership/computed-filter feeder changes, and nested computed-embed container
+    // overwrites can't take a partial $set.
+    if (changed.isEmpty()
+        || hitsAny(changed, this.nonEmbedTriggers)
+        || overwritesNestedComputedEmbedContainer(changed, this.nestedComputedEmbedContainers)) {
       return ViewUpdateClassification.full();
     }
     // Otherwise re-embed only the embed sources whose feeders were touched (may be none ⇒ filter-
@@ -336,30 +360,23 @@ public final class ViewFieldDependencies {
     return ViewUpdateClassification.partial(changedEmbedPaths);
   }
 
-  /**
-   * True if a removal is present — removals can't be applied through the $set-only partial path.
-   */
+  /** True if a removal or array truncation can't be applied through the $set-only partial path. */
   private static boolean forcesFull(UpdateDescription updateDescription) {
     return !Optional.ofNullable(updateDescription.getRemovedFields())
-        .orElseGet(Collections::emptyList)
-        .isEmpty();
+            .orElseGet(Collections::emptyList)
+            .isEmpty()
+        || !Optional.ofNullable(updateDescription.getTruncatedArrays())
+            .orElseGet(Collections::emptyList)
+            .isEmpty();
   }
 
-  /**
-   * Normalized base-collection paths a change touches (updated fields ∪ truncated-array fields).
-   */
+  /** Normalized base-collection paths a change updates. */
   private static Set<FieldPath> changedPaths(UpdateDescription updateDescription) {
     Set<String> updatedFields =
         Optional.ofNullable(updateDescription.getUpdatedFields())
             .map(BsonDocument::keySet)
             .orElseGet(Collections::emptySet);
-    Set<String> truncatedArrays =
-        Optional.ofNullable(updateDescription.getTruncatedArrays())
-            .map(
-                arrays -> arrays.stream().map(TruncatedArray::getField).collect(Collectors.toSet()))
-            .orElseGet(Collections::emptySet);
-    return Stream.of(updatedFields, truncatedArrays)
-        .flatMap(Collection::stream)
+    return updatedFields.stream()
         .map(FieldPath::parse)
         .map(ChangeStreams::filterFieldPath)
         .collect(Collectors.toSet());
@@ -368,6 +385,24 @@ public final class ViewFieldDependencies {
   /** True if any changed path is a direct relation of any field in {@code targets}. */
   private static boolean hitsAny(Set<FieldPath> changed, Set<FieldPath> targets) {
     return changed.stream().anyMatch(c -> targets.stream().anyMatch(c::isDirectRelation));
+  }
+
+  /**
+   * True when an updated path is an exact container or an ancestor of it, but not a descendant.
+   *
+   * <p>For a computed {@code items.text} embed source, replacing {@code items} can make the
+   * resolved embed text disappear. Updating {@code items.text} or {@code items.other} cannot: the
+   * view overwrites the former and leaves the latter outside the embed source.
+   */
+  private static boolean overwritesNestedComputedEmbedContainer(
+      Set<FieldPath> changed, Set<FieldPath> containers) {
+    return changed.stream()
+        .anyMatch(
+            changedPath ->
+                containers.stream()
+                    .anyMatch(
+                        container ->
+                            container.equals(changedPath) || container.isChildOf(changedPath)));
   }
 
   /**
@@ -402,7 +437,7 @@ public final class ViewFieldDependencies {
     DEPENDS_ON_EVERYTHING,
     NULL_UPDATE_DESCRIPTION,
     EMPTY_UPDATE_DESCRIPTION,
-    REMOVED_FIELDS,
+    REMOVED_OR_TRUNCATED_FIELDS,
     TRIGGER_HIT,
     NONE;
 

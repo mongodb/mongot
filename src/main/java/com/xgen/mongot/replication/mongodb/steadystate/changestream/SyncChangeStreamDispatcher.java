@@ -1,5 +1,6 @@
 package com.xgen.mongot.replication.mongodb.steadystate.changestream;
 
+import static com.xgen.mongot.index.IndexTypeData.INDEX_TYPE_TAG_NAME;
 import static com.xgen.mongot.index.IndexTypeData.getIndexTypeTag;
 import static com.xgen.mongot.index.IndexTypeData.getNumGauge;
 
@@ -9,6 +10,7 @@ import com.google.common.collect.Maps;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.IndexTypeData;
 import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.metrics.ServerStatusDataExtractor.ReplicationMeterData.ChangeStreamMeterData;
@@ -62,14 +64,21 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
     0.01, 0.05, 0.1, 0.25, 0.5, 0.7, 0.8, 0.9, 0.95, 1.0, 1.1, 1.5, 2.0, 3.0, 5.0, 10.0
   };
 
+  private static final EnumSet<IndexTypeData.IndexTypeTag> AUTO_EMBEDDING_INDEX_TYPE_TAGS =
+      EnumSet.of(
+          IndexTypeData.IndexTypeTag.TAG_SEARCH_AUTO_EMBEDDING,
+          IndexTypeData.IndexTypeTag.TAG_VECTOR_SEARCH_AUTO_EMBEDDING);
+
   private final ChangeStreamMongoClientFactory syncMongoClientFactory;
   private final ChangeStreamTaskExecutor taskExecutor;
 
   private final Counter applicableUpdatesCounter;
   private final Counter witnessedUpdatesCounter;
   private final Counter skippedDocumentsWithoutMetadataNamespaceCounter;
-  private final PartialEmbedMetricCounters partialEmbedMetricCounters;
-  private final ViewFieldDependenciesMetricCounters viewFieldDependenciesMetricCounters;
+  private final ImmutableMap<IndexTypeData.IndexTypeTag, PartialEmbedMetricCounters>
+      partialEmbedMetricCounters;
+  private final ImmutableMap<IndexTypeData.IndexTypeTag, ViewFieldDependenciesMetricCounters>
+      viewFieldDependenciesMetricCounters;
   private final AtomicLong syncClientUp;
   /* Tracks count and duration of in progress getMore operations (server calls only) */
   private final AtomicLong getMoresInFlight;
@@ -153,9 +162,17 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
     this.skippedDocumentsWithoutMetadataNamespaceCounter =
         metricsFactory.counter("skippedChangeStreamDocumentsWithoutMetadataNamespace");
     this.partialEmbedMetricCounters =
-        new PartialEmbedMetricCounters(metricsFactory, replicationTag);
+        Maps.toMap(
+            AUTO_EMBEDDING_INDEX_TYPE_TAGS,
+            tag ->
+                new PartialEmbedMetricCounters(
+                    metricsFactory, replicationTag.and(INDEX_TYPE_TAG_NAME, tag.tagValue)));
     this.viewFieldDependenciesMetricCounters =
-        new ViewFieldDependenciesMetricCounters(metricsFactory, replicationTag);
+        Maps.toMap(
+            AUTO_EMBEDDING_INDEX_TYPE_TAGS,
+            tag ->
+                new ViewFieldDependenciesMetricCounters(
+                    metricsFactory, replicationTag.and(INDEX_TYPE_TAG_NAME, tag.tagValue)));
     this.syncClientUp =
         metricsFactory.numGauge(
             "dispatcher",
@@ -254,7 +271,9 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
 
       var batchInfo =
           info.indexManager.indexBatch(
-              batch, this::updateBatchCounters, this.preprocessingBatchTimer);
+              batch,
+              counters -> updateBatchCounters(counters, info.indexManager.indexDefinition),
+              this.preprocessingBatchTimer);
 
       if (batchInfo.lifecycleEvent.isEmpty()) {
         enqueue(info, Optional.of(batch));
@@ -333,13 +352,16 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
         : throwable;
   }
 
-  private void updateBatchCounters(DocumentEventBatch batch) {
+  private void updateBatchCounters(DocumentEventBatch batch, IndexDefinition indexDefinition) {
     this.applicableUpdatesCounter.increment(batch.updatesApplicable);
     this.witnessedUpdatesCounter.increment(batch.updatesWitnessed);
     this.skippedDocumentsWithoutMetadataNamespaceCounter.increment(
         batch.skippedDocumentsWithoutMetadataNamespace);
-    this.partialEmbedMetricCounters.recordBatch(batch);
-    this.viewFieldDependenciesMetricCounters.recordBatch(batch);
+    if (MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDefinition)) {
+      IndexTypeData.IndexTypeTag indexTypeTag = getIndexTypeTag(indexDefinition);
+      this.partialEmbedMetricCounters.get(indexTypeTag).recordBatch(batch);
+      this.viewFieldDependenciesMetricCounters.get(indexTypeTag).recordBatch(batch);
+    }
   }
 
   private ChangeStreamBatch withMeasurement(

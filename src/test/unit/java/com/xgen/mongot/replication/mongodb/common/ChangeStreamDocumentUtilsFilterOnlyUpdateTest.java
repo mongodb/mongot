@@ -970,6 +970,44 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
   }
 
   @Test
+  public void
+      testNestedComputedEmbedContainerOverwrite_AutoEmbedFieldIndexOnView_UsesFullReplace() {
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("items.text")
+            .withFilterPath("items.category")
+            .nestedRoot("items")
+            .view(
+                ViewDefinition.existing(
+                    "myView",
+                    List.of(BsonDocument.parse("{\"$set\": {\"items.text\": \"$seed\"}}"))))
+            .build();
+    assertTrue(MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(indexDef));
+
+    UpdateDescription updateDesc =
+        new UpdateDescription(null, new BsonDocument("items", new BsonArray()));
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("items", new BsonArray())
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> changeEvent =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, updateDesc, fullDocument);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
+    assertEquals(Integer.valueOf(1), batch.viewDecisions.get(ViewFullProcessingReason.TRIGGER_HIT));
+  }
+
+  @Test
   public void testReplaceEvent_AutoEmbedFieldIndex_CountedAsFallback() {
     // A REPLACE re-embeds the whole document — the same full re-index the partial-embed
     // optimization avoids on UPDATE. It's counted under REPLACE_EVENT so the metric captures every

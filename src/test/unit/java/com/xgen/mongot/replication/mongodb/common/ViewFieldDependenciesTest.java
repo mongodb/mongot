@@ -115,6 +115,36 @@ public class ViewFieldDependenciesTest {
   }
 
   @Test
+  public void nestedComputedEmbedPath_containerOverwriteForcesFullButChildrenStayFilterOnly() {
+    FieldPath embedPath = FieldPath.parse("items.text");
+    ViewFieldDependencies deps =
+        ViewFieldDependencies.derive(
+            List.of(BsonDocument.parse("{\"$set\": {\"items.text\": \"$seed\"}}")),
+            Set.of(embedPath));
+
+    assertThat(deps.getEmbedFeeders()).containsExactly(embedPath, Set.of(FieldPath.parse("seed")));
+    assertThat(deps.classifyViewUpdate(updated("seed")).changedEmbedPaths())
+        .containsExactly(embedPath);
+    assertThat(deps.classifyViewUpdate(updated("items")).requiresFull()).isTrue();
+    assertThat(deps.classifyUpdate(updated("items")))
+        .isEqualTo(ViewFullProcessingReason.TRIGGER_HIT);
+    assertThat(deps.requiresFullProcessing(updated("items"))).isTrue();
+    assertThat(deps.classifyViewUpdate(updated("items.0.text")).requiresFull()).isTrue();
+    assertThat(deps.classifyViewUpdate(updated("items.text")).changedEmbedPaths()).isEmpty();
+    assertThat(deps.classifyViewUpdate(updated("items.other")).changedEmbedPaths()).isEmpty();
+    assertThat(deps.requiresFullProcessing(updated("items.text"))).isFalse();
+    assertThat(deps.requiresFullProcessing(updated("items.other"))).isFalse();
+
+    FieldPath deepEmbedPath = FieldPath.parse("a.b.c");
+    ViewFieldDependencies deepDeps =
+        ViewFieldDependencies.derive(
+            List.of(BsonDocument.parse("{\"$set\": {\"a.b.c\": \"$seed\"}}")),
+            Set.of(deepEmbedPath));
+    assertThat(deepDeps.classifyViewUpdate(updated("a")).requiresFull()).isTrue();
+    assertThat(deepDeps.classifyViewUpdate(updated("a.b.c")).changedEmbedPaths()).isEmpty();
+  }
+
+  @Test
   public void redefinition_laterStageReplacesFeeders() {
     List<BsonDocument> pipeline =
         List.of(
@@ -344,7 +374,7 @@ public class ViewFieldDependenciesTest {
     assertThat(deps.classifyUpdate(new UpdateDescription(null, null)))
         .isEqualTo(ViewFullProcessingReason.EMPTY_UPDATE_DESCRIPTION);
     assertThat(deps.classifyUpdate(new UpdateDescription(List.of("tags"), null)))
-        .isEqualTo(ViewFullProcessingReason.REMOVED_FIELDS);
+        .isEqualTo(ViewFullProcessingReason.REMOVED_OR_TRUNCATED_FIELDS);
     assertThat(deps.classifyUpdate(updated("isPublished")))
         .isEqualTo(ViewFullProcessingReason.TRIGGER_HIT);
     assertThat(deps.classifyUpdate(updated("tags"))).isEqualTo(ViewFullProcessingReason.NONE);

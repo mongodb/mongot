@@ -1,5 +1,7 @@
 package com.xgen.mongot.replication.mongodb.initialsync;
 
+import static com.xgen.mongot.index.IndexTypeData.INDEX_TYPE_TAG_NAME;
+import static com.xgen.mongot.index.IndexTypeData.getIndexTypeTag;
 import static com.xgen.mongot.replication.mongodb.common.ChangeStreamDocumentUtils.opTimeFromBatch;
 import static com.xgen.mongot.replication.mongodb.common.ChangeStreamModeSelector.ChangeStreamMode;
 import static com.xgen.mongot.util.Check.checkState;
@@ -12,6 +14,7 @@ import com.google.errorprone.annotations.Var;
 import com.mongodb.MongoNamespace;
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.client.model.changestream.UpdateDescription;
+import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
 import com.xgen.mongot.logging.DefaultKeyValueLogger;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.metrics.ServerStatusDataExtractor;
@@ -78,8 +81,8 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
   private final Counter applicableUpdatesCounter;
   private final Counter witnessedUpdatesCounter;
   private final Counter skippedDocumentsWithoutMetadataNamespaceCounter;
-  private final PartialEmbedMetricCounters partialEmbedMetricCounters;
-  private final ViewFieldDependenciesMetricCounters viewFieldDependenciesMetricCounters;
+  private final Optional<PartialEmbedMetricCounters> partialEmbedMetricCounters;
+  private final Optional<ViewFieldDependenciesMetricCounters> viewFieldDependenciesMetricCounters;
 
   /* Ensures the derivation-fallback metric is emitted only on the first batch for this index. */
   private final AtomicBoolean derivationFallbackReported = new AtomicBoolean(false);
@@ -166,10 +169,19 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
             replicationTag);
     this.skippedDocumentsWithoutMetadataNamespaceCounter =
         metricsFactory.counter(SKIPPED_DOCUMENTS_WITHOUT_METADATA_NAMESPACE);
-    this.partialEmbedMetricCounters =
-        new PartialEmbedMetricCounters(metricsFactory, replicationTag);
-    this.viewFieldDependenciesMetricCounters =
-        new ViewFieldDependenciesMetricCounters(metricsFactory, replicationTag);
+    if (MaterializedViewIndexDefinitionGeneration.isMaterializedViewBasedIndex(
+        context.getIndexDefinition())) {
+      Tags autoEmbeddingTags =
+          replicationTag.and(
+              INDEX_TYPE_TAG_NAME, getIndexTypeTag(context.getIndexDefinition()).tagValue);
+      this.partialEmbedMetricCounters =
+          Optional.of(new PartialEmbedMetricCounters(metricsFactory, autoEmbeddingTags));
+      this.viewFieldDependenciesMetricCounters =
+          Optional.of(new ViewFieldDependenciesMetricCounters(metricsFactory, autoEmbeddingTags));
+    } else {
+      this.partialEmbedMetricCounters = Optional.empty();
+      this.viewFieldDependenciesMetricCounters = Optional.empty();
+    }
     this.preprocessingBatchTimer = metricsFactory.timerSec(PREPROCESSING_BATCH_DURATIONS);
     this.totalDocumentsCounter = metricsFactory.counter("changeStreamTotalDocuments");
     this.avoidNaturalOrderScanSyncSourceChangeResync = avoidNaturalOrderScanSyncSourceChangeResync;
@@ -417,8 +429,9 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
     this.witnessedUpdatesCounter.increment(documentEventBatch.updatesWitnessed);
     this.skippedDocumentsWithoutMetadataNamespaceCounter.increment(
         documentEventBatch.skippedDocumentsWithoutMetadataNamespace);
-    this.partialEmbedMetricCounters.recordBatch(documentEventBatch);
-    this.viewFieldDependenciesMetricCounters.recordBatch(documentEventBatch);
+    this.partialEmbedMetricCounters.ifPresent(counters -> counters.recordBatch(documentEventBatch));
+    this.viewFieldDependenciesMetricCounters.ifPresent(
+        counters -> counters.recordBatch(documentEventBatch));
 
     if (documentEventBatch.applicableDocumentsTotal > 0) {
       this.context

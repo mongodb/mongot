@@ -1,11 +1,17 @@
 package com.xgen.mongot.replication.mongodb.steadystate.changestream;
 
 import static com.google.common.truth.Truth.assertThat;
+import static com.xgen.mongot.index.IndexTypeData.INDEX_TYPE_TAG_NAME;
+import static com.xgen.mongot.index.IndexTypeData.IndexTypeTag.TAG_SEARCH;
+import static com.xgen.mongot.index.IndexTypeData.IndexTypeTag.TAG_SEARCH_AUTO_EMBEDDING;
+import static com.xgen.mongot.index.IndexTypeData.IndexTypeTag.TAG_VECTOR_SEARCH;
+import static com.xgen.mongot.index.IndexTypeData.IndexTypeTag.TAG_VECTOR_SEARCH_AUTO_EMBEDDING;
 import static com.xgen.testing.mongot.mock.index.IndexGeneration.mockIndexGeneration;
 import static com.xgen.testing.mongot.mock.index.VectorIndex.mockAutoEmbeddingVectorDefinition;
 import static com.xgen.testing.mongot.mock.replication.mongodb.common.DocumentIndexer.mockDocumentIndexer;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -13,10 +19,17 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.mongodb.client.model.changestream.OperationType;
+import com.mongodb.client.model.changestream.UpdateDescription;
 import com.xgen.mongot.index.IndexMetricsUpdater;
+import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
+import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
+import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
+import com.xgen.mongot.replication.mongodb.common.ChangeStreamDocumentUtils;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoClient;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
@@ -25,8 +38,12 @@ import com.xgen.mongot.replication.mongodb.common.IndexingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateSchedulingMethod;
 import com.xgen.mongot.util.Condition;
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.concurrent.Executors;
 import com.xgen.testing.mongot.index.IndexMetricsUpdaterBuilder;
+import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.mock.index.IndexMetricsSupplier;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils;
@@ -39,7 +56,11 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import org.bson.BsonDocument;
+import org.bson.BsonInt32;
+import org.bson.BsonString;
 import org.bson.BsonTimestamp;
 import org.bson.types.ObjectId;
 import org.junit.Assert;
@@ -52,6 +73,183 @@ public class SyncChangeStreamDispatcherTest {
           .metricsFactory(SearchIndex.mockMetricsFactory())
           .indexMetricsSupplier(IndexMetricsSupplier.mockEmptyIndexMetricsSupplier())
           .build();
+
+  @Test
+  public void partialEmbedMetrics_onlyIncludeAutoEmbeddingIndexTypeTags() {
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    SyncChangeStreamDispatcher syncDispatcher =
+        new SyncChangeStreamDispatcher(
+            meterRegistry,
+            mock(ChangeStreamMongoClientFactory.class),
+            mock(ChangeStreamTaskExecutor.class),
+            CommonReplicationConfig.Type.DEFAULT);
+
+    try {
+      assertThat(
+              meterRegistry
+                  .find("indexing.steadyStateChangeStream.partialEmbedApplied")
+                  .tag(INDEX_TYPE_TAG_NAME, TAG_SEARCH_AUTO_EMBEDDING.tagValue)
+                  .counter())
+          .isNotNull();
+      assertThat(
+              meterRegistry
+                  .find("indexing.steadyStateChangeStream.partialEmbedApplied")
+                  .tag(INDEX_TYPE_TAG_NAME, TAG_VECTOR_SEARCH_AUTO_EMBEDDING.tagValue)
+                  .counter())
+          .isNotNull();
+      assertThat(
+              meterRegistry
+                  .find("indexing.steadyStateChangeStream.partialEmbedApplied")
+                  .tag(INDEX_TYPE_TAG_NAME, TAG_SEARCH.tagValue)
+                  .counter())
+          .isNull();
+      assertThat(
+              meterRegistry
+                  .find("indexing.steadyStateChangeStream.partialEmbedApplied")
+                  .tag(INDEX_TYPE_TAG_NAME, TAG_VECTOR_SEARCH.tagValue)
+                  .counter())
+          .isNull();
+      assertThat(
+              meterRegistry
+                  .find("indexing.steadyStateChangeStream.viewFieldDependenciesDecision")
+                  .tag(INDEX_TYPE_TAG_NAME, TAG_SEARCH_AUTO_EMBEDDING.tagValue)
+                  .meters())
+          .isNotEmpty();
+      assertThat(
+              meterRegistry
+                  .find("indexing.steadyStateChangeStream.viewFieldDependenciesDecision")
+                  .tag(INDEX_TYPE_TAG_NAME, TAG_SEARCH.tagValue)
+                  .meters())
+          .isEmpty();
+    } finally {
+      syncDispatcher.shutdown();
+    }
+  }
+
+  @Test
+  public void partialEmbedMetrics_searchAutoEmbeddingBatch_routesIncrementToSearchTag()
+      throws Exception {
+    ObjectId indexId = new ObjectId();
+    FieldPath sourcePath = FieldPath.parse("title");
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "titleVector",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition("voyage-3-large", sourcePath))
+                    .build())
+            .build();
+    SearchIndexDefinition indexDefinition =
+        SearchIndexDefinitionBuilder.builder()
+            .indexId(indexId)
+            .defaultMetadata()
+            .mappings(mappings)
+            .build();
+    UpdateDescription updateDescription =
+        new UpdateDescription(
+            List.of(), new BsonDocument(sourcePath.toString(), new BsonString("changed title")));
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append(sourcePath.toString(), new BsonString("changed title"));
+    var event =
+        ChangeStreamUtils.dataEvent(OperationType.UPDATE, 0, updateDescription, fullDocument);
+    ChangeStreamDocumentUtils.DocumentEventBatch documentEventBatch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(event),
+            indexDefinition,
+            indexDefinition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            true,
+            Optional.empty(),
+            Optional.empty());
+    assertThat(documentEventBatch.partialEmbedApplied).isEqualTo(1);
+
+    IndexDefinitionGeneration generation =
+        mockIndexGeneration(indexDefinition).getDefinitionGeneration();
+    BsonTimestamp now = new BsonTimestamp(1_700_000_000, 0);
+    ChangeStreamBatch changeStreamBatch =
+        new ChangeStreamBatch(Collections.emptyList(), ChangeStreamUtils.resumeToken(now), now);
+    ChangeStreamMongoClient<SteadyStateException> mongoClient = mock(ChangeStreamMongoClient.class);
+    when(mongoClient.getNext()).thenReturn(changeStreamBatch);
+    ChangeStreamMongoClientFactory mongoClientFactory = mock(ChangeStreamMongoClientFactory.class);
+    when(mongoClientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+        .thenReturn(mongoClient);
+    ChangeStreamIndexManager indexManager =
+        spy(
+            DecodingExecutorChangeStreamIndexManager.createWithDecodingScheduler(
+                indexDefinition,
+                mock(IndexingWorkScheduler.class),
+                mockDocumentIndexer(),
+                ChangeStreamUtils.PRE_BATCH_RESUME_INFO.getNamespace(),
+                resumeInfo -> {},
+                IGNORE_METRICS,
+                new CompletableFuture<>(),
+                generation.getGenerationId(),
+                DecodingWorkScheduler.create(2, new SimpleMeterRegistry())));
+    doAnswer(
+            invocation -> {
+              ChangeStreamIndexManager.DocumentMetricsUpdater metricsUpdater =
+                  invocation.getArgument(1);
+              metricsUpdater.accept(documentEventBatch);
+              return new ChangeStreamIndexManager.BatchInfo(
+                  CompletableFuture.completedFuture(null),
+                  Optional.empty(),
+                  new AtomicReference<>(ChangeStreamIndexManager.BatchFullness.EMPTY));
+            })
+        .when(indexManager)
+        .indexBatch(any(), any(), any());
+
+    AtomicReference<Runnable> acceptedTask = new AtomicReference<>();
+    AtomicBoolean acceptedFirstTask = new AtomicBoolean();
+    ChangeStreamTaskExecutor taskExecutor =
+        new ChangeStreamTaskExecutor() {
+          @Override
+          public boolean enqueue(Runnable task, EnqueueContext context) {
+            if (acceptedFirstTask.compareAndSet(false, true)) {
+              acceptedTask.set(task);
+              return true;
+            }
+            context.onDropped().run();
+            return false;
+          }
+
+          @Override
+          public void shutdown() {}
+        };
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    SyncChangeStreamDispatcher syncDispatcher =
+        new SyncChangeStreamDispatcher(
+            meterRegistry, mongoClientFactory, taskExecutor, CommonReplicationConfig.Type.DEFAULT);
+
+    try {
+      syncDispatcher.add(
+          indexDefinition,
+          generation.getGenerationId(),
+          mock(ChangeStreamResumeInfo.class),
+          indexManager,
+          false);
+      acceptedTask.get().run();
+
+      assertThat(
+              meterRegistry
+                  .get("indexing.steadyStateChangeStream.partialEmbedApplied")
+                  .tag(INDEX_TYPE_TAG_NAME, TAG_SEARCH_AUTO_EMBEDDING.tagValue)
+                  .counter()
+                  .count())
+          .isEqualTo(1.0);
+      assertThat(
+              meterRegistry
+                  .get("indexing.steadyStateChangeStream.partialEmbedApplied")
+                  .tag(INDEX_TYPE_TAG_NAME, TAG_VECTOR_SEARCH_AUTO_EMBEDDING.tagValue)
+                  .counter()
+                  .count())
+          .isEqualTo(0.0);
+    } finally {
+      syncDispatcher.shutdown();
+    }
+  }
 
   @Test
   public void testConcurrentEmbeddingGetMoresSemaphoreReleased_indexManagerShutdown()

@@ -9,6 +9,7 @@ java_test_suite(
         "ChangeStreamAggregateOperationFactoryTest.java",
         "ChangeStreamDocumentUtilsFilterOnlyUpdateTest.java",
         "ChangeStreamDocumentUtilsSearchPartialUpdateTest.java",
+        "ChangeStreamDocumentUtilsSearchViewPartialUpdateTest.java",
         "ChangeStreamDocumentUtilsTest.java",
         "ChangeStreamMongoCursorClientTest.java",
         "ChangeStreamResumeInfoTest.java",

@@ -1,7 +1,12 @@
 package com.xgen.mongot.replication.mongodb.initialsync;
 
+import static com.google.common.truth.Truth.assertThat;
+import static com.xgen.mongot.index.IndexTypeData.INDEX_TYPE_TAG_NAME;
+import static com.xgen.mongot.index.IndexTypeData.IndexTypeTag.TAG_VECTOR_SEARCH_AUTO_EMBEDDING;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.IGNORE_METRICS;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_DEFINITION_GENERATION;
+import static com.xgen.testing.mongot.mock.index.VectorIndex.mockAutoEmbeddingVectorDefinition;
+import static com.xgen.testing.mongot.mock.index.VectorIndex.mockMaterializedViewAutoEmbeddingVectorDefinition;
 import static com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils.toRawBsonDocuments;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
@@ -56,6 +61,7 @@ import org.bson.BsonString;
 import org.bson.BsonTimestamp;
 import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
+import org.bson.types.ObjectId;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -151,6 +157,52 @@ public class BufferlessChangeStreamApplierTest {
                   .getTotalApplicableBytes()
                   .count()
               > 0);
+    }
+  }
+
+  @Test
+  public void partialEmbedMetrics_onlyRegisterForMaterializedViewAutoEmbeddingIndexes()
+      throws Exception {
+    SimpleMeterRegistry regularRegistry = new SimpleMeterRegistry();
+    try (Mocks ignored =
+        Mocks.createMocks(
+            Optional.empty(), IGNORE_METRICS, false, new MetricsFactory("test", regularRegistry))) {
+      assertNoAutoEmbeddingMetrics(regularRegistry);
+    }
+
+    SimpleMeterRegistry legacyAutoEmbeddingRegistry = new SimpleMeterRegistry();
+    try (Mocks ignored =
+        Mocks.createMocks(
+            Optional.of(
+                IndexGeneration.mockDefinitionGeneration(
+                    mockAutoEmbeddingVectorDefinition(new ObjectId()))),
+            IGNORE_METRICS,
+            false,
+            new MetricsFactory("test", legacyAutoEmbeddingRegistry))) {
+      assertNoAutoEmbeddingMetrics(legacyAutoEmbeddingRegistry);
+    }
+
+    SimpleMeterRegistry materializedViewAutoEmbeddingRegistry = new SimpleMeterRegistry();
+    try (Mocks ignored =
+        Mocks.createMocks(
+            Optional.of(
+                IndexGeneration.mockDefinitionGeneration(
+                    mockMaterializedViewAutoEmbeddingVectorDefinition(new ObjectId()))),
+            IGNORE_METRICS,
+            false,
+            new MetricsFactory("test", materializedViewAutoEmbeddingRegistry))) {
+      assertThat(
+              materializedViewAutoEmbeddingRegistry
+                  .find("test.partialEmbedApplied")
+                  .tag(INDEX_TYPE_TAG_NAME, TAG_VECTOR_SEARCH_AUTO_EMBEDDING.tagValue)
+                  .counter())
+          .isNotNull();
+      assertThat(
+              materializedViewAutoEmbeddingRegistry
+                  .find("test.viewFieldDependenciesDecision")
+                  .tag(INDEX_TYPE_TAG_NAME, TAG_VECTOR_SEARCH_AUTO_EMBEDDING.tagValue)
+                  .meters())
+          .isNotEmpty();
     }
   }
 
@@ -339,6 +391,11 @@ public class BufferlessChangeStreamApplierTest {
     }
   }
 
+  private static void assertNoAutoEmbeddingMetrics(SimpleMeterRegistry meterRegistry) {
+    assertThat(meterRegistry.find("test.partialEmbedApplied").meters()).isEmpty();
+    assertThat(meterRegistry.find("test.viewFieldDependenciesDecision").meters()).isEmpty();
+  }
+
   private static class Mocks implements Closeable {
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -507,6 +564,19 @@ public class BufferlessChangeStreamApplierTest {
         IndexMetricsUpdater indexMetricsUpdater,
         boolean isFreshStart)
         throws Exception {
+      return createMocks(
+          definitionGeneration,
+          indexMetricsUpdater,
+          isFreshStart,
+          new MetricsFactory("test", new SimpleMeterRegistry()));
+    }
+
+    private static Mocks createMocks(
+        Optional<IndexDefinitionGeneration> definitionGeneration,
+        IndexMetricsUpdater indexMetricsUpdater,
+        boolean isFreshStart,
+        MetricsFactory metricsFactory)
+        throws Exception {
       ChangeStreamMongoClient<InitialSyncException> changeStreamClient =
           mock(ChangeStreamMongoClient.class);
       when(changeStreamClient.getNext()).thenReturn(EMPTY_BATCH);
@@ -522,7 +592,7 @@ public class BufferlessChangeStreamApplierTest {
               changeStreamClient,
               definitionGeneration.orElse(MOCK_INDEX_DEFINITION_GENERATION),
               OP_TIME,
-              new MetricsFactory("test", new SimpleMeterRegistry()),
+              metricsFactory,
               indexMetricsUpdater,
               isFreshStart);
 

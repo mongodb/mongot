@@ -26,6 +26,7 @@ import com.xgen.mongot.embedding.EmbeddingRequestContext;
 import com.xgen.mongot.embedding.VectorOrError;
 import com.xgen.mongot.embedding.cache.EmbeddingRetryCache;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
+import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
 import com.xgen.mongot.embedding.exceptions.EmbeddingProviderNonTransientException;
 import com.xgen.mongot.embedding.exceptions.EmbeddingProviderTransientException;
@@ -53,6 +54,7 @@ import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldMapping;
 import com.xgen.mongot.index.definition.VectorSimilarity;
+import com.xgen.mongot.index.definition.ViewDefinition;
 import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.index.version.GenerationId;
@@ -75,6 +77,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -1549,6 +1552,90 @@ public class EmbeddingIndexingWorkSchedulerTest {
   }
 
   @Test
+  public void schedule_searchViewPartialEmbedWithSchemaV1_writesSourceToMatViewNamespace()
+      throws ExecutionException,
+          InterruptedException,
+          TimeoutException,
+          FieldExceededLimitsException {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    ObjectId indexId = new ObjectId();
+    var generationId =
+        new MaterializedViewGenerationId(
+            indexId, new MaterializedViewGeneration(Generation.CURRENT));
+    FieldPath sourcePath = FieldPath.parse("viewTextB");
+    var schemaMetadata =
+        new MaterializedViewSchemaMetadata(
+            1, Map.of(sourcePath, FieldPath.parse("_autoEmbed.viewTextB")));
+    var embeddingServiceManager =
+        spy(
+            new EmbeddingServiceManager(
+                List.of(TEST_EMBEDDING_CONFIG_V3_LARGE),
+                new FakeEmbeddingClientFactory(),
+                Executors.singleThreadScheduledExecutor("indexing", meterRegistry),
+                meterRegistry,
+                Optional.empty()));
+    EmbeddingIndexingWorkScheduler scheduler =
+        schedulerForMaterializedViewIndex(
+            Suppliers.ofInstance(embeddingServiceManager), generationId, schemaMetadata);
+
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "embeddingB",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition("voyage-3-large", sourcePath))
+                    .build())
+            .build();
+    SearchIndexDefinition indexDefinition =
+        SearchIndexDefinitionBuilder.builder()
+            .indexId(indexId)
+            .defaultMetadata()
+            .mappings(mappings)
+            .view(
+                ViewDefinition.existing(
+                    "myView",
+                    List.of(
+                        BsonDocument.parse(
+                            "{\"$set\": {\"viewTextB\": {\"$concat\": [\"$b1\", \" \","
+                                + " \"$b2\"]}}}"))))
+            .build();
+    DocumentIndexer indexer = mockDocumentRequiresAutoEmbedding(indexDefinition);
+    RawBsonDocument rawBsonDoc =
+        BsonUtils.documentToRaw(
+            new BsonDocument()
+                .append("_id", new BsonInt32(0))
+                .append(sourcePath.toString(), new BsonString("new b1 b2"))
+                .append(indexId.toString(), new BsonDocument("_id", new BsonInt32(0))));
+    DocumentEvent event =
+        DocumentEvent.createPartialUpdate(
+            DocumentMetadata.fromMetadataNamespace(Optional.of(rawBsonDoc), indexId),
+            rawBsonDoc,
+            new BsonDocument(),
+            ImmutableMap.of(sourcePath, "new b1 b2"));
+
+    scheduler
+        .schedule(
+            new ArrayList<>(List.of(event)),
+            SchedulerQueue.Priority.STEADY_STATE_CHANGE_STREAM,
+            indexer,
+            generationId,
+            Optional.of(new ObjectId()),
+            Optional.of(COMMIT_USER_DATA),
+            IGNORE_METRICS)
+        .get(5, TimeUnit.SECONDS);
+
+    ArgumentCaptor<DocumentEvent> indexedEvent = ArgumentCaptor.forClass(DocumentEvent.class);
+    verify(indexer, times(1)).indexDocumentEvent(indexedEvent.capture());
+    BsonDocument setBody = indexedEvent.getValue().getFilterFieldUpdates().orElseThrow();
+    assertThat(setBody.keySet())
+        .containsExactly("_autoEmbed.viewTextB", "_autoEmbed._hash.viewTextB");
+    assertThat(setBody).doesNotContainKey("embeddingB");
+    assertThat(setBody).doesNotContainKey("viewTextB");
+  }
+
+  @Test
   public void testSearchIndexAutoEmbed_nestedDeclaration_embedsAndWritesVector()
       throws ExecutionException,
           InterruptedException,
@@ -2156,13 +2243,20 @@ public class EmbeddingIndexingWorkSchedulerTest {
 
   private EmbeddingIndexingWorkScheduler schedulerForMaterializedViewIndex(
       Supplier<EmbeddingServiceManager> supplier, MaterializedViewGenerationId generationId) {
+    return schedulerForMaterializedViewIndex(supplier, generationId, VERSION_ZERO);
+  }
+
+  private EmbeddingIndexingWorkScheduler schedulerForMaterializedViewIndex(
+      Supplier<EmbeddingServiceManager> supplier,
+      MaterializedViewGenerationId generationId,
+      MaterializedViewSchemaMetadata schemaMetadata) {
     SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     NamedExecutorService executor = Executors.fixedSizeThreadPool("indexing", 2, meterRegistry);
     var matViewCollectionMetadataCatalog = new MaterializedViewCollectionMetadataCatalog();
     matViewCollectionMetadataCatalog.addMetadata(
         generationId,
         new MaterializedViewCollectionMetadata(
-            VERSION_ZERO, UUID.randomUUID(), generationId.indexId.toHexString()));
+            schemaMetadata, UUID.randomUUID(), generationId.indexId.toHexString()));
     return EmbeddingIndexingWorkScheduler.createForMaterializedViewIndex(
         executor, supplier, matViewCollectionMetadataCatalog);
   }
