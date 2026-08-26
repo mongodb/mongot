@@ -252,17 +252,9 @@ public abstract class CollectionScanCommandMongoClient<E extends Exception>
           .get()
           .getBinary("$initialSyncId")
           .equals(this.postBatchResumeToken.get().getBinary("$initialSyncId"))) {
-        throw getInitialSyncMismatchMongoCommandException();
+        throw InitialSyncException.initialSyncIdMismatch();
       }
     }
-  }
-
-  public MongoCommandException getInitialSyncMismatchMongoCommandException() {
-    return new MongoCommandException(
-        new BsonDocument()
-            .append("code", new BsonInt32(Errors.INITIAL_SYNC_ID_MISMATCH.code))
-            .append("codeName", new BsonString(Errors.INITIAL_SYNC_ID_MISMATCH.name)),
-        new ServerAddress("mongot", 0));
   }
 
   public MongoCommandException getMissingFieldMongoCommandException(String field) {

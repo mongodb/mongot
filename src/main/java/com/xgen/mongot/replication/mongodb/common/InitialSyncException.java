@@ -7,6 +7,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoException;
 import com.mongodb.MongoInterruptedException;
+import com.mongodb.ServerAddress;
 import com.xgen.mongot.index.DocsExceededLimitsException;
 import com.xgen.mongot.index.FieldExceededLimitsException;
 import com.xgen.mongot.util.functionalinterfaces.CheckedRunnable;
@@ -16,6 +17,9 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Stream;
+import org.bson.BsonDocument;
+import org.bson.BsonInt32;
+import org.bson.BsonString;
 import org.bson.codecs.configuration.CodecConfigurationException;
 import org.jetbrains.annotations.Nullable;
 
@@ -83,6 +87,10 @@ public class InitialSyncException extends Exception {
 
   public static InitialSyncException createRequiresResync(Throwable cause, String message) {
     return new InitialSyncException(Type.REQUIRES_RESYNC, cause, message);
+  }
+
+  public static InitialSyncException createInitialSyncIdMismatch(String message) {
+    return createRequiresResync(initialSyncIdMismatch(), message);
   }
 
   public static InitialSyncException createResumableTransient(Throwable cause) {
@@ -302,6 +310,14 @@ public class InitialSyncException extends Exception {
   public static boolean isInitialSyncIdMismatched(@Nullable Throwable cause) {
     return cause instanceof MongoCommandException mongoCommandException
         && mongoCommandException.getErrorCode() == Errors.INITIAL_SYNC_ID_MISMATCH.code;
+  }
+
+  public static MongoCommandException initialSyncIdMismatch() {
+    return new MongoCommandException(
+        new BsonDocument()
+            .append("code", new BsonInt32(Errors.INITIAL_SYNC_ID_MISMATCH.code))
+            .append("codeName", new BsonString(Errors.INITIAL_SYNC_ID_MISMATCH.name)),
+        new ServerAddress("mongot", 0));
   }
 
   public static boolean isBsonTooLargeError(@Nullable Throwable cause) {

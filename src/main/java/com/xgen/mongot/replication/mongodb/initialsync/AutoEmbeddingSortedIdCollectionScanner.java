@@ -58,6 +58,7 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
   private final Optional<FieldPath> sourceNestedRoot;
 
   private final Timer preprocessingBatchTimer;
+  private final Counter skippedDocumentsWithoutMetadataNamespaceCounter;
   private final Counter resyncMissingDocuments;
   private final Counter resyncSurplusDocuments;
   private final Counter resyncStaleDocuments;
@@ -73,7 +74,11 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
       MaterializedViewCollectionMetadataCatalog matViewCollectionMetadataCatalog,
       MetricsFactory metricsFactory) {
     super(clock, context, mongoClient, lastScannedToken, metricsFactory, false);
-    this.preprocessingBatchTimer = metricsFactory.timerSec(PREPROCESSING_BATCH_DURATIONS);
+    this.preprocessingBatchTimer =
+        metricsFactory.timerSec(CollectionScanBatchPreprocessor.PREPROCESSING_BATCH_DURATIONS);
+    this.skippedDocumentsWithoutMetadataNamespaceCounter =
+        metricsFactory.counter(
+            CollectionScanBatchPreprocessor.SKIPPED_DOCUMENTS_WITHOUT_METADATA_NAMESPACE);
     this.resyncMissingDocuments = metricsFactory.counter("resyncMissingDocuments");
     this.resyncSurplusDocuments = metricsFactory.counter("resyncSurplusDocuments");
     this.resyncStaleDocuments = metricsFactory.counter("resyncStaleDocuments");
@@ -310,9 +315,9 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
   }
 
   // Records that a document lacking its metadata namespace (e.g. duplicate fields, HELP-60413) was
-  // skipped during the sort-merge, mirroring BufferlessCollectionScanner.
-  // TO-DO: BufferlessCollectionScanner.bufferNextBatch still has an equivalent skip block; hoist
-  // this into the shared superclass to remove the cross-class duplication.
+  // skipped during the sort-merge, mirroring CollectionScanBatchPreprocessor.
+  // TO-DO: CollectionScanBatchPreprocessor has an equivalent skip block; route this through it to
+  // remove the cross-class duplication.
   private void recordSkippedDocumentWithoutMetadataNamespace(RawBsonDocument doc) {
     this.skippedDocumentsWithoutMetadataNamespaceCounter.increment();
     LOG.atWarning().atMostEvery(1, TimeUnit.MINUTES).log(

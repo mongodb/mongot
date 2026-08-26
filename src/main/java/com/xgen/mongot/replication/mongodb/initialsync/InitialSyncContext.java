@@ -225,6 +225,13 @@ public class InitialSyncContext {
       List<DocumentEvent> batch,
       SchedulerQueue.Priority priority,
       IndexCommitUserData commitUserData) {
+    return schedule(batch, priority, Optional.of(commitUserData));
+  }
+
+  private CompletableFuture<Void> schedule(
+      List<DocumentEvent> batch,
+      SchedulerQueue.Priority priority,
+      Optional<IndexCommitUserData> commitUserData) {
 
     if (this.initialSyncGate.isClosed()) {
       return CompletableFuture.failedFuture(
@@ -237,8 +244,18 @@ public class InitialSyncContext {
         this.indexer,
         getGenerationId(),
         Optional.empty(),
-        Optional.of(commitUserData),
+        commitUserData,
         this.indexMetricsUpdater.getIndexingMetricsUpdater());
+  }
+
+  /**
+   * Schedules a batch to be indexed without staging commit data with it, for the parallel
+   * collection scan: one supplier assembles every partition's position, whereas a per-batch blob
+   * would let whichever partition committed last overwrite the others.
+   */
+  public CompletableFuture<Void> scheduleWithoutCommitUserData(
+      List<DocumentEvent> batch, SchedulerQueue.Priority priority) {
+    return schedule(batch, priority, Optional.empty());
   }
 
   /**
