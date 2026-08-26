@@ -2,9 +2,11 @@ package com.xgen.mongot.embedding.mongodb.leasing;
 
 import static com.google.common.truth.Truth.assertThat;
 import static com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata.VERSION_ZERO;
+import static com.xgen.mongot.embedding.mongodb.leasing.DynamicLeaderLeaseManager.POST_RESTORE_LEASE_REPAIR_FAILURE_COUNTER_NAME;
+import static com.xgen.mongot.embedding.mongodb.leasing.DynamicLeaderLeaseManager.POST_RESTORE_LEASE_REPAIR_SUCCESS_COUNTER_NAME;
+import static com.xgen.mongot.embedding.mongodb.leasing.DynamicLeaderLeaseManager.POST_RESTORE_REPAIR_SUPPRESSED_COUNTER_NAME;
 import static com.xgen.testing.mongot.mock.index.MaterializedViewIndex.mockMatViewIndexGeneration;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
@@ -82,6 +84,8 @@ public class DynamicLeaderLeaseManagerTest {
   private static final InternalDatabaseResolver DB_RESOLVER =
       new DefaultInternalDatabaseResolver(DATABASE_NAME);
   private static final String OTHER_HOSTNAME = "other-host";
+  private static final String TENANT_ID = "647343c92726405e854130e4"; // 24 hex chars
+  private static final String SOURCE_COLLECTION = "embedded_movies";
 
   private AutoEmbeddingMongoClient mockAutoEmbeddingMongoClient;
   private MongoClient mockMongoClient;
@@ -568,109 +572,20 @@ public class DynamicLeaderLeaseManagerTest {
   }
 
   @Test
-  public void postRestoreSanitize_atLeaseLoad_repairsOrFallsBack() {
-    // 24-hex tenant id; if seen as a db-name prefix on a dedicated cluster, it signals a stale
-    // post-flex→dedicated lease that the load-time sanitize must clean before any consumer reads.
-    String tenantId = "647343c92726405e854130e4";
-    setupSuccessfulLeaseUpdate();
-    ArgumentCaptor<BsonDocument> writtenLease = ArgumentCaptor.forClass(BsonDocument.class);
-
-    // CASE A: stale lease (tenant-prefixed namespace). listCollections mocks are not set up, so
-    // the load-time sanitize fails inside pollFollowerStatuses → normalizeLeaseIfNeeded returns
-    // null (bubble-up). The stale lease is DROPPED before anything downstream can see it, so
-    // nothing with stale tenant-prefixed commitInfo ever reaches replaceOne.
-    MaterializedViewIndexGeneration staleGen = createTestIndexGeneration();
-    String prefixedNamespaceCommitInfo =
-        IndexCommitUserData.createChangeStreamResume(
-                ChangeStreamResumeInfo.create(
-                    new MongoNamespace(tenantId + "_sample_mflix", "embedded_movies"),
-                    ChangeStreamUtils.resumeToken(new BsonTimestamp(1L))),
-                IndexFormatVersion.CURRENT)
-            .toEncodedData()
-            .asString();
-    Lease staleLease =
-        createLeaseWithCommitInfo(
-            staleGen.getGenerationId(), HOSTNAME, prefixedNamespaceCommitInfo);
-    setupFindLeaseFromDatabase(staleLease);
-    this.leaseManager.add(staleGen);
-    this.leaseManager.pollFollowerStatuses();
-
-    this.leaseManager.tryAcquireLeadership(staleGen.getGenerationId());
-    verify(this.mockCollection, never())
-        .replaceOne(
-            any(),
-            argThat(
-                (BsonDocument doc) ->
-                    doc != null
-                        && doc.containsKey("commitInfo")
-                        && doc.getString("commitInfo").getValue().contains(tenantId)));
-    assertThat(
-            repairCounter(DynamicLeaderLeaseManager.POST_RESTORE_LEASE_REPAIR_FAILURE_COUNTER_NAME))
-        .isEqualTo(1.0);
-    assertThat(
-            repairCounter(DynamicLeaderLeaseManager.POST_RESTORE_LEASE_REPAIR_SUCCESS_COUNTER_NAME))
-        .isEqualTo(0.0);
-
-    // CASE B: lease with no tenant prefix. requiresPostRestoreRepair returns false at load time;
-    // no sanitize attempted, no counter touched, and the written lease's commitInfo is unchanged.
-    clearInvocations(this.mockCollection);
-    UpdateResult successUpdate = mockSuccessfulUpdate();
-    when(this.mockCollection.replaceOne(any(), any(BsonDocument.class))).thenReturn(successUpdate);
-    MaterializedViewIndexGeneration normalGen = createTestIndexGeneration();
-    String unprefixedCommitInfo =
-        IndexCommitUserData.createChangeStreamResume(
-                ChangeStreamResumeInfo.create(
-                    new MongoNamespace("sample_mflix", "embedded_movies"),
-                    ChangeStreamUtils.resumeToken(new BsonTimestamp(1L))),
-                IndexFormatVersion.CURRENT)
-            .toEncodedData()
-            .asString();
-    Lease normalLease =
-        createLeaseWithCommitInfo(normalGen.getGenerationId(), HOSTNAME, unprefixedCommitInfo);
-    setupFindLeaseFromDatabase(normalLease);
-    this.leaseManager.add(normalGen);
-    this.leaseManager.pollFollowerStatuses();
-
-    // Snapshot counters before CASE B so the assertion is a delta, not an absolute value
-    // tied to CASE A.
-    double failureBefore =
-        repairCounter(DynamicLeaderLeaseManager.POST_RESTORE_LEASE_REPAIR_FAILURE_COUNTER_NAME);
-    double successBefore =
-        repairCounter(DynamicLeaderLeaseManager.POST_RESTORE_LEASE_REPAIR_SUCCESS_COUNTER_NAME);
-
-    assertThat(this.leaseManager.tryAcquireLeadership(normalGen.getGenerationId())).isTrue();
-    verify(this.mockCollection).replaceOne(any(), writtenLease.capture());
-    assertThat(writtenLease.getValue().getString("commitInfo").getValue())
-        .isEqualTo(unprefixedCommitInfo);
-    // No repair attempted on the non-stale lease — neither counter moves.
-    assertThat(
-            repairCounter(DynamicLeaderLeaseManager.POST_RESTORE_LEASE_REPAIR_FAILURE_COUNTER_NAME))
-        .isEqualTo(failureBefore);
-    assertThat(
-            repairCounter(DynamicLeaderLeaseManager.POST_RESTORE_LEASE_REPAIR_SUCCESS_COUNTER_NAME))
-        .isEqualTo(successBefore);
-  }
-
-  @Test
-  public void postRestoreSanitize_atLeaseLoad_writesRepairedLeaseOnSuccess() {
-    String tenantId = "647343c92726405e854130e4";
+  public void postRestoreSanitize_atLeaseLoad_repairsMigrationArtifact() {
     UUID newSourceUuid = UUID.randomUUID();
     UUID newMvUuid = UUID.randomUUID();
-
     MaterializedViewIndexGeneration gen = createTestIndexGeneration();
+    String liveDb = gen.getDefinition().getDatabase();
     Lease staleLease =
         createLeaseWithCommitInfo(
-            gen.getGenerationId(),
-            HOSTNAME,
-            staleCommitInfo(tenantId, "sample_mflix", "embedded_movies"));
-    String leaseCollectionName = staleLease.materializedViewCollectionMetadata().collectionName();
+            gen.getGenerationId(), HOSTNAME, staleCommitInfo(TENANT_ID, liveDb, SOURCE_COLLECTION));
     setupFindLeaseFromDatabase(staleLease);
-    // Source UUID resolves against the base collection named in the commitInfo namespace
-    // ("embedded_movies"), not the lease's collectionName; MV UUID resolves against the MV name.
-    setupListCollections("sample_mflix", "embedded_movies", newSourceUuid);
-    // Caller passes dbResolver.resolveDefault() — DATABASE_NAME ("test-db") here, not the
-    // hardcoded __mdb_internal_search constant.
-    setupListCollections(DATABASE_NAME, leaseCollectionName, newMvUuid);
+    // Source UUID resolves against the base collection in the commitInfo namespace, not the lease's
+    // collectionName; the MV UUID resolves against the MV name under dbResolver.resolveDefault().
+    setupListCollections(liveDb, SOURCE_COLLECTION, newSourceUuid);
+    setupListCollections(
+        DATABASE_NAME, staleLease.materializedViewCollectionMetadata().collectionName(), newMvUuid);
     setupSuccessfulLeaseUpdate();
 
     this.leaseManager.add(gen);
@@ -679,53 +594,97 @@ public class DynamicLeaderLeaseManagerTest {
     Lease inMem = this.leaseManager.getLeases().get(staleLease.id());
     assertThat(inMem.commitInfo()).isEqualTo(EncodedUserData.EMPTY.asString());
     assertThat(inMem.collectionUuid()).isEqualTo(newSourceUuid.toString());
-    // collectionName canonicalized from the stale lease field to the base collection in commitInfo.
-    assertThat(inMem.collectionName()).isEqualTo("embedded_movies");
+    assertThat(inMem.collectionName()).isEqualTo(SOURCE_COLLECTION);
     assertThat(inMem.materializedViewCollectionMetadata().collectionUuid()).isEqualTo(newMvUuid);
     assertThat(inMem.steadyAsOfOplogPosition()).isNull();
-    assertThat(
-            repairCounter(DynamicLeaderLeaseManager.POST_RESTORE_LEASE_REPAIR_SUCCESS_COUNTER_NAME))
-        .isAtLeast(1.0);
-    assertThat(
-            repairCounter(DynamicLeaderLeaseManager.POST_RESTORE_LEASE_REPAIR_FAILURE_COUNTER_NAME))
-        .isEqualTo(0.0);
+    assertThat(repairCounter(POST_RESTORE_LEASE_REPAIR_SUCCESS_COUNTER_NAME)).isAtLeast(1.0);
+    assertThat(repairCounter(POST_RESTORE_LEASE_REPAIR_FAILURE_COUNTER_NAME)).isEqualTo(0.0);
+    assertThat(repairCounter(POST_RESTORE_REPAIR_SUPPRESSED_COUNTER_NAME)).isEqualTo(0.0);
   }
 
   @Test
-  public void syncLeasesFromMongod_staleLease_dropsFromInMemoryOnRepairFailure() {
-    String tenantId = "647343c92726405e854130e4";
+  public void postRestoreSanitize_atLeaseLoad_customerNamedDatabase_suppressesRepair() {
+    // "sample_mflix" is not the live definition database, so the tenant prefix is part of a
+    // customer-chosen name. No listCollections mocks: any repair attempt would fail.
+    MaterializedViewIndexGeneration gen = createTestIndexGeneration();
+    String commitInfo = staleCommitInfo(TENANT_ID, "sample_mflix", SOURCE_COLLECTION);
+
+    Lease inMem = loadLeaseThroughPoll(gen, commitInfo);
+
+    assertThat(inMem.commitInfo()).isEqualTo(commitInfo);
+    assertThat(repairCounter(POST_RESTORE_REPAIR_SUPPRESSED_COUNTER_NAME)).isAtLeast(1.0);
+    assertThat(repairCounter(POST_RESTORE_LEASE_REPAIR_FAILURE_COUNTER_NAME)).isEqualTo(0.0);
+    assertThat(repairCounter(POST_RESTORE_LEASE_REPAIR_SUCCESS_COUNTER_NAME)).isEqualTo(0.0);
+  }
+
+  @Test
+  public void postRestoreSanitize_atLeaseLoad_repairIndeterminate_dropsLease() {
+    // Real migration shape, but no listCollections mocks so the lookup fails. A repaired lease is
+    // indistinguishable from a stale one here, so it must not be adopted.
     MaterializedViewIndexGeneration gen = createTestIndexGeneration();
     Lease staleLease =
         createLeaseWithCommitInfo(
             gen.getGenerationId(),
             HOSTNAME,
-            staleCommitInfo(tenantId, "sample_mflix", "embedded_movies"));
-    // Pre-register the leaseKey→db mapping. add() also puts a fresh placeholder into this.leases,
-    // which syncLeasesFromMongod would normally overwrite with the fetched-and-normalized lease.
+            staleCommitInfo(TENANT_ID, gen.getDefinition().getDatabase(), SOURCE_COLLECTION));
+    setupFindLeaseFromDatabase(staleLease);
+
     this.leaseManager.add(gen);
-    Lease placeholderBeforeSync = this.leaseManager.getLeases().get(staleLease.id());
-    // Bulk find() returns the stale lease.
-    when(this.mockFindIterable.into(any()))
-        .thenReturn(new ArrayList<>(List.of(staleLease.toBson())));
-    // No listCollections mocks — sanitize fails, so normalizeLeaseIfNeeded returns null and the
-    // stale lease is dropped instead of being handed back with stale namespace/UUIDs.
+    this.leaseManager.pollFollowerStatuses();
+
+    assertThat(this.leaseManager.getLeases()).doesNotContainEntry(staleLease.id(), staleLease);
+    assertThat(repairCounter(POST_RESTORE_LEASE_REPAIR_FAILURE_COUNTER_NAME)).isAtLeast(1.0);
+    assertThat(repairCounter(POST_RESTORE_LEASE_REPAIR_SUCCESS_COUNTER_NAME)).isEqualTo(0.0);
+  }
+
+  @Test
+  public void postRestoreSanitize_atLeaseLoad_unprefixedNamespace_leavesEverythingAlone() {
+    MaterializedViewIndexGeneration gen = createTestIndexGeneration();
+    String commitInfo =
+        IndexCommitUserData.createChangeStreamResume(
+                ChangeStreamResumeInfo.create(
+                    new MongoNamespace("sample_mflix", SOURCE_COLLECTION),
+                    ChangeStreamUtils.resumeToken(new BsonTimestamp(1L))),
+                IndexFormatVersion.CURRENT)
+            .toEncodedData()
+            .asString();
+    setupSuccessfulLeaseUpdate();
+    ArgumentCaptor<BsonDocument> writtenLease = ArgumentCaptor.forClass(BsonDocument.class);
+
+    assertThat(loadLeaseThroughPoll(gen, commitInfo).commitInfo()).isEqualTo(commitInfo);
+
+    assertThat(this.leaseManager.tryAcquireLeadership(gen.getGenerationId())).isTrue();
+    verify(this.mockCollection).replaceOne(any(), writtenLease.capture());
+    assertThat(writtenLease.getValue().getString("commitInfo").getValue()).isEqualTo(commitInfo);
+    assertThat(repairCounter(POST_RESTORE_REPAIR_SUPPRESSED_COUNTER_NAME)).isEqualTo(0.0);
+    assertThat(repairCounter(POST_RESTORE_LEASE_REPAIR_FAILURE_COUNTER_NAME)).isEqualTo(0.0);
+    assertThat(repairCounter(POST_RESTORE_LEASE_REPAIR_SUCCESS_COUNTER_NAME)).isEqualTo(0.0);
+  }
+
+  @Test
+  public void syncLeasesFromMongod_liveDatabaseUnknown_skipsRepair() {
+    // No add() first, so the live source database is unknown. Without it the tenant-prefix shape
+    // proves nothing, so the lease is adopted untouched rather than repaired on shape alone.
+    MaterializedViewIndexGeneration gen = createTestIndexGeneration();
+    String commitInfo = staleCommitInfo(TENANT_ID, "sample_mflix", SOURCE_COLLECTION);
+    Lease lease = createLeaseWithCommitInfo(gen.getGenerationId(), HOSTNAME, commitInfo);
+    when(this.mockFindIterable.into(any())).thenReturn(new ArrayList<>(List.of(lease.toBson())));
 
     this.leaseManager.syncLeasesFromMongod();
 
-    // The stale in-DB lease was not adopted; whatever's in memory is NOT the stale one (it's the
-    // placeholder from add(), or absent). Either way, the tenant-prefixed commitInfo did NOT
-    // survive the load.
-    Lease inMem = this.leaseManager.getLeases().get(staleLease.id());
-    if (inMem != null) {
-      assertThat(inMem.commitInfo()).doesNotContain(tenantId);
-      assertThat(inMem).isEqualTo(placeholderBeforeSync);
-    }
-    assertThat(
-            repairCounter(DynamicLeaderLeaseManager.POST_RESTORE_LEASE_REPAIR_FAILURE_COUNTER_NAME))
-        .isAtLeast(1.0);
-    assertThat(
-            repairCounter(DynamicLeaderLeaseManager.POST_RESTORE_LEASE_REPAIR_SUCCESS_COUNTER_NAME))
-        .isEqualTo(0.0);
+    assertThat(this.leaseManager.getLeases().get(lease.id()).commitInfo()).isEqualTo(commitInfo);
+    assertThat(repairCounter(POST_RESTORE_LEASE_REPAIR_FAILURE_COUNTER_NAME)).isEqualTo(0.0);
+    assertThat(repairCounter(POST_RESTORE_LEASE_REPAIR_SUCCESS_COUNTER_NAME)).isEqualTo(0.0);
+    assertThat(repairCounter(POST_RESTORE_REPAIR_SUPPRESSED_COUNTER_NAME)).isEqualTo(0.0);
+  }
+
+  /** Registers {@code gen}, loads its lease via the follower poll, returns the cached copy. */
+  private Lease loadLeaseThroughPoll(MaterializedViewIndexGeneration gen, String commitInfo) {
+    Lease lease = createLeaseWithCommitInfo(gen.getGenerationId(), HOSTNAME, commitInfo);
+    setupFindLeaseFromDatabase(lease);
+    this.leaseManager.add(gen);
+    this.leaseManager.pollFollowerStatuses();
+    return this.leaseManager.getLeases().get(lease.id());
   }
 
   private static String staleCommitInfo(String tenantId, String db, String coll) {
@@ -772,12 +731,6 @@ public class DynamicLeaderLeaseManagerTest {
     when(cursor.hasNext()).thenAnswer(inv -> iter.hasNext());
     when(cursor.next()).thenAnswer(inv -> iter.next());
     return cursor;
-  }
-
-  private static UpdateResult mockSuccessfulUpdate() {
-    UpdateResult r = mock(UpdateResult.class);
-    when(r.getMatchedCount()).thenReturn(1L);
-    return r;
   }
 
   private double repairCounter(String counterName) {
@@ -1884,9 +1837,7 @@ public class DynamicLeaderLeaseManagerTest {
     assertThat(result.schemaMetadata().materializedViewSchemaVersion()).isEqualTo(1L);
     assertThat(result.collectionUuid()).isEqualTo(liveMvUuid);
     // Since UUIDs match, no post-restore repair should have fired.
-    assertThat(
-            repairCounter(DynamicLeaderLeaseManager.POST_RESTORE_LEASE_REPAIR_SUCCESS_COUNTER_NAME))
-        .isEqualTo(0.0);
+    assertThat(repairCounter(POST_RESTORE_LEASE_REPAIR_SUCCESS_COUNTER_NAME)).isEqualTo(0.0);
   }
 
   @Test
@@ -1933,9 +1884,7 @@ public class DynamicLeaderLeaseManagerTest {
                 .materializedViewCollectionMetadata()
                 .collectionUuid())
         .isEqualTo(freshMvUuid);
-    assertThat(
-            repairCounter(DynamicLeaderLeaseManager.POST_RESTORE_LEASE_REPAIR_SUCCESS_COUNTER_NAME))
-        .isAtLeast(1.0);
+    assertThat(repairCounter(POST_RESTORE_LEASE_REPAIR_SUCCESS_COUNTER_NAME)).isAtLeast(1.0);
   }
 
   @Test

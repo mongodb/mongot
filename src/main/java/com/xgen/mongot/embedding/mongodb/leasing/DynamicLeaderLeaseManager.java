@@ -4,6 +4,7 @@ import static com.xgen.mongot.embedding.mongodb.leasing.StatusResolutionUtils.ge
 import static com.xgen.mongot.util.FutureUtils.COMPLETED_FUTURE;
 import static com.xgen.mongot.util.Uuids.NIL;
 import static com.xgen.mongot.util.mongodb.MongoDbDatabase.getCollectionInfo;
+import static com.xgen.mongot.util.mongodb.MongoDbDatabase.getCollectionInfos;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
@@ -93,6 +94,9 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
       "postRestoreLeaseRepairSuccess";
   static final String POST_RESTORE_LEASE_REPAIR_FAILURE_COUNTER_NAME =
       "postRestoreLeaseRepairFailure";
+  // Tenant-prefix shape matched but the lease was left alone. Tracks how often customer database
+  // names trip the heuristic, fleet-wide.
+  static final String POST_RESTORE_REPAIR_SUPPRESSED_COUNTER_NAME = "postRestoreRepairSuppressed";
   static final String CIRCUIT_BREAKER_OPENED_COUNTER_NAME = "circuitBreakerOpened";
   static final String ACQUISITION_SUPPRESSED_COUNTER_NAME = "acquisitionSuppressed";
   static final String CORRUPTED_LEASES_COUNTER_NAME = "corruptedLeases";
@@ -118,12 +122,16 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
   private final Map<MaterializedViewGenerationId, String> matViewGenerationIdToDefinitionVersion;
   private final MaterializedViewCollectionMetadataCatalog mvMetadataCatalog;
   private final InternalDatabaseResolver dbResolver;
+  // Holds the internal database the lease document lives
   private final Map<String, String> leaseKeyToDatabase;
+  // Lease key to the source database on the live index definition, unresolved as seen from MMS.
+  private final Map<String, String> leaseKeyToSourceDatabase;
   private final AutoEmbeddingMongoClient autoEmbeddingMongoClient;
   // End of give-up blackout (epoch ms). While now < this, do not acquire leadership.
   private final AtomicLong giveUpBlackoutEndTimeMs = new AtomicLong(0);
   private final Counter postRestoreLeaseRepairSuccessCounter;
   private final Counter postRestoreLeaseRepairFailureCounter;
+  private final Counter postRestoreRepairSuppressedCounter;
   private final boolean isDedicatedCluster;
   private final LeaseRepairUtil.CollectionUuidResolver uuidResolver;
   private final MetricsFactory metricsFactory;
@@ -166,6 +174,8 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
         metricsFactory.counter(POST_RESTORE_LEASE_REPAIR_SUCCESS_COUNTER_NAME);
     this.postRestoreLeaseRepairFailureCounter =
         metricsFactory.counter(POST_RESTORE_LEASE_REPAIR_FAILURE_COUNTER_NAME);
+    this.postRestoreRepairSuppressedCounter =
+        metricsFactory.counter(POST_RESTORE_REPAIR_SUPPRESSED_COUNTER_NAME);
     this.hostname = hostname;
     this.mvMetadataCatalog = mvMetadataCatalog;
     this.leases = new ConcurrentHashMap<>();
@@ -174,6 +184,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     this.matViewGenerationIdToDefinitionVersion = new ConcurrentHashMap<>();
     this.dbResolver = dbResolver;
     this.leaseKeyToDatabase = new ConcurrentHashMap<>();
+    this.leaseKeyToSourceDatabase = new ConcurrentHashMap<>();
     this.autoEmbeddingMongoClient = autoEmbeddingMongoClient;
     this.opsCommands = opsCommands;
     this.isDedicatedCluster = dbResolver.isDedicatedCluster();
@@ -411,6 +422,9 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
 
   // Normalizes lease by populating missing mat view UUID field, this won't change lease
   // version since it's only meant for backward compatibility and lease state is unchanged.
+  //
+  // Null return means the MV UUID could not be resolved or validated, or that a needed post-restore
+  // repair could not be completed. Either way the lease is left unacquirable.
   @Nullable
   private Lease normalizeLeaseIfNeeded(Lease lease) {
     @Var Lease normalized = lease;
@@ -447,14 +461,27 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     return postRestoreSanitizeIfNeeded(normalized);
   }
 
-  // Sanitizes a stale flex→dedicated migration lease in-memory so downstream consumers see
-  // cleared commitInfo + refreshed UUIDs before any replication starts. The persistent rewrite
-  // happens naturally via the next leadership-acquisition replaceOne. On repair failure the lease
-  // is dropped (null return) so downstream code doesn't start replication against a stale
-  // namespace; repair is retried on the next lease load.
+  // Sanitizes a stale flex→dedicated migration lease in-memory so downstream consumers see cleared
+  // commitInfo + refreshed UUIDs before any replication starts; the persistent rewrite happens via
+  // the next leadership-acquisition replaceOne. Returns null only when repair was needed but could
+  // not be completed, which leaves the lease unacquirable; every outcome we can positively
+  // determine — repaired, nothing to repair, or not a migration — returns a usable lease.
   @Nullable
   private Lease postRestoreSanitizeIfNeeded(Lease lease) {
-    if (!LeaseRepairUtil.requiresPostRestoreRepair(lease, this.isDedicatedCluster)) {
+    var repairNeed =
+        LeaseRepairUtil.classifyRepairNeed(
+            lease,
+            this.isDedicatedCluster,
+            Optional.ofNullable(this.leaseKeyToSourceDatabase.get(lease.id())));
+    if (repairNeed == LeaseRepairUtil.RepairNeed.NOT_A_MIGRATION) {
+      this.postRestoreRepairSuppressedCounter.increment();
+      LOG.atDebug()
+          .addKeyValue("leaseId", lease.id())
+          .addKeyValue("namespace", LeaseRepairUtil.extractNamespace(lease).orElse(null))
+          .log("Tenant-prefixed namespace is a customer-named database; skipping repair");
+      return lease;
+    }
+    if (repairNeed == LeaseRepairUtil.RepairNeed.NONE) {
       return lease;
     }
     try {
@@ -462,8 +489,9 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
           LeaseRepairUtil.repairLeaseForPostRestoreMigration(
               lease, this.uuidResolver, this.dbResolver.resolveDefault());
       if (repaired == lease) {
-        // Customer database literally named with a 24-hex-char prefix — prefix regex matched
-        // but UUIDs are already current, so there's nothing to repair.
+        // Stripped namespace absent, or name and both UUIDs already current: nothing to rewrite.
+        this.postRestoreRepairSuppressedCounter.increment();
+        logRepair(lease).log("Post-restore repair found nothing to fix; leaving lease unchanged");
         return lease;
       }
       this.postRestoreLeaseRepairSuccessCounter.increment();
@@ -475,6 +503,9 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
           .log("Repaired post-restore stale lease (flex→dedicated migration artifact)");
       return repaired;
     } catch (LeaseRepairUtil.LeaseRepairException e) {
+      // Indeterminate: the lookup itself failed, so we cannot tell a repaired lease from a stale
+      // one. Drop it so the lease stays unacquirable rather than replicating against a namespace we
+      // could not verify; repair is retried on the next lease load.
       this.postRestoreLeaseRepairFailureCounter.increment();
       logRepair(lease)
           .setCause(e)
@@ -534,6 +565,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     String leaseKey = getLeaseKey(generationId);
     this.leaseKeyToDatabase.put(
         leaseKey, this.dbResolver.resolve(indexGeneration.getDefinition().getDatabase()));
+    this.leaseKeyToSourceDatabase.put(leaseKey, indexGeneration.getDefinition().getDatabase());
 
     var lease = this.leases.get(leaseKey);
     if (lease != null) {
@@ -696,6 +728,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
   public void evictCachedLease(String leaseKey) {
     this.leases.remove(leaseKey);
     this.leaseKeyToDatabase.remove(leaseKey);
+    this.leaseKeyToSourceDatabase.remove(leaseKey);
   }
 
   @Override
@@ -1138,6 +1171,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     // call even when the delete fails (the document is left for the GC either way).
     this.leases.remove(leaseKey);
     this.leaseKeyToDatabase.remove(leaseKey);
+    this.leaseKeyToSourceDatabase.remove(leaseKey);
     // By id only: the index is gone from the desired config, so owner, staleness, and cleanup
     // state are all irrelevant — every lease under it is garbage. Concurrent mongots race this
     // idempotently; deletedCount 0 with no error means another one won.
@@ -1490,6 +1524,10 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     this.leaseKeyToDatabase.put(
         proposedMetadata.collectionName(),
         this.dbResolver.resolve(indexDefinitionGeneration.getIndexDefinition().getDatabase()));
+    // Must precede refreshLeaseFromDatabase below, whose load consults this mapping.
+    this.leaseKeyToSourceDatabase.put(
+        proposedMetadata.collectionName(),
+        indexDefinitionGeneration.getIndexDefinition().getDatabase());
     // Register the definition version like add() does: leadership acquisition refuses generations
     // with no registered version, and acquisition can legitimately run between initializeLease and
     // add() (restart with an owned lease).
@@ -2094,26 +2132,33 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
 
   private LeaseRepairUtil.CollectionUuidResolver buildUuidResolver() {
     return (db, coll) -> {
-      MongoDbCollectionInfo info;
+      // getCollectionInfos, not getCollectionInfo: the latter's orElseThrow collapses "namespace
+      // absent" into the same exception as "lookup failed", and repair must tell those apart.
+      Optional<MongoDbCollectionInfo> info;
       try {
         info =
-            getCollectionInfo(
-                Check.isPresent(
-                    this.autoEmbeddingMongoClient.getLeaseManagerMongoClient(),
-                    "leaseManagerMongoClient"),
-                db,
-                coll);
+            getCollectionInfos(
+                    Check.isPresent(
+                        this.autoEmbeddingMongoClient.getLeaseManagerMongoClient(),
+                        "leaseManagerMongoClient"),
+                    db)
+                .getCollectionInfo(db, coll);
       } catch (Throwable t) {
         // Broad on purpose: repair must never crash leadership acquisition.
         throw new LeaseRepairUtil.LeaseRepairException(
             "failed to resolve UUID for " + db + "." + coll, t);
       }
-      if (info instanceof MongoDbCollectionInfo.Collection collection) {
-        return collection.info().uuid();
+      if (info.isEmpty()) {
+        // Absent database or collection: listCollections on an unknown database is empty, not an
+        // error, so both land here.
+        return Optional.empty();
+      }
+      if (info.get() instanceof MongoDbCollectionInfo.Collection collection) {
+        return Optional.of(collection.info().uuid());
       }
       throw new LeaseRepairUtil.LeaseRepairException(
           "expected collection but found "
-              + info.getClass().getSimpleName()
+              + info.get().getClass().getSimpleName()
               + " at "
               + db
               + "."

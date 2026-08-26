@@ -13,9 +13,14 @@ import org.slf4j.LoggerFactory;
  * Helpers for detecting and repairing auto-embedding leases that were authored on a flex
  * (multi-tenant) cluster and migrated onto a dedicated cluster via snapshot restore.
  *
- * <p>On a dedicated cluster, mongot's dbResolver never emits a tenant-prefixed namespace. A
- * tenant-prefixed namespace in a lease's commitInfo on a dedicated cluster is therefore an
- * invariant violation that uniquely identifies a flex→dedicated migration artifact.
+ * <p>On a flex cluster Atlas stores a tenant's data under the physical database {@code
+ * <tenantId>_<logicalDb>} and rewrites the index definition to the logical name on migration (MMS
+ * {@code FTSIndexConfigSvc.mtmDatabaseToTenantDatabase}); a migrated lease's commitInfo still
+ * carries the old physical namespace, and that disagreement is the artifact repaired here.
+ *
+ * <p>The tenant-prefix shape alone proves nothing, since database names are customer-controlled.
+ * Detection compares against the live source database when known, and repair treats an unresolvable
+ * stripped namespace as proof the shape match was a false positive.
  */
 public final class LeaseRepairUtil {
 
@@ -31,21 +36,51 @@ public final class LeaseRepairUtil {
     return parseCommitInfo(lease).getResumeInfo().map(info -> info.getNamespace().getFullName());
   }
 
+  /** Whether a lease's commitInfo namespace is a flex→dedicated migration artifact. */
+  public enum RepairNeed {
+    /**
+     * Flex cluster, no commitInfo namespace, no tenant prefix on it, or no live source database to
+     * compare against.
+     */
+    NONE,
+    /** Tenant prefix strips to exactly the live source database. */
+    REQUIRED,
+    /** Tenant-prefix shape matched but the live source database disagrees: customer-named db. */
+    NOT_A_MIGRATION
+  }
+
   /**
-   * Returns true if the lease was authored on a flex cluster and needs post-restore repair. Fires
-   * when the commitInfo namespace carries a tenant prefix, which never occurs on dedicated
-   * clusters. The empty-commitInfo migration case (flex lease in INITIAL_SYNC at migration time) is
-   * caught separately in {@code DynamicLeaderLeaseManager.initializeLease} via the fresh MV UUID
-   * passed in on {@code proposedMetadata}.
+   * Classifies a lease for post-restore repair. This is a positive test: stripping the tenant
+   * prefix from the lease's commitInfo database must yield exactly {@code liveSourceDatabase},
+   * mirroring the rewrite MMS performs on migration.
+   *
+   * <p>An absent {@code liveSourceDatabase} yields {@code NONE} rather than falling back to the
+   * prefix shape. The shape alone cannot distinguish a migrated {@code tenant_foo} from a
+   * customer-named one that coexists with an unrelated {@code foo}; repairing on shape would
+   * rewrite the lease to that unrelated source and clear the commitInfo that any later
+   * reclassification depends on.
+   *
+   * <p>Empty commitInfo also returns {@code NONE}: that migration case is caught by {@code
+   * DynamicLeaderLeaseManager.initializeLease} via the fresh MV UUID on {@code proposedMetadata}.
    */
-  public static boolean requiresPostRestoreRepair(Lease lease, boolean isDedicatedCluster) {
-    if (!isDedicatedCluster) {
-      return false;
+  public static RepairNeed classifyRepairNeed(
+      Lease lease, boolean isDedicatedCluster, Optional<String> liveSourceDatabase) {
+    if (!isDedicatedCluster || liveSourceDatabase.isEmpty()) {
+      return RepairNeed.NONE;
     }
-    return parseCommitInfo(lease)
-        .getResumeInfo()
-        .map(info -> TENANT_PREFIX.matcher(info.getNamespace().getDatabaseName()).find())
-        .orElse(false);
+    Optional<String> commitInfoDatabase =
+        parseCommitInfo(lease).getResumeInfo().map(info -> info.getNamespace().getDatabaseName());
+    if (commitInfoDatabase.isEmpty()) {
+      return RepairNeed.NONE;
+    }
+    String prefixedDb = commitInfoDatabase.get();
+    var matcher = TENANT_PREFIX.matcher(prefixedDb);
+    if (!matcher.find()) {
+      return RepairNeed.NONE;
+    }
+    return prefixedDb.substring(matcher.end()).equals(liveSourceDatabase.get())
+        ? RepairNeed.REQUIRED
+        : RepairNeed.NOT_A_MIGRATION;
   }
 
   private static IndexCommitUserData parseCommitInfo(Lease lease) {
@@ -94,9 +129,28 @@ public final class LeaseRepairUtil {
                             + " has no resume info to derive source namespace from"));
     String sourceDb = stripTenantPrefix(sourceNamespace.getDatabaseName());
     String sourceCollection = sourceNamespace.getCollectionName();
-    UUID newSourceUuid = uuidResolver.resolve(sourceDb, sourceCollection);
+    Optional<UUID> resolvedSourceUuid = uuidResolver.resolve(sourceDb, sourceCollection);
+    if (resolvedSourceUuid.isEmpty()) {
+      // A genuine migration leaves the logical namespace in place, so an absent stripped namespace
+      // means the prefix match was a false positive. Leave the lease alone.
+      return lease;
+    }
+    UUID newSourceUuid = resolvedSourceUuid.get();
     MaterializedViewCollectionMetadata mvMeta = lease.materializedViewCollectionMetadata();
-    UUID newMvUuid = uuidResolver.resolve(internalSearchDb, mvMeta.collectionName());
+    // The MV lives in the internal database, which is never tenant-named, so its absence says
+    // nothing about the prefix and stays a repair failure.
+    UUID newMvUuid =
+        uuidResolver
+            .resolve(internalSearchDb, mvMeta.collectionName())
+            .orElseThrow(
+                () ->
+                    new LeaseRepairException(
+                        "materialized view collection "
+                            + internalSearchDb
+                            + "."
+                            + mvMeta.collectionName()
+                            + " not found while repairing lease "
+                            + lease.id()));
 
     boolean sourceUuidStale = !newSourceUuid.toString().equals(lease.collectionUuid());
     boolean mvUuidStale = !newMvUuid.equals(mvMeta.collectionUuid());
@@ -157,10 +211,15 @@ public final class LeaseRepairUtil {
     return prefixedDb.substring(matcher.end());
   }
 
-  /** Resolves a collection UUID by database + collection name. */
+  /**
+   * Resolves a collection UUID by database + collection name. Empty means the namespace
+   * definitively does not exist; {@link LeaseRepairException} means the lookup failed or resolved
+   * to a non- collection. Callers depend on that split: an absent namespace is evidence, a failed
+   * lookup isn't.
+   */
   @FunctionalInterface
   public interface CollectionUuidResolver {
-    UUID resolve(String database, String collection) throws LeaseRepairException;
+    Optional<UUID> resolve(String database, String collection) throws LeaseRepairException;
   }
 
   /** Thrown when post-restore repair cannot complete (e.g. UUID lookup failure, invalid input). */

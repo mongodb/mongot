@@ -2,15 +2,14 @@ package com.xgen.mongot.embedding.mongodb.leasing;
 
 import static com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata.VERSION_ZERO;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
 
 import com.mongodb.MongoNamespace;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
+import com.xgen.mongot.embedding.mongodb.leasing.LeaseRepairUtil.RepairNeed;
 import com.xgen.mongot.index.EncodedUserData;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.IndexFormatVersion;
@@ -19,6 +18,7 @@ import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
 import com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.bson.BsonTimestamp;
 import org.junit.Test;
@@ -30,37 +30,47 @@ public class LeaseRepairUtilTest {
   private static final String COLLECTION_UUID = "550e8400-e29b-41d4-a716-446655440000";
   private static final String COLLECTION_NAME = "test-collection";
   private static final String MV_COLLECTION_NAME = "test-mv-collection";
+  private static final String NESTED_LOGICAL_DB = "abcdef012345678901234567_mydb";
 
   @Test
-  public void requiresPostRestoreRepair_detectsFlexOriginLeaseOnDedicatedClusterOnly() {
-    // dedicated + tenant-prefixed namespace → repair (the migration artifact)
-    Lease prefixedOnDedicated = leaseWithNamespaceDb(TENANT_ID + "_sample_mflix");
-    assertTrue(LeaseRepairUtil.requiresPostRestoreRepair(prefixedOnDedicated, true));
+  public void classifyRepairNeed_requiresAgreementWithLiveSourceDatabase() {
+    Lease lease = leaseWithNamespaceDb(TENANT_ID + "_sample_mflix");
 
-    // dedicated + un-prefixed namespace → no repair
-    assertFalse(
-        LeaseRepairUtil.requiresPostRestoreRepair(leaseWithNamespaceDb("sample_mflix"), true));
+    assertEquals(RepairNeed.REQUIRED, classify(lease, "sample_mflix"));
+    // Only the leading tenant segment is stripped, so a prefix-shaped logical name still repairs.
+    assertEquals(
+        RepairNeed.REQUIRED,
+        classify(leaseWithNamespaceDb(TENANT_ID + "_" + NESTED_LOGICAL_DB), NESTED_LOGICAL_DB));
 
-    // flex cluster → never repair
-    assertFalse(LeaseRepairUtil.requiresPostRestoreRepair(prefixedOnDedicated, false));
+    // Live db disagrees with the stripped name: the customer named it that way.
+    assertEquals(RepairNeed.NOT_A_MIGRATION, classify(lease, TENANT_ID + "_sample_mflix"));
+    assertEquals(RepairNeed.NOT_A_MIGRATION, classify(lease, "other_db"));
 
-    // customer-named db with underscore that isn't tenant-shaped → no repair
-    assertFalse(LeaseRepairUtil.requiresPostRestoreRepair(leaseWithNamespaceDb("my_app_db"), true));
+    // No live db to compare against, and flex clusters: never repair.
+    assertEquals(
+        RepairNeed.NONE, LeaseRepairUtil.classifyRepairNeed(lease, true, Optional.empty()));
+    assertEquals(
+        RepairNeed.NONE,
+        LeaseRepairUtil.classifyRepairNeed(lease, false, Optional.of("sample_mflix")));
+  }
 
-    // 24 non-hex chars + underscore → no repair (prefix must be hex).
-    assertFalse(
-        LeaseRepairUtil.requiresPostRestoreRepair(
-            leaseWithNamespaceDb("zzzzzzzzzzzzzzzzzzzzzzzz_db"), true));
+  @Test
+  public void classifyRepairNeed_namespaceIsNotTenantShaped_returnsNone() {
+    // Un-prefixed, non-tenant underscore, non-hex prefix, and no trailing underscore.
+    assertEquals(RepairNeed.NONE, classify(leaseWithNamespaceDb("sample_mflix"), "sample_mflix"));
+    assertEquals(RepairNeed.NONE, classify(leaseWithNamespaceDb("my_app_db"), "app_db"));
+    assertEquals(
+        RepairNeed.NONE, classify(leaseWithNamespaceDb("zzzzzzzzzzzzzzzzzzzzzzzz_db"), "db"));
+    assertEquals(RepairNeed.NONE, classify(leaseWithNamespaceDb(TENANT_ID), TENANT_ID));
 
-    // 24 hex chars but no trailing underscore → no repair (regex requires the underscore)
-    assertFalse(LeaseRepairUtil.requiresPostRestoreRepair(leaseWithNamespaceDb(TENANT_ID), true));
+    // Empty commitInfo is handled by initializeLease via proposedMetadata's fresh MV UUID.
+    assertEquals(
+        RepairNeed.NONE,
+        classify(leaseWithRawCommitInfo(EncodedUserData.EMPTY.asString()), "sample_mflix"));
+  }
 
-    // empty commitInfo → no repair from this helper. The empty-commitInfo migration case is
-    // caught by DynamicLeaderLeaseManager.initializeLease instead (via proposedMetadata's fresh
-    // MV UUID) — avoids the per-poll-tick listCollections overhead.
-    assertFalse(
-        LeaseRepairUtil.requiresPostRestoreRepair(
-            leaseWithRawCommitInfo(EncodedUserData.EMPTY.asString()), true));
+  private static RepairNeed classify(Lease lease, String liveSourceDatabase) {
+    return LeaseRepairUtil.classifyRepairNeed(lease, true, Optional.of(liveSourceDatabase));
   }
 
   private static final String INTERNAL_SEARCH_DB = "__mdb_internal_search";
@@ -76,10 +86,10 @@ public class LeaseRepairUtilTest {
             stale,
             (db, coll) -> {
               if (db.equals("sample_mflix") && coll.equals(COLLECTION_NAME)) {
-                return freshSourceUuid;
+                return Optional.of(freshSourceUuid);
               }
               if (db.equals(INTERNAL_SEARCH_DB) && coll.equals(MV_COLLECTION_NAME)) {
-                return freshMvUuid;
+                return Optional.of(freshMvUuid);
               }
               throw new AssertionError("unexpected resolver call: " + db + "." + coll);
             },
@@ -104,21 +114,29 @@ public class LeaseRepairUtilTest {
   }
 
   @Test
-  public void repairLeaseForPostRestoreMigration_allUuidsCurrent_returnsLeaseUnchanged()
+  public void repairLeaseForPostRestoreMigration_falsePositive_returnsLeaseUnchanged()
       throws Exception {
-    // Both source and MV UUIDs already match — prefix-regex hit was a false positive
-    // (legitimately-named customer db). No-op via reference equality.
-    Lease stale = leaseWithNamespaceDb(TENANT_ID + "_sample_mflix");
-    UUID leaseSourceUuid = UUID.fromString(stale.collectionUuid());
-    UUID leaseMvUuid = stale.materializedViewCollectionMetadata().collectionUuid();
+    Lease lease = leaseWithNamespaceDb(TENANT_ID + "_sample_mflix");
+    UUID leaseSourceUuid = UUID.fromString(lease.collectionUuid());
+    UUID leaseMvUuid = lease.materializedViewCollectionMetadata().collectionUuid();
 
-    Lease result =
+    // The stripped namespace does not exist, so the lease was never a migration artifact.
+    assertSame(
+        lease,
         LeaseRepairUtil.repairLeaseForPostRestoreMigration(
-            stale,
-            (db, coll) -> db.equals(INTERNAL_SEARCH_DB) ? leaseMvUuid : leaseSourceUuid,
-            INTERNAL_SEARCH_DB);
+            lease,
+            (db, coll) ->
+                db.equals(INTERNAL_SEARCH_DB) ? Optional.of(leaseMvUuid) : Optional.empty(),
+            INTERNAL_SEARCH_DB));
 
-    assertSame(stale, result);
+    // Stripped namespace exists but both UUIDs are already current — nothing to rewrite.
+    assertSame(
+        lease,
+        LeaseRepairUtil.repairLeaseForPostRestoreMigration(
+            lease,
+            (db, coll) ->
+                Optional.of(db.equals(INTERNAL_SEARCH_DB) ? leaseMvUuid : leaseSourceUuid),
+            INTERNAL_SEARCH_DB));
   }
 
   @Test
@@ -137,10 +155,10 @@ public class LeaseRepairUtilTest {
             stale,
             (db, coll) -> {
               if (db.equals("sample_mflix") && coll.equals("movies")) {
-                return freshRootUuid;
+                return Optional.of(freshRootUuid);
               }
               if (db.equals(INTERNAL_SEARCH_DB) && coll.equals(MV_COLLECTION_NAME)) {
-                return freshMvUuid;
+                return Optional.of(freshMvUuid);
               }
               // Resolving the view leaf as a collection is exactly the bug under test.
               throw new AssertionError("unexpected resolver call: " + db + "." + coll);
@@ -167,7 +185,8 @@ public class LeaseRepairUtilTest {
     Lease repaired =
         LeaseRepairUtil.repairLeaseForPostRestoreMigration(
             stale,
-            (db, coll) -> db.equals(INTERNAL_SEARCH_DB) ? currentMvUuid : currentSourceUuid,
+            (db, coll) ->
+                Optional.of(db.equals(INTERNAL_SEARCH_DB) ? currentMvUuid : currentSourceUuid),
             INTERNAL_SEARCH_DB);
 
     assertNotSame(stale, repaired);
@@ -179,19 +198,22 @@ public class LeaseRepairUtilTest {
   public void repairLeaseForPostRestoreMigration_failureCases() {
     Lease stale = leaseWithNamespaceDb(TENANT_ID + "_sample_mflix");
 
+    LeaseRepairUtil.CollectionUuidResolver anyUuid = (db, coll) -> Optional.of(UUID.randomUUID());
+
     // Lease with no resume info in commitInfo → LeaseRepairException (nothing to derive source db)
     Lease noResume = leaseWithRawCommitInfo(EncodedUserData.EMPTY.asString());
     assertThrows(
         LeaseRepairUtil.LeaseRepairException.class,
         () ->
             LeaseRepairUtil.repairLeaseForPostRestoreMigration(
-                noResume, (db, coll) -> UUID.randomUUID(), INTERNAL_SEARCH_DB));
+                noResume, anyUuid, INTERNAL_SEARCH_DB));
 
-    // Source-side lookup fails (called first) → LeaseRepairException propagates
+    // Source-side lookup fails (called first) → LeaseRepairException propagates. Distinct from the
+    // resolver returning empty, which means the namespace is absent and the lease is fine.
     LeaseRepairUtil.CollectionUuidResolver sourceFailing =
         (db, coll) -> {
           if (db.equals(INTERNAL_SEARCH_DB)) {
-            return UUID.randomUUID();
+            return Optional.of(UUID.randomUUID());
           }
           throw new LeaseRepairUtil.LeaseRepairException("source lookup failed");
         };
@@ -201,6 +223,17 @@ public class LeaseRepairUtilTest {
             LeaseRepairUtil.repairLeaseForPostRestoreMigration(
                 stale, sourceFailing, INTERNAL_SEARCH_DB));
 
+    // MV collection absent → repair failure, not a false positive: the MV lives in the internal
+    // database, which is never tenant-named, so its absence says nothing about the prefix.
+    LeaseRepairUtil.CollectionUuidResolver mvAbsent =
+        (db, coll) ->
+            db.equals(INTERNAL_SEARCH_DB) ? Optional.empty() : Optional.of(UUID.randomUUID());
+    assertThrows(
+        LeaseRepairUtil.LeaseRepairException.class,
+        () ->
+            LeaseRepairUtil.repairLeaseForPostRestoreMigration(
+                stale, mvAbsent, INTERNAL_SEARCH_DB));
+
     // Namespace on the lease doesn't actually have a tenant prefix → LeaseRepairException from
     // stripTenantPrefix. Reached only if a caller invokes repair without checking
     // requiresPostRestoreRepair first, so this documents the contract.
@@ -209,7 +242,7 @@ public class LeaseRepairUtilTest {
         LeaseRepairUtil.LeaseRepairException.class,
         () ->
             LeaseRepairUtil.repairLeaseForPostRestoreMigration(
-                unprefixed, (db, coll) -> UUID.randomUUID(), INTERNAL_SEARCH_DB));
+                unprefixed, anyUuid, INTERNAL_SEARCH_DB));
   }
 
   @Test
