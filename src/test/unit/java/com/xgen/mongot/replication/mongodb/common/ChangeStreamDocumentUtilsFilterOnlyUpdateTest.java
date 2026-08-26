@@ -182,7 +182,7 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
   }
 
   @Test
-  public void searchAutoEmbed_sourceFieldUpdate_featureFlagEnabled_remainsNormalFullUpdate() {
+  public void searchAutoEmbed_sourceFieldUpdate_featureFlagEnabled_forcesFullUpdate() {
     SearchIndexDefinition indexDef = searchAutoEmbedIndex();
     ChangeStreamDocument<RawBsonDocument> changeEvent = createSearchUpdateEvent(indexDef, "body");
     AutoEmbeddingMaterializedViewConfig materializedViewConfig =
@@ -203,7 +203,10 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
     assertFalse(event.getFilterFieldUpdates().isPresent());
     assertTrue(event.getChangedEmbedTexts().isEmpty());
     assertEquals(changeEvent.getFullDocument(), event.getDocument().orElseThrow());
-    assertTrue(batch.partialEmbedFallbacks.isEmpty());
+    assertEquals(
+        Integer.valueOf(1),
+        batch.partialEmbedFallbacks.get(
+            PartialEmbedFallbackReason.FEATURE_FLAG_FORCED_FULL_UPDATE));
   }
 
   @Test
@@ -236,98 +239,6 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
 
     assertTrue(batch.finalChangeEvents.isEmpty());
     assertTrue(batch.partialEmbedFallbacks.isEmpty());
-  }
-
-  @Test
-  public void searchAutoEmbed_sourceFieldUpdate_featureFlagDisabled_remainsFullUpdate() {
-    SearchIndexDefinition indexDef = searchAutoEmbedIndex();
-    ChangeStreamDocument<RawBsonDocument> changeEvent = createSearchUpdateEvent(indexDef, "body");
-
-    var batch =
-        ChangeStreamDocumentUtils.handleDocumentEvents(
-            List.of(changeEvent),
-            indexDef,
-            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            false,
-            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
-
-    assertEquals(1, batch.finalChangeEvents.size());
-    DocumentEvent event = batch.finalChangeEvents.getFirst();
-    assertFalse(event.getFilterFieldUpdates().isPresent());
-    assertTrue(event.getChangedEmbedTexts().isEmpty());
-    assertEquals(changeEvent.getFullDocument(), event.getDocument().orElseThrow());
-    assertEquals(0, batch.partialEmbedApplied);
-    assertEquals(0, batch.filterOnlyPartialApplied);
-    assertTrue(batch.partialEmbedFallbacks.isEmpty());
-  }
-
-  @Test
-  public void searchAutoEmbed_sourceFieldRemoval_remainsFullUpdate() {
-    SearchIndexDefinition indexDef = searchAutoEmbedIndex();
-    UpdateDescription updateDescription =
-        new UpdateDescription(List.of("body"), new BsonDocument());
-    ChangeStreamDocument<RawBsonDocument> changeEvent =
-        ChangeStreamUtils.updateEvent(0, updateDescription, indexDef);
-
-    var batch =
-        ChangeStreamDocumentUtils.handleDocumentEvents(
-            List.of(changeEvent),
-            indexDef,
-            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            false,
-            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
-
-    assertEquals(1, batch.finalChangeEvents.size());
-    DocumentEvent event = batch.finalChangeEvents.getFirst();
-    assertFalse(event.getFilterFieldUpdates().isPresent());
-    assertTrue(event.getChangedEmbedTexts().isEmpty());
-    assertEquals(changeEvent.getFullDocument(), event.getDocument().orElseThrow());
-    assertEquals(0, batch.partialEmbedApplied);
-    assertEquals(0, batch.filterOnlyPartialApplied);
-    assertTrue(batch.partialEmbedFallbacks.isEmpty());
-  }
-
-  @Test
-  public void searchAutoEmbed_declaredFieldUpdate_doesNotCreateFilterOnlyUpdate() {
-    SearchIndexDefinition indexDef = searchAutoEmbedIndex();
-    ChangeStreamDocument<RawBsonDocument> changeEvent =
-        createSearchUpdateEvent(indexDef, "category");
-
-    var batch =
-        ChangeStreamDocumentUtils.handleDocumentEvents(
-            List.of(changeEvent),
-            indexDef,
-            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            false,
-            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
-
-    assertEquals(1, batch.finalChangeEvents.size());
-    DocumentEvent event = batch.finalChangeEvents.getFirst();
-    assertFalse(event.getFilterFieldUpdates().isPresent());
-    assertTrue(event.getChangedEmbedTexts().isEmpty());
-    assertEquals(changeEvent.getFullDocument(), event.getDocument().orElseThrow());
-    assertEquals(0, batch.filterOnlyPartialApplied);
-  }
-
-  @Test
-  public void searchAutoEmbed_collapsedPredecessor_doesNotEnterPartialUpdateClassification() {
-    SearchIndexDefinition indexDef = searchAutoEmbedIndex();
-    ChangeStreamDocument<RawBsonDocument> survivor = createSearchUpdateEvent(indexDef, "body");
-
-    var batch =
-        ChangeStreamDocumentUtils.handleDocumentEvents(
-            List.of(ChangeStreamUtils.replaceEvent(0, indexDef), survivor),
-            indexDef,
-            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
-            false,
-            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
-
-    assertEquals(1, batch.finalChangeEvents.size());
-    assertEquals(
-        survivor.getFullDocument(), batch.finalChangeEvents.getFirst().getDocument().get());
-    assertFalse(
-        batch.partialEmbedFallbacks.containsKey(
-            PartialEmbedFallbackReason.INTRA_BATCH_PREDECESSOR_REQUIRES_FULL));
   }
 
   @Test

@@ -14,7 +14,7 @@ public enum PartialEmbedFallbackReason {
   NULL_FULL_DOCUMENT,
   /** No update-description channel reported any change. */
   NO_CHANNELS_REPORTED,
-  /** The field mapping doesn't enumerate every indexed path (non-vector mappings). */
+  /** The field mapping doesn't enumerate every indexed path (for example, dynamic Search). */
   UNSUPPORTED_FIELD_MAPPING,
   /** A removed or truncated field touched a declared indexed path. */
   DESTRUCTIVE_INDEXED_TOUCH,

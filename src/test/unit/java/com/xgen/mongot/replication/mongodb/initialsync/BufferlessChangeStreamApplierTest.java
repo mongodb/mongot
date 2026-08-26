@@ -29,6 +29,7 @@ import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
 import com.xgen.mongot.replication.mongodb.common.SchedulerQueue;
 import com.xgen.mongot.util.BsonUtils;
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.mongodb.ChangeStreamAggregateCommand;
 import com.xgen.testing.mongot.index.IndexMetricsUpdaterBuilder;
 import com.xgen.testing.mongot.mock.index.IndexGeneration;
@@ -202,8 +203,8 @@ public class BufferlessChangeStreamApplierTest {
       Assert.assertEquals(DocumentEvent.EventType.UPDATE, scheduledEvent.getEventType());
       Assert.assertEquals(
           sourceUpdate.getFullDocument(), scheduledEvent.getDocument().orElseThrow());
-      Assert.assertFalse(scheduledEvent.getFilterFieldUpdates().isPresent());
-      Assert.assertTrue(scheduledEvent.getChangedEmbedTexts().isEmpty());
+      Assert.assertEquals(
+          "updated", scheduledEvent.getChangedEmbedTexts().get(FieldPath.parse("content")));
     }
   }
 

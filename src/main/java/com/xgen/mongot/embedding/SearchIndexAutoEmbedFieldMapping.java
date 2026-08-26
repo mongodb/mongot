@@ -33,7 +33,8 @@ public record SearchIndexAutoEmbedFieldMapping(
     ImmutableMap<FieldPath, AutoEmbedField.EmbedField> embedFields,
     ImmutableSet<FieldPath> explicitPassthroughPaths,
     ImmutableSet<FieldPath> explicitPassthroughAncestorPaths,
-    ImmutableSet<FieldPath> embedAncestorPaths)
+    ImmutableSet<FieldPath> embedAncestorPaths,
+    boolean enumeratesAllIndexedPaths)
     implements AutoEmbedFieldMapping {
 
   /**
@@ -44,12 +45,25 @@ public record SearchIndexAutoEmbedFieldMapping(
       DynamicDefinition dynamic,
       ImmutableMap<FieldPath, AutoEmbedField.EmbedField> embedFields,
       ImmutableSet<FieldPath> explicitPassthroughPaths) {
+    this(dynamic, embedFields, explicitPassthroughPaths, !dynamic.isEnabled());
+  }
+
+  /**
+   * Creates a mapping with an explicit completeness classification. A static root can still be
+   * non-enumerable when a nested document or embeddedDocuments mapping enables dynamic indexing.
+   */
+  public SearchIndexAutoEmbedFieldMapping(
+      DynamicDefinition dynamic,
+      ImmutableMap<FieldPath, AutoEmbedField.EmbedField> embedFields,
+      ImmutableSet<FieldPath> explicitPassthroughPaths,
+      boolean enumeratesAllIndexedPaths) {
     this(
         dynamic,
         embedFields,
         explicitPassthroughPaths,
         computeAncestorPaths(explicitPassthroughPaths),
-        computeAncestorPaths(embedFields.keySet()));
+        computeAncestorPaths(embedFields.keySet()),
+        enumeratesAllIndexedPaths);
   }
 
   @Override

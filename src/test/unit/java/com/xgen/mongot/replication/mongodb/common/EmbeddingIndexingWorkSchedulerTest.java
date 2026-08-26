@@ -1462,6 +1462,93 @@ public class EmbeddingIndexingWorkSchedulerTest {
   }
 
   @Test
+  public void testSearchIndexPartialEmbed_writesOnlyChangedVector()
+      throws ExecutionException,
+          InterruptedException,
+          TimeoutException,
+          FieldExceededLimitsException {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    ObjectId indexId = new ObjectId();
+    var generationId =
+        new MaterializedViewGenerationId(
+            indexId, new MaterializedViewGeneration(Generation.CURRENT));
+    var embeddingServiceManager =
+        spy(
+            new EmbeddingServiceManager(
+                List.of(TEST_EMBEDDING_CONFIG_V3_LARGE),
+                new FakeEmbeddingClientFactory(),
+                Executors.singleThreadScheduledExecutor("indexing", meterRegistry),
+                meterRegistry,
+                Optional.empty()));
+    EmbeddingIndexingWorkScheduler scheduler =
+        schedulerForMaterializedViewIndex(
+            Suppliers.ofInstance(embeddingServiceManager), generationId);
+
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "titleVector",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("title")))
+                    .build())
+            .field(
+                "summaryVector",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("summary")))
+                    .build())
+            .build();
+    SearchIndexDefinition searchIndexDefinition =
+        SearchIndexDefinitionBuilder.builder()
+            .indexId(indexId)
+            .defaultMetadata()
+            .mappings(mappings)
+            .build();
+    DocumentIndexer indexer = mockDocumentRequiresAutoEmbedding(searchIndexDefinition);
+    RawBsonDocument rawBsonDoc =
+        BsonUtils.documentToRaw(
+            new BsonDocument()
+                .append("_id", new BsonInt32(0))
+                .append("title", new BsonString("changed title"))
+                .append("summary", new BsonString("untouched summary"))
+                .append(indexId.toString(), new BsonDocument("_id", new BsonInt32(0))));
+    DocumentEvent event =
+        DocumentEvent.createPartialUpdate(
+            DocumentMetadata.fromMetadataNamespace(Optional.of(rawBsonDoc), indexId),
+            rawBsonDoc,
+            new BsonDocument(),
+            ImmutableMap.of(FieldPath.parse("title"), "changed title"));
+
+    scheduler
+        .schedule(
+            new ArrayList<>(List.of(event)),
+            SchedulerQueue.Priority.STEADY_STATE_CHANGE_STREAM,
+            indexer,
+            generationId,
+            Optional.of(new ObjectId()),
+            Optional.of(COMMIT_USER_DATA),
+            IGNORE_METRICS)
+        .get(5, TimeUnit.SECONDS);
+
+    verify(embeddingServiceManager, times(1))
+        .embedAsync(
+            argThat(strings -> strings.size() == 1 && strings.contains("changed title")),
+            any(),
+            any(),
+            any());
+    ArgumentCaptor<DocumentEvent> indexedEvent = ArgumentCaptor.forClass(DocumentEvent.class);
+    verify(indexer, times(1)).indexDocumentEvent(indexedEvent.capture());
+    BsonDocument setBody = indexedEvent.getValue().getFilterFieldUpdates().orElseThrow();
+    assertThat(setBody.keySet()).containsExactly("title", "title_hash");
+    assertThat(setBody).doesNotContainKey("summary");
+    assertThat(setBody).doesNotContainKey("summary_hash");
+  }
+
+  @Test
   public void testSearchIndexAutoEmbed_nestedDeclaration_embedsAndWritesVector()
       throws ExecutionException,
           InterruptedException,

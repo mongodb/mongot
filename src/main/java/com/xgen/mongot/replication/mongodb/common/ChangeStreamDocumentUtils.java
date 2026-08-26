@@ -8,6 +8,7 @@ import com.google.errorprone.annotations.Var;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.client.model.changestream.OperationType;
+import com.mongodb.client.model.changestream.UpdateDescription;
 import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
 import com.xgen.mongot.embedding.AutoEmbedFieldMapping.AutoEmbedField;
 import com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator;
@@ -20,6 +21,7 @@ import com.xgen.mongot.index.definition.FieldDefinitionResolver;
 import com.xgen.mongot.index.definition.HierarchicalFieldDefinition;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.SearchFieldDefinitionResolver;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.replication.mongodb.common.ViewFieldDependencies.ViewDerivationFallbackReason;
@@ -58,6 +60,8 @@ public class ChangeStreamDocumentUtils {
 
   private static final Codec<ChangeStreamDocument<RawBsonDocument>> CHANGE_STREAM_DOCUMENT_CODEC =
       ChangeStreamDocument.createCodec(RawBsonDocument.class, REGISTRY);
+
+  private static final FieldPath MATERIALIZED_VIEW_NAMESPACE = FieldPath.newRoot("_autoEmbed");
 
   private static final FluentLogger LOG = FluentLogger.forEnclosingClass();
   private static final Logger logger = LoggerFactory.getLogger(ChangeStreamDocumentUtils.class);
@@ -380,7 +384,9 @@ public class ChangeStreamDocumentUtils {
 
     Optional<AutoEmbedFieldMapping> autoEmbedMapping = deriveAutoEmbedFieldMapping(indexDefinition);
     boolean partialUpdatesSupported =
-        autoEmbedMapping.isPresent() && supportsPartialUpdates(indexDefinition);
+        autoEmbedMapping
+            .map(mapping -> supportsPartialUpdates(indexDefinition, mapping))
+            .orElse(false);
     boolean forceFullUpdate =
         partialUpdatesSupported
             && autoEmbeddingMaterializedViewConfig
@@ -397,7 +403,11 @@ public class ChangeStreamDocumentUtils {
           continue;
         }
         if (eventRequiresAutoEmbedFullUpdate(
-            event, indexDefinition, autoEmbedMapping.get(), viewFieldDependencies)) {
+            event,
+            indexDefinition,
+            fieldDefinitionResolver,
+            autoEmbedMapping.get(),
+            viewFieldDependencies)) {
           autoEmbedDocsRequiringFullUpdate.add(key);
         }
       }
@@ -577,10 +587,11 @@ public class ChangeStreamDocumentUtils {
                     // meta.category) or destructively touching a filter can't be mirrored by a
                     // partial $set built from the post-image; force a full replace (CLOUDP-402522).
                     Optional<PartialEmbedFallbackReason> filterOnlyUnsafe =
-                        indexDefinition instanceof VectorIndexDefinition vectorDef
-                            ? AutoEmbeddingDocumentUtils.filterOnlyPartialUpdateFallbackReason(
-                                event.getUpdateDescription(), mapping, vectorDef.getNestedRoot())
-                            : Optional.empty();
+                        partialUpdateFallbackReason(
+                            event.getUpdateDescription(),
+                            indexDefinition,
+                            fieldDefinitionResolver,
+                            mapping);
                     if (filterOnlyUnsafe.isEmpty()
                         && filterFieldUpdates.isPresent()
                         && (!changedEmbedTexts.isEmpty() || !filterFieldUpdates.get().isEmpty())) {
@@ -631,10 +642,11 @@ public class ChangeStreamDocumentUtils {
                 // A partial $set can't clear a filter removed ($unset/$pop/$slice) or dropped by a
                 // $set overwriting its parent; those fall back to a full replace (CLOUDP-402522).
                 Optional<PartialEmbedFallbackReason> filterOnlyUnsafe =
-                    indexDefinition instanceof VectorIndexDefinition vectorDef
-                        ? AutoEmbeddingDocumentUtils.filterOnlyPartialUpdateFallbackReason(
-                            event.getUpdateDescription(), mapping, vectorDef.getNestedRoot())
-                        : Optional.empty();
+                    partialUpdateFallbackReason(
+                        event.getUpdateDescription(),
+                        indexDefinition,
+                        fieldDefinitionResolver,
+                        mapping);
                 if (filterOnlyUnsafe.isEmpty()
                     && filterFieldUpdates.isPresent()
                     && (!changedEmbedTexts.isEmpty() || !filterFieldUpdates.get().isEmpty())) {
@@ -710,16 +722,18 @@ public class ChangeStreamDocumentUtils {
   private static boolean eventRequiresAutoEmbedFullUpdate(
       ChangeStreamDocument<RawBsonDocument> event,
       IndexDefinition indexDefinition,
+      FieldDefinitionResolver fieldDefinitionResolver,
       AutoEmbedFieldMapping autoEmbedMapping,
       Optional<ViewFieldDependencies> viewFieldDependencies) {
     return switch (event.getOperationType()) {
       case INSERT, REPLACE -> true;
       case UPDATE -> {
         Optional<PartialEmbedFallbackReason> filterOnlyUnsafe =
-            indexDefinition instanceof VectorIndexDefinition vectorDef
-                ? AutoEmbeddingDocumentUtils.filterOnlyPartialUpdateFallbackReason(
-                    event.getUpdateDescription(), autoEmbedMapping, vectorDef.getNestedRoot())
-                : Optional.empty();
+            partialUpdateFallbackReason(
+                event.getUpdateDescription(),
+                indexDefinition,
+                fieldDefinitionResolver,
+                autoEmbedMapping);
         if (indexDefinition.getView().isPresent()) {
           boolean requiresFull =
               viewFieldDependencies
@@ -757,11 +771,70 @@ public class ChangeStreamDocumentUtils {
     return Optional.of(AutoEmbedFieldMappingCreator.createAutoEmbedMapping(indexDefinition));
   }
 
-  private static boolean supportsPartialUpdates(IndexDefinition indexDefinition) {
+  private static boolean supportsPartialUpdates(
+      IndexDefinition indexDefinition, AutoEmbedFieldMapping mapping) {
     return switch (indexDefinition) {
       case VectorIndexDefinition ignored -> true;
-      case SearchIndexDefinition ignored -> false;
+      case SearchIndexDefinition ignored ->
+          indexDefinition.getView().isEmpty()
+              && mapping.enumeratesAllIndexedPaths()
+              && !hasPassthroughInMaterializedViewNamespace(mapping);
     };
+  }
+
+  private static boolean hasPassthroughInMaterializedViewNamespace(AutoEmbedFieldMapping mapping) {
+    // Passthrough extraction writes a nested _autoEmbed document, while partial embedding and
+    // fencing add dotted _autoEmbed.* keys. MongoDB rejects those parent/child paths in one $set.
+    return mapping.fieldMap().entrySet().stream()
+        .anyMatch(
+            entry ->
+                entry.getValue() instanceof AutoEmbedField.PassthroughField
+                    && (entry.getKey().equals(MATERIALIZED_VIEW_NAMESPACE)
+                        || entry.getKey().isChildOf(MATERIALIZED_VIEW_NAMESPACE)));
+  }
+
+  private static Optional<FieldPath> sourceNestedRoot(IndexDefinition indexDefinition) {
+    return indexDefinition instanceof VectorIndexDefinition vectorDefinition
+        ? vectorDefinition.getNestedRoot()
+        : Optional.empty();
+  }
+
+  private static Optional<PartialEmbedFallbackReason> partialUpdateFallbackReason(
+      UpdateDescription updateDescription,
+      IndexDefinition indexDefinition,
+      FieldDefinitionResolver fieldDefinitionResolver,
+      AutoEmbedFieldMapping mapping) {
+    return AutoEmbeddingDocumentUtils.filterOnlyPartialUpdateFallbackReason(
+            updateDescription, mapping, sourceNestedRoot(indexDefinition))
+        .or(
+            () ->
+                searchDocumentOverwriteFallbackReason(updateDescription, fieldDefinitionResolver));
+  }
+
+  private static Optional<PartialEmbedFallbackReason> searchDocumentOverwriteFallbackReason(
+      UpdateDescription updateDescription, FieldDefinitionResolver fieldDefinitionResolver) {
+    if (!(fieldDefinitionResolver instanceof SearchFieldDefinitionResolver searchResolver)
+        || updateDescription == null
+        || updateDescription.getUpdatedFields() == null) {
+      return Optional.empty();
+    }
+    for (var update : updateDescription.getUpdatedFields().entrySet()) {
+      FieldPath path = ChangeStreams.filterFieldPath(FieldPath.parse(update.getKey()));
+      boolean replacesMappedDocument =
+          searchResolver
+                  .getFieldDefinition(path, Optional.empty())
+                  .map(
+                      field ->
+                          field.documentFieldDefinition().isPresent()
+                              || field.embeddedDocumentsFieldDefinition().isPresent())
+                  .orElse(false)
+              && !update.getValue().isDocument()
+              && !update.getValue().isArray();
+      if (replacesMappedDocument) {
+        return Optional.of(PartialEmbedFallbackReason.ANCESTOR_OVERWRITE);
+      }
+    }
+    return Optional.empty();
   }
 
   /**

@@ -59,6 +59,37 @@ public sealed interface AutoEmbedFieldMapping
   /** Returns the declared field map. */
   Map<FieldPath, AutoEmbedField> fieldMap();
 
+  /**
+   * Returns whether {@link #fieldMap()} enumerates every indexed source path. Partial updates rely
+   * on this property to detect destructive changes that could otherwise leave stale MV values.
+   *
+   * <p>For example, this static Search definition is enumerable: the source-side mapping contains
+   * the declared {@code title} path and the auto-embed source path {@code body}.
+   *
+   * <pre>{@code
+   * {
+   *   "mappings": {
+   *     "dynamic": false,
+   *     "fields": {
+   *       "title": { "type": "string" },
+   *       "embedding": {
+   *         "type": "autoEmbedVector",
+   *         "model": "voyage-4-lite",
+   *         "sourceField": "body"
+   *       }
+   *     }
+   *   }
+   * }
+   * }</pre>
+   *
+   * <p>It is not enumerable if the root or any nested document enables dynamic indexing. For
+   * example, with {@code "metadata": {"type": "document", "dynamic": true}}, an undeclared path
+   * such as {@code metadata.color} may be indexed even though it is absent from {@link
+   * #fieldMap()}. Vector index mappings are always enumerable because all indexed paths are
+   * explicitly declared.
+   */
+  boolean enumeratesAllIndexedPaths();
+
   /** Returns only the embed fields with their specifications. Used by spec-level consumers. */
   Map<FieldPath, AutoEmbedField.EmbedField> embedFields();
 

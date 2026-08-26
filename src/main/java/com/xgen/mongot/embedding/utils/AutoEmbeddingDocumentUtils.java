@@ -17,7 +17,6 @@ import com.mongodb.client.model.changestream.UpdateDescription;
 import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
 import com.xgen.mongot.embedding.AutoEmbedFieldMapping.AutoEmbedField;
 import com.xgen.mongot.embedding.SearchIndexAutoEmbedFieldMapping;
-import com.xgen.mongot.embedding.VectorAutoEmbedFieldMapping;
 import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.ingestion.BsonDocumentProcessor;
 import com.xgen.mongot.util.BsonUtils;
@@ -668,8 +667,8 @@ public class AutoEmbeddingDocumentUtils {
    * result is {@code applied} only when all of these hold:
    *
    * <ul>
-   *   <li>The mapping is a {@link VectorAutoEmbedFieldMapping} — the only index type routed here;
-   *       other mappings (e.g. dynamic search) always fall back.
+   *   <li>The mapping enumerates every indexed source path. Vector mappings always do; static
+   *       Search mappings do when no dynamic subtree is enabled.
    *   <li>No removed or truncated field touches any declared embed path. A partial {@code $set} has
    *       no way to clear an MV vector or hash that the source removed.
    *   <li>Every updated field is either an exact embed match, an exact passthrough, or unrelated to
@@ -711,20 +710,17 @@ public class AutoEmbeddingDocumentUtils {
       // here. Fall back to a full replace rather than reaching the post-loop precondition.
       return PartialEmbedClassification.fellBack(PartialEmbedFallbackReason.NO_CHANNELS_REPORTED);
     }
-    if (!(fieldMapping instanceof VectorAutoEmbedFieldMapping)) {
+    if (!fieldMapping.enumeratesAllIndexedPaths()) {
       // The destructive-touch check below requires fieldMap() to enumerate every indexed path.
-      // That holds for vector mappings; SearchIndexAutoEmbedFieldMapping's dynamic mode
-      // intentionally under-enumerates, which would let a destructive update misclassify as
-      // partial-safe and leave stale values on the MV. Unsupported mappings degrade to a full
-      // replace rather than risking staleness.
+      // Dynamic Search mappings intentionally under-enumerate, which would let a destructive
+      // update misclassify as partial-safe and leave stale values on the MV.
       return PartialEmbedClassification.fellBack(
           PartialEmbedFallbackReason.UNSUPPORTED_FIELD_MAPPING);
     }
 
     Set<FieldPath> declaredEmbedPaths = fieldMapping.embedFields().keySet();
-    // All declared indexed paths — embeds plus filters. Complete for vector indexes (the only
-    // index type routed through this classifier); SearchIndexAutoEmbedFieldMapping's dynamic mode
-    // under-enumerates fieldMap() and must not be routed here without revisiting this.
+    // All declared indexed paths — embeds plus passthrough fields. The completeness precondition
+    // above is what makes destructive-touch analysis safe for both Vector and static Search.
     Set<FieldPath> declaredIndexedPaths = fieldMapping.fieldMap().keySet();
 
     // Destructive channels (removedFields, truncatedArrays): partial $set can't express a

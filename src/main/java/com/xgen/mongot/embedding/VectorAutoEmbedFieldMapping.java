@@ -59,6 +59,11 @@ public record VectorAutoEmbedFieldMapping(
   }
 
   @Override
+  public boolean enumeratesAllIndexedPaths() {
+    return true;
+  }
+
+  @Override
   public Predicate<FieldPath> passthroughDescendPredicate() {
     return passthroughAncestorPaths()::contains;
   }

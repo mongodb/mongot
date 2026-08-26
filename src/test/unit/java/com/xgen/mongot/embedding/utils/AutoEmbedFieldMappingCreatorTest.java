@@ -25,6 +25,7 @@ import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.EmbeddedDocumentsFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
@@ -338,6 +339,7 @@ public class AutoEmbedFieldMappingCreatorTest {
     Assert.assertFalse(
         "Undeclared paths must not be passthrough in static mode",
         mapping.isPassthrough(FieldPath.parse("random")));
+    Assert.assertTrue(mapping.enumeratesAllIndexedPaths());
   }
 
   @Test
@@ -421,6 +423,30 @@ public class AutoEmbedFieldMappingCreatorTest {
         ((SearchIndexAutoEmbedFieldMapping) mapping)
             .explicitPassthroughPaths()
             .contains(FieldPath.parse("parent.active")));
+    Assert.assertFalse(mapping.enumeratesAllIndexedPaths());
+  }
+
+  @Test
+  public void createAutoEmbedMapping_search_dynamicEmbeddedDocumentsIsNotEnumerable() {
+    var nested = EmbeddedDocumentsFieldDefinitionBuilder.builder().dynamic(true).build();
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("items", FieldDefinitionBuilder.builder().embeddedDocuments(nested).build())
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("title")))
+                    .build())
+            .build();
+    SearchIndexDefinition searchDef =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+
+    Assert.assertFalse(mapping.enumeratesAllIndexedPaths());
   }
 
   @Test

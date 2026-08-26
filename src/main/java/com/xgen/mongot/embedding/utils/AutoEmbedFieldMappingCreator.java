@@ -12,6 +12,7 @@ import com.xgen.mongot.embedding.SearchIndexAutoEmbedFieldMapping;
 import com.xgen.mongot.embedding.VectorAutoEmbedFieldMapping;
 import com.xgen.mongot.index.definition.FieldDefinition;
 import com.xgen.mongot.index.definition.FieldTypeDefinition;
+import com.xgen.mongot.index.definition.HierarchicalFieldDefinition;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
@@ -102,7 +103,10 @@ public class AutoEmbedFieldMappingCreator {
         },
         passthroughBuilder);
     return new SearchIndexAutoEmbedFieldMapping(
-        searchDef.getMappings().dynamic(), embedBuilder.build(), passthroughBuilder.build());
+        searchDef.getMappings().dynamic(),
+        embedBuilder.build(),
+        passthroughBuilder.build(),
+        searchMappingIsStaticallyEnumerable(searchDef));
   }
 
   /**
@@ -271,7 +275,35 @@ public class AutoEmbedFieldMappingCreator {
         },
         passthroughBuilder);
     return new SearchIndexAutoEmbedFieldMapping(
-        searchDef.getMappings().dynamic(), embedBuilder.build(), passthroughBuilder.build());
+        searchDef.getMappings().dynamic(),
+        embedBuilder.build(),
+        passthroughBuilder.build(),
+        searchMappingIsStaticallyEnumerable(searchDef));
+  }
+
+  /**
+   * Returns whether every path indexed by this Search mapping is statically enumerable. Dynamic
+   * indexing at the root or in any document-like subtree makes destructive partial-update safety
+   * impossible to prove from the finite field map.
+   */
+  private static boolean searchMappingIsStaticallyEnumerable(SearchIndexDefinition searchDef) {
+    return hierarchyIsStaticallyEnumerable(searchDef.getMappings());
+  }
+
+  private static boolean hierarchyIsStaticallyEnumerable(
+      HierarchicalFieldDefinition hierarchicalDefinition) {
+    return !hierarchicalDefinition.dynamic().isEnabled()
+        && hierarchicalDefinition.fields().values().stream()
+            .allMatch(
+                field ->
+                    field
+                            .documentFieldDefinition()
+                            .map(AutoEmbedFieldMappingCreator::hierarchyIsStaticallyEnumerable)
+                            .orElse(true)
+                        && field
+                            .embeddedDocumentsFieldDefinition()
+                            .map(AutoEmbedFieldMappingCreator::hierarchyIsStaticallyEnumerable)
+                            .orElse(true));
   }
 
   /**
