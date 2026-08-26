@@ -29,10 +29,12 @@ maven.install(
         "com.fasterxml.jackson.datatype:jackson-datatype-jdk8:2.18.9",
         "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.18.9",
         "com.fasterxml.jackson.module:jackson-module-parameter-names:2.18.9",
-        # METRICS_ARTIFACTS (1.15.12)
-        "io.micrometer:micrometer-core:1.15.12",
-        "io.micrometer:micrometer-registry-prometheus:1.15.12",
-        "io.micrometer:micrometer-registry-otlp:1.15.12",
+        # METRICS_ARTIFACTS (1.16.7)
+        # micrometer-core >= 1.16.7 addresses CVE-2026-59296 (CRLF injection in
+        # StatsD/logging line builders); keep all three artifacts aligned.
+        "io.micrometer:micrometer-core:1.16.7",
+        "io.micrometer:micrometer-registry-prometheus:1.16.7",
+        "io.micrometer:micrometer-registry-otlp:1.16.7",
         # OPEN_TELEMETRY_ARTIFACTS (1.62.0)
         "io.opentelemetry:opentelemetry-api:1.62.0",
         "io.opentelemetry:opentelemetry-context:1.62.0",
@@ -83,6 +85,9 @@ maven.install(
         "com.carrotsearch:hppc:0.10.0",
         # PINNED_TRANSITIVE_ARTIFACTS
         "com.google.protobuf:protobuf-java:4.29.0",
+        # Force opentelemetry-proto version to 1.5.0-alpha (instead of the
+        # 1.8.0-alpha that micrometer-registry-otlp:1.16.7's POM requests)
+        "io.opentelemetry.proto:opentelemetry-proto:1.5.0-alpha",
         # Force Netty transitive artifacts to 4.1.137.Final to address CVE-2026-42579,
         # CVE-2026-42578, CVE-2026-44249, CVE-2026-56745, CVE-2026-59903, and to unify
         # Netty versions.
