@@ -155,6 +155,31 @@ public class ChangeStreamDocumentUtilsSearchPartialUpdateTest {
   }
 
   @Test
+  public void staticSearch_indexedItemLeafUpdate_setsCompleteItemsRoot() {
+    SearchIndexDefinition indexDefinition = embeddedDocumentsPassthroughSearchIndex();
+    BsonArray items =
+        new BsonArray(
+            List.of(
+                new BsonDocument("label", new BsonString("renamed"))
+                    .append("other", new BsonString("unchanged"))));
+    ChangeStreamDocument<RawBsonDocument> event =
+        updateEvent(
+            indexDefinition,
+            new UpdateDescription(
+                null, new BsonDocument("items.0.label", new BsonString("renamed"))),
+            standardDocument("old title").append("items", items));
+
+    var batch = handle(indexDefinition, List.of(event));
+
+    assertThat(batch.finalChangeEvents).hasSize(1);
+    DocumentEvent documentEvent = batch.finalChangeEvents.getFirst();
+    assertTrue(documentEvent.isFilterOnlyUpdate());
+    assertThat(documentEvent.getFilterFieldUpdates().orElseThrow().getArray("items"))
+        .isEqualTo(items);
+    assertThat(batch.filterOnlyPartialApplied).isEqualTo(1);
+  }
+
+  @Test
   public void staticSearch_removedLexicalField_fallsBackToFullReplace() {
     SearchIndexDefinition indexDefinition = staticSearchIndex();
     BsonDocument fullDocument = standardDocument("old title");

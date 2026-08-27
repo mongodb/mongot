@@ -818,7 +818,7 @@ public class ChangeStreamDocumentUtils {
       return Optional.empty();
     }
     for (var update : updateDescription.getUpdatedFields().entrySet()) {
-      FieldPath path = ChangeStreams.filterFieldPath(FieldPath.parse(update.getKey()));
+      FieldPath path = FieldPath.parse(update.getKey());
       boolean replacesMappedDocument =
           searchResolver
                   .getFieldDefinition(path, Optional.empty())
