@@ -11,6 +11,7 @@ java_test_suite(
         "DocumentUtilTest.java",
         "FloatVectorTest.java",
         "JsonCodecTest.java",
+        "NativeVectorParserTest.java",
         "OptionalCodecTest.java",
         "OptionalPropertyCodecProviderTest.java",
         "ProtoConverterTest.java",

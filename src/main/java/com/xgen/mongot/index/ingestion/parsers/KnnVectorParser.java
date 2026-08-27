@@ -1,11 +1,10 @@
 package com.xgen.mongot.index.ingestion.parsers;
 
-import com.xgen.mongot.util.FloatCollector;
 import com.xgen.mongot.util.bson.FloatVector;
+import com.xgen.mongot.util.bson.NativeVectorParser;
 import com.xgen.mongot.util.bson.Vector;
 import java.util.Optional;
 import org.bson.BsonReader;
-import org.bson.BsonType;
 
 public class KnnVectorParser {
 
@@ -16,22 +15,7 @@ public class KnnVectorParser {
    * https://docs.oracle.com/javase/specs/jls/se8/html/jls-5.html#jls-5.1.3.
    */
   public static Optional<Vector> parse(BsonReader reader) {
-
-    var vector = new FloatCollector();
-    reader.readStartArray();
-
-    while (reader.readBsonType() != BsonType.END_OF_DOCUMENT) {
-      switch (reader.getCurrentBsonType()) {
-        case INT32 -> vector.add((float) reader.readInt32());
-        case INT64 -> vector.add((float) reader.readInt64());
-        case DOUBLE -> vector.add((float) reader.readDouble());
-        default -> {
-          return Optional.empty();
-        }
-      }
-    }
-    reader.readEndArray();
-
-    return Optional.of(Vector.fromFloats(vector.toArray(), FloatVector.OriginalType.NATIVE));
+    return NativeVectorParser.parse(reader)
+        .map(floats -> Vector.fromFloats(floats, FloatVector.OriginalType.NATIVE));
   }
 }

@@ -15,6 +15,7 @@ java_library(
         "Float16Vector.java",
         "FloatVector.java",
         "JsonCodec.java",
+        "NativeVectorParser.java",
         "OptionalCodec.java",
         "OptionalPropertyCodecProvider.java",
         "ProtoConverter.java",

@@ -1,12 +1,9 @@
 package com.xgen.mongot.util.bson;
 
 import com.xgen.mongot.util.Check;
-import com.xgen.mongot.util.FloatCollector;
 import com.xgen.mongot.util.bson.parser.BsonParseContext;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.Encodable;
-import java.util.Optional;
-import org.bson.BsonArray;
 import org.bson.BsonValue;
 
 /**
@@ -67,24 +64,7 @@ public abstract sealed class Vector implements Encodable
   public static Vector fromBson(BsonParseContext context, BsonValue value)
       throws BsonParseException {
     if (value.isArray()) {
-      // TODO(CLOUDP-271775): re-use code from KnnVectorParser class
-      BsonArray array = value.asArray();
-      FloatCollector collector = new FloatCollector();
-      for (BsonValue bsonValue : array) {
-        float floatValue;
-        if (bsonValue.isDouble()) {
-          floatValue = (float) bsonValue.asDouble().getValue();
-        } else if (bsonValue.isInt32()) {
-          floatValue = (float) bsonValue.asInt32().getValue();
-        } else if (bsonValue.isInt64()) {
-          floatValue = (float) bsonValue.asInt64().getValue();
-        } else {
-          throw new BsonParseException(
-              "Unsupported BsonValue type: " + bsonValue.getBsonType(), Optional.empty());
-        }
-        collector.add(floatValue);
-      }
-      return Vector.fromFloats(collector.toArray(), FloatVector.OriginalType.NATIVE);
+      return Vector.fromFloats(NativeVectorParser.parse(value), FloatVector.OriginalType.NATIVE);
     } else if (value.isBinary()) {
       return BsonVectorParser.parse(value.asBinary());
     } else {
