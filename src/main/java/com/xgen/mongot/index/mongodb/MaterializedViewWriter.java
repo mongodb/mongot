@@ -223,7 +223,8 @@ public class MaterializedViewWriter implements IndexWriter {
       ensureOpen("commit");
       bulkOperations = this.bulkOperationsRef.getAndSet(new ConcurrentLinkedQueue<>());
     }
-    if (!bulkOperations.isEmpty()) {
+    boolean materializedViewWriteCompleted = !bulkOperations.isEmpty();
+    if (materializedViewWriteCompleted) {
       // Throttle MV writes if ratelimiter is configured. acquire() blocks until
       // a permit is available, smoothing write bursts.
       this.rateLimiter.ifPresent(
@@ -272,7 +273,8 @@ public class MaterializedViewWriter implements IndexWriter {
       }
     }
     try {
-      this.leaseManager.updateCommitInfo(this.generationId, userData);
+      this.leaseManager.updateCommitInfo(
+          this.generationId, userData, materializedViewWriteCompleted);
     } catch (MaterializedViewTransientException | MaterializedViewNonTransientException ex) {
       LOG.atWarn()
           .addKeyValue("generationId", this.generationId)

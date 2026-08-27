@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -138,6 +139,27 @@ public class MaterializedViewWriterTest {
     verify(this.mockCollection)
         .bulkWrite(
             argThat(list -> list.size() == 3), same(MaterializedViewWriter.MV_BULK_WRITE_OPTIONS));
+    verify(this.mockLeaseManager).updateCommitInfo(GENERATION_ID, EncodedUserData.EMPTY, true);
+  }
+
+  @Test
+  public void testEmptyCommitRecordsNoMaterializedViewWrite() throws IOException {
+    var matViewWriter =
+        new MaterializedViewWriter(
+            this.autoEmbeddingMongoClient,
+            MV_DATABASE_NAME,
+            MV_COLLECTION_NAME,
+            GENERATION_ID,
+            this.mockLeaseManager,
+            METRICS_FACTORY,
+            COLLECTION_UUID,
+            Optional.empty());
+
+    matViewWriter.commit(EncodedUserData.EMPTY);
+
+    verify(this.mockCollection, never())
+        .bulkWrite(any(), same(MaterializedViewWriter.MV_BULK_WRITE_OPTIONS));
+    verify(this.mockLeaseManager).updateCommitInfo(GENERATION_ID, EncodedUserData.EMPTY, false);
   }
 
   @Test

@@ -3,6 +3,7 @@ load("//bazel/java:package.bzl", "java_library")
 java_library(
     name = "leasing",
     srcs = [
+        "CheckpointCommitRiskTracker.java",
         "DynamicLeaderLeaseManager.java",
         "Lease.java",
         "LeaseManager.java",

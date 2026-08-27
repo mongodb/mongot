@@ -39,6 +39,9 @@ public class PerIndexMetricsFactory {
 
   public static double[] defaultSummaryPercentiles = {0.5, 0.75, 0.9, 0.99};
 
+  private static final String GENERATION_ID_TAG = "generationId logString";
+  private static final String INDEX_ID_TAG = "indexId logString";
+
   private final MeterAndFtdcRegistry meterAndFtdcRegistry;
   private final MetricsFactory perIndexAllFactory;
   private final MetricsFactory perIndexFtdcFactory;
@@ -81,12 +84,12 @@ public class PerIndexMetricsFactory {
         new MetricsFactory(
             namespace,
             meterAndFtdcRegistry.meterRegistry(),
-            Tags.of("generationId logString", indexGenerationId).and("indexId logString", indexId),
+            tagsFor(indexGenerationId, indexId),
             identitySafeClose),
         new MetricsFactory(
             namespace,
             meterAndFtdcRegistry.ftdcRegistry(),
-            Tags.of("generationId logString", indexGenerationId).and("indexId logString", indexId),
+            tagsFor(indexGenerationId, indexId),
             identitySafeClose),
         new MetricsFactory(namespace, meterAndFtdcRegistry.meterRegistry()));
   }
@@ -100,6 +103,20 @@ public class PerIndexMetricsFactory {
     this.perIndexAllFactory = perIndexAllFactory;
     this.perIndexFtdcFactory = perIndexFtdcFactory;
     this.perProcessFactory = perProcessFactory;
+  }
+
+  /**
+   * The per-generation identity tags every per-index meter carries. Alerts join separately
+   * registered meters on these labels, so all producers must build them from here rather than
+   * repeating the literals — a typo is invisible at compile time and only shows up as a rule that
+   * silently stops matching.
+   */
+  public static Tags tagsFor(GenerationId generationId) {
+    return tagsFor(generationId.uniqueString(), generationId.indexId.toHexString());
+  }
+
+  public static Tags tagsFor(String indexGenerationId, String indexId) {
+    return Tags.of(GENERATION_ID_TAG, indexGenerationId).and(INDEX_ID_TAG, indexId);
   }
 
   /**

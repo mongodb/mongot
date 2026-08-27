@@ -1244,6 +1244,9 @@ public class MaterializedViewManager implements ReplicationManager {
     boolean indexDeleted = this.indexCatalog.getIndexById(generationId.indexId).isEmpty();
 
     if (!indexDeleted) {
+      // Retiring a generation does not clear checkpoint risk: the index lives on and the
+      // definition-update and retry paths keep the MV collection. The one case where we know the
+      // collection is gone clears in retireIfCollectionMissing().
       LOG.atInfo()
           .addKeyValue("generationId", generationId)
           .addKeyValue("collectionName", leaseKey)
@@ -1257,6 +1260,16 @@ public class MaterializedViewManager implements ReplicationManager {
       // collection keeps its name but gets a new UUID).
       return generatorShutdownFuture.thenRun(() -> this.leaseManager.evictCachedLease(leaseKey));
     }
+
+    // The index is gone, so MV documents without a checkpoint no longer matter.
+    //
+    // Wait for the generator to stop: drop() above already took leadership away, so a commit
+    // still running its bulk write (up to 311s in prod) would find isLeader false and re-flag an
+    // index that no longer exists. Run it before the leader check below, since the host holding
+    // the flag usually lost leadership in the same failure and never reaches the leader-only path.
+    CompletableFuture<Void> riskClearedFuture =
+        generatorShutdownFuture.thenRun(
+            () -> this.leaseManager.clearCheckpointCommitRiskForIndex(generationId.indexId));
 
     // Index deleted: clean up the shared MV collection and lease now (leader only), plus any
     // leftover sibling leases of this index — a supersession that completed before the deletion
@@ -1275,7 +1288,7 @@ public class MaterializedViewManager implements ReplicationManager {
           .log(
               "Index deleted; not the leader, leaving shared resource cleanup to the leader "
                   + "or, if no leader remains, to the stale-lease GC");
-      return generatorShutdownFuture.thenRun(() -> this.leaseManager.evictCachedLease(leaseKey));
+      return riskClearedFuture.thenRun(() -> this.leaseManager.evictCachedLease(leaseKey));
     }
     LOG.atInfo()
         .addKeyValue("generationId", generationId)
@@ -1285,7 +1298,7 @@ public class MaterializedViewManager implements ReplicationManager {
     // (IndexActions awaits them), and this cleanup retries against the source cluster -- with
     // the mongod unreachable it would stall all config processing behind it. Nothing needs to
     // wait for it: any failure just leaves the lease for the stale-lease GC.
-    generatorShutdownFuture
+    riskClearedFuture
         .thenComposeAsync(
             ignored ->
                 materializedViewIndexGeneration
@@ -1394,6 +1407,12 @@ public class MaterializedViewManager implements ReplicationManager {
     // Leadership decides who cleans up the shared resources, but nobody should be replicating a
     // collection that no longer exists, so this runs on every node that witnesses the drop.
     deregisterGenerationOfDroppedSourceCollection(generation);
+    // The source collection is gone, so no generation of this index can ever index again --
+    // clear them all, whether or not we hold the lease or the cleanup below works.
+    // TODO(CLOUDP-XXXXX): this can run while a commit is still finishing, which re-flags a
+    // collection that is gone. Unlike the index-deletion path there is no shutdown future to
+    // wait on here, so it needs its own fix.
+    this.leaseManager.clearCheckpointCommitRiskForIndex(generationId.indexId);
     if (!this.leaseManager.isLeader(generationId)) {
       LOG.atInfo()
           .addKeyValue("generationId", generationId)
@@ -2473,6 +2492,7 @@ public class MaterializedViewManager implements ReplicationManager {
                   + "the index is recreated");
       this.leaseManager.releaseLeadership(generationId);
       generator.clearLeaderState();
+      this.leaseManager.clearCheckpointCommitRisk(generationId);
     }
     return true;
   }

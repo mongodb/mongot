@@ -143,6 +143,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
   private final Counter acquisitionSuppressedCounter;
   private final Counter checkpointRejectedCounter;
   private final Counter skippedCheckpointCounter;
+  private final CheckpointCommitRiskTracker checkpointCommitRisk;
 
   @TestOnly
   public DynamicLeaderLeaseManager(
@@ -193,6 +194,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
         this.metricsFactory.counter(ACQUISITION_SUPPRESSED_COUNTER_NAME);
     this.checkpointRejectedCounter = this.metricsFactory.counter(CHECKPOINT_REJECTED_COUNTER_NAME);
     this.skippedCheckpointCounter = this.metricsFactory.counter(SKIPPED_CHECKPOINT_COUNTER_NAME);
+    this.checkpointCommitRisk = new CheckpointCommitRiskTracker(this.metricsFactory, hostname);
     this.leaseStoreCircuitBreaker =
         new LeaseStoreCircuitBreaker(
             CIRCUIT_BREAKER_FAILURE_THRESHOLD,
@@ -584,6 +586,9 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
         // acquirable, causing refreshStatus()'s acquirableLeases loop to redundantly reacquire
         // leadership on the generator this call just activated and trip the unsafe-reacquisition
         // detector on a same-tenure, non-corrupting reacquisition (CLOUDP-437181).
+        //
+        // Becoming leader again does not clear checkpoint risk; only a checkpoint write the
+        // database accepts does. See LeaseManager#clearCheckpointCommitRisk.
         this.followerGenerationIds.remove(generationId);
         this.leaderGenerationIds.add(generationId);
         LOG.atInfo()
@@ -822,6 +827,15 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
   public void updateCommitInfo(
       MaterializedViewGenerationId generationId, EncodedUserData encodedUserData)
       throws MaterializedViewTransientException, MaterializedViewNonTransientException {
+    updateCommitInfo(generationId, encodedUserData, false);
+  }
+
+  @Override
+  public void updateCommitInfo(
+      MaterializedViewGenerationId generationId,
+      EncodedUserData encodedUserData,
+      boolean materializedViewWriteCompleted)
+      throws MaterializedViewTransientException, MaterializedViewNonTransientException {
     // Only update the commit info in the database if leader.
     if (isLeader(generationId)) {
       @Var String leaseKey = null;
@@ -830,10 +844,14 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
         ensureLeaseExists(leaseKey);
         Lease currentLease = this.leases.get(leaseKey);
         Lease updatedLease = currentLease.withUpdatedCheckpoint(encodedUserData);
-        if (!updateLeaseInDatabase(
+        if (updateLeaseInDatabase(
             leaseKey, generationId, currentLease, updatedLease, encodedUserData)) {
+          // The database took this write, so commitInfo now covers any earlier flagged writes.
+          this.checkpointCommitRisk.clear(generationId);
+        } else {
           // commit() has already run its bulkWrite, so MV documents may exist with no checkpoint.
           this.checkpointRejectedCounter.increment();
+          this.checkpointCommitRisk.record(generationId, materializedViewWriteCompleted);
           LOG.atWarn()
               .addKeyValue("generationId", generationId)
               .addKeyValue("leaseKey", leaseKey)
@@ -852,11 +870,28 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
       // commit() has already run its bulkWrite, so MV documents may exist with a stale fencing
       // token and no checkpoint.
       this.skippedCheckpointCounter.increment();
+      this.checkpointCommitRisk.record(generationId, materializedViewWriteCompleted);
       LOG.atWarn()
           .addKeyValue("generationId", generationId)
           .addKeyValue("hostname", this.hostname)
           .log("Skipped checkpoint commit, no longer leader for this generation");
     }
+  }
+
+  /** Visible so tests can drive the TTL sweep without waiting on wall-clock time. */
+  @VisibleForTesting
+  void expireStaleCheckpointCommitRisk(Instant now) {
+    this.checkpointCommitRisk.expireStale(now);
+  }
+
+  @Override
+  public void clearCheckpointCommitRisk(MaterializedViewGenerationId generationId) {
+    this.checkpointCommitRisk.clear(generationId);
+  }
+
+  @Override
+  public void clearCheckpointCommitRiskForIndex(ObjectId indexId) {
+    this.checkpointCommitRisk.clearForIndex(indexId);
   }
 
   @Override
@@ -1360,6 +1395,8 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
 
   @Override
   public void heartbeat() {
+    // Followers too: a flag left behind by another host taking over sits on a follower.
+    this.checkpointCommitRisk.expireStale(Instant.now());
     // For leaders: renew the lease to maintain leadership.
     // For followers: do nothing - leadership acquisition is handled separately via
     // tryAcquireLeadership() called by MaterializedViewManager.
@@ -1698,6 +1735,8 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
       this.followerGenerationIds.remove(generationId);
       this.leaderGenerationIds.add(generationId);
       if (isReclaimingOwnLease) {
+        // Taking the lease back does not clear checkpoint risk: withRenewedOwnership() copies
+        // commitInfo over unchanged. The next commit clears it, even an empty one.
         LOG.atInfo()
             .addKeyValue("generationId", generationId)
             .addKeyValue("hostname", this.hostname)

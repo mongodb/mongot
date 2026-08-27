@@ -793,10 +793,34 @@ public class MaterializedViewManagerTest {
     // The shared MV collection + lease are left for the stale-lease GC, not dropped here.
     verify(gen.getIndex().getWriter(), never()).dropMaterializedViewCollection();
     verify(mocks.leaseManager, never()).dropLease(any(String.class));
+    verify(mocks.leaseManager, never()).clearCheckpointCommitRisk(any());
+    verify(mocks.leaseManager, never()).clearCheckpointCommitRiskForIndex(any());
     // The cached lease copy is evicted so it cannot outlive the document once the GC deletes
     // it: a later re-initialization of the same definition must re-read the database (a
     // recreated MV collection keeps its name but gets a new UUID).
     verify(mocks.leaseManager).evictCachedLease("test_" + INDEX_ID.toHexString());
+  }
+
+  @Test
+  public void dropIndex_indexDeletion_clearsRiskOnlyAfterGeneratorShutdown() throws Exception {
+    Mocks mocks = Mocks.create();
+    MaterializedViewIndexGeneration gen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator generator = mocks.mockMaterializedViewGenerator(gen);
+    mocks.addIndexForReplication(gen);
+    CompletableFuture<Void> shutdownGate = new CompletableFuture<>();
+    doReturn(shutdownGate).when(generator).shutdown();
+
+    mocks.markIndexDeleted();
+    mocks.manager.dropIndex(MOCK_GENERATION_ID);
+
+    // drop() already cleared leadership, so a commit still draining inside the generator would
+    // take the !isLeader branch and re-arm the latch. Nothing may clear until it has quiesced.
+    verify(mocks.leaseManager, never()).clearCheckpointCommitRiskForIndex(any());
+
+    shutdownGate.complete(null);
+
+    verify(mocks.leaseManager, timeout(5000)).clearCheckpointCommitRiskForIndex(INDEX_ID);
   }
 
   @Test
@@ -817,6 +841,7 @@ public class MaterializedViewManagerTest {
     verify(mocks.leaseManager, timeout(5000))
         .cleanupLeaseForDeletedIndex("test_" + INDEX_ID.toHexString());
     verify(gen.getIndex().getWriter()).dropMaterializedViewCollection();
+    verify(mocks.leaseManager).clearCheckpointCommitRiskForIndex(INDEX_ID);
     // No manager-level eviction on the deletion branch: the by-id delete performs its own local
     // cleanup.
     verify(mocks.leaseManager, never()).evictCachedLease(any(String.class));
@@ -846,6 +871,10 @@ public class MaterializedViewManagerTest {
     verify(gen.getIndex().getWriter(), never()).dropMaterializedViewCollection();
     verify(mocks.leaseManager, never()).dropLease(any(String.class));
     verify(mocks.leaseManager, never()).cleanupLeaseForDeletedIndex(any(String.class));
+    // A terminal/retired generation retains its MV collection without proving checkpoint
+    // recovery, so its conservative process-local risk latch must remain set.
+    verify(mocks.leaseManager, never()).clearCheckpointCommitRisk(any());
+    verify(mocks.leaseManager, never()).clearCheckpointCommitRiskForIndex(any());
   }
 
   @Test
@@ -869,6 +898,8 @@ public class MaterializedViewManagerTest {
     verify(mocks.leaseManager, timeout(5000))
         .findLeasesForDeletedIndex(eq(INDEX_ID), any(String.class));
     verify(mocks.leaseManager, never()).cleanupLeaseForDeletedIndex(any(String.class));
+    // Catalog deletion resolves the alertable risk even when physical cleanup is deferred to GC.
+    verify(mocks.leaseManager).clearCheckpointCommitRiskForIndex(INDEX_ID);
     assertEquals(
         1.0,
         collectionDropCount(mocks, MaterializedViewManager.DROP_SCENARIO_INDEX_DELETION, "failure"),
@@ -896,6 +927,7 @@ public class MaterializedViewManagerTest {
     verify(mocks.leaseManager, timeout(5000))
         .cleanupLeaseForDeletedIndex("test_" + INDEX_ID.toHexString());
     verify(gen.getIndex().getWriter()).dropMaterializedViewCollection();
+    verify(mocks.leaseManager).clearCheckpointCommitRiskForIndex(INDEX_ID);
   }
 
   @Test
@@ -912,6 +944,7 @@ public class MaterializedViewManagerTest {
     verify(mocks.leaseManager, timeout(5000))
         .cleanupLeaseForDeletedIndex("test_" + INDEX_ID.toHexString());
     verify(gen.getIndex().getWriter()).dropMaterializedViewCollection();
+    verify(mocks.leaseManager).clearCheckpointCommitRiskForIndex(INDEX_ID);
     assertEquals(
         1.0,
         collectionDropCount(
@@ -1004,6 +1037,7 @@ public class MaterializedViewManagerTest {
 
     verify(gen.getIndex().getWriter(), never()).dropMaterializedViewCollection();
     verify(mocks.leaseManager, never()).cleanupLeaseForDeletedIndex(any(String.class));
+    verify(mocks.leaseManager).clearCheckpointCommitRiskForIndex(INDEX_ID);
   }
 
   @Test
@@ -1021,6 +1055,7 @@ public class MaterializedViewManagerTest {
     mocks.onSourceCollectionDropped().accept(gen);
 
     verify(mocks.leaseManager, never()).cleanupLeaseForDeletedIndex(any(String.class));
+    verify(mocks.leaseManager).clearCheckpointCommitRiskForIndex(INDEX_ID);
     assertEquals(
         1.0,
         collectionDropCount(
@@ -1251,7 +1286,7 @@ public class MaterializedViewManagerTest {
   }
 
   @Test
-  public void testDropIndex_whenReplicationDisabled_followerEvictsCachedLeaseOnly()
+  public void testDropIndex_whenReplicationDisabled_followerClearsRiskAndEvictsCachedLeaseOnly()
       throws Exception {
     // Follower path of the generator==null code path in maybeDropCollectionAndLease:
     // Follower evicts its cached lease copy but touches neither the lease document nor the MV
@@ -1276,7 +1311,10 @@ public class MaterializedViewManagerTest {
     mocks.markIndexDeleted();
     mocks.manager.dropIndex(dropGenId).get(5, TimeUnit.SECONDS);
 
-    // Assert — only the cached lease copy is evicted (non-leader half of the deletion path).
+    // The catalog deletion resolves this process's alertable risk even though shared-resource
+    // cleanup remains delegated to the leader or stale-lease GC.
+    verify(mocks.leaseManager).clearCheckpointCommitRiskForIndex(INDEX_ID);
+    // Only the cached lease copy is evicted (non-leader half of the deletion path).
     verify(mocks.leaseManager, timeout(5000)).evictCachedLease("test_" + INDEX_ID.toHexString());
     verify(mocks.leaseManager, never()).dropLease(any(String.class));
     verify(mocks.leaseManager, never()).cleanupLeaseForDeletedIndex(any(String.class));
@@ -1306,6 +1344,7 @@ public class MaterializedViewManagerTest {
     verify(generator).shutdown();
     // The cached copy is evicted; the lease document and the MV collection are left untouched.
     verify(mocks.leaseManager, timeout(5000)).evictCachedLease("test_" + INDEX_ID.toHexString());
+    verify(mocks.leaseManager).clearCheckpointCommitRiskForIndex(INDEX_ID);
     verify(mocks.leaseManager, never()).dropLease(any(String.class));
     verify(mocks.leaseManager, never()).cleanupLeaseForDeletedIndex(any(String.class));
     verify(gen.getIndex().getWriter(), never()).dropMaterializedViewCollection();
@@ -1765,6 +1804,7 @@ public class MaterializedViewManagerTest {
         "the dead generator must not be replaced",
         deadGenerator,
         mocks.manager.getMatViewGenerator(gen.getGenerationId()).orElseThrow());
+    verify(mocks.leaseManager).clearCheckpointCommitRisk(gen.getGenerationId());
 
     // refreshStatus overwrites this status from the lease on every tick a generator is not leader.
     gen.getIndex().setStatus(IndexStatus.steady());
@@ -1842,6 +1882,8 @@ public class MaterializedViewManagerTest {
     runHeartbeatOnce(transientTerminal);
 
     verify(transientTerminal.leaseManager).releaseLeadership(failedGen.getGenerationId());
+    verify(transientTerminal.leaseManager, never()).clearCheckpointCommitRisk(any());
+    verify(transientTerminal.leaseManager, never()).clearCheckpointCommitRiskForIndex(any());
     assertFalse(
         "a transient terminal must not retire the generation",
         transientTerminal.manager.retiredGenerations.contains(failedGen.getGenerationId()));

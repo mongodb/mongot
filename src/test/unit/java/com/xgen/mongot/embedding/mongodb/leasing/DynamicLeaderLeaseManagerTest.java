@@ -42,6 +42,7 @@ import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.index.version.MaterializedViewGenerationId;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
+import com.xgen.mongot.metrics.PerIndexMetricsFactory;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
 import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
@@ -49,6 +50,7 @@ import com.xgen.testing.mongot.metrics.SimpleMetricsFactory;
 import com.xgen.testing.mongot.mock.index.MaterializedViewIndex;
 import com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.search.Search;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -57,6 +59,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 import org.bson.BsonArray;
 import org.bson.BsonBinary;
 import org.bson.BsonDateTime;
@@ -966,13 +969,217 @@ public class DynamicLeaderLeaseManagerTest {
     // Act
     this.leaseManager.updateCommitInfo(generationId, EncodedUserData.EMPTY);
 
-    // Assert - the MV write already ran, so documents may lack a checkpoint
+    // The legacy counter still records all rejections, while the risk gauge requires positive
+    // confirmation that a materialized-view write completed.
     assertThat(checkpointRejectedCount()).isEqualTo(1.0);
+    assertThat(checkpointCommitRiskPending(generationId)).isEqualTo(0.0);
     assertThat(this.leaseManager.isLeader(generationId)).isFalse();
     // Nothing on this path refreshes the cache, so the local token is untouched.
     assertThat(this.leaseManager.getOwnedLeaseVersion(generationId)).isEqualTo(localVersionBefore);
     assertThat(this.leaseManager.getOwnedLeaseVersion(generationId))
         .isNotEqualTo(stolenLease.leaseVersion());
+  }
+
+  @Test
+  public void updateCommitInfo_rejectedAfterMaterializedViewWrite_recordsPendingRisk()
+      throws Exception {
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    setupFailedLeaseUpdate();
+
+    this.leaseManager.updateCommitInfo(generationId, EncodedUserData.EMPTY, true);
+
+    assertThat(checkpointCommitRiskPending(generationId)).isEqualTo(1.0);
+  }
+
+  @Test
+  public void updateCommitInfo_sameGenerationReacquired_keepsPendingRisk() throws Exception {
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    setupFailedLeaseUpdate();
+    this.leaseManager.updateCommitInfo(generationId, EncodedUserData.EMPTY, true);
+    assertThat(checkpointCommitRiskPending(generationId)).isEqualTo(1.0);
+
+    setupSuccessfulLeaseUpdate();
+    assertThat(this.leaseManager.tryAcquireLeadership(generationId)).isTrue();
+
+    // Reacquisition carries commitInfo forward unchanged, so it does not re-anchor the write.
+    assertThat(checkpointCommitRiskPending(generationId)).isEqualTo(1.0);
+  }
+
+  @Test
+  public void updateCommitInfo_emptyCommitAfterReacquisition_resolvesPendingRisk()
+      throws Exception {
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    setupFailedLeaseUpdate();
+    this.leaseManager.updateCommitInfo(generationId, EncodedUserData.EMPTY, true);
+    setupSuccessfulLeaseUpdate();
+    assertThat(this.leaseManager.tryAcquireLeadership(generationId)).isTrue();
+    assertThat(checkpointCommitRiskPending(generationId)).isEqualTo(1.0);
+
+    // The next commit tick advances commitInfo and clears, even with nothing to write.
+    this.leaseManager.updateCommitInfo(generationId, EncodedUserData.EMPTY, false);
+
+    assertThat(checkpointCommitRiskPending(generationId)).isEqualTo(0.0);
+    assertThat(checkpointCommitRiskResolvedCount(generationId)).isEqualTo(1.0);
+  }
+
+  @Test
+  public void updateCommitInfo_reacquiredAfterDifferentOwner_keepsPendingRisk() throws Exception {
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    setupFailedLeaseUpdate();
+    this.leaseManager.updateCommitInfo(generationId, EncodedUserData.EMPTY, true);
+    assertThat(checkpointCommitRiskPending(generationId)).isEqualTo(1.0);
+
+    Lease expiredOtherOwnerLease =
+        createLease(generationId, OTHER_HOSTNAME, Instant.now().minusSeconds(60));
+    setupFindLeaseFromDatabase(expiredOtherOwnerLease);
+    this.leaseManager.pollFollowerStatuses();
+    setupSuccessfulLeaseUpdate();
+    assertThat(this.leaseManager.tryAcquireLeadership(generationId)).isTrue();
+
+    assertThat(checkpointCommitRiskPending(generationId)).isEqualTo(1.0);
+  }
+
+  @Test
+  public void updateCommitInfo_successAfterDifferentOwnerReacquisition_resolvesPendingRisk()
+      throws Exception {
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    setupFailedLeaseUpdate();
+    this.leaseManager.updateCommitInfo(generationId, EncodedUserData.EMPTY, true);
+
+    Lease expiredOtherOwnerLease =
+        createLease(generationId, OTHER_HOSTNAME, Instant.now().minusSeconds(60));
+    setupFindLeaseFromDatabase(expiredOtherOwnerLease);
+    this.leaseManager.pollFollowerStatuses();
+    setupSuccessfulLeaseUpdate();
+    assertThat(this.leaseManager.tryAcquireLeadership(generationId)).isTrue();
+    assertThat(checkpointCommitRiskPending(generationId)).isEqualTo(1.0);
+
+    this.leaseManager.updateCommitInfo(generationId, EncodedUserData.EMPTY, true);
+
+    assertThat(checkpointCommitRiskPending(generationId)).isEqualTo(0.0);
+    assertThat(checkpointCommitRiskResolvedCount(generationId)).isEqualTo(1.0);
+  }
+
+  @Test
+  public void clearCheckpointCommitRisk_repeatedClears_countOneResolution() throws Exception {
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    setupFailedLeaseUpdate();
+    this.leaseManager.updateCommitInfo(generationId, EncodedUserData.EMPTY, true);
+
+    this.leaseManager.clearCheckpointCommitRisk(generationId);
+    this.leaseManager.clearCheckpointCommitRisk(generationId);
+
+    assertThat(checkpointCommitRiskPending(generationId)).isEqualTo(0.0);
+    assertThat(checkpointCommitRiskResolvedCount(generationId)).isEqualTo(1.0);
+  }
+
+  @Test
+  public void add_staleCachedOwnership_keepsPendingRisk() throws Exception {
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    this.leaseManager.add(indexGeneration);
+
+    Lease expiredLease = createLease(generationId, OTHER_HOSTNAME, Instant.now().minusSeconds(60));
+    setupFindLeaseFromDatabase(expiredLease);
+    setupSuccessfulLeaseUpdate();
+    this.leaseManager.pollFollowerStatuses();
+    assertThat(this.leaseManager.tryAcquireLeadership(generationId)).isTrue();
+
+    setupFailedLeaseUpdate();
+    this.leaseManager.updateCommitInfo(generationId, EncodedUserData.EMPTY, true);
+    assertThat(checkpointCommitRiskPending(generationId)).isEqualTo(1.0);
+    assertThat(this.leaseManager.isLeader(generationId)).isFalse();
+
+    // updateCommitInfo() deliberately does not refresh after an OCC miss, so the cached lease
+    // still names this host even though the database may have moved to another owner.
+    this.leaseManager.add(indexGeneration);
+
+    assertThat(checkpointCommitRiskPending(generationId)).isEqualTo(1.0);
+  }
+
+  @Test
+  public void clearCheckpointCommitRiskForIndex_retiredPredecessor_clearsBothGenerations()
+      throws Exception {
+    MaterializedViewGenerationId retiredGeneration = acquireLeadership();
+    setupFailedLeaseUpdate();
+    this.leaseManager.updateCommitInfo(retiredGeneration, EncodedUserData.EMPTY, true);
+
+    // A later user version of the same index, as a definition update would produce.
+    MaterializedViewGenerationId currentGeneration =
+        new MaterializedViewGenerationId(
+            retiredGeneration.indexId, retiredGeneration.generation.incrementUser());
+    addCatalogMetadataForGeneration(currentGeneration);
+    this.leaseManager.add(
+        mockMatViewIndexGeneration(
+            MaterializedViewIndex.mockMatViewDefinitionGeneration(currentGeneration)));
+    this.leaseManager.updateCommitInfo(currentGeneration, EncodedUserData.EMPTY, true);
+
+    MaterializedViewGenerationId otherIndexGeneration = acquireLeadership();
+    setupFailedLeaseUpdate();
+    this.leaseManager.updateCommitInfo(otherIndexGeneration, EncodedUserData.EMPTY, true);
+
+    assertThat(checkpointCommitRiskPending(retiredGeneration)).isEqualTo(1.0);
+    assertThat(checkpointCommitRiskPending(currentGeneration)).isEqualTo(1.0);
+    assertThat(checkpointCommitRiskPending(otherIndexGeneration)).isEqualTo(1.0);
+
+    this.leaseManager.clearCheckpointCommitRiskForIndex(retiredGeneration.indexId);
+
+    assertThat(checkpointCommitRiskPending(retiredGeneration)).isEqualTo(0.0);
+    assertThat(checkpointCommitRiskPending(currentGeneration)).isEqualTo(0.0);
+    assertThat(checkpointCommitRiskPending(otherIndexGeneration)).isEqualTo(1.0);
+  }
+
+  @Test
+  public void clearCheckpointCommitRiskForIndex_terminal_retiresStateAndMeters() throws Exception {
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    setupFailedLeaseUpdate();
+    this.leaseManager.updateCommitInfo(generationId, EncodedUserData.EMPTY, true);
+    assertThat(riskMeterCount(generationId)).isEqualTo(3);
+
+    this.leaseManager.clearCheckpointCommitRiskForIndex(generationId.indexId);
+
+    // Terminal for the index, so the timeseries retire rather than lingering at zero forever.
+    assertThat(riskMeterCount(generationId)).isEqualTo(0);
+  }
+
+  @Test
+  public void expireStaleCheckpointCommitRisk_pastTtl_clearsAndCountsExpiry() throws Exception {
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    setupFailedLeaseUpdate();
+    this.leaseManager.updateCommitInfo(generationId, EncodedUserData.EMPTY, true);
+    assertThat(checkpointCommitRiskPending(generationId)).isEqualTo(1.0);
+
+    this.leaseManager.expireStaleCheckpointCommitRisk(
+        Instant.now().plus(CheckpointCommitRiskTracker.TTL).plusSeconds(1));
+
+    // Expiry is the absence of observed recovery, so it must not feed the alert's resolved guard.
+    assertThat(checkpointCommitRiskPending(generationId)).isEqualTo(0.0);
+    assertThat(checkpointCommitRiskExpiredCount(generationId)).isEqualTo(1.0);
+    assertThat(checkpointCommitRiskResolvedCount(generationId)).isEqualTo(0.0);
+  }
+
+  @Test
+  public void expireStaleCheckpointCommitRisk_withinTtl_keepsPendingRisk() throws Exception {
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    setupFailedLeaseUpdate();
+    this.leaseManager.updateCommitInfo(generationId, EncodedUserData.EMPTY, true);
+
+    this.leaseManager.expireStaleCheckpointCommitRisk(
+        Instant.now().plus(CheckpointCommitRiskTracker.TTL).minusSeconds(60));
+
+    assertThat(checkpointCommitRiskPending(generationId)).isEqualTo(1.0);
+    assertThat(checkpointCommitRiskExpiredCount(generationId)).isEqualTo(0.0);
+  }
+
+  @Test
+  public void drop_retainedMaterializedView_keepsPendingRisk() throws Exception {
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    setupFailedLeaseUpdate();
+    this.leaseManager.updateCommitInfo(generationId, EncodedUserData.EMPTY, true);
+
+    this.leaseManager.drop(generationId);
+
+    assertThat(checkpointCommitRiskPending(generationId)).isEqualTo(1.0);
   }
 
   @Test
@@ -989,7 +1196,19 @@ public class DynamicLeaderLeaseManagerTest {
     // Assert - dropped before reaching the store, so no OCC rejection either
     assertThat(skippedCheckpointCount()).isEqualTo(1.0);
     assertThat(checkpointRejectedCount()).isEqualTo(0.0);
+    assertThat(checkpointCommitRiskPending(generationId)).isEqualTo(0.0);
     verify(this.mockCollection, never()).replaceOne(any(), any(BsonDocument.class));
+  }
+
+  @Test
+  public void updateCommitInfo_afterDemotionAndMaterializedViewWrite_recordsPendingRisk()
+      throws Exception {
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    this.leaseManager.releaseLeadership(generationId);
+
+    this.leaseManager.updateCommitInfo(generationId, EncodedUserData.EMPTY, true);
+
+    assertThat(checkpointCommitRiskPending(generationId)).isEqualTo(1.0);
   }
 
   @Test
@@ -1014,6 +1233,41 @@ public class DynamicLeaderLeaseManagerTest {
                     + "."
                     + DynamicLeaderLeaseManager.SKIPPED_CHECKPOINT_COUNTER_NAME)
             .counter();
+    return counter == null ? 0.0 : counter.count();
+  }
+
+  /** Looks up a per-generation risk meter by the same tags the alert joins on. */
+  private Search findRiskMeter(String name, MaterializedViewGenerationId generationId) {
+    return this.metricsFactory
+        .meterRegistry
+        .find(this.metricsFactory.namespace + "." + name)
+        .tags(PerIndexMetricsFactory.tagsFor(generationId));
+  }
+
+  private double checkpointCommitRiskPending(MaterializedViewGenerationId generationId) {
+    var gauge = findRiskMeter(CheckpointCommitRiskTracker.PENDING_GAUGE_NAME, generationId).gauge();
+    return gauge == null ? 0.0 : gauge.value();
+  }
+
+  /** How many of the three per-generation risk meters are currently registered. */
+  private long riskMeterCount(MaterializedViewGenerationId generationId) {
+    return Stream.of(
+            CheckpointCommitRiskTracker.PENDING_GAUGE_NAME,
+            CheckpointCommitRiskTracker.RESOLVED_COUNTER_NAME,
+            CheckpointCommitRiskTracker.EXPIRED_COUNTER_NAME)
+        .filter(name -> findRiskMeter(name, generationId).meter() != null)
+        .count();
+  }
+
+  private double checkpointCommitRiskExpiredCount(MaterializedViewGenerationId generationId) {
+    Counter counter =
+        findRiskMeter(CheckpointCommitRiskTracker.EXPIRED_COUNTER_NAME, generationId).counter();
+    return counter == null ? 0.0 : counter.count();
+  }
+
+  private double checkpointCommitRiskResolvedCount(MaterializedViewGenerationId generationId) {
+    Counter counter =
+        findRiskMeter(CheckpointCommitRiskTracker.RESOLVED_COUNTER_NAME, generationId).counter();
     return counter == null ? 0.0 : counter.count();
   }
 

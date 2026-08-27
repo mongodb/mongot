@@ -142,6 +142,50 @@ public interface LeaseManager {
       throws MaterializedViewTransientException, MaterializedViewNonTransientException;
 
   /**
+   * Same as {@link #updateCommitInfo(MaterializedViewGenerationId, EncodedUserData)}, but also says
+   * whether a materialized-view bulk write finished just before this checkpoint. The flag is for
+   * metrics only -- it must not change what the checkpoint does.
+   */
+  default void updateCommitInfo(
+      MaterializedViewGenerationId generationId,
+      EncodedUserData encodedUserData,
+      boolean materializedViewWriteCompleted)
+      throws MaterializedViewTransientException, MaterializedViewNonTransientException {
+    updateCommitInfo(generationId, encodedUserData);
+  }
+
+  /**
+   * Clears this process's checkpoint-risk flag. Call it when the database confirms the checkpoint
+   * was written, or when the risk stops mattering: the index or source collection was deleted, or
+   * the materialized-view collection is known to be gone.
+   *
+   * <p>The bar is high on purpose. Renewing the lease or taking it back does not count -- both bump
+   * leaseVersion but copy commitInfo over unchanged, so the write behind the risk still has no
+   * checkpoint. Only a checkpoint write the database accepts counts as recovery. Dropping or
+   * retiring a generation does not count either, because the replacement and retry paths keep the
+   * collection and whatever it holds.
+   *
+   * <p>This flag lives in memory on one host, so it cannot clear a flag on another host. If a
+   * stale-lease GC elsewhere cleans things up, the host that set the flag still has it set.
+   *
+   * @param generationId the generation whose checkpoint risk is over
+   */
+  default void clearCheckpointCommitRisk(MaterializedViewGenerationId generationId) {}
+
+  /**
+   * Clears checkpoint risk for every generation of {@code indexId}. Use this when the whole index
+   * is done for, not just one generation -- the index was deleted, or its source collection was.
+   *
+   * <p>Generations of the same index share a materialized-view collection when their definitions
+   * hash the same, and deletion cleans up all their leases together. Clearing only the current
+   * generation would leave an older, retired one flagged forever, since retiring deliberately keeps
+   * the flag.
+   *
+   * @param indexId the index whose generations no longer carry checkpoint risk
+   */
+  default void clearCheckpointCommitRiskForIndex(ObjectId indexId) {}
+
+  /**
    * Returns the commit info (replication checkpoint state) for the given generation id.
    *
    * @param generationId the generation id to get the commit info for

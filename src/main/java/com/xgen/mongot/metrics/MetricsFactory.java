@@ -490,6 +490,30 @@ public class MetricsFactory {
     this.registeredMeters.clear();
   }
 
+  /**
+   * Removes every meter this factory registered under {@code name} + {@code meterTags}, so
+   * per-entity meters can be retired when their entity goes away instead of accumulating for the
+   * process lifetime. Unlike {@link #close()} this leaves the factory usable.
+   *
+   * @param name the metric name, without namespace
+   * @param meterTags the tags the meters were registered with
+   */
+  public synchronized void removeMeters(String name, Tags meterTags) {
+    var fullName = metricName(name);
+    var fullTags = this.factoryTags.and(meterTags);
+    this.registry.getMeters().stream()
+        .filter(
+            meter ->
+                meter.getId().getName().equals(fullName)
+                    && Tags.of(meter.getId().getTags()).equals(fullTags))
+        .toList()
+        .forEach(
+            meter -> {
+              this.registry.remove(meter);
+              this.registeredMeters.remove(meter);
+            });
+  }
+
   @VisibleForTesting
   public RequiredSearch get(String name) {
     return this.get(name, Tags.empty());
