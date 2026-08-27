@@ -116,6 +116,10 @@ maven.install(
         # httpclient5; keep both core5 artifacts aligned.
         "org.apache.httpcomponents.core5:httpcore5:5.4.3",
         "org.apache.httpcomponents.core5:httpcore5-h2:5.4.3",
+        # Force httpclient5 to 5.6.3 to address CVE-2026-64607 / GHSA-hjcp-jmpx-g3qm
+        # (classic i/o HttpClient fails to release the connection on an invalid
+        # Content-Encoding response header). Pulled transitively via docker-java.
+        "org.apache.httpcomponents.client5:httpclient5:5.6.3",
         # Force reactor-netty to 1.2.18 to address CVE-2026-41715 (cleartext credential
         # disclosure on HTTPS->HTTP redirect in the HTTP client). Pulled transitively via
         # azure-core-http-netty; keep core and http aligned on the same version.
