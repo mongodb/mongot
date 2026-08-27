@@ -60,6 +60,36 @@ public class SearchEnvoyMetadataInterceptorTest {
     triggerInterceptorAndCheckAttemptCount(metadata, 5);
   }
 
+  @Test
+  public void testMaxAttemptCount_parsedFromHeader() {
+    Metadata metadata = new Metadata();
+    metadata.put(GrpcMetadata.ENVOY_MAX_ATTEMPT_COUNT_KEY, "4");
+    triggerInterceptorAndCheckMaxAttemptCount(metadata, 4);
+  }
+
+  @Test
+  public void testMaxAttemptCount_defaultsWhenMissing() {
+    Metadata metadata = new Metadata();
+    triggerInterceptorAndCheckMaxAttemptCount(
+        metadata, SearchEnvoyMetadataInterceptor.DEFAULT_MAX_ATTEMPT_COUNT);
+  }
+
+  @Test
+  public void testMaxAttemptCount_defaultsWhenInvalid() {
+    Metadata metadata = new Metadata();
+    metadata.put(GrpcMetadata.ENVOY_MAX_ATTEMPT_COUNT_KEY, "not-a-number");
+    triggerInterceptorAndCheckMaxAttemptCount(
+        metadata, SearchEnvoyMetadataInterceptor.DEFAULT_MAX_ATTEMPT_COUNT);
+  }
+
+  @Test
+  public void testMaxAttemptCount_defaultsWhenBelowOne() {
+    Metadata metadata = new Metadata();
+    metadata.put(GrpcMetadata.ENVOY_MAX_ATTEMPT_COUNT_KEY, "0");
+    triggerInterceptorAndCheckMaxAttemptCount(
+        metadata, SearchEnvoyMetadataInterceptor.DEFAULT_MAX_ATTEMPT_COUNT);
+  }
+
   @SuppressWarnings("unchecked")
   private void triggerInterceptor(
       Metadata metadata, SearchEnvoyMetadata expectedSearchEnvoyMetadata) {
@@ -87,6 +117,26 @@ public class SearchEnvoyMetadataInterceptorTest {
             invocation -> {
               assertEquals(
                   Integer.valueOf(expectedAttemptCount), GrpcContext.ENVOY_ATTEMPT_COUNT_KEY.get());
+              return null;
+            })
+        .when(listener)
+        .onReady();
+    var interceptor = new SearchEnvoyMetadataInterceptor();
+    var interceptedCall =
+        interceptor.interceptCall(serverCall, metadata, (call, headers) -> listener);
+    interceptedCall.onReady();
+  }
+
+  @SuppressWarnings("unchecked")
+  private void triggerInterceptorAndCheckMaxAttemptCount(
+      Metadata metadata, int expectedMaxAttemptCount) {
+    ServerCall<Object, Object> serverCall = mock(ServerCall.class);
+    ServerCall.Listener<Object> listener = mock(ServerCall.Listener.class);
+    doAnswer(
+            invocation -> {
+              assertEquals(
+                  Integer.valueOf(expectedMaxAttemptCount),
+                  GrpcContext.ENVOY_MAX_ATTEMPT_COUNT_KEY.get());
               return null;
             })
         .when(listener)

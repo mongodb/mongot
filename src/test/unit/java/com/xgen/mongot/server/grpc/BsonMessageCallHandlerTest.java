@@ -28,6 +28,7 @@ public class BsonMessageCallHandlerTest {
         mock(MongotCursorManager.class),
         SearchEnvoyMetadata.getDefaultInstance(),
         /* envoyAttemptCount */ 1,
+        /* envoyMaxAttemptCount */ 3,
         FeatureFlags.getDefault(),
         mock(StreamObserver.class));
   }

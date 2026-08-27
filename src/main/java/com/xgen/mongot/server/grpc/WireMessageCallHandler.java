@@ -22,6 +22,7 @@ public class WireMessageCallHandler extends ServerCallHandler<MessageMessage> {
       MongotCursorManager cursorManager,
       SearchEnvoyMetadata searchEnvoyMetadata,
       int envoyAttemptCount,
+      int envoyMaxAttemptCount,
       FeatureFlags featureFlags,
       StreamObserver<MessageMessage> responseObserver) {
     super(
@@ -30,6 +31,7 @@ public class WireMessageCallHandler extends ServerCallHandler<MessageMessage> {
         cursorManager,
         searchEnvoyMetadata,
         envoyAttemptCount,
+        envoyMaxAttemptCount,
         featureFlags,
         responseObserver);
   }

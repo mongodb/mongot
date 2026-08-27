@@ -74,6 +74,7 @@ public class StreamingMessageHandlerTest {
           this.cursorManager,
           SearchEnvoyMetadata.getDefaultInstance(),
           /* envoyAttemptCount */ 1,
+          /* envoyMaxAttemptCount */ 3,
           FeatureFlags.getDefault(),
           this.responseObserver);
 
@@ -679,6 +680,7 @@ public class StreamingMessageHandlerTest {
             this.cursorManager,
             SearchEnvoyMetadata.getDefaultInstance(),
             /* envoyAttemptCount */ 1,
+            /* envoyMaxAttemptCount */ 3,
             FeatureFlags.getDefault(),
             boundedResponseObserver);
 
@@ -831,6 +833,7 @@ public class StreamingMessageHandlerTest {
             this.cursorManager,
             SearchEnvoyMetadata.getDefaultInstance(),
             /* envoyAttemptCount */ 1,
+            /* envoyMaxAttemptCount */ 3,
             flagsOff,
             boundedResponseObserver);
 
@@ -928,6 +931,7 @@ public class StreamingMessageHandlerTest {
             this.cursorManager,
             SearchEnvoyMetadata.getDefaultInstance(),
             /* envoyAttemptCount */ 1,
+            /* envoyMaxAttemptCount */ 3,
             flagsOn,
             boundedResponseObserver);
 
@@ -1013,7 +1017,7 @@ public class StreamingMessageHandlerTest {
 
     FeatureFlags flagsOn =
         FeatureFlags.withDefaults().enable(Feature.OVERLOAD_RETRY_SIGNAL).build();
-    // attempt count = 3 (>= MAX_ENVOY_RETRY_ATTEMPTS), so rejection should return BSON error.
+    // attempt count = 3 is the whole budget, so rejection should return BSON error.
     WireMessageCallHandler boundedHandler =
         new WireMessageCallHandler(
             boundedCommandRegistry,
@@ -1021,6 +1025,7 @@ public class StreamingMessageHandlerTest {
             this.cursorManager,
             SearchEnvoyMetadata.getDefaultInstance(),
             /* envoyAttemptCount */ 3,
+            /* envoyMaxAttemptCount */ 3,
             flagsOn,
             boundedResponseObserver);
 
@@ -1090,6 +1095,101 @@ public class StreamingMessageHandlerTest {
               + Errors.SEARCH_REQUEST_REJECTED_DUE_TO_OVERLOAD.code
               + " when attempt >= 3",
           foundBsonError);
+    } finally {
+      blockingLatch.countDown();
+      boundedExecutorManager.commandExecutor.close();
+    }
+  }
+
+  @Test
+  public void onNext_loadShedding_flagEnabled_budgetRaisedByEnvoy_sendsResourceExhausted()
+      throws InterruptedException {
+    SimpleMeterRegistry boundedMeterRegistry = new SimpleMeterRegistry();
+    CommandRegistry boundedCommandRegistry = CommandRegistry.create(boundedMeterRegistry);
+    RegularBlockingRequestSettings settings =
+        RegularBlockingRequestSettings.create(
+            Optional.of(0.001), Optional.of(0.001), Optional.of(false));
+    ExecutorManager boundedExecutorManager = new ExecutorManager(boundedMeterRegistry, settings);
+    StreamObserver<MessageMessage> boundedResponseObserver =
+        mock(MessageMessageStreamObserver.class);
+
+    FeatureFlags flagsOn =
+        FeatureFlags.withDefaults().enable(Feature.OVERLOAD_RETRY_SIGNAL).build();
+    // Attempt 3 would exhaust the default budget, but search envoy advertised 5 attempts, so this
+    // rejection is still retriable.
+    WireMessageCallHandler boundedHandler =
+        new WireMessageCallHandler(
+            boundedCommandRegistry,
+            boundedExecutorManager.commandExecutor,
+            this.cursorManager,
+            SearchEnvoyMetadata.getDefaultInstance(),
+            /* envoyAttemptCount */ 3,
+            /* envoyMaxAttemptCount */ 5,
+            flagsOn,
+            boundedResponseObserver);
+
+    CountDownLatch blockingLatch = new CountDownLatch(1);
+    CountDownLatch taskStartedLatch = new CountDownLatch(1);
+    boundedCommandRegistry.registerCommand(
+        "blockingCommand",
+        (CommandFactory)
+            ignored ->
+                new Command() {
+                  @Override
+                  public String name() {
+                    return "blockingCommand";
+                  }
+
+                  @Override
+                  public BsonDocument run() {
+                    taskStartedLatch.countDown();
+                    try {
+                      blockingLatch.await(30, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                      Thread.currentThread().interrupt();
+                    }
+                    return new BsonDocument();
+                  }
+
+                  @Override
+                  public ExecutionPolicy getExecutionPolicy() {
+                    return ExecutionPolicy.ASYNC;
+                  }
+                },
+        true);
+    boundedCommandRegistry.registerCommand(
+        IdentityCommand.Name,
+        (CommandFactory) args -> new IdentityCommand(args, Command.ExecutionPolicy.ASYNC),
+        true);
+
+    try {
+      boundedHandler.onNext(
+          createOpMsgFromBsonDocument(
+              new BsonDocument().append("blockingCommand", BsonBoolean.TRUE)));
+      taskStartedLatch.await(5, TimeUnit.SECONDS);
+      boundedHandler.onNext(
+          createOpMsgFromBsonDocument(
+              new BsonDocument().append(IdentityCommand.Name, BsonBoolean.TRUE)));
+      Thread.sleep(50);
+      boundedHandler.onNext(
+          createOpMsgFromBsonDocument(
+              new BsonDocument().append(IdentityCommand.Name, new BsonString("rejected"))));
+
+      ArgumentCaptor<Throwable> errorCaptor = ArgumentCaptor.forClass(Throwable.class);
+      verify(boundedResponseObserver, timeout(5000).atLeastOnce()).onError(errorCaptor.capture());
+
+      boolean foundResourceExhausted =
+          errorCaptor.getAllValues().stream()
+              .anyMatch(
+                  t -> {
+                    if (t instanceof StatusRuntimeException sre) {
+                      return sre.getStatus().getCode() == Status.Code.RESOURCE_EXHAUSTED;
+                    }
+                    return false;
+                  });
+      Assert.assertTrue(
+          "Expected gRPC RESOURCE_EXHAUSTED when envoy advertises a budget above the attempt",
+          foundResourceExhausted);
     } finally {
       blockingLatch.countDown();
       boundedExecutorManager.commandExecutor.close();

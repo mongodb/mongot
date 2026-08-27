@@ -49,6 +49,10 @@ public class GrpcMetadata {
       Metadata.Key.of("mongodb-client", Metadata.ASCII_STRING_MARSHALLER);
   public static final Metadata.Key<String> ENVOY_ATTEMPT_COUNT_KEY =
       Metadata.Key.of("x-envoy-attempt-count", Metadata.ASCII_STRING_MARSHALLER);
+  // Not an envoy built-in: mms adds this to the mongot routes it generates, carrying the attempt
+  // budget of the retry policy that produced `x-envoy-attempt-count`.
+  public static final Metadata.Key<String> ENVOY_MAX_ATTEMPT_COUNT_KEY =
+      Metadata.Key.of("x-envoy-max-attempt-count", Metadata.ASCII_STRING_MARSHALLER);
 
   // Response headers for MongoDB gRPC protocol.
   public static final Metadata.Key<Integer> MONGODB_MAX_WIRE_VERSION_METADATA_KEY =

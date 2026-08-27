@@ -22,6 +22,7 @@ public class BsonMessageCallHandler extends ServerCallHandler<RawBsonDocument> {
       MongotCursorManager cursorManager,
       SearchEnvoyMetadata searchEnvoyMetadata,
       int envoyAttemptCount,
+      int envoyMaxAttemptCount,
       FeatureFlags featureFlags,
       StreamObserver<RawBsonDocument> responseObserver) {
     super(
@@ -30,6 +31,7 @@ public class BsonMessageCallHandler extends ServerCallHandler<RawBsonDocument> {
         cursorManager,
         searchEnvoyMetadata,
         envoyAttemptCount,
+        envoyMaxAttemptCount,
         featureFlags,
         responseObserver);
   }

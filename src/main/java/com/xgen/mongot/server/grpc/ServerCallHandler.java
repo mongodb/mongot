@@ -41,8 +41,6 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
   private static final List<String> LOAD_SHEDDING_ERROR_LABELS =
       List.of("SystemOverloadedError", "RetryableError");
 
-  private static final int MAX_ENVOY_RETRY_ATTEMPTS = 3;
-
   private final CommandRegistry commandRegistry;
   private final BulkheadCommandExecutor commandExecutor;
   private final MongotCursorManager cursorManager;
@@ -53,6 +51,11 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
   // fallback of 1 on missing/malformed headers), and tests that bypass the interceptor construct
   // handlers directly with an explicit value, so a non-null int is a safe invariant here.
   private final int envoyAttemptCount;
+  // How many attempts search envoy's retry policy allows for this request, from the
+  // `x-envoy-max-attempt-count` header mms configures it to send. Owned by mms rather than mongot
+  // so that a change to the retry budget reaches both sides in the same xds update; the
+  // interceptor substitutes a default when search envoy is not in the request path.
+  private final int envoyMaxAttemptCount;
   private final FeatureFlags featureFlags;
 
   // Newly created cursors in this gRPC stream.
@@ -67,6 +70,7 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
       MongotCursorManager cursorManager,
       SearchEnvoyMetadata searchEnvoyMetadata,
       int envoyAttemptCount,
+      int envoyMaxAttemptCount,
       FeatureFlags featureFlags,
       StreamObserver<T> responseObserver) {
     this.commandRegistry = commandRegistry;
@@ -74,6 +78,7 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
     this.cursorManager = cursorManager;
     this.searchEnvoyMetadata = searchEnvoyMetadata;
     this.envoyAttemptCount = envoyAttemptCount;
+    this.envoyMaxAttemptCount = envoyMaxAttemptCount;
     this.featureFlags = featureFlags;
     this.commandManager = new CommandManager<T>(responseObserver);
     this.createdCursorIds = Collections.emptyList();
@@ -222,7 +227,7 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
     if (!this.featureFlags.isEnabled(Feature.OVERLOAD_RETRY_SIGNAL)) {
       return false;
     }
-    return this.envoyAttemptCount < MAX_ENVOY_RETRY_ATTEMPTS;
+    return this.envoyAttemptCount < this.envoyMaxAttemptCount;
   }
 
   static class HandlingContext {
