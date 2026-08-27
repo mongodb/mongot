@@ -39,6 +39,7 @@ import com.xgen.mongot.util.Crash;
 import com.xgen.mongot.util.FutureUtils;
 import com.xgen.mongot.util.concurrent.LockGuard;
 import com.xgen.mongot.util.concurrent.OneShotSingleThreadExecutor;
+import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.LongTaskTimer;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -917,7 +918,7 @@ public class InitialSyncQueue {
         // in syncManager.sync(). This method will throw an exception if the collection
         // does not exist, and reschedule this initial sync in case the collection exists in the
         // future (if the cluster is sharded.)
-        String collectionName =
+        MongoDbCollectionInfo collectionInfo =
             mongoClient.resolveAndUpdateCollectionName(
                 request.getIndexDefinitionGeneration().getIndexDefinition());
 
@@ -950,7 +951,8 @@ public class InitialSyncQueue {
             this.initialSyncManagerFactory.create(
                 syncContext,
                 mongoClient,
-                new MongoNamespace(syncContext.getIndexDefinition().getDatabase(), collectionName),
+                new MongoNamespace(
+                    syncContext.getIndexDefinition().getDatabase(), collectionInfo.name()),
                 request.getResumeInfo());
 
         // Here the index's status is updated to INITIAL_SYNC, and only executes if namespace

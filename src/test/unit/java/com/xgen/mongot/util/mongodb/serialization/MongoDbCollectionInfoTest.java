@@ -41,6 +41,9 @@ public class MongoDbCollectionInfoTest {
         data() {
       return TEST_SUITE.withExamples(
           collection(),
+          clusteredCollection(),
+          collectionWithNoOptions(),
+          collectionWithUnmodelledOptions(),
           view(),
           viewWithNoPipeline(),
           viewWithNoViewOn(),
@@ -62,7 +65,44 @@ public class MongoDbCollectionInfoTest {
               new MongoDbCollectionInfo.Collection(
                   "testDatabaseWithCollectionAndView",
                   new MongoDbCollectionInfo.Collection.Info(
-                      UUID.fromString("0eaa56f3-7cd1-4321-8b06-e47ef68503b9")))));
+                      UUID.fromString("0eaa56f3-7cd1-4321-8b06-e47ef68503b9")),
+                  MongoDbCollectionInfo.Collection.Options.NONE)));
+    }
+
+    private static BsonDeserializationTestSuite.ValidSpec<Optional<MongoDbCollectionInfo>>
+        clusteredCollection() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "clustered-collection",
+          Optional.of(
+              new MongoDbCollectionInfo.Collection(
+                  "clusteredCollection",
+                  new MongoDbCollectionInfo.Collection.Info(
+                      UUID.fromString("1fbb67a4-8de2-4432-9c17-f58fa79614ca")),
+                  new MongoDbCollectionInfo.Collection.Options(true))));
+    }
+
+    private static BsonDeserializationTestSuite.ValidSpec<Optional<MongoDbCollectionInfo>>
+        collectionWithNoOptions() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "collection-with-no-options",
+          Optional.of(
+              new MongoDbCollectionInfo.Collection(
+                  "noOptionsCollection",
+                  new MongoDbCollectionInfo.Collection.Info(
+                      UUID.fromString("2fcc78b5-9ef3-4543-ad28-069fb8a725db")),
+                  MongoDbCollectionInfo.Collection.Options.NONE)));
+    }
+
+    private static BsonDeserializationTestSuite.ValidSpec<Optional<MongoDbCollectionInfo>>
+        collectionWithUnmodelledOptions() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "collection-with-unmodelled-options",
+          Optional.of(
+              new MongoDbCollectionInfo.Collection(
+                  "cappedCollection",
+                  new MongoDbCollectionInfo.Collection.Info(
+                      UUID.fromString("3add89c6-af04-4654-be39-17a0c9b836ec")),
+                  MongoDbCollectionInfo.Collection.Options.NONE)));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<Optional<MongoDbCollectionInfo>> view() {

@@ -22,6 +22,7 @@ import com.xgen.mongot.util.mongodb.CollectionScanAggregateCommand;
 import com.xgen.mongot.util.mongodb.CollectionScanFindCommand;
 import com.xgen.mongot.util.mongodb.MongoDbFsync;
 import com.xgen.mongot.util.mongodb.MongoDbReplSetStatus;
+import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
 import com.xgen.mongot.util.mongodb.serialization.MongoDbInvalidReplStatusFormatException;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.Optional;
@@ -110,7 +111,7 @@ class DefaultInitialSyncMongoClient implements InitialSyncMongoClient {
   }
 
   @Override
-  public String resolveAndUpdateCollectionName(IndexDefinition indexDefinition)
+  public MongoDbCollectionInfo resolveAndUpdateCollectionName(IndexDefinition indexDefinition)
       throws InitialSyncException {
     return InitialSyncException.wrapIfThrows(
         () -> {

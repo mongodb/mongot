@@ -34,6 +34,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/version",
         "//src/main/java/com/xgen/mongot/replication/mongodb/common",
+        "//src/main/java/com/xgen/mongot/util/mongodb/serialization",
         "@maven//:org_mongodb_bson",
     ],
     deps = [

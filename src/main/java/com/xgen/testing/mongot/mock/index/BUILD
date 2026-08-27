@@ -44,6 +44,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/version",
         "//src/main/java/com/xgen/mongot/metrics",
         "//src/main/java/com/xgen/mongot/util",
+        "//src/main/java/com/xgen/mongot/util/mongodb/serialization",
         "//src/main/java/com/xgen/testing/mongot/index",
         "//src/main/java/com/xgen/testing/mongot/index/analyzer/definition",
         "//src/main/java/com/xgen/testing/mongot/index/definition",

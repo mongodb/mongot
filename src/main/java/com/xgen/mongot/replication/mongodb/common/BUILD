@@ -89,6 +89,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/version",
         "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/mongodb",
+        "//src/main/java/com/xgen/mongot/util/mongodb/serialization",
         "@maven//:org_mongodb_bson",
         "@maven//:org_mongodb_mongodb_driver_core",
         "@maven//:org_slf4j_slf4j_api",

@@ -39,6 +39,7 @@ import com.xgen.mongot.index.version.SynonymMappingId;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.PerIndexMetricsFactory;
 import com.xgen.mongot.util.FieldPath;
+import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
 import com.xgen.testing.mongot.index.IndexMetricsUpdaterBuilder;
 import com.xgen.testing.mongot.index.analyzer.definition.OverriddenBaseAnalyzerDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
@@ -70,6 +71,13 @@ public class SearchIndex {
   public static final String MOCK_INDEX_LAST_OBSERVED_COLLECTION_NAME = "mock_collection";
   public static final String MOCK_SEARCH_ANALYZER_NAME = "my_analyzer";
   public static final UUID MOCK_INDEX_COLLECTION_UUID = UUID.randomUUID();
+
+  /** What {@code listCollections} would report for the mock index's collection. */
+  public static final MongoDbCollectionInfo MOCK_INDEX_COLLECTION_INFO =
+      new MongoDbCollectionInfo.Collection(
+          MOCK_INDEX_LAST_OBSERVED_COLLECTION_NAME,
+          new MongoDbCollectionInfo.Collection.Info(MOCK_INDEX_COLLECTION_UUID));
+
   public static final DocumentFieldDefinition MOCK_INDEX_MAPPINGS =
       DocumentFieldDefinitionBuilder.builder().dynamic(true).build();
 

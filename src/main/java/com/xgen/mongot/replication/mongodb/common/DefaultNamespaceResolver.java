@@ -29,7 +29,7 @@ public class DefaultNamespaceResolver implements NamespaceResolver {
   }
 
   @Override
-  public String resolveAndUpdateCollectionName(IndexDefinition indexDefinition)
+  public MongoDbCollectionInfo resolveAndUpdateCollectionName(IndexDefinition indexDefinition)
       throws NamespaceResolutionException, InterruptedException, InitialSyncException {
     try {
       MongoDatabase database =
@@ -61,7 +61,7 @@ public class DefaultNamespaceResolver implements NamespaceResolver {
 
       MongoDbCollectionInfo info = collectionInfos.get(0);
       indexDefinition.setLastObservedCollectionName(info.name());
-      return info.name();
+      return info;
     } catch (MongoInterruptedException e) {
       throw new InterruptedException();
     } catch (MongoException e) {
@@ -84,7 +84,8 @@ public class DefaultNamespaceResolver implements NamespaceResolver {
     //       We'll have to see an invalidation event at some point, but it's possible that prior
     //       to that invalidation event stopAfterOpTime() is called, and we stop buffering
     //       events.
-    String resolvedCollectionName = this.resolveAndUpdateCollectionName(indexDefinition);
-    return !resolvedCollectionName.equals(expectedCollectionName);
+    MongoDbCollectionInfo resolvedCollectionInfo =
+        this.resolveAndUpdateCollectionName(indexDefinition);
+    return !resolvedCollectionInfo.name().equals(expectedCollectionName);
   }
 }

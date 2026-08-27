@@ -10,6 +10,7 @@ import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
 import com.xgen.mongot.util.mongodb.ChangeStreamAggregateCommand;
 import com.xgen.mongot.util.mongodb.CollectionScanAggregateCommand;
 import com.xgen.mongot.util.mongodb.CollectionScanFindCommand;
+import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
 import java.util.Optional;
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
@@ -23,7 +24,7 @@ interface InitialSyncMongoClient {
   void ensureCollectionNameUnchanged(IndexDefinition indexDefinition, String expectedCollectionName)
       throws InitialSyncException;
 
-  String resolveAndUpdateCollectionName(IndexDefinition indexDefinition)
+  MongoDbCollectionInfo resolveAndUpdateCollectionName(IndexDefinition indexDefinition)
       throws InitialSyncException;
 
   /**

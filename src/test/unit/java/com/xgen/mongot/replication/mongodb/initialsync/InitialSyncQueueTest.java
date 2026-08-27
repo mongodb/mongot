@@ -10,9 +10,9 @@ import static com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig
 import static com.xgen.testing.mongot.mock.index.IndexGeneration.mockDefinitionGeneration;
 import static com.xgen.testing.mongot.mock.index.IndexGeneration.uniqueMockGenerationDefinition;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.IGNORE_METRICS;
+import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_COLLECTION_INFO;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_DEFINITION_GENERATION;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_GENERATION_ID;
-import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_LAST_OBSERVED_COLLECTION_NAME;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.mockSearchDefinition;
 import static com.xgen.testing.mongot.mock.index.VectorIndex.MOCK_VECTOR_INDEX_DEFINITION_GENERATION;
 import static com.xgen.testing.mongot.mock.index.VectorIndex.mockAutoEmbeddingVectorDefinition;
@@ -142,8 +142,7 @@ public class InitialSyncQueueTest {
   @Test
   public void testParallelNaturalOrderScanConfigReachesContext() throws Exception {
     InitialSyncMongoClient mongoClient = mock(InitialSyncMongoClient.class);
-    when(mongoClient.resolveAndUpdateCollectionName(any()))
-        .thenReturn(MOCK_INDEX_LAST_OBSERVED_COLLECTION_NAME);
+    when(mongoClient.resolveAndUpdateCollectionName(any())).thenReturn(MOCK_INDEX_COLLECTION_INFO);
 
     InitialSyncConfig initialSyncConfig =
         new InitialSyncConfig(
@@ -445,13 +444,11 @@ public class InitialSyncQueueTest {
 
     String syncSourceHost0 = DEFAULT_MONGO_HOST_NAME;
     InitialSyncMongoClient mongoClient0 = mock(InitialSyncMongoClient.class);
-    when(mongoClient0.resolveAndUpdateCollectionName(any()))
-        .thenReturn(MOCK_INDEX_LAST_OBSERVED_COLLECTION_NAME);
+    when(mongoClient0.resolveAndUpdateCollectionName(any())).thenReturn(MOCK_INDEX_COLLECTION_INFO);
 
     String syncSourceHost1 = "anotherTestHost";
     InitialSyncMongoClient mongoClient1 = mock(InitialSyncMongoClient.class);
-    when(mongoClient1.resolveAndUpdateCollectionName(any()))
-        .thenReturn(MOCK_INDEX_LAST_OBSERVED_COLLECTION_NAME);
+    when(mongoClient1.resolveAndUpdateCollectionName(any())).thenReturn(MOCK_INDEX_COLLECTION_INFO);
 
     Map<String, InitialSyncMongoClient> mongoClients =
         Map.of(syncSourceHost0, mongoClient0, syncSourceHost1, mongoClient1);
@@ -1571,7 +1568,7 @@ public class InitialSyncQueueTest {
         throws Exception {
       InitialSyncMongoClient mongoClient = mock(InitialSyncMongoClient.class);
       when(mongoClient.resolveAndUpdateCollectionName(any()))
-          .thenReturn(MOCK_INDEX_LAST_OBSERVED_COLLECTION_NAME);
+          .thenReturn(MOCK_INDEX_COLLECTION_INFO);
       return create(
           Map.of(DEFAULT_MONGO_HOST_NAME, mongoClient),
           DEFAULT_MONGO_HOST_NAME,

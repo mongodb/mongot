@@ -1,14 +1,15 @@
 package com.xgen.mongot.replication.mongodb.common;
 
 import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
 
 public interface NamespaceResolver {
 
   /**
    * Looks up the current name of the collection with the UUID specified in the IndexDefinition.
    *
-   * <p>If it exists, it updates the Index's lastObservedCollectionName and returns the collection
-   * name.
+   * <p>If it exists, it updates the Index's lastObservedCollectionName and returns the sync
+   * source's metadata for the collection, including its creation options.
    *
    * <p>If the collection cannot be resolved, it throws a DOES_NOT_EXIST
    * NamespaceResolutionException.
@@ -16,7 +17,7 @@ public interface NamespaceResolver {
    * <p>If there is an error resolving the namespace, it throws a TRANSIENT
    * NamespaceResolutionException.
    */
-  String resolveAndUpdateCollectionName(IndexDefinition indexDefinition)
+  MongoDbCollectionInfo resolveAndUpdateCollectionName(IndexDefinition indexDefinition)
       throws NamespaceResolutionException, InterruptedException, InitialSyncException;
 
   /**
