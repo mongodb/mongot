@@ -514,7 +514,8 @@ public class ConfigJournalV1Test {
      * A journal holding a single valid entry in one of the six index arrays, so that each array's
      * quarantine behaviour can be exercised the same way.
      */
-    public record SingleEntryJournal(String arrayName, ConfigJournalV1 journal) {
+    public record SingleEntryJournal(
+        String arrayName, ConfigJournalV1 journal, IndexDefinitionGeneration.Type type) {
       @Override
       public String toString() {
         return this.arrayName;
@@ -528,18 +529,29 @@ public class ConfigJournalV1Test {
 
       return List.of(
           new SingleEntryJournal(
-              "stagedIndexes", ConfigJournalV1Builder.builder().stagedIndex(search).build()),
+              "stagedIndexes",
+              ConfigJournalV1Builder.builder().stagedIndex(search).build(),
+              IndexDefinitionGeneration.Type.SEARCH),
           new SingleEntryJournal(
-              "indexes", ConfigJournalV1Builder.builder().liveIndex(search).build()),
+              "indexes",
+              ConfigJournalV1Builder.builder().liveIndex(search).build(),
+              IndexDefinitionGeneration.Type.SEARCH),
           new SingleEntryJournal(
-              "deletedIndexes", ConfigJournalV1Builder.builder().deletedIndex(search).build()),
+              "deletedIndexes",
+              ConfigJournalV1Builder.builder().deletedIndex(search).build(),
+              IndexDefinitionGeneration.Type.SEARCH),
           new SingleEntryJournal(
-              "stagedVectorIndexes", ConfigJournalV1Builder.builder().stagedIndex(vector).build()),
+              "stagedVectorIndexes",
+              ConfigJournalV1Builder.builder().stagedIndex(vector).build(),
+              IndexDefinitionGeneration.Type.VECTOR),
           new SingleEntryJournal(
-              "vectorIndexes", ConfigJournalV1Builder.builder().liveIndex(vector).build()),
+              "vectorIndexes",
+              ConfigJournalV1Builder.builder().liveIndex(vector).build(),
+              IndexDefinitionGeneration.Type.VECTOR),
           new SingleEntryJournal(
               "deletedVectorIndexes",
-              ConfigJournalV1Builder.builder().deletedIndex(vector).build()));
+              ConfigJournalV1Builder.builder().deletedIndex(vector).build(),
+              IndexDefinitionGeneration.Type.VECTOR));
     }
 
     @DataPoints("policies")
@@ -565,6 +577,27 @@ public class ConfigJournalV1Test {
       Assert.assertTrue(parsed.getStagedIndexes().isEmpty());
       Assert.assertTrue(parsed.getLiveIndexes().isEmpty());
       Assert.assertTrue(parsed.getDeletedIndexes().isEmpty());
+    }
+
+    /**
+     * The type of a quarantined entry comes from the array it was read from, since its own fields
+     * could not be parsed.
+     */
+    @Theory
+    public void fromFileIfExists_quarantine_entryCarriesTheTypeOfItsArray(
+        @FromDataPoints("singleEntryJournals") SingleEntryJournal singleEntryJournal)
+        throws Exception {
+      Path path = getFilePath();
+      write(
+          path,
+          withUnknownFieldInFirstElement(
+              singleEntryJournal.journal().toBson(), singleEntryJournal.arrayName()));
+
+      ConfigJournalV1 parsed =
+          ConfigJournalV1.fromFileIfExists(path, QuarantinePolicy.QUARANTINE).orElseThrow();
+
+      Assert.assertEquals(
+          singleEntryJournal.type(), parsed.getQuarantinedEntries().get(0).getType());
     }
 
     @Theory

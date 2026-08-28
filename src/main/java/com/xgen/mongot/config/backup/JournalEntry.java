@@ -15,6 +15,12 @@ import org.bson.BsonDocument;
  * array it was read from - so keeping quarantined entries in place in that array is what makes them
  * survive a read/write round trip and keeps them in the order they were in.
  *
+ * <p>Because they are structural, neither is read out of the entry's own fields. Type is still
+ * recorded on the entry as it is read, since a quarantined entry has no parsed definition to ask
+ * for it later and a caller reporting on such an entry needs to know which kind of index it
+ * describes. State is not, as every accessor that can return a quarantined entry is already
+ * state-specific.
+ *
  * @param <T> the definition type of the array this entry belongs to. For {@link Quarantined} this
  *     is a phantom parameter, present only so the journal's six fields stay homogeneous.
  */
@@ -26,6 +32,9 @@ public sealed interface JournalEntry<T extends IndexDefinitionGeneration> extend
 
   /** The definition, absent if this entry is quarantined. */
   Optional<T> getDefinition();
+
+  /** Whether this entry describes a search or a vector index. */
+  IndexDefinitionGeneration.Type getType();
 
   boolean isQuarantined();
 
@@ -51,6 +60,11 @@ public sealed interface JournalEntry<T extends IndexDefinitionGeneration> extend
     }
 
     @Override
+    public IndexDefinitionGeneration.Type getType() {
+      return this.definition.getType();
+    }
+
+    @Override
     public boolean isQuarantined() {
       return false;
     }
@@ -67,7 +81,10 @@ public sealed interface JournalEntry<T extends IndexDefinitionGeneration> extend
    * inspected or removed.
    */
   record Quarantined<T extends IndexDefinitionGeneration>(
-      BsonDocument rawBson, JournalEntryIdentity identity, String parseError)
+      BsonDocument rawBson,
+      JournalEntryIdentity identity,
+      IndexDefinitionGeneration.Type type,
+      String parseError)
       implements JournalEntry<T> {
 
     @Override
@@ -78,6 +95,11 @@ public sealed interface JournalEntry<T extends IndexDefinitionGeneration> extend
     @Override
     public Optional<T> getDefinition() {
       return Optional.empty();
+    }
+
+    @Override
+    public IndexDefinitionGeneration.Type getType() {
+      return this.type;
     }
 
     @Override

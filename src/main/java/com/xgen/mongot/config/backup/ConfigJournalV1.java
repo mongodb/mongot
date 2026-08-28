@@ -218,6 +218,7 @@ public final class ConfigJournalV1 implements DocumentEncodable {
         parser.getField(field).unwrap(),
         SearchIndexDefinitionGeneration::fromBson,
         JournalEntryIdentity::thinParseSearchEntry,
+        Type.SEARCH,
         policy);
   }
 
@@ -229,6 +230,7 @@ public final class ConfigJournalV1 implements DocumentEncodable {
         parser.getField(field).unwrap(),
         VectorIndexDefinitionGeneration::fromBson,
         JournalEntryIdentity::thinParseVectorEntry,
+        Type.VECTOR,
         policy);
   }
 
@@ -237,6 +239,7 @@ public final class ConfigJournalV1 implements DocumentEncodable {
       List<BsonValue> rawEntries,
       ClassField.FromDocumentParser<T> elementParser,
       JournalEntryIdentity.ThinParser thinParser,
+      Type type,
       QuarantinePolicy policy)
       throws BsonParseException {
     List<JournalEntry<T>> entries = new ArrayList<>();
@@ -248,7 +251,7 @@ public final class ConfigJournalV1 implements DocumentEncodable {
       }
 
       entries.add(
-          parseEntry(entryContext, rawEntry.asDocument(), elementParser, thinParser, policy));
+          parseEntry(entryContext, rawEntry.asDocument(), elementParser, thinParser, type, policy));
     }
     return entries;
   }
@@ -258,6 +261,7 @@ public final class ConfigJournalV1 implements DocumentEncodable {
       BsonDocument rawEntry,
       ClassField.FromDocumentParser<T> elementParser,
       JournalEntryIdentity.ThinParser thinParser,
+      Type type,
       QuarantinePolicy policy)
       throws BsonParseException {
     try {
@@ -278,7 +282,7 @@ public final class ConfigJournalV1 implements DocumentEncodable {
           .log("quarantining unparseable config journal entry");
       // Cloned so that the entry we re-emit cannot be changed by anything that still holds the
       // document we parsed.
-      return new JournalEntry.Quarantined<>(rawEntry.clone(), identity, e.getMessage());
+      return new JournalEntry.Quarantined<>(rawEntry.clone(), identity, type, e.getMessage());
     }
   }
 
