@@ -50,7 +50,8 @@
         "enableChangeStreamPriorityScheduling": false,
         "changeStreamActivityObserver": false,
         "bloomFilterOnHeap": false,
-        "lucene104Codec": false
+        "lucene104Codec": false,
+        "quarantineUnparseableIndex": false
       }
     },
     {
@@ -103,7 +104,8 @@
         "enableChangeStreamPriorityScheduling": false,
         "changeStreamActivityObserver": false,
         "bloomFilterOnHeap": false,
-        "lucene104Codec": false
+        "lucene104Codec": false,
+        "quarantineUnparseableIndex": false
       }
     },
     {
@@ -156,7 +158,8 @@
         "enableChangeStreamPriorityScheduling": true,
         "changeStreamActivityObserver": true,
         "bloomFilterOnHeap": true,
-        "lucene104Codec": true
+        "lucene104Codec": true,
+        "quarantineUnparseableIndex": true
       }
     },
     {
@@ -209,7 +212,8 @@
         "enableChangeStreamPriorityScheduling": false,
         "changeStreamActivityObserver": false,
         "bloomFilterOnHeap": false,
-        "lucene104Codec": false
+        "lucene104Codec": false,
+        "quarantineUnparseableIndex": false
       }
     }
   ]

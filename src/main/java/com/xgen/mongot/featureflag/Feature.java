@@ -104,7 +104,12 @@ public enum Feature {
   // Enabling is one-way for rollback purposes: anything written under the flag is unreadable by
   // binaries carrying Lucene < 10.4, and a created-10 index stays that way even after the flag is
   // disabled — only a re-index clears it. Do not enable until the fleet minimum carries 10.4 jars.
-  LUCENE_104_CODEC("lucene104Codec", State.DISABLED);
+  LUCENE_104_CODEC("lucene104Codec", State.DISABLED),
+  // Quarantines a config journal entry whose index definition cannot be parsed instead of
+  // failing startup, so that one malformed definition does not take every index on the host
+  // down with it. Disabled by default: until it is enabled the journal is still read
+  // fail-fast, exactly as before.
+  QUARANTINE_UNPARSEABLE_INDEX("quarantineUnparseableIndex", State.DISABLED);
 
   private final String name;
   private final State defaultState;
