@@ -2,13 +2,18 @@ package com.xgen.mongot.index.lucene.directory;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import com.xgen.mongot.index.definition.VectorIndexDefinitionGeneration;
 import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.index.version.GenerationId;
+import com.xgen.mongot.index.version.IndexFormatVersion;
+import com.xgen.mongot.index.version.UserIndexVersion;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.util.AtomicDirectoryRemover;
+import com.xgen.testing.mongot.mock.index.VectorIndex;
 import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -243,5 +248,193 @@ public class IndexDirectoryHelperTest {
   public void attemptToRecoverUnreadableIndex_retainOnDiskEnabled_spiFormatNotFound_keepsDir()
       throws IOException {
     assertRetainOnDiskKeepsDirectory(realLuceneSpiLookupFailure(), "incompatibleSpiFormat");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Path construction and definition-free deletion.
+  //
+  // These paths are derived from a GenerationId alone, with no parsed index definition, which is
+  // what lets a quarantined (unparseable) definition still have its data cleaned up.
+  // ---------------------------------------------------------------------------
+
+  private static GenerationId generationId(ObjectId indexId, int formatVersion, int userVersion) {
+    return new GenerationId(
+        indexId,
+        new Generation(
+            new UserIndexVersion(userVersion), IndexFormatVersion.create(formatVersion)));
+  }
+
+  /**
+   * A helper whose trash directory is a sibling under ROOT_PATH. AtomicDirectoryRemover moves a
+   * directory into trash before deleting it, which requires both to be on the same volume, so the
+   * deletion tests below cannot rely on a trash directory in the system temp dir.
+   */
+  private IndexDirectoryHelper helperWithTrashUnderRoot() throws IOException {
+    Path trash = Files.createTempDirectory(ROOT_PATH, "trash");
+    return new IndexDirectoryHelper(
+        ROOT_PATH, this.metricsFactory, new AtomicDirectoryRemover(trash));
+  }
+
+  private static void createWithFile(Path directory) throws IOException {
+    Files.createDirectories(directory);
+    // A non-empty directory, so a delete that only unlinks empty dirs would not pass.
+    Files.writeString(directory.resolve("segments_1"), "data");
+  }
+
+  @Test
+  public void pathAndNameOverloads_definitionAndGenerationId_agree() {
+    // The IndexDefinitionGeneration overloads exist only to spare callers that already hold a
+    // definition; they must be pure delegation, or an index's data would move depending on which
+    // overload a caller happened to pick.
+    ObjectId indexId = new ObjectId();
+    VectorIndexDefinitionGeneration definition =
+        new VectorIndexDefinitionGeneration(
+            VectorIndex.mockVectorDefinition(indexId), Generation.CURRENT);
+    GenerationId generationId = definition.getGenerationId();
+
+    assertEquals(
+        this.helper.getIndexDirectoryPath(generationId),
+        this.helper.getIndexDirectoryPath(definition));
+    assertEquals(
+        this.helper.getIndexMetadataPath(generationId),
+        this.helper.getIndexMetadataPath(definition));
+    assertEquals(
+        IndexDirectoryHelper.getNameForGeneration(generationId),
+        IndexDirectoryHelper.getNameForGeneration(definition));
+  }
+
+  @Test
+  public void getIndexDirectoryPath_firstGeneration_usesBareIndexId() {
+    // Indexes predating generations were stored under a bare indexId; that layout must be
+    // reproducible from identity alone or their data becomes unreachable, and undeletable.
+    ObjectId indexId = new ObjectId();
+    GenerationId generationId = new GenerationId(indexId, Generation.FIRST);
+
+    assertEquals(
+        ROOT_PATH.resolve(indexId.toHexString()), this.helper.getIndexDirectoryPath(generationId));
+  }
+
+  @Test
+  public void getIndexDirectoryPath_laterGeneration_usesGenerationEncodedName() {
+    ObjectId indexId = new ObjectId();
+    GenerationId generationId = generationId(indexId, 6, 3);
+
+    assertEquals(
+        ROOT_PATH.resolve(indexId.toHexString() + "_f6_u3_a0"),
+        this.helper.getIndexDirectoryPath(generationId));
+  }
+
+  @Test
+  public void getIndexMetadataPath_firstGeneration_usesGenerationEncodedName() {
+    // Deliberately asymmetric with getIndexDirectoryPath: metadata has no legacy bare-indexId
+    // layout, so even Generation.FIRST resolves under the generation-encoded name.
+    ObjectId indexId = new ObjectId();
+    GenerationId generationId = new GenerationId(indexId, Generation.FIRST);
+
+    assertEquals(
+        ROOT_PATH.resolve("indexMetadata").resolve(indexId.toHexString() + "_f5_u0_a0"),
+        this.helper.getIndexMetadataPath(generationId));
+  }
+
+  @Test
+  public void getNameForGeneration_isNotInterchangeableWithUniqueString() {
+    // GenerationId.uniqueString() is the hyphenated form. Substituting one for the other would
+    // silently relocate every index directory on disk.
+    GenerationId generationId = generationId(new ObjectId(), 6, 3);
+
+    assertEquals(
+        generationId.indexId.toHexString() + "_f6_u3_a0",
+        IndexDirectoryHelper.getNameForGeneration(generationId));
+    assertNotEquals(
+        IndexDirectoryHelper.getNameForGeneration(generationId), generationId.uniqueString());
+  }
+
+  @Test
+  public void getIndexDirectoryPath_unsupportedFormatVersion_throws() {
+    GenerationId generationId = generationId(new ObjectId(), 4, 0);
+
+    assertThrows(
+        IllegalStateException.class, () -> this.helper.getIndexDirectoryPath(generationId));
+  }
+
+  @Test
+  public void deleteGenerationData_unsupportedFormatVersion_throws() {
+    // Deliberately preserves the pre-existing behavior of getIndexDirectoryPath rather than
+    // degrading to a no-op: the definition-free delete path introduces no new tolerance for
+    // format versions mongot does not support.
+    GenerationId generationId = generationId(new ObjectId(), 4, 0);
+
+    assertThrows(IllegalStateException.class, () -> this.helper.deleteGenerationData(generationId));
+  }
+
+  @Test
+  public void deleteGenerationData_removesBothDataAndMetadata() throws IOException {
+    IndexDirectoryHelper helperUnderRoot = helperWithTrashUnderRoot();
+    GenerationId generationId = generationId(new ObjectId(), 6, 1);
+    Path dataPath = helperUnderRoot.getIndexDirectoryPath(generationId);
+    Path metadataPath = helperUnderRoot.getIndexMetadataPath(generationId);
+    createWithFile(dataPath);
+    createWithFile(metadataPath);
+
+    helperUnderRoot.deleteGenerationData(generationId);
+
+    assertFalse(Files.exists(dataPath));
+    assertFalse(Files.exists(metadataPath));
+  }
+
+  @Test
+  public void deleteGenerationData_firstGeneration_removesLegacyDataAndMetadata()
+      throws IOException {
+    // The legacy layout is the case where a path bug would delete the wrong directory, since the
+    // data path is a bare indexId shared by no other generation naming scheme.
+    IndexDirectoryHelper helperUnderRoot = helperWithTrashUnderRoot();
+    GenerationId generationId = new GenerationId(new ObjectId(), Generation.FIRST);
+    Path dataPath = helperUnderRoot.getIndexDirectoryPath(generationId);
+    Path metadataPath = helperUnderRoot.getIndexMetadataPath(generationId);
+    createWithFile(dataPath);
+    createWithFile(metadataPath);
+
+    helperUnderRoot.deleteGenerationData(generationId);
+
+    assertFalse(Files.exists(dataPath));
+    assertFalse(Files.exists(metadataPath));
+  }
+
+  @Test
+  public void deleteGenerationData_missingDirectories_isNoOp() throws IOException {
+    // Must be idempotent: a quarantined entry may be re-processed after a crash that interrupted
+    // an earlier delete, and startup cannot fail because the data is already gone.
+    IndexDirectoryHelper helperUnderRoot = helperWithTrashUnderRoot();
+    GenerationId generationId = generationId(new ObjectId(), 6, 1);
+
+    helperUnderRoot.deleteGenerationData(generationId);
+    helperUnderRoot.deleteGenerationData(generationId);
+
+    assertFalse(Files.exists(helperUnderRoot.getIndexDirectoryPath(generationId)));
+  }
+
+  @Test
+  public void deleteGenerationData_leavesOtherGenerationsOfSameIndexIntact() throws IOException {
+    IndexDirectoryHelper helperUnderRoot = helperWithTrashUnderRoot();
+    ObjectId indexId = new ObjectId();
+    GenerationId doomed = generationId(indexId, 6, 1);
+    GenerationId survivor = generationId(indexId, 6, 2);
+    GenerationId legacySurvivor = new GenerationId(indexId, Generation.FIRST);
+    createWithFile(helperUnderRoot.getIndexDirectoryPath(doomed));
+    createWithFile(helperUnderRoot.getIndexMetadataPath(doomed));
+    createWithFile(helperUnderRoot.getIndexDirectoryPath(survivor));
+    createWithFile(helperUnderRoot.getIndexMetadataPath(survivor));
+    createWithFile(helperUnderRoot.getIndexDirectoryPath(legacySurvivor));
+    createWithFile(helperUnderRoot.getIndexMetadataPath(legacySurvivor));
+
+    helperUnderRoot.deleteGenerationData(doomed);
+
+    assertFalse(Files.exists(helperUnderRoot.getIndexDirectoryPath(doomed)));
+    assertFalse(Files.exists(helperUnderRoot.getIndexMetadataPath(doomed)));
+    assertTrue(Files.exists(helperUnderRoot.getIndexDirectoryPath(survivor)));
+    assertTrue(Files.exists(helperUnderRoot.getIndexMetadataPath(survivor)));
+    // The bare-indexId directory of the same index must survive a generation-encoded delete.
+    assertTrue(Files.exists(helperUnderRoot.getIndexDirectoryPath(legacySurvivor)));
+    assertTrue(Files.exists(helperUnderRoot.getIndexMetadataPath(legacySurvivor)));
   }
 }

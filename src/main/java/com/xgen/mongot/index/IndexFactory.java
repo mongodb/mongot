@@ -2,6 +2,7 @@ package com.xgen.mongot.index;
 
 import com.xgen.mongot.index.analyzer.InvalidAnalyzerDefinitionException;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
+import com.xgen.mongot.index.version.GenerationId;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.Optional;
@@ -28,6 +29,15 @@ public interface IndexFactory extends Closeable {
       IndexDefinitionGeneration definitionGeneration) {
     return Optional.empty();
   }
+
+  /**
+   * Deletes a generation's persisted data, identified only by its {@link GenerationId}.
+   *
+   * <p>Unlike dropping an {@link Index}, this needs no parsed index definition, so it can clean up
+   * after a definition that could not be parsed. No-op by default, for factories that are not
+   * disk-backed and so have no data of their own to remove.
+   */
+  default void deleteGenerationData(GenerationId generationId) throws IOException {}
 
   @Override
   void close();

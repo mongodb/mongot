@@ -10,10 +10,12 @@ java_test_suite(
     ],
     tags = ["unit"],
     deps = [
+        "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/lucene/directory",
         "//src/main/java/com/xgen/mongot/index/version",
         "//src/main/java/com/xgen/mongot/metrics",
         "//src/main/java/com/xgen/mongot/util",
+        "//src/main/java/com/xgen/testing/mongot/mock/index",
         "@maven//:com_google_truth_truth",
         "@maven//:io_micrometer_micrometer_core",
         "@maven//:junit_junit",

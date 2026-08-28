@@ -202,41 +202,92 @@ public class IndexDirectoryHelper {
   }
 
   public Path getIndexDirectoryPath(IndexDefinitionGeneration definition) {
-    if (definition.generation().indexFormatVersion.versionNumber <= 4) {
+    return getIndexDirectoryPath(definition.getGenerationId());
+  }
+
+  /**
+   * Retrieve path where a generation's index data will be stored.
+   *
+   * <p>Takes a {@link GenerationId} rather than a definition because the on-disk location of a
+   * generation's data is a function of its identity alone. This lets data be located, and deleted,
+   * without a parseable index definition.
+   */
+  public Path getIndexDirectoryPath(GenerationId generationId) {
+    if (generationId.generation.indexFormatVersion.versionNumber <= 4) {
       throw new IllegalStateException("Index format version is not supported");
     }
     // Each index's data will live in a directory with the index's generation ID as the name, as
     // these IDs are unique.
-    if (definition.generation().equals(Generation.FIRST)) {
+    if (generationId.generation.equals(Generation.FIRST)) {
       // indexes preceding the introduction of generations, we use the indexId as the path
-      String indexId = definition.getIndexDefinition().getIndexId().toHexString();
+      String indexId = generationId.indexId.toHexString();
       LOG.atInfo()
           .addKeyValue("indexId", indexId)
-          .addKeyValue("generation", definition.generation())
+          .addKeyValue("generation", generationId.generation)
           .log("using legacy data path for index of first generation");
       return Paths.get(this.rootPath.toString(), indexId);
     }
 
     // for any generation other than Generation.FIRST, we encode the generation as well as the
     // indexId.
-    return Paths.get(this.rootPath.toString(), getNameForGeneration(definition));
+    return Paths.get(this.rootPath.toString(), getNameForGeneration(generationId));
   }
 
   /**
    * Retrieve path where index metadata (eg: mapping of index files in blobstore) will be stored.
    */
   public Path getIndexMetadataPath(IndexDefinitionGeneration definition) {
-    return Paths.get(this.rootPath.toString(), "indexMetadata", getNameForGeneration(definition));
+    return getIndexMetadataPath(definition.getGenerationId());
+  }
+
+  /**
+   * Retrieve path where index metadata will be stored, given only a generation's identity.
+   *
+   * <p>Unlike {@link #getIndexDirectoryPath}, this has no legacy {@link Generation#FIRST} case:
+   * metadata is always stored under the generation-encoded name.
+   */
+  public Path getIndexMetadataPath(GenerationId generationId) {
+    return Paths.get(this.rootPath.toString(), "indexMetadata", getNameForGeneration(generationId));
+  }
+
+  /**
+   * Deletes all on-disk data and metadata for a generation, without requiring a parsed index
+   * definition. Idempotent: missing directories are ignored.
+   *
+   * <p>Duplicates the two-directory delete in {@code DiskIndexBackingStrategy#releaseResources},
+   * which cannot be reused because its paths are fields of a live backing strategy -- reaching it
+   * requires an {@link com.xgen.mongot.index.Index} built from a parsed definition. Keep the two in
+   * sync if the on-disk footprint gains a directory; {@code
+   * LuceneIndexFactoryTest#deleteGenerationData_removesDataCreatedByTheDefinitionFulPath} fails if
+   * they diverge.
+   *
+   * @throws IllegalStateException if the generation's index format version is not supported, as in
+   *     {@link #getIndexDirectoryPath}.
+   */
+  public void deleteGenerationData(GenerationId generationId) throws IOException {
+    this.indexRemover.deleteDirectory(getIndexDirectoryPath(generationId));
+    this.indexRemover.deleteDirectory(getIndexMetadataPath(generationId));
   }
 
   @VisibleForTesting
   public static String getNameForGeneration(IndexDefinitionGeneration definition) {
+    return getNameForGeneration(definition.getGenerationId());
+  }
+
+  /**
+   * The on-disk directory name for a generation.
+   *
+   * <p>Note this is the underscore-separated form, which differs from {@link
+   * GenerationId#uniqueString()}. The two are not interchangeable: this one names directories.
+   */
+  @VisibleForTesting
+  public static String getNameForGeneration(GenerationId generationId) {
     return String.format(
         "%s_f%s_u%s_a%s",
-        definition.getIndexDefinition().getIndexId().toHexString(),
-        definition.generation().indexFormatVersion.versionNumber,
-        definition.generation().userIndexVersion.versionNumber,
-        definition.generation().attemptNumber);
+        generationId.indexId.toHexString(),
+        generationId.generation.indexFormatVersion.versionNumber,
+        generationId.generation.userIndexVersion.versionNumber,
+        generationId.generation.attemptNumber);
   }
 
   public AtomicDirectoryRemover getIndexRemover() {

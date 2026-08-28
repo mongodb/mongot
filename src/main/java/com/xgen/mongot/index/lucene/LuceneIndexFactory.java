@@ -538,6 +538,15 @@ public class LuceneIndexFactory implements IndexFactory {
   }
 
   @Override
+  public void deleteGenerationData(GenerationId generationId) throws IOException {
+    LOG.atInfo()
+        .addKeyValue("indexId", generationId.indexId)
+        .addKeyValue("generationId", generationId)
+        .log("deleting generation data");
+    this.indexDirectoryHelper.deleteGenerationData(generationId);
+  }
+
+  @Override
   public Index getIndex(IndexDefinitionGeneration definitionGeneration)
       throws InvalidAnalyzerDefinitionException, IOException {
 

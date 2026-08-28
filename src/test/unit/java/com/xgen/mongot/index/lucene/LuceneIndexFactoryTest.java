@@ -610,6 +610,51 @@ public class LuceneIndexFactoryTest {
     }
   }
 
+  @Test
+  public void deleteGenerationData_removesDataCreatedByTheDefinitionFulPath()
+      throws InvalidAnalyzerDefinitionException, IOException {
+    // Pins the definition-free delete path to the definition-ful create path: whatever
+    // getIndex/getInitializedIndex put on disk for a generation must be exactly what
+    // deleteGenerationData removes given only that generation's identity. If the two ever derive
+    // paths differently, quarantined-index cleanup would silently leave data behind.
+    var cfg = LuceneConfigBuilder.builder().tempDataPath().build();
+    try (LuceneIndexFactory factory = openFactory(cfg)) {
+      SearchIndexDefinitionGeneration gen =
+          SearchIndexDefinitionGenerationBuilder.create(
+              SearchIndex.mockSearchDefinition(new ObjectId()), CURRENT, Collections.emptyList());
+      var index = factory.getIndex(gen);
+      InitializedIndex initializedIndex = factory.getInitializedIndex(index, gen);
+      initializedIndex.close();
+      index.close();
+
+      String name = IndexDirectoryHelper.getNameForGeneration(gen.getGenerationId());
+      Path dataPath = cfg.dataPath().resolve(name);
+      Path metadataPath = cfg.dataPath().resolve("indexMetadata").resolve(name);
+      assertThat(Files.exists(dataPath)).isTrue();
+      assertThat(Files.exists(metadataPath)).isTrue();
+
+      // Note: no index.drop() here -- the point is that deletion succeeds without one.
+      factory.deleteGenerationData(gen.getGenerationId());
+
+      assertThat(Files.exists(dataPath)).isFalse();
+      assertThat(Files.exists(metadataPath)).isFalse();
+    }
+  }
+
+  @Test
+  public void deleteGenerationData_missingData_isNoOp()
+      throws InvalidAnalyzerDefinitionException, IOException {
+    // A quarantined entry may name a generation whose data was already removed before a crash.
+    var cfg = LuceneConfigBuilder.builder().tempDataPath().build();
+    try (LuceneIndexFactory factory = openFactory(cfg)) {
+      SearchIndexDefinitionGeneration gen =
+          SearchIndexDefinitionGenerationBuilder.create(
+              SearchIndex.mockSearchDefinition(new ObjectId()), CURRENT, Collections.emptyList());
+
+      factory.deleteGenerationData(gen.getGenerationId());
+    }
+  }
+
   private static LuceneIndexFactory openFactory(LuceneConfig cfg)
       throws InvalidAnalyzerDefinitionException, IOException {
     return LuceneIndexFactory.fromConfig(
