@@ -266,6 +266,12 @@ public class SearchExplainInformationTest {
           "with index partition does not serialize query and collect",
           SearchExplainInformationBuilder.newBuilder()
               .resourceUsage(new ResourceUsageOutput(1, 2, 3, 4, 1, 1))
+              .aggregationStats(
+                  AggregationStats.create(
+                          Optional.empty(),
+                          Optional.empty(),
+                          Optional.of(ExplainInformationTestUtil.QUERY_EXECUTION_AREA))
+                      .orElseThrow())
               .addIndexPartitionExplainInformation(
                   SearchExplainInformationBuilder.newBuilder()
                       .queryExplainInfos(

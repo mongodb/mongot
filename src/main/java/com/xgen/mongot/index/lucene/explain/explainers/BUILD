@@ -3,6 +3,7 @@ load("//bazel/java:package.bzl", "java_library")
 java_library(
     name = "explainers",
     srcs = [
+        "AggregationFeatureExplainer.java",
         "CollectorTimingFeatureExplainer.java",
         "DynamicFeatureFlagFeatureExplainer.java",
         "FacetFeatureExplainer.java",

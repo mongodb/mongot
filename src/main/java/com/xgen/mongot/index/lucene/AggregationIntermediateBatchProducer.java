@@ -7,7 +7,8 @@ import com.xgen.mongot.cursor.batch.BatchCursorOptions;
 import com.xgen.mongot.index.BatchProducer;
 import com.xgen.mongot.index.CountResult;
 import com.xgen.mongot.index.MetaResults;
-import com.xgen.mongot.index.lucene.explain.tracing.Explain;
+import com.xgen.mongot.index.lucene.explain.explainers.AggregationFeatureExplainer;
+import com.xgen.mongot.index.lucene.explain.timing.ExplainTimings;
 import com.xgen.mongot.index.query.aggregation.AggregationResult;
 import com.xgen.mongot.index.query.aggregation.AggregationResultBuilder;
 import com.xgen.mongot.index.query.aggregation.ShardMergeAliasPlan;
@@ -16,6 +17,7 @@ import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.Bytes;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.bson.BsonArrayBuilder;
+import com.xgen.mongot.util.timers.InvocationCountingTimer;
 import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
@@ -96,6 +98,9 @@ final class AggregationIntermediateBatchProducer implements BatchProducer {
    * results in a parent builder. Not done now: P is small and the fold is cheap relative to the
    * per-partition searches that precede it. TODO(CLOUDP-426967): Implement parallelized merging.
    *
+   * <p>One {@code aggregationMerge} timing covers the whole fold: every {@code add} and the
+   * terminal {@code build()}. Recorded on the parent query, not per partition.
+   *
    * <p>{@code producers} must be quiesced: the caller's per-partition fan-out has to have joined
    * before calling. The list is read and iterated without holding a lock, so a caller that hands
    * over a still-growing {@link java.util.Collections#synchronizedList} (whose iterator does not
@@ -107,15 +112,19 @@ final class AggregationIntermediateBatchProducer implements BatchProducer {
     AggregationResultBuilder resultBuilder = producers.get(0).aggregationResult.toBuilder();
     @Var long totalHits = 0;
     @Var boolean folded = false;
+    @Var AggregationResult mergedResult = null;
     try {
-      for (int i = 0; i < producers.size(); i++) {
-        try (var indexPartitionResourceManager = Explain.maybeEnterIndexPartitionQueryContext(i)) {
-          AggregationIntermediateBatchProducer producer = producers.get(i);
+      try (var unusedTimer =
+          new InvocationCountingTimer.AutocloseableOptional<>(
+              AggregationFeatureExplainer.currentPhaseProfile()
+                  .map(t -> t.split(ExplainTimings.Type.AGGREGATION_MERGE)))) {
+        for (AggregationIntermediateBatchProducer producer : producers) {
           totalHits += producer.totalHits;
           resultBuilder.add(producer.aggregationResult);
         }
+        folded = true;
+        mergedResult = resultBuilder.build();
       }
-      folded = true;
     } finally {
       if (folded) {
         // Closes all, rethrowing the first failure with the rest suppressed.
@@ -127,12 +136,12 @@ final class AggregationIntermediateBatchProducer implements BatchProducer {
         IOUtils.closeWhileHandlingException(producers);
       }
     }
-    AggregationResult mergedResult = resultBuilder.build();
     Optional<ShardMergeAliasPlan> aliasPlan = producers.get(0).aliasPlan;
+    AggregationResult result = Check.isNotNull(mergedResult, "mergedResult");
     if (aliasPlan.isPresent()) {
-      return new AggregationIntermediateBatchProducer(mergedResult, totalHits, aliasPlan.get());
+      return new AggregationIntermediateBatchProducer(result, totalHits, aliasPlan.get());
     }
-    return new AggregationIntermediateBatchProducer(mergedResult, totalHits);
+    return new AggregationIntermediateBatchProducer(result, totalHits);
   }
 
   /**

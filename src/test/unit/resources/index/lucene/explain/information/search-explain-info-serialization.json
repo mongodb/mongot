@@ -379,6 +379,12 @@
             }
           }
         ],
+        "aggregation": {
+          "partitionMerge": {
+            "millisElapsed": 1e-5,
+            "invocationCounts": {}
+          }
+        },
         "resourceUsage": {
           "majorFaults": 1,
           "minorFaults": 2,
@@ -467,6 +473,14 @@
             }
           }
         ],
+        "aggregation": {
+          "partitionMerge": {
+            "millisElapsed": {
+              "$numberDouble": "1e-5"
+            },
+            "invocationCounts": {}
+          }
+        },
         "resourceUsage": {
           "majorFaults": {
             "$numberLong": "1"

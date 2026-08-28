@@ -10,6 +10,7 @@ java_library(
     name = "information",
     srcs = [
         "AbstractFieldValueQuerySpec.java",
+        "AggregationStats.java",
         "BooleanQuerySpec.java",
         "BoostQuerySpec.java",
         "CollectorExplainInformation.java",

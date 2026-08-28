@@ -17,6 +17,7 @@ public record SearchExplainInformation(
     Optional<CollectorExplainInformation> collectStats,
     Optional<HighlightStats> highlightStats,
     Optional<ResultMaterializationStats> resultMaterialization,
+    Optional<AggregationStats> aggregation,
     Optional<MetadataExplainInformation> metadata,
     Optional<ResourceUsageOutput> resourceUsage,
     Optional<List<VectorSearchTracingSpec>> vectorSearchTracingInfo,
@@ -70,6 +71,13 @@ public record SearchExplainInformation(
             .optional()
             .noDefault();
 
+    static final Field.Optional<AggregationStats> AGGREGATION =
+        Field.builder("aggregation")
+            .classField(AggregationStats::fromBson)
+            .allowUnknownFields()
+            .optional()
+            .noDefault();
+
     static final Field.Optional<List<VectorSearchSegmentStatsSpec>>
         VECTOR_SEARCH_LUCENE_SEGMENT_STATS =
             Field.builder("luceneVectorSegmentStats")
@@ -118,6 +126,7 @@ public record SearchExplainInformation(
         parser.getField(Fields.COLLECT_STATS).unwrap(),
         parser.getField(Fields.HIGHLIGHT).unwrap(),
         parser.getField(Fields.RESULT_MATERIALIZATION).unwrap(),
+        parser.getField(Fields.AGGREGATION).unwrap(),
         parser.getField(Fields.METADATA).unwrap(),
         parser.getField(Fields.RESOURCE_USAGE).unwrap(),
         parser.getField(Fields.VECTOR_TRACING).unwrap(),
@@ -139,6 +148,7 @@ public record SearchExplainInformation(
         .field(Fields.COLLECT_STATS, this.collectStats)
         .field(Fields.HIGHLIGHT, this.highlightStats)
         .field(Fields.RESULT_MATERIALIZATION, this.resultMaterialization)
+        .field(Fields.AGGREGATION, this.aggregation)
         .field(Fields.METADATA, this.metadata)
         .field(Fields.RESOURCE_USAGE, this.resourceUsage)
         .field(Fields.VECTOR_TRACING, this.vectorSearchTracingInfo)

@@ -29,6 +29,8 @@ public class SearchExplainInformationBuilder {
 
   private Optional<MetadataExplainInformation> metadata = Optional.empty();
 
+  private Optional<AggregationStats> aggregationStats = Optional.empty();
+
   public static SearchExplainInformationBuilder newBuilder() {
     return new SearchExplainInformationBuilder();
   }
@@ -117,6 +119,11 @@ public class SearchExplainInformationBuilder {
     return this;
   }
 
+  public SearchExplainInformationBuilder aggregationStats(AggregationStats aggregationStats) {
+    this.aggregationStats = Optional.of(aggregationStats);
+    return this;
+  }
+
   public SearchExplainInformationBuilder metadata(MetadataExplainInformation metadata) {
     this.metadata = Optional.of(metadata);
     return this;
@@ -139,6 +146,7 @@ public class SearchExplainInformationBuilder {
           collectStats,
           this.highlightStats,
           this.resultMaterializationStats,
+          this.aggregationStats,
           this.metadata,
           this.resourceUsage,
           this.vectorTracingInfos,
@@ -148,13 +156,14 @@ public class SearchExplainInformationBuilder {
           this.optimizerRulesFired);
     }
 
-    // only metadata/resource usage should be present top level when there are index partitions
-    // defined
+    // Query/collect/highlight land in indexPartitionExplain. aggregation stays top-level because
+    // partitionMerge is a cross-partition phase recorded after the per-partition fan-out joins.
     return new SearchExplainInformation(
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
+        this.aggregationStats,
         this.metadata,
         this.resourceUsage,
         Optional.empty(),

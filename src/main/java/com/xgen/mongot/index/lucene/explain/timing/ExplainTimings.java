@@ -53,6 +53,10 @@ public class ExplainTimings {
     // facet specific types
     GENERATE_FACET_COUNTS("generateFacetCounts"),
 
+    // search aggregation specific types
+    AGGREGATION_COLLECT("aggregationCollect"),
+    AGGREGATION_MERGE("aggregationMerge"),
+
     // highlight specific
     EXECUTE_HIGHLIGHT("executeHighlight"),
     SETUP_HIGHLIGHT("setupHighlight"),

@@ -3,6 +3,7 @@ load("//bazel/java:test.bzl", "java_test_suite")
 java_test_suite(
     name = "explainers",
     srcs = [
+        "AggregationFeatureExplainerTest.java",
         "CollectorTimingFeatureExplainerTest.java",
         "DynamicFeatureFlagFeatureExplainerTest.java",
         "HighlightFeatureExplainerTest.java",
