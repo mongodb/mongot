@@ -342,10 +342,10 @@ public abstract class TestSpec implements DocumentEncodable {
    * one of those two metrics, or it pairs an aggregation with a query-level {@code sort}, which is
    * only accepted alongside them and is otherwise rejected.
    *
-   * <p>Narrower than {@link #usesSearchAggregation()} on purpose. These two operators have no shard
-   * merge yet ({@code FirstAggregationSpec#buildShardMergePipeline} throws), so the sharded lanes
-   * have to skip them specifically -- skipping every aggregation spec there would silently drop
-   * coverage for the operators that do support it.
+   * <p>Narrower than {@link #usesSearchAggregation()} on purpose. {@code
+   * first-last-aggregation.json} is unsharded-e2e only (no shard zones; its {@code $$SEARCH_META}
+   * pipeline cases are {@code Type.AGGREGATION}). Sharded e2e coverage lives in specs that declare
+   * {@code shardZoneConfigs}. In-memory integration still skips these until CLOUDP-427668.
    */
   public boolean usesFirstLastAggregation() {
     return this.searchRequests()
