@@ -4,11 +4,13 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.flogger.FluentLogger;
 import com.google.errorprone.annotations.CompileTimeConstant;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,6 +31,12 @@ public final class GlobalMetricFactory {
   static final String BLOOM_FILTER_ID_LOOKUP_FALSE_POSITIVE =
       "bloom_filter_id_lookup_false_positive";
   static final String BLOOM_FILTER_SATURATED_DROPPED = "bloom_filter_saturated_dropped";
+  static final String NATIVE_SCALAR_VECTOR_SCORING_ENGAGED = "native_scalar_vector_scoring_engaged";
+  static final String NATIVE_SCALAR_VECTOR_SCORING_QUERY_ACTIVE =
+      "native_scalar_vector_scoring_query_active";
+
+  private static final AtomicLong NATIVE_SCALAR_VECTOR_SCORING_QUERY_ACTIVE_VALUE =
+      new AtomicLong();
 
   /**
    * Eager-register only when:
@@ -48,7 +56,13 @@ public final class GlobalMetricFactory {
           BLOOM_FILTER_ID_LOOKUP_FALSE_POSITIVE,
           "Counts _id bloom filter false positives (admitted but no matching delegate term)",
           BLOOM_FILTER_SATURATED_DROPPED,
-          "Counts per-field bloom filters dropped at write time because the FuzzySet saturated");
+          "Counts per-field bloom filters dropped at write time because the FuzzySet saturated",
+          NATIVE_SCALAR_VECTOR_SCORING_ENGAGED,
+          "Counts native scalar-quantized scorer engagements -- once per native scorer/supplier"
+              + " construction call, typically once per segment touched by a merge or a"
+              + " $vectorSearch query, so a single query spanning N segments can move this by N;"
+              + " not once per vector scored. A series that stays at 0 means native scoring never"
+              + " actually engaged on this process even if the dynamic feature flag is on");
 
   private GlobalMetricFactory() {}
 
@@ -60,6 +74,7 @@ public final class GlobalMetricFactory {
     }
     meterRegistry = Optional.of(registry);
     registerEagerCounters(registry);
+    registerNativeScalarVectorScoringQueryActiveGauge(registry);
     LOGGER.info("GlobalMetricFactory initialized successfully.");
   }
 
@@ -172,6 +187,67 @@ public final class GlobalMetricFactory {
   }
 
   /**
+   * Increments the counter tracking native scalar-quantized scorer engagements -- once per native
+   * scorer/supplier construction call that takes the native SIMD path (typically once per segment
+   * touched by a merge or a query, so a single {@code $vectorSearch} spanning N segments moves this
+   * by N), not once per vector scored (as opposed to falling back to Lucene's Java scorer). Call
+   * only from the branch that actually takes the native path -- a series that stays at 0 confirms
+   * native scoring never engaged on this process, e.g. because a shadowed {@code KnnVectorsFormat}
+   * lost SPI resolution to Lucene's stock class on read, even with the dynamic feature flag on.
+   */
+  public static void incrementNativeScalarVectorScoringEngaged() {
+    Optional<MeterRegistry> maybeRegistry = meterRegistry;
+    if (maybeRegistry.isEmpty()) {
+      FLOGGER.atWarning().atMostEvery(1, TimeUnit.HOURS).log(
+          "GlobalMetricFactory not initialized, cannot record native scalar vector scoring metric");
+      return;
+    }
+    getOrRegisterCounter(maybeRegistry.get(), NATIVE_SCALAR_VECTOR_SCORING_ENGAGED).increment();
+  }
+
+  /**
+   * Marks that this process has served at least one {@code $vectorSearch} query using the native
+   * scalar-quantized scorer, flipping the {@code native_scalar_vector_scoring_query_active} gauge
+   * to 1. Call only from the query path (e.g. {@code getRandomVectorScorer}), never from
+   * merge/graph-build ({@code getRandomVectorScorerSupplier}) -- a process that only ever merges
+   * natively, with no live query engaging native scoring, should not count toward "customers
+   * impacted".
+   *
+   * <p>The gauge is sticky for the life of the process (never reset back to 0 when the flag is
+   * later disabled) -- it answers "was this cluster ever positively impacted", not "is native
+   * scoring active on this cluster right now". {@link #NATIVE_SCALAR_VECTOR_SCORING_ENGAGED} is not
+   * a substitute for a windowed, query-only signal: it also increments from merge/graph-build
+   * ({@code getRandomVectorScorerSupplier}), so a cluster that only ever merges natively -- with no
+   * live {@code $vectorSearch} query -- would show up in {@code
+   * increase(native_scalar_vector_scoring_engaged_total[...]) > 0}. There is currently no
+   * query-only windowed metric; use this gauge for "ever impacted".
+   */
+  public static void markNativeScalarVectorScoringQueryActive() {
+    // Plain read first: a failed compareAndSet still issues a locked CAS instruction and can bounce
+    // the cache line on every query, so check-then-CAS to make every call after the first flip a
+    // true no-write volatile read.
+    if (NATIVE_SCALAR_VECTOR_SCORING_QUERY_ACTIVE_VALUE.get() == 0) {
+      NATIVE_SCALAR_VECTOR_SCORING_QUERY_ACTIVE_VALUE.compareAndSet(0, 1);
+    }
+  }
+
+  private static void registerNativeScalarVectorScoringQueryActiveGauge(MeterRegistry registry) {
+    Gauge.builder(
+            NATIVE_SCALAR_VECTOR_SCORING_QUERY_ACTIVE,
+            NATIVE_SCALAR_VECTOR_SCORING_QUERY_ACTIVE_VALUE,
+            AtomicLong::get)
+        .description(
+            "1 once this process has served a $vectorSearch query using the native"
+                + " scalar-quantized scorer at least once, 0 otherwise. Sticky for the life of the"
+                + " process. Since multiple mongot processes can back one cluster, first collapse"
+                + " with max by (mmsLabel_clusterId) (or org/group) to get one 0/1 status per"
+                + " cluster -- count by (mmsLabel_clusterId) alone overcounts clusters with more"
+                + " than one process reporting 1 -- then count/sum that result across clusters to"
+                + " get the number of clusters ever positively impacted by native query scoring.")
+        .register(registry);
+  }
+
+  /**
    * Eagerly registers all bloom filter counters (initialized to 0) so they are always present in
    * the scrape output. These metrics back dashboards and alerts, so they must exist even before the
    * first event -- otherwise a cluster that has not yet exercised the bloom read path would report
@@ -192,6 +268,7 @@ public final class GlobalMetricFactory {
   @VisibleForTesting
   public static void resetForTest() {
     meterRegistry = Optional.empty();
+    NATIVE_SCALAR_VECTOR_SCORING_QUERY_ACTIVE_VALUE.set(0);
   }
 
   @VisibleForTesting

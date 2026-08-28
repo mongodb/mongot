@@ -17,7 +17,9 @@ java_test_suite(
     deps = [
         "//src/main/java/com/xgen/mongot/featureflag/dynamic",
         "//src/main/java/com/xgen/mongot/index/lucene/vector",
+        "//src/main/java/com/xgen/mongot/util",
         "@maven//:com_google_truth_truth",
+        "@maven//:io_micrometer_micrometer_core",
         "@maven//:junit_junit",
         "@maven//:org_apache_lucene_lucene_backward_codecs",
         "@maven//:org_apache_lucene_lucene_core",

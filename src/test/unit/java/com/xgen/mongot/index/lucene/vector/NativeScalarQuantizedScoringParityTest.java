@@ -3,6 +3,8 @@ package com.xgen.mongot.index.lucene.vector;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
+import com.xgen.mongot.util.GlobalMetricFactory;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -282,6 +284,96 @@ public class NativeScalarQuantizedScoringParityTest {
           }
         }
       }
+    }
+  }
+
+  /**
+   * Verifies {@link GlobalMetricFactory#incrementNativeScalarVectorScoringEngaged} actually fires
+   * when the native path is taken, and stops firing once the flag is disabled -- this is the
+   * counter's whole purpose: distinguishing "native scoring is genuinely engaged" from "the flag is
+   * on but resolution silently fell back to Java", without needing a debugger to tell the two
+   * apart.
+   */
+  @Test
+  public void nativeScoring_incrementsEngagedMetric() throws IOException {
+    Assume.assumeTrue(
+        "native mongot_vecsim library is required for this test", Similarity.I8_ACCELERATION);
+
+    // Metric names must match GlobalMetricFactory's package-private constants, not visible from
+    // this package.
+    String metricName = "native_scalar_vector_scoring_engaged";
+    String queryActiveGaugeName = "native_scalar_vector_scoring_query_active";
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    GlobalMetricFactory.resetForTest();
+    GlobalMetricFactory.initialize(meterRegistry);
+    try {
+      VectorSimilarityFunction fn = VectorSimilarityFunction.COSINE;
+      int dim = 32;
+      Random rng = new Random(SEED);
+      Path dirPath = this.tempFolder.newFolder("metric_test").toPath();
+      try (MMapDirectory dir = new MMapDirectory(dirPath)) {
+        setNativeScoring(true);
+        try (IndexWriter w =
+            new IndexWriter(
+                dir, new IndexWriterConfig().setCodec(new NativeScalarQuantizedTestCodec()))) {
+          for (int i = 0; i < NUM_VECTORS; i++) {
+            Document doc = new Document();
+            doc.add(new KnnFloatVectorField(FIELD, randomUnitVector(rng, dim), fn));
+            doc.add(new StoredField(ID, Integer.toString(i)));
+            w.addDocument(doc);
+          }
+          w.commit();
+
+          // Graph build/merge (getRandomVectorScorerSupplier) engages native scoring too, but must
+          // never touch the query-only gauge -- no $vectorSearch has run yet.
+          Assert.assertEquals(
+              "expected the query-active gauge to stay 0 after commit/merge, before any query",
+              0.0,
+              meterRegistry.get(queryActiveGaugeName).gauge().value(),
+              0.0);
+
+          // Merge already engaged native scoring above, so the counter is already >0 here.
+          // Comparing the post-query value against this baseline (rather than against 0) is what
+          // isolates the query call site's own increment.
+          double engagedAfterMerge = meterRegistry.get(metricName).counter().count();
+
+          try (DirectoryReader reader = DirectoryReader.open(w)) {
+            IndexSearcher searcher = new IndexSearcher(reader);
+            float[] query = randomUnitVector(rng, dim);
+
+            setNativeScoring(true);
+            scoresById(searcher, query);
+            double engagedWhileNative = meterRegistry.get(metricName).counter().count();
+            Assert.assertTrue(
+                "expected the query to increment the metric beyond the merge-time count, got "
+                    + engagedAfterMerge
+                    + " -> "
+                    + engagedWhileNative,
+                engagedWhileNative > engagedAfterMerge);
+            Assert.assertEquals(
+                "expected the query-active gauge to flip to 1 after a native query",
+                1.0,
+                meterRegistry.get(queryActiveGaugeName).gauge().value(),
+                0.0);
+
+            setNativeScoring(false);
+            scoresById(searcher, query);
+            double engagedWhileDelegate = meterRegistry.get(metricName).counter().count();
+            Assert.assertEquals(
+                "expected the metric to stay flat once native scoring is disabled",
+                engagedWhileNative,
+                engagedWhileDelegate,
+                0.0);
+            Assert.assertEquals(
+                "expected the query-active gauge to stay at 1 after falling back to Java",
+                1.0,
+                meterRegistry.get(queryActiveGaugeName).gauge().value(),
+                0.0);
+          }
+        }
+      }
+    } finally {
+      GlobalMetricFactory.resetForTest();
     }
   }
 }

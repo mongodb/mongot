@@ -7,6 +7,7 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Optional;
 import org.junit.After;
@@ -137,5 +138,49 @@ public class GlobalMetricsFactoryTest {
     Counter counter = this.registry.find(name).counter();
     assertNotNull("Expected counter " + name + " to be registered", counter);
     assertEquals(expected, counter.count(), 0.0);
+  }
+
+  @Test
+  public void testNativeScalarVectorScoringQueryActiveGauge_registeredEagerlyAtZero() {
+    GlobalMetricFactory.initialize(this.registry);
+
+    Gauge gauge = this.registry.find("native_scalar_vector_scoring_query_active").gauge();
+    assertNotNull("Expected the gauge to be registered eagerly", gauge);
+    assertEquals(0.0, gauge.value(), 0.0);
+  }
+
+  @Test
+  public void testNativeScalarVectorScoringQueryActiveGauge_marked_flipsToOne() {
+    GlobalMetricFactory.initialize(this.registry);
+
+    GlobalMetricFactory.markNativeScalarVectorScoringQueryActive();
+
+    assertEquals(
+        1.0, this.registry.find("native_scalar_vector_scoring_query_active").gauge().value(), 0.0);
+  }
+
+  @Test
+  public void testNativeScalarVectorScoringQueryActiveGauge_markedRepeatedly_staysAtOne() {
+    GlobalMetricFactory.initialize(this.registry);
+
+    GlobalMetricFactory.markNativeScalarVectorScoringQueryActive();
+    GlobalMetricFactory.markNativeScalarVectorScoringQueryActive();
+
+    assertEquals(
+        1.0, this.registry.find("native_scalar_vector_scoring_query_active").gauge().value(), 0.0);
+  }
+
+  @Test
+  public void testNativeScalarVectorScoringEngagedCounter_doesNotFlipQueryActiveGauge() {
+    GlobalMetricFactory.initialize(this.registry);
+
+    // The engaged counter fires from both the merge and query paths; it must stay independent of
+    // the query-only gauge -- merge-only engagement should never mark a process "query impacted".
+    GlobalMetricFactory.incrementNativeScalarVectorScoringEngaged();
+
+    assertEquals(
+        1.0, this.registry.find("native_scalar_vector_scoring_engaged").counter().count(), 0.0);
+    assertEquals(
+        0.0, this.registry.find("native_scalar_vector_scoring_query_active").gauge().value(), 0.0);
   }
 }

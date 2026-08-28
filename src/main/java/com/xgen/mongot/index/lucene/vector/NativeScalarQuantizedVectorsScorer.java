@@ -3,6 +3,7 @@ package com.xgen.mongot.index.lucene.vector;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
+import com.xgen.mongot.util.GlobalMetricFactory;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -73,6 +74,7 @@ public class NativeScalarQuantizedVectorsScorer implements FlatVectorsScorer {
       MemorySegmentAccessInput input = nativeInput(qv);
       if (input != null) {
         checkInvariants(qv.size(), qv.getVectorByteLength(), input);
+        GlobalMetricFactory.incrementNativeScalarVectorScoringEngaged();
         return new NativeScalarScorerSupplier(similarityFunction, input, qv);
       }
     }
@@ -101,6 +103,8 @@ public class NativeScalarQuantizedVectorsScorer implements FlatVectorsScorer {
             ScalarQuantizedVectorScorer.quantizeQuery(
                 target, targetBytes, similarityFunction, scalarQuantizer);
         MemorySegment query = Similarity.prepareVector(Arena.ofAuto(), targetBytes);
+        GlobalMetricFactory.incrementNativeScalarVectorScoringEngaged();
+        GlobalMetricFactory.markNativeScalarVectorScoringQueryActive();
         return new NativeScalarQueryScorer(similarityFunction, input, qv, query, queryCorrection);
       }
     }
