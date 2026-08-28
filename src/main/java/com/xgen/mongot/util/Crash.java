@@ -28,6 +28,10 @@ public class Crash {
   private static final int FAIL_EXIT_CODE = 1;
   private static final Pattern FAILED_TO_SHUTDOWN_EXECUTOR =
       Pattern.compile("^failed to shut down .* executor.*");
+  // Thrown by FileLockGuard when another process already holds the lock file. Matching on the
+  // "another process" wording keeps unrelated failures of the same call site (a missing data
+  // directory, an unreadable lock file) in OTHER, where they still need investigating.
+  private static final String LOCK_CONTENTION_MESSAGE = "Another process may be running";
 
   private static final AtomicReference<Optional<Path>> crashLogPath =
       new AtomicReference<>(Optional.empty());
@@ -363,6 +367,8 @@ public class Crash {
       category = CrashCategory.OOM;
     } else if (FAILED_TO_SHUTDOWN_EXECUTOR.matcher(this.message).matches()) {
       category = CrashCategory.EXECUTOR_SHUTDOWN;
+    } else if (stackTrace.contains(LOCK_CONTENTION_MESSAGE)) {
+      category = CrashCategory.LOCK_CONTENTION;
     } else {
       category = CrashCategory.OTHER;
     }
@@ -374,6 +380,7 @@ public class Crash {
     DISK_FULL,
     OOM,
     EXECUTOR_SHUTDOWN,
+    LOCK_CONTENTION,
     OTHER
   }
 }

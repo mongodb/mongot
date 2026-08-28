@@ -87,6 +87,31 @@ public class CrashTest {
     Crash diskFullCrash = Crash.because("failed to initialize ftdc");
     assertEquals(CrashCategory.DISK_FULL, diskFullCrash.assignCrashCategory(stacktrace));
 
+    String lockContentionStacktrace =
+        "java.io.IOException: Failed to acquire exclusive lock on /srv/mongodb/mongot/.lock."
+            + " Another process may be running.\n"
+            + "\tat com.xgen.mongot.util.concurrent.FileLockGuard.acquireLock("
+            + "FileLockGuard.java:107)\n"
+            + "\tat com.xgen.mongot.util.concurrent.FileLockGuard.withPersistent("
+            + "FileLockGuard.java:94)\n"
+            + "\tat com.xgen.atlas.Mongot.acquireFileLock(Mongot.java:143)...\n";
+
+    Crash lockContentionCrash = Crash.because("failed to acquire exclusive lock");
+    assertEquals(
+        CrashCategory.LOCK_CONTENTION,
+        lockContentionCrash.assignCrashCategory(lockContentionStacktrace));
+
+    // Other failures at the same call site (e.g. a missing data directory) stay in OTHER.
+    String missingLockFileStacktrace =
+        "java.nio.file.NoSuchFileException: /srv/mongodb/mongot/.lock\n"
+            + "\tat java.base/sun.nio.fs.UnixException.translateToIOException("
+            + "UnixException.java:92)\n"
+            + "\tat com.xgen.atlas.Mongot.acquireFileLock(Mongot.java:143)...\n";
+
+    Crash missingLockFileCrash = Crash.because("failed to acquire exclusive lock");
+    assertEquals(
+        CrashCategory.OTHER, missingLockFileCrash.assignCrashCategory(missingLockFileStacktrace));
+
     Crash otherCrash = Crash.because("of some other reason");
     assertEquals(CrashCategory.OTHER, otherCrash.assignCrashCategory(""));
 
