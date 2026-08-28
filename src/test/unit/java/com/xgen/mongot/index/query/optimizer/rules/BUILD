@@ -25,7 +25,6 @@ java_test_suite(
         "//src/main/java/com/xgen/testing/mongot/index/query/operators/mql",
         "//src/main/java/com/xgen/testing/mongot/mock/index",
         "@maven//:junit_junit",
-        "@maven//:org_apache_lucene_lucene_core",
         "@maven//:org_mockito_mockito_core",
         "@maven//:org_mongodb_bson",
     ],

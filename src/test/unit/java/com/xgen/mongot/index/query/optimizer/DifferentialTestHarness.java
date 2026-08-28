@@ -9,6 +9,8 @@ import java.util.Set;
 import java.util.TreeSet;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field.Store;
+import org.apache.lucene.document.LongPoint;
+import org.apache.lucene.document.SortedSetDocValuesField;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
@@ -18,6 +20,7 @@ import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.util.BytesRef;
 
 /**
  * Reusable property-based testing utility that lets a rule's test assert semantic equivalence
@@ -28,6 +31,14 @@ import org.apache.lucene.store.Directory;
  * exact same set of documents. The set difference is reported by stable string key (whatever the
  * caller assigned per document) so failures point at concrete diverging documents rather than
  * opaque doc-ids.
+ *
+ * <p>Indexed field types mirror what vector-index ingestion writes for filter fields, so queries
+ * produced by the real translation pipeline execute correctly when the caller supplies mongot's
+ * Lucene field names (see {@code FieldName.TypeField}): {@link DocField.StringValue} is a {@link
+ * StringField} plus a {@link SortedSetDocValuesField} (the two legs of a token-field equality
+ * query); {@link DocField.LongValue} is a {@link LongPoint} (the encoding of int64 numeric filter
+ * values). Multi-valued is supported by adding multiple {@link DocField} entries with the same
+ * field name on a single {@link Builder#addDocument} call.
  */
 public final class DifferentialTestHarness implements AutoCloseable {
 
@@ -123,8 +134,9 @@ public final class DifferentialTestHarness implements AutoCloseable {
     private Builder() {}
 
     /**
-     * Add a document with the given key and additional indexed fields. Each value is stored as a
-     * {@link StringField} so it can be matched via term/range queries from the test side.
+     * Add a document with the given key and additional indexed fields. Fields with identical names
+     * on a single {@code addDocument} call are indexed as multi-valued (Lucene's natural handling
+     * of repeated fields on one document).
      */
     public Builder addDocument(String key, Collection<DocField> fields) {
       this.specs.add(new DocumentSpec(key, List.copyOf(fields)));
@@ -142,7 +154,7 @@ public final class DifferentialTestHarness implements AutoCloseable {
           Document doc = new Document();
           doc.add(new StringField(KEY_FIELD, spec.key, Store.YES));
           for (DocField field : spec.fields) {
-            doc.add(new StringField(field.name(), field.value(), Store.NO));
+            indexField(doc, field);
           }
           writer.addDocument(doc);
         }
@@ -150,13 +162,45 @@ public final class DifferentialTestHarness implements AutoCloseable {
       DirectoryReader reader = DirectoryReader.open(directory);
       return new DifferentialTestHarness(directory, reader);
     }
+
+    private static void indexField(Document doc, DocField field) {
+      switch (field) {
+        case DocField.StringValue sv -> {
+          BytesRef value = new BytesRef(sv.value());
+          doc.add(new StringField(sv.name(), value, Store.NO));
+          doc.add(new SortedSetDocValuesField(sv.name(), value));
+        }
+        case DocField.LongValue lv -> doc.add(new LongPoint(lv.name(), lv.value()));
+      }
+    }
   }
 
-  /** A single (name, value) pair to be indexed as a {@link StringField}. */
-  public record DocField(String name, String value) {
-    public static DocField of(String name, String value) {
-      return new DocField(name, value);
+  /**
+   * Indexable test field. Use {@link #of(String, String)} for string values and {@link
+   * #longValue(String, long)} for long-encoded values (int64 numerics, epoch-millis dates).
+   * Multi-valued fields are expressed by adding multiple {@code DocField} entries on the same
+   * {@link Builder#addDocument} call sharing a name.
+   */
+  public sealed interface DocField {
+    String name();
+
+    /**
+     * String-valued field, indexed as a {@link StringField} plus a {@link SortedSetDocValuesField}
+     * — the same pair token-field ingestion writes, so both legs of an {@code
+     * IndexOrDocValuesQuery} equality see the value.
+     */
+    static DocField of(String name, String value) {
+      return new StringValue(name, value);
     }
+
+    /** Long-valued field indexed as a {@link LongPoint} (point/range matchable). */
+    static DocField longValue(String name, long value) {
+      return new LongValue(name, value);
+    }
+
+    record StringValue(String name, String value) implements DocField {}
+
+    record LongValue(String name, long value) implements DocField {}
   }
 
   private record DocumentSpec(String key, List<DocField> fields) {}

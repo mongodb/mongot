@@ -42,7 +42,7 @@ public class QueryOptimizerTest {
     Fixture fixture = Fixture.create(/* flagOn= */ false, RuleRegistry.empty());
 
     double before = fixture.metrics.getOptimizerInvocations().count();
-    QueryOptimizer.Result<Clause> result = fixture.optimizer.optimize(clause, /* reader= */ null);
+    QueryOptimizer.Result<Clause> result = fixture.optimizer.optimize(clause);
 
     assertSame(clause, result.tree());
     assertTrue(result.audit().firedRules().isEmpty());
@@ -54,8 +54,7 @@ public class QueryOptimizerTest {
     var filter = new VectorSearchFilter.ClauseFilter(simpleEq("title", "fiction"));
     Fixture fixture = Fixture.create(/* flagOn= */ false, RuleRegistry.empty());
 
-    QueryOptimizer.Result<VectorSearchFilter> result =
-        fixture.optimizer.optimize(filter, /* reader= */ null);
+    QueryOptimizer.Result<VectorSearchFilter> result = fixture.optimizer.optimize(filter);
 
     assertSame(filter, result.tree());
   }
@@ -73,7 +72,7 @@ public class QueryOptimizerTest {
     double invocationsBefore = fixture.metrics.getOptimizerInvocations().count();
     long iterationSamplesBefore = fixture.metrics.getOptimizerIterations().count();
     long latencySamplesBefore = fixture.metrics.getOptimizerLatencySeconds().count();
-    QueryOptimizer.Result<Clause> result = fixture.optimizer.optimize(clause, /* reader= */ null);
+    QueryOptimizer.Result<Clause> result = fixture.optimizer.optimize(clause);
 
     assertSame("empty rule list must not rebuild the tree", clause, result.tree());
     assertTrue(result.audit().firedRules().isEmpty());
@@ -95,7 +94,7 @@ public class QueryOptimizerTest {
     Fixture fixture = Fixture.create(/* flagOn= */ true, RuleRegistry.empty());
 
     double before = fixture.metrics.getOptimizerInvocations().count();
-    QueryOptimizer.Result<Operator> result = fixture.optimizer.optimize(op, /* reader= */ null);
+    QueryOptimizer.Result<Operator> result = fixture.optimizer.optimize(op);
 
     assertSame(op, result.tree());
     assertEquals(before + 1.0, fixture.metrics.getOptimizerInvocations().count(), 0.0);
@@ -116,7 +115,7 @@ public class QueryOptimizerTest {
 
     double invocationsBefore = fixture.metrics.getOptimizerInvocations().count();
     long iterationSamplesBefore = fixture.metrics.getOptimizerIterations().count();
-    QueryOptimizer.Result<Operator> result = fixture.optimizer.optimize(op, /* reader= */ null);
+    QueryOptimizer.Result<Operator> result = fixture.optimizer.optimize(op);
 
     assertSame(op, result.tree());
     assertTrue(result.audit().firedRules().isEmpty());
@@ -167,7 +166,7 @@ public class QueryOptimizerTest {
     engineLogger.addAppender(appender);
     engineLogger.setLevel(Level.WARN);
     try {
-      QueryOptimizer.Result<Clause> result = fixture.optimizer.optimize(original, null);
+      QueryOptimizer.Result<Clause> result = fixture.optimizer.optimize(original);
 
       // Engine emits whatever it has after MAX_ITERATIONS; we don't make any guarantee about
       // identity here (the rule produced a different reference) but we DO require:
@@ -211,7 +210,7 @@ public class QueryOptimizerTest {
 
     try (var unused =
         Explain.setup(Optional.of(Explain.Verbosity.QUERY_PLANNER), Optional.empty())) {
-      QueryOptimizer.Result<Clause> result = fixture.optimizer.optimize(clause, null);
+      QueryOptimizer.Result<Clause> result = fixture.optimizer.optimize(clause);
       assertEquals(List.of("FakeRuleForExplainTest"), result.audit().firedRules());
 
       var explain = Explain.collect().orElseThrow();
@@ -231,7 +230,7 @@ public class QueryOptimizerTest {
 
     try (var unused =
         Explain.setup(Optional.of(Explain.Verbosity.QUERY_PLANNER), Optional.empty())) {
-      fixture.optimizer.optimize(clause, null);
+      fixture.optimizer.optimize(clause);
       var explain = Explain.collect().orElseThrow();
       assertTrue(explain.optimizerRulesFired().isEmpty());
     }
@@ -269,7 +268,7 @@ public class QueryOptimizerTest {
 
     double invocationsBefore = fixture.metrics.getOptimizerInvocations().count();
     double failuresBefore = fixture.metrics.getOptimizerFailures().count();
-    QueryOptimizer.Result<Clause> result = fixture.optimizer.optimize(clause, /* reader= */ null);
+    QueryOptimizer.Result<Clause> result = fixture.optimizer.optimize(clause);
 
     assertSame("a throwing rule must not alter the query tree", clause, result.tree());
     assertTrue(result.audit().firedRules().isEmpty());
@@ -304,7 +303,7 @@ public class QueryOptimizerTest {
     EqualsOperator op = new EqualsOperatorBuilder().path("a").value("1").build();
 
     double failuresBefore = fixture.metrics.getOptimizerFailures().count();
-    QueryOptimizer.Result<Operator> result = fixture.optimizer.optimize(op, /* reader= */ null);
+    QueryOptimizer.Result<Operator> result = fixture.optimizer.optimize(op);
 
     assertSame("a throwing rule must not alter the query tree", op, result.tree());
     assertEquals(failuresBefore + 1.0, fixture.metrics.getOptimizerFailures().count(), 0.0);

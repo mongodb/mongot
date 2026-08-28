@@ -1,7 +1,6 @@
 package com.xgen.mongot.index.query.optimizer.rules;
 
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
-import com.xgen.mongot.index.lucene.query.range.RangeQueryUtils;
 import com.xgen.mongot.index.query.operators.CompoundClause;
 import com.xgen.mongot.index.query.operators.CompoundOperator;
 import com.xgen.mongot.index.query.operators.Operator;
@@ -13,7 +12,6 @@ import com.xgen.mongot.index.query.optimizer.OperatorRewriteRule;
 import com.xgen.mongot.index.query.optimizer.RewriteContext;
 import com.xgen.mongot.util.bson.parser.BsonParseContext;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -25,11 +23,11 @@ import java.util.Set;
  * eligible pairs in the slot fuse in one rule application, so a many-pair slot does not spend one
  * engine fixed-point iteration per pair.
  *
- * <p>Unlike {@link RangeBoundsMergeMqlSimpleClauseRule}, this rule performs the single-valued check
- * inside the rule rather than delegating to the factory: the output is a plain {@link
- * RangeOperator} structurally indistinguishable from one the user could have written, so no factory
- * fallback path exists. The rule refuses to fire when any relevant Lucene point field is
- * multivalued.
+ * <p>Like {@link RangeBoundsMergeMqlSimpleClauseRule}, the rule fuses without consulting the index
+ * — the multi-valued fallback lives in the factory translation step (see {@code
+ * RangeQueryFactory}). The fused operator is marked {@link RangeOperator#fusedByOptimizer()} so
+ * translation can distinguish it from a user-written closed range, whose per-element array
+ * semantics are documented behavior and must not be decomposed.
  *
  * <p>Eligible bound types: {@link NumericRangeBound} and {@link DateRangeBound} only (the
  * BKD-scan-dominated translations). Both operators in the pair must carry the same bound type and
@@ -44,9 +42,6 @@ import java.util.Set;
  * half of the pair, so a pair fuses only when both operators carry the same {@code doesNotAffect}
  * fields (order-insensitive, absent equivalent to empty); the fused operator keeps the lower-bound
  * operator's value.
- *
- * <p>The rule conservatively skips indices with embedded fields because field-name computation at
- * rule time lacks the per-query embedded root that would be needed for embedded-document paths.
  */
 public final class RangeBoundsMergeOperatorRule implements OperatorRewriteRule {
 
@@ -67,14 +62,10 @@ public final class RangeBoundsMergeOperatorRule implements OperatorRewriteRule {
     if (!(operator instanceof CompoundOperator compound)) {
       return operator;
     }
-    if (context.factoryContext().isIndexWithEmbeddedFields()) {
-      return operator;
-    }
 
     // Only the filter slot is fused: must is not supported because each must clause contributes
     // its own score, so fusing a must pair would change user-visible scoring.
-    Optional<List<Operator>> rewrittenFilter =
-        fuseEligiblePairs(compound.filter().operators(), context);
+    Optional<List<Operator>> rewrittenFilter = fuseEligiblePairs(compound.filter().operators());
     if (rewrittenFilter.isPresent()) {
       return new CompoundOperator(
           compound.score(),
@@ -89,8 +80,7 @@ public final class RangeBoundsMergeOperatorRule implements OperatorRewriteRule {
     return operator;
   }
 
-  private static Optional<List<Operator>> fuseEligiblePairs(
-      List<? extends Operator> operators, RewriteContext context) {
+  private static Optional<List<Operator>> fuseEligiblePairs(List<? extends Operator> operators) {
     List<Operator> result = new ArrayList<>(operators);
     for (int i = 0; i < result.size(); i++) {
       if (!(result.get(i) instanceof RangeOperator op1) || !isEligibleHalfOpen(op1)) {
@@ -122,13 +112,10 @@ public final class RangeBoundsMergeOperatorRule implements OperatorRewriteRule {
         if (fusedBounds.isEmpty()) {
           continue;
         }
-        if (!isSingleValuedForPaths(lower, context)) {
-          continue;
-        }
 
         RangeOperator fused =
             new RangeOperator(
-                lower.score(), lower.paths(), fusedBounds.get(), lower.doesNotAffect());
+                lower.score(), lower.paths(), fusedBounds.get(), lower.doesNotAffect(), true);
 
         result.set(i, fused);
         result.remove(j);
@@ -156,15 +143,6 @@ public final class RangeBoundsMergeOperatorRule implements OperatorRewriteRule {
 
   private static boolean isLowerOnly(RangeOperator op) {
     return op.bounds().getLower().isPresent() && op.bounds().getUpper().isEmpty();
-  }
-
-  private static boolean isSingleValuedForPaths(RangeOperator lower, RewriteContext context) {
-    try {
-      return RangeQueryUtils.hasNoArrayData(
-          context.indexReader(), lower.bounds(), lower.paths(), Optional.empty());
-    } catch (IOException e) {
-      return false;
-    }
   }
 
   private static Optional<RangeBound<?>> fuseBounds(RangeBound<?> lower, RangeBound<?> upper) {

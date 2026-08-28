@@ -221,7 +221,7 @@ public class ClauseRewriteEngineTest {
     IndexMetricsUpdater.QueryingMetricsUpdater metrics =
         new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory());
     return new RewriteContext(
-        null, factoryContext, DynamicFeatureFlagRegistry.empty(), metrics, new RewriteAudit());
+        factoryContext, DynamicFeatureFlagRegistry.empty(), metrics, new RewriteAudit());
   }
 
   /** Rule stub driven by the given function; the flag is arbitrary — the engine never reads it. */

@@ -25,35 +25,20 @@ import com.xgen.mongot.index.query.points.StringPoint;
 import com.xgen.mongot.index.query.scores.Score;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
-import java.io.IOException;
 import java.util.Date;
 import java.util.List;
 import java.util.Optional;
-import org.apache.lucene.document.Document;
-import org.apache.lucene.index.DirectoryReader;
-import org.apache.lucene.index.FilterDirectoryReader;
-import org.apache.lucene.index.FilterLeafReader;
-import org.apache.lucene.index.IndexReader;
-import org.apache.lucene.index.IndexWriter;
-import org.apache.lucene.index.IndexWriterConfig;
-import org.apache.lucene.index.LeafReader;
-import org.apache.lucene.index.MultiReader;
-import org.apache.lucene.index.PointValues;
-import org.apache.lucene.store.ByteBuffersDirectory;
-import org.apache.lucene.store.Directory;
 import org.junit.Test;
 import org.mockito.Mockito;
 
 /**
  * Per-rule tests for {@link RangeBoundsMergeOperatorRule}. Complementary half-open {@link
- * RangeOperator} pairs on the same path fuse into a single fully-bounded operator; ineligible
- * shapes (wrong slot, mismatched or multiple paths, non-complementary, differing {@code
- * doesNotAffect}, embedded index) are left untouched.
+ * RangeOperator} pairs on the same path fuse into a single fully-bounded operator marked {@code
+ * fusedByOptimizer}; ineligible shapes (wrong slot, mismatched or multiple paths,
+ * non-complementary, differing {@code doesNotAffect}) are left untouched.
  *
- * <p>Most tests use an empty {@code MultiReader}, which the single-valued check trivially accepts.
- * The index-state guards — multi-valued blocking and the IOException fallback — are covered here
- * with small real readers, and translation through the {@code $search} entry point is covered in
- * {@code RangeBoundsMergeSearchQueryTest}.
+ * <p>The rule never consults the index: the array-data fallback for fused operators lives in the
+ * translation step, covered in {@code RangeBoundsMergeSearchQueryTest}.
  */
 public class RangeBoundsMergeOperatorRuleTest {
 
@@ -78,6 +63,9 @@ public class RangeBoundsMergeOperatorRuleTest {
     assertFalse(bounds.lowerInclusive());
     assertFalse(bounds.upperInclusive());
     assertEquals(lower.score(), fused.score());
+    assertTrue(
+        "the fused operator must carry the marker that keys the translation fallback",
+        fused.fusedByOptimizer());
   }
 
   @Test
@@ -267,16 +255,19 @@ public class RangeBoundsMergeOperatorRuleTest {
   // ---- guard conditions that prevent firing ----
 
   @Test
-  public void embeddedFieldsIndex_doesNotApply() {
+  public void embeddedFieldsIndex_fuses() {
+    // Fusion no longer needs Lucene field names at rule time, so an index with embedded fields
+    // does not block it; the per-scope array-data decision happens at translation.
     RangeOperator lower = numericLower("x", 1L, false);
     RangeOperator upper = numericUpper("x", 10L, false);
     CompoundOperator input = compoundWithFilter(List.of(lower, upper));
 
     QueryFactoryContext ctx = Mockito.mock(QueryFactoryContext.class);
     Mockito.when(ctx.isIndexWithEmbeddedFields()).thenReturn(true);
-    Operator result = this.rule.apply(input, newContext(ctx));
+    CompoundOperator result = (CompoundOperator) this.rule.apply(input, newContext(ctx));
 
-    assertSame("rule must not fire when index has embedded fields", result, input);
+    assertNotSame("rule expected to fire on an index with embedded fields", result, input);
+    assertEquals(1, result.filter().operators().size());
   }
 
   @Test
@@ -418,55 +409,6 @@ public class RangeBoundsMergeOperatorRuleTest {
         once);
   }
 
-  // ---- index-state guards (single-valued check) ----
-
-  @Test
-  public void filterSlot_multiValuedPointField_doesNotApply() throws Exception {
-    // Two points in one document's int64 multi-value variant: different values could satisfy
-    // each half-open bound, so the fused closed range would drop matches.
-    Document multiValued = new Document();
-    multiValued.add(new org.apache.lucene.document.LongPoint("$type:int64Multiple/price", 3L));
-    multiValued.add(new org.apache.lucene.document.LongPoint("$type:int64Multiple/price", 7L));
-    CompoundOperator input =
-        compoundWithFilter(
-            List.of(numericLower("price", 1L, false), numericUpper("price", 10L, false)));
-
-    try (DirectoryReader reader = readerWith(multiValued)) {
-      Operator result = this.rule.apply(input, newContext(reader));
-      assertSame("rule must not fire when the point field is multivalued", result, input);
-    }
-  }
-
-  @Test
-  public void filterSlot_singleValuedPointFieldWithDocuments_fuses() throws Exception {
-    Document singleValued = new Document();
-    singleValued.add(new org.apache.lucene.document.LongPoint("$type:int64Multiple/price", 3L));
-    CompoundOperator input =
-        compoundWithFilter(
-            List.of(numericLower("price", 1L, false), numericUpper("price", 10L, false)));
-
-    try (DirectoryReader reader = readerWith(singleValued)) {
-      CompoundOperator result = (CompoundOperator) this.rule.apply(input, newContext(reader));
-      assertNotSame("rule expected to fire when no document has two points", result, input);
-      assertEquals(1, result.filter().operators().size());
-    }
-  }
-
-  @Test
-  public void filterSlot_pointValuesReadFailure_doesNotApply() throws Exception {
-    Document singleValued = new Document();
-    singleValued.add(new org.apache.lucene.document.LongPoint("$type:int64Multiple/price", 3L));
-    CompoundOperator input =
-        compoundWithFilter(
-            List.of(numericLower("price", 1L, false), numericUpper("price", 10L, false)));
-
-    try (DirectoryReader reader = new ThrowingPointValuesReader(readerWith(singleValued))) {
-      Operator result = this.rule.apply(input, newContext(reader));
-      assertSame(
-          "rule must not fire when the single-valued check cannot read the index", result, input);
-    }
-  }
-
   // ---- construction helpers ----
 
   private static RangeOperator numericLower(String path, long value, boolean inclusive) {
@@ -564,86 +506,15 @@ public class RangeBoundsMergeOperatorRuleTest {
   }
 
   private static RewriteContext newContext() {
-    return newContext(emptyReader());
+    QueryFactoryContext factoryContext = Mockito.mock(QueryFactoryContext.class);
+    Mockito.when(factoryContext.isIndexWithEmbeddedFields()).thenReturn(false);
+    return newContext(factoryContext);
   }
 
   private static RewriteContext newContext(QueryFactoryContext factoryContext) {
-    return newContext(emptyReader(), factoryContext);
-  }
-
-  private static RewriteContext newContext(IndexReader reader) {
-    QueryFactoryContext factoryContext = Mockito.mock(QueryFactoryContext.class);
-    Mockito.when(factoryContext.isIndexWithEmbeddedFields()).thenReturn(false);
-    return newContext(reader, factoryContext);
-  }
-
-  private static RewriteContext newContext(IndexReader reader, QueryFactoryContext factoryContext) {
     IndexMetricsUpdater.QueryingMetricsUpdater metrics =
         new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory());
     return new RewriteContext(
-        reader, factoryContext, DynamicFeatureFlagRegistry.empty(), metrics, new RewriteAudit());
-  }
-
-  /**
-   * {@code MultiReader()} with no sub-readers gives empty leaves — the single-valued check
-   * trivially returns true (no segments to check), which is the happy path for most tests here.
-   */
-  private static IndexReader emptyReader() {
-    try {
-      return new MultiReader();
-    } catch (IOException e) {
-      throw new RuntimeException(e);
-    }
-  }
-
-  private static DirectoryReader readerWith(Document document) throws IOException {
-    Directory directory = new ByteBuffersDirectory();
-    try (IndexWriter writer = new IndexWriter(directory, new IndexWriterConfig())) {
-      writer.addDocument(document);
-    }
-    return DirectoryReader.open(directory);
-  }
-
-  /**
-   * Wraps a reader so every point-values lookup throws, exercising the rule's fallback of refusing
-   * to fuse when the single-valued check cannot read the index.
-   */
-  private static final class ThrowingPointValuesReader extends FilterDirectoryReader {
-
-    private ThrowingPointValuesReader(DirectoryReader in) throws IOException {
-      super(
-          in,
-          new SubReaderWrapper() {
-            @Override
-            public LeafReader wrap(LeafReader reader) {
-              return new FilterLeafReader(reader) {
-                @Override
-                public PointValues getPointValues(String field) throws IOException {
-                  throw new IOException("point values unavailable");
-                }
-
-                @Override
-                public CacheHelper getCoreCacheHelper() {
-                  return this.in.getCoreCacheHelper();
-                }
-
-                @Override
-                public CacheHelper getReaderCacheHelper() {
-                  return this.in.getReaderCacheHelper();
-                }
-              };
-            }
-          });
-    }
-
-    @Override
-    protected DirectoryReader doWrapDirectoryReader(DirectoryReader in) throws IOException {
-      return new ThrowingPointValuesReader(in);
-    }
-
-    @Override
-    public CacheHelper getReaderCacheHelper() {
-      return this.in.getReaderCacheHelper();
-    }
+        factoryContext, DynamicFeatureFlagRegistry.empty(), metrics, new RewriteAudit());
   }
 }

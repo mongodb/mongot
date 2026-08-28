@@ -10,7 +10,6 @@ import com.xgen.mongot.index.query.operators.Operator;
 import com.xgen.mongot.index.query.operators.VectorSearchFilter;
 import com.xgen.mongot.index.query.operators.mql.Clause;
 import java.util.concurrent.TimeUnit;
-import org.apache.lucene.index.IndexReader;
 
 /**
  * Entry point for the rule-based query optimizer. One instance per {@link QueryFactoryContext};
@@ -44,10 +43,10 @@ public final class QueryOptimizer {
    * Dispatches to the engine matching the filter subtype. The kill switch is evaluated once, by the
    * delegated overload.
    */
-  public Result<VectorSearchFilter> optimize(VectorSearchFilter filter, IndexReader indexReader) {
+  public Result<VectorSearchFilter> optimize(VectorSearchFilter filter) {
     return switch (filter) {
       case VectorSearchFilter.ClauseFilter clauseFilter -> {
-        Result<Clause> result = optimize(clauseFilter.clause(), indexReader);
+        Result<Clause> result = optimize(clauseFilter.clause());
         yield new Result<>(
             result.tree() == clauseFilter.clause()
                 ? clauseFilter
@@ -55,7 +54,7 @@ public final class QueryOptimizer {
             result.audit());
       }
       case VectorSearchFilter.OperatorFilter operatorFilter -> {
-        Result<Operator> result = optimize(operatorFilter.operator(), indexReader);
+        Result<Operator> result = optimize(operatorFilter.operator());
         yield new Result<>(
             result.tree() == operatorFilter.operator()
                 ? operatorFilter
@@ -66,7 +65,7 @@ public final class QueryOptimizer {
   }
 
   /** Optimize a {@link Clause} tree directly. */
-  public Result<Clause> optimize(Clause root, IndexReader indexReader) {
+  public Result<Clause> optimize(Clause root) {
     if (!isEnabled()) {
       return Result.unchanged(root);
     }
@@ -77,7 +76,7 @@ public final class QueryOptimizer {
       if (filtered.clauseRules().isEmpty()) {
         return Result.unchanged(root);
       }
-      RewriteContext context = newContext(indexReader);
+      RewriteContext context = newContext();
       Clause rewritten = new ClauseRewriteEngine(filtered.clauseRules()).rewrite(root, context);
       return finish(root, rewritten, context.audit(), startNanos);
     } catch (RuntimeException e) {
@@ -86,7 +85,7 @@ public final class QueryOptimizer {
   }
 
   /** Optimize an {@link Operator} tree directly. */
-  public Result<Operator> optimize(Operator root, IndexReader indexReader) {
+  public Result<Operator> optimize(Operator root) {
     if (!isEnabled()) {
       return Result.unchanged(root);
     }
@@ -97,7 +96,7 @@ public final class QueryOptimizer {
       if (filtered.operatorRules().isEmpty()) {
         return Result.unchanged(root);
       }
-      RewriteContext context = newContext(indexReader);
+      RewriteContext context = newContext();
       Operator rewritten =
           new OperatorRewriteEngine(filtered.operatorRules()).rewrite(root, context);
       return finish(root, rewritten, context.audit(), startNanos);
@@ -118,9 +117,8 @@ public final class QueryOptimizer {
     return Result.unchanged(root);
   }
 
-  private RewriteContext newContext(IndexReader indexReader) {
+  private RewriteContext newContext() {
     return new RewriteContext(
-        indexReader,
         this.factoryContext,
         this.dynamicFeatureFlagRegistry,
         this.factoryContext.getMetrics(),

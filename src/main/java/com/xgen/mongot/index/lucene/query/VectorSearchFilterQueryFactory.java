@@ -1,21 +1,12 @@
 package com.xgen.mongot.index.lucene.query;
 
-import com.google.common.flogger.FluentLogger;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.index.lucene.query.context.QueryFactoryContext;
 import com.xgen.mongot.index.lucene.query.context.VectorQueryFactoryContext;
-import com.xgen.mongot.index.lucene.query.range.RangeQueryUtils;
 import com.xgen.mongot.index.lucene.query.util.MappingCompatibilityValidator;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.operators.Operator;
 import com.xgen.mongot.index.query.operators.VectorSearchFilter;
-import com.xgen.mongot.index.query.operators.bound.BooleanRangeBound;
-import com.xgen.mongot.index.query.operators.bound.DateRangeBound;
-import com.xgen.mongot.index.query.operators.bound.NumericRangeBound;
-import com.xgen.mongot.index.query.operators.bound.ObjectIdRangeBound;
-import com.xgen.mongot.index.query.operators.bound.RangeBound;
-import com.xgen.mongot.index.query.operators.bound.StringRangeBound;
-import com.xgen.mongot.index.query.operators.bound.UuidRangeBound;
 import com.xgen.mongot.index.query.operators.mql.AndClause;
 import com.xgen.mongot.index.query.operators.mql.Clause;
 import com.xgen.mongot.index.query.operators.mql.ClosedRangeBoundComparisonOperator;
@@ -37,8 +28,6 @@ import com.xgen.mongot.index.query.optimizer.rules.DefaultRuleRegistry;
 import com.xgen.mongot.util.FieldPath;
 import java.io.IOException;
 import java.util.List;
-import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
@@ -46,8 +35,6 @@ import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.Query;
 
 public class VectorSearchFilterQueryFactory {
-
-  private static final FluentLogger FLOGGER = FluentLogger.forEnclosingClass();
 
   private final QueryFactoryContext factoryContext;
   private final RangeQueryFactory rangeQueryFactory;
@@ -108,8 +95,7 @@ public class VectorSearchFilterQueryFactory {
 
   Query createLuceneFilter(VectorSearchFilter filter, SingleQueryContext singleQueryContext)
       throws InvalidQueryException, IOException {
-    VectorSearchFilter optimized =
-        this.queryOptimizer.optimize(filter, singleQueryContext.getIndexReader()).tree();
+    VectorSearchFilter optimized = this.queryOptimizer.optimize(filter).tree();
     return switch (optimized) {
       case VectorSearchFilter.ClauseFilter clauseFilter ->
           createLuceneFilterFromClause(clauseFilter.clause(), singleQueryContext);
@@ -222,8 +208,8 @@ public class VectorSearchFilterQueryFactory {
           this.rangeQueryFactory.fromBounds(
               openRangeBoundComparisonOperator.getBounds(), List.of(path), singleQueryContext);
       case ClosedRangeBoundComparisonOperator closedRangeBoundComparisonOperator ->
-          createLuceneFilterForClosedRange(
-              path, closedRangeBoundComparisonOperator, singleQueryContext);
+          this.rangeQueryFactory.fromFusedBounds(
+              closedRangeBoundComparisonOperator.bounds(), List.of(path), singleQueryContext);
       case EqOperator eqOperator ->
           this.equalsQueryFactory.fromValue(
               eqOperator.value(), path, singleQueryContext.getEmbeddedRoot());
@@ -263,88 +249,5 @@ public class VectorSearchFilterQueryFactory {
           this.existsQueryFactory.existsQuery(
               path.toString(), existsOperator.value(), singleQueryContext);
     };
-  }
-
-  private Query createLuceneFilterForClosedRange(
-      FieldPath path,
-      ClosedRangeBoundComparisonOperator closedRange,
-      SingleQueryContext singleQueryContext)
-      throws InvalidQueryException {
-    RangeBound<? extends Comparable<?>> bounds = closedRange.bounds();
-    if (canEmitFusedClosedRange(
-        bounds, path, singleQueryContext.getEmbeddedRoot(), singleQueryContext.getIndexReader())) {
-      return this.rangeQueryFactory.fromBounds(bounds, List.of(path), singleQueryContext);
-    }
-    // Fall back to unoptimized filter with two open ranges.
-    return andOfTwoOpens(bounds, path, singleQueryContext);
-  }
-
-  private Query andOfTwoOpens(
-      RangeBound<? extends Comparable<?>> bounds,
-      FieldPath path,
-      SingleQueryContext singleQueryContext)
-      throws InvalidQueryException {
-    RangeBound<? extends Comparable<?>> lowerHalf = lowerHalf(bounds);
-    RangeBound<? extends Comparable<?>> upperHalf = upperHalf(bounds);
-    Query lowerQuery =
-        this.rangeQueryFactory.fromBounds(lowerHalf, List.of(path), singleQueryContext);
-    Query upperQuery =
-        this.rangeQueryFactory.fromBounds(upperHalf, List.of(path), singleQueryContext);
-    return new BooleanQuery.Builder()
-        .add(lowerQuery, BooleanClause.Occur.MUST)
-        .add(upperQuery, BooleanClause.Occur.MUST)
-        .build();
-  }
-
-  private static RangeBound<? extends Comparable<?>> lowerHalf(
-      RangeBound<? extends Comparable<?>> bounds) {
-    return switch (bounds) {
-      case NumericRangeBound numeric ->
-          new NumericRangeBound(
-              numeric.getLower(), Optional.empty(), numeric.lowerInclusive(), false);
-      case DateRangeBound date ->
-          new DateRangeBound(date.getLower(), Optional.empty(), date.lowerInclusive(), false);
-      // Unreachable: the ClosedRangeBoundComparisonOperator constructor admits only the two bound
-      // types above.
-      case BooleanRangeBound ignored -> throw unsupportedClosedRangeBoundType(bounds);
-      case ObjectIdRangeBound ignored -> throw unsupportedClosedRangeBoundType(bounds);
-      case StringRangeBound ignored -> throw unsupportedClosedRangeBoundType(bounds);
-      case UuidRangeBound ignored -> throw unsupportedClosedRangeBoundType(bounds);
-    };
-  }
-
-  private static RangeBound<? extends Comparable<?>> upperHalf(
-      RangeBound<? extends Comparable<?>> bounds) {
-    return switch (bounds) {
-      case NumericRangeBound numeric ->
-          new NumericRangeBound(
-              Optional.empty(), numeric.getUpper(), false, numeric.upperInclusive());
-      case DateRangeBound date ->
-          new DateRangeBound(Optional.empty(), date.getUpper(), false, date.upperInclusive());
-      // Unreachable: the ClosedRangeBoundComparisonOperator constructor admits only the two bound
-      // types above.
-      case BooleanRangeBound ignored -> throw unsupportedClosedRangeBoundType(bounds);
-      case ObjectIdRangeBound ignored -> throw unsupportedClosedRangeBoundType(bounds);
-      case StringRangeBound ignored -> throw unsupportedClosedRangeBoundType(bounds);
-      case UuidRangeBound ignored -> throw unsupportedClosedRangeBoundType(bounds);
-    };
-  }
-
-  private static IllegalStateException unsupportedClosedRangeBoundType(RangeBound<?> bounds) {
-    return new IllegalStateException(
-        "unsupported bound type: " + bounds.getClass().getSimpleName());
-  }
-
-  private static boolean canEmitFusedClosedRange(
-      RangeBound<?> bounds, FieldPath path, Optional<FieldPath> embeddedRoot, IndexReader reader) {
-    try {
-      return RangeQueryUtils.hasNoArrayData(reader, bounds, List.of(path), embeddedRoot);
-    } catch (IOException e) {
-      FLOGGER.atWarning().atMostEvery(5, TimeUnit.MINUTES).withCause(e).log(
-          "Falling back to AND-of-two-opens for closed-range translation; could not read "
-              + "PointValues for path=%s",
-          path);
-      return false;
-    }
   }
 }

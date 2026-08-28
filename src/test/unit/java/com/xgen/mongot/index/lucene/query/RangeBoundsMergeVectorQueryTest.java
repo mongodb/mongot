@@ -19,10 +19,14 @@ import com.xgen.mongot.index.lucene.query.util.BooleanComposer;
 import com.xgen.mongot.index.lucene.util.LuceneDoubleConversionUtils;
 import com.xgen.mongot.index.query.VectorSearchQuery;
 import com.xgen.mongot.index.query.operators.VectorSearchFilter;
+import com.xgen.mongot.index.query.operators.bound.NumericRangeBound;
 import com.xgen.mongot.index.query.operators.mql.Clause;
+import com.xgen.mongot.index.query.operators.mql.ClosedRangeBoundComparisonOperator;
 import com.xgen.mongot.index.query.operators.mql.MqlFilterOperator;
+import com.xgen.mongot.index.query.points.LongPoint;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.Vector;
+import com.xgen.mongot.util.bson.parser.BsonParseContext;
 import com.xgen.testing.mongot.index.definition.VectorDataFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.query.ApproximateVectorQueryCriteriaBuilder;
 import com.xgen.testing.mongot.index.query.VectorQueryBuilder;
@@ -266,6 +270,59 @@ public class RangeBoundsMergeVectorQueryTest {
                 .build());
 
     translation(optimizerEnabled()).assertTranslatedTo(vectorQuery(operators), expected);
+  }
+
+  @Test
+  public void gtLtWithNe_optimizerOn_translatesSameAsPreFusedForm() throws Exception {
+    // A $ne between the bounds does not block the merge: the pair fuses in place of its earlier
+    // member and the $ne is left untouched. Equivalence target: the same clause with the pair
+    // already fused, translated with the optimizer off, so the expectation cannot drift from the
+    // factory's real translation of a mixed closed-range clause.
+    List<MqlFilterOperator> unfused =
+        List.of(
+            MqlFilterOperatorBuilder.gt().value(ValueBuilder.longNumber(0L)).build(),
+            MqlFilterOperatorBuilder.ne().value(ValueBuilder.longNumber(50L)).build(),
+            MqlFilterOperatorBuilder.lt().value(ValueBuilder.longNumber(100L)).build());
+    List<MqlFilterOperator> preFused =
+        List.of(
+            closedRange(0L, 100L, false, false),
+            MqlFilterOperatorBuilder.ne().value(ValueBuilder.longNumber(50L)).build());
+
+    Query optimized = translation(optimizerEnabled()).translate(vectorQuery(unfused));
+    Query expected =
+        translation(DynamicFeatureFlagRegistry.empty()).translate(vectorQuery(preFused));
+
+    assertEquals(expected, optimized);
+  }
+
+  @Test
+  public void gteLteWithEq_optimizerOn_translatesSameAsPreFusedForm() throws Exception {
+    List<MqlFilterOperator> unfused =
+        List.of(
+            MqlFilterOperatorBuilder.gte().value(ValueBuilder.longNumber(2L)).build(),
+            MqlFilterOperatorBuilder.lte().value(ValueBuilder.longNumber(9L)).build(),
+            MqlFilterOperatorBuilder.eq().value(ValueBuilder.longNumber(5L)).build());
+    List<MqlFilterOperator> preFused =
+        List.of(
+            closedRange(2L, 9L, true, true),
+            MqlFilterOperatorBuilder.eq().value(ValueBuilder.longNumber(5L)).build());
+
+    Query optimized = translation(optimizerEnabled()).translate(vectorQuery(unfused));
+    Query expected =
+        translation(DynamicFeatureFlagRegistry.empty()).translate(vectorQuery(preFused));
+
+    assertEquals(expected, optimized);
+  }
+
+  private static ClosedRangeBoundComparisonOperator closedRange(
+      long lower, long upper, boolean lowerInclusive, boolean upperInclusive) throws Exception {
+    return new ClosedRangeBoundComparisonOperator(
+        NumericRangeBound.create(
+            BsonParseContext.root(),
+            Optional.of(new LongPoint(lower)),
+            Optional.of(new LongPoint(upper)),
+            lowerInclusive,
+            upperInclusive));
   }
 
   @Test

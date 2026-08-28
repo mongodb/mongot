@@ -6,10 +6,13 @@ import static org.junit.Assert.assertTrue;
 
 import com.xgen.mongot.index.query.optimizer.DifferentialTestHarness.DocField;
 import java.util.Set;
+import org.apache.lucene.document.LongPoint;
+import org.apache.lucene.document.SortedSetDocValuesField;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.TermQuery;
+import org.apache.lucene.util.BytesRef;
 import org.junit.Test;
 
 /**
@@ -61,6 +64,59 @@ public class DifferentialTestHarnessTest {
       assertEquals(Set.of("doc-c"), result.matchedByRewritten());
       assertEquals(Set.of("doc-a", "doc-b"), result.onlyInOriginal());
       assertEquals(Set.of("doc-c"), result.onlyInRewritten());
+    }
+  }
+
+  @Test
+  public void longValueField_matchesPointRangeQuery() throws Exception {
+    try (var harness =
+        DifferentialTestHarness.builder()
+            .addDocument("doc-a", DocField.longValue("price", 5))
+            .addDocument("doc-b", DocField.longValue("price", 50))
+            .addDocument("doc-c", DocField.longValue("price", 500))
+            .build()) {
+
+      var range = LongPoint.newRangeQuery("price", 10, 100);
+
+      var result = harness.compare(range, range);
+
+      assertTrue(result.describe(), result.equivalent());
+      assertEquals(Set.of("doc-b"), result.matchedByOriginal());
+    }
+  }
+
+  @Test
+  public void multiValuedLongField_matchesWhenAnyValueInRange() throws Exception {
+    try (var harness =
+        DifferentialTestHarness.builder()
+            .addDocument("doc-a", DocField.longValue("price", 5), DocField.longValue("price", 500))
+            .addDocument("doc-b", DocField.longValue("price", 5))
+            .build()) {
+
+      var range = LongPoint.newRangeQuery("price", 100, 1000);
+
+      var result = harness.compare(range, range);
+
+      assertTrue(result.describe(), result.equivalent());
+      assertEquals(Set.of("doc-a"), result.matchedByOriginal());
+    }
+  }
+
+  @Test
+  public void stringField_matchesDocValuesLeg() throws Exception {
+    try (var harness =
+        DifferentialTestHarness.builder()
+            .addDocument("doc-a", DocField.of("category", "fiction"))
+            .addDocument("doc-b", DocField.of("category", "non-fiction"))
+            .build()) {
+
+      var docValuesQuery =
+          SortedSetDocValuesField.newSlowExactQuery("category", new BytesRef("fiction"));
+
+      var result = harness.compare(docValuesQuery, docValuesQuery);
+
+      assertTrue(result.describe(), result.equivalent());
+      assertEquals(Set.of("doc-a"), result.matchedByOriginal());
     }
   }
 }

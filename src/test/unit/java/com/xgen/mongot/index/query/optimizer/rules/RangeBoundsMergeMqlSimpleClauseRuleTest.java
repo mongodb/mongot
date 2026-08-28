@@ -14,6 +14,11 @@ import com.xgen.mongot.index.query.operators.bound.RangeBound;
 import com.xgen.mongot.index.query.operators.mql.AndClause;
 import com.xgen.mongot.index.query.operators.mql.Clause;
 import com.xgen.mongot.index.query.operators.mql.ClosedRangeBoundComparisonOperator;
+import com.xgen.mongot.index.query.operators.mql.ExistsOperator;
+import com.xgen.mongot.index.query.operators.mql.InOperator;
+import com.xgen.mongot.index.query.operators.mql.MqlFilterOperator;
+import com.xgen.mongot.index.query.operators.mql.NeOperator;
+import com.xgen.mongot.index.query.operators.mql.OpenRangeBoundComparisonOperator;
 import com.xgen.mongot.index.query.operators.mql.SimpleClause;
 import com.xgen.mongot.index.query.operators.type.ValueType;
 import com.xgen.mongot.index.query.optimizer.RewriteAudit;
@@ -26,15 +31,17 @@ import com.xgen.testing.mongot.index.query.operators.mql.MqlFilterOperatorBuilde
 import com.xgen.testing.mongot.index.query.operators.mql.ValueBuilder;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import java.util.Date;
+import java.util.List;
 import java.util.Optional;
 import org.junit.Test;
 import org.mockito.Mockito;
 
 /**
- * Per-rule tests for {@link RangeBoundsMergeMqlSimpleClauseRule}. Eligible shapes (NUMBER and DATE
- * pairs in each operand order, with each combination of inclusive/exclusive endpoints) collapse to
- * a single {@link ClosedRangeBoundComparisonOperator}; ineligible shapes (single operator, two
- * lower bounds, mismatched value types, mixed-with-eq, non-NUMBER/DATE) leave the clause untouched.
+ * Per-rule tests for {@link RangeBoundsMergeMqlSimpleClauseRule}. Complementary bound pairs (NUMBER
+ * and DATE, in each operand order, with each combination of inclusive/exclusive endpoints) collapse
+ * to a {@link ClosedRangeBoundComparisonOperator} apiece, pairing by value type and leaving any
+ * other operators on the clause in place; shapes with no fusable pair (single operator, two lower
+ * bounds, mismatched value types, non-NUMBER/DATE) leave the clause untouched.
  *
  * <p>The factory's index-state precondition is intentionally NOT exercised here — the rule emits
  * the closed operator optimistically and the factory falls back to AND-of-two-opens when the index
@@ -163,6 +170,166 @@ public class RangeBoundsMergeMqlSimpleClauseRuleTest {
         ((ClosedRangeBoundComparisonOperator) ((SimpleClause) result).mqlFilterOperators().get(0))
             .bounds();
     assertTrue(bounds instanceof DateRangeBound);
+  }
+
+  @Test
+  public void gtLtWithNe_collapsesPairAndKeepsNe() throws Exception {
+    // The fused operator replaces the pair's earlier member in place, so the $ne that sat between
+    // the bounds ends up after the closed range.
+    SimpleClause input =
+        ClauseBuilder.simpleClause()
+            .path("price")
+            .addOperator(MqlFilterOperatorBuilder.gt().value(ValueBuilder.longNumber(0L)))
+            .addOperator(MqlFilterOperatorBuilder.ne().value(ValueBuilder.longNumber(50L)))
+            .addOperator(MqlFilterOperatorBuilder.lt().value(ValueBuilder.longNumber(100L)))
+            .build();
+
+    SimpleClause result = (SimpleClause) applyRule(input);
+
+    assertEquals(2, result.mqlFilterOperators().size());
+    assertClosedRangeOperator(result.mqlFilterOperators().get(0), ValueType.NUMBER, false, false);
+    assertTrue(result.mqlFilterOperators().get(1) instanceof NeOperator);
+  }
+
+  @Test
+  public void gtLtWithIn_collapsesPairAndKeepsIn() throws Exception {
+    SimpleClause input =
+        ClauseBuilder.simpleClause()
+            .path("price")
+            .addOperator(MqlFilterOperatorBuilder.gt().value(ValueBuilder.longNumber(0L)))
+            .addOperator(MqlFilterOperatorBuilder.lt().value(ValueBuilder.longNumber(100L)))
+            .addOperator(
+                MqlFilterOperatorBuilder.in()
+                    .values(List.of(ValueBuilder.longNumber(10L), ValueBuilder.longNumber(20L)))
+                    .build())
+            .build();
+
+    SimpleClause result = (SimpleClause) applyRule(input);
+
+    assertEquals(2, result.mqlFilterOperators().size());
+    assertClosedRangeOperator(result.mqlFilterOperators().get(0), ValueType.NUMBER, false, false);
+    assertTrue(result.mqlFilterOperators().get(1) instanceof InOperator);
+  }
+
+  @Test
+  public void gtLtWithExists_collapsesPairAndKeepsExists() throws Exception {
+    SimpleClause input =
+        ClauseBuilder.simpleClause()
+            .path("price")
+            .addOperator(MqlFilterOperatorBuilder.exists().value(true))
+            .addOperator(MqlFilterOperatorBuilder.gte().value(ValueBuilder.longNumber(0L)))
+            .addOperator(MqlFilterOperatorBuilder.lte().value(ValueBuilder.longNumber(100L)))
+            .build();
+
+    SimpleClause result = (SimpleClause) applyRule(input);
+
+    assertEquals(2, result.mqlFilterOperators().size());
+    assertTrue(result.mqlFilterOperators().get(0) instanceof ExistsOperator);
+    assertClosedRangeOperator(result.mqlFilterOperators().get(1), ValueType.NUMBER, true, true);
+  }
+
+  @Test
+  public void twoPairs_collapsesEachToItsOwnClosedRange() throws Exception {
+    // $gt/$gte are distinct document keys, so a clause can carry two lowers and two uppers. Each
+    // lower pairs with the earliest unpaired upper in operator order: gt 1 with lt 10, gte 5 with
+    // lte 20. Selecting the tightest pairing is bound tightening, out of scope for this rule.
+    SimpleClause input =
+        ClauseBuilder.simpleClause()
+            .path("price")
+            .addOperator(MqlFilterOperatorBuilder.gt().value(ValueBuilder.longNumber(1L)))
+            .addOperator(MqlFilterOperatorBuilder.gte().value(ValueBuilder.longNumber(5L)))
+            .addOperator(MqlFilterOperatorBuilder.lt().value(ValueBuilder.longNumber(10L)))
+            .addOperator(MqlFilterOperatorBuilder.lte().value(ValueBuilder.longNumber(20L)))
+            .build();
+
+    SimpleClause result = (SimpleClause) applyRule(input);
+
+    assertEquals(2, result.mqlFilterOperators().size());
+    assertClosedRangeOperator(result.mqlFilterOperators().get(0), ValueType.NUMBER, false, false);
+    assertClosedRangeOperator(result.mqlFilterOperators().get(1), ValueType.NUMBER, true, true);
+    NumericRangeBound first =
+        (NumericRangeBound)
+            ((ClosedRangeBoundComparisonOperator) result.mqlFilterOperators().get(0)).bounds();
+    assertEquals(Optional.of(new LongPoint(1L)), first.getLower());
+    assertEquals(Optional.of(new LongPoint(10L)), first.getUpper());
+    NumericRangeBound second =
+        (NumericRangeBound)
+            ((ClosedRangeBoundComparisonOperator) result.mqlFilterOperators().get(1)).bounds();
+    assertEquals(Optional.of(new LongPoint(5L)), second.getLower());
+    assertEquals(Optional.of(new LongPoint(20L)), second.getUpper());
+  }
+
+  @Test
+  public void numberPairWithDateLower_collapsesNumberPairKeepsDateBound() throws Exception {
+    // The date lower bound has no date upper to pair with; it must not pair with the number upper.
+    SimpleClause input =
+        ClauseBuilder.simpleClause()
+            .path("ambiguous")
+            .addOperator(MqlFilterOperatorBuilder.gt().value(ValueBuilder.longNumber(0L)))
+            .addOperator(
+                MqlFilterOperatorBuilder.gte().value(ValueBuilder.date(new DatePoint(new Date(0)))))
+            .addOperator(MqlFilterOperatorBuilder.lt().value(ValueBuilder.longNumber(100L)))
+            .build();
+
+    SimpleClause result = (SimpleClause) applyRule(input);
+
+    assertEquals(2, result.mqlFilterOperators().size());
+    assertClosedRangeOperator(result.mqlFilterOperators().get(0), ValueType.NUMBER, false, false);
+    MqlFilterOperator leftover = result.mqlFilterOperators().get(1);
+    assertTrue(leftover instanceof OpenRangeBoundComparisonOperator);
+    assertEquals(ValueType.DATE, ((OpenRangeBoundComparisonOperator) leftover).getValueType());
+  }
+
+  @Test
+  public void numberPairAndDatePair_collapsesBothByValueType() throws Exception {
+    SimpleClause input =
+        ClauseBuilder.simpleClause()
+            .path("ambiguous")
+            .addOperator(MqlFilterOperatorBuilder.gt().value(ValueBuilder.longNumber(0L)))
+            .addOperator(
+                MqlFilterOperatorBuilder.gte().value(ValueBuilder.date(new DatePoint(new Date(0)))))
+            .addOperator(MqlFilterOperatorBuilder.lt().value(ValueBuilder.longNumber(100L)))
+            .addOperator(
+                MqlFilterOperatorBuilder.lte()
+                    .value(ValueBuilder.date(new DatePoint(new Date(1_000_000)))))
+            .build();
+
+    SimpleClause result = (SimpleClause) applyRule(input);
+
+    assertEquals(2, result.mqlFilterOperators().size());
+    assertClosedRangeOperator(result.mqlFilterOperators().get(0), ValueType.NUMBER, false, false);
+    assertClosedRangeOperator(result.mqlFilterOperators().get(1), ValueType.DATE, true, true);
+  }
+
+  @Test
+  public void contradictoryPairWithExtraOperator_doesNotApply() throws Exception {
+    // The only complementary pair is contradictory, so nothing fuses and the clause is returned
+    // unchanged — the extra $eq must not make the rule emit a partially-rebuilt clause.
+    SimpleClause input =
+        ClauseBuilder.simpleClause()
+            .path("price")
+            .addOperator(MqlFilterOperatorBuilder.gt().value(ValueBuilder.longNumber(10L)))
+            .addOperator(MqlFilterOperatorBuilder.lt().value(ValueBuilder.longNumber(5L)))
+            .addOperator(MqlFilterOperatorBuilder.eq().value(ValueBuilder.longNumber(7L)))
+            .build();
+
+    assertNotApplied(input);
+  }
+
+  @Test
+  public void contradictoryFirstPartner_greedyPairingDoesNotBacktrack() throws Exception {
+    // lt 100 pairs with the earliest pending lower, gt 200, and that merge is contradictory. The
+    // pairing is greedy without backtracking, so the fusable (gte 5, lt 100) combination is
+    // foregone and the clause stays unchanged — correct, just not optimal.
+    SimpleClause input =
+        ClauseBuilder.simpleClause()
+            .path("price")
+            .addOperator(MqlFilterOperatorBuilder.gt().value(ValueBuilder.longNumber(200L)))
+            .addOperator(MqlFilterOperatorBuilder.gte().value(ValueBuilder.longNumber(5L)))
+            .addOperator(MqlFilterOperatorBuilder.lt().value(ValueBuilder.longNumber(100L)))
+            .build();
+
+    assertNotApplied(input);
   }
 
   @Test
@@ -314,9 +481,17 @@ public class RangeBoundsMergeMqlSimpleClauseRuleTest {
     SimpleClause sc = (SimpleClause) clause;
     assertEquals(path, sc.path().toString());
     assertEquals(1, sc.mqlFilterOperators().size());
-    assertTrue(sc.mqlFilterOperators().get(0) instanceof ClosedRangeBoundComparisonOperator);
-    ClosedRangeBoundComparisonOperator closed =
-        (ClosedRangeBoundComparisonOperator) sc.mqlFilterOperators().get(0);
+    assertClosedRangeOperator(
+        sc.mqlFilterOperators().get(0), valueType, expectLowerInclusive, expectUpperInclusive);
+  }
+
+  private static void assertClosedRangeOperator(
+      MqlFilterOperator operator,
+      ValueType valueType,
+      boolean expectLowerInclusive,
+      boolean expectUpperInclusive) {
+    assertTrue(operator instanceof ClosedRangeBoundComparisonOperator);
+    ClosedRangeBoundComparisonOperator closed = (ClosedRangeBoundComparisonOperator) operator;
     assertEquals(valueType, closed.getValueType());
     RangeBound<?> bounds = closed.bounds();
     assertTrue("merged bounds should retain the lower endpoint", bounds.getLower().isPresent());
@@ -341,12 +516,13 @@ public class RangeBoundsMergeMqlSimpleClauseRuleTest {
     IndexMetricsUpdater.QueryingMetricsUpdater metrics =
         new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory());
     return new RewriteContext(
-        null, factoryContext, DynamicFeatureFlagRegistry.empty(), metrics, new RewriteAudit());
+        factoryContext, DynamicFeatureFlagRegistry.empty(), metrics, new RewriteAudit());
   }
 
   /**
    * Idempotence guard: applying the rule a second time on its own output must not fire again,
-   * because the closed-range form has only one operator and the rule requires two.
+   * because the fused closed-range operator is not an open-range bound and no open-range pair
+   * remains in the output.
    */
   @Test
   public void idempotent_doesNotReapply() throws Exception {
@@ -354,6 +530,7 @@ public class RangeBoundsMergeMqlSimpleClauseRuleTest {
         ClauseBuilder.simpleClause()
             .path("price")
             .addOperator(MqlFilterOperatorBuilder.gt().value(ValueBuilder.longNumber(0L)))
+            .addOperator(MqlFilterOperatorBuilder.ne().value(ValueBuilder.longNumber(5L)))
             .addOperator(MqlFilterOperatorBuilder.lt().value(ValueBuilder.longNumber(10L)))
             .build();
 

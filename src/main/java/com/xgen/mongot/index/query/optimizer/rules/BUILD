@@ -17,7 +17,6 @@ java_library(
     ],
     deps = [
         "//src/main/java/com/xgen/mongot/featureflag/dynamic",
-        "//src/main/java/com/xgen/mongot/index/lucene/query/range",
         "//src/main/java/com/xgen/mongot/index/query/operators",
         "//src/main/java/com/xgen/mongot/index/query/operators/bound",
         "//src/main/java/com/xgen/mongot/index/query/operators/mql",

@@ -439,6 +439,6 @@ public class RangeBoundsMergeMqlAndClauseRuleTest {
     IndexMetricsUpdater.QueryingMetricsUpdater metrics =
         new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory());
     return new RewriteContext(
-        null, factoryContext, DynamicFeatureFlagRegistry.empty(), metrics, new RewriteAudit());
+        factoryContext, DynamicFeatureFlagRegistry.empty(), metrics, new RewriteAudit());
   }
 }

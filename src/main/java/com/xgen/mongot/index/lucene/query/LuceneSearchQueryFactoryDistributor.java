@@ -276,7 +276,7 @@ public class LuceneSearchQueryFactoryDistributor {
       QueryOptimizationFlags queryOptimizationFlags)
       throws InvalidQueryException, IOException {
     validateReturnScope(returnScope);
-    Operator optimized = this.queryOptimizer.optimize(operator, indexReader).tree();
+    Operator optimized = this.queryOptimizer.optimize(operator).tree();
     var scoredQuery =
         createQuery(
             optimized, SingleQueryContext.createQueryRootWithReturnScope(indexReader, returnScope));
@@ -351,7 +351,7 @@ public class LuceneSearchQueryFactoryDistributor {
       QueryOptimizationFlags queryOptimizationFlags)
       throws InvalidQueryException, IOException {
     validateReturnScope(returnScope);
-    Operator optimized = this.queryOptimizer.optimize(operator, indexReader).tree();
+    Operator optimized = this.queryOptimizer.optimize(operator).tree();
     var explainQuery =
         createSearchExplainQuery(
             optimized,
