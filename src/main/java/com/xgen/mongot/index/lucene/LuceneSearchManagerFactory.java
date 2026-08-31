@@ -61,7 +61,13 @@ class LuceneSearchManagerFactory {
     return new MeteredLuceneSearchManager<>(
         this.metricsUpdater,
         new LuceneAggregationSearchManager(
-            query, luceneSort, invertedLuceneSort, searchAfter, aggregationPlan, indexPartitionId));
+            query,
+            luceneSort,
+            invertedLuceneSort,
+            searchAfter,
+            aggregationPlan,
+            indexPartitionId,
+            this.metricsUpdater.getSearchAggregationMetricsReporter()));
   }
 
   LuceneSearchManager<QueryInfo> newOperatorManager(

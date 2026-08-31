@@ -17,6 +17,7 @@ import com.xgen.mongot.index.CountMetaBatchProducer;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.MeteredBatchProducer;
 import com.xgen.mongot.index.ReaderClosedException;
+import com.xgen.mongot.index.SearchAggregationMetricsReporter;
 import com.xgen.mongot.index.SearchIndexReader;
 import com.xgen.mongot.index.SearchResult;
 import com.xgen.mongot.index.VectorSearchResult;
@@ -252,6 +253,10 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
         indexPartitionId,
         featureFlags,
         dynamicFeatureFlagRegistry);
+  }
+
+  SearchAggregationMetricsReporter getSearchAggregationMetricsReporter() {
+    return this.queryingMetricsUpdater.getSearchAggregationMetricsReporter();
   }
 
   @Override

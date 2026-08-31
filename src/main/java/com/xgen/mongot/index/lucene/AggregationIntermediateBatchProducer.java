@@ -7,8 +7,7 @@ import com.xgen.mongot.cursor.batch.BatchCursorOptions;
 import com.xgen.mongot.index.BatchProducer;
 import com.xgen.mongot.index.CountResult;
 import com.xgen.mongot.index.MetaResults;
-import com.xgen.mongot.index.lucene.explain.explainers.AggregationFeatureExplainer;
-import com.xgen.mongot.index.lucene.explain.timing.ExplainTimings;
+import com.xgen.mongot.index.SearchAggregationMetricsReporter;
 import com.xgen.mongot.index.query.aggregation.AggregationResult;
 import com.xgen.mongot.index.query.aggregation.AggregationResultBuilder;
 import com.xgen.mongot.index.query.aggregation.ShardMergeAliasPlan;
@@ -17,7 +16,6 @@ import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.Bytes;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.bson.BsonArrayBuilder;
-import com.xgen.mongot.util.timers.InvocationCountingTimer;
 import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
@@ -99,7 +97,8 @@ final class AggregationIntermediateBatchProducer implements BatchProducer {
    * per-partition searches that precede it. TODO(CLOUDP-426967): Implement parallelized merging.
    *
    * <p>One {@code aggregationMerge} timing covers the whole fold: every {@code add} and the
-   * terminal {@code build()}. Recorded on the parent query, not per partition.
+   * terminal {@code build()}. Recorded on the parent query, not per partition, through {@code
+   * metricsReporter} so process metrics and explain share the same interval.
    *
    * <p>{@code producers} must be quiesced: the caller's per-partition fan-out has to have joined
    * before calling. The list is read and iterated without holding a lock, so a caller that hands
@@ -107,26 +106,18 @@ final class AggregationIntermediateBatchProducer implements BatchProducer {
    * self-synchronize) would risk a {@code ConcurrentModificationException}.
    */
   static AggregationIntermediateBatchProducer merge(
-      List<AggregationIntermediateBatchProducer> producers) throws IOException {
+      List<AggregationIntermediateBatchProducer> producers,
+      SearchAggregationMetricsReporter metricsReporter)
+      throws IOException {
     Check.argNotEmpty(producers, "producers");
-    AggregationResultBuilder resultBuilder = producers.get(0).aggregationResult.toBuilder();
-    @Var long totalHits = 0;
-    @Var boolean folded = false;
-    @Var AggregationResult mergedResult = null;
+    SearchAggregationMetricsReporter reporter =
+        ExplainAwareSearchAggregationMetricsReporter.wrap(metricsReporter);
+    PartitionFold fold = new PartitionFold();
     try {
-      try (var unusedTimer =
-          new InvocationCountingTimer.AutocloseableOptional<>(
-              AggregationFeatureExplainer.currentPhaseProfile()
-                  .map(t -> t.split(ExplainTimings.Type.AGGREGATION_MERGE)))) {
-        for (AggregationIntermediateBatchProducer producer : producers) {
-          totalHits += producer.totalHits;
-          resultBuilder.add(producer.aggregationResult);
-        }
-        folded = true;
-        mergedResult = resultBuilder.build();
-      }
+      return reporter.time(
+          SearchAggregationMetricsReporter.Phase.PARTITION_MERGE, () -> fold.run(producers));
     } finally {
-      if (folded) {
+      if (fold.addedAllPartitions) {
         // Closes all, rethrowing the first failure with the rest suppressed.
         IOUtils.close(producers);
       } else {
@@ -136,12 +127,31 @@ final class AggregationIntermediateBatchProducer implements BatchProducer {
         IOUtils.closeWhileHandlingException(producers);
       }
     }
-    Optional<ShardMergeAliasPlan> aliasPlan = producers.get(0).aliasPlan;
-    AggregationResult result = Check.isNotNull(mergedResult, "mergedResult");
-    if (aliasPlan.isPresent()) {
-      return new AggregationIntermediateBatchProducer(result, totalHits, aliasPlan.get());
+  }
+
+  /**
+   * Single-threaded fold state. {@link #addedAllPartitions} is a field rather than a local so the
+   * timed lambda can set it; merge itself does not run concurrently.
+   */
+  private static final class PartitionFold {
+    private boolean addedAllPartitions;
+
+    private AggregationIntermediateBatchProducer run(
+        List<AggregationIntermediateBatchProducer> producers) {
+      AggregationResultBuilder resultBuilder = producers.get(0).aggregationResult.toBuilder();
+      @Var long totalHits = 0;
+      for (AggregationIntermediateBatchProducer producer : producers) {
+        totalHits += producer.totalHits;
+        resultBuilder.add(producer.aggregationResult);
+      }
+      this.addedAllPartitions = true;
+      AggregationResult result = resultBuilder.build();
+      Optional<ShardMergeAliasPlan> aliasPlan = producers.get(0).aliasPlan;
+      if (aliasPlan.isPresent()) {
+        return new AggregationIntermediateBatchProducer(result, totalHits, aliasPlan.get());
+      }
+      return new AggregationIntermediateBatchProducer(result, totalHits);
     }
-    return new AggregationIntermediateBatchProducer(result, totalHits);
   }
 
   /**

@@ -1,6 +1,7 @@
 package com.xgen.mongot.index.lucene;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.xgen.mongot.index.SearchAggregationMetricsReporter;
 import com.xgen.mongot.index.lucene.LuceneAggregationPlanResolver.AggregationPlan;
 import com.xgen.mongot.index.lucene.explain.explainers.AggregationFeatureExplainer;
 import com.xgen.mongot.index.lucene.explain.profiler.ProfileCollectorManager;
@@ -15,7 +16,6 @@ import com.xgen.mongot.index.query.aggregation.AggregationResult;
 import com.xgen.mongot.index.query.aggregation.TopAggregationSpec;
 import com.xgen.mongot.index.query.sort.SequenceToken;
 import com.xgen.mongot.util.Check;
-import com.xgen.mongot.util.timers.InvocationCountingTimer;
 import java.io.IOException;
 import java.util.Optional;
 import org.apache.lucene.search.Collector;
@@ -49,6 +49,8 @@ public class LuceneAggregationSearchManager
 
   private final int indexPartitionId;
 
+  private final SearchAggregationMetricsReporter metricsReporter;
+
   public static class AggregationQueryInfo extends QueryInfo {
     private final AggregationResult aggregationResult;
 
@@ -69,13 +71,15 @@ public class LuceneAggregationSearchManager
       Optional<Sort> invertedLuceneSort,
       Optional<SequenceToken> searchAfter,
       AggregationPlan aggregationPlan,
-      int indexPartitionId) {
+      int indexPartitionId,
+      SearchAggregationMetricsReporter metricsReporter) {
     super(luceneQuery, luceneSort, searchAfter);
     this.luceneSort = luceneSort;
     this.invertedLuceneSort = invertedLuceneSort;
     this.rootSpec = aggregationPlan.rootSpec();
     this.fieldResolver = aggregationPlan.fieldResolver();
     this.indexPartitionId = indexPartitionId;
+    this.metricsReporter = ExplainAwareSearchAggregationMetricsReporter.wrap(metricsReporter);
   }
 
   @Override
@@ -100,20 +104,18 @@ public class LuceneAggregationSearchManager
 
     var searchCollectorManager = createCollectorManager(searchLimit, Integer.MAX_VALUE);
 
-    // Phase-level only: the timer wraps the whole collector fan-out (per-slice collection plus the
-    // slice reduce that materializes each slice's buckets), so it costs one pair of clock reads per
-    // query rather than a read on the per-document collect path.
-    Object[] results;
-    try (var unused =
-        new InvocationCountingTimer.AutocloseableOptional<>(
-            AggregationFeatureExplainer.currentPhaseProfile()
-                .map(t -> t.split(ExplainTimings.Type.AGGREGATION_COLLECT)))) {
-      results =
-          searcher.search(
-              this.getLuceneQuery(),
-              new MultiCollectorManager(
-                  getAccumulatorCollectorManager(context), searchCollectorManager));
-    }
+    // Phase-level only: the reporter wraps the whole collector fan-out (per-slice collection plus
+    // the slice reduce that materializes each slice's buckets), so it costs one pair of clock
+    // reads per query rather than a read on the per-document collect path. Process metrics and
+    // explain share this one call.
+    Object[] results =
+        this.metricsReporter.time(
+            SearchAggregationMetricsReporter.Phase.COLLECTION,
+            () ->
+                searcher.search(
+                    this.getLuceneQuery(),
+                    new MultiCollectorManager(
+                        getAccumulatorCollectorManager(context), searchCollectorManager)));
 
     AggregationResult aggResult = Check.instanceOf(results[0], AggregationResult.class);
     TopDocs topDocs = Check.instanceOf(results[1], TopDocs.class);
@@ -125,7 +127,9 @@ public class LuceneAggregationSearchManager
   /**
    * Profiling the accumulator manager on its own separates the aggregation tree's share of
    * collection from the query iteration and the topdocs collector that the phase timer lumps
-   * together. Costs a clock read per matched document, so only when the query is explained.
+   * together. Costs a clock read per matched document, so only when the query is explained, and not
+   * a process-level Micrometer timer: {@link SearchAggregationMetricsReporter} records the phase
+   * wall time around {@code searcher.search} instead.
    */
   private CollectorManager<? extends Collector, AggregationResult> getAccumulatorCollectorManager(
       AggregationContext context) {

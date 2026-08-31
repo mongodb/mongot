@@ -566,6 +566,9 @@ public class IndexMetricsUpdater implements Closeable {
     /** Measures time spent on lucene search/searchAfter to collect topDocs. */
     private final Timer luceneTopDocsSearchLatencyTimer;
 
+    /** Process-level search aggregation phase timings. */
+    private final SearchAggregationMetricsReporter searchAggregationMetricsReporter;
+
     /** Measures time spent on lucene vectorSearch to collect initialSearch topDocs. */
     private final Timer vectorSearchInitialTopDocsLatencyTimer;
 
@@ -711,6 +714,9 @@ public class IndexMetricsUpdater implements Closeable {
           processMetricsFactory.counter("vectorSearchQueriesOverSearchIndexes");
       this.luceneTopDocsSearchLatencyTimer =
           processMetricsFactory.timer("luceneTopDocsSearchLatencies", TimeUnit.MILLISECONDS);
+      this.searchAggregationMetricsReporter =
+          MicrometerSearchAggregationMetricsReporter.create(
+              processMetricsFactory, isSearchAggregationEnabled);
 
       this.vectorSearchInitialTopDocsLatencyTimer =
           processMetricsFactory.timer(
@@ -994,6 +1000,14 @@ public class IndexMetricsUpdater implements Closeable {
 
     public Timer getLuceneTopDocsSearchLatencyTimer() {
       return this.luceneTopDocsSearchLatencyTimer;
+    }
+
+    /**
+     * The search-aggregation reporter owned by this updater. Callers time phases through this
+     * rather than requesting individual instruments.
+     */
+    public SearchAggregationMetricsReporter getSearchAggregationMetricsReporter() {
+      return this.searchAggregationMetricsReporter;
     }
 
     public Timer getVectorSearchInitialTopDocsLatencyTimer() {

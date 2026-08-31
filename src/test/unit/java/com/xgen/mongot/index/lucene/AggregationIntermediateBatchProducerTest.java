@@ -9,13 +9,16 @@ import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.cursor.CursorConfig;
 import com.xgen.mongot.cursor.batch.BatchCursorOptions;
 import com.xgen.mongot.index.CountResult;
+import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.MetaResults;
+import com.xgen.mongot.index.SearchAggregationMetricsReporter;
 import com.xgen.mongot.index.query.aggregation.AggregationResult;
 import com.xgen.mongot.index.query.aggregation.AggregationResultBuilder;
 import com.xgen.mongot.index.query.aggregation.GroupingKeyAliases;
 import com.xgen.mongot.index.query.counts.Count;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.Bytes;
+import com.xgen.testing.mongot.mock.index.SearchIndex;
 import java.io.IOException;
 import java.util.List;
 import org.bson.BsonArray;
@@ -378,7 +381,8 @@ public class AggregationIntermediateBatchProducerTest {
 
   private static AggregationIntermediateBatchProducer merged(
       List<AggregationIntermediateBatchProducer> partitionProducers) throws IOException {
-    return AggregationIntermediateBatchProducer.merge(partitionProducers);
+    return AggregationIntermediateBatchProducer.merge(
+        partitionProducers, SearchAggregationMetricsReporter.noop());
   }
 
   @Test
@@ -453,7 +457,9 @@ public class AggregationIntermediateBatchProducerTest {
 
     assertThrows(
         IllegalArgumentException.class,
-        () -> AggregationIntermediateBatchProducer.merge(partitionProducers));
+        () ->
+            AggregationIntermediateBatchProducer.merge(
+                partitionProducers, SearchAggregationMetricsReporter.noop()));
 
     for (var partitionProducer : partitionProducers) {
       assertThrows(
@@ -466,6 +472,27 @@ public class AggregationIntermediateBatchProducerTest {
   public void merge_emptyProducers_throws() throws IOException {
     assertThrows(
         IllegalArgumentException.class,
-        () -> AggregationIntermediateBatchProducer.merge(List.of()));
+        () ->
+            AggregationIntermediateBatchProducer.merge(
+                List.of(), SearchAggregationMetricsReporter.noop()));
+  }
+
+  @Test
+  public void merge_successfulFold_recordsPartitionMergeTimer() throws IOException {
+    var metricsFactory = SearchIndex.mockMetricsFactory();
+    SearchAggregationMetricsReporter reporter =
+        new IndexMetricsUpdater.QueryingMetricsUpdater(metricsFactory)
+            .getSearchAggregationMetricsReporter();
+
+    AggregationIntermediateBatchProducer.merge(
+        List.of(partitionProducer(30, 10), partitionProducer(12, 5)), reporter);
+
+    assertEquals(
+        1,
+        metricsFactory
+            .getProcessMetricsFactory()
+            .get(SearchAggregationMetricsReporter.PARTITION_MERGE_LATENCY_TIMER)
+            .timer()
+            .count());
   }
 }

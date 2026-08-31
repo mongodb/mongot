@@ -197,7 +197,9 @@ public class MultiLuceneSearchIndexReader implements SearchIndexReader {
     } else if (!aggregationBatchProducers.isEmpty()) {
       // Sequential fold after the concurrent per-partition fan-out above has joined: the merge
       // (like AggregationResultBuilder) is not thread-safe, so partitions must not fold directly.
-      mergedMetaProducer = AggregationIntermediateBatchProducer.merge(aggregationBatchProducers);
+      mergedMetaProducer =
+          AggregationIntermediateBatchProducer.merge(
+              aggregationBatchProducers, this.readers.get(0).getSearchAggregationMetricsReporter());
     } else if (!countBatchProducers.isEmpty()) {
       mergedMetaProducer = new CountMergingBatchProducer(countBatchProducers);
     } else {
