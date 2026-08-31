@@ -5,6 +5,10 @@ import java.util.List;
 
 public record CompoundClause(List<? extends Operator> operators) {
 
+  public CompoundClause(List<? extends Operator> operators) {
+    this.operators = List.copyOf(operators);
+  }
+
   static final CompoundClause EMPTY = new CompoundClause(Collections.emptyList());
 
   public boolean isEmpty() {

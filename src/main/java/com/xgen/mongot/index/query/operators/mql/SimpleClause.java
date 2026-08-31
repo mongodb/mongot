@@ -42,7 +42,7 @@ public record SimpleClause(FieldPath path, List<MqlFilterOperator> mqlFilterOper
     this.path = path;
     // We should not be able to reach this. It's fine to be a little slow on query parsing.
     Check.argNotEmpty(mqlFilterOperators, "mqlFilterOperators");
-    this.mqlFilterOperators = mqlFilterOperators;
+    this.mqlFilterOperators = List.copyOf(mqlFilterOperators);
   }
 
   // The valueInThePath is the value in the (path, valueInThePath) kv pair.

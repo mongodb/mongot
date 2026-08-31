@@ -138,6 +138,29 @@ public class RangeBoundsMergeOperatorRuleTest {
   }
 
   @Test
+  public void filterSlot_operatorBetweenFusedPair_keepsDocumentOrder() {
+    // The pair's two members straddle an unrelated operator. The fused operator takes the earlier
+    // member's slot and the later member's slot is dropped, so the survivor must stay behind the
+    // fused operator rather than being shifted ahead of it.
+    RangeOperator lower = numericLower("x", 1L, false);
+    RangeOperator between = numericLower("y", 5L, true);
+    RangeOperator upper = numericUpper("x", 10L, false);
+    CompoundOperator input = compoundWithFilter(List.of(lower, between, upper));
+
+    CompoundOperator result = applyRule(input);
+
+    assertEquals(2, result.filter().operators().size());
+    RangeOperator fused = (RangeOperator) result.filter().operators().get(0);
+    assertTrue("the fused operator must take the pair's earlier slot", fused.fusedByOptimizer());
+    assertTrue(fused.bounds().getLower().isPresent());
+    assertTrue(fused.bounds().getUpper().isPresent());
+    assertSame(
+        "the operator between the pair must keep its position after compaction",
+        between,
+        result.filter().operators().get(1));
+  }
+
+  @Test
   public void filterSlot_twoPairsDifferentPaths_fusesBothInOneApplication() {
     RangeOperator lowerX = numericLower("x", 1L, false);
     RangeOperator upperX = numericUpper("x", 10L, false);
@@ -323,6 +346,21 @@ public class RangeBoundsMergeOperatorRuleTest {
 
     Operator result = this.rule.apply(input, newContext());
     assertSame("rule must not fire when the lower bound exceeds the upper bound", result, input);
+  }
+
+  @Test
+  public void contradictoryFirstPartner_greedyPairingDoesNotBacktrack() {
+    // gt 10 pairs with the first upper in operator order, lt 5, which is contradictory. Neither
+    // member is offered another partner, so lt 20 is left without a lower to fuse with even though
+    // gt 10 + lt 20 would have been a valid closed range.
+    RangeOperator lower = numericLower("x", 10L, false);
+    RangeOperator contradictoryUpper = numericUpper("x", 5L, false);
+    RangeOperator laterUpper = numericUpper("x", 20L, false);
+    CompoundOperator input = compoundWithFilter(List.of(lower, contradictoryUpper, laterUpper));
+
+    Operator result = this.rule.apply(input, newContext());
+    assertSame(
+        "a contradictory pair must retire both members rather than retrying either", result, input);
   }
 
   @Test

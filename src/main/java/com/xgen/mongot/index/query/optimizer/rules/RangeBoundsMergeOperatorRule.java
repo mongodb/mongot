@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.query.optimizer.rules;
 
+import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.query.operators.CompoundClause;
 import com.xgen.mongot.index.query.operators.CompoundOperator;
@@ -10,10 +11,15 @@ import com.xgen.mongot.index.query.operators.bound.NumericRangeBound;
 import com.xgen.mongot.index.query.operators.bound.RangeBound;
 import com.xgen.mongot.index.query.optimizer.OperatorRewriteRule;
 import com.xgen.mongot.index.query.optimizer.RewriteContext;
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.parser.BsonParseContext;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -35,7 +41,8 @@ import java.util.Set;
  * different paths may satisfy the two halves of the pair and fusing them would drop matches.
  * Overlapping pairs (e.g., two lower bounds) are left unchanged, as are contradictory pairs whose
  * fused form would violate the closed-range invariant enforced at parse time (a lower endpoint
- * above the upper, or equal endpoints with an exclusive side).
+ * above the upper, or equal endpoints with an exclusive side); neither member of a contradictory
+ * pair is offered another partner, so pairing is greedy in operator order, without backtracking.
  *
  * <p>Score is taken from the lower-bound operator. {@code doesNotAffect} exclusions apply per
  * operator during facet counting, and a single fused operator cannot express excluding only one
@@ -81,64 +88,74 @@ public final class RangeBoundsMergeOperatorRule implements OperatorRewriteRule {
   }
 
   private static Optional<List<Operator>> fuseEligiblePairs(List<? extends Operator> operators) {
-    List<Operator> result = new ArrayList<>(operators);
-    for (int i = 0; i < result.size(); i++) {
-      if (!(result.get(i) instanceof RangeOperator op1) || !isEligibleHalfOpen(op1)) {
-        continue;
+    // Pass 1: bucket the indices of eligible half-open operators by the attributes two operators
+    // must share to fuse. Bucketing replaces pairwise comparisons, keeping the rule linear in the
+    // number of operators.
+    Map<FuseKey, FuseCandidates> buckets = new HashMap<>();
+    for (int i = 0; i < operators.size(); i++) {
+      if (operators.get(i) instanceof RangeOperator op && isEligible(op)) {
+        FuseCandidates candidates =
+            buckets.computeIfAbsent(FuseKey.of(op), key -> new FuseCandidates());
+        (isLowerOnly(op) ? candidates.lowers() : candidates.uppers()).addLast(i);
       }
-      for (int j = i + 1; j < result.size(); j++) {
-        if (!(result.get(j) instanceof RangeOperator op2) || !isEligibleHalfOpen(op2)) {
-          continue;
-        }
-        // A multi-path range is a disjunction across its paths, so different paths may satisfy
-        // each half of the pair; only single-path pairs fuse soundly.
-        if (op1.paths().size() != 1 || !op1.paths().equals(op2.paths())) {
-          continue;
-        }
-        if (!isSameSupportedBoundType(op1.bounds(), op2.bounds())) {
-          continue;
-        }
-        if (!areComplementary(op1, op2)) {
-          continue;
-        }
-        if (!sameDoesNotAffect(op1.doesNotAffect(), op2.doesNotAffect())) {
-          continue;
-        }
+    }
 
-        RangeOperator lower = isLowerOnly(op1) ? op1 : op2;
-        RangeOperator upper = isLowerOnly(op1) ? op2 : op1;
+    // Pass 2: fuse each bucket's k-th lower with its k-th upper, in document order. Every
+    // iteration permanently retires both halves of the pair it examines, so this pass is also
+    // linear.
+    Operator[] result = operators.toArray(new Operator[0]);
+    @Var int fusedCount = 0;
+    for (FuseCandidates candidates : buckets.values()) {
+      while (!candidates.lowers().isEmpty() && !candidates.uppers().isEmpty()) {
+        int lowerIndex = candidates.lowers().peekFirst();
+        int upperIndex = candidates.uppers().peekFirst();
+        RangeOperator lower = (RangeOperator) operators.get(lowerIndex);
+        RangeOperator upper = (RangeOperator) operators.get(upperIndex);
 
         Optional<RangeBound<?>> fusedBounds = fuseBounds(lower.bounds(), upper.bounds());
         if (fusedBounds.isEmpty()) {
+          // Contradictory pair: keep both operators where they are, and offer neither to a later
+          // complement — greedy pairing without backtracking.
+          candidates.lowers().removeFirst();
+          candidates.uppers().removeFirst();
           continue;
         }
 
         RangeOperator fused =
             new RangeOperator(
                 lower.score(), lower.paths(), fusedBounds.get(), lower.doesNotAffect(), true);
-
-        result.set(i, fused);
-        result.remove(j);
-        // The fused operator is fully bounded and no longer eligible; move to the next element.
-        break;
+        result[Math.min(lowerIndex, upperIndex)] = fused;
+        result[Math.max(lowerIndex, upperIndex)] = null;
+        candidates.lowers().removeFirst();
+        candidates.uppers().removeFirst();
+        fusedCount++;
       }
     }
-    return result.size() == operators.size() ? Optional.empty() : Optional.of(result);
+
+    if (fusedCount == 0) {
+      return Optional.empty();
+    }
+    List<Operator> rewritten = new ArrayList<>(operators.size() - fusedCount);
+    for (Operator op : result) {
+      if (op != null) {
+        rewritten.add(op);
+      }
+    }
+    return Optional.of(rewritten);
   }
 
-  private static boolean isEligibleHalfOpen(RangeOperator op) {
-    boolean lowerOnly = op.bounds().getLower().isPresent() && op.bounds().getUpper().isEmpty();
-    boolean upperOnly = op.bounds().getLower().isEmpty() && op.bounds().getUpper().isPresent();
-    return lowerOnly || upperOnly;
+  private static boolean isEligible(RangeOperator op) {
+    // A multi-path range is a disjunction across its paths, so different paths may satisfy each
+    // half of a pair; only single-path operators fuse soundly.
+    return isSupportedBoundType(op.bounds()) && op.paths().size() == 1 && isHalfOpen(op);
   }
 
-  private static boolean isSameSupportedBoundType(RangeBound<?> a, RangeBound<?> b) {
-    return (a instanceof NumericRangeBound && b instanceof NumericRangeBound)
-        || (a instanceof DateRangeBound && b instanceof DateRangeBound);
+  private static boolean isHalfOpen(RangeOperator op) {
+    return op.bounds().getLower().isPresent() != op.bounds().getUpper().isPresent();
   }
 
-  private static boolean areComplementary(RangeOperator op1, RangeOperator op2) {
-    return isLowerOnly(op1) != isLowerOnly(op2);
+  private static boolean isSupportedBoundType(RangeBound<?> bounds) {
+    return bounds instanceof NumericRangeBound || bounds instanceof DateRangeBound;
   }
 
   private static boolean isLowerOnly(RangeOperator op) {
@@ -177,10 +194,23 @@ public final class RangeBoundsMergeOperatorRule implements OperatorRewriteRule {
   }
 
   /**
-   * {@code doesNotAffect} excludes its operator from counting the named facets; a fused operator
-   * cannot express excluding only one half of the pair, so the operators' fields must match.
+   * The attributes two operators must share to fuse. {@code doesNotAffect} excludes its operator
+   * from counting the named facets; a fused operator cannot express excluding only one half of the
+   * pair, so the operators' fields must match (as sets, absent equivalent to empty).
    */
-  private static boolean sameDoesNotAffect(Optional<List<String>> a, Optional<List<String>> b) {
-    return Set.copyOf(a.orElse(List.of())).equals(Set.copyOf(b.orElse(List.of())));
+  private record FuseKey(FieldPath path, Class<?> boundType, Set<String> doesNotAffect) {
+    static FuseKey of(RangeOperator op) {
+      return new FuseKey(
+          op.paths().get(0),
+          op.bounds().getClass(),
+          Set.copyOf(op.doesNotAffect().orElse(List.of())));
+    }
+  }
+
+  /** A bucket's candidate operator indices, each queue in document order. */
+  private record FuseCandidates(Deque<Integer> lowers, Deque<Integer> uppers) {
+    FuseCandidates() {
+      this(new ArrayDeque<>(), new ArrayDeque<>());
+    }
   }
 }

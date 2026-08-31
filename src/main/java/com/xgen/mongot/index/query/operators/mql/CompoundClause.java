@@ -31,7 +31,7 @@ public abstract sealed class CompoundClause implements Clause
   }
 
   public CompoundClause(List<Clause> clauses) {
-    this.clauses = clauses;
+    this.clauses = List.copyOf(clauses);
   }
 
   public abstract Operator getOperator();

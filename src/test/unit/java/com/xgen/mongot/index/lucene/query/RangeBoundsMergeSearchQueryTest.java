@@ -16,6 +16,7 @@ import com.xgen.mongot.index.query.operators.CompoundOperator;
 import com.xgen.mongot.index.query.operators.Operator;
 import com.xgen.mongot.index.query.operators.RangeOperator;
 import com.xgen.mongot.index.query.operators.VectorSearchFilter;
+import com.xgen.mongot.index.query.points.DatePoint;
 import com.xgen.mongot.index.query.points.LongPoint;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.Vector;
@@ -26,9 +27,16 @@ import com.xgen.testing.mongot.index.definition.KnnVectorFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.query.ApproximateVectorQueryCriteriaBuilder;
 import com.xgen.testing.mongot.index.query.operators.CompoundOperatorBuilder;
 import com.xgen.testing.mongot.index.query.operators.OperatorBuilder;
+import java.io.IOException;
+import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import org.apache.lucene.document.Document;
+import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.FilterDirectoryReader;
+import org.apache.lucene.index.FilterLeafReader;
+import org.apache.lucene.index.LeafReader;
+import org.apache.lucene.index.PointValues;
 import org.apache.lucene.search.Query;
 import org.bson.types.ObjectId;
 import org.junit.Test;
@@ -117,6 +125,56 @@ public class RangeBoundsMergeSearchQueryTest {
     assertEquals(fallbackBaseline, optimized);
     assertNotEquals(
         "a fused operator on a multivalued field must not translate as a single closed scan",
+        closedRangeBaseline,
+        optimized);
+  }
+
+  @Test
+  public void compoundFilter_gtAndLtDates_multiValuedField_fallsBackToConjunctionOfTwoOpens()
+      throws Exception {
+    // Same fallback as the int64 case, through the DateRangeBound decomposition arms: a fused
+    // date operator on a field with array data must translate as the two half-open scans, not one
+    // closed scan.
+    List<Document> documents = List.of(multiValuedDocument(dateMultipleField(PATH), 3L, 7L));
+
+    Query optimized =
+        translation(optimizerEnabled())
+            .translateWithLuceneDocuments(twoHalfOpenDateFilter(), documents);
+    Query fallbackBaseline =
+        baseline().translateWithLuceneDocuments(fusedClosedDateRangeFilter(), documents);
+    Query closedRangeBaseline =
+        baseline().translateWithLuceneDocuments(closedDateRangeFilter(), documents);
+
+    assertEquals(fallbackBaseline, optimized);
+    assertNotEquals(
+        "a fused date operator on a multivalued field must not translate as a single closed scan",
+        closedRangeBaseline,
+        optimized);
+  }
+
+  @Test
+  public void compoundFilter_gtAndLt_pointValuesReadFailure_fallsBackToConjunctionOfTwoOpens()
+      throws Exception {
+    // The field is single-valued, so absent the failure the fused operator would translate as one
+    // closed scan; when the array-data check cannot read PointValues, translation must take the
+    // safe fallback instead.
+    List<Document> documents = List.of(multiValuedDocument(int64MultipleField(PATH), 3L));
+
+    Query optimized =
+        translation(optimizerEnabled())
+            .translateWithLuceneDocuments(
+                twoHalfOpenFilter(), documents, ThrowingPointValuesReader::new);
+    Query fallbackBaseline =
+        baseline()
+            .translateWithLuceneDocuments(
+                fusedClosedRangeFilter(), documents, ThrowingPointValuesReader::new);
+    Query closedRangeBaseline =
+        baseline().translateWithLuceneDocuments(closedRangeFilter(), documents);
+
+    assertEquals(fallbackBaseline, optimized);
+    assertNotEquals(
+        "a fused operator must not translate as a single closed scan when the array-data check "
+            + "cannot read the index",
         closedRangeBaseline,
         optimized);
   }
@@ -291,6 +349,11 @@ public class RangeBoundsMergeSearchQueryTest {
         FieldPath.parse(path), Optional.empty());
   }
 
+  private static String dateMultipleField(String path) {
+    return FieldName.TypeField.DATE_MULTIPLE.getLuceneFieldName(
+        FieldPath.parse(path), Optional.empty());
+  }
+
   private static String embeddedInt64MultipleField() {
     return FieldName.TypeField.NUMBER_INT64_MULTIPLE.getLuceneFieldName(
         FieldPath.parse(EMBEDDED_PATH), Optional.of(FieldPath.parse(EMBEDDED_ROOT)));
@@ -370,6 +433,46 @@ public class RangeBoundsMergeSearchQueryTest {
         .build();
   }
 
+  private static CompoundOperator twoHalfOpenDateFilter() {
+    return OperatorBuilder.compound()
+        .filter(dateLowerHalfOpen(PATH))
+        .filter(dateUpperHalfOpen(PATH))
+        .build();
+  }
+
+  private static CompoundOperator closedDateRangeFilter() {
+    return OperatorBuilder.compound().filter(closedDateRange(PATH)).build();
+  }
+
+  private static CompoundOperator fusedClosedDateRangeFilter() {
+    return OperatorBuilder.compound().filter(markFused(closedDateRange(PATH))).build();
+  }
+
+  private static RangeOperator closedDateRange(String path) {
+    return OperatorBuilder.range()
+        .path(path)
+        .dateBounds(
+            Optional.of(new DatePoint(new Date(1_000L))),
+            Optional.of(new DatePoint(new Date(10_000L))),
+            false,
+            false)
+        .build();
+  }
+
+  private static RangeOperator dateLowerHalfOpen(String path) {
+    return OperatorBuilder.range()
+        .path(path)
+        .dateBounds(Optional.of(new DatePoint(new Date(1_000L))), Optional.empty(), false, false)
+        .build();
+  }
+
+  private static RangeOperator dateUpperHalfOpen(String path) {
+    return OperatorBuilder.range()
+        .path(path)
+        .dateBounds(Optional.empty(), Optional.of(new DatePoint(new Date(10_000L))), false, false)
+        .build();
+  }
+
   private static DynamicFeatureFlagRegistry optimizerEnabled() {
     return registryWith(
         flagConfig(DynamicFeatureFlags.QUERY_OPTIMIZER, Phase.ENABLED),
@@ -393,5 +496,48 @@ public class RangeBoundsMergeSearchQueryTest {
         Optional.empty(),
         Optional.of(new ObjectId()),
         Optional.empty());
+  }
+
+  /**
+   * Wraps a reader so every point-values lookup throws, exercising the translation fallback of
+   * refusing to emit a fused closed scan when the array-data check cannot read the index.
+   */
+  private static final class ThrowingPointValuesReader extends FilterDirectoryReader {
+
+    private ThrowingPointValuesReader(DirectoryReader in) throws IOException {
+      super(
+          in,
+          new SubReaderWrapper() {
+            @Override
+            public LeafReader wrap(LeafReader reader) {
+              return new FilterLeafReader(reader) {
+                @Override
+                public PointValues getPointValues(String field) throws IOException {
+                  throw new IOException("point values unavailable");
+                }
+
+                @Override
+                public CacheHelper getCoreCacheHelper() {
+                  return this.in.getCoreCacheHelper();
+                }
+
+                @Override
+                public CacheHelper getReaderCacheHelper() {
+                  return this.in.getReaderCacheHelper();
+                }
+              };
+            }
+          });
+    }
+
+    @Override
+    protected DirectoryReader doWrapDirectoryReader(DirectoryReader in) throws IOException {
+      return new ThrowingPointValuesReader(in);
+    }
+
+    @Override
+    public CacheHelper getReaderCacheHelper() {
+      return this.in.getReaderCacheHelper();
+    }
   }
 }

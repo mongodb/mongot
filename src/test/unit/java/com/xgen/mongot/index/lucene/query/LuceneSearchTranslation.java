@@ -290,12 +290,34 @@ class LuceneSearchTranslation {
    */
   Query translateWithLuceneDocuments(Operator operator, List<Document> documents)
       throws IOException, InvalidQueryException {
+    return translateWithLuceneDocuments(operator, documents, reader -> reader);
+  }
+
+  /**
+   * Variant of {@link #translateWithLuceneDocuments(Operator, List)} that wraps the reader before
+   * translation, e.g., to inject index read failures.
+   */
+  Query translateWithLuceneDocuments(
+      Operator operator, List<Document> documents, ReaderWrapper readerWrapper)
+      throws IOException, InvalidQueryException {
     setUp();
     for (Document document : documents) {
       index(document);
     }
 
-    return getLuceneQuery(operator, Optional.empty());
+    // Opened as its own resource so a throwing wrap() does not leak it.
+    try (var opened = DirectoryReader.open(this.directory);
+        var reader = readerWrapper.wrap(opened)) {
+      return createFactory()
+          .createQuery(operator, reader, Optional.empty(), QueryOptimizationFlags.DEFAULT_OPTIONS);
+    } finally {
+      tearDown();
+    }
+  }
+
+  /** Wraps the freshly opened reader before translation; wrapping itself may fail. */
+  interface ReaderWrapper {
+    DirectoryReader wrap(DirectoryReader reader) throws IOException;
   }
 
   /**
