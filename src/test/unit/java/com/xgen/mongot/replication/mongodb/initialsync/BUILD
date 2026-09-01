@@ -11,8 +11,10 @@ java_test_suite(
         "InitialSyncNamespaceChangeCheckTest.java",
         "InitialSyncPartitionPlanTest.java",
         "InitialSyncQueueTest.java",
+        "ParallelCollectionScanDispatcherTest.java",
         "ParallelCollectionScanResumeStateTest.java",
         "ParallelCollectionScannerTest.java",
+        "PartitionPoolExecutorTest.java",
     ],
     tags = ["unit"],
     deps = [
