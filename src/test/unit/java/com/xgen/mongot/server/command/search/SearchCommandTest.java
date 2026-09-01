@@ -57,6 +57,8 @@ import com.xgen.mongot.index.query.collectors.FacetCollector;
 import com.xgen.mongot.index.query.collectors.FacetDefinition;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.metrics.MetricsFactory;
+import com.xgen.mongot.util.BsonUtils;
+import com.xgen.mongot.util.Bytes;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.ErrorType;
 import com.xgen.mongot.util.mongodb.MongoDbServerInfo;
@@ -81,6 +83,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import org.bson.BsonArray;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonString;
@@ -317,6 +320,105 @@ public class SearchCommandTest {
     Assert.assertEquals(expected, result);
     Assert.assertEquals(
         Arrays.asList(MOCK_SEARCH_CURSOR_ID, MOCK_META_CURSOR_ID), command.getCreatedCursorIds());
+  }
+
+  /** Builds a BsonArray containing one document whose serialized size is exactly {@code size}. */
+  private static BsonArray buildArrayOfSize(Bytes size) {
+    long target = size.toBytes();
+    // An empty {"pad": ""} document's serialized size, to compute the padding needed.
+    long baseSize =
+        BsonUtils.bsonValueSerializedBytes(
+                new BsonArray(List.of(new BsonDocument("pad", new BsonString("")))))
+            .toBytes();
+    Check.checkArg(
+        target >= baseSize,
+        "requested size %s is smaller than the minimum encodable array size %s",
+        target,
+        baseSize);
+    long padLength = target - baseSize;
+    String padding = "x".repeat((int) padLength);
+    return new BsonArray(List.of(new BsonDocument("pad", new BsonString(padding))));
+  }
+
+  /**
+   * Regression test: {@code getIntermediateBatch} computes {@code bytesRemaining} (the total budget
+   * minus the *combined* worst-case envelope size for both cursors), then reserves the meta
+   * cursor's own worst-case envelope out of that before handing it its raw-content limit, so that
+   * wrapping the meta content into an actual {@link MongotCursorBatch} (adding cursor id,
+   * namespace, etc.) never pushes the wrapped size past {@code bytesRemaining}.
+   *
+   * <p>This mock's meta cursor genuinely respects whatever size limit {@code getIntermediateBatch}
+   * passes to {@code getNextBatch} (mirroring {@link
+   * com.xgen.mongot.util.bson.BsonArrayBuilder#withLimit}, which the real {@code
+   * LuceneFacetCollectorMetaBatchProducer} uses and which never lets its output exceed the given
+   * limit), so this exercises the same greedy-producer edge case a real cursor would hit.
+   */
+  @Test
+  public void testIntermediateSearchCommand_limitRespectingMetaProducer_reservationAloneSuffices()
+      throws Exception {
+    MongotCursorManager cursorManager = mock(MongotCursorManager.class);
+    MongotIntermediateCursorBatch intermediateCursorBatch = mockIntermediateMongotCursorBatch();
+    MongotCursorBatch searchBatch = intermediateCursorBatch.cursors().get(1);
+
+    when(cursorManager.newIntermediateCursors(
+            any(), any(), any(), any(), any(), anyInt(), any(), any(), any()))
+        .thenReturn(new IntermediateSearchCursorInfo(MOCK_SEARCH_CURSOR_ID, MOCK_META_CURSOR_ID));
+
+    when(cursorManager.getNextBatch(anyLong(), any(), any()))
+        .then(
+            invocation -> {
+              long cursorId = invocation.getArgument(0);
+              if (cursorId != MOCK_SEARCH_CURSOR_ID && cursorId != MOCK_META_CURSOR_ID) {
+                throw new MongotCursorNotFoundException(cursorId);
+              }
+              if (cursorId == MOCK_SEARCH_CURSOR_ID) {
+                return new MongotCursorResultInfo(
+                    false,
+                    searchBatch.getCursorExpected().getBatch(),
+                    Optional.empty(),
+                    searchBatch.getCursorExpected().getNamespace());
+              }
+              // Meta cursor: genuinely fill content up to (but not exceeding) whatever limit was
+              // actually passed in, like the real batch producer does.
+              Bytes limit = invocation.getArgument(1);
+              return new MongotCursorResultInfo(
+                  false, buildArrayOfSize(limit), Optional.empty(), "foo.bar");
+            });
+
+    when(cursorManager.getIndexQueryBatchTimerRecorder(anyLong())).thenReturn((timer) -> {});
+
+    Bytes emptyIntermediateBatchSize = MongotIntermediateCursorBatch.calculateEmptyBatchSize();
+    // A small but nonzero budget so the meta cursor's content genuinely fills all the way to its
+    // (correctly reserved, smaller-than-bytesRemaining) limit -- the greedy/worst case. Must be
+    // large enough to hold the meta cursor's own worst-case envelope (namespace, cursor id, etc.)
+    // on top of the combined envelope already reserved by calculateEmptyBatchSize() above.
+    Bytes bsonSizeSoftLimit = emptyIntermediateBatchSize.add(Bytes.ofBytes(2000));
+
+    SearchCommand command =
+        new SearchCommand(
+            new SearchCommand.Metrics(mockMetricsFactory()),
+            cursorManager,
+            new DefaultIndexCatalog(),
+            new InitializedIndexCatalog(),
+            SearchCommandDefinitionBuilder.builder()
+                .db(DATABASE_NAME)
+                .collectionName(COLLECTION_NAME)
+                .collectionUuid(COLLECTION_UUID)
+                .query(VALID_OPERATOR_QUERY)
+                .intermediate(1)
+                .build(),
+            BOOTSTRAPPER_METADATA,
+            bsonSizeSoftLimit,
+            () -> null);
+
+    // SearchCommand.run() catches IllegalArgumentException internally and returns an error body
+    // (ok: 0, errmsg: ...) rather than propagating it, so we must check the response shape, not
+    // just that a non-null result came back.
+    BsonDocument result = command.run();
+    Assert.assertEquals(
+        "expected a successful response (ok: 1), but got: " + result,
+        1,
+        result.getInt32("ok").getValue());
   }
 
   @Theory

@@ -29,7 +29,6 @@ import java.util.Map;
 import java.util.Optional;
 import org.bson.BsonArray;
 import org.bson.BsonInt32;
-import org.bson.BsonNull;
 import org.bson.BsonString;
 import org.bson.BsonValue;
 import org.junit.Assert;
@@ -79,17 +78,7 @@ public class MongotCursorBatchesTest {
 
       long difference =
           testBatch.toRawBson().getByteBuffer().remaining() - emptyBatchBytes.toBytes();
-      long bsonArraySize =
-          new MongotCursorResult(Long.MAX_VALUE, new BsonArray(), MAX_NAMESPACE, Optional.empty())
-                  .toRawBson()
-                  .getByteBuffer()
-                  .remaining()
-              - new MongotCursorResult(
-                      Long.MAX_VALUE, new BsonNull(), MAX_NAMESPACE, Optional.empty())
-                  .toRawBson()
-                  .getByteBuffer()
-                  .remaining();
-      Assert.assertEquals(bsonArraySize, difference);
+      Assert.assertEquals(0, difference);
     }
 
     @Test
@@ -104,17 +93,7 @@ public class MongotCursorBatchesTest {
 
       long difference =
           testBatch.toRawBson().getByteBuffer().remaining() - emptyBatchBytes.toBytes();
-      long bsonArraySize =
-          new MongotCursorResult(Long.MAX_VALUE, new BsonArray(), MAX_NAMESPACE, Optional.empty())
-                  .toRawBson()
-                  .getByteBuffer()
-                  .remaining()
-              - new MongotCursorResult(
-                      Long.MAX_VALUE, new BsonNull(), MAX_NAMESPACE, Optional.empty())
-                  .toRawBson()
-                  .getByteBuffer()
-                  .remaining();
-      Assert.assertEquals(bsonArraySize, difference);
+      Assert.assertEquals(0, difference);
     }
   }
 

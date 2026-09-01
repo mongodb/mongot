@@ -11,8 +11,8 @@ import com.xgen.mongot.util.bson.parser.DocumentParser;
 import com.xgen.mongot.util.bson.parser.Field;
 import java.util.Optional;
 import org.apache.commons.lang3.Range;
+import org.bson.BsonArray;
 import org.bson.BsonDocument;
-import org.bson.BsonNull;
 import org.bson.BsonValue;
 
 /**
@@ -112,13 +112,18 @@ public record MongotCursorBatch(
 
   /**
    * Calculates the size of a MongotCursorBatch with the given variables, explain result,
-   * resultType, the maximum allowable namespace, any long value, the explain if present, but no
-   * batch.
+   * resultType, the maximum allowable namespace, any long value, the explain if present, and an
+   * empty batch array.
+   *
+   * <p>The batch is represented as an empty {@link BsonArray} rather than {@link BsonNull} so the
+   * array's own container overhead (length prefix + terminating byte) is included in the estimate
+   * -- a real batch is always an array, and a null placeholder would understate the envelope size
+   * by that overhead.
    */
   public static Bytes calculateEmptyBatchSize(
       Optional<BsonValue> variables, Optional<MongotCursorResult.Type> resultType) {
     MongotCursorResult emptyResult =
-        new MongotCursorResult(Long.MAX_VALUE, new BsonNull(), MAX_NAMESPACE, resultType);
+        new MongotCursorResult(Long.MAX_VALUE, new BsonArray(), MAX_NAMESPACE, resultType);
     return Bytes.ofBytes(
         new MongotCursorBatch(emptyResult, variables).toRawBson().getByteBuffer().remaining());
   }

@@ -423,9 +423,20 @@ public class SearchCommand implements Command {
 
       Bytes bytesRemaining =
           this.bsonSizeSoftLimit.subtract(MongotIntermediateCursorBatch.calculateEmptyBatchSize());
+
+      // calculateEmptyBatchSize() above only reserves the *combined* worst-case envelope for both
+      // cursors up front; it doesn't stop us from handing the entire remaining budget to just one
+      // cursor as its own raw-content limit. Reserve room for the meta cursor's own envelope
+      // (cursor id, namespace, etc.) before handing off its content budget, so a greedy batch
+      // producer that fills all the way to the limit doesn't push the wrapped result past
+      // bytesRemaining once cursor/namespace fields are added on top.
+      Bytes metaEnvelopeSize =
+          MongotCursorBatch.calculateEmptyBatchSize(
+              Optional.empty(), Optional.of(MongotCursorResult.Type.META));
+      Bytes metaContentLimit = bytesRemaining.subtract(metaEnvelopeSize);
       MongotCursorResultInfo metaCursorResultInfo =
           this.cursorManager.getNextBatch(
-              cursorInfo.metaCursorId, bytesRemaining, QueryCursorOptions.empty());
+              cursorInfo.metaCursorId, metaContentLimit, QueryCursorOptions.empty());
 
       MongotCursorBatch metaCursor =
           new MongotCursorBatch(

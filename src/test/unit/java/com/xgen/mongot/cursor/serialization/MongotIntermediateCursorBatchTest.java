@@ -25,7 +25,6 @@ import java.util.List;
 import java.util.Optional;
 import org.bson.BsonArray;
 import org.bson.BsonInt32;
-import org.bson.BsonNull;
 import org.bson.BsonValue;
 import org.junit.Assert;
 import org.junit.Test;
@@ -99,17 +98,7 @@ public class MongotIntermediateCursorBatchTest {
 
       long difference =
           testBatch.toRawBson().getByteBuffer().remaining() - emptyBatchBytes.toBytes();
-      long bsonArraySize =
-          new MongotCursorResult(Long.MAX_VALUE, new BsonArray(), MAX_NAMESPACE, Optional.empty())
-                  .toRawBson()
-                  .getByteBuffer()
-                  .remaining()
-              - new MongotCursorResult(
-                      Long.MAX_VALUE, new BsonNull(), MAX_NAMESPACE, Optional.empty())
-                  .toRawBson()
-                  .getByteBuffer()
-                  .remaining();
-      Assert.assertEquals(2 * bsonArraySize, difference);
+      Assert.assertEquals(0, difference);
     }
   }
 

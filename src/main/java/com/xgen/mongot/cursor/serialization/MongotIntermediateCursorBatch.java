@@ -12,8 +12,8 @@ import com.xgen.mongot.util.bson.parser.Field;
 import java.util.List;
 import java.util.Optional;
 import org.apache.commons.lang3.Range;
+import org.bson.BsonArray;
 import org.bson.BsonDocument;
-import org.bson.BsonNull;
 import org.jetbrains.annotations.VisibleForTesting;
 
 /**
@@ -117,7 +117,7 @@ public record MongotIntermediateCursorBatch(int ok, List<MongotCursorBatch> curs
 
   private static MongotCursorBatch getEmptyCursorBatch(Optional<MongotCursorResult.Type> type) {
     return new MongotCursorBatch(
-        new MongotCursorResult(Long.MAX_VALUE, new BsonNull(), MAX_NAMESPACE, type),
+        new MongotCursorResult(Long.MAX_VALUE, new BsonArray(), MAX_NAMESPACE, type),
         Optional.empty());
   }
 
