@@ -21,11 +21,11 @@ import io.micrometer.core.instrument.search.RequiredSearch;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumMap;
-import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.ToDoubleFunction;
@@ -75,7 +75,7 @@ public class MetricsFactory {
     this.namespace = namespace;
     this.registry = registry;
     this.factoryTags = factoryTags;
-    this.registeredMeters = Collections.synchronizedSet(new HashSet<>());
+    this.registeredMeters = ConcurrentHashMap.newKeySet();
     this.identitySafeClose = identitySafeClose;
   }
 
@@ -458,7 +458,7 @@ public class MetricsFactory {
     return longTaskTimer;
   }
 
-  String metricName(String name) {
+  public String metricName(String name) {
     return String.format("%s.%s", this.namespace, name);
   }
 
@@ -514,6 +514,12 @@ public class MetricsFactory {
             });
   }
 
+  /** The tags applied to every meter created by this factory. */
+  @VisibleForTesting
+  public Tags factoryTags() {
+    return this.factoryTags;
+  }
+
   @VisibleForTesting
   public RequiredSearch get(String name) {
     return this.get(name, Tags.empty());
@@ -526,7 +532,7 @@ public class MetricsFactory {
 
   /** Returns all meters registered by this MetricsFactory. */
   @VisibleForTesting
-  Set<Meter> getAllRegisteredMeters() {
+  public Set<Meter> getAllRegisteredMeters() {
     return ImmutableSet.copyOf(this.registeredMeters);
   }
 
