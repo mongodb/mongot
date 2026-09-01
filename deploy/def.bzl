@@ -2,7 +2,7 @@ load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
 load("@rules_pkg//pkg:providers.bzl", "PackageVariablesInfo")
 load("//bazel/config:def.bzl", "VersionInfo")
 
-def package_deploy_tar(name, bin, lib, toplevel = [], with_tags = True, license = [], target_jdk = "//deploy:release_target_jdk", docker_jdk = "//deploy:docker_target_jdk"):
+def package_deploy_tar(name, bin, lib, toplevel = [], with_tags = True, license = [], target_jdk = "//deploy:release_target_jdk", docker_jdk = "//deploy:docker_target_jdk", testonly = False):
     """
     Makes two deployable bundles:
       - One named <name>, whose directory structure is stamped using the value of the
@@ -34,12 +34,14 @@ def package_deploy_tar(name, bin, lib, toplevel = [], with_tags = True, license 
         name = "{}-bin".format(name),
         srcs = bin + [target_jdk],
         package_dir = "bin",
+        testonly = testonly,
     )
 
     pkg_tar(
         name = "{}-lib".format(name),
         srcs = lib,
         package_dir = "lib",
+        testonly = testonly,
     )
 
     release_deps = [
@@ -52,6 +54,7 @@ def package_deploy_tar(name, bin, lib, toplevel = [], with_tags = True, license 
             name = "{}-LICENSE".format(name),
             srcs = license,
             package_dir = "LICENSE",
+            testonly = testonly,
         )
         release_deps.append(":{}-LICENSE".format(name))
 
@@ -65,12 +68,14 @@ def package_deploy_tar(name, bin, lib, toplevel = [], with_tags = True, license 
         srcs = toplevel,
         deps = release_deps,
         visibility = ["//visibility:public"],
+        testonly = testonly,
     )
 
     pkg_tar(
         name = "{}-bin-docker".format(name),
         srcs = bin + [docker_jdk],
         package_dir = "bin",
+        testonly = testonly,
     )
 
     # This is an artifact purpose built for local docker images.
@@ -84,6 +89,7 @@ def package_deploy_tar(name, bin, lib, toplevel = [], with_tags = True, license 
             ":{}-lib".format(name),
         ],
         visibility = ["//visibility:public"],
+        testonly = testonly,
     )
 
 """
