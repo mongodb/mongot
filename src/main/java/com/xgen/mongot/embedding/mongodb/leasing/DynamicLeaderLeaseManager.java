@@ -56,6 +56,8 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BiFunction;
+import java.util.stream.Collectors;
 import org.bson.BsonDateTime;
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
@@ -79,6 +81,76 @@ import org.slf4j.spi.LoggingEventBuilder;
  * <p>Expected to be used as a singleton.
  */
 public class DynamicLeaderLeaseManager implements LeaseManager {
+
+  /** This instance's local role for a configured GenerationId. */
+  private enum LocalLeaseRole {
+    FOLLOWER,
+    LEADER
+  }
+
+  /** Tracks this instance's local role for each configured GenerationId. */
+  private static final class LocalLeaseRoleTracker {
+    private final Map<MaterializedViewGenerationId, LocalLeaseRole> roleByGenerationId =
+        new ConcurrentHashMap<>();
+
+    boolean isLeader(MaterializedViewGenerationId generationId) {
+      return this.roleByGenerationId.get(generationId) == LocalLeaseRole.LEADER;
+    }
+
+    void setLeader(MaterializedViewGenerationId generationId) {
+      this.roleByGenerationId.put(generationId, LocalLeaseRole.LEADER);
+    }
+
+    void setFollower(MaterializedViewGenerationId generationId) {
+      this.roleByGenerationId.put(generationId, LocalLeaseRole.FOLLOWER);
+    }
+
+    /** Unconditionally clears any role for {@code generationId}. */
+    void forget(MaterializedViewGenerationId generationId) {
+      this.roleByGenerationId.remove(generationId);
+    }
+
+    /**
+     * Atomically remaps {@code generationId}'s role, same contract as {@link
+     * java.util.concurrent.ConcurrentHashMap#compute}: {@code remappingFunction} is invoked with
+     * the current role (or {@code null} if untracked) and its return value becomes the new role
+     * ({@code null} to clear it). The whole read-decide-write happens under the map's per-key lock,
+     * so a concurrent {@link #setLeader}/{@link #setFollower}/{@link #forget} can't land in the
+     * middle of the decision and get silently clobbered by it.
+     */
+    void computeRole(
+        MaterializedViewGenerationId generationId,
+        BiFunction<MaterializedViewGenerationId, LocalLeaseRole, LocalLeaseRole>
+            remappingFunction) {
+      this.roleByGenerationId.compute(generationId, remappingFunction::apply);
+    }
+
+    /**
+     * Whether any generation currently has {@code FOLLOWER}. A plain {@link
+     * ConcurrentHashMap#containsValue} scan - measured at ~30us for 10,000 entries, negligible for
+     * something called once per poll/heartbeat cycle - short-circuits on the first match and never
+     * allocates, unlike {@link #followerIds}.
+     */
+    boolean hasAnyFollower() {
+      return this.roleByGenerationId.containsValue(LocalLeaseRole.FOLLOWER);
+    }
+
+    Set<MaterializedViewGenerationId> leaderIds() {
+      return idsWithRole(LocalLeaseRole.LEADER);
+    }
+
+    Set<MaterializedViewGenerationId> followerIds() {
+      return idsWithRole(LocalLeaseRole.FOLLOWER);
+    }
+
+    private Set<MaterializedViewGenerationId> idsWithRole(LocalLeaseRole role) {
+      return Collections.unmodifiableSet(
+          this.roleByGenerationId.entrySet().stream()
+              .filter(entry -> entry.getValue() == role)
+              .map(Map.Entry::getKey)
+              .collect(Collectors.toSet()));
+    }
+  }
 
   private static final Logger LOG = LoggerFactory.getLogger(DynamicLeaderLeaseManager.class);
 
@@ -114,10 +186,9 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
   private final String hostname;
   // Mapping of lease keys to leases.
   private final Map<String, Lease> leases;
-  // Tracks GenerationIds where this instance is the leader.
-  private final Set<MaterializedViewGenerationId> leaderGenerationIds;
-  // Tracks GenerationIds where this instance is a follower.
-  private final Set<MaterializedViewGenerationId> followerGenerationIds;
+  // Tracks this instance's local role (leader or follower) for each configured GenerationId. A
+  // generation with no entry here is not currently tracked/registered.
+  private final LocalLeaseRoleTracker localRoles;
   // Maps GenerationId to its definition version (as String) for use in pollFollowerStatuses().
   private final Map<MaterializedViewGenerationId, String> matViewGenerationIdToDefinitionVersion;
   private final MaterializedViewCollectionMetadataCatalog mvMetadataCatalog;
@@ -180,8 +251,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     this.hostname = hostname;
     this.mvMetadataCatalog = mvMetadataCatalog;
     this.leases = new ConcurrentHashMap<>();
-    this.leaderGenerationIds = ConcurrentHashMap.newKeySet();
-    this.followerGenerationIds = ConcurrentHashMap.newKeySet();
+    this.localRoles = new LocalLeaseRoleTracker();
     this.matViewGenerationIdToDefinitionVersion = new ConcurrentHashMap<>();
     this.dbResolver = dbResolver;
     this.leaseKeyToDatabase = new ConcurrentHashMap<>();
@@ -577,20 +647,19 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
 
       if (weOwnLease && !leaseExpired) {
         // We own the lease - this is likely an index definition update (e.g., filter field change).
-        // Add to leaderGenerationIds so the generator can become leader immediately. Also clear any
-        // followerGenerationIds membership: becomeFollower() can have added this generationId there
-        // moments earlier in the same refreshStatus() tick (e.g. a terminal-generator demotion
-        // immediately followed by retryFailedGeneratorCreations() re-adding it here), and leaving
-        // it
-        // in both sets makes the next pollFollowerStatuses() report this already-active lease as
-        // acquirable, causing refreshStatus()'s acquirableLeases loop to redundantly reacquire
-        // leadership on the generator this call just activated and trip the unsafe-reacquisition
-        // detector on a same-tenure, non-corrupting reacquisition (CLOUDP-437181).
+        // Mark this generation LEADER so the generator can become leader immediately. This also
+        // overwrites any FOLLOWER role: becomeFollower() can have set this generationId to
+        // FOLLOWER moments earlier in the same refreshStatus() tick (e.g. a terminal-generator
+        // demotion immediately followed by retryFailedGeneratorCreations() re-adding it here), and
+        // leaving it as FOLLOWER after this point would make the next pollFollowerStatuses()
+        // report this already-active lease as acquirable, causing refreshStatus()'s
+        // acquirableLeases loop to redundantly reacquire leadership on the generator this call
+        // just activated and trip the unsafe-reacquisition detector on a same-tenure,
+        // non-corrupting reacquisition (CLOUDP-437181).
         //
         // Becoming leader again does not clear checkpoint risk; only a checkpoint write the
         // database accepts does. See LeaseManager#clearCheckpointCommitRisk.
-        this.followerGenerationIds.remove(generationId);
-        this.leaderGenerationIds.add(generationId);
+        this.localRoles.setLeader(generationId);
         LOG.atInfo()
             .addKeyValue("generationId", generationId)
             .addKeyValue("leaseOwner", lease.leaseOwner())
@@ -600,8 +669,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
       } else {
         // add() runs again after replication restart, while the previous leader tracking remains.
         // Clear it so expired ownership must be reacquired through OCC before the generator writes.
-        this.leaderGenerationIds.remove(generationId);
-        this.followerGenerationIds.add(generationId);
+        this.localRoles.setFollower(generationId);
         LOG.atInfo()
             .addKeyValue("generationId", generationId)
             .addKeyValue("leaseOwner", lease.leaseOwner())
@@ -622,8 +690,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     } else {
       // No lease in memory - create an in-memory lease with an empty owner.
       // This will be persisted to the database when tryAcquireLeadership() is called.
-      this.leaderGenerationIds.remove(generationId);
-      this.followerGenerationIds.add(generationId);
+      this.localRoles.setFollower(generationId);
       LOG.atInfo()
           .addKeyValue("generationId", generationId)
           .addKeyValue("hostname", this.hostname)
@@ -648,8 +715,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
 
   @Override
   public void drop(MaterializedViewGenerationId generationId) {
-    this.leaderGenerationIds.remove(generationId);
-    this.followerGenerationIds.remove(generationId);
+    this.localRoles.forget(generationId);
     this.matViewGenerationIdToDefinitionVersion.remove(generationId);
   }
 
@@ -738,7 +804,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
 
   @Override
   public boolean isLeader(MaterializedViewGenerationId generationId) {
-    return this.leaderGenerationIds.contains(generationId);
+    return this.localRoles.isLeader(generationId);
   }
 
   @Override
@@ -1113,7 +1179,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
               "deleteStaleLease", () -> this.getCollection(dbName).deleteOne(filter));
       if (result.getDeletedCount() > 0) {
         // A GC-eligible lease is orphaned (no local generation), so only the leaseKey-keyed state
-        // needs clearing. The generation-keyed maps (leader/followerGenerationIds,
+        // needs clearing. The generation-keyed maps (localRoles,
         // matViewGenerationIdToDefinitionVersion) track locally configured generations and are
         // cleared by drop(); a still-configured generation either renews its lease (never stale)
         // or is stopped by the cleaner's local-generation guard, so none leak here.
@@ -1226,12 +1292,12 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
 
   @Override
   public Set<MaterializedViewGenerationId> getLeaderGenerationIds() {
-    return Collections.unmodifiableSet(this.leaderGenerationIds);
+    return this.localRoles.leaderIds();
   }
 
   @Override
   public Set<MaterializedViewGenerationId> getFollowerGenerationIds() {
-    return Collections.unmodifiableSet(this.followerGenerationIds);
+    return this.localRoles.followerIds();
   }
 
   @Override
@@ -1240,21 +1306,26 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     Map<MaterializedViewGenerationId, BsonTimestamp> replicationOpTimes = new HashMap<>();
     Set<MaterializedViewGenerationId> acquirableLeases = new HashSet<>();
 
-    LOG.atDebug()
-        .addKeyValue("followerCount", this.followerGenerationIds.size())
-        .addKeyValue("hostname", this.hostname)
-        .log("Polling follower statuses");
-
-    if (this.followerGenerationIds.isEmpty()) {
+    if (!this.localRoles.hasAnyFollower()) {
+      LOG.atDebug()
+          .addKeyValue("followerCount", 0)
+          .addKeyValue("hostname", this.hostname)
+          .log("Polling follower statuses");
       return new LeaseManager.FollowerPollResult(statuses, replicationOpTimes, acquirableLeases);
     }
+
+    Set<MaterializedViewGenerationId> followerGenerationIds = this.localRoles.followerIds();
+    LOG.atDebug()
+        .addKeyValue("followerCount", followerGenerationIds.size())
+        .addKeyValue("hostname", this.hostname)
+        .log("Polling follower statuses");
 
     // Build a mapping from MaterializedViewGenerationID to LeaseKey for efficient lookup after
     // batch fetch.
     Map<MaterializedViewGenerationId, String> generationIdToLeaseKey = new HashMap<>();
     List<String> leaseKeys = new ArrayList<>();
     Set<MaterializedViewGenerationId> removedDuringPoll = new HashSet<>();
-    for (MaterializedViewGenerationId generationId : new ArrayList<>(this.followerGenerationIds)) {
+    for (MaterializedViewGenerationId generationId : new ArrayList<>(followerGenerationIds)) {
       try {
         String leaseKey = getLeaseKey(generationId);
         leaseKeys.add(leaseKey);
@@ -1332,9 +1403,14 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
       return LeaseManager.FollowerPollResult.EMPTY;
     }
 
-    // Process each follower generation ID.
+    // Process each follower generation ID. Deliberately rescans localRoles instead of reusing the
+    // followerGenerationIds snapshot taken above: a generation promoted to leader during the batch
+    // fetch above (e.g. via add() or acquireExistingLease()) must not be reprocessed here as a
+    // follower, or it can be reported acquirable and trigger a redundant, CLOUDP-437181-style
+    // reacquisition of a lease we already hold.
     Instant now = Instant.now();
-    for (MaterializedViewGenerationId generationId : new ArrayList<>(this.followerGenerationIds)) {
+    for (MaterializedViewGenerationId generationId :
+        new ArrayList<>(this.localRoles.followerIds())) {
       if (removedDuringPoll.contains(generationId)) {
         continue;
       }
@@ -1400,7 +1476,8 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     // For leaders: renew the lease to maintain leadership.
     // For followers: do nothing - leadership acquisition is handled separately via
     // tryAcquireLeadership() called by MaterializedViewManager.
-    int leaderCount = this.leaderGenerationIds.size();
+    Set<MaterializedViewGenerationId> leaderGenerationIds = this.localRoles.leaderIds();
+    int leaderCount = leaderGenerationIds.size();
     if (leaderCount > 0) {
       LOG.atDebug()
           .addKeyValue("leaderCount", leaderCount)
@@ -1409,7 +1486,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     }
     List<MaterializedViewGenerationId> renewedGenerationIds = new ArrayList<>();
     List<MaterializedViewGenerationId> failedGenerationIds = new ArrayList<>();
-    for (MaterializedViewGenerationId generationId : new ArrayList<>(this.leaderGenerationIds)) {
+    for (MaterializedViewGenerationId generationId : new ArrayList<>(leaderGenerationIds)) {
       if (renewLease(generationId)) {
         renewedGenerationIds.add(generationId);
       } else {
@@ -1659,9 +1736,9 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
               this.getCollection(getDatabaseForLease(newLease.id())).insertOne(newLease.toBson()));
       // Insert succeeded - we created the lease and synchronized in-memory lease state.
       this.leases.put(newLease.id(), newLease);
-      // Don't add or remove generationId into this.followerGenerationIds or
-      // this.leaderGenerationIds, which may break MaterializedViewManager when it's refreshing
-      // status by looking up MaterializedViewCollectionMetadataCatalog.
+      // Don't add, remove, or otherwise touch generationId's role in this.localRoles, which may
+      // break MaterializedViewManager when it's refreshing status by looking up
+      // MaterializedViewCollectionMetadataCatalog.
       return true;
     } catch (MongoWriteException e) {
       if (e.getError().getCategory() == ErrorCategory.DUPLICATE_KEY) {
@@ -1732,8 +1809,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
 
     if (result.getMatchedCount() > 0) {
       this.leases.put(getLeaseKey(generationId), newLease);
-      this.followerGenerationIds.remove(generationId);
-      this.leaderGenerationIds.add(generationId);
+      this.localRoles.setLeader(generationId);
       if (isReclaimingOwnLease) {
         // Taking the lease back does not clear checkpoint risk: withRenewedOwnership() copies
         // commitInfo over unchanged. The next commit clears it, even an empty one.
@@ -1977,32 +2053,48 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
 
   /** Transitions a generation ID from leader to follower state. */
   private void becomeFollower(MaterializedViewGenerationId generationId) {
-    this.leaderGenerationIds.remove(generationId);
-    // Only add to follower if we're still managing this generation.
-    // If the lease was removed by drop(), we must not re-add to followerGenerationIds.
-    // This prevents a race condition where drop() removes the generation from both sets,
-    // but a concurrent renewLease() or updateLeaseInDatabase() call re-adds it to follower.
-    try {
-      if (this.leases.containsKey(getLeaseKey(generationId))) {
-        this.followerGenerationIds.add(generationId);
-        LOG.atInfo()
-            .addKeyValue("generationId", generationId)
-            .addKeyValue("hostname", this.hostname)
-            .log("Transitioned from leader to follower");
-      } else {
-        LOG.atInfo()
-            .addKeyValue("generationId", generationId)
-            .addKeyValue("hostname", this.hostname)
-            .log("Not transitioning to follower - lease was removed by drop()");
-      }
-    } catch (IllegalStateException e) {
-      // Index was deleted concurrently - metadata is gone. Don't add to followers.
-      LOG.warn(
-          "Metadata removed for generation {} during becomeFollower, skipping follower transition",
-          generationId,
-          e);
-      this.matViewGenerationIdToDefinitionVersion.remove(generationId);
-    }
+    // The leader-check, lease-check, and role write all happen inside one computeRole() call so
+    // the whole transition is atomic. Splitting it into a separate remove-then-put (as a plain
+    // remove()/put() pair would) leaves a window where a concurrent add() or acquireExistingLease()
+    // can reclaim leadership in between, only for this method's follow-up put() to silently
+    // clobber that reclaimed LEADER role back to FOLLOWER.
+    this.localRoles.computeRole(
+        generationId,
+        (id, currentRole) -> {
+          if (currentRole != LocalLeaseRole.LEADER) {
+            // Not currently leader (already follower, untracked, or a concurrent operation already
+            // changed the role) - nothing to demote.
+            return currentRole;
+          }
+          // Only set FOLLOWER if we're still managing this generation.
+          // If the lease was removed by drop(), we must not re-add an entry for this generation.
+          // This prevents a race condition where drop() removes the generation's entry entirely,
+          // but a concurrent renewLease() or updateLeaseInDatabase() call re-adds it as follower.
+          try {
+            if (this.leases.containsKey(getLeaseKey(id))) {
+              LOG.atInfo()
+                  .addKeyValue("generationId", id)
+                  .addKeyValue("hostname", this.hostname)
+                  .log("Transitioned from leader to follower");
+              return LocalLeaseRole.FOLLOWER;
+            } else {
+              LOG.atInfo()
+                  .addKeyValue("generationId", id)
+                  .addKeyValue("hostname", this.hostname)
+                  .log("Not transitioning to follower - lease was removed by drop()");
+              return null;
+            }
+          } catch (IllegalStateException e) {
+            // Index was deleted concurrently - metadata is gone. Don't add to followers.
+            LOG.warn(
+                "Metadata removed for generation {} during becomeFollower, skipping follower"
+                    + " transition",
+                id,
+                e);
+            this.matViewGenerationIdToDefinitionVersion.remove(id);
+            return null;
+          }
+        });
   }
 
   private void ensureLeaseExists(String leaseKey) {
@@ -2013,8 +2105,8 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
 
   /**
    * Cleans up all per-generation state after metadata has been concurrently removed. Removes the
-   * generation from leader/follower tracking sets, definition version mapping, and optionally the
-   * in-memory lease cache.
+   * generation's local role entry, definition version mapping, and optionally the in-memory lease
+   * cache.
    *
    * @param generationId the generation whose state should be purged
    * @param leaseKey the resolved lease key, or {@code null} if it was not resolved before the
@@ -2022,8 +2114,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
    */
   private void cleanupAfterMetadataLoss(
       MaterializedViewGenerationId generationId, @Nullable String leaseKey) {
-    this.leaderGenerationIds.remove(generationId);
-    this.followerGenerationIds.remove(generationId);
+    this.localRoles.forget(generationId);
     this.matViewGenerationIdToDefinitionVersion.remove(generationId);
     if (leaseKey != null) {
       this.leases.remove(leaseKey);

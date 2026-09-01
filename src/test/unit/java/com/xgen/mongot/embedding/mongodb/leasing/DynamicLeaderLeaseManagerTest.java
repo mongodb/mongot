@@ -1876,6 +1876,36 @@ public class DynamicLeaderLeaseManagerTest {
   }
 
   @Test
+  public void releaseLeadership_afterDrop_doesNotResurrectUntrackedGeneration() throws Exception {
+    // Arrange - acquire leadership so the generation starts out LEADER with a cached lease.
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    this.leaseManager.add(indexGeneration);
+    Lease expiredLease = createLease(generationId, OTHER_HOSTNAME, Instant.now().minusSeconds(60));
+    setupFindLeaseFromDatabase(expiredLease);
+    setupSuccessfulLeaseUpdate();
+    this.leaseManager.pollFollowerStatuses();
+    this.leaseManager.tryAcquireLeadership(generationId);
+    assertThat(this.leaseManager.isLeader(generationId)).isTrue();
+
+    // drop() untracks the generation but deliberately leaves its lease cached (see
+    // drop_asLeader_onlyUntracksGenerationId above).
+    this.leaseManager.drop(generationId);
+    assertThat(this.leaseManager.getLeaderGenerationIds()).doesNotContain(generationId);
+    assertThat(this.leaseManager.getFollowerGenerationIds()).doesNotContain(generationId);
+
+    // Act - releaseLeadership() (-> becomeFollower()) firing on an already-untracked generation
+    // (e.g. a stale demotion racing with drop()) must not resurrect it as a follower just because
+    // its lease is still cached.
+    this.leaseManager.releaseLeadership(generationId);
+
+    // Assert - still untracked, not silently re-registered as a follower.
+    assertThat(this.leaseManager.isLeader(generationId)).isFalse();
+    assertThat(this.leaseManager.getLeaderGenerationIds()).doesNotContain(generationId);
+    assertThat(this.leaseManager.getFollowerGenerationIds()).doesNotContain(generationId);
+  }
+
+  @Test
   public void dropLease_asLeader_deletesFromDatabase() throws Exception {
     // Arrange
     MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
