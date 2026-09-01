@@ -18,6 +18,7 @@ java_library(
         "HasAncestorOperator.java",
         "HasRootOperator.java",
         "InOperator.java",
+        "IndexNamespaceFilter.java",
         "KnnBetaOperator.java",
         "MoreLikeThisOperator.java",
         "NearOperator.java",

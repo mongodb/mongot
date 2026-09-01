@@ -194,6 +194,22 @@
         "model": "voyage-3-large",
         "returnStoredSource": false
       }
+    },
+    {
+      "description": "with-indexNamespace",
+      "value": {
+        "index": "myVectorIndex",
+        "path": "description",
+        "numCandidates": 10,
+        "limit": 5,
+        "queryVector": [2, 2, 2],
+        "returnStoredSource": false,
+        "indexNamespace": {
+          "tenantId": {
+            "$eq": "acme"
+          }
+        }
+      }
     }
   ],
   "invalid": [
@@ -509,6 +525,67 @@
         ],
         "model": "voyage-3-large",
         "returnStoredSource": false
+      }
+    },
+    {
+      "description": "indexNamespace not a document",
+      "value": {
+        "index": "myVectorIndex",
+        "path": "description",
+        "numCandidates": 10,
+        "limit": 5,
+        "queryVector": [2, 2, 2],
+        "returnStoredSource": false,
+        "indexNamespace": "tenantId"
+      }
+    },
+    {
+      "description": "indexNamespace with multiple fields",
+      "value": {
+        "index": "myVectorIndex",
+        "path": "description",
+        "numCandidates": 10,
+        "limit": 5,
+        "queryVector": [2, 2, 2],
+        "returnStoredSource": false,
+        "indexNamespace": {
+          "tenantId": {
+            "$eq": "acme"
+          },
+          "other": {
+            "$eq": "x"
+          }
+        }
+      }
+    },
+    {
+      "description": "indexNamespace without $eq",
+      "value": {
+        "index": "myVectorIndex",
+        "path": "description",
+        "numCandidates": 10,
+        "limit": 5,
+        "queryVector": [2, 2, 2],
+        "returnStoredSource": false,
+        "indexNamespace": {
+          "tenantId": {
+            "$gt": "acme"
+          }
+        }
+      }
+    },
+    {
+      "description": "indexNamespace with bare value",
+      "value": {
+        "index": "myVectorIndex",
+        "path": "description",
+        "numCandidates": 10,
+        "limit": 5,
+        "queryVector": [2, 2, 2],
+        "returnStoredSource": false,
+        "indexNamespace": {
+          "tenantId": "acme"
+        }
       }
     }
   ]

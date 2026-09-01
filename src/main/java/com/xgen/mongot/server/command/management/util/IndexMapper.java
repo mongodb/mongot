@@ -88,6 +88,7 @@ public class IndexMapper {
               Optional.of(definitionVersionCreatedAt),
               vectorIndexDefinition.storedSource(),
               vectorIndexDefinition.nestedRoot(),
+              vectorIndexDefinition.indexNamespace(),
               Optional.of(newIndexId),
               Optional.empty(),
               // Preserve prior value on update; stamp v1 on create
@@ -113,7 +114,8 @@ public class IndexMapper {
               vector.getFields(),
               vector.getNumPartitions(),
               omitDefault(vector.getStoredSource(), StoredSourceDefinition.defaultValue()),
-              vector.getNestedRoot());
+              vector.getNestedRoot(),
+              vector.getIndexNamespace());
     };
   }
 
@@ -221,7 +223,9 @@ public class IndexMapper {
                       .equals(getter.apply(idx2.asSearchDefinition())));
     } else if (idx1.getType() == Type.VECTOR_SEARCH && idx2.getType() == Type.VECTOR_SEARCH) {
       return Stream.<Function<VectorIndexDefinition, Object>>of(
-              VectorIndexDefinition::getFields, VectorIndexDefinition::getNumPartitions)
+              VectorIndexDefinition::getFields,
+              VectorIndexDefinition::getNumPartitions,
+              VectorIndexDefinition::getIndexNamespace)
           .allMatch(
               getter ->
                   getter

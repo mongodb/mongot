@@ -23,6 +23,7 @@ java_library(
         "IndexDefinition.java",
         "IndexDefinitionGeneration.java",
         "IndexDefinitionGenerationProducer.java",
+        "IndexNamespaceDefinition.java",
         "IndexSortValidator.java",
         "InvalidIndexDefinitionException.java",
         "InvalidViewDefinitionException.java",

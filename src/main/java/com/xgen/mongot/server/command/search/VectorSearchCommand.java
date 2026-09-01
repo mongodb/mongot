@@ -40,6 +40,7 @@ import com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.autoembedding.InitializedMaterializedViewIndex;
 import com.xgen.mongot.index.autoembedding.UnresolvedAutoEmbeddingIndex;
 import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.definition.IndexNamespaceDefinition;
 import com.xgen.mongot.index.definition.StoredSourceDefinition;
 import com.xgen.mongot.index.definition.VectorAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.VectorAutoEmbedFieldSpecification;
@@ -59,6 +60,7 @@ import com.xgen.mongot.index.query.Query;
 import com.xgen.mongot.index.query.QueryExecutionContext;
 import com.xgen.mongot.index.query.QueryOptimizationFlags;
 import com.xgen.mongot.index.query.VectorSearchQuery;
+import com.xgen.mongot.index.query.operators.IndexNamespaceFilter;
 import com.xgen.mongot.index.query.operators.VectorSearchCriteria;
 import com.xgen.mongot.index.query.operators.VectorSearchQueryInput;
 import com.xgen.mongot.metrics.MetricsFactory;
@@ -411,6 +413,8 @@ public class VectorSearchCommand implements Command {
         // so when this index does get created, we will answer queries correctly.
         return createExhaustedCursorBatch(new BsonArray()).toBson();
       }
+
+      validateIndexNamespace(vectorSearchQuery, optionalIndex.get().getDefinition());
 
       // Compute once and reuse for both the counter and the latency metric tag.
       boolean isNested =
@@ -1067,6 +1071,39 @@ public class VectorSearchCommand implements Command {
         this.metricsFactory.timer(
             "vectorSearchCommandTotalLatencyByIndexSize", tags, 0.5, 0.75, 0.9, 0.99);
     timer.stop(commandTimer);
+  }
+
+  /**
+   * An index defined with an indexNamespace requires every query to select a namespace with a
+   * matching indexNamespace equality; an index without one must not receive it.
+   */
+  @VisibleForTesting
+  static void validateIndexNamespace(
+      VectorSearchQuery vectorSearchQuery, IndexDefinition definition)
+      throws InvalidQueryException {
+    Optional<IndexNamespaceDefinition> indexNamespace =
+        definition.getType() == VECTOR_SEARCH
+            ? definition.asVectorDefinition().getIndexNamespace()
+            : Optional.empty();
+    Optional<IndexNamespaceFilter> queryNamespace = vectorSearchQuery.indexNamespace();
+    if (indexNamespace.isPresent()) {
+      if (queryNamespace.isEmpty()) {
+        throw new InvalidQueryException(
+            String.format(
+                "index is defined with indexNamespace; the query must supply"
+                    + " indexNamespace: { %s: { $eq: <value> } }",
+                indexNamespace.get().path()));
+      }
+      if (!queryNamespace.get().path().equals(indexNamespace.get().path())) {
+        throw new InvalidQueryException(
+            String.format(
+                "indexNamespace field '%s' does not match the index definition's"
+                    + " indexNamespace path '%s'",
+                queryNamespace.get().path(), indexNamespace.get().path()));
+      }
+    } else if (queryNamespace.isPresent()) {
+      throw new InvalidQueryException("index is not defined with indexNamespace");
+    }
   }
 
   /**

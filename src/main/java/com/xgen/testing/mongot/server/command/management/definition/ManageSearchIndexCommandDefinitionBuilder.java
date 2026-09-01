@@ -148,7 +148,7 @@ public class ManageSearchIndexCommandDefinitionBuilder {
         VECTOR_INDEX_NAME,
         IndexDefinition.Type.VECTOR_SEARCH,
         new UserVectorIndexDefinition(
-            getVectorIndexFields(), 1, Optional.empty(), Optional.empty()));
+            getVectorIndexFields(), 1, Optional.empty(), Optional.empty(), Optional.empty()));
   }
 
   public ManageSearchIndexCommandDefinitionBuilder withIndexName(String indexName) {

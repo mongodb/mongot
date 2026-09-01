@@ -74,6 +74,7 @@ public class AutoEmbeddingIndexDefinitionUtils {
         // ("sections"), causing the isChildOf check to return false. See CLOUDP-398738.
         getMatViewNestedRoot(
             rawDefinition.getNestedRoot(), schemaMetadata.autoEmbeddingFieldsMapping()),
+        rawDefinition.getIndexNamespace(),
         rawDefinition.getIndexIdAtCreationTime(),
         rawDefinition.getAutoEmbeddingDefinitionVersion(),
         rawDefinition.getMaterializedViewNameFormatVersion());

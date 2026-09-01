@@ -51,6 +51,7 @@ import com.xgen.mongot.index.query.DeadlineExceededException;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.MaterializedVectorSearchQuery;
 import com.xgen.mongot.index.query.QueryExecutionContext;
+import com.xgen.mongot.index.query.VectorSearchQuery;
 import com.xgen.mongot.index.query.operators.VectorSearchCriteria;
 import com.xgen.mongot.index.query.operators.VectorSearchFilter;
 import com.xgen.mongot.index.query.operators.VectorSearchQueryInput;
@@ -2170,5 +2171,70 @@ public class VectorSearchCommandTest {
 
   private static MetricsFactory mockMetricsFactory() {
     return new MetricsFactory("mockNamespace", new SimpleMeterRegistry());
+  }
+
+  private static VectorSearchQuery indexNamespaceQuery(String namespacePath) {
+    var builder =
+        VectorQueryBuilder.builder()
+            .index(INDEX_NAME)
+            .criteria(
+                ApproximateVectorQueryCriteriaBuilder.builder()
+                    .limit(LIMIT)
+                    .numCandidates(NUM_CANDIDATES)
+                    .queryVector(QUERY_VECTOR)
+                    .path(PATH)
+                    .build());
+    if (namespacePath != null) {
+      builder.indexNamespace(namespacePath, new BsonString("acme"));
+    }
+    return builder.build();
+  }
+
+  private static VectorIndexDefinition indexNamespaceDefinition(boolean withNamespace) {
+    var builder =
+        VectorIndexDefinitionBuilder.builder().withCustomEngineVectorField(PATH.toString(), 3);
+    if (withNamespace) {
+      builder.indexNamespace("tenantId");
+    }
+    return builder.build();
+  }
+
+  @Test
+  public void validateIndexNamespace_requiredButMissing_throws() {
+    var thrown =
+        Assert.assertThrows(
+            InvalidQueryException.class,
+            () ->
+                VectorSearchCommand.validateIndexNamespace(
+                    indexNamespaceQuery(null), indexNamespaceDefinition(true)));
+    assertThat(thrown).hasMessageThat().contains("must supply");
+  }
+
+  @Test
+  public void validateIndexNamespace_matchingPath_passes() throws Exception {
+    VectorSearchCommand.validateIndexNamespace(
+        indexNamespaceQuery("tenantId"), indexNamespaceDefinition(true));
+  }
+
+  @Test
+  public void validateIndexNamespace_mismatchedPath_throws() {
+    var thrown =
+        Assert.assertThrows(
+            InvalidQueryException.class,
+            () ->
+                VectorSearchCommand.validateIndexNamespace(
+                    indexNamespaceQuery("otherField"), indexNamespaceDefinition(true)));
+    assertThat(thrown).hasMessageThat().contains("does not match");
+  }
+
+  @Test
+  public void validateIndexNamespace_notDefinedOnIndex_throws() {
+    var thrown =
+        Assert.assertThrows(
+            InvalidQueryException.class,
+            () ->
+                VectorSearchCommand.validateIndexNamespace(
+                    indexNamespaceQuery("tenantId"), indexNamespaceDefinition(false)));
+    assertThat(thrown).hasMessageThat().contains("not defined with indexNamespace");
   }
 }

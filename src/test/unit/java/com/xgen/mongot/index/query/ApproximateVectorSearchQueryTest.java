@@ -17,6 +17,7 @@ import com.xgen.testing.mongot.index.query.operators.mql.MqlFilterOperatorBuilde
 import com.xgen.testing.mongot.index.query.operators.mql.ValueBuilder;
 import java.util.List;
 import java.util.Optional;
+import org.bson.BsonString;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -65,7 +66,24 @@ public class ApproximateVectorSearchQueryTest {
           simpleAutoEmbeddingQuery(),
           simpleAutoEmbeddingQueryWithMultiModalFormat(),
           withSearchNodePreference(),
-          autoEmbeddingQueryWithModel());
+          autoEmbeddingQueryWithModel(),
+          indexNamespace());
+    }
+
+    private static BsonDeserializationTestSuite.ValidSpec<VectorSearchQuery> indexNamespace() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "with-indexNamespace",
+          VectorQueryBuilder.builder()
+              .index("myVectorIndex")
+              .indexNamespace("tenantId", new BsonString("acme"))
+              .criteria(
+                  ApproximateVectorQueryCriteriaBuilder.builder()
+                      .limit(5)
+                      .numCandidates(10)
+                      .queryVector(Vector.fromFloats(new float[] {2f, 2f, 2f}, NATIVE))
+                      .path(FieldPath.newRoot("description"))
+                      .build())
+              .build());
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<VectorSearchQuery> simple() {
@@ -314,7 +332,24 @@ public class ApproximateVectorSearchQueryTest {
           simpleAutoEmbeddingQuery(),
           simpleAutoEmbeddingQueryWithMultiModalFormat(),
           emptyIndex(),
-          autoEmbeddingQueryWithModel());
+          autoEmbeddingQueryWithModel(),
+          indexNamespace());
+    }
+
+    private static BsonSerializationTestSuite.TestSpec<VectorSearchQuery> indexNamespace() {
+      return BsonSerializationTestSuite.TestSpec.create(
+          "with-indexNamespace",
+          VectorQueryBuilder.builder()
+              .index("myVectorIndex")
+              .indexNamespace("tenantId", new BsonString("acme"))
+              .criteria(
+                  ApproximateVectorQueryCriteriaBuilder.builder()
+                      .path(FieldPath.newRoot("description"))
+                      .queryVector(Vector.fromFloats(new float[] {2f, 2f, 2f}, NATIVE))
+                      .numCandidates(10)
+                      .limit(5)
+                      .build())
+              .build());
     }
 
     @Test

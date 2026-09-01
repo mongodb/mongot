@@ -1,6 +1,7 @@
 package com.xgen.testing.mongot.index.definition;
 
 import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.definition.IndexNamespaceDefinition;
 import com.xgen.mongot.index.definition.StoredSourceDefinition;
 import com.xgen.mongot.index.definition.VectorAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.VectorAutoEmbedFieldSpecification;
@@ -40,6 +41,7 @@ public class VectorIndexDefinitionBuilder {
       VectorIndexDefinition.Fields.INDEX_FEATURE_VERSION.getDefaultValue();
   private Optional<StoredSourceDefinition> storedSource = Optional.empty();
   private Optional<FieldPath> nestedRoot = Optional.empty();
+  private Optional<IndexNamespaceDefinition> indexNamespace = Optional.empty();
   private Optional<ObjectId> indexIdAtCreationTime = Optional.empty();
   private Optional<Long> autoEmbeddingDefinitionVersion = Optional.empty();
   private Optional<Long> materializedViewNameFormatVersion = Optional.empty();
@@ -235,6 +237,11 @@ public class VectorIndexDefinitionBuilder {
     return this;
   }
 
+  public VectorIndexDefinitionBuilder indexNamespace(String path) {
+    this.indexNamespace = Optional.of(new IndexNamespaceDefinition(FieldPath.parse(path)));
+    return this;
+  }
+
   public VectorIndexDefinitionBuilder withTextField(String path) {
     VectorTextFieldDefinition vectorText = new VectorTextFieldDefinition(FieldPath.parse(path));
     this.fields.add(vectorText);
@@ -328,6 +335,7 @@ public class VectorIndexDefinitionBuilder {
         this.definitionVersionCreatedAt,
         this.storedSource,
         this.nestedRoot,
+        this.indexNamespace,
         this.indexIdAtCreationTime,
         this.autoEmbeddingDefinitionVersion,
         this.materializedViewNameFormatVersion);

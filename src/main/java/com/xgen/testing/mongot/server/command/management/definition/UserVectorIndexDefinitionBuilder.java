@@ -51,6 +51,6 @@ public class UserVectorIndexDefinitionBuilder {
 
   public UserVectorIndexDefinition build() {
     return new UserVectorIndexDefinition(
-        this.fields, this.numPartitions, Optional.empty(), Optional.empty());
+        this.fields, this.numPartitions, Optional.empty(), Optional.empty(), Optional.empty());
   }
 }

@@ -25,5 +25,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/query/sort",
         "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/bson",
+        "//src/main/java/com/xgen/mongot/util/bson/parser",
+        "@maven//:org_mongodb_bson",
     ],
 )

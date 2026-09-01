@@ -1,7 +1,9 @@
 package com.xgen.mongot.server.command.management.definition.common;
 
 import com.google.errorprone.annotations.Var;
+import com.xgen.mongot.index.definition.IndexNamespaceDefinition;
 import com.xgen.mongot.index.definition.StoredSourceDefinition;
+import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
@@ -21,7 +23,8 @@ public record UserVectorIndexDefinition(
     List<VectorIndexFieldDefinition> fields,
     int numPartitions,
     Optional<StoredSourceDefinition> storedSource,
-    Optional<FieldPath> nestedRoot)
+    Optional<FieldPath> nestedRoot,
+    Optional<IndexNamespaceDefinition> indexNamespace)
     implements UserIndexDefinition {
 
   private static class Fields {
@@ -48,6 +51,13 @@ public record UserVectorIndexDefinition(
             .classField(FieldPathField::parse, FieldPathField::encode)
             .optional()
             .noDefault();
+
+    static final Field.Optional<IndexNamespaceDefinition> INDEX_NAMESPACE =
+        Field.builder("indexNamespace")
+            .classField(IndexNamespaceDefinition::fromBson)
+            .disallowUnknownFields()
+            .optional()
+            .noDefault();
   }
 
   @Override
@@ -62,15 +72,28 @@ public record UserVectorIndexDefinition(
     if (this.nestedRoot().isPresent()) {
       builder = builder.field(Fields.NESTED_ROOT, this.nestedRoot());
     }
+    if (this.indexNamespace().isPresent()) {
+      builder = builder.field(Fields.INDEX_NAMESPACE, this.indexNamespace());
+    }
     return builder.build();
   }
 
   public static UserVectorIndexDefinition fromBson(DocumentParser parser)
       throws BsonParseException {
+    var fields = parser.getField(Fields.FIELDS).unwrap();
+    Optional<IndexNamespaceDefinition> indexNamespace =
+        parser.getField(Fields.INDEX_NAMESPACE).unwrap();
+    if (indexNamespace.isPresent()) {
+      Optional<String> indexNamespaceError = VectorIndexDefinition.validateIndexNamespace(fields);
+      if (indexNamespaceError.isPresent()) {
+        parser.getContext().handleSemanticError(indexNamespaceError.get());
+      }
+    }
     return new UserVectorIndexDefinition(
-        parser.getField(Fields.FIELDS).unwrap(),
+        fields,
         parser.getField(UserIndexDefinition.Fields.NUM_PARTITIONS).unwrap(),
         parser.getField(UserIndexDefinition.Fields.STORED_SOURCE).unwrap(),
-        parser.getField(Fields.NESTED_ROOT).unwrap());
+        parser.getField(Fields.NESTED_ROOT).unwrap(),
+        indexNamespace);
   }
 }

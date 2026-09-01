@@ -5,6 +5,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.definition.IndexNamespaceDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.quantization.VectorQuantization;
 import com.xgen.mongot.server.command.management.definition.common.UserSearchIndexDefinition;
@@ -47,7 +48,8 @@ public class IndexMapperTest {
             builder.build().fields(),
             builder.build().numPartitions(),
             Optional.empty(),
-            Optional.of(FieldPath.parse("sections")));
+            Optional.of(FieldPath.parse("sections")),
+            Optional.empty());
 
     IndexDefinition internal =
         IndexMapper.toInternal(
@@ -65,6 +67,60 @@ public class IndexMapperTest {
     assertTrue(internal.getType() == IndexDefinition.Type.VECTOR_SEARCH);
     VectorIndexDefinition vectorDef = internal.asVectorDefinition();
     assertEquals(Optional.of(FieldPath.parse("sections")), vectorDef.getNestedRoot());
+  }
+
+  /** User definition with indexNamespace → internal definition preserves indexNamespace. */
+  @Test
+  public void testToInternal_PreservesIndexNamespace() {
+    UserVectorIndexDefinitionBuilder builder =
+        UserVectorIndexDefinitionBuilder.builder()
+            .addVectorField(
+                256,
+                com.xgen.mongot.index.definition.VectorSimilarity.COSINE,
+                VectorQuantization.NONE,
+                "embedding");
+    IndexNamespaceDefinition indexNamespace =
+        new IndexNamespaceDefinition(FieldPath.parse("tenantId"));
+    UserVectorIndexDefinition userDef =
+        new UserVectorIndexDefinition(
+            builder.build().fields(),
+            builder.build().numPartitions(),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.of(indexNamespace));
+
+    IndexDefinition internal =
+        IndexMapper.toInternal(
+            INDEX_NAME,
+            Optional.of(INDEX_ID),
+            userDef,
+            COLLECTION_UUID,
+            DB,
+            COLLECTION,
+            Optional.empty(),
+            DEFINITION_VERSION,
+            DEFINITION_VERSION_CREATED_AT,
+            Optional.empty());
+
+    assertTrue(internal.getType() == IndexDefinition.Type.VECTOR_SEARCH);
+    assertEquals(Optional.of(indexNamespace), internal.asVectorDefinition().getIndexNamespace());
+  }
+
+  /** Internal definition with indexNamespace → user definition preserves indexNamespace. */
+  @Test
+  public void testToExternal_PreservesIndexNamespace() {
+    VectorIndexDefinition internalDef =
+        VectorIndexDefinitionBuilder.builder()
+            .indexNamespace("tenantId")
+            .withCustomEngineVectorField("embedding", 256)
+            .build();
+
+    var userDef = IndexMapper.toExternal(internalDef);
+
+    assertTrue(userDef instanceof UserVectorIndexDefinition);
+    assertEquals(
+        Optional.of(new IndexNamespaceDefinition(FieldPath.parse("tenantId"))),
+        ((UserVectorIndexDefinition) userDef).indexNamespace());
   }
 
   /** Create path (no existing version) stamps materializedViewNameFormatVersion = 1. */

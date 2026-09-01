@@ -7,6 +7,7 @@ import static com.xgen.testing.BsonSerializationTestSuite.fromEncodable;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.google.common.truth.Truth;
@@ -15,6 +16,7 @@ import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
 import com.xgen.mongot.index.definition.quantization.VectorQuantization;
 import com.xgen.mongot.util.FieldPath;
+import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.testing.BsonDeserializationTestSuite;
 import com.xgen.testing.BsonDeserializationTestSuite.TestSpecWrapper;
 import com.xgen.testing.BsonSerializationTestSuite;
@@ -24,6 +26,7 @@ import java.util.List;
 import java.util.Optional;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
+import org.bson.BsonString;
 import org.bson.types.ObjectId;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -35,9 +38,97 @@ import org.junit.runners.Suite;
     value = {
       VectorIndexDefinitionTest.DeserializationTest.class,
       VectorIndexDefinitionTest.SerializationTest.class,
-      VectorIndexDefinitionTest.NestedRootTest.class
+      VectorIndexDefinitionTest.NestedRootTest.class,
+      VectorIndexDefinitionTest.IndexNamespaceTest.class
     })
 public class VectorIndexDefinitionTest {
+
+  /** Tests for VectorIndexDefinition with the indexNamespace option. */
+  @RunWith(org.junit.runners.JUnit4.class)
+  public static class IndexNamespaceTest {
+
+    private static BsonDocument namespaceBson() {
+      return new BsonDocument("path", new BsonString("tenantId"));
+    }
+
+    @Test
+    public void testGetIndexNamespace_WhenAbsent() {
+      VectorIndexDefinition definition =
+          VectorIndexDefinitionBuilder.builder()
+              .withCustomEngineVectorField("embedding", 128)
+              .build();
+
+      Truth.assertThat(definition.getIndexNamespace()).isEmpty();
+    }
+
+    @Test
+    public void testRoundTrip_WithIndexNamespace() throws Exception {
+      VectorIndexDefinition original =
+          VectorIndexDefinitionBuilder.builder()
+              .indexNamespace("tenantId")
+              .withCustomEngineVectorField("embedding", 128)
+              .build();
+
+      BsonDocument bson = original.toBson();
+      Truth.assertThat(bson.containsKey("indexNamespace")).isTrue();
+      VectorIndexDefinition parsed = VectorIndexDefinition.fromBson(bson);
+
+      Truth.assertThat(parsed.getIndexNamespace()).isPresent();
+      Truth.assertThat(parsed.getIndexNamespace().get().path())
+          .isEqualTo(FieldPath.parse("tenantId"));
+      assertEquals(original, parsed);
+    }
+
+    @Test
+    public void testFromBson_RejectsIndexNamespaceWithoutCustomEngine() {
+      BsonDocument bson =
+          VectorIndexDefinitionBuilder.builder()
+              .withCosineVectorField("embedding", 128)
+              .build()
+              .toBson()
+              .append("indexNamespace", namespaceBson());
+
+      var thrown =
+          assertThrows(BsonParseException.class, () -> VectorIndexDefinition.fromBson(bson));
+      Truth.assertThat(thrown).hasMessageThat().contains("custom vector engine");
+    }
+
+    @Test
+    public void testFromBson_AllowsIndexNamespaceWithFilterFields() throws Exception {
+      VectorIndexDefinition original =
+          VectorIndexDefinitionBuilder.builder()
+              .indexNamespace("tenantId")
+              .withCustomEngineVectorField("embedding", 128)
+              .withFilterPath("genre")
+              .build();
+
+      VectorIndexDefinition parsed = VectorIndexDefinition.fromBson(original.toBson());
+
+      Truth.assertThat(parsed.getIndexNamespace()).isPresent();
+      assertEquals(original, parsed);
+    }
+
+    @Test
+    public void testEquals_SensitiveToIndexNamespace() {
+      VectorIndexDefinition without =
+          VectorIndexDefinitionBuilder.builder()
+              .withCustomEngineVectorField("embedding", 128)
+              .build();
+      VectorIndexDefinition with =
+          VectorIndexDefinitionBuilder.builder()
+              .indexNamespace("tenantId")
+              .withCustomEngineVectorField("embedding", 128)
+              .build();
+      VectorIndexDefinition sameAsWith =
+          VectorIndexDefinitionBuilder.builder()
+              .indexNamespace("tenantId")
+              .withCustomEngineVectorField("embedding", 128)
+              .build();
+
+      assertNotEquals(without, with);
+      assertEquals(with, sameAsWith);
+    }
+  }
 
   /** Tests for VectorIndexDefinition with nestedRoot (flat fields under an array root). */
   @RunWith(org.junit.runners.JUnit4.class)

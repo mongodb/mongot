@@ -50,6 +50,19 @@ public final class VectorIndexDefinition implements IndexDefinition {
     /** See {@link VectorIndexCapabilities} for reason for default value to be 3 */
     public static final Field.WithDefault<Integer> INDEX_FEATURE_VERSION =
         Field.builder("indexFeatureVersion").intField().optional().withDefault(3);
+
+    /**
+     * Optional top-level option naming the field whose value partitions the index into namespaces,
+     * e.g. {@code indexNamespace: { path: "tenantID" }}. Only supported on custom vector engine
+     * indexes; queries against an index with an indexNamespace must supply a matching {@code
+     * indexNamespace} equality.
+     */
+    public static final Field.Optional<IndexNamespaceDefinition> INDEX_NAMESPACE =
+        Field.builder("indexNamespace")
+            .classField(IndexNamespaceDefinition::fromBson)
+            .disallowUnknownFields()
+            .optional()
+            .noDefault();
   }
 
   private final ObjectId indexId;
@@ -61,6 +74,7 @@ public final class VectorIndexDefinition implements IndexDefinition {
   private final int numPartitions;
   private final ImmutableList<VectorIndexFieldDefinition> fields;
   private final Optional<FieldPath> nestedRoot;
+  private final Optional<IndexNamespaceDefinition> indexNamespace;
   private final int indexFeatureVersion;
   private final Optional<Long> definitionVersion;
   private final Optional<Instant> definitionVersionCreatedAt;
@@ -90,6 +104,7 @@ public final class VectorIndexDefinition implements IndexDefinition {
       Optional<Instant> definitionVersionCreatedAt,
       Optional<StoredSourceDefinition> storedSource,
       Optional<FieldPath> nestedRoot,
+      Optional<IndexNamespaceDefinition> indexNamespace,
       Optional<ObjectId> indexIdAtCreationTime,
       Optional<Long> autoEmbeddingDefinitionVersion,
       Optional<Long> materializedViewNameFormatVersion) {
@@ -102,6 +117,7 @@ public final class VectorIndexDefinition implements IndexDefinition {
     this.numPartitions = numPartitions;
     this.fields = ImmutableList.copyOf(fields);
     this.nestedRoot = nestedRoot;
+    this.indexNamespace = indexNamespace;
     this.indexFeatureVersion = parsedIndexFeatureVersion;
     this.definitionVersion = definitionVersion;
     this.definitionVersionCreatedAt = definitionVersionCreatedAt;
@@ -191,6 +207,10 @@ public final class VectorIndexDefinition implements IndexDefinition {
    */
   public Optional<FieldPath> getRawNestedRoot() {
     return this.nestedRoot;
+  }
+
+  public Optional<IndexNamespaceDefinition> getIndexNamespace() {
+    return this.indexNamespace;
   }
 
   @Override
@@ -283,6 +303,7 @@ public final class VectorIndexDefinition implements IndexDefinition {
             .field(IndexDefinition.Fields.VIEW, this.view)
             .field(IndexDefinition.Fields.NUM_PARTITIONS, this.numPartitions)
             .field(Fields.NESTED_ROOT, this.nestedRoot)
+            .field(Fields.INDEX_NAMESPACE, this.indexNamespace)
             .field(Fields.FIELDS, this.fields)
             .field(IndexDefinition.Fields.DEFINITION_VERSION, this.definitionVersion)
             .field(
@@ -342,6 +363,15 @@ public final class VectorIndexDefinition implements IndexDefinition {
       parser.getContext().handleSemanticError("storedSource true not allowed for vector indexes");
     }
 
+    Optional<IndexNamespaceDefinition> indexNamespace =
+        parser.getField(Fields.INDEX_NAMESPACE).unwrap();
+    if (indexNamespace.isPresent()) {
+      Optional<String> indexNamespaceError = validateIndexNamespace(fields);
+      if (indexNamespaceError.isPresent()) {
+        parser.getContext().handleSemanticError(indexNamespaceError.get());
+      }
+    }
+
     return new VectorIndexDefinition(
         parser.getField(IndexDefinition.Fields.INDEX_ID).unwrap(),
         parser.getField(IndexDefinition.Fields.NAME).unwrap(),
@@ -358,9 +388,25 @@ public final class VectorIndexDefinition implements IndexDefinition {
             parser, DATE_FORMAT, IndexDefinition.Fields.DEFINITION_VERSION_CREATED_AT),
         storedSource,
         parser.getField(Fields.NESTED_ROOT).unwrap(),
+        indexNamespace,
         parser.getField(IndexDefinition.Fields.INDEX_ID_AT_CREATION_TIME).unwrap(),
         parser.getField(IndexDefinition.Fields.AUTO_EMBEDDING_DEFINITION_VERSION).unwrap(),
         parser.getField(IndexDefinition.Fields.MATERIALIZED_VIEW_NAME_FORMAT_VERSION).unwrap());
+  }
+
+  /**
+   * Validates that an indexNamespace is allowed for the given fields. Returns an error message if
+   * not: the option is only implemented by the custom vector engine.
+   */
+  public static Optional<String> validateIndexNamespace(List<VectorIndexFieldDefinition> fields) {
+    boolean hasCustomEngineVectorField =
+        fields.stream()
+            .filter(VectorIndexFieldDefinition::isVectorField)
+            .anyMatch(f -> f.asVectorField().specification().isCustomVectorEngine());
+    if (!hasCustomEngineVectorField) {
+      return Optional.of("indexNamespace is only supported on custom vector engine indexes");
+    }
+    return Optional.empty();
   }
 
   public VectorIndexDefinition withUpdatedViewDefinition(ViewDefinition updatedViewDefinition) {
@@ -378,6 +424,7 @@ public final class VectorIndexDefinition implements IndexDefinition {
         this.definitionVersionCreatedAt,
         this.storedSource,
         this.nestedRoot,
+        this.indexNamespace,
         this.indexIdAtCreationTime,
         this.autoEmbeddingDefinitionVersion,
         this.materializedViewNameFormatVersion);
@@ -398,6 +445,7 @@ public final class VectorIndexDefinition implements IndexDefinition {
         && Objects.equal(this.view, that.view)
         && Objects.equal(this.fields, that.fields)
         && Objects.equal(this.nestedRoot, that.nestedRoot)
+        && Objects.equal(this.indexNamespace, that.indexNamespace)
         && this.indexFeatureVersion == that.indexFeatureVersion
         && Objects.equal(this.definitionVersion, that.definitionVersion)
         // When serializing to BSON we convert to a string with second granularity (See
@@ -428,6 +476,7 @@ public final class VectorIndexDefinition implements IndexDefinition {
         this.numPartitions,
         this.fields,
         this.nestedRoot,
+        this.indexNamespace,
         this.indexFeatureVersion,
         this.definitionVersion,
         this.definitionVersionCreatedAt.map(Instant::getEpochSecond),
