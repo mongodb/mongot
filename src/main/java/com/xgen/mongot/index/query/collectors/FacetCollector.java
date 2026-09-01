@@ -178,7 +178,12 @@ public record FacetCollector(
     return total;
   }
 
-  private static int requestedBucketCount(FacetDefinition def) {
+  /**
+   * The requested bucket count of one grouping. Shared with the search-aggregation shape metrics
+   * ({@code aggregationRequestedBucketsPerQuery}), which group by the same payload, so both metrics
+   * count a grouping the same way.
+   */
+  public static int requestedBucketCount(FacetDefinition def) {
     return switch (def) {
       case FacetDefinition.StringFacetDefinition stringFacet -> stringFacet.numBuckets();
       case FacetDefinition.NumericFacetDefinition numericFacet ->

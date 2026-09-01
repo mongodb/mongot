@@ -29,6 +29,7 @@ import com.xgen.mongot.index.lucene.LuceneFacetCollectorSearchManager.FacetColle
 import com.xgen.mongot.index.lucene.LuceneSearchManager.QueryInfo;
 import com.xgen.mongot.index.lucene.explain.explainers.FacetFeatureExplainer;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
+import com.xgen.mongot.index.lucene.facet.TokenFacetsStateCache;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.field.FieldValue;
 import com.xgen.mongot.index.lucene.quantization.BinaryQuantizedVectorRescorer;
@@ -1672,6 +1673,36 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
         FLOGGER.atWarning().atMostEvery(5, TimeUnit.MINUTES).withCause(e).log(
             "IOException while computing max facet cardinality, returning 0");
         return 0;
+      }
+    }
+  }
+
+  /**
+   * Snapshot of this partition's token-facets ordinal-map cache. Acquires the live searcher once so
+   * callers can read heap, entries, and hit/miss/eviction without five separate acquires. Returns
+   * {@link TokenFacetsStateCache.Snapshot#EMPTY} when the cache is disabled or the reader is
+   * closed.
+   */
+  @Override
+  public TokenFacetsStateCache.Snapshot getTokenFacetsStateCacheSnapshot() {
+    try (LockGuard ignored = LockGuard.with(this.shutdownSharedLock)) {
+      if (this.closed) {
+        return TokenFacetsStateCache.Snapshot.EMPTY;
+      }
+      try {
+        LuceneIndexSearcher searcher = this.searcherManager.acquire();
+        try {
+          return searcher
+              .getTokenFacetsStateCache()
+              .map(TokenFacetsStateCache::snapshot)
+              .orElse(TokenFacetsStateCache.Snapshot.EMPTY);
+        } finally {
+          this.searcherManager.release(searcher);
+        }
+      } catch (IOException e) {
+        FLOGGER.atWarning().atMostEvery(5, TimeUnit.MINUTES).withCause(e).log(
+            "IOException while reading token facets state cache metrics, returning empty snapshot");
+        return TokenFacetsStateCache.Snapshot.EMPTY;
       }
     }
   }

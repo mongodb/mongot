@@ -1,12 +1,17 @@
 package com.xgen.mongot.index;
 
+import static com.xgen.mongot.index.SearchAggregationMetricsReporter.AGGREGATION_GROUP_TAG_PREFIX;
+import static com.xgen.mongot.index.SearchAggregationMetricsReporter.AGGREGATION_METRIC_TAG_PREFIX;
+import static com.xgen.mongot.index.SearchAggregationMetricsReporter.MAX_PATH_BUCKETS_HISTOGRAM;
+import static com.xgen.mongot.index.SearchAggregationMetricsReporter.NESTING_HISTOGRAM;
+import static com.xgen.mongot.index.SearchAggregationMetricsReporter.REQUESTED_BUCKETS_HISTOGRAM;
 import static com.xgen.mongot.util.bson.FloatVector.OriginalType.NATIVE;
 import static com.xgen.testing.BsonTestUtils.bson;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_NAME;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
 
+import com.google.common.base.CaseFormat;
 import com.xgen.mongot.cursor.batch.QueryCursorOptions;
 import com.xgen.mongot.index.IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater;
 import com.xgen.mongot.index.definition.IndexDefinition;
@@ -36,6 +41,8 @@ import com.xgen.mongot.index.query.sort.NullEmptySortPosition;
 import com.xgen.mongot.index.query.sort.SequenceToken;
 import com.xgen.mongot.index.query.sort.SortOrder;
 import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
+import com.xgen.mongot.metrics.PerIndexMetricsFactory;
+import com.xgen.mongot.util.Enums;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.Vector;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
@@ -57,10 +64,13 @@ import com.xgen.testing.mongot.index.query.operators.TermOperatorBuilder;
 import com.xgen.testing.mongot.index.query.scores.ScoreBuilder;
 import com.xgen.testing.mongot.index.query.sort.SortOptionsBuilder;
 import com.xgen.testing.mongot.index.query.sort.SortSpecBuilder;
+import com.xgen.testing.mongot.mock.index.SearchIndex;
+import io.micrometer.core.instrument.Tags;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.apache.lucene.search.ScoreDoc;
+import org.bson.BsonInt32;
 import org.bson.BsonString;
 import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
@@ -74,7 +84,12 @@ public class QueryMetricsRecorderTest {
   @Test
   public void testAggregationCollectorQueryMetrics() {
     var queryFeaturesStatsUpdater = QueryFeaturesMetricsUpdaterBuilder.empty();
-    var queryMetricsRecorder = new QueryMetricsRecorder(queryFeaturesStatsUpdater);
+    var metricsFactory = SearchIndex.mockMetricsFactory();
+    var queryMetricsRecorder =
+        new QueryMetricsRecorder(
+            queryFeaturesStatsUpdater,
+            MicrometerSearchAggregationMetricsReporter.create(
+                metricsFactory.getProcessMetricsFactory(), true));
 
     // Two levels of nesting: root groups on "outer", its single nested leaf carries sum + count.
     AggregationFacetDefinition leaf =
@@ -112,26 +127,20 @@ public class QueryMetricsRecorderTest {
         queryFeaturesStatsUpdater.getCollectorTypeCounter(Collector.Type.AGGREGATION).count(),
         0);
     assertEquals(
-        1,
-        queryFeaturesStatsUpdater
-            .getAggregationMetricCounter(com.xgen.mongot.index.query.aggregation.Operator.SUM)
-            .count(),
-        0);
+        1, metricCounter(metricsFactory, com.xgen.mongot.index.query.aggregation.Operator.SUM), 0);
     assertEquals(
         1,
-        queryFeaturesStatsUpdater
-            .getAggregationMetricCounter(com.xgen.mongot.index.query.aggregation.Operator.COUNT)
-            .count(),
+        metricCounter(metricsFactory, com.xgen.mongot.index.query.aggregation.Operator.COUNT),
         0);
     assertEquals(
-        0,
-        queryFeaturesStatsUpdater
-            .getAggregationMetricCounter(com.xgen.mongot.index.query.aggregation.Operator.AVG)
-            .count(),
-        0);
-    var nestingHistogram = queryFeaturesStatsUpdater.getAggregationNestingHistogram().orElseThrow();
-    assertEquals(1, nestingHistogram.count());
-    assertEquals(2, nestingHistogram.max(), 0);
+        0, metricCounter(metricsFactory, com.xgen.mongot.index.query.aggregation.Operator.AVG), 0);
+    assertEquals(1, summaryCount(metricsFactory, NESTING_HISTOGRAM), 0);
+    assertEquals(2, summaryMax(metricsFactory, NESTING_HISTOGRAM), 0);
+    assertEquals(1, groupCounter(metricsFactory, FacetDefinition.Type.STRING), 0);
+    assertEquals(0, groupCounter(metricsFactory, FacetDefinition.Type.NUMBER), 0);
+    // 5 outer buckets x 5 inner buckets: the ask down the single path is the product.
+    assertEquals(25, summaryMax(metricsFactory, REQUESTED_BUCKETS_HISTOGRAM), 0);
+    assertEquals(25, summaryMax(metricsFactory, MAX_PATH_BUCKETS_HISTOGRAM), 0);
   }
 
   /**
@@ -141,7 +150,12 @@ public class QueryMetricsRecorderTest {
   @Test
   public void testAggregationNestingSampleUsesDeepestTopLevelTree() {
     var queryFeaturesStatsUpdater = QueryFeaturesMetricsUpdaterBuilder.empty();
-    var queryMetricsRecorder = new QueryMetricsRecorder(queryFeaturesStatsUpdater);
+    var metricsFactory = SearchIndex.mockMetricsFactory();
+    var queryMetricsRecorder =
+        new QueryMetricsRecorder(
+            queryFeaturesStatsUpdater,
+            MicrometerSearchAggregationMetricsReporter.create(
+                metricsFactory.getProcessMetricsFactory(), true));
 
     AggregationFacetDefinition shallowRoot =
         AggregationFacetDefinition.create(
@@ -180,23 +194,76 @@ public class QueryMetricsRecorderTest {
 
     // Exactly one sample, at the deepest tree's depth, even though the shallow tree bottoms out at
     // depth 1.
-    var nestingHistogram = queryFeaturesStatsUpdater.getAggregationNestingHistogram().orElseThrow();
-    assertEquals(1, nestingHistogram.count());
-    assertEquals(2, nestingHistogram.max(), 0);
+    assertEquals(1, summaryCount(metricsFactory, NESTING_HISTOGRAM), 0);
+    assertEquals(2, summaryMax(metricsFactory, NESTING_HISTOGRAM), 0);
 
     // Metrics are still collected across every tree, shallow one included.
     assertEquals(
         1,
-        queryFeaturesStatsUpdater
-            .getAggregationMetricCounter(com.xgen.mongot.index.query.aggregation.Operator.COUNT)
-            .count(),
+        metricCounter(metricsFactory, com.xgen.mongot.index.query.aggregation.Operator.COUNT),
         0);
     assertEquals(
-        1,
-        queryFeaturesStatsUpdater
-            .getAggregationMetricCounter(com.xgen.mongot.index.query.aggregation.Operator.SUM)
-            .count(),
-        0);
+        1, metricCounter(metricsFactory, com.xgen.mongot.index.query.aggregation.Operator.SUM), 0);
+  }
+
+  /**
+   * The summed ask and the largest single path are different numbers: several shallow paths can add
+   * up to more than one deep path while the deep path is the one at risk of exploding.
+   */
+  @Test
+  public void testAggregationRequestedBucketsSumsPathsAndTracksLargest() {
+    var queryFeaturesStatsUpdater = QueryFeaturesMetricsUpdaterBuilder.empty();
+    var metricsFactory = SearchIndex.mockMetricsFactory();
+    var queryMetricsRecorder =
+        new QueryMetricsRecorder(
+            queryFeaturesStatsUpdater,
+            MicrometerSearchAggregationMetricsReporter.create(
+                metricsFactory.getProcessMetricsFactory(), true));
+
+    // Deep tree: 10 x 10 = 100 buckets down one path.
+    AggregationFacetDefinition deepLeaf =
+        AggregationFacetDefinition.create(
+            FacetDefinitionBuilder.string().numBuckets(10).path("inner").build(),
+            Map.of(
+                "count",
+                new MetricSpec(
+                    com.xgen.mongot.index.query.aggregation.Operator.COUNT, Optional.empty())),
+            Map.of());
+    AggregationFacetDefinition deepRoot =
+        AggregationFacetDefinition.create(
+            FacetDefinitionBuilder.string().numBuckets(10).path("outer").build(),
+            Map.of(),
+            Map.of("byInner", deepLeaf));
+    // Independent boundary tree: 3 boundaries produce 2 buckets.
+    AggregationFacetDefinition boundaryRoot =
+        AggregationFacetDefinition.create(
+            FacetDefinitionBuilder.numeric()
+                .boundaries(List.of(new BsonInt32(0), new BsonInt32(10), new BsonInt32(20)))
+                .path("price")
+                .build(),
+            Map.of(
+                "count",
+                new MetricSpec(
+                    com.xgen.mongot.index.query.aggregation.Operator.COUNT, Optional.empty())),
+            Map.of());
+
+    SearchQuery query =
+        CollectorQueryBuilder.builder()
+            .collector(
+                new AggregationCollector(
+                    OperatorBuilder.text().path("path").query("empty").build(),
+                    Map.of("byOuter", deepRoot, "byPrice", boundaryRoot),
+                    Optional.empty()))
+            .returnStoredSource(false)
+            .build();
+
+    queryMetricsRecorder.record(query, QueryCursorOptions.empty());
+
+    assertEquals(102, summaryMax(metricsFactory, REQUESTED_BUCKETS_HISTOGRAM), 0);
+    assertEquals(100, summaryMax(metricsFactory, MAX_PATH_BUCKETS_HISTOGRAM), 0);
+    assertEquals(1, groupCounter(metricsFactory, FacetDefinition.Type.STRING), 0);
+    assertEquals(1, groupCounter(metricsFactory, FacetDefinition.Type.NUMBER), 0);
+    assertEquals(0, groupCounter(metricsFactory, FacetDefinition.Type.DATE), 0);
   }
 
   /** With the feature flag off no aggregation metric is registered, so nothing is emitted. */
@@ -228,10 +295,6 @@ public class QueryMetricsRecorderTest {
     queryMetricsRecorder.record(query, QueryCursorOptions.empty());
 
     assertNull(queryFeaturesStatsUpdater.getCollectorTypeCounter(Collector.Type.AGGREGATION));
-    assertNull(
-        queryFeaturesStatsUpdater.getAggregationMetricCounter(
-            com.xgen.mongot.index.query.aggregation.Operator.COUNT));
-    assertTrue(queryFeaturesStatsUpdater.getAggregationNestingHistogram().isEmpty());
   }
 
   @Test
@@ -1551,5 +1614,38 @@ public class QueryMetricsRecorderTest {
     queryMetricsRecorder.record(query);
 
     Assert.assertEquals(0, queryFeaturesStatsUpdater.getExplainCounter().count(), EPSILON);
+  }
+
+  private static double summaryMax(PerIndexMetricsFactory metricsFactory, String name) {
+    return metricsFactory.getProcessMetricsFactory().get(name).summary().max();
+  }
+
+  private static long summaryCount(PerIndexMetricsFactory metricsFactory, String name) {
+    return metricsFactory.getProcessMetricsFactory().get(name).summary().count();
+  }
+
+  private static double groupCounter(
+      PerIndexMetricsFactory metricsFactory, FacetDefinition.Type type) {
+    return featureCounter(
+        metricsFactory,
+        AGGREGATION_GROUP_TAG_PREFIX + Enums.convertNameTo(CaseFormat.LOWER_CAMEL, type));
+  }
+
+  private static double metricCounter(
+      PerIndexMetricsFactory metricsFactory,
+      com.xgen.mongot.index.query.aggregation.Operator operator) {
+    return featureCounter(
+        metricsFactory,
+        AGGREGATION_METRIC_TAG_PREFIX + Enums.convertNameTo(CaseFormat.LOWER_CAMEL, operator));
+  }
+
+  private static double featureCounter(PerIndexMetricsFactory metricsFactory, String nameTag) {
+    return metricsFactory
+        .getProcessMetricsFactory()
+        .get(
+            QueryFeaturesMetricsUpdater.METRIC_NAME,
+            Tags.of(QueryFeaturesMetricsUpdater.NAME_TAG, nameTag))
+        .counter()
+        .count();
   }
 }

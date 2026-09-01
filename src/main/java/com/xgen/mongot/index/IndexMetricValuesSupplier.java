@@ -25,6 +25,11 @@ public interface IndexMetricValuesSupplier {
     public static final String NUM_LUCENE_MAX_DOCS = "numLuceneMaxDocs";
     public static final String INDEX_STATUS_CODE = "indexStatusCode";
     public static final String MAX_STRING_FACET_CARDINALITY = "maxStringFacetCardinality";
+    public static final String TOKEN_FACETS_STATE_HEAP_BYTES = "tokenFacetsStateHeapBytes";
+    public static final String TOKEN_FACETS_STATE_ENTRIES = "tokenFacetsStateEntries";
+    public static final String TOKEN_FACETS_STATE_HITS = "tokenFacetsStateHits";
+    public static final String TOKEN_FACETS_STATE_MISSES = "tokenFacetsStateMisses";
+    public static final String TOKEN_FACETS_STATE_EVICTIONS = "tokenFacetsStateEvictions";
   }
 
   /**

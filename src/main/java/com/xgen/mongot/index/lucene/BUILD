@@ -76,6 +76,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/lucene/backing",
         "//src/main/java/com/xgen/mongot/index/lucene/explain/explainers",
+        "//src/main/java/com/xgen/mongot/index/lucene/facet",
         "//src/main/java/com/xgen/mongot/index/lucene/field",
         "//src/main/java/com/xgen/mongot/index/lucene/query/util",
         "//src/main/java/com/xgen/mongot/index/lucene/searcher",

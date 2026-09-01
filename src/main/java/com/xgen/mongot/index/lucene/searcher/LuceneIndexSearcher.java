@@ -46,7 +46,8 @@ public class LuceneIndexSearcher extends IndexSearcher {
         enableFacetingOverTokenFields,
         cardinalityLimit,
         Optional.empty(),
-        Optional.empty());
+        Optional.empty(),
+        false);
   }
 
   /**
@@ -66,7 +67,8 @@ public class LuceneIndexSearcher extends IndexSearcher {
       boolean stringFacetFieldIndexed,
       boolean enableFacetingOverTokenFields,
       Optional<Integer> cardinalityLimit,
-      IndexMetricsUpdater.QueryingMetricsUpdater queryingMetricsUpdater)
+      IndexMetricsUpdater.QueryingMetricsUpdater queryingMetricsUpdater,
+      boolean recordTokenFacetsCacheStats)
       throws IOException {
     return create(
         newReader,
@@ -77,7 +79,8 @@ public class LuceneIndexSearcher extends IndexSearcher {
         enableFacetingOverTokenFields,
         cardinalityLimit,
         Optional.of(queryingMetricsUpdater.getTokenFacetsStateRefreshLatencyTimer()),
-        Optional.of(queryingMetricsUpdater.getStringFacetsStateRefreshLatencyTimer()));
+        Optional.of(queryingMetricsUpdater.getStringFacetsStateRefreshLatencyTimer()),
+        recordTokenFacetsCacheStats);
   }
 
   private static LuceneIndexSearcher create(
@@ -89,7 +92,8 @@ public class LuceneIndexSearcher extends IndexSearcher {
       boolean enableFacetingOverTokenFields,
       Optional<Integer> cardinalityLimit,
       Optional<Timer> tokenFacetsRefreshTimer,
-      Optional<Timer> stringFacetsStateRefreshTimer)
+      Optional<Timer> stringFacetsStateRefreshTimer,
+      boolean recordTokenFacetsCacheStats)
       throws IOException {
     LuceneIndexSearcher indexSearcher =
         new LuceneIndexSearcher(
@@ -100,7 +104,8 @@ public class LuceneIndexSearcher extends IndexSearcher {
                 previousSearcher,
                 enableFacetingOverTokenFields,
                 cardinalityLimit,
-                tokenFacetsRefreshTimer),
+                tokenFacetsRefreshTimer,
+                recordTokenFacetsCacheStats),
             createFacetState(
                 newReader,
                 previousSearcher,
@@ -156,7 +161,8 @@ public class LuceneIndexSearcher extends IndexSearcher {
       Optional<LuceneIndexSearcher> previousSearcher,
       boolean enableFacetingOverTokenFields,
       Optional<Integer> cardinalityLimit,
-      Optional<Timer> refreshTimer)
+      Optional<Timer> refreshTimer,
+      boolean recordStats)
       throws IOException {
     if (!enableFacetingOverTokenFields) {
       return Optional.empty();
@@ -166,28 +172,29 @@ public class LuceneIndexSearcher extends IndexSearcher {
     if (previousSearcher.flatMap(LuceneIndexSearcher::getTokenFacetsStateCache).isEmpty()) {
       if (refreshTimer.isPresent()) {
         var stopwatch = Stopwatch.createStarted();
-        var cache = TokenFacetsStateCache.create(reader, cardinalityLimit);
+        var cache = TokenFacetsStateCache.create(reader, cardinalityLimit, recordStats);
         refreshTimer.get().record(stopwatch.stop().elapsed());
         return Optional.of(cache);
       }
-      return Optional.of(TokenFacetsStateCache.create(reader, cardinalityLimit));
+      return Optional.of(TokenFacetsStateCache.create(reader, cardinalityLimit, recordStats));
     }
     if (refreshTimer.isPresent()) {
       var stopwatch = Stopwatch.createStarted();
-      var newCache = cloneTokenFacetsStateCache(reader, previousSearcher);
+      var newCache = cloneTokenFacetsStateCache(reader, previousSearcher, recordStats);
       refreshTimer.get().record(stopwatch.stop().elapsed());
       return newCache;
     }
-    return cloneTokenFacetsStateCache(reader, previousSearcher);
+    return cloneTokenFacetsStateCache(reader, previousSearcher, recordStats);
   }
 
   private static Optional<TokenFacetsStateCache> cloneTokenFacetsStateCache(
-      IndexReader reader, Optional<LuceneIndexSearcher> previousSearcher) throws IOException {
+      IndexReader reader, Optional<LuceneIndexSearcher> previousSearcher, boolean recordStats)
+      throws IOException {
     return Optional.of(
         previousSearcher
             .flatMap(LuceneIndexSearcher::getTokenFacetsStateCache)
             .get()
-            .cloneWithNewIndexReader(reader));
+            .cloneWithNewIndexReader(reader, recordStats));
   }
 
   private static Optional<SortedSetDocValuesReaderState> createFacetState(

@@ -20,6 +20,7 @@ java_library(
         "@maven//:org_apache_lucene_lucene_facet",
     ],
     deps = [
+        "//src/main/java/com/xgen/mongot/featureflag/dynamic",
         "//src/main/java/com/xgen/mongot/index",
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/lucene/codec/bloom",

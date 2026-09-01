@@ -7,12 +7,33 @@ import static org.junit.Assert.assertThrows;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.SearchAggregationMetricsReporter;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
+import com.xgen.mongot.index.query.collectors.FacetDefinition;
 import com.xgen.mongot.metrics.PerIndexMetricsFactory;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import java.util.Optional;
 import org.junit.Test;
 
 public class ExplainAwareSearchAggregationMetricsReporterTest {
+
+  @Test
+  public void wrap_recordGroupTypeAndRequestedBuckets_delegateToProcessReporter() {
+    PerIndexMetricsFactory metricsFactory = SearchIndex.mockMetricsFactory();
+    SearchAggregationMetricsReporter reporter =
+        ExplainAwareSearchAggregationMetricsReporter.wrap(
+            new IndexMetricsUpdater.QueryingMetricsUpdater(metricsFactory)
+                .getSearchAggregationMetricsReporter());
+
+    reporter.recordGroupType(FacetDefinition.Type.STRING);
+    reporter.recordRequestedBuckets(25, 25);
+
+    assertThat(
+            metricsFactory
+                .getProcessMetricsFactory()
+                .get(SearchAggregationMetricsReporter.REQUESTED_BUCKETS_HISTOGRAM)
+                .summary()
+                .max())
+        .isEqualTo(25);
+  }
 
   @Test
   public void wrap_alreadyWrapped_returnsSameInstance() {

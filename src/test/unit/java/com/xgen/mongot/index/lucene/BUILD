@@ -59,6 +59,7 @@ mongot_java_unit_test_suite(
         "//src/main/java/com/xgen/mongot/index/lucene/document/builder",
         "//src/main/java/com/xgen/mongot/index/lucene/explain/explainers",
         "//src/main/java/com/xgen/mongot/index/lucene/extension",
+        "//src/main/java/com/xgen/mongot/index/lucene/facet",
         "//src/main/java/com/xgen/mongot/index/lucene/field",
         "//src/main/java/com/xgen/mongot/index/lucene/merge",
         "//src/main/java/com/xgen/mongot/index/lucene/quantization",

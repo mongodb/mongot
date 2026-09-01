@@ -2,6 +2,7 @@ package com.xgen.mongot.index;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Streams;
+import com.google.common.math.LongMath;
 import com.xgen.mongot.cursor.batch.QueryCursorOptions;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.path.string.UnresolvedStringPath;
@@ -17,6 +18,8 @@ import com.xgen.mongot.index.query.collectors.Collector;
 import com.xgen.mongot.index.query.collectors.DrillSidewaysInfoBuilder.DrillSidewaysInfo;
 import com.xgen.mongot.index.query.collectors.DrillSidewaysInfoBuilder.DrillSidewaysInfo.QueryOptimizationStatus;
 import com.xgen.mongot.index.query.collectors.FacetCollector;
+import com.xgen.mongot.index.query.collectors.FacetDefinition;
+import com.xgen.mongot.index.query.collectors.MetricSpec;
 import com.xgen.mongot.index.query.operators.AllDocumentsOperator;
 import com.xgen.mongot.index.query.operators.AutocompleteOperator;
 import com.xgen.mongot.index.query.operators.CompoundOperator;
@@ -71,12 +74,21 @@ import java.util.stream.Stream;
 public class QueryMetricsRecorder {
   private final IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater
       queryFeaturesMetricsUpdater;
+  private final SearchAggregationMetricsReporter searchAggregationMetricsReporter;
 
   @VisibleForTesting
   QueryMetricsRecorder(
       IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater
           queryFeaturesMetricsUpdater) {
+    this(queryFeaturesMetricsUpdater, SearchAggregationMetricsReporter.noop());
+  }
+
+  QueryMetricsRecorder(
+      IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater
+          queryFeaturesMetricsUpdater,
+      SearchAggregationMetricsReporter searchAggregationMetricsReporter) {
     this.queryFeaturesMetricsUpdater = queryFeaturesMetricsUpdater;
+    this.searchAggregationMetricsReporter = searchAggregationMetricsReporter;
   }
 
   public void record(Query query) {
@@ -232,30 +244,35 @@ public class QueryMetricsRecorder {
           // No aggregation counter is registered while the feature flag is off.
           yield Stream.empty();
         }
-        this.queryFeaturesMetricsUpdater.recordAggregationNesting(
+        this.searchAggregationMetricsReporter.recordNesting(
             nestingDepth(aggregationCollector.facets()));
+        aggregationCollector.facets().values().stream()
+            .flatMap(QueryMetricsRecorder::groupTypes)
+            .distinct()
+            .forEach(this.searchAggregationMetricsReporter::recordGroupType);
+        aggregationCollector.facets().values().stream()
+            .flatMap(QueryMetricsRecorder::metricTypes)
+            .distinct()
+            .forEach(this.searchAggregationMetricsReporter::recordMetricType);
+        this.searchAggregationMetricsReporter.recordRequestedBuckets(
+            totalRequestedBuckets(aggregationCollector.facets()),
+            maxPathRequestedBuckets(aggregationCollector.facets()));
         yield Streams.concat(
-            getOperatorCounters(aggregationCollector.operator()),
-            collectorTypeCounter,
-            aggregationCollector.facets().values().stream()
-                .flatMap(this::getAggregationMetricCounters));
+            getOperatorCounters(aggregationCollector.operator()), collectorTypeCounter);
       }
     };
   }
 
   /**
-   * Counter for the metric type of every {@code aggregations} leaf in a search-aggregation facet
-   * subtree. Repeated metric types collapse in {@link #record}'s {@code distinct()}, so these count
-   * queries using a metric type, not occurrences of it.
+   * Metric type of every {@code aggregations} leaf in a search-aggregation facet subtree. Repeated
+   * types collapse via {@code distinct()} in the caller, so these count queries using a metric
+   * type, not occurrences of it.
    */
-  private Stream<Counter> getAggregationMetricCounters(AggregationFacetDefinition facet) {
+  private static Stream<com.xgen.mongot.index.query.aggregation.Operator> metricTypes(
+      AggregationFacetDefinition facet) {
     return Stream.concat(
-        facet.aggregations().values().stream()
-            .map(
-                metric ->
-                    this.queryFeaturesMetricsUpdater.getAggregationMetricCounter(
-                        metric.operator())),
-        facet.facets().values().stream().flatMap(this::getAggregationMetricCounters));
+        facet.aggregations().values().stream().map(MetricSpec::operator),
+        facet.facets().values().stream().flatMap(QueryMetricsRecorder::metricTypes));
   }
 
   /**
@@ -271,6 +288,61 @@ public class QueryMetricsRecorder {
   /** Levels in this subtree, counting the node itself. */
   private static int subtreeDepth(AggregationFacetDefinition facet) {
     return 1 + nestingDepth(facet.facets());
+  }
+
+  /**
+   * Grouping type of every node in a search-aggregation facet subtree. Repeated types collapse via
+   * {@code distinct()} in the caller, so these count queries using a grouping type, not occurrences
+   * of it.
+   */
+  private static Stream<FacetDefinition.Type> groupTypes(AggregationFacetDefinition facet) {
+    return Stream.concat(
+        Stream.of(facet.group().getType()),
+        facet.facets().values().stream().flatMap(QueryMetricsRecorder::groupTypes));
+  }
+
+  /**
+   * A query's total requested bucket space: the product of requested bucket counts down each
+   * root-to-leaf path, summed over every path in every top-level tree. The product is what a nested
+   * path actually asks for — a child's ordinal space is sized by the product of its ancestors'
+   * bucket counts — so summing the nodes would badly understate a deep tree.
+   *
+   * <p>Saturating arithmetic throughout: nothing bounds tree depth today (AggregationValidator
+   * enforces no maximum), and a deep enough tree of 10k-bucket nodes overflows a long. Samples
+   * above the 1M SLO bound (including {@code Long.MAX_VALUE}) are counted in the histogram's {@code
+   * +Inf} bucket, which is the right answer for "absurdly large ask".
+   */
+  private static long totalRequestedBuckets(Map<String, AggregationFacetDefinition> facets) {
+    return facets.values().stream()
+        .mapToLong(QueryMetricsRecorder::subtreeRequestedBuckets)
+        .reduce(0, LongMath::saturatedAdd);
+  }
+
+  private static long subtreeRequestedBuckets(AggregationFacetDefinition facet) {
+    return LongMath.saturatedMultiply(
+        requestedBucketCount(facet), Math.max(1, totalRequestedBuckets(facet.facets())));
+  }
+
+  /** The largest single root-to-leaf requested bucket space, over every top-level tree. */
+  private static long maxPathRequestedBuckets(Map<String, AggregationFacetDefinition> facets) {
+    return facets.values().stream()
+        .mapToLong(QueryMetricsRecorder::maxSubtreePathBuckets)
+        .max()
+        .orElse(0);
+  }
+
+  private static long maxSubtreePathBuckets(AggregationFacetDefinition facet) {
+    return LongMath.saturatedMultiply(
+        requestedBucketCount(facet), Math.max(1, maxPathRequestedBuckets(facet.facets())));
+  }
+
+  /**
+   * The node's own requested bucket count, read off its grouping payload by the same helper the
+   * legacy {@code totalFacetBucketsPerQuery} metric uses, so the two metrics count a grouping the
+   * same way.
+   */
+  private static long requestedBucketCount(AggregationFacetDefinition facet) {
+    return FacetCollector.requestedBucketCount(facet.group());
   }
 
   private Stream<Counter> getOperatorCounters(Operator operator) {

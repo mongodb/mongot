@@ -26,16 +26,47 @@ public class TokenFacetsStateCache {
   private final Expiry<String, Optional<TokenSsdvFacetState>> expiry;
   private final LoadingCache<String, Optional<TokenSsdvFacetState>> cache;
   private final Optional<Integer> cardinalityLimit;
+  private final CacheCounts inheritedCounts;
+  private final boolean recordStats;
 
   private TokenFacetsStateCache(
       LoadingCache<String, Optional<TokenSsdvFacetState>> cache,
       Expiry<String, Optional<TokenSsdvFacetState>> expiry,
       Optional<Integer> cardinalityLimit,
-      Ticker ticker) {
+      Ticker ticker,
+      CacheCounts inheritedCounts,
+      boolean recordStats) {
     this.ticker = ticker;
     this.cache = cache;
     this.expiry = expiry;
     this.cardinalityLimit = cardinalityLimit;
+    this.inheritedCounts = inheritedCounts;
+    this.recordStats = recordStats;
+  }
+
+  /**
+   * Point-in-time view of cache size and Caffeine counters. Taken while the searcher is held so the
+   * live cache is not retained after release.
+   */
+  public record Snapshot(long heapBytes, long entries, long hits, long misses, long evictions) {
+    public static final Snapshot EMPTY = new Snapshot(0L, 0L, 0L, 0L, 0L);
+
+    public Snapshot plus(Snapshot other) {
+      return new Snapshot(
+          this.heapBytes + other.heapBytes,
+          this.entries + other.entries,
+          this.hits + other.hits,
+          this.misses + other.misses,
+          this.evictions + other.evictions);
+    }
+  }
+
+  /**
+   * Totals accumulated by this cache's predecessors, so the exported counts survive the rebuild
+   * that every reader refresh performs. See {@link #cloneWithNewIndexReader}.
+   */
+  private record CacheCounts(long hits, long misses, long evictions) {
+    private static final CacheCounts ZERO = new CacheCounts(0, 0, 0);
   }
 
   /**
@@ -47,7 +78,13 @@ public class TokenFacetsStateCache {
    */
   public static TokenFacetsStateCache create(
       IndexReader reader, Optional<Integer> cardinalityLimit) {
-    return create(reader, DEFAULT_FACET_CACHE_EXPIRY, cardinalityLimit, Ticker.systemTicker());
+    return create(reader, cardinalityLimit, false);
+  }
+
+  public static TokenFacetsStateCache create(
+      IndexReader reader, Optional<Integer> cardinalityLimit, boolean recordStats) {
+    return create(
+        reader, DEFAULT_FACET_CACHE_EXPIRY, cardinalityLimit, Ticker.systemTicker(), recordStats);
   }
 
   @VisibleForTesting
@@ -56,16 +93,36 @@ public class TokenFacetsStateCache {
       Duration expireDuration,
       Optional<Integer> cardinalityLimit,
       Ticker ticker) {
+    return create(reader, expireDuration, cardinalityLimit, ticker, false);
+  }
+
+  private static TokenFacetsStateCache create(
+      IndexReader reader,
+      Duration expireDuration,
+      Optional<Integer> cardinalityLimit,
+      Ticker ticker,
+      boolean recordStats) {
     var expiry = new CustomExpiry(expireDuration);
     return new TokenFacetsStateCache(
-        Caffeine.newBuilder()
-            .softValues()
-            .ticker(ticker)
-            .expireAfter(expiry)
-            .build(new FacetsCacheLoader(reader, cardinalityLimit)),
+        buildCache(reader, expiry, ticker, cardinalityLimit, recordStats),
         expiry,
         cardinalityLimit,
-        ticker);
+        ticker,
+        CacheCounts.ZERO,
+        recordStats);
+  }
+
+  private static LoadingCache<String, Optional<TokenSsdvFacetState>> buildCache(
+      IndexReader reader,
+      Expiry<String, Optional<TokenSsdvFacetState>> expiry,
+      Ticker ticker,
+      Optional<Integer> cardinalityLimit,
+      boolean recordStats) {
+    var builder = Caffeine.newBuilder().softValues().ticker(ticker).expireAfter(expiry);
+    if (recordStats) {
+      builder.recordStats();
+    }
+    return builder.build(new FacetsCacheLoader(reader, cardinalityLimit));
   }
 
   private record FacetsCacheLoader(IndexReader indexReader, Optional<Integer> cardinalityLimit)
@@ -134,12 +191,19 @@ public class TokenFacetsStateCache {
    * @return {@link TokenFacetsStateCache} refreshed cache tied to new index reader
    */
   public TokenFacetsStateCache cloneWithNewIndexReader(IndexReader newReader) throws IOException {
+    return cloneWithNewIndexReader(newReader, this.recordStats);
+  }
+
+  /**
+   * Clones the cache for a new reader, recording Caffeine stats only when {@code recordStats} is
+   * true so a metrics kill switch takes effect on the next refresh. Called from {@code
+   * LuceneIndexSearcher} on reader refresh; not private because that class lives in another
+   * package.
+   */
+  public TokenFacetsStateCache cloneWithNewIndexReader(IndexReader newReader, boolean recordStats)
+      throws IOException {
     var newCache =
-        Caffeine.newBuilder()
-            .ticker(this.ticker)
-            .softValues()
-            .expireAfter(this.expiry)
-            .build(new FacetsCacheLoader(newReader, this.cardinalityLimit));
+        buildCache(newReader, this.expiry, this.ticker, this.cardinalityLimit, recordStats);
 
     for (Map.Entry<String, Optional<TokenSsdvFacetState>> entry : this.cache.asMap().entrySet()) {
       String key = entry.getKey();
@@ -169,12 +233,73 @@ public class TokenFacetsStateCache {
         }
       }
     }
-    return new TokenFacetsStateCache(newCache, this.expiry, this.cardinalityLimit, this.ticker);
+    // Carry this cache's totals into its successor. Caffeine's own counters are per instance and
+    // the cache is replaced on every reader refresh, so without this the exported counts would
+    // reset to zero several times an hour and read as a cache that never hits anything.
+    return new TokenFacetsStateCache(
+        newCache, this.expiry, this.cardinalityLimit, this.ticker, cumulativeCounts(), recordStats);
+  }
+
+  /** Heap, entry count, and cumulative hit/miss/eviction counters in one pass. */
+  public Snapshot snapshot() {
+    CacheCounts counts = cumulativeCounts();
+    return new Snapshot(
+        this.heapBytes(), this.entryCount(), counts.hits(), counts.misses(), counts.evictions());
   }
 
   @VisibleForTesting
   Map<String, Optional<TokenSsdvFacetState>> asMap() {
     return this.cache.asMap();
+  }
+
+  /** How many fields this cache is currently holding state for. */
+  public long entryCount() {
+    return this.cache.estimatedSize();
+  }
+
+  /**
+   * Cache hits over the life of this cache and every cache it succeeded.
+   *
+   * <p>Monotonic across reader refreshes, which is what makes it meaningful as a rate. It does
+   * reset if an index is closed and reopened, since that starts a fresh lineage rather than cloning
+   * -- the same thing a process restart does to any counter.
+   */
+  public long hitCount() {
+    return cumulativeCounts().hits();
+  }
+
+  /** Cache misses; see {@link #hitCount} for the lineage semantics. */
+  public long missCount() {
+    return cumulativeCounts().misses();
+  }
+
+  /**
+   * Entries evicted; see {@link #hitCount} for the lineage semantics. With {@code softValues} this
+   * includes entries the collector reclaimed, which is the signal that the cache is churning under
+   * heap pressure rather than quietly accumulating.
+   */
+  public long evictionCount() {
+    return cumulativeCounts().evictions();
+  }
+
+  private CacheCounts cumulativeCounts() {
+    var stats = this.cache.stats();
+    return new CacheCounts(
+        this.inheritedCounts.hits() + stats.hitCount(),
+        this.inheritedCounts.misses() + stats.missCount(),
+        this.inheritedCounts.evictions() + stats.evictionCount());
+  }
+
+  /**
+   * Heap held by the cached ordinal maps right now. The cache holds soft values, so entries the
+   * collector has already reclaimed have dropped out of {@code asMap()} and are not counted — which
+   * is the wanted semantics for a heap gauge.
+   */
+  public long heapBytes() {
+    return this.cache.asMap().values().stream()
+        .flatMap(Optional::stream)
+        .mapToLong(TokenSsdvFacetState::ramBytesUsed)
+        .sum();
   }
 
   // Need a variable expiration class to enable modifying

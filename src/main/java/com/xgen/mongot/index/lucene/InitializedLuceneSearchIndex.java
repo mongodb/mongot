@@ -171,7 +171,8 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
             searchIndexProperties.enableFacetingOverTokenFields,
             searchIndexProperties.queryCacheProvider,
             searchIndexProperties.tokenFacetingCardinalityLimit,
-            indexMetricsUpdaterBuilder.getQueryingMetricsUpdater());
+            indexMetricsUpdaterBuilder.getQueryingMetricsUpdater(),
+            dynamicFeatureFlagRegistry);
     // TODO(CLOUDP-250488): Handle subindexes for blobstore upload.
 
     var indexResources =

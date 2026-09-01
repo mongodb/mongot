@@ -2,6 +2,7 @@ package com.xgen.mongot.index;
 
 import com.xgen.mongot.cursor.batch.BatchSizeStrategy;
 import com.xgen.mongot.cursor.batch.QueryCursorOptions;
+import com.xgen.mongot.index.lucene.facet.TokenFacetsStateCache;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.Query;
 import com.xgen.mongot.index.query.QueryOptimizationFlags;
@@ -59,4 +60,10 @@ public interface SearchIndexReader extends IndexReader {
   long getNumEmbeddedRootDocuments() throws IOException, ReaderClosedException;
 
   List<FieldInfos> getFieldInfos() throws IOException, ReaderClosedException;
+
+  /**
+   * Point-in-time view of this reader's token-facets ordinal-map cache. Readers without a cache
+   * return {@link TokenFacetsStateCache.Snapshot#EMPTY}.
+   */
+  TokenFacetsStateCache.Snapshot getTokenFacetsStateCacheSnapshot();
 }

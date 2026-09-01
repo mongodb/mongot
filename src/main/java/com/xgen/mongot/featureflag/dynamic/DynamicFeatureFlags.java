@@ -31,6 +31,13 @@ public enum DynamicFeatureFlags {
   DRILL_SIDEWAYS_CONCURRENCY("mongot.featureFlag.enableDrillSidewaysConcurrency", false),
   DRILL_SIDEWAYS_FACETING("mongot.featureFlag.enableDrillSidewaysFaceting", false),
   NUM_FIELDS_PER_DATATYPE_METRIC("mongot.featureFlag.enableNumFieldsPerDatatypeMetric", false),
+  /**
+   * When enabled, the token-facets ordinal-map cache records Caffeine hit/miss/eviction stats and
+   * per-index gauges scrape heap, entries, and those counters from the live searcher. Off by
+   * default; enable through the normal DFF rollout. Disable to drop the per-operation stats
+   * bookkeeping on the next reader refresh and to skip the scrape acquire and heap walk.
+   */
+  TOKEN_FACETS_CACHE_METRICS("mongot.featureFlag.enableTokenFacetsCacheMetrics", false),
   COLLECT_MULTI_PARTITION_EMPTY_SEARCH_PRODUCER(
       "mongot.featureFlag.collectMultiPartitionEmptySearchProducer", false),
   ENABLE_10K_BUCKET_LIMIT("mongot.featureFlag.enable10kBucketLimit", false),

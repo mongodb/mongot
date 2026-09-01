@@ -37,7 +37,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -1003,7 +1002,8 @@ public class IndexMetricsUpdater implements Closeable {
     }
 
     /**
-     * The search-aggregation reporter owned by this updater. Callers time phases through this
+     * The search-aggregation reporter owned by this updater. Callers time phases and record
+     * plan-time shape metrics (group type, metric type, nesting, requested buckets) through this
      * rather than requesting individual instruments.
      */
     public SearchAggregationMetricsReporter getSearchAggregationMetricsReporter() {
@@ -1178,16 +1178,6 @@ public class IndexMetricsUpdater implements Closeable {
       private static final String FACET_DRILL_SIDEWAYS_COUNTER_NAME =
           "query_collector_facet_drill_sideways";
 
-      /** Tag prefix for the metric type of a search-aggregation {@code aggregations} leaf. */
-      static final String AGGREGATION_METRIC_TAG_PREFIX = "aggregation_metric_";
-
-      /**
-       * Histogram of the nesting depth of a search-aggregation facet tree, one sample per query.
-       */
-      static final String AGGREGATION_NESTING_HISTOGRAM_NAME = "aggregationNestingPerQuery";
-
-      private static final double[] AGGREGATION_NESTING_BUCKETS = {1, 2, 3, 4};
-
       private final PerIndexMetricsFactory metricsFactory;
       private final Map<Collector.Type, Counter> collectorTypeCounterMap;
       private final Map<Operator.Type, Counter> operatorTypeCounterMap;
@@ -1225,17 +1215,11 @@ public class IndexMetricsUpdater implements Closeable {
       private final Map<QueryOptimizationStatus, Counter> facetDrillSidewaysCounterMap;
 
       /**
-       * Whether search aggregation is enabled; when it is off no aggregation metric is registered,
-       * so we don't export a permanently-zero timeseries per metric type.
+       * Whether search aggregation is enabled; when it is off the {@code aggregation} collector
+       * counter is not registered, so we don't export a permanently-zero timeseries for a feature
+       * that cannot be used.
        */
       private final boolean aggregationEnabled;
-
-      /** Counter per search-aggregation metric type (count/sum/avg/min/max/first/last). */
-      private final Map<com.xgen.mongot.index.query.aggregation.Operator, Counter>
-          aggregationMetricCounterMap;
-
-      /** Nesting depth of the deepest facet tree, one sample per aggregation query. */
-      private final Optional<DistributionSummary> aggregationNestingHistogram;
 
       /** Counts the number vector search queries with a pre-filter. */
       private final Counter vectorSearchFilterCounter;
@@ -1280,20 +1264,6 @@ public class IndexMetricsUpdater implements Closeable {
                     facetDrillSidewaysCounterName(QueryOptimizationStatus.GENERIC)));
         this.collectorTypeCounterMap =
             createCollectorTypeCounterMap(metricsFactory, aggregationEnabled);
-        this.aggregationMetricCounterMap =
-            aggregationEnabled
-                ? createPerProcessEnumCounterMap(
-                    metricsFactory,
-                    com.xgen.mongot.index.query.aggregation.Operator.class,
-                    AGGREGATION_METRIC_TAG_PREFIX)
-                : Map.of();
-        this.aggregationNestingHistogram =
-            aggregationEnabled
-                ? Optional.of(
-                    metricsFactory
-                        .getProcessMetricsFactory()
-                        .histogram(AGGREGATION_NESTING_HISTOGRAM_NAME, AGGREGATION_NESTING_BUCKETS))
-                : Optional.empty();
         this.operatorTypeCounterMap = createEnumCounterMap(metricsFactory, Operator.Type.class);
         this.scoreTypeCounterMap = createEnumCounterMap(metricsFactory, Score.Type.class);
         this.textMatchCriteriaCounterMap =
@@ -1335,21 +1305,6 @@ public class IndexMetricsUpdater implements Closeable {
             enumClass,
             (featureName) ->
                 metricsFactory.counter(
-                    METRIC_NAME,
-                    Tags.of(NAME_TAG, String.format("%s%s", featureNameTagPrefix, featureName))));
-      }
-
-      /**
-       * Like {@link #createEnumCounterMap}, but registers only the process-wide timeseries: these
-       * counters have no per-index consumer, so the per-index fanout would be pure prometheus cost.
-       */
-      private static <T extends Enum<T>> Map<T, Counter> createPerProcessEnumCounterMap(
-          PerIndexMetricsFactory metricsFactory, Class<T> enumClass, String featureNameTagPrefix) {
-        MetricsFactory processMetricsFactory = metricsFactory.getProcessMetricsFactory();
-        return metricsFactory.getEnumCounterMap(
-            enumClass,
-            (featureName) ->
-                processMetricsFactory.counter(
                     METRIC_NAME,
                     Tags.of(NAME_TAG, String.format("%s%s", featureNameTagPrefix, featureName))));
       }
@@ -1427,21 +1382,6 @@ public class IndexMetricsUpdater implements Closeable {
 
       public boolean isAggregationEnabled() {
         return this.aggregationEnabled;
-      }
-
-      public Counter getAggregationMetricCounter(
-          com.xgen.mongot.index.query.aggregation.Operator operator) {
-        return this.aggregationMetricCounterMap.get(operator);
-      }
-
-      /** Records the nesting depth of a single aggregation query's deepest facet tree. */
-      public void recordAggregationNesting(int depth) {
-        this.aggregationNestingHistogram.ifPresent(histogram -> histogram.record(depth));
-      }
-
-      @VisibleForTesting
-      public Optional<DistributionSummary> getAggregationNestingHistogram() {
-        return this.aggregationNestingHistogram;
       }
 
       public Counter getFacetDrillSidewaysCounter(QueryOptimizationStatus status) {

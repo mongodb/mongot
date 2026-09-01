@@ -15,6 +15,7 @@ import com.xgen.mongot.index.MeteredBatchProducer;
 import com.xgen.mongot.index.ReaderClosedException;
 import com.xgen.mongot.index.SearchIndexReader;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
+import com.xgen.mongot.index.lucene.facet.TokenFacetsStateCache;
 import com.xgen.mongot.index.query.CollectorQuery;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.OperatorQuery;
@@ -266,6 +267,17 @@ public class MultiLuceneSearchIndexReader implements SearchIndexReader {
         .mapToInt(LuceneSearchIndexReader::getMaxStringFacetCardinality)
         .max()
         .orElse(0);
+  }
+
+  /**
+   * Summed across partitions: each partition reader holds its own token-facets cache and is
+   * acquired once.
+   */
+  @Override
+  public TokenFacetsStateCache.Snapshot getTokenFacetsStateCacheSnapshot() {
+    return this.readers.stream()
+        .map(LuceneSearchIndexReader::getTokenFacetsStateCacheSnapshot)
+        .reduce(TokenFacetsStateCache.Snapshot.EMPTY, TokenFacetsStateCache.Snapshot::plus);
   }
 
   /**

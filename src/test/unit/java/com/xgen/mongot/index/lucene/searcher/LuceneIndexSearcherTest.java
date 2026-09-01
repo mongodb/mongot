@@ -288,7 +288,8 @@ public class LuceneIndexSearcherTest {
           true, // stringFacetFieldIndexed
           false, // enableFacetingOverTokenFields - avoid token path so we only test string facet
           Optional.empty(),
-          queryingMetricsUpdater);
+          queryingMetricsUpdater,
+          false);
 
       assertThat(queryingMetricsUpdater.getStringFacetsStateRefreshLatencyTimer().count())
           .isGreaterThan(0);
@@ -316,7 +317,8 @@ public class LuceneIndexSearcherTest {
               true,
               true,
               Optional.empty(),
-              queryingMetricsUpdater);
+              queryingMetricsUpdater,
+              false);
       // First create now records token facet state build time (CLOUDP-364960).
       var timer = queryingMetricsUpdater.getTokenFacetsStateRefreshLatencyTimer();
       assertThat(timer.count()).isGreaterThan(0);
@@ -337,12 +339,14 @@ public class LuceneIndexSearcherTest {
                   true,
                   true,
                   Optional.empty(),
-                  queryingMetricsUpdater)),
+                  queryingMetricsUpdater,
+                  false)),
           Optional.empty(),
           true,
           true,
           Optional.empty(),
-          queryingMetricsUpdater);
+          queryingMetricsUpdater,
+          false);
       // Clone path also records; count should increase.
       assertThat(queryingMetricsUpdater.getTokenFacetsStateRefreshLatencyTimer().count())
           .isGreaterThan(countAfterFirstCreate);

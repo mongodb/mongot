@@ -41,6 +41,142 @@ public class TokensFacetStateCacheTest {
   }
 
   @Test
+  public void entryCountAndHeapBytes_emptyBeforeLoadAndPopulatedAfter() throws Exception {
+    try (var directory = new ByteBuffersDirectory();
+        var writer = new IndexWriter(directory, new IndexWriterConfig())) {
+      seedTwoSegments(writer);
+
+      IndexReader reader = DirectoryReader.open(directory);
+      var cache = TokenFacetsStateCache.create(reader, Optional.empty());
+
+      assertThat(cache.entryCount()).isEqualTo(0);
+      assertThat(cache.heapBytes()).isEqualTo(0);
+
+      assertThat(cache.get("foo")).isPresent();
+
+      assertThat(cache.entryCount()).isEqualTo(1);
+      assertThat(cache.heapBytes()).isGreaterThan(0);
+    }
+  }
+
+  @Test
+  public void snapshot_matchesIndividualReadsAfterLoad() throws Exception {
+    try (var directory = new ByteBuffersDirectory();
+        var writer = new IndexWriter(directory, new IndexWriterConfig())) {
+      seedTwoSegments(writer);
+
+      IndexReader reader = DirectoryReader.open(directory);
+      var cache = TokenFacetsStateCache.create(reader, Optional.empty());
+      cache.get("foo");
+
+      TokenFacetsStateCache.Snapshot snapshot = cache.snapshot();
+      assertThat(snapshot.entries()).isEqualTo(cache.entryCount());
+      assertThat(snapshot.heapBytes()).isEqualTo(cache.heapBytes());
+      assertThat(snapshot.hits()).isEqualTo(cache.hitCount());
+      assertThat(snapshot.misses()).isEqualTo(cache.missCount());
+      assertThat(snapshot.evictions()).isEqualTo(cache.evictionCount());
+    }
+  }
+
+  @Test
+  public void recordStatsOffByDefault_hitAndMissStayZero() throws Exception {
+    try (var directory = new ByteBuffersDirectory();
+        var writer = new IndexWriter(directory, new IndexWriterConfig())) {
+      seedTwoSegments(writer);
+
+      IndexReader reader = DirectoryReader.open(directory);
+      var cache = TokenFacetsStateCache.create(reader, Optional.empty());
+      cache.get("foo");
+      cache.get("foo");
+
+      assertThat(cache.missCount()).isEqualTo(0);
+      assertThat(cache.hitCount()).isEqualTo(0);
+      assertThat(cache.snapshot().hits()).isEqualTo(0);
+      assertThat(cache.snapshot().misses()).isEqualTo(0);
+    }
+  }
+
+  @Test
+  public void snapshotPlus_sumsFields() {
+    var left = new TokenFacetsStateCache.Snapshot(1, 2, 3, 4, 5);
+    var right = new TokenFacetsStateCache.Snapshot(10, 20, 30, 40, 50);
+    assertThat(left.plus(right)).isEqualTo(new TokenFacetsStateCache.Snapshot(11, 22, 33, 44, 55));
+  }
+
+  /**
+   * The cache is rebuilt on every reader refresh, so the gauges must read the live instance: the
+   * clone carries the entry over and reports its own heap, not the old cache's.
+   */
+  @Test
+  public void entryCountAndHeapBytes_survivesReaderRefresh() throws Exception {
+    try (var directory = new ByteBuffersDirectory();
+        var writer = new IndexWriter(directory, new IndexWriterConfig())) {
+      seedTwoSegments(writer);
+
+      IndexReader reader = DirectoryReader.open(directory);
+      var cache = TokenFacetsStateCache.create(reader, Optional.empty());
+      cache.get("foo");
+
+      var newCache = cache.cloneWithNewIndexReader(DirectoryReader.open(directory));
+
+      assertThat(newCache.entryCount()).isEqualTo(1);
+      assertThat(newCache.heapBytes()).isGreaterThan(0);
+    }
+  }
+
+  @Test
+  public void hitAndMissCounts_trackCacheOutcomes() throws Exception {
+    try (var directory = new ByteBuffersDirectory();
+        var writer = new IndexWriter(directory, new IndexWriterConfig())) {
+      seedTwoSegments(writer);
+
+      IndexReader reader = DirectoryReader.open(directory);
+      var cache = TokenFacetsStateCache.create(reader, Optional.empty(), true);
+
+      assertThat(cache.hitCount()).isEqualTo(0);
+      assertThat(cache.missCount()).isEqualTo(0);
+
+      cache.get("foo");
+      cache.get("foo");
+      cache.get("foo");
+
+      assertThat(cache.missCount()).isEqualTo(1);
+      assertThat(cache.hitCount()).isEqualTo(2);
+    }
+  }
+
+  /**
+   * The reason these counts are carried forward rather than read straight off Caffeine: the cache
+   * is rebuilt on every reader refresh, so per-instance counters would reset several times an hour
+   * and read as a cache that never hits anything.
+   */
+  @Test
+  public void counts_surviveAReaderRefresh() throws Exception {
+    try (var directory = new ByteBuffersDirectory();
+        var writer = new IndexWriter(directory, new IndexWriterConfig())) {
+      seedTwoSegments(writer);
+
+      IndexReader reader = DirectoryReader.open(directory);
+      var cache = TokenFacetsStateCache.create(reader, Optional.empty(), true);
+      cache.get("foo");
+      cache.get("foo");
+      long hitsBefore = cache.hitCount();
+      long missesBefore = cache.missCount();
+      assertThat(hitsBefore).isEqualTo(1);
+      assertThat(missesBefore).isEqualTo(1);
+
+      var newCache = cache.cloneWithNewIndexReader(DirectoryReader.open(directory));
+
+      // Inherited before the successor has served a single request.
+      assertThat(newCache.hitCount()).isEqualTo(hitsBefore);
+      assertThat(newCache.missCount()).isEqualTo(missesBefore);
+
+      newCache.get("foo");
+      assertThat(newCache.hitCount()).isEqualTo(hitsBefore + 1);
+    }
+  }
+
+  @Test
   public void testCacheLoadsUpdateLastQueriedTime() throws Exception {
     try (var directory = new ByteBuffersDirectory();
         var writer = new IndexWriter(directory, new IndexWriterConfig())) {
@@ -206,6 +342,20 @@ public class TokensFacetStateCacheTest {
       Assert.assertThrows(
           TokenFacetsCardinalityLimitExceededException.class, () -> cache.get("foo"));
     }
+  }
+
+  /**
+   * Seeds two segments. {@link TokenSsdvFacetState#ramBytesUsed} reports the OrdinalMap's heap, and
+   * Lucene only builds an OrdinalMap across multiple segments -- so a single-segment index caches
+   * an entry that legitimately holds no measurable heap.
+   */
+  private void seedTwoSegments(IndexWriter writer) throws IOException {
+    seedDocuments(writer);
+    Document doc = new Document();
+    doc.add(new StringField("_id", "3", Field.Store.YES));
+    doc.add(new SortedSetDocValuesField("foo", new BytesRef("facet3")));
+    writer.addDocument(doc);
+    writer.commit();
   }
 
   private void seedDocuments(IndexWriter writer) throws IOException {

@@ -1,6 +1,8 @@
 package com.xgen.mongot.index.lucene.searcher;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
@@ -17,6 +19,7 @@ public class LuceneSearcherFactory {
   protected final boolean enableFacetingOverTokenFields;
   protected final Optional<Integer> tokenFacetingCardinalityLimit;
   private final IndexMetricsUpdater.QueryingMetricsUpdater queryingMetricsUpdater;
+  private final DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry;
 
   public LuceneSearcherFactory(
       IndexDefinition indexDefinition,
@@ -24,11 +27,28 @@ public class LuceneSearcherFactory {
       QueryCacheProvider queryCacheProvider,
       Optional<Integer> tokenFacetingCardinalityLimit,
       IndexMetricsUpdater.QueryingMetricsUpdater queryingMetricsUpdater) {
+    this(
+        indexDefinition,
+        enableFacetingOverTokenFields,
+        queryCacheProvider,
+        tokenFacetingCardinalityLimit,
+        queryingMetricsUpdater,
+        DynamicFeatureFlagRegistry.empty());
+  }
+
+  public LuceneSearcherFactory(
+      IndexDefinition indexDefinition,
+      boolean enableFacetingOverTokenFields,
+      QueryCacheProvider queryCacheProvider,
+      Optional<Integer> tokenFacetingCardinalityLimit,
+      IndexMetricsUpdater.QueryingMetricsUpdater queryingMetricsUpdater,
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
     this.indexDefinition = indexDefinition;
     this.queryCacheProvider = queryCacheProvider;
     this.enableFacetingOverTokenFields = enableFacetingOverTokenFields;
     this.tokenFacetingCardinalityLimit = tokenFacetingCardinalityLimit;
     this.queryingMetricsUpdater = queryingMetricsUpdater;
+    this.dynamicFeatureFlagRegistry = dynamicFeatureFlagRegistry;
   }
 
   @SuppressWarnings("checkstyle:MissingJavadocMethod")
@@ -45,7 +65,8 @@ public class LuceneSearcherFactory {
               def.isStringFacetsFieldIndexed(),
               this.enableFacetingOverTokenFields,
               this.tokenFacetingCardinalityLimit,
-              this.queryingMetricsUpdater);
+              this.queryingMetricsUpdater,
+              recordTokenFacetsCacheStats());
       case VectorIndexDefinition v ->
           LuceneIndexSearcher.create(
               newReader,
@@ -55,8 +76,14 @@ public class LuceneSearcherFactory {
               false,
               false,
               Optional.empty(),
-              this.queryingMetricsUpdater);
+              this.queryingMetricsUpdater,
+              recordTokenFacetsCacheStats());
     };
+  }
+
+  private boolean recordTokenFacetsCacheStats() {
+    return this.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+        DynamicFeatureFlags.TOKEN_FACETS_CACHE_METRICS);
   }
 
   @VisibleForTesting

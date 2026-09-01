@@ -3,6 +3,8 @@ package com.xgen.mongot.index.lucene;
 import com.xgen.mongot.index.SearchAggregationMetricsReporter;
 import com.xgen.mongot.index.lucene.explain.explainers.AggregationFeatureExplainer;
 import com.xgen.mongot.index.lucene.explain.timing.ExplainTimings;
+import com.xgen.mongot.index.query.aggregation.Operator;
+import com.xgen.mongot.index.query.collectors.FacetDefinition;
 import com.xgen.mongot.util.functionalinterfaces.CheckedSupplier;
 import com.xgen.mongot.util.timers.InvocationCountingTimer;
 
@@ -35,6 +37,26 @@ final class ExplainAwareSearchAggregationMetricsReporter
                 .map(t -> t.split(explainType(phase))))) {
       return this.delegate.time(phase, body);
     }
+  }
+
+  @Override
+  public void recordGroupType(FacetDefinition.Type groupType) {
+    this.delegate.recordGroupType(groupType);
+  }
+
+  @Override
+  public void recordMetricType(Operator metricType) {
+    this.delegate.recordMetricType(metricType);
+  }
+
+  @Override
+  public void recordNesting(int depth) {
+    this.delegate.recordNesting(depth);
+  }
+
+  @Override
+  public void recordRequestedBuckets(long requestedBuckets, long maxPathBuckets) {
+    this.delegate.recordRequestedBuckets(requestedBuckets, maxPathBuckets);
   }
 
   private static ExplainTimings.Type explainType(Phase phase) {

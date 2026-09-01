@@ -22,7 +22,9 @@ public class MeteredVectorIndexReader implements VectorIndexReader {
     this.indexReader = indexReader;
     this.metricsUpdater = metricsUpdater;
     this.queryMetricsRecorder =
-        new QueryMetricsRecorder(metricsUpdater.getQueryFeaturesMetricsUpdater());
+        new QueryMetricsRecorder(
+            metricsUpdater.getQueryFeaturesMetricsUpdater(),
+            metricsUpdater.getSearchAggregationMetricsReporter());
   }
 
   @Override

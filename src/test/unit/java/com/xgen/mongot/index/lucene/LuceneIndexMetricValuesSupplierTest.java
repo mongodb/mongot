@@ -2,6 +2,7 @@ package com.xgen.mongot.index.lucene;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -13,12 +14,15 @@ import com.xgen.mongot.index.DocCounts;
 import com.xgen.mongot.index.IndexMetricValuesSupplier;
 import com.xgen.mongot.index.IndexMetricValuesSupplier.MetricNames;
 import com.xgen.mongot.index.IndexReader;
+import com.xgen.mongot.index.MeteredSearchIndexReader;
 import com.xgen.mongot.index.ReaderClosedException;
+import com.xgen.mongot.index.SearchIndexReader;
 import com.xgen.mongot.index.WriterClosedException;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.lucene.backing.DiskStats;
 import com.xgen.mongot.index.lucene.backing.IndexBackingStrategy;
+import com.xgen.mongot.index.lucene.facet.TokenFacetsStateCache;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.writer.MultiLuceneIndexWriter;
 import com.xgen.mongot.index.lucene.writer.SingleLuceneIndexWriter;
@@ -32,6 +36,7 @@ import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.StringFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.lucene.LuceneIndexMetricsSupplierBuilder;
+import com.xgen.testing.mongot.mock.index.SearchIndex;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.Tags;
@@ -1109,5 +1114,140 @@ public class LuceneIndexMetricValuesSupplierTest {
     // numMongoDbDocs is the parent (root) doc count, not the raw Lucene doc count.
     Assert.assertEquals(3L, docCounts.numMongoDbDocs);
     Assert.assertEquals(9L, docCounts.numDocs);
+  }
+
+  @Test
+  public void tokenFacetsCacheGauges_shareOneSnapshotPerTtl() {
+    var indexReader = mock(LuceneSearchIndexReader.class);
+    when(indexReader.getTokenFacetsStateCacheSnapshot())
+        .thenReturn(new TokenFacetsStateCache.Snapshot(100, 2, 3, 4, 5));
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    buildSearchSupplier(indexReader, meterRegistry, tokenFacetsCacheMetricsRegistry(true));
+
+    assertTokenFacetsGauges(meterRegistry, 100, 2, 3, 4, 5);
+    assertTokenFacetsGauges(meterRegistry, 100, 2, 3, 4, 5);
+    verify(indexReader, times(1)).getTokenFacetsStateCacheSnapshot();
+  }
+
+  @Test
+  public void tokenFacetsCacheGauges_sumMultiPartitionSnapshots() {
+    var partition1 = mock(LuceneSearchIndexReader.class);
+    var partition2 = mock(LuceneSearchIndexReader.class);
+    when(partition1.getTokenFacetsStateCacheSnapshot())
+        .thenReturn(new TokenFacetsStateCache.Snapshot(10, 1, 2, 3, 4));
+    when(partition2.getTokenFacetsStateCacheSnapshot())
+        .thenReturn(new TokenFacetsStateCache.Snapshot(20, 5, 6, 7, 8));
+    var multiReader =
+        new MultiLuceneSearchIndexReader(
+            List.of(partition1, partition2), DynamicFeatureFlagRegistry.empty(), Optional.empty());
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    buildSearchSupplier(multiReader, meterRegistry, tokenFacetsCacheMetricsRegistry(true));
+
+    assertTokenFacetsGauges(meterRegistry, 30, 6, 8, 10, 12);
+    verify(partition1, times(1)).getTokenFacetsStateCacheSnapshot();
+    verify(partition2, times(1)).getTokenFacetsStateCacheSnapshot();
+  }
+
+  @Test
+  public void tokenFacetsCacheGauges_delegateThroughMeteredSearchIndexReader() {
+    var luceneReader = mock(LuceneSearchIndexReader.class);
+    when(luceneReader.getTokenFacetsStateCacheSnapshot())
+        .thenReturn(new TokenFacetsStateCache.Snapshot(50, 1, 2, 3, 4));
+    var meteredReader =
+        new MeteredSearchIndexReader(
+            luceneReader,
+            SearchIndex.mockQueryMetricsUpdater(IndexDefinition.Type.SEARCH),
+            () -> false);
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    buildSearchSupplier(meteredReader, meterRegistry, tokenFacetsCacheMetricsRegistry(true));
+
+    assertTokenFacetsGauges(meterRegistry, 50, 1, 2, 3, 4);
+    verify(luceneReader, times(1)).getTokenFacetsStateCacheSnapshot();
+  }
+
+  @Test
+  public void tokenFacetsCacheGauges_flagOff_skipsAcquireAndReportsZero() {
+    var indexReader = mock(LuceneSearchIndexReader.class);
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    buildSearchSupplier(indexReader, meterRegistry, tokenFacetsCacheMetricsRegistry(false));
+
+    assertTokenFacetsGauges(meterRegistry, 0, 0, 0, 0, 0);
+    verify(indexReader, never()).getTokenFacetsStateCacheSnapshot();
+  }
+
+  @Test
+  public void tokenFacetsCacheGauges_unregisteredFlag_skipsAcquireAndReportsZero() {
+    var indexReader = mock(LuceneSearchIndexReader.class);
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    buildSearchSupplier(indexReader, meterRegistry, DynamicFeatureFlagRegistry.empty());
+
+    assertTokenFacetsGauges(meterRegistry, 0, 0, 0, 0, 0);
+    verify(indexReader, never()).getTokenFacetsStateCacheSnapshot();
+  }
+
+  @Test
+  public void tokenFacetsCacheGauges_snapshotThrows_reportsZero() {
+    var indexReader = mock(LuceneSearchIndexReader.class);
+    when(indexReader.getTokenFacetsStateCacheSnapshot()).thenThrow(new RuntimeException("boom"));
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    buildSearchSupplier(indexReader, meterRegistry, tokenFacetsCacheMetricsRegistry(true));
+
+    assertTokenFacetsGauges(meterRegistry, 0, 0, 0, 0, 0);
+    assertTokenFacetsGauges(meterRegistry, 0, 0, 0, 0, 0);
+    verify(indexReader, times(1)).getTokenFacetsStateCacheSnapshot();
+  }
+
+  private static DynamicFeatureFlagRegistry tokenFacetsCacheMetricsRegistry(boolean enabled) {
+    ObjectId clusterId = new ObjectId();
+    DynamicFeatureFlagConfig config =
+        new DynamicFeatureFlagConfig(
+            DynamicFeatureFlags.TOKEN_FACETS_CACHE_METRICS.getName(),
+            enabled
+                ? DynamicFeatureFlagConfig.Phase.ENABLED
+                : DynamicFeatureFlagConfig.Phase.DISABLED,
+            List.of(),
+            List.of(),
+            100,
+            DynamicFeatureFlagConfig.Scope.MONGOT_CLUSTER);
+    return new DynamicFeatureFlagRegistry(
+        Optional.of(List.of(config)), Optional.empty(), Optional.empty(), Optional.of(clusterId));
+  }
+
+  private static void buildSearchSupplier(
+      SearchIndexReader indexReader,
+      MeterRegistry meterRegistry,
+      DynamicFeatureFlagRegistry registry) {
+    LuceneIndexMetricsSupplierBuilder.builder()
+        .isEmbedded(false)
+        .indexWriter(mock(SingleLuceneIndexWriter.class))
+        .indexReader(indexReader)
+        .resolver(
+            SearchIndexDefinitionBuilder.VALID_INDEX.createFieldDefinitionResolver(
+                IndexFormatVersion.CURRENT))
+        .meterRegistry(meterRegistry)
+        .dynamicFeatureFlagRegistry(registry)
+        .build();
+  }
+
+  private static void assertTokenFacetsGauges(
+      MeterRegistry meterRegistry,
+      long heap,
+      long entries,
+      long hits,
+      long misses,
+      long evictions) {
+    Assert.assertEquals(
+        heap,
+        getPerIndexGaugeMetricsValue(meterRegistry, MetricNames.TOKEN_FACETS_STATE_HEAP_BYTES));
+    Assert.assertEquals(
+        entries,
+        getPerIndexGaugeMetricsValue(meterRegistry, MetricNames.TOKEN_FACETS_STATE_ENTRIES));
+    Assert.assertEquals(
+        hits, getPerIndexGaugeMetricsValue(meterRegistry, MetricNames.TOKEN_FACETS_STATE_HITS));
+    Assert.assertEquals(
+        misses, getPerIndexGaugeMetricsValue(meterRegistry, MetricNames.TOKEN_FACETS_STATE_MISSES));
+    Assert.assertEquals(
+        evictions,
+        getPerIndexGaugeMetricsValue(meterRegistry, MetricNames.TOKEN_FACETS_STATE_EVICTIONS));
   }
 }
