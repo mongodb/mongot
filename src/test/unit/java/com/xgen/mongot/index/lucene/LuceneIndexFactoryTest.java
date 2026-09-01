@@ -18,7 +18,12 @@ import com.xgen.mongot.index.analyzer.AnalyzerRegistry;
 import com.xgen.mongot.index.analyzer.AnalyzerRegistryFactory;
 import com.xgen.mongot.index.analyzer.InvalidAnalyzerDefinitionException;
 import com.xgen.mongot.index.definition.SearchIndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.SearchIndexVectorFieldDefinition;
+import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
+import com.xgen.mongot.index.definition.VectorSimilarity;
+import com.xgen.mongot.index.definition.quantization.VectorQuantization;
 import com.xgen.mongot.index.lucene.config.LuceneConfig;
 import com.xgen.mongot.index.lucene.directory.EnvironmentVariantPerfConfig;
 import com.xgen.mongot.index.lucene.directory.IndexDirectoryHelper;
@@ -38,6 +43,8 @@ import com.xgen.mongot.util.AtomicDirectoryRemover;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.concurrent.Executors;
 import com.xgen.testing.TestUtils;
+import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionGenerationBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionGenerationBuilder;
@@ -213,6 +220,65 @@ public class LuceneIndexFactoryTest {
         getUnderlyingMergePolicy(factory.getInitializedIndex(index2, definitionGeneration2));
     Assert.assertSame(mergePolicy1, mergePolicy2);
     assertThat(mergePolicy1).isInstanceOf(VectorMergePolicy.class);
+  }
+
+  @Test
+  public void testNestedSearchVectorUsesVectorMergePolicy()
+      throws IOException, InvalidAnalyzerDefinitionException {
+    var config =
+        LuceneConfigBuilder.builder()
+            .tempDataPath()
+            .vectorMergePolicyConfig(
+                new LuceneConfig.VectorMergePolicyConfig(100, 1024, 2048, 1024, 2048))
+            .build();
+    try (LuceneIndexFactory factory =
+        LuceneIndexFactory.fromConfig(
+            config,
+            FeatureFlags.getDefault(),
+            new DynamicFeatureFlagRegistry(
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
+            EnvironmentVariantPerfConfig.getDefault(),
+            MeterAndFtdcRegistry.createWithSimpleRegistries(),
+            Optional.empty(),
+            AnalyzerRegistry.factory(),
+            new NoOpDiskMonitor())) {
+      var vectorSpecification =
+          new VectorFieldSpecification(
+              512,
+              VectorSimilarity.COSINE,
+              VectorQuantization.NONE,
+              new VectorIndexingAlgorithm.HnswIndexingAlgorithm());
+      var mappings =
+          DocumentFieldDefinitionBuilder.builder()
+              .dynamic(false)
+              .field(
+                  "_autoEmbed",
+                  FieldDefinitionBuilder.builder()
+                      .document(
+                          DocumentFieldDefinitionBuilder.builder()
+                              .dynamic(false)
+                              .field(
+                                  "content",
+                                  FieldDefinitionBuilder.builder()
+                                      .searchIndexVectorField(
+                                          new SearchIndexVectorFieldDefinition(vectorSpecification))
+                                      .build())
+                              .build())
+                      .build())
+              .build();
+      var definition =
+          SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+      SearchIndexDefinitionGeneration definitionGeneration =
+          SearchIndexDefinitionGenerationBuilder.create(
+              definition, CURRENT, Collections.emptyList());
+
+      var index = factory.getIndex(definitionGeneration);
+      InitializedIndex initializedIndex = factory.getInitializedIndex(index, definitionGeneration);
+
+      assertThat(getUnderlyingMergePolicy(initializedIndex)).isInstanceOf(VectorMergePolicy.class);
+      initializedIndex.close();
+      index.drop();
+    }
   }
 
   @Test

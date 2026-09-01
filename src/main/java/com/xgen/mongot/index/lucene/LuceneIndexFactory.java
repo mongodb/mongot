@@ -33,6 +33,7 @@ import com.xgen.mongot.index.lucene.merge.DiskUtilizationAwareMergePolicy;
 import com.xgen.mongot.index.lucene.merge.InstrumentedConcurrentMergeScheduler;
 import com.xgen.mongot.index.lucene.merge.MergePolicyFactory;
 import com.xgen.mongot.index.lucene.searcher.QueryCacheProvider;
+import com.xgen.mongot.index.lucene.util.LuceneCodecUtils;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.MetricsFactory;
@@ -597,8 +598,8 @@ public class LuceneIndexFactory implements IndexFactory {
             this.featureFlags.isEnabled(Feature.TRUNCATE_AUTOCOMPLETE_TOKENS));
 
     boolean hasVectorField =
-        searchDefinition.getMappings().fields().values().stream()
-            .anyMatch(field -> field.vectorFieldSpecification().isPresent());
+        !LuceneCodecUtils.extractVectorFieldsFromSearchMappings(searchDefinition.getMappings())
+            .isEmpty();
     return LuceneSearchIndex.createDiskBacked(
         this.indexDirectoryHelper.getIndexDirectoryPath(definitionGeneration),
         this.indexDirectoryHelper.getIndexMetadataPath(definitionGeneration),

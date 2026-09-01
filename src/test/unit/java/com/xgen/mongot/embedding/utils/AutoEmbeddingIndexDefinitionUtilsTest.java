@@ -2,14 +2,18 @@ package com.xgen.mongot.embedding.utils;
 
 import static com.xgen.mongot.index.mongodb.MaterializedViewWriter.MV_DATABASE_NAME;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.truth.Truth;
+import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelCatalog;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
 import com.xgen.mongot.index.definition.BooleanFieldDefinition;
 import com.xgen.mongot.index.definition.DocumentFieldDefinition;
+import com.xgen.mongot.index.definition.DynamicDefinition;
 import com.xgen.mongot.index.definition.FieldDefinition;
+import com.xgen.mongot.index.definition.KnnVectorFieldDefinition;
 import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexVectorFieldDefinition;
@@ -22,6 +26,7 @@ import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
 import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.index.definition.quantization.VectorQuantization;
+import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
@@ -917,12 +922,15 @@ public class AutoEmbeddingIndexDefinitionUtilsTest {
         derivedDefinition.getLastObservedCollectionName());
     Assert.assertEquals(Optional.empty(), derivedDefinition.getView());
 
-    // Field should be remapped from "embedding" key to "_autoEmbed.content" key
+    // Field should be remapped from "embedding" into the nested _autoEmbed.content path.
     Assert.assertNull(
         "Original key should not exist in derived definition",
         derivedDefinition.getMappings().fields().get("embedding"));
+    Assert.assertNull(
+        "Derived mappings must not use a flat dotted key",
+        derivedDefinition.getMappings().fields().get("_autoEmbed.content"));
     FieldDefinition remappedField =
-        derivedDefinition.getMappings().fields().get("_autoEmbed.content");
+        getStructurallyNestedField(derivedDefinition.getMappings(), "_autoEmbed.content");
     Assert.assertNotNull("Remapped field should exist", remappedField);
     Assert.assertTrue(
         "Auto-embed field should be replaced with vector field",
@@ -943,6 +951,193 @@ public class AutoEmbeddingIndexDefinitionUtilsTest {
     Assert.assertTrue(
         "Non-auto-embed fields should be preserved",
         activeField.booleanFieldDefinition().isPresent());
+  }
+
+  @Test
+  public void getDerivedSearchIndexDefinition_currentSchema_keepsGeneratedParentStatic() {
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(true)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("content")))
+                    .build())
+            .build();
+    SearchIndexDefinition rawDefinition =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+    var schemaMetadata =
+        new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(
+            1L, Map.of(FieldPath.parse("content"), FieldPath.parse("_autoEmbed.content")));
+
+    SearchIndexDefinition derivedDefinition =
+        AutoEmbeddingIndexDefinitionUtils.getDerivedSearchIndexDefinition(
+            rawDefinition, MV_DATABASE_NAME, UUID.randomUUID(), schemaMetadata);
+
+    DocumentFieldDefinition autoEmbed =
+        derivedDefinition
+            .getMappings()
+            .fields()
+            .get("_autoEmbed")
+            .documentFieldDefinition()
+            .orElseThrow();
+    Truth.assertThat(autoEmbed.dynamic()).isEqualTo(DynamicDefinition.DISABLED);
+    Truth.assertThat(
+            derivedDefinition
+                .createFieldDefinitionResolver(IndexFormatVersion.CURRENT)
+                .getFieldDefinition(FieldPath.parse("_autoEmbed.internal"), Optional.empty()))
+        .isEmpty();
+  }
+
+  @Test
+  public void withNestedVectorField_missingLeaf_storesVectorDefinitionAtLeaf() {
+    SearchIndexVectorFieldDefinition vectorField = createSearchVectorFieldDefinition();
+
+    Map<String, FieldDefinition> result =
+        AutoEmbeddingIndexDefinitionUtils.withNestedVectorField(
+            Map.of(), FieldPath.parse("content"), DynamicDefinition.DISABLED, vectorField);
+
+    Truth.assertThat(result.get("content").searchIndexVectorFieldDefinition())
+        .hasValue(vectorField);
+    Truth.assertThat(result.get("content").documentFieldDefinition()).isEmpty();
+  }
+
+  @Test
+  public void withNestedVectorField_existingLeaf_preservesOtherAlternatives() {
+    FieldDefinition existing =
+        FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build();
+    SearchIndexVectorFieldDefinition vectorField = createSearchVectorFieldDefinition();
+
+    Map<String, FieldDefinition> result =
+        AutoEmbeddingIndexDefinitionUtils.withNestedVectorField(
+            Map.of("content", existing),
+            FieldPath.parse("content"),
+            DynamicDefinition.DISABLED,
+            vectorField);
+
+    Truth.assertThat(result.get("content").booleanFieldDefinition()).isPresent();
+    Truth.assertThat(result.get("content").searchIndexVectorFieldDefinition())
+        .hasValue(vectorField);
+  }
+
+  @Test
+  public void withNestedVectorField_existingDocumentLeaf_preservesDocumentAlternative() {
+    DocumentFieldDefinition existingDocument =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "active",
+                FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build())
+            .build();
+    SearchIndexVectorFieldDefinition vectorField = createSearchVectorFieldDefinition();
+
+    Map<String, FieldDefinition> result =
+        AutoEmbeddingIndexDefinitionUtils.withNestedVectorField(
+            Map.of("content", FieldDefinitionBuilder.builder().document(existingDocument).build()),
+            FieldPath.parse("content"),
+            DynamicDefinition.DISABLED,
+            vectorField);
+
+    FieldDefinition content = result.get("content");
+    Truth.assertThat(content.documentFieldDefinition()).hasValue(existingDocument);
+    Truth.assertThat(content.searchIndexVectorFieldDefinition()).hasValue(vectorField);
+  }
+
+  @Test
+  public void withNestedVectorField_existingParent_preservesDynamicAndSibling() {
+    DocumentFieldDefinition existingParent =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(true)
+            .field(
+                "active",
+                FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build())
+            .build();
+    SearchIndexVectorFieldDefinition vectorField = createSearchVectorFieldDefinition();
+
+    Map<String, FieldDefinition> result =
+        AutoEmbeddingIndexDefinitionUtils.withNestedVectorField(
+            Map.of("parent", FieldDefinitionBuilder.builder().document(existingParent).build()),
+            FieldPath.parse("parent.content"),
+            DynamicDefinition.DISABLED,
+            vectorField);
+
+    DocumentFieldDefinition updatedParent =
+        result.get("parent").documentFieldDefinition().orElseThrow();
+    Truth.assertThat(updatedParent.dynamic().isEnabled()).isTrue();
+    Truth.assertThat(updatedParent.fields().get("active").booleanFieldDefinition()).isPresent();
+    Truth.assertThat(updatedParent.fields().get("content").searchIndexVectorFieldDefinition())
+        .hasValue(vectorField);
+  }
+
+  @Test
+  public void withNestedVectorField_sharedIntermediate_preservesBothLeaves() {
+    SearchIndexVectorFieldDefinition vectorField = createSearchVectorFieldDefinition();
+    Map<String, FieldDefinition> withContent =
+        AutoEmbeddingIndexDefinitionUtils.withNestedVectorField(
+            Map.of(),
+            FieldPath.parse("_autoEmbed.parent.content"),
+            DynamicDefinition.DISABLED,
+            vectorField);
+
+    Map<String, FieldDefinition> result =
+        AutoEmbeddingIndexDefinitionUtils.withNestedVectorField(
+            withContent,
+            FieldPath.parse("_autoEmbed.parent.summary"),
+            DynamicDefinition.DISABLED,
+            vectorField);
+
+    DocumentFieldDefinition autoEmbed =
+        result.get("_autoEmbed").documentFieldDefinition().orElseThrow();
+    DocumentFieldDefinition parent =
+        autoEmbed.fields().get("parent").documentFieldDefinition().orElseThrow();
+    Truth.assertThat(parent.fields()).containsKey("content");
+    Truth.assertThat(parent.fields()).containsKey("summary");
+    Truth.assertThat(parent.fields().get("content").searchIndexVectorFieldDefinition())
+        .hasValue(vectorField);
+    Truth.assertThat(parent.fields().get("summary").searchIndexVectorFieldDefinition())
+        .hasValue(vectorField);
+  }
+
+  @Test
+  public void withNestedVectorField_existingKnnVector_throws() {
+    FieldDefinition existing =
+        FieldDefinitionBuilder.builder()
+            .knnVector(new KnnVectorFieldDefinition(512, VectorSimilarity.COSINE))
+            .build();
+    SearchIndexVectorFieldDefinition vectorField = createSearchVectorFieldDefinition();
+
+    IllegalStateException exception =
+        Assert.assertThrows(
+            IllegalStateException.class,
+            () ->
+                AutoEmbeddingIndexDefinitionUtils.withNestedVectorField(
+                    Map.of("content", existing),
+                    FieldPath.parse("content"),
+                    DynamicDefinition.DISABLED,
+                    vectorField));
+
+    Truth.assertThat(exception).hasMessageThat().contains("content");
+  }
+
+  @Test
+  public void withNestedVectorField_existingSearchVector_throws() {
+    SearchIndexVectorFieldDefinition existingVector = createSearchVectorFieldDefinition();
+    FieldDefinition existing =
+        FieldDefinitionBuilder.builder().searchIndexVectorField(existingVector).build();
+
+    IllegalStateException exception =
+        Assert.assertThrows(
+            IllegalStateException.class,
+            () ->
+                AutoEmbeddingIndexDefinitionUtils.withNestedVectorField(
+                    Map.of("content", existing),
+                    FieldPath.parse("content"),
+                    DynamicDefinition.DISABLED,
+                    createSearchVectorFieldDefinition()));
+
+    Truth.assertThat(exception).hasMessageThat().contains("content");
   }
 
   @Test
@@ -979,13 +1174,13 @@ public class AutoEmbeddingIndexDefinitionUtilsTest {
             rawDefinition, MV_DATABASE_NAME, collectionUuid, schemaMetadata);
 
     FieldDefinition contentField =
-        derivedDefinition.getMappings().fields().get("_autoEmbed.content");
+        getStructurallyNestedField(derivedDefinition.getMappings(), "_autoEmbed.content");
     Assert.assertNotNull(contentField);
     Assert.assertTrue(contentField.searchIndexVectorFieldDefinition().isPresent());
     Assert.assertTrue(contentField.searchAutoEmbedFieldDefinition().isEmpty());
 
     FieldDefinition summaryField =
-        derivedDefinition.getMappings().fields().get("_autoEmbed.summary");
+        getStructurallyNestedField(derivedDefinition.getMappings(), "_autoEmbed.summary");
     Assert.assertNotNull(summaryField);
     Assert.assertTrue(summaryField.searchIndexVectorFieldDefinition().isPresent());
     Assert.assertTrue(summaryField.searchAutoEmbedFieldDefinition().isEmpty());
@@ -1020,9 +1215,10 @@ public class AutoEmbeddingIndexDefinitionUtilsTest {
         AutoEmbeddingIndexDefinitionUtils.getDerivedSearchIndexDefinition(
             rawDefinition, MV_DATABASE_NAME, UUID.randomUUID(), schemaMetadata);
 
-    // The nested auto-embed field is hoisted to a top-level vector field at its flat mat-view path.
-    FieldDefinition hoisted = derivedDefinition.getMappings().fields().get("_autoEmbed.content");
-    Assert.assertNotNull("Nested auto-embed should hoist to top-level _autoEmbed.content", hoisted);
+    // The nested auto-embed field is hoisted to its nested materialized-view path.
+    FieldDefinition hoisted =
+        getStructurallyNestedField(derivedDefinition.getMappings(), "_autoEmbed.content");
+    Assert.assertNotNull("Nested auto-embed should hoist to _autoEmbed.content", hoisted);
     Assert.assertTrue(hoisted.searchIndexVectorFieldDefinition().isPresent());
     Assert.assertTrue(hoisted.searchAutoEmbedFieldDefinition().isEmpty());
 
@@ -1042,7 +1238,7 @@ public class AutoEmbeddingIndexDefinitionUtilsTest {
   public void testGetDerivedSearchIndexDefinition_dynamicDocumentKeepsDynamicMapping() {
     // Dynamic document containing an auto-embed: the derived document keeps dynamic mapping (its
     // wholesale-copied MV subtree is dynamically indexed), keeps declared children, drops the
-    // embed declaration, and the embed hoists to its flat mat-view path.
+    // embed declaration, and the embed hoists to its nested materialized-view path.
     SearchAutoEmbedFieldDefinition autoEmbedField =
         new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("parent.content"));
     DocumentFieldDefinition nested =
@@ -1073,8 +1269,8 @@ public class AutoEmbeddingIndexDefinitionUtilsTest {
             rawDefinition, MV_DATABASE_NAME, UUID.randomUUID(), schemaMetadata);
 
     FieldDefinition hoisted =
-        derivedDefinition.getMappings().fields().get("_autoEmbed.parent.content");
-    Assert.assertNotNull("Auto-embed should hoist to its flat mat-view path", hoisted);
+        getStructurallyNestedField(derivedDefinition.getMappings(), "_autoEmbed.parent.content");
+    Assert.assertNotNull("Auto-embed should hoist to its materialized-view path", hoisted);
     Assert.assertTrue(hoisted.searchIndexVectorFieldDefinition().isPresent());
 
     DocumentFieldDefinition parentDoc =
@@ -1123,7 +1319,8 @@ public class AutoEmbeddingIndexDefinitionUtilsTest {
             rawDefinition, MV_DATABASE_NAME, UUID.randomUUID(), schemaMetadata);
 
     Assert.assertNotNull(
-        derivedDefinition.getMappings().fields().get("_autoEmbed.article.meta.summary"));
+        getStructurallyNestedField(
+            derivedDefinition.getMappings(), "_autoEmbed.article.meta.summary"));
     DocumentFieldDefinition articleDoc =
         derivedDefinition.getMappings().fields().get("article").documentFieldDefinition().get();
     Assert.assertTrue("Dynamic document survives empty", articleDoc.dynamic().isEnabled());
@@ -1180,7 +1377,8 @@ public class AutoEmbeddingIndexDefinitionUtilsTest {
     DocumentFieldDefinition parentDoc = parent.documentFieldDefinition().get();
     Assert.assertNotNull(parentDoc.fields().get("active"));
     Assert.assertNull(parentDoc.fields().get("embedding"));
-    Assert.assertNotNull(derivedDefinition.getMappings().fields().get("_autoEmbed.text"));
+    Assert.assertNotNull(
+        getStructurallyNestedField(derivedDefinition.getMappings(), "_autoEmbed.text"));
   }
 
   @Test
@@ -1227,13 +1425,15 @@ public class AutoEmbeddingIndexDefinitionUtilsTest {
         AutoEmbeddingIndexDefinitionUtils.getDerivedSearchIndexDefinition(
             rawDefinition, MV_DATABASE_NAME, UUID.randomUUID(), schemaMetadata);
 
-    FieldDefinition hoistedTop = derivedDefinition.getMappings().fields().get("_autoEmbed.top");
+    FieldDefinition hoistedTop =
+        getStructurallyNestedField(derivedDefinition.getMappings(), "_autoEmbed.top");
     Assert.assertNotNull(hoistedTop);
     Assert.assertTrue(hoistedTop.searchIndexVectorFieldDefinition().isPresent());
     Assert.assertTrue(
         "Hoisted vector field must not carry the document alternative",
         hoistedTop.documentFieldDefinition().isEmpty());
-    FieldDefinition hoistedDeep = derivedDefinition.getMappings().fields().get("_autoEmbed.deep");
+    FieldDefinition hoistedDeep =
+        getStructurallyNestedField(derivedDefinition.getMappings(), "_autoEmbed.deep");
     Assert.assertNotNull("Nested embed inside the document alternative must hoist", hoistedDeep);
     Assert.assertTrue(hoistedDeep.searchIndexVectorFieldDefinition().isPresent());
 
@@ -1279,5 +1479,30 @@ public class AutoEmbeddingIndexDefinitionUtilsTest {
     Assert.assertEquals(
         rawDefinition.getParsedIndexFeatureVersion(),
         derivedDefinition.getParsedIndexFeatureVersion());
+  }
+
+  private static FieldDefinition getStructurallyNestedField(
+      DocumentFieldDefinition mappings, String dottedPath) {
+    List<String> segments = ImmutableList.copyOf(FieldPath.parse(dottedPath).getSegments());
+    @Var DocumentFieldDefinition currentDocument = mappings;
+    for (int i = 0; i < segments.size() - 1; i++) {
+      String segment = segments.get(i);
+      FieldDefinition parent = currentDocument.fields().get(segment);
+      Assert.assertNotNull("Missing derived document segment " + segment, parent);
+      currentDocument = parent.documentFieldDefinition().orElseThrow();
+    }
+    String leaf = segments.getLast();
+    FieldDefinition field = currentDocument.fields().get(leaf);
+    Assert.assertNotNull("Missing derived mapping path " + dottedPath, field);
+    return field;
+  }
+
+  private static SearchIndexVectorFieldDefinition createSearchVectorFieldDefinition() {
+    return new SearchIndexVectorFieldDefinition(
+        new VectorFieldSpecification(
+            512,
+            VectorSimilarity.COSINE,
+            VectorQuantization.NONE,
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
   }
 }

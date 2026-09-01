@@ -257,7 +257,8 @@ public class SingleLuceneIndexWriter implements LuceneIndexWriter {
     Similarity similarity = LuceneSimilarity.from(resolver.indexDefinition);
 
     Map<FieldPath, VectorFieldSpecification> pathToField =
-        LuceneCodecUtils.extractVectorFieldsFromSearchMappings(resolver.getFields());
+        LuceneCodecUtils.extractVectorFieldsFromSearchMappings(
+            resolver.indexDefinition.getMappings());
 
     LuceneCodec codec =
         LuceneCodec.Factory.forIndexWithBloomFilter(

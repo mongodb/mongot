@@ -4,8 +4,11 @@ import static com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadat
 import static com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator.getMatViewFieldPath;
 import static com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator.getMatViewNestedRoot;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.index.definition.DocumentFieldDefinition;
+import com.xgen.mongot.index.definition.DynamicDefinition;
 import com.xgen.mongot.index.definition.FieldDefinition;
 import com.xgen.mongot.index.definition.IllegalEmbeddedFieldException;
 import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
@@ -18,6 +21,7 @@ import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFilterFieldDefinition;
+import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -26,6 +30,28 @@ import java.util.Optional;
 import java.util.UUID;
 
 public class AutoEmbeddingIndexDefinitionUtils {
+  private static final FieldDefinition EMPTY_FIELD_DEFINITION =
+      new FieldDefinition(
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty());
 
   /**
    * Converts original raw VectorIndexDefinition in source collection to normalized
@@ -148,18 +174,26 @@ public class AutoEmbeddingIndexDefinitionUtils {
   private static DocumentFieldDefinition getDerivedSearchMappings(
       DocumentFieldDefinition rawMappings, MaterializedViewSchemaMetadata schemaMetadata) {
     Map<String, FieldDefinition> derivedFields = new LinkedHashMap<>();
-    // Auto-embed fields (at any nesting depth) become top-level vector fields keyed by their flat
-    // materialized-view path (e.g. "_autoEmbed.content"); collected here and merged in at the end.
-    Map<String, FieldDefinition> hoistedVectorFields = new LinkedHashMap<>();
+    // Auto-embed fields are collected separately so they can be inserted at their materialized-view
+    // paths after the source mapping tree has been rebuilt.
+    Map<FieldPath, SearchIndexVectorFieldDefinition> hoistedVectorFields = new LinkedHashMap<>();
     collectDerivedSearchFields(
         rawMappings.fields(),
         schemaMetadata,
         rawMappings.dynamic().isEnabled(),
         derivedFields,
         hoistedVectorFields);
-    derivedFields.putAll(hoistedVectorFields);
+    @Var Map<String, FieldDefinition> fieldsWithVectors = derivedFields;
+    for (Map.Entry<FieldPath, SearchIndexVectorFieldDefinition> entry :
+        hoistedVectorFields.entrySet()) {
+      // Generated _autoEmbed parents must stay static so MV-internal hash and lease fields are not
+      // dynamically indexed.
+      fieldsWithVectors =
+          withNestedVectorField(
+              fieldsWithVectors, entry.getKey(), DynamicDefinition.DISABLED, entry.getValue());
+    }
     try {
-      return DocumentFieldDefinition.create(rawMappings.dynamic(), derivedFields);
+      return DocumentFieldDefinition.create(rawMappings.dynamic(), fieldsWithVectors);
     } catch (IllegalEmbeddedFieldException e) {
       throw new IllegalStateException("Failed to create derived mappings", e);
     }
@@ -167,7 +201,7 @@ public class AutoEmbeddingIndexDefinitionUtils {
 
   /**
    * Rebuilds {@code fields} into {@code out}, hoisting each auto-embed declaration to a pure {@code
-   * vector} field at its flat materialized-view path in {@code hoistedVectorFields}. A field's type
+   * vector} field at its materialized-view path in {@code hoistedVectorFields}. A field's type
    * alternatives are processed independently (search mappings may declare several types per field):
    * the auto-embed alternative is stripped from the rebuilt field, a {@code document} alternative
    * containing auto-embed descendants is rebuilt recursively, and every other alternative is
@@ -181,24 +215,23 @@ public class AutoEmbeddingIndexDefinitionUtils {
       MaterializedViewSchemaMetadata schemaMetadata,
       boolean underDynamicMapping,
       Map<String, FieldDefinition> out,
-      Map<String, FieldDefinition> hoistedVectorFields) {
+      Map<FieldPath, SearchIndexVectorFieldDefinition> hoistedVectorFields) {
     for (Map.Entry<String, FieldDefinition> entry : fields.entrySet()) {
       FieldDefinition fieldDef = entry.getValue();
       var autoEmbed = fieldDef.searchAutoEmbedFieldDefinition();
       var document = fieldDef.documentFieldDefinition();
       if (autoEmbed.isPresent()) {
         SearchAutoEmbedFieldDefinition autoEmbedDef = autoEmbed.get();
-        // The derived vector field lives at the flat mat-view path regardless of nesting depth.
-        // It carries only the vector definition: the field's other type alternatives describe the
+        // The derived vector field lives at the mat-view path regardless of declaration depth. It
+        // carries only the vector definition: the field's other type alternatives describe the
         // declaration path, not the mat-view path holding the vector.
         FieldPath matViewPath =
             getMatViewFieldPath(
                 autoEmbedDef.sourceField(), schemaMetadata.autoEmbeddingFieldsMapping());
         hoistedVectorFields.put(
-            matViewPath.toString(),
-            vectorOnlyField(
-                new SearchIndexVectorFieldDefinition(
-                    toVectorFieldSpecification(autoEmbedDef.specification()))));
+            matViewPath,
+            new SearchIndexVectorFieldDefinition(
+                toVectorFieldSpecification(autoEmbedDef.specification())));
       }
 
       @Var Optional<DocumentFieldDefinition> derivedDocument = document;
@@ -225,10 +258,80 @@ public class AutoEmbeddingIndexDefinitionUtils {
     }
   }
 
+  /**
+   * Returns {@code fields} with {@code vectorField} inserted one BSON path segment at a time.
+   * Materialized-view documents store vectors as nested BSON (for example {@code {_autoEmbed:
+   * {content: ...}}}), so a flat mapping key such as {@code "_autoEmbed.content"} is visible to
+   * query validation but is never reached by the document ingester.
+   */
+  @VisibleForTesting
+  static Map<String, FieldDefinition> withNestedVectorField(
+      Map<String, FieldDefinition> fields,
+      FieldPath path,
+      DynamicDefinition dynamicForCreatedDocuments,
+      SearchIndexVectorFieldDefinition vectorField) {
+    return withNestedVectorField(
+        fields,
+        path,
+        ImmutableList.copyOf(path.getSegments()),
+        0,
+        dynamicForCreatedDocuments,
+        vectorField);
+  }
+
+  private static Map<String, FieldDefinition> withNestedVectorField(
+      Map<String, FieldDefinition> fields,
+      FieldPath path,
+      List<String> segments,
+      int segmentIndex,
+      DynamicDefinition dynamicForCreatedDocuments,
+      SearchIndexVectorFieldDefinition vectorField) {
+    String segment = segments.get(segmentIndex);
+    FieldDefinition existing = fields.get(segment);
+    Map<String, FieldDefinition> updatedFields = new LinkedHashMap<>(fields);
+    if (segmentIndex == segments.size() - 1) {
+      // At the leaf, the field itself is the vector mapping; documents are only path containers.
+      updatedFields.put(
+          segment,
+          existing == null
+              ? vectorOnlyField(vectorField)
+              : withSearchVectorField(path, existing, vectorField));
+      return updatedFields;
+    }
+
+    DocumentFieldDefinition existingDocument =
+        existing == null
+            ? createDerivedDocument(dynamicForCreatedDocuments, Map.of())
+            : existing
+                .documentFieldDefinition()
+                .orElseGet(() -> createDerivedDocument(dynamicForCreatedDocuments, Map.of()));
+    Map<String, FieldDefinition> childFields =
+        withNestedVectorField(
+            existingDocument.fields(),
+            path,
+            segments,
+            segmentIndex + 1,
+            existingDocument.dynamic(),
+            vectorField);
+    DocumentFieldDefinition updatedDocument =
+        createDerivedDocument(existingDocument.dynamic(), childFields);
+    updatedFields.put(
+        segment,
+        existing == null
+            ? documentOnlyField(updatedDocument)
+            : withDocumentField(existing, updatedDocument));
+    return updatedFields;
+  }
+
   private static DocumentFieldDefinition createDerivedDocument(
       DocumentFieldDefinition original, Map<String, FieldDefinition> fields) {
+    return createDerivedDocument(original.dynamic(), fields);
+  }
+
+  private static DocumentFieldDefinition createDerivedDocument(
+      DynamicDefinition dynamic, Map<String, FieldDefinition> fields) {
     try {
-      return DocumentFieldDefinition.create(original.dynamic(), fields);
+      return DocumentFieldDefinition.create(dynamic, fields);
     } catch (IllegalEmbeddedFieldException e) {
       throw new IllegalStateException("Failed to create derived nested mappings", e);
     }
@@ -240,16 +343,45 @@ public class AutoEmbeddingIndexDefinitionUtils {
    */
   private static FieldDefinition withoutAutoEmbedField(
       FieldDefinition original, Optional<DocumentFieldDefinition> newDocument) {
+    return copyForDerivedMapping(
+        original, newDocument, original.searchIndexVectorFieldDefinition());
+  }
+
+  private static FieldDefinition withDocumentField(
+      FieldDefinition original, DocumentFieldDefinition document) {
+    return copyForDerivedMapping(
+        original, Optional.of(document), original.searchIndexVectorFieldDefinition());
+  }
+
+  private static FieldDefinition withSearchVectorField(
+      FieldPath path, FieldDefinition original, SearchIndexVectorFieldDefinition vectorField) {
+    // TODO(CLOUDP-440822): Reject this at the MMS and per-index confcall validation boundaries so
+    // malformed definitions fail only the affected index. Keep this guard as a defensive invariant.
+    Check.checkState(
+        original.searchIndexVectorFieldDefinition().isEmpty()
+            && original.knnVectorFieldDefinition().isEmpty(),
+        "Cannot generate auto-embedding vector at path %s because that path already has a vector"
+            + " mapping",
+        path);
+    return copyForDerivedMapping(
+        original, original.documentFieldDefinition(), Optional.of(vectorField));
+  }
+
+  private static FieldDefinition copyForDerivedMapping(
+      FieldDefinition original,
+      Optional<DocumentFieldDefinition> document,
+      Optional<SearchIndexVectorFieldDefinition> vector) {
+    // Derived mappings never retain the source-only auto-embed alternative.
     return new FieldDefinition(
         original.autocompleteFieldDefinition(),
         original.booleanFieldDefinition(),
         original.dateFieldDefinition(),
         original.dateFacetFieldDefinition(),
-        newDocument,
+        document,
         original.embeddedDocumentsFieldDefinition(),
         original.geoFieldDefinition(),
         Optional.empty(),
-        original.searchIndexVectorFieldDefinition(),
+        vector,
         original.knnVectorFieldDefinition(),
         original.numberFieldDefinition(),
         original.numberFacetFieldDefinition(),
@@ -263,28 +395,13 @@ public class AutoEmbeddingIndexDefinitionUtils {
         original.uuidFieldDefinition());
   }
 
+  private static FieldDefinition documentOnlyField(DocumentFieldDefinition document) {
+    return copyForDerivedMapping(EMPTY_FIELD_DEFINITION, Optional.of(document), Optional.empty());
+  }
+
   private static FieldDefinition vectorOnlyField(SearchIndexVectorFieldDefinition vectorField) {
-    return new FieldDefinition(
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty(),
-        Optional.of(vectorField),
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty());
+    return copyForDerivedMapping(
+        EMPTY_FIELD_DEFINITION, Optional.empty(), Optional.of(vectorField));
   }
 
   public static VectorFieldSpecification toVectorFieldSpecification(

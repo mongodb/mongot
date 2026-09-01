@@ -402,6 +402,47 @@ public class AutoEmbeddingIndexValidatorTest {
   }
 
   @Test
+  public void validateSearchIndexWithGeneratedPathVectorCollision_throwsException() {
+    var vectorSpec =
+        new VectorFieldSpecification(
+            1024,
+            VectorSimilarity.DOT_PRODUCT,
+            VectorQuantization.NONE,
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm());
+    var generatedNamespace =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "content",
+                FieldDefinitionBuilder.builder()
+                    .searchIndexVectorField(new SearchIndexVectorFieldDefinition(vectorSpec))
+                    .build())
+            .build();
+    var mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            REGISTERED_MODEL, FieldPath.parse("content")))
+                    .build())
+            .field(
+                "_autoEmbed", FieldDefinitionBuilder.builder().document(generatedNamespace).build())
+            .build();
+    SearchIndexDefinition searchIndex =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+
+    InvalidIndexDefinitionException exception =
+        assertThrows(
+            InvalidIndexDefinitionException.class,
+            () -> AutoEmbeddingIndexValidator.validate(searchIndex));
+
+    assertThat(exception.getMessage()).contains("cannot mix regular vector fields");
+  }
+
+  @Test
   public void validateSearchIndexWithNestedAutoEmbedAndTopLevelVector_throwsException() {
     // Nested auto-embed + top-level regular vector: the mixed-type check must see auto-embed
     // declarations at any nesting depth.
