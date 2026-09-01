@@ -78,6 +78,13 @@ public class ConfigState {
   public final IndexCatalog indexCatalog;
 
   /**
+   * The indexes whose config journal entry could not be parsed, and which therefore cannot be
+   * initialized or queried. Tracked so that mongot can report why they are unusable rather than
+   * behaving as though they do not exist.
+   */
+  public final IncompatibleIndexes incompatibleIndexes;
+
+  /**
    * Indexes on the way to be dropped, waiting for their cursors to be killed.
    *
    * <p>If mongot restarts at any point these can be dropped (cursors are not persisted). Thus,
@@ -126,6 +133,7 @@ public class ConfigState {
   private ConfigState(
       StagedIndexes staged,
       IndexCatalog indexCatalog,
+      IncompatibleIndexes incompatibleIndexes,
       PhasingOutIndexes phasingOut,
       InitializedIndexCatalog initializedIndexCatalog,
       MongotCursorManager cursorManager,
@@ -137,6 +145,7 @@ public class ConfigState {
       JournalWriter journalWriter) {
     this.staged = staged;
     this.indexCatalog = indexCatalog;
+    this.incompatibleIndexes = incompatibleIndexes;
     this.phasingOut = phasingOut;
     this.isInitializedFromConfigJournal = false;
     this.maxUserIndexVersionNumberPerIndex = new HashMap<>();
@@ -156,6 +165,7 @@ public class ConfigState {
   public static ConfigState create(
       StagedIndexes staged,
       IndexCatalog indexCatalog,
+      IncompatibleIndexes incompatibleIndexes,
       PhasingOutIndexes phasingOut,
       InitializedIndexCatalog initializedIndexCatalog,
       MongotCursorManager cursorManager,
@@ -174,6 +184,7 @@ public class ConfigState {
         new ConfigState(
             staged,
             indexCatalog,
+            incompatibleIndexes,
             phasingOut,
             initializedIndexCatalog,
             cursorManager,

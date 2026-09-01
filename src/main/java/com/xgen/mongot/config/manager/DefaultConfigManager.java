@@ -69,6 +69,8 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Methods here need to be synchronized because {@link DefaultConfigManager#close()} might be
  * called from a shutdown hook thread.
+ *
+ * <p>This is the only writer of the members of {@link ConfigState}, which are not thread safe.
  */
 public class DefaultConfigManager implements ConfigManager {
 
@@ -181,6 +183,7 @@ public class DefaultConfigManager implements ConfigManager {
         ConfigState.create(
             new StagedIndexes(),
             indexCatalog,
+            new IncompatibleIndexes(),
             new PhasingOutIndexes(),
             initializedIndexCatalog,
             cursorManager,

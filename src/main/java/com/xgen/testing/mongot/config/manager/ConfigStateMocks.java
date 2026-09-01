@@ -21,6 +21,7 @@ import com.xgen.mongot.catalog.InitializedIndexCatalog;
 import com.xgen.mongot.config.backup.ConfigJournalV1;
 import com.xgen.mongot.config.backup.JournalWriter;
 import com.xgen.mongot.config.manager.ConfigState;
+import com.xgen.mongot.config.manager.IncompatibleIndexes;
 import com.xgen.mongot.config.manager.IndexActions;
 import com.xgen.mongot.config.manager.PhasingOutIndexes;
 import com.xgen.mongot.config.manager.StagedIndexes;
@@ -133,6 +134,7 @@ public class ConfigStateMocks {
   public final StagedIndexes staged;
   public final IndexCatalog indexCatalog;
   public final PhasingOutIndexes phasingOut;
+  public final IncompatibleIndexes incompatibleIndexes;
   public final InitializedIndexCatalog initializedIndexCatalog;
 
   public final MongotCursorManager cursorManager;
@@ -185,6 +187,7 @@ public class ConfigStateMocks {
     this.lifecycleManager = lifecycleManager;
     this.staged = spy(new StagedIndexes());
     this.phasingOut = spy(new PhasingOutIndexes());
+    this.incompatibleIndexes = spy(new IncompatibleIndexes());
     this.dynamicFeatureFlagRegistry = dynamicFeatureFlagRegistry;
     this.embeddingServiceManagerSupplier =
         Suppliers.ofInstance(
@@ -200,6 +203,7 @@ public class ConfigStateMocks {
             ConfigState.create(
                 this.staged,
                 this.indexCatalog,
+                this.incompatibleIndexes,
                 this.phasingOut,
                 this.initializedIndexCatalog,
                 this.cursorManager,
@@ -673,6 +677,7 @@ public class ConfigStateMocks {
         this.staged,
         this.indexCatalog,
         this.phasingOut,
+        this.incompatibleIndexes,
         this.cursorManager,
         this.lifecycleManager,
         this.analyzerRegistryFactory,

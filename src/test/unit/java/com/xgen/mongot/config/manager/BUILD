@@ -9,6 +9,7 @@ java_test_suite(
         "ConfigStateTest.java",
         "DefaultConfigManagerTest.java",
         "DesiredConfigStateUpdaterTest.java",
+        "IncompatibleIndexesTest.java",
         "IndexActionsTest.java",
         "IndexFormatVersionUpgraderTest.java",
         "IndexInitialSyncRecoveryTest.java",
