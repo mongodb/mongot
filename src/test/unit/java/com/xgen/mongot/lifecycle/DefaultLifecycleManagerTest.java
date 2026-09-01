@@ -203,6 +203,45 @@ public class DefaultLifecycleManagerTest {
   }
 
   @Test
+  public void contains_falseBeforeAdd_trueAfter_falseAfterDrop() throws Exception {
+    Mocks mocks = Mocks.create();
+    IndexGeneration generation = mockIndexGeneration(new ObjectId());
+    GenerationId generationId = generation.getGenerationId();
+
+    assertFalse(mocks.lifecycleManager.contains(generationId));
+
+    mocks.lifecycleManager.add(generation);
+    assertTrue(mocks.lifecycleManager.contains(generationId));
+
+    mocks.lifecycleManager.dropIndex(generationId).get();
+    assertFalse(mocks.lifecycleManager.contains(generationId));
+  }
+
+  @Test
+  public void contains_autoEmbeddingGeneration_resolvesViaDerivedGenerationId() {
+    Mocks mocks = Mocks.create();
+
+    IndexGeneration derived = mockIndexGeneration(uniqueMockGenerationDefinition());
+    GenerationId derivedId = derived.getGenerationId();
+    GenerationId rawId = GenerationIdBuilder.create();
+    assertNotEquals(rawId, derivedId);
+
+    var autoEmbedding =
+        mock(com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGeneration.class);
+    when(autoEmbedding.getType())
+        .thenReturn(com.xgen.mongot.index.definition.IndexDefinitionGeneration.Type.AUTO_EMBEDDING);
+    when(autoEmbedding.getDerivedIndexGeneration()).thenReturn(derived);
+    when(autoEmbedding.getGenerationId()).thenReturn(rawId);
+    when(autoEmbedding.getIndex()).thenReturn(derived.getIndex());
+    when(autoEmbedding.getDefinitionGeneration()).thenReturn(derived.getDefinitionGeneration());
+
+    mocks.lifecycleManager.add(autoEmbedding);
+
+    assertTrue(mocks.lifecycleManager.contains(derivedId));
+    assertFalse(mocks.lifecycleManager.contains(rawId));
+  }
+
+  @Test
   public void testSameIndexCanNotBeAddedTwice() {
     Mocks mocks = Mocks.create();
 

@@ -6,6 +6,7 @@ import static com.xgen.mongot.util.Check.checkState;
 
 import com.xgen.mongot.config.util.IndexDefinitions;
 import com.xgen.mongot.index.Index;
+import com.xgen.mongot.index.IndexFactory;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.IndexGenerationFactory;
 import com.xgen.mongot.index.InitializedIndex;
@@ -106,13 +107,13 @@ public class IndexActions {
       return;
     }
 
-    if (deferVectorliteInitialization(indexGeneration)) {
-      // The custom vector engine (vectorlite) initialization path is driven by the SLS conf call
-      // and is not yet implemented; leave the index uninitialized in the catalog for now.
+    if (deferInitializationUntilReady(this.configState.indexFactory, indexGeneration)) {
+      // Keep the index in the catalog while its initialization prerequisites are unavailable. A
+      // later promotion sweep enqueues it once ready.
       LOG.atInfo()
           .addKeyValue("indexId", generationId.indexId)
           .addKeyValue("generationId", generationId)
-          .log("Leaving custom vector engine index uninitialized; SLS-driven init not yet wired.");
+          .log("Leaving custom vector engine index uninitialized; waiting for prerequisites");
       return;
     }
 
@@ -160,17 +161,18 @@ public class IndexActions {
 
   /**
    * Whether initialization of {@code indexGeneration} should be deferred because it is a custom
-   * vector engine (vectorlite) index whose SLS-driven initialization path is not yet implemented.
+   * vector engine index that is not yet ready to initialize.
    *
-   * <p>When {@code true}, callers must skip {@link LifecycleManager#add} and leave the index in the
-   * catalog (reported as {@code NOT_STARTED}). The index is still visible to the SLS conf call so
-   * it can be assigned a log; a future change will initialize it once a log id has been assigned.
-   * Whether vectorlite indexes exist at all is gated on the control-plane side (mms), so no mongot
-   * feature flag is consulted here.
+   * <p>When {@code true}, callers must skip {@link com.xgen.mongot.lifecycle.LifecycleManager#add}
+   * and leave the index in the catalog (reported as {@code NOT_STARTED}). A promotion sweep
+   * enqueues it once {@link IndexFactory#isReadyToInitialize} returns true. Availability of custom
+   * vector engine indexes is controlled externally, so no mongot feature flag is consulted here.
    */
-  static boolean deferVectorliteInitialization(IndexGeneration indexGeneration) {
+  static boolean deferInitializationUntilReady(
+      IndexFactory indexFactory, IndexGeneration indexGeneration) {
     return indexGeneration.getDefinition() instanceof VectorIndexDefinition vectorDefinition
-        && vectorDefinition.isCustomVectorEngineIndex();
+        && vectorDefinition.isCustomVectorEngineIndex()
+        && !indexFactory.isReadyToInitialize(indexGeneration.getDefinitionGeneration());
   }
 
   void addStagedIndexes(List<IndexDefinitionGeneration> definitions)
@@ -218,15 +220,14 @@ public class IndexActions {
       }
       return;
     }
-    if (deferVectorliteInitialization(indexGeneration)) {
-      // See addIndex: custom vector engine (vectorlite) staged indexes are left uninitialized until
-      // the SLS-driven initialization path exists.
+    if (deferInitializationUntilReady(this.configState.indexFactory, indexGeneration)) {
+      // See addIndex: staged custom vector engine indexes use the same readiness gate.
       LOG.atInfo()
           .addKeyValue("indexId", generationId.indexId)
           .addKeyValue("generationId", generationId)
           .log(
-              "Leaving custom vector engine staged index uninitialized; SLS-driven init not yet"
-                  + " wired.");
+              "Leaving custom vector engine staged index uninitialized; waiting for"
+                  + " prerequisites");
       return;
     }
     if (this.withReplication) {

@@ -1,6 +1,7 @@
 package com.xgen.mongot.config.manager;
 
 import static com.google.common.truth.Truth.assertThat;
+import static com.xgen.testing.mongot.mock.index.IndexGeneration.mockDefinitionGeneration;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_DEFINITION;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_DEFINITION_GENERATION;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_DEFINITION_GENERATION_CURRENT;
@@ -35,13 +36,22 @@ import com.xgen.mongot.index.AggregatedIndexMetrics;
 import com.xgen.mongot.index.Index;
 import com.xgen.mongot.index.IndexDetailedStatus;
 import com.xgen.mongot.index.IndexGeneration;
+import com.xgen.mongot.index.IndexGenerationFactory;
 import com.xgen.mongot.index.IndexInformation;
 import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.InitializedVectorIndex;
 import com.xgen.mongot.index.autoembedding.UnresolvedAutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
+import com.xgen.mongot.index.definition.VectorDataFieldDefinition;
+import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
+import com.xgen.mongot.index.definition.VectorIndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
+import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
+import com.xgen.mongot.index.definition.VectorSearchEngine;
+import com.xgen.mongot.index.definition.VectorSimilarity;
+import com.xgen.mongot.index.definition.quantization.VectorQuantization;
 import com.xgen.mongot.index.query.QueryOptimizationFlags;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.Generation;
@@ -49,6 +59,7 @@ import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.monitor.ReplicationStateMonitor;
 import com.xgen.mongot.monitor.ToggleGate;
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.mongodb.ConnectionStringUtil;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import com.xgen.testing.mongot.config.backup.ConfigJournalV1Builder;
@@ -58,6 +69,7 @@ import com.xgen.testing.mongot.config.manager.metrics.IndexGenerationStateMetric
 import com.xgen.testing.mongot.index.IndexGenerationMetricsBuilder;
 import com.xgen.testing.mongot.index.IndexMetricsBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import com.xgen.testing.mongot.metrics.micrometer.PercentilesBuilder;
 import com.xgen.testing.mongot.metrics.micrometer.SerializableTimerBuilder;
 import com.xgen.testing.mongot.mock.index.VectorIndex;
@@ -72,6 +84,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.bson.BsonTimestamp;
 import org.bson.types.ObjectId;
@@ -1181,5 +1194,216 @@ public class DefaultConfigManagerTest {
     // v1 was phased out by StagedIndexesSwapper and then dropped by PhasingOutIndexesDropper
     // (no active cursors), so phasing out is now empty.
     configStateMocks.assertPhasingOutIndexesAre();
+  }
+
+  @Test
+  public void startLifecycle_readyCustomVectorEngine_enqueuesCatalogAndStaged() throws Exception {
+    ConfigStateMocks mocks = ConfigStateMocks.create();
+    when(mocks.indexFactory.isReadyToInitialize(any())).thenReturn(true);
+    var liveDef = customVectorEngineDefinitionGeneration();
+    var stagedDef = liveDef.incrementUser(liveDef.getIndexDefinition());
+    IndexGeneration live = IndexGenerationFactory.getIndexGeneration(mocks.indexFactory, liveDef);
+    IndexGeneration staged =
+        IndexGenerationFactory.getIndexGeneration(mocks.indexFactory, stagedDef);
+    mocks.indexCatalog.addIndex(live);
+    mocks.staged.addIndex(staged);
+    mocks.clearInvocations();
+
+    DefaultConfigManager.startLifecycle(mocks.configState);
+
+    verify(mocks.lifecycleManager).add(live);
+    verify(mocks.lifecycleManager).add(staged);
+  }
+
+  @Test
+  public void startLifecycle_unreadyCustomVectorEngine_skipsCatalogAndStaged() throws Exception {
+    ConfigStateMocks mocks = ConfigStateMocks.create();
+    // Mockito boolean defaults leave isReadyToInitialize false.
+    var liveDef = customVectorEngineDefinitionGeneration();
+    var stagedDef = liveDef.incrementUser(liveDef.getIndexDefinition());
+    IndexGeneration live = IndexGenerationFactory.getIndexGeneration(mocks.indexFactory, liveDef);
+    IndexGeneration staged =
+        IndexGenerationFactory.getIndexGeneration(mocks.indexFactory, stagedDef);
+    mocks.indexCatalog.addIndex(live);
+    mocks.staged.addIndex(staged);
+    mocks.clearInvocations();
+
+    DefaultConfigManager.startLifecycle(mocks.configState);
+
+    verify(mocks.lifecycleManager, never()).add(any());
+  }
+
+  @Test
+  public void promoteReadyIndexes_readyDeferredCatalogIndex_enqueuesOnce() throws Exception {
+    DefaultConfigManagerMocks mocks = DefaultConfigManagerMocks.create();
+    var definitionGeneration = customVectorEngineDefinitionGeneration();
+    IndexActions.withReplication(mocks.mockedDependencies.configState)
+        .addNewIndexes(List.of(definitionGeneration));
+    verify(mocks.lifecycleManager, never()).add(any());
+
+    when(mocks.indexFactory.isReadyToInitialize(any())).thenReturn(true);
+    mocks.clearInvocations();
+
+    mocks.configManager.promoteReadyIndexes();
+
+    verify(mocks.lifecycleManager, times(1)).add(any());
+
+    mocks.clearInvocations();
+    mocks.configManager.promoteReadyIndexes();
+    verify(mocks.lifecycleManager, never()).add(any());
+  }
+
+  @Test
+  public void promoteReadyIndexes_readyDeferredStagedIndex_enqueues() throws Exception {
+    DefaultConfigManagerMocks mocks = DefaultConfigManagerMocks.create();
+    when(mocks.indexFactory.isReadyToInitialize(any())).thenReturn(true);
+    var definitionGeneration = customVectorEngineDefinitionGeneration();
+    IndexActions.withReplication(mocks.mockedDependencies.configState)
+        .addNewIndexes(List.of(definitionGeneration));
+    mocks.clearInvocations();
+
+    when(mocks.indexFactory.isReadyToInitialize(any())).thenReturn(false);
+    var stagedDefinitionGeneration =
+        definitionGeneration.incrementUser(definitionGeneration.getIndexDefinition());
+    IndexActions.withReplication(mocks.mockedDependencies.configState)
+        .addStagedIndex(stagedDefinitionGeneration);
+    verify(mocks.lifecycleManager, never()).add(any());
+
+    when(mocks.indexFactory.isReadyToInitialize(any())).thenReturn(true);
+    mocks.clearInvocations();
+    mocks.configManager.promoteReadyIndexes();
+
+    verify(mocks.lifecycleManager, times(1)).add(any());
+  }
+
+  @Test
+  public void promoteReadyIndexes_unready_isNoOp() throws Exception {
+    DefaultConfigManagerMocks mocks = DefaultConfigManagerMocks.create();
+    IndexActions.withReplication(mocks.mockedDependencies.configState)
+        .addNewIndexes(List.of(customVectorEngineDefinitionGeneration()));
+    mocks.clearInvocations();
+
+    mocks.configManager.promoteReadyIndexes();
+
+    verify(mocks.lifecycleManager, never()).add(any());
+  }
+
+  @Test
+  public void promoteReadyIndexes_alreadyInLifecycle_isNoOp() throws Exception {
+    DefaultConfigManagerMocks mocks = DefaultConfigManagerMocks.create();
+    when(mocks.indexFactory.isReadyToInitialize(any())).thenReturn(true);
+    var definitionGeneration = customVectorEngineDefinitionGeneration();
+    IndexActions.withReplication(mocks.mockedDependencies.configState)
+        .addNewIndexes(List.of(definitionGeneration));
+    mocks.clearInvocations();
+
+    mocks.configManager.promoteReadyIndexes();
+
+    verify(mocks.lifecycleManager, never()).add(any());
+  }
+
+  @Test
+  public void promoteReadyIndexes_nonzeroAttempt_neverPromotesEvenAfterRepeatedSweeps()
+      throws Exception {
+    DefaultConfigManagerMocks mocks = DefaultConfigManagerMocks.create();
+    var definitionGeneration = customVectorEngineDefinitionGeneration().incrementAttempt();
+    IndexActions.withReplication(mocks.mockedDependencies.configState)
+        .addNewIndexes(List.of(definitionGeneration));
+    verify(mocks.lifecycleManager, never()).add(any());
+
+    // Even if a naive stub returns true, the factory under test for attempt>0 must refuse. Drive
+    // the real readiness contract: unready forever for nonzero attempt.
+    when(mocks.indexFactory.isReadyToInitialize(any())).thenReturn(false);
+    mocks.clearInvocations();
+
+    mocks.configManager.promoteReadyIndexes();
+    mocks.configManager.promoteReadyIndexes();
+    mocks.configManager.promoteReadyIndexes();
+
+    verify(mocks.lifecycleManager, never()).add(any());
+    Assert.assertFalse(mocks.lifecycleManager.contains(definitionGeneration.getGenerationId()));
+  }
+
+  @Test
+  public void promoteReadyIndexes_stagedNonzeroAttempt_neverPromotesAfterRepeatedSweeps()
+      throws Exception {
+    DefaultConfigManagerMocks mocks = DefaultConfigManagerMocks.create();
+    when(mocks.indexFactory.isReadyToInitialize(any())).thenReturn(true);
+    var live = customVectorEngineDefinitionGeneration();
+    IndexActions.withReplication(mocks.mockedDependencies.configState).addNewIndexes(List.of(live));
+    mocks.clearInvocations();
+
+    var staged = live.incrementUser(live.getIndexDefinition()).incrementAttempt();
+    when(mocks.indexFactory.isReadyToInitialize(any())).thenReturn(false);
+    IndexActions.withReplication(mocks.mockedDependencies.configState).addStagedIndex(staged);
+    verify(mocks.lifecycleManager, never()).add(any());
+    mocks.clearInvocations();
+
+    mocks.configManager.promoteReadyIndexes();
+    mocks.configManager.promoteReadyIndexes();
+
+    verify(mocks.lifecycleManager, never()).add(any());
+    Assert.assertFalse(mocks.lifecycleManager.contains(staged.getGenerationId()));
+  }
+
+  @Test
+  public void promoteReadyIndexes_readinessLossDoesNotUnenqueueAlreadyAddedIndex()
+      throws Exception {
+    DefaultConfigManagerMocks mocks = DefaultConfigManagerMocks.create();
+    when(mocks.indexFactory.isReadyToInitialize(any())).thenReturn(true);
+    var definitionGeneration = customVectorEngineDefinitionGeneration();
+    IndexActions.withReplication(mocks.mockedDependencies.configState)
+        .addNewIndexes(List.of(definitionGeneration));
+    Assert.assertTrue(mocks.lifecycleManager.contains(definitionGeneration.getGenerationId()));
+
+    // If readiness later flips false, an already-enqueued index must stay in the lifecycle.
+    when(mocks.indexFactory.isReadyToInitialize(any())).thenReturn(false);
+    mocks.clearInvocations();
+    mocks.configManager.promoteReadyIndexes();
+
+    verify(mocks.lifecycleManager, never()).add(any());
+    verify(mocks.lifecycleManager, never()).dropIndex(any());
+    Assert.assertTrue(mocks.lifecycleManager.contains(definitionGeneration.getGenerationId()));
+  }
+
+  @Test
+  public void update_promotesReadyIndexesAsBackstop() throws Exception {
+    DefaultConfigManagerMocks mocks = DefaultConfigManagerMocks.create();
+    var definitionGeneration = customVectorEngineDefinitionGeneration();
+    IndexActions.withReplication(mocks.mockedDependencies.configState)
+        .addNewIndexes(List.of(definitionGeneration));
+    verify(mocks.lifecycleManager, never()).add(any());
+
+    when(mocks.indexFactory.isReadyToInitialize(any())).thenReturn(true);
+    mocks.clearInvocations();
+
+    mocks.configManager.update(
+        List.of((VectorIndexDefinition) definitionGeneration.getIndexDefinition()),
+        emptyList(),
+        emptyList(),
+        emptySet());
+
+    verify(mocks.lifecycleManager, times(1)).add(any());
+  }
+
+  private static VectorIndexDefinitionGeneration customVectorEngineDefinitionGeneration() {
+    return mockDefinitionGeneration(
+        VectorIndexDefinitionBuilder.builder()
+            .indexId(new ObjectId())
+            .name("custom_vector_engine_index")
+            .database("mock_database")
+            .lastObservedCollectionName("mock_collection")
+            .collectionUuid(UUID.randomUUID())
+            .setFields(
+                List.<VectorIndexFieldDefinition>of(
+                    new VectorDataFieldDefinition(
+                        FieldPath.parse("vector.path"),
+                        new VectorFieldSpecification(
+                            3,
+                            VectorSimilarity.COSINE,
+                            VectorQuantization.NONE,
+                            new VectorIndexingAlgorithm.HnswIndexingAlgorithm(),
+                            VectorSearchEngine.CUSTOM))))
+            .build());
   }
 }

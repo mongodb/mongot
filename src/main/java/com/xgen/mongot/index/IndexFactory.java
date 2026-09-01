@@ -31,6 +31,16 @@ public interface IndexFactory extends Closeable {
   }
 
   /**
+   * Whether {@code definitionGeneration} has everything needed to begin initialization.
+   *
+   * <p>Defaults to {@code true}. Implementations may override this for indexes that have additional
+   * initialization prerequisites.
+   */
+  default boolean isReadyToInitialize(IndexDefinitionGeneration definitionGeneration) {
+    return true;
+  }
+
+  /**
    * Deletes a generation's persisted data, identified only by its {@link GenerationId}.
    *
    * <p>Unlike dropping an {@link Index}, this needs no parsed index definition, so it can clean up

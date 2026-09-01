@@ -16,6 +16,16 @@ public interface LifecycleManager {
   /** Starts managing the lifecycle of the supplied Index (including replication). */
   void add(IndexGeneration indexGeneration);
 
+  /**
+   * Whether this manager is already tracking the given generation.
+   *
+   * <p>Required (no default): this is the sole duplicate-add guard for SLS promotion sweeps.
+   * Implementations must track state accurately — silently returning {@code false} re-enqueues
+   * indexes already under management. Callers must use the generation id {@link #add} stores under
+   * (the derived id for auto-embedding generations).
+   */
+  boolean contains(GenerationId generationId);
+
   /** (Re)starts replication for all indexes. */
   void restartReplication();
 

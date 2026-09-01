@@ -41,5 +41,14 @@ public interface ConfigManager extends CachedIndexInfoProvider {
   /** Determine if the replication manager has been initialized after startup. */
   boolean isReplicationInitialized();
 
+  /**
+   * Enqueues index generations that were deferred until their initialization prerequisites became
+   * available.
+   *
+   * <p>Defaults to a no-op so callers can invoke through the {@link ConfigManager} type. {@link
+   * DefaultConfigManager} also runs it each primary update cycle as a backstop.
+   */
+  default void promoteReadyIndexes() {}
+
   void close();
 }

@@ -1,6 +1,6 @@
 package com.xgen.mongot.config.manager;
 
-import static com.xgen.mongot.config.manager.IndexActions.deferVectorliteInitialization;
+import static com.xgen.mongot.config.manager.IndexActions.deferInitializationUntilReady;
 import static com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGenerationFactory.isAutoEmbeddingResolutionFailed;
 import static com.xgen.mongot.util.Check.checkArg;
 import static com.xgen.mongot.util.Check.checkState;
@@ -27,6 +27,7 @@ import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.IndexInformation;
 import com.xgen.mongot.index.analyzer.InvalidAnalyzerDefinitionException;
 import com.xgen.mongot.index.analyzer.definition.OverriddenBaseAnalyzerDefinition;
+import com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.autoembedding.MaterializedViewIndexFactory;
 import com.xgen.mongot.index.autoembedding.UnresolvedAutoEmbeddingIndex;
 import com.xgen.mongot.index.definition.IndexDefinition;
@@ -251,12 +252,16 @@ public class DefaultConfigManager implements ConfigManager {
 
     configState.indexCatalog.getIndexes().stream()
         .filter(indexGeneration -> !isAutoEmbeddingResolutionFailed(indexGeneration))
-        .filter(indexGeneration -> !deferVectorliteInitialization(indexGeneration))
+        .filter(
+            indexGeneration ->
+                !deferInitializationUntilReady(configState.indexFactory, indexGeneration))
         .forEach(indexGeneration -> configState.getLifecycleManager().add(indexGeneration));
 
     configState.staged.getIndexes().stream()
         .filter(indexGeneration -> !isAutoEmbeddingResolutionFailed(indexGeneration))
-        .filter(indexGeneration -> !deferVectorliteInitialization(indexGeneration))
+        .filter(
+            indexGeneration ->
+                !deferInitializationUntilReady(configState.indexFactory, indexGeneration))
         .forEach(indexGeneration -> configState.getLifecycleManager().add(indexGeneration));
   }
 
@@ -404,9 +409,71 @@ public class DefaultConfigManager implements ConfigManager {
     IndexRecoveryStager.stageRecoveryAttempts(
         this.configState, directMongodCollectionSet, this.featureFlags);
 
+    // Backstop: promote indexes whose initialization prerequisites became available.
+    promoteReadyIndexes();
+
     // drops phasing out indexes that are no longer used.
     PhasingOutIndexesDropper.dropUnused(
         this.configState, IndexActions.withReplication(this.configState));
+  }
+
+  /**
+   * Enqueues custom vector engine generations whose initialization prerequisites became available.
+   * Idempotent: generations already tracked by the lifecycle manager are skipped.
+   *
+   * <p>Uses the same generation id key {@link LifecycleManager#add} stores under (the derived id
+   * for auto-embedding generations). Also invoked from {@link #updateCycle} as a backstop.
+   */
+  @Override
+  public synchronized void promoteReadyIndexes() {
+    ensureOpen("promoteReadyIndexes");
+
+    LifecycleManager lifecycleManager = this.configState.getLifecycleManager();
+    IndexFactory indexFactory = this.configState.indexFactory;
+
+    var indexGenerations =
+        CollectionUtils.concat(
+            this.configState.indexCatalog.getIndexes(), this.configState.staged.getIndexes());
+    var readyIndexGenerations =
+        indexGenerations.stream()
+            .filter(indexGeneration -> !isAutoEmbeddingResolutionFailed(indexGeneration))
+            .filter(DefaultConfigManager::isCustomVectorEngine)
+            .filter(
+                indexGeneration ->
+                    indexFactory.isReadyToInitialize(indexGeneration.getDefinitionGeneration()))
+            .filter(
+                indexGeneration ->
+                    !lifecycleManager.contains(lifecycleGenerationId(indexGeneration)))
+            .toList();
+
+    for (IndexGeneration indexGeneration : readyIndexGenerations) {
+      GenerationId generationId = indexGeneration.getGenerationId();
+      LOG.atInfo()
+          .addKeyValue("indexId", generationId.indexId)
+          .addKeyValue("generationId", generationId)
+          .log("Promoting ready custom vector engine index into lifecycle");
+      lifecycleManager.add(indexGeneration);
+    }
+
+    if (!readyIndexGenerations.isEmpty()) {
+      updateIndexInfos();
+    }
+  }
+
+  private static boolean isCustomVectorEngine(IndexGeneration indexGeneration) {
+    return indexGeneration.getDefinition() instanceof VectorIndexDefinition vectorDefinition
+        && vectorDefinition.isCustomVectorEngineIndex();
+  }
+
+  /**
+   * Generation id under which {@link LifecycleManager#add} stores {@code indexGeneration}, matching
+   * {@link com.xgen.mongot.lifecycle.DefaultLifecycleManager#add}.
+   */
+  private static GenerationId lifecycleGenerationId(IndexGeneration indexGeneration) {
+    if (indexGeneration instanceof AutoEmbeddingIndexGeneration autoEmbedding) {
+      return autoEmbedding.getDerivedIndexGeneration().getGenerationId();
+    }
+    return indexGeneration.getGenerationId();
   }
 
   @Override

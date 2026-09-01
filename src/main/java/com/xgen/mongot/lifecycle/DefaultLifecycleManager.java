@@ -360,6 +360,11 @@ public class DefaultLifecycleManager implements LifecycleManager {
   }
 
   @Override
+  public synchronized boolean contains(GenerationId generationId) {
+    return this.indexManagers.containsKey(generationId);
+  }
+
+  @Override
   public synchronized void restartReplication() {
     this.replicationManagerWrapper.setReplicationEnabled(true);
     this.indexManagers.values().forEach(IndexLifecycleManager::startReplication);

@@ -281,17 +281,33 @@ public class IndexActionsTest {
   @Test
   public void testCustomVectorEngineIndexLeftUninitialized() throws Exception {
     var definitionGeneration = mockCustomVectorEngineDefinitionGeneration();
+    // Mockito stubs default to false for boolean methods, so isReadyToInitialize is unready.
 
     this.actions.addNewIndexes(List.of(definitionGeneration));
 
-    // The index stays in the catalog so the SLS conf call can still see it and request a log...
+    // The index stays in the catalog while its initialization prerequisites are unavailable...
     Assert.assertTrue(
         this.mocks
             .indexCatalog
             .getIndexById(definitionGeneration.getIndexDefinition().getIndexId())
             .isPresent());
-    // ...but it is never enqueued for initialization until the SLS-driven init path exists.
+    // ...but it is not enqueued for initialization until it is ready.
     verify(this.mocks.lifecycleManager, never()).add(any());
+  }
+
+  @Test
+  public void testCustomVectorEngineIndexReady_isEnqueued() throws Exception {
+    var definitionGeneration = mockCustomVectorEngineDefinitionGeneration();
+    when(this.mocks.indexFactory.isReadyToInitialize(any())).thenReturn(true);
+
+    this.actions.addNewIndexes(List.of(definitionGeneration));
+
+    Assert.assertTrue(
+        this.mocks
+            .indexCatalog
+            .getIndexById(definitionGeneration.getIndexDefinition().getIndexId())
+            .isPresent());
+    verify(this.mocks.lifecycleManager).add(any());
   }
 
   @Test
@@ -310,6 +326,68 @@ public class IndexActionsTest {
             .getIndex(definitionGeneration.getIndexDefinition().getIndexId())
             .isPresent());
     verify(this.mocks.lifecycleManager, never()).add(any());
+  }
+
+  @Test
+  public void testCustomVectorEngineStagedIndexReady_isEnqueued() throws Exception {
+    var definitionGeneration = mockCustomVectorEngineDefinitionGeneration();
+    when(this.mocks.indexFactory.isReadyToInitialize(any())).thenReturn(true);
+    this.actions.addNewIndexes(List.of(definitionGeneration));
+    this.mocks.clearInvocations();
+
+    var stagedDefinitionGeneration =
+        definitionGeneration.incrementUser(definitionGeneration.getIndexDefinition());
+    this.actions.addStagedIndex(stagedDefinitionGeneration);
+
+    Assert.assertTrue(
+        this.mocks
+            .staged
+            .getIndex(definitionGeneration.getIndexDefinition().getIndexId())
+            .isPresent());
+    verify(this.mocks.lifecycleManager).add(any());
+  }
+
+  @Test
+  public void testCustomVectorEngineNonzeroAttempt_neverEnqueued() throws Exception {
+    var definitionGeneration = mockCustomVectorEngineDefinitionGeneration().incrementAttempt();
+    // Mirrors AtlasLuceneIndexFactory: nonzero attempts are never ready.
+    when(this.mocks.indexFactory.isReadyToInitialize(any())).thenReturn(false);
+
+    this.actions.addNewIndexes(List.of(definitionGeneration));
+
+    Assert.assertTrue(
+        this.mocks
+            .indexCatalog
+            .getIndexById(definitionGeneration.getIndexDefinition().getIndexId())
+            .isPresent());
+    verify(this.mocks.lifecycleManager, never()).add(any());
+  }
+
+  @Test
+  public void testCustomVectorEngineStagedNonzeroAttempt_neverEnqueued() throws Exception {
+    var live = mockCustomVectorEngineDefinitionGeneration();
+    when(this.mocks.indexFactory.isReadyToInitialize(any())).thenReturn(true);
+    this.actions.addNewIndexes(List.of(live));
+    this.mocks.clearInvocations();
+
+    var staged = live.incrementUser(live.getIndexDefinition()).incrementAttempt();
+    when(this.mocks.indexFactory.isReadyToInitialize(any())).thenReturn(false);
+    this.actions.addStagedIndex(staged);
+
+    Assert.assertTrue(
+        this.mocks.staged.getIndex(live.getIndexDefinition().getIndexId()).isPresent());
+    verify(this.mocks.lifecycleManager, never()).add(any());
+  }
+
+  @Test
+  public void testNonCustomVectorEngineNonzeroAttempt_isStillEnqueued() throws Exception {
+    var definitionGeneration = VectorIndex.MOCK_INDEX_DEFINITION_GENERATION.incrementAttempt();
+    // Non-CVE factories always report ready, including nonzero attempts.
+    when(this.mocks.indexFactory.isReadyToInitialize(any())).thenReturn(true);
+
+    this.actions.addNewIndexes(List.of(definitionGeneration));
+
+    verify(this.mocks.lifecycleManager).add(any());
   }
 
   @Test
