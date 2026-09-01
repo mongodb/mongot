@@ -10,7 +10,9 @@ import java.util.Optional;
 import java.util.Set;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.lucene.store.DataAccessHint;
+import org.apache.lucene.store.FileDataHint;
 import org.apache.lucene.store.FileSwitchDirectory;
+import org.apache.lucene.store.FileTypeHint;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.MMapDirectory;
@@ -106,6 +108,13 @@ public class FileSystemDirectory extends FileSwitchDirectory {
     }
     if (context.hints().contains(DataAccessHint.SEQUENTIAL)) {
       return Optional.of(ReadAdvice.SEQUENTIAL);
+    }
+    // Restore Lucene 10.1's per-file advice: the blocktree terms index (RANDOM_PRELOAD ->
+    // MADV_NORMAL) and postings (explicit NORMAL for forward-only readahead) were never
+    // RANDOM on 10.1. Upstream 10.4 deleted those overrides in favor of its NORMAL default.
+    if (context.hints().contains(FileTypeHint.INDEX)
+        || context.hints().contains(FileDataHint.POSTINGS)) {
+      return Optional.of(ReadAdvice.NORMAL);
     }
     return Optional.of(ReadAdvice.RANDOM);
   }

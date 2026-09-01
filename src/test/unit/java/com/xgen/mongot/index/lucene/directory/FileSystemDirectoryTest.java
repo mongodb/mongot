@@ -16,6 +16,8 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
 import org.apache.lucene.store.DataAccessHint;
+import org.apache.lucene.store.FileDataHint;
+import org.apache.lucene.store.FileTypeHint;
 import org.apache.lucene.store.FlushInfo;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
@@ -196,6 +198,49 @@ public class FileSystemDirectoryTest {
     assertEquals(
         Optional.of(ReadAdvice.SEQUENTIAL),
         readAdvice.apply("_0.doc", merge.withHints(DataAccessHint.RANDOM)));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void setReadAdvice_termsIndexAndPostingsHints_restoreNormalReadahead() throws IOException {
+    // Arrange: constructing the directory installs the read-advice resolver on the MMapDirectory.
+    MMapDirectory mmapDirectory = mock(MMapDirectory.class);
+    createDirectory(mmapDirectory);
+
+    ArgumentCaptor<BiFunction> captor = ArgumentCaptor.forClass(BiFunction.class);
+    verify(mmapDirectory).setReadAdvice(captor.capture());
+    BiFunction readAdvice = captor.getValue();
+
+    // Lucene 10.1 opened the blocktree terms index with RANDOM_PRELOAD (madvise NORMAL) and
+    // postings with explicit NORMAL for forward-only readahead. 10.4 replaced those per-file
+    // overrides with hints; the resolver maps the hints back to NORMAL instead of the RANDOM
+    // floor. Contexts mirror the real call sites in Lucene90BlockTreeTermsReader and
+    // Lucene99PostingsReader.
+    assertEquals(
+        Optional.of(ReadAdvice.NORMAL),
+        readAdvice.apply("_0.tip", IOContext.DEFAULT.withHints(FileTypeHint.INDEX)));
+    assertEquals(
+        Optional.of(ReadAdvice.NORMAL),
+        readAdvice.apply(
+            "_0.doc", IOContext.DEFAULT.withHints(FileTypeHint.DATA, FileDataHint.POSTINGS)));
+
+    // An explicit DataAccessHint takes precedence, so vector inputs that pass
+    // DataAccessHint.RANDOM keep it even if a file-type hint is also present.
+    assertEquals(
+        Optional.of(ReadAdvice.RANDOM),
+        readAdvice.apply(
+            "_0.vex", IOContext.DEFAULT.withHints(FileTypeHint.INDEX, DataAccessHint.RANDOM)));
+
+    // File-type hints other than INDEX/POSTINGS still get the RANDOM floor (e.g. stored fields).
+    assertEquals(
+        Optional.of(ReadAdvice.RANDOM),
+        readAdvice.apply("_0.fdt", IOContext.DEFAULT.withHints(FileTypeHint.DATA)));
+
+    // Merge context still wins over the postings hints and streams SEQUENTIAL.
+    IOContext merge = IOContext.merge(new MergeInfo(1, 1L, false, 1));
+    assertEquals(
+        Optional.of(ReadAdvice.SEQUENTIAL),
+        readAdvice.apply("_0.doc", merge.withHints(FileTypeHint.DATA, FileDataHint.POSTINGS)));
   }
 
   private static MMapDirectory mockMMapDirectoryWithFiles(String... files) throws IOException {
