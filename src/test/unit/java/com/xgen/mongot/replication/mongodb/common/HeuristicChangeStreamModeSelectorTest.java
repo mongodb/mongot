@@ -156,7 +156,7 @@ public class HeuristicChangeStreamModeSelectorTest {
     // sampling query returns documents after project of the same size
     Mockito.when(
             samplingClient.getSamples(
-                Mockito.any(), Mockito.anyInt(), Mockito.any(), Mockito.any()))
+                Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.any(), Mockito.any()))
         .thenReturn(getSampleDocuments(avgDocumentSizeAfterProject));
 
     var modeSelector =
@@ -195,7 +195,7 @@ public class HeuristicChangeStreamModeSelectorTest {
     // sampling query returns documents after project which are 50 times smaller
     Mockito.when(
             samplingClient.getSamples(
-                Mockito.any(), Mockito.anyInt(), Mockito.any(), Mockito.any()))
+                Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.any(), Mockito.any()))
         .thenReturn(getSampleDocuments(avgDocumentSizeAfterProject));
 
     var modeSelector =
@@ -249,7 +249,7 @@ public class HeuristicChangeStreamModeSelectorTest {
     Mockito.when(statsClient.getStats(Mockito.any())).thenReturn(new CollectionStatsResponse(0, 0));
     Mockito.when(
             samplingClient.getSamples(
-                Mockito.any(), Mockito.anyInt(), Mockito.any(), Mockito.any()))
+                Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.any(), Mockito.any()))
         .thenReturn(List.of());
 
     var modeSelector =
@@ -281,7 +281,7 @@ public class HeuristicChangeStreamModeSelectorTest {
     // empty sample batch (can be caused by dropping the collection in between calls)
     Mockito.when(
             samplingClient.getSamples(
-                Mockito.any(), Mockito.anyInt(), Mockito.any(), Mockito.any()))
+                Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.any(), Mockito.any()))
         .thenReturn(List.of());
 
     var modeSelector =
@@ -571,7 +571,7 @@ public class HeuristicChangeStreamModeSelectorTest {
     // short-circuit is broken, getStats/getSamples would be called and the test would fail.
     Mockito.verify(statsClient, Mockito.after(500).never()).getStats(Mockito.any());
     Mockito.verify(samplingClient, Mockito.never())
-        .getSamples(any(), Mockito.anyInt(), any(), any());
+        .getSamples(any(), any(), Mockito.anyInt(), any(), any());
     Assert.assertEquals(ChangeStreamMode.ALL_FIELDS, modeSelector.getMode(generationId));
   }
 
@@ -588,7 +588,7 @@ public class HeuristicChangeStreamModeSelectorTest {
     // sampling returns small documents after projection
     Mockito.when(
             samplingClient.getSamples(
-                Mockito.any(), Mockito.anyInt(), Mockito.any(), Mockito.any()))
+                Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.any(), Mockito.any()))
         .thenReturn(getSampleDocuments(1_000));
 
     SearchIndexDefinition definitionWithAddFieldsView =
@@ -627,7 +627,7 @@ public class HeuristicChangeStreamModeSelectorTest {
 
     // sampling must be called for a view without $match
     Mockito.verify(samplingClient, Mockito.atLeastOnce())
-        .getSamples(any(), Mockito.anyInt(), any(), any());
+        .getSamples(any(), any(), Mockito.anyInt(), any(), any());
   }
 
   private List<RawBsonDocument> getSampleDocuments(int sizeInBytes) {

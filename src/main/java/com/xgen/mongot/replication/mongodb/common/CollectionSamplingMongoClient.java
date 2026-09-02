@@ -33,6 +33,7 @@ public class CollectionSamplingMongoClient {
    */
   public List<RawBsonDocument> getSamples(
       MongoNamespace namespace,
+      ReadConcern readConcern,
       int sampleLimit,
       Optional<ImmutableList<Bson>> viewDefinedStages,
       Optional<Bson> projection) {
@@ -42,6 +43,7 @@ public class CollectionSamplingMongoClient {
             .collection(namespace.getCollectionName())
             .batchSize(sampleLimit)
             .sampleLimit(sampleLimit)
+            .readConcern(readConcern)
             .maxTimeMs(SAMPLING_MAX_TIME_MS);
 
     viewDefinedStages.ifPresent(command::viewDefinedStages);
@@ -54,7 +56,6 @@ public class CollectionSamplingMongoClient {
         this.mongoClient
             .getDatabase(namespace.getDatabaseName())
             .withCodecRegistry(CodecRegistry.PACKAGE_CODEC_REGISTRY)
-            .withReadConcern(ReadConcern.LOCAL)
             .runCommand(command.build().toProxy(), SamplingAggregateResponseProxy.class);
 
     return proxy.getCursor().getFirstBatch();

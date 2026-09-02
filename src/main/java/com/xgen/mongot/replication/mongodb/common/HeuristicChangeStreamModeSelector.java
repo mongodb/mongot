@@ -3,6 +3,7 @@ package com.xgen.mongot.replication.mongodb.common;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.mongodb.MongoNamespace;
+import com.mongodb.ReadConcern;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
@@ -213,7 +214,11 @@ public class HeuristicChangeStreamModeSelector implements ChangeStreamModeSelect
 
       var samplingBatch =
           this.samplingClient.getSamples(
-              context.namespace, COLLECTION_SAMPLING_LIMIT, viewDefinedStages, projection);
+              context.namespace,
+              ReadConcern.LOCAL,
+              COLLECTION_SAMPLING_LIMIT,
+              viewDefinedStages,
+              projection);
 
       var avgObjSizeAfterProject = getAvgBsonSize(samplingBatch);
 

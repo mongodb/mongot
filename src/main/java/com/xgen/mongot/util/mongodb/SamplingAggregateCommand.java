@@ -1,5 +1,6 @@
 package com.xgen.mongot.util.mongodb;
 
+import com.mongodb.ReadConcern;
 import com.mongodb.client.model.Aggregates;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.mongodb.serialization.AggregateCommandProxy;
@@ -19,6 +20,7 @@ public class SamplingAggregateCommand {
   private final Optional<List<Bson>> viewDefinedStages;
   private final Optional<Bson> projectStage;
   private final OptionalLong maxTimeMs;
+  private final Optional<BsonDocument> readConcernDocument;
 
   public SamplingAggregateCommand(
       String collectionName,
@@ -26,13 +28,15 @@ public class SamplingAggregateCommand {
       OptionalLong batchSize,
       Optional<List<Bson>> viewDefinedStages,
       Optional<Bson> projectStage,
-      OptionalLong maxTimeMs) {
+      OptionalLong maxTimeMs,
+      Optional<BsonDocument> readConcernDocument) {
     this.collectionName = collectionName;
     this.sampleLimit = sampleLimit;
     this.batchSize = batchSize;
     this.viewDefinedStages = viewDefinedStages;
     this.projectStage = projectStage;
     this.maxTimeMs = maxTimeMs;
+    this.readConcernDocument = readConcernDocument;
   }
 
   public static class Builder {
@@ -43,6 +47,7 @@ public class SamplingAggregateCommand {
     private Optional<Bson> projectStage = Optional.empty();
     private Optional<List<Bson>> viewDefinedStages = Optional.empty();
     private OptionalLong maxTimeMs = OptionalLong.empty();
+    private Optional<BsonDocument> readConcernDocument = Optional.empty();
 
     /** Builds the configured ChangeStreamAggregateCommand. */
     public SamplingAggregateCommand build() {
@@ -54,7 +59,8 @@ public class SamplingAggregateCommand {
           this.batchSize,
           this.viewDefinedStages,
           this.projectStage,
-          this.maxTimeMs);
+          this.maxTimeMs,
+          this.readConcernDocument);
     }
 
     /** Sets the collection name. */
@@ -92,6 +98,12 @@ public class SamplingAggregateCommand {
       this.maxTimeMs = OptionalLong.of(maxTimeMs);
       return this;
     }
+
+    /** Sets the readConcern. */
+    public SamplingAggregateCommand.Builder readConcern(ReadConcern readConcern) {
+      this.readConcernDocument = Optional.of(readConcern.asDocument());
+      return this;
+    }
   }
 
   /** Constructs the proper AggregateCommandProxy for the SampleAggregationCommand. */
@@ -118,7 +130,7 @@ public class SamplingAggregateCommand {
         pipeline,
         new AggregateCommandProxy.CursorProxy(this.batchSize),
         Optional.empty(),
-        Optional.empty(),
+        this.readConcernDocument,
         Optional.empty(),
         Optional.empty(),
         maxTimeMsOpt);
