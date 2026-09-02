@@ -1,16 +1,21 @@
 package com.xgen.mongot.util.mongodb;
 
+import static com.xgen.mongot.util.Check.checkArg;
+
 import com.google.common.annotations.VisibleForTesting;
 import com.mongodb.ReadConcern;
 import com.xgen.mongot.util.mongodb.serialization.FindCommandProxy;
 import java.util.Optional;
 import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
+import org.bson.BsonInt32;
 import org.bson.BsonString;
 import org.bson.BsonTimestamp;
 import org.bson.conversions.Bson;
 
 public class CollectionScanFindCommand {
+
+  public static final BsonDocument NATURAL_ORDER = new BsonDocument("$natural", new BsonInt32(1));
 
   private final String collectionName;
   private final Optional<Bson> sort;
@@ -20,6 +25,9 @@ public class CollectionScanFindCommand {
   private final Optional<Bson> min;
   private final Optional<Bson> filter;
   private final Optional<BsonDocument> readConcernDocument;
+  private final Optional<Integer> limit;
+  private final Optional<BsonBoolean> requestResumeToken;
+  private final Optional<BsonBoolean> showRecordId;
 
   private CollectionScanFindCommand(
       String collectionName,
@@ -29,7 +37,10 @@ public class CollectionScanFindCommand {
       Optional<BsonBoolean> noCursorTimeout,
       Optional<Bson> min,
       Optional<Bson> filter,
-      Optional<BsonDocument> readConcernDocument) {
+      Optional<BsonDocument> readConcernDocument,
+      Optional<Integer> limit,
+      Optional<BsonBoolean> requestResumeToken,
+      Optional<BsonBoolean> showRecordId) {
 
     this.collectionName = collectionName;
     this.sort = sort;
@@ -39,6 +50,9 @@ public class CollectionScanFindCommand {
     this.min = min;
     this.filter = filter;
     this.readConcernDocument = readConcernDocument;
+    this.limit = limit;
+    this.requestResumeToken = requestResumeToken;
+    this.showRecordId = showRecordId;
   }
 
   public static class Builder {
@@ -52,6 +66,9 @@ public class CollectionScanFindCommand {
     private Optional<Bson> min;
     private Optional<Bson> filter;
     private Optional<BsonDocument> readConcernDocument;
+    private Optional<Integer> limit;
+    private Optional<BsonBoolean> requestResumeToken;
+    private Optional<BsonBoolean> showRecordId;
 
     /** Constructs a new Builder. */
     public Builder(String collectionName) {
@@ -64,10 +81,22 @@ public class CollectionScanFindCommand {
       this.min = Optional.empty();
       this.filter = Optional.empty();
       this.readConcernDocument = Optional.empty();
+      this.limit = Optional.empty();
+      this.requestResumeToken = Optional.empty();
+      this.showRecordId = Optional.empty();
     }
 
     /** Builds a new CollectionScanFindCommand. */
     public CollectionScanFindCommand build() {
+      if (this.requestResumeToken.map(BsonBoolean::getValue).orElse(false)) {
+        checkArg(
+            this.hint.map(Bson::toBsonDocument).equals(Optional.of(NATURAL_ORDER)),
+            "requestResumeToken requires hint {$natural: 1}");
+        checkArg(
+            this.sort.isEmpty() || NATURAL_ORDER.equals(this.sort.get().toBsonDocument()),
+            "requestResumeToken requires sort unset or {$natural: 1}");
+      }
+
       return new CollectionScanFindCommand(
           this.collectionName,
           this.sort,
@@ -76,7 +105,10 @@ public class CollectionScanFindCommand {
           this.noCursorTimeout,
           this.min,
           this.filter,
-          this.readConcernDocument);
+          this.readConcernDocument,
+          this.limit,
+          this.requestResumeToken,
+          this.showRecordId);
     }
 
     /** Sets the sort. */
@@ -127,6 +159,34 @@ public class CollectionScanFindCommand {
       this.filter = Optional.of(filter);
       return this;
     }
+
+    /**
+     * Caps the number of documents returned. The server closes the cursor once the limit is
+     * reached, so a limited read leaves no cursor for the caller to clean up.
+     */
+    public Builder limit(int limit) {
+      checkArg(limit > 0, "limit must be positive");
+      this.limit = Optional.of(limit);
+      return this;
+    }
+
+    /**
+     * Requests a {@code postBatchResumeToken} on the cursor response, which carries the scan's
+     * {@code $recordId} and the collection's {@code $initialSyncId}.
+     *
+     * <p>Requires {@code hint} to be exactly {@code {$natural: 1}}; {@link Builder#build()} rejects
+     * anything else, as the server does.
+     */
+    public Builder requestResumeToken(BsonBoolean requestResumeToken) {
+      this.requestResumeToken = Optional.of(requestResumeToken);
+      return this;
+    }
+
+    /** Returns each document's {@code $recordId}, its position in the collection's storage. */
+    public Builder showRecordId(BsonBoolean showRecordId) {
+      this.showRecordId = Optional.of(showRecordId);
+      return this;
+    }
   }
 
   /** Constructs the proper proxy for the CollectionScanFindCommand. */
@@ -139,7 +199,10 @@ public class CollectionScanFindCommand {
         this.noCursorTimeout,
         this.min,
         this.filter,
-        this.readConcernDocument);
+        this.readConcernDocument,
+        this.limit,
+        this.requestResumeToken,
+        this.showRecordId);
   }
 
   @VisibleForTesting

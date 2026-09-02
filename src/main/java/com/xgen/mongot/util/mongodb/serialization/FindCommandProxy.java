@@ -4,6 +4,7 @@ import com.xgen.mongot.util.Check;
 import java.util.Optional;
 import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
+import org.bson.BsonInt32;
 import org.bson.BsonString;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.conversions.Bson;
@@ -23,6 +24,9 @@ public class FindCommandProxy implements Bson {
   private static final String NO_CURSOR_TIMEOUT_FIELD = "noCursorTimeout";
   private static final String MIN_FIELD = "min";
   private static final String FILTER_FIELD = "filter";
+  private static final String LIMIT_FIELD = "limit";
+  private static final String REQUEST_RESUME_TOKEN_FIELD = "$_requestResumeToken";
+  private static final String SHOW_RECORD_ID_FIELD = "showRecordId";
 
   private final BsonString collection;
   private final Optional<Bson> sort;
@@ -32,7 +36,15 @@ public class FindCommandProxy implements Bson {
   private final Optional<BsonBoolean> noCursorTimeout;
   private final Optional<Bson> min;
   private final Optional<Bson> filter;
+  private final Optional<Integer> limit;
+  private final Optional<BsonBoolean> requestResumeToken;
+  private final Optional<BsonBoolean> showRecordId;
 
+  /**
+   * Constructs a proxy for a {@code find} command. Options left empty are omitted from the command
+   * document entirely rather than sent as an explicit default, so a command carries only the fields
+   * its caller set.
+   */
   public FindCommandProxy(
       BsonString collection,
       Optional<Bson> sort,
@@ -41,7 +53,10 @@ public class FindCommandProxy implements Bson {
       Optional<BsonBoolean> noCursorTimeout,
       Optional<Bson> min,
       Optional<Bson> filter,
-      Optional<BsonDocument> readConcern) {
+      Optional<BsonDocument> readConcern,
+      Optional<Integer> limit,
+      Optional<BsonBoolean> requestResumeToken,
+      Optional<BsonBoolean> showRecordId) {
     Check.argNotNull(collection, "collection");
     Check.argNotNull(sort, "sort");
     Check.argNotNull(hint, "hint");
@@ -50,6 +65,9 @@ public class FindCommandProxy implements Bson {
     Check.argNotNull(min, "min");
     Check.argNotNull(filter, "filter");
     Check.argNotNull(readConcern, "readConcern");
+    Check.argNotNull(limit, "limit");
+    Check.argNotNull(requestResumeToken, "requestResumeToken");
+    Check.argNotNull(showRecordId, "showRecordId");
 
     this.collection = collection;
     this.sort = sort;
@@ -59,6 +77,9 @@ public class FindCommandProxy implements Bson {
     this.noCursorTimeout = noCursorTimeout;
     this.min = min;
     this.filter = filter;
+    this.limit = limit;
+    this.requestResumeToken = requestResumeToken;
+    this.showRecordId = showRecordId;
   }
 
   @Override
@@ -79,7 +100,11 @@ public class FindCommandProxy implements Bson {
         bson -> doc.append(MIN_FIELD, bson.toBsonDocument(documentClass, codecRegistry)));
     this.filter.ifPresent(
         bson -> doc.append(FILTER_FIELD, bson.toBsonDocument(documentClass, codecRegistry)));
+    this.limit.ifPresent(value -> doc.append(LIMIT_FIELD, new BsonInt32(value)));
     this.readConcern.ifPresent(concern -> doc.append(READ_CONCERN_FIELD, concern));
+    this.requestResumeToken.ifPresent(
+        bsonBoolean -> doc.append(REQUEST_RESUME_TOKEN_FIELD, bsonBoolean));
+    this.showRecordId.ifPresent(bsonBoolean -> doc.append(SHOW_RECORD_ID_FIELD, bsonBoolean));
 
     return doc;
   }

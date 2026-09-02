@@ -4,7 +4,11 @@ import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.mongodb.serialization.FindCommandResponseProxy;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import org.bson.BsonBinary;
 import org.bson.BsonDocument;
+import org.bson.BsonInt64;
 import org.bson.BsonTimestamp;
 import org.bson.RawBsonDocument;
 import org.junit.Assert;
@@ -17,6 +21,13 @@ public class FindCommandResponseTest {
   private static final List<RawBsonDocument> BATCH =
       Collections.singletonList(BsonUtils.documentToRaw(new BsonDocument()));
 
+  /** The shape mongod returns for a {@code $natural} scan that requested a resume token. */
+  private static final BsonDocument POST_BATCH_RESUME_TOKEN =
+      new BsonDocument("$recordId", new BsonInt64(42))
+          .append(
+              "$initialSyncId",
+              new BsonBinary(UUID.fromString("390a604a-4979-4d10-9f4f-3d2552224aee")));
+
   @Test
   public void testFromUnsuccessfulProxy() {
     String namespace = "FindCommandResponseTest.testFromUnsuccessfulProxy";
@@ -25,7 +36,7 @@ public class FindCommandResponseTest {
             0.0,
             OPERATION_TIME,
             new BsonDocument(),
-            new FindCommandResponseProxy.CursorProxy(namespace, CURSOR_ID, BATCH));
+            new FindCommandResponseProxy.CursorProxy(namespace, CURSOR_ID, BATCH, null));
 
     try {
       FindCommandResponse.fromProxy(proxy);
@@ -43,10 +54,28 @@ public class FindCommandResponseTest {
             1.0,
             OPERATION_TIME,
             new BsonDocument(),
-            new FindCommandResponseProxy.CursorProxy(namespace, CURSOR_ID, BATCH));
+            new FindCommandResponseProxy.CursorProxy(namespace, CURSOR_ID, BATCH, null));
 
     FindCommandResponse response = FindCommandResponse.fromProxy(proxy);
     assertCorrectResponse(response);
+    Assert.assertEquals(Optional.empty(), response.getPostBatchResumeToken());
+  }
+
+  @Test
+  public void testFromSuccessfulProxy_ResumeToken() {
+    String namespace = "FindCommandResponseTest.testFromSuccessfulProxyWithResumeToken";
+    FindCommandResponseProxy proxy =
+        new FindCommandResponseProxy(
+            1.0,
+            OPERATION_TIME,
+            new BsonDocument(),
+            new FindCommandResponseProxy.CursorProxy(
+                namespace, CURSOR_ID, BATCH, POST_BATCH_RESUME_TOKEN));
+
+    FindCommandResponse response = FindCommandResponse.fromProxy(proxy);
+
+    assertCorrectResponse(response);
+    Assert.assertEquals(POST_BATCH_RESUME_TOKEN, response.getPostBatchResumeToken().get());
   }
 
   private static void assertCorrectResponse(FindCommandResponse response) {

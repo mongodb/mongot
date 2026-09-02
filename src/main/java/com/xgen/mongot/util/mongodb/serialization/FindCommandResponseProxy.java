@@ -2,6 +2,7 @@ package com.xgen.mongot.util.mongodb.serialization;
 
 import com.xgen.mongot.util.bson.BsonSerialization;
 import java.util.List;
+import java.util.Optional;
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
 import org.bson.RawBsonDocument;
@@ -52,17 +53,20 @@ public class FindCommandResponseProxy {
     private static final String NS_FIELD = "ns";
     private static final String ID_FIELD = "id";
     private static final String FIRST_BATCH_FIELD = "firstBatch";
+    private static final String POST_BATCH_RESUME_TOKEN_FIELD = "postBatchResumeToken";
 
     private final String ns;
     private final long id;
     private final List<RawBsonDocument> firstBatch;
+    private final Optional<BsonDocument> postBatchResumeToken;
 
     /** Constructs a new CursorProxy. */
     @BsonCreator
     public CursorProxy(
         @BsonProperty(NS_FIELD) String ns,
         @BsonProperty(ID_FIELD) Long id,
-        @BsonProperty(FIRST_BATCH_FIELD) List<RawBsonDocument> firstBatch) {
+        @BsonProperty(FIRST_BATCH_FIELD) List<RawBsonDocument> firstBatch,
+        @BsonProperty(POST_BATCH_RESUME_TOKEN_FIELD) BsonDocument postBatchResumeToken) {
       BsonSerialization.throwIfMissingProperty(ns, "ns");
       BsonSerialization.throwIfMissingProperty(id, "id");
       BsonSerialization.throwIfMissingProperty(firstBatch, "firstBatch");
@@ -70,6 +74,8 @@ public class FindCommandResponseProxy {
       this.ns = ns;
       this.id = id;
       this.firstBatch = firstBatch;
+      // Only sent when the command set $_requestResumeToken, so absent is normal.
+      this.postBatchResumeToken = Optional.ofNullable(postBatchResumeToken);
     }
 
     public String getNs() {
@@ -82,6 +88,10 @@ public class FindCommandResponseProxy {
 
     public List<RawBsonDocument> getFirstBatch() {
       return this.firstBatch;
+    }
+
+    public Optional<BsonDocument> getPostResumeToken() {
+      return this.postBatchResumeToken;
     }
   }
 

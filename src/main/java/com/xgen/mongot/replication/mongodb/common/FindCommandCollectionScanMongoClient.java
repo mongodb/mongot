@@ -68,6 +68,8 @@ public class FindCommandCollectionScanMongoClient<E extends Exception>
     this.operationTime = Optional.of(response.getOperationTime());
     this.state = State.GET_MORE;
     this.cursorId = OptionalLong.of(response.getId());
+    // Empty unless the command set requestResumeToken.
+    this.postBatchResumeToken = response.getPostBatchResumeToken();
 
     if (response.getId() == 0L) {
       // When we get here, either the collection is empty, or it has been renamed/dropped
