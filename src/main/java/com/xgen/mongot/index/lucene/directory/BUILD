@@ -4,6 +4,7 @@ java_library(
     name = "directory",
     srcs = [
         "ByteReadCollector.java",
+        "CacheWarmerTimer.java",
         "EnvironmentVariantPerfConfig.java",
         "FileSystemDirectory.java",
         "IndexDirectoryFactory.java",
@@ -25,6 +26,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/metrics",
         "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/bson/parser",
+        "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
         "@maven//:commons_io_commons_io",
         "@maven//:io_micrometer_micrometer_core",

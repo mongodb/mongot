@@ -25,6 +25,7 @@ import com.xgen.mongot.index.lucene.codec.bloom.BloomCodecPolicy;
 import com.xgen.mongot.index.lucene.commit.LuceneCommitData;
 import com.xgen.mongot.index.lucene.config.LuceneConfig;
 import com.xgen.mongot.index.lucene.directory.ByteReadCollector;
+import com.xgen.mongot.index.lucene.directory.CacheWarmerTimer;
 import com.xgen.mongot.index.lucene.directory.EnvironmentVariantPerfConfig;
 import com.xgen.mongot.index.lucene.directory.IndexDirectoryFactory;
 import com.xgen.mongot.index.lucene.directory.IndexDirectoryHelper;
@@ -57,7 +58,6 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import org.apache.lucene.index.MergePolicy;
 import org.apache.lucene.index.SegmentInfos;
@@ -220,7 +220,7 @@ public class LuceneIndexFactory implements IndexFactory {
   private final EnvironmentVariantPerfConfig environmentVariantPerfConfig;
   protected final boolean enableNaturalOrderScan;
   private final Optional<SystemInfo> systemInfo;
-  private final AtomicLong cacheWarmerTotalMilliseconds;
+  private final CacheWarmerTimer cacheWarmerTimer;
   private volatile boolean cacheWarmerAlreadyDisabled;
 
   @VisibleForTesting
@@ -270,9 +270,11 @@ public class LuceneIndexFactory implements IndexFactory {
       this.byteReadCollector = Optional.empty();
     }
     this.systemInfo = systemInfo;
-    this.cacheWarmerTotalMilliseconds =
+    this.cacheWarmerTimer =
         this.metricsFactory.timeGauge(
-            "cacheWarmerTotal", new AtomicLong(), AtomicLong::doubleValue);
+            "cacheWarmerTotal",
+            new CacheWarmerTimer(),
+            timer -> (double) timer.warmingMilliseconds());
     this.cacheWarmerAlreadyDisabled = false;
   }
 
@@ -656,7 +658,7 @@ public class LuceneIndexFactory implements IndexFactory {
             this.config,
             this.byteReadCollector,
             this.isCacheWarmerEnabled(),
-            Optional.of(this.cacheWarmerTotalMilliseconds));
+            Optional.of(this.cacheWarmerTimer));
     GenerationId generationId = definitionGeneration.getGenerationId();
 
     BooleanSupplier useIdBloomFilter =

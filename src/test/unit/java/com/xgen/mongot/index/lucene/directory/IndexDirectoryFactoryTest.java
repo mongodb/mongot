@@ -1,4 +1,4 @@
-package com.xgen.mongot.index.lucene;
+package com.xgen.mongot.index.lucene.directory;
 
 import static com.google.common.truth.Truth.assertThat;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -7,14 +7,11 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 
 import com.xgen.mongot.index.lucene.config.LuceneConfig;
-import com.xgen.mongot.index.lucene.directory.FileSystemDirectory;
-import com.xgen.mongot.index.lucene.directory.IndexDirectoryFactory;
 import com.xgen.testing.mongot.index.lucene.LuceneConfigBuilder;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicLong;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.NRTCachingDirectory;
 import org.junit.Assert;
@@ -68,8 +65,7 @@ public class IndexDirectoryFactoryTest {
   }
 
   @Test
-  public void create_withPrewarmEnabled_callsAccumulateCacheWarmerMilliseconds()
-      throws IOException {
+  public void create_withPrewarmEnabled_recordsCacheWarmerWindow() throws IOException {
     LuceneConfig config =
         LuceneConfigBuilder.builder().dataPath(ROOT_PATH).nrtCacheEnabled(false).build();
     IndexDirectoryFactory directoryFactory =
@@ -81,17 +77,16 @@ public class IndexDirectoryFactoryTest {
                 1,
                 Optional.empty(),
                 true,
-                Optional.of(new AtomicLong())));
+                Optional.of(new CacheWarmerTimer())));
 
     Directory directory = directoryFactory.create(0);
 
     assertThat(directory).isInstanceOf(FileSystemDirectory.class);
-    verify(directoryFactory).accumulateCacheWarmerMilliseconds(anyLong());
+    verify(directoryFactory).recordCacheWarmerWindow(anyLong(), anyLong());
   }
 
   @Test
-  public void create_withPrewarmDisabled_doesNotCallAccumulateCacheWarmerMilliseconds()
-      throws IOException {
+  public void create_withPrewarmDisabled_doesNotRecordCacheWarmerWindow() throws IOException {
     LuceneConfig config =
         LuceneConfigBuilder.builder().dataPath(ROOT_PATH).nrtCacheEnabled(false).build();
     IndexDirectoryFactory directoryFactory =
@@ -103,11 +98,11 @@ public class IndexDirectoryFactoryTest {
                 1,
                 Optional.empty(),
                 false,
-                Optional.of(new AtomicLong())));
+                Optional.of(new CacheWarmerTimer())));
 
     Directory directory = directoryFactory.create(0);
 
     assertThat(directory).isInstanceOf(FileSystemDirectory.class);
-    verify(directoryFactory, never()).accumulateCacheWarmerMilliseconds(anyLong());
+    verify(directoryFactory, never()).recordCacheWarmerWindow(anyLong(), anyLong());
   }
 }

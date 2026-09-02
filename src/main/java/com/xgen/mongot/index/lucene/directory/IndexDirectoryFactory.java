@@ -9,7 +9,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.NRTCachingDirectory;
 import org.slf4j.Logger;
@@ -21,7 +20,7 @@ public class IndexDirectoryFactory extends IndexPathFactory {
   private final LuceneConfig config;
   private final Optional<ByteReadCollector> byteReadCollector;
   private final boolean prewarm;
-  private final Optional<AtomicLong> cacheWarmerTotalMilliseconds;
+  private final Optional<CacheWarmerTimer> cacheWarmerTimer;
 
   public IndexDirectoryFactory(
       Path indexPath,
@@ -30,12 +29,12 @@ public class IndexDirectoryFactory extends IndexPathFactory {
       int numPartitions,
       Optional<ByteReadCollector> byteReadCollector,
       boolean prewarm,
-      Optional<AtomicLong> cacheWarmerTotalMilliseconds) {
+      Optional<CacheWarmerTimer> cacheWarmerTimer) {
     super(indexPath, metadataPath, numPartitions);
     this.config = config;
     this.byteReadCollector = byteReadCollector;
     this.prewarm = prewarm;
-    this.cacheWarmerTotalMilliseconds = cacheWarmerTotalMilliseconds;
+    this.cacheWarmerTimer = cacheWarmerTimer;
   }
 
   public IndexDirectoryFactory(
@@ -54,7 +53,7 @@ public class IndexDirectoryFactory extends IndexPathFactory {
       LuceneConfig config,
       Optional<ByteReadCollector> byteReadCollector,
       boolean prewarm,
-      Optional<AtomicLong> cacheWarmerTotalMilliseconds) {
+      Optional<CacheWarmerTimer> cacheWarmerTimer) {
     this(
         helper.getIndexDirectoryPath(index),
         helper.getIndexMetadataPath(index),
@@ -62,7 +61,7 @@ public class IndexDirectoryFactory extends IndexPathFactory {
         index.getIndexDefinition().getNumPartitions(),
         byteReadCollector,
         prewarm,
-        cacheWarmerTotalMilliseconds);
+        cacheWarmerTimer);
   }
 
   public IndexDirectoryFactory(
@@ -74,8 +73,8 @@ public class IndexDirectoryFactory extends IndexPathFactory {
   }
 
   @VisibleForTesting
-  public void accumulateCacheWarmerMilliseconds(long elapsedMilliseconds) {
-    this.cacheWarmerTotalMilliseconds.ifPresent(total -> total.addAndGet(elapsedMilliseconds));
+  public void recordCacheWarmerWindow(long startNanos, long endNanos) {
+    this.cacheWarmerTimer.ifPresent(timer -> timer.recordPrewarmWindow(startNanos, endNanos));
   }
 
   public Directory create(int indexPartitionId) throws IOException {
@@ -83,14 +82,14 @@ public class IndexDirectoryFactory extends IndexPathFactory {
     FileUtils.mkdirIfNotExist(indexPartitionPath);
     FileSystemDirectory fsd = new FileSystemDirectory(indexPartitionPath, this.byteReadCollector);
     if (this.prewarm) {
-      long prewarmStartTime = System.nanoTime();
+      long startNanos = System.nanoTime();
       fsd.prewarmVectorFiles();
-      long prewarmStopTime = System.nanoTime();
-      var ms = TimeUnit.NANOSECONDS.toMillis(prewarmStopTime - prewarmStartTime);
-      this.accumulateCacheWarmerMilliseconds(ms);
+      long stopNanos = System.nanoTime();
+      this.recordCacheWarmerWindow(startNanos, stopNanos);
+      long elapsedMilliseconds = TimeUnit.NANOSECONDS.toMillis(stopNanos - startNanos);
       LOG.atDebug()
           .addKeyValue("directory", indexPartitionPath)
-          .addKeyValue("milliseconds", ms)
+          .addKeyValue("milliseconds", elapsedMilliseconds)
           .log("Cache Warmer: finished warming directory");
     }
     return this.config.nrtCacheEnabled()
