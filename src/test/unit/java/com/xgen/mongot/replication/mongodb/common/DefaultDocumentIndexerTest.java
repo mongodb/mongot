@@ -18,6 +18,7 @@ import com.xgen.mongot.util.BsonUtils;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonValue;
@@ -137,6 +138,70 @@ public class DefaultDocumentIndexerTest {
     DefaultDocumentIndexer indexer = DefaultDocumentIndexer.create(index);
     indexer.commit();
     verify(index.getWriter()).commit(userData);
+  }
+
+  @Test
+  public void testCommitReadsSupplierAtCommitTime() throws Exception {
+    InitializedIndex index = mockInitializedIndex(MOCK_INDEX_DEFINITION_GENERATION);
+    DefaultDocumentIndexer indexer = DefaultDocumentIndexer.create(index);
+    AtomicReference<IndexCommitUserData> live = new AtomicReference<>(commitUserData(index, 1));
+    indexer.updateCommitUserDataSupplier(live::get);
+
+    // The whole point of the supplier: partitions keep advancing after it is installed, and the
+    // commit has to persist where they are now rather than where they were.
+    live.set(commitUserData(index, 2));
+    indexer.commit();
+
+    verify(index.getWriter()).commit(encodedUserData(2));
+  }
+
+  @Test
+  public void testStagedCommitUserDataReplacesSupplier() throws Exception {
+    InitializedIndex index = mockInitializedIndex(MOCK_INDEX_DEFINITION_GENERATION);
+    DefaultDocumentIndexer indexer = DefaultDocumentIndexer.create(index);
+
+    indexer.updateCommitUserDataSupplier(() -> commitUserData(index, 1));
+    indexer.updateCommitUserData(commitUserData(index, 2));
+    indexer.commit();
+
+    verify(index.getWriter()).commit(encodedUserData(2));
+  }
+
+  @Test
+  public void testSupplierReplacesStagedCommitUserData() throws Exception {
+    InitializedIndex index = mockInitializedIndex(MOCK_INDEX_DEFINITION_GENERATION);
+    DefaultDocumentIndexer indexer = DefaultDocumentIndexer.create(index);
+
+    indexer.updateCommitUserData(commitUserData(index, 1));
+    indexer.updateCommitUserDataSupplier(() -> commitUserData(index, 2));
+    indexer.commit();
+
+    verify(index.getWriter()).commit(encodedUserData(2));
+  }
+
+  @Test
+  public void testClearIndexReplacesSupplier() throws Exception {
+    InitializedIndex index = mockInitializedIndex(MOCK_INDEX_DEFINITION_GENERATION);
+    DefaultDocumentIndexer indexer = DefaultDocumentIndexer.create(index);
+    indexer.updateCommitUserDataSupplier(() -> commitUserData(index, 1));
+
+    // A clear drops the documents the supplied position points past, so it has to win.
+    IndexCommitUserData cleared = IndexCommitUserData.createExceeded("exceeded");
+    indexer.clearIndex(cleared);
+    indexer.commit();
+
+    verify(index.getWriter()).commit(cleared.toEncodedData());
+  }
+
+  private static EncodedUserData encodedUserData(int backendIndexVersion) {
+    return EncodedUserData.fromString(
+        String.format("{\"backendIndexVersion\": {\"$numberInt\": \"%d\"}}", backendIndexVersion));
+  }
+
+  private static IndexCommitUserData commitUserData(
+      InitializedIndex index, int backendIndexVersion) {
+    return IndexCommitUserData.fromEncodedData(
+        encodedUserData(backendIndexVersion), Optional.of(index.getGenerationId()));
   }
 
   private static void testIndexDocumentEvent(DocumentEvent.EventType eventType) throws Exception {

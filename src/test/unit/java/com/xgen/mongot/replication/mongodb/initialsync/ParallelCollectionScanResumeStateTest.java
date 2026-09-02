@@ -1,9 +1,15 @@
 package com.xgen.mongot.replication.mongodb.initialsync;
 
 import static com.google.common.truth.Truth.assertThat;
+import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_DEFINITION_GENERATION;
+import static com.xgen.testing.mongot.mock.index.SearchIndex.mockInitializedIndex;
+import static org.mockito.Mockito.verify;
 
+import com.xgen.mongot.index.EncodedUserData;
+import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.replication.mongodb.common.BufferlessParallelNaturalOrderInitialSyncResumeInfo;
+import com.xgen.mongot.replication.mongodb.common.DefaultDocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
 import com.xgen.mongot.replication.mongodb.common.PartitionResumeInfo;
 import java.util.List;
@@ -13,6 +19,7 @@ import org.bson.BsonTimestamp;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
+import org.mockito.ArgumentCaptor;
 
 @RunWith(JUnit4.class)
 public class ParallelCollectionScanResumeStateTest {
@@ -144,5 +151,38 @@ public class ParallelCollectionScanResumeStateTest {
     assertThat(resumeInfo.getResumeOperationTime()).isEqualTo(new BsonTimestamp(2_000, 3));
     assertThat(resumeInfo.getPartitions()).hasSize(1);
     assertThat(resumeInfo.getPartitions().getFirst().getResumeRecordId()).hasValue(42L);
+  }
+
+  @Test
+  public void snapshot_installedAsCommitSupplier_persistsPositionAsOfTheCommit() throws Exception {
+    ParallelCollectionScanPartitionState p0 =
+        new ParallelCollectionScanPartitionState(
+            0, Optional.empty(), Optional.empty(), Optional.empty(), false);
+    ParallelCollectionScanResumeState resumeState =
+        new ParallelCollectionScanResumeState(
+            IndexFormatVersion.CURRENT,
+            INITIAL_SYNC_ID,
+            SYNC_SOURCE_HOST,
+            new BsonTimestamp(1_000, 1),
+            List.of(p0));
+
+    InitializedIndex index = mockInitializedIndex(MOCK_INDEX_DEFINITION_GENERATION);
+    DefaultDocumentIndexer indexer = DefaultDocumentIndexer.create(index);
+    indexer.updateCommitUserDataSupplier(resumeState::snapshot);
+
+    p0.advanceResumeRecordId(42L);
+    resumeState.advanceHighWaterMark(new BsonTimestamp(2_000, 3));
+    indexer.commit();
+
+    ArgumentCaptor<EncodedUserData> committed = ArgumentCaptor.forClass(EncodedUserData.class);
+    verify(index.getWriter()).commit(committed.capture());
+    BufferlessParallelNaturalOrderInitialSyncResumeInfo persisted =
+        (BufferlessParallelNaturalOrderInitialSyncResumeInfo)
+            IndexCommitUserData.fromEncodedData(committed.getValue(), Optional.empty())
+                .getInitialSyncResumeInfo()
+                .orElseThrow();
+
+    assertThat(persisted.getResumeOperationTime()).isEqualTo(new BsonTimestamp(2_000, 3));
+    assertThat(persisted.getPartitions().getFirst().getResumeRecordId()).hasValue(42L);
   }
 }

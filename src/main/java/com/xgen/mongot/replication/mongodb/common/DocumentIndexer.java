@@ -7,6 +7,7 @@ import com.xgen.mongot.index.definition.IndexDefinition;
 import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * An interface for indexing and commit. Implementations should be thread-safe.
@@ -38,6 +39,14 @@ public interface DocumentIndexer {
    * account that concurrent calls might cause unexpected results.
    */
   void updateCommitUserData(IndexCommitUserData commitUserData);
+
+  /**
+   * Installs a supplier read at commit time, for writers whose resume position has to be assembled
+   * from live state instead of staged ahead of a batch. The parallel collection scan uses it: its
+   * partitions advance independently, so a blob staged per batch would carry one partition's
+   * position and roll the others back.
+   */
+  void updateCommitUserDataSupplier(Supplier<IndexCommitUserData> commitUserDataSupplier);
 
   /** Commits all pending changes to the index. */
   void commit() throws IOException;

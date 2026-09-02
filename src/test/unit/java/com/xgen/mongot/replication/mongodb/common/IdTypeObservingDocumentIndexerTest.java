@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verify;
 import com.xgen.mongot.index.DocumentEvent;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 import org.bson.BsonObjectId;
 import org.bson.BsonString;
 import org.junit.Test;
@@ -60,5 +61,17 @@ public class IdTypeObservingDocumentIndexerTest {
     indexer.indexDocumentEvent(event);
 
     verify(delegate).indexDocumentEvent(event);
+  }
+
+  @Test
+  public void testCommitUserDataSupplierIsDelegated() {
+    DocumentIndexer delegate = mock(DocumentIndexer.class);
+    IdTypeObservingDocumentIndexer indexer =
+        IdTypeObservingDocumentIndexer.wrap(delegate, ignored -> {});
+
+    Supplier<IndexCommitUserData> supplier = () -> IndexCommitUserData.createExceeded("exceeded");
+    indexer.updateCommitUserDataSupplier(supplier);
+
+    verify(delegate).updateCommitUserDataSupplier(supplier);
   }
 }

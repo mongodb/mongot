@@ -19,7 +19,9 @@ public class DefaultDocumentIndexer implements DocumentIndexer {
   private final DefaultKeyValueLogger logger;
   private final InitializedIndex index;
   private final IndexDefinition indexDefinition;
-  private final AtomicReference<IndexCommitUserData> commitUserData;
+  // Either a constant holding the last staged blob or, for writers that assemble their position
+  // from live state, a supplier read as the commit runs. Last write wins between the two.
+  private final AtomicReference<Supplier<IndexCommitUserData>> commitUserDataSupplier;
   // Present only for the derived index of an auto-embedding composite. When present, each commit
   // snapshots the auto-embedding metadata (e.g. the lease's per-definition-version queryable
   // ratchet) so a restart that cannot reach mongod can read it back to report STALE rather than
@@ -36,10 +38,10 @@ public class DefaultDocumentIndexer implements DocumentIndexer {
     this.logger = DefaultKeyValueLogger.getLogger(DefaultDocumentIndexer.class, defaultKeyValues);
     this.index = index;
     this.indexDefinition = indexDefinition;
-    this.commitUserData =
-        new AtomicReference<>(
-            IndexCommitUserData.fromEncodedData(
-                index.getWriter().getCommitUserData(), Optional.of(index.getGenerationId())));
+    IndexCommitUserData persisted =
+        IndexCommitUserData.fromEncodedData(
+            index.getWriter().getCommitUserData(), Optional.of(index.getGenerationId()));
+    this.commitUserDataSupplier = new AtomicReference<>(() -> persisted);
     this.autoEmbeddingMetadataSupplier = autoEmbeddingMetadataSupplier;
   }
 
@@ -90,12 +92,17 @@ public class DefaultDocumentIndexer implements DocumentIndexer {
 
   @Override
   public void updateCommitUserData(IndexCommitUserData commitUserData) {
-    this.commitUserData.set(commitUserData);
+    this.commitUserDataSupplier.set(() -> commitUserData);
+  }
+
+  @Override
+  public void updateCommitUserDataSupplier(Supplier<IndexCommitUserData> commitUserDataSupplier) {
+    this.commitUserDataSupplier.set(commitUserDataSupplier);
   }
 
   @Override
   public synchronized void commit() throws IOException {
-    IndexCommitUserData base = this.commitUserData.get();
+    IndexCommitUserData base = this.commitUserDataSupplier.get().get();
     IndexCommitUserData userData =
         this.autoEmbeddingMetadataSupplier
             .map(supplier -> base.withAutoEmbeddingMetadata(supplier.get()))

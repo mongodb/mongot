@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import org.bson.BsonValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -64,6 +65,11 @@ public final class IdTypeObservingDocumentIndexer implements DocumentIndexer {
   @Override
   public void updateCommitUserData(IndexCommitUserData commitUserData) {
     this.delegate.updateCommitUserData(commitUserData);
+  }
+
+  @Override
+  public void updateCommitUserDataSupplier(Supplier<IndexCommitUserData> commitUserDataSupplier) {
+    this.delegate.updateCommitUserDataSupplier(commitUserDataSupplier);
   }
 
   @Override
