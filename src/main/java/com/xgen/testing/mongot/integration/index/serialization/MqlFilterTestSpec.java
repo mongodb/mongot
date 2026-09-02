@@ -1,5 +1,6 @@
 package com.xgen.testing.mongot.integration.index.serialization;
 
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
@@ -107,6 +108,17 @@ public class MqlFilterTestSpec implements DocumentEncodable {
             .classField(MongoDbVersionInfo::fromBson)
             .optional()
             .noDefault();
+
+    static final Field.Optional<List<DynamicFeatureFlagConfig>> DYNAMIC_FEATURE_FLAGS =
+        Field.builder("dynamicFeatureFlags")
+            .classField(DynamicFeatureFlagConfig::fromBson)
+            .allowUnknownFields()
+            .asList()
+            .optional()
+            .noDefault();
+
+    static final Field.Optional<List<String>> EXPECTED_OPTIMIZER_RULES_FIRED =
+        Field.builder("expectedOptimizerRulesFired").stringField().asList().optional().noDefault();
   }
 
   private final String name;
@@ -116,6 +128,8 @@ public class MqlFilterTestSpec implements DocumentEncodable {
   private final BsonDocument filter;
   private final MqlFilterTestResult result;
   private final Optional<MongoDbVersionInfo> minMongoDbVersionInfo;
+  private final Optional<List<DynamicFeatureFlagConfig>> dynamicFeatureFlags;
+  private final Optional<List<String>> expectedOptimizerRulesFired;
 
   MqlFilterTestSpec(
       String name,
@@ -123,13 +137,17 @@ public class MqlFilterTestSpec implements DocumentEncodable {
       List<BsonDocument> documents,
       BsonDocument filter,
       MqlFilterTestResult result,
-      Optional<MongoDbVersionInfo> minMongoDbVersionInfo) {
+      Optional<MongoDbVersionInfo> minMongoDbVersionInfo,
+      Optional<List<DynamicFeatureFlagConfig>> dynamicFeatureFlags,
+      Optional<List<String>> expectedOptimizerRulesFired) {
     this.name = name;
     this.description = description;
     this.documents = documents;
     this.filter = filter;
     this.result = result;
     this.minMongoDbVersionInfo = minMongoDbVersionInfo;
+    this.dynamicFeatureFlags = dynamicFeatureFlags;
+    this.expectedOptimizerRulesFired = expectedOptimizerRulesFired;
 
     // add the vector field to each document
     for (var document : this.documents) {
@@ -146,7 +164,9 @@ public class MqlFilterTestSpec implements DocumentEncodable {
         parser.getField(Fields.DOCUMENTS).unwrap(),
         parser.getField(Fields.FILTER).unwrap(),
         parser.getField(Fields.RESULT).unwrap(),
-        parser.getField(Fields.MIN_MONGODB_VERSION).unwrap());
+        parser.getField(Fields.MIN_MONGODB_VERSION).unwrap(),
+        parser.getField(Fields.DYNAMIC_FEATURE_FLAGS).unwrap(),
+        parser.getField(Fields.EXPECTED_OPTIMIZER_RULES_FIRED).unwrap());
   }
 
   @Override
@@ -159,6 +179,8 @@ public class MqlFilterTestSpec implements DocumentEncodable {
             .field(Fields.FILTER, this.filter)
             .field(Fields.RESULT, this.result)
             .field(Fields.MIN_MONGODB_VERSION, this.minMongoDbVersionInfo)
+            .field(Fields.DYNAMIC_FEATURE_FLAGS, this.dynamicFeatureFlags)
+            .field(Fields.EXPECTED_OPTIMIZER_RULES_FIRED, this.expectedOptimizerRulesFired)
             .build();
     return document;
   }
@@ -189,5 +211,13 @@ public class MqlFilterTestSpec implements DocumentEncodable {
 
   public List<BsonDocument> getDocuments() {
     return this.documents;
+  }
+
+  public Optional<List<DynamicFeatureFlagConfig>> getDynamicFeatureFlags() {
+    return this.dynamicFeatureFlags;
+  }
+
+  public Optional<List<String>> getExpectedOptimizerRulesFired() {
+    return this.expectedOptimizerRulesFired;
   }
 }
