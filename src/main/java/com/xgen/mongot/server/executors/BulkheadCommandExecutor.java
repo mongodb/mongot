@@ -42,6 +42,7 @@ public class BulkheadCommandExecutor implements Closeable {
   private final Optional<Counter> wouldHaveRejectedCounter;
   private final Counter skippedDueToCancelledStreamCounter;
   private final DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry;
+  private final MeterRegistry meterRegistry;
 
   /** Holds the regular executor configuration created during construction. */
   private record RegularExecutorConfig(
@@ -85,6 +86,7 @@ public class BulkheadCommandExecutor implements Closeable {
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
       Optional<ThreadPoolResourceMetrics.Bindings> threadPoolResourceBindings) {
     this.dynamicFeatureFlagRegistry = dynamicFeatureFlagRegistry;
+    this.meterRegistry = meterRegistry;
     int numCpus = Runtime.INSTANCE.getNumCpus();
     int poolSize = settings.resolvedPoolSize(numCpus);
     OptionalInt queueCapacity = settings.maybeResolvedQueueCapacity(numCpus);
@@ -293,6 +295,15 @@ public class BulkheadCommandExecutor implements Closeable {
       }
       throw oom;
     }
+  }
+
+  /**
+   * Returns the {@link MeterRegistry} this executor registers its meters against. Shared with the
+   * rest of the process, so meters registered elsewhere (e.g. envoy-retry counters on the gRPC
+   * path) are visible through the same registry.
+   */
+  public MeterRegistry getMeterRegistry() {
+    return this.meterRegistry;
   }
 
   @Override

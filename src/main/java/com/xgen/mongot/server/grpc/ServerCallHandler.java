@@ -8,6 +8,7 @@ import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.query.InvalidQueryException;
+import com.xgen.mongot.metrics.ServerStatusDataExtractor.LoadSheddingMeterData;
 import com.xgen.mongot.searchenvoy.grpc.SearchEnvoyMetadata;
 import com.xgen.mongot.server.command.Command;
 import com.xgen.mongot.server.command.CommandFactory;
@@ -21,6 +22,7 @@ import com.xgen.mongot.util.FutureUtils;
 import com.xgen.mongot.util.mongodb.Errors;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
+import io.micrometer.core.instrument.Counter;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -57,6 +59,11 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
   // interceptor substitutes a default when search envoy is not in the request path.
   private final int envoyMaxAttemptCount;
   private final FeatureFlags featureFlags;
+  private final EnvoyRetryMetrics envoyRetryMetrics;
+  // Counts every incoming command regardless of outcome (success, rejection, error). Serves as
+  // the denominator for load-shedding / envoy-retry rates. Tagged retry=true when this stream's
+  // x-envoy-attempt-count is greater than 1 (an envoy retry), otherwise retry=false.
+  private final Counter totalRequestsCounter;
 
   // Newly created cursors in this gRPC stream.
   // 1. This variable is at most written once. Each stream will have at most one $search command.
@@ -82,10 +89,22 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
     this.featureFlags = featureFlags;
     this.commandManager = new CommandManager<T>(responseObserver);
     this.createdCursorIds = Collections.emptyList();
+    this.envoyRetryMetrics =
+        new EnvoyRetryMetrics(commandExecutor.getMeterRegistry(), envoyMaxAttemptCount);
+    this.totalRequestsCounter =
+        commandExecutor
+            .getMeterRegistry()
+            .counter(
+                LoadSheddingMeterData.TOTAL_REQUESTS,
+                LoadSheddingMeterData.TOTAL_REQUESTS_RETRY_TAG,
+                this.envoyAttemptCount > 1
+                    ? LoadSheddingMeterData.TOTAL_REQUESTS_RETRY_TRUE
+                    : LoadSheddingMeterData.TOTAL_REQUESTS_RETRY_FALSE);
   }
 
   @Override
   public void onNext(T requestMsg) {
+    this.totalRequestsCounter.increment();
     this.commandManager.onCommandStart();
     Stopwatch totalTime = Stopwatch.createStarted();
     HandlingContext handlingContext = new HandlingContext();
@@ -94,12 +113,8 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
             (replyMsg, cause) -> {
               if (cause != null) {
                 Throwable unwrapped = FutureUtils.unwrapCause(cause);
-                if (shouldRetryViaEnvoy(unwrapped)) {
-                  // Count this as a failure from the host's perspective so load-shedding
-                  // alerting/dashboards remain accurate. Envoy may retry on another host, but
-                  // this host did reject the command.
-                  handlingContext.commandRegistration.ifPresent(
-                      registration -> registration.recordFailure(unwrapped));
+                boolean retryViaEnvoy = shouldRetryViaEnvoy(unwrapped);
+                if (retryViaEnvoy) {
                   this.commandManager.onCommandFailure(
                       Status.RESOURCE_EXHAUSTED.withDescription("Search server at capacity"));
                 } else {
@@ -113,6 +128,7 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
                         }
                       });
                 }
+                recordEnvoyRetryMetricIfApplicable(unwrapped, retryViaEnvoy);
               } else {
                 Stopwatch serializationTime = Stopwatch.createStarted();
                 this.commandManager.onCommandComplete(
@@ -228,6 +244,26 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
       return false;
     }
     return this.envoyAttemptCount < this.envoyMaxAttemptCount;
+  }
+
+  /**
+   * Records the envoy overload-retry counter when a load-shedding rejection occurs on the {@code
+   * OVERLOAD_RETRY_SIGNAL} path. {@code rejected} when envoy may still retry, {@code exhausted} on
+   * the final attempt. When the flag is off the rejection is plain load shedding (already counted
+   * by {@code loadShedding.rejected}) and no envoy-retry series is registered.
+   */
+  private void recordEnvoyRetryMetricIfApplicable(Throwable cause, boolean retryViaEnvoy) {
+    if (!(cause instanceof LoadSheddingRejectedException)) {
+      return;
+    }
+    if (!this.featureFlags.isEnabled(Feature.OVERLOAD_RETRY_SIGNAL)) {
+      return;
+    }
+    if (retryViaEnvoy) {
+      this.envoyRetryMetrics.recordRejected(this.envoyAttemptCount);
+    } else {
+      this.envoyRetryMetrics.recordExhausted(this.envoyAttemptCount);
+    }
   }
 
   static class HandlingContext {

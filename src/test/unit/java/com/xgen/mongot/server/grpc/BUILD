@@ -5,6 +5,7 @@ java_test_suite(
     srcs = [
         "BsonMessageCallHandlerTest.java",
         "CommandManagerTest.java",
+        "EnvoyRetryMetricsTest.java",
         "HealthManagerTest.java",
         "ManageSearchIndexUnaryCallHandlerTest.java",
         "MessageMarshallerTest.java",
@@ -17,6 +18,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/config/manager",
         "//src/main/java/com/xgen/mongot/cursor",
         "//src/main/java/com/xgen/mongot/featureflag",
+        "//src/main/java/com/xgen/mongot/metrics",
         "//src/main/java/com/xgen/mongot/server/command",
         "//src/main/java/com/xgen/mongot/server/command/registry",
         "//src/main/java/com/xgen/mongot/server/executors",

@@ -14,6 +14,7 @@ import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.metrics.ServerStatusDataExtractor.LoadSheddingMeterData;
 import com.xgen.mongot.searchenvoy.grpc.SearchEnvoyMetadata;
 import com.xgen.mongot.server.command.Command;
 import com.xgen.mongot.server.command.CommandFactory;
@@ -31,6 +32,7 @@ import com.xgen.mongot.util.mongodb.Errors;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.cumulative.CumulativeTimer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -114,6 +116,30 @@ public class StreamingMessageHandlerTest {
                 errorType.toString())
             .counter();
     return counter == null ? 0 : counter.count();
+  }
+
+  private static double counterTotal(MeterRegistry registry, String name) {
+    return registry.find(name).counters().stream().mapToDouble(Counter::count).sum();
+  }
+
+  private static double envoyRetryTotal(MeterRegistry registry, String outcome) {
+    return registry
+        .find(LoadSheddingMeterData.ENVOY_RETRY)
+        .tag(LoadSheddingMeterData.ENVOY_RETRY_OUTCOME_TAG, outcome)
+        .counters()
+        .stream()
+        .mapToDouble(Counter::count)
+        .sum();
+  }
+
+  private static double totalRequests(MeterRegistry registry, String retryLabel) {
+    return registry
+        .find(LoadSheddingMeterData.TOTAL_REQUESTS)
+        .tag(LoadSheddingMeterData.TOTAL_REQUESTS_RETRY_TAG, retryLabel)
+        .counters()
+        .stream()
+        .mapToDouble(Counter::count)
+        .sum();
   }
 
   @Test
@@ -406,6 +432,37 @@ public class StreamingMessageHandlerTest {
 
     this.messageHandler.onCompleted();
     verifyServerHalfClosed();
+  }
+
+  @Test
+  public void onNext_envoyAttemptGreaterThanOne_labelsTotalRequestsAsRetry() {
+    this.commandRegistry.registerCommand(
+        IdentityCommand.Name,
+        (CommandFactory) args -> new IdentityCommand(args, Command.ExecutionPolicy.SYNC),
+        true);
+    WireMessageCallHandler retryHandler =
+        new WireMessageCallHandler(
+            this.commandRegistry,
+            this.executorManager.commandExecutor,
+            this.cursorManager,
+            SearchEnvoyMetadata.getDefaultInstance(),
+            /* envoyAttemptCount */ 2,
+            /* envoyMaxAttemptCount */ 3,
+            FeatureFlags.getDefault(),
+            this.responseObserver);
+
+    BsonDocument document = new BsonDocument().append(IdentityCommand.Name, new BsonString("foo"));
+    retryHandler.onNext(createOpMsgFromBsonDocument(document));
+    verifyServerResponse(document);
+
+    Assert.assertEquals(
+        1.0,
+        totalRequests(this.meterRegistry, LoadSheddingMeterData.TOTAL_REQUESTS_RETRY_TRUE),
+        0.0);
+    Assert.assertEquals(
+        0.0,
+        totalRequests(this.meterRegistry, LoadSheddingMeterData.TOTAL_REQUESTS_RETRY_FALSE),
+        0.0);
   }
 
   @Test
@@ -903,6 +960,31 @@ public class StreamingMessageHandlerTest {
               + Errors.SEARCH_REQUEST_REJECTED_DUE_TO_OVERLOAD.code
               + " when flag is off",
           foundBsonError);
+
+      // With the retry flag off, rejections are plain load shedding and register no envoy-retry
+      // series.
+      Assert.assertEquals(
+          "expected no envoyRetry rejected total when flag off",
+          0.0,
+          envoyRetryTotal(boundedMeterRegistry, LoadSheddingMeterData.ENVOY_RETRY_REJECTED),
+          0.0);
+      Assert.assertEquals(
+          "expected no envoyRetry exhausted total when flag off",
+          0.0,
+          envoyRetryTotal(boundedMeterRegistry, LoadSheddingMeterData.ENVOY_RETRY_EXHAUSTED),
+          0.0);
+      Assert.assertTrue(
+          "expected totalRequests >= 1",
+          counterTotal(boundedMeterRegistry, LoadSheddingMeterData.TOTAL_REQUESTS) >= 1.0);
+      Assert.assertTrue(
+          "expected first-attempt totalRequests (retry=false)",
+          totalRequests(boundedMeterRegistry, LoadSheddingMeterData.TOTAL_REQUESTS_RETRY_FALSE)
+              >= 1.0);
+      Assert.assertEquals(
+          "expected no retry-labeled totalRequests on attempt 1",
+          0.0,
+          totalRequests(boundedMeterRegistry, LoadSheddingMeterData.TOTAL_REQUESTS_RETRY_TRUE),
+          0.0);
     } finally {
       blockingLatch.countDown();
       boundedExecutorManager.commandExecutor.close();
@@ -997,6 +1079,28 @@ public class StreamingMessageHandlerTest {
                   });
       Assert.assertTrue(
           "Expected gRPC RESOURCE_EXHAUSTED when flag on and attempt < 3", foundResourceExhausted);
+
+      // A retryable rejection (attempt < 3) records the "rejected" outcome, never "exhausted".
+      Assert.assertTrue(
+          "expected envoyRetry rejected total > 0",
+          envoyRetryTotal(boundedMeterRegistry, LoadSheddingMeterData.ENVOY_RETRY_REJECTED) >= 1.0);
+      Assert.assertEquals(
+          "expected no envoyRetry exhausted total for retryable attempts",
+          0.0,
+          envoyRetryTotal(boundedMeterRegistry, LoadSheddingMeterData.ENVOY_RETRY_EXHAUSTED),
+          0.0);
+      Assert.assertTrue(
+          "expected totalRequests >= 1",
+          counterTotal(boundedMeterRegistry, LoadSheddingMeterData.TOTAL_REQUESTS) >= 1.0);
+      Assert.assertTrue(
+          "expected first-attempt totalRequests (retry=false)",
+          totalRequests(boundedMeterRegistry, LoadSheddingMeterData.TOTAL_REQUESTS_RETRY_FALSE)
+              >= 1.0);
+      Assert.assertEquals(
+          "expected no retry-labeled totalRequests on attempt 1",
+          0.0,
+          totalRequests(boundedMeterRegistry, LoadSheddingMeterData.TOTAL_REQUESTS_RETRY_TRUE),
+          0.0);
     } finally {
       blockingLatch.countDown();
       boundedExecutorManager.commandExecutor.close();
@@ -1095,6 +1199,29 @@ public class StreamingMessageHandlerTest {
               + Errors.SEARCH_REQUEST_REJECTED_DUE_TO_OVERLOAD.code
               + " when attempt >= 3",
           foundBsonError);
+
+      // The final attempt (attempt >= 3) records the "exhausted" outcome, never "rejected".
+      Assert.assertTrue(
+          "expected envoyRetry exhausted total > 0",
+          envoyRetryTotal(boundedMeterRegistry, LoadSheddingMeterData.ENVOY_RETRY_EXHAUSTED)
+              >= 1.0);
+      Assert.assertEquals(
+          "expected no envoyRetry rejected total for the final attempt",
+          0.0,
+          envoyRetryTotal(boundedMeterRegistry, LoadSheddingMeterData.ENVOY_RETRY_REJECTED),
+          0.0);
+      Assert.assertTrue(
+          "expected totalRequests >= 1",
+          counterTotal(boundedMeterRegistry, LoadSheddingMeterData.TOTAL_REQUESTS) >= 1.0);
+      Assert.assertTrue(
+          "expected retry-labeled totalRequests (retry=true) on attempt 3",
+          totalRequests(boundedMeterRegistry, LoadSheddingMeterData.TOTAL_REQUESTS_RETRY_TRUE)
+              >= 1.0);
+      Assert.assertEquals(
+          "expected no first-attempt totalRequests on attempt 3",
+          0.0,
+          totalRequests(boundedMeterRegistry, LoadSheddingMeterData.TOTAL_REQUESTS_RETRY_FALSE),
+          0.0);
     } finally {
       blockingLatch.countDown();
       boundedExecutorManager.commandExecutor.close();

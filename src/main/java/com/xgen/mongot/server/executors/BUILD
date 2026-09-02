@@ -11,6 +11,7 @@ java_library(
     ],
     visibility = ["//visibility:public"],
     exports = [
+        "@maven//:io_micrometer_micrometer_core",
         "@maven//:io_netty_netty_transport",
         "@maven//:org_mongodb_bson",
     ],
