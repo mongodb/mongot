@@ -3,12 +3,9 @@ package com.xgen.mongot.index.lucene.quantization;
 import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 
 import com.google.errorprone.annotations.Var;
+import com.xgen.testing.mongot.index.lucene.vector.LucenePinCanary;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Arrays;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.apache.lucene.backward_codecs.lucene99.Lucene99Codec;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
@@ -38,10 +35,6 @@ import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.VectorUtil;
 
 public class Mongot01042HnswBinaryQuantizedVectorsFormatTest extends BaseKnnVectorsFormatTestCase {
-  private static final String LUCENE_PIN_REPO_PATH = "bazel/java/maven_search_query.MODULE.bazel";
-  private static final Pattern LUCENE_FORK_VERSION_PATTERN =
-      Pattern.compile("_LUCENE_FORK_VERSION = \"([^\"]+)\"");
-
   // tinySegmentsThreshold=0 forces HNSW for every segment; the base Lucene test asserts the
   // .vex file is non-empty even for tiny segments.
   private final KnnVectorsFormat format = new Mongot01042HnswBinaryQuantizedVectorsFormat();
@@ -95,33 +88,6 @@ public class Mongot01042HnswBinaryQuantizedVectorsFormatTest extends BaseKnnVect
     return v;
   }
 
-  /**
-   * Canary that fails whenever the pinned Lucene version changes, as a reminder that the methods
-   * copied from Lucene into this class may need upstream's changes ported. On failure, re-diff the
-   * copied methods against Lucene's BaseKnnVectorsFormatTestCase, port any upstream test changes,
-   * and then update the expected version here.
-   */
-  private static void assertLucenePinUnchanged() throws IOException {
-    // TEST_SRCDIR and TEST_WORKSPACE locate the runfiles tree under bazel test; fall back to a
-    // repo-relative path for non-bazel runners such as plain IDE JUnit run configurations.
-    String testSrcdir = System.getenv("TEST_SRCDIR");
-    String testWorkspace = System.getenv("TEST_WORKSPACE");
-    Path lucenePinFile =
-        testSrcdir != null && testWorkspace != null
-            ? Path.of(testSrcdir, testWorkspace, LUCENE_PIN_REPO_PATH)
-            : Path.of(LUCENE_PIN_REPO_PATH);
-    Matcher lucenePinMatcher = LUCENE_FORK_VERSION_PATTERN.matcher(Files.readString(lucenePinFile));
-    assertTrue(
-        "Lucene version pin not found in " + lucenePinFile + "; update this canary",
-        lucenePinMatcher.find());
-    assertEquals(
-        "The pinned Lucene version changed: re-diff the copied methods in this class against"
-            + " Lucene's BaseKnnVectorsFormatTestCase and port any upstream test changes, then"
-            + " update the expected version here",
-        "10.4.0-3",
-        lucenePinMatcher.group(1));
-  }
-
   // Copied from Lucene 10.4.0's BaseKnnVectorsFormatTestCase to fix flaky test failures
   // CLOUDP-391552 and CLOUDP-432100. Lucene's testSearchWithVisitedLimit() asserts that the
   // relation is always GREATER_THAN_OR_EQUAL_TO, which holds for Lucene's codecs, but our valid
@@ -131,7 +97,7 @@ public class Mongot01042HnswBinaryQuantizedVectorsFormatTest extends BaseKnnVect
   // add2() because add() is private when it maybe should have been protected.
   @Override
   public void testSearchWithVisitedLimit() throws Exception {
-    assertLucenePinUnchanged();
+    LucenePinCanary.assertLucenePinUnchanged("Mongot01042HnswBinaryQuantizedVectorsFormatTest");
 
     IndexWriterConfig iwc = newIndexWriterConfig();
     String fieldName = "field";

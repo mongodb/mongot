@@ -3,6 +3,7 @@ package com.xgen.mongot.index.lucene.quantization;
 import static com.google.common.truth.Truth.assertWithMessage;
 
 import com.google.common.truth.Truth;
+import com.xgen.testing.mongot.index.lucene.vector.MongotBaseKnnVectorsFormatTestCase;
 import java.io.IOException;
 import org.apache.lucene.backward_codecs.lucene99.Lucene99Codec;
 import org.apache.lucene.codecs.Codec;
@@ -19,11 +20,14 @@ import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.tests.index.BaseKnnVectorsFormatTestCase;
 import org.apache.lucene.util.hnsw.HnswGraph;
 import org.junit.Test;
 
-public class MongotHnswScalarQuantizedVectorsFormatTest extends BaseKnnVectorsFormatTestCase {
+/**
+ * Extends {@link MongotBaseKnnVectorsFormatTestCase} rather than Lucene's base directly: mongot's
+ * forced tiny-segment graphs make some of upstream's exact-recall assertions unsound.
+ */
+public class MongotHnswScalarQuantizedVectorsFormatTest extends MongotBaseKnnVectorsFormatTestCase {
 
   private final KnnVectorsFormat format = new MongotHnswScalarQuantizedVectorsFormat();
 

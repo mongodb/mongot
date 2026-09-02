@@ -38,6 +38,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/util/bson",
         "//src/main/java/com/xgen/mongot/util/concurrent",
         "//src/main/java/com/xgen/testing",
+        "//src/main/java/com/xgen/testing/mongot/index/lucene/vector",
         "//src/main/java/com/xgen/testing/mongot/index/query",
         "//src/main/java/com/xgen/testing/mongot/mock/index",
         "//src/main/java/com/xgen/testing/util",
