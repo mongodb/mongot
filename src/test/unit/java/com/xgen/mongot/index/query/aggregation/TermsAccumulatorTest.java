@@ -280,6 +280,31 @@ public class TermsAccumulatorTest extends AggregationTestSupport {
     assertEquals(9.0, sumOf(bucket(seaColors, "blue"), "sum_price"), 1e-9);
   }
 
+  /**
+   * Observed buckets are counted from the flattened child-ord array in {@code buildResults}, not
+   * from dense ordinal space: a root terms node indexes storage by global term ordinal.
+   */
+  @Test
+  public void observedBuckets_countsInstantiatedTermsNotOrdinalSpace() throws Exception {
+    buildIndex(DATASET, DATASET.size());
+    AggregationContext context = newContext();
+    Accumulator top = collectAll(cityTermsWithSum(true, 100), context);
+
+    assertEquals(0L, context.observedBuckets());
+    firstTerms(top);
+    assertEquals(3L, context.observedBuckets());
+  }
+
+  @Test
+  public void observedBuckets_remapTerms_countsInstantiatedBuckets() throws Exception {
+    buildIndex(DATASET, DATASET.size());
+    AggregationContext context = newContext();
+    Accumulator top = collectAll(cityTermsWithSum(false, 100), context);
+
+    firstTerms(top);
+    assertEquals(3L, context.observedBuckets());
+  }
+
   private static TermsAggregationResult.TermsBucket colorBucket(
       String color, long docCount, double sum) {
     AggregationResults children =

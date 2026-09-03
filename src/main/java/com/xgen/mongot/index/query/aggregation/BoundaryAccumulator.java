@@ -162,6 +162,9 @@ final class BoundaryAccumulator extends BucketsAccumulator {
         allChildOrds[k++] = childBucketOrd(parentOrd, slot);
       }
     }
+    // A boundary grid is dense by construction: every parent gets every slot, so this is the
+    // count of buckets actually instantiated rather than an upper bound.
+    this.context.addObservedBuckets(allChildOrds.length);
     IntFunction<AggregationResults> childResultsFor =
         buildSubAggsForBuckets(LongArray.from(allChildOrds));
 

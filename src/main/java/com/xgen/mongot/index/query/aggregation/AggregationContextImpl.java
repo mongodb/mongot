@@ -2,6 +2,7 @@ package com.xgen.mongot.index.query.aggregation;
 
 import com.xgen.mongot.util.Check;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.search.Sort;
@@ -16,6 +17,7 @@ final class AggregationContextImpl implements AggregationContext {
   private final int partitionId;
   private final Optional<MultiValueDocMarker> multiValueDocMarker;
   private final Optional<LeafReaderContext> leafReaderContext;
+  private final AtomicLong observedBuckets;
 
   private AggregationContextImpl(
       IndexReader indexReader,
@@ -26,7 +28,8 @@ final class AggregationContextImpl implements AggregationContext {
       Optional<Sort> invertedSort,
       int partitionId,
       Optional<MultiValueDocMarker> multiValueDocMarker,
-      Optional<LeafReaderContext> leafReaderContext) {
+      Optional<LeafReaderContext> leafReaderContext,
+      AtomicLong observedBuckets) {
     Check.checkArg(
         sort.isPresent() == invertedSort.isPresent(),
         "sort and invertedSort must be present or absent together");
@@ -39,6 +42,7 @@ final class AggregationContextImpl implements AggregationContext {
     this.partitionId = partitionId;
     this.multiValueDocMarker = multiValueDocMarker;
     this.leafReaderContext = leafReaderContext;
+    this.observedBuckets = observedBuckets;
   }
 
   AggregationContextImpl(
@@ -58,7 +62,8 @@ final class AggregationContextImpl implements AggregationContext {
         invertedSort,
         partitionId,
         Optional.empty(),
-        Optional.empty());
+        Optional.empty(),
+        new AtomicLong());
   }
 
   @Override
@@ -72,7 +77,8 @@ final class AggregationContextImpl implements AggregationContext {
         this.invertedSort,
         this.partitionId,
         this.multiValueDocMarker,
-        Optional.of(context));
+        Optional.of(context),
+        this.observedBuckets);
   }
 
   @Override
@@ -86,7 +92,8 @@ final class AggregationContextImpl implements AggregationContext {
         this.invertedSort,
         this.partitionId,
         Optional.of(marker),
-        this.leafReaderContext);
+        this.leafReaderContext,
+        this.observedBuckets);
   }
 
   @Override
@@ -133,5 +140,15 @@ final class AggregationContextImpl implements AggregationContext {
   @Override
   public IndexReader getIndexReader() {
     return this.indexReader;
+  }
+
+  @Override
+  public void addObservedBuckets(long count) {
+    this.observedBuckets.addAndGet(count);
+  }
+
+  @Override
+  public long observedBuckets() {
+    return this.observedBuckets.get();
   }
 }

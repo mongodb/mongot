@@ -37,6 +37,14 @@ public final class MicrometerSearchAggregationMetricsReporter
 
   private static final double[] NESTING_BOUNDS = {1, 2, 3, 4};
 
+  /**
+   * Same first six bands as the requested-bucket histograms so the two line up on a dashboard; two
+   * extra decades because observed can exceed requested by orders of magnitude.
+   */
+  private static final double[] OBSERVED_BUCKETS_BOUNDS = {
+    10, 100, 1000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000
+  };
+
   private final Timer collectionTimer;
   private final Timer partitionMergeTimer;
   private final Map<FacetDefinition.Type, Counter> groupCounters;
@@ -44,11 +52,12 @@ public final class MicrometerSearchAggregationMetricsReporter
   private final DistributionSummary nestingHistogram;
   private final DistributionSummary requestedBucketsHistogram;
   private final DistributionSummary maxPathBucketsHistogram;
+  private final DistributionSummary observedBucketsHistogram;
 
   /**
    * Returns a no-op reporter when search aggregation is disabled so the process factory does not
    * export permanently-zero series. Otherwise registers timers, group-type and metric-type
-   * counters, nesting, and requested-bucket histograms.
+   * counters, nesting, requested-bucket, and observed-bucket histograms.
    */
   public static SearchAggregationMetricsReporter create(
       MetricsFactory processMetricsFactory, boolean searchAggregationEnabled) {
@@ -63,7 +72,8 @@ public final class MicrometerSearchAggregationMetricsReporter
         featureCounters(processMetricsFactory, Operator.class, AGGREGATION_METRIC_TAG_PREFIX),
         processMetricsFactory.histogram(NESTING_HISTOGRAM, NESTING_BOUNDS),
         processMetricsFactory.histogram(REQUESTED_BUCKETS_HISTOGRAM, REQUESTED_BUCKETS_BOUNDS),
-        processMetricsFactory.histogram(MAX_PATH_BUCKETS_HISTOGRAM, REQUESTED_BUCKETS_BOUNDS));
+        processMetricsFactory.histogram(MAX_PATH_BUCKETS_HISTOGRAM, REQUESTED_BUCKETS_BOUNDS),
+        processMetricsFactory.histogram(OBSERVED_BUCKETS_HISTOGRAM, OBSERVED_BUCKETS_BOUNDS));
   }
 
   private MicrometerSearchAggregationMetricsReporter(
@@ -73,7 +83,8 @@ public final class MicrometerSearchAggregationMetricsReporter
       Map<Operator, Counter> metricCounters,
       DistributionSummary nestingHistogram,
       DistributionSummary requestedBucketsHistogram,
-      DistributionSummary maxPathBucketsHistogram) {
+      DistributionSummary maxPathBucketsHistogram,
+      DistributionSummary observedBucketsHistogram) {
     this.collectionTimer = collectionTimer;
     this.partitionMergeTimer = partitionMergeTimer;
     this.groupCounters = groupCounters;
@@ -81,6 +92,7 @@ public final class MicrometerSearchAggregationMetricsReporter
     this.nestingHistogram = nestingHistogram;
     this.requestedBucketsHistogram = requestedBucketsHistogram;
     this.maxPathBucketsHistogram = maxPathBucketsHistogram;
+    this.observedBucketsHistogram = observedBucketsHistogram;
   }
 
   @Override
@@ -107,6 +119,11 @@ public final class MicrometerSearchAggregationMetricsReporter
   public void recordRequestedBuckets(long requestedBuckets, long maxPathBuckets) {
     this.requestedBucketsHistogram.record(requestedBuckets);
     this.maxPathBucketsHistogram.record(maxPathBuckets);
+  }
+
+  @Override
+  public void recordObservedBuckets(long observedBuckets) {
+    this.observedBucketsHistogram.record(observedBuckets);
   }
 
   private Timer timerFor(Phase phase) {

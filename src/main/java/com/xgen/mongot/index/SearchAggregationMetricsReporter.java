@@ -10,9 +10,9 @@ import com.xgen.mongot.util.functionalinterfaces.CheckedSupplier;
  * IndexMetricsUpdater.QueryingMetricsUpdater#getSearchAggregationMetricsReporter()}. Callers record
  * through this type rather than holding individual Micrometer instruments.
  *
- * <p>Phase timings are execution-time. Group-type and metric-type counters, nesting, and
- * requested-bucket histograms are plan-time, recorded once per aggregation query from {@link
- * QueryMetricsRecorder}.
+ * <p>Phase timings and the observed-bucket histogram are execution-time. Group-type and metric-type
+ * counters, nesting, and requested-bucket histograms are plan-time, recorded once per aggregation
+ * query from {@link QueryMetricsRecorder}.
  */
 public interface SearchAggregationMetricsReporter {
 
@@ -48,6 +48,13 @@ public interface SearchAggregationMetricsReporter {
    * runaway path of 1000.
    */
   String MAX_PATH_BUCKETS_HISTOGRAM = "aggregationMaxPathBucketsPerQuery";
+
+  /**
+   * Histogram of grouping buckets instantiated by one aggregation partition search, summed over
+   * grouping nodes and search slices. Read against {@link #REQUESTED_BUCKETS_HISTOGRAM}: observed
+   * can exceed requested by orders of magnitude when cardinality explodes.
+   */
+  String OBSERVED_BUCKETS_HISTOGRAM = "aggregationObservedBuckets";
 
   enum Phase {
     COLLECTION,
@@ -85,6 +92,12 @@ public interface SearchAggregationMetricsReporter {
   void recordRequestedBuckets(long requestedBuckets, long maxPathBuckets);
 
   /**
+   * Records grouping buckets instantiated by one aggregation partition search. One sample per
+   * successful collection, not per node: callers sum across grouping nodes and slices first.
+   */
+  void recordObservedBuckets(long observedBuckets);
+
+  /**
    * Reporter that runs {@code body} and records nothing. Useful in tests that do not assert
    * metrics.
    */
@@ -117,6 +130,11 @@ public interface SearchAggregationMetricsReporter {
 
     @Override
     public void recordRequestedBuckets(long requestedBuckets, long maxPathBuckets) {
+      // Intentionally empty: tests and disabled aggregations record nothing.
+    }
+
+    @Override
+    public void recordObservedBuckets(long observedBuckets) {
       // Intentionally empty: tests and disabled aggregations record nothing.
     }
   }

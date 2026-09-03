@@ -229,6 +229,56 @@ public class BoundaryAggregationTest extends AggregationTestSupport {
   }
 
   @Test
+  public void observedBuckets_countsDenseGridIncludingEmptyRanges() throws Exception {
+    buildIndex(DATASET, DATASET.size());
+    AggregationContext context = newContext();
+    Accumulator top = collectAll(priceBoundary(Optional.empty(), false), context);
+
+    firstBoundary(top);
+    // Three range slots per root parent, including the empty r1; no default slot.
+    assertEquals(3L, context.observedBuckets());
+  }
+
+  @Test
+  public void observedBuckets_nestedTermsAndBoundary_sumsGroupingNodes() throws Exception {
+    List<TestDoc> data =
+        List.of(
+            new TestDoc("NYC", "red", 10),
+            new TestDoc("NYC", "blue", 150),
+            new TestDoc("LA", "red", 50),
+            new TestDoc("LA", "blue", 250),
+            new TestDoc("SF", "green", 350));
+    buildIndex(data, 2);
+
+    AggregationSpec sum = new TestOperatorSpecs.SumSpec("sum_price", PRICE_LUCENE_FIELD);
+    AggregationSpec byPrice =
+        new BoundaryGroupAggregationSpec(
+            "by_price",
+            FieldPath.parse(PRICE_FIELD),
+            List.of(sum),
+            EDGES,
+            RANGE_KEYS,
+            false,
+            new BoundaryArgs(
+                RANGE_KEYS,
+                Optional.of(DEFAULT_KEY),
+                Optional.of(TypeField.NUMBER_INT64_V2),
+                Optional.empty()));
+    AggregationSpec byCity =
+        new TermsGroupAggregationSpec(
+            "by_city",
+            FieldPath.parse(CITY_FIELD),
+            List.of(byPrice),
+            new TermsArgs(true, TypeField.TOKEN, 100));
+    AggregationContext context = newContext();
+    Accumulator top = collectAll(new TopAggregationSpec(List.of(byCity)), context);
+    top.buildTopLevelResult();
+
+    // 3 terms buckets + 3 parents * 4 boundary slots (3 ranges + default).
+    assertEquals(15L, context.observedBuckets());
+  }
+
+  @Test
   public void mergeSumsCountsAndChildrenPositionally() {
     BoundaryAggregationResult left =
         byPriceResult(

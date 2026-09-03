@@ -59,6 +59,11 @@ final class ExplainAwareSearchAggregationMetricsReporter
     this.delegate.recordRequestedBuckets(requestedBuckets, maxPathBuckets);
   }
 
+  @Override
+  public void recordObservedBuckets(long observedBuckets) {
+    this.delegate.recordObservedBuckets(observedBuckets);
+  }
+
   private static ExplainTimings.Type explainType(Phase phase) {
     return switch (phase) {
       case COLLECTION -> ExplainTimings.Type.AGGREGATION_COLLECT;

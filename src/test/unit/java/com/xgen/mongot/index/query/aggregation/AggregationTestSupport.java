@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.lucene.document.Document;
@@ -444,6 +445,7 @@ public abstract class AggregationTestSupport {
     private final Optional<Sort> sort;
     private final Optional<Sort> invertedSort;
     private final int partitionId;
+    private final AtomicLong observedBuckets;
 
     protected TestContext(IndexReader indexReader) {
       this(
@@ -526,6 +528,28 @@ public abstract class AggregationTestSupport {
         Optional<Sort> sort,
         Optional<Sort> invertedSort,
         int partitionId) {
+      this(
+          indexReader,
+          cachedGlobalValueLookup,
+          leafReaderContext,
+          multiValueDocMarker,
+          fieldResolver,
+          sort,
+          invertedSort,
+          partitionId,
+          new AtomicLong());
+    }
+
+    private TestContext(
+        IndexReader indexReader,
+        CachedGlobalValueLookup cachedGlobalValueLookup,
+        Optional<LeafReaderContext> leafReaderContext,
+        Optional<MultiValueDocMarker> multiValueDocMarker,
+        Optional<AggregationFieldResolver> fieldResolver,
+        Optional<Sort> sort,
+        Optional<Sort> invertedSort,
+        int partitionId,
+        AtomicLong observedBuckets) {
       this.partitionId = partitionId;
       this.indexReader = indexReader;
       this.cachedGlobalValueLookup = cachedGlobalValueLookup;
@@ -534,6 +558,7 @@ public abstract class AggregationTestSupport {
       this.fieldResolver = fieldResolver;
       this.sort = sort;
       this.invertedSort = invertedSort;
+      this.observedBuckets = observedBuckets;
     }
 
     @Override
@@ -547,7 +572,8 @@ public abstract class AggregationTestSupport {
           this.fieldResolver,
           this.sort,
           this.invertedSort,
-          this.partitionId);
+          this.partitionId,
+          this.observedBuckets);
     }
 
     @Override
@@ -560,7 +586,8 @@ public abstract class AggregationTestSupport {
           this.fieldResolver,
           this.sort,
           this.invertedSort,
-          this.partitionId);
+          this.partitionId,
+          this.observedBuckets);
     }
 
     @Override
@@ -607,6 +634,16 @@ public abstract class AggregationTestSupport {
     @Override
     public Optional<MultiValueDocMarker> getMultiValueDocMarker() {
       return this.multiValueDocMarker;
+    }
+
+    @Override
+    public void addObservedBuckets(long count) {
+      this.observedBuckets.addAndGet(count);
+    }
+
+    @Override
+    public long observedBuckets() {
+      return this.observedBuckets.get();
     }
   }
 }

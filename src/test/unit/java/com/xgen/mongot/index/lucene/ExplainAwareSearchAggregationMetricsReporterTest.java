@@ -25,6 +25,7 @@ public class ExplainAwareSearchAggregationMetricsReporterTest {
 
     reporter.recordGroupType(FacetDefinition.Type.STRING);
     reporter.recordRequestedBuckets(25, 25);
+    reporter.recordObservedBuckets(42);
 
     assertThat(
             metricsFactory
@@ -33,6 +34,13 @@ public class ExplainAwareSearchAggregationMetricsReporterTest {
                 .summary()
                 .max())
         .isEqualTo(25);
+    assertThat(
+            metricsFactory
+                .getProcessMetricsFactory()
+                .get(SearchAggregationMetricsReporter.OBSERVED_BUCKETS_HISTOGRAM)
+                .summary()
+                .max())
+        .isEqualTo(42);
   }
 
   @Test

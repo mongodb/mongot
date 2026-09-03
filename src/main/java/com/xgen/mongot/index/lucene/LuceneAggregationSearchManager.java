@@ -117,6 +117,10 @@ public class LuceneAggregationSearchManager
                     new MultiCollectorManager(
                         getAccumulatorCollectorManager(context), searchCollectorManager)));
 
+    // One sample per successful partition search: the context total already sums grouping nodes
+    // and slices. Recording after time() so a thrown collection does not emit a partial sample.
+    this.metricsReporter.recordObservedBuckets(context.observedBuckets());
+
     AggregationResult aggResult = Check.instanceOf(results[0], AggregationResult.class);
     TopDocs topDocs = Check.instanceOf(results[1], TopDocs.class);
     maybePopulateScores(searcher, topDocs.scoreDocs);

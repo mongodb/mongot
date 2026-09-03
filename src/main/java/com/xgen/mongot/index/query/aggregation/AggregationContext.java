@@ -22,7 +22,9 @@ import org.apache.lucene.search.Sort;
  *
  * <p>Instances are intended to be effectively immutable: {@link
  * #withLeafReaderContext(LeafReaderContext)} returns a derived context rather than mutating the
- * receiver. The same context can therefore be shared across concurrent leaf collectors safely.
+ * receiver. The same context can therefore be shared across concurrent leaf collectors safely. The
+ * observed-bucket total is the exception: it is shared across derived contexts so every search
+ * slice of one partition search can contribute.
  */
 public interface AggregationContext {
 
@@ -127,6 +129,21 @@ public interface AggregationContext {
   /** Whether {@code doc} was marked multi-valued by an ancestor group in this facet branch. */
   default boolean isMultiValued(int doc) {
     return getMultiValueDocMarker().map(marker -> marker.isMultiValued(doc)).orElse(false);
+  }
+
+  /**
+   * Adds grouping buckets instantiated by this slice's {@code buildResults}. Shared across derived
+   * contexts so every search slice of one partition search contributes to one total. Default is a
+   * no-op for tests that do not assert the metric.
+   */
+  default void addObservedBuckets(long count) {}
+
+  /**
+   * Grouping buckets instantiated on this context for the current partition search, summed over
+   * grouping nodes and search slices.
+   */
+  default long observedBuckets() {
+    return 0L;
   }
 
   /**
