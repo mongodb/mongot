@@ -1,5 +1,6 @@
 package com.xgen.mongot.config.manager;
 
+import com.xgen.mongot.config.backup.JournalEntry;
 import com.xgen.mongot.config.backup.JournalEntryIdentity;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.version.Generation;
@@ -47,5 +48,14 @@ public record QuarantinedIndex(
 
   public GenerationId generationId() {
     return this.identity.generationId();
+  }
+
+  /**
+   * This index as the config journal entry it was read from, so that it can be written back out
+   * verbatim when the journal is next persisted.
+   */
+  public JournalEntry.Quarantined<IndexDefinitionGeneration> asJournalEntry() {
+    return new JournalEntry.Quarantined<>(
+        this.rawConfigJournalEntry, this.identity, this.type, this.parseError);
   }
 }

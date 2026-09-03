@@ -1,9 +1,11 @@
 package com.xgen.testing.mongot.config.backup;
 
 import com.xgen.mongot.config.backup.ConfigJournalV1;
+import com.xgen.mongot.config.backup.JournalEntry;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class ConfigJournalV1Builder {
 
@@ -31,6 +33,14 @@ public class ConfigJournalV1Builder {
   }
 
   public ConfigJournalV1 build() {
-    return new ConfigJournalV1(this.stagedIndexes, this.indexes, this.deletedIndexes);
+    return new ConfigJournalV1(
+        asEntries(this.stagedIndexes), asEntries(this.indexes), asEntries(this.deletedIndexes));
+  }
+
+  private static List<JournalEntry<? extends IndexDefinitionGeneration>> asEntries(
+      List<IndexDefinitionGeneration> definitions) {
+    return definitions.stream()
+        .map(JournalEntry::<IndexDefinitionGeneration>parsed)
+        .collect(Collectors.toList());
   }
 }

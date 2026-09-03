@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.bson.BsonDocument;
@@ -116,17 +117,24 @@ public final class ConfigJournalV1 implements DocumentEncodable {
   private final ImmutableList<JournalEntry<VectorIndexDefinitionGeneration>> liveVectorIndexes;
   private final ImmutableList<JournalEntry<VectorIndexDefinitionGeneration>> deletedVectorIndexes;
 
+  /**
+   * Builds a journal from entries rather than definitions, so that an entry whose definition could
+   * not be parsed is carried rather than dropped.
+   *
+   * <p>Each entry is routed to the array for its {@link JournalEntry#getType()}: a quarantined
+   * entry has no definition to inspect, but does carry the type of the array it was read from.
+   */
   public ConfigJournalV1(
-      List<IndexDefinitionGeneration> staged,
-      List<IndexDefinitionGeneration> live,
-      List<IndexDefinitionGeneration> deleted) {
+      List<JournalEntry<? extends IndexDefinitionGeneration>> staged,
+      List<JournalEntry<? extends IndexDefinitionGeneration>> live,
+      List<JournalEntry<? extends IndexDefinitionGeneration>> deleted) {
     this(
-        asEntries(extractSearchIndexDefinitionGeneration(staged)),
-        asEntries(extractSearchIndexDefinitionGeneration(live)),
-        asEntries(extractSearchIndexDefinitionGeneration(deleted)),
-        asEntries(extractVectorIndexDefinitionGeneration(staged)),
-        asEntries(extractVectorIndexDefinitionGeneration(live)),
-        asEntries(extractVectorIndexDefinitionGeneration(deleted)));
+        entriesOfType(staged, Type.SEARCH, IndexDefinitionGeneration::asSearch),
+        entriesOfType(live, Type.SEARCH, IndexDefinitionGeneration::asSearch),
+        entriesOfType(deleted, Type.SEARCH, IndexDefinitionGeneration::asSearch),
+        entriesOfType(staged, Type.VECTOR, IndexDefinitionGeneration::asVector),
+        entriesOfType(live, Type.VECTOR, IndexDefinitionGeneration::asVector),
+        entriesOfType(deleted, Type.VECTOR, IndexDefinitionGeneration::asVector));
   }
 
   private ConfigJournalV1(
@@ -144,27 +152,30 @@ public final class ConfigJournalV1 implements DocumentEncodable {
     this.deletedVectorIndexes = consistentOrdering(deletedVectorIndexes);
   }
 
-  private static <T extends IndexDefinitionGeneration> ImmutableList<JournalEntry<T>> asEntries(
-      List<T> definitions) {
-    return definitions.stream()
-        .map(JournalEntry::<T>parsed)
+  private static <T extends IndexDefinitionGeneration> ImmutableList<JournalEntry<T>> entriesOfType(
+      List<JournalEntry<? extends IndexDefinitionGeneration>> entries,
+      Type type,
+      Function<IndexDefinitionGeneration, T> narrow) {
+    return entries.stream()
+        .filter(entry -> entry.getType() == type)
+        .map(entry -> narrowEntry(entry, narrow))
         .collect(ImmutableList.toImmutableList());
   }
 
-  private static List<SearchIndexDefinitionGeneration> extractSearchIndexDefinitionGeneration(
-      List<IndexDefinitionGeneration> definitions) {
-    return definitions.stream()
-        .filter(d -> d.getType() == Type.SEARCH)
-        .map(IndexDefinitionGeneration::asSearch)
-        .collect(Collectors.toList());
-  }
+  private static <T extends IndexDefinitionGeneration> JournalEntry<T> narrowEntry(
+      JournalEntry<? extends IndexDefinitionGeneration> entry,
+      Function<IndexDefinitionGeneration, T> narrow) {
+    // A quarantined entry has no definition to narrow. Its type parameter is a phantom (see
+    // JournalEntry), so it is rebuilt as-is under the parameter of the array it is routed to.
+    if (entry instanceof JournalEntry.Quarantined<?> quarantined) {
+      return new JournalEntry.Quarantined<>(
+          quarantined.rawBson(),
+          quarantined.identity(),
+          quarantined.type(),
+          quarantined.parseError());
+    }
 
-  private static List<VectorIndexDefinitionGeneration> extractVectorIndexDefinitionGeneration(
-      List<IndexDefinitionGeneration> definitions) {
-    return definitions.stream()
-        .filter(d -> d.getType() == Type.VECTOR)
-        .map(IndexDefinitionGeneration::asVector)
-        .collect(Collectors.toList());
+    return JournalEntry.parsed(narrow.apply(entry.getDefinition().orElseThrow()));
   }
 
   /** Reads a journal, failing on the first unparseable index definition. */

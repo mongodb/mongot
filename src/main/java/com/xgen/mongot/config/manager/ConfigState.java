@@ -7,6 +7,7 @@ import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
 import com.xgen.mongot.config.backup.ConfigJournalV1;
+import com.xgen.mongot.config.backup.JournalEntry;
 import com.xgen.mongot.config.backup.JournalWriter;
 import com.xgen.mongot.config.util.Invariants;
 import com.xgen.mongot.cursor.MongotCursorManager;
@@ -403,18 +404,26 @@ public class ConfigState {
   /**
    * Instantiate a new journal representing the current config state. It may differ from the journal
    * persisted to disk.
+   *
+   * <p>The quarantined entries in {@link #incompatibleIndexes} are folded back in alongside the
+   * indexes mongot actually holds, so that they are preserved despite having no index to be derived
+   * from. Quarantined deleted entries are not carried: their data is dropped at startup.
    */
   ConfigJournalV1 currentJournal() {
     return new ConfigJournalV1(
-        definitions(this.staged.getIndexes()),
-        definitions(this.indexCatalog.getIndexes()),
+        entries(this.staged.getIndexes(), this.incompatibleIndexes.getStagedIndexes()),
+        entries(this.indexCatalog.getIndexes(), this.incompatibleIndexes.getLiveIndexes()),
         // if we restart at any point, we can just drop the phasing out indexes.
-        definitions(this.phasingOut.getIndexes()));
+        entries(this.phasingOut.getIndexes(), List.of()));
   }
 
-  private List<IndexDefinitionGeneration> definitions(Collection<IndexGeneration> indexes) {
-    return indexes.stream()
-        .map(IndexGeneration::getDefinitionGeneration)
+  private static List<JournalEntry<? extends IndexDefinitionGeneration>> entries(
+      Collection<IndexGeneration> indexes, Collection<QuarantinedIndex> quarantined) {
+    return Stream.concat(
+            indexes.stream()
+                .map(IndexGeneration::getDefinitionGeneration)
+                .map(JournalEntry::<IndexDefinitionGeneration>parsed),
+            quarantined.stream().map(QuarantinedIndex::asJournalEntry))
         .collect(Collectors.toList());
   }
 
