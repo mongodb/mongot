@@ -1260,6 +1260,7 @@ public class DefaultConfigManagerTest {
     var definitionGeneration = customVectorEngineDefinitionGeneration();
     IndexActions.withReplication(mocks.mockedDependencies.configState)
         .addNewIndexes(List.of(definitionGeneration));
+    mocks.waitForIndexInitialization(definitionGeneration.getGenerationId());
     mocks.clearInvocations();
 
     when(mocks.indexFactory.isReadyToInitialize(any())).thenReturn(false);
@@ -1331,6 +1332,7 @@ public class DefaultConfigManagerTest {
     when(mocks.indexFactory.isReadyToInitialize(any())).thenReturn(true);
     var live = customVectorEngineDefinitionGeneration();
     IndexActions.withReplication(mocks.mockedDependencies.configState).addNewIndexes(List.of(live));
+    mocks.waitForIndexInitialization(live.getGenerationId());
     mocks.clearInvocations();
 
     var staged = live.incrementUser(live.getIndexDefinition()).incrementAttempt();
@@ -1355,6 +1357,7 @@ public class DefaultConfigManagerTest {
     IndexActions.withReplication(mocks.mockedDependencies.configState)
         .addNewIndexes(List.of(definitionGeneration));
     Assert.assertTrue(mocks.lifecycleManager.contains(definitionGeneration.getGenerationId()));
+    mocks.waitForIndexInitialization(definitionGeneration.getGenerationId());
 
     // If readiness later flips false, an already-enqueued index must stay in the lifecycle.
     when(mocks.indexFactory.isReadyToInitialize(any())).thenReturn(false);
