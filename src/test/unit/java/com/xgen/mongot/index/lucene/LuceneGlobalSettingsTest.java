@@ -127,6 +127,7 @@ public class LuceneGlobalSettingsTest {
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
+        Optional.empty(),
         Optional.empty());
   }
 }

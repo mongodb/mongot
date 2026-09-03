@@ -143,7 +143,16 @@ public enum DynamicFeatureFlags {
    */
   AUTO_EMBEDDING_400_SKIP("mongot.featureFlag.autoEmbedding400Skip", false),
   QUERY_OPTIMIZER("mongot.featureFlag.queryOptimizer", false),
-  RANGE_BOUNDS_MERGE_OPTIMIZATION("mongot.featureFlag.rangeBoundsMergeOptimization", false);
+  RANGE_BOUNDS_MERGE_OPTIMIZATION("mongot.featureFlag.rangeBoundsMergeOptimization", false),
+  /**
+   * When enabled, a search aggregation query is rejected at plan time if the upper bound of its
+   * total bucket count — the product of each grouping level's field cardinality, summed across
+   * levels — exceeds the configured limit ({@code aggregationMaxBuckets}, default {@code
+   * 1_000_000}). The bound is a conservative estimate: it assumes every unique value of every
+   * grouping field lands in its own bucket, so it over-rejects rather than risking an OOM from
+   * materializing the buckets.
+   */
+  SEARCH_AGGREGATION_BUCKET_LIMIT("mongot.featureFlag.enableSearchAggregationBucketLimit", true);
 
   private final String name;
   private final boolean fallback;

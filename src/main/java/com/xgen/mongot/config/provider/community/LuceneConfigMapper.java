@@ -106,6 +106,7 @@ public final class LuceneConfigMapper {
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
+        Optional.empty(),
         floorSegmentMB,
         mergePolicyDiskUtilizationConfig,
         Optional.empty(),

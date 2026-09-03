@@ -72,6 +72,8 @@ import org.slf4j.LoggerFactory;
  * @param vectorFloorSegmentMB In vector indexes, segments smaller than this size are merged more
  *     aggressively. This helps prevent frequent flushing of tiny segments to create a long tail of
  *     small segments in the index.
+ * @param aggregationMaxBuckets The upper bound on a search aggregation query's estimated total
+ *     bucket count.
  */
 public record LuceneConfig(
     Path dataPath,
@@ -98,6 +100,7 @@ public record LuceneConfig(
     Optional<VectorMergePolicyConfig> vectorMergePolicyConfig,
     boolean enableTextOperatorNewSynonymsSyntax,
     Optional<Integer> tokenFacetingCardinalityLimit,
+    Optional<Integer> aggregationMaxBuckets,
     Optional<Double> deletesPctAllowed,
     Optional<Double> forceMergeDeletesPctAllowed,
     Optional<Double> vectorFloorSegmentMB,
@@ -213,6 +216,13 @@ public record LuceneConfig(
   /** Max allowed number of documents per index */
   public static final int MAX_DOCS_LIMIT = 2_100_000_000;
 
+  /**
+   * Default upper bound on a search aggregation query's estimated total bucket count, applied when
+   * {@code aggregationMaxBuckets} is not configured. At the heap-cost formula's worst case this
+   * bounds a single admitted query to roughly 510 MB — at most ~25% of heap from S30 up.
+   */
+  public static final int DEFAULT_AGGREGATION_MAX_BUCKETS = 1_000_000;
+
   public LuceneConfig {
     LOG.info("using Lucene Version {}.", Version.LATEST);
   }
@@ -243,6 +253,7 @@ public record LuceneConfig(
       Optional<VectorMergePolicyConfig> vectorMergePolicy,
       Optional<Boolean> optionalEnableTextOperatorNewSynonymsSyntax,
       Optional<Integer> tokenFacetingCardinalityLimit,
+      Optional<Integer> aggregationMaxBuckets,
       Optional<Double> deletesPctAllowed,
       Optional<Double> forceMergeDeletesPctAllowed,
       Optional<Double> vectorFloorSegmentMB,
@@ -275,6 +286,7 @@ public record LuceneConfig(
         vectorMergePolicy,
         optionalEnableTextOperatorNewSynonymsSyntax,
         tokenFacetingCardinalityLimit,
+        aggregationMaxBuckets,
         deletesPctAllowed,
         forceMergeDeletesPctAllowed,
         vectorFloorSegmentMB,
@@ -310,6 +322,7 @@ public record LuceneConfig(
       Optional<VectorMergePolicyConfig> vectorMergePolicy,
       Optional<Boolean> optionalEnableTextOperatorNewSynonymsSyntax,
       Optional<Integer> tokenFacetingCardinalityLimit,
+      Optional<Integer> aggregationMaxBuckets,
       Optional<Double> deletesPctAllowed,
       Optional<Double> forceMergeDeletesPctAllowed,
       Optional<Double> vectorFloorSegmentMB,
@@ -364,6 +377,8 @@ public record LuceneConfig(
 
     validateMaxClauseLimit(maxClauseLimit);
 
+    validateAggregationMaxBuckets(aggregationMaxBuckets);
+
     boolean disableMaxClauseLimit = optionalDisableMaxClauseLimit.orElse(false);
     boolean enableConcurrentSearch = optionalEnableConcurrentSearch.orElse(false);
     int concurrentSearchExecutorThreads =
@@ -407,6 +422,7 @@ public record LuceneConfig(
         vectorMergePolicy,
         enableTextOperatorNewSynonymsSyntax,
         tokenFacetingCardinalityLimit,
+        aggregationMaxBuckets,
         deletesPctAllowed,
         forceMergeDeletesPctAllowed,
         vectorFloorSegmentMB,
@@ -661,6 +677,14 @@ public record LuceneConfig(
         limit -> {
           Check.argIsPositive(limit, "maxClauseLimit");
           LOG.atInfo().addKeyValue("maxClauseLimit", limit).log("maxClauseLimit set");
+        });
+  }
+
+  private static void validateAggregationMaxBuckets(Optional<Integer> aggregationMaxBuckets) {
+    aggregationMaxBuckets.ifPresent(
+        limit -> {
+          Check.argIsPositive(limit, "aggregationMaxBuckets");
+          LOG.atInfo().addKeyValue("aggregationMaxBuckets", limit).log("aggregationMaxBuckets set");
         });
   }
 

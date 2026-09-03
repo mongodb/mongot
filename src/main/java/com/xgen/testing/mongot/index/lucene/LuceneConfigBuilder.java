@@ -38,6 +38,7 @@ public class LuceneConfigBuilder {
   private Optional<LuceneConfig.VectorMergePolicyConfig> vectorMergePolicyConfig = Optional.empty();
   private Optional<Boolean> enableTextOperatorNewSynonymsSyntax = Optional.empty();
   private Optional<Integer> tokenFacetingCardinalityLimit = Optional.empty();
+  private Optional<Integer> aggregationMaxBuckets = Optional.empty();
   private Optional<Double> deletesPctAllowed = Optional.empty();
   private Optional<Double> forceMergeDeletesPctAllowed = Optional.empty();
   private Optional<Double> floorSegmentMB = Optional.empty();
@@ -183,6 +184,11 @@ public class LuceneConfigBuilder {
     return this;
   }
 
+  public LuceneConfigBuilder aggregationMaxBuckets(int aggregationMaxBuckets) {
+    this.aggregationMaxBuckets = Optional.of(aggregationMaxBuckets);
+    return this;
+  }
+
   public LuceneConfigBuilder deletesPctAllowed(double deletesPctAllowed) {
     this.deletesPctAllowed = Optional.of(deletesPctAllowed);
     return this;
@@ -243,6 +249,7 @@ public class LuceneConfigBuilder {
         this.vectorMergePolicyConfig,
         this.enableTextOperatorNewSynonymsSyntax,
         this.tokenFacetingCardinalityLimit,
+        this.aggregationMaxBuckets,
         this.deletesPctAllowed,
         this.forceMergeDeletesPctAllowed,
         this.floorSegmentMB,
