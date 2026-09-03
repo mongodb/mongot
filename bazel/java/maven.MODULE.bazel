@@ -125,6 +125,11 @@ maven.install(
         # azure-core-http-netty; keep core and http aligned on the same version.
         "io.projectreactor.netty:reactor-netty-core:1.2.18",
         "io.projectreactor.netty:reactor-netty-http:1.2.18",
+        # Force reactor-core to 3.8.7 to address CVE-2026-47863 (race condition in
+        # Flux.bufferTimeout with fairBackpressure enabled that can hang the stream and
+        # exhaust resources). Pulled transitively via azure-core / reactor-netty; keep
+        # aligned with the reactor-test version below.
+        "io.projectreactor:reactor-core:3.8.7",
         # OSHI 7.x switched to jna-platform-jpms, removing the transitive driver for jna-platform;
         # pin explicitly to hold the pre-existing version
         "net.java.dev.jna:jna-platform:5.17.0",
@@ -188,7 +193,7 @@ maven.install(
         ("com.github.docker-java", "docker-java-api", "3.7.1"),
         ("com.github.docker-java", "docker-java-transport", "3.7.1"),
         ("com.github.docker-java", "docker-java-transport-httpclient5", "3.7.1"),
-        ("io.projectreactor", "reactor-test", "3.7.19"),
+        ("io.projectreactor", "reactor-test", "3.8.7"),
         ("com.googlecode.junit-toolbox", "junit-toolbox", "2.4"),
         ("org.hamcrest", "hamcrest-library", "3.0"),
         ("org.hamcrest", "hamcrest-core", "3.0"),
