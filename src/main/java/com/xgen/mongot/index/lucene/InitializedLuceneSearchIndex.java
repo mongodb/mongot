@@ -229,6 +229,7 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
               searchIndexProperties.concurrentSearchExecutor,
               searchIndexProperties.concurrentVectorRescoringExecutor,
               searchIndexProperties.enableTextOperatorNewSynonymsSyntax,
+              searchIndexProperties.aggregationMaxBuckets,
               i,
               featureFlags,
               dynamicFeatureFlagRegistry));

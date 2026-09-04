@@ -1,7 +1,10 @@
 package com.xgen.mongot.index.query.collectors;
 
+import com.google.common.math.LongMath;
+import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.index.definition.FieldDefinition;
 import com.xgen.mongot.index.definition.SearchFieldDefinitionResolver;
+import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.query.aggregation.Operator;
 import com.xgen.mongot.index.query.sort.MetaSortOptions;
 import com.xgen.mongot.index.query.sort.SortSpec;
@@ -9,7 +12,11 @@ import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.UserFacingException;
 import com.xgen.mongot.util.bson.parser.BsonParseContext;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
+import java.io.IOException;
 import java.util.Optional;
+import org.apache.lucene.index.IndexReader;
+import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.index.SortedSetDocValues;
 
 /**
  * Central home for validation of aggregation-capable {@code facet} requests: parse-time semantic
@@ -38,6 +45,81 @@ public class AggregationValidator {
 
   public AggregationValidator(BsonParseContext bsonParseContext) {
     this.bsonParseContext = bsonParseContext;
+  }
+
+  /**
+   * Rejects an aggregation whose estimated total bucket count exceeds {@code maxBuckets}, before
+   * any bucket state is allocated.
+   *
+   * <p>The estimate assumes every unique value of every string grouping field survives the query's
+   * filter and lands in its own bucket. String levels multiply their cardinality bound at every
+   * depth — deliberately not capped by document count, since a multi-valued field fans one document
+   * into a bucket per value. Boundary levels are ignored: their bucket counts are parse-capped and
+   * tiny next to string cardinalities. The guard exists to keep a single aggregation from OOMing
+   * the node; a legitimately large workload raises the limit via the {@code aggregationMaxBuckets}
+   * configuration.
+   */
+  public static void validateBucketLimit(
+      AggregationCollector collector, IndexReader reader, long maxBuckets)
+      throws IOException, AggregationValidationException {
+    @Var long totalBuckets = 0;
+    for (AggregationFacetDefinition facet : collector.facets().values()) {
+      totalBuckets = LongMath.saturatedAdd(totalBuckets, estimateBranchBuckets(facet, 1, reader));
+      if (totalBuckets > maxBuckets) {
+        throw new AggregationValidationException(
+            String.format(
+                "the aggregation query may materialize about %d buckets, above the maximum of %d"
+                    + " allowed per query. Reduce the cardinality of the grouping fields, or raise"
+                    + " the limit via the aggregationMaxBuckets configuration.",
+                totalBuckets, maxBuckets));
+      }
+    }
+  }
+
+  /**
+   * Returns the estimated bucket count of {@code facet}'s subtree: this level's bucket space plus
+   * its descendants'. {@code parentBuckets} is the bucket space of the enclosing level (1 at the
+   * root).
+   */
+  private static long estimateBranchBuckets(
+      AggregationFacetDefinition facet, long parentBuckets, IndexReader reader) throws IOException {
+    // Boundary levels pass the parent bucket space through unchanged: their range counts are
+    // parse-capped and negligible next to string cardinalities, so this estimate ignores them.
+    long levelBuckets =
+        facet.group() instanceof FacetDefinition.StringFacetDefinition
+            ? LongMath.saturatedMultiply(
+                parentBuckets, tokenFieldCardinalityUpperBound(reader, facet.path()))
+            : parentBuckets;
+    @Var
+    long total = facet.group() instanceof FacetDefinition.StringFacetDefinition ? levelBuckets : 0;
+    for (AggregationFacetDefinition child : facet.facets().values()) {
+      total = LongMath.saturatedAdd(total, estimateBranchBuckets(child, levelBuckets, reader));
+    }
+    return total;
+  }
+
+  /**
+   * Upper bound on a token grouping field's global cardinality: the sum of per-segment doc-values
+   * value counts, read from segment metadata without building the global ordinal map. Never below
+   * the true cardinality.
+   */
+  private static long tokenFieldCardinalityUpperBound(IndexReader reader, FieldPath path)
+      throws IOException {
+    String luceneField = FieldName.TypeField.TOKEN.getLuceneFieldName(path, Optional.empty());
+    @Var long sum = 0;
+    @Var long largestSegment = 0;
+    for (LeafReaderContext leaf : reader.leaves()) {
+      Optional<SortedSetDocValues> values =
+          Optional.ofNullable(leaf.reader().getSortedSetDocValues(luceneField));
+      if (values.isPresent()) {
+        sum = LongMath.saturatedAdd(sum, values.get().getValueCount());
+        largestSegment = Math.max(largestSegment, values.get().getValueCount());
+      }
+    }
+    // Summing per-segment counts double-counts values shared across segments, so an index with
+    // many segments over-estimates badly. Halving the sum damps that; flooring at the largest
+    // single segment keeps the estimate at or above a true lower bound on global cardinality.
+    return Math.max(largestSegment, sum / 2);
   }
 
   /**

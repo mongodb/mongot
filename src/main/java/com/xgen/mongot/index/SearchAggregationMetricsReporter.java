@@ -50,6 +50,12 @@ public interface SearchAggregationMetricsReporter {
   String MAX_PATH_BUCKETS_HISTOGRAM = "aggregationMaxPathBucketsPerQuery";
 
   /**
+   * Process counter of aggregation queries rejected by the plan-time bucket limit ({@code
+   * aggregationMaxBuckets}). One increment per rejected query.
+   */
+  String BUCKET_LIMIT_REJECTIONS_COUNTER = "aggregationBucketLimitRejections";
+
+  /**
    * Histogram of grouping buckets instantiated by one aggregation partition search, summed over
    * grouping nodes and search slices. Read against {@link #REQUESTED_BUCKETS_HISTOGRAM}: observed
    * can exceed requested by orders of magnitude when cardinality explodes.
@@ -91,6 +97,9 @@ public interface SearchAggregationMetricsReporter {
    */
   void recordRequestedBuckets(long requestedBuckets, long maxPathBuckets);
 
+  /** Increments the process counter of queries rejected by the plan-time bucket limit. */
+  void recordBucketLimitRejection();
+
   /**
    * Records grouping buckets instantiated by one aggregation partition search. One sample per
    * successful collection, not per node: callers sum across grouping nodes and slices first.
@@ -130,6 +139,11 @@ public interface SearchAggregationMetricsReporter {
 
     @Override
     public void recordRequestedBuckets(long requestedBuckets, long maxPathBuckets) {
+      // Intentionally empty: tests and disabled aggregations record nothing.
+    }
+
+    @Override
+    public void recordBucketLimitRejection() {
       // Intentionally empty: tests and disabled aggregations record nothing.
     }
 

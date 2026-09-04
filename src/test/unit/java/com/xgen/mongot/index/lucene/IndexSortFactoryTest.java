@@ -1438,6 +1438,7 @@ public class IndexSortFactoryTest {
               queryingMetricsUpdater,
               mock(LuceneSearchManagerFactory.class),
               Optional.empty(),
+              Optional.empty(),
               0,
               FeatureFlags.getDefault(),
               new DynamicFeatureFlagRegistry(

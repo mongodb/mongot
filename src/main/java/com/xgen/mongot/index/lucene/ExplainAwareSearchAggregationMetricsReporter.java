@@ -60,6 +60,11 @@ final class ExplainAwareSearchAggregationMetricsReporter
   }
 
   @Override
+  public void recordBucketLimitRejection() {
+    this.delegate.recordBucketLimitRejection();
+  }
+
+  @Override
   public void recordObservedBuckets(long observedBuckets) {
     this.delegate.recordObservedBuckets(observedBuckets);
   }

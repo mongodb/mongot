@@ -58,6 +58,7 @@ public class LuceneSearchIndex implements SearchIndex {
     boolean enableTextOperatorNewSynonymsSyntax;
     boolean enableFacetingOverTokenFields;
     Optional<Integer> tokenFacetingCardinalityLimit;
+    Optional<Integer> aggregationMaxBuckets;
     IndexFormatVersion indexFormatVersion;
     PerIndexMetricsFactory metricsFactory;
     Optional<NamedExecutorService> concurrentSearchExecutor;
@@ -78,6 +79,7 @@ public class LuceneSearchIndex implements SearchIndex {
         boolean enableTextOperatorNewSynonymsSyntax,
         boolean enableFacetingOverTokenFields,
         Optional<Integer> tokenFacetingCardinalityLimit,
+        Optional<Integer> aggregationMaxBuckets,
         IndexFormatVersion indexFormatVersion,
         PerIndexMetricsFactory metricsFactory,
         Optional<NamedExecutorService> concurrentSearchExecutor,
@@ -95,6 +97,7 @@ public class LuceneSearchIndex implements SearchIndex {
       this.enableTextOperatorNewSynonymsSyntax = enableTextOperatorNewSynonymsSyntax;
       this.enableFacetingOverTokenFields = enableFacetingOverTokenFields;
       this.tokenFacetingCardinalityLimit = tokenFacetingCardinalityLimit;
+      this.aggregationMaxBuckets = aggregationMaxBuckets;
       this.indexFormatVersion = indexFormatVersion;
       this.metricsFactory = metricsFactory;
       this.concurrentSearchExecutor = concurrentSearchExecutor;
@@ -127,6 +130,7 @@ public class LuceneSearchIndex implements SearchIndex {
       boolean enableTextOperatorNewSynonymsSyntax,
       boolean enableFacetingOverTokenFields,
       Optional<Integer> tokenFacetingCardinalityLimit,
+      Optional<Integer> aggregationMaxBuckets,
       SearchIndexDefinition indexDefinition,
       IndexFormatVersion indexFormatVersion,
       AnalyzerRegistry analyzerRegistry,
@@ -160,6 +164,7 @@ public class LuceneSearchIndex implements SearchIndex {
                 enableTextOperatorNewSynonymsSyntax,
                 enableFacetingOverTokenFields,
                 tokenFacetingCardinalityLimit,
+                aggregationMaxBuckets,
                 indexFormatVersion,
                 metricsFactory,
                 concurrentSearchExecutor,
@@ -201,6 +206,7 @@ public class LuceneSearchIndex implements SearchIndex {
         config.enableTextOperatorNewSynonymsSyntax(),
         featureFlags.isEnabled(Feature.FACETING_OVER_TOKEN_FIELDS),
         config.tokenFacetingCardinalityLimit(),
+        config.aggregationMaxBuckets(),
         indexDefinition,
         indexFormatVersion,
         analyzerRegistry,

@@ -248,6 +248,7 @@ public class LuceneSearchIndexReaderTest {
                 new BinaryQuantizedVectorRescorer(Optional.of(this.concurrentRescoringExecutor)),
                 indexMetricsUpdater.getQueryingMetricsUpdater()),
             Optional.of(this.concurrentSearchExecutor),
+            Optional.empty(),
             0,
             featureFlags,
             new DynamicFeatureFlagRegistry(
@@ -266,6 +267,7 @@ public class LuceneSearchIndexReaderTest {
                 new BinaryQuantizedVectorRescorer(Optional.of(this.concurrentRescoringExecutor)),
                 indexMetricsUpdater.getQueryingMetricsUpdater()),
             Optional.of(this.concurrentSearchExecutor),
+            Optional.empty(),
             0,
             featureFlags,
             drillSidewaysEnabledRegistry());
@@ -931,6 +933,7 @@ public class LuceneSearchIndexReaderTest {
             new BinaryQuantizedVectorRescorer(Optional.of(this.concurrentRescoringExecutor)),
             indexMetricsUpdater.getQueryingMetricsUpdater()),
         Optional.of(this.concurrentSearchExecutor),
+        Optional.empty(),
         0,
         featureFlags,
         new DynamicFeatureFlagRegistry(

@@ -3,6 +3,7 @@ package com.xgen.mongot.index;
 import static com.google.common.truth.Truth.assertThat;
 import static com.xgen.mongot.index.SearchAggregationMetricsReporter.AGGREGATION_GROUP_TAG_PREFIX;
 import static com.xgen.mongot.index.SearchAggregationMetricsReporter.AGGREGATION_METRIC_TAG_PREFIX;
+import static com.xgen.mongot.index.SearchAggregationMetricsReporter.BUCKET_LIMIT_REJECTIONS_COUNTER;
 import static com.xgen.mongot.index.SearchAggregationMetricsReporter.COLLECTION_LATENCY_TIMER;
 import static com.xgen.mongot.index.SearchAggregationMetricsReporter.MAX_PATH_BUCKETS_HISTOGRAM;
 import static com.xgen.mongot.index.SearchAggregationMetricsReporter.NESTING_HISTOGRAM;
@@ -68,6 +69,25 @@ public class SearchAggregationMetricsReporterTest {
                 }));
 
     assertThat(timerCount(metricsFactory, COLLECTION_LATENCY_TIMER)).isEqualTo(0);
+  }
+
+  @Test
+  public void recordBucketLimitRejection_incrementsProcessCounter() {
+    PerIndexMetricsFactory metricsFactory = SearchIndex.mockMetricsFactory();
+    SearchAggregationMetricsReporter reporter =
+        new IndexMetricsUpdater.QueryingMetricsUpdater(metricsFactory)
+            .getSearchAggregationMetricsReporter();
+
+    reporter.recordBucketLimitRejection();
+    reporter.recordBucketLimitRejection();
+
+    assertThat(
+            metricsFactory
+                .getProcessMetricsFactory()
+                .get(BUCKET_LIMIT_REJECTIONS_COUNTER)
+                .counter()
+                .count())
+        .isEqualTo(2.0);
   }
 
   @Test

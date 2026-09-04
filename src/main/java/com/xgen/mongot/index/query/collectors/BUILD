@@ -38,6 +38,7 @@ java_library(
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
         "@maven//:org_apache_commons_commons_lang3",
+        "@maven//:org_apache_lucene_lucene_core",
         "@maven//:org_mongodb_bson",
     ],
 )

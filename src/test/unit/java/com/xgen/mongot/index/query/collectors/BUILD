@@ -6,6 +6,7 @@ java_test_suite(
         "AggregationCollectorDeserializationTest.java",
         "AggregationCollectorParseTest.java",
         "AggregationSpecBuilderTest.java",
+        "AggregationValidatorBucketLimitTest.java",
         "AggregationValidatorFieldDefinitionTest.java",
         "CollectorTest.java",
         "DrillSidewaysInfoBuilderTest.java",
@@ -16,6 +17,7 @@ java_test_suite(
     tags = ["unit"],
     deps = [
         "//src/main/java/com/xgen/mongot/index/definition",
+        "//src/main/java/com/xgen/mongot/index/lucene/field",
         "//src/main/java/com/xgen/mongot/index/query/aggregation",
         "//src/main/java/com/xgen/mongot/index/query/collectors",
         "//src/main/java/com/xgen/mongot/index/query/operators",
@@ -32,9 +34,11 @@ java_test_suite(
         "//src/main/java/com/xgen/testing/mongot/index/query/operators",
         "//src/main/java/com/xgen/testing/mongot/index/query/operators/mql",
         "//src/test/unit/java/com/xgen/mongot/index/query/aggregation:planner_test_support",  # keep
+        "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_truth_truth",
         "@maven//:junit_junit",
+        "@maven//:org_apache_lucene_lucene_core",
         "@maven//:org_mongodb_bson",
     ],
 )

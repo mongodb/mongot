@@ -52,6 +52,7 @@ public final class MicrometerSearchAggregationMetricsReporter
   private final DistributionSummary nestingHistogram;
   private final DistributionSummary requestedBucketsHistogram;
   private final DistributionSummary maxPathBucketsHistogram;
+  private final Counter bucketLimitRejectionsCounter;
   private final DistributionSummary observedBucketsHistogram;
 
   /**
@@ -73,6 +74,7 @@ public final class MicrometerSearchAggregationMetricsReporter
         processMetricsFactory.histogram(NESTING_HISTOGRAM, NESTING_BOUNDS),
         processMetricsFactory.histogram(REQUESTED_BUCKETS_HISTOGRAM, REQUESTED_BUCKETS_BOUNDS),
         processMetricsFactory.histogram(MAX_PATH_BUCKETS_HISTOGRAM, REQUESTED_BUCKETS_BOUNDS),
+        processMetricsFactory.counter(BUCKET_LIMIT_REJECTIONS_COUNTER),
         processMetricsFactory.histogram(OBSERVED_BUCKETS_HISTOGRAM, OBSERVED_BUCKETS_BOUNDS));
   }
 
@@ -84,6 +86,7 @@ public final class MicrometerSearchAggregationMetricsReporter
       DistributionSummary nestingHistogram,
       DistributionSummary requestedBucketsHistogram,
       DistributionSummary maxPathBucketsHistogram,
+      Counter bucketLimitRejectionsCounter,
       DistributionSummary observedBucketsHistogram) {
     this.collectionTimer = collectionTimer;
     this.partitionMergeTimer = partitionMergeTimer;
@@ -92,6 +95,7 @@ public final class MicrometerSearchAggregationMetricsReporter
     this.nestingHistogram = nestingHistogram;
     this.requestedBucketsHistogram = requestedBucketsHistogram;
     this.maxPathBucketsHistogram = maxPathBucketsHistogram;
+    this.bucketLimitRejectionsCounter = bucketLimitRejectionsCounter;
     this.observedBucketsHistogram = observedBucketsHistogram;
   }
 
@@ -119,6 +123,11 @@ public final class MicrometerSearchAggregationMetricsReporter
   public void recordRequestedBuckets(long requestedBuckets, long maxPathBuckets) {
     this.requestedBucketsHistogram.record(requestedBuckets);
     this.maxPathBucketsHistogram.record(maxPathBuckets);
+  }
+
+  @Override
+  public void recordBucketLimitRejection() {
+    this.bucketLimitRejectionsCounter.increment();
   }
 
   @Override

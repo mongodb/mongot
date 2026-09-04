@@ -824,6 +824,7 @@ public class InitializedLuceneSearchIndexTest {
         false,
         false,
         Optional.empty(),
+        Optional.empty(),
         IndexFormatVersion.CURRENT,
         mock(PerIndexMetricsFactory.class),
         Optional.empty(),

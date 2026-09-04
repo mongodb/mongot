@@ -27,6 +27,7 @@ import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.lucene.LuceneAggregationSearchManager.AggregationQueryInfo;
 import com.xgen.mongot.index.lucene.LuceneFacetCollectorSearchManager.FacetCollectorQueryInfo;
 import com.xgen.mongot.index.lucene.LuceneSearchManager.QueryInfo;
+import com.xgen.mongot.index.lucene.config.LuceneConfig;
 import com.xgen.mongot.index.lucene.explain.explainers.FacetFeatureExplainer;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.facet.TokenFacetsStateCache;
@@ -146,6 +147,12 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
   private final int indexPartitionId;
   private final FeatureFlags featureFlags;
 
+  /**
+   * Plan-time cap on a search aggregation query's estimated total bucket count.
+   * LuceneConfig.DEFAULT_AGGREGATION_MAX_BUCKETS is used if not configured.
+   */
+  private final int aggregationMaxBuckets;
+
   private LuceneSearchIndexReader(
       SearchIndexDefinition indexDefinition,
       LuceneSearchQueryFactoryDistributor queryFactory,
@@ -155,6 +162,7 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
       IndexMetricsUpdater.QueryingMetricsUpdater queryingMetricsUpdater,
       LuceneSearchManagerFactory luceneSearchManagerFactory,
       Optional<NamedExecutorService> concurrentSearchExecutor,
+      Optional<Integer> aggregationMaxBuckets,
       int indexPartitionId,
       FeatureFlags featureFlags,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
@@ -171,6 +179,8 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
     this.indexPartitionId = indexPartitionId;
     this.featureFlags = featureFlags;
     this.dynamicFeatureFlagRegistry = dynamicFeatureFlagRegistry;
+    this.aggregationMaxBuckets =
+        aggregationMaxBuckets.orElse(LuceneConfig.DEFAULT_AGGREGATION_MAX_BUCKETS);
 
     ReentrantReadWriteLock shutdownLock = new ReentrantReadWriteLock(true);
     this.shutdownExclusiveLock = shutdownLock.writeLock();
@@ -189,6 +199,7 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
       IndexMetricsUpdater.QueryingMetricsUpdater queryingMetricsUpdater,
       LuceneSearchManagerFactory luceneSearchManagerFactory,
       Optional<NamedExecutorService> concurrentSearchExecutor,
+      Optional<Integer> aggregationMaxBuckets,
       int indexPartitionId,
       FeatureFlags featureFlags,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
@@ -202,6 +213,7 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
         queryingMetricsUpdater,
         luceneSearchManagerFactory,
         concurrentSearchExecutor,
+        aggregationMaxBuckets,
         indexPartitionId,
         featureFlags,
         dynamicFeatureFlagRegistry);
@@ -218,6 +230,7 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
       Optional<NamedExecutorService> concurrentSearchExecutor,
       Optional<NamedExecutorService> concurrentVectorRescoringExecutor,
       boolean enableTextOperatorNewSynonymsSyntax,
+      Optional<Integer> aggregationMaxBuckets,
       int indexPartitionId,
       FeatureFlags featureFlags,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
@@ -251,6 +264,7 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
             new BinaryQuantizedVectorRescorer(concurrentVectorRescoringExecutor),
             queryingMetricsUpdater),
         concurrentSearchExecutor,
+        aggregationMaxBuckets,
         indexPartitionId,
         featureFlags,
         dynamicFeatureFlagRegistry);
@@ -992,6 +1006,7 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
     LuceneAggregationPlanResolver.AggregationPlan aggregationPlan =
         LuceneAggregationPlanResolver.resolveAggregationPlan(
             this.facetContext, aggregationCollector, query.returnStoredSource());
+    validateAggregationBucketLimit(aggregationCollector, searcherReference);
     // Always 0 here: a partitioned index routes aggregation through
     // intermediateAggregationCollectorQuery instead, so this path only ever serves a
     // single-partition index.
@@ -1063,6 +1078,7 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
     LuceneAggregationPlanResolver.AggregationPlan aggregationPlan =
         LuceneAggregationPlanResolver.resolveAggregationPlan(
             this.facetContext, aggregationCollector, query.returnStoredSource());
+    validateAggregationBucketLimit(aggregationCollector, searcherReference);
     // The reader's own partition, since a partitioned index has one reader per partition and
     // fans out over them. first/last need it because doc ids only order documents within a
     // single partition.
@@ -1636,6 +1652,30 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
    */
   public boolean maxFacetCardinalityMetricEnabled() {
     return this.featureFlags.isEnabled(Feature.MAX_STRING_FACET_CARDINALITY_METRIC);
+  }
+
+  /**
+   * Plan-time bucket-limit guard (gated by the {@code enableSearchAggregationBucketLimit} dynamic
+   * feature flag): rejects the aggregation before any bucket state is allocated when the estimated
+   * total bucket count exceeds {@code aggregationMaxBuckets}. The estimate assumes every unique
+   * grouping value survives the filter, so it over-rejects rather than risking an OOM.
+   */
+  private void validateAggregationBucketLimit(
+      AggregationCollector aggregationCollector, LuceneIndexSearcherReference searcherReference)
+      throws IOException, InvalidQueryException {
+    if (!this.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+        DynamicFeatureFlags.SEARCH_AGGREGATION_BUCKET_LIMIT)) {
+      return;
+    }
+    try {
+      AggregationValidator.validateBucketLimit(
+          aggregationCollector,
+          searcherReference.getIndexSearcher().getIndexReader(),
+          this.aggregationMaxBuckets);
+    } catch (AggregationValidator.AggregationValidationException e) {
+      getSearchAggregationMetricsReporter().recordBucketLimitRejection();
+      throw new InvalidQueryException(e.getMessage());
+    }
   }
 
   /**
