@@ -146,6 +146,15 @@ public class Projection {
             }
             indexedPaths.add(path.get().toString());
           }
+
+          if (vectorIndexDefinition.getIndexNamespace().isPresent()) {
+            Optional<FieldPath> namespacePath =
+                filterInvalidVectorPaths(vectorIndexDefinition.getIndexNamespace().get().path());
+            if (namespacePath.isEmpty()) {
+              return Optional.empty();
+            }
+            indexedPaths.add(namespacePath.get().toString());
+          }
         }
       }
 

@@ -144,6 +144,58 @@ public class ProjectionTest {
   }
 
   @Test
+  public void testVectorDefinitionWithIndexNamespaceForFindQuery() {
+
+    var definition =
+        VectorIndexDefinitionBuilder.builder()
+            .withFilterPath("b")
+            .withCustomEngineVectorField("d1.d2", 3)
+            .indexNamespace("meta.tenant")
+            .build();
+
+    Optional<Bson> projection = Projection.forRegularQuery(definition);
+    assertProjection(
+        ProjectionType.INCLUDE,
+        projection,
+        getDefaultFindQueryPaths(definition),
+        "b",
+        "d1.d2",
+        "meta.tenant");
+  }
+
+  @Test
+  public void testVectorDefinitionWithIndexNamespaceForChangeStreamQuery() {
+
+    var definition =
+        VectorIndexDefinitionBuilder.builder()
+            .withFilterPath("b")
+            .withCustomEngineVectorField("d1.d2", 3)
+            .indexNamespace("meta.tenant")
+            .build();
+
+    Optional<Bson> projection = Projection.forChangeStream(definition);
+    assertProjection(
+        ProjectionType.INCLUDE,
+        projection,
+        getDefaultChangeStreamPaths(definition),
+        "fullDocument.b",
+        "fullDocument.d1.d2",
+        "fullDocument.meta.tenant");
+  }
+
+  @Test
+  public void testVectorDefinitionWithDollarSignIndexNamespace() {
+    var definition =
+        VectorIndexDefinitionBuilder.builder()
+            .withCustomEngineVectorField("good_vector", 3)
+            .indexNamespace("$bad_namespace")
+            .build();
+
+    Assert.assertTrue(Projection.forRegularQuery(definition).isEmpty());
+    Assert.assertTrue(Projection.forChangeStream(definition).isEmpty());
+  }
+
+  @Test
   public void testFlatFieldsAreProjectedIndependently() {
 
     var mappings =
