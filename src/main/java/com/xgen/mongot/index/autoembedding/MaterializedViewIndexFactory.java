@@ -22,6 +22,7 @@ import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneratio
 import com.xgen.mongot.index.mongodb.MaterializedViewMetricValuesSupplier;
 import com.xgen.mongot.index.mongodb.MaterializedViewWriter;
 import com.xgen.mongot.index.status.IndexStatus;
+import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.metrics.PerIndexMetricsFactory;
@@ -71,6 +72,13 @@ public class MaterializedViewIndexFactory implements IndexFactory {
     this.autoEmbeddingMongoClient = autoEmbeddingMongoClient;
     this.dbResolver = dbResolver;
   }
+
+  /**
+   * No-op: a materialized view is a collection on mongod, not local data, so this factory has
+   * nothing on disk to delete.
+   */
+  @Override
+  public void deleteGenerationData(GenerationId generationId) {}
 
   /**
    * Returns {@code true} only when the auto-embedding source collection is confirmed ABSENT on this

@@ -1,9 +1,11 @@
 package com.xgen.mongot.config.manager;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.config.backup.ConfigJournalV1;
 import com.xgen.mongot.config.backup.JournalEditor;
+import com.xgen.mongot.config.backup.JournalEntry;
 import com.xgen.mongot.config.util.Invariants;
 import com.xgen.mongot.index.Index;
 import com.xgen.mongot.index.analyzer.InvalidAnalyzerDefinitionException;
@@ -16,6 +18,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Stream;
 import org.bson.types.ObjectId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,13 +46,22 @@ class ConfigInitializer {
       Optional<Set<ObjectId>> desiredIndexIds,
       MeterRegistry meterRegistry)
       throws Invariants.InvariantException, IOException, InvalidAnalyzerDefinitionException {
+    int numIncompatibleIndexes = configJournal.getQuarantinedEntries().size();
+
     LOG.atInfo()
         .addKeyValue("numExistingIndexes", configJournal.getLiveIndexes().size())
         .addKeyValue("numDeletedIndexes", configJournal.getDeletedIndexes().size())
         .addKeyValue("numStagedIndexes", configJournal.getStagedIndexes().size())
+        .addKeyValue("numIncompatibleIndexes", numIncompatibleIndexes)
         .log(
             "Found config journal. "
                 + "Initializing existing indexes, cleaning up deleted indexes, staging indexes");
+
+    // Must precede the invariant check: a parseable staged index whose only live counterpart is
+    // quarantined looks orphaned to checks that see parsed definitions only.
+    if (numIncompatibleIndexes > 0) {
+      configJournal = moveSupersededQuarantinedIndexesToDropped(configState, configJournal);
+    }
 
     validateJournalInvariants(configJournal);
 
@@ -62,7 +74,7 @@ class ConfigInitializer {
     }
 
     // Drop indexes that were ready for deletion before mongot stopped running.
-    dropDeletedIndexes(configState, configJournal.getDeletedIndexes());
+    dropDeletedIndexes(configState, configJournal.getDeletedEntries());
 
     // Add the indexes that should exist.
     addLiveIndexes(configState, configJournal.getLiveIndexes());
@@ -71,9 +83,64 @@ class ConfigInitializer {
     // we don't have "orphan" staged indexes).
     addStagedIndexes(configState, configJournal.getStagedIndexes());
 
+    // Record the entries whose definitions could not be parsed, so they can be reported on. They
+    // have no index to create, but must be tracked before we persist so they are written back out.
+    if (numIncompatibleIndexes > 0) {
+      addIncompatibleIndexes(configState, configJournal);
+    }
+
     // Rewrite the config journal for our current state, without the deleted
     // indexes so we don't have to drop them again if we restart.
     configState.persist(configState.currentJournal());
+  }
+
+  /**
+   * Drops quarantined live entries that a parseable staged index can replace, promoting that staged
+   * index into their place. Persisting the move before {@link #dropDeletedIndexes} deletes anything
+   * is what lets a restart part way through resume.
+   *
+   * <p>Quarantined entries with no parseable successor stay: such an entry is the only copy of that
+   * index, and a binary that merely cannot read a definition should not delete it.
+   */
+  private static ConfigJournalV1 moveSupersededQuarantinedIndexesToDropped(
+      ConfigState configState, ConfigJournalV1 configJournal)
+      throws Invariants.InvariantException, IOException {
+    ImmutableSet<ObjectId> stagedIndexIds =
+        configJournal.getStagedIndexes().stream()
+            .map(IndexDefinitionGeneration::getIndexId)
+            .collect(ImmutableSet.toImmutableSet());
+
+    List<QuarantinedIndex> superseded =
+        quarantined(configJournal.getLiveEntries())
+            .filter(index -> stagedIndexIds.contains(index.indexId()))
+            .toList();
+
+    if (superseded.isEmpty()) {
+      return configJournal;
+    }
+
+    ImmutableSet<ObjectId> supersededIndexIds =
+        superseded.stream().map(QuarantinedIndex::indexId).collect(ImmutableSet.toImmutableSet());
+    List<GenerationId> successors =
+        configJournal.getStagedIndexes().stream()
+            .filter(definition -> supersededIndexIds.contains(definition.getIndexId()))
+            .map(IndexDefinitionGeneration::getGenerationId)
+            .toList();
+
+    superseded.forEach(
+        index ->
+            LOG.atInfo()
+                .addKeyValue("indexId", index.indexId())
+                .addKeyValue("generationId", index.generationId())
+                .log("Dropping quarantined live index superseded by a parseable staged index"));
+
+    ConfigJournalV1 preDrop =
+        JournalEditor.on(configJournal)
+            .fromLiveToDropped(superseded.stream().map(QuarantinedIndex::generationId).toList())
+            .fromStagedToLive(successors)
+            .journal();
+    configState.persist(preDrop);
+    return preDrop;
   }
 
   private static void validateJournalInvariants(ConfigJournalV1 config)
@@ -145,18 +212,29 @@ class ConfigInitializer {
   }
 
   private static void dropDeletedIndexes(
-      ConfigState configState, ImmutableList<IndexDefinitionGeneration> deletedIndexes)
+      ConfigState configState,
+      ImmutableList<JournalEntry<? extends IndexDefinitionGeneration>> deletedEntries)
       throws IOException, InvalidAnalyzerDefinitionException {
     // The deleted indexes were in the process of deleting or phasing out when mongot stopped
     // running. In order to clean them up, we'll have to actually create new Indexes for them, so
     // that we can drop them.
-    for (IndexDefinitionGeneration definition : deletedIndexes) {
+    for (JournalEntry<? extends IndexDefinitionGeneration> entry : deletedEntries) {
       LOG.atInfo()
-          .addKeyValue("indexId", definition.getIndexId())
-          .addKeyValue("generationId", definition.getGenerationId())
+          .addKeyValue("indexId", entry.getIdentity().indexId())
+          .addKeyValue("generationId", entry.getGenerationId())
+          .addKeyValue("quarantined", entry.isQuarantined())
           .log("Dropping deleted index");
 
-      Index index = configState.indexFactory.getIndex(definition);
+      Optional<? extends IndexDefinitionGeneration> definition = entry.getDefinition();
+      if (definition.isEmpty()) {
+        // No definition to build an Index from, so the data goes by generation id. Safe here: the
+        // journal is only read at startup, so this entry was never in the catalog and has no
+        // cursors to wait on.
+        configState.indexFactory.deleteGenerationData(entry.getGenerationId());
+        continue;
+      }
+
+      Index index = configState.indexFactory.getIndex(definition.get());
       // Avoid initializing the index before closing it,
       // to prevent potential oom issues with large index data
       index.close();
@@ -174,5 +252,41 @@ class ConfigInitializer {
       ConfigState configState, List<IndexDefinitionGeneration> definitions)
       throws IOException, InvalidAnalyzerDefinitionException {
     IndexActions.withoutReplication(configState).addStagedIndexes(definitions);
+  }
+
+  /**
+   * Tracks the staged and live entries that could not be parsed. Deleted entries are not tracked:
+   * everything in the journal's deleted arrays is dropped at startup.
+   */
+  private static void addIncompatibleIndexes(
+      ConfigState configState, ConfigJournalV1 configJournal) {
+    quarantined(configJournal.getLiveEntries())
+        .forEach(
+            quarantinedIndex -> {
+              LOG.atInfo()
+                  .addKeyValue("indexId", quarantinedIndex.indexId())
+                  .addKeyValue("generationId", quarantinedIndex.generationId())
+                  .addKeyValue("parseError", quarantinedIndex.parseError())
+                  .log("adding incompatible live index");
+              configState.incompatibleIndexes.addLiveIndex(quarantinedIndex);
+            });
+
+    quarantined(configJournal.getStagedEntries())
+        .forEach(
+            quarantinedIndex -> {
+              LOG.atInfo()
+                  .addKeyValue("indexId", quarantinedIndex.indexId())
+                  .addKeyValue("generationId", quarantinedIndex.generationId())
+                  .addKeyValue("parseError", quarantinedIndex.parseError())
+                  .log("adding incompatible staged index");
+              configState.incompatibleIndexes.addStagedIndex(quarantinedIndex);
+            });
+  }
+
+  private static Stream<QuarantinedIndex> quarantined(
+      List<JournalEntry<? extends IndexDefinitionGeneration>> entries) {
+    return entries.stream()
+        .filter(entry -> entry instanceof JournalEntry.Quarantined)
+        .map(entry -> QuarantinedIndex.from((JournalEntry.Quarantined<?>) entry));
   }
 }

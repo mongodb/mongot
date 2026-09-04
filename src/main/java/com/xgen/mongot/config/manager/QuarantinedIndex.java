@@ -26,6 +26,12 @@ public record QuarantinedIndex(
     String parseError,
     BsonDocument rawConfigJournalEntry) {
 
+  /** The index a quarantined config journal entry describes, as read from that entry. */
+  public static QuarantinedIndex from(JournalEntry.Quarantined<?> entry) {
+    return new QuarantinedIndex(
+        entry.identity(), entry.type(), entry.parseError(), entry.rawBson());
+  }
+
   public ObjectId indexId() {
     return this.identity.indexId();
   }

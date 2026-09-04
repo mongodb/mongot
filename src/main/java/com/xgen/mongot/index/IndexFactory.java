@@ -44,10 +44,12 @@ public interface IndexFactory extends Closeable {
    * Deletes a generation's persisted data, identified only by its {@link GenerationId}.
    *
    * <p>Unlike dropping an {@link Index}, this needs no parsed index definition, so it can clean up
-   * after a definition that could not be parsed. No-op by default, for factories that are not
-   * disk-backed and so have no data of their own to remove.
+   * after a definition that could not be parsed.
+   *
+   * <p>Deliberately has no default: a factory with nothing to delete must say so, since the
+   * fallback for one that does own data is silently leaking it.
    */
-  default void deleteGenerationData(GenerationId generationId) throws IOException {}
+  void deleteGenerationData(GenerationId generationId) throws IOException;
 
   @Override
   void close();
