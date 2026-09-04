@@ -19,6 +19,7 @@
 
 package com.xgen.mongot.index.lucene.quantization;
 
+import static com.google.common.base.Preconditions.checkNotNull;
 import static com.xgen.mongot.index.lucene.quantization.Mongot01042BinaryQuantizedFlatVectorsFormat.DYNAMIC_CONFIDENCE_INTERVAL;
 import static com.xgen.mongot.index.lucene.quantization.Mongot01042BinaryQuantizedFlatVectorsFormat.QUANTIZED_VECTOR_COMPONENT;
 import static com.xgen.mongot.index.lucene.quantization.Mongot01042BinaryQuantizedFlatVectorsFormat.calculateDefaultConfidenceInterval;
@@ -722,14 +723,14 @@ public final class Mongot01042BinaryQuantizedFlatVectorsWriter extends FlatVecto
         throws IOException {
       if (vectorEncoding == VectorEncoding.FLOAT32) {
         FloatVectorValues toQuantize =
-            mergeState.knnVectorsReaders[i].getFloatVectorValues(fieldInfo.name);
+            checkNotNull(mergeState.knnVectorsReaders[i].getFloatVectorValues(fieldInfo.name));
         return new QuantizedByteVectorValueSub(
             mergeState.docMaps[i],
             new BinaryQuantizedFloatVectorValues(
                 toQuantize, fieldInfo.getVectorSimilarityFunction()));
       } else {
         ByteVectorValues toQuantize =
-            mergeState.knnVectorsReaders[i].getByteVectorValues(fieldInfo.name);
+            checkNotNull(mergeState.knnVectorsReaders[i].getByteVectorValues(fieldInfo.name));
         return new QuantizedByteVectorValueSub(
             mergeState.docMaps[i], new BinaryQuantizedByteVectorValues(toQuantize));
       }

@@ -6,7 +6,7 @@ import java.io.IOException;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.KnnVectorsWriter;
-import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
+import org.apache.lucene.codecs.hnsw.FlatVectorScorerUtil;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99FlatVectorsFormat;
 import org.apache.lucene.index.SegmentReadState;
@@ -21,7 +21,8 @@ import org.apache.lucene.index.SegmentWriteState;
  * neighbors.
  *
  * <p>The format delegates to Lucene's {@link Lucene99FlatVectorsFormat} for the underlying storage
- * and retrieval, using {@link DefaultFlatVectorScorer} for similarity scoring.
+ * and retrieval, using the platform-optimized scorer from {@link FlatVectorScorerUtil} for
+ * similarity scoring.
  *
  * @see KnnVectorsFormat
  * @see Lucene99FlatVectorsFormat
@@ -31,8 +32,9 @@ public class Float32AndByteFlatVectorsFormat extends KnnVectorsFormat {
 
   private static final String NAME = "Float32AndByteFlatVectorsFormat";
 
+  // Use FlatVectorScoreUtil to leverage off-heap scoring when available
   private final FlatVectorsFormat format =
-      new Lucene99FlatVectorsFormat(DefaultFlatVectorScorer.INSTANCE);
+      new Lucene99FlatVectorsFormat(FlatVectorScorerUtil.getLucene99FlatVectorsScorer());
 
   public Float32AndByteFlatVectorsFormat() {
     super(NAME);

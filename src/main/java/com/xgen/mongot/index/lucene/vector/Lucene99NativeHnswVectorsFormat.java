@@ -232,11 +232,13 @@ public final class Lucene99NativeHnswVectorsFormat extends KnnVectorsFormat {
     }
 
     @Override
+    @Nullable
     public FloatVectorValues getFloatVectorValues(String field) throws IOException {
       return this.delegate.getFloatVectorValues(field);
     }
 
     @Override
+    @Nullable
     public ByteVectorValues getByteVectorValues(String field) throws IOException {
       return this.delegate.getByteVectorValues(field);
     }

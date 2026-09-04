@@ -1,16 +1,18 @@
 package com.xgen.mongot.index.lucene.codec.flat;
 
 import java.io.IOException;
-import java.util.Optional;
+import java.util.Map;
 import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.hnsw.FlatVectorsReader;
 import org.apache.lucene.index.ByteVectorValues;
+import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.FloatVectorValues;
 import org.apache.lucene.search.AcceptDocs;
+import org.apache.lucene.search.DocAndFloatFeatureBuffer;
+import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.KnnCollector;
-import org.apache.lucene.util.Bits;
-import org.apache.lucene.util.hnsw.OrdinalTranslatedKnnCollector;
-import org.apache.lucene.util.hnsw.RandomVectorScorer;
+import org.apache.lucene.search.VectorScorer;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * A decorator for {@link FlatVectorsReader} that implements exhaustive k-nearest neighbor search.
@@ -27,7 +29,6 @@ class FullScanFlatVectorsReaderDecorator extends KnnVectorsReader {
   private final FlatVectorsReader reader;
 
   FullScanFlatVectorsReaderDecorator(FlatVectorsReader reader) {
-    super();
     this.reader = reader;
   }
 
@@ -37,13 +38,20 @@ class FullScanFlatVectorsReaderDecorator extends KnnVectorsReader {
   }
 
   @Override
+  @Nullable
   public FloatVectorValues getFloatVectorValues(String field) throws IOException {
     return this.reader.getFloatVectorValues(field);
   }
 
   @Override
+  @Nullable
   public ByteVectorValues getByteVectorValues(String field) throws IOException {
     return this.reader.getByteVectorValues(field);
+  }
+
+  @Override
+  public Map<String, Long> getOffHeapByteSize(FieldInfo fieldInfo) {
+    return this.reader.getOffHeapByteSize(fieldInfo);
   }
 
   @Override
@@ -66,7 +74,11 @@ class FullScanFlatVectorsReaderDecorator extends KnnVectorsReader {
   @Override
   public void search(String field, float[] target, KnnCollector knnCollector, AcceptDocs acceptDocs)
       throws IOException {
-    scanAllDocs(knnCollector, acceptDocs.bits(), this.reader.getRandomVectorScorer(field, target));
+    @Nullable FloatVectorValues values = getFloatVectorValues(field);
+    if (values != null) {
+      VectorScorer scorer = values.scorer(target);
+      scanAllDocs(knnCollector, acceptDocs, scorer);
+    }
   }
 
   /**
@@ -84,7 +96,11 @@ class FullScanFlatVectorsReaderDecorator extends KnnVectorsReader {
   @Override
   public void search(String field, byte[] target, KnnCollector knnCollector, AcceptDocs acceptDocs)
       throws IOException {
-    scanAllDocs(knnCollector, acceptDocs.bits(), this.reader.getRandomVectorScorer(field, target));
+    @Nullable ByteVectorValues values = getByteVectorValues(field);
+    if (values != null) {
+      VectorScorer scorer = values.scorer(target);
+      scanAllDocs(knnCollector, acceptDocs, scorer);
+    }
   }
 
   /**
@@ -95,27 +111,34 @@ class FullScanFlatVectorsReaderDecorator extends KnnVectorsReader {
    * vectors in the index)
    *
    * @param knnCollector collector for gathering the k-nearest neighbors
-   * @param acceptDocs optional filter for which documents to consider
-   * @param scorer the vector scorer for computing similarities
+   * @param acceptDocs set of documents to score accounting for live documents and pre-filters
+   * @param scorer the scorer for the flat vector values (ideally supporting off-heap and bulk
+   *     scoring)
    * @throws IOException if an I/O error occurs
    */
-  private void scanAllDocs(KnnCollector knnCollector, Bits acceptDocs, RandomVectorScorer scorer)
+  private void scanAllDocs(KnnCollector knnCollector, AcceptDocs acceptDocs, VectorScorer scorer)
       throws IOException {
-    OrdinalTranslatedKnnCollector collector =
-        new OrdinalTranslatedKnnCollector(knnCollector, scorer::ordToDoc);
-    Optional<Bits> maybeAcceptedOrds = Optional.ofNullable(scorer.getAcceptOrds(acceptDocs));
-    if (maybeAcceptedOrds.isEmpty()) {
-      for (int i = 0; i < scorer.maxOrd(); i++) {
-        collector.collect(i, scorer.score(i));
-        collector.incVisitedCount(1);
-      }
-    } else {
-      Bits bits = maybeAcceptedOrds.get();
-      for (int i = 0; i < scorer.maxOrd(); i++) {
-        if (bits.get(i)) {
-          collector.collect(i, scorer.score(i));
-          collector.incVisitedCount(1);
+    // Adapted from AbstractKnnQuery's exactSearch logic to work with a KnnCollector
+    VectorScorer.Bulk bulkScorer = scorer.bulk(acceptDocs.iterator());
+    DocAndFloatFeatureBuffer buffer = new DocAndFloatFeatureBuffer();
+
+    for (float maxScore = bulkScorer.nextDocsAndScores(DocIdSetIterator.NO_MORE_DOCS, null, buffer);
+        buffer.size > 0;
+        maxScore = bulkScorer.nextDocsAndScores(DocIdSetIterator.NO_MORE_DOCS, null, buffer)) {
+
+      if (maxScore >= knnCollector.minCompetitiveSimilarity()) {
+        for (int i = 0; i < buffer.size; ++i) {
+          float score = buffer.features[i];
+          int doc = buffer.docs[i];
+          knnCollector.collect(doc, score);
         }
+      }
+
+      knnCollector.incVisitedCount(buffer.size);
+      if (knnCollector.earlyTerminated()) {
+        // We only score matched documents, so this should indicate that
+        // we exceeded maxTimeMs, in which case we return early to free resources.
+        return;
       }
     }
   }

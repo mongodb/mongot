@@ -22,7 +22,7 @@ package com.xgen.mongot.index.lucene.quantization;
 import java.io.IOException;
 import java.util.Optional;
 import org.apache.lucene.backward_codecs.lucene99.Lucene99ScalarQuantizedVectorsFormat;
-import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
+import org.apache.lucene.codecs.hnsw.FlatVectorScorerUtil;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
 import org.apache.lucene.codecs.hnsw.FlatVectorsReader;
 import org.apache.lucene.codecs.hnsw.FlatVectorsWriter;
@@ -71,8 +71,8 @@ public class Mongot01042BinaryQuantizedFlatVectorsFormat extends FlatVectorsForm
   public Mongot01042BinaryQuantizedFlatVectorsFormat() {
     super(NAME);
     this.confidenceInterval = Optional.of(1f);
-
-    this.flatVectorScorer = new BinaryQuantizedFlatVectorsScorer(DefaultFlatVectorScorer.INSTANCE);
+    this.flatVectorScorer =
+        new BinaryQuantizedFlatVectorsScorer(FlatVectorScorerUtil.getLucene99FlatVectorsScorer());
     this.rawVectorFormat = new Lucene99FlatVectorsFormat(this.flatVectorScorer);
   }
 

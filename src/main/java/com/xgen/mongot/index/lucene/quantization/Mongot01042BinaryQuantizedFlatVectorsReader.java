@@ -216,12 +216,13 @@ public final class Mongot01042BinaryQuantizedFlatVectorsReader extends FlatVecto
   public FloatVectorValues getFloatVectorValues(String field) throws IOException {
     FieldEntry fieldEntry = getFieldEntry(field).orElseThrow(() -> fieldNotFound(field));
     assert fieldEntry.vectorEncoding == VectorEncoding.FLOAT32;
-    FloatVectorValues rawVectorValues = this.rawVectorsReader.getFloatVectorValues(field);
+    @Nullable FloatVectorValues rawVectorValues = this.rawVectorsReader.getFloatVectorValues(field);
     OffHeapQuantizedByteVectorValues quantizedByteVectorValues = loadQuantized(fieldEntry);
     return new QuantizedFloatVectorValues(rawVectorValues, quantizedByteVectorValues);
   }
 
   @Override
+  @Nullable
   public ByteVectorValues getByteVectorValues(String field) throws IOException {
     Optional<FieldEntry> maybeFieldEntry = getFieldEntry(field);
     if (maybeFieldEntry.isEmpty()) {
@@ -445,8 +446,10 @@ public final class Mongot01042BinaryQuantizedFlatVectorsReader extends FlatVecto
     private final FloatVectorValues rawVectorValues;
     private final OffHeapQuantizedByteVectorValues quantizedVectorValues;
 
+    @SuppressWarnings("NullAway")
     QuantizedFloatVectorValues(
-        FloatVectorValues rawVectorValues, OffHeapQuantizedByteVectorValues quantizedVectorValues) {
+        @Nullable FloatVectorValues rawVectorValues,
+        OffHeapQuantizedByteVectorValues quantizedVectorValues) {
       this.rawVectorValues = rawVectorValues;
       this.quantizedVectorValues = quantizedVectorValues;
     }
@@ -497,8 +500,10 @@ public final class Mongot01042BinaryQuantizedFlatVectorsReader extends FlatVecto
     private final ByteVectorValues rawVectorValues;
     private final OffHeapQuantizedByteVectorValues quantizedVectorValues;
 
+    @SuppressWarnings("NullAway")
     QuantizedByteVectorValues(
-        ByteVectorValues rawVectorValues, OffHeapQuantizedByteVectorValues quantizedVectorValues) {
+        @Nullable ByteVectorValues rawVectorValues,
+        OffHeapQuantizedByteVectorValues quantizedVectorValues) {
       this.rawVectorValues = rawVectorValues;
       this.quantizedVectorValues = quantizedVectorValues;
     }

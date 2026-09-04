@@ -3,14 +3,12 @@ package com.xgen.mongot.index.lucene.vector;
 import java.io.IOException;
 import org.apache.lucene.backward_codecs.lucene99.Lucene99ScalarQuantizedVectorsReader;
 import org.apache.lucene.backward_codecs.lucene99.Lucene99ScalarQuantizedVectorsWriter;
-import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
 import org.apache.lucene.codecs.hnsw.FlatVectorScorerUtil;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
 import org.apache.lucene.codecs.hnsw.FlatVectorsReader;
 import org.apache.lucene.codecs.hnsw.FlatVectorsScorer;
 import org.apache.lucene.codecs.hnsw.FlatVectorsWriter;
 import org.apache.lucene.codecs.lucene99.Lucene99FlatVectorsFormat;
-import org.apache.lucene.codecs.lucene99.Lucene99ScalarQuantizedVectorScorer;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
 
@@ -32,7 +30,7 @@ public class NativeScalarQuantizedFlatVectorsFormat extends FlatVectorsFormat {
 
   private final FlatVectorsScorer scorer =
       new NativeScalarQuantizedVectorsScorer(
-          new Lucene99ScalarQuantizedVectorScorer(DefaultFlatVectorScorer.INSTANCE));
+          FlatVectorScorerUtil.getLucene99ScalarQuantizedVectorsScorer());
 
   private final FlatVectorsFormat rawVectorFormat =
       new Lucene99FlatVectorsFormat(FlatVectorScorerUtil.getLucene99FlatVectorsScorer());
