@@ -22,6 +22,7 @@ public class BufferlessInitialSyncManagerTest {
   public void testGetSizeBucketLessThan100MB() {
     Assert.assertEquals("lt_100MB", BufferlessInitialSyncManager.getSizeBucket(0));
     Assert.assertEquals("lt_100MB", BufferlessInitialSyncManager.getSizeBucket(1));
+    Assert.assertEquals("lt_100MB", BufferlessInitialSyncManager.getSizeBucket(50L * 1024 * 1024));
     Assert.assertEquals(
         "lt_100MB", BufferlessInitialSyncManager.getSizeBucket(100L * 1024 * 1024 - 1));
   }
@@ -31,14 +32,36 @@ public class BufferlessInitialSyncManagerTest {
     Assert.assertEquals(
         "100MB_1GB", BufferlessInitialSyncManager.getSizeBucket(100L * 1024 * 1024));
     Assert.assertEquals(
+        "100MB_1GB", BufferlessInitialSyncManager.getSizeBucket(512L * 1024 * 1024));
+    Assert.assertEquals(
         "100MB_1GB", BufferlessInitialSyncManager.getSizeBucket(1024L * 1024 * 1024 - 1));
   }
 
   @Test
-  public void testGetSizeBucketAbove1GB() {
-    Assert.assertEquals("gt_1GB", BufferlessInitialSyncManager.getSizeBucket(1024L * 1024 * 1024));
+  public void testGetSizeBucket1GBto5GB() {
+    Assert.assertEquals("1GB_5GB", BufferlessInitialSyncManager.getSizeBucket(1024L * 1024 * 1024));
     Assert.assertEquals(
-        "gt_1GB", BufferlessInitialSyncManager.getSizeBucket(10L * 1024 * 1024 * 1024));
+        "1GB_5GB", BufferlessInitialSyncManager.getSizeBucket(3L * 1024 * 1024 * 1024));
+    Assert.assertEquals(
+        "1GB_5GB", BufferlessInitialSyncManager.getSizeBucket(5L * 1024 * 1024 * 1024 - 1));
+  }
+
+  @Test
+  public void testGetSizeBucket5GBto10GB() {
+    Assert.assertEquals(
+        "5GB_10GB", BufferlessInitialSyncManager.getSizeBucket(5L * 1024 * 1024 * 1024));
+    Assert.assertEquals(
+        "5GB_10GB", BufferlessInitialSyncManager.getSizeBucket(7L * 1024 * 1024 * 1024));
+    Assert.assertEquals(
+        "5GB_10GB", BufferlessInitialSyncManager.getSizeBucket(10L * 1024 * 1024 * 1024 - 1));
+  }
+
+  @Test
+  public void testGetSizeBucketAbove10GB() {
+    Assert.assertEquals(
+        "gt_10GB", BufferlessInitialSyncManager.getSizeBucket(10L * 1024 * 1024 * 1024));
+    Assert.assertEquals(
+        "gt_10GB", BufferlessInitialSyncManager.getSizeBucket(100L * 1024 * 1024 * 1024));
   }
 
   @Test

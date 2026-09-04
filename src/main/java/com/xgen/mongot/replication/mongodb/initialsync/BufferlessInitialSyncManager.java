@@ -45,6 +45,8 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
 
   private static final long _100_MB = 100L * 1024 * 1024;
   private static final long _1_GB = 1024L * 1024 * 1024;
+  private static final long _5_GB = 5L * _1_GB;
+  private static final long _10_GB = 10L * _1_GB;
 
   /* Tracks the duration of a collection scan */
   private final Timer collectionScanTimer;
@@ -119,8 +121,12 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
       return "lt_100MB";
     } else if (totalBytes < _1_GB) {
       return "100MB_1GB";
+    } else if (totalBytes < _5_GB) {
+      return "1GB_5GB";
+    } else if (totalBytes < _10_GB) {
+      return "5GB_10GB";
     } else {
-      return "gt_1GB";
+      return "gt_10GB";
     }
   }
 
@@ -322,7 +328,7 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
     if (elapsedSeconds > 0) {
       // Record the throughput in a histogram
       // Specify the buckets in the histogram so we don't have an explosion in the data.
-      // Right now, with the size CategoryTag, we will have around 7*3 buckets.
+      // Right now, with the size CategoryTag, we will have around 7*5 buckets.
       this.metricsFactory
           .histogram(
               "completedSyncThroughputBytesPerSec",
