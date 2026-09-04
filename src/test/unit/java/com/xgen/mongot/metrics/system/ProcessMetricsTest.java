@@ -3,6 +3,7 @@ package com.xgen.mongot.metrics.system;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -18,9 +19,11 @@ public class ProcessMetricsTest {
     var majorFaults = new AtomicLong(3);
     var minorFaults = new AtomicLong(11);
     var openFiles = new AtomicLong(7);
+    var residentMemory = new AtomicLong(1_000_000_000);
     when(process.getMajorFaults()).thenAnswer(invocation -> majorFaults.get());
     when(process.getMinorFaults()).thenAnswer(invocation -> minorFaults.get());
     when(process.getOpenFiles()).thenAnswer(invocation -> openFiles.get());
+    when(process.getResidentMemory()).thenAnswer(invocation -> residentMemory.get());
 
     // Gauges evaluate their supplier function on every read, so the values
     // reflect whatever the mock returns at the time of access.
@@ -28,6 +31,8 @@ public class ProcessMetricsTest {
     assertEquals(3.0, meterRegistry.get("system.process.majorPageFaults").gauge().value(), 0.0);
     assertEquals(11.0, meterRegistry.get("system.process.minorPageFaults").gauge().value(), 0.0);
     assertEquals(7.0, meterRegistry.get("system.process.openFileDescriptors").gauge().value(), 0.0);
+    assertEquals(
+        1_000_000_000.0, meterRegistry.get("system.process.residentMemory").gauge().value(), 0.0);
 
     // update must call updateAttributes which ensures the values are refreshed
     when(process.updateAttributes())
@@ -36,15 +41,19 @@ public class ProcessMetricsTest {
               majorFaults.set(30);
               minorFaults.set(110);
               openFiles.set(70);
+              residentMemory.set(2_000_000_000);
               return true;
             });
     processMetrics.update();
+    verify(process).updateAttributes();
 
     // The reads should reflect the updated values
     assertEquals(30.0, meterRegistry.get("system.process.majorPageFaults").gauge().value(), 0.0);
     assertEquals(110.0, meterRegistry.get("system.process.minorPageFaults").gauge().value(), 0.0);
     assertEquals(
         70.0, meterRegistry.get("system.process.openFileDescriptors").gauge().value(), 0.0);
+    assertEquals(
+        2_000_000_000.0, meterRegistry.get("system.process.residentMemory").gauge().value(), 0.0);
   }
 
   @Test

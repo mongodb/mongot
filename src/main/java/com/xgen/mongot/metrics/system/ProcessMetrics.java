@@ -33,6 +33,11 @@ public class ProcessMetrics {
         .description("Number of minor page faults")
         .baseUnit(BaseUnits.OPERATIONS)
         .register(meterRegistry);
+    // OSHI 7.x: getResidentSetSize() was renamed to getResidentMemory() (RSS in bytes).
+    Gauge.builder("system.process.residentMemory", self, OSProcess::getResidentMemory)
+        .description("The process resident set size (RSS), including memory-mapped files")
+        .baseUnit(BaseUnits.BYTES)
+        .register(meterRegistry);
     long openFiles = self.getOpenFiles();
     // per javadoc, getOpenFiles returns -1 if the open file count
     // is unsupported or unknown
