@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Validator for auto-embedding vector indexes on community.
+ * Validator for auto-embedding indexes on community.
  *
  * <p>These validations are ONLY applied to auto-embedding indexes (indexes that contain TEXT or
  * AUTO_EMBED field types).
@@ -192,8 +192,7 @@ public class AutoEmbeddingIndexValidator {
     }
     if (!duplicates.isEmpty()) {
       throw new InvalidIndexDefinitionException(
-          String.format(
-              "Multiple autoEmbedVector fields declare the same sourceField: %s", duplicates));
+          String.format("Multiple autoEmbed fields declare the same sourceField: %s", duplicates));
     }
   }
 
@@ -209,7 +208,7 @@ public class AutoEmbeddingIndexValidator {
     if (!conflicts.isEmpty()) {
       throw new InvalidIndexDefinitionException(
           String.format(
-              "autoEmbedVector sourceField(s) %s are consumed by the embedding pipeline and"
+              "autoEmbed sourceField(s) %s are consumed by the embedding pipeline and"
                   + " cannot also be mapped as another type",
               conflicts));
     }

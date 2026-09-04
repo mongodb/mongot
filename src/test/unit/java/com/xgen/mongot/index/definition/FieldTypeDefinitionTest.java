@@ -3,6 +3,7 @@ package com.xgen.mongot.index.definition;
 import static com.xgen.testing.BsonDeserializationTestSuite.fromDocument;
 import static com.xgen.testing.BsonSerializationTestSuite.load;
 
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.BsonDeserializationTestSuite;
 import com.xgen.testing.BsonSerializationTestSuite;
 import com.xgen.testing.TestUtils;
@@ -57,6 +58,7 @@ public class FieldTypeDefinitionTest {
         data() {
       return TEST_SUITE.withExamples(
           autocomplete(),
+          autoEmbed(),
           bool(),
           date(),
           document(),
@@ -85,6 +87,12 @@ public class FieldTypeDefinitionTest {
           AutocompleteFieldDefinitionBuilder.builder()
               .tokenizationStrategy(AutocompleteFieldDefinition.TokenizationStrategy.N_GRAM)
               .build());
+    }
+
+    private static BsonDeserializationTestSuite.ValidSpec<FieldTypeDefinition> autoEmbed() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "autoEmbed",
+          new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("description")));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<FieldTypeDefinition> bool() {
@@ -192,6 +200,7 @@ public class FieldTypeDefinitionTest {
     public static Iterable<BsonSerializationTestSuite.TestSpec<FieldTypeDefinition>> data() {
       return Arrays.asList(
           autocomplete(),
+          autoEmbed(),
           bool(),
           date(),
           document(),
@@ -224,6 +233,12 @@ public class FieldTypeDefinitionTest {
               .foldDiacritics(true)
               .analyzer("lucene.standard")
               .build());
+    }
+
+    private static BsonSerializationTestSuite.TestSpec<FieldTypeDefinition> autoEmbed() {
+      return BsonSerializationTestSuite.TestSpec.create(
+          "autoEmbed",
+          new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("description")));
     }
 
     private static BsonSerializationTestSuite.TestSpec<FieldTypeDefinition> bool() {

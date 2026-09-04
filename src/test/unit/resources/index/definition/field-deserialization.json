@@ -225,6 +225,23 @@
       ]
     },
     {
+      "description": "autoEmbed and vector",
+      "value": [
+        {
+          "type": "autoEmbed",
+          "model": "voyage-3-large",
+          "modality": "text",
+          "sourceField": "content"
+        },
+        {
+          "type": "vector",
+          "numDimensions": 1024,
+          "similarity": "dotProduct"
+        }
+      ],
+      "errorMessageContains": "can only define one of [autoEmbed, knnVector, vector]"
+    },
+    {
       "description": "both sortable string types",
       "value": [
         {

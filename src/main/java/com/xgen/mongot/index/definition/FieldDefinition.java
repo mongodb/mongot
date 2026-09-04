@@ -316,11 +316,11 @@ public record FieldDefinition(
                 Set.of(
                     FieldTypeDefinition.Type.KNN_VECTOR,
                     FieldTypeDefinition.Type.VECTOR,
-                    FieldTypeDefinition.Type.AUTO_EMBED_VECTOR))
+                    FieldTypeDefinition.Type.AUTO_EMBED))
             .size();
 
     if (numVectorTypes > 1) {
-      String vectorTypes = "[knnVector, vector]";
+      String vectorTypes = "[autoEmbed, knnVector, vector]";
       return context.handleSemanticError("can only define one of " + vectorTypes);
     }
 

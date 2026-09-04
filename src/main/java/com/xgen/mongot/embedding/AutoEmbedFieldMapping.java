@@ -73,7 +73,7 @@ public sealed interface AutoEmbedFieldMapping
    *     "fields": {
    *       "title": { "type": "string" },
    *       "embedding": {
-   *         "type": "autoEmbedVector",
+   *         "type": "autoEmbed",
    *         "model": "voyage-4-lite",
    *         "sourceField": "body"
    *       }

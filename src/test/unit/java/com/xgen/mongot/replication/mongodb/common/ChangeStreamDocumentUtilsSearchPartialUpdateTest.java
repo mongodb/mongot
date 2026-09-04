@@ -33,7 +33,7 @@ import org.bson.BsonString;
 import org.bson.RawBsonDocument;
 import org.junit.Test;
 
-/** Tests non-view Search autoEmbedVector partial-update routing and safety. */
+/** Tests non-view Search autoEmbed partial-update routing and safety. */
 public class ChangeStreamDocumentUtilsSearchPartialUpdateTest {
 
   private static final FieldPath TITLE = FieldPath.parse("title");

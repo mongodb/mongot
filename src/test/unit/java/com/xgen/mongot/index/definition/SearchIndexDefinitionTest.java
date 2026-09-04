@@ -53,6 +53,7 @@ import java.util.stream.Collectors;
 import org.bson.BsonDocument;
 import org.bson.BsonDouble;
 import org.bson.BsonInt32;
+import org.bson.BsonString;
 import org.bson.types.ObjectId;
 import org.junit.Assert;
 import org.junit.Test;
@@ -946,6 +947,36 @@ public class SearchIndexDefinitionTest {
             .mappings(BASIC_MAPPINGS);
 
     @Test
+    public void fromBson_autoEmbedField_roundTripsCanonicalSyntax() throws Exception {
+      BsonDocument bson =
+          definitionBuilderWithMappings(
+                  DocumentFieldDefinitionBuilder.builder()
+                      .dynamic(false)
+                      .field(
+                          "embedding",
+                          FieldDefinitionBuilder.builder()
+                              .searchAutoEmbed(
+                                  new SearchAutoEmbedFieldDefinition(
+                                      "voyage-3-large", FieldPath.parse("content")))
+                              .build())
+                      .build())
+              .build()
+              .toBson();
+
+      SearchIndexDefinition parsed = SearchIndexDefinition.fromBson(bson);
+
+      Assert.assertEquals(bson, parsed.toBson());
+      Assert.assertEquals(
+          new BsonString("autoEmbed"),
+          parsed
+              .toBson()
+              .getDocument("mappings")
+              .getDocument("fields")
+              .getDocument("embedding")
+              .get("type"));
+    }
+
+    @Test
     public void isAutoEmbeddingIndex_nestedAutoEmbedOnly_returnsTrue() {
       // The auto-embedding pipeline (MV generation, query embedding) is gated on this flag; an
       // auto-embed field declared under a `document` field must be recognized.
@@ -1046,7 +1077,7 @@ public class SearchIndexDefinitionTest {
           .put(
               "duplicate_embed",
               BsonDocument.parse(
-                  "{'type': 'autoEmbedVector', 'model': 'voyage-3-large',"
+                  "{'type': 'autoEmbed', 'model': 'voyage-3-large',"
                       + " 'modality': 'text', 'sourceField': 'content'}"));
       try {
         SearchIndexDefinition.fromBson(bson);

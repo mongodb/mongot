@@ -144,7 +144,7 @@ public class AutoEmbedFieldMappingCreator {
           document.isPresent() && document.get().containsSearchAutoEmbedField();
       boolean hasOtherTypes =
           fieldDef.hasFieldDefinitionsOtherThan(
-              FieldTypeDefinition.Type.AUTO_EMBED_VECTOR, FieldTypeDefinition.Type.DOCUMENT);
+              FieldTypeDefinition.Type.AUTO_EMBED, FieldTypeDefinition.Type.DOCUMENT);
       if (documentHasEmbeds) {
         if (document.get().dynamic().isEnabled() || hasOtherTypes) {
           passthroughBuilder.add(path);

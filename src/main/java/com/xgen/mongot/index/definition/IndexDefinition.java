@@ -153,7 +153,7 @@ public sealed interface IndexDefinition extends DocumentEncodable
    *
    * <p>Auto-embedding is supported in both {@link VectorIndexDefinition} (via {@link
    * VectorIndexFieldDefinition.Type#TEXT} or {@link VectorIndexFieldDefinition.Type#AUTO_EMBED})
-   * and {@link SearchIndexDefinition} (via {@link FieldTypeDefinition.Type#AUTO_EMBED_VECTOR}).
+   * and {@link SearchIndexDefinition} (via {@link FieldTypeDefinition.Type#AUTO_EMBED}).
    */
   boolean isAutoEmbeddingIndex();
 

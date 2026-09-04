@@ -774,8 +774,7 @@ public final class SearchIndexDefinition implements IndexDefinition {
     collectDuplicateAutoEmbedSourceFields(mappings, seen, duplicates);
     if (!duplicates.isEmpty()) {
       throw new BsonParseException(
-          String.format(
-              "Multiple autoEmbedVector fields declare the same sourceField: %s", duplicates),
+          String.format("Multiple autoEmbed fields declare the same sourceField: %s", duplicates),
           Optional.empty());
     }
   }
@@ -811,8 +810,7 @@ public final class SearchIndexDefinition implements IndexDefinition {
       fieldDefinition
           .searchAutoEmbedFieldDefinition()
           .ifPresent(autoEmbed -> sourceFields.add(autoEmbed.sourceField()));
-      if (fieldDefinition.hasFieldDefinitionsOtherThan(
-          FieldTypeDefinition.Type.AUTO_EMBED_VECTOR)) {
+      if (fieldDefinition.hasFieldDefinitionsOtherThan(FieldTypeDefinition.Type.AUTO_EMBED)) {
         declaredNonEmbedPaths.add(path);
       }
       fieldDefinition
@@ -836,7 +834,7 @@ public final class SearchIndexDefinition implements IndexDefinition {
     if (!conflicts.isEmpty()) {
       throw new BsonParseException(
           String.format(
-              "autoEmbedVector sourceField(s) %s are consumed by the embedding pipeline and"
+              "autoEmbed sourceField(s) %s are consumed by the embedding pipeline and"
                   + " cannot also be mapped as another type",
               conflicts),
           Optional.empty());

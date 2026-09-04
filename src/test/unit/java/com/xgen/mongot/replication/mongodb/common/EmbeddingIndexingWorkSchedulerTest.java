@@ -1641,7 +1641,7 @@ public class EmbeddingIndexingWorkSchedulerTest {
           InterruptedException,
           TimeoutException,
           FieldExceededLimitsException {
-    // A nested autoEmbedVector declaration must extract its source text, call the embedding
+    // A nested autoEmbed declaration must extract its source text, call the embedding
     // service, and write vector + hash into the MV document (not a passthrough-only copy).
     MeterRegistry meterRegistry = new SimpleMeterRegistry();
 

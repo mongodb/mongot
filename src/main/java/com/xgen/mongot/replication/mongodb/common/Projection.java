@@ -125,7 +125,7 @@ public class Projection {
           if (indexedPaths.isEmpty()) {
             return Optional.empty();
           }
-          // CLOUDP-353553: lookupIndexedPathsForProject projects each autoEmbedVector field by its
+          // CLOUDP-353553: lookupIndexedPathsForProject projects each autoEmbed field by its
           // declared index field name (e.g. "desc_embedding"), but embedding reads the source text
           // from the field's sourceField (e.g. "description"). Without projecting the sourceField
           // the source text is stripped from the scanned document and no embedding vector is ever

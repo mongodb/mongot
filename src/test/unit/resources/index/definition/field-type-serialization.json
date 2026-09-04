@@ -12,6 +12,15 @@
       }
     },
     {
+      "description": "autoEmbed",
+      "value": {
+        "type": "autoEmbed",
+        "model": "voyage-3-large",
+        "modality": "text",
+        "sourceField": "description"
+      }
+    },
+    {
       "description": "boolean",
       "value": {
         "type": "boolean"

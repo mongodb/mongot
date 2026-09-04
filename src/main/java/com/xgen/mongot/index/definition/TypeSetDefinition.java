@@ -79,7 +79,7 @@ public record TypeSetDefinition(String name, List<FieldTypeDefinition> types)
         .filter(
             type ->
                 switch (type) {
-                  case AUTO_EMBED_VECTOR,
+                  case AUTO_EMBED,
                       DATE_FACET,
                       DOCUMENT,
                       EMBEDDED_DOCUMENTS,

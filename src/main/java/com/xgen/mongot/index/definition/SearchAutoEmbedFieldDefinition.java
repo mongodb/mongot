@@ -14,7 +14,7 @@ import java.util.Objects;
 import org.bson.BsonDocument;
 
 /**
- * Represents an auto-embed vector field definition within a search index.
+ * Represents an auto-embed field definition within a search index.
  *
  * <p>This field type specifies that text from a source field should be automatically embedded using
  * the configured embedding model, then indexed for vector search.
@@ -79,7 +79,7 @@ public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition
 
   @Override
   public Type getType() {
-    return Type.AUTO_EMBED_VECTOR;
+    return Type.AUTO_EMBED;
   }
 
   @Override

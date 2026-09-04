@@ -8,6 +8,15 @@
       }
     },
     {
+      "description": "autoEmbed",
+      "value": {
+        "type": "autoEmbed",
+        "model": "voyage-3-large",
+        "modality": "text",
+        "sourceField": "description"
+      }
+    },
+    {
       "description": "boolean",
       "value": {
         "type": "boolean"
@@ -113,7 +122,7 @@
       "value": {
         "type": "invalid"
       },
-      "errorMessageContains": "[autoEmbedVector, autocomplete, boolean, date, document, embeddedDocuments, geo, knnVector, number, objectId, string, token, uuid, vector]"
+      "errorMessageContains": "[autoEmbed, autocomplete, boolean, date, document, embeddedDocuments, geo, knnVector, number, objectId, string, token, uuid, vector]"
     }
   ]
 }

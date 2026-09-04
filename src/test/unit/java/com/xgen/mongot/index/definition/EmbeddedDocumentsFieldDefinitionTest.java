@@ -199,7 +199,7 @@ public class EmbeddedDocumentsFieldDefinitionTest {
     }
 
     @Test
-    public void testAutoEmbedVectorType() {
+    public void testAutoEmbedType() {
       FieldDefinition fields =
           FieldDefinitionBuilder.builder()
               .searchAutoEmbed(
@@ -212,7 +212,38 @@ public class EmbeddedDocumentsFieldDefinitionTest {
         Assert.fail("should throw");
       } catch (IllegalEmbeddedFieldException e) {
         Assert.assertEquals(
-            "cannot define fields of type autoEmbedVector inside an embeddedDocuments field",
+            "cannot define fields of type autoEmbed inside an embeddedDocuments field",
+            e.getMessage());
+        return;
+      }
+
+      Assert.fail("unreachable");
+    }
+
+    @Test
+    public void testAutoEmbedTypeNestedUnderDocument() {
+      FieldDefinition autoEmbedField =
+          FieldDefinitionBuilder.builder()
+              .searchAutoEmbed(
+                  new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("content")))
+              .build();
+      FieldDefinition documentField =
+          FieldDefinitionBuilder.builder()
+              .document(
+                  DocumentFieldDefinitionBuilder.builder()
+                      .field("embedding", autoEmbedField)
+                      .build())
+              .build();
+
+      try {
+        EmbeddedDocumentsFieldDefinition.create(
+            new DynamicDefinition.Boolean(false),
+            Map.of("document", documentField),
+            Optional.empty());
+        Assert.fail("should throw");
+      } catch (IllegalEmbeddedFieldException e) {
+        Assert.assertEquals(
+            "cannot define fields of type autoEmbed inside an embeddedDocuments field",
             e.getMessage());
         return;
       }
