@@ -19,6 +19,8 @@ java_test_suite(
     tags = ["unit"],
     deps = [
         "//src/main/java/com/xgen/mongot/catalog",
+        "//src/main/java/com/xgen/mongot/config/backup",
+        "//src/main/java/com/xgen/mongot/config/manager",
         "//src/main/java/com/xgen/mongot/cursor",
         "//src/main/java/com/xgen/mongot/cursor/serialization",
         "//src/main/java/com/xgen/mongot/embedding",

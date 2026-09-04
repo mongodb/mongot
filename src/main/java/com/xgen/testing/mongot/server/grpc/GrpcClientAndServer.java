@@ -2,6 +2,7 @@ package com.xgen.testing.mongot.server.grpc;
 
 import com.xgen.mongot.catalog.DefaultIndexCatalog;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
+import com.xgen.mongot.config.manager.IncompatibleIndexes;
 import com.xgen.mongot.config.util.TlsMode;
 import com.xgen.mongot.cursor.CursorConfig;
 import com.xgen.mongot.featureflag.FeatureFlags;
@@ -152,6 +153,7 @@ public class GrpcClientAndServer implements ClientAndServer {
             this.executorManager,
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             new SearchCommandsRegister.BootstrapperMetadata(
                 "testVersion",
                 "localhost",

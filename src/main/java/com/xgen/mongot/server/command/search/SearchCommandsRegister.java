@@ -6,6 +6,7 @@ import com.xgen.mongot.catalog.InitializedIndexCatalog;
 import com.xgen.mongot.catalogservice.CatalogAccessGuard;
 import com.xgen.mongot.catalogservice.MetadataService;
 import com.xgen.mongot.config.manager.CachedIndexInfoProvider;
+import com.xgen.mongot.config.manager.QuarantinedIndexLookup;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
 import com.xgen.mongot.featureflag.FeatureFlags;
@@ -64,6 +65,7 @@ public class SearchCommandsRegister {
       MeterRegistry meterRegistry,
       IndexCatalog indexCatalog,
       InitializedIndexCatalog initializedIndexCatalog,
+      QuarantinedIndexLookup quarantinedIndexLookup,
       BootstrapperMetadata metadata,
       Bytes bsonSizeSoftLimit,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier) {
@@ -75,6 +77,7 @@ public class SearchCommandsRegister {
             cursorManager,
             indexCatalog,
             initializedIndexCatalog,
+            quarantinedIndexLookup,
             bsonSizeSoftLimit,
             metadata,
             searchMetrics,
@@ -87,6 +90,7 @@ public class SearchCommandsRegister {
             cursorManager,
             indexCatalog,
             initializedIndexCatalog,
+            quarantinedIndexLookup,
             bsonSizeSoftLimit,
             embeddingServiceManagerSupplier,
             metadata,
@@ -100,6 +104,7 @@ public class SearchCommandsRegister {
             bsonSizeSoftLimit,
             indexCatalog,
             initializedIndexCatalog,
+            quarantinedIndexLookup,
             vectorSearch,
             metadata);
 

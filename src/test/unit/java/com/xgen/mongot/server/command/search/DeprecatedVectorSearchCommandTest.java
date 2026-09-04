@@ -20,6 +20,9 @@ import com.google.common.truth.Truth;
 import com.xgen.mongot.catalog.DefaultIndexCatalog;
 import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
+import com.xgen.mongot.config.backup.JournalEntryIdentity;
+import com.xgen.mongot.config.manager.IncompatibleIndexes;
+import com.xgen.mongot.config.manager.QuarantinedIndex;
 import com.xgen.mongot.cursor.CursorConfig;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.cursor.MongotCursorNotFoundException;
@@ -47,6 +50,9 @@ import com.xgen.mongot.index.query.Query;
 import com.xgen.mongot.index.query.operators.VectorSearchFilter;
 import com.xgen.mongot.index.query.operators.mql.Clause;
 import com.xgen.mongot.index.status.IndexStatus;
+import com.xgen.mongot.index.version.Generation;
+import com.xgen.mongot.index.version.IndexFormatVersion;
+import com.xgen.mongot.index.version.UserIndexVersion;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.PerIndexMetricsFactory;
 import com.xgen.mongot.server.command.Command;
@@ -74,9 +80,11 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonString;
+import org.bson.types.ObjectId;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.experimental.theories.DataPoints;
@@ -169,6 +177,7 @@ public class DeprecatedVectorSearchCommandTest {
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             new DefaultIndexCatalog(),
             getInitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             mock(VectorSearchCommand.Factory.class),
             BOOTSTRAPPER_METADATA);
 
@@ -206,6 +215,7 @@ public class DeprecatedVectorSearchCommandTest {
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             new DefaultIndexCatalog(),
             getInitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             mock(VectorSearchCommand.Factory.class),
             BOOTSTRAPPER_METADATA);
 
@@ -231,6 +241,7 @@ public class DeprecatedVectorSearchCommandTest {
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             new DefaultIndexCatalog(),
             getInitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             mock(VectorSearchCommand.Factory.class),
             BOOTSTRAPPER_METADATA);
 
@@ -263,6 +274,7 @@ public class DeprecatedVectorSearchCommandTest {
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             mock(VectorSearchCommand.Factory.class),
             BOOTSTRAPPER_METADATA);
 
@@ -311,6 +323,7 @@ public class DeprecatedVectorSearchCommandTest {
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             new DefaultIndexCatalog(),
             getInitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             mock(VectorSearchCommand.Factory.class),
             new SearchCommandsRegister.BootstrapperMetadata(
                 "local",
@@ -380,6 +393,7 @@ public class DeprecatedVectorSearchCommandTest {
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             new DefaultIndexCatalog(),
             getInitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             mock(VectorSearchCommand.Factory.class),
             BOOTSTRAPPER_METADATA);
 
@@ -429,6 +443,7 @@ public class DeprecatedVectorSearchCommandTest {
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             new DefaultIndexCatalog(),
             getInitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             mock(VectorSearchCommand.Factory.class),
             new SearchCommandsRegister.BootstrapperMetadata(
                 "1.0",
@@ -496,6 +511,7 @@ public class DeprecatedVectorSearchCommandTest {
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             catalog,
             initializedIndexCatalog,
+            new IncompatibleIndexes(),
             anotherCommandFactory,
             BOOTSTRAPPER_METADATA);
 
@@ -557,6 +573,7 @@ public class DeprecatedVectorSearchCommandTest {
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             catalog,
             initializedIndexCatalog,
+            new IncompatibleIndexes(),
             anotherCommandFactory,
             BOOTSTRAPPER_METADATA);
 
@@ -631,6 +648,7 @@ public class DeprecatedVectorSearchCommandTest {
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             catalog,
             initializedIndexCatalog,
+            new IncompatibleIndexes(),
             mock(VectorSearchCommand.Factory.class),
             BOOTSTRAPPER_METADATA);
 
@@ -688,6 +706,7 @@ public class DeprecatedVectorSearchCommandTest {
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             catalog,
             initializedIndexCatalog,
+            new IncompatibleIndexes(),
             mock(VectorSearchCommand.Factory.class),
             BOOTSTRAPPER_METADATA);
 
@@ -696,6 +715,60 @@ public class DeprecatedVectorSearchCommandTest {
     Assert.assertTrue(result.containsKey("errmsg"));
     Assert.assertEquals(
         String.format("Index %s not initialized", INDEX_NAME),
+        result.getString("errmsg").getValue());
+  }
+
+  /**
+   * The wire $vectorSearch command is this one, and a catalog miss never reaches the delegation to
+   * VectorSearchCommand - so the quarantine must be reported from here.
+   */
+  @Test
+  public void testQuarantinedIndexReturnsParseErrorResponse() throws Exception {
+    var incompatibleIndexes = new IncompatibleIndexes();
+    incompatibleIndexes.addLiveIndex(
+        new QuarantinedIndex(
+            new JournalEntryIdentity(
+                new ObjectId(),
+                DATABASE_NAME,
+                COLLECTION_UUID,
+                INDEX_NAME,
+                new Generation(new UserIndexVersion(1), IndexFormatVersion.CURRENT)),
+            IndexDefinitionGeneration.Type.VECTOR,
+            "unsupported field 'fieldFromTheFuture'",
+            new BsonDocument("fieldFromTheFuture", new BsonBoolean(true))));
+
+    DeprecatedVectorSearchCommand command =
+        new DeprecatedVectorSearchCommand(
+            getCursorManager(),
+            VectorSearchCommandDefinitionBuilder.builder()
+                .db(DATABASE_NAME)
+                .collectionName(COLLECTION_NAME)
+                .collectionUuid(COLLECTION_UUID)
+                .vectorSearchQuery(
+                    VectorQueryBuilder.builder()
+                        .index(INDEX_NAME)
+                        .criteria(
+                            ApproximateVectorQueryCriteriaBuilder.builder()
+                                .limit(LIMIT)
+                                .numCandidates(NUM_CANDIDATES)
+                                .queryVector(QUERY_VECTOR)
+                                .path(PATH)
+                                .build())
+                        .build())
+                .build(),
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            new DefaultIndexCatalog(),
+            new InitializedIndexCatalog(),
+            incompatibleIndexes,
+            mock(VectorSearchCommand.Factory.class),
+            BOOTSTRAPPER_METADATA);
+
+    BsonDocument result = command.run();
+
+    Assert.assertEquals(0, result.getInt32("ok").getValue());
+    Assert.assertEquals(
+        "Index 'default' is unavailable: its definition cannot be parsed (unsupported field"
+            + " 'fieldFromTheFuture').",
         result.getString("errmsg").getValue());
   }
 

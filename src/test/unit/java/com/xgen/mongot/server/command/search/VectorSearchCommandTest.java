@@ -18,6 +18,9 @@ import com.google.common.base.Supplier;
 import com.xgen.mongot.catalog.DefaultIndexCatalog;
 import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
+import com.xgen.mongot.config.backup.JournalEntryIdentity;
+import com.xgen.mongot.config.manager.IncompatibleIndexes;
+import com.xgen.mongot.config.manager.QuarantinedIndex;
 import com.xgen.mongot.cursor.CursorConfig;
 import com.xgen.mongot.cursor.CursorQuery;
 import com.xgen.mongot.cursor.MongotCursorManager;
@@ -38,6 +41,7 @@ import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.InitializedVectorIndex;
 import com.xgen.mongot.index.MetaResults;
 import com.xgen.mongot.index.ReaderClosedException;
+import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.StoredSourceDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.lucene.LuceneVectorIndex;
@@ -57,6 +61,9 @@ import com.xgen.mongot.index.query.operators.VectorSearchFilter;
 import com.xgen.mongot.index.query.operators.VectorSearchQueryInput;
 import com.xgen.mongot.index.query.operators.mql.Clause;
 import com.xgen.mongot.index.status.IndexStatus;
+import com.xgen.mongot.index.version.Generation;
+import com.xgen.mongot.index.version.IndexFormatVersion;
+import com.xgen.mongot.index.version.UserIndexVersion;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.searchenvoy.grpc.SearchEnvoyMetadata;
 import com.xgen.mongot.util.Check;
@@ -97,6 +104,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import org.bson.BsonArray;
+import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonString;
@@ -225,6 +233,61 @@ public class VectorSearchCommandTest {
         0.0);
   }
 
+  /**
+   * A quarantined index is absent from the catalog just like a nonexistent one, but must report why
+   * it is unavailable rather than be treated as though it never existed.
+   */
+  @Test
+  public void testQuarantinedIndex() throws Exception {
+    var incompatibleIndexes = new IncompatibleIndexes();
+    incompatibleIndexes.addLiveIndex(
+        new QuarantinedIndex(
+            new JournalEntryIdentity(
+                new ObjectId(),
+                DATABASE_NAME,
+                COLLECTION_UUID,
+                INDEX_NAME,
+                new Generation(new UserIndexVersion(1), IndexFormatVersion.CURRENT)),
+            IndexDefinitionGeneration.Type.VECTOR,
+            "unsupported field 'fieldFromTheFuture'",
+            new BsonDocument("fieldFromTheFuture", new BsonBoolean(true))));
+
+    var command =
+        new VectorSearchCommand(
+            VectorSearchCommandDefinitionBuilder.builder()
+                .db(DATABASE_NAME)
+                .collectionName(COLLECTION_NAME)
+                .collectionUuid(COLLECTION_UUID)
+                .vectorSearchQuery(
+                    VectorQueryBuilder.builder()
+                        .index(INDEX_NAME)
+                        .criteria(
+                            ApproximateVectorQueryCriteriaBuilder.builder()
+                                .limit(LIMIT)
+                                .numCandidates(NUM_CANDIDATES)
+                                .queryVector(QUERY_VECTOR)
+                                .path(PATH)
+                                .build())
+                        .build())
+                .build(),
+            new DefaultIndexCatalog(),
+            new InitializedIndexCatalog(),
+            incompatibleIndexes,
+            bootstrapperMetadata(),
+            MOCK_EMBEDDING_SERVICE,
+            new VectorSearchCommand.Metrics(mockMetricsFactory()),
+            Mockito.mock(MongotCursorManager.class),
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+
+    var result = command.run();
+
+    Assert.assertEquals(
+        new BsonString(
+            "Index 'default' is unavailable: its definition cannot be parsed (unsupported field"
+                + " 'fieldFromTheFuture')."),
+        result.get("errmsg"));
+  }
+
   @Test
   public void testValidIndex() throws Exception {
 
@@ -251,6 +314,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -299,6 +363,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -339,6 +404,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -381,6 +447,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(DynamicFeatureFlagRegistry.empty()),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -421,6 +488,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -449,6 +517,7 @@ public class VectorSearchCommandTest {
                 .build(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -489,6 +558,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -521,6 +591,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -543,6 +614,7 @@ public class VectorSearchCommandTest {
                 .build(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -576,6 +648,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -610,6 +683,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -664,6 +738,7 @@ public class VectorSearchCommandTest {
                 .build(),
             catalog,
             initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -711,6 +786,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -765,6 +841,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -823,6 +900,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -872,6 +950,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -951,6 +1030,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -1007,6 +1087,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -1059,6 +1140,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -1104,6 +1186,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -1155,6 +1238,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -1222,6 +1306,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -1287,6 +1372,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -1352,6 +1438,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -1408,6 +1495,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -1454,6 +1542,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -1498,6 +1587,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -1542,6 +1632,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -1592,6 +1683,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -1642,6 +1734,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -1692,6 +1785,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -1741,6 +1835,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -1788,6 +1883,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory),
@@ -1868,6 +1964,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory),
@@ -1934,6 +2031,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(metricsFactory),
@@ -1989,6 +2087,7 @@ public class VectorSearchCommandTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(metricsFactory),

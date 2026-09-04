@@ -9,6 +9,7 @@ import com.google.common.flogger.FluentLogger;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
+import com.xgen.mongot.config.manager.QuarantinedIndexLookup;
 import com.xgen.mongot.cursor.CursorQuery;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.cursor.MongotCursorNotFoundException;
@@ -125,6 +126,7 @@ public class VectorSearchCommand implements Command {
   private final VectorSearchCommandDefinition definition;
   private final IndexCatalog indexCatalog;
   private final InitializedIndexCatalog initializedIndexCatalog;
+  private final QuarantinedIndexLookup quarantinedIndexLookup;
   private final SearchCommandsRegister.BootstrapperMetadata metadata;
   private final Metrics metrics;
 
@@ -139,6 +141,7 @@ public class VectorSearchCommand implements Command {
       VectorSearchCommandDefinition definition,
       IndexCatalog indexCatalog,
       InitializedIndexCatalog initializedIndexCatalog,
+      QuarantinedIndexLookup quarantinedIndexLookup,
       SearchCommandsRegister.BootstrapperMetadata metadata,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
       Metrics metrics,
@@ -151,6 +154,7 @@ public class VectorSearchCommand implements Command {
     this.definition = definition;
     this.indexCatalog = indexCatalog;
     this.initializedIndexCatalog = initializedIndexCatalog;
+    this.quarantinedIndexLookup = quarantinedIndexLookup;
     this.metadata = metadata;
     this.metrics = metrics;
     this.searchEnvoyMetadata = Optional.empty();
@@ -698,6 +702,10 @@ public class VectorSearchCommand implements Command {
             query.index());
 
     if (indexGeneration.isEmpty()) {
+      // An index whose journal entry could not be parsed has no catalog entry, and reporting it as
+      // nonexistent would hide why it is unavailable.
+      this.quarantinedIndexLookup.throwIfQuarantined(
+          this.definition.db(), this.definition.collectionUuid(), query.index());
       return Optional.empty();
     }
     var index = indexGeneration.get();
@@ -1216,6 +1224,7 @@ public class VectorSearchCommand implements Command {
 
     private final IndexCatalog indexCatalog;
     private final InitializedIndexCatalog initializedIndexCatalog;
+    private final QuarantinedIndexLookup quarantinedIndexLookup;
     private final SearchCommandsRegister.BootstrapperMetadata metadata;
     private final Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier;
     private final Metrics metrics;
@@ -1226,6 +1235,7 @@ public class VectorSearchCommand implements Command {
         MongotCursorManager cursorManager,
         IndexCatalog indexCatalog,
         InitializedIndexCatalog initializedIndexCatalog,
+        QuarantinedIndexLookup quarantinedIndexLookup,
         Bytes bsonSizeSoftLimit,
         Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier,
         SearchCommandsRegister.BootstrapperMetadata metadata,
@@ -1233,6 +1243,7 @@ public class VectorSearchCommand implements Command {
       this.cursorManager = cursorManager;
       this.indexCatalog = indexCatalog;
       this.initializedIndexCatalog = initializedIndexCatalog;
+      this.quarantinedIndexLookup = quarantinedIndexLookup;
       this.bsonSizeSoftLimit = bsonSizeSoftLimit;
       this.embeddingServiceManagerSupplier = embeddingServiceManagerSupplier;
       this.metrics = new Metrics(metricsFactory);
@@ -1249,6 +1260,7 @@ public class VectorSearchCommand implements Command {
             definition,
             this.indexCatalog,
             this.initializedIndexCatalog,
+            this.quarantinedIndexLookup,
             this.metadata,
             this.embeddingServiceManagerSupplier,
             this.metrics,
@@ -1266,6 +1278,7 @@ public class VectorSearchCommand implements Command {
           definition,
           this.indexCatalog,
           this.initializedIndexCatalog,
+          this.quarantinedIndexLookup,
           this.metadata,
           this.embeddingServiceManagerSupplier,
           this.metrics,

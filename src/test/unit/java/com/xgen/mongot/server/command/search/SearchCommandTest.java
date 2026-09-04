@@ -23,6 +23,9 @@ import com.google.common.truth.Truth;
 import com.xgen.mongot.catalog.DefaultIndexCatalog;
 import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
+import com.xgen.mongot.config.backup.JournalEntryIdentity;
+import com.xgen.mongot.config.manager.IncompatibleIndexes;
+import com.xgen.mongot.config.manager.QuarantinedIndex;
 import com.xgen.mongot.cursor.CursorConfig;
 import com.xgen.mongot.cursor.IntermediateSearchCursorInfo;
 import com.xgen.mongot.cursor.MongotCursorManager;
@@ -42,6 +45,7 @@ import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.InitialSyncIndexUnavailableException;
 import com.xgen.mongot.index.InitializedSearchIndex;
 import com.xgen.mongot.index.MetaResults;
+import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.SearchIndexCapabilities;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.lucene.explain.information.LuceneQuerySpecification;
@@ -56,6 +60,9 @@ import com.xgen.mongot.index.query.SearchQuery;
 import com.xgen.mongot.index.query.collectors.FacetCollector;
 import com.xgen.mongot.index.query.collectors.FacetDefinition;
 import com.xgen.mongot.index.status.IndexStatus;
+import com.xgen.mongot.index.version.Generation;
+import com.xgen.mongot.index.version.IndexFormatVersion;
+import com.xgen.mongot.index.version.UserIndexVersion;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.Bytes;
@@ -84,6 +91,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.bson.BsonArray;
+import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonString;
@@ -280,6 +288,7 @@ public class SearchCommandTest {
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -304,6 +313,7 @@ public class SearchCommandTest {
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -400,6 +410,7 @@ public class SearchCommandTest {
             cursorManager,
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -441,6 +452,7 @@ public class SearchCommandTest {
             cursorManager,
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -511,6 +523,7 @@ public class SearchCommandTest {
             cursorManager,
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -551,6 +564,7 @@ public class SearchCommandTest {
             manager,
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -579,6 +593,7 @@ public class SearchCommandTest {
             manager,
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -604,6 +619,7 @@ public class SearchCommandTest {
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db("invalid")
                 .collectionName(COLLECTION_NAME)
@@ -627,6 +643,7 @@ public class SearchCommandTest {
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -649,6 +666,7 @@ public class SearchCommandTest {
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -672,6 +690,7 @@ public class SearchCommandTest {
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -686,6 +705,85 @@ public class SearchCommandTest {
     Assert.assertEquals(INVALID_INDEX_RESPONSE, result);
   }
 
+  /**
+   * A quarantined index is absent from the catalog just like a nonexistent one, but must report why
+   * it is unavailable rather than return the empty cursor of the test above.
+   */
+  @Test
+  public void testQuarantinedIndexName() throws Exception {
+    var incompatibleIndexes = new IncompatibleIndexes();
+    incompatibleIndexes.addLiveIndex(
+        quarantined("invalid", "unsupported field 'fieldFromTheFuture'"));
+
+    SearchCommand command =
+        new SearchCommand(
+            new SearchCommand.Metrics(mockMetricsFactory()),
+            getCursorManager(),
+            new DefaultIndexCatalog(),
+            new InitializedIndexCatalog(),
+            incompatibleIndexes,
+            SearchCommandDefinitionBuilder.builder()
+                .db(DATABASE_NAME)
+                .collectionName(COLLECTION_NAME)
+                .collectionUuid(COLLECTION_UUID)
+                .query(INVALID_INDEX_QUERY)
+                .build(),
+            BOOTSTRAPPER_METADATA,
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
+
+    BsonDocument result = command.run();
+
+    Assert.assertEquals(
+        new BsonDocument()
+            .append("ok", new BsonInt32(0))
+            .append(
+                "errmsg",
+                new BsonString(
+                    "Index 'invalid' is unavailable: its definition cannot be parsed (unsupported"
+                        + " field 'fieldFromTheFuture').")),
+        result);
+  }
+
+  /** A quarantined index of another name leaves the nonexistent-index behaviour untouched. */
+  @Test
+  public void testQuarantinedIndexOfAnotherName() throws Exception {
+    var incompatibleIndexes = new IncompatibleIndexes();
+    incompatibleIndexes.addLiveIndex(quarantined("someOtherIndex", "unsupported field"));
+
+    SearchCommand command =
+        new SearchCommand(
+            new SearchCommand.Metrics(mockMetricsFactory()),
+            getCursorManager(),
+            new DefaultIndexCatalog(),
+            new InitializedIndexCatalog(),
+            incompatibleIndexes,
+            SearchCommandDefinitionBuilder.builder()
+                .db(DATABASE_NAME)
+                .collectionName(COLLECTION_NAME)
+                .collectionUuid(COLLECTION_UUID)
+                .query(INVALID_INDEX_QUERY)
+                .build(),
+            BOOTSTRAPPER_METADATA,
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
+
+    Assert.assertEquals(INVALID_INDEX_RESPONSE, command.run());
+  }
+
+  private static QuarantinedIndex quarantined(String indexName, String parseError) {
+    return new QuarantinedIndex(
+        new JournalEntryIdentity(
+            new ObjectId(),
+            DATABASE_NAME,
+            COLLECTION_UUID,
+            indexName,
+            new Generation(new UserIndexVersion(1), IndexFormatVersion.CURRENT)),
+        IndexDefinitionGeneration.Type.SEARCH,
+        parseError,
+        new BsonDocument("fieldFromTheFuture", new BsonBoolean(true)));
+  }
+
   @Test
   public void testInvalidIndexNameIntermediate() throws Exception {
     SearchCommand command =
@@ -694,6 +792,7 @@ public class SearchCommandTest {
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -717,6 +816,7 @@ public class SearchCommandTest {
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -744,6 +844,7 @@ public class SearchCommandTest {
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -772,6 +873,7 @@ public class SearchCommandTest {
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -795,6 +897,7 @@ public class SearchCommandTest {
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -819,6 +922,7 @@ public class SearchCommandTest {
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -847,6 +951,7 @@ public class SearchCommandTest {
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -876,6 +981,7 @@ public class SearchCommandTest {
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -903,6 +1009,7 @@ public class SearchCommandTest {
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -931,6 +1038,7 @@ public class SearchCommandTest {
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -959,6 +1067,7 @@ public class SearchCommandTest {
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -988,6 +1097,7 @@ public class SearchCommandTest {
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -1012,6 +1122,7 @@ public class SearchCommandTest {
             getThrowableCursorManager(() -> new IOException("IO error")),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -1034,6 +1145,7 @@ public class SearchCommandTest {
             getThrowableCursorManager(() -> new IOException("IO error")),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -1062,6 +1174,7 @@ public class SearchCommandTest {
                 () -> new RuntimeException(new InvalidQueryException("wrapped user error"))),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -1091,6 +1204,7 @@ public class SearchCommandTest {
             getThrowableCursorManager(Check::unreachableError),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -1118,6 +1232,7 @@ public class SearchCommandTest {
             getThrowableCursorManager(Check::unreachableError),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -1145,6 +1260,7 @@ public class SearchCommandTest {
             getThrowableCursorManager(() -> new IOException("IO error")),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -1182,6 +1298,7 @@ public class SearchCommandTest {
             cursorManager,
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -1237,6 +1354,7 @@ public class SearchCommandTest {
             cursorManager,
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -1270,6 +1388,7 @@ public class SearchCommandTest {
             cursorManager,
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -1353,6 +1472,7 @@ public class SearchCommandTest {
             getCursorManager(explainInformation),
             catalog,
             initializedIndexCatalog,
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -1384,6 +1504,7 @@ public class SearchCommandTest {
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -1417,6 +1538,7 @@ public class SearchCommandTest {
             getCursorManager(explainInformation),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -1451,6 +1573,7 @@ public class SearchCommandTest {
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -1476,6 +1599,7 @@ public class SearchCommandTest {
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -1519,6 +1643,7 @@ public class SearchCommandTest {
             cursorManager,
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -1570,6 +1695,7 @@ public class SearchCommandTest {
             cursorManager,
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -1617,6 +1743,7 @@ public class SearchCommandTest {
             getCursorManager(),
             catalog,
             initializedIndexCatalog,
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)
@@ -1671,6 +1798,7 @@ public class SearchCommandTest {
             getCursorManager(),
             catalog,
             initializedIndexCatalog,
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(DATABASE_NAME)
                 .collectionName(COLLECTION_NAME)

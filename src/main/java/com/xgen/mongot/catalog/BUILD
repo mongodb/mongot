@@ -5,6 +5,7 @@ java_library(
     srcs = [
         "DefaultIndexCatalog.java",
         "IndexCatalog.java",
+        "IndexProperties.java",
         "InitializedIndexCatalog.java",
     ],
     visibility = ["//visibility:public"],
@@ -14,7 +15,6 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/version",
         "//src/main/java/com/xgen/mongot/util",
-        "@maven//:com_google_guava_guava",
         "@maven//:org_mongodb_bson",
     ],
 )

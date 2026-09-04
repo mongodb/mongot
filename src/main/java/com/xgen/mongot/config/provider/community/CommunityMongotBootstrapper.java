@@ -19,6 +19,8 @@ import com.xgen.mongot.catalogservice.MongodTopologyMonitor;
 import com.xgen.mongot.catalogservice.TopologyMismatchException;
 import com.xgen.mongot.config.manager.ConfigManager;
 import com.xgen.mongot.config.manager.DefaultConfigManager;
+import com.xgen.mongot.config.manager.IncompatibleIndexes;
+import com.xgen.mongot.config.manager.QuarantinedIndexLookup;
 import com.xgen.mongot.config.provider.CommonUtils;
 import com.xgen.mongot.config.provider.MongotConfigs;
 import com.xgen.mongot.config.provider.community.embedding.EmbeddingConfig;
@@ -163,6 +165,8 @@ public class CommunityMongotBootstrapper {
         new InitialSyncHostProvider(config.syncSourceConfig(), meterRegistry);
 
     var indexCatalog = new DefaultIndexCatalog();
+    // Shared with the ConfigManager, which registers the journal entries it cannot parse.
+    var incompatibleIndexes = new IncompatibleIndexes();
     var initializedIndexCatalog = new InitializedIndexCatalog();
 
     var mongotVersion = MongotVersionResolver.create().getVersion();
@@ -266,6 +270,7 @@ public class CommunityMongotBootstrapper {
             mongotConfigs,
             indexCatalog,
             initializedIndexCatalog,
+            incompatibleIndexes,
             cursorManager,
             syncSourceConfig,
             meterAndFtdcRegistry,
@@ -294,6 +299,7 @@ public class CommunityMongotBootstrapper {
             configManager,
             indexCatalog,
             initializedIndexCatalog,
+            incompatibleIndexes,
             commandRegisterMetadata,
             mongotConfigs.regularBlockingRequestSettings,
             meterRegistry,
@@ -723,6 +729,7 @@ public class CommunityMongotBootstrapper {
       MongotConfigs mongotConfigs,
       IndexCatalog indexCatalog,
       InitializedIndexCatalog initializedIndexCatalog,
+      IncompatibleIndexes incompatibleIndexes,
       MongotCursorManager cursorManager,
       SyncSourceConfig syncSourceConfig,
       MeterAndFtdcRegistry meterAndFtdcRegistry,
@@ -832,6 +839,7 @@ public class CommunityMongotBootstrapper {
         indexCatalog,
         Optional.empty(),
         initializedIndexCatalog,
+        incompatibleIndexes,
         cursorManager,
         indexFactory,
         Optional.of(materializedViewIndexFactory),
@@ -850,6 +858,7 @@ public class CommunityMongotBootstrapper {
       ConfigManager configManager,
       IndexCatalog indexCatalog,
       InitializedIndexCatalog initializedIndexCatalog,
+      QuarantinedIndexLookup quarantinedIndexLookup,
       BootstrapperMetadata metadata,
       RegularBlockingRequestSettings regularBlockingRequestSettings,
       MeterRegistry meterRegistry,
@@ -882,6 +891,7 @@ public class CommunityMongotBootstrapper {
             executorManager,
             indexCatalog,
             initializedIndexCatalog,
+            quarantinedIndexLookup,
             metadata,
             healthManager,
             DEFAULT_BSON_SIZE_SOFT_LIMIT,

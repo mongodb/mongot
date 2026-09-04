@@ -8,6 +8,7 @@ import com.google.common.flogger.FluentLogger;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
+import com.xgen.mongot.config.manager.QuarantinedIndexLookup;
 import com.xgen.mongot.cursor.IntermediateSearchCursorInfo;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.cursor.MongotCursorNotFoundException;
@@ -79,6 +80,7 @@ public class SearchCommand implements Command {
   private final MongotCursorManager cursorManager;
   private final IndexCatalog indexCatalog;
   private final InitializedIndexCatalog initializedIndexCatalog;
+  private final QuarantinedIndexLookup quarantinedIndexLookup;
   private final SearchCommandDefinition definition;
   private final SearchCommandsRegister.BootstrapperMetadata metadata;
   private final Bytes bsonSizeSoftLimit;
@@ -91,6 +93,7 @@ public class SearchCommand implements Command {
       MongotCursorManager cursorManager,
       IndexCatalog indexCatalog,
       InitializedIndexCatalog initializedIndexCatalog,
+      QuarantinedIndexLookup quarantinedIndexLookup,
       SearchCommandDefinition definition,
       SearchCommandsRegister.BootstrapperMetadata metadata,
       Bytes bsonSizeSoftLimit,
@@ -99,6 +102,7 @@ public class SearchCommand implements Command {
     this.cursorManager = cursorManager;
     this.indexCatalog = indexCatalog;
     this.initializedIndexCatalog = initializedIndexCatalog;
+    this.quarantinedIndexLookup = quarantinedIndexLookup;
     this.definition = definition;
     this.metadata = metadata;
     this.bsonSizeSoftLimit = bsonSizeSoftLimit;
@@ -485,6 +489,10 @@ public class SearchCommand implements Command {
               query.index());
 
       if (indexGeneration.isEmpty()) {
+        // An index whose journal entry could not be parsed has no catalog entry, and reporting it
+        // as nonexistent would hide why it is unavailable.
+        this.quarantinedIndexLookup.throwIfQuarantined(
+            this.definition.db(), this.definition.collectionUuid(), query.index());
         return Optional.empty();
       }
       var index = indexGeneration.get();
@@ -561,6 +569,7 @@ public class SearchCommand implements Command {
     private final MongotCursorManager cursorManager;
     private final IndexCatalog indexCatalog;
     private final InitializedIndexCatalog initializedIndexCatalog;
+    private final QuarantinedIndexLookup quarantinedIndexLookup;
     private final Bytes bsonSizeSoftLimit;
     private final SearchCommandsRegister.BootstrapperMetadata metadata;
     private final SearchCommand.Metrics metrics;
@@ -570,6 +579,7 @@ public class SearchCommand implements Command {
         MongotCursorManager cursorManager,
         IndexCatalog indexCatalog,
         InitializedIndexCatalog initializedIndexCatalog,
+        QuarantinedIndexLookup quarantinedIndexLookup,
         Bytes bsonSizeSoftLimit,
         SearchCommandsRegister.BootstrapperMetadata metadata,
         MetricsFactory metricsFactory,
@@ -577,6 +587,7 @@ public class SearchCommand implements Command {
       this.cursorManager = cursorManager;
       this.indexCatalog = indexCatalog;
       this.initializedIndexCatalog = initializedIndexCatalog;
+      this.quarantinedIndexLookup = quarantinedIndexLookup;
       this.bsonSizeSoftLimit = bsonSizeSoftLimit;
       this.metadata = metadata;
       this.metrics = new SearchCommand.Metrics(metricsFactory);
@@ -592,6 +603,7 @@ public class SearchCommand implements Command {
             this.cursorManager,
             this.indexCatalog,
             this.initializedIndexCatalog,
+            this.quarantinedIndexLookup,
             definition,
             this.metadata,
             this.bsonSizeSoftLimit,

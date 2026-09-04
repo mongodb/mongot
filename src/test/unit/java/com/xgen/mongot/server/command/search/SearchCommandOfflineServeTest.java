@@ -15,6 +15,7 @@ import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
+import com.xgen.mongot.config.manager.IncompatibleIndexes;
 import com.xgen.mongot.cursor.CursorConfig;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.cursor.MongotCursorResultInfo;
@@ -139,6 +140,7 @@ public class SearchCommandOfflineServeTest {
             cursorManager,
             indexCatalog,
             initializedIndexCatalog,
+            new IncompatibleIndexes(),
             SearchCommandDefinitionBuilder.builder()
                 .db(rawDef.getDatabase())
                 .collectionName(rawDef.getLastObservedCollectionName())

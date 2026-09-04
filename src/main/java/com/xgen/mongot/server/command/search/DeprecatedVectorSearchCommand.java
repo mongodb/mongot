@@ -5,6 +5,7 @@ import static com.xgen.mongot.index.definition.IndexDefinitionGeneration.Type;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
+import com.xgen.mongot.config.manager.QuarantinedIndexLookup;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.cursor.MongotCursorNotFoundException;
 import com.xgen.mongot.cursor.QueryBatchTimerRecorder;
@@ -58,6 +59,7 @@ public class DeprecatedVectorSearchCommand implements Command {
   private final List<Long> createdCursorIds;
   private final IndexCatalog indexCatalog;
   private final InitializedIndexCatalog initializedIndexCatalog;
+  private final QuarantinedIndexLookup quarantinedIndexLookup;
   private final VectorSearchCommand.Factory vectorCommandFactory;
   private final SearchCommandsRegister.BootstrapperMetadata metadata;
 
@@ -69,6 +71,7 @@ public class DeprecatedVectorSearchCommand implements Command {
       Bytes bsonSizeSoftLimit,
       IndexCatalog indexCatalog,
       InitializedIndexCatalog initializedIndexCatalog,
+      QuarantinedIndexLookup quarantinedIndexLookup,
       VectorSearchCommand.Factory vectorCommandFactory,
       SearchCommandsRegister.BootstrapperMetadata metadata) {
     this.cursorManager = cursorManager;
@@ -79,6 +82,7 @@ public class DeprecatedVectorSearchCommand implements Command {
     this.searchEnvoyMetadata = Optional.empty();
     this.indexCatalog = indexCatalog;
     this.initializedIndexCatalog = initializedIndexCatalog;
+    this.quarantinedIndexLookup = quarantinedIndexLookup;
     this.vectorCommandFactory = vectorCommandFactory;
     this.metadata = metadata;
   }
@@ -107,6 +111,14 @@ public class DeprecatedVectorSearchCommand implements Command {
               this.definition.collectionUuid(),
               this.definition.viewName(),
               query.index());
+      if (index.isEmpty()) {
+        // An index whose journal entry could not be parsed has no catalog entry, and reporting it
+        // as nonexistent would hide why it is unavailable. Checked here as well as in
+        // VectorSearchCommand because a miss never reaches the delegation below.
+        this.quarantinedIndexLookup.throwIfQuarantined(
+            this.definition.db(), this.definition.collectionUuid(), query.index());
+      }
+
       Optional<InitializedIndex> initializedIndex =
           index.flatMap(
               indexGeneration ->
@@ -248,6 +260,7 @@ public class DeprecatedVectorSearchCommand implements Command {
     private final Bytes bsonSizeSoftLimit;
     private final IndexCatalog indexCatalog;
     private final InitializedIndexCatalog initializedIndexCatalog;
+    private final QuarantinedIndexLookup quarantinedIndexLookup;
     private final VectorSearchCommand.Factory vectorSearchFactory;
     private final SearchCommandsRegister.BootstrapperMetadata metadata;
 
@@ -256,12 +269,14 @@ public class DeprecatedVectorSearchCommand implements Command {
         Bytes bsonSizeSoftLimit,
         IndexCatalog indexCatalog,
         InitializedIndexCatalog initializedIndexCatalog,
+        QuarantinedIndexLookup quarantinedIndexLookup,
         VectorSearchCommand.Factory vectorSearchFactory,
         SearchCommandsRegister.BootstrapperMetadata metadata) {
       this.cursorManager = cursorManager;
       this.bsonSizeSoftLimit = bsonSizeSoftLimit;
       this.indexCatalog = indexCatalog;
       this.initializedIndexCatalog = initializedIndexCatalog;
+      this.quarantinedIndexLookup = quarantinedIndexLookup;
       this.vectorSearchFactory = vectorSearchFactory;
       this.metadata = metadata;
     }
@@ -278,6 +293,7 @@ public class DeprecatedVectorSearchCommand implements Command {
             this.bsonSizeSoftLimit,
             this.indexCatalog,
             this.initializedIndexCatalog,
+            this.quarantinedIndexLookup,
             this.vectorSearchFactory,
             this.metadata);
       } catch (BsonParseException e) {

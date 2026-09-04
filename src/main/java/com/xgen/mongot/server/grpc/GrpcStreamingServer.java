@@ -7,6 +7,7 @@ import com.xgen.mongot.catalog.InitializedIndexCatalog;
 import com.xgen.mongot.catalogservice.CatalogAccessGuard;
 import com.xgen.mongot.catalogservice.MetadataService;
 import com.xgen.mongot.config.manager.ConfigManager;
+import com.xgen.mongot.config.manager.QuarantinedIndexLookup;
 import com.xgen.mongot.config.util.TlsMode;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
@@ -67,6 +68,7 @@ public class GrpcStreamingServer implements CommandServer {
       ExecutorManager executorManager,
       IndexCatalog indexCatalog,
       InitializedIndexCatalog initializedIndexCatalog,
+      QuarantinedIndexLookup quarantinedIndexLookup,
       SearchCommandsRegister.BootstrapperMetadata metadata,
       HealthManager healthManager,
       Bytes bsonSizeSoftLimit,
@@ -83,6 +85,7 @@ public class GrpcStreamingServer implements CommandServer {
             configManager,
             indexCatalog,
             initializedIndexCatalog,
+            quarantinedIndexLookup,
             metadata,
             bsonSizeSoftLimit,
             embeddingServiceManagerSupplier);
@@ -124,6 +127,7 @@ public class GrpcStreamingServer implements CommandServer {
       ExecutorManager executorManager,
       IndexCatalog indexCatalog,
       InitializedIndexCatalog initializedIndexCatalog,
+      QuarantinedIndexLookup quarantinedIndexLookup,
       SearchCommandsRegister.BootstrapperMetadata metadata,
       Bytes bsonSizeSoftLimit,
       Bytes inboundMessageSizeLimit,
@@ -137,6 +141,7 @@ public class GrpcStreamingServer implements CommandServer {
         executorManager,
         indexCatalog,
         initializedIndexCatalog,
+        quarantinedIndexLookup,
         metadata,
         bsonSizeSoftLimit,
         inboundMessageSizeLimit,
@@ -154,6 +159,7 @@ public class GrpcStreamingServer implements CommandServer {
       ExecutorManager executorManager,
       IndexCatalog indexCatalog,
       InitializedIndexCatalog initializedIndexCatalog,
+      QuarantinedIndexLookup quarantinedIndexLookup,
       SearchCommandsRegister.BootstrapperMetadata metadata,
       Bytes bsonSizeSoftLimit,
       Bytes inboundMessageSizeLimit,
@@ -166,6 +172,7 @@ public class GrpcStreamingServer implements CommandServer {
             configManager,
             indexCatalog,
             initializedIndexCatalog,
+            quarantinedIndexLookup,
             metadata,
             bsonSizeSoftLimit,
             embeddingServiceManagerSupplier);
@@ -361,6 +368,7 @@ public class GrpcStreamingServer implements CommandServer {
       ConfigManager configManager,
       IndexCatalog indexCatalog,
       InitializedIndexCatalog initializedIndexCatalog,
+      QuarantinedIndexLookup quarantinedIndexLookup,
       SearchCommandsRegister.BootstrapperMetadata metadata,
       Bytes bsonSizeSoftLimit,
       Supplier<EmbeddingServiceManager> embeddingServiceManagerSupplier) {
@@ -373,6 +381,7 @@ public class GrpcStreamingServer implements CommandServer {
         meterRegistry,
         indexCatalog,
         initializedIndexCatalog,
+        quarantinedIndexLookup,
         metadata,
         bsonSizeSoftLimit,
         embeddingServiceManagerSupplier);

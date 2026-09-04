@@ -14,6 +14,7 @@ import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
+import com.xgen.mongot.config.manager.IncompatibleIndexes;
 import com.xgen.mongot.cursor.CursorConfig;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
@@ -281,6 +282,7 @@ public class VectorSearchCommandIndexSizeMetricsTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             metadata,
             MOCK_EMBEDDING_SERVICE,
             metrics,
@@ -331,6 +333,7 @@ public class VectorSearchCommandIndexSizeMetricsTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             metadata,
             MOCK_EMBEDDING_SERVICE,
             metrics,
@@ -398,6 +401,7 @@ public class VectorSearchCommandIndexSizeMetricsTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             metadata,
             MOCK_EMBEDDING_SERVICE,
             metrics,
@@ -476,6 +480,7 @@ public class VectorSearchCommandIndexSizeMetricsTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             metadata,
             MOCK_EMBEDDING_SERVICE,
             metrics,
@@ -550,6 +555,7 @@ public class VectorSearchCommandIndexSizeMetricsTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             metadata,
             MOCK_EMBEDDING_SERVICE,
             metrics,
@@ -619,6 +625,7 @@ public class VectorSearchCommandIndexSizeMetricsTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             metadata,
             MOCK_EMBEDDING_SERVICE,
             metrics,
@@ -691,6 +698,7 @@ public class VectorSearchCommandIndexSizeMetricsTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
             metadata,
             MOCK_EMBEDDING_SERVICE,
             metrics,
@@ -762,6 +770,7 @@ public class VectorSearchCommandIndexSizeMetricsTest {
             .build(),
         mocks.catalog,
         mocks.initializedIndexCatalog,
+        new IncompatibleIndexes(),
         metadata,
         MOCK_EMBEDDING_SERVICE,
         metrics,

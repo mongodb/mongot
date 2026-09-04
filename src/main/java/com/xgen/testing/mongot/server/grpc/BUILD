@@ -16,6 +16,7 @@ java_library(
     ],
     deps = [
         "//src/main/java/com/xgen/mongot/catalog",
+        "//src/main/java/com/xgen/mongot/config/manager",
         "//src/main/java/com/xgen/mongot/config/util",
         "//src/main/java/com/xgen/mongot/cursor",
         "//src/main/java/com/xgen/mongot/featureflag",

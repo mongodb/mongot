@@ -1,6 +1,5 @@
 package com.xgen.mongot.catalog;
 
-import com.google.common.base.Objects;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.ViewDefinition;
@@ -39,7 +38,7 @@ public class DefaultIndexCatalog implements IndexCatalog {
   public void addIndex(IndexGeneration indexGeneration) {
     this.writeLock.lock();
     try {
-      this.indexes.put(new IndexProperties(indexGeneration.getDefinition()), indexGeneration);
+      this.indexes.put(IndexProperties.of(indexGeneration.getDefinition()), indexGeneration);
       this.indexesById.put(indexGeneration.getDefinition().getIndexId(), indexGeneration);
     } finally {
       this.writeLock.unlock();
@@ -110,49 +109,11 @@ public class DefaultIndexCatalog implements IndexCatalog {
       }
 
       IndexDefinition definition = indexGeneration.getDefinition();
-      IndexProperties properties = new IndexProperties(definition);
+      IndexProperties properties = IndexProperties.of(definition);
       this.indexes.remove(properties);
       return Optional.of(indexGeneration);
     } finally {
       this.writeLock.unlock();
-    }
-  }
-
-  private static class IndexProperties {
-
-    private final String indexName;
-    private final String databaseName;
-    private final UUID collectionUuid;
-
-    public IndexProperties(String indexName, String databaseName, UUID collectionUuid) {
-      this.indexName = indexName;
-      this.databaseName = databaseName;
-      this.collectionUuid = collectionUuid;
-    }
-
-    public IndexProperties(IndexDefinition definition) {
-      this.indexName = definition.getName();
-      this.databaseName = definition.getDatabase();
-      this.collectionUuid = definition.getCollectionUuid();
-    }
-
-    @Override
-    public boolean equals(Object o) {
-      if (this == o) {
-        return true;
-      }
-      if (!(o instanceof IndexProperties)) {
-        return false;
-      }
-      IndexProperties that = (IndexProperties) o;
-      return Objects.equal(this.indexName, that.indexName)
-          && Objects.equal(this.databaseName, that.databaseName)
-          && Objects.equal(this.collectionUuid, that.collectionUuid);
-    }
-
-    @Override
-    public int hashCode() {
-      return Objects.hashCode(this.indexName, this.databaseName, this.collectionUuid);
     }
   }
 }

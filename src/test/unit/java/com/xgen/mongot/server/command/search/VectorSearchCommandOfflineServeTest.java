@@ -10,6 +10,7 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
+import com.xgen.mongot.config.manager.IncompatibleIndexes;
 import com.xgen.mongot.cursor.CursorConfig;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
@@ -186,6 +187,7 @@ public class VectorSearchCommandOfflineServeTest {
                   .build(),
               indexCatalog,
               initializedIndexCatalog,
+              new IncompatibleIndexes(),
               BOOTSTRAPPER_METADATA,
               Suppliers.ofInstance(mock(EmbeddingServiceManager.class)),
               new VectorSearchCommand.Metrics(
@@ -276,6 +278,7 @@ public class VectorSearchCommandOfflineServeTest {
                 .build(),
             indexCatalog,
             initializedIndexCatalog,
+            new IncompatibleIndexes(),
             BOOTSTRAPPER_METADATA,
             Suppliers.ofInstance(mock(EmbeddingServiceManager.class)),
             new VectorSearchCommand.Metrics(

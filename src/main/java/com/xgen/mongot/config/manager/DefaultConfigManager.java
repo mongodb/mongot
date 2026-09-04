@@ -170,6 +170,7 @@ public class DefaultConfigManager implements ConfigManager {
       IndexCatalog indexCatalog,
       Optional<Set<ObjectId>> desiredIndexIds,
       InitializedIndexCatalog initializedIndexCatalog,
+      IncompatibleIndexes incompatibleIndexes,
       MongotCursorManager cursorManager,
       IndexFactory indexFactory,
       Optional<MaterializedViewIndexFactory> materializedViewIndexFactory,
@@ -184,7 +185,7 @@ public class DefaultConfigManager implements ConfigManager {
         ConfigState.create(
             new StagedIndexes(),
             indexCatalog,
-            new IncompatibleIndexes(),
+            incompatibleIndexes,
             new PhasingOutIndexes(),
             initializedIndexCatalog,
             cursorManager,
