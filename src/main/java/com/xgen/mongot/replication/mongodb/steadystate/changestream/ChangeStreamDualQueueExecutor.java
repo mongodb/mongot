@@ -43,7 +43,12 @@ final class ChangeStreamDualQueueExecutor implements ChangeStreamTaskExecutor {
     // No previous batch = first submission for this index; default to high priority so it starts
     // draining promptly instead of waiting behind the regular queue.
     boolean isHighPriority =
-        context.previousBatch().map(this.strategy::isHighPriority).orElse(true);
+        context
+            .previousBatch()
+            .map(
+                batch ->
+                    this.strategy.isHighPriority(context.indexDefinition().getIndexId(), batch))
+            .orElse(true);
     return this.delegate.enqueue(task, isHighPriority, context.onDropped());
   }
 

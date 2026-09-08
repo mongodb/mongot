@@ -12,39 +12,44 @@ import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.bson.BsonTimestamp;
 import org.bson.RawBsonDocument;
+import org.bson.types.ObjectId;
 import org.junit.Test;
 
 public class ChangeStreamPriorityStrategyTest {
+
+  // Index identity is irrelevant to these per-batch strategies; a fixed id keeps the test bodies
+  // focused on the batch/threshold behavior being exercised.
+  private static final ObjectId INDEX_ID = new ObjectId();
 
   // OptimeLagPriorityStrategy
   @Test
   public void optimeLag_lagAtThreshold_isHighPriority() {
     var strategy = new OptimeLagPriorityStrategy(10);
-    assertThat(strategy.isHighPriority(batchWithLag(10))).isTrue();
+    assertThat(strategy.isHighPriority(INDEX_ID, batchWithLag(10))).isTrue();
   }
 
   @Test
   public void optimeLag_lagAboveThreshold_isHighPriority() {
     var strategy = new OptimeLagPriorityStrategy(10);
-    assertThat(strategy.isHighPriority(batchWithLag(60))).isTrue();
+    assertThat(strategy.isHighPriority(INDEX_ID, batchWithLag(60))).isTrue();
   }
 
   @Test
   public void optimeLag_lagBelowThreshold_isLowPriority() {
     var strategy = new OptimeLagPriorityStrategy(10);
-    assertThat(strategy.isHighPriority(batchWithLag(5))).isFalse();
+    assertThat(strategy.isHighPriority(INDEX_ID, batchWithLag(5))).isFalse();
   }
 
   @Test
   public void optimeLag_zeroLagCaughtUp_isLowPriority() {
     var strategy = new OptimeLagPriorityStrategy(10);
-    assertThat(strategy.isHighPriority(batchWithLag(0))).isFalse();
+    assertThat(strategy.isHighPriority(INDEX_ID, batchWithLag(0))).isFalse();
   }
 
   @Test
   public void optimeLag_zeroThreshold_alwaysHighPriority() {
     var strategy = new OptimeLagPriorityStrategy(0);
-    assertThat(strategy.isHighPriority(batchWithLag(0))).isTrue();
+    assertThat(strategy.isHighPriority(INDEX_ID, batchWithLag(0))).isTrue();
   }
 
   @Test
@@ -64,7 +69,7 @@ public class ChangeStreamPriorityStrategyTest {
             Collections.emptyList(),
             resumeTokenForTime(new BsonTimestamp(now, 0)),
             new BsonTimestamp(now - 1, 0));
-    assertThat(strategy.isHighPriority(batch)).isFalse();
+    assertThat(strategy.isHighPriority(INDEX_ID, batch)).isFalse();
   }
 
   @Test
@@ -76,7 +81,7 @@ public class ChangeStreamPriorityStrategyTest {
             Collections.emptyList(),
             resumeTokenForTime(new BsonTimestamp(now, 0)),
             new BsonTimestamp(now - 1, 0));
-    assertThat(strategy.isHighPriority(batch)).isTrue();
+    assertThat(strategy.isHighPriority(INDEX_ID, batch)).isTrue();
   }
 
   @Test
@@ -89,45 +94,45 @@ public class ChangeStreamPriorityStrategyTest {
             Collections.emptyList(),
             new BsonDocument("_data", new BsonString("not-valid-hex")),
             new BsonTimestamp(now, 0));
-    assertThat(strategy.isHighPriority(batch)).isTrue();
+    assertThat(strategy.isHighPriority(INDEX_ID, batch)).isTrue();
   }
 
   // HadDocumentsPriorityStrategy
   @Test
   public void hadDocuments_true_isHighPriority() {
     var strategy = new HadDocumentsPriorityStrategy();
-    assertThat(strategy.isHighPriority(batchWithEvents(1))).isTrue();
+    assertThat(strategy.isHighPriority(INDEX_ID, batchWithEvents(1))).isTrue();
   }
 
   @Test
   public void hadDocuments_false_isLowPriority() {
     var strategy = new HadDocumentsPriorityStrategy();
-    assertThat(strategy.isHighPriority(batchWithEvents(0))).isFalse();
+    assertThat(strategy.isHighPriority(INDEX_ID, batchWithEvents(0))).isFalse();
   }
 
   // BatchDataSizePriorityStrategy
   @Test
   public void batchDataSize_sizeAtThreshold_isHighPriority() {
     var strategy = new BatchDataSizePriorityStrategy(1024);
-    assertThat(strategy.isHighPriority(batchWithBytes(1024))).isTrue();
+    assertThat(strategy.isHighPriority(INDEX_ID, batchWithBytes(1024))).isTrue();
   }
 
   @Test
   public void batchDataSize_sizeAboveThreshold_isHighPriority() {
     var strategy = new BatchDataSizePriorityStrategy(1024);
-    assertThat(strategy.isHighPriority(batchWithBytes(2048))).isTrue();
+    assertThat(strategy.isHighPriority(INDEX_ID, batchWithBytes(2048))).isTrue();
   }
 
   @Test
   public void batchDataSize_sizeBelowThreshold_isLowPriority() {
     var strategy = new BatchDataSizePriorityStrategy(1024);
-    assertThat(strategy.isHighPriority(batchWithBytes(512))).isFalse();
+    assertThat(strategy.isHighPriority(INDEX_ID, batchWithBytes(512))).isFalse();
   }
 
   @Test
   public void batchDataSize_emptyBatch_isLowPriority() {
     var strategy = new BatchDataSizePriorityStrategy(1024);
-    assertThat(strategy.isHighPriority(batchWithBytes(0))).isFalse();
+    assertThat(strategy.isHighPriority(INDEX_ID, batchWithBytes(0))).isFalse();
   }
 
   @Test

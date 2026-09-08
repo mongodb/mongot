@@ -4,6 +4,7 @@ import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
 import com.xgen.mongot.replication.mongodb.common.ResumeTokenUtils;
 import org.apache.commons.codec.DecoderException;
 import org.bson.BsonTimestamp;
+import org.bson.types.ObjectId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,7 +28,7 @@ final class OptimeLagPriorityStrategy implements ChangeStreamPriorityStrategy {
   }
 
   @Override
-  public boolean isHighPriority(ChangeStreamBatch batch) {
+  public boolean isHighPriority(ObjectId indexId, ChangeStreamBatch batch) {
     // commandOperationTime is the server optime when the getMore ran, and the resume token can only
     // be at or behind it, so lag is normally >= 0. A negative value means the index is caught up,
     // and is treated as zero lag.

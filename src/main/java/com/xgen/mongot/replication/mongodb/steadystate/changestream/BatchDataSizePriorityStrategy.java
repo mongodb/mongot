@@ -1,6 +1,7 @@
 package com.xgen.mongot.replication.mongodb.steadystate.changestream;
 
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
+import org.bson.types.ObjectId;
 
 /** Treats an index as high priority if the byte size of its previous batch met a threshold */
 final class BatchDataSizePriorityStrategy implements ChangeStreamPriorityStrategy {
@@ -20,7 +21,7 @@ final class BatchDataSizePriorityStrategy implements ChangeStreamPriorityStrateg
   }
 
   @Override
-  public boolean isHighPriority(ChangeStreamBatch batch) {
+  public boolean isHighPriority(ObjectId indexId, ChangeStreamBatch batch) {
     int batchDataSizeBytes =
         batch.getRawEvents().stream().mapToInt(doc -> doc.getByteBuffer().remaining()).sum();
     return batchDataSizeBytes >= this.highPriorityBatchSizeBytes;
