@@ -57,13 +57,21 @@ class ConfigManagerChangePlanner {
    *
    * <p>It is assumed that the definitions provided are valid and that the references to all the
    * analyzers are satisfied.
+   *
+   * @param unreadableDesiredIds ids that are still desired but whose authoritative definition could
+   *     not be used. Pass an empty set when every definition was readable. Only pass ids from a
+   *     listing that <em>succeeded</em>: a failed read must not reach the planner at all, or every
+   *     index would look deleted.
    */
   public static ConfigManagerChangePlan plan(
-      ConfigState configState, List<IndexDefinitionGenerationProducer> producers) {
-    return new ConfigManagerChangePlanner(configState).plan(producers);
+      ConfigState configState,
+      List<IndexDefinitionGenerationProducer> producers,
+      Set<ObjectId> unreadableDesiredIds) {
+    return new ConfigManagerChangePlanner(configState).plan(producers, unreadableDesiredIds);
   }
 
-  private ConfigManagerChangePlan plan(List<IndexDefinitionGenerationProducer> desiredIndexes) {
+  private ConfigManagerChangePlan plan(
+      List<IndexDefinitionGenerationProducer> desiredIndexes, Set<ObjectId> unreadableDesiredIds) {
     // Get the ids that exist and are desired.
     Map<ObjectId, IndexDefinitionGenerationProducer> desiredIndexesById =
         desiredIndexes.stream()
@@ -76,8 +84,12 @@ class ConfigManagerChangePlanner {
     Set<ObjectId> existingIds = existingIndexesById.keySet();
 
     // Group the indexes by those that didn't exist before, no longer exist, and exist in
-    // both the desired and current state.
-    List<ObjectId> removedIndexes = getRemovedIndexes(existingIds, desiredIds);
+    // both the desired and current state. An index whose authoritative definition could not be
+    // used is absent from desiredIds, but it is not deleted -- it is unreadable -- so it is left
+    // out of the removed group. It is likewise never staged or modified, since staging only
+    // considers ids present in both existingIds and desiredIds.
+    List<ObjectId> removedIndexes =
+        getRemovedIndexes(existingIds, desiredIds, unreadableDesiredIds);
     List<IndexDefinitionGenerationProducer> addedIndexes =
         getAddedIndexDefinitions(desiredIndexesById, existingIds, desiredIds);
 
@@ -132,12 +144,18 @@ class ConfigManagerChangePlanner {
 
   /**
    * Returns a list of Index ids that are in the current set, but are not in the desired set of
-   * indexes.
+   * indexes. An id whose definition could not be used is left out: it is missing from the desired
+   * set for a reason that is not "the user deleted it".
    */
-  private List<ObjectId> getRemovedIndexes(Set<ObjectId> existingIds, Set<ObjectId> desiredIds) {
+  private static List<ObjectId> getRemovedIndexes(
+      Set<ObjectId> existingIds, Set<ObjectId> desiredIds, Set<ObjectId> unreadableDesiredIds) {
     Sets.SetView<ObjectId> removedIds = Sets.difference(existingIds, desiredIds);
 
-    return new ArrayList<>(removedIds);
+    if (unreadableDesiredIds.isEmpty()) {
+      return new ArrayList<>(removedIds);
+    }
+
+    return new ArrayList<>(Sets.difference(removedIds, unreadableDesiredIds));
   }
 
   /** Returns a list of IndexIds that exist both in the desired set and the current set. */

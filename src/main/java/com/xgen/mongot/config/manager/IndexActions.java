@@ -279,6 +279,29 @@ public class IndexActions {
     dropAllOrFail(indexes);
   }
 
+  /**
+   * Deletes the persisted data of quarantined generations, identified by generation id alone
+   * because their definition could not be parsed. Nothing to detach first: a quarantined index
+   * never reaches the index catalog, the lifecycle manager or the cursor manager.
+   */
+  void dropQuarantined(List<GenerationId> generationIds) {
+    if (generationIds.isEmpty()) {
+      return;
+    }
+
+    Crash.because("failed to drop quarantined indexes")
+        .ifThrows(
+            () -> {
+              for (GenerationId generationId : generationIds) {
+                LOG.atInfo()
+                    .addKeyValue("indexId", generationId.indexId)
+                    .addKeyValue("generationId", generationId)
+                    .log("dropping quarantined index");
+                this.configState.indexFactory.deleteGenerationData(generationId);
+              }
+            });
+  }
+
   private void dropAllOrFail(List<IndexGeneration> indexes) {
     List<CompletableFuture<?>> dropFutures =
         indexes.stream().map(this::dropIndex).collect(Collectors.toList());

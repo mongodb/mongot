@@ -150,11 +150,15 @@ public class CommunityConfigUpdater implements ConfigUpdater {
                 Optional.empty())
             : Set.of();
 
+    // TODO(CLOUDP-442253): pass the ids of AIC rows whose definition failed to parse. The listing
+    // does not report them yet, so on Community/EA an unreadable definition is still diffed as a
+    // deletion and its quarantined index dropped.
     this.configManager.update(
         indexesByType.vectorIndexes,
         indexesByType.searchIndexes,
         List.of(),
-        directMongodCollectionSet);
+        directMongodCollectionSet,
+        Set.of());
   }
 
   @GuardedBy("this")

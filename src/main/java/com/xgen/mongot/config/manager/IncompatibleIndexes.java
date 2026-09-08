@@ -4,7 +4,9 @@ import com.xgen.mongot.catalog.IndexProperties;
 import com.xgen.mongot.index.IndexUnavailableException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import org.bson.types.ObjectId;
@@ -101,6 +103,39 @@ public class IncompatibleIndexes implements QuarantinedIndexLookup {
 
   public Collection<QuarantinedIndex> getLiveIndexes() {
     return new ArrayList<>(this.liveIndexes.values());
+  }
+
+  public boolean isEmpty() {
+    return this.stagedIndexes.isEmpty() && this.liveIndexes.isEmpty();
+  }
+
+  /**
+   * Stops tracking every quarantined index whose id is not in {@code keepIds}, staged and live
+   * alike, and returns them. An entry removed here is no longer written back out by {@link
+   * ConfigState#currentJournal()}.
+   */
+  public List<QuarantinedIndex> removeAllExcept(Set<ObjectId> keepIds) {
+    List<QuarantinedIndex> removed = new ArrayList<>();
+
+    this.stagedIndexes
+        .values()
+        .removeIf(
+            quarantinedIndex -> {
+              if (keepIds.contains(quarantinedIndex.indexId())) {
+                return false;
+              }
+              removed.add(quarantinedIndex);
+              return true;
+            });
+
+    // Live entries go through removeLiveIndex so the query path's parse error index is kept in
+    // step with them.
+    getLiveIndexes().stream()
+        .map(QuarantinedIndex::indexId)
+        .filter(indexId -> !keepIds.contains(indexId))
+        .forEach(indexId -> removeLiveIndex(indexId).ifPresent(removed::add));
+
+    return removed;
   }
 
   private static IndexProperties propertiesOf(QuarantinedIndex quarantinedIndex) {

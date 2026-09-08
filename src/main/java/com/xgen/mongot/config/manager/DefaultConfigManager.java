@@ -331,7 +331,8 @@ public class DefaultConfigManager implements ConfigManager {
       List<VectorIndexDefinition> vectorDefinitions,
       List<SearchIndexDefinition> searchDefinitions,
       List<OverriddenBaseAnalyzerDefinition> analyzerDefinitions,
-      Set<UUID> directMongodCollectionSet) {
+      Set<UUID> directMongodCollectionSet,
+      Set<ObjectId> unreadableDesiredIds) {
     ensureOpen("update");
 
     // no dynamic feature flag update is needed since this code path only serves community and
@@ -343,7 +344,8 @@ public class DefaultConfigManager implements ConfigManager {
                     vectorDefinitions,
                     searchDefinitions,
                     analyzerDefinitions,
-                    directMongodCollectionSet));
+                    directMongodCollectionSet,
+                    unreadableDesiredIds));
 
     // Update our cache of index information.
     updateIndexInfos();
@@ -378,11 +380,19 @@ public class DefaultConfigManager implements ConfigManager {
     }
   }
 
+  /**
+   * Reconciles this node's state with the desired index definitions.
+   *
+   * @param unreadableDesiredIds ids still desired but whose authoritative definition could not be
+   *     used. They are kept out of every destructive diff, and quarantined indexes outside this set
+   *     are dropped.
+   */
   protected final synchronized void updateCycle(
       List<VectorIndexDefinition> vectorDefinitions,
       List<SearchIndexDefinition> searchDefinitions,
       List<OverriddenBaseAnalyzerDefinition> analyzerDefinitions,
-      Set<UUID> directMongodCollectionSet)
+      Set<UUID> directMongodCollectionSet,
+      Set<ObjectId> unreadableDesiredIds)
       throws IOException, InvalidAnalyzerDefinitionException, Invariants.InvariantException {
     List<IndexDefinitionGenerationProducer> producers =
         IndexDefinitionGenerationProducer.createProducers(
@@ -396,6 +406,7 @@ public class DefaultConfigManager implements ConfigManager {
         searchDefinitions,
         analyzerDefinitions,
         producers,
+        unreadableDesiredIds,
         this.metricsFactory);
 
     if (this.featureFlags.isEnabled(Feature.RETAIN_FAILED_INITIAL_SYNC_DATA_ON_DISK)) {

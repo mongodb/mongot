@@ -4,6 +4,7 @@ import static com.xgen.testing.mongot.mock.index.IndexGeneration.mockDefinitionG
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -36,6 +37,7 @@ import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingCommitMetadata;
 import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
 import com.xgen.mongot.replication.mongodb.common.StaleStateInfo;
+import com.xgen.mongot.util.Crash;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.TestUtils;
 import com.xgen.testing.mongot.config.manager.ConfigStateMocks;
@@ -49,9 +51,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.bson.BsonTimestamp;
 import org.bson.types.ObjectId;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -68,6 +72,12 @@ public class IndexActionsTest {
   public void setUp() throws Exception {
     this.mocks = ConfigStateMocks.create();
     this.actions = IndexActions.withReplication(this.mocks.configState);
+  }
+
+  @After
+  @Crash.TestOnlyHaltHandler
+  public void tearDown() {
+    Crash.clearHaltHandlerForTesting();
   }
 
   @Test
@@ -368,6 +378,9 @@ public class IndexActionsTest {
     var live = mockCustomVectorEngineDefinitionGeneration();
     when(this.mocks.indexFactory.isReadyToInitialize(any())).thenReturn(true);
     this.actions.addNewIndexes(List.of(live));
+    // Let the live index finish initializing before stubbing the factory again: initialization
+    // calls the same mock from its own thread, and Mockito cannot stub one that is in use.
+    this.mocks.waitAndGetInitializedIndex(live.getGenerationId());
     this.mocks.clearInvocations();
 
     var staged = live.incrementUser(live.getIndexDefinition()).incrementAttempt();
@@ -799,6 +812,99 @@ public class IndexActionsTest {
             .getIndex(definitionGeneration.getGenerationId())
             .isEmpty());
     verify(this.mocks.lifecycleManager, never()).add(any());
+  }
+
+  @Test
+  public void dropQuarantined_deletesEachGenerationsData() throws Exception {
+    GenerationId first = SearchIndex.MOCK_INDEX_DEFINITION_GENERATION.getGenerationId();
+    GenerationId second = STAGED_INDEX_DEFINITION_GENERATION.getGenerationId();
+
+    this.actions.dropQuarantined(List.of(first, second));
+
+    verify(this.mocks.indexFactory).deleteGenerationData(first);
+    verify(this.mocks.indexFactory).deleteGenerationData(second);
+  }
+
+  @Test
+  public void dropQuarantined_noGenerations_doesNothing() throws Exception {
+    this.actions.dropQuarantined(List.of());
+
+    verify(this.mocks.indexFactory, never()).deleteGenerationData(any());
+  }
+
+  /**
+   * A failed deletion has to be fatal. The journal has already been persisted with the entry moved
+   * to deleted, and nothing tracks a quarantined index once it is out of {@link
+   * IncompatibleIndexes}, so continuing would leak the generation's data with no record of it.
+   */
+  @Test
+  @Crash.TestOnlyHaltHandler
+  public void dropQuarantined_failedDeletion_halts() throws Exception {
+    AtomicInteger capturedExitCode = new AtomicInteger(-1);
+    Crash.setHaltHandlerForTesting(
+        exitCode -> {
+          capturedExitCode.set(exitCode);
+          throw new HaltError();
+        });
+    GenerationId generationId = SearchIndex.MOCK_INDEX_DEFINITION_GENERATION.getGenerationId();
+    doThrow(new IOException("disk is gone"))
+        .when(this.mocks.indexFactory)
+        .deleteGenerationData(generationId);
+
+    Assert.assertThrows(HaltError.class, () -> this.actions.dropQuarantined(List.of(generationId)));
+
+    Assert.assertEquals(1, capturedExitCode.get());
+  }
+
+  /**
+   * A physical drop that fails is fatal for the same reason a quarantined one is: the journal is
+   * already persisted without the index, so continuing would leak its data. Covers the pre-existing
+   * "failed to close and drop index" crash, which {@code dropAllOrFail} then surfaces too.
+   */
+  @Test
+  @Crash.TestOnlyHaltHandler
+  public void dropFromCatalog_failedIndexDrop_halts() throws Exception {
+    AtomicInteger capturedExitCode = new AtomicInteger(-1);
+    Crash.setHaltHandlerForTesting(
+        exitCode -> {
+          capturedExitCode.set(exitCode);
+          throw new HaltError();
+        });
+    this.actions.addNewIndexes(List.of(SearchIndex.MOCK_INDEX_DEFINITION_GENERATION));
+    var indexes = List.copyOf(this.mocks.indexCatalog.getIndexes());
+    this.mocks.waitAndGetInitializedIndex(indexes.get(0).getGenerationId());
+    doThrow(new IOException("disk is gone")).when(indexes.get(0).getIndex()).drop();
+
+    Assert.assertThrows(HaltError.class, () -> this.actions.dropFromCatalog(indexes));
+
+    Assert.assertEquals(1, capturedExitCode.get());
+  }
+
+  /**
+   * A replication drop that fails is not fatal: the physical drop still runs, so the index and its
+   * data go and nothing is left behind to leak.
+   */
+  @Test
+  public void dropFromCatalog_failedReplicationDrop_dropsTheIndexAnyway() throws Exception {
+    this.actions.addNewIndexes(List.of(SearchIndex.MOCK_INDEX_DEFINITION_GENERATION));
+    var indexes = List.copyOf(this.mocks.indexCatalog.getIndexes());
+    InitializedIndex initializedIndex =
+        this.mocks.waitAndGetInitializedIndex(indexes.get(0).getGenerationId());
+    doReturn(CompletableFuture.failedFuture(new IllegalStateException("replication is down")))
+        .when(this.mocks.lifecycleManager)
+        .dropIndex(any());
+
+    this.actions.dropFromCatalog(indexes);
+
+    this.mocks.assertIndexCatalogSize(0);
+    this.mocks.assertIndexDropped(SearchIndex.MOCK_INDEX_DEFINITION_GENERATION, initializedIndex);
+  }
+
+  /** Stands in for {@code Runtime.halt()}, which the halt handler replaces under test. */
+  private static final class HaltError extends Error {
+    private HaltError() {
+      super("halt");
+    }
   }
 
   /**

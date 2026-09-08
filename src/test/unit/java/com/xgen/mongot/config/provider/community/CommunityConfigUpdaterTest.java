@@ -150,7 +150,8 @@ public class CommunityConfigUpdaterTest {
     verify(this.mongoDbMetadataClient).maybeUpdateSyncSource(this.syncSourceConfig);
     verify(this.configManager).handleReplicationAndSyncSourceUpdate(this.syncSourceConfig);
     verify(this.configManager)
-        .update(List.of(), List.of(SearchIndex.MOCK_INDEX_DEFINITION), List.of(), Set.of());
+        .update(
+            List.of(), List.of(SearchIndex.MOCK_INDEX_DEFINITION), List.of(), Set.of(), Set.of());
     verify(this.authoritativeIndexCatalog, never()).updateIndex(any(), any(), any());
     verify(this.authoritativeIndexCatalog, never()).deleteIndex(any());
   }
@@ -167,6 +168,7 @@ public class CommunityConfigUpdaterTest {
             List.of(VectorIndex.MOCK_VECTOR_DEFINITION),
             List.of(SearchIndex.MOCK_INDEX_DEFINITION),
             List.of(),
+            Set.of(),
             Set.of());
     verify(this.authoritativeIndexCatalog, never()).updateIndex(any(), any(), any());
     verify(this.authoritativeIndexCatalog, never()).deleteIndex(any());
@@ -212,7 +214,8 @@ public class CommunityConfigUpdaterTest {
 
     this.communityConfigUpdater.update();
 
-    verify(this.configManager).update(List.of(), List.of(newIndexDefinition), List.of(), Set.of());
+    verify(this.configManager)
+        .update(List.of(), List.of(newIndexDefinition), List.of(), Set.of(), Set.of());
     verify(this.authoritativeIndexCatalog)
         .updateIndexDefinition(AuthoritativeIndexKey.from(indexDefinition), newIndexDefinition);
     verify(this.authoritativeIndexCatalog, never()).deleteIndex(any());
@@ -258,7 +261,8 @@ public class CommunityConfigUpdaterTest {
 
     this.communityConfigUpdater.update();
 
-    verify(this.configManager).update(List.of(newIndexDefinition), List.of(), List.of(), Set.of());
+    verify(this.configManager)
+        .update(List.of(newIndexDefinition), List.of(), List.of(), Set.of(), Set.of());
     verify(this.authoritativeIndexCatalog)
         .updateIndexDefinition(AuthoritativeIndexKey.from(indexDefinition), newIndexDefinition);
     verify(this.authoritativeIndexCatalog, never()).deleteIndex(any());
@@ -300,7 +304,7 @@ public class CommunityConfigUpdaterTest {
 
     this.communityConfigUpdater.update();
 
-    verify(this.configManager).update(List.of(), List.of(), List.of(), Set.of());
+    verify(this.configManager).update(List.of(), List.of(), List.of(), Set.of(), Set.of());
     verify(this.authoritativeIndexCatalog, never()).updateIndexDefinition(any(), any());
     verify(this.authoritativeIndexCatalog).deleteIndex(AuthoritativeIndexKey.from(indexDefinition));
   }
@@ -361,7 +365,8 @@ public class CommunityConfigUpdaterTest {
             this.catalogAccessGuard);
 
     communityConfigUpdater.update();
-    verify(mockConfigManager).update(List.of(), List.of(), List.of(), Set.of(collectionUuid));
+    verify(mockConfigManager)
+        .update(List.of(), List.of(), List.of(), Set.of(collectionUuid), Set.of());
 
     // Verify no updates were issued to the AuthoritativeIndexCatalog
     verify(mockAuthoritativeIndexCatalog, never()).updateIndexDefinition(any(), any());
@@ -739,7 +744,7 @@ public class CommunityConfigUpdaterTest {
     verify(this.mongoDbMetadataClient).maybeUpdateSyncSource(any());
     verify(this.configManager).handleReplicationAndSyncSourceUpdate(any());
     verify(this.authoritativeIndexCatalog, never()).listIndexDefinitions();
-    verify(this.configManager, never()).update(any(), any(), any(), any());
+    verify(this.configManager, never()).update(any(), any(), any(), any(), any());
   }
 
   @Test
@@ -753,6 +758,6 @@ public class CommunityConfigUpdaterTest {
     verify(this.mongoDbMetadataClient).maybeUpdateSyncSource(any());
     verify(this.configManager).handleReplicationAndSyncSourceUpdate(any());
     verify(this.authoritativeIndexCatalog, never()).listIndexDefinitions();
-    verify(this.configManager, never()).update(any(), any(), any(), any());
+    verify(this.configManager, never()).update(any(), any(), any(), any(), any());
   }
 }

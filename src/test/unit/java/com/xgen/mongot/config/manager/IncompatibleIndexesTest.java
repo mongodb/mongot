@@ -8,6 +8,7 @@ import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.index.version.UserIndexVersion;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
@@ -198,6 +199,49 @@ public class IncompatibleIndexesTest {
 
     Assert.assertTrue(incompatibleIndexes.getLiveIndexes().isEmpty());
     Assert.assertEquals(List.of(staged), List.copyOf(incompatibleIndexes.getStagedIndexes()));
+  }
+
+  @Test
+  public void newRegistry_reportsEmpty() {
+    Assert.assertTrue(new IncompatibleIndexes().isEmpty());
+  }
+
+  @Test
+  public void removeAllExcept_dropsTheIdsNotKept_andReportsThem() {
+    var incompatibleIndexes = new IncompatibleIndexes();
+    QuarantinedIndex kept = quarantined(INDEX_ID, "foo", "foo is broken", 1);
+    QuarantinedIndex removed = quarantined(OTHER_INDEX_ID, "other", "other is broken", 1);
+    incompatibleIndexes.addLiveIndex(kept);
+    incompatibleIndexes.addLiveIndex(removed);
+
+    List<QuarantinedIndex> dropped = incompatibleIndexes.removeAllExcept(Set.of(INDEX_ID));
+
+    Assert.assertEquals(List.of(removed), dropped);
+    Assert.assertEquals(List.of(kept), List.copyOf(incompatibleIndexes.getLiveIndexes()));
+  }
+
+  /** Both generations of an index go together: the keep set is by index id, not by generation. */
+  @Test
+  public void removeAllExcept_dropsStagedAndLiveGenerationsOfTheSameIndex() {
+    var incompatibleIndexes = new IncompatibleIndexes();
+    QuarantinedIndex live = quarantined(INDEX_ID, "foo", "live is broken", 1);
+    QuarantinedIndex staged = quarantined(INDEX_ID, "foo", "staged is broken", 2);
+    incompatibleIndexes.addLiveIndex(live);
+    incompatibleIndexes.addStagedIndex(staged);
+
+    List<QuarantinedIndex> dropped = incompatibleIndexes.removeAllExcept(Set.of());
+
+    Assert.assertEquals(Set.of(live, staged), Set.copyOf(dropped));
+    Assert.assertTrue(incompatibleIndexes.isEmpty());
+  }
+
+  @Test
+  public void removeAllExcept_keepingEverything_removesNothing() {
+    var incompatibleIndexes = new IncompatibleIndexes();
+    incompatibleIndexes.addLiveIndex(quarantined(INDEX_ID, "foo", "foo is broken", 1));
+
+    Assert.assertTrue(incompatibleIndexes.removeAllExcept(Set.of(INDEX_ID)).isEmpty());
+    Assert.assertFalse(incompatibleIndexes.isEmpty());
   }
 
   private static QuarantinedIndex quarantined(

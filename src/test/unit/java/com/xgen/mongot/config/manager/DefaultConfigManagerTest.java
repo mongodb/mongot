@@ -247,7 +247,7 @@ public class DefaultConfigManagerTest {
     mocks.clearInvocations();
 
     // Update the config manager with a desired state of no indexes.
-    mocks.configManager.update(emptyList(), emptyList(), emptyList(), emptySet());
+    mocks.configManager.update(emptyList(), emptyList(), emptyList(), emptySet(), emptySet());
 
     mocks.assertNoIndexActivity();
     mocks.assertConfigUpdated(0, 0);
@@ -267,7 +267,7 @@ public class DefaultConfigManagerTest {
     // Update the config manager with our desired index.
     List<SearchIndexDefinition> indexDefinitions = Collections.singletonList(MOCK_INDEX_DEFINITION);
 
-    mocks.configManager.update(emptyList(), indexDefinitions, emptyList(), emptySet());
+    mocks.configManager.update(emptyList(), indexDefinitions, emptyList(), emptySet(), emptySet());
 
     mocks.assertIndexCatalogedAndReplicated();
     mocks.waitForIndexInitialization(MOCK_INDEX_DEFINITION_GENERATION_CURRENT.getGenerationId());
@@ -291,7 +291,7 @@ public class DefaultConfigManagerTest {
     List<VectorIndexDefinition> indexDefinitions =
         Collections.singletonList(MOCK_VECTOR_DEFINITION);
 
-    mocks.configManager.update(indexDefinitions, emptyList(), emptyList(), emptySet());
+    mocks.configManager.update(indexDefinitions, emptyList(), emptyList(), emptySet(), emptySet());
 
     mocks.assertIndexCatalogedAndReplicated();
     mocks.waitForIndexInitialization(
@@ -312,7 +312,7 @@ public class DefaultConfigManagerTest {
 
     // Update the config manager with our desired index.
     List<SearchIndexDefinition> indexDefinitions = Collections.singletonList(MOCK_INDEX_DEFINITION);
-    mocks.configManager.update(emptyList(), indexDefinitions, emptyList(), emptySet());
+    mocks.configManager.update(emptyList(), indexDefinitions, emptyList(), emptySet(), emptySet());
 
     // Get the Index so we can verify it was dropped later.
     Optional<IndexGeneration> optionalIndex = mocks.indexCatalog.getIndexById(MOCK_INDEX_ID);
@@ -324,7 +324,7 @@ public class DefaultConfigManagerTest {
     mocks.clearInvocations();
 
     // Now update the config manager again to remove the index.
-    mocks.configManager.update(emptyList(), emptyList(), emptyList(), emptySet());
+    mocks.configManager.update(emptyList(), emptyList(), emptyList(), emptySet(), emptySet());
 
     // It's very important that the indexed dropped in the following specific order (see comment in
     // DesiredConfigStateUpdater::dropIndex), so we test for it explicitly.
@@ -355,7 +355,7 @@ public class DefaultConfigManagerTest {
     // Update the config manager with our desired index.
     List<VectorIndexDefinition> indexDefinitions =
         Collections.singletonList(MOCK_VECTOR_DEFINITION);
-    mocks.configManager.update(indexDefinitions, emptyList(), emptyList(), emptySet());
+    mocks.configManager.update(indexDefinitions, emptyList(), emptyList(), emptySet(), emptySet());
 
     // Get the Index so we can verify it was dropped later.
     Optional<IndexGeneration> optionalIndex =
@@ -367,7 +367,7 @@ public class DefaultConfigManagerTest {
     mocks.clearInvocations();
 
     // Now update the config manager again to remove the index.
-    mocks.configManager.update(emptyList(), emptyList(), emptyList(), emptySet());
+    mocks.configManager.update(emptyList(), emptyList(), emptyList(), emptySet(), emptySet());
 
     // It's very important that the indexed dropped in the following specific order (see comment in
     // DesiredConfigStateUpdater::dropIndex), so we test for it explicitly.
@@ -402,7 +402,7 @@ public class DefaultConfigManagerTest {
             .analyzerName("lucene.keyword")
             .build();
     mocks.configManager.update(
-        emptyList(), List.of(MOCK_INDEX_DEFINITION), emptyList(), emptySet());
+        emptyList(), List.of(MOCK_INDEX_DEFINITION), emptyList(), emptySet(), emptySet());
     configStateMocks.assertIndexCatalogSize(1);
 
     // important for this test, otherwise the index will be created in steady state and be swapped
@@ -410,7 +410,7 @@ public class DefaultConfigManagerTest {
     configStateMocks.setStatusForCreatedIndexes(IndexStatus.initialSync());
 
     // index definition changed, we expect a swap to be staged:
-    mocks.configManager.update(emptyList(), List.of(newDef), emptyList(), emptySet());
+    mocks.configManager.update(emptyList(), List.of(newDef), emptyList(), emptySet(), emptySet());
     var oldIndex = configStateMocks.indexCatalog.getIndexById(MOCK_INDEX_ID).orElseThrow();
     var newIndex = configStateMocks.staged.getIndex(MOCK_INDEX_ID).orElseThrow();
     mocks.waitForIndexInitialization(oldIndex.getGenerationId());
@@ -428,7 +428,7 @@ public class DefaultConfigManagerTest {
             .cursorId;
 
     newIndex.getIndex().setStatus(IndexStatus.steady());
-    mocks.configManager.update(emptyList(), List.of(newDef), emptyList(), emptySet());
+    mocks.configManager.update(emptyList(), List.of(newDef), emptyList(), emptySet(), emptySet());
 
     // indexes should have been swapped at this point
     configStateMocks.assertStagedIndexesAre();
@@ -437,7 +437,7 @@ public class DefaultConfigManagerTest {
 
     mocks.cursorManager.killCursor(cursorId);
     // in this config cycle we have no cursors on the old index, so it is ready to be dropped.
-    mocks.configManager.update(emptyList(), List.of(newDef), emptyList(), emptySet());
+    mocks.configManager.update(emptyList(), List.of(newDef), emptyList(), emptySet(), emptySet());
     configStateMocks.assertLiveIndexesAre(newIndex);
     configStateMocks.assertPhasingOutIndexesAre();
   }
@@ -460,7 +460,7 @@ public class DefaultConfigManagerTest {
 
     // first create an index
     mocks.configManager.update(
-        emptyList(), List.of(MOCK_INDEX_DEFINITION), emptyList(), emptySet());
+        emptyList(), List.of(MOCK_INDEX_DEFINITION), emptyList(), emptySet(), emptySet());
     configStateMocks.assertIndexCatalogSize(1);
 
     // important for this test, otherwise the index will be created in steady state and be swapped
@@ -468,14 +468,14 @@ public class DefaultConfigManagerTest {
     configStateMocks.setStatusForCreatedIndexes(IndexStatus.initialSync());
 
     // index definition changed, we expect a swap to be staged:
-    mocks.configManager.update(emptyList(), List.of(def1), emptyList(), emptySet());
+    mocks.configManager.update(emptyList(), List.of(def1), emptyList(), emptySet(), emptySet());
 
     mocks.waitForIndexInitialization(Generation.CURRENT.generationId(MOCK_INDEX_ID));
     var oldIndex = configStateMocks.indexCatalog.getIndexById(MOCK_INDEX_ID).orElseThrow();
     InitializedIndex initializedIndex = mocks.getInitializedIndex(oldIndex);
     var newIndexDef1 = configStateMocks.staged.getIndex(MOCK_INDEX_ID).orElseThrow();
 
-    mocks.configManager.update(emptyList(), List.of(def2), emptyList(), emptySet());
+    mocks.configManager.update(emptyList(), List.of(def2), emptyList(), emptySet(), emptySet());
 
     // def1 no longer relevant and should have been dropped
     verify(newIndexDef1.getIndex(), atLeastOnce()).drop();
@@ -500,7 +500,7 @@ public class DefaultConfigManagerTest {
 
     // first create an index and "wait" for steady
     mocks.configManager.update(
-        emptyList(), List.of(MOCK_INDEX_DEFINITION), emptyList(), emptySet());
+        emptyList(), List.of(MOCK_INDEX_DEFINITION), emptyList(), emptySet(), emptySet());
     var oldIndex =
         mocks.indexCatalog.getIndexById(MOCK_INDEX_DEFINITION.getIndexId()).orElseThrow();
     oldIndex.getIndex().setStatus(IndexStatus.steady());
@@ -510,10 +510,10 @@ public class DefaultConfigManagerTest {
         SearchIndexDefinitionBuilder.from(MOCK_INDEX_DEFINITION)
             .analyzerName("lucene.keyword")
             .build();
-    mocks.configManager.update(emptyList(), List.of(def1), emptyList(), emptySet());
+    mocks.configManager.update(emptyList(), List.of(def1), emptyList(), emptySet(), emptySet());
     // "regret" and revert to the first definition:
     mocks.configManager.update(
-        emptyList(), List.of(MOCK_INDEX_DEFINITION), emptyList(), emptySet());
+        emptyList(), List.of(MOCK_INDEX_DEFINITION), emptyList(), emptySet(), emptySet());
     configStateMocks.assertStagedIndexesAre();
     configStateMocks.assertLiveIndexesAre(oldIndex);
     configStateMocks.assertIndexCatalogSize(1);
@@ -530,13 +530,15 @@ public class DefaultConfigManagerTest {
             .build();
 
     // create an index and "wait" for initial sync
-    mocks.configManager.update(emptyList(), List.of(liveDefinition), emptyList(), emptySet());
+    mocks.configManager.update(
+        emptyList(), List.of(liveDefinition), emptyList(), emptySet(), emptySet());
     var liveIndex =
         mocks.indexCatalog.getIndexById(MOCK_INDEX_DEFINITION.getIndexId()).orElseThrow();
     liveIndex.getIndex().setStatus(IndexStatus.initialSync());
 
     // stage a swap with the updated defintion
-    mocks.configManager.update(emptyList(), List.of(stagedDefinition), emptyList(), emptySet());
+    mocks.configManager.update(
+        emptyList(), List.of(stagedDefinition), emptyList(), emptySet(), emptySet());
 
     // check that previously live index is dropped
     verify(liveIndex.getIndex(), atLeastOnce()).drop();
@@ -561,14 +563,16 @@ public class DefaultConfigManagerTest {
     var liveDefinition = MOCK_INDEX_DEFINITION;
 
     // Create an index and set recovering status
-    mocks.configManager.update(emptyList(), List.of(liveDefinition), emptyList(), emptySet());
+    mocks.configManager.update(
+        emptyList(), List.of(liveDefinition), emptyList(), emptySet(), emptySet());
     var liveIndex =
         mocks.indexCatalog.getIndexById(MOCK_INDEX_DEFINITION.getIndexId()).orElseThrow();
     liveIndex.getIndex().setStatus(IndexStatus.recoveringNonTransient(new BsonTimestamp()));
 
     // Run another update cycle with the same definitions
     configStateMocks.clearInvocations();
-    mocks.configManager.update(emptyList(), List.of(liveDefinition), emptyList(), emptySet());
+    mocks.configManager.update(
+        emptyList(), List.of(liveDefinition), emptyList(), emptySet(), emptySet());
 
     // Check that the live index still exists and a new one was staged with the same definition
     configStateMocks.assertIndexCatalogSize(1);
@@ -595,13 +599,15 @@ public class DefaultConfigManagerTest {
     configStateMocks.setStatusForCreatedIndexes(IndexStatus.initialSync());
 
     // Create an index in steady state
-    mocks.configManager.update(emptyList(), List.of(liveDefinition), emptyList(), emptySet());
+    mocks.configManager.update(
+        emptyList(), List.of(liveDefinition), emptyList(), emptySet(), emptySet());
     var liveIndex =
         mocks.indexCatalog.getIndexById(MOCK_INDEX_DEFINITION.getIndexId()).orElseThrow();
     liveIndex.getIndex().setStatus(IndexStatus.steady());
 
     // Stage a swap with updated definition
-    mocks.configManager.update(emptyList(), List.of(stagedDefinition), emptyList(), emptySet());
+    mocks.configManager.update(
+        emptyList(), List.of(stagedDefinition), emptyList(), emptySet(), emptySet());
 
     // Check that the live index still exists and a new one was staged with the same definition
     configStateMocks.assertIndexCatalogSize(1);
@@ -612,7 +618,8 @@ public class DefaultConfigManagerTest {
     // Fail the original index and run another update cycle
     configStateMocks.clearInvocations();
     liveIndex.getIndex().setStatus(IndexStatus.recoveringNonTransient(new BsonTimestamp()));
-    mocks.configManager.update(emptyList(), List.of(stagedDefinition), emptyList(), emptySet());
+    mocks.configManager.update(
+        emptyList(), List.of(stagedDefinition), emptyList(), emptySet(), emptySet());
 
     // Check that no indexes were staged.
     configStateMocks.assertNoIndexActivity();
@@ -635,6 +642,7 @@ public class DefaultConfigManagerTest {
         singletonList(MOCK_VECTOR_DEFINITION),
         singletonList(MOCK_INDEX_DEFINITION),
         emptyList(),
+        emptySet(),
         emptySet());
 
     mocks.waitForIndexInitialization(
@@ -684,6 +692,7 @@ public class DefaultConfigManagerTest {
         singletonList(MOCK_VECTOR_DEFINITION),
         singletonList(MOCK_INDEX_DEFINITION),
         emptyList(),
+        emptySet(),
         emptySet());
 
     List<IndexDefinition> expected = List.of(MOCK_INDEX_DEFINITION, MOCK_VECTOR_DEFINITION);
@@ -707,13 +716,14 @@ public class DefaultConfigManagerTest {
 
     // Create an index in steady state
     mocks.configManager.update(
-        emptyList(), singletonList(MOCK_INDEX_DEFINITION), emptyList(), emptySet());
+        emptyList(), singletonList(MOCK_INDEX_DEFINITION), emptyList(), emptySet(), emptySet());
     var liveIndex =
         mocks.indexCatalog.getIndexById(MOCK_INDEX_DEFINITION.getIndexId()).orElseThrow();
     liveIndex.getIndex().setStatus(IndexStatus.steady());
 
     // Stage a swap with updated definition
-    mocks.configManager.update(emptyList(), List.of(stagedDefinition), emptyList(), emptySet());
+    mocks.configManager.update(
+        emptyList(), List.of(stagedDefinition), emptyList(), emptySet(), emptySet());
 
     GenerationId generationId = new GenerationId(MOCK_INDEX_ID, Generation.CURRENT);
     IndexGenerationStateMetrics initialIndex =
@@ -809,7 +819,7 @@ public class DefaultConfigManagerTest {
     DefaultConfigManagerMocks mocks = DefaultConfigManagerMocks.create(path);
     mocks.assertEmptyOrNoConfigJournalInit();
     // updates will write an empty config, and create all the directories
-    mocks.configManager.update(emptyList(), emptyList(), emptyList(), emptySet());
+    mocks.configManager.update(emptyList(), emptyList(), emptyList(), emptySet(), emptySet());
     Assert.assertTrue(path.toFile().exists());
   }
 
@@ -1157,7 +1167,7 @@ public class DefaultConfigManagerTest {
 
     // Create v1 and let it reach steady state.
     mocks.configManager.update(
-        emptyList(), List.of(MOCK_INDEX_DEFINITION), emptyList(), emptySet());
+        emptyList(), List.of(MOCK_INDEX_DEFINITION), emptyList(), emptySet(), emptySet());
     var liveIndex = mocks.indexCatalog.getIndexById(MOCK_INDEX_ID).orElseThrow();
     liveIndex.getIndex().setStatus(IndexStatus.steady());
 
@@ -1170,7 +1180,7 @@ public class DefaultConfigManagerTest {
         SearchIndexDefinitionBuilder.from(MOCK_INDEX_DEFINITION)
             .analyzerName("lucene.keyword")
             .build();
-    mocks.configManager.update(emptyList(), List.of(newDef), emptyList(), emptySet());
+    mocks.configManager.update(emptyList(), List.of(newDef), emptyList(), emptySet(), emptySet());
 
     var stagedIndex = configStateMocks.staged.getIndex(MOCK_INDEX_ID).orElseThrow();
 
@@ -1185,7 +1195,7 @@ public class DefaultConfigManagerTest {
 
     // Run another update cycle. IndexInitialSyncRecovery should skip v1 because v2 is staged.
     // Then StagedIndexesSwapper swaps v2 into live because v1 is non-serviceable (FAILED).
-    mocks.configManager.update(emptyList(), List.of(newDef), emptyList(), emptySet());
+    mocks.configManager.update(emptyList(), List.of(newDef), emptyList(), emptySet(), emptySet());
 
     // v2 was promoted to live by StagedIndexesSwapper (v1 is FAILED and non-serviceable).
     configStateMocks.assertLiveIndexesAre(stagedIndex);
@@ -1384,6 +1394,7 @@ public class DefaultConfigManagerTest {
         List.of((VectorIndexDefinition) definitionGeneration.getIndexDefinition()),
         emptyList(),
         emptyList(),
+        emptySet(),
         emptySet());
 
     verify(mocks.lifecycleManager, times(1)).add(any());

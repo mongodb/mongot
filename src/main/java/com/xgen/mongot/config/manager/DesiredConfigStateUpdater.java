@@ -13,6 +13,7 @@ import com.xgen.mongot.index.definition.IndexDefinitionGenerationProducer;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.version.Generation;
+import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.index.version.UserIndexVersion;
 import com.xgen.mongot.metrics.MetricsFactory;
@@ -24,6 +25,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.bson.types.ObjectId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,17 +63,24 @@ class DesiredConfigStateUpdater {
       List<SearchIndexDefinition> searchDefinitions,
       List<OverriddenBaseAnalyzerDefinition> analyzerDefinitions,
       List<IndexDefinitionGenerationProducer> producers,
+      Set<ObjectId> unreadableDesiredIds,
       MetricsFactory metricsFactory)
       throws IOException, InvalidAnalyzerDefinitionException, Invariants.InvariantException {
     new DesiredConfigStateUpdater(configState, metricsFactory)
-        .updateConfigState(vectorDefinitions, searchDefinitions, analyzerDefinitions, producers);
+        .updateConfigState(
+            vectorDefinitions,
+            searchDefinitions,
+            analyzerDefinitions,
+            producers,
+            unreadableDesiredIds);
   }
 
   private void updateConfigState(
       List<VectorIndexDefinition> vectorDefinitions,
       List<SearchIndexDefinition> searchDefinitions,
       List<OverriddenBaseAnalyzerDefinition> analyzerDefinitions,
-      List<IndexDefinitionGenerationProducer> producers)
+      List<IndexDefinitionGenerationProducer> producers,
+      Set<ObjectId> unreadableDesiredIds)
       throws IOException, InvalidAnalyzerDefinitionException, Invariants.InvariantException {
 
     try {
@@ -85,10 +94,81 @@ class DesiredConfigStateUpdater {
       return;
     }
 
-    ConfigManagerChangePlan plan = ConfigManagerChangePlanner.plan(this.configState, producers);
+    // Before planning: a superseded quarantined index the planner can still see is one it never
+    // builds a replacement for.
+    dropQuarantinedIndexes(unreadableDesiredIds);
+
+    ConfigManagerChangePlan plan =
+        ConfigManagerChangePlanner.plan(this.configState, producers, unreadableDesiredIds);
 
     logPlanInfo(plan);
     applyPlan(plan);
+  }
+
+  /**
+   * Drops from the journal and from disk every quarantined index whose id the authoritative source
+   * no longer reports as unreadable, which is how a quarantine ends: the index was deleted, or it
+   * was updated to a definition we can parse and the replacement is built fresh.
+   */
+  private void dropQuarantinedIndexes(Set<ObjectId> unreadableDesiredIds)
+      throws IOException, Invariants.InvariantException {
+    IncompatibleIndexes incompatibleIndexes = this.configState.incompatibleIndexes;
+    if (incompatibleIndexes.isEmpty()) {
+      return;
+    }
+
+    List<QuarantinedIndex> droppedStaged =
+        withoutKeptIds(incompatibleIndexes.getStagedIndexes(), unreadableDesiredIds);
+    List<QuarantinedIndex> droppedLive =
+        withoutKeptIds(incompatibleIndexes.getLiveIndexes(), unreadableDesiredIds);
+    if (droppedStaged.isEmpty() && droppedLive.isEmpty()) {
+      return;
+    }
+
+    logQuarantinedDrops(droppedStaged, "staged");
+    logQuarantinedDrops(droppedLive, "live");
+
+    // Write our intent to drop, as any other drop does, so a crash before the deletion is recorded.
+    ConfigJournalV1 preDrop =
+        JournalEditor.on(this.configState.currentJournal())
+            .fromStagedToDropped(generationIds(droppedStaged))
+            .fromLiveToDropped(generationIds(droppedLive))
+            .journal();
+    this.configState.persist(preDrop);
+
+    // Stop tracking them, so the journal rewritten below no longer carries them at all.
+    incompatibleIndexes.removeAllExcept(unreadableDesiredIds);
+
+    this.indexActions.dropQuarantined(
+        Stream.concat(droppedStaged.stream(), droppedLive.stream())
+            .map(QuarantinedIndex::generationId)
+            .toList());
+
+    persistCurrentState();
+  }
+
+  private static List<QuarantinedIndex> withoutKeptIds(
+      Collection<QuarantinedIndex> quarantinedIndexes, Set<ObjectId> keepIds) {
+    return quarantinedIndexes.stream()
+        .filter(quarantinedIndex -> !keepIds.contains(quarantinedIndex.indexId()))
+        .toList();
+  }
+
+  private static List<GenerationId> generationIds(List<QuarantinedIndex> quarantinedIndexes) {
+    return quarantinedIndexes.stream().map(QuarantinedIndex::generationId).toList();
+  }
+
+  private static void logQuarantinedDrops(List<QuarantinedIndex> dropped, String journalState) {
+    for (QuarantinedIndex quarantinedIndex : dropped) {
+      LOG.atWarn()
+          .addKeyValue("indexId", quarantinedIndex.indexId())
+          .addKeyValue("indexName", quarantinedIndex.name())
+          .addKeyValue("database", quarantinedIndex.database())
+          .addKeyValue("generationId", quarantinedIndex.generationId())
+          .addKeyValue("journalState", journalState)
+          .addKeyValue("parseError", quarantinedIndex.parseError())
+          .log("Dropping quarantined index, it is no longer desired in an unreadable form");
+    }
   }
 
   private void maybeRecordReindexing(ConfigManagerChangePlan plan) {

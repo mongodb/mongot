@@ -35,6 +35,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -58,6 +59,52 @@ public class ConfigManagerChangePlannerTest {
     assertNoAddedIndexes(plan);
     assertNoUnmodifiedIndexes(plan);
     assertNoModifiedIndexes(plan);
+    assertNoDroppedIndexes(plan);
+    Assert.assertFalse(plan.hasChanges());
+  }
+
+  @Test
+  public void testExistingIndexWhoseDesiredDefinitionIsUnreadableIsNotDropped() throws Exception {
+    var indexDefinition =
+        SearchIndexDefinitionBuilder.builder()
+            .defaultMetadata()
+            .indexId(INDEX_ID)
+            .dynamicMapping()
+            .build();
+    var mocks = Mocks.withIndexes(indexDefinition);
+
+    // The index is still desired, but its definition could not be read, so it has no producer.
+    var plan = mocks.planWithUnreadableDesired(emptyList(), emptyList(), Set.of(INDEX_ID));
+
+    assertNoDroppedIndexes(plan);
+    assertNoAddedIndexes(plan);
+    assertNoModifiedIndexes(plan);
+    Assert.assertFalse(plan.hasChanges());
+  }
+
+  @Test
+  public void testExistingIndexAbsentFromBothDesiredAndIncompatibleIsDropped() throws Exception {
+    var indexDefinition =
+        SearchIndexDefinitionBuilder.builder()
+            .defaultMetadata()
+            .indexId(INDEX_ID)
+            .dynamicMapping()
+            .build();
+    var mocks = Mocks.withIndexes(indexDefinition);
+
+    // A different index is unreadable; this one was genuinely deleted.
+    var plan = mocks.planWithUnreadableDesired(emptyList(), emptyList(), Set.of(new ObjectId()));
+
+    assertIndexDropped(INDEX_ID, plan);
+  }
+
+  @Test
+  public void testUnreadableDesiredIndexThatWasNeverBuiltIsNotAdded() throws Exception {
+    var mocks = new Mocks();
+
+    var plan = mocks.planWithUnreadableDesired(emptyList(), emptyList(), Set.of(INDEX_ID));
+
+    assertNoAddedIndexes(plan);
     assertNoDroppedIndexes(plan);
     Assert.assertFalse(plan.hasChanges());
   }
@@ -1679,7 +1726,19 @@ public class ConfigManagerChangePlannerTest {
       List<IndexDefinitionGenerationProducer> producers =
           IndexDefinitionGenerationProducer.createProducers(
               desiredVectorIndexes, desiredSearchIndexes, desiredAnalyzers);
-      return ConfigManagerChangePlanner.plan(this.configStateMocks.configState, producers);
+      return ConfigManagerChangePlanner.plan(
+          this.configStateMocks.configState, producers, Set.of());
+    }
+
+    ConfigManagerChangePlan planWithUnreadableDesired(
+        List<VectorIndexDefinition> desiredVectorIndexes,
+        List<SearchIndexDefinition> desiredSearchIndexes,
+        Set<ObjectId> unreadableDesiredIds) {
+      List<IndexDefinitionGenerationProducer> producers =
+          IndexDefinitionGenerationProducer.createProducers(
+              desiredVectorIndexes, desiredSearchIndexes, emptyList());
+      return ConfigManagerChangePlanner.plan(
+          this.configStateMocks.configState, producers, unreadableDesiredIds);
     }
   }
 
