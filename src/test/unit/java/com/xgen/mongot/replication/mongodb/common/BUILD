@@ -12,6 +12,7 @@ java_test_suite(
         "ChangeStreamDocumentUtilsSearchViewPartialUpdateTest.java",
         "ChangeStreamDocumentUtilsTest.java",
         "ChangeStreamMongoCursorClientTest.java",
+        "ChangeStreamPartitionTest.java",
         "ChangeStreamResumeInfoTest.java",
         "ChangeStreamsTest.java",
         "CustomVectorEngineIndexingWorkSchedulerTest.java",

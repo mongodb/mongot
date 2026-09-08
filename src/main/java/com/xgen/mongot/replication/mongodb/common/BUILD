@@ -18,6 +18,7 @@ java_library(
         "ChangeStreamModeSelector.java",
         "ChangeStreamMongoClient.java",
         "ChangeStreamMongoCursorClient.java",
+        "ChangeStreamPartition.java",
         "ChangeStreamResumeInfo.java",
         "ChangeStreams.java",
         "ClientSessionRecord.java",
