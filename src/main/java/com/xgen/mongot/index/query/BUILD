@@ -17,6 +17,7 @@ java_library(
         "ReturnScope.java",
         "SearchNodePreference.java",
         "SearchQuery.java",
+        "SearchQueryParseOptions.java",
         "SearchQueryTimeMappingChecks.java",
         "Tracking.java",
         "VectorQueryTimeMappingChecks.java",

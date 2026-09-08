@@ -132,6 +132,11 @@ public final class BoundaryGroupAggregationSpec extends GroupAggregationSpec {
     return this.defaultBucketKey;
   }
 
+  @Override
+  public int groupingBucketCount() {
+    return this.rangeKeys.size() + (this.defaultBucketKey.isPresent() ? 1 : 0);
+  }
+
   boolean lastEdgeInclusive() {
     return this.lastEdgeInclusive;
   }

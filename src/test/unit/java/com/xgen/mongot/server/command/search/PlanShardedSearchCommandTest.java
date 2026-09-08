@@ -8,6 +8,7 @@ import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.query.aggregation.TestOperatorSpecs;
+import com.xgen.mongot.index.query.aggregation.TopAggregationSpec;
 import com.xgen.mongot.server.command.search.definition.PlanShardedSearchCommandResponseDefinition;
 import com.xgen.mongot.server.command.search.definition.request.PlanShardedSearchCommandDefinition;
 import com.xgen.mongot.util.mongodb.MongoDbServerInfo;
@@ -254,5 +255,78 @@ public class PlanShardedSearchCommandTest {
 
     Assert.assertEquals(1, result.getInt32("ok").getValue());
     Assert.assertEquals(3, result.getArray("metaPipeline").size());
+  }
+
+  @Test
+  public void testNestedAggregationExactly100kPlans() {
+    PlanShardedSearchCommand command =
+        createCommand(
+            getPlanShardedSearchCommandDefinition(nestedTermsQuery(1000, 100)),
+            AGGREGATION_BOOTSTRAPPER_METADATA);
+
+    BsonDocument result = command.run();
+
+    Assert.assertEquals(1, result.getInt32("ok").getValue());
+  }
+
+  @Test
+  public void testNestedAggregationOver100kRejectedWhenDffOn() {
+    PlanShardedSearchCommand command =
+        createCommand(
+            getPlanShardedSearchCommandDefinition(nestedTermsQuery(1000, 101)),
+            AGGREGATION_BOOTSTRAPPER_METADATA);
+
+    BsonDocument result = command.run();
+
+    Assert.assertEquals(0, result.getInt32("ok").getValue());
+    String errmsg = result.getString("errmsg").getValue();
+    Assert.assertTrue(
+        errmsg.contains(TopAggregationSpec.requestedBucketsLimitExceededMessage(101_000)));
+  }
+
+  @Test
+  public void testNestedAggregationOver100kPlansWhenDffOff() {
+    DynamicFeatureFlagRegistry registry = mock(DynamicFeatureFlagRegistry.class);
+    when(registry.evaluateClusterInvariant(
+            DynamicFeatureFlags.ENABLE_SEARCH_AGGREGATION_REQUESTED_BUCKET_LIMIT))
+        .thenReturn(false);
+    SearchCommandsRegister.BootstrapperMetadata metadata =
+        new SearchCommandsRegister.BootstrapperMetadata(
+            "testVersion",
+            "localhost",
+            () -> MongoDbServerInfo.EMPTY,
+            FeatureFlags.withDefaults().enable(Feature.SEARCH_AGGREGATION).build(),
+            registry);
+
+    PlanShardedSearchCommand command =
+        createCommand(getPlanShardedSearchCommandDefinition(nestedTermsQuery(1000, 101)), metadata);
+
+    BsonDocument result = command.run();
+
+    Assert.assertEquals(1, result.getInt32("ok").getValue());
+  }
+
+  private static BsonDocument nestedTermsQuery(int outerBuckets, int innerBuckets) {
+    BsonDocument inner =
+        new BsonDocument()
+            .append("type", new BsonString("string"))
+            .append("path", new BsonString("color"))
+            .append("numBuckets", new BsonInt32(innerBuckets))
+            .append(
+                "aggregations",
+                new BsonDocument("n", new BsonDocument("type", new BsonString("count"))));
+    return new BsonDocument()
+        .append(
+            "facet",
+            new BsonDocument()
+                .append(
+                    "facets",
+                    new BsonDocument(
+                        "byCity",
+                        new BsonDocument()
+                            .append("type", new BsonString("string"))
+                            .append("path", new BsonString("city"))
+                            .append("numBuckets", new BsonInt32(outerBuckets))
+                            .append("facets", new BsonDocument("byColor", inner)))));
   }
 }

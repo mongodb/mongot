@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.query.aggregation;
 
+import com.google.common.math.LongMath;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
@@ -120,5 +121,26 @@ public abstract non-sealed class GroupAggregationSpec implements AggregationSpec
 
   public FieldPath getPath() {
     return this.path;
+  }
+
+  /**
+   * Requested buckets of this grouping node alone, ignoring nested children. Terms use {@code
+   * numBuckets}; boundary groupings use the number of ranges plus one when a default bucket is
+   * present.
+   */
+  public abstract int groupingBucketCount();
+
+  /**
+   * Requested bucket space of this subtree: this node's {@link #groupingBucketCount()} multiplied
+   * by the summed space of nested grouping children. A leaf grouping (metric children only) uses a
+   * child space of 1.
+   */
+  @Override
+  public final long requestedBucketCount() {
+    long groupingChildSpace =
+        this.children.stream()
+            .mapToLong(AggregationSpec::requestedBucketCount)
+            .reduce(0L, LongMath::saturatedAdd);
+    return LongMath.saturatedMultiply(this.groupingBucketCount(), Math.max(1L, groupingChildSpace));
   }
 }

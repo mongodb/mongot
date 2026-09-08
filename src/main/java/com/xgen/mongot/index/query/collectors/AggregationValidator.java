@@ -6,6 +6,7 @@ import com.xgen.mongot.index.definition.FieldDefinition;
 import com.xgen.mongot.index.definition.SearchFieldDefinitionResolver;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.query.aggregation.Operator;
+import com.xgen.mongot.index.query.aggregation.TopAggregationSpec;
 import com.xgen.mongot.index.query.sort.MetaSortOptions;
 import com.xgen.mongot.index.query.sort.SortSpec;
 import com.xgen.mongot.util.FieldPath;
@@ -20,9 +21,9 @@ import org.apache.lucene.index.SortedSetDocValues;
 
 /**
  * Central home for validation of aggregation-capable {@code facet} requests: parse-time semantic
- * checks, the schema checks the query path runs per reader, and the aggregation feature gate.
- * Keeping these checks in one place makes it easy to scope future aggregation-syntax validation
- * here rather than scattering it across query parsing.
+ * checks, the schema checks the query path runs per reader, the plan-time requested-bucket cap, and
+ * the aggregation feature gate. Keeping these checks in one place makes it easy to scope future
+ * aggregation-syntax validation here rather than scattering it across query parsing.
  */
 public class AggregationValidator {
 
@@ -154,6 +155,24 @@ public class AggregationValidator {
       this.bsonParseContext.handleSemanticError(
           "'first' and 'last' aggregation metrics only support sorting by document fields; a $meta"
               + " sort component is not supported");
+    }
+  }
+
+  /**
+   * Rejects a search-aggregation spec whose requested bucket space is larger than {@link
+   * TopAggregationSpec#MAX_REQUESTED_BUCKETS}. Nested grouping is a cartesian product, so this is a
+   * tree-wide cap rather than the per-node 1k/10k parse bounds on {@code numBuckets}/{@code
+   * boundaries}.
+   *
+   * <p>Call this on a spec that has already been lowered (the Lucene plan or the sharded merge
+   * plan) rather than lowering a second copy of the tree just to count buckets.
+   */
+  public static void validateRequestedBuckets(TopAggregationSpec spec)
+      throws AggregationValidationException {
+    long requested = spec.requestedBucketCount();
+    if (requested > TopAggregationSpec.MAX_REQUESTED_BUCKETS) {
+      throw new AggregationValidationException(
+          TopAggregationSpec.requestedBucketsLimitExceededMessage(requested));
     }
   }
 

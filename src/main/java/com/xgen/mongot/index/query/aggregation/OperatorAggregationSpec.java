@@ -32,6 +32,11 @@ public abstract non-sealed class OperatorAggregationSpec implements AggregationS
   }
 
   @Override
+  public final long requestedBucketCount() {
+    return 0L;
+  }
+
+  @Override
   public abstract Accumulator buildAccumulator(AggregationContext context) throws IOException;
 
   @Override

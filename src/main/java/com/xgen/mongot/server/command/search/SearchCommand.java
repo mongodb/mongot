@@ -39,6 +39,7 @@ import com.xgen.mongot.index.query.OperatorQuery;
 import com.xgen.mongot.index.query.Query;
 import com.xgen.mongot.index.query.QueryOptimizationFlags;
 import com.xgen.mongot.index.query.SearchQuery;
+import com.xgen.mongot.index.query.SearchQueryParseOptions;
 import com.xgen.mongot.index.query.operators.VectorSearchCriteria;
 import com.xgen.mongot.index.query.operators.VectorSearchOperator;
 import com.xgen.mongot.index.query.operators.VectorSearchQueryInput;
@@ -153,13 +154,12 @@ public class SearchCommand implements Command {
               .evaluateClusterInvariant(DynamicFeatureFlags.ENABLE_10K_BUCKET_LIMIT);
       boolean searchAggregationEnabled =
           this.metadata.featureFlags().isEnabled(Feature.SEARCH_AGGREGATION);
+      SearchQueryParseOptions parseOptions =
+          new SearchQueryParseOptions(allow10k, searchAggregationEnabled);
       @Var
       SearchQuery queryDefinition =
           SearchQuery.fromBson(
-              this.definition.queryDocument(),
-              queryOptimizationFlags,
-              allow10k,
-              searchAggregationEnabled);
+              this.definition.queryDocument(), queryOptimizationFlags, parseOptions);
       Optional<InitializedIndex> index = getIndexFromCatalog(queryDefinition);
 
       if (index.isPresent()) {

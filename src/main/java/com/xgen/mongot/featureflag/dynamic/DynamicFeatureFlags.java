@@ -48,6 +48,15 @@ public enum DynamicFeatureFlags {
    */
   ENABLE_EMBEDDED_SCOPED_FACET("mongot.featureFlag.enableEmbeddedScopedFacet", false),
   ENABLE_TOTAL_FACET_BUCKETS("mongot.featureFlag.enableTotalFacetBuckets", false),
+  /**
+   * When enabled, a search aggregation query is rejected at plan time if the requested bucket space
+   * — the product of each grouping level's {@code numBuckets} / boundary range count (plus a
+   * number/date {@code default} bucket), summed across independent top-level trees — exceeds {@code
+   * 100_000}. Distinct from the pre-GA search-aggregation bucket-limit flag, which is removed at
+   * GA; this one persists. Fallback {@code true} so the cap is on unless explicitly disabled.
+   */
+  ENABLE_SEARCH_AGGREGATION_REQUESTED_BUCKET_LIMIT(
+      "mongot.featureFlag.enableSearchAggregationRequestedBucketLimit", true),
   BLOOM_FILTER_FOR_ID_FIELD("mongot.featureFlag.enableBloomFilterNaturalOrderInitialSync", false),
   BLOOM_FILTER_IN_STEADY_STATE("mongot.featureFlag.enableBloomFilterInSteadyState", false),
   NUMERIC_V2_SEMANTICS("mongot.featureFlag.numericV2Semantics", false),

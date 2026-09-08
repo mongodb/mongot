@@ -666,6 +666,42 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
         DynamicFeatureFlags.ENABLE_EMBEDDED_SCOPED_FACET);
   }
 
+  /**
+   * Evaluated per query so a runtime toggle of the requested-bucket cap takes effect on existing
+   * readers.
+   */
+  private boolean enforceRequestedBucketLimit() {
+    return this.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+        DynamicFeatureFlags.ENABLE_SEARCH_AGGREGATION_REQUESTED_BUCKET_LIMIT);
+  }
+
+  /**
+   * Schema-checks the collector, lowers it once, and (when the DFF is on) rejects trees whose
+   * requested bucket space exceeds {@link
+   * com.xgen.mongot.index.query.aggregation.TopAggregationSpec#MAX_REQUESTED_BUCKETS} using that
+   * already-built spec.
+   */
+  private LuceneAggregationPlanResolver.AggregationPlan resolveValidatedAggregationPlan(
+      AggregationCollector aggregationCollector, CollectorQuery query)
+      throws InvalidQueryException {
+    try {
+      AggregationValidator.validateAggregationQuery(
+          aggregationCollector,
+          this.facetContext.getFieldDefinitionResolver(),
+          query.returnScope().map(ReturnScope::path),
+          this.featureFlags.isEnabled(Feature.SEARCH_AGGREGATION));
+      LuceneAggregationPlanResolver.AggregationPlan aggregationPlan =
+          LuceneAggregationPlanResolver.resolveAggregationPlan(
+              this.facetContext, aggregationCollector, query.returnStoredSource());
+      if (enforceRequestedBucketLimit()) {
+        AggregationValidator.validateRequestedBuckets(aggregationPlan.rootSpec());
+      }
+      return aggregationPlan;
+    } catch (AggregationValidator.AggregationValidationException e) {
+      throw new InvalidQueryException(e.getMessage());
+    }
+  }
+
   private static void rejectScopedFacetsWithDrillSideways(FacetCollector facetCollector)
       throws InvalidQueryException {
     boolean hasScopedFacet =
@@ -994,18 +1030,8 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
       QueryCursorOptions queryCursorOptions,
       QueryOptimizationFlags queryOptimizationFlags)
       throws IOException, InterruptedException, InvalidQueryException {
-    try {
-      AggregationValidator.validateAggregationQuery(
-          aggregationCollector,
-          this.facetContext.getFieldDefinitionResolver(),
-          query.returnScope().map(ReturnScope::path),
-          this.featureFlags.isEnabled(Feature.SEARCH_AGGREGATION));
-    } catch (AggregationValidator.AggregationValidationException e) {
-      throw new InvalidQueryException(e.getMessage());
-    }
     LuceneAggregationPlanResolver.AggregationPlan aggregationPlan =
-        LuceneAggregationPlanResolver.resolveAggregationPlan(
-            this.facetContext, aggregationCollector, query.returnStoredSource());
+        resolveValidatedAggregationPlan(aggregationCollector, query);
     validateAggregationBucketLimit(aggregationCollector, searcherReference);
     // Always 0 here: a partitioned index routes aggregation through
     // intermediateAggregationCollectorQuery instead, so this path only ever serves a
@@ -1065,19 +1091,8 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
       QueryCursorOptions queryCursorOptions,
       QueryOptimizationFlags queryOptimizationFlags)
       throws IOException, InterruptedException, InvalidQueryException {
-    try {
-      AggregationValidator.validateAggregationQuery(
-          aggregationCollector,
-          this.facetContext.getFieldDefinitionResolver(),
-          query.returnScope().map(ReturnScope::path),
-          this.featureFlags.isEnabled(Feature.SEARCH_AGGREGATION));
-    } catch (AggregationValidator.AggregationValidationException e) {
-      throw new InvalidQueryException(e.getMessage());
-    }
-
     LuceneAggregationPlanResolver.AggregationPlan aggregationPlan =
-        LuceneAggregationPlanResolver.resolveAggregationPlan(
-            this.facetContext, aggregationCollector, query.returnStoredSource());
+        resolveValidatedAggregationPlan(aggregationCollector, query);
     validateAggregationBucketLimit(aggregationCollector, searcherReference);
     // The reader's own partition, since a partitioned index has one reader per partition and
     // fans out over them. first/last need it because doc ids only order documents within a

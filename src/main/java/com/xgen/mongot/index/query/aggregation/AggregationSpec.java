@@ -24,6 +24,14 @@ public sealed interface AggregationSpec
   List<AggregationSpec> children();
 
   /**
+   * Requested bucket space of this node. Nested grouping is a cartesian product of each grouping
+   * node's {@link GroupAggregationSpec#groupingBucketCount()} down a root-to-leaf path; independent
+   * sibling trees are summed. Metric leaves contribute 0. Uses saturating arithmetic so an
+   * unbounded nesting depth cannot overflow a long.
+   */
+  long requestedBucketCount();
+
+  /**
    * Create the runtime Accumulator for this spec.
    *
    * <p>Accumulator trees are built bottom-up: implementations build their children's accumulators

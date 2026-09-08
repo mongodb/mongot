@@ -172,6 +172,11 @@ public class AccumulatorTest extends AggregationTestSupport {
     }
 
     @Override
+    public int groupingBucketCount() {
+      return 1;
+    }
+
+    @Override
     protected Accumulator createAccumulator(
         AggregationContext context, List<Accumulator> childAccumulators) {
       return new LocalOrdTermsAccumulator(

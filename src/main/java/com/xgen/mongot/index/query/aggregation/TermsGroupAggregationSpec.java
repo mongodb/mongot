@@ -30,6 +30,11 @@ public final class TermsGroupAggregationSpec extends GroupAggregationSpec {
   }
 
   @Override
+  public int groupingBucketCount() {
+    return this.limit;
+  }
+
+  @Override
   protected Accumulator createAccumulator(
       AggregationContext context, List<Accumulator> childAccumulators) throws IOException {
     return TermsAccumulator.create(this, context, childAccumulators, this.isRoot, this.typeField);

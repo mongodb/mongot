@@ -3,12 +3,14 @@ package com.xgen.mongot.index.query;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 
+import com.xgen.mongot.index.query.aggregation.SearchAggregationBootstrap;
 import com.xgen.mongot.index.query.collectors.AggregationCollector;
 import com.xgen.mongot.index.query.collectors.FacetCollector;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonString;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
@@ -20,6 +22,11 @@ import org.junit.Test;
 public class SearchAggregationSortTest {
 
   private static final BsonDocument SORT = new BsonDocument("price", new BsonInt32(1));
+
+  @BeforeClass
+  public static void installAggregationRegistry() {
+    SearchAggregationBootstrap.installRegistry();
+  }
 
   private static BsonDocument stringNode(String path) {
     return new BsonDocument("type", new BsonString("string")).append("path", new BsonString(path));
@@ -34,8 +41,7 @@ public class SearchAggregationSortTest {
     return SearchQuery.fromBson(
         document,
         QueryOptimizationFlags.DEFAULT_OPTIONS,
-        /* allow10k= */ false,
-        searchAggregationEnabled);
+        new SearchQueryParseOptions(/* allow10k= */ false, searchAggregationEnabled));
   }
 
   @Test

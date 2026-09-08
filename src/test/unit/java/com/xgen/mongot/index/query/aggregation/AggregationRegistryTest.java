@@ -55,6 +55,11 @@ public class AggregationRegistryTest {
     }
 
     @Override
+    public int groupingBucketCount() {
+      return 1;
+    }
+
+    @Override
     protected Accumulator createAccumulator(
         AggregationContext context, List<Accumulator> childAccumulators) {
       throw new UnsupportedOperationException();

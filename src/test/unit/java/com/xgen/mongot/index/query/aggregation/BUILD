@@ -49,6 +49,7 @@ java_test_suite(
         "SumAccumulatorTest.java",
         "SumAvgPartitionMergeTest.java",
         "TermsAccumulatorTest.java",
+        "TopAggregationSpecTest.java",
     ],
     tags = ["unit"],
     deps = [
