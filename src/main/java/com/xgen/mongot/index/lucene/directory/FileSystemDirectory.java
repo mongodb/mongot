@@ -93,10 +93,9 @@ public class FileSystemDirectory extends FileSwitchDirectory {
   //  - MERGE/FLUSH stream segments front-to-back -> SEQUENTIAL (read-ahead, few large reads).
   //  - Honor explicit codec hints: DataAccessHint.RANDOM -> RANDOM, DataAccessHint.SEQUENTIAL ->
   // SEQUENTIAL (e.g. flat-vector bulk reads).
-  //  - Everything else (term dict/index, postings, norms, docvalues) is random-access search
-  // traffic -> RANDOM (the pre-10.4 default). NOTE: NORMAL here would coalesce reads into
-  // fewer IOPS and mask the 10.4 query read-amplification on IOPS-bound disks, but risks
-  // page-cache thrash; the amplification is better addressed at the scorer, so we keep RANDOM.
+  //  - Files that used NORMAL in Lucene 10.1 (terms index, postings, compound containers, doc
+  // values, norms) -> NORMAL.
+  //  - Everything else (term dictionaries, bloom filters) -> RANDOM to limit page-cache readahead.
   private static Optional<ReadAdvice> adviseByContextDefaultRandom(
       String filename, IOContext context) {
     if (context.context() == IOContext.Context.MERGE
@@ -116,7 +115,21 @@ public class FileSystemDirectory extends FileSwitchDirectory {
         || context.hints().contains(FileDataHint.POSTINGS)) {
       return Optional.of(ReadAdvice.NORMAL);
     }
+    // Lucene 10.4 opens .cfs containers without hints. Use NORMAL because inner slices inherit the
+    // container's advice.
+    if (isCompoundFileContainer(filename)) {
+      return Optional.of(ReadAdvice.NORMAL);
+    }
+    // Lucene 10.4 gives doc values and norms only a DATA hint. Other data files explicitly request
+    // RANDOM.
+    if (context.hints().contains(FileTypeHint.DATA)) {
+      return Optional.of(ReadAdvice.NORMAL);
+    }
     return Optional.of(ReadAdvice.RANDOM);
+  }
+
+  private static boolean isCompoundFileContainer(String filename) {
+    return "cfs".equals(FilenameUtils.getExtension(filename));
   }
 
   public FileSystemDirectory(Path path, Optional<ByteReadCollector> collector) throws IOException {

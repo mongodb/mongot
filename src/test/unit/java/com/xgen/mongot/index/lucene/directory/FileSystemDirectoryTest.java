@@ -231,16 +231,48 @@ public class FileSystemDirectoryTest {
         readAdvice.apply(
             "_0.vex", IOContext.DEFAULT.withHints(FileTypeHint.INDEX, DataAccessHint.RANDOM)));
 
-    // File-type hints other than INDEX/POSTINGS still get the RANDOM floor (e.g. stored fields).
+    // Stored fields explicitly request RANDOM in Lucene 10.4.
     assertEquals(
         Optional.of(ReadAdvice.RANDOM),
-        readAdvice.apply("_0.fdt", IOContext.DEFAULT.withHints(FileTypeHint.DATA)));
+        readAdvice.apply(
+            "_0.fdt", IOContext.DEFAULT.withHints(FileTypeHint.DATA, DataAccessHint.RANDOM)));
 
     // Merge context still wins over the postings hints and streams SEQUENTIAL.
     IOContext merge = IOContext.merge(new MergeInfo(1, 1L, false, 1));
     assertEquals(
         Optional.of(ReadAdvice.SEQUENTIAL),
         readAdvice.apply("_0.doc", merge.withHints(FileTypeHint.DATA, FileDataHint.POSTINGS)));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void setReadAdvice_compoundContainerDocValuesAndNorms_restoreNormalReadahead()
+      throws IOException {
+    MMapDirectory mmapDirectory = mock(MMapDirectory.class);
+    createDirectory(mmapDirectory);
+
+    ArgumentCaptor<BiFunction> captor = ArgumentCaptor.forClass(BiFunction.class);
+    verify(mmapDirectory).setReadAdvice(captor.capture());
+    BiFunction readAdvice = captor.getValue();
+
+    // Inner compound-file slices inherit the container's advice.
+    assertEquals(Optional.of(ReadAdvice.NORMAL), readAdvice.apply("_0.cfs", IOContext.DEFAULT));
+
+    // Doc values and norms carry only a DATA hint in Lucene 10.4.
+    assertEquals(
+        Optional.of(ReadAdvice.NORMAL),
+        readAdvice.apply("_0.dvd", IOContext.DEFAULT.withHints(FileTypeHint.DATA)));
+    assertEquals(
+        Optional.of(ReadAdvice.NORMAL),
+        readAdvice.apply("_0.nvd", IOContext.DEFAULT.withHints(FileTypeHint.DATA)));
+
+    // Unhinted non-container files default to RANDOM.
+    assertEquals(Optional.of(ReadAdvice.RANDOM), readAdvice.apply("_0.tim", IOContext.DEFAULT));
+    assertEquals(Optional.of(ReadAdvice.RANDOM), readAdvice.apply("_0.blm", IOContext.DEFAULT));
+
+    // FLUSH takes precedence over the container name.
+    IOContext flush = IOContext.flush(new FlushInfo(1, 1L));
+    assertEquals(Optional.of(ReadAdvice.SEQUENTIAL), readAdvice.apply("_0.cfs", flush));
   }
 
   private static MMapDirectory mockMMapDirectoryWithFiles(String... files) throws IOException {
