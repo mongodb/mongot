@@ -67,6 +67,7 @@ java_library(
         "VectorIndexFilterFieldDefinition.java",
         "VectorIndexVectorFieldDefinition.java",
         "VectorIndexingAlgorithm.java",
+        "VectorMemoryEstimator.java",
         "VectorSearchEngine.java",
         "VectorSimilarity.java",
         "VectorTextFieldDefinition.java",

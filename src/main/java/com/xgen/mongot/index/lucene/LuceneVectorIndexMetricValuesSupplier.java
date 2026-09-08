@@ -3,6 +3,8 @@ package com.xgen.mongot.index.lucene;
 import com.google.common.annotations.VisibleForTesting;
 import com.xgen.mongot.index.DocCounts;
 import com.xgen.mongot.index.VectorIndexReader;
+import com.xgen.mongot.index.definition.VectorIndexFieldMapping;
+import com.xgen.mongot.index.definition.VectorMemoryEstimator;
 import com.xgen.mongot.index.lucene.backing.IndexBackingStrategy;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.writer.LuceneIndexWriter;
@@ -20,6 +22,7 @@ public final class LuceneVectorIndexMetricValuesSupplier extends LuceneIndexMetr
 
   private final VectorIndexReader indexReader;
   private final boolean hasNestedVectorFields;
+  private final VectorIndexFieldMapping fieldMapping;
 
   /** Private constructor - does not register gauges. Use {@link #create} to construct instances. */
   private LuceneVectorIndexMetricValuesSupplier(
@@ -27,10 +30,12 @@ public final class LuceneVectorIndexMetricValuesSupplier extends LuceneIndexMetr
       IndexBackingStrategy indexBackingStrategy,
       LuceneIndexWriter luceneIndexWriter,
       VectorIndexReader indexReader,
-      boolean hasNestedVectorFields) {
+      boolean hasNestedVectorFields,
+      VectorIndexFieldMapping fieldMapping) {
     super(indexStatusSupplier, indexBackingStrategy, luceneIndexWriter);
     this.indexReader = indexReader;
     this.hasNestedVectorFields = hasNestedVectorFields;
+    this.fieldMapping = fieldMapping;
   }
 
   /** Static factory method that constructs the supplier and registers all gauges. */
@@ -40,6 +45,7 @@ public final class LuceneVectorIndexMetricValuesSupplier extends LuceneIndexMetr
       LuceneIndexWriter luceneIndexWriter,
       VectorIndexReader indexReader,
       boolean hasNestedVectorFields,
+      VectorIndexFieldMapping fieldMapping,
       PerIndexMetricsFactory metricsFactory,
       int indexFeatureVersion,
       boolean isIndexFeatureVersionFourEnabled) {
@@ -49,7 +55,8 @@ public final class LuceneVectorIndexMetricValuesSupplier extends LuceneIndexMetr
             indexBackingStrategy,
             luceneIndexWriter,
             indexReader,
-            hasNestedVectorFields);
+            hasNestedVectorFields,
+            fieldMapping);
 
     // Register common gauges after construction is complete
     supplier.registerCommonGauges(
@@ -69,6 +76,25 @@ public final class LuceneVectorIndexMetricValuesSupplier extends LuceneIndexMetr
   @Override
   public Map<FieldName.TypeField, Double> getNumFieldsPerDatatype() {
     return Collections.emptyMap();
+  }
+
+  /**
+   * Falls back to a config-based estimate (per-field dimensions and quantization, applied to the
+   * live vector count) when the on-disk scan can't measure vector bytes directly -- e.g. when all
+   * vector data is still packed into Lucene compound (.cfs) files, which otherwise reports 0 even
+   * though the index holds resident vector data.
+   */
+  @Override
+  public long getRequiredMemoryForVectorData() {
+    long measured = super.getRequiredMemoryForVectorData();
+    if (measured > 0) {
+      return measured;
+    }
+    long vectorCount = getVectorCount();
+    if (vectorCount <= 0) {
+      return 0L;
+    }
+    return VectorMemoryEstimator.estimateTotalBytes(this.fieldMapping, vectorCount);
   }
 
   @Override

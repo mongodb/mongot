@@ -83,8 +83,9 @@ public abstract class LuceneIndexMetricValuesSupplier implements IndexMetricValu
         getNumPartitionTag().and(indexFeatureVersionTag));
     metricsFactory.perIndexObjectValueGauge(
         MetricNames.REQUIRED_MEMORY,
-        this.indexBackingStrategy,
-        strategy -> strategy.getDiskStats().requiredMemoryBytes(),
+        this,
+        CachedGauge.of(
+            LuceneIndexMetricValuesSupplier::getRequiredMemoryForVectorData, Duration.ofMinutes(1)),
         getNumPartitionTag().and(indexFeatureVersionTag));
     metricsFactory.perIndexObjectValueGauge(
         MetricNames.LARGEST_INDEX_FILE_SIZE_BYTES,

@@ -20,6 +20,10 @@ import com.xgen.mongot.index.SearchIndexReader;
 import com.xgen.mongot.index.WriterClosedException;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
+import com.xgen.mongot.index.definition.VectorDataFieldDefinition;
+import com.xgen.mongot.index.definition.VectorIndexFieldMapping;
+import com.xgen.mongot.index.definition.VectorSimilarity;
+import com.xgen.mongot.index.definition.quantization.VectorQuantization;
 import com.xgen.mongot.index.lucene.backing.DiskStats;
 import com.xgen.mongot.index.lucene.backing.IndexBackingStrategy;
 import com.xgen.mongot.index.lucene.facet.TokenFacetsStateCache;
@@ -29,12 +33,14 @@ import com.xgen.mongot.index.lucene.writer.SingleLuceneIndexWriter;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.metrics.MetricsFactory;
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.index.analyzer.custom.TokenizerDefinitionBuilder;
 import com.xgen.testing.mongot.index.analyzer.definition.CustomAnalyzerDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.StringFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.VectorDataFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.lucene.LuceneIndexMetricsSupplierBuilder;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -1083,6 +1089,158 @@ public class LuceneIndexMetricValuesSupplierTest {
         0L,
         getPerIndexGaugeMetricsValue(
             meterRegistry, IndexMetricValuesSupplier.MetricNames.NUM_VECTORS));
+  }
+
+  @Test
+  public void testRequiredMemory_diskScanZeroWithVectorFieldsAndDocs_fallsBackToConfigEstimate()
+      throws WriterClosedException {
+    var indexWriter = Mockito.mock(SingleLuceneIndexWriter.class);
+    Mockito.doReturn(1000L).when(indexWriter).getNumDocs();
+    Mockito.doReturn(1).when(indexWriter).getNumWriters();
+    var indexReader = Mockito.mock(LuceneVectorIndexReader.class);
+    IndexBackingStrategy indexBackingStrategy = mock(IndexBackingStrategy.class);
+    // Simulates an all-.cfs index: files exist on disk (nonzero size/count), but the disk scan
+    // has no non-.cfs vector files to measure, so requiredMemoryBytes is 0.
+    when(indexBackingStrategy.getDiskStats()).thenReturn(new DiskStats(500L, 500L, 1, 0L));
+
+    VectorDataFieldDefinition vectorField =
+        VectorDataFieldDefinitionBuilder.builder()
+            .path(FieldPath.parse("embedding"))
+            .numDimensions(128)
+            .similarity(VectorSimilarity.EUCLIDEAN)
+            .quantization(VectorQuantization.NONE)
+            .build();
+    VectorIndexFieldMapping fieldMapping =
+        VectorIndexFieldMapping.create(List.of(vectorField), Optional.empty());
+
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    LuceneIndexMetricValuesSupplier supplier =
+        LuceneIndexMetricsSupplierBuilder.builder()
+            .type(IndexDefinition.Type.VECTOR_SEARCH)
+            .hasNestedVectorFields(false)
+            .fieldMapping(fieldMapping)
+            .indexWriter(indexWriter)
+            .indexReader(indexReader)
+            .indexStatusSupplier(IndexStatus::steady)
+            .indexBackingStrategy(indexBackingStrategy)
+            .meterRegistry(meterRegistry)
+            .build();
+
+    long expected = 1000L * 128 * Float.BYTES;
+    Assert.assertEquals(expected, supplier.getRequiredMemoryForVectorData());
+    Assert.assertEquals(
+        expected, getPerIndexGaugeMetricsValue(meterRegistry, MetricNames.REQUIRED_MEMORY));
+  }
+
+  @Test
+  public void testRequiredMemory_diskScanNonZero_returnsMeasuredValueWithoutFallback()
+      throws WriterClosedException {
+    var indexWriter = Mockito.mock(SingleLuceneIndexWriter.class);
+    Mockito.doReturn(1000L).when(indexWriter).getNumDocs();
+    Mockito.doReturn(1).when(indexWriter).getNumWriters();
+    var indexReader = Mockito.mock(LuceneVectorIndexReader.class);
+    IndexBackingStrategy indexBackingStrategy = mock(IndexBackingStrategy.class);
+    when(indexBackingStrategy.getDiskStats()).thenReturn(new DiskStats(1234L, 1111L, 1112, 42L));
+
+    VectorDataFieldDefinition vectorField =
+        VectorDataFieldDefinitionBuilder.builder()
+            .path(FieldPath.parse("embedding"))
+            .numDimensions(128)
+            .similarity(VectorSimilarity.EUCLIDEAN)
+            .quantization(VectorQuantization.NONE)
+            .build();
+    VectorIndexFieldMapping fieldMapping =
+        VectorIndexFieldMapping.create(List.of(vectorField), Optional.empty());
+
+    LuceneIndexMetricValuesSupplier supplier =
+        LuceneIndexMetricsSupplierBuilder.builder()
+            .type(IndexDefinition.Type.VECTOR_SEARCH)
+            .hasNestedVectorFields(false)
+            .fieldMapping(fieldMapping)
+            .indexWriter(indexWriter)
+            .indexReader(indexReader)
+            .indexStatusSupplier(IndexStatus::steady)
+            .indexBackingStrategy(indexBackingStrategy)
+            .meterRegistry(new SimpleMeterRegistry())
+            .build();
+
+    Assert.assertEquals(42L, supplier.getRequiredMemoryForVectorData());
+  }
+
+  @Test
+  public void testRequiredMemory_diskScanZeroWithNoDocs_staysZero() throws WriterClosedException {
+    var indexWriter = Mockito.mock(SingleLuceneIndexWriter.class);
+    Mockito.doReturn(0L).when(indexWriter).getNumDocs();
+    Mockito.doReturn(1).when(indexWriter).getNumWriters();
+    var indexReader = Mockito.mock(LuceneVectorIndexReader.class);
+    IndexBackingStrategy indexBackingStrategy = mock(IndexBackingStrategy.class);
+    // Simulates an all-.cfs index with no live docs: files exist on disk, but there is nothing to
+    // estimate memory for. Mapping is present so a nonzero estimate would be produced if the
+    // zero-doc short-circuit were skipped.
+    when(indexBackingStrategy.getDiskStats()).thenReturn(new DiskStats(500L, 500L, 1, 0L));
+
+    VectorDataFieldDefinition vectorField =
+        VectorDataFieldDefinitionBuilder.builder()
+            .path(FieldPath.parse("embedding"))
+            .numDimensions(128)
+            .similarity(VectorSimilarity.EUCLIDEAN)
+            .quantization(VectorQuantization.NONE)
+            .build();
+    VectorIndexFieldMapping fieldMapping =
+        VectorIndexFieldMapping.create(List.of(vectorField), Optional.empty());
+
+    LuceneIndexMetricValuesSupplier supplier =
+        LuceneIndexMetricsSupplierBuilder.builder()
+            .type(IndexDefinition.Type.VECTOR_SEARCH)
+            .hasNestedVectorFields(false)
+            .fieldMapping(fieldMapping)
+            .indexWriter(indexWriter)
+            .indexReader(indexReader)
+            .indexStatusSupplier(IndexStatus::steady)
+            .indexBackingStrategy(indexBackingStrategy)
+            .meterRegistry(new SimpleMeterRegistry())
+            .build();
+
+    Assert.assertEquals(0L, supplier.getRequiredMemoryForVectorData());
+  }
+
+  @Test
+  public void testRequiredMemory_diskScanZeroNestedIndex_estimatesFromVectorDocsNotRootDocs()
+      throws WriterClosedException, ReaderClosedException, IOException {
+    // Nested index: 9 Lucene docs = 3 root (parent) docs + 6 vector docs. Fallback must use the
+    // vector count (6), not the raw Lucene doc count (9).
+    var indexWriter = Mockito.mock(SingleLuceneIndexWriter.class);
+    Mockito.doReturn(9L).when(indexWriter).getNumDocs();
+    Mockito.doReturn(1).when(indexWriter).getNumWriters();
+    var indexReader = Mockito.mock(LuceneVectorIndexReader.class);
+    Mockito.doReturn(3L).when(indexReader).getNumEmbeddedRootDocuments();
+    IndexBackingStrategy indexBackingStrategy = mock(IndexBackingStrategy.class);
+    when(indexBackingStrategy.getDiskStats()).thenReturn(new DiskStats(500L, 500L, 1, 0L));
+
+    VectorDataFieldDefinition vectorField =
+        VectorDataFieldDefinitionBuilder.builder()
+            .path(FieldPath.parse("embedding"))
+            .numDimensions(128)
+            .similarity(VectorSimilarity.EUCLIDEAN)
+            .quantization(VectorQuantization.NONE)
+            .build();
+    VectorIndexFieldMapping fieldMapping =
+        VectorIndexFieldMapping.create(List.of(vectorField), Optional.empty());
+
+    LuceneIndexMetricValuesSupplier supplier =
+        LuceneIndexMetricsSupplierBuilder.builder()
+            .type(IndexDefinition.Type.VECTOR_SEARCH)
+            .hasNestedVectorFields(true)
+            .fieldMapping(fieldMapping)
+            .indexWriter(indexWriter)
+            .indexReader(indexReader)
+            .indexStatusSupplier(IndexStatus::steady)
+            .indexBackingStrategy(indexBackingStrategy)
+            .meterRegistry(new SimpleMeterRegistry())
+            .build();
+
+    long expected = 6L * 128 * Float.BYTES;
+    Assert.assertEquals(expected, supplier.getRequiredMemoryForVectorData());
   }
 
   @Test

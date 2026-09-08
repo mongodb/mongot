@@ -12,6 +12,7 @@ import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchFieldDefinitionResolver;
 import com.xgen.mongot.index.definition.SearchIndexCapabilities;
 import com.xgen.mongot.index.definition.VectorIndexCapabilities;
+import com.xgen.mongot.index.definition.VectorIndexFieldMapping;
 import com.xgen.mongot.index.lucene.LuceneIndexMetricValuesSupplier;
 import com.xgen.mongot.index.lucene.LuceneSearchIndexMetricValuesSupplier;
 import com.xgen.mongot.index.lucene.LuceneVectorIndexMetricValuesSupplier;
@@ -41,6 +42,8 @@ public class LuceneIndexMetricsSupplierBuilder {
   private IndexDefinition.Type type = IndexDefinition.Type.SEARCH;
   private boolean isEmbedded = false;
   private boolean hasNestedVectorFields = false;
+  private VectorIndexFieldMapping fieldMapping =
+      VectorIndexFieldMapping.create(List.of(), Optional.empty());
   private Optional<SearchFieldDefinitionResolver> resolver = Optional.empty();
   private final List<CustomAnalyzerDefinition> customAnalyzers = new ArrayList<>();
   private MeterRegistry meterRegistry = new SimpleMeterRegistry();
@@ -93,6 +96,11 @@ public class LuceneIndexMetricsSupplierBuilder {
 
   public LuceneIndexMetricsSupplierBuilder hasNestedVectorFields(boolean hasNestedVectorFields) {
     this.hasNestedVectorFields = hasNestedVectorFields;
+    return this;
+  }
+
+  public LuceneIndexMetricsSupplierBuilder fieldMapping(VectorIndexFieldMapping fieldMapping) {
+    this.fieldMapping = fieldMapping;
     return this;
   }
 
@@ -179,6 +187,7 @@ public class LuceneIndexMetricsSupplierBuilder {
             this.indexWriter.get(),
             vectorIndexReader,
             this.hasNestedVectorFields,
+            this.fieldMapping,
             new PerIndexMetricsFactory(
                 METRICS_NAMESPACE,
                 MeterAndFtdcRegistry.createWithMeterRegistry(this.meterRegistry),

@@ -41,6 +41,7 @@ java_test_suite(
         "VectorIndexDefinitionGenerationTest.java",
         "VectorIndexDefinitionTest.java",
         "VectorIndexFieldMappingTest.java",
+        "VectorMemoryEstimatorTest.java",
         "VectorTextTest.java",
         "VectorTypeFieldResolverTest.java",
         "ViewDefinitionTest.java",
