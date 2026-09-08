@@ -1164,6 +1164,8 @@ public class IndexMetricsUpdater implements Closeable {
       private static final String FUZZY_COUNTER_NAME = "fuzzy";
       private static final String WILDCARD_PATHS_COUNTER_NAME = "wildcardPaths";
       private static final String HIGHLIGHTING_COUNTER_NAME = "highlighting";
+      private static final String HIGHLIGHT_WITH_AUTOCOMPLETE_COUNTER_NAME =
+          "highlightWithAutocomplete";
       private static final String CONCURRENT_COUNTER_NAME = "concurrent";
       private static final String SORT_COUNTER_NAME = "sort";
       private static final String TRACKING_COUNTER_NAME = "tracking";
@@ -1200,6 +1202,7 @@ public class IndexMetricsUpdater implements Closeable {
       private final Counter fuzzyCounter;
       private final Counter wildcardPathsCounter;
       private final Counter highlightingCounter;
+      private final Counter highlightWithAutocompleteCounter;
       private final Counter concurrentCounter;
       private final Counter scoreDetailsCounter;
       // incremented when pagination token is present in the request
@@ -1237,6 +1240,8 @@ public class IndexMetricsUpdater implements Closeable {
         this.fuzzyCounter = createCounter(metricsFactory, FUZZY_COUNTER_NAME);
         this.wildcardPathsCounter = createCounter(metricsFactory, WILDCARD_PATHS_COUNTER_NAME);
         this.highlightingCounter = createCounter(metricsFactory, HIGHLIGHTING_COUNTER_NAME);
+        this.highlightWithAutocompleteCounter =
+            createPerProcessCounter(metricsFactory, HIGHLIGHT_WITH_AUTOCOMPLETE_COUNTER_NAME);
         this.concurrentCounter = createCounter(metricsFactory, CONCURRENT_COUNTER_NAME);
         this.sortCounter = createCounter(metricsFactory, SORT_COUNTER_NAME);
         this.trackingCounter = createCounter(metricsFactory, TRACKING_COUNTER_NAME);
@@ -1292,6 +1297,17 @@ public class IndexMetricsUpdater implements Closeable {
 
       private static Counter createCounter(PerIndexMetricsFactory metricsFactory, String tagValue) {
         return metricsFactory.counter(METRIC_NAME, Tags.of(NAME_TAG, tagValue));
+      }
+
+      /**
+       * Like {@link #createCounter}, but registers only the process-wide timeseries: this counter
+       * has no per-index consumer, so the per-index FTDC series would be pure cost.
+       */
+      private static Counter createPerProcessCounter(
+          PerIndexMetricsFactory metricsFactory, String tagValue) {
+        return metricsFactory
+            .getProcessMetricsFactory()
+            .counter(METRIC_NAME, Tags.of(NAME_TAG, tagValue));
       }
 
       private static <T extends Enum<T>> Map<T, Counter> createEnumCounterMap(
@@ -1354,6 +1370,19 @@ public class IndexMetricsUpdater implements Closeable {
 
       public Counter getHighlightingCounter() {
         return this.highlightingCounter;
+      }
+
+      /**
+       * Queries that both highlight and use the autocomplete operator, tracking exposure to the
+       * exact-term highlight regression IFV 5 introduces when autocomplete fields stop writing
+       * offsets.
+       *
+       * <p>Overcounts: it does not check that the highlighted field is the autocompleted one, so a
+       * query autocompleting {@code title} while highlighting {@code body} is counted but pays
+       * nothing.
+       */
+      public Counter getHighlightWithAutocompleteCounter() {
+        return this.highlightWithAutocompleteCounter;
       }
 
       public Counter getReturnScopeCounter() {

@@ -131,15 +131,19 @@ public class QueryMetricsRecorder {
   }
 
   private Stream<Counter> getQueryCounters(SearchQuery query) {
+    // Materialized rather than left lazy so the highlight branch can ask which operators the query
+    // used without walking the operator tree a second time.
+    List<Counter> queryTypeSpecificCounters = getQueryTypeSpecificCounters(query).toList();
+
     return Streams.concat(
-        getQueryTypeSpecificCounters(query),
+        queryTypeSpecificCounters.stream(),
         getConcurrentCounter(query),
         getReturnStoredSourceCounter(query),
         getScoreDetailsCounter(query),
         getPaginationCounter(query),
         getSortCounters(query),
         getTrackingCounter(query),
-        getQueryHighlightCounters(query),
+        getQueryHighlightCounters(query, queryTypeSpecificCounters),
         getReturnScopeCounter(query));
   }
 
@@ -188,12 +192,28 @@ public class QueryMetricsRecorder {
         : Stream.empty();
   }
 
-  private Stream<Counter> getQueryHighlightCounters(SearchQuery query) {
-    return query.highlight().isPresent()
-        ? Stream.concat(
-            Stream.of(this.queryFeaturesMetricsUpdater.getHighlightingCounter()),
-            maybeGetWildcardPathCounter(query.highlight().get().paths()))
-        : Stream.empty();
+  /**
+   * Counters for the query's {@code highlight} block, including its combination with autocomplete.
+   *
+   * @param queryTypeSpecificCounters the already-computed counters for this query's operators, used
+   *     to detect autocomplete without re-traversing.
+   */
+  private Stream<Counter> getQueryHighlightCounters(
+      SearchQuery query, List<Counter> queryTypeSpecificCounters) {
+    if (query.highlight().isEmpty()) {
+      return Stream.empty();
+    }
+
+    boolean usesAutocomplete =
+        queryTypeSpecificCounters.contains(
+            this.queryFeaturesMetricsUpdater.getOperatorTypeCounter(Operator.Type.AUTOCOMPLETE));
+
+    return Streams.concat(
+        Stream.of(this.queryFeaturesMetricsUpdater.getHighlightingCounter()),
+        maybeGetWildcardPathCounter(query.highlight().get().paths()),
+        usesAutocomplete
+            ? Stream.of(this.queryFeaturesMetricsUpdater.getHighlightWithAutocompleteCounter())
+            : Stream.empty());
   }
 
   private Stream<Counter> getReturnScopeCounter(SearchQuery query) {

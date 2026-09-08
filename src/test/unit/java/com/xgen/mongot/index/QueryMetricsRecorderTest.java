@@ -942,6 +942,56 @@ public class QueryMetricsRecorderTest {
   }
 
   @Test
+  public void testHighlightWithAutocompleteMetric() {
+    var queryFeaturesStatsUpdater =
+        IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.QueryFeaturesMetricsUpdaterBuilder
+            .empty();
+    var queryMetricsRecorder = new QueryMetricsRecorder(queryFeaturesStatsUpdater);
+
+    // Autocomplete nested inside a compound, to confirm the combination counter sees operators the
+    // traversal reaches recursively.
+    SearchQuery query =
+        OperatorQueryBuilder.builder()
+            .operator(
+                OperatorBuilder.compound()
+                    .should(OperatorBuilder.autocomplete().query("god").path("title").build())
+                    .should(OperatorBuilder.term().path("title").query("nemo").build())
+                    .minimumShouldMatch(1)
+                    .build())
+            .index(MOCK_INDEX_NAME)
+            .highlight(UnresolvedHighlightBuilder.builder().path("title").build())
+            .returnStoredSource(false)
+            .build();
+
+    queryMetricsRecorder.record(query, QueryCursorOptions.empty());
+
+    Assert.assertEquals(
+        1, queryFeaturesStatsUpdater.getHighlightWithAutocompleteCounter().count(), 0);
+  }
+
+  @Test
+  public void testHighlightWithoutAutocompleteDoesNotIncrementCombinationMetric() {
+    var queryFeaturesStatsUpdater =
+        IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.QueryFeaturesMetricsUpdaterBuilder
+            .empty();
+    var queryMetricsRecorder = new QueryMetricsRecorder(queryFeaturesStatsUpdater);
+
+    SearchQuery query =
+        OperatorQueryBuilder.builder()
+            .operator(OperatorBuilder.term().path("title").query("nemo").build())
+            .index(MOCK_INDEX_NAME)
+            .highlight(UnresolvedHighlightBuilder.builder().path("title").build())
+            .returnStoredSource(false)
+            .build();
+
+    queryMetricsRecorder.record(query, QueryCursorOptions.empty());
+
+    Assert.assertEquals(1, queryFeaturesStatsUpdater.getHighlightingCounter().count(), 0);
+    Assert.assertEquals(
+        0, queryFeaturesStatsUpdater.getHighlightWithAutocompleteCounter().count(), 0);
+  }
+
+  @Test
   public void testTextSynonymsOperatorMetrics() {
     var queryFeaturesStatsUpdater =
         IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.QueryFeaturesMetricsUpdaterBuilder
