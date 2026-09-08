@@ -1,5 +1,6 @@
 package com.xgen.mongot.util.bson;
 
+import static com.xgen.mongot.util.bson.FloatVector.OriginalType.BSON;
 import static com.xgen.mongot.util.bson.FloatVector.OriginalType.NATIVE;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -32,6 +33,22 @@ public class VectorTest {
     } catch (Exception e) {
       fail("Exception thrown when trying to create a VectorWrapper");
     }
+  }
+
+  @Test
+  public void getBsonEncoding_mapsEachVectorFormToItsWireEncoding() {
+    assertEquals(
+        Vector.BsonEncoding.ARRAY, Vector.fromFloats(new float[] {1.0f}, NATIVE).getBsonEncoding());
+    assertEquals(
+        Vector.BsonEncoding.BIN_DATA_FLOAT32,
+        Vector.fromFloats(new float[] {1.0f}, BSON).getBsonEncoding());
+    assertEquals(
+        Vector.BsonEncoding.BIN_DATA_FLOAT16,
+        Vector.fromFloat16Bytes(new byte[] {0, 60}).getBsonEncoding());
+    assertEquals(
+        Vector.BsonEncoding.BIN_DATA_INT8, Vector.fromBytes(new byte[] {1}).getBsonEncoding());
+    assertEquals(
+        Vector.BsonEncoding.BIN_DATA_BIT, Vector.fromBits(new byte[] {1}).getBsonEncoding());
   }
 
   @Test

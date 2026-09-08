@@ -9,6 +9,7 @@ import com.xgen.mongot.index.query.collectors.Collector;
 import com.xgen.mongot.index.query.operators.Operator;
 import com.xgen.mongot.index.query.operators.TextOperator;
 import com.xgen.mongot.index.query.operators.VectorSearchCriteria;
+import com.xgen.mongot.index.query.operators.mql.MqlFilterOperator;
 import com.xgen.mongot.index.query.scores.Score;
 import com.xgen.mongot.index.query.sort.NullEmptySortPosition;
 import com.xgen.mongot.index.status.IndexStatus;
@@ -16,6 +17,7 @@ import com.xgen.mongot.metrics.micrometer.SerializableTimer;
 import com.xgen.mongot.util.Bytes;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.Enums;
+import com.xgen.mongot.util.bson.Vector;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -413,6 +415,9 @@ public record IndexMetrics(
         Map<VectorSearchCriteria.Type, Double> vectorSearchQueryTypeCountMap,
         Map<Operator.Type, Double> knnBetaFilterOperatorTypeCounterMap,
         Map<Operator.Type, Double> searchVectorSearchFilterOperatorTypeCounterMap,
+        Map<MqlFilterOperator.Category, Double> vectorSearchFilterOperatorCategoryCountMap,
+        Map<Vector.BsonEncoding, Double> vectorSearchQueryVectorEncodingCountMap,
+        double vectorSearchFilterCount,
         double synonymCount,
         double textSynonymCount,
         double textSynonymsWithoutMatchCriteriaCount,
@@ -534,6 +539,25 @@ public record IndexMetrics(
                     .optional()
                     .withDefault(statsMapToBson(statsMapWithDefault(Operator.Type.class, 0.0)));
 
+        private static final Field.WithDefault<BsonDocument>
+            VECTOR_SEARCH_FILTER_OPERATOR_CATEGORY_COUNT =
+                Field.builder("vectorSearchFilterOperatorCategoryCount")
+                    .documentField()
+                    .optional()
+                    .withDefault(
+                        statsMapToBson(statsMapWithDefault(MqlFilterOperator.Category.class, 0.0)));
+
+        private static final Field.WithDefault<BsonDocument>
+            VECTOR_SEARCH_QUERY_VECTOR_ENCODING_COUNT =
+                Field.builder("vectorSearchQueryVectorEncodingCount")
+                    .documentField()
+                    .optional()
+                    .withDefault(
+                        statsMapToBson(statsMapWithDefault(Vector.BsonEncoding.class, 0.0)));
+
+        private static final Field.WithDefault<Double> VECTOR_SEARCH_FILTER_COUNT =
+            Field.builder("vectorSearchFilterCount").doubleField().optional().withDefault(0.0);
+
         private static final Field.WithDefault<Double> FACET_DRILL_SIDEWAYS_OPTIMIZABLE_COUNT =
             Field.builder("facetDrillSidewaysOptimizableCount")
                 .doubleField()
@@ -556,6 +580,9 @@ public record IndexMetrics(
           Map<VectorSearchCriteria.Type, Counter> vectorSearchQueryCounterMap,
           Map<Operator.Type, Counter> knnBetaFilterOperatorTypeCounterMap,
           Map<Operator.Type, Counter> searchVectorSearchFilterOperatorTypeCounterMap,
+          Map<MqlFilterOperator.Category, Counter> vectorSearchFilterOperatorCategoryCounterMap,
+          Map<Vector.BsonEncoding, Counter> vectorSearchQueryVectorEncodingCounterMap,
+          Counter vectorSearchFilterCounter,
           Counter synonymCounter,
           Counter textSynonymCounter,
           Counter textSynonymsWithoutMatchCriteriaCounter,
@@ -587,6 +614,11 @@ public record IndexMetrics(
             getCurrentStatsFromCounters(Operator.Type.class, knnBetaFilterOperatorTypeCounterMap),
             getCurrentStatsFromCounters(
                 Operator.Type.class, searchVectorSearchFilterOperatorTypeCounterMap),
+            getCurrentStatsFromCounters(
+                MqlFilterOperator.Category.class, vectorSearchFilterOperatorCategoryCounterMap),
+            getCurrentStatsFromCounters(
+                Vector.BsonEncoding.class, vectorSearchQueryVectorEncodingCounterMap),
+            vectorSearchFilterCounter.count(),
             synonymCounter.count(),
             textSynonymCounter.count(),
             textSynonymsWithoutMatchCriteriaCounter.count(),
@@ -618,7 +650,6 @@ public record IndexMetrics(
             .field(Fields.FUZZY_COUNT, this.fuzzyCount)
             .field(Fields.WILDCARD_PATH_COUNT, this.wildcardPathCount)
             .field(Fields.HIGHLIGHTING_COUNT, this.highlightingCount)
-            .field(Fields.HIGHLIGHTING_COUNT, this.highlightingCount)
             .field(Fields.CONCURRENT_COUNT, this.concurrentCount)
             .field(Fields.RETURN_STORED_SOURCE_COUNT, this.returnStoredSourceCount)
             .field(Fields.SEQUENCE_TOKEN_COUNT, this.sequenceTokenCount)
@@ -643,6 +674,13 @@ public record IndexMetrics(
             .field(
                 Fields.SEARCH_VECTOR_SEARCH_FILTER_OPERATOR_TYPE_COUNT,
                 statsMapToBson(this.searchVectorSearchFilterOperatorTypeCounterMap))
+            .field(
+                Fields.VECTOR_SEARCH_FILTER_OPERATOR_CATEGORY_COUNT,
+                statsMapToBson(this.vectorSearchFilterOperatorCategoryCountMap))
+            .field(
+                Fields.VECTOR_SEARCH_QUERY_VECTOR_ENCODING_COUNT,
+                statsMapToBson(this.vectorSearchQueryVectorEncodingCountMap))
+            .field(Fields.VECTOR_SEARCH_FILTER_COUNT, this.vectorSearchFilterCount)
             .field(
                 Fields.FACET_DRILL_SIDEWAYS_OPTIMIZABLE_COUNT,
                 this.facetDrillSidewaysOptimizableCount)
@@ -673,6 +711,13 @@ public record IndexMetrics(
             bsonToStatsMap(
                 parser.getField(Fields.SEARCH_VECTOR_SEARCH_FILTER_OPERATOR_TYPE_COUNT).unwrap(),
                 Operator.Type.class),
+            bsonToStatsMap(
+                parser.getField(Fields.VECTOR_SEARCH_FILTER_OPERATOR_CATEGORY_COUNT).unwrap(),
+                MqlFilterOperator.Category.class),
+            bsonToStatsMap(
+                parser.getField(Fields.VECTOR_SEARCH_QUERY_VECTOR_ENCODING_COUNT).unwrap(),
+                Vector.BsonEncoding.class),
+            parser.getField(Fields.VECTOR_SEARCH_FILTER_COUNT).unwrap(),
             parser.getField(Fields.SYNONYM_COUNT).unwrap(),
             parser.getField(Fields.TEXT_SYNONYM_COUNT).unwrap(),
             parser.getField(Fields.TEXT_DEPRECATED_SYNONYM_COUNT).unwrap(),

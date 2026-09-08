@@ -274,7 +274,26 @@
             "text": 0.0,
             "vectorSearch": 0.0,
             "wildcard": 0.0
-          }
+          },
+          "vectorSearchFilterOperatorCategoryCount": {
+            "lowerBound": 0.0,
+            "upperBound": 0.0,
+            "closedRange": 0.0,
+            "exists": 0.0,
+            "eq": 0.0,
+            "ne": 0.0,
+            "in": 0.0,
+            "nin": 0.0,
+            "not": 0.0
+          },
+          "vectorSearchQueryVectorEncodingCount": {
+            "array": 0.0,
+            "binDataFloat32": 0.0,
+            "binDataFloat16": 0.0,
+            "binDataInt8": 0.0,
+            "binDataBit": 0.0
+          },
+          "vectorSearchFilterCount": 0.0
         }
       },
       "bson": {
@@ -571,7 +590,26 @@
             "text": 0.0,
             "vectorSearch": 0.0,
             "wildcard": 0.0
-          }
+          },
+          "vectorSearchFilterOperatorCategoryCount": {
+            "lowerBound": 0.0,
+            "upperBound": 0.0,
+            "closedRange": 0.0,
+            "exists": 0.0,
+            "eq": 0.0,
+            "ne": 0.0,
+            "in": 0.0,
+            "nin": 0.0,
+            "not": 0.0
+          },
+          "vectorSearchQueryVectorEncodingCount": {
+            "array": 0.0,
+            "binDataFloat32": 0.0,
+            "binDataFloat16": 0.0,
+            "binDataInt8": 0.0,
+            "binDataBit": 0.0
+          },
+          "vectorSearchFilterCount": 0.0
         }
       }
     }

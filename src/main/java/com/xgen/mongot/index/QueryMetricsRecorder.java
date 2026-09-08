@@ -455,9 +455,20 @@ public class QueryMetricsRecorder {
         Stream.of(
             this.queryFeaturesMetricsUpdater.getVectorSearchQueryTypeCounter(
                 criteria.getVectorSearchType()));
+    // Auto-embedding queries carry a text query instead of a queryVector at record time, so they
+    // contribute no encoding sample; the embedded vector mongot generates is not a user-supplied
+    // encoding.
+    Stream<Counter> vectorSearchQueryVectorEncodingCounter =
+        criteria
+            .queryVector()
+            .map(
+                vector ->
+                    this.queryFeaturesMetricsUpdater.getVectorSearchQueryVectorEncodingCounter(
+                        vector.getBsonEncoding()))
+            .stream();
     Optional<VectorSearchFilter> maybeFilter = criteria.filter();
     if (maybeFilter.isEmpty()) {
-      return vectorSearchTypeCounter;
+      return Stream.concat(vectorSearchTypeCounter, vectorSearchQueryVectorEncodingCounter);
     }
 
     var vectorSearchWithFilterCounter =
@@ -484,7 +495,10 @@ public class QueryMetricsRecorder {
         };
 
     return Streams.concat(
-        vectorSearchTypeCounter, filterTypeCounters, vectorSearchWithFilterCounter);
+        vectorSearchTypeCounter,
+        vectorSearchQueryVectorEncodingCounter,
+        filterTypeCounters,
+        vectorSearchWithFilterCounter);
   }
 
   private Stream<Counter> getCompoundStatCounters(CompoundOperator compoundOperator) {

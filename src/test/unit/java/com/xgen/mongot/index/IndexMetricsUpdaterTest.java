@@ -2,6 +2,7 @@ package com.xgen.mongot.index;
 
 import static com.google.common.truth.Truth.assertThat;
 import static com.xgen.mongot.index.IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater.KNN_BETA_FILTER_TAG_PREFIX;
+import static com.xgen.mongot.index.IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater.QUERY_VECTOR_ENCODING_TAG_PREFIX;
 import static com.xgen.mongot.index.IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater.SEARCH_VECTOR_SEARCH_FILTER_TAG_PREFIX;
 import static com.xgen.mongot.index.IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater.SORT_NO_DATA_NAME_TAG_PREFIX;
 import static com.xgen.mongot.index.IndexTypeData.INDEX_TYPE_TAG_NAME;
@@ -22,12 +23,14 @@ import com.xgen.mongot.index.query.collectors.Collector;
 import com.xgen.mongot.index.query.operators.Operator;
 import com.xgen.mongot.index.query.operators.TextOperator;
 import com.xgen.mongot.index.query.operators.VectorSearchCriteria;
+import com.xgen.mongot.index.query.operators.mql.MqlFilterOperator;
 import com.xgen.mongot.index.query.scores.Score;
 import com.xgen.mongot.index.query.sort.NullEmptySortPosition;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.PerIndexMetricsFactory;
 import com.xgen.mongot.util.Enums;
+import com.xgen.mongot.util.bson.Vector;
 import com.xgen.testing.mongot.index.IndexMetricsBuilder;
 import com.xgen.testing.mongot.index.IndexMetricsUpdaterBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
@@ -1078,6 +1081,58 @@ public class IndexMetricsUpdaterTest {
                   .counter();
 
           Assert.assertEquals(1, counter.count(), 0);
+        }
+
+        @Test
+        public void
+            getVectorSearchQueryVectorEncodingCounter_increment_registersPrefixedFeatureCounter() {
+          var metricsFactory = SearchIndex.mockMetricsFactory();
+          IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater metricsUpdater =
+              new IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater(
+                  metricsFactory, /* aggregationEnabled= */ true);
+          metricsUpdater
+              .getVectorSearchQueryVectorEncodingCounter(Vector.BsonEncoding.BIN_DATA_FLOAT32)
+              .increment();
+
+          var counter =
+              metricsFactory
+                  .get(
+                      IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater
+                          .METRIC_NAME)
+                  .tag(
+                      IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater
+                          .NAME_TAG,
+                      QUERY_VECTOR_ENCODING_TAG_PREFIX
+                          + Enums.convertNameTo(
+                              CaseFormat.LOWER_CAMEL, Vector.BsonEncoding.BIN_DATA_FLOAT32))
+                  .counter();
+
+          Assert.assertEquals(1, counter.count(), 0);
+        }
+
+        @Test
+        public void getMetrics_vectorSearchTelemetryCounters_arePopulated() {
+          var metricsFactory = SearchIndex.mockMetricsFactory();
+          var metricsUpdater =
+              new IndexMetricsUpdater.QueryingMetricsUpdater.QueryFeaturesMetricsUpdater(
+                  metricsFactory, /* aggregationEnabled= */ true);
+          metricsUpdater.getFilteredVectorSearchCounter().increment(2.0);
+          metricsUpdater
+              .getVectorSearchFilterOperatorTypeCounterMap(MqlFilterOperator.Category.EQ)
+              .increment();
+          metricsUpdater
+              .getVectorSearchQueryVectorEncodingCounter(Vector.BsonEncoding.BIN_DATA_FLOAT32)
+              .increment(3.0);
+
+          var result = metricsUpdater.getMetrics();
+
+          var expected =
+              IndexMetricsBuilder.QueryingMetricsBuilder.QueryFeaturesMetricsBuilder.builder()
+                  .vectorSearchFilterCount(2)
+                  .vectorSearchFilterOperatorCategoryCount(MqlFilterOperator.Category.EQ, 1)
+                  .vectorSearchQueryVectorEncodingCount(Vector.BsonEncoding.BIN_DATA_FLOAT32, 3)
+                  .build();
+          Assert.assertEquals(expected, result);
         }
       }
     }

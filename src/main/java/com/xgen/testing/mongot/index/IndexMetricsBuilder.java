@@ -9,6 +9,7 @@ import com.xgen.mongot.index.query.collectors.Collector;
 import com.xgen.mongot.index.query.operators.Operator;
 import com.xgen.mongot.index.query.operators.TextOperator;
 import com.xgen.mongot.index.query.operators.VectorSearchCriteria;
+import com.xgen.mongot.index.query.operators.mql.MqlFilterOperator;
 import com.xgen.mongot.index.query.scores.Score;
 import com.xgen.mongot.index.query.sort.NullEmptySortPosition;
 import com.xgen.mongot.index.status.IndexStatus;
@@ -16,6 +17,7 @@ import com.xgen.mongot.metrics.micrometer.Percentiles;
 import com.xgen.mongot.metrics.micrometer.SerializableTimer;
 import com.xgen.mongot.util.Bytes;
 import com.xgen.mongot.util.Check;
+import com.xgen.mongot.util.bson.Vector;
 import com.xgen.testing.mongot.index.IndexMetricsBuilder.QueryingMetricsBuilder.QueryFeaturesMetricsBuilder;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
@@ -306,6 +308,12 @@ public class IndexMetricsBuilder {
           initEnumMap(Operator.Type.class);
       private final Map<Operator.Type, Double> searchVectorSearchFilterOperatorTypeCounterMap =
           initEnumMap(Operator.Type.class);
+      private final Map<MqlFilterOperator.Category, Double>
+          vectorSearchFilterOperatorCategoryCountMap =
+              initEnumMap(MqlFilterOperator.Category.class);
+      private final Map<Vector.BsonEncoding, Double> vectorSearchQueryVectorEncodingCountMap =
+          initEnumMap(Vector.BsonEncoding.class);
+      private double vectorSearchFilterCount = 0.0;
       private double synonymCount = 0.0;
       private double textSynonymCount = 0.0;
       private double textSynonymsWithoutMatchCriteriaCount = 0.0;
@@ -470,6 +478,23 @@ public class IndexMetricsBuilder {
         return this;
       }
 
+      public QueryFeaturesMetricsBuilder vectorSearchFilterOperatorCategoryCount(
+          MqlFilterOperator.Category operatorCategory, double count) {
+        this.vectorSearchFilterOperatorCategoryCountMap.put(operatorCategory, count);
+        return this;
+      }
+
+      public QueryFeaturesMetricsBuilder vectorSearchQueryVectorEncodingCount(
+          Vector.BsonEncoding encoding, double count) {
+        this.vectorSearchQueryVectorEncodingCountMap.put(encoding, count);
+        return this;
+      }
+
+      public QueryFeaturesMetricsBuilder vectorSearchFilterCount(double vectorSearchFilterCount) {
+        this.vectorSearchFilterCount = vectorSearchFilterCount;
+        return this;
+      }
+
       public IndexMetrics.QueryingMetrics.QueryFeaturesMetrics build() {
 
         return new IndexMetrics.QueryingMetrics.QueryFeaturesMetrics(
@@ -481,6 +506,9 @@ public class IndexMetricsBuilder {
             this.vectorSearchQueryTypeCountMap,
             this.knnBetaFilterOperatorTypeCounterMap,
             this.searchVectorSearchFilterOperatorTypeCounterMap,
+            this.vectorSearchFilterOperatorCategoryCountMap,
+            this.vectorSearchQueryVectorEncodingCountMap,
+            this.vectorSearchFilterCount,
             this.synonymCount,
             this.textSynonymCount,
             this.textSynonymsWithoutMatchCriteriaCount,

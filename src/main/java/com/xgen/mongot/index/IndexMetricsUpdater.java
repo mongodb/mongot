@@ -26,6 +26,7 @@ import com.xgen.mongot.metrics.PerIndexMetricsFactory;
 import com.xgen.mongot.metrics.ServerStatusDataExtractor;
 import com.xgen.mongot.util.Bytes;
 import com.xgen.mongot.util.Enums;
+import com.xgen.mongot.util.bson.Vector;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.Tags;
@@ -1155,6 +1156,9 @@ public class IndexMetricsUpdater implements Closeable {
       /** Tag prefix for MQL pre-filter operators. */
       private static final String VECTOR_SEARCH_FILTER_TAG_PREFIX = "vectorSearch_operator_";
 
+      /** Tag prefix for the BSON encoding of the {@code queryVector} in vector search queries. */
+      static final String QUERY_VECTOR_ENCODING_TAG_PREFIX = "vectorSearch_queryVector_";
+
       // redundant legacy synonyms counter, keeping to avoid breaking changes to counters
       private static final String SYNONYMS_COUNTER_NAME = "synonyms";
       private static final String TEXT_SYNONYMS_COUNTER_NAME = "textSynonyms";
@@ -1227,6 +1231,9 @@ public class IndexMetricsUpdater implements Closeable {
       /** Counts the number vector search queries with a pre-filter. */
       private final Counter vectorSearchFilterCounter;
 
+      /** Counter per BSON encoding (array vs binData dtypes) of the supplied query vector. */
+      private final Map<Vector.BsonEncoding, Counter> vectorSearchQueryVectorEncodingCounterMap;
+
       @SuppressWarnings("checkstyle:MissingJavadocMethod")
       public QueryFeaturesMetricsUpdater(
           PerIndexMetricsFactory metricsFactory, boolean aggregationEnabled) {
@@ -1288,6 +1295,9 @@ public class IndexMetricsUpdater implements Closeable {
                 metricsFactory, MqlFilterOperator.Category.class, VECTOR_SEARCH_FILTER_TAG_PREFIX);
         this.vectorSearchFilterCounter =
             createCounter(metricsFactory, VECTOR_SEARCH_FILTER_COUNTER_NAME);
+        this.vectorSearchQueryVectorEncodingCounterMap =
+            createEnumCounterMap(
+                metricsFactory, Vector.BsonEncoding.class, QUERY_VECTOR_ENCODING_TAG_PREFIX);
       }
 
       private static String facetDrillSidewaysCounterName(QueryOptimizationStatus status) {
@@ -1463,6 +1473,11 @@ public class IndexMetricsUpdater implements Closeable {
         return this.vectorSearchQueryTypeCounterMap.get(vectorSearchQueryType);
       }
 
+      /** Counter for the BSON encoding of a vector search query's {@code queryVector}. */
+      public Counter getVectorSearchQueryVectorEncodingCounter(Vector.BsonEncoding encoding) {
+        return this.vectorSearchQueryVectorEncodingCounterMap.get(encoding);
+      }
+
       public Counter getKnnBetaFilterOperatorTypeCounterMap(Operator.Type operatorType) {
         return this.knnBetaFilterOperatorTypeCounterMap.get(operatorType);
       }
@@ -1493,6 +1508,9 @@ public class IndexMetricsUpdater implements Closeable {
             this.vectorSearchQueryTypeCounterMap,
             this.knnBetaFilterOperatorTypeCounterMap,
             this.searchVectorSearchFilterOperatorTypeCounterMap,
+            this.vectorSearchFilterOperatorCounterMap,
+            this.vectorSearchQueryVectorEncodingCounterMap,
+            this.vectorSearchFilterCounter,
             this.synonymsCounter,
             this.textSynonymsCounter,
             this.textDeprecatedSynonymsCounter,

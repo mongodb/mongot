@@ -5,8 +5,11 @@ import static com.xgen.testing.BsonSerializationTestSuite.fromEncodable;
 
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.query.operators.TextOperator;
+import com.xgen.mongot.index.query.operators.mql.MqlFilterOperator;
 import com.xgen.mongot.index.query.scores.Score;
 import com.xgen.mongot.index.query.sort.NullEmptySortPosition;
+import com.xgen.mongot.util.bson.Vector;
+import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.testing.BsonDeserializationTestSuite;
 import com.xgen.testing.BsonSerializationTestSuite;
 import com.xgen.testing.mongot.index.IndexMetricsBuilder;
@@ -19,6 +22,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.bson.BsonTimestamp;
 import org.bson.types.ObjectId;
+import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -32,6 +36,7 @@ import org.junit.runners.Suite;
       IndexMetricsTest.TestIndexingMetricsSerialization.class,
       IndexMetricsTest.TestQueryingMetricsSerialization.class,
       IndexMetricsTest.TestQueryFeaturesMetricsSerialization.class,
+      IndexMetricsTest.TestQueryFeaturesMetricsRoundTrip.class,
     })
 public class IndexMetricsTest {
 
@@ -287,7 +292,31 @@ public class IndexMetricsTest {
               .noDataSortPositionCount(NullEmptySortPosition.LOWEST, 1)
               .trackingCount(11)
               .returnScopeCount(12)
+              .vectorSearchFilterOperatorCategoryCount(MqlFilterOperator.Category.EQ, 2)
+              .vectorSearchQueryVectorEncodingCount(Vector.BsonEncoding.BIN_DATA_FLOAT32, 3)
+              .vectorSearchFilterCount(4)
               .build());
+    }
+  }
+
+  public static class TestQueryFeaturesMetricsRoundTrip {
+
+    /** Guards the toBson/fromBson field-name agreement for the vector search telemetry fields. */
+    @Test
+    public void fromBson_toBsonOutput_reconstructsRecord() throws Exception {
+      IndexMetrics.QueryingMetrics.QueryFeaturesMetrics metrics =
+          IndexMetricsBuilder.QueryingMetricsBuilder.QueryFeaturesMetricsBuilder.builder()
+              .vectorSearchFilterOperatorCategoryCount(MqlFilterOperator.Category.EQ, 2)
+              .vectorSearchFilterOperatorCategoryCount(MqlFilterOperator.Category.UPPER_BOUND, 1)
+              .vectorSearchQueryVectorEncodingCount(Vector.BsonEncoding.ARRAY, 5)
+              .vectorSearchQueryVectorEncodingCount(Vector.BsonEncoding.BIN_DATA_FLOAT32, 3)
+              .vectorSearchFilterCount(4)
+              .build();
+
+      try (var parser = BsonDocumentParser.fromRoot(metrics.toBson()).build()) {
+        Assert.assertEquals(
+            metrics, IndexMetrics.QueryingMetrics.QueryFeaturesMetrics.fromBson(parser));
+      }
     }
   }
 

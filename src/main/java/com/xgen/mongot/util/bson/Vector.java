@@ -24,6 +24,23 @@ public abstract sealed class Vector implements Encodable
     BIT
   }
 
+  /**
+   * The BSON wire form a vector was supplied in: either a plain BSON array of numbers, or a binData
+   * vector (subtype 9) of one of the {@link BsonVectorParser} data types.
+   *
+   * <p>Only float vectors can arrive both ways; float16, int8, and bit vectors exist solely in the
+   * binData format. A vector constructed programmatically rather than parsed from BSON reports the
+   * encoding its construction implies (e.g. {@link #fromFloats} with {@link
+   * FloatVector.OriginalType#NATIVE} reports {@code ARRAY}).
+   */
+  public enum BsonEncoding {
+    ARRAY,
+    BIN_DATA_FLOAT32,
+    BIN_DATA_FLOAT16,
+    BIN_DATA_INT8,
+    BIN_DATA_BIT
+  }
+
   public static FloatVector fromFloats(float[] floats, FloatVector.OriginalType originalType) {
     return new FloatVector(floats, originalType);
   }
@@ -70,6 +87,20 @@ public abstract sealed class Vector implements Encodable
     } else {
       return context.handleSemanticError("Unexpected type found when parsing vector");
     }
+  }
+
+  /** Returns the BSON wire form this vector was parsed from (see {@link BsonEncoding}). */
+  public BsonEncoding getBsonEncoding() {
+    return switch (this) {
+      case FloatVector floatVector ->
+          switch (floatVector.getOriginalType()) {
+            case NATIVE -> BsonEncoding.ARRAY;
+            case BSON -> BsonEncoding.BIN_DATA_FLOAT32;
+          };
+      case Float16Vector ignored -> BsonEncoding.BIN_DATA_FLOAT16;
+      case ByteVector ignored -> BsonEncoding.BIN_DATA_INT8;
+      case BitVector ignored -> BsonEncoding.BIN_DATA_BIT;
+    };
   }
 
   /**

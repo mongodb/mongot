@@ -5,6 +5,7 @@ import static com.xgen.mongot.index.SearchAggregationMetricsReporter.AGGREGATION
 import static com.xgen.mongot.index.SearchAggregationMetricsReporter.MAX_PATH_BUCKETS_HISTOGRAM;
 import static com.xgen.mongot.index.SearchAggregationMetricsReporter.NESTING_HISTOGRAM;
 import static com.xgen.mongot.index.SearchAggregationMetricsReporter.REQUESTED_BUCKETS_HISTOGRAM;
+import static com.xgen.mongot.util.bson.FloatVector.OriginalType.BSON;
 import static com.xgen.mongot.util.bson.FloatVector.OriginalType.NATIVE;
 import static com.xgen.testing.BsonTestUtils.bson;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_NAME;
@@ -34,6 +35,7 @@ import com.xgen.mongot.index.query.operators.CompoundOperator;
 import com.xgen.mongot.index.query.operators.Operator;
 import com.xgen.mongot.index.query.operators.TextOperator;
 import com.xgen.mongot.index.query.operators.VectorSearchCriteria;
+import com.xgen.mongot.index.query.operators.VectorSearchQueryInput;
 import com.xgen.mongot.index.query.operators.mql.MqlFilterOperator;
 import com.xgen.mongot.index.query.scores.Score;
 import com.xgen.mongot.index.query.sort.MongotSortField;
@@ -1324,6 +1326,110 @@ public class QueryMetricsRecorderTest {
     queryMetricsRecorder.record(query);
 
     Assert.assertEquals(0, queryFeaturesStatsUpdater.getConcurrentCounter().count(), EPSILON);
+  }
+
+  @Test
+  public void record_arrayQueryVector_incrementsArrayEncodingCounter() {
+    var queryFeaturesStatsUpdater =
+        IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.QueryFeaturesMetricsUpdaterBuilder
+            .empty();
+    var queryMetricsRecorder = new QueryMetricsRecorder(queryFeaturesStatsUpdater);
+    VectorSearchQuery query =
+        VectorQueryBuilder.builder()
+            .index("testIndex")
+            .criteria(
+                ApproximateVectorQueryCriteriaBuilder.builder()
+                    .path(FieldPath.newRoot("test"))
+                    .queryVector(Vector.fromFloats(new float[] {1.f, 2.f}, NATIVE))
+                    .numCandidates(100)
+                    .limit(10)
+                    .build())
+            .build();
+
+    queryMetricsRecorder.record(query);
+
+    Assert.assertEquals(
+        1,
+        queryFeaturesStatsUpdater
+            .getVectorSearchQueryVectorEncodingCounter(Vector.BsonEncoding.ARRAY)
+            .count(),
+        EPSILON);
+    Assert.assertEquals(
+        0,
+        queryFeaturesStatsUpdater
+            .getVectorSearchQueryVectorEncodingCounter(Vector.BsonEncoding.BIN_DATA_FLOAT32)
+            .count(),
+        EPSILON);
+  }
+
+  @Test
+  public void record_binDataQueryVector_incrementsBinDataEncodingCounter() {
+    var queryFeaturesStatsUpdater =
+        IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.QueryFeaturesMetricsUpdaterBuilder
+            .empty();
+    var queryMetricsRecorder = new QueryMetricsRecorder(queryFeaturesStatsUpdater);
+    VectorSearchQuery query =
+        VectorQueryBuilder.builder()
+            .index("testIndex")
+            .criteria(
+                ApproximateVectorQueryCriteriaBuilder.builder()
+                    .path(FieldPath.newRoot("test"))
+                    .queryVector(Vector.fromFloats(new float[] {1.f, 2.f}, BSON))
+                    .numCandidates(100)
+                    .limit(10)
+                    .build())
+            .build();
+
+    queryMetricsRecorder.record(query);
+
+    Assert.assertEquals(
+        1,
+        queryFeaturesStatsUpdater
+            .getVectorSearchQueryVectorEncodingCounter(Vector.BsonEncoding.BIN_DATA_FLOAT32)
+            .count(),
+        EPSILON);
+    Assert.assertEquals(
+        0,
+        queryFeaturesStatsUpdater
+            .getVectorSearchQueryVectorEncodingCounter(Vector.BsonEncoding.ARRAY)
+            .count(),
+        EPSILON);
+  }
+
+  @Test
+  public void record_textQueryInput_doesNotIncrementQueryVectorEncodingCounter() {
+    var queryFeaturesStatsUpdater =
+        IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.QueryFeaturesMetricsUpdaterBuilder
+            .empty();
+    var queryMetricsRecorder = new QueryMetricsRecorder(queryFeaturesStatsUpdater);
+    VectorSearchQuery query =
+        VectorQueryBuilder.builder()
+            .index("testIndex")
+            .criteria(
+                ApproximateVectorQueryCriteriaBuilder.builder()
+                    .path(FieldPath.newRoot("test"))
+                    .query(new VectorSearchQueryInput.Text("hello"))
+                    .numCandidates(100)
+                    .limit(10)
+                    .build())
+            .build();
+
+    queryMetricsRecorder.record(query);
+
+    assertEncodingCounterIsZero(queryFeaturesStatsUpdater, Vector.BsonEncoding.ARRAY);
+    assertEncodingCounterIsZero(queryFeaturesStatsUpdater, Vector.BsonEncoding.BIN_DATA_FLOAT32);
+    assertEncodingCounterIsZero(queryFeaturesStatsUpdater, Vector.BsonEncoding.BIN_DATA_FLOAT16);
+    assertEncodingCounterIsZero(queryFeaturesStatsUpdater, Vector.BsonEncoding.BIN_DATA_INT8);
+    assertEncodingCounterIsZero(queryFeaturesStatsUpdater, Vector.BsonEncoding.BIN_DATA_BIT);
+  }
+
+  private static void assertEncodingCounterIsZero(
+      QueryFeaturesMetricsUpdater updater, Vector.BsonEncoding encoding) {
+    Assert.assertEquals(
+        "unexpected count for encoding " + encoding,
+        0,
+        updater.getVectorSearchQueryVectorEncodingCounter(encoding).count(),
+        EPSILON);
   }
 
   @Test
