@@ -94,11 +94,17 @@ public class Errors {
 
   public static final Set<Integer> RETRYABLE_ERROR_CODES =
       Set.of(
-          6, 7, 63, 89, 91, 133, 150, 189, 234, 262, 462, 489, 9001, 10107, 11600, 11602, 13388,
-          13435, 13436);
+          6, 7, 63, 89, 91, 133, 150, 189, 234, 262, 433, 462, 473, 489, 9001, 10107, 11600, 11602,
+          13388, 13435, 13436);
 
-  // SystemOverloadedError codes that are not already in RETRYABLE_ERROR_CODES (462 and 489 are).
-  // These indicate the server is under resource pressure and writes should be retried.
+  // Codes returned when Mongotune sheds load.
+  public static final Set<Integer> THROTTLING_ERROR_CODES =
+      Set.of(Errors.INGRESS_REQUEST_RATE_LIMIT_EXCEEDED.code);
+
+  // SystemOverloadedError codes. These indicate the server is under resource pressure and writes
+  // should be retried. Note 433, 462, 473 and 489 are also in RETRYABLE_ERROR_CODES: 433 is thrown
+  // when an execution-control ticket wait queue exceeds its configured depth, which is transient
+  // load shedding rather than a reason to resync.
   public static final Set<Integer> SYSTEM_OVERLOADED_ERROR_CODES =
       Set.of(
           Errors.ADMISSION_QUEUE_OVERFLOW.code,

@@ -292,7 +292,8 @@ public class ChangeStreamManager {
             meterAndFtdcRegistry.meterRegistry(),
             syncMongoClientFactory,
             taskExecutor,
-            replicationConfig.getReplicationType());
+            replicationConfig.getReplicationType(),
+            replicationConfig.getRetryThrottledGetMoreOnSameCursor());
 
     return new ChangeStreamManager(
         indexingWorkSchedulerFactory,

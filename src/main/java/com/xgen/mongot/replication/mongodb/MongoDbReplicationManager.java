@@ -395,7 +395,7 @@ public class MongoDbReplicationManager implements ReplicationManager {
             Optional.empty());
 
     SteadyStateReplicationConfig steadyStateReplicationConfig =
-        getSteadyStateReplicationConfig(replicationConfig);
+        getSteadyStateReplicationConfig(replicationConfig, featureFlags);
 
     var steadyStateManager =
         SteadyStateManager.create(
@@ -701,7 +701,18 @@ public class MongoDbReplicationManager implements ReplicationManager {
    */
   public static SteadyStateReplicationConfig getSteadyStateReplicationConfig(
       MongoDbReplicationConfig replicationConfig) {
+    return getSteadyStateReplicationConfig(replicationConfig, FeatureFlags.getDefault());
+  }
+
+  /**
+   * Derives the steady-state replication config, resolving the feature flags the steady-state path
+   * needs so the change stream managers do not each have to take {@link FeatureFlags}.
+   */
+  public static SteadyStateReplicationConfig getSteadyStateReplicationConfig(
+      MongoDbReplicationConfig replicationConfig, FeatureFlags featureFlags) {
     return SteadyStateReplicationConfig.builder()
+        .setRetryThrottledGetMoreOnSameCursor(
+            featureFlags.isEnabled(Feature.RETRY_THROTTLED_GETMORE_ON_SAME_CURSOR))
         .setNumConcurrentChangeStreams(replicationConfig.numConcurrentChangeStreams)
         .setChangeStreamQueryMaxTimeMs(replicationConfig.changeStreamMaxTimeMs)
         .setChangeStreamCursorMaxTimeSec(replicationConfig.changeStreamCursorMaxTimeSec)

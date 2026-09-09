@@ -32,6 +32,7 @@ java_test_suite(
         "InitialSyncExceptionTest.java",
         "InitialSyncResumeInfoTest.java",
         "MongoDbReplicationConfigTest.java",
+        "MongoExceptionUtilsTest.java",
         "MongoViewExceptionUtilsTest.java",
         "PartitionResumeInfoTest.java",
         "PeriodicIndexCommitterTest.java",

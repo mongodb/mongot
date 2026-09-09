@@ -26,6 +26,7 @@ public class SteadyStateReplicationConfig {
   private final int steadyStatePriorityRatio;
   private final int steadyStatePriorityOptimeThresholdSeconds;
   private final int changeStreamKeepAliveIntervalSec;
+  private final boolean retryThrottledGetMoreOnSameCursor;
 
   private SteadyStateReplicationConfig(
       int numConcurrentChangeStreams,
@@ -43,7 +44,8 @@ public class SteadyStateReplicationConfig {
       SteadyStateSchedulingMethod steadyStateSchedulingMethod,
       int steadyStatePriorityRatio,
       int steadyStatePriorityOptimeThresholdSeconds,
-      int changeStreamKeepAliveIntervalSec) {
+      int changeStreamKeepAliveIntervalSec,
+      boolean retryThrottledGetMoreOnSameCursor) {
     this.numConcurrentChangeStreams = numConcurrentChangeStreams;
     this.changeStreamQueryMaxTimeMs = changeStreamQueryMaxTimeMs;
     this.changeStreamCursorMaxTimeSec = changeStreamCursorMaxTimeSec;
@@ -60,6 +62,7 @@ public class SteadyStateReplicationConfig {
     this.steadyStatePriorityRatio = steadyStatePriorityRatio;
     this.steadyStatePriorityOptimeThresholdSeconds = steadyStatePriorityOptimeThresholdSeconds;
     this.changeStreamKeepAliveIntervalSec = changeStreamKeepAliveIntervalSec;
+    this.retryThrottledGetMoreOnSameCursor = retryThrottledGetMoreOnSameCursor;
   }
 
   public static SteadyStateReplicationConfig.Builder builder() {
@@ -130,7 +133,12 @@ public class SteadyStateReplicationConfig {
     return this.steadyStatePriorityOptimeThresholdSeconds;
   }
 
+  public boolean getRetryThrottledGetMoreOnSameCursor() {
+    return this.retryThrottledGetMoreOnSameCursor;
+  }
+
   public static class Builder {
+    private boolean retryThrottledGetMoreOnSameCursor = false;
     private Optional<Integer> numConcurrentChangeStreams;
     private Optional<Integer> changeStreamQueryMaxTimeMs;
     private Optional<Integer> changeStreamCursorMaxTimeSec;
@@ -255,6 +263,11 @@ public class SteadyStateReplicationConfig {
       return this;
     }
 
+    public Builder setRetryThrottledGetMoreOnSameCursor(boolean retryThrottledGetMoreOnSameCursor) {
+      this.retryThrottledGetMoreOnSameCursor = retryThrottledGetMoreOnSameCursor;
+      return this;
+    }
+
     public SteadyStateReplicationConfig build() {
       Check.argIsPositive(
           this.changeStreamInactivityThresholdSec, "changeStreamInactivityThresholdSec");
@@ -276,7 +289,8 @@ public class SteadyStateReplicationConfig {
           this.steadyStateSchedulingMethod,
           this.steadyStatePriorityRatio,
           this.steadyStatePriorityOptimeThresholdSeconds,
-          this.changeStreamKeepAliveIntervalSec);
+          this.changeStreamKeepAliveIntervalSec,
+          this.retryThrottledGetMoreOnSameCursor);
     }
   }
 }

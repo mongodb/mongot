@@ -8,6 +8,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.google.errorprone.annotations.Keep;
+import com.mongodb.MongoCommandException;
+import com.mongodb.ServerAddress;
 import com.xgen.mongot.index.FieldExceededLimitsException;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.definition.SynonymMappingDefinition;
@@ -15,6 +17,7 @@ import com.xgen.mongot.index.definition.VectorIndexDefinitionGeneration;
 import com.xgen.mongot.index.synonym.SynonymMappingException;
 import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.replication.mongodb.common.SynonymSyncException;
+import com.xgen.mongot.util.mongodb.Errors;
 import com.xgen.testing.mongot.mock.index.VectorIndex;
 import java.io.Closeable;
 import java.io.IOException;
@@ -29,6 +32,9 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import org.bson.BsonDocument;
+import org.bson.BsonInt32;
+import org.bson.BsonString;
 import org.bson.BsonTimestamp;
 import org.bson.types.ObjectId;
 import org.junit.Assert;
@@ -38,6 +44,9 @@ import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 
 public class SynonymMappingManagerTest {
+  /** Upper bound (exclusive) on the jittered backoff used for throttled syncs. */
+  private static final Duration THROTTLED_BACKOFF_LIMIT = Duration.ofMillis(100);
+
   private static final BsonTimestamp SCAN_OPERATION_TIME = new BsonTimestamp(12345L);
   private static final SynonymMappingHighWaterMark SYNONYM_SCAN_HIGH_WATER_MARK =
       SynonymMappingHighWaterMark.create(SCAN_OPERATION_TIME);
@@ -641,6 +650,55 @@ public class SynonymMappingManagerTest {
     Assert.assertTrue(result.isEmpty());
   }
 
+  @Test
+  public void backoffFor_throttledTransientException_usesShortJitteredBackoff() throws Exception {
+    Duration transientBackoff = Duration.ofSeconds(30);
+    SynonymSyncException throttled =
+        SynonymSyncException.createThrottled(
+            new MongoCommandException(
+                new BsonDocument("ok", new BsonInt32(0))
+                    .append("code", new BsonInt32(Errors.INGRESS_REQUEST_RATE_LIMIT_EXCEEDED.code))
+                    .append("errmsg", new BsonString("throttled")),
+                new ServerAddress()),
+            Optional.empty());
+
+    try (Mocks mocks =
+        Mocks.create(
+            List.of(
+                invocation -> {
+                  Runnable callback = invocation.getArgument(3, Runnable.class);
+                  callback.run();
+                  return CompletableFuture.completedFuture(SYNONYM_SCAN_HIGH_WATER_MARK);
+                }),
+            Collections.emptyList(),
+            transientBackoff)) {
+      Assert.assertTrue(throttled.isThrottled());
+      Assert.assertTrue(
+          mocks.synonymMappingManager.backoffFor(throttled).compareTo(THROTTLED_BACKOFF_LIMIT) < 0);
+    }
+  }
+
+  @Test
+  public void backoffFor_plainTransientException_usesFlatTransientBackoff() throws Exception {
+    Duration transientBackoff = Duration.ofSeconds(30);
+    SynonymSyncException transientException = SynonymSyncException.createTransient("transient");
+
+    try (Mocks mocks =
+        Mocks.create(
+            List.of(
+                invocation -> {
+                  Runnable callback = invocation.getArgument(3, Runnable.class);
+                  callback.run();
+                  return CompletableFuture.completedFuture(SYNONYM_SCAN_HIGH_WATER_MARK);
+                }),
+            Collections.emptyList(),
+            transientBackoff)) {
+      Assert.assertFalse(transientException.isThrottled());
+      Assert.assertEquals(
+          transientBackoff, mocks.synonymMappingManager.backoffFor(transientException));
+    }
+  }
+
   private static void assertStateAfterException(
       SynonymMappingManager.State state, Throwable throwable) throws Exception {
     try (Mocks mocks = Mocks.exceptionalSynonymSync(throwable)) {
@@ -707,6 +765,14 @@ public class SynonymMappingManagerTest {
         List<Answer<CompletableFuture<SynonymMappingHighWaterMark>>> collectionScanAnswers,
         List<Answer<CompletableFuture<SynonymMappingHighWaterMark>>> changeStreamAnswers)
         throws Exception {
+      return create(collectionScanAnswers, changeStreamAnswers, Duration.ZERO);
+    }
+
+    static Mocks create(
+        List<Answer<CompletableFuture<SynonymMappingHighWaterMark>>> collectionScanAnswers,
+        List<Answer<CompletableFuture<SynonymMappingHighWaterMark>>> changeStreamAnswers,
+        Duration transientBackoff)
+        throws Exception {
       Answer<CompletableFuture<SynonymMappingHighWaterMark>> collScanAnswer =
           new Answer<>() {
             private int invocationCount = 0;
@@ -760,7 +826,7 @@ public class SynonymMappingManagerTest {
               synonymMappingDefinition,
               indexGeneration,
               Duration.ZERO,
-              Duration.ZERO);
+              transientBackoff);
 
       return new Mocks(
           synonymManager,

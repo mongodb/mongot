@@ -15,6 +15,7 @@ java_library(
         "OneShotSingleThreadExecutor.java",
         "PrioritizedTask.java",
         "RecurringTimer.java",
+        "Sleeper.java",
     ],
     visibility = ["//visibility:public"],
     exports = ["@maven//:io_micrometer_micrometer_core"],

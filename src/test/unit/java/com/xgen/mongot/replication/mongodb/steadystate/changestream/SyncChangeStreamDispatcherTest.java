@@ -19,6 +19,8 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.mongodb.MongoCommandException;
+import com.mongodb.ServerAddress;
 import com.mongodb.client.model.changestream.OperationType;
 import com.mongodb.client.model.changestream.UpdateDescription;
 import com.xgen.mongot.index.IndexMetricsUpdater;
@@ -40,6 +42,8 @@ import com.xgen.mongot.replication.mongodb.common.SteadyStateSchedulingMethod;
 import com.xgen.mongot.util.Condition;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.concurrent.Executors;
+import com.xgen.mongot.util.concurrent.Sleeper;
+import com.xgen.mongot.util.mongodb.Errors;
 import com.xgen.testing.mongot.index.IndexMetricsUpdaterBuilder;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
@@ -578,6 +582,187 @@ public class SyncChangeStreamDispatcherTest {
     } finally {
       syncDispatcher.shutdown();
     }
+  }
+
+  @Test
+  public void getNext_throttled_retriesSameCursorBeforeFailingLifecycle() throws Exception {
+    var definition = SearchIndex.mockSearchDefinition(new ObjectId());
+    IndexDefinitionGeneration generation =
+        mockIndexGeneration(definition).getDefinitionGeneration();
+
+    // Two throttled getMores, then an unrelated transient failure that is not retried in place.
+    ChangeStreamMongoClient<SteadyStateException> mongoClient = mock(ChangeStreamMongoClient.class);
+    when(mongoClient.getNext())
+        .thenThrow(throttled(Errors.INGRESS_REQUEST_RATE_LIMIT_EXCEEDED.code))
+        .thenThrow(throttled(Errors.INGRESS_REQUEST_RATE_LIMIT_EXCEEDED.code))
+        .thenThrow(
+            SteadyStateException.createTransient(
+                new RuntimeException("not throttling"), "test-terminate"));
+
+    ChangeStreamMongoClientFactory mongoClientFactory = mock(ChangeStreamMongoClientFactory.class);
+    when(mongoClientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+        .thenReturn(mongoClient);
+
+    ChangeStreamIndexManager indexManager =
+        spy(indexManager(definition, generation, new CompletableFuture<>()));
+
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    SyncChangeStreamDispatcher syncDispatcher =
+        new SyncChangeStreamDispatcher(
+            meterRegistry,
+            mongoClientFactory,
+            new FifoExecutor(
+                Executors.fixedSizeThreadScheduledExecutor(
+                    "executor", 1, new SimpleMeterRegistry())),
+            CommonReplicationConfig.Type.DEFAULT,
+            /* retryThrottledGetMoreOnSameCursor= */ true,
+            Sleeper.NO_OP);
+
+    try {
+      syncDispatcher.add(
+          definition,
+          generation.getGenerationId(),
+          mock(ChangeStreamResumeInfo.class),
+          indexManager,
+          false);
+
+      // Both rate-limited getMores are retried on the same cursor, so only the third,
+      // non-throttling failure reaches the lifecycle.
+      verify(indexManager, timeout(5000)).failLifecycle(any());
+      verify(mongoClient, timeout(5000).times(3)).getNext();
+      assertThat(throttlingRetries(meterRegistry)).isEqualTo(2.0);
+    } finally {
+      syncDispatcher.shutdown();
+    }
+  }
+
+  @Test
+  public void getNext_throttledWithFeatureDisabled_failsLifecycleImmediately() throws Exception {
+    var definition = SearchIndex.mockSearchDefinition(new ObjectId());
+    IndexDefinitionGeneration generation =
+        mockIndexGeneration(definition).getDefinitionGeneration();
+
+    ChangeStreamMongoClient<SteadyStateException> mongoClient = mock(ChangeStreamMongoClient.class);
+    when(mongoClient.getNext())
+        .thenThrow(throttled(Errors.INGRESS_REQUEST_RATE_LIMIT_EXCEEDED.code));
+
+    ChangeStreamMongoClientFactory mongoClientFactory = mock(ChangeStreamMongoClientFactory.class);
+    when(mongoClientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+        .thenReturn(mongoClient);
+
+    ChangeStreamIndexManager indexManager =
+        spy(indexManager(definition, generation, new CompletableFuture<>()));
+
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    // Flag off (the convenience constructor defaults it to false).
+    SyncChangeStreamDispatcher syncDispatcher =
+        new SyncChangeStreamDispatcher(
+            meterRegistry,
+            mongoClientFactory,
+            new FifoExecutor(
+                Executors.fixedSizeThreadScheduledExecutor(
+                    "executor", 1, new SimpleMeterRegistry())),
+            CommonReplicationConfig.Type.DEFAULT);
+
+    try {
+      syncDispatcher.add(
+          definition,
+          generation.getGenerationId(),
+          mock(ChangeStreamResumeInfo.class),
+          indexManager,
+          false);
+
+      // With RETRY_THROTTLED_GETMORE_ON_SAME_CURSOR off, the throttled getMore takes the
+      // pre-existing path straight away: one call, no retries, lifecycle failed. This is what
+      // makes disabling the flag a behavioural revert to the state before CLOUDP-427401.
+      verify(indexManager, timeout(5000)).failLifecycle(any());
+      verify(mongoClient, timeout(5000).times(1)).getNext();
+      assertThat(throttlingRetries(meterRegistry)).isEqualTo(0.0);
+    } finally {
+      syncDispatcher.shutdown();
+    }
+  }
+
+  @Test
+  public void getNext_throttlingPersists_failsLifecycleAfterRetriesExhausted() throws Exception {
+    var definition = SearchIndex.mockSearchDefinition(new ObjectId());
+    IndexDefinitionGeneration generation =
+        mockIndexGeneration(definition).getDefinitionGeneration();
+
+    ChangeStreamMongoClient<SteadyStateException> mongoClient = mock(ChangeStreamMongoClient.class);
+    when(mongoClient.getNext())
+        .thenThrow(throttled(Errors.INGRESS_REQUEST_RATE_LIMIT_EXCEEDED.code));
+
+    ChangeStreamMongoClientFactory mongoClientFactory = mock(ChangeStreamMongoClientFactory.class);
+    when(mongoClientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+        .thenReturn(mongoClient);
+
+    ChangeStreamIndexManager indexManager =
+        spy(indexManager(definition, generation, new CompletableFuture<>()));
+
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    SyncChangeStreamDispatcher syncDispatcher =
+        new SyncChangeStreamDispatcher(
+            meterRegistry,
+            mongoClientFactory,
+            new FifoExecutor(
+                Executors.fixedSizeThreadScheduledExecutor(
+                    "executor", 1, new SimpleMeterRegistry())),
+            CommonReplicationConfig.Type.DEFAULT,
+            /* retryThrottledGetMoreOnSameCursor= */ true,
+            Sleeper.NO_OP);
+
+    try {
+      syncDispatcher.add(
+          definition,
+          generation.getGenerationId(),
+          mock(ChangeStreamResumeInfo.class),
+          indexManager,
+          false);
+
+      // The initial attempt plus MAX_THROTTLING_RETRIES retries, then we fall through to the
+      // existing shutdown/retry path.
+      verify(indexManager, timeout(5000)).failLifecycle(any());
+      int expectedGetNextCalls = SyncChangeStreamDispatcher.MAX_THROTTLING_RETRIES + 1;
+      verify(mongoClient, timeout(5000).times(expectedGetNextCalls)).getNext();
+      verify(mongoClient, timeout(5000)).close();
+      assertThat(throttlingRetries(meterRegistry))
+          .isEqualTo((double) SyncChangeStreamDispatcher.MAX_THROTTLING_RETRIES);
+    } finally {
+      syncDispatcher.shutdown();
+    }
+  }
+
+  private static SteadyStateException throttled(int code) {
+    return SteadyStateException.wrapMongoException(
+        new MongoCommandException(
+            new BsonDocument("ok", new BsonInt32(0))
+                .append("code", new BsonInt32(code))
+                .append("errmsg", new BsonString("throttled")),
+            new ServerAddress()));
+  }
+
+  private static ChangeStreamIndexManager indexManager(
+      SearchIndexDefinition definition,
+      IndexDefinitionGeneration generation,
+      CompletableFuture<Void> lifecycleFuture) {
+    return DecodingExecutorChangeStreamIndexManager.createWithDecodingScheduler(
+        definition,
+        mock(IndexingWorkScheduler.class),
+        mockDocumentIndexer(),
+        ChangeStreamUtils.PRE_BATCH_RESUME_INFO.getNamespace(),
+        resumeInfo -> {},
+        IGNORE_METRICS,
+        lifecycleFuture,
+        generation.getGenerationId(),
+        DecodingWorkScheduler.create(2, new SimpleMeterRegistry()));
+  }
+
+  private static double throttlingRetries(SimpleMeterRegistry meterRegistry) {
+    return meterRegistry
+        .get("indexing.steadyStateChangeStream.getMoreThrottlingRetries")
+        .counter()
+        .count();
   }
 
   private static void assertNumberOfEmbeddingPermits(

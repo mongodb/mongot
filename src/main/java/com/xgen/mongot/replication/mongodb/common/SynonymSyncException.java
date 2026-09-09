@@ -58,15 +58,28 @@ public class SynonymSyncException extends LoggableException {
   private final Type type;
   private final Optional<BsonTimestamp> operationTime;
 
+  /** True when this exception was caused by mongod shedding load. */
+  private final boolean throttled;
+
   private SynonymSyncException(
       @Nullable String message,
       @Nullable Throwable cause,
       Type type,
       Optional<BsonTimestamp> operationTime) {
+    this(message, cause, type, operationTime, false);
+  }
+
+  private SynonymSyncException(
+      @Nullable String message,
+      @Nullable Throwable cause,
+      Type type,
+      Optional<BsonTimestamp> operationTime,
+      boolean throttled) {
     super(String.valueOf(message), cause);
 
     this.type = type;
     this.operationTime = operationTime;
+    this.throttled = throttled;
   }
 
   private SynonymSyncException(String message, Type type, Optional<BsonTimestamp> operationTime) {
@@ -74,11 +87,13 @@ public class SynonymSyncException extends LoggableException {
 
     this.type = type;
     this.operationTime = operationTime;
+    this.throttled = false;
   }
 
   public static SynonymSyncException withOpTime(
       SynonymSyncException e, Optional<BsonTimestamp> operationTime) {
-    return new SynonymSyncException(e.getMessage(), e.getCause(), e.getType(), operationTime);
+    return new SynonymSyncException(
+        e.getMessage(), e.getCause(), e.getType(), operationTime, e.throttled);
   }
 
   public Type getType() {
@@ -166,6 +181,9 @@ public class SynonymSyncException extends LoggableException {
       if (COLLECTION_DROPPED_ERROR_CODES.contains(code)) {
         // Collection was dropped.
         throw createDropped(operationTime);
+      } else if (MongoExceptionUtils.isThrottling(e)) {
+        // mongod shed this request; retry the scan after a short backoff.
+        throw createThrottled(e, operationTime);
       } else if (NON_INVALIDATING_MONGO_ERROR_CODES_REQUIRING_SCAN.contains(code)) {
         // These errors do not invalidate a synonym mapping, but do require a collection scan as the
         // next sync action to take.
@@ -237,6 +255,21 @@ public class SynonymSyncException extends LoggableException {
       Throwable cause, Optional<BsonTimestamp> operationTime) {
     return new SynonymSyncException(
         cause.getMessage(), cause.getCause(), Type.TRANSIENT, operationTime);
+  }
+
+  /**
+   * Creates a TRANSIENT exception flagged as throttled, so that {@link
+   * com.xgen.mongot.replication.mongodb.synonyms.SynonymMappingManager} retries on a short backoff.
+   */
+  public static SynonymSyncException createThrottled(
+      Throwable cause, Optional<BsonTimestamp> operationTime) {
+    return new SynonymSyncException(
+        cause.getMessage(), cause.getCause(), Type.TRANSIENT, operationTime, true);
+  }
+
+  /** Returns true if this exception was caused by mongod shedding load. */
+  public boolean isThrottled() {
+    return this.throttled;
   }
 
   public static SynonymSyncException createFieldExceeded(Throwable cause) {

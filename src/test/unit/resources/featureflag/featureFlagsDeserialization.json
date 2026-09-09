@@ -65,6 +65,7 @@
         "resetStaleInternalSearchCheckpoint": true,
         "enableChangeStreamPriorityScheduling": true,
         "changeStreamActivityObserver": true,
+        "retryThrottledGetMoreOnSameCursor": true,
         "bloomFilterOnHeap": true,
         "lucene104Codec": true,
         "quarantineUnparseableIndex": true
@@ -118,6 +119,7 @@
         "byteBinaryQuantization": false,
         "resetStaleInternalSearchCheckpoint": false,
         "changeStreamActivityObserver": false,
+        "retryThrottledGetMoreOnSameCursor": false,
         "bloomFilterOnHeap": false,
         "lucene104Codec": false,
         "quarantineUnparseableIndex": false

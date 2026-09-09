@@ -23,6 +23,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -37,6 +38,9 @@ public class SynonymMappingManager {
 
   private static final Duration DEFAULT_CHANGE_STREAM_BACKOFF = Duration.ofSeconds(10);
   private static final Duration DEFAULT_TRANSIENT_BACKOFF = Duration.ofSeconds(30);
+
+  /** Backoff used Mongotune ingress rate limiting. */
+  @VisibleForTesting static final Duration THROTTLED_BACKOFF = Duration.ofMillis(100);
 
   private final SynonymManager synonymManager;
   private final DefaultKeyValueLogger logger;
@@ -445,12 +449,24 @@ public class SynonymMappingManager {
       }
       case TRANSIENT -> {
         // remain in previous state
-        scheduleOrFail(this::enqueueCollectionScan, this.transientBackoff, this.lifecycleExecutor);
+        scheduleOrFail(this::enqueueCollectionScan, backoffFor(exception), this.lifecycleExecutor);
         return;
       }
     }
     this.logger.error("unknown exception type {}", exception.getType());
     Check.unreachable("Unknown exception type");
+  }
+
+  /**
+   * Returns the delay before retrying a transient failure: a short jittered backoff when mongod
+   * shed the request, otherwise the flat transient backoff.
+   */
+  @VisibleForTesting
+  Duration backoffFor(SynonymSyncException exception) {
+    if (!exception.isThrottled()) {
+      return this.transientBackoff;
+    }
+    return Duration.ofMillis(ThreadLocalRandom.current().nextLong(THROTTLED_BACKOFF.toMillis()));
   }
 
   private static void scheduleOrFail(Runnable runnable, Duration duration, Executor executor) {
