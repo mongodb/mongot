@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.2] - 2026-09-03
+
+### Fixed
+
+- The Atlas Search schemas (`search/index.json`, `search/index_sort.json`) could not be loaded by
+  JSON Schema validators, so Search index definitions were not validated at all: valid definitions
+  reported a spurious `Problems loading reference` error, and invalid ones were not reported.
+  Introduced in 2.1.1. The Atlas Vector Search schemas were unaffected.
+
 ## [2.1.1] - 2026-08-17
 
 ### Fixed

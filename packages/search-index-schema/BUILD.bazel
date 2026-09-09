@@ -51,6 +51,14 @@ js_binary(
     entry_point = "scripts/bundle.js",
 )
 
+js_test(
+    name = "validate_bundled_schemas",
+    size = "small",
+    chdir = package_name(),
+    data = [":scripts_lib"],
+    entry_point = "scripts/validate_bundled.js",
+)
+
 genrule(
     name = "bundle_schemas",
     srcs = glob(["schema/**/*.json"]) + [

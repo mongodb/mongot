@@ -1,6 +1,6 @@
 {
   "name": "@mongodb-js/search-index-schema",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "MongoDB Atlas Search Index JSON schemas",
   "main": "index.js",
   "types": "index.d.ts",
@@ -38,7 +38,7 @@
   },
   "homepage": "https://github.com/mongodb/mongot/tree/main/packages/search-index-schema#readme",
   "devDependencies": {
-    "@apidevtools/json-schema-ref-parser": "^15.4.0",
+    "@apidevtools/json-schema-ref-parser": "15.4.0",
     "ajv": "^8.18.0",
     "glob": "^10.4.5",
     "prettier": "^3.3.3"
