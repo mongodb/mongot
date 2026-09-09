@@ -15,8 +15,8 @@ import java.util.EnumMap;
  * Counters for view-based auto-embed decisions, fed from the per-batch tallies on {@link
  * DocumentEventBatch}: {@code viewFieldDependenciesDerivationFallback{reason}} (once per index when
  * derivation can't bound dependencies), {@code viewFieldDependenciesDecision{result, reason}} (per
- * write-path UPDATE decision), and {@code viewFilterOnlyPartialApplied} (view filter-only partials,
- * the view analog of {@code partialEmbedApplied}).
+ * selected UPDATE write route), and {@code viewFilterOnlyPartialApplied} (view filter-only
+ * partials, the view analog of {@code partialEmbedApplied}).
  */
 public class ViewFieldDependenciesMetricCounters {
 

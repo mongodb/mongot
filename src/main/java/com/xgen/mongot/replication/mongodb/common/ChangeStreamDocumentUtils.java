@@ -515,6 +515,9 @@ public class ChangeStreamDocumentUtils {
           incrementApplicableDocumentMetrics(metrics, event);
           metrics.partialEmbedFallback(
               PartialEmbedFallbackReason.INTRA_BATCH_PREDECESSOR_REQUIRES_FULL);
+          if (indexDefinition.getView().isPresent()) {
+            metrics.viewDecision(ViewFullProcessingReason.INTRA_BATCH_PREDECESSOR_REQUIRES_FULL);
+          }
           return Optional.of(DocumentEvent.createUpdate(metadata, event.getFullDocument()));
         }
 
@@ -532,6 +535,9 @@ public class ChangeStreamDocumentUtils {
           if (forceFullUpdate) {
             metrics.partialEmbedFallback(
                 PartialEmbedFallbackReason.FEATURE_FLAG_FORCED_FULL_UPDATE);
+            if (indexDefinition.getView().isPresent()) {
+              metrics.viewDecision(ViewFullProcessingReason.FEATURE_FLAG_FORCED_FULL_UPDATE);
+            }
             return Optional.of(DocumentEvent.createUpdate(metadata, event.getFullDocument()));
           }
 
@@ -563,12 +569,9 @@ public class ChangeStreamDocumentUtils {
                 ViewFieldDependencies deps = viewFieldDependencies.get();
                 ViewFieldDependencies.ViewUpdateClassification decision =
                     deps.classifyViewUpdate(event.getUpdateDescription());
-                // Decision metric: NONE when a partial path is taken, else the force-full reason.
-                metrics.viewDecision(
-                    decision.requiresFull()
-                        ? deps.classifyUpdate(event.getUpdateDescription())
-                        : ViewFullProcessingReason.NONE);
-                if (!decision.requiresFull()) {
+                if (decision.requiresFull()) {
+                  metrics.viewDecision(decision.fullProcessingReason());
+                } else {
                   boolean embedChanged = !decision.changedEmbedPaths().isEmpty();
                   @Var ImmutableMap<FieldPath, String> changedEmbedTexts = ImmutableMap.of();
                   @Var Optional<PartialEmbedFallbackReason> fallbackReason = Optional.empty();
@@ -595,6 +598,7 @@ public class ChangeStreamDocumentUtils {
                     if (filterOnlyUnsafe.isEmpty()
                         && filterFieldUpdates.isPresent()
                         && (!changedEmbedTexts.isEmpty() || !filterFieldUpdates.get().isEmpty())) {
+                      metrics.viewDecision(ViewFullProcessingReason.NONE);
                       if (embedChanged) {
                         metrics.partialEmbedApplied();
                       } else {
@@ -615,7 +619,10 @@ public class ChangeStreamDocumentUtils {
                     }
                   }
                   fallbackReason.ifPresent(metrics::partialEmbedFallback);
+                  metrics.viewDecision(ViewFullProcessingReason.PARTIAL_UPDATE_FALLBACK);
                 }
+              } else {
+                metrics.viewDecision(ViewFullProcessingReason.VIEW_DEPENDENCIES_UNAVAILABLE);
               }
             } else {
               boolean embedFieldChanged =
@@ -686,7 +693,9 @@ public class ChangeStreamDocumentUtils {
         incrementApplicableDocumentMetrics(metrics, event);
         // A REPLACE re-embeds the whole document; count it as a full-re-index fallback
         // (CLOUDP-412617) for every index that can take a partial UPDATE.
-        if (partialUpdatesSupported) {
+        if (partialUpdatesSupported
+            && shouldRecordReplaceEventAsPartialFallback(
+                indexDefinition, viewFieldDependencies, forceFullUpdate)) {
           metrics.partialEmbedFallback(PartialEmbedFallbackReason.REPLACE_EVENT);
         }
         return Optional.of(DocumentEvent.createUpdate(metadata, event.getFullDocument()));
@@ -779,6 +788,27 @@ public class ChangeStreamDocumentUtils {
           mapping.enumeratesAllIndexedPaths()
               && !hasPassthroughInMaterializedViewNamespace(mapping);
     };
+  }
+
+  /**
+   * A REPLACE is a partial-update fallback only when the index could otherwise emit a partial
+   * update in this batch. Views with unbounded or unavailable dependencies, or with the force-full
+   * control knob enabled, always select full processing, so counting their REPLACE events as
+   * partial fallbacks would inflate that metric.
+   */
+  private static boolean shouldRecordReplaceEventAsPartialFallback(
+      IndexDefinition indexDefinition,
+      Optional<ViewFieldDependencies> viewFieldDependencies,
+      boolean forceFullUpdate) {
+    if (forceFullUpdate) {
+      return false;
+    }
+    if (indexDefinition.getView().isEmpty()) {
+      return true;
+    }
+    return viewFieldDependencies
+        .map(dependencies -> dependencies.derivationFallbackReason().isEmpty())
+        .orElse(false);
   }
 
   private static boolean hasPassthroughInMaterializedViewNamespace(AutoEmbedFieldMapping mapping) {

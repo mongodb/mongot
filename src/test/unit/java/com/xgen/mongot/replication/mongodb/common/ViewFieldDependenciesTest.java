@@ -126,8 +126,8 @@ public class ViewFieldDependenciesTest {
     assertThat(deps.classifyViewUpdate(updated("seed")).changedEmbedPaths())
         .containsExactly(embedPath);
     assertThat(deps.classifyViewUpdate(updated("items")).requiresFull()).isTrue();
-    assertThat(deps.classifyUpdate(updated("items")))
-        .isEqualTo(ViewFullProcessingReason.TRIGGER_HIT);
+    assertThat(deps.classifyViewUpdate(updated("items")).fullProcessingReason())
+        .isEqualTo(ViewFullProcessingReason.COMPUTED_EMBED_CONTAINER_OVERWRITE);
     assertThat(deps.requiresFullProcessing(updated("items"))).isTrue();
     assertThat(deps.classifyViewUpdate(updated("items.0.text")).requiresFull()).isTrue();
     assertThat(deps.classifyViewUpdate(updated("items.text")).changedEmbedPaths()).isEmpty();
@@ -135,12 +135,21 @@ public class ViewFieldDependenciesTest {
     assertThat(deps.requiresFullProcessing(updated("items.text"))).isFalse();
     assertThat(deps.requiresFullProcessing(updated("items.other"))).isFalse();
 
+    ViewFieldDependencies overlappingDeps =
+        ViewFieldDependencies.derive(
+            List.of(BsonDocument.parse("{\"$set\": {\"items.text\": \"$items.seed\"}}")),
+            Set.of(embedPath));
+    assertThat(overlappingDeps.classifyViewUpdate(updated("items")).fullProcessingReason())
+        .isEqualTo(ViewFullProcessingReason.COMPUTED_EMBED_CONTAINER_OVERWRITE);
+
     FieldPath deepEmbedPath = FieldPath.parse("a.b.c");
     ViewFieldDependencies deepDeps =
         ViewFieldDependencies.derive(
             List.of(BsonDocument.parse("{\"$set\": {\"a.b.c\": \"$seed\"}}")),
             Set.of(deepEmbedPath));
     assertThat(deepDeps.classifyViewUpdate(updated("a")).requiresFull()).isTrue();
+    assertThat(deepDeps.classifyViewUpdate(updated("a")).fullProcessingReason())
+        .isEqualTo(ViewFullProcessingReason.COMPUTED_EMBED_CONTAINER_OVERWRITE);
     assertThat(deepDeps.classifyViewUpdate(updated("a.b.c")).changedEmbedPaths()).isEmpty();
   }
 
@@ -367,21 +376,31 @@ public class ViewFieldDependenciesTest {
   }
 
   @Test
-  public void classifyUpdate_coversEveryReasonAndResultLabels() {
+  public void classifyViewUpdate_representativeReasonsAndResultLabels() {
     ViewFieldDependencies deps = customerDeps();
-    assertThat(deps.classifyUpdate(null))
-        .isEqualTo(ViewFullProcessingReason.NULL_UPDATE_DESCRIPTION);
-    assertThat(deps.classifyUpdate(new UpdateDescription(null, null)))
-        .isEqualTo(ViewFullProcessingReason.EMPTY_UPDATE_DESCRIPTION);
-    assertThat(deps.classifyUpdate(new UpdateDescription(List.of("tags"), null)))
+    assertThat(deps.classifyViewUpdate(null).fullProcessingReason())
+        .isEqualTo(ViewFullProcessingReason.NO_CHANGED_PATHS);
+    assertThat(deps.classifyViewUpdate(new UpdateDescription(null, null)).fullProcessingReason())
+        .isEqualTo(ViewFullProcessingReason.NO_CHANGED_PATHS);
+    assertThat(
+            deps.classifyViewUpdate(new UpdateDescription(List.of("tags"), null))
+                .fullProcessingReason())
         .isEqualTo(ViewFullProcessingReason.REMOVED_OR_TRUNCATED_FIELDS);
-    assertThat(deps.classifyUpdate(updated("isPublished")))
+    assertThat(
+            deps.classifyViewUpdate(
+                    new UpdateDescription(
+                        List.of(), new BsonDocument(), List.of(new TruncatedArray("tags", 1))))
+                .fullProcessingReason())
+        .isEqualTo(ViewFullProcessingReason.REMOVED_OR_TRUNCATED_FIELDS);
+    assertThat(deps.classifyViewUpdate(updated("isPublished")).fullProcessingReason())
         .isEqualTo(ViewFullProcessingReason.TRIGGER_HIT);
-    assertThat(deps.classifyUpdate(updated("tags"))).isEqualTo(ViewFullProcessingReason.NONE);
+    assertThat(deps.classifyViewUpdate(updated("tags")).fullProcessingReason())
+        .isEqualTo(ViewFullProcessingReason.NONE);
     assertThat(
             ViewFieldDependencies.derive(
                     List.of(BsonDocument.parse("{\"$set\": {\"copy\": \"$$ROOT\"}}")), Set.of())
-                .classifyUpdate(updated("tags")))
+                .classifyViewUpdate(updated("tags"))
+                .fullProcessingReason())
         .isEqualTo(ViewFullProcessingReason.DEPENDS_ON_EVERYTHING);
 
     assertThat(ViewFullProcessingReason.NONE.result()).isEqualTo("partial");

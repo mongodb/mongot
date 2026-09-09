@@ -9,6 +9,7 @@ import com.google.common.truth.Truth;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
+import com.xgen.testing.mongot.index.lucene.vector.MongotBaseKnnVectorsFormatTestCase;
 import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
@@ -28,7 +29,6 @@ import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.tests.index.BaseKnnVectorsFormatTestCase;
 import org.apache.lucene.util.hnsw.HnswGraph;
 import org.bson.types.ObjectId;
 import org.junit.AfterClass;
@@ -37,7 +37,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
- * Runs Lucene's standard {@link BaseKnnVectorsFormatTestCase} suite against {@link
+ * Runs the mongot-adjusted {@link MongotBaseKnnVectorsFormatTestCase} suite against {@link
  * NativeHnswScalarQuantizedVectorsFormat} with native scoring forced on. Float vectors are
  * quantized to Q7 and scored by the native scalar path; byte vectors pass through to the (delegate)
  * raw format. This validates the full add/merge/search lifecycle and on-disk round-trip.
@@ -47,7 +47,7 @@ import org.junit.Test;
  * before any test method runs. Bazel runs each test class in its own JVM, so initializing the
  * process-global instance here does not collide with other test classes.
  */
-public class NativeHnswScalarQuantizedVectorsFormatTest extends BaseKnnVectorsFormatTestCase {
+public class NativeHnswScalarQuantizedVectorsFormatTest extends MongotBaseKnnVectorsFormatTestCase {
 
   @BeforeClass
   public static void enableNativeScalarScoring() {

@@ -516,6 +516,53 @@ public class MaterializedViewWriterTest {
   }
 
   @Test
+  public void testRegularUpdateReplacementOmitsObsoleteVectorAndHashFields()
+      throws IOException, FieldExceededLimitsException {
+    var matViewWriter =
+        new MaterializedViewWriter(
+            this.autoEmbeddingMongoClient,
+            MV_DATABASE_NAME,
+            MV_COLLECTION_NAME,
+            GENERATION_ID,
+            this.mockLeaseManager,
+            METRICS_FACTORY,
+            COLLECTION_UUID,
+            Optional.empty());
+
+    ObjectId indexId = new ObjectId();
+    RawBsonDocument document =
+        BsonUtils.documentToRaw(
+            new BsonDocument(indexId.toString(), new BsonDocument("_id", new BsonInt32(1)))
+                .append("category", new BsonString("books")));
+    DocumentEvent regularUpdateEvent =
+        DocumentEvent.createUpdate(
+            DocumentMetadata.fromMetadataNamespace(Optional.of(document), indexId), document);
+
+    matViewWriter.updateIndex(regularUpdateEvent);
+    matViewWriter.commit(EncodedUserData.EMPTY);
+
+    verify(this.mockCollection)
+        .bulkWrite(
+            argThat(
+                list -> {
+                  if (list.size() != 1 || !(list.get(0) instanceof ReplaceOneModel<?> model)) {
+                    return false;
+                  }
+                  BsonDocument replacement =
+                      ((RawBsonDocument) model.getReplacement()).toBsonDocument();
+                  if (!replacement.containsKey("_autoEmbed")) {
+                    return false;
+                  }
+                  BsonDocument autoEmbed = replacement.getDocument("_autoEmbed");
+                  return autoEmbed.size() == 1
+                      && !autoEmbed.containsKey("items")
+                      && !autoEmbed.containsKey("_hash")
+                      && autoEmbed.getInt64("_leaseVersion").getValue() == 1L;
+                }),
+            same(MaterializedViewWriter.MV_BULK_WRITE_OPTIONS));
+  }
+
+  @Test
   public void testCommitWithoutRateLimiter_proceedsNormally()
       throws IOException, FieldExceededLimitsException {
     var writer =

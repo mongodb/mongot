@@ -306,49 +306,33 @@ public final class ViewFieldDependencies {
   }
 
   /**
-   * Classifies an update as partial-eligible ({@code NONE}) or, if not, why it is forced full.
-   * Drives the per-event decision metric; {@link #classifyViewUpdate} makes the partial-embed
-   * decision.
-   */
-  public ViewFullProcessingReason classifyUpdate(@Nullable UpdateDescription updateDescription) {
-    if (this.derivationFallbackReason.isPresent()) {
-      return ViewFullProcessingReason.DEPENDS_ON_EVERYTHING;
-    }
-    if (updateDescription == null) {
-      return ViewFullProcessingReason.NULL_UPDATE_DESCRIPTION;
-    }
-    if (forcesFull(updateDescription)) {
-      // A removal or truncation can't be applied through the $set-only partial path.
-      return ViewFullProcessingReason.REMOVED_OR_TRUNCATED_FIELDS;
-    }
-    Set<FieldPath> changed = changedPaths(updateDescription);
-    if (changed.isEmpty()) {
-      return ViewFullProcessingReason.EMPTY_UPDATE_DESCRIPTION;
-    }
-    return hitsAny(changed, this.triggerFields)
-            || overwritesNestedComputedEmbedContainer(changed, this.nestedComputedEmbedContainers)
-        ? ViewFullProcessingReason.TRIGGER_HIT
-        : ViewFullProcessingReason.NONE;
-  }
-
-  /**
-   * Classifies an UPDATE on a view-based auto-embed index: whether it must take the full path, and
-   * if not, which embed sources need re-embedding (empty ⇒ filter-only partial update).
+   * Classifies an UPDATE on a view-based auto-embed index: whether it must take the full path, why,
+   * and if not, which embed sources need re-embedding (empty ⇒ filter-only partial update).
    */
   public ViewUpdateClassification classifyViewUpdate(
       @Nullable UpdateDescription updateDescription) {
-    if (this.derivationFallbackReason.isPresent()
-        || updateDescription == null
-        || forcesFull(updateDescription)) {
-      return ViewUpdateClassification.full();
+    if (this.derivationFallbackReason.isPresent()) {
+      return ViewUpdateClassification.full(ViewFullProcessingReason.DEPENDS_ON_EVERYTHING);
+    }
+    if (updateDescription == null) {
+      return ViewUpdateClassification.full(ViewFullProcessingReason.NO_CHANGED_PATHS);
+    }
+    if (forcesFull(updateDescription)) {
+      // A removal or truncation can't be applied through the $set-only partial path.
+      return ViewUpdateClassification.full(ViewFullProcessingReason.REMOVED_OR_TRUNCATED_FIELDS);
     }
     Set<FieldPath> changed = changedPaths(updateDescription);
     // Empty update, membership/computed-filter feeder changes, and nested computed-embed container
     // overwrites can't take a partial $set.
-    if (changed.isEmpty()
-        || hitsAny(changed, this.nonEmbedTriggers)
-        || overwritesNestedComputedEmbedContainer(changed, this.nestedComputedEmbedContainers)) {
-      return ViewUpdateClassification.full();
+    if (changed.isEmpty()) {
+      return ViewUpdateClassification.full(ViewFullProcessingReason.NO_CHANGED_PATHS);
+    }
+    if (overwritesNestedComputedEmbedContainer(changed, this.nestedComputedEmbedContainers)) {
+      return ViewUpdateClassification.full(
+          ViewFullProcessingReason.COMPUTED_EMBED_CONTAINER_OVERWRITE);
+    }
+    if (hitsAny(changed, this.nonEmbedTriggers)) {
+      return ViewUpdateClassification.full(ViewFullProcessingReason.TRIGGER_HIT);
     }
     // Otherwise re-embed only the embed sources whose feeders were touched (may be none ⇒ filter-
     // only).
@@ -406,17 +390,20 @@ public final class ViewFieldDependencies {
   }
 
   /**
-   * Result of {@link #classifyViewUpdate}: {@code requiresFull} true means take the full path;
-   * otherwise {@code changedEmbedPaths} are the embed sources to re-embed (empty ⇒ filter-only).
+   * Result of {@link #classifyViewUpdate}: {@code requiresFull} true means take the full path and
+   * {@code fullProcessingReason} is the route reason; otherwise {@code changedEmbedPaths} are the
+   * embed sources to re-embed (empty ⇒ filter-only) and the reason is {@code NONE}.
    */
   public record ViewUpdateClassification(
-      boolean requiresFull, ImmutableSet<FieldPath> changedEmbedPaths) {
-    private static ViewUpdateClassification full() {
-      return new ViewUpdateClassification(true, ImmutableSet.of());
+      boolean requiresFull,
+      ImmutableSet<FieldPath> changedEmbedPaths,
+      ViewFullProcessingReason fullProcessingReason) {
+    private static ViewUpdateClassification full(ViewFullProcessingReason reason) {
+      return new ViewUpdateClassification(true, ImmutableSet.of(), reason);
     }
 
     private static ViewUpdateClassification partial(ImmutableSet<FieldPath> changedEmbedPaths) {
-      return new ViewUpdateClassification(false, changedEmbedPaths);
+      return new ViewUpdateClassification(false, changedEmbedPaths, ViewFullProcessingReason.NONE);
     }
   }
 
@@ -429,16 +416,72 @@ public final class ViewFieldDependencies {
   }
 
   /**
-   * Per-event outcome of {@link #classifyUpdate}: {@link #NONE} allows the filter-only partial
-   * path, every other value forces full processing. Exported as the {@code result} and snake_case
+   * Per-event selected view UPDATE write route. {@link #NONE} means a partial {@code $set} was
+   * emitted; every other value means full processing. Exported as the {@code result} and snake_case
    * {@code reason} tags.
    */
   public enum ViewFullProcessingReason {
+    /**
+     * A dependency object exists, but derivation was unbounded, so every update must use full
+     * processing. This takes precedence over event-content reasons. The companion {@code
+     * viewFieldDependenciesDerivationFallback} metric records why derivation fell back once per
+     * index, on its first batch.
+     */
     DEPENDS_ON_EVERYTHING,
-    NULL_UPDATE_DESCRIPTION,
-    EMPTY_UPDATE_DESCRIPTION,
+
+    /**
+     * No dependency object was available for the view-based index, so neither field-level
+     * classification nor a derivation-fallback reason was available.
+     */
+    VIEW_DEPENDENCIES_UNAVAILABLE,
+
+    /**
+     * The UPDATE event exposed no updated paths because its update description was absent or its
+     * updated-fields document was empty. Removals and array truncations are classified before this
+     * reason.
+     */
+    NO_CHANGED_PATHS,
+
+    /**
+     * A field removal or array truncation could not be represented by the {@code $set}-only path.
+     */
     REMOVED_OR_TRUNCATED_FIELDS,
+
+    /**
+     * An update replaced a nested computed embed path's container or an ancestor of that container,
+     * requiring full replacement to remove obsolete vectors and hashes. This more specific reason
+     * takes precedence over {@link #TRIGGER_HIT} when both classifications apply.
+     */
+    COMPUTED_EMBED_CONTAINER_OVERWRITE,
+
+    /**
+     * A changed base path intersected a derived view dependency: a view-membership field, a
+     * computed-filter feeder, or an embed feeder. In the write path, embed-feeder-only changes are
+     * handled as partial updates before this reason is selected.
+     */
     TRIGGER_HIT,
+
+    /**
+     * An earlier event for the same document required full processing and was collapsed into this
+     * surviving batch event.
+     */
+    INTRA_BATCH_PREDECESSOR_REQUIRES_FULL,
+
+    /**
+     * {@link AutoEmbeddingMaterializedViewConfig#forceChangeStreamFullUpdate()} explicitly selected
+     * full processing.
+     */
+    FEATURE_FLAG_FORCED_FULL_UPDATE,
+
+    /**
+     * The update was initially partial-eligible, but no partial body could be safely emitted:
+     * extraction was unavailable or unsafe, filter maintenance required full processing, or the
+     * generated partial body was empty. This is a full-route outcome, not necessarily an extraction
+     * failure.
+     */
+    PARTIAL_UPDATE_FALLBACK,
+
+    /** A safe filter-only or partial-embed {@code $set} update was emitted. */
     NONE;
 
     /** True if this outcome forces full (re-embed + upsert) processing. */

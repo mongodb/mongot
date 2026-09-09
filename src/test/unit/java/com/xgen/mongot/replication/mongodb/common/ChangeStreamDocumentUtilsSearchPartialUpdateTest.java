@@ -269,6 +269,19 @@ public class ChangeStreamDocumentUtilsSearchPartialUpdateTest {
   }
 
   @Test
+  public void staticSearch_exactEmbeddedDocumentsScalarOverwrite_fallsBackToFullReplace() {
+    SearchIndexDefinition indexDefinition = embeddedDocumentsPassthroughSearchIndex();
+    ChangeStreamDocument<RawBsonDocument> event =
+        updateEvent(
+            indexDefinition,
+            new UpdateDescription(null, new BsonDocument("items", new BsonInt32(5))),
+            standardDocument("old title").append("items", new BsonInt32(5)));
+
+    assertFullFallback(
+        handle(indexDefinition, List.of(event)), PartialEmbedFallbackReason.ANCESTOR_OVERWRITE);
+  }
+
+  @Test
   public void staticSearch_indirectEmbedTouch_fallsBackToFullReplace() {
     SearchIndexDefinition indexDefinition = staticSearchIndex();
     ChangeStreamDocument<RawBsonDocument> event =

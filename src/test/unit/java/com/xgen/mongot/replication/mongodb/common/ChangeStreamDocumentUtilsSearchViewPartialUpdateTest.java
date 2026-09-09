@@ -125,7 +125,8 @@ public class ChangeStreamDocumentUtilsSearchViewPartialUpdateTest {
 
     assertFullReplacement(batch);
     assertThat(batch.partialEmbedFallbacks).isEmpty();
-    assertThat(batch.viewDecisions).containsExactly(ViewFullProcessingReason.TRIGGER_HIT, 1);
+    assertThat(batch.viewDecisions)
+        .containsExactly(ViewFullProcessingReason.COMPUTED_EMBED_CONTAINER_OVERWRITE, 1);
   }
 
   @Test
@@ -149,6 +150,8 @@ public class ChangeStreamDocumentUtilsSearchViewPartialUpdateTest {
     assertFullReplacement(batch);
     assertThat(batch.partialEmbedFallbacks)
         .containsExactly(PartialEmbedFallbackReason.INTRA_BATCH_PREDECESSOR_REQUIRES_FULL, 1);
+    assertThat(batch.viewDecisions)
+        .containsExactly(ViewFullProcessingReason.INTRA_BATCH_PREDECESSOR_REQUIRES_FULL, 1);
   }
 
   @Test
@@ -323,6 +326,91 @@ public class ChangeStreamDocumentUtilsSearchViewPartialUpdateTest {
   }
 
   @Test
+  public void staticView_withUnknownDependencies_replaceEventDoesNotRecordPartialFallback() {
+    SearchIndexDefinition indexDefinition =
+        staticSearchView(
+            List.of(BsonDocument.parse("{\"$project\": {\"viewTextA\": 1, \"category\": 1}}")));
+
+    var batch =
+        handle(
+            indexDefinition,
+            List.of(
+                event(
+                    OperationType.REPLACE,
+                    null,
+                    viewDocument(indexDefinition, "a1 a2", "b1 b2", "books", true))));
+
+    assertFullReplacement(batch);
+    assertThat(batch.partialEmbedFallbacks).isEmpty();
+    assertThat(batch.viewDecisions).isEmpty();
+  }
+
+  @Test
+  public void staticView_withoutDerivedDependencies_replaceEventDoesNotRecordPartialFallback() {
+    SearchIndexDefinition indexDefinition = staticSearchView(basePipeline());
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(
+                event(
+                    OperationType.REPLACE,
+                    null,
+                    viewDocument(indexDefinition, "a1 a2", "b1 b2", "books", true))),
+            indexDefinition,
+            indexDefinition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            true,
+            Optional.empty());
+
+    assertFullReplacement(batch);
+    assertThat(batch.partialEmbedFallbacks).isEmpty();
+    assertThat(batch.viewDecisions).isEmpty();
+  }
+
+  @Test
+  public void staticView_forcedFullControlKnob_replaceEventDoesNotRecordPartialFallback() {
+    SearchIndexDefinition indexDefinition = staticSearchView(basePipeline());
+    AutoEmbeddingMaterializedViewConfig config = AutoEmbeddingMaterializedViewConfig.getDefault();
+    config.setControlKnobEvaluator(ignored -> true);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(
+                event(
+                    OperationType.REPLACE,
+                    null,
+                    viewDocument(indexDefinition, "a1 a2", "b1 b2", "books", true))),
+            indexDefinition,
+            indexDefinition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            true,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDefinition),
+            Optional.of(config));
+
+    assertFullReplacement(batch);
+    assertThat(batch.partialEmbedFallbacks).isEmpty();
+    assertThat(batch.viewDecisions).isEmpty();
+  }
+
+  @Test
+  public void staticView_withoutDerivedDependencies_reportsUnavailableDecision() {
+    SearchIndexDefinition indexDefinition = staticSearchView(basePipeline());
+    UpdateDescription update =
+        new UpdateDescription(null, new BsonDocument("b1", new BsonString("new b1")));
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(
+                event(update, viewDocument(indexDefinition, "a1 a2", "new b1 b2", "books", true))),
+            indexDefinition,
+            indexDefinition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            true,
+            Optional.empty());
+
+    assertFullReplacement(batch);
+    assertThat(batch.viewDecisions)
+        .containsExactly(ViewFullProcessingReason.VIEW_DEPENDENCIES_UNAVAILABLE, 1);
+  }
+
+  @Test
   public void staticView_embedExtractionFailureOrEmptyText_usesFullReplacement() {
     SearchIndexDefinition indexDefinition = staticSearchView(basePipeline());
     UpdateDescription update =
@@ -340,6 +428,79 @@ public class ChangeStreamDocumentUtilsSearchViewPartialUpdateTest {
         .containsExactly(PartialEmbedFallbackReason.EMPTY_NEW_VALUE, 1);
     assertThat(emptyBatch.partialEmbedFallbacks)
         .containsExactly(PartialEmbedFallbackReason.EMPTY_NEW_VALUE, 1);
+    assertThat(nonStringBatch.viewDecisions)
+        .containsExactly(ViewFullProcessingReason.PARTIAL_UPDATE_FALLBACK, 1);
+    assertThat(emptyBatch.viewDecisions)
+        .containsExactly(ViewFullProcessingReason.PARTIAL_UPDATE_FALLBACK, 1);
+
+    Tags tags = Tags.of(INDEX_TYPE_TAG_NAME, TAG_SEARCH_AUTO_EMBEDDING.tagValue);
+    MetricsFactory metricsFactory = new MetricsFactory("test", new SimpleMeterRegistry());
+    ViewFieldDependenciesMetricCounters viewCounters =
+        new ViewFieldDependenciesMetricCounters(metricsFactory, tags);
+    viewCounters.recordBatch(nonStringBatch);
+    viewCounters.recordBatch(emptyBatch);
+
+    assertThat(
+            metricsFactory
+                .get(
+                    "viewFieldDependenciesDecision",
+                    tags.and("result", "full").and("reason", "partial_update_fallback"))
+                .counter()
+                .count())
+        .isEqualTo(2.0);
+    assertThat(
+            metricsFactory
+                .get(
+                    "viewFieldDependenciesDecision",
+                    tags.and("result", "partial").and("reason", "none"))
+                .counter()
+                .count())
+        .isEqualTo(0.0);
+  }
+
+  @Test
+  public void staticView_emptyPartialBody_usesFullReplacementWithoutFallbackError() {
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "embeddingA",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(MODEL, FieldPath.parse("viewTextA")))
+                    .build())
+            .build();
+    SearchIndexDefinition indexDefinition = searchView(mappings, basePipeline());
+    UpdateDescription update =
+        new UpdateDescription(null, new BsonDocument("unrelated", new BsonString("changed")));
+
+    var batch =
+        handle(
+            indexDefinition,
+            update,
+            viewDocument(indexDefinition, "a1 a2", "b1 b2", "books", true));
+
+    assertFullReplacement(batch);
+    assertThat(batch.partialEmbedFallbacks).isEmpty();
+    assertThat(batch.viewDecisions)
+        .containsExactly(ViewFullProcessingReason.PARTIAL_UPDATE_FALLBACK, 1);
+  }
+
+  @Test
+  public void staticView_withoutChangedPaths_reportsMergedFullProcessingReason() {
+    SearchIndexDefinition indexDefinition = staticSearchView(basePipeline());
+    BsonDocument fullDocument = viewDocument(indexDefinition, "a1 a2", "b1 b2", "books", true);
+
+    var absentDescriptionBatch = handle(indexDefinition, null, fullDocument);
+    var emptyDescriptionBatch =
+        handle(indexDefinition, new UpdateDescription(null, null), fullDocument);
+
+    assertFullReplacement(absentDescriptionBatch);
+    assertFullReplacement(emptyDescriptionBatch);
+    assertThat(absentDescriptionBatch.viewDecisions)
+        .containsExactly(ViewFullProcessingReason.NO_CHANGED_PATHS, 1);
+    assertThat(emptyDescriptionBatch.viewDecisions)
+        .containsExactly(ViewFullProcessingReason.NO_CHANGED_PATHS, 1);
   }
 
   @Test
@@ -380,6 +541,8 @@ public class ChangeStreamDocumentUtilsSearchViewPartialUpdateTest {
     assertFullReplacement(batch);
     assertThat(batch.partialEmbedFallbacks)
         .containsExactly(PartialEmbedFallbackReason.ANCESTOR_OVERWRITE, 1);
+    assertThat(batch.viewDecisions)
+        .containsExactly(ViewFullProcessingReason.PARTIAL_UPDATE_FALLBACK, 1);
   }
 
   @Test
@@ -418,6 +581,8 @@ public class ChangeStreamDocumentUtilsSearchViewPartialUpdateTest {
     assertFullReplacement(batch);
     assertThat(batch.partialEmbedFallbacks)
         .containsExactly(PartialEmbedFallbackReason.FEATURE_FLAG_FORCED_FULL_UPDATE, 1);
+    assertThat(batch.viewDecisions)
+        .containsExactly(ViewFullProcessingReason.FEATURE_FLAG_FORCED_FULL_UPDATE, 1);
   }
 
   @Test

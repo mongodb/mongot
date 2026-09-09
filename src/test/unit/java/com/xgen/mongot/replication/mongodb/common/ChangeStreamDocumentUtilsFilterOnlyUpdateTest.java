@@ -1004,7 +1004,9 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
 
     assertEquals(1, batch.finalChangeEvents.size());
     assertFalse(batch.finalChangeEvents.getFirst().getFilterFieldUpdates().isPresent());
-    assertEquals(Integer.valueOf(1), batch.viewDecisions.get(ViewFullProcessingReason.TRIGGER_HIT));
+    assertEquals(
+        Integer.valueOf(1),
+        batch.viewDecisions.get(ViewFullProcessingReason.COMPUTED_EMBED_CONTAINER_OVERWRITE));
   }
 
   @Test
@@ -1054,6 +1056,37 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
             .counter()
             .count(),
         0.0);
+  }
+
+  @Test
+  public void testReplaceEvent_AutoEmbedFieldIndex_ForcedFullDoesNotCountAsFallback() {
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("category")
+            .build();
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("deep learning"))
+            .append("category", new BsonString("books"))
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> changeEvent =
+        ChangeStreamUtils.dataEvent(OperationType.REPLACE, 0, null, fullDocument);
+    AutoEmbeddingMaterializedViewConfig config = AutoEmbeddingMaterializedViewConfig.getDefault();
+    config.setControlKnobEvaluator(ignored -> true);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef),
+            Optional.of(config));
+
+    assertEquals(1, batch.finalChangeEvents.size());
+    assertTrue(batch.partialEmbedFallbacks.isEmpty());
   }
 
   @Test
