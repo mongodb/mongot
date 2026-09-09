@@ -1,6 +1,7 @@
 package com.xgen.mongot.index.query.aggregation;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertSame;
 
 import com.xgen.mongot.util.Check;
@@ -59,6 +60,24 @@ public class AvgAccumulatorTest extends AggregationTestSupport {
 
     assertEquals(20.0, avgByCity.get("NYC"), 0.0001);
     assertEquals(10.0, avgByCity.get("LA"), 0.0001);
+  }
+
+  @Test
+  public void nodeStats_pathIsLuceneFieldName() throws Exception {
+    buildIndex(List.of(new TestDoc("NYC", "x", 10)), Integer.MAX_VALUE);
+
+    AggregationSpec avgSpec = new AvgAggregationSpec("avg_price", FieldPath.parse(PRICE_FIELD));
+    AggregationSpec termsSpec =
+        new TermsSpec("by_city", FieldPath.parse(CITY_FIELD), CITY_LUCENE_FIELD, List.of(avgSpec));
+    Accumulator top =
+        collectAll(
+            new TopAggregationSpec(List.of(termsSpec)), newExplainContextWithFieldResolver());
+
+    AggregationNodeStats avgNode =
+        top.nodeStats().orElseThrow().children().get(0).children().get(0);
+    assertEquals("avg_price", avgNode.name());
+    assertEquals(PRICE_LUCENE_FIELD, avgNode.path().orElseThrow());
+    assertNotEquals(PRICE_FIELD, avgNode.path().orElseThrow());
   }
 
   @Test

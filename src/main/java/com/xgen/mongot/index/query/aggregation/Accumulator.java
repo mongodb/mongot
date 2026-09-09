@@ -24,6 +24,13 @@ public abstract class Accumulator extends BucketCollector {
   // Wired by the parent's constructor after this node is fully built; empty for the root.
   private Optional<Accumulator> parent = Optional.empty();
 
+  /**
+   * Per-node explain counters. Present only when the query is explained, so ordinary searches never
+   * allocate the stats tree. Presence is also the collect-path gate: {@link
+   * #maybeRecordCollectInvocation} and {@link #maybeRecordObservedBuckets} no-op when empty.
+   */
+  private final Optional<AggregationNodeStats> nodeStats;
+
   // Note: it is safe to pass this pointer to child accumulator since children Accumulators
   // won't access the parent pointer until after the constructor returns.
   @SuppressWarnings("this-escape")
@@ -31,9 +38,46 @@ public abstract class Accumulator extends BucketCollector {
     this.name = name;
     this.children = List.copyOf(children);
     this.context = context;
+    this.nodeStats =
+        context.recordExplainNodeStats()
+            ? Optional.of(
+                new AggregationNodeStats(
+                    name,
+                    this.children.stream().map(child -> child.nodeStats().orElseThrow()).toList()))
+            : Optional.empty();
     for (Accumulator child : this.children) {
       child.parent = Optional.of(this);
     }
+  }
+
+  /**
+   * Per-node runtime counters for this accumulator; empty when the query is not being explained.
+   */
+  public final Optional<AggregationNodeStats> nodeStats() {
+    return this.nodeStats;
+  }
+
+  /**
+   * Declares this node as a bucket-producing grouping. No-op when explain stats were not allocated.
+   */
+  protected final void declareGrouping(
+      AggregationNodeStats.NodeType type, String path, int requestedBuckets) {
+    this.nodeStats.ifPresent(stats -> stats.declareGrouping(type, path, requestedBuckets));
+  }
+
+  /** Declares this node as a metric leaf. No-op when explain stats were not allocated. */
+  protected final void declareMetric(Optional<String> path) {
+    this.nodeStats.ifPresent(stats -> stats.declareMetric(path));
+  }
+
+  /** One leaf-collector invocation, recorded only when the query is explained. */
+  protected final void maybeRecordCollectInvocation() {
+    this.nodeStats.ifPresent(AggregationNodeStats::recordCollectInvocation);
+  }
+
+  /** Per-node observed-bucket count, recorded only when the query is explained. */
+  protected final void maybeRecordObservedBuckets(long count) {
+    this.nodeStats.ifPresent(stats -> stats.recordObservedBuckets(count));
   }
 
   /** User set name of the aggregation. */

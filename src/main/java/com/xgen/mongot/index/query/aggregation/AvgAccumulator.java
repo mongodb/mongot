@@ -3,6 +3,7 @@ package com.xgen.mongot.index.query.aggregation;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.SortedNumericDocValues;
 
@@ -17,6 +18,7 @@ final class AvgAccumulator extends Accumulator {
     this.metricField = metricField;
     this.sums = new DoubleArray(8);
     this.counts = new LongArray(8);
+    declareMetric(Optional.of(metricField.luceneFieldName()));
   }
 
   @Override
@@ -27,6 +29,7 @@ final class AvgAccumulator extends Accumulator {
     return new LeafBucketCollector() {
       @Override
       public void collect(int doc, long owningBucketOrd) throws IOException {
+        maybeRecordCollectInvocation();
         if (context.isMultiValued(doc)) {
           // Ancestor group field had multiple values for this doc.
           return;

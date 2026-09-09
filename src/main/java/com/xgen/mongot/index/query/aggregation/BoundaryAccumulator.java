@@ -48,6 +48,8 @@ final class BoundaryAccumulator extends BucketsAccumulator {
     this.hasDefault = this.defaultKey.isPresent();
     this.defaultSlot = this.numRanges;
     this.bucketsPerParent = this.numRanges + (this.hasDefault ? 1 : 0);
+    declareGrouping(
+        AggregationNodeStats.NodeType.BOUNDARY, this.path.toString(), this.bucketsPerParent);
   }
 
   private long childBucketOrd(long owningBucketOrd, int slot) {
@@ -165,6 +167,7 @@ final class BoundaryAccumulator extends BucketsAccumulator {
     // A boundary grid is dense by construction: every parent gets every slot, so this is the
     // count of buckets actually instantiated rather than an upper bound.
     this.context.addObservedBuckets(allChildOrds.length);
+    maybeRecordObservedBuckets(allChildOrds.length);
     IntFunction<AggregationResults> childResultsFor =
         buildSubAggsForBuckets(LongArray.from(allChildOrds));
 

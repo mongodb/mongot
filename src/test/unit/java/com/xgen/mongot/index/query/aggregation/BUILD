@@ -22,6 +22,7 @@ java_test_suite(
     srcs = [
         "AccumulatorTest.java",
         "AggregationIntegrationTest.java",
+        "AggregationNodeStatsTest.java",
         "AggregationRegistryTest.java",
         "AggregationTestSupport.java",
         "ApplyLimitTest.java",
@@ -56,6 +57,9 @@ java_test_suite(
         ":planner_test_support",  # keep
         "//src/main/java/com/xgen/mongot/featureflag",
         "//src/main/java/com/xgen/mongot/index/definition",
+        "//src/main/java/com/xgen/mongot/index/lucene/explain/explainers",
+        "//src/main/java/com/xgen/mongot/index/lucene/explain/information",
+        "//src/main/java/com/xgen/mongot/index/lucene/explain/tracing",
         "//src/main/java/com/xgen/mongot/index/lucene/field",
         "//src/main/java/com/xgen/mongot/index/lucene/query/sort",
         "//src/main/java/com/xgen/mongot/index/lucene/query/sort/mixed",
@@ -66,6 +70,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/util/bson",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_truth_truth",
+        "@maven//:io_opentelemetry_opentelemetry_context",
         "@maven//:junit_junit",
         "@maven//:org_apache_lucene_lucene_core",
         "@maven//:org_mongodb_bson",

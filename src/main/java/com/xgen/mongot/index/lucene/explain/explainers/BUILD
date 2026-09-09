@@ -28,6 +28,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/lucene/explain/timing",
         "//src/main/java/com/xgen/mongot/index/lucene/explain/tracing",
         "//src/main/java/com/xgen/mongot/index/lucene/field",
+        "//src/main/java/com/xgen/mongot/index/query/aggregation",
         "//src/main/java/com/xgen/mongot/index/query/highlights",
         "//src/main/java/com/xgen/mongot/index/query/sort",
         "//src/main/java/com/xgen/mongot/server/command/search/definition/request",

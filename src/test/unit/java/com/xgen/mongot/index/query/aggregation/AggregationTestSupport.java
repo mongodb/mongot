@@ -183,6 +183,11 @@ public abstract class AggregationTestSupport {
     return new TestContext(this.reader);
   }
 
+  /** Like {@link #newContext} but records per-node explain counters. */
+  protected AggregationContext newExplainContext() {
+    return new TestContext(this.reader, true);
+  }
+
   protected static AggregationResult mergePartitionResults(
       AggregationResult left, AggregationResult right) {
     AggregationResultBuilder builder = left.toBuilder();
@@ -213,7 +218,35 @@ public abstract class AggregationTestSupport {
         luceneField -> Optional.empty(),
         Optional.empty(),
         Optional.empty(),
-        0);
+        0,
+        false);
+  }
+
+  /** Like {@link #newContextWithFieldResolver} but records per-node explain counters. */
+  protected AggregationContext newExplainContextWithFieldResolver() {
+    return AggregationContext.create(
+        this.reader,
+        Optional.of(
+            new AggregationFieldResolver() {
+              @Override
+              public ResolvedNumericMetricField resolveNumeric(FieldPath path) {
+                if (path.equals(FieldPath.parse(PRICE_FIELD))) {
+                  return new ResolvedNumericMetricField(
+                      PRICE_LUCENE_FIELD, NumericFieldOptions.Representation.INT64);
+                }
+                throw new IllegalStateException("unexpected path: " + path);
+              }
+
+              @Override
+              public ResolvedTokenField resolveToken(FieldPath path) {
+                throw new IllegalStateException("unexpected path: " + path);
+              }
+            }),
+        luceneField -> Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        0,
+        true);
   }
 
   protected AggregationContext newContextWithDoubleFieldResolver() {
@@ -238,7 +271,8 @@ public abstract class AggregationTestSupport {
         luceneField -> Optional.empty(),
         Optional.empty(),
         Optional.empty(),
-        0);
+        0,
+        false);
   }
 
   // ===== assertion helpers =====
@@ -446,8 +480,13 @@ public abstract class AggregationTestSupport {
     private final Optional<Sort> invertedSort;
     private final int partitionId;
     private final AtomicLong observedBuckets;
+    private final boolean recordExplainNodeStats;
 
     protected TestContext(IndexReader indexReader) {
+      this(indexReader, false);
+    }
+
+    protected TestContext(IndexReader indexReader, boolean recordExplainNodeStats) {
       this(
           indexReader,
           luceneField -> Optional.empty(),
@@ -455,7 +494,10 @@ public abstract class AggregationTestSupport {
           Optional.empty(),
           Optional.empty(),
           Optional.empty(),
-          Optional.empty());
+          Optional.empty(),
+          0,
+          new AtomicLong(),
+          recordExplainNodeStats);
     }
 
     protected TestContext(
@@ -550,6 +592,30 @@ public abstract class AggregationTestSupport {
         Optional<Sort> invertedSort,
         int partitionId,
         AtomicLong observedBuckets) {
+      this(
+          indexReader,
+          cachedGlobalValueLookup,
+          leafReaderContext,
+          multiValueDocMarker,
+          fieldResolver,
+          sort,
+          invertedSort,
+          partitionId,
+          observedBuckets,
+          false);
+    }
+
+    private TestContext(
+        IndexReader indexReader,
+        CachedGlobalValueLookup cachedGlobalValueLookup,
+        Optional<LeafReaderContext> leafReaderContext,
+        Optional<MultiValueDocMarker> multiValueDocMarker,
+        Optional<AggregationFieldResolver> fieldResolver,
+        Optional<Sort> sort,
+        Optional<Sort> invertedSort,
+        int partitionId,
+        AtomicLong observedBuckets,
+        boolean recordExplainNodeStats) {
       this.partitionId = partitionId;
       this.indexReader = indexReader;
       this.cachedGlobalValueLookup = cachedGlobalValueLookup;
@@ -559,6 +625,7 @@ public abstract class AggregationTestSupport {
       this.sort = sort;
       this.invertedSort = invertedSort;
       this.observedBuckets = observedBuckets;
+      this.recordExplainNodeStats = recordExplainNodeStats;
     }
 
     @Override
@@ -573,7 +640,8 @@ public abstract class AggregationTestSupport {
           this.sort,
           this.invertedSort,
           this.partitionId,
-          this.observedBuckets);
+          this.observedBuckets,
+          this.recordExplainNodeStats);
     }
 
     @Override
@@ -587,7 +655,8 @@ public abstract class AggregationTestSupport {
           this.sort,
           this.invertedSort,
           this.partitionId,
-          this.observedBuckets);
+          this.observedBuckets,
+          this.recordExplainNodeStats);
     }
 
     @Override
@@ -644,6 +713,11 @@ public abstract class AggregationTestSupport {
     @Override
     public long observedBuckets() {
       return this.observedBuckets.get();
+    }
+
+    @Override
+    public boolean recordExplainNodeStats() {
+      return this.recordExplainNodeStats;
     }
   }
 }

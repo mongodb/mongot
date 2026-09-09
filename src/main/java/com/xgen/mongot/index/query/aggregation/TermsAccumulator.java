@@ -45,6 +45,7 @@ public abstract sealed class TermsAccumulator extends BucketsAccumulator
     this.ordinalMap = ordinalMap;
     this.valueCount = topLevelValues.getValueCount();
     this.luceneField = luceneField;
+    declareGrouping(AggregationNodeStats.NodeType.TERMS, this.path.toString(), this.limit);
   }
 
   /**
@@ -147,6 +148,7 @@ public abstract sealed class TermsAccumulator extends BucketsAccumulator
     // DenseTermsAccumulator indexes by global term ordinal, so neither the bucket-ord space nor
     // docCounts.size() is a bucket count on both paths -- this flattened array is, by construction.
     this.context.addObservedBuckets(allChildOwningOrds.length);
+    maybeRecordObservedBuckets(allChildOwningOrds.length);
     IntFunction<AggregationResults> childResultsFor =
         this.buildSubAggsForBuckets(LongArray.from(allChildOwningOrds));
 

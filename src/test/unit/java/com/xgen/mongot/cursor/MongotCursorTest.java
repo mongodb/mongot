@@ -9,10 +9,12 @@ import static org.mockito.Mockito.when;
 import com.google.common.truth.Truth;
 import com.xgen.mongot.cursor.batch.ConstantBatchSizeStrategy;
 import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.lucene.explain.explainers.AggregationFeatureExplainer;
 import com.xgen.mongot.index.lucene.explain.information.MetadataExplainInformation;
 import com.xgen.mongot.index.lucene.explain.information.SearchExplainInformation;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.explain.tracing.ExplainTooLargeException;
+import com.xgen.mongot.index.query.aggregation.AggregationNodeStats;
 import com.xgen.mongot.trace.Tracing;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.Bytes;
@@ -22,6 +24,7 @@ import com.xgen.testing.mongot.mock.index.BatchProducer;
 import io.opentelemetry.api.trace.TraceFlags;
 import io.opentelemetry.api.trace.TraceId;
 import java.io.IOException;
+import java.util.List;
 import java.util.Optional;
 import org.junit.Assert;
 import org.junit.Test;
@@ -49,6 +52,41 @@ public class MongotCursorTest {
         Optional.empty(),
         Optional.empty(),
         Optional.empty());
+  }
+
+  /**
+   * Integration tests create a cursor without going through {@code SearchCommand}, which is the
+   * other {@code recordCursorId} call site. Search (and {@code recordNodeStats}) already ran before
+   * {@code getNextBatch}, so the first explain collect must already have a cursor id or emit
+   * throws.
+   */
+  @Test
+  public void getNextBatch_stampsAggregationCursorIdBeforeExplainEmit() throws Exception {
+    try (var unused =
+        Explain.setup(
+            Optional.of(Explain.Verbosity.EXECUTION_STATS),
+            Optional.of(IndexDefinition.Fields.NUM_PARTITIONS.getDefaultValue()))) {
+      AggregationFeatureExplainer.recordNodeStats(new AggregationNodeStats("root", List.of()));
+      MongotCursor cursor =
+          new MongotCursor(
+              123L,
+              BatchProducer.mockSearchResultBatchProducer().searchBatchProducer,
+              "mockCursor",
+              new ConstantBatchSizeStrategy());
+
+      cursor.getNextBatch(
+          CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT, BatchCursorOptionsBuilder.empty());
+
+      Truth.assertThat(
+              Explain.collect()
+                  .orElseThrow()
+                  .aggregation()
+                  .orElseThrow()
+                  .query()
+                  .orElseThrow()
+                  .cursorId())
+          .hasValue(123L);
+    }
   }
 
   @Test

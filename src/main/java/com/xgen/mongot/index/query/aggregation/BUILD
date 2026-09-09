@@ -7,6 +7,7 @@ java_library(
         "AggregationContext.java",
         "AggregationContextImpl.java",
         "AggregationFieldResolver.java",
+        "AggregationNodeStats.java",
         "AggregationRegistry.java",
         "AggregationResult.java",
         "AggregationResultBuilder.java",

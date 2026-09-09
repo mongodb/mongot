@@ -36,6 +36,7 @@ import com.xgen.mongot.cursor.SearchCursorInfo;
 import com.xgen.mongot.cursor.serialization.MongotCursorBatch;
 import com.xgen.mongot.cursor.serialization.MongotCursorResult;
 import com.xgen.mongot.cursor.serialization.MongotIntermediateCursorBatch;
+import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
@@ -48,6 +49,7 @@ import com.xgen.mongot.index.MetaResults;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.SearchIndexCapabilities;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
+import com.xgen.mongot.index.lucene.explain.explainers.AggregationFeatureExplainer;
 import com.xgen.mongot.index.lucene.explain.information.LuceneQuerySpecification;
 import com.xgen.mongot.index.lucene.explain.information.MetadataExplainInformation;
 import com.xgen.mongot.index.lucene.explain.information.SearchExplainInformation;
@@ -57,6 +59,7 @@ import com.xgen.mongot.index.query.CollectorQuery;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.Query;
 import com.xgen.mongot.index.query.SearchQuery;
+import com.xgen.mongot.index.query.aggregation.AggregationNodeStats;
 import com.xgen.mongot.index.query.collectors.FacetCollector;
 import com.xgen.mongot.index.query.collectors.FacetDefinition;
 import com.xgen.mongot.index.status.IndexStatus;
@@ -303,6 +306,18 @@ public class SearchCommandTest {
     BsonDocument expected = mockInitialMongotCursorBatch().toBson();
     Assert.assertEquals(expected, result);
     Assert.assertEquals(List.of(MOCK_SEARCH_CURSOR_ID), command.getCreatedCursorIds());
+  }
+
+  @Test
+  public void getBatch_searchAggregationEnabled_recordsCursorId() throws Exception {
+    runSearchAndAssertCursorId(
+        FeatureFlags.withDefaults().enable(Feature.SEARCH_AGGREGATION).build(),
+        Optional.of(MOCK_SEARCH_CURSOR_ID));
+  }
+
+  @Test
+  public void getBatch_searchAggregationDisabled_doesNotRecordCursorId() throws Exception {
+    runSearchAndAssertCursorId(FeatureFlags.getDefault(), Optional.empty());
   }
 
   @Test
@@ -1818,6 +1833,59 @@ public class SearchCommandTest {
                 InitialSyncIndexUnavailableException.class.getSimpleName(),
                 ErrorType.USER_FACING_ERROR))
         .isEqualTo(1.0);
+  }
+
+  /**
+   * Seeds an aggregation explainer on the FakeExplain QueryInfo so {@code recordCursorId} has
+   * something to stamp. Without that, both flag states would no-op and the gate would be invisible.
+   */
+  private static void runSearchAndAssertCursorId(
+      FeatureFlags featureFlags, Optional<Long> expectedCursorId) throws Exception {
+    var explainInformation = SearchExplainInformationBuilder.newBuilder().build();
+    SearchCommand command =
+        new SearchCommand(
+            new SearchCommand.Metrics(mockMetricsFactory()),
+            getCursorManager(),
+            new DefaultIndexCatalog(),
+            new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
+            SearchCommandDefinitionBuilder.builder()
+                .db(DATABASE_NAME)
+                .collectionName(COLLECTION_NAME)
+                .collectionUuid(COLLECTION_UUID)
+                .query(VALID_OPERATOR_QUERY)
+                .build(),
+            new SearchCommandsRegister.BootstrapperMetadata(
+                "testVersion",
+                "localhost",
+                () -> MongoDbServerInfo.EMPTY,
+                featureFlags,
+                DynamicFeatureFlagRegistry.empty()),
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
+
+    try (var unused = FakeExplain.setup(Explain.Verbosity.EXECUTION_STATS, 0, explainInformation)) {
+      AggregationFeatureExplainer.recordNodeStats(new AggregationNodeStats("root", List.of()));
+      command.run();
+
+      var builder = new SearchExplainInformationBuilder();
+      var explainer =
+          Explain.getQueryInfo()
+              .orElseThrow()
+              .getFeatureExplainer(
+                  AggregationFeatureExplainer.class, AggregationFeatureExplainer::new);
+      if (expectedCursorId.isEmpty()) {
+        // queryStats is present from recordNodeStats, so emit requires a cursor. Throwing is how
+        // the flag-off path is visible now that emit no longer fabricates an empty id.
+        Assert.assertThrows(
+            IllegalStateException.class,
+            () -> explainer.emitExplanation(Explain.Verbosity.EXECUTION_STATS, builder));
+        return;
+      }
+      explainer.emitExplanation(Explain.Verbosity.EXECUTION_STATS, builder);
+      Truth.assertThat(builder.build().aggregation().orElseThrow().query().orElseThrow().cursorId())
+          .isEqualTo(expectedCursorId);
+    }
   }
 
   private static MongotCursorManager getCursorManager() throws Exception {

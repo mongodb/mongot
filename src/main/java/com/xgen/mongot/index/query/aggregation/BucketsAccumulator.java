@@ -28,6 +28,7 @@ public abstract class BucketsAccumulator extends Accumulator {
    */
   protected final void collectBucket(LeafBucketCollector children, int doc, long bucketOrd)
       throws IOException {
+    maybeRecordCollectInvocation();
     this.docCounts.increment(Math.toIntExact(bucketOrd), 1);
     children.collect(doc, bucketOrd);
   }

@@ -2,6 +2,7 @@ package com.xgen.mongot.index.query.aggregation;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /** Lucene leaf accumulator for the {@code count} aggregation operator. */
 final class CountAccumulator extends Accumulator {
@@ -10,6 +11,7 @@ final class CountAccumulator extends Accumulator {
   CountAccumulator(String name, AggregationContext context) {
     super(name, List.of(), context);
     this.counts = new LongArray(8);
+    declareMetric(Optional.empty());
   }
 
   @Override
@@ -17,6 +19,7 @@ final class CountAccumulator extends Accumulator {
     return new LeafBucketCollector() {
       @Override
       public void collect(int doc, long owningBucketOrd) {
+        maybeRecordCollectInvocation();
         // Deliberately no context.isMultiValued(doc) guard, and no metric doc-values lookup.
         //
         // sum/avg skip a document that an ancestor group field fanned into several buckets, because

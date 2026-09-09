@@ -5,6 +5,7 @@ import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.xgen.mongot.cursor.batch.BatchCursorOptions;
 import com.xgen.mongot.cursor.batch.BatchSizeStrategy;
 import com.xgen.mongot.index.BatchProducer;
+import com.xgen.mongot.index.lucene.explain.explainers.AggregationFeatureExplainer;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.explain.tracing.ExplainQueryState;
 import com.xgen.mongot.index.lucene.explain.tracing.ExplainTooLargeException;
@@ -97,6 +98,10 @@ class MongotCursor {
       Bytes resultSizeLimit, BatchCursorOptions queryCursorOptions)
       throws IOException, MongotCursorClosedException {
     Check.checkState(getExplainQueryState().isPresent(), "Explain Query State must be present");
+    // Search already ran in CursorFactory, so aggregation queryStats may already be present.
+    // Stamp before collect: SearchCommand is not on this path (integration tests create the
+    // cursor directly), and emit throws if the header exists without a cursor id.
+    AggregationFeatureExplainer.recordCursorId(this.id);
     Bytes previousExplainSize =
         BsonUtils.bsonValueSerializedBytes(getExplainQueryState().get().collect().toBson());
     this.batchProducer.execute(resultSizeLimit.subtract(previousExplainSize), queryCursorOptions);

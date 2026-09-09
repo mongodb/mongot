@@ -18,6 +18,7 @@ final class AggregationContextImpl implements AggregationContext {
   private final Optional<MultiValueDocMarker> multiValueDocMarker;
   private final Optional<LeafReaderContext> leafReaderContext;
   private final AtomicLong observedBuckets;
+  private final boolean recordExplainNodeStats;
 
   private AggregationContextImpl(
       IndexReader indexReader,
@@ -29,7 +30,8 @@ final class AggregationContextImpl implements AggregationContext {
       int partitionId,
       Optional<MultiValueDocMarker> multiValueDocMarker,
       Optional<LeafReaderContext> leafReaderContext,
-      AtomicLong observedBuckets) {
+      AtomicLong observedBuckets,
+      boolean recordExplainNodeStats) {
     Check.checkArg(
         sort.isPresent() == invertedSort.isPresent(),
         "sort and invertedSort must be present or absent together");
@@ -43,6 +45,7 @@ final class AggregationContextImpl implements AggregationContext {
     this.multiValueDocMarker = multiValueDocMarker;
     this.leafReaderContext = leafReaderContext;
     this.observedBuckets = observedBuckets;
+    this.recordExplainNodeStats = recordExplainNodeStats;
   }
 
   AggregationContextImpl(
@@ -52,7 +55,8 @@ final class AggregationContextImpl implements AggregationContext {
       CachedGlobalValueLookup cachedGlobalValueLookup,
       Optional<Sort> sort,
       Optional<Sort> invertedSort,
-      int partitionId) {
+      int partitionId,
+      boolean recordExplainNodeStats) {
     this(
         indexReader,
         registry,
@@ -63,7 +67,8 @@ final class AggregationContextImpl implements AggregationContext {
         partitionId,
         Optional.empty(),
         Optional.empty(),
-        new AtomicLong());
+        new AtomicLong(),
+        recordExplainNodeStats);
   }
 
   @Override
@@ -78,7 +83,8 @@ final class AggregationContextImpl implements AggregationContext {
         this.partitionId,
         this.multiValueDocMarker,
         Optional.of(context),
-        this.observedBuckets);
+        this.observedBuckets,
+        this.recordExplainNodeStats);
   }
 
   @Override
@@ -93,7 +99,8 @@ final class AggregationContextImpl implements AggregationContext {
         this.partitionId,
         Optional.of(marker),
         this.leafReaderContext,
-        this.observedBuckets);
+        this.observedBuckets,
+        this.recordExplainNodeStats);
   }
 
   @Override
@@ -150,5 +157,10 @@ final class AggregationContextImpl implements AggregationContext {
   @Override
   public long observedBuckets() {
     return this.observedBuckets.get();
+  }
+
+  @Override
+  public boolean recordExplainNodeStats() {
+    return this.recordExplainNodeStats;
   }
 }

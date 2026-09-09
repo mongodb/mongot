@@ -11,7 +11,9 @@ import io.opentelemetry.context.Context;
 import io.opentelemetry.context.ContextKey;
 import io.opentelemetry.context.ImplicitContextKeyed;
 import io.opentelemetry.context.Scope;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Executor;
@@ -111,6 +113,23 @@ public class ExplainQueryState implements ImplicitContextKeyed {
 
   public Explain.QueryInfo getRootQueryInfo() {
     return this.rootQueryInfo;
+  }
+
+  /**
+   * QueryInfo for each index partition that was allocated a sub-context. Empty when the index is
+   * not partitioned (the default of one partition), since those queries record on the root.
+   *
+   * <p>Does not create FeatureExplainers; callers that want existing ones look them up without a
+   * factory.
+   */
+  public List<Explain.QueryInfo> getIndexPartitionQueryInfos() {
+    List<Explain.QueryInfo> infos = new ArrayList<>();
+    for (int i = 0; i < this.numPartitions; i++) {
+      Optional.ofNullable(this.indexPartitionQueryContexts.get(i))
+          .map(keyAndContext -> keyAndContext.context.get(keyAndContext.key))
+          .ifPresent(infos::add);
+    }
+    return infos;
   }
 
   private void createIndexPartitionQueryContexts(int numPartitions) {

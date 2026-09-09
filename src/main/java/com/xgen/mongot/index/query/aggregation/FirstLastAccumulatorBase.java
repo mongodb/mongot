@@ -52,6 +52,7 @@ abstract class FirstLastAccumulatorBase extends Accumulator {
             .orElseThrow(
                 () -> new IllegalStateException("Aggregation field resolver is not configured"))
             .resolveToken(path);
+    declareMetric(Optional.of(path.toString()));
     this.winners = new BucketWinners(collectorSort);
     this.mergeSort = mergeSort;
     this.partitionId = context.getPartitionId();
@@ -72,6 +73,7 @@ abstract class FirstLastAccumulatorBase extends Accumulator {
     return new LeafBucketCollector() {
       @Override
       public void collect(int doc, long owningBucketOrd) throws IOException {
+        maybeRecordCollectInvocation();
         // Deliberately ignores isMultiValued: a fanned-out document belongs to each of its
         // buckets, so returning its value in all of them is what MQL does after $unwind. sum/avg
         // skip it to keep totals adding up (CLOUDP-421371); no arithmetic here to distort.

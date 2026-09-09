@@ -147,12 +147,23 @@ public interface AggregationContext {
   }
 
   /**
+   * Whether this query records per-node explain counters ({@code collectInvocations}, the stats
+   * tree merge). False on the ordinary search path so those stay off the per-document collect path.
+   * Default is false for tests that do not assert explain stats.
+   */
+  default boolean recordExplainNodeStats() {
+    return false;
+  }
+
+  /**
    * Creates an aggregation context for the given index reader.
    *
    * <p>{@code fieldResolver} is empty in unit tests that wire Lucene field names directly; Lucene
    * execution supplies a pre-resolved resolver for metric operators. {@code sort} is the query's
    * global sort, which {@code first}/{@code last} order their buckets by, and {@code invertedSort}
    * is that same sort turned around for {@code last}; the two must be present or absent together.
+   * {@code recordExplainNodeStats} is true only for explain queries so the stats tree stays off the
+   * ordinary search path.
    */
   static AggregationContext create(
       IndexReader indexReader,
@@ -160,7 +171,8 @@ public interface AggregationContext {
       CachedGlobalValueLookup cachedGlobalValueLookup,
       Optional<Sort> sort,
       Optional<Sort> invertedSort,
-      int partitionId) {
+      int partitionId,
+      boolean recordExplainNodeStats) {
     return new AggregationContextImpl(
         indexReader,
         AggregationRegistry.getInstance(),
@@ -168,6 +180,7 @@ public interface AggregationContext {
         cachedGlobalValueLookup,
         sort,
         invertedSort,
-        partitionId);
+        partitionId,
+        recordExplainNodeStats);
   }
 }

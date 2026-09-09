@@ -77,6 +77,7 @@ final class MinMaxAccumulator extends Accumulator {
     this.path = path;
     this.extremum = extremum;
     this.extrema = new ObjectArray<>(8);
+    declareMetric(Optional.of(path.toString()));
   }
 
   @Override
@@ -90,6 +91,7 @@ final class MinMaxAccumulator extends Accumulator {
     return new LeafBucketCollector() {
       @Override
       public void collect(int doc, long owningBucketOrd) throws IOException {
+        maybeRecordCollectInvocation();
         // Deliberately no context.isMultiValued(doc) guard. sum/avg skip a doc that an ancestor
         // group field fanned into several buckets, because adding its value to each of them
         // double-counts. min/max are selective rather than additive, so contributing the same

@@ -270,7 +270,9 @@ public class SearchExplainInformationTest {
                   AggregationStats.create(
                           Optional.empty(),
                           Optional.empty(),
-                          Optional.of(ExplainInformationTestUtil.QUERY_EXECUTION_AREA))
+                          Optional.of(ExplainInformationTestUtil.QUERY_EXECUTION_AREA),
+                          Optional.empty(),
+                          Optional.empty())
                       .orElseThrow())
               .addIndexPartitionExplainInformation(
                   SearchExplainInformationBuilder.newBuilder()

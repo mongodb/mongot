@@ -1,6 +1,7 @@
 package com.xgen.mongot.index.query.aggregation;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 
 import com.xgen.mongot.index.definition.NumericFieldOptions;
 import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
@@ -60,6 +61,24 @@ public class SumAccumulatorTest extends AggregationTestSupport {
 
     assertEquals(60.0, sumByCity.get("NYC"), 0.0001);
     assertEquals(20.0, sumByCity.get("LA"), 0.0001);
+  }
+
+  @Test
+  public void nodeStats_pathIsLuceneFieldName() throws Exception {
+    buildIndex(List.of(new TestDoc("NYC", "x", 10)), Integer.MAX_VALUE);
+
+    AggregationSpec sumSpec = new SumAggregationSpec("sum_price", FieldPath.parse(PRICE_FIELD));
+    AggregationSpec termsSpec =
+        new TermsSpec("by_city", FieldPath.parse(CITY_FIELD), CITY_LUCENE_FIELD, List.of(sumSpec));
+    Accumulator top =
+        collectAll(
+            new TopAggregationSpec(List.of(termsSpec)), newExplainContextWithFieldResolver());
+
+    AggregationNodeStats sumNode =
+        top.nodeStats().orElseThrow().children().get(0).children().get(0);
+    assertEquals("sum_price", sumNode.name());
+    assertEquals(PRICE_LUCENE_FIELD, sumNode.path().orElseThrow());
+    assertNotEquals(PRICE_FIELD, sumNode.path().orElseThrow());
   }
 
   @Test
@@ -161,7 +180,8 @@ public class SumAccumulatorTest extends AggregationTestSupport {
             luceneField -> Optional.empty(),
             Optional.empty(),
             Optional.empty(),
-            0);
+            0,
+            false);
 
     TopLevelAggregationResult top =
         (TopLevelAggregationResult) collectAll(topSpec, context).buildTopLevelResult();

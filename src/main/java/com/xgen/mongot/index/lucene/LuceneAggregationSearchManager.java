@@ -6,6 +6,7 @@ import com.xgen.mongot.index.lucene.LuceneAggregationPlanResolver.AggregationPla
 import com.xgen.mongot.index.lucene.explain.explainers.AggregationFeatureExplainer;
 import com.xgen.mongot.index.lucene.explain.profiler.ProfileCollectorManager;
 import com.xgen.mongot.index.lucene.explain.timing.ExplainTimings;
+import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.facet.TokenFacetsCardinalityLimitExceededException;
 import com.xgen.mongot.index.lucene.facet.TokenFacetsStateCache;
 import com.xgen.mongot.index.lucene.facet.TokenSsdvFacetState;
@@ -97,7 +98,8 @@ public class LuceneAggregationSearchManager
             // the inverted sort, since a top-docs collector only ever keeps a top document.
             this.luceneSort,
             this.invertedLuceneSort,
-            this.indexPartitionId);
+            this.indexPartitionId,
+            Explain.atVerbosity(Explain.Verbosity.EXECUTION_STATS));
 
     int readerLimit = Math.max(1, searcher.getIndexReader().maxDoc());
     int searchLimit = Math.min(readerLimit, batchSize);
@@ -138,7 +140,8 @@ public class LuceneAggregationSearchManager
   private CollectorManager<? extends Collector, AggregationResult> getAccumulatorCollectorManager(
       AggregationContext context) {
     AccumulatorCollectorManager accumulatorCollectorManager =
-        new AccumulatorCollectorManager(this.rootSpec, context);
+        new AccumulatorCollectorManager(
+            this.rootSpec, context, AggregationFeatureExplainer::recordNodeStats);
 
     Optional<ExplainTimings> accumulatorProfile =
         AggregationFeatureExplainer.currentAccumulatorProfile();

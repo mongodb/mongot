@@ -10,6 +10,8 @@ java_library(
     name = "information",
     srcs = [
         "AbstractFieldValueQuerySpec.java",
+        "AggregationNodeStatsSpec.java",
+        "AggregationQueryStats.java",
         "AggregationStats.java",
         "BooleanQuerySpec.java",
         "BoostQuerySpec.java",
@@ -77,6 +79,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/lucene/explain/timing",
         "//src/main/java/com/xgen/mongot/index/lucene/field",
         "//src/main/java/com/xgen/mongot/index/lucene/query/util",
+        "//src/main/java/com/xgen/mongot/index/query/aggregation",
         "//src/main/java/com/xgen/mongot/index/query/highlights",
         "//src/main/java/com/xgen/mongot/index/query/points",
         "//src/main/java/com/xgen/mongot/util",

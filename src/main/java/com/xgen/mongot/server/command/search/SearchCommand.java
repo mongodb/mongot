@@ -31,6 +31,7 @@ import com.xgen.mongot.index.ReaderClosedException;
 import com.xgen.mongot.index.Variables;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
+import com.xgen.mongot.index.lucene.explain.explainers.AggregationFeatureExplainer;
 import com.xgen.mongot.index.lucene.explain.explainers.MetadataFeatureExplainer;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.explain.tracing.ExplainQueryState;
@@ -355,6 +356,16 @@ public class SearchCommand implements Command {
       QueryBatchTimerRecorder queryBatchTimerRecorder =
           this.cursorManager.getIndexQueryBatchTimerRecorder(cursorId);
 
+      boolean searchAggregationEnabled =
+          this.metadata.featureFlags().isEnabled(Feature.SEARCH_AGGREGATION);
+      // Explain-only correlation: chains this query's explain output to its log lines, kill errors
+      // and traces, including across getMore batches, which record under the same id. No-op unless
+      // the query is explained and an aggregation explainer already exists. Same flag gate as
+      // applyAggregationLimit so the extra step is clearly aggregation-only.
+      if (searchAggregationEnabled) {
+        AggregationFeatureExplainer.recordCursorId(cursorId);
+      }
+
       // Apply the aggregation numBuckets top-N here, at the non-sharded / non-intermediate
       // terminal.
       // cursorInfo.metaResults is computed once, when the cursor is created (this path runs only
@@ -364,7 +375,7 @@ public class SearchCommand implements Command {
       // result. Gate on SEARCH_AGGREGATION so this extra step is clearly aggregation-only (the flag
       // is also enforced upstream, so an AggregationResult can only be present when it is enabled).
       MetaResults metaResults =
-          this.metadata.featureFlags().isEnabled(Feature.SEARCH_AGGREGATION)
+          searchAggregationEnabled
               ? cursorInfo.metaResults.applyAggregationLimit()
               : cursorInfo.metaResults;
       Optional<BsonValue> variables = Optional.of(new Variables(metaResults).toRawBson());
