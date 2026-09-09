@@ -1,18 +1,18 @@
 package com.xgen.mongot.index.lucene.directory;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.LinkedHashMultimap;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.lucene.store.DataAccessHint;
-import org.apache.lucene.store.FileDataHint;
 import org.apache.lucene.store.FileSwitchDirectory;
-import org.apache.lucene.store.FileTypeHint;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.MMapDirectory;
@@ -42,31 +42,45 @@ public class FileSystemDirectory extends FileSwitchDirectory {
   private static final Logger LOG = LoggerFactory.getLogger(FileSystemDirectory.class);
   private final MMapDirectory mmapDirectory;
   private final Optional<ByteReadCollector> collector;
-  private static final Set<String> MMAP_EXTENSIONS =
-      Set.of(
-          /* Bloom Filter */
-          "blm",
-          /* Term Index */
-          "tip",
-          /* Term Dictionary */
-          "tim",
-          /* Frequencies */
-          "doc",
-          /* Compound Files */
-          "cfs",
-          /* Norms */
-          "nvd",
-          /* DocValues */
-          "dvd",
+  // Fallback read advice per mmapped extension, matching the effective advice on Lucene 10.1 for
+  // standalone files. Compound-file interiors differ; see the cfs entry.
+  // NORMAL = kernel readahead (files read in runs), RANDOM = one page per fault (point lookups).
+  private static final ImmutableMap<String, ReadAdvice> ADVICE_BY_EXTENSION =
+      ImmutableMap.<String, ReadAdvice>builder()
+          /* Bloom Filter: no 10.1 analog. */
+          .put("blm", ReadAdvice.RANDOM)
+          /* Term Index: 10.1 opened with RANDOM_PRELOAD, which madvises NORMAL. */
+          .put("tip", ReadAdvice.NORMAL)
+          /* Term Dictionary: 10.1 default. Random block probes; readahead here thrashes. */
+          .put("tim", ReadAdvice.RANDOM)
+          /* Frequencies: 10.1 opened with explicit NORMAL for forward-only readahead. */
+          .put("doc", ReadAdvice.NORMAL)
+          /* Compound Files: 10.1 opened the container with explicit NORMAL. Sub-file slices
+           * resolve under this name too, so only an explicit DataAccessHint re-advises a slice
+           * (.fdt, vectors). Sub-files without one (.tim, .pos, .pay, .blm) inherit NORMAL, where
+           * 10.1 madvised each slice with its own advice and gave them RANDOM. Known deviation
+           * from 10.1 (matches 9.11). A segment is compound whenever it is at most 10% of the
+           * index, so on large indexes this is every segment. Query-side impact unmeasured. */
+          .put("cfs", ReadAdvice.NORMAL)
+          /* Norms: 10.1 opened with explicit NORMAL. */
+          .put("nvd", ReadAdvice.NORMAL)
+          /* DocValues: 10.1 opened with explicit NORMAL. */
+          .put("dvd", ReadAdvice.NORMAL)
           /* Flat vector data file */
-          "vec",
+          .put("vec", ReadAdvice.RANDOM)
           /* Vector Index */
-          "vex",
+          .put("vex", ReadAdvice.RANDOM)
           /* Quantized flat vector data file */
-          "veq",
+          .put("veq", ReadAdvice.RANDOM)
           /* Field Data: The stored fields for the documents. That would be document ids and
            * stored source in our case, which are looked up when preparing search results. */
-          "fdt");
+          .put("fdt", ReadAdvice.RANDOM)
+          .buildOrThrow();
+
+  // Derived from the advice table so that mmapping a new extension forces an explicit
+  // read-advice decision.
+  @VisibleForTesting
+  static final ImmutableSet<String> MMAP_EXTENSIONS = ADVICE_BY_EXTENSION.keySet();
 
   // Cache warmer: The filename extensions that we support preloading for.
   // The .vex files are top-priority, .veq files are 2nd-priority, and so on.
@@ -87,17 +101,16 @@ public class FileSystemDirectory extends FileSwitchDirectory {
 
   // Lucene 10.4 (apache/lucene #14482) moved read-advice off IOContext into an opt-in
   // per-Directory resolver, and (#15040) flipped the default from RANDOM to NORMAL; with no
-  // resolver installed every read gets MADV_NORMAL. Restore context-aware advice, keeping RANDOM
-  // (not NORMAL) as the floor to match Lucene 10.1 and avoid read-ahead page-cache thrash on the
-  // co-located mongod:
+  // resolver installed every read gets MADV_NORMAL. Resolution order:
   //  - MERGE/FLUSH stream segments front-to-back -> SEQUENTIAL (read-ahead, few large reads).
-  //  - Honor explicit codec hints: DataAccessHint.RANDOM -> RANDOM, DataAccessHint.SEQUENTIAL ->
-  // SEQUENTIAL (e.g. flat-vector bulk reads).
-  //  - Files that used NORMAL in Lucene 10.1 (terms index, postings, compound containers, doc
-  // values, norms) -> NORMAL.
-  //  - Everything else (term dictionaries, bloom filters) -> RANDOM to limit page-cache readahead.
-  private static Optional<ReadAdvice> adviseByContextDefaultRandom(
-      String filename, IOContext context) {
+  //  - Explicit codec DataAccessHints are honored. Compound-file sub-files resolve under the
+  // parent .cfs name, so their DataAccessHint is the only thing that can re-advise a slice.
+  //  - Otherwise ADVICE_BY_EXTENSION, with RANDOM as the floor.
+  // FileTypeHint/FileDataHint are deliberately not consulted: upstream treats them as semantic
+  // labels and places them differently across codec generations (the 10.4 native-codec terms
+  // dictionary carries the same bare DATA hint as doc values), so advice derived from them
+  // silently changes across Lucene upgrades (CLOUDP-441375, CLOUDP-443288, CLOUDP-443602).
+  private static Optional<ReadAdvice> resolveReadAdvice(String filename, IOContext context) {
     if (context.context() == IOContext.Context.MERGE
         || context.context() == IOContext.Context.FLUSH) {
       return Optional.of(ReadAdvice.SEQUENTIAL);
@@ -108,28 +121,10 @@ public class FileSystemDirectory extends FileSwitchDirectory {
     if (context.hints().contains(DataAccessHint.SEQUENTIAL)) {
       return Optional.of(ReadAdvice.SEQUENTIAL);
     }
-    // Restore Lucene 10.1's per-file advice: the blocktree terms index (RANDOM_PRELOAD ->
-    // MADV_NORMAL) and postings (explicit NORMAL for forward-only readahead) were never
-    // RANDOM on 10.1. Upstream 10.4 deleted those overrides in favor of its NORMAL default.
-    if (context.hints().contains(FileTypeHint.INDEX)
-        || context.hints().contains(FileDataHint.POSTINGS)) {
-      return Optional.of(ReadAdvice.NORMAL);
-    }
-    // Lucene 10.4 opens .cfs containers without hints. Use NORMAL because inner slices inherit the
-    // container's advice.
-    if (isCompoundFileContainer(filename)) {
-      return Optional.of(ReadAdvice.NORMAL);
-    }
-    // Lucene 10.4 gives doc values and norms only a DATA hint. Other data files explicitly request
-    // RANDOM.
-    if (context.hints().contains(FileTypeHint.DATA)) {
-      return Optional.of(ReadAdvice.NORMAL);
-    }
-    return Optional.of(ReadAdvice.RANDOM);
-  }
-
-  private static boolean isCompoundFileContainer(String filename) {
-    return "cfs".equals(FilenameUtils.getExtension(filename));
+    return Optional.of(
+        Objects.requireNonNull(
+            ADVICE_BY_EXTENSION.getOrDefault(
+                FilenameUtils.getExtension(filename), ReadAdvice.RANDOM)));
   }
 
   public FileSystemDirectory(Path path, Optional<ByteReadCollector> collector) throws IOException {
@@ -144,7 +139,7 @@ public class FileSystemDirectory extends FileSwitchDirectory {
     super(MMAP_EXTENSIONS, mmapDirectory, niofsDirectory, true);
     this.mmapDirectory = mmapDirectory;
     this.collector = collector;
-    this.mmapDirectory.setReadAdvice(FileSystemDirectory::adviseByContextDefaultRandom);
+    this.mmapDirectory.setReadAdvice(FileSystemDirectory::resolveReadAdvice);
   }
 
   // OpenInputBase is used for unit test spying.
