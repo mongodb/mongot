@@ -15,6 +15,7 @@ import com.xgen.mongot.config.backup.ConfigJournalV1;
 import com.xgen.mongot.config.backup.DynamicFeatureFlagJournal;
 import com.xgen.mongot.config.backup.DynamicFeatureFlagJournalWriter;
 import com.xgen.mongot.config.backup.JournalWriter;
+import com.xgen.mongot.config.backup.QuarantinePolicy;
 import com.xgen.mongot.config.manager.metrics.GroupedIndexGenerationMetrics;
 import com.xgen.mongot.config.manager.metrics.IndexGenerationStateMetrics;
 import com.xgen.mongot.config.util.Invariants;
@@ -222,7 +223,11 @@ public class DefaultConfigManager implements ConfigManager {
         .ifThrows(
             () ->
                 initializeFromExistingJournal(
-                    configState, configJournalPath, desiredIndexIds, meterRegistry));
+                    configState,
+                    configJournalPath,
+                    desiredIndexIds,
+                    meterRegistry,
+                    quarantinePolicy(featureFlags)));
 
     Crash.because("failed to upgrade index format versions")
         .ifThrows(() -> IndexFormatVersionUpgrader.upgradeAndDrop(configState));
@@ -299,12 +304,24 @@ public class DefaultConfigManager implements ConfigManager {
     }
   }
 
+  /**
+   * Maps the {@link Feature#QUARANTINE_UNPARSEABLE_INDEX} feature flag onto the {@link
+   * QuarantinePolicy} used when reading the config journal. The parsing layer takes no dependency
+   * on the feature flag system, so the translation happens here.
+   */
+  protected static QuarantinePolicy quarantinePolicy(FeatureFlags featureFlags) {
+    return featureFlags.isEnabled(Feature.QUARANTINE_UNPARSEABLE_INDEX)
+        ? QuarantinePolicy.QUARANTINE
+        : QuarantinePolicy.FAIL_FAST;
+  }
+
   /** Initialize state with a config journal if one was written before. */
   protected static void initializeFromExistingJournal(
       ConfigState configState,
       Path configJournalPath,
       Optional<Set<ObjectId>> desiredIndexIds,
-      MeterRegistry meterRegistry)
+      MeterRegistry meterRegistry,
+      QuarantinePolicy quarantinePolicy)
       throws IOException,
           BsonParseException,
           Invariants.InvariantException,
@@ -312,7 +329,7 @@ public class DefaultConfigManager implements ConfigManager {
     LOG.info("Initializing");
 
     Optional<ConfigJournalV1> optionalConfigJournal =
-        ConfigJournalV1.fromFileIfExists(configJournalPath);
+        ConfigJournalV1.fromFileIfExists(configJournalPath, quarantinePolicy);
 
     // If no journal had been written before, there's nothing to initialize.
     if (optionalConfigJournal.isEmpty()) {

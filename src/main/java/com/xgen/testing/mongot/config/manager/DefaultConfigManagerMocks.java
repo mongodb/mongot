@@ -158,6 +158,23 @@ public class DefaultConfigManagerMocks {
     return create(path, Optional.of(desiredIndexIds));
   }
 
+  /**
+   * Initializes over the journal already at {@code configJournalPath} under the given feature
+   * flags, so that flag-dependent journal-read behaviour is exercised through the real
+   * DefaultConfigManager.initialize entry point.
+   */
+  public static DefaultConfigManagerMocks create(Path configJournalPath, FeatureFlags featureFlags)
+      throws Exception {
+    ConfigStateMocks wrapped = ConfigStateMocks.create(configJournalPath, false);
+
+    return new DefaultConfigManagerMocks(
+        wrapped,
+        wrapped.getReplicationManagerFactory(),
+        Optional.empty(),
+        ReplicationStateMonitor.enabled(),
+        featureFlags);
+  }
+
   static DefaultConfigManagerMocks create(
       Path configJournalPath, Optional<Set<ObjectId>> desiredIndexIds) throws Exception {
     var replicationStateMonitor = ReplicationStateMonitor.enabled();

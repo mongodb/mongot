@@ -26,6 +26,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.xgen.mongot.config.backup.ConfigJournalV1;
+import com.xgen.mongot.config.backup.QuarantinePolicy;
 import com.xgen.mongot.config.manager.metrics.GroupedIndexGenerationMetrics;
 import com.xgen.mongot.config.manager.metrics.IndexConfigState;
 import com.xgen.mongot.config.manager.metrics.IndexGenerationStateMetrics;
@@ -59,7 +60,11 @@ import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.monitor.ReplicationStateMonitor;
 import com.xgen.mongot.monitor.ToggleGate;
+import com.xgen.mongot.util.Crash;
 import com.xgen.mongot.util.FieldPath;
+import com.xgen.mongot.util.FileUtils;
+import com.xgen.mongot.util.bson.JsonCodec;
+import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.mongodb.ConnectionStringUtil;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import com.xgen.testing.mongot.config.backup.ConfigJournalV1Builder;
@@ -75,6 +80,8 @@ import com.xgen.testing.mongot.metrics.micrometer.SerializableTimerBuilder;
 import com.xgen.testing.mongot.mock.index.VectorIndex;
 import com.xgen.testing.mongot.mock.index.query.Query;
 import io.micrometer.core.instrument.Tags;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -86,6 +93,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.bson.BsonBoolean;
+import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
 import org.bson.types.ObjectId;
 import org.junit.Assert;
@@ -94,6 +104,129 @@ import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 public class DefaultConfigManagerTest {
+  /**
+   * The journal is read fail-fast until quarantineUnparseableIndex is turned on, so that enabling
+   * the flag is the only thing that changes startup behaviour for a malformed definition.
+   */
+  @Test
+  public void quarantinePolicy_flagDisabled_isFailFast() {
+    assertEquals(
+        QuarantinePolicy.FAIL_FAST,
+        DefaultConfigManager.quarantinePolicy(FeatureFlags.getDefault()));
+  }
+
+  /**
+   * The policy derived from the flag is the one the journal read actually uses: under QUARANTINE an
+   * entry whose definition does not parse no longer fails initialization.
+   */
+  @Test
+  public void initializeFromExistingJournal_quarantine_unparseableEntryDoesNotFailInit()
+      throws Exception {
+    ConfigStateMocks mocks = ConfigStateMocks.create();
+    writeJournalWithUnparseableLiveIndex(mocks.configJournalPath);
+
+    DefaultConfigManager.initializeFromExistingJournal(
+        mocks.configState,
+        mocks.configJournalPath,
+        Optional.empty(),
+        new SimpleMeterRegistry(),
+        QuarantinePolicy.QUARANTINE);
+
+    mocks.assertNoIndexActivity();
+  }
+
+  @Test
+  public void initializeFromExistingJournal_failFast_unparseableEntryFailsInit() throws Exception {
+    ConfigStateMocks mocks = ConfigStateMocks.create();
+    writeJournalWithUnparseableLiveIndex(mocks.configJournalPath);
+
+    Assert.assertThrows(
+        BsonParseException.class,
+        () ->
+            DefaultConfigManager.initializeFromExistingJournal(
+                mocks.configState,
+                mocks.configJournalPath,
+                Optional.empty(),
+                new SimpleMeterRegistry(),
+                QuarantinePolicy.FAIL_FAST));
+  }
+
+  /**
+   * The two tests above call initializeFromExistingJournal directly. These two go through the
+   * production DefaultConfigManager.initialize entry point instead, so that a regression which
+   * stops forwarding quarantinePolicy(featureFlags) is caught rather than left green.
+   */
+  @Test
+  public void initialize_quarantineFlagEnabled_unparseableEntryDoesNotCrash() throws Exception {
+    Path configJournalPath = DefaultConfigManagerMocks.getConfigJournalPath();
+    writeJournalWithUnparseableLiveIndex(configJournalPath);
+    FeatureFlags featureFlags =
+        FeatureFlags.withDefaults().enable(Feature.QUARANTINE_UNPARSEABLE_INDEX).build();
+
+    DefaultConfigManagerMocks mocks =
+        DefaultConfigManagerMocks.create(configJournalPath, featureFlags);
+
+    mocks.assertNoIndexActivity();
+  }
+
+  @Test
+  @Crash.TestOnlyHaltHandler
+  public void initialize_quarantineFlagDisabled_unparseableEntryCrashes() throws Exception {
+    Path configJournalPath = DefaultConfigManagerMocks.getConfigJournalPath();
+    writeJournalWithUnparseableLiveIndex(configJournalPath);
+
+    AtomicInteger exitCode = new AtomicInteger(-1);
+    Crash.setHaltHandlerForTesting(
+        code -> {
+          exitCode.set(code);
+          throw new HaltError();
+        });
+
+    try {
+      Assert.assertThrows(
+          HaltError.class,
+          () -> DefaultConfigManagerMocks.create(configJournalPath, FeatureFlags.getDefault()));
+      assertEquals("expected fail-exit code 1", 1, exitCode.get());
+    } finally {
+      Crash.clearHaltHandlerForTesting();
+    }
+  }
+
+  /** Lets the halt handler above stop execution instead of letting initialization continue. */
+  private static final class HaltError extends Error {
+    private HaltError() {
+      super("halt");
+    }
+  }
+
+  /**
+   * Writes a journal holding a single live index carrying a field no version of mongot knows about,
+   * which makes the entry unparseable while leaving its identity readable.
+   */
+  private static void writeJournalWithUnparseableLiveIndex(Path configJournalPath)
+      throws Exception {
+    BsonDocument journal =
+        ConfigJournalV1Builder.builder()
+            .liveIndex(MOCK_INDEX_DEFINITION_GENERATION)
+            .build()
+            .toBson();
+    journal
+        .getArray("indexes")
+        .get(0)
+        .asDocument()
+        .append("fieldFromTheFuture", new BsonBoolean(true));
+
+    FileUtils.atomicallyReplace(configJournalPath, JsonCodec.toJson(journal));
+  }
+
+  @Test
+  public void quarantinePolicy_flagEnabled_isQuarantine() {
+    FeatureFlags featureFlags =
+        FeatureFlags.withDefaults().enable(Feature.QUARANTINE_UNPARSEABLE_INDEX).build();
+
+    assertEquals(QuarantinePolicy.QUARANTINE, DefaultConfigManager.quarantinePolicy(featureFlags));
+  }
+
   /**
    * Tests that the DefaultConfigManager does not try to do anything when running init() with no
    * config journal present.
