@@ -25,6 +25,7 @@ import java.util.Set;
  * AUTO_EMBED field types).
  */
 public class AutoEmbeddingIndexValidator {
+  private static final String RESERVED_AUTO_EMBED_NAMESPACE = "_autoEmbed";
 
   /**
    * Runs validations for auto-embedding indexes on community. Works for both vector and search
@@ -42,13 +43,64 @@ public class AutoEmbeddingIndexValidator {
 
     validateEmbeddingModelsAreRegistered(indexDefinition);
     switch (indexDefinition) {
-      case VectorIndexDefinition vectorIndex -> validateNoMixedVectorTypes(vectorIndex);
+      case VectorIndexDefinition vectorIndex -> {
+        validateVectorReservedAutoEmbedNamespace(vectorIndex);
+        validateNoMixedVectorTypes(vectorIndex);
+      }
       case SearchIndexDefinition searchIndex -> {
+        validateSearchReservedAutoEmbedNamespace(searchIndex);
         validateSearchNoMixedVectorTypes(searchIndex);
         validateSearchUniqueAutoEmbedSourceFields(searchIndex);
         validateSearchSourceFieldsDoNotOverlapMappings(searchIndex);
       }
     }
+  }
+
+  /**
+   * Rejects user mappings in the root {@code _autoEmbed} namespace, which is reserved for generated
+   * materialized-view fields.
+   */
+  public static void validateSearchReservedAutoEmbedNamespace(SearchIndexDefinition searchIndex)
+      throws InvalidIndexDefinitionException {
+    List<String> invalidPaths =
+        searchIndex.getMappings().fields().keySet().stream()
+            .filter(AutoEmbeddingIndexValidator::isReservedAutoEmbedPath)
+            .sorted()
+            .toList();
+    if (!invalidPaths.isEmpty()) {
+      throw new InvalidIndexDefinitionException(
+          String.format(
+              "Search auto-embedding mapping path(s) %s are invalid because \"%s\" is reserved for"
+                  + " internal auto-embedding materialized-view fields",
+              invalidPaths, RESERVED_AUTO_EMBED_NAMESPACE));
+    }
+  }
+
+  /**
+   * Rejects filter fields in the root {@code _autoEmbed} namespace, which is reserved for generated
+   * materialized-view fields.
+   */
+  public static void validateVectorReservedAutoEmbedNamespace(VectorIndexDefinition vectorIndex)
+      throws InvalidIndexDefinitionException {
+    List<String> invalidPaths =
+        vectorIndex.getFields().stream()
+            .filter(field -> field.getType() == VectorIndexFieldDefinition.Type.FILTER)
+            .map(field -> field.getPath().toString())
+            .filter(AutoEmbeddingIndexValidator::isReservedAutoEmbedPath)
+            .sorted()
+            .toList();
+    if (!invalidPaths.isEmpty()) {
+      throw new InvalidIndexDefinitionException(
+          String.format(
+              "Vector auto-embedding filter path(s) %s are invalid because \"%s\" is reserved for"
+                  + " internal auto-embedding materialized-view fields",
+              invalidPaths, RESERVED_AUTO_EMBED_NAMESPACE));
+    }
+  }
+
+  private static boolean isReservedAutoEmbedPath(String path) {
+    return path.equals(RESERVED_AUTO_EMBED_NAMESPACE)
+        || path.startsWith(RESERVED_AUTO_EMBED_NAMESPACE + FieldPath.DELIMITER);
   }
 
   /**

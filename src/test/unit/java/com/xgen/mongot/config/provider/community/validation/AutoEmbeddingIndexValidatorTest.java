@@ -10,6 +10,7 @@ import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.EmbeddingProvider;
 import com.xgen.mongot.index.definition.BooleanFieldDefinition;
+import com.xgen.mongot.index.definition.FieldDefinition;
 import com.xgen.mongot.index.definition.InvalidIndexDefinitionException;
 import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
@@ -20,6 +21,7 @@ import com.xgen.mongot.index.definition.VectorDataFieldDefinition;
 import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
+import com.xgen.mongot.index.definition.VectorIndexFilterFieldDefinition;
 import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
 import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.index.definition.VectorTextFieldDefinition;
@@ -190,6 +192,31 @@ public class AutoEmbeddingIndexValidatorTest {
   }
 
   @Test
+  public void validate_vectorAutoEmbeddingWithReservedFilterPath_throwsException() {
+    assertVectorReservedNamespaceRejected("_autoEmbed");
+  }
+
+  @Test
+  public void validate_vectorAutoEmbeddingWithDottedReservedFilterPath_throwsException() {
+    assertVectorReservedNamespaceRejected("_autoEmbed.foo");
+  }
+
+  @Test
+  public void validate_vectorAutoEmbeddingOutsideReservedFilterNamespace_succeeds()
+      throws InvalidIndexDefinitionException {
+    VectorAutoEmbedFieldDefinition autoEmbedField =
+        new VectorAutoEmbedFieldDefinition(REGISTERED_MODEL, FieldPath.parse("foo"));
+    VectorIndexDefinition vectorIndex =
+        createVectorIndexWithFields(
+            List.of(
+                autoEmbedField,
+                new VectorIndexFilterFieldDefinition(FieldPath.parse("_autoEmbedded")),
+                new VectorIndexFilterFieldDefinition(FieldPath.parse("metadata._autoEmbed"))));
+
+    AutoEmbeddingIndexValidator.validate(vectorIndex);
+  }
+
+  @Test
   public void validateNoAutoEmbeddingTypeConversion_autoEmbeddingToVector_throwsException() {
     // Old index is auto-embedding
     VectorAutoEmbedFieldDefinition autoEmbedField =
@@ -351,6 +378,25 @@ public class AutoEmbeddingIndexValidatorTest {
         Optional.empty());
   }
 
+  private void assertVectorReservedNamespaceRejected(String invalidPath) {
+    VectorAutoEmbedFieldDefinition autoEmbedField =
+        new VectorAutoEmbedFieldDefinition(REGISTERED_MODEL, FieldPath.parse("foo"));
+    VectorIndexDefinition vectorIndex =
+        createVectorIndexWithFields(
+            List.of(
+                autoEmbedField,
+                new VectorIndexFilterFieldDefinition(FieldPath.parse(invalidPath))));
+
+    InvalidIndexDefinitionException exception =
+        assertThrows(
+            InvalidIndexDefinitionException.class,
+            () -> AutoEmbeddingIndexValidator.validate(vectorIndex));
+
+    assertThat(exception.getMessage()).contains(invalidPath);
+    assertThat(exception.getMessage()).contains("_autoEmbed");
+    assertThat(exception.getMessage()).contains("reserved");
+  }
+
   // ---- Search index tests ----
 
   @Test
@@ -358,6 +404,89 @@ public class AutoEmbeddingIndexValidatorTest {
       throws InvalidIndexDefinitionException {
     SearchIndexDefinition searchIndex = createSearchIndexWithAutoEmbed(REGISTERED_MODEL);
     AutoEmbeddingIndexValidator.validate(searchIndex);
+  }
+
+  @Test
+  public void validate_searchAutoEmbeddingWithReservedScalarMapping_throwsException() {
+    SearchIndexDefinition searchIndex =
+        createSearchIndexWithAutoEmbedAndField(
+            "_autoEmbed",
+            FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build());
+
+    assertReservedNamespaceRejected(searchIndex, "_autoEmbed");
+  }
+
+  @Test
+  public void validate_searchAutoEmbeddingWithDottedReservedMapping_throwsException() {
+    SearchIndexDefinition searchIndex =
+        createSearchIndexWithAutoEmbedAndField(
+            "_autoEmbed.metadata",
+            FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build());
+
+    assertReservedNamespaceRejected(searchIndex, "_autoEmbed.metadata");
+  }
+
+  @Test
+  public void validate_searchAutoEmbeddingWithReservedDocumentMapping_throwsException() {
+    var reservedDocument =
+        DocumentFieldDefinitionBuilder.builder()
+            .field(
+                "metadata",
+                FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build())
+            .build();
+    SearchIndexDefinition searchIndex =
+        createSearchIndexWithAutoEmbedAndField(
+            "_autoEmbed", FieldDefinitionBuilder.builder().document(reservedDocument).build());
+
+    assertReservedNamespaceRejected(searchIndex, "_autoEmbed");
+  }
+
+  @Test
+  public void validate_searchAutoEmbeddingWithReservedEmbeddedMapping_throwsException() {
+    var reservedEmbeddedDocument =
+        EmbeddedDocumentsFieldDefinitionBuilder.builder()
+            .field(
+                "metadata",
+                FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build())
+            .build();
+    SearchIndexDefinition searchIndex =
+        createSearchIndexWithAutoEmbedAndField(
+            "_autoEmbed",
+            FieldDefinitionBuilder.builder().embeddedDocuments(reservedEmbeddedDocument).build());
+
+    assertReservedNamespaceRejected(searchIndex, "_autoEmbed");
+  }
+
+  @Test
+  public void validate_searchAutoEmbeddingWithReservedMultiTypeMapping_throwsException() {
+    var reservedDocument =
+        DocumentFieldDefinitionBuilder.builder()
+            .field(
+                "metadata",
+                FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build())
+            .build();
+    SearchIndexDefinition searchIndex =
+        createSearchIndexWithAutoEmbedAndField(
+            "_autoEmbed",
+            FieldDefinitionBuilder.builder()
+                .bool(new BooleanFieldDefinition())
+                .document(reservedDocument)
+                .build());
+
+    assertReservedNamespaceRejected(searchIndex, "_autoEmbed");
+  }
+
+  @Test
+  public void validate_searchAutoEmbeddingOutsideReservedNamespace_succeeds()
+      throws InvalidIndexDefinitionException {
+    AutoEmbeddingIndexValidator.validate(
+        createSearchIndexWithAutoEmbedAndField(
+            "_autoEmbedded",
+            FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build()));
+    AutoEmbeddingIndexValidator.validate(
+        createSearchIndexWithAutoEmbedAndField(
+            "metadata._autoEmbed",
+            FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build()));
   }
 
   @Test
@@ -402,7 +531,7 @@ public class AutoEmbeddingIndexValidatorTest {
   }
 
   @Test
-  public void validateSearchIndexWithGeneratedPathVectorCollision_throwsException() {
+  public void validateSearchIndexWithDocumentVectorCollision_throwsException() {
     var vectorSpec =
         new VectorFieldSpecification(
             1024,
@@ -429,7 +558,7 @@ public class AutoEmbeddingIndexValidatorTest {
                             REGISTERED_MODEL, FieldPath.parse("content")))
                     .build())
             .field(
-                "_autoEmbed", FieldDefinitionBuilder.builder().document(generatedNamespace).build())
+                "generated", FieldDefinitionBuilder.builder().document(generatedNamespace).build())
             .build();
     SearchIndexDefinition searchIndex =
         SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
@@ -440,6 +569,48 @@ public class AutoEmbeddingIndexValidatorTest {
             () -> AutoEmbeddingIndexValidator.validate(searchIndex));
 
     assertThat(exception.getMessage()).contains("cannot mix regular vector fields");
+  }
+
+  @Test
+  public void validateSearchIndexWithUserVectorInReservedNamespace_throwsException() {
+    var vectorSpec =
+        new VectorFieldSpecification(
+            1024,
+            VectorSimilarity.DOT_PRODUCT,
+            VectorQuantization.NONE,
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm());
+    var reservedNamespace =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "content",
+                FieldDefinitionBuilder.builder()
+                    .searchIndexVectorField(new SearchIndexVectorFieldDefinition(vectorSpec))
+                    .build())
+            .build();
+    var mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            REGISTERED_MODEL, FieldPath.parse("content")))
+                    .build())
+            .field(
+                "_autoEmbed", FieldDefinitionBuilder.builder().document(reservedNamespace).build())
+            .build();
+    SearchIndexDefinition searchIndex =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+
+    InvalidIndexDefinitionException exception =
+        assertThrows(
+            InvalidIndexDefinitionException.class,
+            () -> AutoEmbeddingIndexValidator.validate(searchIndex));
+
+    assertThat(exception.getMessage()).contains("reserved");
+    assertThat(exception.getMessage()).contains("_autoEmbed");
   }
 
   @Test
@@ -607,5 +778,34 @@ public class AutoEmbeddingIndexValidatorTest {
                 "embedding", FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedDef).build())
             .build();
     return SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+  }
+
+  private SearchIndexDefinition createSearchIndexWithAutoEmbedAndField(
+      String fieldName, FieldDefinition fieldDefinition) {
+    var mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            REGISTERED_MODEL, FieldPath.parse("content")))
+                    .build())
+            .field(fieldName, fieldDefinition)
+            .build();
+    return SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+  }
+
+  private static void assertReservedNamespaceRejected(
+      SearchIndexDefinition searchIndex, String invalidPath) {
+    InvalidIndexDefinitionException exception =
+        assertThrows(
+            InvalidIndexDefinitionException.class,
+            () -> AutoEmbeddingIndexValidator.validate(searchIndex));
+
+    assertThat(exception.getMessage()).contains(invalidPath);
+    assertThat(exception.getMessage()).contains("_autoEmbed");
+    assertThat(exception.getMessage()).contains("reserved");
   }
 }
