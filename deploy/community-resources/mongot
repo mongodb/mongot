@@ -38,10 +38,18 @@ run_mongot() {
     # the fips libraries are loaded from there
     # even if they exist in `mongot_community_deploy.jar`
     # JVM_FLAGS and PASS_THROUGH_ARGS purposefully unquoted so they expand
+    #
+    # Bouncy Castle FIPS 2.x ships native crypto libraries inside bc-fips.jar, extracts them into
+    # java.io.tmpdir at startup and dlopen()s them. Hosts that mount /tmp noexec fail that dlopen
+    # with an UnsatisfiedLinkError, and Bouncy Castle's fallback only catches Exception, so the
+    # Error escapes and kills mongot on startup. Select the Java implementation explicitly, which
+    # is what every ARM deployment already runs since these libraries are Linux x86_64 only.
+    # Placed before ${JVM_FLAGS} so an operator can still override it.
     exec "${JAVA_HOME}/bin/java" \
     -XX:+ExitOnOutOfMemoryError \
     -XX:-UseGCOverheadLimit \
     '-Djava.security.egd=file:/dev/urandom' \
+    '-Dorg.bouncycastle.native.cpu_variant=java' \
     '--add-modules=jdk.incubator.vector' \
     '--enable-preview' \
     '--enable-native-access=ALL-UNNAMED' \
