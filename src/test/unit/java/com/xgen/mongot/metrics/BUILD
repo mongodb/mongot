@@ -33,6 +33,7 @@ java_library(
 java_test_suite(
     name = "metrics",
     srcs = [
+        "BuildInfoMetricsTest.java",
         "CachedGaugeTest.java",
         "MetricsFactoryTest.java",
         "PerIndexMetricsFactoryTest.java",
@@ -56,6 +57,7 @@ java_test_suite(
         "@maven//:io_micrometer_micrometer_core",
         "@maven//:io_micrometer_micrometer_registry_prometheus",
         "@maven//:junit_junit",
+        "@maven//:org_apache_lucene_lucene_core",
         "@maven//:org_mockito_mockito_core",
     ],
 )

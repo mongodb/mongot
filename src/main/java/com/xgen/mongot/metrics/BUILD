@@ -3,6 +3,7 @@ load("//bazel/java:package.bzl", "java_library")
 java_library(
     name = "metrics",
     srcs = [
+        "BuildInfoMetrics.java",
         "CachedGauge.java",
         "Instrumentation.java",
         "MeterAndFtdcRegistry.java",
@@ -26,6 +27,7 @@ java_library(
         "@maven//:com_google_guava_guava",
         "@maven//:io_micrometer_micrometer_core",
         "@maven//:org_apache_commons_commons_lang3",
+        "@maven//:org_apache_lucene_lucene_core",
         "@maven//:org_slf4j_slf4j_api",
     ],
 )

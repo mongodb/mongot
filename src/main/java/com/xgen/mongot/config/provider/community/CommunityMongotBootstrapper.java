@@ -49,6 +49,7 @@ import com.xgen.mongot.index.lucene.directory.EnvironmentVariantPerfConfig;
 import com.xgen.mongot.index.query.aggregation.SearchAggregationBootstrap;
 import com.xgen.mongot.lifecycle.LifecycleConfig;
 import com.xgen.mongot.logging.Logging;
+import com.xgen.mongot.metrics.BuildInfoMetrics;
 import com.xgen.mongot.metrics.Instrumentation;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
@@ -199,6 +200,10 @@ public class CommunityMongotBootstrapper {
 
     // Initialize global metrics for community
     GlobalMetricFactory.initialize(meterRegistry);
+    BuildInfoMetrics.register(
+        mongotVersion,
+        mongotConfigs.featureFlags.isEnabled(Feature.INDEX_FEATURE_VERSION_FOUR),
+        meterRegistry);
     var systemMetricsInstrumentation = maybeStartSystemMetrics(config, meterRegistry);
 
     var cursorManager =
