@@ -6,12 +6,10 @@ import static org.junit.Assert.assertThrows;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
 import java.nio.ByteBuffer;
 import java.util.Collections;
-import java.util.List;
 import org.apache.commons.codec.binary.Hex;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.bson.BsonTimestamp;
-import org.bson.RawBsonDocument;
 import org.bson.types.ObjectId;
 import org.junit.Test;
 
@@ -97,51 +95,6 @@ public class ChangeStreamPriorityStrategyTest {
     assertThat(strategy.isHighPriority(INDEX_ID, batch)).isTrue();
   }
 
-  // HadDocumentsPriorityStrategy
-  @Test
-  public void hadDocuments_true_isHighPriority() {
-    var strategy = new HadDocumentsPriorityStrategy();
-    assertThat(strategy.isHighPriority(INDEX_ID, batchWithEvents(1))).isTrue();
-  }
-
-  @Test
-  public void hadDocuments_false_isLowPriority() {
-    var strategy = new HadDocumentsPriorityStrategy();
-    assertThat(strategy.isHighPriority(INDEX_ID, batchWithEvents(0))).isFalse();
-  }
-
-  // BatchDataSizePriorityStrategy
-  @Test
-  public void batchDataSize_sizeAtThreshold_isHighPriority() {
-    var strategy = new BatchDataSizePriorityStrategy(1024);
-    assertThat(strategy.isHighPriority(INDEX_ID, batchWithBytes(1024))).isTrue();
-  }
-
-  @Test
-  public void batchDataSize_sizeAboveThreshold_isHighPriority() {
-    var strategy = new BatchDataSizePriorityStrategy(1024);
-    assertThat(strategy.isHighPriority(INDEX_ID, batchWithBytes(2048))).isTrue();
-  }
-
-  @Test
-  public void batchDataSize_sizeBelowThreshold_isLowPriority() {
-    var strategy = new BatchDataSizePriorityStrategy(1024);
-    assertThat(strategy.isHighPriority(INDEX_ID, batchWithBytes(512))).isFalse();
-  }
-
-  @Test
-  public void batchDataSize_emptyBatch_isLowPriority() {
-    var strategy = new BatchDataSizePriorityStrategy(1024);
-    assertThat(strategy.isHighPriority(INDEX_ID, batchWithBytes(0))).isFalse();
-  }
-
-  @Test
-  public void batchDataSize_negativeThreshold_throwsIllegalArgument() {
-    IllegalArgumentException e =
-        assertThrows(IllegalArgumentException.class, () -> new BatchDataSizePriorityStrategy(-1));
-    assertThat(e).hasMessageThat().contains("-1");
-  }
-
   // Helpers
 
   private static ChangeStreamBatch batchWithLag(int lagSeconds) {
@@ -151,24 +104,6 @@ public class ChangeStreamPriorityStrategyTest {
         Collections.emptyList(), resumeTokenForTime(resumeTokenTime), new BsonTimestamp(now, 0));
   }
 
-  private static ChangeStreamBatch batchWithEvents(int eventCount) {
-    int now = (int) (System.currentTimeMillis() / 1000);
-    BsonTimestamp ts = new BsonTimestamp(now, 0);
-    List<RawBsonDocument> events =
-        eventCount > 0
-            ? Collections.nCopies(eventCount, new RawBsonDocument(new byte[] {5, 0, 0, 0, 0}))
-            : Collections.emptyList();
-    return new ChangeStreamBatch(events, resumeTokenForTime(ts), ts);
-  }
-
-  private static ChangeStreamBatch batchWithBytes(int totalBytes) {
-    int now = (int) (System.currentTimeMillis() / 1000);
-    BsonTimestamp ts = new BsonTimestamp(now, 0);
-    List<RawBsonDocument> events =
-        totalBytes > 0 ? List.of(rawDocOfSize(totalBytes)) : Collections.emptyList();
-    return new ChangeStreamBatch(events, resumeTokenForTime(ts), ts);
-  }
-
   /** Builds a PBRT whose decoded optime is {@code ts}. */
   private static BsonDocument resumeTokenForTime(BsonTimestamp ts) {
     // Resume token binary format: 0x82 (timestamp identifier) followed by the 8-byte long value.
@@ -176,18 +111,5 @@ public class ChangeStreamPriorityStrategyTest {
     buf.put((byte) 0x82);
     buf.putLong(ts.getValue());
     return new BsonDocument("_data", new BsonString(Hex.encodeHexString(buf.array())));
-  }
-
-  /** Creates a RawBsonDocument whose byte buffer has exactly {@code size} remaining bytes. */
-  private static RawBsonDocument rawDocOfSize(int size) {
-    // A minimal valid BSON document is 5 bytes (int32 size + terminator). Pad with zeros.
-    byte[] bytes = new byte[Math.max(5, size)];
-    // BSON int32 little-endian length
-    int len = bytes.length;
-    bytes[0] = (byte) (len & 0xFF);
-    bytes[1] = (byte) ((len >> 8) & 0xFF);
-    bytes[2] = (byte) ((len >> 16) & 0xFF);
-    bytes[3] = (byte) ((len >> 24) & 0xFF);
-    return new RawBsonDocument(bytes);
   }
 }

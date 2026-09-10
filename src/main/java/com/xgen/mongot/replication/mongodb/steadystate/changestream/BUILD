@@ -4,7 +4,6 @@ java_library(
     name = "changestream",
     srcs = [
         "AutoEmbeddingExecutor.java",
-        "BatchDataSizePriorityStrategy.java",
         "ChangeStreamActivityObserver.java",
         "ChangeStreamDispatcher.java",
         "ChangeStreamDualQueueExecutor.java",
@@ -18,7 +17,6 @@ java_library(
         "DecodingExecutorChangeStreamIndexManager.java",
         "EnqueueContext.java",
         "FifoExecutor.java",
-        "HadDocumentsPriorityStrategy.java",
         "ModeAwareChangeStreamClient.java",
         "OptimeLagPriorityStrategy.java",
         "SteadyStateReplicationConfig.java",

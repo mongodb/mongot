@@ -2129,40 +2129,6 @@ public class ChangeStreamManagerTest {
   }
 
   @Test
-  public void testSchedulingConfigGauge_nonOptimeLagMethod_reportsConfiguredKnobs()
-      throws Exception {
-    Assume.assumeTrue(this.context.name.equals("sync-client"));
-
-    // A non-FIFO method other than OPTIME_LAG still takes the dual-queue path, so the effective
-    // method is the configured one.
-    MeterAndFtdcRegistry registry = MeterAndFtdcRegistry.createWithSimpleRegistries();
-    ChangeStreamManager changeStreamManager =
-        ChangeStreamManager.createSync(
-            registry,
-            ChangeStreamManagerTestSyncHelpers.syncSingleEventProducingClient(),
-            mock(ChangeStreamModeSelector.class),
-            indexingWorkSchedulerFactory(),
-            SteadyStateReplicationConfig.builder()
-                .setNumConcurrentChangeStreams(1)
-                .setMaxInFlightEmbeddingGetMores(1)
-                .setChangeStreamQueryMaxTimeMs(1000)
-                .setChangeStreamCursorMaxTimeSec(1000)
-                .setSteadyStateSchedulingMethod(SteadyStateSchedulingMethod.HAD_DOCUMENTS)
-                .setSteadyStatePriorityRatio(3)
-                .setSteadyStatePriorityOptimeThresholdSeconds(20)
-                .build(),
-            this.context.getIndexManagerFactory(),
-            true);
-
-    Gauge gauge = registry.meterRegistry().get("replication.steadyState.schedulingConfig").gauge();
-    assertThat(gauge.getId().getTag("steadyStateSchedulingMethod")).isEqualTo("HAD_DOCUMENTS");
-    assertThat(gauge.getId().getTag("steadyStatePriorityRatio")).isEqualTo("3");
-    assertThat(gauge.getId().getTag("steadyStatePriorityOptimeThresholdSeconds")).isEqualTo("20");
-    assertThat(gauge.getId().getTag("prioritySchedulingFeatureFlag")).isEqualTo("enabled");
-    changeStreamManager.shutdown().get(5, TimeUnit.SECONDS);
-  }
-
-  @Test
   public void testSchedulingConfigGauge_priorityDisabled_reportsFifo() throws Exception {
     Assume.assumeTrue(this.context.name.equals("sync-client"));
 

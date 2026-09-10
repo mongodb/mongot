@@ -296,21 +296,21 @@ public class ChangeStreamDualQueueExecutorTest {
             "test-executor",
             1,
             meterRegistry,
-            new BatchDataSizePriorityStrategy(
-                BatchDataSizePriorityStrategy.DEFAULT_HIGH_PRIORITY_BATCH_SIZE_BYTES),
-            SteadyStateSchedulingMethod.BATCH_DATA_SIZE,
+            new OptimeLagPriorityStrategy(
+                MongoDbReplicationConfig.DEFAULT_STEADY_STATE_PRIORITY_OPTIME_THRESHOLD_SECONDS),
+            SteadyStateSchedulingMethod.OPTIME_LAG,
             PREFERRED_TASKS_PER_REGULAR_TASK);
 
     assertThat(
             meterRegistry
                 .find("test-executor.preferredQueueLength")
-                .tag("schedulingMethod", "BATCH_DATA_SIZE")
+                .tag("schedulingMethod", "OPTIME_LAG")
                 .gauge())
         .isNotNull();
     assertThat(
             meterRegistry
                 .find("test-executor.tasksRoutedToPreferredQueue")
-                .tag("schedulingMethod", "BATCH_DATA_SIZE")
+                .tag("schedulingMethod", "OPTIME_LAG")
                 .counter())
         .isNotNull();
 

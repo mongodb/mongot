@@ -422,11 +422,6 @@ public class ChangeStreamManager {
       SteadyStateSchedulingMethod schedulingMethod,
       SteadyStateReplicationConfig replicationConfig) {
     switch (schedulingMethod) {
-      case HAD_DOCUMENTS:
-        return new HadDocumentsPriorityStrategy();
-      case BATCH_DATA_SIZE:
-        return new BatchDataSizePriorityStrategy(
-            BatchDataSizePriorityStrategy.DEFAULT_HIGH_PRIORITY_BATCH_SIZE_BYTES);
       case OPTIME_LAG:
         return new OptimeLagPriorityStrategy(
             replicationConfig.getSteadyStatePriorityOptimeThresholdSeconds());
