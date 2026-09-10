@@ -26,6 +26,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.xgen.mongot.config.backup.ConfigJournalV1;
+import com.xgen.mongot.config.backup.JournalEntryIdentity;
 import com.xgen.mongot.config.backup.QuarantinePolicy;
 import com.xgen.mongot.config.manager.metrics.GroupedIndexGenerationMetrics;
 import com.xgen.mongot.config.manager.metrics.IndexConfigState;
@@ -43,6 +44,7 @@ import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.InitializedVectorIndex;
 import com.xgen.mongot.index.autoembedding.UnresolvedAutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorDataFieldDefinition;
 import com.xgen.mongot.index.definition.VectorFieldSpecification;
@@ -57,6 +59,8 @@ import com.xgen.mongot.index.query.QueryOptimizationFlags;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.index.version.GenerationId;
+import com.xgen.mongot.index.version.IndexFormatVersion;
+import com.xgen.mongot.index.version.UserIndexVersion;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.monitor.ReplicationStateMonitor;
 import com.xgen.mongot.monitor.ToggleGate;
@@ -814,6 +818,43 @@ public class DefaultConfigManagerTest {
     var actual = new ArrayList<>(mocks.configManager.getIndexInfos());
     actual.sort(Comparator.comparing(info -> info.getDefinition().getType()));
     assertThat(actual).containsExactlyElementsIn(expected);
+  }
+
+  @Test
+  public void getQuarantinedIndexInfos_reflectsBothJournalStatesAndTracksRemovals()
+      throws Exception {
+    DefaultConfigManagerMocks mocks = DefaultConfigManagerMocks.create();
+    assertThat(mocks.configManager.getQuarantinedIndexInfos().isEmpty()).isTrue();
+
+    QuarantinedIndex live = quarantined(new ObjectId(), "liveIndex");
+    QuarantinedIndex staged = quarantined(new ObjectId(), "stagedIndex");
+    mocks.mockedDependencies.incompatibleIndexes.addLiveIndex(live);
+    mocks.mockedDependencies.incompatibleIndexes.addStagedIndex(staged);
+    mocks.configManager.refreshIndexInfos();
+
+    QuarantinedIndexInfos infos = mocks.configManager.getQuarantinedIndexInfos();
+    assertThat(infos.liveIndexes()).containsExactly(live);
+    assertThat(infos.stagedIndexes()).containsExactly(staged);
+
+    mocks.mockedDependencies.incompatibleIndexes.removeLiveIndex(live.indexId());
+    mocks.configManager.refreshIndexInfos();
+
+    QuarantinedIndexInfos refreshed = mocks.configManager.getQuarantinedIndexInfos();
+    assertThat(refreshed.liveIndexes()).isEmpty();
+    assertThat(refreshed.stagedIndexes()).containsExactly(staged);
+  }
+
+  private static QuarantinedIndex quarantined(ObjectId indexId, String name) {
+    return new QuarantinedIndex(
+        new JournalEntryIdentity(
+            indexId,
+            "db",
+            UUID.randomUUID(),
+            name,
+            new Generation(new UserIndexVersion(1), IndexFormatVersion.CURRENT)),
+        IndexDefinitionGeneration.Type.SEARCH,
+        "missing field 'fieldFromTheFuture'",
+        new BsonDocument("fieldFromTheFuture", new BsonBoolean(true)));
   }
 
   @Test

@@ -90,6 +90,8 @@ public class DefaultConfigManager implements ConfigManager {
 
   private volatile ImmutableList<IndexInformation> cachedIndexInfo;
 
+  private volatile QuarantinedIndexInfos cachedQuarantinedIndexInfos;
+
   private volatile ImmutableMap<ObjectId, List<IndexGenerationStateMetrics>>
       cachedGroupedIndexGenerationStateMetrics;
 
@@ -561,6 +563,11 @@ public class DefaultConfigManager implements ConfigManager {
   }
 
   @Override
+  public QuarantinedIndexInfos getQuarantinedIndexInfos() {
+    return this.cachedQuarantinedIndexInfos;
+  }
+
+  @Override
   public synchronized ReplicationStatus getReplicationStatus() {
     var lifecycleManager = this.configState.getLifecycleManager();
     return new ReplicationStatus(
@@ -597,6 +604,8 @@ public class DefaultConfigManager implements ConfigManager {
     AllIndexInformations allIndexInfos = AllPresentIndexes.allIndexInfos(this.configState);
 
     this.cachedIndexInfo = ImmutableList.copyOf(allIndexInfos.indexInformations());
+    this.cachedQuarantinedIndexInfos =
+        QuarantinedIndexInfos.from(this.configState.incompatibleIndexes);
     this.cachedGroupedIndexGenerationStateMetrics =
         ImmutableMap.copyOf(allIndexInfos.allIndexGenerationsGrouped());
   }

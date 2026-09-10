@@ -12,6 +12,12 @@ public interface CachedIndexInfoProvider {
   /** Returns IndexInformation for each of the Indexes currently configured. */
   List<IndexInformation> getIndexInfos();
 
+  /**
+   * Returns the indexes this node cannot serve because their config journal entry would not parse,
+   * so that the authoritative source can be told about them.
+   */
+  QuarantinedIndexInfos getQuarantinedIndexInfos();
+
   /** Returns cached GroupedIndexGenerationMetrics for all of the Indexes currently configured. */
   List<GroupedIndexGenerationMetrics> getGroupedIndexGenerationMetrics();
 

@@ -23,6 +23,7 @@ java_library(
         "PhasingOutIndexes.java",
         "PhasingOutIndexesDropper.java",
         "QuarantinedIndex.java",
+        "QuarantinedIndexInfos.java",
         "QuarantinedIndexLookup.java",
         "StagedIndexes.java",
         "StagedIndexesSwapper.java",
