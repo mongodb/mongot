@@ -180,7 +180,9 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
                 highWaterMark,
                 metricsFactory,
                 avoidNaturalOrderScanSyncSourceChangeResync,
-                isFreshStart);
+                isFreshStart,
+                // Wired up once the manager runs parallel scans.
+                Optional.empty());
 
     return new BufferlessInitialSyncManager(
         initialSyncContext,
@@ -205,6 +207,17 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
     @Var BsonTimestamp highWaterMark;
     @Var BsonValue lastScannedToken;
     if (this.resumeInfo.isPresent()) {
+      // Nothing rebuilds the K-partition run state yet, and a parallel blob has no single resume
+      // token to fall back on, so start the sync over instead of reading a token that does not
+      // exist. Resuming here requires a fresh scan.
+      if (this.resumeInfo.get().isBufferlessParallelNaturalOrderInitialSyncResumeInfo()) {
+        this.logger
+            .atWarn()
+            .addKeyValue("resumeOpTime", this.resumeInfo.get().getResumeOperationTime())
+            .log("Cannot resume a parallel natural-order scan, restarting the initial sync");
+        throw InitialSyncException.createRequiresResync(
+            "cannot resume a parallel natural-order collection scan");
+      }
       // This should never happen because useNaturalOrderScan should be set properly when requests
       // are enqueued into initial sync queue.
       if ((this.resumeInfo.get().isBufferlessIdOrderInitialSyncResumeInfo()

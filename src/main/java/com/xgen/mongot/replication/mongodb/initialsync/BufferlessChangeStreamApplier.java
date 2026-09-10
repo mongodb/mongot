@@ -101,6 +101,11 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
   private final boolean avoidNaturalOrderScanSyncSourceChangeResync;
   private final boolean splitLargeChangeStreamEvents;
 
+  // Present only alongside a parallel collection scan. That run assembles its resume position at
+  // commit time from live state, so batches are scheduled without a staged blob and the high water
+  // mark is handed to the run state instead of being written into one.
+  private final Optional<ParallelCollectionScanResumeState> parallelResumeState;
+
   // If true, this is a fresh initial sync (not resuming from a crash). The change stream will
   // start at highWaterMark + 1 since the collection scan already captured everything at
   // highWaterMark. If false, we're resuming from a crash and must use highWaterMark (inclusive)
@@ -128,7 +133,8 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
       BsonTimestamp highWaterMark,
       MetricsFactory metricsFactory,
       boolean avoidNaturalOrderScanSyncSourceChangeResync,
-      boolean isFreshStart) {
+      boolean isFreshStart,
+      Optional<ParallelCollectionScanResumeState> parallelResumeState) {
     HashMap<String, Object> defaultKeyValues = new HashMap<>();
     defaultKeyValues.put("indexId", context.getIndexId());
     defaultKeyValues.put("generationId", context.getGenerationId());
@@ -157,6 +163,7 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
 
     this.shutdown = false;
     this.isFreshStart = isFreshStart;
+    this.parallelResumeState = parallelResumeState;
 
     Tags replicationTag = Tags.of(ServerStatusDataExtractor.Scope.REPLICATION.getTag());
     this.witnessedUpdatesCounter =
@@ -378,12 +385,25 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
         indexingFuture, InitialSyncException.Phase.CHANGE_STREAM);
 
     // When previous indexing finishes, schedule the current batch.
+    if (this.parallelResumeState.isEmpty()) {
+      return this.context
+          .schedule(
+              batch.finalChangeEvents,
+              SchedulerQueue.Priority.INITIAL_SYNC_CHANGE_STREAM,
+              getCommitUserData(lastScannedToken))
+          .thenRun(() -> updateBatchCounters(batch));
+    }
+
+    ParallelCollectionScanResumeState resumeState = this.parallelResumeState.get();
+    BsonTimestamp batchHighWaterMark = this.highWaterMark;
     return this.context
-        .schedule(
-            batch.finalChangeEvents,
-            SchedulerQueue.Priority.INITIAL_SYNC_CHANGE_STREAM,
-            getCommitUserData(lastScannedToken))
-        .thenRun(() -> updateBatchCounters(batch));
+        .scheduleWithoutCommitUserData(
+            batch.finalChangeEvents, SchedulerQueue.Priority.INITIAL_SYNC_CHANGE_STREAM)
+        .thenRun(
+            () -> {
+              resumeState.advanceHighWaterMark(batchHighWaterMark);
+              updateBatchCounters(batch);
+            });
   }
 
   /**

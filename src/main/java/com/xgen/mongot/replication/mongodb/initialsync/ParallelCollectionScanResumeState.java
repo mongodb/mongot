@@ -17,8 +17,8 @@ import org.bson.BsonTimestamp;
  * <p>{@link #snapshot()} is the commit-data supplier. The periodic committer calls it to assemble a
  * fresh {@link IndexCommitUserData} from the live components as it fires, rather than from a blob
  * staged ahead of time. Each component has exactly one writer (a worker writes only its own
- * partition's {@code resumeRecordId}; only the single-threaded change-stream applier writes {@code
- * highWaterMark}), so no partition's commit can regress another's position.
+ * partition's {@code resumeRecordId}; the change-stream applier writes {@code highWaterMark} one
+ * batch at a time), so no partition's commit can regress another's position.
  */
 public class ParallelCollectionScanResumeState {
 
@@ -75,9 +75,9 @@ public class ParallelCollectionScanResumeState {
   }
 
   /**
-   * Advances the shared high-water mark. Called only by the change-stream applier between scan
-   * windows; it becomes the {@code afterClusterTime} floor for the next scan window and the {@code
-   * startAtOperationTime} for the next apply window.
+   * Advances the shared high-water mark; it becomes the {@code afterClusterTime} floor for the next
+   * scan window and the {@code startAtOperationTime} for the next apply window. Called only by the
+   * change-stream applier, once each batch it read has been indexed.
    */
   public void advanceHighWaterMark(BsonTimestamp highWaterMark) {
     this.highWaterMark = highWaterMark;

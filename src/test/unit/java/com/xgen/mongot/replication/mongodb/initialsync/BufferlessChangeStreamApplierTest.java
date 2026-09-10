@@ -11,6 +11,7 @@ import static com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils.toRa
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -50,6 +51,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -74,6 +76,11 @@ public class BufferlessChangeStreamApplierTest {
   private static final BsonTimestamp OP_TIME = new BsonTimestamp(0, 0);
   private static final BsonTimestamp STOP_AFTER_OP_TIME = new BsonTimestamp(1, 0);
   private static final BsonValue LAST_SCANNED_ID = new BsonInt32(100);
+
+  /** Distinct from OP_TIME so a batch's high water mark is distinguishable from the run's start. */
+  private static final BsonTimestamp INITIAL_HIGH_WATER_MARK = new BsonTimestamp(3, 1);
+
+  private static final BsonTimestamp BATCH_OP_TIME = new BsonTimestamp(5, 1);
 
   private static final BsonDocument POST_BATCH_RESUME_TOKEN =
       new BsonDocument().append("$recordId", new BsonInt64(100));
@@ -391,6 +398,64 @@ public class BufferlessChangeStreamApplierTest {
     }
   }
 
+  @Test
+  public void applyEvents_parallelScan_handsOverHighWaterMarkInsteadOfStagingABlob()
+      throws Exception {
+    ParallelCollectionScanResumeState resumeState = parallelResumeState();
+
+    try (Mocks mocks = Mocks.createMocksWithParallelResumeState(resumeState)) {
+      when(mocks.changeStreamMongoClient.getNext()).thenReturn(batchAt(BATCH_OP_TIME));
+      doReturn(CompletableFuture.completedFuture(null))
+          .when(mocks.context)
+          .scheduleWithoutCommitUserData(any(), any());
+
+      mocks.applier.applyEvents(lastScannedToken(), OP_TIME, false);
+
+      verify(mocks.context, never()).schedule(any(), any(), any());
+      verify(mocks.context).scheduleWithoutCommitUserData(any(), any());
+      assertThat(resumeState.getHighWaterMark()).isEqualTo(BATCH_OP_TIME);
+    }
+  }
+
+  @Test
+  public void applyEvents_parallelScan_leavesHighWaterMarkAloneWhenIndexingFails()
+      throws Exception {
+    ParallelCollectionScanResumeState resumeState = parallelResumeState();
+
+    try (Mocks mocks = Mocks.createMocksWithParallelResumeState(resumeState)) {
+      when(mocks.changeStreamMongoClient.getNext()).thenReturn(batchAt(BATCH_OP_TIME));
+      doReturn(CompletableFuture.failedFuture(new FieldExceededLimitsException("unexpected")))
+          .when(mocks.context)
+          .scheduleWithoutCommitUserData(any(), any());
+
+      Assert.assertThrows(
+          InitialSyncException.class,
+          () -> mocks.applier.applyEvents(lastScannedToken(), OP_TIME, false));
+
+      assertThat(resumeState.getHighWaterMark()).isEqualTo(INITIAL_HIGH_WATER_MARK);
+    }
+  }
+
+  private static BsonValue lastScannedToken() {
+    return enableNaturalOrderScan ? POST_BATCH_RESUME_TOKEN : LAST_SCANNED_ID;
+  }
+
+  private static ChangeStreamBatch batchAt(BsonTimestamp opTime) {
+    return new ChangeStreamBatch(
+        Collections.emptyList(), ChangeStreamUtils.resumeToken(opTime), opTime);
+  }
+
+  private static ParallelCollectionScanResumeState parallelResumeState() {
+    return new ParallelCollectionScanResumeState(
+        MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+        UUID.fromString("390a604a-4979-4d10-9f4f-3d2552224aee"),
+        Optional.of("testHost"),
+        INITIAL_HIGH_WATER_MARK,
+        List.of(
+            new ParallelCollectionScanPartitionState(
+                0, Optional.empty(), Optional.empty(), Optional.empty(), false)));
+  }
+
   private static void assertNoAutoEmbeddingMetrics(SimpleMeterRegistry meterRegistry) {
     assertThat(meterRegistry.find("test.partialEmbedApplied").meters()).isEmpty();
     assertThat(meterRegistry.find("test.viewFieldDependenciesDecision").meters()).isEmpty();
@@ -415,7 +480,8 @@ public class BufferlessChangeStreamApplierTest {
         BsonTimestamp highWaterMark,
         MetricsFactory metricsFactory,
         IndexMetricsUpdater indexMetricsUpdater,
-        boolean isFreshStart) {
+        boolean isFreshStart,
+        Optional<ParallelCollectionScanResumeState> parallelResumeState) {
       this.changeStreamMongoClient = changeStreamMongoClient;
 
       IndexingWorkSchedulerFactory indexingWorkSchedulerFactory =
@@ -455,7 +521,8 @@ public class BufferlessChangeStreamApplierTest {
                   highWaterMark,
                   metricsFactory,
                   enableNaturalOrderScan,
-                  isFreshStart));
+                  isFreshStart,
+                  parallelResumeState));
     }
 
     @Override
@@ -594,9 +661,33 @@ public class BufferlessChangeStreamApplierTest {
               OP_TIME,
               metricsFactory,
               indexMetricsUpdater,
-              isFreshStart);
+              isFreshStart,
+              Optional.empty());
 
       return mocks;
+    }
+
+    /** Returns Mocks for an applier running alongside a parallel collection scan. */
+    private static Mocks createMocksWithParallelResumeState(
+        ParallelCollectionScanResumeState parallelResumeState) throws Exception {
+      ChangeStreamMongoClient<InitialSyncException> changeStreamClient =
+          mock(ChangeStreamMongoClient.class);
+      when(changeStreamClient.getNext()).thenReturn(EMPTY_BATCH);
+
+      InitialSyncMongoClient mongoClient = mock(InitialSyncMongoClient.class);
+      when(mongoClient.getChangeStreamMongoClient(any(), any(), any(), any(), any()))
+          .thenReturn(changeStreamClient);
+      when(mongoClient.getSyncSourceHost()).thenReturn("testHost");
+
+      return new Mocks(
+          mongoClient,
+          changeStreamClient,
+          MOCK_INDEX_DEFINITION_GENERATION,
+          OP_TIME,
+          new MetricsFactory("test", new SimpleMeterRegistry()),
+          IGNORE_METRICS,
+          false,
+          Optional.of(parallelResumeState));
     }
 
     private static Mocks createMocksWithOptime(
@@ -622,7 +713,8 @@ public class BufferlessChangeStreamApplierTest {
               optime,
               new MetricsFactory("test", new SimpleMeterRegistry()),
               indexMetricsUpdater,
-              isFreshStart);
+              isFreshStart,
+              Optional.empty());
 
       when(mongoClient.getChangeStreamMongoClient(
               mocks.commandCaptor.capture(), any(), any(), any(), any()))

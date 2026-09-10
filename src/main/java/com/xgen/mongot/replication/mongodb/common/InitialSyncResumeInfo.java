@@ -20,8 +20,9 @@ import org.bson.json.JsonWriterSettings;
  * application, or a bufferless initial sync (which will always resume as a collection scan phase).
  *
  * <p>For a bufferless initial sync, it would be BufferlessInitialSyncIdOrderResumeInfo if _id scan
- * is used, and it would be BufferlessNaturalOrderInitialSyncResumeInfo if natural order scan is
- * used. It would be empty when there is no resumeInfo commited yet
+ * is used, BufferlessNaturalOrderInitialSyncResumeInfo if natural order scan is used, and
+ * BufferlessParallelNaturalOrderInitialSyncResumeInfo if that natural order scan was split into
+ * partitions. It would be empty when there is no resumeInfo commited yet
  */
 public abstract class InitialSyncResumeInfo implements DocumentEncodable {
   protected static class Fields {
@@ -157,6 +158,10 @@ public abstract class InitialSyncResumeInfo implements DocumentEncodable {
 
   public boolean isBufferlessNaturalOrderInitialSyncResumeInfo() {
     return this instanceof BufferlessNaturalOrderInitialSyncResumeInfo;
+  }
+
+  public boolean isBufferlessParallelNaturalOrderInitialSyncResumeInfo() {
+    return this instanceof BufferlessParallelNaturalOrderInitialSyncResumeInfo;
   }
 
   /** Returns the opTime of the change stream high watermark. */

@@ -3,14 +3,21 @@ package com.xgen.mongot.replication.mongodb.initialsync;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.mongodb.MongoCommandException;
 import com.mongodb.ServerAddress;
 import com.xgen.mongot.metrics.MetricsFactory;
+import com.xgen.mongot.replication.mongodb.common.BufferlessParallelNaturalOrderInitialSyncResumeInfo;
+import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
+import com.xgen.mongot.replication.mongodb.common.PartitionResumeInfo;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
 import org.junit.Assert;
@@ -190,6 +197,35 @@ public class BufferlessInitialSyncManagerTest {
   }
 
   @Test
+  public void testParallelResumeInfoRequiresResync() {
+    MetricsFactory metricsFactory =
+        new MetricsFactory("initialSyncManager", new SimpleMeterRegistry());
+
+    InitialSyncMongoClient mongoClient = mock(InitialSyncMongoClient.class);
+
+    InitialSyncContext context = mock(InitialSyncContext.class);
+    when(context.useNaturalOrderScan()).thenReturn(true);
+
+    BufferlessInitialSyncManager manager =
+        new BufferlessInitialSyncManager(
+            context,
+            mock(BufferlessCollectionScannerFactory.class),
+            mock(BufferlessChangeStreamApplierFactory.class),
+            mock(ServerClusterTimeProvider.class),
+            Duration.ofMinutes(5),
+            Optional.of(parallelResumeInfo()),
+            metricsFactory,
+            mongoClient);
+
+    InitialSyncException thrown = Assert.assertThrows(InitialSyncException.class, manager::sync);
+
+    // Without the guard this would be an UnsupportedOperationException from getResumeToken().
+    Assert.assertEquals(InitialSyncException.Type.REQUIRES_RESYNC, thrown.getType());
+    // The sync bails before doing any work on the sync source.
+    verify(mongoClient, never()).fsync();
+  }
+
+  @Test
   public void testFsyncSkippedWhenNaturalOrderScanDisabled() {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     MetricsFactory metricsFactory = new MetricsFactory("initialSyncManager", registry);
@@ -224,5 +260,17 @@ public class BufferlessInitialSyncManagerTest {
             .tag("outcome", "failure")
             .timer()
             .count());
+  }
+
+  private static BufferlessParallelNaturalOrderInitialSyncResumeInfo parallelResumeInfo() {
+    return new BufferlessParallelNaturalOrderInitialSyncResumeInfo(
+        new BsonTimestamp(1_000, 1),
+        UUID.fromString("390a604a-4979-4d10-9f4f-3d2552224aee"),
+        List.of(
+            new PartitionResumeInfo(
+                0, Optional.empty(), Optional.of(500L), Optional.of(250L), false),
+            new PartitionResumeInfo(
+                1, Optional.of(500L), Optional.empty(), Optional.empty(), false)),
+        Optional.empty());
   }
 }

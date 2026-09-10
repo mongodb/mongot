@@ -185,6 +185,27 @@ public class InitialSyncResumeInfoTest {
       Assert.assertThrows(UnsupportedOperationException.class, resumeInfo::getResumeToken);
     }
 
+    /**
+     * The parallel variant must not answer to the single-cursor natural-order predicate. Callers
+     * use that one to decide it is safe to read a resume token.
+     */
+    @Test
+    public void onlyTheParallelPredicateMatchesTheParallelVariant() {
+      InitialSyncResumeInfo parallel = buildParallelExample();
+      InitialSyncResumeInfo idOrder =
+          new BufferlessIdOrderInitialSyncResumeInfo(new BsonTimestamp(1L), new BsonInt64(7));
+      InitialSyncResumeInfo naturalOrder =
+          new BufferlessNaturalOrderInitialSyncResumeInfo(
+              new BsonTimestamp(1L), new BsonDocument(), Optional.empty());
+
+      Assert.assertTrue(parallel.isBufferlessParallelNaturalOrderInitialSyncResumeInfo());
+      Assert.assertFalse(parallel.isBufferlessNaturalOrderInitialSyncResumeInfo());
+      Assert.assertFalse(parallel.isBufferlessIdOrderInitialSyncResumeInfo());
+
+      Assert.assertFalse(idOrder.isBufferlessParallelNaturalOrderInitialSyncResumeInfo());
+      Assert.assertFalse(naturalOrder.isBufferlessParallelNaturalOrderInitialSyncResumeInfo());
+    }
+
     /** The accessors that replace {@code getResumeToken()} keep working. */
     @Test
     public void perPartitionAccessorsRemainAvailable() {
