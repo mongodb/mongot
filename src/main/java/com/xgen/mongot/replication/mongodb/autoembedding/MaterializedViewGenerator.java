@@ -18,6 +18,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import org.jetbrains.annotations.Nullable;
@@ -84,6 +85,8 @@ public class MaterializedViewGenerator extends ReplicationIndexManager {
    */
   private final InitializedMaterializedViewIndex matViewIndex;
 
+  private final Optional<TenureFencedMaterializedViewDocumentIndexer> tenureIndexer;
+
   private final Counter oplogFalloffResyncCounter;
 
   /**
@@ -127,6 +130,10 @@ public class MaterializedViewGenerator extends ReplicationIndexManager {
     this.lifecycleExecutor = lifecycleExecutor;
     this.isLeader = false; // All generators start as followers
     this.matViewIndex = matViewIndex;
+    this.tenureIndexer =
+        documentIndexer instanceof TenureFencedMaterializedViewDocumentIndexer fencedIndexer
+            ? Optional.of(fencedIndexer)
+            : Optional.empty();
     this.oplogFalloffResyncCounter = metricsFactory.counter("oplogFalloffResyncEvents");
     this.onSourceCollectionDropped = onSourceCollectionDropped;
   }
@@ -202,6 +209,7 @@ public class MaterializedViewGenerator extends ReplicationIndexManager {
     if (this.isLeader) {
       return;
     }
+    this.tenureIndexer.ifPresent(TenureFencedMaterializedViewDocumentIndexer::beginTenure);
     this.logger.info("Transitioning to leader mode, starting replication loop");
     this.isLeader = true;
     this.matViewIndex.setLeaderMode(true);
@@ -246,6 +254,12 @@ public class MaterializedViewGenerator extends ReplicationIndexManager {
       return this.shutdownFuture;
     }
     this.logger.atInfo().log("Shutting down materialized view generator");
+    // End the tenure here, and only here: it must happen atomically with the transition to
+    // SHUT_DOWN below (both under this monitor). Every guard in ReplicationIndexManager that
+    // stops further work from being scheduled is keyed on isShutDown(), so a generator left live
+    // but tenure-less would still enter paths like clearIndex(), where the tenure-fenced
+    // indexer's rejection would surface inside a Crash.ifThrows wrapper and halt the JVM.
+    this.tenureIndexer.ifPresent(TenureFencedMaterializedViewDocumentIndexer::endTenure);
     this.shutdownFuture = super.shutdown();
     this.matViewIndex.setLeaderMode(false);
     // Once shutdown, this generator is no longer the leader, as becomeLeader will be no-op because

@@ -5,6 +5,7 @@ java_test_suite(
     srcs = [
         "MaterializedViewGeneratorTest.java",
         "MaterializedViewManagerTest.java",
+        "TenureFencedMaterializedViewDocumentIndexerTest.java",
     ],
     tags = ["unit"],
     deps = [
@@ -20,6 +21,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/index",
         "//src/main/java/com/xgen/mongot/index/autoembedding",
         "//src/main/java/com/xgen/mongot/index/definition",
+        "//src/main/java/com/xgen/mongot/index/mongodb",
         "//src/main/java/com/xgen/mongot/index/status",
         "//src/main/java/com/xgen/mongot/index/version",
         "//src/main/java/com/xgen/mongot/metrics",
@@ -32,6 +34,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/util/concurrent",
         "//src/main/java/com/xgen/mongot/util/mongodb",
         "//src/main/java/com/xgen/testing",
+        "//src/main/java/com/xgen/testing/mongot/index/definition",
         "//src/main/java/com/xgen/testing/mongot/index/version",
         "//src/main/java/com/xgen/testing/mongot/metrics",
         "//src/main/java/com/xgen/testing/mongot/mock/index",

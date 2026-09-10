@@ -218,6 +218,24 @@ public class MaterializedViewWriter implements IndexWriter {
 
   @Override
   public void commit(EncodedUserData userData) throws IOException {
+    commitInternal(userData, this.leaseManager.getOwnedLeaseVersion(this.generationId));
+  }
+
+  /**
+   * Commits pending writes using the fencing token held by the materialized-view generator.
+   *
+   * <p>The token is an explicit argument because this writer can outlive the generator that
+   * acquired it.
+   */
+  public void commit(EncodedUserData userData, long leaseVersion) throws IOException {
+    commitInternal(userData, leaseVersion);
+  }
+
+  // Delegated to by both commit() overloads via a private method, rather than one overload
+  // calling the other directly: a self-call from one public method to another re-enters proxy
+  // dispatch on a Mockito spy, so callers verifying interactions on a spied writer would see two
+  // recorded commit calls instead of one.
+  private void commitInternal(EncodedUserData userData, long leaseVersion) throws IOException {
     ConcurrentLinkedQueue<WriteModel<RawBsonDocument>> bulkOperations;
     try (LockGuard ignored = LockGuard.with(this.shutdownAndCommitExclusiveLock)) {
       ensureOpen("commit");
@@ -242,7 +260,6 @@ public class MaterializedViewWriter implements IndexWriter {
       // periodic committer or not have a periodic committer at all since we call commit from the
       // indexing work scheduler directly.
       try {
-        long leaseVersion = this.leaseManager.getOwnedLeaseVersion(this.generationId);
         if (!LeaseManager.isUsableLeaseVersion(leaseVersion)) {
           recordMvErrorMetric(
               MaterializedViewNonTransientException.class,
@@ -272,6 +289,11 @@ public class MaterializedViewWriter implements IndexWriter {
             MaterializedViewTransientException.Reason.BULK_WRITE_ERROR);
       }
     }
+    // TODO(CLOUDP-439815): leaseVersion above only fences the MV writes; this checkpoint update
+    // is anchored to whatever DynamicLeaderLeaseManager currently has cached for this lease,
+    // which is not necessarily the same version — the cache can advance (heartbeat renewal, a
+    // same-host reacquisition) between this tenure's beginTenure() and this commit(). Verify
+    // whether that split can produce a checkpoint that doesn't match the fenced data.
     try {
       this.leaseManager.updateCommitInfo(
           this.generationId, userData, materializedViewWriteCompleted);
@@ -281,6 +303,20 @@ public class MaterializedViewWriter implements IndexWriter {
           .setCause(ex)
           .log("Fails to commit lease documents");
       throw ex;
+    }
+  }
+
+  /**
+   * Discards any writes buffered since the last commit, without persisting them.
+   *
+   * <p>Used when a lease tenure ends before its buffered work is committed. Without this, a later
+   * tenure's first {@link #commit(EncodedUserData, long)} would drain and fence this writer's
+   * shared queue, stamping the earlier tenure's uncommitted work with the later tenure's lease
+   * version.
+   */
+  public void discardBufferedWrites() {
+    try (LockGuard ignored = LockGuard.with(this.shutdownAndCommitExclusiveLock)) {
+      this.bulkOperationsRef.set(new ConcurrentLinkedQueue<>());
     }
   }
 

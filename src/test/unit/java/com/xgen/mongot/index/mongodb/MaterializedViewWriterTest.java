@@ -888,6 +888,64 @@ public class MaterializedViewWriterTest {
         .bulkWrite(any(), same(MaterializedViewWriter.MV_BULK_WRITE_OPTIONS));
   }
 
+  @Test
+  public void testCommit_withExplicitToken_usesTokenAfterCheckpointAdvance()
+      throws IOException, FieldExceededLimitsException {
+    var writer =
+        new MaterializedViewWriter(
+            this.autoEmbeddingMongoClient,
+            MV_DATABASE_NAME,
+            MV_COLLECTION_NAME,
+            GENERATION_ID,
+            this.mockLeaseManager,
+            METRICS_FACTORY,
+            COLLECTION_UUID,
+            Optional.empty());
+
+    writer.updateIndex(createDocumentEvent(new ObjectId(), 1));
+    writer.commit(EncodedUserData.EMPTY, 7L);
+
+    verify(this.mockCollection)
+        .bulkWrite(
+            argThat(
+                writes -> {
+                  ReplaceOneModel<RawBsonDocument> write =
+                      (ReplaceOneModel<RawBsonDocument>) writes.get(0);
+                  return write
+                          .getReplacement()
+                          .toBsonDocument()
+                          .getDocument("_autoEmbed")
+                          .getInt64("_leaseVersion")
+                          .getValue()
+                      == 7L;
+                }),
+            same(MaterializedViewWriter.MV_BULK_WRITE_OPTIONS));
+  }
+
+  @Test
+  public void testDiscardBufferedWrites_dropsQueuedOpsFromSubsequentCommit()
+      throws IOException, FieldExceededLimitsException {
+    var writer =
+        new MaterializedViewWriter(
+            this.autoEmbeddingMongoClient,
+            MV_DATABASE_NAME,
+            MV_COLLECTION_NAME,
+            GENERATION_ID,
+            this.mockLeaseManager,
+            METRICS_FACTORY,
+            COLLECTION_UUID,
+            Optional.empty());
+
+    // Simulates a tenure buffering a write, then ending before it commits: the discarded write
+    // must not be flushed and fenced with a later tenure's lease version.
+    writer.updateIndex(createDocumentEvent(new ObjectId(), 1));
+    writer.discardBufferedWrites();
+    writer.commit(EncodedUserData.EMPTY, 8L);
+
+    verify(this.mockCollection, times(0))
+        .bulkWrite(any(), same(MaterializedViewWriter.MV_BULK_WRITE_OPTIONS));
+  }
+
   // ==================== Fencing + partial-failure retry tests ====================
 
   @Test

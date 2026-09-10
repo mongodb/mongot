@@ -2874,7 +2874,6 @@ public class MaterializedViewManagerTest {
     mocks.addIndexForReplication(matViewIndexGen);
     doReturn(IndexManager.State.STEADY_STATE).when(generator).getState();
     doReturn(true).when(generator).isLeader();
-
     MaterializedViewGenerationId matViewGenId = matViewIndexGen.getGenerationId();
     when(mocks.leaseManager.pollFollowerStatuses())
         .thenReturn(
@@ -2891,6 +2890,102 @@ public class MaterializedViewManagerTest {
             .counter(MaterializedViewManager.UNSAFE_LEADERSHIP_REACQUISITION_COUNTER_NAME)
             .count(),
         0.0);
+  }
+
+  @Test
+  public void dynamicLeader_acquireLease_blockedDemotionRace_doesNotActivateStaleReplacement()
+      throws Exception {
+    // Regression test: transitionToFollower() holds the manager monitor for its whole
+    // synchronized body, including existingGenerator.shutdown() and the factory call. If a
+    // concurrent refreshStatus() reacquires this same generation's lease and blocks entering the
+    // monitor behind it, the generator it captured before blocking is stale by the time it gets
+    // in: transitionToFollower() has since installed a replacement and populated
+    // pendingShutdowns. Activating that replacement here would bypass the deferred-activation
+    // pendingShutdowns drain (the only place that verifies the predecessor's shutdown/queue
+    // cleanup actually finished), so the recheck must back off instead.
+    Mocks mocks = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+    MaterializedViewIndexGeneration matViewIndexGen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator staleGenerator = mocks.mockMaterializedViewGenerator(matViewIndexGen);
+    mocks.addIndexForReplication(matViewIndexGen);
+    // Generator was activated as leader during addIndexForReplication (matches the
+    // dynamicLeader_transitionToFollower_skipsWhenPendingShutdown precedent above).
+    verify(staleGenerator).becomeLeader();
+    assertTrue(staleGenerator.isLeader());
+    MaterializedViewGenerator replacement = mock(MaterializedViewGenerator.class);
+    doReturn(IndexManager.State.STEADY_STATE).when(replacement).getState();
+    doReturn(matViewIndexGen).when(replacement).getIndexGeneration();
+    when(mocks.materializedViewGeneratorFactory.create(eq(matViewIndexGen)))
+        .thenReturn(replacement);
+
+    MaterializedViewGenerationId matViewGenId = matViewIndexGen.getGenerationId();
+    when(mocks.leaseManager.pollFollowerStatuses())
+        .thenReturn(
+            new LeaseManager.FollowerPollResult(
+                Map.of(matViewGenId, IndexStatus.unknown()), Set.of(matViewGenId)));
+
+    // Thread B blocks here first, inside tryAcquireLeadership() (no lock held — this models the
+    // real network round-trip), so it captures staleGenerator as generatorBeforeAcquisition and
+    // passes every up-front check (pendingShutdowns empty, generator healthy) before Thread A
+    // ever touches the manager monitor. refreshStatus() itself starts with the synchronized
+    // retryFailedGeneratorCreations(), so if Thread A grabbed the monitor before Thread B even
+    // began, Thread B would block there instead and never reach this call at all — the ordering
+    // below (start B, let it reach here, only then start A) is what makes the race Augment
+    // described reachable in this test.
+    CountDownLatch acquireEntered = new CountDownLatch(1);
+    CountDownLatch releaseAcquire = new CountDownLatch(1);
+    when(mocks.leaseManager.tryAcquireLeadership(matViewGenId))
+        .thenAnswer(
+            invocation -> {
+              acquireEntered.countDown();
+              assertTrue(releaseAcquire.await(5, TimeUnit.SECONDS));
+              return true;
+            });
+    CompletableFuture<Void> refresh =
+        CompletableFuture.runAsync(() -> mocks.runnableCaptor.orElseThrow().getValue().run());
+    assertTrue(acquireEntered.await(5, TimeUnit.SECONDS));
+
+    // Thread A: the heartbeat detects leadership loss (mocks.leaseManager.isLeader() now false)
+    // and demotes staleGenerator via transitionToFollower(), while Thread B is parked above,
+    // holding no lock. Blocking inside shutdown() parks Thread A mid-transition while it still
+    // holds the manager monitor for its whole synchronized body.
+    when(mocks.leaseManager.isLeader(matViewGenId)).thenReturn(false);
+    CountDownLatch shutdownEntered = new CountDownLatch(1);
+    CountDownLatch releaseShutdown = new CountDownLatch(1);
+    doAnswer(
+            invocation -> {
+              shutdownEntered.countDown();
+              assertTrue(releaseShutdown.await(5, TimeUnit.SECONDS));
+              return COMPLETED_FUTURE;
+            })
+        .when(staleGenerator)
+        .shutdown();
+    ArgumentCaptor<Runnable> heartbeatCaptor = ArgumentCaptor.forClass(Runnable.class);
+    verify(mocks.heartbeatExecutor)
+        .scheduleWithFixedDelay(heartbeatCaptor.capture(), anyLong(), anyLong(), any());
+    CompletableFuture<Void> demotion =
+        CompletableFuture.runAsync(() -> heartbeatCaptor.getValue().run());
+    assertTrue(shutdownEntered.await(5, TimeUnit.SECONDS));
+
+    // Release Thread B: tryAcquireLeadership() now returns, and it immediately tries to enter
+    // the manager monitor for the post-acquisition recheck — but Thread A holds it, blocked in
+    // shutdown(). Thread B blocks there in turn.
+    releaseAcquire.countDown();
+    // No signal exists for "about to attempt the monitor entry" (it's the very next bytecode
+    // after the mocked call returns); this pause biases against a spurious pass where Thread A
+    // finishes and releases the monitor before Thread B ever contends for it.
+    Thread.sleep(200);
+
+    // Release Thread A: it finishes transitionToFollower() (installs the replacement,
+    // populates pendingShutdowns, shuts staleGenerator down) and returns, releasing the monitor.
+    // Thread B then acquires it and must recheck pendingShutdowns before activating whatever
+    // generator it now finds.
+    releaseShutdown.countDown();
+    demotion.get(5, TimeUnit.SECONDS);
+    refresh.get(5, TimeUnit.SECONDS);
+
+    verify(replacement, never()).becomeLeader();
+    assertTrue(mocks.manager.pendingShutdowns.containsKey(matViewGenId));
   }
 
   @Test
@@ -3106,10 +3201,79 @@ public class MaterializedViewManagerTest {
         .scheduleWithFixedDelay(heartbeatCaptor.capture(), anyLong(), anyLong(), any());
     heartbeatCaptor.getValue().run();
 
-    InOrder inOrder = Mockito.inOrder(mocks.leaseManager, mocks.materializedViewGeneratorFactory);
+    // shutdown() must run before factory.create(). shutdown() ends the demoted generator's tenure
+    // synchronously (and transitions it to SHUT_DOWN in the same step), so ordering it first stops
+    // it committing under its obsolete fencing token for the duration of the slow factory call.
+    InOrder inOrder =
+        Mockito.inOrder(mocks.leaseManager, generator, mocks.materializedViewGeneratorFactory);
     inOrder.verify(mocks.leaseManager).heartbeat();
+    inOrder.verify(generator).shutdown();
     inOrder.verify(mocks.materializedViewGeneratorFactory).create(matViewIndexGen);
-    verify(generator).shutdown();
+  }
+
+  @Test
+  public void dynamicLeader_transitionToFollower_createFailsAfterShutdown_recoversAndActivates() {
+    // Full recovery assertion for the create-fails-after-shutdown case. With shutdown() ordered
+    // before factory.create(), a failing create leaves the ex-leader SHUT_DOWN in the map with a
+    // real shutdown future in pendingShutdowns. That must not be terminal: once refreshStatus
+    // drains pendingShutdowns, retryFailedGeneratorCreations must build a fresh follower, and
+    // that follower must then be able to acquire leadership and activate.
+    Mocks mocks = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+    MaterializedViewIndexGeneration matViewIndexGen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator leader = mocks.mockMaterializedViewGenerator(matViewIndexGen);
+    mocks.addIndexForReplication(matViewIndexGen);
+    verify(leader).becomeLeader();
+    MaterializedViewGenerationId matViewGenId = matViewIndexGen.getGenerationId();
+
+    // The demoted leader shuts down cleanly; the replacement build fails on this attempt and
+    // succeeds on the retry.
+    doReturn(COMPLETED_FUTURE).when(leader).shutdown();
+    MaterializedViewGenerator recovered = mock(MaterializedViewGenerator.class);
+    doReturn(IndexManager.State.STEADY_STATE).when(recovered).getState();
+    doReturn(matViewIndexGen).when(recovered).getIndexGeneration();
+    when(mocks.materializedViewGeneratorFactory.create(matViewIndexGen))
+        .thenThrow(new RuntimeException("factory failure"))
+        .thenReturn(recovered);
+    when(mocks.leaseManager.isLeader(matViewGenId)).thenReturn(false);
+    // retryFailedGeneratorCreations() is a no-op unless the factory reports initialized.
+    when(mocks.materializedViewGeneratorFactory.isInitialized()).thenReturn(true);
+
+    ArgumentCaptor<Runnable> heartbeatCaptor = ArgumentCaptor.forClass(Runnable.class);
+    verify(mocks.heartbeatExecutor)
+        .scheduleWithFixedDelay(heartbeatCaptor.capture(), anyLong(), anyLong(), any());
+    heartbeatCaptor.getValue().run();
+
+    // Demotion happened, the replacement build failed, and the ex-leader's shutdown is tracked.
+    verify(leader).shutdown();
+    assertTrue(mocks.manager.pendingShutdowns.containsKey(matViewGenId));
+    // The ex-leader is SHUT_DOWN from here on, which is what makes it eligible for recreation.
+    doReturn(IndexManager.State.SHUT_DOWN).when(leader).getState();
+
+    // Tick 1: retryFailedGeneratorCreations still declines (pendingShutdowns is populated), then
+    // the deferred-activation cleanup drains pendingShutdowns now that the future is done and the
+    // InitialSyncQueue is clean.
+    when(mocks.materializedViewGeneratorFactory.hasQueueEntry(matViewGenId)).thenReturn(false);
+    when(mocks.leaseManager.pollFollowerStatuses())
+        .thenReturn(LeaseManager.FollowerPollResult.EMPTY);
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+    assertFalse(
+        "pendingShutdowns should drain once shutdown completed and the queue is clean",
+        mocks.manager.pendingShutdowns.containsKey(matViewGenId));
+    verify(mocks.materializedViewGeneratorFactory, times(2)).create(matViewIndexGen);
+
+    // Tick 2: the retry now rebuilds the follower, and the lease becomes acquirable again, so the
+    // rebuilt generator activates. This is the assertion that the failure was fully recoverable.
+    when(mocks.leaseManager.pollFollowerStatuses())
+        .thenReturn(
+            new LeaseManager.FollowerPollResult(
+                Map.of(matViewGenId, IndexStatus.unknown()), Set.of(matViewGenId)));
+    when(mocks.leaseManager.tryAcquireLeadership(matViewGenId)).thenReturn(true);
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    verify(mocks.materializedViewGeneratorFactory, times(3)).create(matViewIndexGen);
+    assertSame(recovered, mocks.manager.getMatViewGenerator(matViewGenId).orElseThrow());
+    verify(recovered).becomeLeader();
   }
 
   @Test
@@ -3727,6 +3891,41 @@ public class MaterializedViewManagerTest {
         "pendingShutdowns should be cleared",
         mocks.manager.pendingShutdowns.containsKey(matViewGenId));
     verify(generator).becomeLeader();
+  }
+
+  @Test
+  public void refreshStatus_deferredLeadershipActivationFails_releasesLeadership() {
+    // If becomeLeader() throws (e.g. the tenure indexer rejects an invalid lease), the generator's
+    // isLeader flag is never set, but the lease manager still shows this generation as owned. If
+    // nothing released it, the generation would be stuck forever: refreshStatus only attempts
+    // acquisition for generations the lease manager reports as acquirable, and an already-owned
+    // generation never appears there.
+    Mocks mocks = Mocks.createDynamicFollowerWithAcquirableLeases();
+
+    MaterializedViewIndexGeneration matViewIndexGen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator generator = mocks.mockMaterializedViewGenerator(matViewIndexGen);
+    mocks.addIndexForReplication(matViewIndexGen);
+
+    MaterializedViewGenerationId matViewGenId = matViewIndexGen.getGenerationId();
+
+    mocks.manager.pendingShutdowns.put(matViewGenId, COMPLETED_FUTURE);
+    when(mocks.materializedViewGeneratorFactory.hasQueueEntry(matViewGenId)).thenReturn(false);
+    when(mocks.leaseManager.isLeader(matViewGenId)).thenReturn(true);
+    doReturn(false).when(generator).isLeader();
+    doThrow(new RuntimeException("beginTenure rejected an invalid lease"))
+        .when(generator)
+        .becomeLeader();
+
+    when(mocks.leaseManager.pollFollowerStatuses())
+        .thenReturn(LeaseManager.FollowerPollResult.EMPTY);
+
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    assertFalse(
+        "pendingShutdowns should still be cleared even though activation failed",
+        mocks.manager.pendingShutdowns.containsKey(matViewGenId));
+    verify(mocks.leaseManager).releaseLeadership(matViewGenId);
   }
 
   @Test

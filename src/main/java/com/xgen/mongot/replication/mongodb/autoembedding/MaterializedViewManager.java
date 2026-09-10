@@ -52,7 +52,6 @@ import com.xgen.mongot.replication.mongodb.ReplicationIndexManager;
 import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
 import com.xgen.mongot.replication.mongodb.common.ClientSessionRecord;
 import com.xgen.mongot.replication.mongodb.common.DecodingWorkScheduler;
-import com.xgen.mongot.replication.mongodb.common.DefaultDocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
@@ -564,7 +563,8 @@ public class MaterializedViewManager implements ReplicationManager {
             indexingWorkSchedulerFactory,
             decodingWorkScheduler,
             matViewMetadataCatalog,
-            materializedViewConfig);
+            materializedViewConfig,
+            leaseManager);
 
     var heartbeatExecutor =
         Executors.singleThreadScheduledExecutor("mat-view-leader-heartbeat", meterRegistry);
@@ -833,7 +833,7 @@ public class MaterializedViewManager implements ReplicationManager {
       LOG.atInfo()
           .addKeyValue("generationId", matViewIndexGeneration.getGenerationId())
           .log("Activating leadership for generator - we own the existing lease after restart");
-      generator.becomeLeader();
+      becomeLeaderSafely(generator, matViewIndexGeneration.getGenerationId());
     }
     return generator;
   }
@@ -970,7 +970,7 @@ public class MaterializedViewManager implements ReplicationManager {
                             .addKeyValue("newGenerationId", newGenerationId)
                             .log(
                                 "Activating leadership for new generator after lease registration");
-                        newGenerator.becomeLeader();
+                        becomeLeaderSafely(newGenerator, newGenerationId);
                       }
                       // Unregister metrics for the now-replaced generation so the registry
                       // doesn't retain a stale series for a defunct materialized view.
@@ -992,9 +992,6 @@ public class MaterializedViewManager implements ReplicationManager {
     }
   }
 
-  // TODO(CLOUDP-408738): holds the manager monitor across existingGenerator.shutdown(), which
-  // can be slow for STEADY_STATE generators and blocks refreshStatus. Defer the shutdown
-  // future outside the monitor and track it via pendingShutdowns.
   /**
    * Transitions a generator from leader to follower mode by shutting down the old generator and
    * replacing it with a new follower generator. This is called when leadership is lost (e.g., due
@@ -1005,6 +1002,18 @@ public class MaterializedViewManager implements ReplicationManager {
    *
    * <p>Note: Unlike {@link #replaceGenerator}, this does not call leaseManager.add() since the
    * lease already exists, and does not activate leadership since we just lost it.
+   *
+   * <p>{@code existingGenerator.shutdown()} runs before the slow {@code factory.create()} rather
+   * than after it (CLOUDP-434413). {@link ReplicationIndexManager#shutdown()} transitions the
+   * generator to {@code SHUT_DOWN} and ends its tenure synchronously, returning a future for the
+   * asynchronous drain, so calling it first costs nothing but ends the demoted generator's tenure
+   * immediately instead of leaving it able to commit under its now-obsolete fencing token for the
+   * duration of the factory call. It must be {@code shutdown()} that ends the tenure and not a
+   * separate "end tenure now" step: every guard in {@link ReplicationIndexManager} that stops work
+   * from being scheduled is keyed on {@code isShutDown()}, so a generator left live but tenure-less
+   * would still enter paths like {@code clearIndex()}, whose {@code
+   * TenureFencedMaterializedViewDocumentIndexer} call would then throw inside a {@code
+   * Crash.ifThrows} wrapper and halt the JVM.
    *
    * @param uuid the UUID of the materialized view collection
    * @param existingGenerator the existing leader generator to replace
@@ -1033,20 +1042,11 @@ public class MaterializedViewManager implements ReplicationManager {
     }
     // Block leadership acquisition early, before the slow factory.create() call.
     this.pendingShutdowns.put(generationId, new CompletableFuture<>());
+    // Shut down the existing generator first: this ends its tenure synchronously (see javadoc), so
+    // it stops committing under its obsolete fencing token before the slow create() below rather
+    // than after it. Has to happen whether or not the new generator is created.
     try {
-      MaterializedViewGenerator newGenerator =
-          this.matViewGeneratorFactory.create(matViewIndexGeneration);
-      // Replace in the map immediately so subsequent operations use the new follower generator.
-      this.managedMaterializedViewGenerators.put(uuid, newGenerator);
-    } catch (Throwable e) {
-      // Do not rethrow: this runs on the leader heartbeat thread, which must keep scheduling. The
-      // old generator is left shut down in the map; refreshStatus recreates the follower.
-      recordGeneratorCreationFailure(generationId, e, "FACTORY_CREATE_AFTER_LEADERSHIP_LOSS");
-    }
-    // Have to shut down the existing generator no matter new generator is created or not
-    CompletableFuture<Void> shutdownFuture;
-    try {
-      shutdownFuture = existingGenerator.shutdown();
+      CompletableFuture<Void> shutdownFuture = existingGenerator.shutdown();
       this.pendingShutdowns.put(generationId, shutdownFuture);
       LOG.atDebug()
           .addKeyValue("generationId", generationId)
@@ -1059,6 +1059,16 @@ public class MaterializedViewManager implements ReplicationManager {
           .addKeyValue("generationId", generationId)
           .setCause(throwable)
           .log("Old generator shutdown completed exceptionally");
+    }
+    try {
+      MaterializedViewGenerator newGenerator =
+          this.matViewGeneratorFactory.create(matViewIndexGeneration);
+      // Replace in the map immediately so subsequent operations use the new follower generator.
+      this.managedMaterializedViewGenerators.put(uuid, newGenerator);
+    } catch (Throwable e) {
+      // Do not rethrow: this runs on the leader heartbeat thread, which must keep scheduling. The
+      // old generator is left shut down in the map; refreshStatus recreates the follower.
+      recordGeneratorCreationFailure(generationId, e, "FACTORY_CREATE_AFTER_LEADERSHIP_LOSS");
     }
   }
 
@@ -1103,7 +1113,33 @@ public class MaterializedViewManager implements ReplicationManager {
             "Creating auto-embedding generator for static leader election (leader mode = {})",
             isLeader);
     if (isLeader) {
+      becomeLeaderSafely(generator, generationId);
+    }
+  }
+
+  /**
+   * Calls {@link MaterializedViewGenerator#becomeLeader()}, logging and swallowing any failure
+   * (e.g. the generator's tenure indexer rejecting an invalid lease) instead of letting it
+   * propagate to the caller.
+   *
+   * <p>Also releases leadership on failure: {@code becomeLeader()} never sets the generator's
+   * {@code isLeader} flag when it throws, but the lease manager can still show this generation as
+   * leader-owned (e.g. {@code add()} already added it before this call). Without releasing here,
+   * the generation would be stuck marked as owned-but-not-actually-leading forever, since
+   * refreshStatus() only attempts acquisition for generations the lease manager reports as
+   * acquirable. {@code releaseLeadership()} is a no-op for {@link StaticLeaderLeaseManager}, so
+   * this is safe to call from either lease manager.
+   */
+  private void becomeLeaderSafely(
+      MaterializedViewGenerator generator, MaterializedViewGenerationId generationId) {
+    try {
       generator.becomeLeader();
+    } catch (Throwable becomeLeaderFailure) {
+      LOG.atWarn()
+          .addKeyValue("generationId", generationId)
+          .setCause(becomeLeaderFailure)
+          .log("becomeLeader failed while activating leadership");
+      this.leaseManager.releaseLeadership(generationId);
     }
   }
 
@@ -1630,7 +1666,7 @@ public class MaterializedViewManager implements ReplicationManager {
             LOG.atInfo()
                 .addKeyValue("generationId", genId)
                 .log("Activating deferred leadership from replaceGenerator");
-            gen.get().becomeLeader();
+            becomeLeaderSafely(gen.get(), genId);
           }
         }
       } catch (Throwable e) {
@@ -1685,12 +1721,17 @@ public class MaterializedViewManager implements ReplicationManager {
           synchronized (this) {
             var currentGenerator = getMatViewGenerator(generationId);
             if (currentGenerator.isEmpty()
-                || TERMINAL_STATES.contains(currentGenerator.get().getState())) {
+                || TERMINAL_STATES.contains(currentGenerator.get().getState())
+                || this.pendingShutdowns.containsKey(generationId)) {
+              // Last case: a concurrent transitionToFollower() replaced this generator (and
+              // registered its predecessor's shutdown in pendingShutdowns) while we were
+              // blocked waiting on this monitor. Do not activate while a predecessor is still
+              // draining.
               LOG.atWarn()
                   .addKeyValue("generationId", generationId)
                   .log(
-                      "Generator gone or in terminal state after leadership acquisition, "
-                          + "releasing lease");
+                      "Generator gone, in terminal state, or shutting down after leadership "
+                          + "acquisition, releasing lease");
               this.leaseManager.releaseLeadership(generationId);
               continue;
             }
@@ -2522,6 +2563,7 @@ public class MaterializedViewManager implements ReplicationManager {
     private final DecodingWorkScheduler decodingWorkScheduler;
     private final InitialSyncConfig initialSyncConfig;
     private final MaterializedViewCollectionMetadataCatalog matViewMetadataCatalog;
+    private final LeaseManager leaseManager;
 
     // These fields are initialized in updateSyncSourceConfig(), owned by
     // MaterializedViewGeneratorFactory
@@ -2550,7 +2592,8 @@ public class MaterializedViewManager implements ReplicationManager {
         IndexingWorkSchedulerFactory indexingWorkSchedulerFactory,
         DecodingWorkScheduler decodingWorkScheduler,
         MaterializedViewCollectionMetadataCatalog matViewMetadataCatalog,
-        AutoEmbeddingMaterializedViewConfig materializedViewConfig) {
+        AutoEmbeddingMaterializedViewConfig materializedViewConfig,
+        LeaseManager leaseManager) {
       this.resolvedPath = resolvedPath;
       this.lifecycleExecutor = lifecycleExecutor;
       this.cursorManager = cursorManager;
@@ -2562,6 +2605,7 @@ public class MaterializedViewManager implements ReplicationManager {
       this.initialSyncConfig = initialSyncConfig;
       this.matViewMetadataCatalog = matViewMetadataCatalog;
       this.materializedViewConfig = materializedViewConfig;
+      this.leaseManager = leaseManager;
       this.resyncBackoff =
           materializedViewConfig.resyncBackoff.orElse(
               ReplicationIndexManager.DEFAULT_RESYNC_BACKOFF);
@@ -2585,7 +2629,9 @@ public class MaterializedViewManager implements ReplicationManager {
      */
     MaterializedViewGenerator create(MaterializedViewIndexGeneration matViewIndexGeneration) {
       InitializedMaterializedViewIndex matViewIndex = matViewIndexGeneration.getIndex();
-      DocumentIndexer indexer = DefaultDocumentIndexer.create(matViewIndex);
+      DocumentIndexer indexer =
+          new TenureFencedMaterializedViewDocumentIndexer(
+              matViewIndex, this.leaseManager, matViewIndexGeneration.getGenerationId());
       // TODO(CLOUDP-361153): Remove this or replace this as our customized committer.
       PeriodicIndexCommitter committer =
           PeriodicIndexCommitter.createInactive(matViewIndex, indexer);
