@@ -161,7 +161,14 @@ public enum DynamicFeatureFlags {
    * grouping field lands in its own bucket, so it over-rejects rather than risking an OOM from
    * materializing the buckets.
    */
-  SEARCH_AGGREGATION_BUCKET_LIMIT("mongot.featureFlag.enableSearchAggregationBucketLimit", true);
+  SEARCH_AGGREGATION_BUCKET_LIMIT("mongot.featureFlag.enableSearchAggregationBucketLimit", true),
+  /**
+   * When enabled, range queries on a field matching the index's primary sort field use Lucene's
+   * {@code IndexSortSortedNumericDocValuesRangeQuery} to skip segments/blocks outside the query
+   * bounds via binary search over the sort order, instead of a full scan. Off by default.
+   */
+  INDEX_SORT_RANGE_QUERY_OPTIMIZATION_ENABLED(
+      "mongot.featureFlag.indexSortRangeQueryOptimizationEnabled", false);
 
   private final String name;
   private final boolean fallback;
