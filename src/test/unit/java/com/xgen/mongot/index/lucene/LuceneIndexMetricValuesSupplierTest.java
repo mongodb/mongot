@@ -14,6 +14,7 @@ import com.xgen.mongot.index.DocCounts;
 import com.xgen.mongot.index.IndexMetricValuesSupplier;
 import com.xgen.mongot.index.IndexMetricValuesSupplier.MetricNames;
 import com.xgen.mongot.index.IndexReader;
+import com.xgen.mongot.index.IndexTypeData;
 import com.xgen.mongot.index.MeteredSearchIndexReader;
 import com.xgen.mongot.index.ReaderClosedException;
 import com.xgen.mongot.index.SearchIndexReader;
@@ -809,18 +810,30 @@ public class LuceneIndexMetricValuesSupplierTest {
       Assert.assertEquals(1000, luceneIndexMetricsSupplier.getNumFields());
       Assert.assertEquals(1234L, luceneIndexMetricsSupplier.getCachedIndexSize());
       Assert.assertEquals(statusContainer, luceneIndexMetricsSupplier.getIndexStatus());
+      String expectedIndexType =
+          type == IndexDefinition.Type.SEARCH
+              ? IndexTypeData.IndexTypeTag.TAG_SEARCH.tagValue
+              : IndexTypeData.IndexTypeTag.TAG_VECTOR_SEARCH.tagValue;
       Assert.assertEquals(
           1,
           getPerIndexGaugeMetricsValue(
               meterRegistry,
               IndexMetricValuesSupplier.MetricNames.INDEX_STATUS_CODE,
-              Tags.of("status", IndexStatus.StatusCode.STEADY.name())));
+              Tags.of(
+                  "status",
+                  IndexStatus.StatusCode.STEADY.name(),
+                  IndexTypeData.INDEX_TYPE_TAG_NAME,
+                  expectedIndexType)));
       Assert.assertEquals(
           0,
           getPerIndexGaugeMetricsValue(
               meterRegistry,
               IndexMetricValuesSupplier.MetricNames.INDEX_STATUS_CODE,
-              Tags.of("status", IndexStatus.StatusCode.FAILED.name())));
+              Tags.of(
+                  "status",
+                  IndexStatus.StatusCode.FAILED.name(),
+                  IndexTypeData.INDEX_TYPE_TAG_NAME,
+                  expectedIndexType)));
       Assert.assertEquals(
           1234,
           getPerIndexGaugeMetricsValue(
@@ -963,14 +976,20 @@ public class LuceneIndexMetricValuesSupplierTest {
               meterRegistry,
               IndexMetricValuesSupplier.MetricNames.INDEX_STATUS_CODE,
               i,
-              Tag.of("status", IndexStatus.StatusCode.STEADY.name())));
+              Tag.of("status", IndexStatus.StatusCode.STEADY.name()),
+              Tag.of(
+                  IndexTypeData.INDEX_TYPE_TAG_NAME,
+                  IndexTypeData.IndexTypeTag.TAG_SEARCH.tagValue)));
       Assert.assertEquals(
           0,
           getPerIndexPartitionGaugeMetricsValue(
               meterRegistry,
               IndexMetricValuesSupplier.MetricNames.INDEX_STATUS_CODE,
               i,
-              Tag.of("status", IndexStatus.StatusCode.FAILED.name())));
+              Tag.of("status", IndexStatus.StatusCode.FAILED.name()),
+              Tag.of(
+                  IndexTypeData.INDEX_TYPE_TAG_NAME,
+                  IndexTypeData.IndexTypeTag.TAG_SEARCH.tagValue)));
     }
   }
 

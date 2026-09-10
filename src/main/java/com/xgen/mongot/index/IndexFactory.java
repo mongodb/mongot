@@ -1,5 +1,6 @@
 package com.xgen.mongot.index;
 
+import com.xgen.mongot.index.IndexTypeData.IndexTypeTag;
 import com.xgen.mongot.index.analyzer.InvalidAnalyzerDefinitionException;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.version.GenerationId;
@@ -18,7 +19,21 @@ public interface IndexFactory extends Closeable {
    * Creates a new InitializedIndex for the specified index. Can result in errors if index is
    * already initialized.
    */
-  InitializedIndex getInitializedIndex(Index index, IndexDefinitionGeneration definitionGeneration)
+  default InitializedIndex getInitializedIndex(
+      Index index, IndexDefinitionGeneration definitionGeneration) throws IOException {
+    return getInitializedIndex(
+        index,
+        definitionGeneration,
+        IndexTypeData.getIndexTypeTag(definitionGeneration.getIndexDefinition()));
+  }
+
+  /**
+   * Creates a new InitializedIndex using an explicit metrics {@code indexType} tag. Required for
+   * derived Lucene backing indexes of auto-embedding indexes, whose Lucene definition no longer
+   * carries auto-embed fields.
+   */
+  InitializedIndex getInitializedIndex(
+      Index index, IndexDefinitionGeneration definitionGeneration, IndexTypeTag indexTypeTag)
       throws IOException;
 
   /**

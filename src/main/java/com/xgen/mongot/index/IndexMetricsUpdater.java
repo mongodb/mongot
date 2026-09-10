@@ -1828,19 +1828,33 @@ public class IndexMetricsUpdater implements Closeable {
         PerIndexMetricsFactory metricsFactory,
         boolean isIndexFeatureVersionFourEnabled,
         boolean isSearchAggregationEnabled) {
+      this(
+          indexDefinition,
+          metricsFactory,
+          getIndexTypeTag(indexDefinition),
+          isIndexFeatureVersionFourEnabled,
+          isSearchAggregationEnabled);
+    }
+
+    public Builder(
+        IndexDefinition indexDefinition,
+        PerIndexMetricsFactory metricsFactory,
+        IndexTypeData.IndexTypeTag indexTypeTag,
+        boolean isIndexFeatureVersionFourEnabled,
+        boolean isSearchAggregationEnabled) {
       this.indexDefinition = indexDefinition;
       this.metricsFactory = metricsFactory;
       this.indexingMetricsUpdater =
           new IndexingMetricsUpdater(
               metricsFactory.childMetricsFactory(IndexingMetricsUpdater.NAMESPACE),
               indexDefinition.getType(),
-              getIndexTypeTag(indexDefinition),
+              indexTypeTag,
               indexDefinition.getParsedIndexFeatureVersion(),
               isIndexFeatureVersionFourEnabled);
       this.queryingMetricsUpdater =
           new QueryingMetricsUpdater(
               metricsFactory.childMetricsFactory(QueryingMetricsUpdater.NAMESPACE),
-              getIndexTypeTag(indexDefinition),
+              indexTypeTag,
               indexDefinition.getParsedIndexFeatureVersion(),
               isIndexFeatureVersionFourEnabled,
               isSearchAggregationEnabled);

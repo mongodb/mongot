@@ -9,6 +9,7 @@ import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.DocCounts;
 import com.xgen.mongot.index.IndexMetricValuesSupplier;
+import com.xgen.mongot.index.IndexTypeData;
 import com.xgen.mongot.index.ReaderClosedException;
 import com.xgen.mongot.index.SearchIndexReader;
 import com.xgen.mongot.index.analyzer.custom.TokenizerDefinition;
@@ -150,6 +151,7 @@ public final class LuceneSearchIndexMetricValuesSupplier extends LuceneIndexMetr
       PerIndexMetricsFactory indexStatsMetricFactory,
       int indexFeatureVersion,
       boolean isIndexFeatureVersionFourEnabled,
+      IndexTypeData.IndexTypeTag indexTypeTag,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
       Executor asyncRefreshExecutor) {
     return create(
@@ -163,6 +165,7 @@ public final class LuceneSearchIndexMetricValuesSupplier extends LuceneIndexMetr
         indexStatsMetricFactory,
         indexFeatureVersion,
         isIndexFeatureVersionFourEnabled,
+        indexTypeTag,
         DEFAULT_NUM_FIELDS_CACHE_DURATION,
         asyncRefreshExecutor,
         dynamicFeatureFlagRegistry);
@@ -180,6 +183,7 @@ public final class LuceneSearchIndexMetricValuesSupplier extends LuceneIndexMetr
       PerIndexMetricsFactory indexStatsMetricFactory,
       int indexFeatureVersion,
       boolean isIndexFeatureVersionFourEnabled,
+      IndexTypeData.IndexTypeTag indexTypeTag,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
       Executor asyncRefreshExecutor) {
     return create(
@@ -193,6 +197,7 @@ public final class LuceneSearchIndexMetricValuesSupplier extends LuceneIndexMetr
         indexStatsMetricFactory,
         indexFeatureVersion,
         isIndexFeatureVersionFourEnabled,
+        indexTypeTag,
         DEFAULT_NUM_FIELDS_CACHE_DURATION,
         asyncRefreshExecutor,
         dynamicFeatureFlagRegistry);
@@ -214,6 +219,7 @@ public final class LuceneSearchIndexMetricValuesSupplier extends LuceneIndexMetr
       PerIndexMetricsFactory indexStatsMetricFactory,
       int indexFeatureVersion,
       boolean isIndexFeatureVersionFourEnabled,
+      IndexTypeData.IndexTypeTag indexTypeTag,
       Duration numFieldsCacheDuration,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
     return create(
@@ -227,6 +233,7 @@ public final class LuceneSearchIndexMetricValuesSupplier extends LuceneIndexMetr
         indexStatsMetricFactory,
         indexFeatureVersion,
         isIndexFeatureVersionFourEnabled,
+        indexTypeTag,
         numFieldsCacheDuration,
         Runnable::run,
         dynamicFeatureFlagRegistry);
@@ -248,6 +255,7 @@ public final class LuceneSearchIndexMetricValuesSupplier extends LuceneIndexMetr
       PerIndexMetricsFactory indexStatsMetricFactory,
       int indexFeatureVersion,
       boolean isIndexFeatureVersionFourEnabled,
+      IndexTypeData.IndexTypeTag indexTypeTag,
       Duration numFieldsCacheDuration,
       Executor asyncRefreshExecutor,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
@@ -266,7 +274,10 @@ public final class LuceneSearchIndexMetricValuesSupplier extends LuceneIndexMetr
 
     // Register common gauges after construction is complete
     supplier.registerCommonGauges(
-        indexStatsMetricFactory, indexFeatureVersion, isIndexFeatureVersionFourEnabled);
+        indexStatsMetricFactory,
+        indexFeatureVersion,
+        isIndexFeatureVersionFourEnabled,
+        indexTypeTag);
 
     // Register search-index-specific gauges
     if (supplier.hasEmbeddedFields) {

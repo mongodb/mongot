@@ -3,6 +3,7 @@ package com.xgen.mongot.index.autoembedding;
 import static com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGenerationFactory.createMaterializedViewIndexDefinitionGeneration;
 
 import com.xgen.mongot.index.IndexGeneration;
+import com.xgen.mongot.index.IndexTypeData;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingCommitMetadata;
 import java.util.Optional;
@@ -44,6 +45,7 @@ public class AutoEmbeddingIndexGeneration extends IndexGeneration {
         new DerivedLocalIndexGeneration(
             compositeIndex.derivedIndex,
             derivedIndexDefinitionGeneration,
+            IndexTypeData.getIndexTypeTag(rawDefinitionGeneration.getIndexDefinition()),
             () ->
                 new AutoEmbeddingCommitMetadata(
                     compositeIndex.matViewIndex.isCurrentVersionQueryablePerLease(),

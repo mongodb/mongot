@@ -2,6 +2,7 @@ package com.xgen.mongot.index.lucene;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.xgen.mongot.index.IndexMetricValuesSupplier;
+import com.xgen.mongot.index.IndexTypeData;
 import com.xgen.mongot.index.WriterClosedException;
 import com.xgen.mongot.index.lucene.backing.IndexBackingStrategy;
 import com.xgen.mongot.index.lucene.writer.LuceneIndexWriter;
@@ -61,11 +62,13 @@ public abstract class LuceneIndexMetricValuesSupplier implements IndexMetricValu
   protected final void registerCommonGauges(
       PerIndexMetricsFactory metricsFactory,
       int indexFeatureVersion,
-      boolean isIndexFeatureVersionFourEnabled) {
+      boolean isIndexFeatureVersionFourEnabled,
+      IndexTypeData.IndexTypeTag indexTypeTag) {
     Tags indexFeatureVersionTag =
         isIndexFeatureVersionFourEnabled
             ? Tags.of("indexFeatureVersion", String.valueOf(indexFeatureVersion))
             : Tags.empty();
+    Tags indexTypeTags = Tags.of(IndexTypeData.INDEX_TYPE_TAG_NAME, indexTypeTag.tagValue);
 
     // Note these gauges are probed asynchronously and not atomically.
     // As we don't create our own metric namespace, it's not our responsibility to de-register them.
@@ -119,7 +122,9 @@ public abstract class LuceneIndexMetricValuesSupplier implements IndexMetricValu
                     MetricNames.INDEX_STATUS_CODE,
                     this,
                     (supplier) -> supplier.getIndexCountInState(statusCode),
-                    Tags.of("status", statusCode.name()).and(indexFeatureVersionTag)));
+                    Tags.of("status", statusCode.name())
+                        .and(indexFeatureVersionTag)
+                        .and(indexTypeTags)));
 
     if (this.indexWriter instanceof MultiLuceneIndexWriter multiLuceneIndexWriter) {
       // If there are multiple index-partitions, export following metrics for per index-partition.
@@ -166,7 +171,9 @@ public abstract class LuceneIndexMetricValuesSupplier implements IndexMetricValu
                         (supplier) -> supplier.getIndexCountInState(statusCode),
                         getIndexPartitionTags(indexPartitionId)
                             .and(
-                                Tags.of("status", statusCode.name()).and(indexFeatureVersionTag))));
+                                Tags.of("status", statusCode.name())
+                                    .and(indexFeatureVersionTag)
+                                    .and(indexTypeTags))));
       }
     }
   }

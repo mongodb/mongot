@@ -15,6 +15,7 @@ import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.Index;
 import com.xgen.mongot.index.IndexFactory;
 import com.xgen.mongot.index.IndexMetricsUpdater;
+import com.xgen.mongot.index.IndexTypeData.IndexTypeTag;
 import com.xgen.mongot.index.analyzer.InvalidAnalyzerDefinitionException;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
@@ -222,7 +223,8 @@ public class MaterializedViewIndexFactory implements IndexFactory {
 
   @Override
   public InitializedMaterializedViewIndex getInitializedIndex(
-      Index index, IndexDefinitionGeneration definitionGeneration) throws IOException {
+      Index index, IndexDefinitionGeneration definitionGeneration, IndexTypeTag indexTypeTag)
+      throws IOException {
     return Check.instanceOf(index, InitializedMaterializedViewIndex.class);
   }
 

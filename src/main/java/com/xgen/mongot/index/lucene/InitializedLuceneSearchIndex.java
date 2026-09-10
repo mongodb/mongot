@@ -15,6 +15,7 @@ import com.xgen.mongot.index.IndexMetricValuesSupplier;
 import com.xgen.mongot.index.IndexMetrics;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.IndexTypeData;
+import com.xgen.mongot.index.IndexTypeData.IndexTypeTag;
 import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.IndexWriter;
 import com.xgen.mongot.index.InitializedSearchIndex;
@@ -89,6 +90,7 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
     this.initializedResourcesClosed = false;
   }
 
+  @VisibleForTesting
   static InitializedLuceneSearchIndex create(
       LuceneSearchIndex index,
       GenerationId generationId,
@@ -98,6 +100,29 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
       FeatureFlags featureFlags,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
       BooleanSupplier useIdBloomFilter)
+      throws IOException {
+    return create(
+        index,
+        generationId,
+        directoryFactory,
+        indexDirectoryHelper,
+        luceneIndexSnapshotter,
+        featureFlags,
+        dynamicFeatureFlagRegistry,
+        useIdBloomFilter,
+        IndexTypeData.getIndexTypeTag(index.getDefinition()));
+  }
+
+  static InitializedLuceneSearchIndex create(
+      LuceneSearchIndex index,
+      GenerationId generationId,
+      IndexDirectoryFactory directoryFactory,
+      IndexDirectoryHelper indexDirectoryHelper,
+      Optional<LuceneIndexSnapshotter> luceneIndexSnapshotter,
+      FeatureFlags featureFlags,
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
+      BooleanSupplier useIdBloomFilter,
+      IndexTypeTag indexTypeTag)
       throws IOException {
     LOG.atInfo()
         .addKeyValue("indexId", generationId.indexId)
@@ -113,7 +138,8 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
               luceneIndexSnapshotter,
               featureFlags,
               dynamicFeatureFlagRegistry,
-              useIdBloomFilter);
+              useIdBloomFilter,
+              indexTypeTag);
       LOG.atInfo()
           .addKeyValue("indexId", generationId.indexId)
           .addKeyValue("generationId", generationId)
@@ -138,7 +164,8 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
             luceneIndexSnapshotter,
             featureFlags,
             dynamicFeatureFlagRegistry,
-            useIdBloomFilter);
+            useIdBloomFilter,
+            indexTypeTag);
     LOG.atInfo()
         .addKeyValue("indexId", generationId.indexId)
         .addKeyValue("generationId", generationId)
@@ -153,7 +180,8 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
       Optional<LuceneIndexSnapshotter> luceneIndexSnapshotter,
       FeatureFlags featureFlags,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
-      BooleanSupplier useIdBloomFilter)
+      BooleanSupplier useIdBloomFilter,
+      IndexTypeTag indexTypeTag)
       throws IOException {
     var definition = index.getDefinition();
     var searchIndexProperties = index.getSearchIndexProperties();
@@ -161,6 +189,7 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
         new IndexMetricsUpdater.Builder(
             index.getDefinition(),
             searchIndexProperties.metricsFactory,
+            indexTypeTag,
             featureFlags.isEnabled(Feature.INDEX_FEATURE_VERSION_FOUR),
             featureFlags.isEnabled(Feature.SEARCH_AGGREGATION));
     Analyzer indexAnalyzer =
@@ -188,7 +217,7 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
                         definition.getNumPartitions(),
                         featureFlags.isEnabled(Feature.CANCEL_MERGE),
                         useIdBloomFilter,
-                        IndexTypeData.getIndexTypeTag(definition).tagValue,
+                        indexTypeTag.tagValue,
                         directory),
                     searchIndexProperties.mergePolicy,
                     searchIndexProperties.ramBufferSizeMb,
@@ -259,6 +288,7 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
             searchIndexProperties.metricsFactory,
             definition.getParsedIndexFeatureVersion(),
             featureFlags.isEnabled(Feature.INDEX_FEATURE_VERSION_FOUR),
+            indexTypeTag,
             dynamicFeatureFlagRegistry,
             searchIndexProperties.metricRefreshExecutor);
 

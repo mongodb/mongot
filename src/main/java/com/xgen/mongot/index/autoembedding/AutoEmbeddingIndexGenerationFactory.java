@@ -12,6 +12,7 @@ import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
 import com.xgen.mongot.index.Index;
 import com.xgen.mongot.index.IndexFactory;
 import com.xgen.mongot.index.IndexGeneration;
+import com.xgen.mongot.index.IndexTypeData;
 import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.analyzer.InvalidAnalyzerDefinitionException;
 import com.xgen.mongot.index.definition.AnalyzerBoundSearchIndexDefinition;
@@ -191,7 +192,10 @@ public class AutoEmbeddingIndexGenerationFactory {
         readPersistedCommit(indexFactory, rawDefinitionGeneration)
             .flatMap(IndexCommitUserData::getAutoEmbeddingMetadata);
     return reconstructOfflineDerivedIndex(indexFactory, rawDefinitionGeneration, metadata)
-        .flatMap(derived -> initializeDerivedIndexForOfflineServing(indexFactory, derived));
+        .flatMap(
+            derived ->
+                initializeDerivedIndexForOfflineServing(
+                    indexFactory, rawDefinitionGeneration, derived));
   }
 
   /** Reconstructs from already-read commit metadata without opening a reader. */
@@ -233,10 +237,15 @@ public class AutoEmbeddingIndexGenerationFactory {
    * owns and closes the returned index. Empty when initialization fails.
    */
   private static Optional<InitializedIndex> initializeDerivedIndexForOfflineServing(
-      IndexFactory indexFactory, ReconstructedDerived derived) {
+      IndexFactory indexFactory,
+      IndexDefinitionGeneration rawDefinitionGeneration,
+      ReconstructedDerived derived) {
     try {
       return Optional.of(
-          indexFactory.getInitializedIndex(derived.index(), derived.definitionGeneration()));
+          indexFactory.getInitializedIndex(
+              derived.index(),
+              derived.definitionGeneration(),
+              IndexTypeData.getIndexTypeTag(rawDefinitionGeneration.getIndexDefinition())));
     } catch (IOException | RuntimeException e) {
       LOG.atWarn()
           .setCause(e)
@@ -271,7 +280,8 @@ public class AutoEmbeddingIndexGenerationFactory {
       if (optime.isPresent()) {
         // Unresolved generations skip IndexLifecycleManager, so this is the only initialization.
         Optional<InitializedIndex> served =
-            initializeDerivedIndexForOfflineServing(indexFactory, reconstructed.get());
+            initializeDerivedIndexForOfflineServing(
+                indexFactory, rawDefinitionGeneration, reconstructed.get());
         if (served.isPresent()) {
           served
               .get()

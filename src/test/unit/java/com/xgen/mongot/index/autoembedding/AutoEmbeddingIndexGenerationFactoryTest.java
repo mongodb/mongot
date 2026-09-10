@@ -165,7 +165,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
     // not host the source collection.
     verify(matViewIndexFactory, never()).getIndex(any());
     verify(indexFactory, never()).getIndex(any());
-    verify(indexFactory, never()).getInitializedIndex(any(), any());
+    verify(indexFactory, never()).getInitializedIndex(any(), any(), any());
   }
 
   @Test
@@ -195,7 +195,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
         .isEmpty();
     verify(matViewIndexFactory, never()).getIndex(any());
     verify(indexFactory).getIndex(same(rawGen));
-    verify(indexFactory, never()).getInitializedIndex(any(), any());
+    verify(indexFactory, never()).getInitializedIndex(any(), any(), any());
 
     result.getIndex().close();
     result.getIndex().drop();
@@ -334,7 +334,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
     when(reconstructed.getStatus())
         .thenReturn(IndexStatus.stale("serving offline", committedOptime));
     when(indexFactory.getIndex(any())).thenReturn(mock(Index.class));
-    when(indexFactory.getInitializedIndex(any(), any())).thenReturn(reconstructed);
+    when(indexFactory.getInitializedIndex(any(), any(), any())).thenReturn(reconstructed);
 
     IndexGeneration result =
         AutoEmbeddingIndexGenerationFactory.getAutoEmbeddingIndexGeneration(
@@ -345,7 +345,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
     // unresolved generation delegates its status to it -> reported STALE, not FAILED.
     ArgumentCaptor<IndexStatus> staleStatus = ArgumentCaptor.forClass(IndexStatus.class);
     verify(reconstructed).setStatus(staleStatus.capture());
-    verify(indexFactory).getInitializedIndex(any(), any());
+    verify(indexFactory).getInitializedIndex(any(), any(), any());
     assertEquals(IndexStatus.StatusCode.STALE, staleStatus.getValue().getStatusCode());
     assertEquals(Optional.of(committedOptime), staleStatus.getValue().getOptime());
     assertEquals(IndexStatus.StatusCode.STALE, result.getIndex().getStatus().getStatusCode());
@@ -379,7 +379,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
                 "mongod unreachable", MaterializedViewTransientException.Reason.UNKNOWN));
     Index cleanupIndex = mock(Index.class);
     when(indexFactory.getIndex(any())).thenReturn(cleanupIndex);
-    when(indexFactory.getInitializedIndex(same(cleanupIndex), any()))
+    when(indexFactory.getInitializedIndex(same(cleanupIndex), any(), any()))
         .thenThrow(new IOException("disk gone"));
 
     IndexGeneration result =
@@ -393,7 +393,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
         result.getIndex().getStatus().getReason());
     UnresolvedAutoEmbeddingIndex unresolved = (UnresolvedAutoEmbeddingIndex) result.getIndex();
     assertThat(unresolved.getReconstructedDerivedIndex()).isEmpty();
-    verify(indexFactory).getInitializedIndex(same(cleanupIndex), any());
+    verify(indexFactory).getInitializedIndex(same(cleanupIndex), any(), any());
 
     result.getIndex().close();
     result.getIndex().drop();
@@ -428,7 +428,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
 
     assertTrue(result instanceof UnresolvedAutoEmbeddingIndexGeneration);
     assertEquals(IndexStatus.StatusCode.FAILED, result.getIndex().getStatus().getStatusCode());
-    verify(indexFactory, never()).getInitializedIndex(any(), any());
+    verify(indexFactory, never()).getInitializedIndex(any(), any(), any());
 
     result.getIndex().close();
     result.getIndex().drop();
@@ -474,7 +474,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
         Optional.of(IndexStatus.Reason.AUTO_EMBEDDING_RESOLUTION_RETRY),
         result.getIndex().getStatus().getReason());
     // The derived index is retained for cleanup, but no reader is opened without a valid optime.
-    verify(indexFactory, never()).getInitializedIndex(any(), any());
+    verify(indexFactory, never()).getInitializedIndex(any(), any(), any());
     assertThat(((UnresolvedAutoEmbeddingIndex) result.getIndex()).getReconstructedDerivedIndex())
         .isEmpty();
     result.getIndex().close();
@@ -493,7 +493,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
     ArgumentCaptor<IndexDefinitionGeneration> derivedGen =
         ArgumentCaptor.forClass(IndexDefinitionGeneration.class);
     when(indexFactory.getIndex(derivedGen.capture())).thenReturn(mock(Index.class));
-    when(indexFactory.getInitializedIndex(any(), any())).thenReturn(reconstructed);
+    when(indexFactory.getInitializedIndex(any(), any(), any())).thenReturn(reconstructed);
 
     Optional<InitializedIndex> result =
         AutoEmbeddingIndexGenerationFactory.reconstructOfflineDerivedIndex(
@@ -614,7 +614,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
     ArgumentCaptor<IndexDefinitionGeneration> derivedGen =
         ArgumentCaptor.forClass(IndexDefinitionGeneration.class);
     when(indexFactory.getIndex(derivedGen.capture())).thenReturn(mock(Index.class));
-    when(indexFactory.getInitializedIndex(any(), any())).thenReturn(reconstructed);
+    when(indexFactory.getInitializedIndex(any(), any(), any())).thenReturn(reconstructed);
 
     Optional<InitializedIndex> result =
         AutoEmbeddingIndexGenerationFactory.reconstructOfflineDerivedIndex(
@@ -636,7 +636,8 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
         indexFactoryWithCommit(
             Optional.of(commitWith(reconstructableMetadata(TENANT_MV_DATABASE_NAME))));
     when(indexFactory.getIndex(any())).thenReturn(mock(Index.class));
-    when(indexFactory.getInitializedIndex(any(), any())).thenThrow(new IOException("disk gone"));
+    when(indexFactory.getInitializedIndex(any(), any(), any()))
+        .thenThrow(new IOException("disk gone"));
     assertThat(
             AutoEmbeddingIndexGenerationFactory.reconstructOfflineDerivedIndex(
                 indexFactory, autoEmbedVectorGen()))

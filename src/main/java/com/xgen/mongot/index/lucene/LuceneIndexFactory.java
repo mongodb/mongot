@@ -11,6 +11,8 @@ import com.xgen.mongot.index.EncodedUserData;
 import com.xgen.mongot.index.Index;
 import com.xgen.mongot.index.IndexFactory;
 import com.xgen.mongot.index.IndexMetricsUpdater;
+import com.xgen.mongot.index.IndexTypeData;
+import com.xgen.mongot.index.IndexTypeData.IndexTypeTag;
 import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.analyzer.AnalyzerRegistry;
 import com.xgen.mongot.index.analyzer.AnalyzerRegistryFactory;
@@ -639,6 +641,16 @@ public class LuceneIndexFactory implements IndexFactory {
   @Override
   public InitializedIndex getInitializedIndex(
       Index index, IndexDefinitionGeneration definitionGeneration) throws IOException {
+    return getInitializedIndex(
+        index,
+        definitionGeneration,
+        IndexTypeData.getIndexTypeTag(definitionGeneration.getIndexDefinition()));
+  }
+
+  @Override
+  public InitializedIndex getInitializedIndex(
+      Index index, IndexDefinitionGeneration definitionGeneration, IndexTypeTag indexTypeTag)
+      throws IOException {
     try {
       FileUtils.mkdirIfNotExist(
           this.indexDirectoryHelper.getIndexMetadataPath(definitionGeneration));
@@ -683,7 +695,8 @@ public class LuceneIndexFactory implements IndexFactory {
           luceneIndexSnapshotter,
           this.featureFlags,
           this.dynamicFeatureFlagRegistry,
-          useIdBloomFilter);
+          useIdBloomFilter,
+          indexTypeTag);
     } else {
       var luceneSearchIndex = Check.instanceOf(index, LuceneSearchIndex.class);
       return InitializedLuceneSearchIndex.create(
@@ -694,7 +707,8 @@ public class LuceneIndexFactory implements IndexFactory {
           luceneIndexSnapshotter,
           this.featureFlags,
           this.dynamicFeatureFlagRegistry,
-          useIdBloomFilter);
+          useIdBloomFilter,
+          indexTypeTag);
     }
   }
 

@@ -15,6 +15,7 @@ import com.xgen.mongot.embedding.exceptions.MaterializedViewNonTransientExceptio
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
 import com.xgen.mongot.index.IndexMetricValuesSupplier;
 import com.xgen.mongot.index.IndexMetricsUpdater;
+import com.xgen.mongot.index.IndexTypeData;
 import com.xgen.mongot.index.ReplicationOpTimeInfo;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
@@ -164,13 +165,17 @@ public class InitializedMaterializedViewIndexTest {
         createStatusMetricIndex(
             MeterAndFtdcRegistry.createWithSimpleRegistries(), IndexStatus.unknown());
 
-    assertStatusGaugeValue(fixture.meterRegistry(), IndexStatus.StatusCode.UNKNOWN, 1);
-    assertStatusGaugeValue(fixture.meterRegistry(), IndexStatus.StatusCode.STEADY, 0);
+    assertStatusGaugeValue(
+        fixture.meterRegistry(), IndexStatus.StatusCode.UNKNOWN, 1, fixture.indexType());
+    assertStatusGaugeValue(
+        fixture.meterRegistry(), IndexStatus.StatusCode.STEADY, 0, fixture.indexType());
 
     fixture.index().setStatus(IndexStatus.steady());
 
-    assertStatusGaugeValue(fixture.meterRegistry(), IndexStatus.StatusCode.UNKNOWN, 0);
-    assertStatusGaugeValue(fixture.meterRegistry(), IndexStatus.StatusCode.STEADY, 1);
+    assertStatusGaugeValue(
+        fixture.meterRegistry(), IndexStatus.StatusCode.UNKNOWN, 0, fixture.indexType());
+    assertStatusGaugeValue(
+        fixture.meterRegistry(), IndexStatus.StatusCode.STEADY, 1, fixture.indexType());
   }
 
   @Test
@@ -182,8 +187,13 @@ public class InitializedMaterializedViewIndexTest {
 
     fixture.index().setStatus(IndexStatus.initialSync());
 
-    assertStatusGaugeValue(fixture.meterRegistry(), IndexStatus.StatusCode.RECOVERING_TRANSIENT, 1);
-    assertStatusGaugeValue(fixture.meterRegistry(), IndexStatus.StatusCode.INITIAL_SYNC, 0);
+    assertStatusGaugeValue(
+        fixture.meterRegistry(),
+        IndexStatus.StatusCode.RECOVERING_TRANSIENT,
+        1,
+        fixture.indexType());
+    assertStatusGaugeValue(
+        fixture.meterRegistry(), IndexStatus.StatusCode.INITIAL_SYNC, 0, fixture.indexType());
   }
 
   @Test
@@ -202,15 +212,29 @@ public class InitializedMaterializedViewIndexTest {
             meterAndFtdcRegistry,
             MaterializedViewIndex.mockMatViewDefinitionGeneration(matViewA0),
             IndexStatus.steady());
-    assertStatusGaugeValue(meterAndFtdcRegistry.meterRegistry(), IndexStatus.StatusCode.STEADY, 1);
+    String vectorAutoEmbeddingIndexType =
+        IndexTypeData.IndexTypeTag.TAG_VECTOR_SEARCH_AUTO_EMBEDDING.tagValue;
+    assertStatusGaugeValue(
+        meterAndFtdcRegistry.meterRegistry(),
+        IndexStatus.StatusCode.STEADY,
+        1,
+        vectorAutoEmbeddingIndexType);
 
     IndexFixture successor =
         createStatusMetricIndex(
             meterAndFtdcRegistry,
             MaterializedViewIndex.mockMatViewDefinitionGeneration(matViewA1),
             IndexStatus.unknown());
-    assertStatusGaugeValue(meterAndFtdcRegistry.meterRegistry(), IndexStatus.StatusCode.UNKNOWN, 1);
-    assertStatusGaugeValue(meterAndFtdcRegistry.meterRegistry(), IndexStatus.StatusCode.STEADY, 0);
+    assertStatusGaugeValue(
+        meterAndFtdcRegistry.meterRegistry(),
+        IndexStatus.StatusCode.UNKNOWN,
+        1,
+        vectorAutoEmbeddingIndexType);
+    assertStatusGaugeValue(
+        meterAndFtdcRegistry.meterRegistry(),
+        IndexStatus.StatusCode.STEADY,
+        0,
+        vectorAutoEmbeddingIndexType);
     successor.index().setStatus(IndexStatus.steady());
 
     predecessor.index().close();
@@ -218,8 +242,16 @@ public class InitializedMaterializedViewIndexTest {
     assertEquals(
         IndexStatus.StatusCode.values().length,
         countStatusGauges(meterAndFtdcRegistry.meterRegistry()));
-    assertStatusGaugeValue(meterAndFtdcRegistry.meterRegistry(), IndexStatus.StatusCode.STEADY, 1);
-    assertStatusGaugeValue(meterAndFtdcRegistry.meterRegistry(), IndexStatus.StatusCode.UNKNOWN, 0);
+    assertStatusGaugeValue(
+        meterAndFtdcRegistry.meterRegistry(),
+        IndexStatus.StatusCode.STEADY,
+        1,
+        vectorAutoEmbeddingIndexType);
+    assertStatusGaugeValue(
+        meterAndFtdcRegistry.meterRegistry(),
+        IndexStatus.StatusCode.UNKNOWN,
+        0,
+        vectorAutoEmbeddingIndexType);
   }
 
   @Test
@@ -356,15 +388,34 @@ public class InitializedMaterializedViewIndexTest {
             schemaMetadata,
             "__mdb_internal_search");
     index.registerStatusGauges();
-    return new IndexFixture(index, meterAndFtdcRegistry.meterRegistry());
+    String indexType = IndexTypeData.getIndexTypeTag(defGen.getIndexDefinition()).tagValue;
+    return new IndexFixture(index, meterAndFtdcRegistry.meterRegistry(), indexType);
+  }
+
+  @Test
+  public void statusGauges_includeSearchAutoEmbeddingIndexType() throws Exception {
+    MaterializedViewIndexDefinitionGeneration defGen =
+        MaterializedViewIndex.mockMatViewSearchDefinitionGeneration(INDEX_ID);
+    IndexFixture fixture =
+        createStatusMetricIndex(
+            MeterAndFtdcRegistry.createWithSimpleRegistries(), defGen, IndexStatus.steady());
+
+    assertEquals(
+        IndexTypeData.IndexTypeTag.TAG_SEARCH_AUTO_EMBEDDING.tagValue, fixture.indexType());
+    assertStatusGaugeValue(
+        fixture.meterRegistry(), IndexStatus.StatusCode.STEADY, 1, fixture.indexType());
   }
 
   private static void assertStatusGaugeValue(
-      MeterRegistry meterRegistry, IndexStatus.StatusCode statusCode, long expectedValue) {
+      MeterRegistry meterRegistry,
+      IndexStatus.StatusCode statusCode,
+      long expectedValue,
+      String indexType) {
     double value =
         meterRegistry
             .get(NAMESPACE + "." + IndexMetricValuesSupplier.MetricNames.INDEX_STATUS_CODE)
             .tag("status", statusCode.name())
+            .tag(IndexTypeData.INDEX_TYPE_TAG_NAME, indexType)
             .gauge()
             .value();
     assertEquals(expectedValue, value, 0);
@@ -462,5 +513,5 @@ public class InitializedMaterializedViewIndexTest {
   }
 
   private record IndexFixture(
-      InitializedMaterializedViewIndex index, MeterRegistry meterRegistry) {}
+      InitializedMaterializedViewIndex index, MeterRegistry meterRegistry, String indexType) {}
 }

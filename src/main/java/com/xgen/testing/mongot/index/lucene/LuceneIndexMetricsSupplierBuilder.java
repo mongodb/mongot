@@ -5,6 +5,7 @@ import static org.mockito.Mockito.when;
 
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.index.IndexReader;
+import com.xgen.mongot.index.IndexTypeData;
 import com.xgen.mongot.index.SearchIndexReader;
 import com.xgen.mongot.index.VectorIndexReader;
 import com.xgen.mongot.index.analyzer.definition.CustomAnalyzerDefinition;
@@ -164,6 +165,7 @@ public class LuceneIndexMetricsSupplierBuilder {
                 GenerationIdBuilder.create()),
             SearchIndexCapabilities.CURRENT_FEATURE_VERSION,
             true,
+            IndexTypeData.IndexTypeTag.TAG_SEARCH,
             this.numFieldsCacheDuration,
             this.asyncRefreshExecutor,
             this.dynamicFeatureFlagRegistry);
@@ -188,6 +190,7 @@ public class LuceneIndexMetricsSupplierBuilder {
             vectorIndexReader,
             this.hasNestedVectorFields,
             this.fieldMapping,
+            IndexTypeData.IndexTypeTag.TAG_VECTOR_SEARCH,
             new PerIndexMetricsFactory(
                 METRICS_NAMESPACE,
                 MeterAndFtdcRegistry.createWithMeterRegistry(this.meterRegistry),

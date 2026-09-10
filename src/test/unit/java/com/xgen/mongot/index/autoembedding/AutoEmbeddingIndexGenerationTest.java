@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata;
 import com.xgen.mongot.index.Index;
+import com.xgen.mongot.index.IndexTypeData;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.VectorIndexDefinitionGeneration;
 import com.xgen.mongot.index.version.Generation;
@@ -141,5 +142,54 @@ public class AutoEmbeddingIndexGenerationTest {
         Optional.of("acme___mdb_internal_search"), supplier.get().materializedViewDatabaseName());
     assertEquals(
         Optional.of(mvCollectionMetadata), supplier.get().materializedViewCollectionMetadata());
+  }
+
+  @Test
+  public void derivedGeneration_metricsIndexTypeTag_usesRawUserDefinition() {
+    InitializedMaterializedViewIndex matViewIndex = mock(InitializedMaterializedViewIndex.class);
+    when(matViewIndex.getMaterializedViewDatabaseName()).thenReturn("__mdb_internal_search");
+    when(matViewIndex.getMaterializedViewCollectionMetadata())
+        .thenReturn(
+            new MaterializedViewCollectionMetadata(
+                new MaterializedViewSchemaMetadata(0, Map.of()), UUID.randomUUID(), "123"));
+    when(matViewIndex.isCompatibleWith(any())).thenReturn(true);
+    Index derivedIndex = mock(Index.class);
+    when(derivedIndex.isCompatibleWith(any())).thenReturn(true);
+    AutoEmbeddingCompositeIndex composite =
+        new AutoEmbeddingCompositeIndex(matViewIndex, derivedIndex);
+
+    ObjectId indexId = new ObjectId();
+    VectorIndexDefinitionGeneration rawGen =
+        new VectorIndexDefinitionGeneration(
+            VectorIndexDefinitionBuilder.builder()
+                .indexId(indexId)
+                .name("mock")
+                .database("mock")
+                .lastObservedCollectionName("mock")
+                .collectionUuid(UUID.randomUUID())
+                .withAutoEmbedField("title")
+                .build(),
+            Generation.CURRENT);
+    IndexDefinitionGeneration derivedGen =
+        new VectorIndexDefinitionGeneration(
+            VectorIndexDefinitionBuilder.builder()
+                .indexId(indexId)
+                .name("derived")
+                .database("__mdb_internal_search")
+                .lastObservedCollectionName("123")
+                .collectionUuid(UUID.randomUUID())
+                .withCosineVectorField("embeddings", 4)
+                .build(),
+            Generation.CURRENT);
+
+    AutoEmbeddingIndexGeneration generation =
+        new AutoEmbeddingIndexGeneration(composite, rawGen, derivedGen);
+
+    assertEquals(
+        IndexTypeData.IndexTypeTag.TAG_VECTOR_SEARCH_AUTO_EMBEDDING,
+        generation.getDerivedIndexGeneration().getMetricsIndexTypeTag());
+    assertEquals(
+        IndexTypeData.IndexTypeTag.TAG_VECTOR_SEARCH,
+        IndexTypeData.getIndexTypeTag(derivedGen.getIndexDefinition()));
   }
 }

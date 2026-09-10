@@ -198,7 +198,9 @@ public class IndexLifecycleManager {
 
       var initializedIndex =
           this.indexFactory.getInitializedIndex(
-              this.indexGeneration.getIndex(), this.indexGeneration.getDefinitionGeneration());
+              this.indexGeneration.getIndex(),
+              this.indexGeneration.getDefinitionGeneration(),
+              this.indexGeneration.getMetricsIndexTypeTag());
       long elapsed = timer.stop(this.metrics.indexInitializationDurations);
       LOG.atInfo()
           .addKeyValue("indexId", generationId.indexId)

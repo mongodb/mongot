@@ -486,7 +486,7 @@ public class IndexLifecycleManagerTest {
   @Test
   public void testInitializeIndexFailed() throws IOException {
     Mocks mocks = Mocks.create(false);
-    doThrow(IOException.class).when(mocks.indexFactory).getInitializedIndex(any(), any());
+    doThrow(IOException.class).when(mocks.indexFactory).getInitializedIndex(any(), any(), any());
 
     mocks.indexLifecycleManager.startLifecycle(EXECUTOR, EXECUTOR, EXECUTOR);
     waitForState(mocks.indexLifecycleManager, IndexLifecycleManager.State.SHUTDOWN);
@@ -515,7 +515,7 @@ public class IndexLifecycleManagerTest {
               throw new RuntimeException("test");
             })
         .when(mocks.indexFactory)
-        .getInitializedIndex(any(), any());
+        .getInitializedIndex(any(), any(), any());
 
     mocks.indexLifecycleManager.startLifecycle(EXECUTOR, EXECUTOR, EXECUTOR);
     initializeCalled.await();
@@ -553,7 +553,7 @@ public class IndexLifecycleManagerTest {
               throw new RuntimeException();
             })
         .when(mocks.indexFactory)
-        .getInitializedIndex(any(), any());
+        .getInitializedIndex(any(), any(), any());
 
     mocks.indexLifecycleManager.startLifecycle(EXECUTOR, EXECUTOR, EXECUTOR);
     initializeCalled.await();
@@ -577,7 +577,7 @@ public class IndexLifecycleManagerTest {
   @Test
   public void testInitializeIndexFailedAndDropFailed() throws IOException, InterruptedException {
     Mocks mocks = Mocks.create(false);
-    doThrow(IOException.class).when(mocks.indexFactory).getInitializedIndex(any(), any());
+    doThrow(IOException.class).when(mocks.indexFactory).getInitializedIndex(any(), any(), any());
     doThrow(IOException.class).when(mocks.indexGeneration.getIndex()).drop();
     CountDownLatch initializeCalled = new CountDownLatch(1);
     CountDownLatch blockInitializeCompletion = new CountDownLatch(1);
@@ -588,7 +588,7 @@ public class IndexLifecycleManagerTest {
               throw new RuntimeException("test");
             })
         .when(mocks.indexFactory)
-        .getInitializedIndex(any(), any());
+        .getInitializedIndex(any(), any(), any());
 
     mocks.indexLifecycleManager.startLifecycle(EXECUTOR, EXECUTOR, EXECUTOR);
     initializeCalled.await();
@@ -608,7 +608,7 @@ public class IndexLifecycleManagerTest {
     // Start multiple indexes on same executor.
     {
       Mocks mocks = Mocks.create(false);
-      doThrow(IOException.class).when(mocks.indexFactory).getInitializedIndex(any(), any());
+      doThrow(IOException.class).when(mocks.indexFactory).getInitializedIndex(any(), any(), any());
       mocks.indexLifecycleManager.startLifecycle(executorService, executorService, executorService);
       waitForState(mocks.indexLifecycleManager, IndexLifecycleManager.State.SHUTDOWN);
       assertEquals(
@@ -620,7 +620,7 @@ public class IndexLifecycleManagerTest {
     }
     {
       Mocks mocks = Mocks.create(false);
-      doThrow(IOException.class).when(mocks.indexFactory).getInitializedIndex(any(), any());
+      doThrow(IOException.class).when(mocks.indexFactory).getInitializedIndex(any(), any(), any());
       mocks.indexLifecycleManager.startLifecycle(executorService, executorService, executorService);
       waitForState(mocks.indexLifecycleManager, IndexLifecycleManager.State.SHUTDOWN);
       assertEquals(

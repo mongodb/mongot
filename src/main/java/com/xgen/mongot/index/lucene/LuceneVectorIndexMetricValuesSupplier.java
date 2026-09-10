@@ -2,6 +2,7 @@ package com.xgen.mongot.index.lucene;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.xgen.mongot.index.DocCounts;
+import com.xgen.mongot.index.IndexTypeData;
 import com.xgen.mongot.index.VectorIndexReader;
 import com.xgen.mongot.index.definition.VectorIndexFieldMapping;
 import com.xgen.mongot.index.definition.VectorMemoryEstimator;
@@ -46,6 +47,7 @@ public final class LuceneVectorIndexMetricValuesSupplier extends LuceneIndexMetr
       VectorIndexReader indexReader,
       boolean hasNestedVectorFields,
       VectorIndexFieldMapping fieldMapping,
+      IndexTypeData.IndexTypeTag indexTypeTag,
       PerIndexMetricsFactory metricsFactory,
       int indexFeatureVersion,
       boolean isIndexFeatureVersionFourEnabled) {
@@ -60,7 +62,7 @@ public final class LuceneVectorIndexMetricValuesSupplier extends LuceneIndexMetr
 
     // Register common gauges after construction is complete
     supplier.registerCommonGauges(
-        metricsFactory, indexFeatureVersion, isIndexFeatureVersionFourEnabled);
+        metricsFactory, indexFeatureVersion, isIndexFeatureVersionFourEnabled, indexTypeTag);
 
     // Number of live vectors in the index, exported to Prometheus/Grafana. Cached because the
     // gauge is probed asynchronously and the nested-index path acquires a Lucene searcher.

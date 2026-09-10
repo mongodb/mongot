@@ -66,21 +66,22 @@ public class IndexFactory {
         };
 
     when(indexFactory.getIndex(any(IndexDefinitionGeneration.class))).thenAnswer(getIndexAnswer);
-    when(indexFactory.getInitializedIndex(any(), any()))
-        .thenAnswer(
-            invocation -> {
-              Index index = invocation.getArgument(0);
-              IndexDefinitionGeneration defGen = invocation.getArgument(1);
-              return switch (defGen.getType()) {
-                case SEARCH ->
-                    SearchIndex.mockInitializedIndex(
-                        index.asSearchIndex(), defGen.getGenerationId());
-                case VECTOR ->
-                    VectorIndex.mockInitializedIndex(
-                        index.asVectorIndex(), defGen.getGenerationId());
-                case AUTO_EMBEDDING -> MaterializedViewIndex.mockIndex(defGen.asMaterializedView());
-              };
-            });
+    Answer<?> getInitializedIndexAnswer =
+        invocation -> {
+          Index index = invocation.getArgument(0);
+          IndexDefinitionGeneration defGen = invocation.getArgument(1);
+          return switch (defGen.getType()) {
+            case SEARCH ->
+                SearchIndex.mockInitializedIndex(index.asSearchIndex(), defGen.getGenerationId());
+            case VECTOR ->
+                VectorIndex.mockInitializedIndex(index.asVectorIndex(), defGen.getGenerationId());
+            case AUTO_EMBEDDING -> MaterializedViewIndex.mockIndex(defGen.asMaterializedView());
+          };
+        };
+
+    when(indexFactory.getInitializedIndex(any(), any())).thenAnswer(getInitializedIndexAnswer);
+    when(indexFactory.getInitializedIndex(any(), any(), any()))
+        .thenAnswer(getInitializedIndexAnswer);
 
     return indexFactory;
   }

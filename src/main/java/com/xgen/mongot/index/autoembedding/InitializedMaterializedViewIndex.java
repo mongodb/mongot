@@ -15,6 +15,7 @@ import com.xgen.mongot.index.EncodedUserData;
 import com.xgen.mongot.index.IndexMetricValuesSupplier;
 import com.xgen.mongot.index.IndexMetrics;
 import com.xgen.mongot.index.IndexMetricsUpdater;
+import com.xgen.mongot.index.IndexTypeData;
 import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.InitializedAutoEmbedIndex;
 import com.xgen.mongot.index.MetaResults;
@@ -87,6 +88,10 @@ public class InitializedMaterializedViewIndex implements InitializedAutoEmbedInd
    * materialized-view generation and gauge identity, so the latest registration wins.
    */
   void registerStatusGauges() {
+    Tags indexTypeTags =
+        Tags.of(
+            IndexTypeData.INDEX_TYPE_TAG_NAME,
+            IndexTypeData.getIndexTypeTag(this.indexDefinition).tagValue);
     for (IndexStatus.StatusCode statusCode : IndexStatus.StatusCode.values()) {
       this.indexMetricsUpdater
           .getMetricsFactory()
@@ -94,7 +99,7 @@ public class InitializedMaterializedViewIndex implements InitializedAutoEmbedInd
               IndexMetricValuesSupplier.MetricNames.INDEX_STATUS_CODE,
               this,
               index -> index.getStatus().getStatusCode() == statusCode ? 1 : 0,
-              Tags.of("status", statusCode.name()));
+              Tags.of("status", statusCode.name()).and(indexTypeTags));
     }
   }
 

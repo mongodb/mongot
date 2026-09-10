@@ -2,6 +2,7 @@ package com.xgen.mongot.index;
 
 import static com.xgen.mongot.util.Check.checkArg;
 
+import com.xgen.mongot.index.IndexTypeData.IndexTypeTag;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.version.GenerationId;
@@ -39,5 +40,14 @@ public class IndexGeneration {
 
   public IndexDefinitionGeneration.Type getType() {
     return this.definitionGeneration.getType();
+  }
+
+  /**
+   * Returns the {@code indexType} tag for metrics on this index. Defaults to the tag implied by
+   * {@link #getDefinition()}; auto-embedding derived Lucene indexes override this with the tag from
+   * the original user definition.
+   */
+  public IndexTypeTag getMetricsIndexTypeTag() {
+    return IndexTypeData.getIndexTypeTag(getDefinition());
   }
 }
