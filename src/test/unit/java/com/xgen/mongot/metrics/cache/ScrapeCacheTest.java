@@ -25,7 +25,8 @@ public class ScrapeCacheTest {
           }
         };
     ScrapeCache cache =
-        new ScrapeCache(registry, ScrapeCacheConfig.getDefault(), defaultThrottle());
+        new ScrapeCache(
+            registry, registry::scrape, ScrapeCacheConfig.getDefault(), defaultThrottle());
     try {
       Assert.assertEquals("data", cache.get(ScrapeCache.NO_TIMEOUT));
     } finally {
@@ -44,7 +45,8 @@ public class ScrapeCacheTest {
           }
         };
     ScrapeCache cache =
-        new ScrapeCache(registry, ScrapeCacheConfig.getDefault(), defaultThrottle());
+        new ScrapeCache(
+            registry, registry::scrape, ScrapeCacheConfig.getDefault(), defaultThrottle());
     try {
       RuntimeException thrown =
           Assert.assertThrows(RuntimeException.class, () -> cache.get(ScrapeCache.NO_TIMEOUT));

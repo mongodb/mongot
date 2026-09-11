@@ -83,7 +83,8 @@ public class PrometheusServer {
       Iterable<Tag> commonTags,
       List<MeterFilter> filters,
       FeatureFlags featureFlags,
-      ScrapeCacheConfig scrapeCacheConfig) {
+      ScrapeCacheConfig scrapeCacheConfig,
+      Optional<Supplier<String>> extraScrapeText) {
     return startInternal(
         address,
         new PrometheusMeterRegistry(PrometheusConfig.DEFAULT),
@@ -92,7 +93,8 @@ public class PrometheusServer {
         featureFlags,
         scrapeCacheConfig,
         /* preWarmCache= */ true,
-        Optional.empty());
+        Optional.empty(),
+        extraScrapeText);
   }
 
   /** Test-visible entry point. */
@@ -105,7 +107,8 @@ public class PrometheusServer {
       FeatureFlags featureFlags,
       ScrapeCacheConfig scrapeCacheConfig,
       boolean preWarmCache,
-      Optional<Executor> httpExecutor) {
+      Optional<Executor> httpExecutor,
+      Optional<Supplier<String>> extraScrapeText) {
     prometheusRegistry.config().namingConvention(new MongotPrometheusNamingConvention());
     prometheusRegistry.config().commonTags(commonTags);
     filters.forEach(filter -> prometheusRegistry.config().meterFilter(filter));
@@ -116,11 +119,18 @@ public class PrometheusServer {
             .publishPercentiles(0.5, 0.75, 0.9, 0.99)
             .register(prometheusRegistry);
 
+    // Compose the whole response before caching it, so the cache's timeout and cached-mode
+    // fallback cover the extra text source too. Appending afterwards would leave that source
+    // computing synchronously on the reading path even while the cache is shielding Micrometer
+    // from exactly that.
+    Supplier<String> scrapeSource =
+        appendExtraScrapeText(prometheusRegistry::scrape, extraScrapeText);
     Optional<ScrapeCache> scrapeCache =
         featureFlags.isEnabled(Feature.METRICS_CACHE)
             ? Optional.of(
                 new ScrapeCache(
                     prometheusRegistry,
+                    scrapeSource,
                     scrapeCacheConfig,
                     new IntervalThrottle(
                         Clock.systemUTC(),
@@ -132,7 +142,7 @@ public class PrometheusServer {
       Duration httpScrapeTimeout = Duration.ofSeconds(scrapeCacheConfig.scrapeTimeoutSec());
       scrapeSupplier = () -> c.get(httpScrapeTimeout);
     } else {
-      scrapeSupplier = prometheusRegistry::scrape;
+      scrapeSupplier = scrapeSource;
     }
 
     LOG.atInfo()
@@ -140,6 +150,7 @@ public class PrometheusServer {
         .addKeyValue("commonTags", commonTags)
         .addKeyValue("numMeterFilters", filters.size())
         .addKeyValue("cacheEnabled", scrapeCache.isPresent())
+        .addKeyValue("extraScrapeText", extraScrapeText.isPresent())
         .log("Starting and configuring prometheus");
 
     try {
@@ -176,6 +187,47 @@ public class PrometheusServer {
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
+  }
+
+  /**
+   * Wraps {@code micrometerSupplier} so the extra text source is appended to its output.
+   *
+   * <p>Returns {@code micrometerSupplier} untouched when there is nothing to append, so the common
+   * case adds no indirection. A failing source is logged and skipped rather than propagated: an
+   * unavailable side channel must not take down the endpoint that carries every other metric.
+   *
+   * <p>The extra text is fetched first so a source that is configured but currently silent -- a
+   * feature flag turned off, an engine that has recorded nothing yet -- returns the Micrometer
+   * scrape by reference. Concatenating unconditionally would copy the whole scrape twice on every
+   * request for the sake of appending nothing.
+   */
+  @VisibleForTesting
+  static Supplier<String> appendExtraScrapeText(
+      Supplier<String> micrometerSupplier, Optional<Supplier<String>> extraScrapeText) {
+    if (extraScrapeText.isEmpty()) {
+      return micrometerSupplier;
+    }
+    Supplier<String> extra = extraScrapeText.get();
+    return () -> {
+      @Nullable String extraText;
+      try {
+        extraText = extra.get();
+      } catch (RuntimeException | LinkageError e) {
+        LOG.atWarn().setCause(e).log("Failed to fetch extra scrape text; omitting it");
+        return micrometerSupplier.get();
+      }
+      @Nullable String micrometerText = micrometerSupplier.get();
+      if (extraText == null || extraText.isBlank()) {
+        return micrometerText;
+      }
+      if (micrometerText == null || micrometerText.isEmpty()) {
+        return extraText;
+      }
+      // Prometheus text format is line-oriented: a missing separator would splice the last line
+      // of the Micrometer output onto the first line of this text and corrupt both.
+      String separator = micrometerText.charAt(micrometerText.length() - 1) == '\n' ? "" : "\n";
+      return micrometerText + separator + extraText;
+    };
   }
 
   /**

@@ -15,6 +15,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,12 +26,17 @@ import org.slf4j.LoggerFactory;
  * <p>Operates in two modes:
  *
  * <ul>
- *   <li>Live mode: each {@link #get(Duration)} computes inline by calling the registry, bounded by
- *       the caller-supplied timeout. On timeout, transitions to cached mode.
+ *   <li>Live mode: each {@link #get(Duration)} computes inline by calling the scrape source,
+ *       bounded by the caller-supplied timeout. On timeout, transitions to cached mode.
  *   <li>Cached mode: a background scheduled task refreshes the cache on a fixed cadence; {@link
  *       #get(Duration)} serves the cached metrics verbatim. Returns to live mode after the sticky
  *       window expires.
  * </ul>
+ *
+ * <p>The scrape source is supplied rather than read off the registry so that everything a scrape
+ * gathers -- including text from non-Micrometer sources appended to the response -- is covered by
+ * the same timeout, throttle and cached-mode fallback. A source left outside would still be
+ * computed synchronously on the reading path in exactly the situation this cache exists to survive.
  */
 public class ScrapeCache {
   private static final Logger LOG = LoggerFactory.getLogger(ScrapeCache.class);
@@ -48,8 +54,8 @@ public class ScrapeCache {
   private final ScrapeCacheConfig config;
   private final IntervalThrottle throttle;
 
-  // Original source for the metrics — every cache scrape ultimately delegates to registry.scrape().
-  private final PrometheusMeterRegistry registry;
+  // Original source for the metrics — every cache scrape ultimately delegates to this supplier.
+  private final Supplier<String> scrapeSource;
   // Cached metrics
   private final AtomicReference<String> cachedMetrics = new AtomicReference<>();
 
@@ -61,16 +67,26 @@ public class ScrapeCache {
   private final AtomicReference<ScheduledFuture<?>> backgroundComputeFuture =
       new AtomicReference<>();
   // Shared live-mode scrape. Concurrent callers wait on the same Future instead of queueing
-  // duplicate registry.scrape() calls behind the single compute thread.
+  // duplicate scrape-source calls behind the single compute thread.
   private @Nullable Future<String> liveComputeFuture;
   private final NamedExecutorService liveComputeExecutor;
   private final NamedScheduledExecutorService backgroundComputeExecutor;
   private final NamedExecutorService preWarmExecutor;
   private final AtomicBoolean preWarmStarted = new AtomicBoolean(false);
 
+  /**
+   * Creates a cache over {@code scrapeSource}.
+   *
+   * @param registry the registry this cache reports its own gauges to
+   * @param scrapeSource computes a whole scrape response; usually, but not necessarily, {@code
+   *     registry::scrape}
+   */
   public ScrapeCache(
-      PrometheusMeterRegistry registry, ScrapeCacheConfig config, IntervalThrottle throttle) {
-    this.registry = registry;
+      PrometheusMeterRegistry registry,
+      Supplier<String> scrapeSource,
+      ScrapeCacheConfig config,
+      IntervalThrottle throttle) {
+    this.scrapeSource = scrapeSource;
     this.config = config;
     this.throttle = throttle;
     this.liveComputeExecutor = Executors.fixedSizeThreadPool(COMPUTE_EXECUTOR_NAME, 1, registry);
@@ -119,8 +135,8 @@ public class ScrapeCache {
   /**
    * Returns fresh or cached metrics depending on live/cached mode.
    *
-   * <p>In live mode, calls {@code registry.scrape()} bounded by {@code timeout}; on timeout,
-   * switches to cached mode and serves periodically refreshed metrics.
+   * <p>In live mode, calls the scrape source bounded by {@code timeout}; on timeout, switches to
+   * cached mode and serves periodically refreshed metrics.
    */
   public String get(Duration timeout) {
     if (this.throttle.shouldThrottle()) {
@@ -154,7 +170,7 @@ public class ScrapeCache {
       return future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
     } catch (ExecutionException e) {
       Throwable cause = e.getCause();
-      LOG.error("Registry threw error while scraping metrics", cause);
+      LOG.error("Scrape source threw error while scraping metrics", cause);
       if (cause instanceof RuntimeException) {
         throw (RuntimeException) cause;
       }
@@ -173,7 +189,7 @@ public class ScrapeCache {
       return this.liveComputeFuture;
     }
     FutureTask<String> task =
-        new FutureTask<>(this.registry::scrape) {
+        new FutureTask<>(this.scrapeSource::get) {
           @Override
           protected void done() {
             clearLiveComputeFuture(this);
@@ -237,7 +253,7 @@ public class ScrapeCache {
 
   private void refreshCachedMetrics() {
     try {
-      this.cachedMetrics.set(this.registry.scrape());
+      this.cachedMetrics.set(this.scrapeSource.get());
     } catch (Throwable t) {
       LOG.error("Background scrape cache refresh failed; switching to live mode", t);
     }
