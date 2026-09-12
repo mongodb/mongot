@@ -9,8 +9,10 @@ import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
 import org.apache.lucene.codecs.hnsw.FlatVectorsScorer;
 import org.apache.lucene.codecs.lucene95.HasIndexSlice;
 import org.apache.lucene.index.ByteVectorValues;
+import org.apache.lucene.index.FloatVectorValues;
 import org.apache.lucene.index.KnnVectorValues;
 import org.apache.lucene.index.VectorSimilarityFunction;
+import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.IndexOutput;
@@ -21,6 +23,7 @@ import org.apache.lucene.util.hnsw.RandomVectorScorerSupplier;
 import org.apache.lucene.util.hnsw.UpdateableRandomVectorScorer;
 import org.apache.lucene.util.quantization.QuantizedByteVectorValues;
 import org.junit.Assert;
+import org.junit.Assume;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -42,6 +45,18 @@ public class Lucene99NativeMemorySegmentVectorScorerTest {
     List<byte[]> vectors = new ArrayList<>(count);
     for (int i = 0; i < count; i++) {
       vectors.add(randomBytes(rng, dim));
+    }
+    return vectors;
+  }
+
+  private static List<float[]> randomFloatVectors(Random rng, int count, int dim) {
+    List<float[]> vectors = new ArrayList<>(count);
+    for (int i = 0; i < count; i++) {
+      float[] v = new float[dim];
+      for (int d = 0; d < dim; d++) {
+        v[d] = rng.nextFloat();
+      }
+      vectors.add(v);
     }
     return vectors;
   }
@@ -280,19 +295,141 @@ public class Lucene99NativeMemorySegmentVectorScorerTest {
     }
   }
 
-  /** Verifies that vectors not backed by MemorySegmentAccessInput fall through to the delegate. */
+  /**
+   * In-memory byte values (for example HNSW graph build's {@code fromBytes}) do not implement
+   * {@code HasIndexSlice}, but they must engage the native scorer via the copied-segment path
+   * rather than falling back to the (slow) delegate, and scores must match Lucene's reference.
+   */
   @Test
-  public void testFallbackToDelegate() throws IOException {
+  public void scorerSupplier_fromBytes_usesNativeInMemoryPath() throws IOException {
+    Assume.assumeTrue(
+        "native in-memory path only engages when int8 SIMD acceleration is available",
+        Similarity.I8_ACCELERATION);
+    for (VectorSimilarityFunction fn : VectorSimilarityFunction.values()) {
+      // Cover register-aligned (32, 1024) and tail (17) dimensions through copyInto + nativeScore.
+      for (int dim : new int[] {32, 17, 1024}) {
+        Random rng = new Random(SEED);
+        SpyFlatVectorsScorer spyDelegate = new SpyFlatVectorsScorer();
+        Lucene99NativeMemorySegmentVectorScorer scorer =
+            new Lucene99NativeMemorySegmentVectorScorer(spyDelegate);
+
+        List<byte[]> vectors = randomVectors(rng, NUM_VECTORS, dim);
+        // fromBytes() does not implement HasIndexSlice — the native in-memory path must
+        // still engage
+        ByteVectorValues values = ByteVectorValues.fromBytes(vectors, dim);
+        RandomVectorScorerSupplier supplier = scorer.getRandomVectorScorerSupplier(fn, values);
+
+        Assert.assertFalse(
+            "in-memory byte values must not fall through to the delegate", spyDelegate.called);
+
+        UpdateableRandomVectorScorer s = supplier.scorer();
+        for (int ord = 0; ord < NUM_VECTORS; ord++) {
+          s.setScoringOrdinal(ord);
+          for (int node = 0; node < NUM_VECTORS; node++) {
+            Assert.assertEquals(
+                "fn=" + fn + " dim=" + dim + " ord=" + ord + " node=" + node,
+                fn.compare(vectors.get(ord), vectors.get(node)),
+                s.score(node),
+                DELTA);
+          }
+        }
+      }
+    }
+  }
+
+  /** An index slice that is not memory-segment-backed must still fall through to the delegate. */
+  @Test
+  public void scorerSupplier_hasIndexSlice_nonMemorySegmentInput_delegates() throws IOException {
     for (VectorSimilarityFunction fn : VectorSimilarityFunction.values()) {
       Random rng = new Random(SEED);
+      SpyFlatVectorsScorer spyDelegate = new SpyFlatVectorsScorer();
       Lucene99NativeMemorySegmentVectorScorer scorer =
-          new Lucene99NativeMemorySegmentVectorScorer(DefaultFlatVectorScorer.INSTANCE);
+          new Lucene99NativeMemorySegmentVectorScorer(spyDelegate);
 
       int dim = 32;
       List<byte[]> vectors = randomVectors(rng, NUM_VECTORS, dim);
-      // fromBytes() does not implement HasIndexSlice — must delegate
-      ByteVectorValues values = ByteVectorValues.fromBytes(vectors, dim);
+      try (ByteBuffersDirectory dir = new ByteBuffersDirectory()) {
+        try (IndexOutput out = dir.createOutput("vecs", IOContext.DEFAULT)) {
+          for (byte[] v : vectors) {
+            out.writeBytes(v, v.length);
+          }
+        }
+        try (IndexInput input = dir.openInput("vecs", IOContext.DEFAULT)) {
+          Assert.assertFalse(
+              "ByteBuffersDirectory input must not be a MemorySegmentAccessInput",
+              input instanceof MemorySegmentAccessInput);
+          ByteVectorValues values = asHasIndexSlice(vectors, dim, input);
+          RandomVectorScorerSupplier supplier = scorer.getRandomVectorScorerSupplier(fn, values);
+
+          Assert.assertTrue("a non-memory-segment-backed slice must delegate", spyDelegate.called);
+
+          UpdateableRandomVectorScorer s = supplier.scorer();
+          for (int ord = 0; ord < NUM_VECTORS; ord++) {
+            s.setScoringOrdinal(ord);
+            for (int node = 0; node < NUM_VECTORS; node++) {
+              Assert.assertEquals(
+                  "fn=" + fn + " ord=" + ord + " node=" + node,
+                  fn.compare(vectors.get(ord), vectors.get(node)),
+                  s.score(node),
+                  DELTA);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /** {@code supplier.copy()} must yield independent scorers that still match Lucene's reference. */
+  @Test
+  public void scorerSupplier_fromBytesCopy_remainsIndependent() throws IOException {
+    Assume.assumeTrue(
+        "native in-memory path only engages when int8 SIMD acceleration is available",
+        Similarity.I8_ACCELERATION);
+    Random rng = new Random(SEED);
+    int dim = 32;
+    List<byte[]> vectors = randomVectors(rng, NUM_VECTORS, dim);
+    Lucene99NativeMemorySegmentVectorScorer scorer =
+        new Lucene99NativeMemorySegmentVectorScorer(DefaultFlatVectorScorer.INSTANCE);
+    ByteVectorValues values = ByteVectorValues.fromBytes(vectors, dim);
+    RandomVectorScorerSupplier supplier =
+        scorer.getRandomVectorScorerSupplier(VectorSimilarityFunction.DOT_PRODUCT, values);
+    RandomVectorScorerSupplier copy = supplier.copy();
+
+    UpdateableRandomVectorScorer original = supplier.scorer();
+    UpdateableRandomVectorScorer copied = copy.scorer();
+    for (int ord = 0; ord < NUM_VECTORS; ord++) {
+      original.setScoringOrdinal(ord);
+      copied.setScoringOrdinal(ord);
+      for (int node = 0; node < NUM_VECTORS; node++) {
+        Assert.assertEquals(
+            "ord=" + ord + " node=" + node,
+            VectorSimilarityFunction.DOT_PRODUCT.compare(vectors.get(ord), vectors.get(node)),
+            copied.score(node),
+            DELTA);
+        Assert.assertEquals(
+            "original and copied scorers must agree at ord=" + ord + " node=" + node,
+            original.score(node),
+            copied.score(node),
+            DELTA);
+      }
+    }
+  }
+
+  /** Non-byte values must still fall through to the delegate scorer. */
+  @Test
+  public void scorerSupplier_floatValues_delegates() throws IOException {
+    for (VectorSimilarityFunction fn : VectorSimilarityFunction.values()) {
+      Random rng = new Random(SEED);
+      SpyFlatVectorsScorer spyDelegate = new SpyFlatVectorsScorer();
+      Lucene99NativeMemorySegmentVectorScorer scorer =
+          new Lucene99NativeMemorySegmentVectorScorer(spyDelegate);
+
+      int dim = 32;
+      List<float[]> vectors = randomFloatVectors(rng, NUM_VECTORS, dim);
+      FloatVectorValues values = FloatVectorValues.fromFloats(vectors, dim);
       RandomVectorScorerSupplier supplier = scorer.getRandomVectorScorerSupplier(fn, values);
+
+      Assert.assertTrue("float values must delegate", spyDelegate.called);
 
       UpdateableRandomVectorScorer s = supplier.scorer();
       for (int ord = 0; ord < NUM_VECTORS; ord++) {
