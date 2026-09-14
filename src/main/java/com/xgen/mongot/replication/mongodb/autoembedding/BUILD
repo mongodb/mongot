@@ -5,7 +5,10 @@ java_library(
     srcs = [
         "AutoEmbeddingMaterializedViewManagerFactory.java",
         "MaterializedViewGenerator.java",
+        "MaterializedViewGeneratorFactory.java",
         "MaterializedViewManager.java",
+        "MaterializedViewStatusUpdater.java",
+        "StaleLeaseGarbageCollector.java",
         "TenureFencedMaterializedViewDocumentIndexer.java",
     ],
     visibility = ["//:__subpackages__"],
