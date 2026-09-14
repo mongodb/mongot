@@ -1,6 +1,12 @@
 load("@bazel_skylib//lib:selects.bzl", "selects")
 load(":def.bzl", "package_deploy_tar", "pkg_var", "set_version")
 
+# Sourced by every launcher, so it ships next to each of them in every bundle.
+exports_files(
+    ["bc-fips-env.sh"],
+    visibility = ["//deploy:__subpackages__"],
+)
+
 pkg_var(
     name = "release_pkg_vars",
     platform = select({
@@ -91,6 +97,7 @@ package_deploy_tar(
         ":community-resources/mongot",
         ":community-resources/README.md",
         ":community-resources/mongot.example.logrotate",
+        ":bc-fips-env.sh",
         ":generate_community_version_file",
     ],
     with_tags = False,

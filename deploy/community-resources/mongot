@@ -32,6 +32,12 @@ else
   export JAVA_HOME="${DIR}/bin/jdk"
 fi
 
+# BouncyCastle FIPS extracts native crypto libraries at startup and dlopen()s them, which fails
+# on noexec mounts. bc_fips_configure picks a directory that works on this host and sets
+# BC_FIPS_FLAGS accordingly.
+source "${DIR}/bc-fips-env.sh"
+bc_fips_configure "${DIR}/lib"
+
 # Wrapper for running mongot
 run_mongot() {
     # Specifying lib/* first in the classpath ensures that
@@ -39,17 +45,15 @@ run_mongot() {
     # even if they exist in `mongot_community_deploy.jar`
     # JVM_FLAGS and PASS_THROUGH_ARGS purposefully unquoted so they expand
     #
-    # Bouncy Castle FIPS 2.x ships native crypto libraries inside bc-fips.jar, extracts them into
-    # java.io.tmpdir at startup and dlopen()s them. Hosts that mount /tmp noexec fail that dlopen
-    # with an UnsatisfiedLinkError, and Bouncy Castle's fallback only catches Exception, so the
-    # Error escapes and kills mongot on startup. Select the Java implementation explicitly, which
-    # is what every ARM deployment already runs since these libraries are Linux x86_64 only.
-    # Placed before ${JVM_FLAGS} so an operator can still override it.
+    # Bouncy Castle FIPS 2.x ships native crypto libraries inside bc-fips.jar extracts them into
+    # java.io.tmpdir at startup and dlopen()s them.
+    # These files can be installed in different locations depending on the systems filesystem state.
+    # BC_FIPS_FLAGS specifies the location of these files.
     exec "${JAVA_HOME}/bin/java" \
     -XX:+ExitOnOutOfMemoryError \
     -XX:-UseGCOverheadLimit \
     '-Djava.security.egd=file:/dev/urandom' \
-    '-Dorg.bouncycastle.native.cpu_variant=java' \
+    ${BC_FIPS_FLAGS[@]+"${BC_FIPS_FLAGS[@]}"} \
     '--add-modules=jdk.incubator.vector' \
     '--enable-preview' \
     '--enable-native-access=ALL-UNNAMED' \
