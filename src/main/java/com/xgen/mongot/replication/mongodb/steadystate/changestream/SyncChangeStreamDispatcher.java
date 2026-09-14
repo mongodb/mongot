@@ -41,6 +41,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import org.bson.types.ObjectId;
 import org.jetbrains.annotations.TestOnly;
 import org.jetbrains.annotations.VisibleForTesting;
 import org.slf4j.Logger;
@@ -245,7 +246,14 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
         this.syncMongoClientFactory.resumeTimedModeAwareChangeStream(
             generationId, resumeInfo, indexDefinition, removeMatchCollectionUuid);
 
+    this.taskExecutor.addIndex(indexDefinition.getIndexId());
+
     this.enqueue(new ChangeStreamIndexingInfo(indexManager, mongoClient), Optional.empty());
+  }
+
+  @Override
+  public void removeIndex(ObjectId indexId) {
+    this.taskExecutor.removeIndex(indexId);
   }
 
   @Override

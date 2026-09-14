@@ -6,6 +6,7 @@ import com.xgen.mongot.util.concurrent.dualqueue.DualQueueExecutor;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import java.util.Objects;
+import org.bson.types.ObjectId;
 
 /**
  * {@link ChangeStreamTaskExecutor} for the text/vector sync change-stream path.
@@ -52,6 +53,16 @@ final class ChangeStreamDualQueueExecutor implements ChangeStreamTaskExecutor {
     return this.delegate.enqueue(task, isHighPriority, context.onDropped());
   }
 
+  @Override
+  public void addIndex(ObjectId indexId) {
+    this.strategy.addIndex(indexId);
+  }
+
+  @Override
+  public void removeIndex(ObjectId indexId) {
+    this.strategy.removeIndex(indexId);
+  }
+
   /**
    * Returns the executor wrapper for lifecycle/metrics registration ONLY. Do not submit tasks
    * through it: the returned wrapper wraps each task in a timed runnable, which would fail the
@@ -65,5 +76,6 @@ final class ChangeStreamDualQueueExecutor implements ChangeStreamTaskExecutor {
   @Override
   public void shutdown() {
     this.delegate.shutdown();
+    this.strategy.shutdown();
   }
 }

@@ -13,6 +13,7 @@ java_test_suite(
         "ChangeStreamPriorityStrategyTest.java",
         "CollectionRosterTest.java",
         "FifoExecutorTest.java",
+        "RecomputingLagPriorityStrategyTest.java",
         "SyncChangeStreamDispatcherTest.java",
         "SyncChangeStreamManagerTest.java",
         "SyncModeAwareChangeStreamClientTest.java",

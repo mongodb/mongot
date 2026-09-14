@@ -565,6 +565,7 @@ public class ChangeStreamManager {
           generationId);
       ChangeStreamIndexManager manager = this.indexManagers.remove(generationId);
       this.modeSelector.remove(generationId);
+      this.dispatcher.removeIndex(generationId.indexId);
 
       String observerDatabase = this.observerDatabaseByIndex.remove(generationId);
       if (observerDatabase != null) {

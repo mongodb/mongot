@@ -4,6 +4,7 @@ import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
+import org.bson.types.ObjectId;
 
 interface ChangeStreamDispatcher {
 
@@ -14,6 +15,8 @@ interface ChangeStreamDispatcher {
       ChangeStreamIndexManager indexManager,
       boolean removeMatchCollectionUuid)
       throws SteadyStateException;
+
+  default void removeIndex(ObjectId indexId) {}
 
   void shutdown();
 }

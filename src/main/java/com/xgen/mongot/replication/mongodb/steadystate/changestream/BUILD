@@ -19,6 +19,7 @@ java_library(
         "FifoExecutor.java",
         "ModeAwareChangeStreamClient.java",
         "OptimeLagPriorityStrategy.java",
+        "RecomputingLagPriorityStrategy.java",
         "SteadyStateReplicationConfig.java",
         "SyncChangeStreamDispatcher.java",
         "TimedChangeStreamClient.java",

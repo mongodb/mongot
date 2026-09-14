@@ -54,6 +54,7 @@ import com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -421,6 +422,71 @@ public class SyncChangeStreamDispatcherTest {
       assertThat(getMoresScheduledTotal(meterRegistry)).isEqualTo(1.0);
       acceptedTask.get().run();
       assertThat(getMoresScheduledTotal(meterRegistry)).isEqualTo(0.0);
+    } finally {
+      syncDispatcher.shutdown();
+    }
+  }
+
+  @Test
+  public void add_registersIndexWithExecutorBeforeEnqueueingFirstGetMore() throws Exception {
+    ObjectId indexId = new ObjectId();
+    var definition = SearchIndex.mockSearchDefinition(indexId);
+    IndexDefinitionGeneration generation =
+        mockIndexGeneration(definition).getDefinitionGeneration();
+
+    ChangeStreamMongoClientFactory mongoClientFactory = mock(ChangeStreamMongoClientFactory.class);
+    when(mongoClientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+        .thenReturn(mock(ChangeStreamMongoClient.class));
+    ChangeStreamIndexManager indexManager =
+        DecodingExecutorChangeStreamIndexManager.createWithDecodingScheduler(
+            definition,
+            mock(IndexingWorkScheduler.class),
+            mockDocumentIndexer(),
+            ChangeStreamUtils.PRE_BATCH_RESUME_INFO.getNamespace(),
+            resumeInfo -> {},
+            IGNORE_METRICS,
+            new CompletableFuture<>(),
+            generation.getGenerationId(),
+            DecodingWorkScheduler.create(2, new SimpleMeterRegistry()));
+
+    // A strategy that ranks indexes against one another only tracks indexes it has been told
+    // about, and ignores reports for any other, so registration has to land before this index's
+    // first getMore can report a batch against it.
+    List<String> callsInOrder = new ArrayList<>();
+    ChangeStreamTaskExecutor taskExecutor =
+        new ChangeStreamTaskExecutor() {
+          @Override
+          public boolean enqueue(Runnable task, EnqueueContext context) {
+            callsInOrder.add("enqueue");
+            return true;
+          }
+
+          @Override
+          public void addIndex(ObjectId addedIndexId) {
+            callsInOrder.add("addIndex:" + addedIndexId.toHexString());
+          }
+
+          @Override
+          public void shutdown() {}
+        };
+    SyncChangeStreamDispatcher syncDispatcher =
+        new SyncChangeStreamDispatcher(
+            new SimpleMeterRegistry(),
+            mongoClientFactory,
+            taskExecutor,
+            CommonReplicationConfig.Type.DEFAULT);
+
+    try {
+      syncDispatcher.add(
+          definition,
+          generation.getGenerationId(),
+          mock(ChangeStreamResumeInfo.class),
+          indexManager,
+          false);
+
+      assertThat(callsInOrder)
+          .containsExactly("addIndex:" + indexId.toHexString(), "enqueue")
+          .inOrder();
     } finally {
       syncDispatcher.shutdown();
     }
