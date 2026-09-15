@@ -18,6 +18,7 @@ java_test_suite(
         "SyncChangeStreamManagerTest.java",
         "SyncModeAwareChangeStreamClientTest.java",
         "TimedChangeStreamClientTest.java",
+        "TopKWorstLagPriorityStrategyTest.java",
     ],
     tags = ["unit"],
     deps = [

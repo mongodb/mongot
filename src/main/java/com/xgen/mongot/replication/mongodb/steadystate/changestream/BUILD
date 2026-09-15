@@ -23,6 +23,7 @@ java_library(
         "SteadyStateReplicationConfig.java",
         "SyncChangeStreamDispatcher.java",
         "TimedChangeStreamClient.java",
+        "TopKWorstLagPriorityStrategy.java",
     ],
     visibility = ["//visibility:public"],
     exports = [
