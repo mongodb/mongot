@@ -1,6 +1,9 @@
 package com.xgen.mongot.replication.mongodb.common;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableSet;
 import com.mongodb.MongoNamespace;
+import com.mongodb.client.model.changestream.OperationType;
 import com.mongodb.internal.client.model.AggregationLevel;
 import com.mongodb.internal.operation.AggregateOperation;
 import com.xgen.mongot.util.Check;
@@ -12,14 +15,20 @@ import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import org.bson.BsonArray;
 import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
+import org.bson.BsonInt32;
 import org.bson.BsonString;
 import org.bson.BsonTimestamp;
 import org.bson.codecs.Decoder;
 import org.bson.conversions.Bson;
 
 public class ChangeStreamAggregateOperationBuilder {
+
+  private static final ImmutableSet<OperationType> DOCUMENT_OPERATION_TYPES =
+      ImmutableSet.of(
+          OperationType.INSERT, OperationType.UPDATE, OperationType.REPLACE, OperationType.DELETE);
 
   private final MongoNamespace namespace;
   private final ChangeStreamPipelineBuilder pipelineBuilder;
@@ -48,6 +57,13 @@ public class ChangeStreamAggregateOperationBuilder {
   /** $changeStreamSplitLargeEvent stage for large event splitting. */
   private Optional<Bson> changeStreamSplitLargeEventStage;
 
+  /**
+   * Optional $match that keeps document events whose {@code documentKey._id} hashes into this
+   * partition and broadcasts document-less lifecycle events. This is immediately after
+   * $changeStream.
+   */
+  private Optional<Bson> partitionMatchStage;
+
   public ChangeStreamAggregateOperationBuilder(MongoNamespace namespace) {
     Check.argNotNull(namespace, "namespace");
     this.maxTimeMs = OptionalLong.empty();
@@ -57,6 +73,7 @@ public class ChangeStreamAggregateOperationBuilder {
     this.viewDefinedStages = Optional.empty();
     this.metadataAddFieldsStage = Optional.empty();
     this.changeStreamSplitLargeEventStage = Optional.empty();
+    this.partitionMatchStage = Optional.empty();
     this.namespace = namespace;
     this.pipelineBuilder = new ChangeStreamPipelineBuilder();
   }
@@ -131,6 +148,55 @@ public class ChangeStreamAggregateOperationBuilder {
     return this;
   }
 
+  /**
+   * Adds a {@code $match} that routes document events to one change stream reader by hashing {@code
+   * documentKey._id}. Lifecycle events are broadcast because they do not have a document key.
+   */
+  public ChangeStreamAggregateOperationBuilder partition(ChangeStreamPartition partition) {
+    Check.argNotNull(partition, "partition");
+    this.partitionMatchStage =
+        partition.partitionCount() == 1
+            ? Optional.empty()
+            : Optional.of(buildPartitionMatchStage(partition));
+    return this;
+  }
+
+  /** Builds the document-key partition match, including lifecycle-event broadcasting. */
+  @VisibleForTesting
+  static BsonDocument buildPartitionMatchStage(ChangeStreamPartition partition) {
+    BsonArray documentOperationTypes =
+        DOCUMENT_OPERATION_TYPES.stream()
+            .map(OperationType::getValue)
+            .map(BsonString::new)
+            .collect(Collectors.toCollection(BsonArray::new));
+    BsonDocument isDocumentEvent =
+        new BsonDocument(
+            "$in",
+            new BsonArray(List.of(new BsonString("$operationType"), documentOperationTypes)));
+
+    // Encode the _id as a KeyString before hashing because $toHashedIndexKey will coerce doubles to
+    // int64. Without this, double _ids outside the int64 range can all hash to the same value.
+    // See https://jira.mongodb.org/browse/SERVER-82815 for more details.
+    BsonDocument keyString =
+        new BsonDocument(
+            "$_internalKeyStringValue",
+            new BsonDocument("input", new BsonString("$documentKey._id")));
+    BsonArray modArgs = new BsonArray();
+    modArgs.add(new BsonDocument("$toHashedIndexKey", keyString));
+    modArgs.add(new BsonInt32(partition.partitionCount()));
+
+    BsonArray partitionMatchArgs = new BsonArray();
+    partitionMatchArgs.add(new BsonDocument("$abs", new BsonDocument("$mod", modArgs)));
+    partitionMatchArgs.add(new BsonInt32(partition.partitionId()));
+
+    BsonArray condition =
+        new BsonArray(
+            List.of(
+                isDocumentEvent, new BsonDocument("$eq", partitionMatchArgs), BsonBoolean.TRUE));
+    return new BsonDocument(
+        "$match", new BsonDocument("$expr", new BsonDocument("$cond", condition)));
+  }
+
   public AggregateOperationTemplate build() {
     return new AggregateOperationTemplate(this);
   }
@@ -153,6 +219,9 @@ public class ChangeStreamAggregateOperationBuilder {
 
     return new AggregationPipelineBuilder()
             .addStage(changeStreamChange)
+            // Partition match must follow $changeStream so it sees documentKey, and precede
+            // metadata/view/projection stages so those only process this partial's events.
+            .addStage(this.partitionMatchStage)
             .addStage(this.metadataAddFieldsStage)
             .addMultipleStages(this.viewDefinedStages)
             // projection of the fields used in the index appears after view-defined stages

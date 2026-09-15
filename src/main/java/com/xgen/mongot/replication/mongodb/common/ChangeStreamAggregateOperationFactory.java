@@ -6,8 +6,10 @@ import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.Projections;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamModeSelector.ChangeStreamMode;
+import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.mongodb.ChangeStreamAggregateCommand;
 import java.util.List;
+import org.bson.BsonTimestamp;
 
 public class ChangeStreamAggregateOperationFactory {
 
@@ -91,5 +93,47 @@ public class ChangeStreamAggregateOperationFactory {
   public ChangeStreamAggregateOperationBuilder.AggregateOperationTemplate fromResumeInfo(
       ChangeStreamResumeInfo resumeInfo, ChangeStreamMode mode) {
     return builder(mode, resumeInfo.getNamespace()).startAfter(resumeInfo.getResumeToken()).build();
+  }
+
+  /**
+   * Like {@link #fromResumeInfo(ChangeStreamResumeInfo, ChangeStreamMode)} but adds a partition
+   * {@code $match} for one partial stream.
+   */
+  public ChangeStreamAggregateOperationBuilder.AggregateOperationTemplate fromResumeInfo(
+      ChangeStreamResumeInfo resumeInfo, ChangeStreamMode mode, ChangeStreamPartition partition) {
+    Check.argNotNull(partition, "partition");
+    return builder(mode, resumeInfo.getNamespace())
+        .startAfter(resumeInfo.getResumeToken())
+        .partition(partition)
+        .build();
+  }
+
+  /**
+   * Starts a change stream at {@code operationTime} (inclusive) without a partition match (the
+   * single-stream pipeline shape).
+   */
+  public ChangeStreamAggregateOperationBuilder.AggregateOperationTemplate fromOperationTime(
+      MongoNamespace namespace, BsonTimestamp operationTime, ChangeStreamMode mode) {
+    Check.argNotNull(namespace, "namespace");
+    Check.argNotNull(operationTime, "operationTime");
+    return builder(mode, namespace).startAtOperationTime(operationTime).build();
+  }
+
+  /**
+   * Like {@link #fromOperationTime(MongoNamespace, BsonTimestamp, ChangeStreamMode)} but adds a
+   * partition {@code $match} for one partial stream.
+   */
+  public ChangeStreamAggregateOperationBuilder.AggregateOperationTemplate fromOperationTime(
+      MongoNamespace namespace,
+      BsonTimestamp operationTime,
+      ChangeStreamMode mode,
+      ChangeStreamPartition partition) {
+    Check.argNotNull(namespace, "namespace");
+    Check.argNotNull(operationTime, "operationTime");
+    Check.argNotNull(partition, "partition");
+    return builder(mode, namespace)
+        .startAtOperationTime(operationTime)
+        .partition(partition)
+        .build();
   }
 }
