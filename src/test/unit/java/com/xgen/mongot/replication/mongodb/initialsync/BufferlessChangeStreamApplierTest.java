@@ -9,6 +9,7 @@ import static com.xgen.testing.mongot.mock.index.VectorIndex.mockAutoEmbeddingVe
 import static com.xgen.testing.mongot.mock.index.VectorIndex.mockMaterializedViewAutoEmbeddingVectorDefinition;
 import static com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils.toRawBsonDocuments;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -45,6 +46,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.Closeable;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -81,6 +83,14 @@ public class BufferlessChangeStreamApplierTest {
   private static final BsonTimestamp INITIAL_HIGH_WATER_MARK = new BsonTimestamp(3, 1);
 
   private static final BsonTimestamp BATCH_OP_TIME = new BsonTimestamp(5, 1);
+
+  private static final BsonTimestamp SECOND_BATCH_OP_TIME = new BsonTimestamp(7, 1);
+
+  /**
+   * Sits between the two batch opTimes, which is what makes the apply loop read exactly two: it
+   * keeps going while the stop point is ahead of the last batch's opTime.
+   */
+  private static final BsonTimestamp STOP_AFTER_FIRST_BATCH = new BsonTimestamp(6, 0);
 
   private static final BsonDocument POST_BATCH_RESUME_TOKEN =
       new BsonDocument().append("$recordId", new BsonInt64(100));
@@ -414,6 +424,38 @@ public class BufferlessChangeStreamApplierTest {
       verify(mocks.context, never()).schedule(any(), any(), any());
       verify(mocks.context).scheduleWithoutCommitUserData(any(), any());
       assertThat(resumeState.getHighWaterMark()).isEqualTo(BATCH_OP_TIME);
+    }
+  }
+
+  /**
+   * Takes two batches because one cannot tell a mark advanced once per batch from one advanced once
+   * at the end of the call. Reading the mark as each batch is scheduled pins the ordering the scan
+   * windows depend on: a batch's position is already published by the time the next batch is
+   * scheduled, so the applier never hands back a future that has run ahead of the mark.
+   */
+  @Test
+  public void applyEvents_parallelScan_advancesTheHighWaterMarkOncePerBatch() throws Exception {
+    ParallelCollectionScanResumeState resumeState = parallelResumeState();
+
+    try (Mocks mocks = Mocks.createMocksWithParallelResumeState(resumeState)) {
+      when(mocks.changeStreamMongoClient.getNext())
+          .thenReturn(batchAt(BATCH_OP_TIME), batchAt(SECOND_BATCH_OP_TIME));
+
+      List<BsonTimestamp> marksWhenScheduled = new ArrayList<>();
+      doAnswer(
+              invocation -> {
+                marksWhenScheduled.add(resumeState.getHighWaterMark());
+                return CompletableFuture.completedFuture(null);
+              })
+          .when(mocks.context)
+          .scheduleWithoutCommitUserData(any(), any());
+
+      mocks.applier.applyEvents(lastScannedToken(), STOP_AFTER_FIRST_BATCH, false);
+
+      assertThat(marksWhenScheduled)
+          .containsExactly(INITIAL_HIGH_WATER_MARK, BATCH_OP_TIME)
+          .inOrder();
+      assertThat(resumeState.getHighWaterMark()).isEqualTo(SECOND_BATCH_OP_TIME);
     }
   }
 

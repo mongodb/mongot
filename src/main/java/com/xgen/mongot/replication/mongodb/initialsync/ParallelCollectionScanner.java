@@ -29,8 +29,8 @@ import org.bson.BsonInt64;
  * most one scan window.
  *
  * <p>K of these run concurrently against one index, so a scanner touches only its own {@link
- * ParallelCollectionScanPartitionState}. It schedules batches without commit data because the run
- * installs one supplier covering every partition; a per-batch blob here would publish this
+ * ParallelCollectionScanPartitionState}. It schedules batches without commit data because the
+ * session installs one supplier covering every partition; a per-batch blob here would publish this
  * partition's progress while reverting its siblings'.
  *
  * <p>Stopping belongs to the cycle that owns the K workers: it supplies the deadline and the abort
@@ -126,16 +126,20 @@ class ParallelCollectionScanner {
 
     try (CollectionScanMongoClient<InitialSyncException> cursor = openCursor()) {
       while (true) {
-        if (!cursor.hasNext()) {
-          stopReason = StopReason.RANGE_CONSUMED;
-          break;
-        }
+        // Stopping is checked ahead of hasNext because that call resolves the namespace against the
+        // source: a scanner that is already stopping should not spend a round trip to find out. A
+        // cursor exhausted at that same moment reports ABORTED instead of RANGE_CONSUMED, leaving
+        // the partition unfinished, and the next window reopens it to consume nothing.
         if (this.abortRequested.getAsBoolean()) {
           stopReason = StopReason.ABORTED;
           break;
         }
         if (!Instant.now(this.clock).isBefore(deadline)) {
           stopReason = StopReason.WINDOW_DEADLINE;
+          break;
+        }
+        if (!cursor.hasNext()) {
+          stopReason = StopReason.RANGE_CONSUMED;
           break;
         }
 

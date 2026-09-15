@@ -3,6 +3,7 @@ package com.xgen.mongot.replication.mongodb.initialsync;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.replication.mongodb.common.BufferlessParallelNaturalOrderInitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.StringJoiner;
@@ -10,9 +11,9 @@ import java.util.UUID;
 import org.bson.BsonTimestamp;
 
 /**
- * In-memory, run-level aggregate for a parallel natural-order collection scan: the K per-partition
- * {@link ParallelCollectionScanPartitionState} elements, the shared {@code highWaterMark}, and the
- * run metadata stamped on every commit.
+ * In-memory, session-level aggregate for a parallel natural-order collection scan: the K
+ * per-partition {@link ParallelCollectionScanPartitionState} elements, the shared {@code
+ * highWaterMark}, and the session metadata stamped on every commit.
  *
  * <p>{@link #snapshot()} is the commit-data supplier. The periodic committer calls it to assemble a
  * fresh {@link IndexCommitUserData} from the live components as it fires, rather than from a blob
@@ -42,8 +43,29 @@ public class ParallelCollectionScanResumeState {
   }
 
   /**
-   * Rebuilds the live run state from a persisted commit blob on resume. The format version is not
-   * in the blob; it comes from the index generation being resumed.
+   * Builds the live session state for a freshly planned scan. Partitions are numbered by their
+   * position in the plan, which lists them in scan order, and each starts with nothing scanned.
+   */
+  public static ParallelCollectionScanResumeState fromPlan(
+      IndexFormatVersion indexFormatVersion,
+      InitialSyncPartitionPlan.PartitionedResult plan,
+      BsonTimestamp highWaterMark,
+      Optional<String> syncSourceHost) {
+    List<ParallelCollectionScanPartitionState> partitions = new ArrayList<>();
+    for (int partitionId = 0; partitionId < plan.partitions().size(); partitionId++) {
+      InitialSyncPartitionPlan.PartitionRange range = plan.partitions().get(partitionId);
+      partitions.add(
+          new ParallelCollectionScanPartitionState(
+              partitionId, range.lowerRecordId(), range.upperRecordId(), Optional.empty(), false));
+    }
+
+    return new ParallelCollectionScanResumeState(
+        indexFormatVersion, plan.initialSyncId(), syncSourceHost, highWaterMark, partitions);
+  }
+
+  /**
+   * Rebuilds the live session state from a persisted commit blob on resume. The format version is
+   * not in the blob; it comes from the index generation being resumed.
    */
   public static ParallelCollectionScanResumeState fromPersisted(
       IndexFormatVersion indexFormatVersion,

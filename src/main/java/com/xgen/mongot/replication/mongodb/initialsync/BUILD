@@ -27,6 +27,7 @@ java_library(
         "ParallelCollectionScanDispatcher.java",
         "ParallelCollectionScanPartitionState.java",
         "ParallelCollectionScanResumeState.java",
+        "ParallelCollectionScanSession.java",
         "ParallelCollectionScanner.java",
         "ParallelCollectionScannerFactory.java",
         "PartitionPoolExecutor.java",

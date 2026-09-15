@@ -5,6 +5,7 @@ import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_DEFINITI
 import static com.xgen.testing.mongot.mock.index.SearchIndex.mockInitializedIndex;
 import static org.mockito.Mockito.verify;
 
+import com.google.common.collect.ImmutableList;
 import com.xgen.mongot.index.EncodedUserData;
 import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.version.IndexFormatVersion;
@@ -105,6 +106,34 @@ public class ParallelCollectionScanResumeStateTest {
                 INITIAL_SYNC_ID,
                 List.of(p0.toPersisted(), p1.toPersisted()),
                 SYNC_SOURCE_HOST));
+  }
+
+  @Test
+  public void resumeState_fromPlan_numbersPartitionsInScanOrderWithNothingScanned() {
+    InitialSyncPartitionPlan.PartitionedResult plan =
+        new InitialSyncPartitionPlan.PartitionedResult(
+            ImmutableList.of(
+                new InitialSyncPartitionPlan.PartitionRange(Optional.empty(), Optional.of(100L)),
+                new InitialSyncPartitionPlan.PartitionRange(Optional.of(100L), Optional.of(200L)),
+                new InitialSyncPartitionPlan.PartitionRange(Optional.of(200L), Optional.empty())),
+            INITIAL_SYNC_ID);
+
+    ParallelCollectionScanResumeState resumeState =
+        ParallelCollectionScanResumeState.fromPlan(
+            IndexFormatVersion.CURRENT, plan, new BsonTimestamp(1_000, 1), SYNC_SOURCE_HOST);
+
+    assertThat(resumeState.getInitialSyncId()).isEqualTo(INITIAL_SYNC_ID);
+    assertThat(resumeState.getHighWaterMark()).isEqualTo(new BsonTimestamp(1_000, 1));
+    assertThat(resumeState.getSyncSourceHost()).isEqualTo(SYNC_SOURCE_HOST);
+    assertThat(resumeState.getPartitions().stream().map(p -> p.toPersisted()).toList())
+        .containsExactly(
+            new PartitionResumeInfo(
+                0, Optional.empty(), Optional.of(100L), Optional.empty(), false),
+            new PartitionResumeInfo(
+                1, Optional.of(100L), Optional.of(200L), Optional.empty(), false),
+            new PartitionResumeInfo(
+                2, Optional.of(200L), Optional.empty(), Optional.empty(), false))
+        .inOrder();
   }
 
   @Test

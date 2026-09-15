@@ -10,8 +10,10 @@ import static org.mockito.Mockito.when;
 import com.mongodb.MongoCommandException;
 import com.mongodb.ServerAddress;
 import com.xgen.mongot.metrics.MetricsFactory;
+import com.xgen.mongot.replication.mongodb.common.BufferlessNaturalOrderInitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.BufferlessParallelNaturalOrderInitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
+import com.xgen.mongot.replication.mongodb.common.InitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.PartitionResumeInfo;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
@@ -19,6 +21,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.bson.BsonDocument;
+import org.bson.BsonInt64;
 import org.bson.BsonTimestamp;
 import org.junit.Assert;
 import org.junit.Test;
@@ -197,25 +200,10 @@ public class BufferlessInitialSyncManagerTest {
   }
 
   @Test
-  public void testParallelResumeInfoRequiresResync() {
-    MetricsFactory metricsFactory =
-        new MetricsFactory("initialSyncManager", new SimpleMeterRegistry());
-
+  public void testParallelResumeInfoRequiresResync() throws Exception {
     InitialSyncMongoClient mongoClient = mock(InitialSyncMongoClient.class);
-
-    InitialSyncContext context = mock(InitialSyncContext.class);
-    when(context.useNaturalOrderScan()).thenReturn(true);
-
     BufferlessInitialSyncManager manager =
-        new BufferlessInitialSyncManager(
-            context,
-            mock(BufferlessCollectionScannerFactory.class),
-            mock(BufferlessChangeStreamApplierFactory.class),
-            mock(ServerClusterTimeProvider.class),
-            Duration.ofMinutes(5),
-            Optional.of(parallelResumeInfo()),
-            metricsFactory,
-            mongoClient);
+        managerResumingFrom(parallelResumeInfo(), /* useNaturalOrderScan= */ true, mongoClient);
 
     InitialSyncException thrown = Assert.assertThrows(InitialSyncException.class, manager::sync);
 
@@ -223,6 +211,46 @@ public class BufferlessInitialSyncManagerTest {
     Assert.assertEquals(InitialSyncException.Type.REQUIRES_RESYNC, thrown.getType());
     // The sync bails before doing any work on the sync source.
     verify(mongoClient, never()).fsync();
+  }
+
+  /**
+   * InitialSyncQueue discards a sequential natural-order blob when the scan is disabled but has no
+   * case for a parallel one, so this pairing does reach the manager. The guard cannot key off the
+   * scan setting, or the blob would fall through to a resume token it does not have.
+   */
+  @Test
+  public void testParallelResumeInfoRequiresResyncWithNaturalOrderScanDisabled() throws Exception {
+    InitialSyncMongoClient mongoClient = mock(InitialSyncMongoClient.class);
+    BufferlessInitialSyncManager manager =
+        managerResumingFrom(parallelResumeInfo(), /* useNaturalOrderScan= */ false, mongoClient);
+
+    InitialSyncException thrown = Assert.assertThrows(InitialSyncException.class, manager::sync);
+
+    Assert.assertEquals(InitialSyncException.Type.REQUIRES_RESYNC, thrown.getType());
+    verify(mongoClient, never()).fsync();
+  }
+
+  /**
+   * The guard has to catch only the parallel blob. Widening it to every resume info would turn each
+   * resume into a full rescan, which no other assertion here would notice. Reaching fsync is the
+   * cheapest evidence that a sequential blob still gets through.
+   */
+  @Test
+  public void testSequentialResumeInfoIsNotCaughtByTheParallelGuard() throws Exception {
+    InitialSyncMongoClient mongoClient = mock(InitialSyncMongoClient.class);
+    when(mongoClient.fsync()).thenReturn(new BsonDocument());
+
+    BufferlessInitialSyncManager manager =
+        managerResumingFrom(sequentialResumeInfo(), /* useNaturalOrderScan= */ true, mongoClient);
+
+    // Gets past the guard and then fails on the incomplete mocks; only how far it got matters.
+    try {
+      manager.sync();
+    } catch (Exception ignored) {
+      // Expected.
+    }
+
+    verify(mongoClient).fsync();
   }
 
   @Test
@@ -260,6 +288,37 @@ public class BufferlessInitialSyncManagerTest {
             .tag("outcome", "failure")
             .timer()
             .count());
+  }
+
+  private static BufferlessInitialSyncManager managerResumingFrom(
+      InitialSyncResumeInfo resumeInfo,
+      boolean useNaturalOrderScan,
+      InitialSyncMongoClient mongoClient)
+      throws InitialSyncException {
+    InitialSyncContext context = mock(InitialSyncContext.class);
+    when(context.useNaturalOrderScan()).thenReturn(useNaturalOrderScan);
+
+    BufferlessChangeStreamApplierFactory changeStreamApplierFactory =
+        mock(BufferlessChangeStreamApplierFactory.class);
+    when(changeStreamApplierFactory.create(any(), anyBoolean()))
+        .thenReturn(mock(BufferlessChangeStreamApplier.class));
+
+    return new BufferlessInitialSyncManager(
+        context,
+        mock(BufferlessCollectionScannerFactory.class),
+        changeStreamApplierFactory,
+        mock(ServerClusterTimeProvider.class),
+        Duration.ofMinutes(5),
+        Optional.of(resumeInfo),
+        new MetricsFactory("initialSyncManager", new SimpleMeterRegistry()),
+        mongoClient);
+  }
+
+  private static BufferlessNaturalOrderInitialSyncResumeInfo sequentialResumeInfo() {
+    return new BufferlessNaturalOrderInitialSyncResumeInfo(
+        new BsonTimestamp(1_000, 1),
+        new BsonDocument("$recordId", new BsonInt64(250)),
+        Optional.empty());
   }
 
   private static BufferlessParallelNaturalOrderInitialSyncResumeInfo parallelResumeInfo() {

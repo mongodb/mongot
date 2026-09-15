@@ -98,8 +98,13 @@ class ParallelCollectionScanDispatcher implements Closeable {
 
     List<CollectionScanWorker> workers = new ArrayList<>();
     try {
-      for (ParallelCollectionScanPartitionState partitionState : unfinished) {
-        workers.add(launch(highWaterMark, partitionState, deadline));
+      // A window can be dispatched after shutdown was signalled, because the manager starts one
+      // whenever the previous returned. Launching then would submit a worker per partition for each
+      // to stop on its first check; the joins below report SHUT_DOWN just as well with none.
+      if (!this.shutdownRequested) {
+        for (ParallelCollectionScanPartitionState partitionState : unfinished) {
+          workers.add(launch(highWaterMark, partitionState, deadline));
+        }
       }
     } catch (RuntimeException e) {
       // A throw part-way through the fan-out reaches neither the whenComplete abort nor

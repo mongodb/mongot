@@ -13,6 +13,7 @@ java_test_suite(
         "InitialSyncQueueTest.java",
         "ParallelCollectionScanDispatcherTest.java",
         "ParallelCollectionScanResumeStateTest.java",
+        "ParallelCollectionScanSessionTest.java",
         "ParallelCollectionScannerTest.java",
         "PartitionPoolExecutorTest.java",
     ],

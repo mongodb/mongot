@@ -5,7 +5,7 @@ import java.util.Optional;
 import java.util.StringJoiner;
 
 /**
- * In-memory, mutable per-partition run state for a parallel natural-order collection scan. One
+ * In-memory, mutable per-partition session state for a parallel natural-order collection scan. One
  * instance per partition, held in a fixed-size list by {@link ParallelCollectionScanResumeState}.
  * It is the live counterpart of the persisted {@link PartitionResumeInfo}: a fresh scanner is built
  * per scan window, so a partition's progress lives here (surviving across windows), not on the
@@ -38,7 +38,7 @@ public class ParallelCollectionScanPartitionState {
     this.isDone = isDone;
   }
 
-  /** Rebuilds the live run state from a persisted per-partition entry on resume. */
+  /** Rebuilds the live session state from a persisted per-partition entry on resume. */
   public static ParallelCollectionScanPartitionState fromPersisted(PartitionResumeInfo persisted) {
     return new ParallelCollectionScanPartitionState(
         persisted.getPartitionId(),

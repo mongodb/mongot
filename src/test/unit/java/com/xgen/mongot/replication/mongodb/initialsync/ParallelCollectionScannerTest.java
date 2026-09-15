@@ -392,6 +392,21 @@ public class ParallelCollectionScannerTest {
     Assert.assertEquals(0, result.documentsIndexed());
     Assert.assertEquals(Optional.empty(), fixture.partition.getResumeRecordId());
     verify(fixture.indexingWorkScheduler, never()).cancel(any(), any(), any());
+    // hasNext resolves the namespace against the source, which a scanner already stopping should
+    // not spend a round trip on.
+    verify(fixture.cursor, never()).hasNext();
+  }
+
+  /** Same round trip, for the window that is already over before its scanner starts. */
+  @Test
+  public void scanStopsAtAnExpiredDeadlineWithoutReadingFromTheCursor() throws Exception {
+    Fixture fixture = Fixture.withEndlessBatches(unboundedPartition(), Clock.systemUTC());
+
+    ParallelCollectionScanner.Result result = fixture.scanner.scanUntil(Instant.EPOCH);
+
+    Assert.assertEquals(ParallelCollectionScanner.StopReason.WINDOW_DEADLINE, result.stopReason());
+    Assert.assertEquals(0, result.documentsIndexed());
+    verify(fixture.cursor, never()).hasNext();
   }
 
   /** A position that outran the index would let a resume skip documents no commit contains. */

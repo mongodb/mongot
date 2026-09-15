@@ -495,15 +495,13 @@ public class ParallelCollectionScanDispatcherTest {
    * report shutdown rather than a completed window.
    */
   @Test
-  public void dispatchThrowsShutDownWhenShutdownStoppedTheWorkers() {
+  public void dispatchThrowsShutDownWhenShutdownStoppedTheWorkers() throws Exception {
     Fixture fixture =
         fixture(partition(0, false), partition(1, false))
             .where(0, stopsWhenAborted(1))
             .where(1, stopsWhenAborted(2));
-    fixture.dispatcher.signalShutdown();
 
-    InitialSyncException thrown =
-        Assert.assertThrows(InitialSyncException.class, () -> fixture.dispatch(HIGH_WATER_MARK));
+    InitialSyncException thrown = shutDownOnceTheWorkersAreScanning(fixture, 2);
 
     Assert.assertTrue(thrown.isShutdown());
     Assert.assertEquals(Set.of(0, 1), fixture.observedAbort);
@@ -518,16 +516,14 @@ public class ParallelCollectionScanDispatcherTest {
    * rather than the shutdown path.
    */
   @Test
-  public void dispatchReportsShutDownRatherThanAFailureItCaused() {
+  public void dispatchReportsShutDownRatherThanAFailureItCaused() throws Exception {
     InitialSyncException fallout = InitialSyncException.createFailed(new IllegalStateException());
     Fixture fixture =
         fixture(partition(0, false), partition(1, false))
             .where(0, failsWhenAborted(fallout))
             .where(1, stopsWhenAborted(1));
-    fixture.dispatcher.signalShutdown();
 
-    InitialSyncException thrown =
-        Assert.assertThrows(InitialSyncException.class, () -> fixture.dispatch(HIGH_WATER_MARK));
+    InitialSyncException thrown = shutDownOnceTheWorkersAreScanning(fixture, 2);
 
     Assert.assertTrue(thrown.isShutdown());
     Assert.assertEquals(Set.of(0, 1), fixture.observedAbort);
@@ -582,6 +578,28 @@ public class ParallelCollectionScanDispatcherTest {
         "dispatch reported the worker failure rather than shutdown", thrown.isShutdown());
   }
 
+  /**
+   * The manager opens a window whenever the previous one returned, so shutdown can land between
+   * two. Launching then costs a worker per partition for each to stop on its first check.
+   */
+  @Test
+  public void dispatchLaunchesNothingWhenShutdownAlreadyArrived() {
+    Fixture fixture =
+        fixture(partition(0, false), partition(1, false))
+            .where(0, consumesItsRange(1))
+            .where(1, consumesItsRange(2));
+    fixture.dispatcher.signalShutdown();
+
+    InitialSyncException thrown =
+        Assert.assertThrows(InitialSyncException.class, () -> fixture.dispatch(HIGH_WATER_MARK));
+
+    Assert.assertTrue(thrown.isShutdown());
+    Assert.assertEquals(List.of(), fixture.scannedPartitionIds);
+    // Behaviours that would have consumed both ranges, so a launch would show up here.
+    Assert.assertFalse(fixture.partition(0).isDone());
+    Assert.assertFalse(fixture.partition(1).isDone());
+  }
+
   /** A worker blocked awaiting its in-flight batch is only released by cancelling queued work. */
   @Test
   public void signalShutdownCancelsQueuedWorkImmediately() {
@@ -602,6 +620,20 @@ public class ParallelCollectionScanDispatcherTest {
 
     awaitWorkersScanning(fixture, workers);
     dispatch.thread().interrupt();
+
+    return awaitDispatchReturning(dispatch);
+  }
+
+  /**
+   * Runs a window on its own thread and signals shutdown once every worker is inside its scan.
+   * Signalling beforehand would instead exercise the window that launches nobody.
+   */
+  private static InitialSyncException shutDownOnceTheWorkersAreScanning(
+      Fixture fixture, int workers) throws Exception {
+    DispatchOnItsOwnThread dispatch = startDispatch(fixture);
+
+    awaitWorkersScanning(fixture, workers);
+    fixture.dispatcher.signalShutdown();
 
     return awaitDispatchReturning(dispatch);
   }
@@ -631,7 +663,7 @@ public class ParallelCollectionScanDispatcherTest {
     // rather than timing out here.
     dispatch.thread().join(ABORT_TIMEOUT.multipliedBy(3).toMillis());
 
-    Assert.assertFalse("dispatch never returned after the interrupt", dispatch.thread().isAlive());
+    Assert.assertFalse("dispatch never returned after being stopped", dispatch.thread().isAlive());
     Throwable failure = dispatch.thrown().get();
     Assert.assertTrue(
         "dispatch should have thrown InitialSyncException, got: " + failure,
