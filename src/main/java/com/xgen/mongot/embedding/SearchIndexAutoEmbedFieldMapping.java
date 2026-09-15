@@ -21,7 +21,9 @@ import java.util.function.Predicate;
  *       {@link #isPassthrough} treats anything outside {@link #embedFields} as passthrough, and
  *       {@link #passthroughDescendPredicate()} descends into every subtree.
  *   <li><b>Static mode</b> ({@code dynamic} disabled): only explicitly declared non-embed fields
- *       are passthrough. Ancestor paths are precomputed like vector indexes.
+ *       and the ancestor paths needed to reach them are passthrough. Document ancestors are kept as
+ *       scalar fallbacks for ancestor-overwrite updates, but subdocument traversal copies only
+ *       explicitly declared children.
  * </ul>
  *
  * <p>Embed-field keys are the auto-embed source fields (as declared by {@code
@@ -110,7 +112,11 @@ public record SearchIndexAutoEmbedFieldMapping(
     if (this.dynamic.isEnabled()) {
       return true;
     }
-    return this.explicitPassthroughPaths.contains(path) || hasPassthroughAncestor(path);
+    // Ancestor paths of declared passthrough fields are retained as scalar fallbacks: if a
+    // document-valued mapping is overwritten with a scalar, the raw scalar must still reach the MV
+    // (the ancestor-overwrite fallback path). Subdocument traversal continues to copy only
+    // explicitly declared children.
+    return matchesPassthrough(path);
   }
 
   /**
@@ -146,10 +152,17 @@ public record SearchIndexAutoEmbedFieldMapping(
     if (this.dynamic.isEnabled()) {
       return path -> !hasEmbedAncestor(path);
     }
-    return path ->
-        this.explicitPassthroughAncestorPaths.contains(path)
-            || this.explicitPassthroughPaths.contains(path)
-            || hasPassthroughAncestor(path);
+    return this::matchesPassthrough;
+  }
+
+  /**
+   * Matches exact passthrough paths, ancestors of passthrough paths for scalar fallback, and
+   * descendants of explicit passthrough paths.
+   */
+  private boolean matchesPassthrough(FieldPath path) {
+    return this.explicitPassthroughPaths.contains(path)
+        || this.explicitPassthroughAncestorPaths.contains(path)
+        || hasPassthroughAncestor(path);
   }
 
   /**

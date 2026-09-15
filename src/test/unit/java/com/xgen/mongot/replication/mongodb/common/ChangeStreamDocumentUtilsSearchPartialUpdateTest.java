@@ -79,7 +79,7 @@ public class ChangeStreamDocumentUtilsSearchPartialUpdateTest {
   }
 
   @Test
-  public void staticSearch_documentValuedProfileReplacement_setsCompleteSubtree() {
+  public void staticSearch_documentValuedProfileReplacement_setsDeclaredSubtree() {
     SearchIndexDefinition indexDefinition = documentPassthroughSearchIndex();
     BsonDocument replacementProfile =
         new BsonDocument("label", new BsonString("updated"))
@@ -96,8 +96,23 @@ public class ChangeStreamDocumentUtilsSearchPartialUpdateTest {
     DocumentEvent documentEvent = batch.finalChangeEvents.getFirst();
     assertTrue(documentEvent.isFilterOnlyUpdate());
     assertThat(documentEvent.getFilterFieldUpdates().orElseThrow().getDocument("profile"))
-        .isEqualTo(replacementProfile);
+        .isEqualTo(new BsonDocument("label", new BsonString("updated")));
     assertThat(batch.filterOnlyPartialApplied).isEqualTo(1);
+  }
+
+  @Test
+  public void
+      staticSearch_documentValuedProfileReplacementDropsDeclaredChild_fallsBackToFullReplace() {
+    SearchIndexDefinition indexDefinition = documentPassthroughSearchIndex();
+    BsonDocument replacementProfile = new BsonDocument("unmapped", new BsonString("preserved"));
+    ChangeStreamDocument<RawBsonDocument> event =
+        updateEvent(
+            indexDefinition,
+            new UpdateDescription(null, new BsonDocument("profile", replacementProfile)),
+            standardDocument("old title").append("profile", replacementProfile));
+
+    assertFullFallback(
+        handle(indexDefinition, List.of(event)), PartialEmbedFallbackReason.ANCESTOR_OVERWRITE);
   }
 
   @Test

@@ -114,17 +114,19 @@ public class AutoEmbedFieldMappingCreator {
    * onAutoEmbed} and collecting passthrough destination paths. A field's type alternatives are
    * processed independently (search mappings may declare several types per field). Static {@code
    * document} alternatives that contain an auto-embed descendant are descended into so the nested
-   * auto-embed field is embedded rather than copied wholesale; auto-embed-free subtrees are passed
-   * through as a whole. The whole field is passed through at its own path when its dynamic mapping
-   * or any other type alternative needs the raw source value in the materialized view: a dynamic
-   * {@code document}'s undeclared children and a scalar alternative's value must both reach the MV.
-   * The embed-path carve-out in {@code isPassthrough} keeps embed sources out of wholesale copies:
-   * an auto-embed source field is consumed by the embedding pipeline and is never copied to the MV
-   * — and therefore never lexically indexed — in every mode, dynamic mappings included. Explicit
-   * declarations overlapping a source field are rejected at validation; dynamic coverage of a
-   * source path silently yields no lexical data for it by design. {@code embeddedDocuments} fields
-   * cannot contain auto-embed fields (rejected at validation), so they are passed through as a
-   * whole.
+   * auto-embed field is embedded rather than copied wholesale. A purely static document is also
+   * descended into so its declared child paths are enumerated; this makes the mapping sensitive to
+   * child additions and removals during resync, while the computed ancestor paths still preserve
+   * the containing document in the MV. The whole field is passed through at its own path when its
+   * dynamic mapping or any other type alternative needs the raw source value in the materialized
+   * view: a dynamic {@code document}'s undeclared children and a scalar alternative's value must
+   * both reach the MV. The embed-path carve-out in {@code isPassthrough} keeps embed sources out of
+   * wholesale copies: an auto-embed source field is consumed by the embedding pipeline and is never
+   * copied to the MV — and therefore never lexically indexed — in every mode, dynamic mappings
+   * included. Explicit declarations overlapping a source field are rejected at validation; dynamic
+   * coverage of a source path silently yields no lexical data for it by design. {@code
+   * embeddedDocuments} fields cannot contain auto-embed fields (rejected at validation), so they
+   * are passed through as a whole.
    */
   private static void collectSearchAutoEmbedFields(
       Map<String, FieldDefinition> fields,
@@ -153,6 +155,14 @@ public class AutoEmbedFieldMappingCreator {
           collectSearchAutoEmbedFields(
               document.get().fields(), Optional.of(path), onAutoEmbed, passthroughBuilder);
         }
+      } else if (document.isPresent()
+          && autoEmbed.isEmpty()
+          && !hasOtherTypes
+          && !document.get().dynamic().isEnabled()) {
+        // A purely static document is descended into so declared child additions/removals are
+        // visible to mapping diffs and trigger the required MV resync.
+        collectSearchAutoEmbedFields(
+            document.get().fields(), Optional.of(path), onAutoEmbed, passthroughBuilder);
       } else if (hasOtherTypes || document.isPresent() || autoEmbed.isEmpty()) {
         passthroughBuilder.add(path);
       }

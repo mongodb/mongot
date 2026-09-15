@@ -1069,17 +1069,63 @@ public class AutoEmbeddingDocumentUtils {
         return Optional.of(PartialEmbedFallbackReason.DESTRUCTIVE_INDEXED_TOUCH);
       }
     }
-    // A $set on a strict ancestor of a filter overwrites the parent object and drops the sub-field.
-    for (String updated : updatedFieldKeys(updateDescription)) {
-      FieldPath path = FieldPath.parse(updated);
-      if (isStrictAncestorOfAny(path, nestedFilters)) {
+    // A $set on a strict ancestor of a filter overwrites the parent object. If the replacement
+    // contains every declared descendant, the partial $set body extracted from the post-image can
+    // rebuild that subtree safely; otherwise the stale MV value must be cleared by a full replace.
+    BsonDocument updatedFields = updateDescription.getUpdatedFields();
+    if (updatedFields == null) {
+      return Optional.empty();
+    }
+    for (var updated : updatedFields.entrySet()) {
+      FieldPath path = FieldPath.parse(updated.getKey());
+      if (isStrictAncestorOfAny(path, nestedFilters)
+          && !replacementPreservesDeclaredFields(updated.getValue(), path, nestedFilters)) {
         return Optional.of(PartialEmbedFallbackReason.NESTED_FILTER_REMAPPING);
       }
-      if (isStrictAncestorOfAny(path, topLevelFilters)) {
+      if (isStrictAncestorOfAny(path, topLevelFilters)
+          && !replacementPreservesDeclaredFields(updated.getValue(), path, topLevelFilters)) {
         return Optional.of(PartialEmbedFallbackReason.ANCESTOR_OVERWRITE);
       }
     }
     return Optional.empty();
+  }
+
+  /**
+   * Returns true when a replacement value still contains every declared filter under {@code
+   * updatedPath}. Array-indexed updates keep the conservative full-replace behavior.
+   */
+  private static boolean replacementPreservesDeclaredFields(
+      BsonValue replacement, FieldPath updatedPath, Set<FieldPath> declaredFilters) {
+    if (stripArrayIndexSegments(updatedPath).isPresent()) {
+      return false;
+    }
+    for (FieldPath declaredFilter : declaredFilters) {
+      if (!declaredFilter.isChildOf(updatedPath)) {
+        continue;
+      }
+      FieldPath relativePath = relativizeUnderNestedRoot(declaredFilter, updatedPath);
+      if (!containsPath(replacement, ImmutableList.copyOf(relativePath.getSegments()), 0)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private static boolean containsPath(BsonValue value, ImmutableList<String> segments, int index) {
+    if (value == null) {
+      return false;
+    }
+    if (index == segments.size()) {
+      return true;
+    }
+    if (value.isArray()) {
+      return value.asArray().getValues().stream()
+          .allMatch(element -> containsPath(element, segments, index));
+    }
+    if (!value.isDocument()) {
+      return false;
+    }
+    return containsPath(value.asDocument().get(segments.get(index)), segments, index + 1);
   }
 
   // TODO(CLOUDP-363302): Supports stored source.

@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.autoembedding;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -16,11 +17,17 @@ import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
 import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.index.definition.ViewDefinition;
 import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
+import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.EmbeddedDocumentsFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.StringFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.TypeSetDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
+import com.xgen.testing.mongot.index.query.sort.SortFieldBuilder;
+import com.xgen.testing.mongot.index.query.sort.SortSpecBuilder;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import java.util.List;
 import java.util.Map;
@@ -533,6 +540,138 @@ public class MaterializedViewIndexGenerationUtilTest {
         .build();
   }
 
+  private static SearchIndexDefinition searchDefWithNestedPassthroughFields(boolean includeWeight) {
+    var specs =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "color",
+                FieldDefinitionBuilder.builder()
+                    .string(StringFieldDefinitionBuilder.builder().build())
+                    .build());
+    if (includeWeight) {
+      specs.field(
+          "weight",
+          FieldDefinitionBuilder.builder()
+              .string(StringFieldDefinitionBuilder.builder().build())
+              .build());
+    }
+    return baseSearchBuilder(includeWeight ? 2L : 1L)
+        .mappings(
+            DocumentFieldDefinitionBuilder.builder()
+                .dynamic(false)
+                .field(
+                    "content_embed",
+                    FieldDefinitionBuilder.builder()
+                        .searchAutoEmbed(SEARCH_AUTO_EMBED_FIELD)
+                        .build())
+                .field("specs", FieldDefinitionBuilder.builder().document(specs.build()).build())
+                .build())
+        .build();
+  }
+
+  private static SearchIndexDefinition searchDefWithEmbeddedDocumentsFields(boolean includeStars) {
+    var reviewsBuilder =
+        EmbeddedDocumentsFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "comment",
+                FieldDefinitionBuilder.builder()
+                    .string(StringFieldDefinitionBuilder.builder().build())
+                    .build());
+    if (includeStars) {
+      reviewsBuilder.field(
+          "stars",
+          FieldDefinitionBuilder.builder()
+              .string(StringFieldDefinitionBuilder.builder().build())
+              .build());
+    }
+    return baseSearchBuilder(includeStars ? 2L : 1L)
+        .mappings(
+            DocumentFieldDefinitionBuilder.builder()
+                .dynamic(false)
+                .field(
+                    "content_embed",
+                    FieldDefinitionBuilder.builder()
+                        .searchAutoEmbed(SEARCH_AUTO_EMBED_FIELD)
+                        .build())
+                .field(
+                    "reviews",
+                    FieldDefinitionBuilder.builder()
+                        .embeddedDocuments(reviewsBuilder.build())
+                        .build())
+                .build())
+        .build();
+  }
+
+  private static SearchIndexDefinition searchDefWithMultiTypeDocumentFields(boolean includeWeight) {
+    var nestedBuilder =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "color",
+                FieldDefinitionBuilder.builder()
+                    .string(StringFieldDefinitionBuilder.builder().build())
+                    .build());
+    if (includeWeight) {
+      nestedBuilder.field(
+          "weight",
+          FieldDefinitionBuilder.builder()
+              .string(StringFieldDefinitionBuilder.builder().build())
+              .build());
+    }
+    return baseSearchBuilder(includeWeight ? 2L : 1L)
+        .mappings(
+            DocumentFieldDefinitionBuilder.builder()
+                .dynamic(false)
+                .field(
+                    "content_embed",
+                    FieldDefinitionBuilder.builder()
+                        .searchAutoEmbed(SEARCH_AUTO_EMBED_FIELD)
+                        .build())
+                .field(
+                    "parent",
+                    FieldDefinitionBuilder.builder()
+                        .document(nestedBuilder.build())
+                        .string(StringFieldDefinitionBuilder.builder().build())
+                        .build())
+                .build())
+        .build();
+  }
+
+  private static SearchIndexDefinition searchDefWithNestedDynamicDocumentFields(
+      boolean includeWeight) {
+    var nestedBuilder =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(true)
+            .field(
+                "color",
+                FieldDefinitionBuilder.builder()
+                    .string(StringFieldDefinitionBuilder.builder().build())
+                    .build());
+    if (includeWeight) {
+      nestedBuilder.field(
+          "weight",
+          FieldDefinitionBuilder.builder()
+              .string(StringFieldDefinitionBuilder.builder().build())
+              .build());
+    }
+    return baseSearchBuilder(includeWeight ? 2L : 1L)
+        .mappings(
+            DocumentFieldDefinitionBuilder.builder()
+                .dynamic(false)
+                .field(
+                    "content_embed",
+                    FieldDefinitionBuilder.builder()
+                        .searchAutoEmbed(SEARCH_AUTO_EMBED_FIELD)
+                        .build())
+                .field(
+                    "parent",
+                    FieldDefinitionBuilder.builder().document(nestedBuilder.build()).build())
+                .build())
+        .build();
+  }
+
   @Test
   public void skipInitialSync_search_sameDefinition_returnsTrue() {
     SearchIndexDefinition def1 = searchDefWithAutoEmbed(1L, false);
@@ -665,6 +804,46 @@ public class MaterializedViewIndexGenerationUtilTest {
                             .searchAutoEmbed(SEARCH_AUTO_EMBED_FIELD)
                             .build())
                     .build())
+            .build();
+    assertTrue(MaterializedViewIndexGenerationUtil.skipInitialSync(def1, def2));
+  }
+
+  @Test
+  public void skipInitialSync_search_typeSetsOnly_returnsTrue() {
+    SearchIndexDefinition def1 = searchDefWithAutoEmbed(1L, false);
+    SearchIndexDefinition def2 =
+        autoEmbedSearchBuilder(2L, false)
+            .typeSets(
+                TypeSetDefinitionBuilder.builder()
+                    .name("englishStrings")
+                    .addType(
+                        StringFieldDefinition.create(
+                            Optional.of("lucene.english"),
+                            Optional.empty(),
+                            Optional.empty(),
+                            Optional.empty(),
+                            StringFieldDefinition.IndexOptions.OFFSETS,
+                            true,
+                            StringFieldDefinition.NormsOptions.INCLUDE,
+                            Map.of()))
+                    .build())
+            .build();
+    assertTrue(MaterializedViewIndexGenerationUtil.skipInitialSync(def1, def2));
+  }
+
+  @Test
+  public void skipInitialSync_search_sortOnly_returnsTrue() {
+    SearchIndexDefinition def1 = searchDefWithAutoEmbed(1L, false);
+    SearchIndexDefinition def2 =
+        autoEmbedSearchBuilder(2L, false)
+            .sort(
+                SortSpecBuilder.builder()
+                    .sortField(
+                        SortFieldBuilder.builder()
+                            .path("price")
+                            .sortOption(UserFieldSortOptions.DEFAULT_ASC)
+                            .build())
+                    .buildSort())
             .build();
     assertTrue(MaterializedViewIndexGenerationUtil.skipInitialSync(def1, def2));
   }
@@ -831,6 +1010,54 @@ public class MaterializedViewIndexGenerationUtilTest {
     SearchIndexDefinition withField = searchDefWithAutoEmbedAndStringField(1L, "lucene.standard");
     SearchIndexDefinition withoutField = searchDefWithAutoEmbed(2L, false);
     assertFalse(MaterializedViewIndexGenerationUtil.skipInitialSync(withField, withoutField));
+  }
+
+  @Test
+  public void skipInitialSync_search_passthroughFieldAdded_sameMatViewVersion_resyncs() {
+    // C1/Update-1: A new non-auto-embed field is new MV content, but it does not bump
+    // autoEmbeddingDefinitionVersion. This is a resync-without-provider-re-embed, not MV reuse.
+    SearchIndexDefinition def1 = searchDefWithAutoEmbed(1L, false);
+    SearchIndexDefinition def2 = searchDefWithAutoEmbedAndStringField(2L, "lucene.standard");
+    assertFalse(MaterializedViewIndexGenerationUtil.skipInitialSync(def1, def2));
+    assertEquals(
+        def1.getAutoEmbeddingDefinitionVersion(), def2.getAutoEmbeddingDefinitionVersion());
+  }
+
+  @Test
+  public void skipInitialSync_search_nestedPassthroughFieldAdded_returnsFalse() {
+    // CLOUDP-445102: static document children must remain enumerable so adding a child changes the
+    // MV-content comparison and triggers a resync.
+    SearchIndexDefinition def1 = searchDefWithNestedPassthroughFields(false);
+    SearchIndexDefinition def2 = searchDefWithNestedPassthroughFields(true);
+    assertFalse(MaterializedViewIndexGenerationUtil.skipInitialSync(def1, def2));
+    assertFalse(MaterializedViewIndexGenerationUtil.skipInitialSync(def2, def1));
+  }
+
+  @Test
+  public void skipInitialSync_search_embeddedDocumentsChildAdded_reusesMatView() {
+    // The embeddedDocuments root is copied wholesale, so the existing MV already has the raw child.
+    SearchIndexDefinition def1 = searchDefWithEmbeddedDocumentsFields(false);
+    SearchIndexDefinition def2 = searchDefWithEmbeddedDocumentsFields(true);
+    assertTrue(MaterializedViewIndexGenerationUtil.skipInitialSync(def1, def2));
+    assertTrue(MaterializedViewIndexGenerationUtil.skipInitialSync(def2, def1));
+  }
+
+  @Test
+  public void skipInitialSync_search_multiTypeDocumentChildAdded_reusesMatView() {
+    // A document alternative beside a scalar makes the whole field wholesale passthrough.
+    SearchIndexDefinition def1 = searchDefWithMultiTypeDocumentFields(false);
+    SearchIndexDefinition def2 = searchDefWithMultiTypeDocumentFields(true);
+    assertTrue(MaterializedViewIndexGenerationUtil.skipInitialSync(def1, def2));
+    assertTrue(MaterializedViewIndexGenerationUtil.skipInitialSync(def2, def1));
+  }
+
+  @Test
+  public void skipInitialSync_search_nestedDynamicDocumentChildAdded_reusesMatView() {
+    // Dynamic documents are copied wholesale, including undeclared children.
+    SearchIndexDefinition def1 = searchDefWithNestedDynamicDocumentFields(false);
+    SearchIndexDefinition def2 = searchDefWithNestedDynamicDocumentFields(true);
+    assertTrue(MaterializedViewIndexGenerationUtil.skipInitialSync(def1, def2));
+    assertTrue(MaterializedViewIndexGenerationUtil.skipInitialSync(def2, def1));
   }
 
   @Test

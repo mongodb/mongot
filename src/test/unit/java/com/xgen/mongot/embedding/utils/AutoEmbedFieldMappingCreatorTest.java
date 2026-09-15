@@ -555,6 +555,46 @@ public class AutoEmbedFieldMappingCreatorTest {
   }
 
   @Test
+  public void createAutoEmbedMapping_search_staticDocumentEnumeratesDeclaredChildren() {
+    DocumentFieldDefinition nested =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "active",
+                FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build())
+            .build();
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "content_embed",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("content")))
+                    .build())
+            .field("parent", FieldDefinitionBuilder.builder().document(nested).build())
+            .build();
+    SearchIndexDefinition searchDef =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+
+    SearchIndexAutoEmbedFieldMapping mapping =
+        AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+
+    Assert.assertTrue(
+        mapping.explicitPassthroughPaths().contains(FieldPath.parse("parent.active")));
+    Assert.assertFalse(mapping.explicitPassthroughPaths().contains(FieldPath.parse("parent")));
+    Assert.assertTrue(mapping.isPassthrough(FieldPath.parse("parent.active")));
+    Assert.assertFalse(
+        "Undeclared children under a static document must stay out of the MV",
+        mapping.isPassthrough(FieldPath.parse("parent.undeclared")));
+    Assert.assertTrue(
+        "The document ancestor remains a scalar fallback for ancestor overwrites",
+        mapping.isPassthrough(FieldPath.parse("parent")));
+    Assert.assertTrue(mapping.subDocumentExists(FieldPath.parse("parent")));
+  }
+
+  @Test
   public void createAutoEmbedMapping_search_embedKeyedBySourceFieldNotMappingKey() {
     // Declaration key differs from sourceField: sourceField must win.
     var autoEmbedField =
