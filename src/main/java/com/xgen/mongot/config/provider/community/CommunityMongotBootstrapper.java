@@ -881,6 +881,9 @@ public class CommunityMongotBootstrapper {
       FeatureFlags featureFlags,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
       ThreadPoolResourceMetrics.Bindings threadPoolResourceBindings) {
+    boolean shouldRetryViaEnvoy =
+        SearchQueryAdmissionControlConfigMapper.shouldRetryViaLoadBalancer(
+            config.advancedConfigs().flatMap(AdvancedConfigs::regularBlockingRequestConfig));
     // Create the ExecutorManager that can serve requests for the tcpServer (and the grpcServer).
     // noinspection resource
     var executorManager =
@@ -889,7 +892,8 @@ public class CommunityMongotBootstrapper {
             regularBlockingRequestSettings,
             featureFlags,
             dynamicFeatureFlagRegistry,
-            Optional.of(threadPoolResourceBindings));
+            Optional.of(threadPoolResourceBindings),
+            shouldRetryViaEnvoy);
 
     var grpcServer =
         GrpcStreamingServer.createCommunity(
@@ -1025,7 +1029,7 @@ public class CommunityMongotBootstrapper {
     var featureFlags = FeatureFlags.communityDefaults();
     var environmentVariantPerfConfig = EnvironmentVariantPerfConfig.getDefault();
     var regularBlockingRequestSettings =
-        RegularBlockingRequestConfigMapper.createRegularBlockingRequestSettings(
+        SearchQueryAdmissionControlConfigMapper.createRegularBlockingRequestSettings(
             config.advancedConfigs().flatMap(AdvancedConfigs::regularBlockingRequestConfig));
 
     var autoEmbeddingMaterializedViewConfig =

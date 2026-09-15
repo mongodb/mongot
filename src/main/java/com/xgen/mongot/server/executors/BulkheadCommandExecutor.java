@@ -43,6 +43,7 @@ public class BulkheadCommandExecutor implements Closeable {
   private final Counter skippedDueToCancelledStreamCounter;
   private final DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry;
   private final MeterRegistry meterRegistry;
+  private final boolean shouldRetryViaEnvoy;
 
   /** Holds the regular executor configuration created during construction. */
   private record RegularExecutorConfig(
@@ -56,7 +57,8 @@ public class BulkheadCommandExecutor implements Closeable {
         RegularBlockingRequestSettings.defaults(),
         FeatureFlags.getDefault(),
         DynamicFeatureFlagRegistry.empty(),
-        Optional.empty());
+        Optional.empty(),
+        FeatureFlags.getDefault().isEnabled(Feature.OVERLOAD_RETRY_SIGNAL));
   }
 
   public BulkheadCommandExecutor(
@@ -66,7 +68,8 @@ public class BulkheadCommandExecutor implements Closeable {
         settings,
         FeatureFlags.getDefault(),
         DynamicFeatureFlagRegistry.empty(),
-        Optional.empty());
+        Optional.empty(),
+        FeatureFlags.getDefault().isEnabled(Feature.OVERLOAD_RETRY_SIGNAL));
   }
 
   /**
@@ -78,15 +81,19 @@ public class BulkheadCommandExecutor implements Closeable {
    * @param dynamicFeatureFlagRegistry gates {@link
    *     DynamicFeatureFlags#CRASH_ON_THREAD_CREATION_OOM}
    * @param threadPoolResourceBindings process-wide bindings, empty when attribution is unavailable
+   * @param shouldRetryViaEnvoy whether load-shedding rejections should signal the load balancer to
+   *     retry on another host
    */
   public BulkheadCommandExecutor(
       MeterRegistry meterRegistry,
       RegularBlockingRequestSettings settings,
       FeatureFlags featureFlags,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
-      Optional<ThreadPoolResourceMetrics.Bindings> threadPoolResourceBindings) {
+      Optional<ThreadPoolResourceMetrics.Bindings> threadPoolResourceBindings,
+      boolean shouldRetryViaEnvoy) {
     this.dynamicFeatureFlagRegistry = dynamicFeatureFlagRegistry;
     this.meterRegistry = meterRegistry;
+    this.shouldRetryViaEnvoy = shouldRetryViaEnvoy;
     int numCpus = Runtime.INSTANCE.getNumCpus();
     int poolSize = settings.resolvedPoolSize(numCpus);
     OptionalInt queueCapacity = settings.maybeResolvedQueueCapacity(numCpus);
@@ -304,6 +311,11 @@ public class BulkheadCommandExecutor implements Closeable {
    */
   public MeterRegistry getMeterRegistry() {
     return this.meterRegistry;
+  }
+
+  /** Resolves whether load-shedding rejections should signal envoy to retry on another host. */
+  public boolean shouldRetryViaEnvoy() {
+    return this.shouldRetryViaEnvoy;
   }
 
   @Override

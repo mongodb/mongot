@@ -1,7 +1,6 @@
 package com.xgen.mongot.server.grpc;
 
 import com.xgen.mongot.cursor.MongotCursorManager;
-import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.searchenvoy.grpc.SearchEnvoyMetadata;
 import com.xgen.mongot.server.command.ParsedCommand;
 import com.xgen.mongot.server.command.WireCommandParser;
@@ -23,7 +22,6 @@ public class WireMessageCallHandler extends ServerCallHandler<MessageMessage> {
       SearchEnvoyMetadata searchEnvoyMetadata,
       int envoyAttemptCount,
       int envoyMaxAttemptCount,
-      FeatureFlags featureFlags,
       StreamObserver<MessageMessage> responseObserver) {
     super(
         commandRegistry,
@@ -32,7 +30,6 @@ public class WireMessageCallHandler extends ServerCallHandler<MessageMessage> {
         searchEnvoyMetadata,
         envoyAttemptCount,
         envoyMaxAttemptCount,
-        featureFlags,
         responseObserver);
   }
 

@@ -5,8 +5,6 @@ import static com.xgen.mongot.util.Check.checkArg;
 
 import com.google.common.base.Stopwatch;
 import com.xgen.mongot.cursor.MongotCursorManager;
-import com.xgen.mongot.featureflag.Feature;
-import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.metrics.ServerStatusDataExtractor.LoadSheddingMeterData;
 import com.xgen.mongot.searchenvoy.grpc.SearchEnvoyMetadata;
@@ -58,7 +56,6 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
   // so that a change to the retry budget reaches both sides in the same xds update; the
   // interceptor substitutes a default when search envoy is not in the request path.
   private final int envoyMaxAttemptCount;
-  private final FeatureFlags featureFlags;
   private final EnvoyRetryMetrics envoyRetryMetrics;
   // Counts every incoming command regardless of outcome (success, rejection, error). Serves as
   // the denominator for load-shedding / envoy-retry rates. Tagged retry=true when this stream's
@@ -78,7 +75,6 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
       SearchEnvoyMetadata searchEnvoyMetadata,
       int envoyAttemptCount,
       int envoyMaxAttemptCount,
-      FeatureFlags featureFlags,
       StreamObserver<T> responseObserver) {
     this.commandRegistry = commandRegistry;
     this.commandExecutor = commandExecutor;
@@ -86,7 +82,6 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
     this.searchEnvoyMetadata = searchEnvoyMetadata;
     this.envoyAttemptCount = envoyAttemptCount;
     this.envoyMaxAttemptCount = envoyMaxAttemptCount;
-    this.featureFlags = featureFlags;
     this.commandManager = new CommandManager<T>(responseObserver);
     this.createdCursorIds = Collections.emptyList();
     this.envoyRetryMetrics =
@@ -240,7 +235,7 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
     if (!(cause instanceof LoadSheddingRejectedException)) {
       return false;
     }
-    if (!this.featureFlags.isEnabled(Feature.OVERLOAD_RETRY_SIGNAL)) {
+    if (!this.commandExecutor.shouldRetryViaEnvoy()) {
       return false;
     }
     return this.envoyAttemptCount < this.envoyMaxAttemptCount;
@@ -256,7 +251,7 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
     if (!(cause instanceof LoadSheddingRejectedException)) {
       return;
     }
-    if (!this.featureFlags.isEnabled(Feature.OVERLOAD_RETRY_SIGNAL)) {
+    if (!this.commandExecutor.shouldRetryViaEnvoy()) {
       return;
     }
     if (retryViaEnvoy) {

@@ -244,7 +244,6 @@ public class GrpcStreamingServer implements CommandServer {
                   GrpcContext.SEARCH_ENVOY_METADATA_KEY.get(context),
                   GrpcContext.ENVOY_ATTEMPT_COUNT_KEY.get(context),
                   GrpcContext.ENVOY_MAX_ATTEMPT_COUNT_KEY.get(context),
-                  featureFlags,
                   responseStream);
             });
 
@@ -262,7 +261,6 @@ public class GrpcStreamingServer implements CommandServer {
                   GrpcContext.SEARCH_ENVOY_METADATA_KEY.get(context),
                   GrpcContext.ENVOY_ATTEMPT_COUNT_KEY.get(context),
                   GrpcContext.ENVOY_MAX_ATTEMPT_COUNT_KEY.get(context),
-                  featureFlags,
                   responseStream);
             });
 

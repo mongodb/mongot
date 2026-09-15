@@ -990,9 +990,10 @@ public class CommunityConfigTest {
       assertEquals(Optional.of(3600000), cursor.cursorIdleTimeMs());
 
       var regularBlockingRequest = advanced.regularBlockingRequestConfig().get();
-      assertEquals(Optional.of(3.0), regularBlockingRequest.threadPoolSizeMultiplier());
-      assertEquals(Optional.of(30.0), regularBlockingRequest.queueCapacityMultiplier());
-      assertEquals(Optional.of(true), regularBlockingRequest.virtualQueueCapacity());
+      assertEquals(3.0, regularBlockingRequest.threadPoolSizeMultiplier(), 0.0);
+      assertEquals(30.0, regularBlockingRequest.queueCapacityMultiplier(), 0.0);
+      assertTrue(regularBlockingRequest.virtualQueueCapacity());
+      assertTrue(regularBlockingRequest.shouldRetryViaLoadBalancer());
 
       var diskMonitor = advanced.diskMonitorConfig().get();
       assertEquals(0.93, diskMonitor.pauseReplicationThreshold(), 0.0);
@@ -1006,6 +1007,23 @@ public class CommunityConfigTest {
       assertEquals(Integer.valueOf(250), ftdc.directorySizeMB());
       assertEquals(Integer.valueOf(25), ftdc.fileSizeMB());
       assertEquals(Integer.valueOf(2500), ftdc.collectionPeriodMillis());
+    }
+
+    @Test
+    public void readFromFile_withAdmissionControl_usesSpecifiedValuesAndDefaultRetry()
+        throws IOException, BsonParseException {
+      Path configPath =
+          Path.of(
+              "src/test/unit/resources/config/provider/community/"
+                  + "communityConfigAdmissionControl.yaml");
+      CommunityConfig result = CommunityConfig.readFromFile(configPath).config();
+      var advanced = result.advancedConfigs().get();
+
+      var regularBlockingRequest = advanced.regularBlockingRequestConfig().get();
+      assertEquals(5.0, regularBlockingRequest.threadPoolSizeMultiplier(), 0.0);
+      assertEquals(50.0, regularBlockingRequest.queueCapacityMultiplier(), 0.0);
+      assertFalse(regularBlockingRequest.virtualQueueCapacity());
+      assertFalse(regularBlockingRequest.shouldRetryViaLoadBalancer());
     }
 
     @Test

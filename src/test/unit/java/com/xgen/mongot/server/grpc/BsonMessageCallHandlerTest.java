@@ -3,7 +3,6 @@ package com.xgen.mongot.server.grpc;
 import static org.mockito.Mockito.mock;
 
 import com.xgen.mongot.cursor.MongotCursorManager;
-import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.searchenvoy.grpc.SearchEnvoyMetadata;
 import com.xgen.mongot.server.command.registry.CommandRegistry;
 import com.xgen.mongot.server.executors.BulkheadCommandExecutor;
@@ -29,7 +28,6 @@ public class BsonMessageCallHandlerTest {
         SearchEnvoyMetadata.getDefaultInstance(),
         /* envoyAttemptCount */ 1,
         /* envoyMaxAttemptCount */ 3,
-        FeatureFlags.getDefault(),
         mock(StreamObserver.class));
   }
 

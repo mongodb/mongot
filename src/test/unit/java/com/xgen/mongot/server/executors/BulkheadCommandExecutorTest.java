@@ -674,7 +674,8 @@ public class BulkheadCommandExecutorTest {
             RegularBlockingRequestSettings.defaults(),
             off,
             DynamicFeatureFlagRegistry.empty(),
-            Optional.of(new ThreadPoolResourceMetrics.Bindings()))) {
+            Optional.of(new ThreadPoolResourceMetrics.Bindings()),
+            FeatureFlags.getDefault().isEnabled(Feature.OVERLOAD_RETRY_SIGNAL))) {
       assertThat(meterRegistry.find("executor.thread.allocatedBytes").functionCounter()).isNull();
       assertThat(meterRegistry.find("executor.thread.cpuTime").functionCounter()).isNull();
     }
@@ -693,7 +694,8 @@ public class BulkheadCommandExecutorTest {
               RegularBlockingRequestSettings.defaults(),
               FeatureFlags.getDefault(),
               DynamicFeatureFlagRegistry.empty(),
-              Optional.empty())) {
+              Optional.empty(),
+              FeatureFlags.getDefault().isEnabled(Feature.OVERLOAD_RETRY_SIGNAL))) {
         Supplier<CompletableFuture<BsonDocument>> throwingSubmission =
             () -> {
               throw new OutOfMemoryError("unable to create native thread");
@@ -738,7 +740,8 @@ public class BulkheadCommandExecutorTest {
               RegularBlockingRequestSettings.defaults(),
               FeatureFlags.getDefault(),
               registryWithFlagEnabled,
-              Optional.empty())) {
+              Optional.empty(),
+              FeatureFlags.getDefault().isEnabled(Feature.OVERLOAD_RETRY_SIGNAL))) {
         OutOfMemoryError heapOom = new OutOfMemoryError("Java heap space");
         Supplier<CompletableFuture<BsonDocument>> throwingSubmission =
             () -> {
@@ -792,7 +795,8 @@ public class BulkheadCommandExecutorTest {
               RegularBlockingRequestSettings.defaults(),
               FeatureFlags.getDefault(),
               registryWithFlagEnabled,
-              Optional.empty())) {
+              Optional.empty(),
+              FeatureFlags.getDefault().isEnabled(Feature.OVERLOAD_RETRY_SIGNAL))) {
         Supplier<CompletableFuture<BsonDocument>> throwingSubmission =
             () -> {
               throw new OutOfMemoryError("unable to create native thread");
@@ -834,7 +838,8 @@ public class BulkheadCommandExecutorTest {
             RegularBlockingRequestSettings.defaults(),
             on,
             DynamicFeatureFlagRegistry.empty(),
-            Optional.of(new ThreadPoolResourceMetrics.Bindings()))) {
+            Optional.of(new ThreadPoolResourceMetrics.Bindings()),
+            on.isEnabled(Feature.OVERLOAD_RETRY_SIGNAL))) {
       FunctionCounter regular =
           meterRegistry
               .find("executor.thread.allocatedBytes")
@@ -849,6 +854,25 @@ public class BulkheadCommandExecutorTest {
               .functionCounter();
       assertThat(regular).isNotNull();
       assertThat(guaranteed).isNotNull();
+    }
+  }
+
+  @Test
+  public void shouldRetryViaEnvoy_true_returnsBooleanState() {
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    RegularBlockingRequestSettings settings =
+        RegularBlockingRequestSettings.create(
+            Optional.of(2.0), Optional.of(2.0), Optional.of(false));
+
+    try (BulkheadCommandExecutor exec =
+        new BulkheadCommandExecutor(
+            meterRegistry,
+            settings,
+            FeatureFlags.getDefault(),
+            DynamicFeatureFlagRegistry.empty(),
+            Optional.empty(),
+            true)) {
+      assertThat(exec.shouldRetryViaEnvoy()).isTrue();
     }
   }
 }

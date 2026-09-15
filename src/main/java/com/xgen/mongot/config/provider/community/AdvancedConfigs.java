@@ -18,7 +18,7 @@ public record AdvancedConfigs(
     Optional<CommunityReplicationConfig> replicationConfig,
     Optional<CommunityAutoEmbeddingConfig> autoEmbeddingConfig,
     Optional<CommunityCursorConfig> cursorConfig,
-    Optional<RegularBlockingRequestConfig> regularBlockingRequestConfig,
+    Optional<SearchQueryAdmissionControlConfig> regularBlockingRequestConfig,
     Optional<DiskMonitorConfig> diskMonitorConfig,
     Optional<FtdcCommunityConfig> ftdcConfig)
     implements DocumentEncodable {
@@ -60,9 +60,9 @@ public record AdvancedConfigs(
             .noDefault();
 
     // The field is mapped to runtime RegularBlockingRequestSettings.
-    public static final Field.Optional<RegularBlockingRequestConfig> REGULAR_BLOCKING_REQUEST =
+    public static final Field.Optional<SearchQueryAdmissionControlConfig> REGULAR_BLOCKING_REQUEST =
         Field.builder("searchQueryAdmissionControl")
-            .classField(RegularBlockingRequestConfig::fromBson)
+            .classField(SearchQueryAdmissionControlConfig::fromBson)
             .disallowUnknownFields()
             .optional()
             .noDefault();

@@ -12,8 +12,8 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.cursor.MongotCursorManager;
-import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.metrics.ServerStatusDataExtractor.LoadSheddingMeterData;
 import com.xgen.mongot.searchenvoy.grpc.SearchEnvoyMetadata;
 import com.xgen.mongot.server.command.Command;
@@ -77,7 +77,6 @@ public class StreamingMessageHandlerTest {
           SearchEnvoyMetadata.getDefaultInstance(),
           /* envoyAttemptCount */ 1,
           /* envoyMaxAttemptCount */ 3,
-          FeatureFlags.getDefault(),
           this.responseObserver);
 
   final InOrder inOrder = Mockito.inOrder(this.responseObserver, this.cursorManager);
@@ -448,7 +447,6 @@ public class StreamingMessageHandlerTest {
             SearchEnvoyMetadata.getDefaultInstance(),
             /* envoyAttemptCount */ 2,
             /* envoyMaxAttemptCount */ 3,
-            FeatureFlags.getDefault(),
             this.responseObserver);
 
     BsonDocument document = new BsonDocument().append(IdentityCommand.Name, new BsonString("foo"));
@@ -738,7 +736,6 @@ public class StreamingMessageHandlerTest {
             SearchEnvoyMetadata.getDefaultInstance(),
             /* envoyAttemptCount */ 1,
             /* envoyMaxAttemptCount */ 3,
-            FeatureFlags.getDefault(),
             boundedResponseObserver);
 
     CountDownLatch blockingLatch = new CountDownLatch(1);
@@ -881,7 +878,6 @@ public class StreamingMessageHandlerTest {
     StreamObserver<MessageMessage> boundedResponseObserver =
         mock(MessageMessageStreamObserver.class);
 
-    FeatureFlags flagsOff = FeatureFlags.getDefault();
     // attempt count = 1 would trigger retry if the flag were on.
     WireMessageCallHandler boundedHandler =
         new WireMessageCallHandler(
@@ -891,7 +887,6 @@ public class StreamingMessageHandlerTest {
             SearchEnvoyMetadata.getDefaultInstance(),
             /* envoyAttemptCount */ 1,
             /* envoyMaxAttemptCount */ 3,
-            flagsOff,
             boundedResponseObserver);
 
     CountDownLatch blockingLatch = new CountDownLatch(1);
@@ -999,12 +994,17 @@ public class StreamingMessageHandlerTest {
     RegularBlockingRequestSettings settings =
         RegularBlockingRequestSettings.create(
             Optional.of(0.001), Optional.of(0.001), Optional.of(false));
-    ExecutorManager boundedExecutorManager = new ExecutorManager(boundedMeterRegistry, settings);
+    ExecutorManager boundedExecutorManager =
+        new ExecutorManager(
+            boundedMeterRegistry,
+            settings,
+            FeatureFlags.getDefault(),
+            DynamicFeatureFlagRegistry.empty(),
+            Optional.empty(),
+            true);
     StreamObserver<MessageMessage> boundedResponseObserver =
         mock(MessageMessageStreamObserver.class);
 
-    FeatureFlags flagsOn =
-        FeatureFlags.withDefaults().enable(Feature.OVERLOAD_RETRY_SIGNAL).build();
     // attempt count = 1 (< 3), so rejection should trigger gRPC RESOURCE_EXHAUSTED.
     WireMessageCallHandler boundedHandler =
         new WireMessageCallHandler(
@@ -1014,7 +1014,6 @@ public class StreamingMessageHandlerTest {
             SearchEnvoyMetadata.getDefaultInstance(),
             /* envoyAttemptCount */ 1,
             /* envoyMaxAttemptCount */ 3,
-            flagsOn,
             boundedResponseObserver);
 
     CountDownLatch blockingLatch = new CountDownLatch(1);
@@ -1115,12 +1114,17 @@ public class StreamingMessageHandlerTest {
     RegularBlockingRequestSettings settings =
         RegularBlockingRequestSettings.create(
             Optional.of(0.001), Optional.of(0.001), Optional.of(false));
-    ExecutorManager boundedExecutorManager = new ExecutorManager(boundedMeterRegistry, settings);
+    ExecutorManager boundedExecutorManager =
+        new ExecutorManager(
+            boundedMeterRegistry,
+            settings,
+            FeatureFlags.getDefault(),
+            DynamicFeatureFlagRegistry.empty(),
+            Optional.empty(),
+            true);
     StreamObserver<MessageMessage> boundedResponseObserver =
         mock(MessageMessageStreamObserver.class);
 
-    FeatureFlags flagsOn =
-        FeatureFlags.withDefaults().enable(Feature.OVERLOAD_RETRY_SIGNAL).build();
     // attempt count = 3 is the whole budget, so rejection should return BSON error.
     WireMessageCallHandler boundedHandler =
         new WireMessageCallHandler(
@@ -1130,7 +1134,6 @@ public class StreamingMessageHandlerTest {
             SearchEnvoyMetadata.getDefaultInstance(),
             /* envoyAttemptCount */ 3,
             /* envoyMaxAttemptCount */ 3,
-            flagsOn,
             boundedResponseObserver);
 
     CountDownLatch blockingLatch = new CountDownLatch(1);
@@ -1236,12 +1239,17 @@ public class StreamingMessageHandlerTest {
     RegularBlockingRequestSettings settings =
         RegularBlockingRequestSettings.create(
             Optional.of(0.001), Optional.of(0.001), Optional.of(false));
-    ExecutorManager boundedExecutorManager = new ExecutorManager(boundedMeterRegistry, settings);
+    ExecutorManager boundedExecutorManager =
+        new ExecutorManager(
+            boundedMeterRegistry,
+            settings,
+            FeatureFlags.getDefault(),
+            DynamicFeatureFlagRegistry.empty(),
+            Optional.empty(),
+            true);
     StreamObserver<MessageMessage> boundedResponseObserver =
         mock(MessageMessageStreamObserver.class);
 
-    FeatureFlags flagsOn =
-        FeatureFlags.withDefaults().enable(Feature.OVERLOAD_RETRY_SIGNAL).build();
     // Attempt 3 would exhaust the default budget, but search envoy advertised 5 attempts, so this
     // rejection is still retriable.
     WireMessageCallHandler boundedHandler =
@@ -1252,7 +1260,6 @@ public class StreamingMessageHandlerTest {
             SearchEnvoyMetadata.getDefaultInstance(),
             /* envoyAttemptCount */ 3,
             /* envoyMaxAttemptCount */ 5,
-            flagsOn,
             boundedResponseObserver);
 
     CountDownLatch blockingLatch = new CountDownLatch(1);

@@ -1,6 +1,7 @@
 package com.xgen.mongot.server.executors;
 
 import com.google.common.collect.HashBasedTable;
+import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
@@ -40,7 +41,8 @@ public class ExecutorManager implements Closeable {
         RegularBlockingRequestSettings.defaults(),
         FeatureFlags.getDefault(),
         DynamicFeatureFlagRegistry.empty(),
-        Optional.empty());
+        Optional.empty(),
+        FeatureFlags.getDefault().isEnabled(Feature.OVERLOAD_RETRY_SIGNAL));
   }
 
   public ExecutorManager(
@@ -50,7 +52,8 @@ public class ExecutorManager implements Closeable {
         regularBlockingRequestSettings,
         FeatureFlags.getDefault(),
         DynamicFeatureFlagRegistry.empty(),
-        Optional.empty());
+        Optional.empty(),
+        FeatureFlags.getDefault().isEnabled(Feature.OVERLOAD_RETRY_SIGNAL));
   }
 
   public ExecutorManager(
@@ -58,14 +61,16 @@ public class ExecutorManager implements Closeable {
       RegularBlockingRequestSettings regularBlockingRequestSettings,
       FeatureFlags featureFlags,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
-      Optional<ThreadPoolResourceMetrics.Bindings> threadPoolResourceBindings) {
+      Optional<ThreadPoolResourceMetrics.Bindings> threadPoolResourceBindings,
+      boolean shouldRetryViaEnvoy) {
     this.commandExecutor =
         new BulkheadCommandExecutor(
             meterRegistry,
             regularBlockingRequestSettings,
             featureFlags,
             dynamicFeatureFlagRegistry,
-            threadPoolResourceBindings);
+            threadPoolResourceBindings,
+            shouldRetryViaEnvoy);
     this.eventLoopGroups = HashBasedTable.create();
   }
 

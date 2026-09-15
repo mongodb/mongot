@@ -1,0 +1,21 @@
+syncSource:
+  replicaSet:
+    hostAndPort: "mongod1.internal:27017"
+    scramAuth:
+      username: "user"
+      passwordFile: "/etc/mongot/router.passwd"
+      authSource: "admin"
+      tls:
+        enabled: true
+        tlsCertificateKeyFile: "/etc/mongot/tls/client-combined.pem"
+        caFile: "/etc/mongot/ca.pem"
+storage:
+  dataPath: "data/mongot"
+server:
+  grpc:
+    address: "localhost:27028"
+advancedConfigs:
+  searchQueryAdmissionControl:
+    threadPoolSizeMultiplier: 5.0
+    queueCapacityMultiplier: 50.0
+    virtualQueueCapacity: false

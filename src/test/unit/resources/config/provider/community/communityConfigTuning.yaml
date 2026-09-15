@@ -76,6 +76,7 @@ advancedConfigs:
     threadPoolSizeMultiplier: 3.0
     queueCapacityMultiplier: 30.0
     virtualQueueCapacity: true
+    shouldRetryViaLoadBalancer: true
   diskMonitor:
     pauseReplicationThreshold: 0.93
     resumeReplicationThreshold: 0.88
