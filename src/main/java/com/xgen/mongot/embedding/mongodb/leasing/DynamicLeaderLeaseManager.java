@@ -1002,17 +1002,20 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
    * adoption, not with the cluster's tenant count.
    */
   @Override
-  public List<Lease> findGcCandidates() {
+  public LeaseManager.GcScanResult findGcCandidates() {
     Set<String> databases = new HashSet<>(this.leaseKeyToDatabase.values());
     databases.add(this.dbResolver.resolveDefault());
 
     List<Lease> leases = new ArrayList<>();
+    @Var boolean complete = true;
+    @Var boolean sawDocuments = false;
     for (String dbName : databases) {
       try {
         List<BsonDocument> rawLeases =
             this.operationExecutor.execute(
                 "findGcCandidates",
                 () -> this.getCollection(dbName).find().into(new ArrayList<>()));
+        sawDocuments |= !rawLeases.isEmpty();
         for (BsonDocument rawLease : rawLeases) {
           try {
             Lease lease = parseLeaseOrThrow(rawLease);
@@ -1029,14 +1032,16 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
         }
       } catch (Exception e) {
         // Drops this database's leases from the result — safe per the interface contract; the
-        // periodic sweep picks them up on a later tick.
+        // periodic sweep picks them up on a later tick. Reported as an incomplete scan so an empty
+        // result is not mistaken for an empty lease table.
+        complete = false;
         LOG.atWarn()
             .addKeyValue("database", dbName)
             .setCause(e)
             .log("Failed to scan database for GC leases");
       }
     }
-    return leases;
+    return new LeaseManager.GcScanResult(leases, complete, sawDocuments);
   }
 
   @Override

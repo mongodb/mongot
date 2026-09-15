@@ -2537,7 +2537,7 @@ public class DynamicLeaderLeaseManagerTest {
     leaseList.add(lease.toBson());
     when(this.mockFindIterable.into(any())).thenReturn(leaseList);
 
-    List<Lease> leases = this.leaseManager.findGcCandidates();
+    List<Lease> leases = this.leaseManager.findGcCandidates().leases();
 
     assertThat(leases).hasSize(1);
     assertThat(leases.get(0).id()).isEqualTo(collectionName);
@@ -2567,17 +2567,108 @@ public class DynamicLeaderLeaseManagerTest {
     leaseList.add(good.toBson());
     when(this.mockFindIterable.into(any())).thenReturn(leaseList);
 
-    List<Lease> leases = this.leaseManager.findGcCandidates();
+    List<Lease> leases = this.leaseManager.findGcCandidates().leases();
 
     assertThat(leases).hasSize(1);
     assertThat(leases.get(0).id()).isEqualTo("good-collection");
   }
 
   @Test
+  public void findGcCandidates_corruptedDocumentsOnly_notReportedEmpty() {
+    ArrayList<BsonDocument> leaseList = new ArrayList<>();
+    leaseList.add(new BsonDocument("_id", new BsonString("corrupted")));
+    when(this.mockFindIterable.into(any())).thenReturn(leaseList);
+
+    LeaseManager.GcScanResult result = this.leaseManager.findGcCandidates();
+
+    // No parseable lease, but the table is not empty: the sweep must keep scanning so the
+    // corrupted document keeps being counted.
+    assertThat(result.leases()).isEmpty();
+    assertThat(result.complete()).isTrue();
+    assertThat(result.sawDocuments()).isTrue();
+    assertThat(result.isCompleteAndEmpty()).isFalse();
+  }
+
+  @Test
   public void findGcCandidates_queryFailure_returnsEmpty() {
     when(this.mockCollection.find()).thenThrow(new RuntimeException("find failed"));
 
-    assertThat(this.leaseManager.findGcCandidates()).isEmpty();
+    assertThat(this.leaseManager.findGcCandidates().leases()).isEmpty();
+  }
+
+  @Test
+  public void findGcCandidates_queryFailure_reportsIncompleteScan() {
+    when(this.mockCollection.find()).thenThrow(new RuntimeException("find failed"));
+
+    // Empty because the read failed, not because there are no leases — callers must be able to
+    // tell the two apart.
+    LeaseManager.GcScanResult result = this.leaseManager.findGcCandidates();
+    assertThat(result.complete()).isFalse();
+    assertThat(result.isCompleteAndEmpty()).isFalse();
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void findGcCandidates_oneDatabaseFails_returnsOthersLeasesAndReportsIncomplete() {
+    // Two databases in the scan set: the default read fails, the tenant read succeeds. The tenant's
+    // lease must still come back (partial results are safe for marking) but the scan must not be
+    // reported complete, or an empty default database would look like an idle cluster.
+    String tenantDb = "tenantA-" + DATABASE_NAME;
+    InternalDatabaseResolver tenantResolver =
+        new InternalDatabaseResolver() {
+          @Override
+          public String resolve(String sourceDatabaseName) {
+            return tenantDb;
+          }
+
+          @Override
+          public String resolveDefault() {
+            return DATABASE_NAME;
+          }
+        };
+    MongoClient mongoClient =
+        this.mockAutoEmbeddingMongoClient.getLeaseManagerMongoClient().orElseThrow();
+    MongoDatabase tenantDatabase = mock(MongoDatabase.class);
+    MongoCollection<BsonDocument> tenantCollection = mock(MongoCollection.class);
+    FindIterable<BsonDocument> tenantFindIterable = mock(FindIterable.class);
+    when(mongoClient.getDatabase(tenantDb)).thenReturn(tenantDatabase);
+    when(tenantDatabase.getCollection(
+            DynamicLeaderLeaseManager.LEASE_COLLECTION_NAME, BsonDocument.class))
+        .thenReturn(tenantCollection);
+    when(tenantCollection.withReadConcern(any())).thenReturn(tenantCollection);
+    when(tenantCollection.withReadPreference(any())).thenReturn(tenantCollection);
+    when(tenantCollection.withWriteConcern(any())).thenReturn(tenantCollection);
+    when(tenantCollection.find()).thenReturn(tenantFindIterable);
+    Lease tenantLease = createLeaseWithMatViewUuid("tenant-lease", UUID.randomUUID());
+    ArrayList<BsonDocument> tenantLeases = new ArrayList<>();
+    tenantLeases.add(tenantLease.toBson());
+    when(tenantFindIterable.into(any())).thenReturn(tenantLeases);
+    // The default database is the one that fails.
+    when(this.mockCollection.find()).thenThrow(new RuntimeException("find failed"));
+
+    DynamicLeaderLeaseManager manager =
+        new DynamicLeaderLeaseManager(
+            this.mockAutoEmbeddingMongoClient,
+            new SimpleMetricsFactory(),
+            HOSTNAME,
+            tenantResolver,
+            this.mvMetadataCatalog);
+    manager.add(createTestIndexGeneration());
+
+    LeaseManager.GcScanResult result = manager.findGcCandidates();
+
+    assertThat(result.leases().stream().map(Lease::id)).containsExactly("tenant-lease");
+    assertThat(result.complete()).isFalse();
+    assertThat(result.isCompleteAndEmpty()).isFalse();
+  }
+
+  @Test
+  public void findGcCandidates_noLeases_reportsCompleteAndEmpty() {
+    LeaseManager.GcScanResult result = this.leaseManager.findGcCandidates();
+
+    assertThat(result.leases()).isEmpty();
+    assertThat(result.complete()).isTrue();
+    assertThat(result.isCompleteAndEmpty()).isTrue();
   }
 
   @Test
@@ -2628,7 +2719,7 @@ public class DynamicLeaderLeaseManagerTest {
     // A configured generation teaches the manager the tenant's internal database.
     manager.add(createTestIndexGeneration());
 
-    List<Lease> leases = manager.findGcCandidates();
+    List<Lease> leases = manager.findGcCandidates().leases();
 
     assertThat(leases.stream().anyMatch(c -> c.id().equals("tenant-orphan-lease"))).isTrue();
     // The orphan's mapping points at the tenant database it was found in.

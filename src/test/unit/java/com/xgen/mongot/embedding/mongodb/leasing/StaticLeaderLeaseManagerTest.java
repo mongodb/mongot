@@ -431,7 +431,7 @@ public class StaticLeaderLeaseManagerTest {
     leaseList.add(lease.toBson());
     when(this.mockFindIterable.into(any())).thenReturn(leaseList);
 
-    List<Lease> leases = leaseManager.findGcCandidates();
+    List<Lease> leases = leaseManager.findGcCandidates().leases();
 
     assertThat(leases).hasSize(1);
     assertThat(leases.get(0).id()).isEqualTo(collectionName);
@@ -455,10 +455,27 @@ public class StaticLeaderLeaseManagerTest {
     leaseList.add(good.toBson());
     when(this.mockFindIterable.into(any())).thenReturn(leaseList);
 
-    List<Lease> leases = leaseManager.findGcCandidates();
+    List<Lease> leases = leaseManager.findGcCandidates().leases();
 
     assertThat(leases).hasSize(1);
     assertThat(leases.get(0).id()).isEqualTo(collectionName);
+  }
+
+  @Test
+  public void findGcCandidates_corruptedDocumentsOnly_notReportedEmpty() {
+    StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
+    ArrayList<BsonDocument> leaseList = new ArrayList<>();
+    leaseList.add(new BsonDocument("_id", new BsonString("corrupted")));
+    when(this.mockFindIterable.into(any())).thenReturn(leaseList);
+
+    LeaseManager.GcScanResult result = leaseManager.findGcCandidates();
+
+    // No parseable lease, but the table is not empty: the sweep must keep scanning so the
+    // corrupted document keeps being counted.
+    assertThat(result.leases()).isEmpty();
+    assertThat(result.complete()).isTrue();
+    assertThat(result.sawDocuments()).isTrue();
+    assertThat(result.isCompleteAndEmpty()).isFalse();
   }
 
   @Test
@@ -466,7 +483,30 @@ public class StaticLeaderLeaseManagerTest {
     StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
     when(this.mockCollection.find()).thenThrow(new RuntimeException("find failed"));
 
-    assertThat(leaseManager.findGcCandidates()).isEmpty();
+    assertThat(leaseManager.findGcCandidates().leases()).isEmpty();
+  }
+
+  @Test
+  public void findGcCandidates_queryFailure_reportsIncompleteScan() {
+    StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
+    when(this.mockCollection.find()).thenThrow(new RuntimeException("find failed"));
+
+    // Empty because the read failed, not because there are no leases — callers must be able to
+    // tell the two apart.
+    LeaseManager.GcScanResult result = leaseManager.findGcCandidates();
+    assertThat(result.complete()).isFalse();
+    assertThat(result.isCompleteAndEmpty()).isFalse();
+  }
+
+  @Test
+  public void findGcCandidates_noLeases_reportsCompleteAndEmpty() {
+    StaticLeaderLeaseManager leaseManager = createLeaseManager(false);
+
+    LeaseManager.GcScanResult result = leaseManager.findGcCandidates();
+
+    assertThat(result.leases()).isEmpty();
+    assertThat(result.complete()).isTrue();
+    assertThat(result.isCompleteAndEmpty()).isTrue();
   }
 
   @Test

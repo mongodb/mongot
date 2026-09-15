@@ -208,15 +208,45 @@ public interface LeaseManager {
       throws MaterializedViewTransientException, MaterializedViewNonTransientException;
 
   /**
+   * The outcome of one GC lease scan.
+   *
+   * @param leases every lease read this scan
+   * @param complete true only if every targeted database was read without error, so an empty {@code
+   *     leases} can be trusted to mean "there is nothing to collect" rather than "the read failed"
+   * @param sawDocuments true if any document at all was read, parseable or not. A corrupted lease
+   *     document is skipped from {@code leases} but still counts here, so a table holding only
+   *     corrupted documents is not mistaken for an empty one.
+   */
+  record GcScanResult(List<Lease> leases, boolean complete, boolean sawDocuments) {
+    public GcScanResult(List<Lease> leases, boolean complete, boolean sawDocuments) {
+      this.leases = List.copyOf(leases);
+      this.complete = complete;
+      this.sawDocuments = sawDocuments;
+    }
+
+    /** A scan whose documents all parsed: {@code sawDocuments} follows from {@code leases}. */
+    public GcScanResult(List<Lease> leases, boolean complete) {
+      this(leases, complete, !leases.isEmpty());
+    }
+
+    /** True if the scan read every targeted database and none held a single document. */
+    public boolean isCompleteAndEmpty() {
+      return this.complete && !this.sawDocuments;
+    }
+  }
+
+  /**
    * Returns every lease in the internal databases known to this manager — the single scan both GC
    * passes work from. Reads the database (not the in-memory map) so orphaned leases are visible,
    * and registers each lease's database mapping for the mark/delete that may follow.
    *
    * <p>Best effort, never throws: corrupted leases are skipped (CLOUDP-384971) and a failed
    * per-database scan drops that database's leases. Partial results are safe — marking requires a
-   * returned higher-version sibling, and databases scan all-or-nothing.
+   * returned higher-version sibling, and databases scan all-or-nothing. A partial scan is reported
+   * through {@link GcScanResult#complete()}, so callers can tell a genuinely empty lease table from
+   * one that could not be read.
    */
-  List<Lease> findGcCandidates();
+  GcScanResult findGcCandidates();
 
   /**
    * Conditionally marks a lease {@link Lease.CleanupState#ELIGIBLE_FOR_CLEANUP} via an OCC update:

@@ -125,6 +125,7 @@ public class MaterializedViewManager implements ReplicationManager {
   public static final String STAT_MAX = "max";
   public static final String STAT_AVG = "avg";
   public static final String MAT_VIEW_COLLECTION_DROP_COUNTER_NAME = "matViewCollectionDrop";
+
   public static final String DROP_SCENARIO_TAG = "scenario";
   public static final String DROP_OUTCOME_TAG = "outcome";
   public static final String DROP_SCENARIO_GC = "gc";
@@ -362,6 +363,7 @@ public class MaterializedViewManager implements ReplicationManager {
             this.meterRegistry,
             this.metricsFactory,
             () -> !isShutdown() && isReplicationSupported(),
+            this::hasConfiguredAutoEmbeddingIndex,
             this::usedByLocalGeneration,
             (leaseKey, namespace) -> dropMatViewCollection(leaseKey, namespace, DROP_SCENARIO_GC));
 
@@ -1734,6 +1736,14 @@ public class MaterializedViewManager implements ReplicationManager {
             MAT_VIEW_COLLECTION_DROP_COUNTER_NAME,
             Tags.of(DROP_SCENARIO_TAG, scenario, DROP_OUTCOME_TAG, success ? "success" : "failure"))
         .increment();
+  }
+
+  /**
+   * Whether any auto-embedding index generation is currently configured on this node. Synchronized
+   * for the catalog's guard; the GC sweep takes the manager lock only for this read.
+   */
+  private synchronized boolean hasConfiguredAutoEmbeddingIndex() {
+    return !this.activeGenerationIdCatalog.genIdByMatViewCollection.isEmpty();
   }
 
   /**

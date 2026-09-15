@@ -41,6 +41,7 @@ class StaleLeaseGarbageCollector {
   private static final Logger LOG = LoggerFactory.getLogger(StaleLeaseGarbageCollector.class);
 
   static final String MAT_VIEW_GC_LEASES_OVERDUE_GAUGE = "matViewGcLeasesOverdue";
+  static final String MAT_VIEW_GC_IDLE_GAUGE = "matViewGcIdle";
   static final String MAT_VIEW_GC_LEASE_IN_USE_REFUSAL_COUNTER_NAME = "matViewGcLeaseInUseRefusals";
   static final String MAT_VIEW_GC_SWEEP_FAILURE_COUNTER_NAME = "matViewGcSweepFailures";
   static final String MAT_VIEW_GC_MARKED_CURRENT_REFUSAL_COUNTER_NAME =
@@ -79,6 +80,20 @@ class StaleLeaseGarbageCollector {
   /** False while the owning manager is shut down or replication is unsupported. */
   private final BooleanSupplier sweepAllowed;
 
+  /** True while any auto-embedding index generation is configured on this mongot. */
+  private final BooleanSupplier hasConfiguredAutoEmbeddingIndex;
+
+  /**
+   * matViewGcIdle: 1 once a sweep has found no auto-embedding index configured on this node and no
+   * document in any targeted lease database, 0 otherwise. While 1, sweep ticks return without
+   * querying the source mongod: a cluster that has never created an auto-embedding index has
+   * nothing for GC to do, and reading anyway only produces lease-table failure metrics whenever the
+   * tick catches the cluster mid-restart or mid-scale. Back to 0 on the first tick that finds an
+   * index in the catalog. Doubles as the gauge so a deliberately quiet scanner is distinguishable
+   * from a stuck one (both show scannerAlive 1 and no lease-table reads).
+   */
+  private final AtomicLong gcIdleGauge;
+
   /** True if a generation on this mongot still reads the lease's materialized view. */
   private final Predicate<Lease> usedByLocalGeneration;
 
@@ -96,6 +111,7 @@ class StaleLeaseGarbageCollector {
       MeterRegistry meterRegistry,
       MetricsFactory metricsFactory,
       BooleanSupplier sweepAllowed,
+      BooleanSupplier hasConfiguredAutoEmbeddingIndex,
       Predicate<Lease> usedByLocalGeneration,
       BiPredicate<String, MongoNamespace> dropMatViewCollection) {
     this.leaseManager = leaseManager;
@@ -106,7 +122,9 @@ class StaleLeaseGarbageCollector {
     // The overdue gauge (matViewGcLeasesOverdue) is registered once here so the series is always
     // present (0 when GC is off or healthy) and pushed updates stick.
     this.gcLeasesOverdueGauge = metricsFactory.numGauge(MAT_VIEW_GC_LEASES_OVERDUE_GAUGE);
+    this.gcIdleGauge = metricsFactory.numGauge(MAT_VIEW_GC_IDLE_GAUGE);
     this.sweepAllowed = sweepAllowed;
+    this.hasConfiguredAutoEmbeddingIndex = hasConfiguredAutoEmbeddingIndex;
     this.usedByLocalGeneration = usedByLocalGeneration;
     this.dropMatViewCollection = dropMatViewCollection;
   }
@@ -153,13 +171,37 @@ class StaleLeaseGarbageCollector {
       }
       // One sweep-start instant drives both graces, so the delete grace is measured from the same
       // moment as the mark grace rather than being shortened by the mark pass's own duration.
+      // Idle: on a cluster with no leases at all there is nothing for any pass to do, and the scan
+      // is the only part of the sweep that queries the source mongod regardless. Once a scan has
+      // found the lease table empty with no index configured, ticks return here until an index
+      // appears in the catalog, so a cluster that has never used auto-embedding stops reading the
+      // lease table after its first sweep. The catalog, not the lease table, is what ends idle:
+      // add() catalogs an index before its lease document exists in mongod (the dynamic manager
+      // writes it on a later acquisition), so a scan in that gap still sees an empty table.
+      if (this.gcIdleGauge.get() == 1) {
+        if (!this.hasConfiguredAutoEmbeddingIndex.getAsBoolean()) {
+          return;
+        }
+        this.gcIdleGauge.set(0);
+        LOG.atInfo().log("Auto-embedding index added, resuming stale-lease GC scans");
+      }
       Instant sweepStart = Instant.now();
       Instant markCutoff =
           sweepStart.minus(
               Duration.ofMillis(this.materializedViewConfig.staleLeaseMarkGracePeriodMs));
       // One scan drives both passes: candidates are the leases expired past the mark grace, and
       // the never-mark set comes from the same snapshot, so the two can never disagree.
-      List<Lease> scannedLeases = this.leaseManager.findGcCandidates();
+      LeaseManager.GcScanResult scanResult = this.leaseManager.findGcCandidates();
+      // Only a scan that read every database can be trusted to mean "nothing to collect": a failed
+      // read also returns no leases, and going idle on that would stand GC down for as long as the
+      // process lives. Nor does an empty table mean idle while an index is configured: its lease
+      // may simply not be written yet, and it will need collecting one day.
+      if (scanResult.isCompleteAndEmpty() && !this.hasConfiguredAutoEmbeddingIndex.getAsBoolean()) {
+        this.gcIdleGauge.set(1);
+        LOG.atInfo().log(
+            "Lease table empty, stale-lease GC scans idle until an auto-embedding index is added");
+      }
+      List<Lease> scannedLeases = scanResult.leases();
       List<Lease> candidates =
           scannedLeases.stream()
               .filter(lease -> lease.leaseExpiration().isBefore(markCutoff))

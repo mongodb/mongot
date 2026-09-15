@@ -411,19 +411,22 @@ public class StaticLeaderLeaseManager implements LeaseManager {
   }
 
   @Override
-  public List<Lease> findGcCandidates() {
+  public LeaseManager.GcScanResult findGcCandidates() {
     // Scans only the default internal database — static deployments are single-tenant (see
     // DynamicLeaderLeaseManager#findGcCandidates for the multi-database variant). A healthy
     // leader keeps its lease fresh on every PeriodicIndexCommitter tick (the commit refreshes
     // leaseExpiration even with no source writes), well within the lease TTL, so an idle index
     // does not expire; a lapsed lease means the generator is not running.
     List<Lease> leases = new ArrayList<>();
+    @Var boolean complete = true;
+    @Var boolean sawDocuments = false;
     try {
       String defaultDb = this.dbResolver.resolveDefault();
       List<BsonDocument> rawLeases =
           this.operationExecutor.execute(
               "findGcCandidates",
               () -> this.getCollection(defaultDb).find().into(new ArrayList<>()));
+      sawDocuments = !rawLeases.isEmpty();
       for (BsonDocument rawLease : rawLeases) {
         try {
           Lease lease = Lease.fromBson(rawLease);
@@ -438,10 +441,12 @@ public class StaticLeaderLeaseManager implements LeaseManager {
         }
       }
     } catch (Exception e) {
-      // Safe per the interface contract; the periodic sweep retries on a later tick.
+      // Safe per the interface contract; the periodic sweep retries on a later tick. Reported as an
+      // incomplete scan so an empty result is not mistaken for an empty lease table.
+      complete = false;
       LOG.atWarn().setCause(e).log("Failed to scan database for GC leases");
     }
-    return leases;
+    return new LeaseManager.GcScanResult(leases, complete, sawDocuments);
   }
 
   @Override
