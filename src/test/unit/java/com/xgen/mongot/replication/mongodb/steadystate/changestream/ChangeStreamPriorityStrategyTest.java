@@ -6,6 +6,7 @@ import static org.junit.Assert.assertThrows;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
 import java.nio.ByteBuffer;
 import java.util.Collections;
+import java.util.Optional;
 import org.apache.commons.codec.binary.Hex;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
@@ -66,7 +67,7 @@ public class ChangeStreamPriorityStrategyTest {
         new ChangeStreamBatch(
             Collections.emptyList(),
             resumeTokenForTime(new BsonTimestamp(now, 0)),
-            new BsonTimestamp(now - 1, 0));
+            Optional.of(new BsonTimestamp(now - 1, 0)));
     assertThat(strategy.isHighPriority(INDEX_ID, batch)).isFalse();
   }
 
@@ -78,7 +79,7 @@ public class ChangeStreamPriorityStrategyTest {
         new ChangeStreamBatch(
             Collections.emptyList(),
             resumeTokenForTime(new BsonTimestamp(now, 0)),
-            new BsonTimestamp(now - 1, 0));
+            Optional.of(new BsonTimestamp(now - 1, 0)));
     assertThat(strategy.isHighPriority(INDEX_ID, batch)).isTrue();
   }
 
@@ -91,7 +92,21 @@ public class ChangeStreamPriorityStrategyTest {
         new ChangeStreamBatch(
             Collections.emptyList(),
             new BsonDocument("_data", new BsonString("not-valid-hex")),
-            new BsonTimestamp(now, 0));
+            Optional.of(new BsonTimestamp(now, 0)));
+    assertThat(strategy.isHighPriority(INDEX_ID, batch)).isTrue();
+  }
+
+  @Test
+  public void optimeLag_absentCommandOperationTime_defaultsToHighPriority() {
+    var strategy = new OptimeLagPriorityStrategy(10);
+    int now = (int) (System.currentTimeMillis() / 1000);
+    // No commandOperationTime (e.g. session has not gossiped a $clusterTime yet) — cannot compute
+    // lag, so default to high priority per the scheduling "prefer when uncertain" convention.
+    var batch =
+        new ChangeStreamBatch(
+            Collections.emptyList(),
+            resumeTokenForTime(new BsonTimestamp(now, 0)),
+            Optional.empty());
     assertThat(strategy.isHighPriority(INDEX_ID, batch)).isTrue();
   }
 
@@ -101,7 +116,9 @@ public class ChangeStreamPriorityStrategyTest {
     int now = (int) (System.currentTimeMillis() / 1000);
     BsonTimestamp resumeTokenTime = new BsonTimestamp(now - lagSeconds, 0);
     return new ChangeStreamBatch(
-        Collections.emptyList(), resumeTokenForTime(resumeTokenTime), new BsonTimestamp(now, 0));
+        Collections.emptyList(),
+        resumeTokenForTime(resumeTokenTime),
+        Optional.of(new BsonTimestamp(now, 0)));
   }
 
   /** Builds a PBRT whose decoded optime is {@code ts}. */

@@ -216,7 +216,7 @@ abstract class ChangeStreamIndexManager {
       CompletableFuture<Void> indexingFuture,
       Optional<ChangeStreamResumeInfo> resumeInfo,
       Optional<SteadyStateException> lifecycleEvent,
-      BsonTimestamp commandOperationTime) {
+      Optional<BsonTimestamp> commandOperationTime) {
     return schedulingFuture
         .thenRun(
             () -> {
@@ -225,10 +225,16 @@ abstract class ChangeStreamIndexManager {
                 try {
                   BsonTimestamp opTime =
                       ResumeTokenUtils.opTimeFromResumeToken(resumeInfo.get().getResumeToken());
-                  this.indexMetricsUpdater
-                      .getIndexingMetricsUpdater()
-                      .getReplicationOpTimeInfo()
-                      .update(opTime.getValue(), commandOperationTime.getValue());
+                  // commandOperationTime is the server "now" used as the upper bound of the
+                  // replication-lag gauge. Driver 5.x omits operationTime on change-stream getMore
+                  // responses; when it is unavailable we skip the lag update rather than fail the
+                  // change stream. The resume-token optime is still recorded below.
+                  if (commandOperationTime.isPresent()) {
+                    this.indexMetricsUpdater
+                        .getIndexingMetricsUpdater()
+                        .getReplicationOpTimeInfo()
+                        .update(opTime.getValue(), commandOperationTime.get().getValue());
+                  }
 
                   if (Instant.now().isAfter(this.optimeLastUpdate.plus(OPTIME_LOG_PERIOD))) {
                     this.optimeLastUpdate = Instant.now();

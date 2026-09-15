@@ -90,6 +90,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.bson.BsonDocument;
+import org.bson.BsonInt32;
 import org.bson.BsonString;
 import org.bson.BsonTimestamp;
 import org.bson.types.ObjectId;
@@ -290,7 +292,12 @@ public class ReplicationIndexManagerTest {
   @Test
   public void testInitialSyncResyncsAfterTransientViewErrorAndKeepsTheWarningMessageInStatus()
       throws Exception {
-    var cause = new MongoQueryException(new ServerAddress("host"), 123, "PlanExecutor error");
+    var cause =
+        new MongoQueryException(
+            new BsonDocument("ok", new BsonInt32(0))
+                .append("code", new BsonInt32(123))
+                .append("errmsg", new BsonString("PlanExecutor error")),
+            new ServerAddress("host"));
     try (Mocks mocks =
         Mocks.exceptionalInitialSyncOnView(InitialSyncException.createRequiresResync(cause))) {
 
@@ -341,7 +348,11 @@ public class ReplicationIndexManagerTest {
   public void testInitialSyncResyncsAfterQueryRejectedBySettingsAndKeepsTheErrorMessageInStatus()
       throws Exception {
     var cause =
-        new MongoQueryException(new ServerAddress("host"), 411, "Query rejected by admin settings");
+        new MongoQueryException(
+            new BsonDocument("ok", new BsonInt32(0))
+                .append("code", new BsonInt32(411))
+                .append("errmsg", new BsonString("Query rejected by admin settings")),
+            new ServerAddress("host"));
     try (Mocks mocks =
         Mocks.exceptionalInitialSync(InitialSyncException.createRequiresResync(cause))) {
 

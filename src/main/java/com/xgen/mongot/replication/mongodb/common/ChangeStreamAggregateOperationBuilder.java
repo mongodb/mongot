@@ -12,8 +12,6 @@ import com.xgen.mongot.util.mongodb.ChangeStreamAggregateCommand.FullDocument;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
-import java.util.OptionalLong;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.bson.BsonArray;
 import org.bson.BsonBoolean;
@@ -33,7 +31,6 @@ public class ChangeStreamAggregateOperationBuilder {
   private final MongoNamespace namespace;
   private final ChangeStreamPipelineBuilder pipelineBuilder;
 
-  private OptionalLong maxTimeMs;
   private OptionalInt batchSize;
 
   /** $project that filters our fields that are not used for indexing. */
@@ -66,7 +63,6 @@ public class ChangeStreamAggregateOperationBuilder {
 
   public ChangeStreamAggregateOperationBuilder(MongoNamespace namespace) {
     Check.argNotNull(namespace, "namespace");
-    this.maxTimeMs = OptionalLong.empty();
     this.batchSize = OptionalInt.empty();
     this.indexedFieldsProjectionStage = Optional.empty();
     this.changeStreamMetadataExclusionProjectionStage = Optional.empty();
@@ -80,11 +76,6 @@ public class ChangeStreamAggregateOperationBuilder {
 
   public ChangeStreamAggregateOperationBuilder batchSize(int value) {
     this.batchSize = OptionalInt.of(value);
-    return this;
-  }
-
-  public ChangeStreamAggregateOperationBuilder maxTimeMs(long value) {
-    this.maxTimeMs = OptionalLong.of(value);
     return this;
   }
 
@@ -209,7 +200,6 @@ public class ChangeStreamAggregateOperationBuilder {
             this.namespace, createChangeStreamPipeline(), decoder, AggregationLevel.COLLECTION);
 
     this.batchSize.ifPresent(aggregate::batchSize);
-    this.maxTimeMs.ifPresent(value -> aggregate.maxTime(value, TimeUnit.MILLISECONDS));
 
     return aggregate;
   }

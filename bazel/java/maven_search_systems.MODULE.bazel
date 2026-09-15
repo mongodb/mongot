@@ -87,7 +87,7 @@ _GCP_ARTIFACTS = [
 ]
 
 _MONGO_DRIVER_ARTIFACTS = [
-    ("org.mongodb", "mongodb-driver-sync", "4.11.5"),
+    ("org.mongodb", "mongodb-driver-sync", "5.8.0"),
 ]
 
 maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")

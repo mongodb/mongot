@@ -10,6 +10,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.apache.commons.codec.binary.Hex;
 import org.bson.BsonDocument;
@@ -294,14 +295,16 @@ public class RecomputingLagPriorityStrategyTest {
     return new ChangeStreamBatch(
         Collections.emptyList(),
         resumeToken,
-        new BsonTimestamp((int) (System.currentTimeMillis() / 1000), 0));
+        Optional.of(new BsonTimestamp((int) (System.currentTimeMillis() / 1000), 0)));
   }
 
   private static ChangeStreamBatch batchWithLag(int lagSeconds) {
     int now = (int) (System.currentTimeMillis() / 1000);
     BsonTimestamp resumeTokenTime = new BsonTimestamp(now - lagSeconds, 0);
     return new ChangeStreamBatch(
-        Collections.emptyList(), resumeTokenForTime(resumeTokenTime), new BsonTimestamp(now, 0));
+        Collections.emptyList(),
+        resumeTokenForTime(resumeTokenTime),
+        Optional.of(new BsonTimestamp(now, 0)));
   }
 
   /** Builds a PBRT whose decoded optime is {@code ts}. */

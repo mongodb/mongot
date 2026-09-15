@@ -175,7 +175,8 @@ public class SyncChangeStreamDispatcherTest {
         mockIndexGeneration(indexDefinition).getDefinitionGeneration();
     BsonTimestamp now = new BsonTimestamp(1_700_000_000, 0);
     ChangeStreamBatch changeStreamBatch =
-        new ChangeStreamBatch(Collections.emptyList(), ChangeStreamUtils.resumeToken(now), now);
+        new ChangeStreamBatch(
+            Collections.emptyList(), ChangeStreamUtils.resumeToken(now), Optional.of(now));
     ChangeStreamMongoClient<SteadyStateException> mongoClient = mock(ChangeStreamMongoClient.class);
     when(mongoClient.getNext()).thenReturn(changeStreamBatch);
     ChangeStreamMongoClientFactory mongoClientFactory = mock(ChangeStreamMongoClientFactory.class);
@@ -500,11 +501,14 @@ public class SyncChangeStreamDispatcherTest {
 
     BsonTimestamp now = new BsonTimestamp(1_700_000_000, 0);
     ChangeStreamBatch caughtUpBatch =
-        new ChangeStreamBatch(Collections.emptyList(), ChangeStreamUtils.resumeToken(now), now);
+        new ChangeStreamBatch(
+            Collections.emptyList(), ChangeStreamUtils.resumeToken(now), Optional.of(now));
     BsonTimestamp laggingResumeToken = new BsonTimestamp(now.getTime() - 60, 0);
     ChangeStreamBatch highLagBatch =
         new ChangeStreamBatch(
-            Collections.emptyList(), ChangeStreamUtils.resumeToken(laggingResumeToken), now);
+            Collections.emptyList(),
+            ChangeStreamUtils.resumeToken(laggingResumeToken),
+            Optional.of(now));
 
     ChangeStreamMongoClient<SteadyStateException> mongoClient = mock(ChangeStreamMongoClient.class);
     when(mongoClient.getNext())
@@ -581,7 +585,8 @@ public class SyncChangeStreamDispatcherTest {
 
     BsonTimestamp now = new BsonTimestamp(1_700_000_000, 0);
     ChangeStreamBatch emptyBatch =
-        new ChangeStreamBatch(Collections.emptyList(), ChangeStreamUtils.resumeToken(now), now);
+        new ChangeStreamBatch(
+            Collections.emptyList(), ChangeStreamUtils.resumeToken(now), Optional.of(now));
 
     ChangeStreamMongoClient<SteadyStateException> mongoClient = mock(ChangeStreamMongoClient.class);
     when(mongoClient.getNext())

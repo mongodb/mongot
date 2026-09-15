@@ -39,7 +39,7 @@ public class ChangeStreamDualQueueExecutorTest {
             new ChangeStreamBatch(
                 Collections.emptyList(),
                 resumeTokenForTime(resumeTokenTime),
-                commandOperationTime)),
+                Optional.of(commandOperationTime))),
         () -> {});
   }
 
@@ -49,7 +49,9 @@ public class ChangeStreamDualQueueExecutorTest {
     BsonTimestamp ts = new BsonTimestamp(nowSeconds, 0);
     return new EnqueueContext(
         SearchIndexDefinitionBuilder.VALID_INDEX,
-        Optional.of(new ChangeStreamBatch(Collections.emptyList(), resumeTokenForTime(ts), ts)),
+        Optional.of(
+            new ChangeStreamBatch(
+                Collections.emptyList(), resumeTokenForTime(ts), Optional.of(ts))),
         () -> {});
   }
 
@@ -66,7 +68,7 @@ public class ChangeStreamDualQueueExecutorTest {
             new ChangeStreamBatch(
                 Collections.emptyList(),
                 resumeTokenForTime(resumeTokenTime),
-                commandOperationTime)),
+                Optional.of(commandOperationTime))),
         () -> {});
   }
 

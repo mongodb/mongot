@@ -12,6 +12,7 @@ import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
@@ -97,12 +98,13 @@ public class SplitEventChangeStreamClientTest {
     BsonTimestamp operationTime = new BsonTimestamp(1, 1);
 
     when(this.mockWrappedClient.getNext())
-        .thenReturn(new ChangeStreamBatch(List.of(), postBatchResumeToken, operationTime));
+        .thenReturn(
+            new ChangeStreamBatch(List.of(), postBatchResumeToken, Optional.of(operationTime)));
 
     ChangeStreamBatch result = this.client.getNext();
     assertEquals(0, result.getRawEvents().size());
     assertEquals(postBatchResumeToken, result.getPostBatchResumeToken());
-    assertEquals(operationTime, result.getCommandOperationTime());
+    assertEquals(Optional.of(operationTime), result.getCommandOperationTime());
 
     verify(this.mockWrappedClient, times(1)).getNext();
   }
@@ -122,14 +124,18 @@ public class SplitEventChangeStreamClientTest {
             new ChangeStreamBatch(
                 List.of(new RawBsonDocument(frag1, CODEC)),
                 createResumeToken(baseToken + ".f1"),
-                operationTime))
-        .thenReturn(new ChangeStreamBatch(List.of(), createResumeToken("empty1"), operationTime))
-        .thenReturn(new ChangeStreamBatch(List.of(), createResumeToken("empty2"), operationTime))
+                Optional.of(operationTime)))
+        .thenReturn(
+            new ChangeStreamBatch(
+                List.of(), createResumeToken("empty1"), Optional.of(operationTime)))
+        .thenReturn(
+            new ChangeStreamBatch(
+                List.of(), createResumeToken("empty2"), Optional.of(operationTime)))
         .thenReturn(
             new ChangeStreamBatch(
                 List.of(new RawBsonDocument(frag2, CODEC)),
                 createResumeToken(baseToken + ".f2"),
-                operationTime));
+                Optional.of(operationTime)));
 
     ChangeStreamBatch result = this.client.getNext();
 
@@ -159,17 +165,17 @@ public class SplitEventChangeStreamClientTest {
             new ChangeStreamBatch(
                 List.of(new RawBsonDocument(frag1, CODEC)),
                 createResumeToken(baseToken + ".f1"),
-                operationTime))
+                Optional.of(operationTime)))
         .thenReturn(
             new ChangeStreamBatch(
                 List.of(new RawBsonDocument(frag2, CODEC)),
                 createResumeToken(baseToken + ".f2"),
-                operationTime))
+                Optional.of(operationTime)))
         .thenReturn(
             new ChangeStreamBatch(
                 List.of(new RawBsonDocument(frag3, CODEC)),
                 createResumeToken(baseToken + ".f3"),
-                operationTime));
+                Optional.of(operationTime)));
 
     ChangeStreamBatch result = this.client.getNext();
 
@@ -199,7 +205,7 @@ public class SplitEventChangeStreamClientTest {
             new ChangeStreamBatch(
                 List.of(new RawBsonDocument(invalidFrag, CODEC)),
                 createResumeToken(token),
-                operationTime));
+                Optional.of(operationTime)));
 
     RuntimeException e = Assert.assertThrows(RuntimeException.class, () -> this.client.getNext());
     assertThat(e.getCause()).isInstanceOf(FragmentProcessingException.class);
@@ -218,7 +224,9 @@ public class SplitEventChangeStreamClientTest {
 
     ChangeStreamBatch mockBatch =
         new ChangeStreamBatch(
-            List.of(new RawBsonDocument(eventWithoutId, CODEC)), batchResumeToken, operationTime);
+            List.of(new RawBsonDocument(eventWithoutId, CODEC)),
+            batchResumeToken,
+            Optional.of(operationTime));
     when(this.mockWrappedClient.getNext()).thenReturn(mockBatch);
 
     // Should use batch resume token without decoding event
@@ -249,12 +257,12 @@ public class SplitEventChangeStreamClientTest {
             new ChangeStreamBatch(
                 List.of(new RawBsonDocument(frag1, CODEC)),
                 createResumeToken(baseToken),
-                operationTime))
+                Optional.of(operationTime)))
         .thenReturn(
             new ChangeStreamBatch(
                 List.of(new RawBsonDocument(completeEvent, CODEC)),
                 createResumeToken(secondToken()),
-                operationTime));
+                Optional.of(operationTime)));
 
     // First call buffers fragment, second call should fail on consecutive fragments violation
     RuntimeException e =
@@ -303,7 +311,8 @@ public class SplitEventChangeStreamClientTest {
 
     BsonTimestamp operationTime = new BsonTimestamp(1, 1);
     ChangeStreamBatch mockBatch =
-        new ChangeStreamBatch(events, createResumeToken(tokenWithIncrement(4)), operationTime);
+        new ChangeStreamBatch(
+            events, createResumeToken(tokenWithIncrement(4)), Optional.of(operationTime));
 
     when(this.mockWrappedClient.getNext()).thenReturn(mockBatch);
 
@@ -339,7 +348,7 @@ public class SplitEventChangeStreamClientTest {
         new ChangeStreamBatch(
             List.of(new RawBsonDocument(frag1, CODEC)),
             createResumeToken(baseToken + ".f1"),
-            new BsonTimestamp(1, 1));
+            Optional.of(new BsonTimestamp(1, 1)));
 
     // Complete events follow the final fragment
     BsonDocument complete1 =
@@ -358,7 +367,7 @@ public class SplitEventChangeStreamClientTest {
                 new RawBsonDocument(complete1, CODEC),
                 new RawBsonDocument(complete2, CODEC)),
             createResumeToken(tokenWithIncrement(2)),
-            new BsonTimestamp(1, 1));
+            Optional.of(new BsonTimestamp(1, 1)));
 
     when(this.mockWrappedClient.getNext()).thenReturn(fragmentBatch1).thenReturn(fragmentBatch2);
 
@@ -413,7 +422,7 @@ public class SplitEventChangeStreamClientTest {
             new ChangeStreamBatch(
                 List.of(new RawBsonDocument(frag1, CODEC)),
                 createResumeToken(baseToken),
-                new BsonTimestamp(1, 1)))
+                Optional.of(new BsonTimestamp(1, 1))))
         .thenReturn(
             new ChangeStreamBatch(
                 List.of(
@@ -421,7 +430,7 @@ public class SplitEventChangeStreamClientTest {
                     new RawBsonDocument(complete1, CODEC),
                     new RawBsonDocument(complete2, CODEC)),
                 createResumeToken(tokenWithIncrement(2)),
-                new BsonTimestamp(1, 1)));
+                Optional.of(new BsonTimestamp(1, 1))));
 
     ChangeStreamBatch result = this.client.getNext();
 
@@ -459,7 +468,8 @@ public class SplitEventChangeStreamClientTest {
 
     BsonTimestamp operationTime = new BsonTimestamp(1, 1);
     ChangeStreamBatch mockBatch =
-        new ChangeStreamBatch(originalEvents, createResumeToken("batch1"), operationTime);
+        new ChangeStreamBatch(
+            originalEvents, createResumeToken("batch1"), Optional.of(operationTime));
 
     when(this.mockWrappedClient.getNext()).thenReturn(mockBatch);
 
@@ -499,22 +509,22 @@ public class SplitEventChangeStreamClientTest {
             new ChangeStreamBatch(
                 List.of(new RawBsonDocument(event1, CODEC)),
                 createResumeToken("batch1"),
-                operationTime))
+                Optional.of(operationTime)))
         .thenReturn(
             new ChangeStreamBatch(
                 List.of(new RawBsonDocument(frag1, CODEC)),
                 createResumeToken("batch2"),
-                operationTime))
+                Optional.of(operationTime)))
         .thenReturn(
             new ChangeStreamBatch(
                 List.of(new RawBsonDocument(frag2, CODEC)),
                 createResumeToken("batch3"),
-                operationTime))
+                Optional.of(operationTime)))
         .thenReturn(
             new ChangeStreamBatch(
                 List.of(new RawBsonDocument(event2, CODEC)),
                 createResumeToken("batch4"),
-                operationTime));
+                Optional.of(operationTime)));
 
     // First call returns complete event with batch resume token
     ChangeStreamBatch result1 = this.client.getNext();

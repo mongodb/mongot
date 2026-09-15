@@ -28,8 +28,8 @@ class ChangeStreamMongoClientFactory {
   private final BatchMongoClient mongoClient;
   private final SessionRefresher sessionRefresher;
   private final ChangeStreamModeSelector modeSelector;
-  private final Duration changeStreamCursorMaxTime;
   private final int changeStreamQueryMaxTimeMs;
+  private final Duration changeStreamCursorMaxTime;
   private final Optional<Integer> embeddingGetMoreBatchSize;
   private final List<String> excludedChangestreamFields;
   private final boolean matchCollectionUuidForUpdateLookup;
@@ -89,7 +89,8 @@ class ChangeStreamMongoClientFactory {
             aggregateTemplate,
             this.ftdcRegistry,
             SteadyStateException::wrapIfThrows,
-            Optional.empty());
+            Optional.empty(),
+            Optional.of(this.changeStreamQueryMaxTimeMs));
 
     if (this.enableSplitLargeChangeStreamEvents) {
       return new SplitEventChangeStreamClient<>(
@@ -113,7 +114,8 @@ class ChangeStreamMongoClientFactory {
             aggregateTemplate,
             this.ftdcRegistry,
             SteadyStateException::wrapIfThrows,
-            this.embeddingGetMoreBatchSize);
+            this.embeddingGetMoreBatchSize,
+            Optional.of(this.changeStreamQueryMaxTimeMs));
 
     if (this.enableSplitLargeChangeStreamEvents) {
       return new SplitEventChangeStreamClient<>(
@@ -138,7 +140,6 @@ class ChangeStreamMongoClientFactory {
     var operationFactory =
         new ChangeStreamAggregateOperationFactory(
             indexDefinition,
-            this.changeStreamQueryMaxTimeMs,
             this.excludedChangestreamFields,
             !removeMatchCollectionUuid && this.matchCollectionUuidForUpdateLookup,
             this.enableSplitLargeChangeStreamEvents);

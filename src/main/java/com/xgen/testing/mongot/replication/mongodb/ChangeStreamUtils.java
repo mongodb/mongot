@@ -109,15 +109,20 @@ public class ChangeStreamUtils {
   /** Constructs a new RENAME event. */
   public static ChangeStreamDocument<RawBsonDocument> renameEvent(int index) {
     return new ChangeStreamDocument<>(
-        OperationType.RENAME,
+        OperationType.RENAME.getValue(),
         indexResumeToken(index),
+        null,
         null,
         new BsonDocument()
             .append("db", new BsonString("database"))
             .append("coll", new BsonString("collection2")),
         null,
         null,
+        null,
         new BsonTimestamp(0, index),
+        null,
+        null,
+        null,
         null,
         null,
         null);
@@ -133,15 +138,20 @@ public class ChangeStreamUtils {
                 .append("coll", new BsonString(destinationNs.getCollectionName()))
             : null;
     return new ChangeStreamDocument<>(
-        OperationType.RENAME,
+        OperationType.RENAME.getValue(),
         indexResumeToken(index),
         new BsonDocument()
             .append("db", new BsonString(ns.getDatabaseName()))
             .append("coll", new BsonString(ns.getCollectionName())),
+        null,
         destinationNsDoc,
         null,
         null,
+        null,
         new BsonTimestamp(0, index),
+        null,
+        null,
+        null,
         null,
         null,
         null);
@@ -163,14 +173,16 @@ public class ChangeStreamUtils {
         .collect(Collectors.toList());
   }
 
+  /** Constructs a data event with a full document containing metadata for the given index. */
   public static ChangeStreamDocument<RawBsonDocument> dataEvent(
       OperationType operationType,
       int index,
       UpdateDescription updateDescription,
       IndexDefinition indexDefinition) {
     return new ChangeStreamDocument<>(
-        operationType,
+        operationType.getValue(),
         indexResumeToken(index),
+        null,
         null,
         null,
         BsonUtils.documentToRaw(
@@ -180,9 +192,13 @@ public class ChangeStreamUtils {
                 .append(
                     indexDefinition.getIndexId().toString(), // metadata namespace
                     new BsonDocument("_id", new BsonInt32(index)))),
+        null,
         new BsonDocument().append("_id", new BsonInt32(index)),
         new BsonTimestamp(0, index),
         updateDescription,
+        null,
+        null,
+        null,
         null,
         null);
   }
@@ -193,14 +209,19 @@ public class ChangeStreamUtils {
       UpdateDescription updateDescription,
       BsonDocument fullDocument) {
     return new ChangeStreamDocument<>(
-        operationType,
+        operationType.getValue(),
         indexResumeToken(index),
         null,
         null,
+        null,
         BsonUtils.documentToRaw(fullDocument),
+        null,
         new BsonDocument().append("_id", new BsonInt32(index)),
         new BsonTimestamp(0, index),
         updateDescription,
+        null,
+        null,
+        null,
         null,
         null);
   }
@@ -208,14 +229,19 @@ public class ChangeStreamUtils {
   public static ChangeStreamDocument<RawBsonDocument> noMetadataEvent(
       OperationType operationType, int index, UpdateDescription updateDescription) {
     return new ChangeStreamDocument<>(
-        operationType,
+        operationType.getValue(),
         indexResumeToken(index),
         null,
         null,
+        null,
         BsonUtils.documentToRaw(new BsonDocument().append("foo", new BsonString("bar"))),
+        null,
         new BsonDocument().append("_id", new BsonInt32(index)),
         new BsonTimestamp(0, index),
         updateDescription,
+        null,
+        null,
+        null,
         null,
         null);
   }
@@ -223,16 +249,21 @@ public class ChangeStreamUtils {
   public static ChangeStreamDocument<RawBsonDocument> noMetadataEvent(
       OperationType operationType, int index) {
     return new ChangeStreamDocument<>(
-        operationType,
+        operationType.getValue(),
         indexResumeToken(index),
+        null,
         null,
         null,
         BsonUtils.documentToRaw(
             new BsonDocument()
                 .append("_id", new BsonInt32(index))
                 .append("foo", new BsonString("bar"))),
+        null,
         new BsonDocument().append("_id", new BsonInt32(index)),
         new BsonTimestamp(0, index),
+        null,
+        null,
+        null,
         null,
         null,
         null);
@@ -241,14 +272,19 @@ public class ChangeStreamUtils {
   private static ChangeStreamDocument<RawBsonDocument> noDataEvent(
       OperationType operationType, int index, UpdateDescription updateDescription) {
     return new ChangeStreamDocument<>(
-        operationType,
+        operationType.getValue(),
         indexResumeToken(index),
+        null,
+        null,
         null,
         null,
         null,
         new BsonDocument().append("_id", new BsonInt32(index)),
         new BsonTimestamp(0, index),
         updateDescription,
+        null,
+        null,
+        null,
         null,
         null);
   }
@@ -259,16 +295,21 @@ public class ChangeStreamUtils {
       UpdateDescription updateDescription,
       IndexDefinition indexDefinition) {
     return new ChangeStreamDocument<>(
-        operationType,
+        operationType.getValue(),
         indexResumeToken(index),
+        null,
         null,
         null,
         BsonUtils.documentToRaw(
             // fullDocument contains only empty metadata namespace
             new BsonDocument().append(indexDefinition.getIndexId().toString(), new BsonDocument())),
+        null,
         new BsonDocument().append("_id", new BsonInt32(index)),
         new BsonTimestamp(0, index),
         updateDescription,
+        null,
+        null,
+        null,
         null,
         null);
   }
@@ -276,13 +317,18 @@ public class ChangeStreamUtils {
   private static ChangeStreamDocument<RawBsonDocument> collectionEvent(
       OperationType operationType, int index) {
     return new ChangeStreamDocument<>(
-        operationType,
+        operationType.getValue(),
         indexResumeToken(index),
         null,
         null,
         null,
         null,
+        null,
+        null,
         new BsonTimestamp(0, index),
+        null,
+        null,
+        null,
         null,
         null,
         null);

@@ -1,13 +1,14 @@
 package com.xgen.mongot.util.bson.parser;
 
 import org.bson.BsonNumber;
+import org.bson.BsonType;
 
 public class BsonNumberField {
 
   private static final ValueEncoder<BsonNumber> ENCODER = x -> x;
   private static final ValueParser<BsonNumber> PARSER =
       (context, val) -> {
-        if (!val.isNumber()) {
+        if (!val.isNumber() || val.getBsonType() == BsonType.DECIMAL128) {
           context.handleUnexpectedType(TypeDescription.NUMBER_NOT_DECIMAL, val.getBsonType());
         }
         return val.asNumber();

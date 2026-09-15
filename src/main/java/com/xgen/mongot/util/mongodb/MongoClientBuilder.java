@@ -9,7 +9,7 @@ import com.mongodb.ReadConcern;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.connection.ClusterConnectionMode;
-import com.mongodb.connection.netty.NettyStreamFactoryFactory;
+import com.mongodb.connection.TransportSettings;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.metrics.ServerStatusDataExtractor.ReplicationMeterData.MongodbClientMeterData;
 import com.xgen.mongot.metrics.ServerStatusDataExtractor.Scope;
@@ -314,8 +314,8 @@ public class MongoClientBuilder {
       return;
     }
     try {
-      settings.streamFactoryFactory(
-          NettyStreamFactoryFactory.builder()
+      settings.transportSettings(
+          TransportSettings.nettyBuilder()
               .sslContext(this.sslContextFactory.orElse(new SslContextFactory()).get())
               .build());
       this.successfulDynamicLinkingCounter.increment();

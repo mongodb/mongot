@@ -200,7 +200,7 @@ public class SteadyStateExceptionTest {
     try {
       SteadyStateException.wrapIfThrows(
           () -> {
-            throw new MongoCursorNotFoundException(0, new ServerAddress());
+            throw new MongoCursorNotFoundException(0L, new BsonDocument(), new ServerAddress());
           });
       fail();
     } catch (SteadyStateException e) {

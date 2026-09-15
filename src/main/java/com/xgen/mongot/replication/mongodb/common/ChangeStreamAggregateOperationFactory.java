@@ -14,19 +14,16 @@ import org.bson.BsonTimestamp;
 public class ChangeStreamAggregateOperationFactory {
 
   private final IndexDefinition indexDefinition;
-  private final int maxTimeMs;
   private final List<String> excludedFields;
   private final boolean matchCollectionUuidForUpdateLookup;
   private final boolean enableSplitLargeChangeStreamEvents;
 
   public ChangeStreamAggregateOperationFactory(
       IndexDefinition indexDefinition,
-      int maxTimeMs,
       List<String> excludedFields,
       boolean matchCollectionUuidForUpdateLookup,
       boolean enableSplitLargeChangeStreamEvents) {
     this.indexDefinition = indexDefinition;
-    this.maxTimeMs = maxTimeMs;
     this.excludedFields = excludedFields;
     this.matchCollectionUuidForUpdateLookup = matchCollectionUuidForUpdateLookup;
     this.enableSplitLargeChangeStreamEvents = enableSplitLargeChangeStreamEvents;
@@ -56,7 +53,6 @@ public class ChangeStreamAggregateOperationFactory {
     ChangeStreamAggregateOperationBuilder builder =
         new ChangeStreamAggregateOperationBuilder(namespace)
             .batchSize(0)
-            .maxTimeMs(this.maxTimeMs)
             .fullDocument(ChangeStreamAggregateCommand.FullDocument.UPDATE_LOOKUP)
             .splitLargeEvent(this.enableSplitLargeChangeStreamEvents)
             .metadataAddFieldsStage(

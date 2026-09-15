@@ -25,13 +25,18 @@ public class ChangeStreamResponseTest {
       Collections.singletonList(
           changeStreamDocumentToBsonDocument(
               new ChangeStreamDocument<>(
-                  OperationType.INSERT,
+                  OperationType.INSERT.getValue(),
                   RESUME_TOKEN,
                   null,
                   null,
                   null,
                   null,
+                  null,
+                  null,
                   OP_TIME,
+                  null,
+                  null,
+                  null,
                   null,
                   null,
                   null)));

@@ -164,7 +164,7 @@ public class ChangeStreamIndexManagerTest {
                   new ChangeStreamBatch(
                       Collections.emptyList(),
                       ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
-                      new BsonTimestamp()),
+                      Optional.of(new BsonTimestamp())),
                   NOOP_DOCUMENT_METRICS_UPDATER,
                   NOOP_TIMER)
               .indexingFuture;
@@ -227,7 +227,7 @@ public class ChangeStreamIndexManagerTest {
                           Collections.singletonList(
                               ChangeStreamUtils.insertEvent(1, MOCK_INDEX_DEFINITION))),
                       ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
-                      new BsonTimestamp()),
+                      Optional.of(new BsonTimestamp())),
                   NOOP_DOCUMENT_METRICS_UPDATER,
                   NOOP_TIMER)
               .indexingFuture;
@@ -319,7 +319,7 @@ public class ChangeStreamIndexManagerTest {
                   new ChangeStreamBatch(
                       toRawBsonDocuments(events),
                       ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
-                      new BsonTimestamp()),
+                      Optional.of(new BsonTimestamp())),
                   NOOP_DOCUMENT_METRICS_UPDATER,
                   NOOP_TIMER)
               .indexingFuture;
@@ -374,7 +374,7 @@ public class ChangeStreamIndexManagerTest {
                           Collections.singletonList(
                               ChangeStreamUtils.insertEvent(1, MOCK_INDEX_DEFINITION))),
                       ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
-                      new BsonTimestamp()),
+                      Optional.of(new BsonTimestamp())),
                   NOOP_DOCUMENT_METRICS_UPDATER,
                   NOOP_TIMER)
               .indexingFuture;
@@ -463,7 +463,7 @@ public class ChangeStreamIndexManagerTest {
                           Collections.singletonList(
                               ChangeStreamUtils.insertEvent(1, MOCK_INDEX_DEFINITION))),
                       ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
-                      new BsonTimestamp()),
+                      Optional.of(new BsonTimestamp())),
                   NOOP_DOCUMENT_METRICS_UPDATER,
                   NOOP_TIMER)
               .indexingFuture;
@@ -546,7 +546,7 @@ public class ChangeStreamIndexManagerTest {
                           Collections.singletonList(
                               ChangeStreamUtils.insertEvent(1, MOCK_INDEX_DEFINITION))),
                       ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
-                      new BsonTimestamp()),
+                      Optional.of(new BsonTimestamp())),
                   NOOP_DOCUMENT_METRICS_UPDATER,
                   NOOP_TIMER)
               .indexingFuture;
@@ -621,7 +621,7 @@ public class ChangeStreamIndexManagerTest {
                   new ChangeStreamBatch(
                       toRawBsonDocuments(events),
                       ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
-                      new BsonTimestamp()),
+                      Optional.of(new BsonTimestamp())),
                   NOOP_DOCUMENT_METRICS_UPDATER,
                   NOOP_TIMER)
               .indexingFuture;
@@ -740,7 +740,7 @@ public class ChangeStreamIndexManagerTest {
                               ChangeStreamUtils.renameEvent(1),
                               ChangeStreamUtils.invalidateEvent(2))),
                       ChangeStreamUtils.PRE_BATCH_RESUME_TOKEN,
-                      new BsonTimestamp()),
+                      Optional.of(new BsonTimestamp())),
                   NOOP_DOCUMENT_METRICS_UPDATER,
                   NOOP_TIMER)
               .indexingFuture;
@@ -793,7 +793,7 @@ public class ChangeStreamIndexManagerTest {
                               ChangeStreamUtils.renameEvent(1),
                               ChangeStreamUtils.invalidateEvent(2))),
                       ChangeStreamUtils.PRE_BATCH_RESUME_TOKEN,
-                      new BsonTimestamp()),
+                      Optional.of(new BsonTimestamp())),
                   NOOP_DOCUMENT_METRICS_UPDATER,
                   NOOP_TIMER)
               .indexingFuture;
@@ -852,7 +852,9 @@ public class ChangeStreamIndexManagerTest {
       CompletableFuture<Void> indexFuture =
           manager.indexBatch(
                   new ChangeStreamBatch(
-                      events, ChangeStreamUtils.POST_BATCH_RESUME_TOKEN, new BsonTimestamp()),
+                      events,
+                      ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
+                      Optional.of(new BsonTimestamp())),
                   NOOP_DOCUMENT_METRICS_UPDATER,
                   NOOP_TIMER)
               .indexingFuture;
@@ -864,7 +866,7 @@ public class ChangeStreamIndexManagerTest {
           new ChangeStreamBatch(
               toRawBsonDocuments(List.of(invalidateEvent)),
               invalidateEvent.getResumeToken(),
-              new BsonTimestamp()),
+              Optional.of(new BsonTimestamp())),
           NOOP_DOCUMENT_METRICS_UPDATER,
           NOOP_TIMER);
 
@@ -916,7 +918,7 @@ public class ChangeStreamIndexManagerTest {
                   new ChangeStreamBatch(
                       Collections.emptyList(),
                       ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
-                      new BsonTimestamp()),
+                      Optional.of(new BsonTimestamp())),
                   NOOP_DOCUMENT_METRICS_UPDATER,
                   NOOP_TIMER)
               .indexingFuture;
@@ -1387,7 +1389,7 @@ public class ChangeStreamIndexManagerTest {
           new ChangeStreamBatch(
               toRawBsonDocuments(events),
               ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
-              new BsonTimestamp()),
+              Optional.of(new BsonTimestamp())),
           NOOP_DOCUMENT_METRICS_UPDATER,
           NOOP_TIMER);
 
@@ -1429,7 +1431,7 @@ public class ChangeStreamIndexManagerTest {
                   new ChangeStreamBatch(
                       toRawBsonDocuments(events),
                       ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
-                      new BsonTimestamp()),
+                      Optional.of(new BsonTimestamp())),
                   NOOP_DOCUMENT_METRICS_UPDATER,
                   NOOP_TIMER)
               .indexingFuture;
@@ -1658,7 +1660,7 @@ public class ChangeStreamIndexManagerTest {
           .schedule(any(), any(), any(), any(), any(), any());
 
       var firstBatch = mock(ChangeStreamBatch.class);
-      when(firstBatch.getCommandOperationTime()).thenReturn(new BsonTimestamp());
+      when(firstBatch.getCommandOperationTime()).thenReturn(Optional.of(new BsonTimestamp()));
       when(firstBatch.getPostBatchResumeToken())
           .thenReturn(ChangeStreamUtils.resumeToken(new BsonTimestamp(3, 0)));
       when(firstBatch.getRawEvents())
@@ -1680,7 +1682,7 @@ public class ChangeStreamIndexManagerTest {
           new ChangeStreamBatch(
               toRawBsonDocuments(secondBatchEvents),
               ChangeStreamUtils.resumeToken(new BsonTimestamp(5, 0)),
-              new BsonTimestamp());
+              Optional.of(new BsonTimestamp()));
 
       // Call index on first batch
       CompletableFuture<Void> indexFuture1 =
@@ -1787,7 +1789,7 @@ public class ChangeStreamIndexManagerTest {
                           Collections.singletonList(
                               ChangeStreamUtils.insertEvent(1, MOCK_INDEX_DEFINITION))),
                       ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
-                      new BsonTimestamp()),
+                      Optional.of(new BsonTimestamp())),
                   NOOP_DOCUMENT_METRICS_UPDATER,
                   NOOP_TIMER)
               .indexingFuture;
@@ -1818,7 +1820,7 @@ public class ChangeStreamIndexManagerTest {
 
       // create an hanging change-stream for second batch
       ChangeStreamBatch hangingBatch = mock(ChangeStreamBatch.class);
-      when(hangingBatch.getCommandOperationTime()).thenReturn(new BsonTimestamp());
+      when(hangingBatch.getCommandOperationTime()).thenReturn(Optional.of(new BsonTimestamp()));
       when(hangingBatch.getPostBatchResumeToken())
           .thenReturn(ChangeStreamUtils.resumeToken(new BsonTimestamp(3, 0)));
 
@@ -1856,7 +1858,7 @@ public class ChangeStreamIndexManagerTest {
                   ChangeStreamUtils.toRawBsonDocuments(
                       List.of(ChangeStreamUtils.insertEvent(6, MOCK_INDEX_DEFINITION))),
                   POST_BATCH_RESUME_TOKEN,
-                  new BsonTimestamp()),
+                  Optional.of(new BsonTimestamp())),
               NOOP_DOCUMENT_METRICS_UPDATER,
               NOOP_TIMER);
 
@@ -1916,7 +1918,7 @@ public class ChangeStreamIndexManagerTest {
 
       // create an hanging change-stream for second batch
       ChangeStreamBatch hangingBatch = mock(ChangeStreamBatch.class);
-      when(hangingBatch.getCommandOperationTime()).thenReturn(new BsonTimestamp());
+      when(hangingBatch.getCommandOperationTime()).thenReturn(Optional.of(new BsonTimestamp()));
       when(hangingBatch.getPostBatchResumeToken())
           .thenReturn(ChangeStreamUtils.resumeToken(new BsonTimestamp(3, 0)));
 
@@ -1954,7 +1956,7 @@ public class ChangeStreamIndexManagerTest {
                   ChangeStreamUtils.toRawBsonDocuments(
                       List.of(ChangeStreamUtils.insertEvent(6, MOCK_INDEX_DEFINITION))),
                   POST_BATCH_RESUME_TOKEN,
-                  new BsonTimestamp()),
+                  Optional.of(new BsonTimestamp())),
               NOOP_DOCUMENT_METRICS_UPDATER,
               NOOP_TIMER);
 
@@ -2021,7 +2023,7 @@ public class ChangeStreamIndexManagerTest {
                   ChangeStreamUtils.toRawBsonDocuments(
                       List.of(ChangeStreamUtils.insertEvent(6, MOCK_INDEX_DEFINITION))),
                   POST_BATCH_RESUME_TOKEN,
-                  new BsonTimestamp()),
+                  Optional.of(new BsonTimestamp())),
               NOOP_DOCUMENT_METRICS_UPDATER,
               NOOP_TIMER);
 
@@ -2031,7 +2033,7 @@ public class ChangeStreamIndexManagerTest {
                   ChangeStreamUtils.toRawBsonDocuments(
                       List.of(ChangeStreamUtils.insertEvent(6, MOCK_INDEX_DEFINITION))),
                   POST_BATCH_RESUME_TOKEN,
-                  new BsonTimestamp()),
+                  Optional.of(new BsonTimestamp())),
               NOOP_DOCUMENT_METRICS_UPDATER,
               NOOP_TIMER);
 
@@ -2128,7 +2130,7 @@ public class ChangeStreamIndexManagerTest {
               new ChangeStreamBatch(
                   toRawBsonDocuments(events),
                   ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
-                  new BsonTimestamp()),
+                  Optional.of(new BsonTimestamp())),
               NOOP_DOCUMENT_METRICS_UPDATER,
               NOOP_TIMER);
 

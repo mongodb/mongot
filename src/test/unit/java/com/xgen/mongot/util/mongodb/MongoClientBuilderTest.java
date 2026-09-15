@@ -162,7 +162,7 @@ public class MongoClientBuilderTest {
             .counter("mongoClientBuilder.failedOpenSSLDynamicLinking", replicationTags)
             .count(),
         0);
-    Assert.assertNotNull(builder.buildSettings(ReadConcern.MAJORITY).getStreamFactoryFactory());
+    Assert.assertNotNull(builder.buildSettings(ReadConcern.MAJORITY).getTransportSettings());
   }
 
   @Test
@@ -188,7 +188,7 @@ public class MongoClientBuilderTest {
             .counter("mongoClientBuilder.failedOpenSSLDynamicLinking", replicationTags)
             .count(),
         0);
-    Assert.assertNull(builder.buildSettings(ReadConcern.MAJORITY).getStreamFactoryFactory());
+    Assert.assertNull(builder.buildSettings(ReadConcern.MAJORITY).getTransportSettings());
   }
 
   @Test

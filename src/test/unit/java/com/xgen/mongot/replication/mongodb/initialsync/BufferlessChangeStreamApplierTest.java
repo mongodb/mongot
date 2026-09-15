@@ -97,7 +97,7 @@ public class BufferlessChangeStreamApplierTest {
 
   private static final ChangeStreamBatch EMPTY_BATCH =
       new ChangeStreamBatch(
-          Collections.emptyList(), ChangeStreamUtils.resumeToken(OP_TIME), OP_TIME);
+          Collections.emptyList(), ChangeStreamUtils.resumeToken(OP_TIME), Optional.of(OP_TIME));
 
   @Parameterized.Parameter public static boolean enableNaturalOrderScan;
 
@@ -252,7 +252,7 @@ public class BufferlessChangeStreamApplierTest {
               new ChangeStreamBatch(
                   toRawBsonDocuments(List.of(sourceUpdate, unrelatedUpdate)),
                   ChangeStreamUtils.resumeToken(OP_TIME),
-                  OP_TIME));
+                  Optional.of(OP_TIME)));
       doReturn(CompletableFuture.completedFuture(null))
           .when(mocks.context)
           .schedule(any(), any(), any());
@@ -301,10 +301,11 @@ public class BufferlessChangeStreamApplierTest {
           new ChangeStreamBatch(
               toRawBsonDocuments(Arrays.asList(event1, event2)),
               postBatchResumeToken,
-              expectedStartOpTime);
+              Optional.of(expectedStartOpTime));
 
       ChangeStreamBatch batch2 =
-          new ChangeStreamBatch(Collections.emptyList(), postBatchResumeToken, STOP_AFTER_OP_TIME);
+          new ChangeStreamBatch(
+              Collections.emptyList(), postBatchResumeToken, Optional.of(STOP_AFTER_OP_TIME));
 
       when(mocks.changeStreamMongoClient.getNext()).thenReturn(batch1, batch2);
 
@@ -350,10 +351,11 @@ public class BufferlessChangeStreamApplierTest {
           new ChangeStreamBatch(
               toRawBsonDocuments(Arrays.asList(event1, event2)),
               postBatchResumeToken,
-              highWaterMark);
+              Optional.of(highWaterMark));
 
       ChangeStreamBatch batch2 =
-          new ChangeStreamBatch(Collections.emptyList(), postBatchResumeToken, STOP_AFTER_OP_TIME);
+          new ChangeStreamBatch(
+              Collections.emptyList(), postBatchResumeToken, Optional.of(STOP_AFTER_OP_TIME));
 
       when(mocks.changeStreamMongoClient.getNext()).thenReturn(batch1, batch2);
 
@@ -380,8 +382,9 @@ public class BufferlessChangeStreamApplierTest {
   private static ChangeStreamDocument<RawBsonDocument> createEventWithOpTime(
       int id, BsonTimestamp opTime, IndexDefinition indexDefinition) {
     return new ChangeStreamDocument<>(
-        OperationType.INSERT,
+        OperationType.INSERT.getValue(),
         ChangeStreamUtils.resumeToken(opTime),
+        null,
         null,
         null,
         BsonUtils.documentToRaw(
@@ -391,10 +394,14 @@ public class BufferlessChangeStreamApplierTest {
                 .append(
                     indexDefinition.getIndexId().toString(), // metadata namespace
                     new BsonDocument("_id", new BsonInt32(id)))),
+        null,
         new BsonDocument().append("_id", new BsonInt32(id)),
         opTime,
         /*update description*/ null,
         /*txn number*/ null,
+        null,
+        null,
+        null,
         null);
   }
 
@@ -484,7 +491,7 @@ public class BufferlessChangeStreamApplierTest {
 
   private static ChangeStreamBatch batchAt(BsonTimestamp opTime) {
     return new ChangeStreamBatch(
-        Collections.emptyList(), ChangeStreamUtils.resumeToken(opTime), opTime);
+        Collections.emptyList(), ChangeStreamUtils.resumeToken(opTime), Optional.of(opTime));
   }
 
   private static ParallelCollectionScanResumeState parallelResumeState() {
@@ -608,7 +615,7 @@ public class BufferlessChangeStreamApplierTest {
               new ChangeStreamBatch(
                   toRawBsonDocuments(Collections.singletonList(event)),
                   ChangeStreamUtils.resumeToken(OP_TIME),
-                  OP_TIME));
+                  Optional.of(OP_TIME)));
       return mocks;
     }
 
@@ -625,7 +632,7 @@ public class BufferlessChangeStreamApplierTest {
               new ChangeStreamBatch(
                   toRawBsonDocuments(Collections.singletonList(event)),
                   ChangeStreamUtils.resumeToken(OP_TIME),
-                  OP_TIME));
+                  Optional.of(OP_TIME)));
       return mocks;
     }
 
@@ -641,7 +648,7 @@ public class BufferlessChangeStreamApplierTest {
           new ChangeStreamBatch(
               toRawBsonDocuments(Collections.singletonList(event)),
               ChangeStreamUtils.resumeToken(OP_TIME),
-              OP_TIME);
+              Optional.of(OP_TIME));
       when(mocks.changeStreamMongoClient.getNext())
           .thenReturn(changeStreamBatch, changeStreamBatch);
       doReturn(CompletableFuture.completedFuture(null))

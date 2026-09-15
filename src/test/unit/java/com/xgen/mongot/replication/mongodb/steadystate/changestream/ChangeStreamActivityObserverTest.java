@@ -18,6 +18,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -168,7 +169,7 @@ public class ChangeStreamActivityObserverTest {
         new ChangeStreamBatch(
             List.of(dropDatabase, invalidate),
             resumeTokenForTime(1600),
-            new BsonTimestamp(1600, 0)));
+            Optional.of(new BsonTimestamp(1600, 0))));
     this.stream.awaitCalls(3);
 
     // The ns-less events (dropDatabase, invalidate) do not touch the collection: it stays seeded at
@@ -373,12 +374,16 @@ public class ChangeStreamActivityObserverTest {
 
   private static ChangeStreamBatch emptyBatch(int positionSeconds) {
     return new ChangeStreamBatch(
-        List.of(), resumeTokenForTime(positionSeconds), new BsonTimestamp(positionSeconds, 0));
+        List.of(),
+        resumeTokenForTime(positionSeconds),
+        Optional.of(new BsonTimestamp(positionSeconds, 0)));
   }
 
   private static ChangeStreamBatch batchWithEvent(RawBsonDocument event, int positionSeconds) {
     return new ChangeStreamBatch(
-        List.of(event), resumeTokenForTime(positionSeconds), new BsonTimestamp(positionSeconds, 0));
+        List.of(event),
+        resumeTokenForTime(positionSeconds),
+        Optional.of(new BsonTimestamp(positionSeconds, 0)));
   }
 
   private static RawBsonDocument event(String collection, int clusterTimeSeconds) {

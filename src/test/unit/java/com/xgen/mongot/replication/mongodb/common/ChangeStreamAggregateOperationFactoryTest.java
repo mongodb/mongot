@@ -31,11 +31,7 @@ public class ChangeStreamAggregateOperationFactoryTest {
     List<String> excludedFields = List.of("excluded1", "excluded2", "nested.field");
     ChangeStreamAggregateOperationFactory factory =
         new ChangeStreamAggregateOperationFactory(
-            MOCK_INDEX_DEFINITION,
-            0, // maxTimeMs
-            excludedFields,
-            false,
-            false);
+            MOCK_INDEX_DEFINITION, excludedFields, false, false);
     List<BsonDocument> pipeline =
         factory
             .fromResumeInfo(
@@ -62,12 +58,7 @@ public class ChangeStreamAggregateOperationFactoryTest {
     // Create a command factory with matchCollectionUuidForUpdateLookup and check the generated
     // pipeline
     ChangeStreamAggregateOperationFactory factory =
-        new ChangeStreamAggregateOperationFactory(
-            MOCK_INDEX_DEFINITION,
-            0, // maxTimeMs
-            List.of(),
-            true,
-            false);
+        new ChangeStreamAggregateOperationFactory(MOCK_INDEX_DEFINITION, List.of(), true, false);
     List<BsonDocument> pipeline =
         factory
             .fromResumeInfo(
@@ -94,12 +85,7 @@ public class ChangeStreamAggregateOperationFactoryTest {
     String collectionName = "testChangeStreamSplitLargeEventStage";
 
     ChangeStreamAggregateOperationFactory factory =
-        new ChangeStreamAggregateOperationFactory(
-            MOCK_INDEX_DEFINITION,
-            0, // maxTimeMs
-            List.of(),
-            false,
-            true);
+        new ChangeStreamAggregateOperationFactory(MOCK_INDEX_DEFINITION, List.of(), false, true);
     List<BsonDocument> pipeline =
         factory
             .fromResumeInfo(
@@ -235,7 +221,7 @@ public class ChangeStreamAggregateOperationFactoryTest {
 
   private static ChangeStreamAggregateOperationFactory factory(boolean splitLargeEvent) {
     return new ChangeStreamAggregateOperationFactory(
-        MOCK_INDEX_DEFINITION, 0, List.of(), false, splitLargeEvent);
+        MOCK_INDEX_DEFINITION, List.of(), false, splitLargeEvent);
   }
 
   private static List<BsonDocument> pipelineFrom(

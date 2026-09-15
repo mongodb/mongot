@@ -1385,11 +1385,11 @@ public class ChangeStreamManagerTest {
                             Collections.singletonList(
                                 ChangeStreamUtils.insertEvent(0, MOCK_INDEX_DEFINITION))),
                         ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
-                        new BsonTimestamp()),
+                        Optional.of(new BsonTimestamp())),
                     new ChangeStreamBatch(
                         List.of(),
                         ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
-                        new BsonTimestamp()))));
+                        Optional.of(new BsonTimestamp())))));
 
     // Create DocumentIndexers that hang while indexing until told to complete.
     BiFunction<CyclicBarrier, CyclicBarrier, Answer<CompletableFuture<Void>>> hangForBarriers =
@@ -2387,7 +2387,7 @@ public class ChangeStreamManagerTest {
                       Collections.singletonList(
                           ChangeStreamUtils.insertEvent(0, MOCK_INDEX_DEFINITION))),
                   ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
-                  new BsonTimestamp()));
+                  Optional.of(new BsonTimestamp())));
 
       when(clientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
           .thenReturn(client);
@@ -2404,7 +2404,7 @@ public class ChangeStreamManagerTest {
               new ChangeStreamBatch(
                   toRawBsonDocuments(events),
                   ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
-                  new BsonTimestamp()));
+                  Optional.of(new BsonTimestamp())));
 
       when(clientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
           .thenReturn(client);
@@ -2434,7 +2434,7 @@ public class ChangeStreamManagerTest {
                       Collections.singletonList(
                           ChangeStreamUtils.insertEvent(0, MOCK_INDEX_DEFINITION))),
                   ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
-                  new BsonTimestamp()))
+                  Optional.of(new BsonTimestamp())))
           .thenAnswer(
               ignored -> {
                 started.await();
@@ -2444,7 +2444,7 @@ public class ChangeStreamManagerTest {
                         Collections.singletonList(
                             ChangeStreamUtils.insertEvent(0, MOCK_INDEX_DEFINITION))),
                     ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
-                    new BsonTimestamp());
+                    Optional.of(new BsonTimestamp()));
               });
 
       when(clientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
@@ -2567,7 +2567,7 @@ public class ChangeStreamManagerTest {
                       Collections.singletonList(
                           ChangeStreamUtils.insertEvent(0, MOCK_INDEX_DEFINITION))),
                   ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
-                  new BsonTimestamp()));
+                  Optional.of(new BsonTimestamp())));
     }
 
     public GetMoreBarrier(

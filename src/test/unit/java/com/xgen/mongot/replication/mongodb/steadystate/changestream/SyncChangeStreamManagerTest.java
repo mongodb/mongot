@@ -86,7 +86,7 @@ public class SyncChangeStreamManagerTest {
                 ChangeStreamUtils.toRawBsonDocuments(
                     List.of(ChangeStreamUtils.insertEvent(0, MOCK_INDEX_DEFINITION))),
                 ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
-                new BsonTimestamp()));
+                Optional.of(new BsonTimestamp())));
 
     when(mongoClientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
         .thenReturn(changeStreamMongoClient);
@@ -196,7 +196,7 @@ public class SyncChangeStreamManagerTest {
                 ChangeStreamUtils.toRawBsonDocuments(
                     List.of(ChangeStreamUtils.insertEvent(0, MOCK_INDEX_DEFINITION))),
                 ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
-                new BsonTimestamp()));
+                Optional.of(new BsonTimestamp())));
 
     when(mongoClientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
         .thenReturn(changeStreamMongoClient);
@@ -358,7 +358,7 @@ public class SyncChangeStreamManagerTest {
             ChangeStreamUtils.toRawBsonDocuments(
                 List.of(ChangeStreamUtils.insertEvent(0, embeddingDefinition))),
             ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
-            new BsonTimestamp());
+            Optional.of(new BsonTimestamp()));
 
     CountDownLatch getMoreStarted = new CountDownLatch(1);
     CountDownLatch getMoreDone = new CountDownLatch(1);
@@ -589,7 +589,7 @@ public class SyncChangeStreamManagerTest {
                   ChangeStreamUtils.toRawBsonDocuments(
                       List.of(ChangeStreamUtils.insertEvent(0, MOCK_INDEX_DEFINITION))),
                   ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
-                  new BsonTimestamp());
+                  Optional.of(new BsonTimestamp()));
             });
     when(mongoClientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
         .thenReturn(changeStreamMongoClient);

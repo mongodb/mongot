@@ -156,7 +156,14 @@ abstract class RecomputingLagPriorityStrategy implements ChangeStreamPriorityStr
       LOG.warn("Failed to read resume token for lag computation; treating as worst-case lag", e);
       return Integer.MAX_VALUE;
     }
-    return Math.max(0, batch.getCommandOperationTime().getTime() - resumeTokenTime.getTime());
+    // commandOperationTime is Optional: absent (no gossiped $clusterTime yet) means no lag
+    // information, so treat as worst-case lag, matching the resume-token failure path above.
+    return batch
+        .getCommandOperationTime()
+        .map(
+            commandOperationTime ->
+                Math.max(0, commandOperationTime.getTime() - resumeTokenTime.getTime()))
+        .orElse(Integer.MAX_VALUE);
   }
 
   @Override

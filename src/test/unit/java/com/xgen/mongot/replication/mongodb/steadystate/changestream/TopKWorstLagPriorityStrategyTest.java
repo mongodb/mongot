@@ -9,6 +9,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import org.apache.commons.codec.binary.Hex;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
@@ -157,7 +158,9 @@ public class TopKWorstLagPriorityStrategyTest {
     int now = (int) (System.currentTimeMillis() / 1000);
     BsonTimestamp resumeTokenTime = new BsonTimestamp(now - lagSeconds, 0);
     return new ChangeStreamBatch(
-        Collections.emptyList(), resumeTokenForTime(resumeTokenTime), new BsonTimestamp(now, 0));
+        Collections.emptyList(),
+        resumeTokenForTime(resumeTokenTime),
+        Optional.of(new BsonTimestamp(now, 0)));
   }
 
   /** Builds a PBRT whose decoded optime is {@code ts}. */

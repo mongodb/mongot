@@ -2,6 +2,7 @@ package com.xgen.mongot.replication.mongodb.steadystate.changestream;
 
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
 import com.xgen.mongot.replication.mongodb.common.ResumeTokenUtils;
+import java.util.Optional;
 import org.apache.commons.codec.DecoderException;
 import org.bson.BsonTimestamp;
 import org.bson.types.ObjectId;
@@ -40,8 +41,14 @@ final class OptimeLagPriorityStrategy implements ChangeStreamPriorityStrategy {
           "Failed to decode resume token for optime lag check; defaulting to high priority", e);
       return true;
     }
-    int lagSeconds =
-        Math.max(0, batch.getCommandOperationTime().getTime() - resumeTokenTime.getTime());
+    Optional<BsonTimestamp> commandOperationTime = batch.getCommandOperationTime();
+    if (commandOperationTime.isEmpty()) {
+      // Default "no information yet" to high priority, matching the resume-token decode failure
+      // convention above: the cost of treating a healthy index as preferred in scheduling is lower
+      // than the cost of a genuinely lagging index not being treated as preferred.
+      return true;
+    }
+    int lagSeconds = Math.max(0, commandOperationTime.get().getTime() - resumeTokenTime.getTime());
     return lagSeconds >= this.highPriorityLagThresholdSeconds;
   }
 }
