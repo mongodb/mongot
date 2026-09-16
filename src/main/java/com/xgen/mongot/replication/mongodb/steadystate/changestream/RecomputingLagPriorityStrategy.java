@@ -1,15 +1,20 @@
 package com.xgen.mongot.replication.mongodb.steadystate.changestream;
 
+import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
 import com.xgen.mongot.replication.mongodb.common.ResumeTokenUtils;
 import com.xgen.mongot.util.concurrent.Executors;
 import com.xgen.mongot.util.concurrent.NamedScheduledExecutorService;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tags;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.commons.codec.DecoderException;
 import org.bson.BsonTimestamp;
@@ -38,6 +43,10 @@ abstract class RecomputingLagPriorityStrategy implements ChangeStreamPriorityStr
       new AtomicReference<>(Set.of());
   private final NamedScheduledExecutorService scheduler;
   private final int healthyLagFloorSeconds;
+  private final MetricsFactory metrics;
+  private final AtomicLong preferredSetSize;
+  private final Counter promotedCount;
+  private final Counter demotedCount;
 
   /**
    * Constructs the strategy and starts its background recompute loop.
@@ -61,6 +70,14 @@ abstract class RecomputingLagPriorityStrategy implements ChangeStreamPriorityStr
           "healthyLagFloorSeconds must be non-negative, got: " + healthyLagFloorSeconds);
     }
     this.healthyLagFloorSeconds = healthyLagFloorSeconds;
+    this.metrics =
+        new MetricsFactory(
+            "replication.steadyState.priorityStrategy",
+            meterRegistry,
+            Tags.of("strategy", executorName));
+    this.preferredSetSize = this.metrics.numGauge("preferredSetSize");
+    this.promotedCount = this.metrics.counter("promotedCount");
+    this.demotedCount = this.metrics.counter("demotedCount");
     this.scheduler = Executors.singleThreadScheduledExecutor(executorName, meterRegistry);
     this.scheduler.scheduleAtFixedRate(
         this::recomputeSafely,
@@ -130,17 +147,28 @@ abstract class RecomputingLagPriorityStrategy implements ChangeStreamPriorityStr
   private void recompute() {
     Map<ObjectId, Integer> snapshot = Map.copyOf(this.lagSecondsByIndex);
     if (snapshot.isEmpty()) {
-      this.currentPreferredIndexIds.set(Set.of());
+      setPreferredIndexIds(Set.of());
       return;
     }
     int worstLagSeconds = Collections.max(snapshot.values());
     if (worstLagSeconds < this.healthyLagFloorSeconds) {
-      this.currentPreferredIndexIds.set(Set.of());
+      setPreferredIndexIds(Set.of());
       return;
     }
     Set<ObjectId> previous = this.currentPreferredIndexIds.get();
-    this.currentPreferredIndexIds.set(
+    setPreferredIndexIds(
         Set.copyOf(computePreferredSet(snapshot, previous, this.healthyLagFloorSeconds)));
+  }
+
+  private void setPreferredIndexIds(Set<ObjectId> updated) {
+    Set<ObjectId> previous = this.currentPreferredIndexIds.getAndSet(updated);
+    Set<ObjectId> promoted = new HashSet<>(updated);
+    promoted.removeAll(previous);
+    Set<ObjectId> demoted = new HashSet<>(previous);
+    demoted.removeAll(updated);
+    this.promotedCount.increment(promoted.size());
+    this.demotedCount.increment(demoted.size());
+    this.preferredSetSize.set(updated.size());
   }
 
   /**
@@ -169,5 +197,6 @@ abstract class RecomputingLagPriorityStrategy implements ChangeStreamPriorityStr
   @Override
   public void shutdown() {
     this.scheduler.shutdown();
+    this.metrics.close();
   }
 }

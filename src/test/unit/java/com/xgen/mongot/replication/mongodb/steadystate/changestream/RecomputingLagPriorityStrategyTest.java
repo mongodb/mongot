@@ -3,6 +3,7 @@ package com.xgen.mongot.replication.mongodb.steadystate.changestream;
 import static com.google.common.truth.Truth.assertThat;
 
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -167,10 +168,68 @@ public class RecomputingLagPriorityStrategyTest {
   }
 
   @Test
+  public void recompute_promotesAndDemotes_incrementsPromotedAndDemotedCounters() {
+    var registry = new SimpleMeterRegistry();
+    var strategy = newStrategy(1, registry);
+    ObjectId active = new ObjectId();
+    strategy.addIndex(active);
+    strategy.isHighPriority(active, batchWithLag(100));
+
+    strategy.recomputeNowForTesting();
+
+    assertThat(
+            registry
+                .get("replication.steadyState.priorityStrategy.promotedCount")
+                .counter()
+                .count())
+        .isEqualTo(1.0);
+    assertThat(
+            registry
+                .get("replication.steadyState.priorityStrategy.preferredSetSize")
+                .gauge()
+                .value())
+        .isEqualTo(1.0);
+
+    strategy.removeIndex(active);
+    strategy.recomputeNowForTesting();
+
+    assertThat(
+            registry.get("replication.steadyState.priorityStrategy.demotedCount").counter().count())
+        .isEqualTo(1.0);
+    assertThat(
+            registry
+                .get("replication.steadyState.priorityStrategy.preferredSetSize")
+                .gauge()
+                .value())
+        .isEqualTo(0.0);
+  }
+
+  @Test
   public void shutdown_stopsBackgroundRecompute_withoutThrowing() {
     var strategy = newStrategy(1);
 
     strategy.shutdown();
+  }
+
+  @Test
+  public void shutdown_removesGauge_soStalePreferredSetSizeIsNotExportedAfterTeardown() {
+    var registry = new SimpleMeterRegistry();
+    var strategy = newStrategy(1, registry);
+    ObjectId active = new ObjectId();
+    strategy.addIndex(active);
+    strategy.isHighPriority(active, batchWithLag(100));
+    strategy.recomputeNowForTesting();
+    assertThat(
+            registry
+                .get("replication.steadyState.priorityStrategy.preferredSetSize")
+                .gauge()
+                .value())
+        .isEqualTo(1.0);
+
+    strategy.shutdown();
+
+    assertThat(registry.find("replication.steadyState.priorityStrategy.preferredSetSize").gauge())
+        .isNull();
   }
 
   @Test
@@ -258,12 +317,13 @@ public class RecomputingLagPriorityStrategyTest {
 
     private volatile Map<ObjectId, Integer> lastSnapshot = Map.of();
 
-    PromoteAllAboveFloorStrategy(int recomputeIntervalSeconds, int healthyLagFloorSeconds) {
+    PromoteAllAboveFloorStrategy(
+        int recomputeIntervalSeconds, int healthyLagFloorSeconds, MeterRegistry meterRegistry) {
       super(
           "test-strategy-recompute",
           recomputeIntervalSeconds,
           healthyLagFloorSeconds,
-          new SimpleMeterRegistry());
+          meterRegistry);
     }
 
     @Override
@@ -283,9 +343,14 @@ public class RecomputingLagPriorityStrategyTest {
   }
 
   private PromoteAllAboveFloorStrategy newStrategy(int healthyLagFloorSeconds) {
+    return newStrategy(healthyLagFloorSeconds, new SimpleMeterRegistry());
+  }
+
+  private PromoteAllAboveFloorStrategy newStrategy(
+      int healthyLagFloorSeconds, MeterRegistry meterRegistry) {
     var strategy =
         new PromoteAllAboveFloorStrategy(
-            RECOMPUTE_INTERVAL_SECONDS_UNUSED_IN_TESTS, healthyLagFloorSeconds);
+            RECOMPUTE_INTERVAL_SECONDS_UNUSED_IN_TESTS, healthyLagFloorSeconds, meterRegistry);
     this.strategiesToShutDown.add(strategy);
     return strategy;
   }
