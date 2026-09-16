@@ -918,6 +918,16 @@ public class MaterializedViewManager implements ReplicationManager {
       CompletableFuture<Void> shutdownFuture =
           existingGenerator
               .shutdown()
+              // Swap the lease even when the old generator's drain fails: skipping it leaves the
+              // old generation leader forever while the new one is never registered.
+              .exceptionally(
+                  throwable -> {
+                    LOG.atWarn()
+                        .addKeyValue("oldGenerationId", oldGenerationId)
+                        .setCause(throwable)
+                        .log("Replaced generator failed to shut down; swapping the lease anyway");
+                    return null;
+                  })
               .thenRun(
                   () -> {
                     if (oldGenerationId.equals(newGenerationId)) {

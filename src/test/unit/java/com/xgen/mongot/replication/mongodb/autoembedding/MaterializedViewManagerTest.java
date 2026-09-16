@@ -174,6 +174,38 @@ public class MaterializedViewManagerTest {
     verify(mocks.leaseManager).add(newIndexGeneration, false);
   }
 
+  /**
+   * A superseded generation must hand over its lease even when its own drain fails, or it stays
+   * leader forever on a materialized view nothing writes to while the live generation is never
+   * registered and so can never be elected.
+   */
+  @Test
+  public void testUpdateExistingIndex_oldGeneratorShutdownFails_stillSwapsLease() throws Exception {
+    Mocks mocks = Mocks.create();
+
+    var gen1 = MOCK_MAT_VIEW_GENERATION_ID;
+    var oldIndexGeneration = mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(gen1));
+    MaterializedViewGenerator oldGenerator =
+        mocks.mockMaterializedViewGenerator(oldIndexGeneration);
+    mocks.addIndexForReplication(oldIndexGeneration);
+
+    doReturn(CompletableFuture.failedFuture(new RuntimeException("drain failed")))
+        .when(oldGenerator)
+        .shutdown();
+
+    var gen2 =
+        new MaterializedViewGenerationId(
+            MOCK_MAT_VIEW_GENERATION_ID.indexId,
+            MOCK_MAT_VIEW_GENERATION_ID.generation.incrementUser());
+    var newIndexGeneration = mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(gen2, 1));
+    mocks.mockMaterializedViewGenerator(newIndexGeneration);
+    mocks.addIndexForReplication(newIndexGeneration);
+
+    verify(oldGenerator).shutdown();
+    verify(mocks.leaseManager).drop(gen1);
+    verify(mocks.leaseManager).add(newIndexGeneration, false);
+  }
+
   @Test
   public void testUpdateExistingIndexSameDefinitionVersion() throws Exception {
     Mocks mocks = Mocks.create();
