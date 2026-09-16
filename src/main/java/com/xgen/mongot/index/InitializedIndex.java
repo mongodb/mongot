@@ -4,6 +4,7 @@ import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.util.Check;
 import java.io.Closeable;
+import java.io.IOException;
 
 public sealed interface InitializedIndex extends Index, Closeable
     permits InitializedSearchIndex, InitializedVectorIndex, InitializedAutoEmbedIndex {
@@ -47,6 +48,16 @@ public sealed interface InitializedIndex extends Index, Closeable
    * @return the cached index size in bytes, or 0 if not yet computed
    */
   long getIndexSize();
+
+  /**
+   * Recomputes the index size in bytes, refreshing the value {@link #getIndexSize()} reports. May
+   * walk the index directory, so callers must stay off hot paths.
+   *
+   * @throws IllegalStateException if the Index is closed
+   */
+  default long refreshAndGetIndexSize() throws IOException {
+    return getMetricsUpdater().refreshAndGetIndexSize();
+  }
 
   /** Clears all the index data on disk, but does not drop the index. */
   void clear(EncodedUserData dropUserData);

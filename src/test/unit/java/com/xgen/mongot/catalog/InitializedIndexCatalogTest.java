@@ -14,7 +14,9 @@ import com.xgen.mongot.index.definition.VectorIndexDefinitionGeneration;
 import com.xgen.mongot.index.version.Generation;
 import com.xgen.testing.TestUtils;
 import com.xgen.testing.mongot.mock.index.VectorIndex;
+import java.util.Collection;
 import java.util.Optional;
+import java.util.Set;
 import org.bson.types.ObjectId;
 import org.junit.Test;
 
@@ -68,6 +70,32 @@ public class InitializedIndexCatalogTest {
     catalog.removeIndex(generation.getGenerationId());
     assertFalse(catalog.getIndex(generation.getGenerationId()).isPresent());
     assertTrue(catalog.getIndex(newGeneration.getGenerationId()).isPresent());
+  }
+
+  @Test
+  public void testGetIndexesReturnsEveryGeneration() {
+    ObjectId indexId = new ObjectId();
+    InitializedIndexCatalog catalog = new InitializedIndexCatalog();
+    InitializedSearchIndex firstGeneration = mockInitializedIndex(mockIndexGeneration(indexId));
+    InitializedSearchIndex secondGeneration = mockInitializedIndex(mockIndexGeneration(indexId, 2));
+    InitializedSearchIndex otherIndex = mockInitializedIndex(mockIndexGeneration());
+    catalog.addIndex(firstGeneration);
+    catalog.addIndex(secondGeneration);
+    catalog.addIndex(otherIndex);
+
+    assertEquals(
+        Set.of(firstGeneration, secondGeneration, otherIndex), Set.copyOf(catalog.getIndexes()));
+  }
+
+  @Test
+  public void testGetIndexesIsSnapshot() {
+    InitializedIndexCatalog catalog = new InitializedIndexCatalog();
+    catalog.addIndex(mockInitializedIndex(mockIndexGeneration()));
+
+    Collection<InitializedIndex> indexes = catalog.getIndexes();
+    indexes.clear();
+
+    assertEquals(1, catalog.getIndexes().size());
   }
 
   @Test

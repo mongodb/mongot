@@ -32,6 +32,7 @@ import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
 import java.io.Closeable;
+import java.io.IOException;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -203,6 +204,11 @@ public class IndexMetricsUpdater implements Closeable {
    */
   public long getIndexSize() {
     return this.indexMetricValuesSupplier.getCachedIndexSize();
+  }
+
+  /** Recomputes the index size in bytes, refreshing the value {@link #getIndexSize()} reports. */
+  public long refreshAndGetIndexSize() throws IOException {
+    return this.indexMetricValuesSupplier.refreshAndGetIndexSize();
   }
 
   /**

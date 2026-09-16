@@ -1427,4 +1427,26 @@ public class LuceneIndexMetricValuesSupplierTest {
         evictions,
         getPerIndexGaugeMetricsValue(meterRegistry, MetricNames.TOKEN_FACETS_STATE_EVICTIONS));
   }
+
+  @Test
+  public void refreshAndGetIndexSize_updatesCachedIndexSize() throws Exception {
+    IndexBackingStrategy indexBackingStrategy = mock(IndexBackingStrategy.class);
+    when(indexBackingStrategy.getDiskStats()).thenReturn(new DiskStats(10L, 10L, 1, 0L));
+    when(indexBackingStrategy.refreshDiskStats()).thenReturn(new DiskStats(99L, 99L, 1, 0L));
+
+    LuceneIndexMetricValuesSupplier supplier =
+        LuceneIndexMetricsSupplierBuilder.builder()
+            .type(IndexDefinition.Type.SEARCH)
+            .indexWriter(mock(SingleLuceneIndexWriter.class))
+            .indexReader(mock(LuceneSearchIndexReader.class))
+            .indexBackingStrategy(indexBackingStrategy)
+            .resolver(
+                SearchIndexDefinitionBuilder.VALID_INDEX.createFieldDefinitionResolver(
+                    IndexFormatVersion.CURRENT))
+            .build();
+
+    Assert.assertEquals(10L, supplier.getCachedIndexSize());
+    Assert.assertEquals(99L, supplier.refreshAndGetIndexSize());
+    Assert.assertEquals(99L, supplier.getCachedIndexSize());
+  }
 }

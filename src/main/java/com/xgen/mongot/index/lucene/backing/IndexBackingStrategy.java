@@ -28,6 +28,11 @@ public interface IndexBackingStrategy {
    */
   DiskStats getDiskStats();
 
+  /** Returns current disk stats, forcing a directory walk when this strategy caches them. */
+  default DiskStats refreshDiskStats() throws IOException {
+    return getDiskStats();
+  }
+
   /**
    * Gets or computes the size in bytes of the specified index partition, or zero if the requested
    * partition does not exist.

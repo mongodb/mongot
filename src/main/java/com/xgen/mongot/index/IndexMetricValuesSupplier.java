@@ -2,6 +2,7 @@ package com.xgen.mongot.index;
 
 import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
 import com.xgen.mongot.index.status.IndexStatus;
+import java.io.IOException;
 import java.util.Map;
 
 /**
@@ -42,6 +43,13 @@ public interface IndexMetricValuesSupplier {
    * @return the cached index size in bytes, or 0 if not yet computed
    */
   long getCachedIndexSize();
+
+  /**
+   * Recomputes the index size in bytes, refreshing the value {@link #getCachedIndexSize()} reports.
+   */
+  default long refreshAndGetIndexSize() throws IOException {
+    return getCachedIndexSize();
+  }
 
   int getNumFields();
 

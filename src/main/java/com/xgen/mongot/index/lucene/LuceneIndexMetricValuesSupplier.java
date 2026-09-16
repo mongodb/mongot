@@ -14,6 +14,7 @@ import com.xgen.mongot.metrics.CachedGauge;
 import com.xgen.mongot.metrics.PerIndexMetricsFactory;
 import com.xgen.mongot.util.FunctionalUtils;
 import io.micrometer.core.instrument.Tags;
+import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -181,6 +182,13 @@ public abstract class LuceneIndexMetricValuesSupplier implements IndexMetricValu
   @Override
   public long getCachedIndexSize() {
     return this.cachedIndexSize.get();
+  }
+
+  @Override
+  public long refreshAndGetIndexSize() throws IOException {
+    long size = this.indexBackingStrategy.refreshDiskStats().totalFileByteSize();
+    this.cachedIndexSize.set(size);
+    return size;
   }
 
   @Override

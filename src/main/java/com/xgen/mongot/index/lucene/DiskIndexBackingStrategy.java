@@ -1,6 +1,5 @@
 package com.xgen.mongot.index.lucene;
 
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.primitives.Ints;
 import com.google.errorprone.annotations.Var;
@@ -18,9 +17,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
@@ -30,16 +31,21 @@ import org.jetbrains.annotations.Nullable;
 
 public class DiskIndexBackingStrategy implements IndexBackingStrategy {
 
-  /** Value class for per-partition and cumulative disk metrics. */
+  private static final Duration DISK_STATS_CACHE_EXPIRATION = Duration.ofMinutes(3);
+
   private record PartitionStats(long[] partitionSizesBytes, DiskStats totalStats) {
     public static final PartitionStats EMPTY = new PartitionStats(new long[0], DiskStats.EMPTY);
   }
 
-  /**
-   * Caches latest disk and partition stats with expiration to amortize cost over multiple calls.
-   * Cache is invalidated on close.
-   */
-  private volatile Supplier<PartitionStats> partitionStatsSupplier;
+  private record CachedPartitionStats(PartitionStats stats, Instant sampledAt) {
+    static CachedPartitionStats of(PartitionStats stats) {
+      return new CachedPartitionStats(stats, Instant.now());
+    }
+
+    boolean isFresh(Instant now) {
+      return Duration.between(this.sampledAt, now).compareTo(DISK_STATS_CACHE_EXPIRATION) < 0;
+    }
+  }
 
   private final int numPartitions;
   private final Path directoryPath;
@@ -48,6 +54,9 @@ public class DiskIndexBackingStrategy implements IndexBackingStrategy {
   private final Duration refreshInterval;
   private final AtomicDirectoryRemover directoryRemover;
   private final Path metadataDirectoryPath;
+
+  @GuardedBy("this")
+  private Optional<CachedPartitionStats> cachedPartitionStats;
 
   @GuardedBy("this")
   private boolean released;
@@ -67,8 +76,7 @@ public class DiskIndexBackingStrategy implements IndexBackingStrategy {
     this.directoryRemover = directoryRemover;
     this.metadataDirectoryPath = metadataDirectoryPath;
     this.numPartitions = numPartitions;
-    this.partitionStatsSupplier =
-        Suppliers.memoizeWithExpiration(this::computeDiskStats, Duration.ofMinutes(3));
+    this.cachedPartitionStats = Optional.empty();
   }
 
   @Override
@@ -88,17 +96,29 @@ public class DiskIndexBackingStrategy implements IndexBackingStrategy {
     this.released = true;
     this.directoryRemover.deleteDirectory(this.directoryPath);
     this.directoryRemover.deleteDirectory(this.metadataDirectoryPath);
-    this.partitionStatsSupplier = () -> PartitionStats.EMPTY;
+    this.cachedPartitionStats = Optional.of(CachedPartitionStats.of(PartitionStats.EMPTY));
   }
 
   @Override
   public DiskStats getDiskStats() {
-    return this.partitionStatsSupplier.get().totalStats();
+    return currentPartitionStats().totalStats();
+  }
+
+  @Override
+  public DiskStats refreshDiskStats() throws IOException {
+    PartitionStats stats = scanDiskStatsOrThrow();
+    synchronized (this) {
+      if (this.released) {
+        throw new IOException("index directory has been released");
+      }
+      this.cachedPartitionStats = Optional.of(CachedPartitionStats.of(stats));
+    }
+    return stats.totalStats();
   }
 
   @Override
   public long getIndexSizeForIndexPartition(int indexPartitionId) {
-    long[] partitionSizes = this.partitionStatsSupplier.get().partitionSizesBytes();
+    long[] partitionSizes = currentPartitionStats().partitionSizesBytes();
     return 0 <= indexPartitionId && indexPartitionId < partitionSizes.length
         ? partitionSizes[indexPartitionId]
         : 0L;
@@ -109,18 +129,33 @@ public class DiskIndexBackingStrategy implements IndexBackingStrategy {
     this.directoryRemover.deleteFilesInDirectory(this.metadataDirectoryPath);
   }
 
-  private synchronized PartitionStats computeDiskStats() {
-    if (this.released) {
-      return PartitionStats.EMPTY;
+  private synchronized PartitionStats currentPartitionStats() {
+    Instant now = Instant.now();
+    Optional<CachedPartitionStats> freshCachedStats =
+        this.cachedPartitionStats.filter(sample -> sample.isFresh(now));
+    if (freshCachedStats.isPresent()) {
+      return freshCachedStats.get().stats();
     }
+    CachedPartitionStats sample = CachedPartitionStats.of(scanDiskStatsBestEffort());
+    this.cachedPartitionStats = Optional.of(sample);
+    return sample.stats();
+  }
 
+  private PartitionStats scanDiskStatsOrThrow() throws IOException {
+    synchronized (this) {
+      if (this.released) {
+        throw new IOException("index directory has been released");
+      }
+    }
     var visitor = new DiskStatsVisitor(this.directoryPath, this.numPartitions);
+    Files.walkFileTree(this.directoryPath, visitor);
+    return visitor.getPartitionStats();
+  }
+
+  private PartitionStats scanDiskStatsBestEffort() {
     try {
-      Files.walkFileTree(this.directoryPath, visitor);
-      return visitor.getPartitionStats();
+      return scanDiskStatsOrThrow();
     } catch (IOException e) {
-      // Report 0 in this case. walkFileTree() should handle errors during listing and forward
-      // them to the visitor, which will just tell it to continue.
       return PartitionStats.EMPTY;
     }
   }

@@ -3,6 +3,7 @@ package com.xgen.mongot.index.lucene;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 
@@ -587,5 +588,47 @@ public class DiskIndexBackingStrategyTest {
     // Metadata should be cleared, but the directory should still exist.
     assertTrue(this.indexDir.resolve("meta").toFile().exists());
     assertThat(DirectorySize.of(this.indexDir.resolve("meta").toFile())).isEqualTo(0);
+  }
+
+  @Test
+  public void refreshDiskStats_afterCachedRead_seesNewFilesAndUpdatesCache() throws Exception {
+    IndexBackingStrategy strat =
+        IndexBackingStrategyFactory.diskBacked(
+            REFRESH_EXECUTOR,
+            REFRESH_INTERVAL,
+            this.atomicDirectoryRemover,
+            this.indexDir,
+            this.indexDir.resolve("meta"),
+            SearchIndex.mockMetricsFactory(),
+            NUM_PARTITIONS);
+
+    DiskStats cached = strat.getDiskStats();
+    Files.write(this.indexDir.resolve("extra.bin"), new byte[2048]);
+
+    assertThat(strat.getDiskStats().totalFileByteSize()).isEqualTo(cached.totalFileByteSize());
+
+    DiskStats refreshed = strat.refreshDiskStats();
+
+    assertThat(refreshed.totalFileByteSize()).isEqualTo(cached.totalFileByteSize() + 2048);
+    assertThat(strat.getDiskStats().totalFileByteSize()).isEqualTo(refreshed.totalFileByteSize());
+  }
+
+  @Test
+  public void refreshDiskStats_releasedIndex_throwsAndLeavesCachedEmpty() throws Exception {
+    IndexBackingStrategy strat =
+        IndexBackingStrategyFactory.diskBacked(
+            REFRESH_EXECUTOR,
+            REFRESH_INTERVAL,
+            this.atomicDirectoryRemover,
+            this.indexDir,
+            this.indexDir.resolve("meta"),
+            SearchIndex.mockMetricsFactory(),
+            NUM_PARTITIONS);
+
+    strat.getDiskStats();
+    strat.releaseResources();
+
+    assertThrows(IOException.class, strat::refreshDiskStats);
+    assertThat(strat.getDiskStats().totalFileByteSize()).isEqualTo(0);
   }
 }

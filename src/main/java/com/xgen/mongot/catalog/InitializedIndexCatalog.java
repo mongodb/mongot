@@ -4,6 +4,8 @@ import static com.xgen.mongot.util.Check.checkState;
 
 import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.version.GenerationId;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -11,6 +13,8 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * A collection of IndexGenerations with unique GenerationId (indexIds may not be unique). This
  * class is not thread-safe.
+ *
+ * <p>A generation must stay in this collection for as long as its index directory exists.
  */
 public class InitializedIndexCatalog {
   private final Map<GenerationId, InitializedIndex> indexes;
@@ -35,6 +39,11 @@ public class InitializedIndexCatalog {
   /** Return the initialized index if present. */
   public Optional<InitializedIndex> getIndex(GenerationId indexId) {
     return Optional.ofNullable(this.indexes.get(indexId));
+  }
+
+  /** Returns a snapshot copy of the indexes, not a live view of this collection. */
+  public Collection<InitializedIndex> getIndexes() {
+    return new ArrayList<>(this.indexes.values());
   }
 
   /**
