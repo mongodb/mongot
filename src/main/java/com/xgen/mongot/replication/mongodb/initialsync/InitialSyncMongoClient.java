@@ -6,7 +6,9 @@ import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoClient;
 import com.xgen.mongot.replication.mongodb.common.CollectionScanMongoClient;
+import com.xgen.mongot.replication.mongodb.common.CollectionStatsMongoClient;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
+import com.xgen.mongot.replication.mongodb.common.PartitionPlanningMongoClient;
 import com.xgen.mongot.util.mongodb.ChangeStreamAggregateCommand;
 import com.xgen.mongot.util.mongodb.CollectionScanAggregateCommand;
 import com.xgen.mongot.util.mongodb.CollectionScanFindCommand;
@@ -26,6 +28,12 @@ interface InitialSyncMongoClient {
 
   MongoDbCollectionInfo resolveAndUpdateCollectionName(IndexDefinition indexDefinition)
       throws InitialSyncException;
+
+  /** Returns the collection statistics client used by partition planning to size the collection. */
+  CollectionStatsMongoClient getCollectionStatsMongoClient();
+
+  /** Returns the client issuing the source-side reads used by partition planning. */
+  PartitionPlanningMongoClient getPartitionPlanningMongoClient();
 
   /**
    * Retrieves the majority-committed operation time from the mongod. See mongod documentation at

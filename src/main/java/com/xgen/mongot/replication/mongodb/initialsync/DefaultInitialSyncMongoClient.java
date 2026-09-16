@@ -9,12 +9,14 @@ import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.replication.mongodb.common.AggregateCommandCollectionScanMongoClient;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoClient;
 import com.xgen.mongot.replication.mongodb.common.CollectionScanMongoClient;
+import com.xgen.mongot.replication.mongodb.common.CollectionStatsMongoClient;
 import com.xgen.mongot.replication.mongodb.common.DefaultChangeStreamMongoClient;
 import com.xgen.mongot.replication.mongodb.common.DefaultNamespaceResolver;
 import com.xgen.mongot.replication.mongodb.common.FindCommandCollectionScanMongoClient;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
 import com.xgen.mongot.replication.mongodb.common.NamespaceResolutionException;
 import com.xgen.mongot.replication.mongodb.common.NamespaceResolver;
+import com.xgen.mongot.replication.mongodb.common.PartitionPlanningMongoClient;
 import com.xgen.mongot.replication.mongodb.common.SessionRefresher;
 import com.xgen.mongot.replication.mongodb.common.SplitEventChangeStreamClient;
 import com.xgen.mongot.util.mongodb.ChangeStreamAggregateCommand;
@@ -89,6 +91,16 @@ class DefaultInitialSyncMongoClient implements InitialSyncMongoClient {
       throw InitialSyncException.createRequiresResync(
           "collection name changed after cursor was opened");
     }
+  }
+
+  @Override
+  public CollectionStatsMongoClient getCollectionStatsMongoClient() {
+    return new CollectionStatsMongoClient(this.mongoClient);
+  }
+
+  @Override
+  public PartitionPlanningMongoClient getPartitionPlanningMongoClient() {
+    return new PartitionPlanningMongoClient(this.mongoClient);
   }
 
   @Override

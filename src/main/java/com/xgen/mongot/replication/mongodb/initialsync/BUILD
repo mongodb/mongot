@@ -22,6 +22,7 @@ java_library(
         "InitialSyncMongoClient.java",
         "InitialSyncNamespaceChangeCheck.java",
         "InitialSyncPartitionPlan.java",
+        "InitialSyncPartitionPlanner.java",
         "InitialSyncQueue.java",
         "InitialSyncRequest.java",
         "ParallelCollectionScanDispatcher.java",

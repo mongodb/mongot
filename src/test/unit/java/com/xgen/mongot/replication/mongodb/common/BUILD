@@ -34,6 +34,7 @@ java_test_suite(
         "MongoDbReplicationConfigTest.java",
         "MongoExceptionUtilsTest.java",
         "MongoViewExceptionUtilsTest.java",
+        "PartitionPlanningMongoClientTest.java",
         "PartitionResumeInfoTest.java",
         "PeriodicIndexCommitterTest.java",
         "ProjectionTest.java",

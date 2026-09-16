@@ -100,6 +100,8 @@ public sealed interface InitialSyncPartitionPlan
     /** Sampling failed, or the post batch resume token was missing. */
     SAMPLE_UNAVAILABLE,
     /** Planning exceeded its wall clock budget. */
-    PLANNING_BUDGET_EXCEEDED
+    PLANNING_BUDGET_EXCEEDED,
+    /** A planning read failed, or planning hit an unexpected error. */
+    PLANNING_FAILED
   }
 }

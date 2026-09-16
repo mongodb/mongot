@@ -58,6 +58,7 @@ java_library(
         "NamespaceResolver.java",
         "NoShardFoundException.java",
         "PartialEmbedMetricCounters.java",
+        "PartitionPlanningMongoClient.java",
         "PartitionResumeInfo.java",
         "PauseInitialSyncException.java",
         "PeriodicIndexCommitter.java",
