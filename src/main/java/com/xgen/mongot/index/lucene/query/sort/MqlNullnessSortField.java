@@ -53,7 +53,12 @@ public class MqlNullnessSortField extends MqlSortedNumericSortField {
         Type.LONG,
         mongotSortField.options().isReverse(),
         options.selector().numericSelector,
-        true);
+        true,
+        // isIndexWriterConfigSortField is always false: nothing ever calls getComparator() on the
+        // index sort's own nullness field. IndexSortSortedNumericDocValuesRangeQuery only calls
+        // getComparator() on the primary sort field after its field name matches the query field,
+        // and a $meta/nullness/ field name can never match a user query field.
+        false);
     this.nullEmptySortPosition = options.nullEmptySortPosition();
     // The $nullness field has value 0 for documents that have the sort field value. Documents
     // missing the sort field also miss the $nullness field, so Lucene uses this configured
@@ -71,7 +76,8 @@ public class MqlNullnessSortField extends MqlSortedNumericSortField {
   }
 
   @Override
-  public FieldComparator<?> getComparator(int numHits, Pruning lucenePruning) {
+  protected final FieldComparator<?> createQueryTimeFieldComparator(
+      int numHits, Pruning lucenePruning) {
     return new FieldComparatorBsonWrapper<>(
         new MqlLongComparator(
             numHits,

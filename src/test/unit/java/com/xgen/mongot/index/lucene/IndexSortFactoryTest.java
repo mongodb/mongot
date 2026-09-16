@@ -37,6 +37,7 @@ import com.xgen.mongot.index.lucene.field.FieldValue;
 import com.xgen.mongot.index.lucene.merge.InstrumentedConcurrentMergeScheduler;
 import com.xgen.mongot.index.lucene.query.LuceneSearchQueryFactoryDistributor;
 import com.xgen.mongot.index.lucene.query.sort.LuceneSortFactory;
+import com.xgen.mongot.index.lucene.query.sort.comparator.FieldComparatorBsonWrapper;
 import com.xgen.mongot.index.lucene.query.sort.mixed.MqlMixedSort;
 import com.xgen.mongot.index.lucene.searcher.LuceneSearcherManager;
 import com.xgen.mongot.index.lucene.sort.LuceneIndexSortFactory;
@@ -94,6 +95,7 @@ import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.index.TieredMergePolicy;
 import org.apache.lucene.search.DocIdSetIterator;
+import org.apache.lucene.search.Pruning;
 import org.apache.lucene.search.SortField;
 import org.apache.lucene.search.SortedNumericSelector;
 import org.apache.lucene.search.SortedSetSelector;
@@ -1397,6 +1399,72 @@ public class IndexSortFactoryTest {
       // TOKEN + BOOLEAN: no numeric/date types, so no nullness prefix
       assertThat(sortFields.length).isEqualTo(1);
       assertThat(sortFields[0]).isInstanceOf(MqlMixedSort.class);
+    }
+  }
+
+  // Validates that a SortField built for IndexWriterConfig's index sort returns the plain,
+  // non-BSON comparator (required by IndexSortSortedNumericDocValuesRangeQuery), while the same
+  // logical field built for query-time $sort returns the BSON-aware comparator.
+  public static class ValidateComparatorSelectionTest {
+
+    private record Case(TypeField typeField, MongotSortField sortField) {}
+
+    @Test
+    public void indexSortFieldUsesPlainComparator_querySortFieldUsesBsonWrapper() {
+      List<Case> cases =
+          List.of(
+              new Case(
+                  TypeField.NUMBER_INT64_V2,
+                  new MongotSortField(
+                      FieldPath.newRoot("longField"), UserFieldSortOptions.DEFAULT_ASC)),
+              new Case(
+                  TypeField.DATE_V2,
+                  new MongotSortField(
+                      FieldPath.newRoot("dateField"), UserFieldSortOptions.DEFAULT_ASC)),
+              new Case(
+                  TypeField.NUMBER_DOUBLE_V2,
+                  new MongotSortField(
+                      FieldPath.newRoot("doubleField"), UserFieldSortOptions.DEFAULT_ASC)));
+
+      for (Case c : cases) {
+        SortField indexSortField =
+            LuceneSortFactory.createIndexSortField(
+                    c.sortField(),
+                    ImmutableSet.of(c.typeField()),
+                    Optional.empty(),
+                    Optional.empty(),
+                    SearchIndexCapabilities.CURRENT,
+                    true)
+                .orElseThrow();
+        SortField querySortField =
+            LuceneSortFactory.createOptimizedSortField(
+                    c.sortField(),
+                    ImmutableSet.of(c.typeField()),
+                    Optional.empty(),
+                    Optional.empty(),
+                    SearchIndexCapabilities.CURRENT,
+                    true)
+                .orElseThrow();
+
+        assertThat(indexSortField.getComparator(1, Pruning.NONE))
+            .isNotInstanceOf(FieldComparatorBsonWrapper.class);
+        assertThat(querySortField.getComparator(1, Pruning.NONE))
+            .isInstanceOf(FieldComparatorBsonWrapper.class);
+      }
+
+      // MqlNullnessSortField always uses the BSON-aware comparator, even when attached to
+      // IndexWriterConfig's index sort: IndexSortSortedNumericDocValuesRangeQuery only calls
+      // getComparator() on the primary sort field after its name matches the query field, which a
+      // $meta/nullness/ field never does, so no plain-comparator variant exists for it.
+      MongotSortField nullnessSortField =
+          new MongotSortField(
+              FieldPath.newRoot(FieldName.getNullnessFieldName(FieldPath.newRoot("f"))),
+              UserFieldSortOptions.DEFAULT_ASC);
+
+      SortField queryNullnessField = LuceneSortFactory.createNullnessSortField(nullnessSortField);
+
+      assertThat(queryNullnessField.getComparator(1, Pruning.NONE))
+          .isInstanceOf(FieldComparatorBsonWrapper.class);
     }
   }
 

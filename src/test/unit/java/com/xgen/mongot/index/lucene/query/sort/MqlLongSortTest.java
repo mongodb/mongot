@@ -119,6 +119,7 @@ public class MqlLongSortTest {
               new MongotSortField(FieldPath.newRoot("field"), UserFieldSortOptions.DEFAULT_ASC),
               true,
               Optional.empty(),
+              false,
               false);
       Object[] values = runSortQuery(sortFields);
       assertThat(values)
@@ -143,6 +144,7 @@ public class MqlLongSortTest {
                   FieldPath.newRoot("field"), SortPruningTestUtils.DEFAULT_ASC_NULLS_HIGHEST),
               true,
               Optional.empty(),
+              false,
               false);
       Object[] values = runSortQuery(sortFields);
       assertThat(values)
@@ -166,6 +168,7 @@ public class MqlLongSortTest {
               new MongotSortField(FieldPath.newRoot("field"), UserFieldSortOptions.DEFAULT_ASC),
               true,
               Optional.empty(),
+              false,
               false);
       Query query = new MatchAllDocsQuery();
       Sort sort = new Sort(sortFields);
@@ -210,6 +213,7 @@ public class MqlLongSortTest {
                   FieldPath.newRoot("field"), SortPruningTestUtils.DEFAULT_ASC_NULLS_HIGHEST),
               true,
               Optional.empty(),
+              false,
               false);
       Query query = new MatchAllDocsQuery();
       Sort sort = new Sort(sortFields);
@@ -377,7 +381,8 @@ public class MqlLongSortTest {
                 .collect(Collectors.toList());
         IndexSearcher searcher = SortPruningTestUtils.indexDocs(docs, writer, 7000);
         SortField sortField =
-            new MqlLongSort(FIELD_TYPE, mongotSortField, enablePruning, Optional.empty(), false);
+            new MqlLongSort(
+                FIELD_TYPE, mongotSortField, enablePruning, Optional.empty(), false, false);
         Sort sort = new Sort(new ExplainSortField(sortField, explainer));
         int numHits = 3;
         int totalHitsThreshold = 3;
@@ -410,6 +415,7 @@ public class MqlLongSortTest {
               new MongotSortField(FieldPath.newRoot("foo"), UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       Sort sort = new Sort(sortField);
       int numHits = 3;
@@ -451,6 +457,7 @@ public class MqlLongSortTest {
                   FieldPath.newRoot("foo"), SortPruningTestUtils.DEFAULT_ASC_NULLS_HIGHEST),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       Sort sort = new Sort(sortField);
       int numHits = 3;
@@ -493,6 +500,7 @@ public class MqlLongSortTest {
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       Sort sort = new Sort(sortField, FIELD_SCORE);
       int numHits = 3;
@@ -536,6 +544,7 @@ public class MqlLongSortTest {
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       Sort sort = new Sort(ascSortField);
       TopDocs topDocs =
@@ -598,6 +607,7 @@ public class MqlLongSortTest {
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       Sort sort = new Sort(ascSortField);
       TopDocs topDocs =
@@ -651,6 +661,7 @@ public class MqlLongSortTest {
                   SortPruningTestUtils.FIELD_NAME, SortPruningTestUtils.DEFAULT_ASC_NULLS_HIGHEST),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       Sort sort = new Sort(ascSortField);
       TopDocs topDocs =
@@ -717,6 +728,7 @@ public class MqlLongSortTest {
               new MongotSortField(FIELD_NAME, SortPruningTestUtils.DEFAULT_ASC_NULLS_HIGHEST),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       var manager = new TopFieldCollectorManager(new Sort(ascSortField), numHits, null, numHits);
       TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
@@ -763,6 +775,7 @@ public class MqlLongSortTest {
               new MongotSortField(FIELD_NAME, UserFieldSortOptions.DEFAULT_DESC),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       var manager = new TopFieldCollectorManager(new Sort(descSortField), numHits, null, numHits);
       TopDocs topDocs = searcher.search(SortPruningTestUtils.matchAllDocsQuery(), manager);
@@ -825,6 +838,7 @@ public class MqlLongSortTest {
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       Sort sort = new Sort(ascSortField);
       TopDocs topDocs =
@@ -907,6 +921,7 @@ public class MqlLongSortTest {
                   new UserFieldSortOptions(SortOrder.DESC, NullEmptySortPosition.HIGHEST)),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       Sort sort = new Sort(descSortField);
       TopDocs topDocs =
@@ -986,6 +1001,7 @@ public class MqlLongSortTest {
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       Sort sort = new Sort(ascSortField);
       TopDocs topDocs =
@@ -1058,6 +1074,7 @@ public class MqlLongSortTest {
                   new UserFieldSortOptions(SortOrder.DESC, NullEmptySortPosition.HIGHEST)),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       Sort sort = new Sort(descSortField);
       TopDocs topDocs =
@@ -1126,6 +1143,7 @@ public class MqlLongSortTest {
                   SortPruningTestUtils.FIELD_NAME, SortPruningTestUtils.DEFAULT_ASC_NULLS_HIGHEST),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       Sort sort = new Sort(descSortField);
       CollectorManager<TopFieldCollector, TopFieldDocs> collectorManager =
@@ -1195,6 +1213,7 @@ public class MqlLongSortTest {
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_DESC),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       Sort sort = new Sort(descSortField);
       CollectorManager<TopFieldCollector, TopFieldDocs> collectorManager =
@@ -1268,6 +1287,7 @@ public class MqlLongSortTest {
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_DESC),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       Sort sort = new Sort(descSortField);
       TopDocs topDocs =
@@ -1343,6 +1363,7 @@ public class MqlLongSortTest {
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_DESC),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       Sort sort = new Sort(descSortField);
 
@@ -1373,6 +1394,7 @@ public class MqlLongSortTest {
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       Sort sort = new Sort(FIELD_SCORE, sortField);
       int numHits = 3;
@@ -1405,6 +1427,7 @@ public class MqlLongSortTest {
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       Sort sort = new Sort(sortField);
       int numHits = 3;
@@ -1438,6 +1461,7 @@ public class MqlLongSortTest {
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(new Sort(ascSortField), numHits, null, totalHitsThreshold);
@@ -1466,6 +1490,7 @@ public class MqlLongSortTest {
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(new Sort(ascSortField), numHits, null, totalHitsThreshold);
@@ -1499,6 +1524,7 @@ public class MqlLongSortTest {
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_DESC),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(new Sort(descSortField), numHits, null, totalHitsThreshold);
@@ -1528,6 +1554,7 @@ public class MqlLongSortTest {
               new MongotSortField(FIELD_NAME, SortPruningTestUtils.DEFAULT_ASC_NULLS_HIGHEST),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       CollectorManager<TopFieldCollector, TopFieldDocs> manager =
           new TopFieldCollectorManager(new Sort(descSortField), numHits, null, totalHitsThreshold);
@@ -1574,6 +1601,7 @@ public class MqlLongSortTest {
               new MongotSortField(FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       // Compound sort
       Sort sort = new Sort(ascSortField, FIELD_SCORE);
@@ -1608,6 +1636,7 @@ public class MqlLongSortTest {
                   SortPruningTestUtils.FIELD_NAME, UserFieldSortOptions.DEFAULT_ASC),
               enablePruning,
               Optional.empty(),
+              false,
               false);
       Sort sort = new Sort(sortField);
 

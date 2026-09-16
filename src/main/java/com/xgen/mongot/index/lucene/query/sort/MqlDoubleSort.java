@@ -44,13 +44,15 @@ class MqlDoubleSort extends MqlSortedNumericSortField {
       MongotSortField sortField,
       boolean enablePruning,
       Optional<FieldPath> embeddedRoot,
-      boolean indexSorted) {
+      boolean indexSorted,
+      boolean isSortableNumberBetaV1) {
     super(
         fieldType.getLuceneFieldName(sortField.field(), embeddedRoot),
         Type.LONG, // Use LONG because we index doubles with custom encoding + LongPoint
         sortField.options().isReverse(),
         sortField.options().selector().numericSelector,
-        indexSorted);
+        indexSorted,
+        isSortableNumberBetaV1);
     this.enablePruning = enablePruning;
     this.nullEmptySortPosition =
         ((UserFieldSortOptions) sortField.options()).nullEmptySortPosition();
@@ -58,12 +60,14 @@ class MqlDoubleSort extends MqlSortedNumericSortField {
   }
 
   @Override
-  public FieldComparator<?> getComparator(int numHits, Pruning lucenePruning) {
+  protected final FieldComparator<?> createQueryTimeFieldComparator(
+      int numHits, Pruning lucenePruning) {
     // Consider both mongot & lucene pruning configuration
     Pruning configurePruning = this.enablePruning ? lucenePruning : Pruning.NONE;
 
     // Wrap built-in comparator with an encoded Long -> BsonDouble converter
-    LongComparator comparator = (LongComparator) super.getComparator(numHits, configurePruning);
+    LongComparator comparator =
+        (LongComparator) this.createPlainComparator(numHits, configurePruning);
     return new FieldComparatorBsonWrapper<>(
         comparator,
         new DoubleFieldConverter((Long) super.missingValue),

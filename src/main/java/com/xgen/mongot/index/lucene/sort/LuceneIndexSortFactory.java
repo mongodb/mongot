@@ -59,7 +59,7 @@ public class LuceneIndexSortFactory {
     // back to MqlMixedSort, which implements cross-type BSON comparison via a custom IndexSorter.
     if (typeFields.size() == 1) {
       Optional<SortField> optimized =
-          LuceneSortFactory.createOptimizedSortField(
+          LuceneSortFactory.createIndexSortField(
               mongotSortField,
               typeFields,
               Optional.empty(),

@@ -294,6 +294,45 @@ public class LuceneSortFactory {
       Optional<FieldPath> embeddedRoot,
       IndexCapabilities indexCapabilities,
       boolean indexSorted) {
+    // Since this is a query-time sort field, isIndexWriterConfigSortField is false.
+    return createSortField(
+        mongotSortField,
+        typeFields,
+        afterFieldValue,
+        embeddedRoot,
+        indexCapabilities,
+        indexSorted,
+        false);
+  }
+
+  /** Same as the above createOptimizedSortField method but for index sort fields. */
+  public static Optional<SortField> createIndexSortField(
+      MongotSortField mongotSortField,
+      ImmutableSet<FieldName.TypeField> typeFields,
+      Optional<Object> afterFieldValue,
+      Optional<FieldPath> embeddedRoot,
+      IndexCapabilities indexCapabilities,
+      boolean indexSorted) {
+    // Note: signal numeric / date sort fields that they will be used in IndexWriterConfig's index
+    // sort and range query will use the long-based Lucene comparators correctly.
+    return createSortField(
+        mongotSortField,
+        typeFields,
+        afterFieldValue,
+        embeddedRoot,
+        indexCapabilities,
+        indexSorted,
+        true);
+  }
+
+  private static Optional<SortField> createSortField(
+      MongotSortField mongotSortField,
+      ImmutableSet<FieldName.TypeField> typeFields,
+      Optional<Object> afterFieldValue,
+      Optional<FieldPath> embeddedRoot,
+      IndexCapabilities indexCapabilities,
+      boolean indexSorted,
+      boolean isIndexWriterConfigSortField) {
     if (typeFields.size() != 1) {
       return Optional.empty();
     }
@@ -311,7 +350,12 @@ public class LuceneSortFactory {
         return afterFieldValue.isEmpty() || afterFieldValue.get() instanceof BsonDateTime
             ? Optional.of(
                 new MqlDateSort(
-                    FieldName.TypeField.DATE_V2, mongotSortField, true, embeddedRoot, indexSorted))
+                    FieldName.TypeField.DATE_V2,
+                    mongotSortField,
+                    true,
+                    embeddedRoot,
+                    indexSorted,
+                    isIndexWriterConfigSortField))
             : Optional.empty();
       }
       case NUMBER_DOUBLE_V2 -> {
@@ -322,7 +366,8 @@ public class LuceneSortFactory {
                     mongotSortField,
                     true,
                     embeddedRoot,
-                    indexSorted))
+                    indexSorted,
+                    isIndexWriterConfigSortField))
             : Optional.empty();
       }
       case NUMBER_INT64_V2 -> {
@@ -333,7 +378,8 @@ public class LuceneSortFactory {
                     mongotSortField,
                     true,
                     embeddedRoot,
-                    indexSorted))
+                    indexSorted,
+                    isIndexWriterConfigSortField))
             : Optional.empty();
       }
       case UUID -> {
@@ -376,6 +422,7 @@ public class LuceneSortFactory {
                 mongotSortField,
                 false,
                 Optional.empty(),
+                false,
                 false));
       }
       case SORTABLE_NUMBER_BETA_V1 -> {
@@ -386,6 +433,7 @@ public class LuceneSortFactory {
                 mongotSortField,
                 false,
                 Optional.empty(),
+                false,
                 false));
       }
       case SORTABLE_STRING_BETA_V1 -> {

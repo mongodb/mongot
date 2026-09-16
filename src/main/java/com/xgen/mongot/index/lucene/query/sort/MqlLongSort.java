@@ -36,20 +36,23 @@ public class MqlLongSort extends MqlSortedNumericSortField {
       MongotSortField sortField,
       boolean enablePruning,
       Optional<FieldPath> embeddedRoot,
-      boolean indexSorted) {
+      boolean indexSorted,
+      boolean isSortableNumberBetaV1) {
     super(
         fieldType.getLuceneFieldName(sortField.field(), embeddedRoot),
         Type.LONG,
         sortField.options().isReverse(),
         sortField.options().selector().numericSelector,
-        indexSorted);
+        indexSorted,
+        isSortableNumberBetaV1);
     this.enablePruning = enablePruning;
     this.nullEmptySortPosition =
         ((UserFieldSortOptions) sortField.options()).nullEmptySortPosition();
   }
 
   @Override
-  public FieldComparator<?> getComparator(int numHits, Pruning lucenePruning) {
+  protected final FieldComparator<?> createQueryTimeFieldComparator(
+      int numHits, Pruning lucenePruning) {
     // Consider both mongot & lucene pruning configuration
     Pruning configurePruning = this.enablePruning ? lucenePruning : Pruning.NONE;
 

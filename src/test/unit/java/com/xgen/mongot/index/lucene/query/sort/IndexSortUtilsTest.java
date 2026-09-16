@@ -123,14 +123,16 @@ public class IndexSortUtilsTest {
             new MongotSortField(FieldPath.newRoot("score"), UserFieldSortOptions.DEFAULT_ASC),
             true,
             Optional.empty(),
-            true);
+            true,
+            false);
     MqlLongSort indexField =
         new MqlLongSort(
             FieldName.TypeField.NUMBER_INT64_V2,
             new MongotSortField(FieldPath.newRoot("score"), UserFieldSortOptions.DEFAULT_ASC),
             true,
             Optional.empty(),
-            true);
+            true,
+            false);
 
     Sort querySort = new Sort(queryField);
     Sort indexSort = new Sort(indexField);
@@ -146,14 +148,16 @@ public class IndexSortUtilsTest {
             new MongotSortField(FieldPath.newRoot("score"), UserFieldSortOptions.DEFAULT_DESC),
             true,
             Optional.empty(),
-            true);
+            true,
+            false);
     MqlLongSort indexField =
         new MqlLongSort(
             FieldName.TypeField.NUMBER_INT64_V2,
             new MongotSortField(FieldPath.newRoot("score"), UserFieldSortOptions.DEFAULT_ASC),
             true,
             Optional.empty(),
-            true);
+            true,
+            false);
 
     Sort querySort = new Sort(queryField);
     Sort indexSort = new Sort(indexField);
@@ -169,14 +173,16 @@ public class IndexSortUtilsTest {
             new MongotSortField(FieldPath.newRoot("date"), UserFieldSortOptions.DEFAULT_ASC),
             true,
             Optional.empty(),
-            true);
+            true,
+            false);
     MqlDateSort indexField =
         new MqlDateSort(
             FieldName.TypeField.DATE_V2,
             new MongotSortField(FieldPath.newRoot("date"), UserFieldSortOptions.DEFAULT_ASC),
             true,
             Optional.empty(),
-            true);
+            true,
+            false);
 
     Sort querySort = new Sort(queryField);
     Sort indexSort = new Sort(indexField);
@@ -192,14 +198,16 @@ public class IndexSortUtilsTest {
             new MongotSortField(FieldPath.newRoot("date"), UserFieldSortOptions.DEFAULT_ASC),
             true,
             Optional.empty(),
-            true);
+            true,
+            false);
     MqlDateSort indexField =
         new MqlDateSort(
             FieldName.TypeField.DATE_V2,
             new MongotSortField(FieldPath.newRoot("date"), UserFieldSortOptions.DEFAULT_DESC),
             true,
             Optional.empty(),
-            true);
+            true,
+            false);
 
     Sort querySort = new Sort(queryField);
     Sort indexSort = new Sort(indexField);
@@ -215,14 +223,16 @@ public class IndexSortUtilsTest {
             new MongotSortField(FieldPath.newRoot("field"), UserFieldSortOptions.DEFAULT_ASC),
             true,
             Optional.empty(),
-            true);
+            true,
+            false);
     MqlDateSort indexField =
         new MqlDateSort(
             FieldName.TypeField.DATE_V2,
             new MongotSortField(FieldPath.newRoot("field"), UserFieldSortOptions.DEFAULT_ASC),
             true,
             Optional.empty(),
-            true);
+            true,
+            false);
 
     Sort querySort = new Sort(queryField);
     Sort indexSort = new Sort(indexField);
@@ -464,7 +474,8 @@ public class IndexSortUtilsTest {
             new MongotSortField(FieldPath.newRoot("field"), UserFieldSortOptions.DEFAULT_ASC),
             true,
             Optional.empty(),
-            true);
+            true,
+            false);
 
     assertThat(luceneA.equals(luceneB)).isTrue();
 
