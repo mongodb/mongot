@@ -68,7 +68,8 @@
         "retryThrottledGetMoreOnSameCursor": true,
         "bloomFilterOnHeap": true,
         "lucene104Codec": true,
-        "quarantineUnparseableIndex": true
+        "quarantineUnparseableIndex": true,
+        "alwaysBootstrapSnapshotterResources": true
       }
     },
     {
@@ -122,7 +123,8 @@
         "retryThrottledGetMoreOnSameCursor": false,
         "bloomFilterOnHeap": false,
         "lucene104Codec": false,
-        "quarantineUnparseableIndex": false
+        "quarantineUnparseableIndex": false,
+        "alwaysBootstrapSnapshotterResources": false
       }
     }
   ],

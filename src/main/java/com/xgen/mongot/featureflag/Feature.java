@@ -111,7 +111,10 @@ public enum Feature {
   // failing startup, so that one malformed definition does not take every index on the host
   // down with it. Disabled by default: until it is enabled the journal is still read
   // fail-fast, exactly as before.
-  QUARANTINE_UNPARSEABLE_INDEX("quarantineUnparseableIndex", State.DISABLED);
+  QUARANTINE_UNPARSEABLE_INDEX("quarantineUnparseableIndex", State.DISABLED),
+  // Constructs blobstore snapshotter resources at startup even when blobstore uploads and downloads
+  // are disabled, so a later runtime request can flip them on without restarting mongot.
+  ALWAYS_BOOTSTRAP_SNAPSHOTTER_RESOURCES("alwaysBootstrapSnapshotterResources", State.DISABLED);
 
   private final String name;
   private final State defaultState;
