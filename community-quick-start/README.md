@@ -12,14 +12,24 @@ The steps listed will:
 ## Before You Begin:
 
 * Download Docker v4.40 or higher
-* Download Docker Compose
-* Download the `curl` and `openssl` commands
+  * When running Docker Desktop on macOS note that v4.87+ of Docker Desktop uses a Linux VM with Kernel 7.0.12+. Which is incompatible with MongoDB Community 8.3.11 and below. Installing Docker Desktop v4.86 can workaround this issue.
+* Download Docker Compose.
+* Download the `curl`
+* (macOS Users) Install `openssl@3`. macOS ships with an older version LibreSSL that is incompatible with the certificate generation scripts in the community `Makefile`. Install the latest OpenSSL (e.g. with Homebrew: `brew install openssl@3`) and ensure it shadows the system binary.
+
+  Add the following to your shell init script (e.g. `~/.zshrc`, `~/.bashrc`) and restart your shell:
+  ```shell
+  # Apple Silicon:
+  export PATH="/opt/homebrew/opt/openssl@3/bin:$PATH"
+  # Intel Mac:
+  export PATH="/usr/local/opt/openssl@3/bin:$PATH"
+  ```
 * Download `mongosh` locally or have access to it through Docker
 * Download the sample data:
 
-```shell
-curl https://atlas-education.s3.amazonaws.com/sampledata.archive -o community-quick-start/sampledata.archive
-```
+   ```shell
+   curl https://atlas-education.s3.amazonaws.com/sampledata.archive -o community-quick-start/sampledata.archive
+   ```
 
 * If you would like to change the password, update the `pwfile` and `init-mongo.sh` with
 the new password before starting the services.
@@ -32,6 +42,7 @@ MongoDB Community Search supports two build modes:
 Builds `mongot` from your local source code. This is useful for development and testing local changes.
 
 ```shell
+cd community-quick-start/
 make docker.up
 # or explicitly:
 make docker.up MODE=local
@@ -74,7 +85,7 @@ make docker.clear
 make docker.ps
 
 # View logs for specific service
-make docker.logs                # for mongot logs in local mode 
+make docker.logs                # for mongot logs in local mode
 make docker.logs SERVICE=mongot # for mongot logs in latest mode
 make docker.logs SERVICE=mongod # for mongod logs
 
@@ -84,7 +95,7 @@ make docker.up
 
 # Connect to MongoDB
 make docker.connect # Simple alias for:
-mongosh --tls --tlsCAFile ./community-quick-start/tls/ca.pem --tlsCertificateKeyFile ./community-quick-start/tls/client-combined.pem
+mongosh --tls --tlsCAFile ./tls/ca.pem --tlsCertificateKeyFile ./tls/client-combined.pem
 
 # Check metrics endpoint
 curl http://localhost:9946/metrics

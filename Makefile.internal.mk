@@ -1,5 +1,8 @@
 # Additional community specific make targets
 
+# https://stackoverflow.com/questions/18136918/how-to-get-current-relative-directory-of-your-makefile
+DIR := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
+
 #######################################
 # Docker development environment rules
 #######################################
@@ -29,17 +32,17 @@ SERVICE ?= mongot-local
 
 .PHONY: docker.logs
 docker.logs:
-	docker compose --project-directory community-quick-start logs $(SERVICE)
+	docker compose --project-directory $(DIR)/community-quick-start logs $(SERVICE)
 
 .PHONY: docker.ps
 docker.ps:
-	docker compose --project-directory community-quick-start ps
+	docker compose --project-directory $(DIR)/community-quick-start ps
 
 # Clear all docker resources including the data volumes
 .PHONY: docker.clear
 docker.clear:
-	docker compose --project-directory community-quick-start down -v && docker network rm search-community
+	docker compose --project-directory $(DIR)/community-quick-start down -v && docker network rm search-community
 
 .PHONY: docker.connect
 docker.connect:
-	mongosh --tls --tlsCAFile ./community-quick-start/tls/ca.pem --tlsCertificateKeyFile ./community-quick-start/tls/client-combined.pem
+	mongosh --tls --tlsCAFile $(DIR)/community-quick-start/tls/ca.pem --tlsCertificateKeyFile $(DIR)/community-quick-start/tls/client-combined.pem
