@@ -11,22 +11,6 @@ string_flag(
     visibility = ["//visibility:public"],
 )
 
-config_setting(
-    name = "amazon_linux_2023_docker_image",
-    flag_values = {
-        ":base_docker_image_os": "amazon_linux_2023",
-    },
-    visibility = ["//visibility:public"],
-)
-
-config_setting(
-    name = "amazon_linux_2_docker_image",
-    flag_values = {
-        ":base_docker_image_os": "amazon_linux_2",
-    },
-    visibility = ["//visibility:public"],
-)
-
 string_flag(
     name = "server_binaries_source",
     build_setting_default = "latest_patch_release",
