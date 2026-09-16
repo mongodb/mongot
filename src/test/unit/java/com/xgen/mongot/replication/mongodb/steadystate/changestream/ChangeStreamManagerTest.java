@@ -2129,6 +2129,41 @@ public class ChangeStreamManagerTest {
   }
 
   @Test
+  public void createPriorityStrategy_topKWorstLag_buildsTopKStrategyOnDualQueueExecutor()
+      throws Exception {
+    Assume.assumeTrue(this.context.name.equals("sync-client"));
+
+    MeterAndFtdcRegistry registry = MeterAndFtdcRegistry.createWithSimpleRegistries();
+    ChangeStreamManager changeStreamManager =
+        ChangeStreamManager.createSync(
+            registry,
+            ChangeStreamManagerTestSyncHelpers.syncSingleEventProducingClient(),
+            mock(ChangeStreamModeSelector.class),
+            indexingWorkSchedulerFactory(),
+            SteadyStateReplicationConfig.builder()
+                .setNumConcurrentChangeStreams(1)
+                .setMaxInFlightEmbeddingGetMores(1)
+                .setChangeStreamQueryMaxTimeMs(1000)
+                .setChangeStreamCursorMaxTimeSec(1000)
+                .setSteadyStateSchedulingMethod(SteadyStateSchedulingMethod.TOP_K_WORST_LAG)
+                .setSteadyStatePriorityRatio(3)
+                .setSteadyStatePriorityOptimeThresholdSeconds(20)
+                .build(),
+            this.context.getIndexManagerFactory(),
+            true);
+
+    assertThat(changeStreamManager.getTaskExecutorClass())
+        .hasValue(ChangeStreamDualQueueExecutor.class);
+    Gauge gauge = registry.meterRegistry().get("replication.steadyState.schedulingConfig").gauge();
+    assertThat(gauge.getId().getTag("steadyStateSchedulingMethod")).isEqualTo("TOP_K_WORST_LAG");
+    assertThat(gauge.getId().getTag("steadyStatePriorityRatio")).isEqualTo("3");
+    assertThat(gauge.getId().getTag("prioritySchedulingFeatureFlag")).isEqualTo("enabled");
+    assertThat(registry.meterRegistry().find("TopKWorstLagPriorityStrategy.executor").meter())
+        .isNotNull();
+    changeStreamManager.shutdown().get(5, TimeUnit.SECONDS);
+  }
+
+  @Test
   public void testSchedulingConfigGauge_priorityDisabled_reportsFifo() throws Exception {
     Assume.assumeTrue(this.context.name.equals("sync-client"));
 

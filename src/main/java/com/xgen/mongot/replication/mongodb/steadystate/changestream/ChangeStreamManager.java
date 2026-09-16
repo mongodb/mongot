@@ -346,7 +346,8 @@ public class ChangeStreamManager {
               executorName,
               replicationConfig.getNumConcurrentChangeStreams(),
               meterAndFtdcRegistry.meterRegistry(),
-              createPriorityStrategy(schedulingMethod, replicationConfig),
+              createPriorityStrategy(
+                  schedulingMethod, replicationConfig, meterAndFtdcRegistry.meterRegistry()),
               schedulingMethod,
               replicationConfig.getSteadyStatePriorityRatio());
       if (enableLifecycleAttributionMetrics) {
@@ -420,11 +421,18 @@ public class ChangeStreamManager {
    */
   private static ChangeStreamPriorityStrategy createPriorityStrategy(
       SteadyStateSchedulingMethod schedulingMethod,
-      SteadyStateReplicationConfig replicationConfig) {
+      SteadyStateReplicationConfig replicationConfig,
+      MeterRegistry meterRegistry) {
     switch (schedulingMethod) {
       case OPTIME_LAG:
         return new OptimeLagPriorityStrategy(
             replicationConfig.getSteadyStatePriorityOptimeThresholdSeconds());
+      case TOP_K_WORST_LAG:
+        return new TopKWorstLagPriorityStrategy(
+            replicationConfig.getSteadyStatePriorityRatio(),
+            TopKWorstLagPriorityStrategy.DEFAULT_RECOMPUTE_INTERVAL_SECONDS,
+            TopKWorstLagPriorityStrategy.DEFAULT_HEALTHY_LAG_FLOOR_SECONDS,
+            meterRegistry);
       case FIFO:
         throw new IllegalStateException(
             "createPriorityStrategy should not be called for scheduling method: "

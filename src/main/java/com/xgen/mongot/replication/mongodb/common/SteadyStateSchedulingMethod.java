@@ -8,5 +8,7 @@ public enum SteadyStateSchedulingMethod {
   /** No priority classification; tasks are scheduled in a single FIFO queue. */
   FIFO,
   /** Prioritizes an index whose change-stream cursor is lagging the server optime. */
-  OPTIME_LAG
+  OPTIME_LAG,
+  /** Prioritizes the K worst-lagging indexes, ranked against the whole active population. */
+  TOP_K_WORST_LAG
 }

@@ -144,9 +144,9 @@ abstract class RecomputingLagPriorityStrategy implements ChangeStreamPriorityStr
   }
 
   /**
-   * A resume token this cannot read yields {@link Integer#MAX_VALUE} so the index ranks worst and
-   * clears any threshold, rather than the per-batch "default to high priority" {@link
-   * OptimeLagPriorityStrategy} uses — there's no single-call equivalent in a cross-index registry.
+   * A resume token this cannot read yields {@link Integer#MAX_VALUE} so the index ranks worst,
+   * rather than the per-batch "default to high priority" {@link OptimeLagPriorityStrategy} uses —
+   * there's no single-call equivalent in a cross-index registry.
    */
   private static int computeLagSeconds(ChangeStreamBatch batch) {
     BsonTimestamp resumeTokenTime;
