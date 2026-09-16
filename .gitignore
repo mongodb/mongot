@@ -50,6 +50,10 @@ scripts/tests/upgrade/bloom-downgrade-test-info.json
 .claude/worktrees/
 CLAUDE.local.md
 
+# Local Codex MCP connections and hooks
+/.codex/config.toml
+/.codex/hooks.json
+
 state-*.json
 scripts/enterprise/state-*.json
 scripts/enterprise/manifest-*.yaml
