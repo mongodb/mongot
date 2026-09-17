@@ -704,16 +704,28 @@ public class MaterializedViewManager implements ReplicationManager {
             computeGenerator(existingGenerator, matViewIndexGeneration));
   }
 
+  /**
+   * Stops materialized-view replication without stopping the manager's periodic tasks.
+   *
+   * <p>This follows the regular replication shutdown convention: signal generators to stop, abort
+   * their clients to unblock in-flight reads, and only then wait for shutdown futures.
+   */
   public synchronized CompletableFuture<Void> shutdownReplication() {
     prepareForShutdown();
 
-    // Shutdown all generators. Each generator handles its own role-specific cleanup.
+    // Shutdown all generators first. Each generator handles its own role-specific cleanup and
+    // synchronously transitions to SHUT_DOWN, so later read failures are treated as shutdown noise.
     // For follower mode, the map is empty, so this completes immediately.
     List<CompletableFuture<?>> futures =
         this.managedMaterializedViewGenerators.values().stream()
             .map(MaterializedViewGenerator::shutdown)
             .collect(Collectors.toList());
     this.managedMaterializedViewGenerators.clear();
+
+    // Mirror MongoDbReplicationManager.abortReplicationMongoClients(): close the clients after
+    // signaling shutdown but before waiting on the generator futures, so a blocked synchronous
+    // driver read can unwind.
+    this.matViewGeneratorFactory.abortClients();
 
     // Need to create a separate executor to run the shutdown tasks, otherwise it may end up running
     // on the indexing executor. As one of the shutdown tasks is shutting down that executor, this
@@ -1543,12 +1555,18 @@ public class MaterializedViewManager implements ReplicationManager {
     // Cancel the periodic stale-lease GC scan
     this.staleLeaseScannerFuture.cancel(false);
 
-    // Shutdown all generators. Each generator handles its own role-specific cleanup.
+    // Shutdown all generators first. Each generator handles its own role-specific cleanup and
+    // synchronously transitions to SHUT_DOWN, so later read failures are treated as shutdown noise.
     // For follower mode, the map is empty, so this completes immediately.
     List<CompletableFuture<?>> futures =
         this.managedMaterializedViewGenerators.values().stream()
             .map(MaterializedViewGenerator::shutdown)
             .collect(Collectors.toList());
+
+    // Mirror MongoDbReplicationManager.abortReplicationMongoClients(): close the clients after
+    // signaling shutdown but before waiting on the generator futures, so a blocked synchronous
+    // driver read can unwind.
+    this.matViewGeneratorFactory.abortClients();
 
     // Need to create a separate executor to run the shutdown tasks, otherwise it may end up running
     // on the indexing executor. As one of the shutdown tasks is shutting down that executor, this

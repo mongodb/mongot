@@ -228,6 +228,26 @@ class MaterializedViewGeneratorFactory {
     this.initialized = true;
   }
 
+  /**
+   * Closes the current replication clients without waiting for generators to unwind. Closing a
+   * client is the only reliable way to interrupt a synchronous driver read on an unhealthy sync
+   * source, so this must happen before waiting for the generators that own those reads. This
+   * follows the abort-before-wait convention in {@link
+   * com.xgen.mongot.replication.mongodb.MongoDbReplicationManager}.
+   */
+  void abortClients() {
+    checkState(
+        !this.initialized, "abortClients must be called after shutdown marks the factory idle");
+    this.clientSessionRecordMap
+        .values()
+        .forEach(
+            clientSessionRecord -> {
+              clientSessionRecord.sessionRefresher().markStopping();
+              clientSessionRecord.syncMongoClient().close();
+            });
+    this.syncBatchMongoClient.ifPresent(BatchMongoClient::close);
+  }
+
   public CompletionStage<Void> shutdown() {
     // Capture current state before clearing fields. shutdown() is invoked asynchronously (off
     // the MaterializedViewManager lock). Callers MUST block on the returned future before

@@ -2149,6 +2149,38 @@ public class MaterializedViewManagerTest {
   }
 
   @Test
+  public void shutdownReplication_abortsFactoryClientsBeforeWaitingForGeneratorShutdown()
+      throws Exception {
+    Mocks mocks = Mocks.create();
+
+    MaterializedViewIndexGeneration matViewIndexGeneration =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator generator =
+        mocks.mockMaterializedViewGenerator(matViewIndexGeneration);
+
+    // Model an initial-sync thread that cannot unwind until its MongoDB client is closed.
+    CompletableFuture<Void> generatorShutdown = new CompletableFuture<>();
+    doReturn(generatorShutdown).when(generator).shutdown();
+    doAnswer(
+            invocation -> {
+              generatorShutdown.complete(null);
+              return null;
+            })
+        .when(mocks.materializedViewGeneratorFactory)
+        .abortClients();
+
+    mocks.addIndexForReplication(matViewIndexGeneration);
+    Mockito.clearInvocations(mocks.materializedViewGeneratorFactory, generator);
+
+    mocks.manager.shutdownReplication().get(5, TimeUnit.SECONDS);
+
+    InOrder inOrder = Mockito.inOrder(generator, mocks.materializedViewGeneratorFactory);
+    inOrder.verify(generator).shutdown();
+    inOrder.verify(mocks.materializedViewGeneratorFactory).abortClients();
+    inOrder.verify(mocks.materializedViewGeneratorFactory).shutdown();
+  }
+
+  @Test
   public void testShutdownReplication_thenRestartReplication_recreatesAll() throws Exception {
     Mocks mocks = Mocks.create();
 
