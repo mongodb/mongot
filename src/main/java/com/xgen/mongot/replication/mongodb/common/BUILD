@@ -57,6 +57,7 @@ java_library(
         "NamespaceResolutionException.java",
         "NamespaceResolver.java",
         "NoShardFoundException.java",
+        "OverloadRejectionMetrics.java",
         "PartialEmbedMetricCounters.java",
         "PartitionPlanningMongoClient.java",
         "PartitionResumeInfo.java",

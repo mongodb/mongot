@@ -74,13 +74,38 @@ public class DefaultChangeStreamMongoClient<E extends Exception>
       InitialSyncMetrics initialSyncMetricsUpdater,
       Optional<Integer> batchSize)
       throws InitialSyncException {
+    return createInitialSync(
+        aggregateCommand,
+        mongoClient,
+        sessionRefresher,
+        namespace,
+        metricsFactory,
+        initialSyncMetricsUpdater,
+        batchSize,
+        InitialSyncException::wrapIfThrowsChangeStream);
+  }
+
+  /**
+   * Overload taking an explicit exception wrapper, so callers can decorate it — for example to
+   * count overload rejections (CLOUDP-441246) without instrumenting every mongod call site.
+   */
+  public static DefaultChangeStreamMongoClient<InitialSyncException> createInitialSync(
+      ChangeStreamAggregateCommand aggregateCommand,
+      MongoClient mongoClient,
+      SessionRefresher sessionRefresher,
+      MongoNamespace namespace,
+      MetricsFactory metricsFactory,
+      InitialSyncMetrics initialSyncMetricsUpdater,
+      Optional<Integer> batchSize,
+      WrapIfThrows<InitialSyncException> exceptionWrapper)
+      throws InitialSyncException {
     return create(
         aggregateCommand,
         mongoClient,
         sessionRefresher,
         metricsFactory,
         namespace,
-        InitialSyncException::wrapIfThrowsChangeStream,
+        exceptionWrapper,
         Optional.of(initialSyncMetricsUpdater),
         batchSize);
   }

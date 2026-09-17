@@ -101,6 +101,18 @@ public class Errors {
   public static final Set<Integer> THROTTLING_ERROR_CODES =
       Set.of(Errors.INGRESS_REQUEST_RATE_LIMIT_EXCEEDED.code);
 
+  // Codes that mean mongod refused the request because it is overloaded, counted per replication
+  // phase by OverloadRejectionMetrics (CLOUDP-441246). Broader than THROTTLING_ERROR_CODES, which
+  // covers only the ingress rate limiter's 462 and gates the same-cursor retry: 473 and 433 also
+  // indicate shed load, but arrive by paths that kill the cursor, so they are worth counting even
+  // though they cannot be retried in place. Including 433 keeps execution control observable while
+  // it is monitor-only.
+  public static final Set<Integer> OVERLOAD_REJECTION_ERROR_CODES =
+      Set.of(
+          Errors.INGRESS_REQUEST_RATE_LIMIT_EXCEEDED.code,
+          Errors.INTERRUPTED_DUE_TO_OVERLOAD.code,
+          Errors.ADMISSION_QUEUE_OVERFLOW.code);
+
   // SystemOverloadedError codes. These indicate the server is under resource pressure and writes
   // should be retried. Note 433, 462, 473 and 489 are also in RETRYABLE_ERROR_CODES: 433 is thrown
   // when an execution-control ticket wait queue exceeds its configured depth, which is transient

@@ -799,6 +799,169 @@ public class SyncChangeStreamDispatcherTest {
       verify(mongoClient, timeout(5000)).close();
       assertThat(throttlingRetries(meterRegistry))
           .isEqualTo((double) SyncChangeStreamDispatcher.MAX_THROTTLING_RETRIES);
+      // The retry budget ran out, which is what distinguishes this from a retry that succeeded.
+      assertThat(throttlingRetriesExhausted(meterRegistry)).isEqualTo(1.0);
+      // Every attempt was a rejection, including the one that exhausted the budget.
+      assertThat(
+              overloadRejections(
+                  meterRegistry, Errors.INGRESS_REQUEST_RATE_LIMIT_EXCEEDED.code, "steadyState"))
+          .isEqualTo((double) SyncChangeStreamDispatcher.MAX_THROTTLING_RETRIES + 1);
+    } finally {
+      syncDispatcher.shutdown();
+    }
+  }
+
+  @Test
+  public void getNext_throttledThenSucceeds_countsRejectionsButNotExhaustion() throws Exception {
+    var definition = SearchIndex.mockSearchDefinition(new ObjectId());
+    IndexDefinitionGeneration generation =
+        mockIndexGeneration(definition).getDefinitionGeneration();
+
+    ChangeStreamMongoClient<SteadyStateException> mongoClient = mock(ChangeStreamMongoClient.class);
+    when(mongoClient.getNext())
+        .thenThrow(throttled(Errors.INGRESS_REQUEST_RATE_LIMIT_EXCEEDED.code))
+        .thenThrow(
+            SteadyStateException.createTransient(
+                new RuntimeException("not throttling"), "test-terminate"));
+
+    ChangeStreamMongoClientFactory mongoClientFactory = mock(ChangeStreamMongoClientFactory.class);
+    when(mongoClientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+        .thenReturn(mongoClient);
+
+    ChangeStreamIndexManager indexManager =
+        spy(indexManager(definition, generation, new CompletableFuture<>()));
+
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    SyncChangeStreamDispatcher syncDispatcher =
+        new SyncChangeStreamDispatcher(
+            meterRegistry,
+            mongoClientFactory,
+            new FifoExecutor(
+                Executors.fixedSizeThreadScheduledExecutor(
+                    "executor", 1, new SimpleMeterRegistry())),
+            CommonReplicationConfig.Type.DEFAULT,
+            /* retryThrottledGetMoreOnSameCursor= */ true,
+            Sleeper.NO_OP);
+
+    try {
+      syncDispatcher.add(
+          definition,
+          generation.getGenerationId(),
+          mock(ChangeStreamResumeInfo.class),
+          indexManager,
+          false);
+
+      verify(indexManager, timeout(5000)).failLifecycle(any());
+
+      assertThat(throttlingRetries(meterRegistry)).isEqualTo(1.0);
+      // The budget was never exhausted: the retry was taken and the next call failed for an
+      // unrelated reason.
+      assertThat(throttlingRetriesExhausted(meterRegistry)).isEqualTo(0.0);
+      assertThat(
+              overloadRejections(
+                  meterRegistry, Errors.INGRESS_REQUEST_RATE_LIMIT_EXCEEDED.code, "steadyState"))
+          .isEqualTo(1.0);
+    } finally {
+      syncDispatcher.shutdown();
+    }
+  }
+
+  @Test
+  public void getNext_throttledWithRetryDisabled_stillCountsTheRejection() throws Exception {
+    var definition = SearchIndex.mockSearchDefinition(new ObjectId());
+    IndexDefinitionGeneration generation =
+        mockIndexGeneration(definition).getDefinitionGeneration();
+
+    ChangeStreamMongoClient<SteadyStateException> mongoClient = mock(ChangeStreamMongoClient.class);
+    when(mongoClient.getNext())
+        .thenThrow(throttled(Errors.INGRESS_REQUEST_RATE_LIMIT_EXCEEDED.code));
+
+    ChangeStreamMongoClientFactory mongoClientFactory = mock(ChangeStreamMongoClientFactory.class);
+    when(mongoClientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+        .thenReturn(mongoClient);
+
+    ChangeStreamIndexManager indexManager =
+        spy(indexManager(definition, generation, new CompletableFuture<>()));
+
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    // Flag off, which is every cluster by default. This is the case the rejection counter exists
+    // for: the retry counter stays at zero while mongot is being shed (CLOUDP-441246).
+    SyncChangeStreamDispatcher syncDispatcher =
+        new SyncChangeStreamDispatcher(
+            meterRegistry,
+            mongoClientFactory,
+            new FifoExecutor(
+                Executors.fixedSizeThreadScheduledExecutor(
+                    "executor", 1, new SimpleMeterRegistry())),
+            CommonReplicationConfig.Type.DEFAULT);
+
+    try {
+      syncDispatcher.add(
+          definition,
+          generation.getGenerationId(),
+          mock(ChangeStreamResumeInfo.class),
+          indexManager,
+          false);
+
+      verify(indexManager, timeout(5000)).failLifecycle(any());
+
+      assertThat(throttlingRetries(meterRegistry)).isEqualTo(0.0);
+      assertThat(throttlingRetriesExhausted(meterRegistry)).isEqualTo(0.0);
+      assertThat(
+              overloadRejections(
+                  meterRegistry, Errors.INGRESS_REQUEST_RATE_LIMIT_EXCEEDED.code, "steadyState"))
+          .isEqualTo(1.0);
+    } finally {
+      syncDispatcher.shutdown();
+    }
+  }
+
+  @Test
+  public void getNext_interruptedDueToOverload_countsRejectionButDoesNotRetry() throws Exception {
+    var definition = SearchIndex.mockSearchDefinition(new ObjectId());
+    IndexDefinitionGeneration generation =
+        mockIndexGeneration(definition).getDefinitionGeneration();
+
+    ChangeStreamMongoClient<SteadyStateException> mongoClient = mock(ChangeStreamMongoClient.class);
+    when(mongoClient.getNext()).thenThrow(throttled(Errors.INTERRUPTED_DUE_TO_OVERLOAD.code));
+
+    ChangeStreamMongoClientFactory mongoClientFactory = mock(ChangeStreamMongoClientFactory.class);
+    when(mongoClientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+        .thenReturn(mongoClient);
+
+    ChangeStreamIndexManager indexManager =
+        spy(indexManager(definition, generation, new CompletableFuture<>()));
+
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    SyncChangeStreamDispatcher syncDispatcher =
+        new SyncChangeStreamDispatcher(
+            meterRegistry,
+            mongoClientFactory,
+            new FifoExecutor(
+                Executors.fixedSizeThreadScheduledExecutor(
+                    "executor", 1, new SimpleMeterRegistry())),
+            CommonReplicationConfig.Type.DEFAULT,
+            /* retryThrottledGetMoreOnSameCursor= */ true,
+            Sleeper.NO_OP);
+
+    try {
+      syncDispatcher.add(
+          definition,
+          generation.getGenerationId(),
+          mock(ChangeStreamResumeInfo.class),
+          indexManager,
+          false);
+
+      verify(indexManager, timeout(5000)).failLifecycle(any());
+
+      // 473 is counted as an overload rejection but is not retried in place: it arrives via killOp,
+      // so the cursor is already dead.
+      assertThat(
+              overloadRejections(
+                  meterRegistry, Errors.INTERRUPTED_DUE_TO_OVERLOAD.code, "steadyState"))
+          .isEqualTo(1.0);
+      assertThat(throttlingRetries(meterRegistry)).isEqualTo(0.0);
+      assertThat(throttlingRetriesExhausted(meterRegistry)).isEqualTo(0.0);
     } finally {
       syncDispatcher.shutdown();
     }
@@ -832,6 +995,23 @@ public class SyncChangeStreamDispatcherTest {
   private static double throttlingRetries(SimpleMeterRegistry meterRegistry) {
     return meterRegistry
         .get("indexing.steadyStateChangeStream.getMoreThrottlingRetries")
+        .counter()
+        .count();
+  }
+
+  private static double throttlingRetriesExhausted(SimpleMeterRegistry meterRegistry) {
+    return meterRegistry
+        .get("indexing.steadyStateChangeStream.getMoreThrottlingRetriesExhausted")
+        .counter()
+        .count();
+  }
+
+  private static double overloadRejections(
+      SimpleMeterRegistry meterRegistry, int code, String phase) {
+    return meterRegistry
+        .get("replication.overloadRejections")
+        .tag("code", String.valueOf(code))
+        .tag("phase", phase)
         .counter()
         .count();
   }

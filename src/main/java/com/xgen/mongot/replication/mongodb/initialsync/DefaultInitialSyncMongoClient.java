@@ -8,6 +8,7 @@ import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.replication.mongodb.common.AggregateCommandCollectionScanMongoClient;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoClient;
+import com.xgen.mongot.replication.mongodb.common.CollectionScanCommandMongoClient;
 import com.xgen.mongot.replication.mongodb.common.CollectionScanMongoClient;
 import com.xgen.mongot.replication.mongodb.common.CollectionStatsMongoClient;
 import com.xgen.mongot.replication.mongodb.common.DefaultChangeStreamMongoClient;
@@ -16,9 +17,11 @@ import com.xgen.mongot.replication.mongodb.common.FindCommandCollectionScanMongo
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
 import com.xgen.mongot.replication.mongodb.common.NamespaceResolutionException;
 import com.xgen.mongot.replication.mongodb.common.NamespaceResolver;
+import com.xgen.mongot.replication.mongodb.common.OverloadRejectionMetrics;
 import com.xgen.mongot.replication.mongodb.common.PartitionPlanningMongoClient;
 import com.xgen.mongot.replication.mongodb.common.SessionRefresher;
 import com.xgen.mongot.replication.mongodb.common.SplitEventChangeStreamClient;
+import com.xgen.mongot.replication.mongodb.common.WrapIfThrows;
 import com.xgen.mongot.util.mongodb.ChangeStreamAggregateCommand;
 import com.xgen.mongot.util.mongodb.CollectionScanAggregateCommand;
 import com.xgen.mongot.util.mongodb.CollectionScanFindCommand;
@@ -28,6 +31,7 @@ import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
 import com.xgen.mongot.util.mongodb.serialization.MongoDbInvalidReplStatusFormatException;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.Optional;
+import java.util.concurrent.Callable;
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
 
@@ -42,6 +46,7 @@ class DefaultInitialSyncMongoClient implements InitialSyncMongoClient {
   private final MeterRegistry meterRegistry;
   private final String syncSourceHost;
   private final boolean splitLargeChangeStreamEvents;
+  private final OverloadRejectionMetrics overloadRejections;
 
   DefaultInitialSyncMongoClient(
       MongoClient mongoClient,
@@ -56,6 +61,43 @@ class DefaultInitialSyncMongoClient implements InitialSyncMongoClient {
     this.meterRegistry = meterRegistry;
     this.syncSourceHost = syncSourceHost;
     this.splitLargeChangeStreamEvents = splitLargeChangeStreamEvents;
+    this.overloadRejections =
+        OverloadRejectionMetrics.create(meterRegistry, OverloadRejectionMetrics.Phase.INITIAL_SYNC);
+  }
+
+  /**
+   * Wraps exceptions so that overload rejections are counted on the way past for change stream and
+   * collection scan requests. One-off control plane calls, e.g. fsync, are not covered.
+   */
+  private CollectionScanCommandMongoClient.FutureWrapper<InitialSyncException> countingScan(
+      CollectionScanCommandMongoClient.FutureWrapper<InitialSyncException> wrapper) {
+    return new CollectionScanCommandMongoClient.FutureWrapper<>() {
+      @Override
+      public <T> T getOrWrapThrowable(Callable<T> future) throws InitialSyncException {
+        try {
+          return wrapper.getOrWrapThrowable(future);
+        } catch (Throwable t) {
+          DefaultInitialSyncMongoClient.this.overloadRejections.recordIfOverload(t);
+          throw t;
+        }
+      }
+    };
+  }
+
+  /** {@link #countingScan} for the change-stream path. */
+  private WrapIfThrows<InitialSyncException> countingChangeStream(
+      WrapIfThrows<InitialSyncException> wrapper) {
+    return new WrapIfThrows<>() {
+      @Override
+      public <T> T wrapIfThrows(Callable<T> callable) throws InitialSyncException {
+        try {
+          return wrapper.wrapIfThrows(callable);
+        } catch (Throwable t) {
+          DefaultInitialSyncMongoClient.this.overloadRejections.recordIfOverload(t);
+          throw t;
+        }
+      }
+    };
   }
 
   public static DefaultInitialSyncMongoClient create(
@@ -157,7 +199,8 @@ class DefaultInitialSyncMongoClient implements InitialSyncMongoClient {
             namespace,
             metricsFactory,
             initialSyncMetricsUpdater,
-            batchSize);
+            batchSize,
+            countingChangeStream(InitialSyncException::wrapIfThrowsChangeStream));
 
     if (this.splitLargeChangeStreamEvents) {
       return new SplitEventChangeStreamClient<>(
@@ -187,7 +230,7 @@ class DefaultInitialSyncMongoClient implements InitialSyncMongoClient {
         metricsFactory,
         indexDefinition.getLastObservedNamespace(),
         namespaceChangeCheck,
-        InitialSyncException::wrapIfThrowsCollectionScan,
+        countingScan(InitialSyncException::wrapIfThrowsCollectionScan),
         InitialSyncException::createRequiresResync,
         Optional.of(initialSyncMetricsUpdater));
   }
@@ -214,7 +257,7 @@ class DefaultInitialSyncMongoClient implements InitialSyncMongoClient {
         metricsFactory,
         indexDefinition.getLastObservedNamespace(),
         namespaceChangeCheck,
-        InitialSyncException::wrapIfThrowsCollectionScan,
+        countingScan(InitialSyncException::wrapIfThrowsCollectionScan),
         InitialSyncException::createRequiresResync,
         Optional.of(initialSyncMetricsUpdater),
         collectionScanGetMoreBatchSize);
@@ -240,7 +283,7 @@ class DefaultInitialSyncMongoClient implements InitialSyncMongoClient {
         metricsFactory,
         namespace,
         (ns) -> {}, // no namespace change check needed for auto-embedding resync
-        InitialSyncException::wrapIfThrowsCollectionScan,
+        countingScan(InitialSyncException::wrapIfThrowsCollectionScan),
         InitialSyncException::createRequiresResync,
         Optional.of(initialSyncMetricsUpdater));
   }

@@ -23,6 +23,7 @@ import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoClient;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.MongoExceptionUtils;
+import com.xgen.mongot.replication.mongodb.common.OverloadRejectionMetrics;
 import com.xgen.mongot.replication.mongodb.common.PartialEmbedMetricCounters;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
 import com.xgen.mongot.replication.mongodb.common.ViewFieldDependenciesMetricCounters;
@@ -120,6 +121,12 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
   private final Counter unexpectedBatchFailures;
   /* Tracks getMores retried on the same cursor after being throttled by mongod */
   private final Counter throttlingRetries;
+  /* Tracks getMores that exhausted MAX_THROTTLING_RETRIES and failed the batch. Distinct from
+  throttlingRetries, which counts attempts and so cannot distinguish "succeeded on the last retry"
+  from "gave up". */
+  private final Counter throttlingRetriesExhausted;
+  /* Counts every overload rejection, independent of the retry flag and of the retry's outcome */
+  private final OverloadRejectionMetrics overloadRejections;
   /* Tracks duration of preprocessing a batch */
   private final Timer preprocessingBatchTimer;
 
@@ -205,6 +212,10 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
     this.unexpectedBatchFailures = metricsFactory.counter("unexpectedBatchFailures");
     this.throttlingRetries =
         metricsFactory.counter("getMoreThrottlingRetries", replicationTypeTags);
+    this.throttlingRetriesExhausted =
+        metricsFactory.counter("getMoreThrottlingRetriesExhausted", replicationTypeTags);
+    this.overloadRejections =
+        OverloadRejectionMetrics.create(meterRegistry, OverloadRejectionMetrics.Phase.STEADY_STATE);
     this.preprocessingBatchTimer = metricsFactory.timerSec("preprocessingBatchDurations");
 
     Tags replicationTag = Tags.of(Scope.REPLICATION.getTag());
@@ -403,7 +414,9 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
    * Fetches the next batch, retrying the <em>same</em> cursor when mongod rejects the getMore due
    * to load shedding (see {@link Errors#THROTTLING_ERROR_CODES}).
    *
-   * <p>Rethrows the last exception once {@link #MAX_THROTTLING_RETRIES} is exhausted.
+   * <p>Rethrows the last exception once {@link #MAX_THROTTLING_RETRIES} is exhausted, incrementing
+   * {@code getMoreThrottlingRetriesExhausted} so an exhausted budget is distinguishable from a
+   * retry that succeeded.
    */
   private ChangeStreamBatch getNextRetryingThrottled(ChangeStreamIndexingInfo info)
       throws SteadyStateException {
@@ -418,11 +431,26 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
         return withMeasurement(
             info.mongoClient, ChangeStreamMongoClient::getNext, steadyStateMetrics);
       } catch (SteadyStateException ex) {
-        if (retries >= MAX_THROTTLING_RETRIES
-            || !this.retryThrottledGetMoreOnSameCursor
-            || !MongoExceptionUtils.isThrottling(ex)
-            || this.shutdown
-            || info.indexManager.isShutdown()) {
+        // Counted before any of the guards below, so the metric reflects how often mongod shed a
+        // replication request regardless of the feature flag or what we do about it.
+        this.overloadRejections.recordIfOverload(ex);
+
+        boolean shuttingDown = this.shutdown || info.indexManager.isShutdown();
+        boolean retryable =
+            this.retryThrottledGetMoreOnSameCursor
+                && MongoExceptionUtils.isThrottling(ex)
+                && !shuttingDown;
+
+        if (!retryable || retries >= MAX_THROTTLING_RETRIES) {
+          // Only an exhausted budget counts: the other paths never intended to retry.
+          if (retryable) {
+            this.throttlingRetriesExhausted.increment();
+            LOG.atWarn()
+                .addKeyValue("indexId", info.indexManager.getGenerationId().indexId)
+                .addKeyValue("retries", retries)
+                .setCause(ex)
+                .log("exhausted throttling retries for getMore, failing the batch");
+          }
           throw ex;
         }
 

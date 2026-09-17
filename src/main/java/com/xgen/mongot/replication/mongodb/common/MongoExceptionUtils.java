@@ -12,6 +12,7 @@ import com.mongodb.MongoServerUnavailableException;
 import com.mongodb.MongoSocketException;
 import com.mongodb.MongoTimeoutException;
 import com.xgen.mongot.util.mongodb.Errors;
+import java.util.OptionalInt;
 
 public class MongoExceptionUtils {
 
@@ -63,6 +64,25 @@ public class MongoExceptionUtils {
       cause = cause.getCause();
     }
     return false;
+  }
+
+  /**
+   * Returns the overload error code carried by {@code throwable} or one of its causes, or empty if
+   * it is not an overload rejection. See {@link Errors#OVERLOAD_REJECTION_ERROR_CODES}.
+   *
+   * <p>Walks the cause chain because mongod's error reaches us wrapped — typically a {@link
+   * MongoException} inside a {@code SteadyStateException} or {@code InitialSyncException}.
+   */
+  public static OptionalInt overloadErrorCode(Throwable throwable) {
+    @Var Throwable cause = throwable;
+    for (int depth = 0; cause != null && depth < MAX_CAUSE_DEPTH; depth++) {
+      if (cause instanceof MongoException mongoException
+          && Errors.OVERLOAD_REJECTION_ERROR_CODES.contains(mongoException.getCode())) {
+        return OptionalInt.of(mongoException.getCode());
+      }
+      cause = cause.getCause();
+    }
+    return OptionalInt.empty();
   }
 
   /**

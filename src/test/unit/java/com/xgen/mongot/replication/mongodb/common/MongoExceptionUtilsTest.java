@@ -104,6 +104,41 @@ public class MongoExceptionUtilsTest {
     assertThat(MongoExceptionUtils.isThrottling(deeplyNested)).isFalse();
   }
 
+  @Test
+  public void overloadErrorCode_overloadCodes_returnTheCode() {
+    for (int code : Errors.OVERLOAD_REJECTION_ERROR_CODES) {
+      assertThat(MongoExceptionUtils.overloadErrorCode(commandException(code)).getAsInt())
+          .isEqualTo(code);
+    }
+  }
+
+  @Test
+  public void overloadErrorCode_wrappedCause_isFound() {
+    SteadyStateException wrapped =
+        SteadyStateException.wrapMongoException(
+            commandException(Errors.INGRESS_REQUEST_RATE_LIMIT_EXCEEDED.code));
+
+    assertThat(MongoExceptionUtils.overloadErrorCode(wrapped).getAsInt())
+        .isEqualTo(Errors.INGRESS_REQUEST_RATE_LIMIT_EXCEEDED.code);
+  }
+
+  @Test
+  public void overloadErrorCode_nonOverloadError_returnsEmpty() {
+    assertThat(
+            MongoExceptionUtils.overloadErrorCode(commandException(Errors.CURSOR_NOT_FOUND.code)))
+        .isEmpty();
+    assertThat(MongoExceptionUtils.overloadErrorCode(new RuntimeException("nope"))).isEmpty();
+  }
+
+  @Test
+  public void overloadErrorCode_cyclicCauseChain_terminates() {
+    RuntimeException first = new RuntimeException("first");
+    RuntimeException second = new RuntimeException("second", first);
+    first.initCause(second);
+
+    assertThat(MongoExceptionUtils.overloadErrorCode(first)).isEmpty();
+  }
+
   /** Wraps {@code cause} in {@code layers} nested RuntimeExceptions. */
   private static Throwable nest(Throwable cause, int layers) {
     @Var Throwable nested = cause;
