@@ -32,6 +32,11 @@ java_library(
     deps = [
         "//src/main/java/com/xgen/mongot/cursor/batch",
         "//src/main/java/com/xgen/mongot/embedding/config",
+        "//src/main/java/com/xgen/mongot/embedding/exceptions",
+        "//src/main/java/com/xgen/mongot/embedding/mongodb",
+        "//src/main/java/com/xgen/mongot/embedding/mongodb/common",
+        "//src/main/java/com/xgen/mongot/embedding/mongodb/leasing",
+        "//src/main/java/com/xgen/mongot/featureflag",
         "//src/main/java/com/xgen/mongot/index",
         "//src/main/java/com/xgen/mongot/index/analyzer/definition",
         "//src/main/java/com/xgen/mongot/index/autoembedding",

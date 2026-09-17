@@ -6,7 +6,14 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
+import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
+import com.xgen.mongot.embedding.mongodb.MaterializedViewCollectionResolver;
+import com.xgen.mongot.embedding.mongodb.common.AutoEmbeddingMongoClient;
+import com.xgen.mongot.embedding.mongodb.common.DefaultInternalDatabaseResolver;
+import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.autoembedding.InitializedMaterializedViewIndex;
+import com.xgen.mongot.index.autoembedding.MaterializedViewIndexFactory;
 import com.xgen.mongot.index.autoembedding.MaterializedViewIndexGeneration;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
@@ -18,6 +25,7 @@ import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.index.version.MaterializedViewGeneration;
 import com.xgen.mongot.index.version.MaterializedViewGenerationId;
+import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
@@ -26,6 +34,8 @@ import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import org.bson.types.ObjectId;
 import org.mockito.Mockito;
 import org.mockito.stubbing.Answer;
@@ -54,6 +64,14 @@ public class MaterializedViewIndex {
           return null;
         };
     Mockito.lenient().doAnswer(setStatus).when(index).setStatus(any());
+    // Mirror the real index: the gated overload records only if the gate runs the publish.
+    Answer<Void> setStatusIfGateAllows =
+        invocation -> {
+          Consumer<Runnable> publishGate = invocation.getArgument(1);
+          publishGate.accept(() -> statusContainer.set(invocation.getArgument(0)));
+          return null;
+        };
+    Mockito.lenient().doAnswer(setStatusIfGateAllows).when(index).setStatus(any(), any());
     Mockito.lenient().when(index.getStatus()).then(ignored -> statusContainer.get());
     Mockito.lenient().when(index.getIndexSize()).thenReturn(0L);
     UUID collectionUuid = UUID.randomUUID();
@@ -66,6 +84,39 @@ public class MaterializedViewIndex {
     Mockito.when(index.getSchemaMetadata()).thenReturn(collectionMetadata.schemaMetadata());
     Mockito.when(index.getMaterializedViewCollectionMetadata()).thenReturn(collectionMetadata);
     return index;
+  }
+
+  /**
+   * Real factory whose collection resolver maps each definition generation to the UUID {@code
+   * collectionUuidByGeneration} returns, so a test can make two generations share one materialized
+   * view collection. Every remote collaborator is mocked; {@code getIndex} does no I/O.
+   */
+  public static MaterializedViewIndexFactory realMatViewIndexFactory(
+      Function<MaterializedViewIndexDefinitionGeneration, UUID> collectionUuidByGeneration) {
+    var collectionResolver = mock(MaterializedViewCollectionResolver.class);
+    try {
+      when(collectionResolver.getOrCreateMaterializedViewForIndex(any()))
+          .thenAnswer(
+              invocation -> {
+                MaterializedViewIndexDefinitionGeneration definitionGeneration =
+                    invocation.getArgument(0);
+                UUID collectionUuid = collectionUuidByGeneration.apply(definitionGeneration);
+                return new MaterializedViewCollectionMetadata(
+                    MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata.VERSION_ZERO,
+                    collectionUuid,
+                    "mv_" + collectionUuid);
+              });
+    } catch (MaterializedViewTransientException e) {
+      throw new AssertionError("stubbing does not throw", e);
+    }
+    return new MaterializedViewIndexFactory(
+        mock(AutoEmbeddingMongoClient.class),
+        FeatureFlags.getDefault(),
+        MeterAndFtdcRegistry.createWithSimpleRegistries(),
+        mock(LeaseManager.class),
+        collectionResolver,
+        new DefaultInternalDatabaseResolver(),
+        Optional.empty());
   }
 
   public static VectorIndexDefinition mockAutoEmbeddingVectorDefinition(

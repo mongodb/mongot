@@ -5,6 +5,7 @@ java_test_suite(
     srcs = [
         "MaterializedViewGeneratorTest.java",
         "MaterializedViewManagerTest.java",
+        "MaterializedViewStatusUpdaterTest.java",
         "TenureFencedMaterializedViewDocumentIndexerTest.java",
     ],
     tags = ["unit"],

@@ -29,6 +29,12 @@ import org.slf4j.LoggerFactory;
  */
 class MaterializedViewStatusUpdater {
 
+  /** Runs a status publish only while {@code generator} is still installed for {@code uuid}. */
+  @FunctionalInterface
+  interface CurrentGeneratorGate {
+    void run(UUID uuid, MaterializedViewGenerator generator, Runnable publish);
+  }
+
   private static final Logger LOG = LoggerFactory.getLogger(MaterializedViewStatusUpdater.class);
 
   static final String OPTIME_UPDATER_ERROR_COUNTER_NAME = "matViewOptimeUpdaterError";
@@ -38,6 +44,9 @@ class MaterializedViewStatusUpdater {
 
   /** Snapshot of the installed generators keyed by materialized view collection UUID. */
   private final Supplier<Map<UUID, MaterializedViewGenerator>> generators;
+
+  /** Publishes a status only while the generator is still the installed one for its collection. */
+  private final CurrentGeneratorGate publishIfCurrent;
 
   /**
    * True for a generation the manager retired because its materialized view collection is missing.
@@ -52,11 +61,13 @@ class MaterializedViewStatusUpdater {
       AutoEmbeddingMongoClient autoEmbeddingMongoClient,
       MeterRegistry meterRegistry,
       Supplier<Map<UUID, MaterializedViewGenerator>> generators,
+      CurrentGeneratorGate publishIfCurrent,
       Predicate<MaterializedViewGenerationId> isRetired,
       BooleanSupplier updatesAllowed) {
     this.autoEmbeddingMongoClient = autoEmbeddingMongoClient;
     this.meterRegistry = meterRegistry;
     this.generators = generators;
+    this.publishIfCurrent = publishIfCurrent;
     this.isRetired = isRetired;
     this.updatesAllowed = updatesAllowed;
   }
@@ -69,9 +80,8 @@ class MaterializedViewStatusUpdater {
   void copyFollowerStatuses(LeaseManager.FollowerPollResult pollResult) {
     this.generators
         .get()
-        .values()
         .forEach(
-            generator -> {
+            (collectionUuid, generator) -> {
               var generationId = generator.getIndexGeneration().getGenerationId();
               // A retired generation's lease still carries the status this host published before
               // its collection went missing. Copying that back would overwrite the committed
@@ -84,7 +94,13 @@ class MaterializedViewStatusUpdater {
               if (pollResult.statuses().containsKey(generationId) && !generator.isLeader()) {
                 var matViewIndex = generator.getIndexGeneration().getIndex();
                 var status = pollResult.statuses().get(generationId);
-                matViewIndex.setStatus(status);
+                // The snapshot above can be stale: a concurrent add() may have replaced this
+                // generator, and shutdown() clears isLeader, so the checks above still pass.
+                // Generations sharing a materialized view collection share one status reference,
+                // so publish only while this generator is still the installed one.
+                matViewIndex.setStatus(
+                    status,
+                    publish -> this.publishIfCurrent.run(collectionUuid, generator, publish));
                 var replicationOpTime = pollResult.replicationOpTimes().get(generationId);
                 if (replicationOpTime != null) {
                   // Preserve an existing max optime. If this is the first observation, the periodic

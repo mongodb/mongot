@@ -39,6 +39,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import org.bson.BsonArray;
 import org.bson.BsonTimestamp;
 import org.slf4j.Logger;
@@ -182,6 +183,17 @@ public class InitializedMaterializedViewIndex implements InitializedAutoEmbedInd
 
   @Override
   public void setStatus(IndexStatus status) {
+    setStatus(status, Runnable::run);
+  }
+
+  /**
+   * {@code publishGate} runs the write to the status reference, which generations sharing a
+   * materialized view collection share. Callers that can race a generator replacement pass a gate
+   * that runs the write only while their generator is still the installed one, so a displaced
+   * generator cannot overwrite its successor's status. The lease update stays outside the gate: it
+   * is a remote call, and the gate serializes against generator installation.
+   */
+  public void setStatus(IndexStatus status, Consumer<Runnable> publishGate) {
     try {
       this.leaseManager.updateReplicationStatus(
           this.generationId,
@@ -190,7 +202,9 @@ public class InitializedMaterializedViewIndex implements InitializedAutoEmbedInd
     } catch (MaterializedViewNonTransientException e) {
       // Raw message; AutoEmbeddingCompositeIndex adds the failure prefix and stage
       // label when it surfaces this component's status.
-      this.statusRef.set(IndexStatus.failed("Corrupted Lease documents for this index."));
+      publishGate.accept(
+          () ->
+              this.statusRef.set(IndexStatus.failed("Corrupted Lease documents for this index.")));
       return;
     } catch (MaterializedViewTransientException ignored) {
       // TODO(CLOUDP-371153): Revisit this to decide how to handle committing error.
@@ -198,7 +212,7 @@ public class InitializedMaterializedViewIndex implements InitializedAutoEmbedInd
     if (status.canServiceQueries()) {
       this.wasQueryable.set(true);
     }
-    this.statusRef.set(status);
+    publishGate.accept(() -> this.statusRef.set(status));
   }
 
   @Override

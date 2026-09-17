@@ -352,6 +352,7 @@ public class MaterializedViewManager implements ReplicationManager {
             autoEmbeddingMongoClient,
             this.meterRegistry,
             this::getMatViewGenerators,
+            this::publishIfCurrentGenerator,
             this::isRetired,
             () -> !isShutdown() && isReplicationSupported());
     this.staleLeaseGarbageCollector =
@@ -2238,6 +2239,31 @@ public class MaterializedViewManager implements ReplicationManager {
             return existing;
           });
     }
+  }
+
+  /**
+   * Runs {@code publish} only while {@code generator} is still the generator installed for {@code
+   * uuid}. The comparison is by identity, not generation id: a replacement can keep the generation
+   * id (Lucene rebuild, attempt replay). Running inside {@code computeIfPresent} makes the check
+   * and the write atomic against installation, which {@link #add} and {@link #transitionToFollower}
+   * both perform on this map. Without it a generator displaced after the caller's snapshot would
+   * still pass its own checks -- {@link MaterializedViewGenerator#shutdown} clears isLeader -- and
+   * overwrite the status its successor shares with it.
+   *
+   * <p>{@code publish} must only touch memory. It runs under this key's map lock, which generator
+   * installation also holds while creating and shutting down generators.
+   */
+  @SuppressWarnings("GuardedBy") // ConcurrentHashMap compute is thread safe
+  private void publishIfCurrentGenerator(
+      UUID uuid, MaterializedViewGenerator generator, Runnable publish) {
+    this.managedMaterializedViewGenerators.computeIfPresent(
+        uuid,
+        (ignored, current) -> {
+          if (current == generator) {
+            publish.run();
+          }
+          return current;
+        });
   }
 
   /**

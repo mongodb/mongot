@@ -2,6 +2,8 @@ package com.xgen.mongot.index.autoembedding;
 
 import static com.xgen.mongot.util.mongodb.MongoDbDatabase.getCollectionInfos;
 
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.mongodb.ReadPreference;
 import com.mongodb.client.MongoClient;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
@@ -53,6 +55,15 @@ public class MaterializedViewIndexFactory implements IndexFactory {
   private final MaterializedViewCollectionResolver collectionResolver;
   private final AutoEmbeddingMongoClient autoEmbeddingMongoClient;
   private final InternalDatabaseResolver dbResolver;
+
+  /**
+   * One status per materialized view collection, matching the key MaterializedViewManager uses for
+   * its generator map: generations sharing a collection share a generator, so a per-generation
+   * status would freeze at UNKNOWN for whichever generation the surviving generator displaced. Weak
+   * values so an entry dies with the last index holding it.
+   */
+  private final Cache<UUID, AtomicReference<IndexStatus>> statusRefsByCollection =
+      CacheBuilder.newBuilder().weakValues().build();
 
   public MaterializedViewIndexFactory(
       AutoEmbeddingMongoClient autoEmbeddingMongoClient,
@@ -185,8 +196,12 @@ public class MaterializedViewIndexFactory implements IndexFactory {
             this.leaseManager,
             collectionMetadata.collectionUuid());
 
-    // Shared status reference for supplier and index
-    AtomicReference<IndexStatus> statusRef = new AtomicReference<>(IndexStatus.unknown());
+    AtomicReference<IndexStatus> statusRef =
+        this.statusRefsByCollection
+            .asMap()
+            .computeIfAbsent(
+                collectionMetadata.collectionUuid(),
+                ignored -> new AtomicReference<>(IndexStatus.unknown()));
 
     // Metric values supplier with writer mongo client and namespace
     MaterializedViewMetricValuesSupplier metricValuesSupplier =

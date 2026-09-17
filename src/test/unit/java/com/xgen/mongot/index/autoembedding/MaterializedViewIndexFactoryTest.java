@@ -1,5 +1,8 @@
 package com.xgen.mongot.index.autoembedding;
 
+import static com.xgen.testing.mongot.mock.index.MaterializedViewIndex.mockMatViewDefinitionGeneration;
+import static com.xgen.testing.mongot.mock.index.MaterializedViewIndex.realMatViewIndexFactory;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -19,6 +22,10 @@ import com.mongodb.connection.ServerConnectionState;
 import com.mongodb.connection.ServerDescription;
 import com.mongodb.connection.ServerType;
 import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.status.IndexStatus;
+import com.xgen.mongot.index.version.Generation;
+import com.xgen.mongot.index.version.MaterializedViewGeneration;
+import com.xgen.mongot.index.version.MaterializedViewGenerationId;
 import com.xgen.mongot.util.mongodb.CheckedMongoException;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import java.util.List;
@@ -29,15 +36,15 @@ import org.bson.types.ObjectId;
 import org.junit.Test;
 
 /**
- * Tests for {@link MaterializedViewIndexFactory#isSourceCollectionAbsentOnMongod}: the source
- * collection presence check that gates materialized-view setup on a shard. Exercises the
- * package-private {@code (Optional<MongoClient>, IndexDefinition)} overload and stubs the {@code
- * collectionUuidsOnShard} seam so all four branches are covered without building the factory.
+ * Tests for the source collection presence check that gates materialized-view setup on a shard, and
+ * for the per-collection status reference {@code getIndex} hands out.
  */
 public class MaterializedViewIndexFactoryTest {
 
   private static final String DATABASE = "db";
   private static final UUID SOURCE_COLLECTION_UUID = UUID.randomUUID();
+  private static final UUID MAT_VIEW_COLLECTION_UUID = UUID.randomUUID();
+  private static final ObjectId INDEX_ID = new ObjectId();
 
   @Test
   public void isSourceCollectionAbsentOnMongod_resolverClientNotReady_returnsFalse()
@@ -115,6 +122,79 @@ public class MaterializedViewIndexFactoryTest {
         .thenReturn(clusterDescription(ServerType.REPLICA_SET_SECONDARY, true));
 
     assertFalse(factory.isMongodReachableFromCachedTopology(Optional.of(client)));
+  }
+
+  /**
+   * Producer 2 (in-flight staged rebuild): a Lucene-only change leaves user generations N and N+1
+   * on one collection, so N's generator is replaced and only N+1's index is written to.
+   */
+  @Test
+  public void getIndex_twoUserGenerationsOnOneMatViewCollection_shareStatus() throws Exception {
+    MaterializedViewIndexFactory factory =
+        realMatViewIndexFactory(ignored -> MAT_VIEW_COLLECTION_UUID);
+    MaterializedViewGenerationId userGeneration1 =
+        new MaterializedViewGenerationId(
+            INDEX_ID, new MaterializedViewGeneration(Generation.CURRENT));
+    MaterializedViewGenerationId userGeneration2 =
+        new MaterializedViewGenerationId(INDEX_ID, userGeneration1.generation.incrementUser());
+
+    InitializedMaterializedViewIndex displacedIndex =
+        factory.getIndex(mockMatViewDefinitionGeneration(userGeneration1, 0));
+    InitializedMaterializedViewIndex survivingIndex =
+        factory.getIndex(mockMatViewDefinitionGeneration(userGeneration2, 1));
+
+    // MaterializedViewStatusUpdater only writes to the installed generator's index.
+    survivingIndex.setStatus(IndexStatus.steady());
+
+    assertEquals(
+        "Displaced generation must read the surviving generator's status, not a dead reference",
+        IndexStatus.StatusCode.STEADY,
+        displacedIndex.getStatus().getStatusCode());
+  }
+
+  /**
+   * A resync on a shared collection now reaches the displaced generation too. Its queryable ratchet
+   * turns the shared INITIAL_SYNC into RECOVERING_TRANSIENT, reported as stale rather than the
+   * STEADY it was frozen at before.
+   */
+  @Test
+  public void getIndex_resyncOnSharedCollection_reportsDisplacedGenerationStale() throws Exception {
+    MaterializedViewIndexFactory factory =
+        realMatViewIndexFactory(ignored -> MAT_VIEW_COLLECTION_UUID);
+    MaterializedViewGenerationId userGeneration1 =
+        new MaterializedViewGenerationId(
+            INDEX_ID, new MaterializedViewGeneration(Generation.CURRENT));
+    MaterializedViewGenerationId userGeneration2 =
+        new MaterializedViewGenerationId(INDEX_ID, userGeneration1.generation.incrementUser());
+
+    InitializedMaterializedViewIndex displacedIndex =
+        factory.getIndex(mockMatViewDefinitionGeneration(userGeneration1, 0));
+    displacedIndex.setStatus(IndexStatus.steady());
+
+    InitializedMaterializedViewIndex resyncingIndex =
+        factory.getIndex(mockMatViewDefinitionGeneration(userGeneration2, 1));
+    resyncingIndex.setStatus(new IndexStatus(IndexStatus.StatusCode.INITIAL_SYNC));
+
+    assertEquals(
+        IndexStatus.StatusCode.RECOVERING_TRANSIENT, displacedIndex.getStatus().getStatusCode());
+  }
+
+  /** Control: different collections keep independent statuses. */
+  @Test
+  public void getIndex_separateMatViewCollections_doNotShareStatus() throws Exception {
+    MaterializedViewIndexFactory factory = realMatViewIndexFactory(ignored -> UUID.randomUUID());
+    MaterializedViewGenerationId generationId =
+        new MaterializedViewGenerationId(
+            INDEX_ID, new MaterializedViewGeneration(Generation.CURRENT));
+
+    InitializedMaterializedViewIndex index1 =
+        factory.getIndex(mockMatViewDefinitionGeneration(generationId, 0));
+    InitializedMaterializedViewIndex index2 =
+        factory.getIndex(mockMatViewDefinitionGeneration(generationId, 0));
+
+    index2.setStatus(IndexStatus.steady());
+
+    assertEquals(IndexStatus.StatusCode.UNKNOWN, index1.getStatus().getStatusCode());
   }
 
   private static MaterializedViewIndexFactory factoryWithRealChecks() {

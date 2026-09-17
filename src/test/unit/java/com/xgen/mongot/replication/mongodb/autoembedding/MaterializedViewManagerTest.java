@@ -4,6 +4,7 @@ import static com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadat
 import static com.xgen.mongot.util.FutureUtils.COMPLETED_FUTURE;
 import static com.xgen.testing.mongot.mock.index.MaterializedViewIndex.mockMatViewDefinitionGeneration;
 import static com.xgen.testing.mongot.mock.index.MaterializedViewIndex.mockMatViewIndexGeneration;
+import static com.xgen.testing.mongot.mock.index.MaterializedViewIndex.realMatViewIndexFactory;
 import static com.xgen.testing.mongot.mock.replication.mongodb.common.SessionRefresher.mockSessionRefresher;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -235,6 +236,79 @@ public class MaterializedViewManagerTest {
     verify(oldGenerator).shutdown();
     verify(mocks.materializedViewGeneratorFactory).create(any());
     verify(mocks.leaseManager).add(newIndexGeneration, true);
+  }
+
+  /**
+   * Two generations of one index resolve to the same materialized view collection, so the second
+   * add() replaces the first's generator. Only the surviving generator's index is written to, so
+   * the displaced generation must read status through the same reference. Regression test for the
+   * composite that stayed pinned at UNKNOWN until its generation was dropped.
+   */
+  @Test
+  public void add_secondGenerationOnSameMatViewCollection_displacedGenerationTracksSurvivor()
+      throws Exception {
+    Mocks mocks = Mocks.create();
+    // Both generations resolve to one materialized view collection, as they do in production
+    // when the definition change is Lucene-only.
+    UUID matViewCollectionUuid = UUID.randomUUID();
+    var matViewIndexFactory = realMatViewIndexFactory(ignored -> matViewCollectionUuid);
+
+    var userGeneration1 = MOCK_MAT_VIEW_GENERATION_ID;
+    var definition1 = mockMatViewDefinitionGeneration(userGeneration1);
+    var displacedGeneration =
+        new MaterializedViewIndexGeneration(matViewIndexFactory.getIndex(definition1), definition1);
+    mocks.mockMaterializedViewGenerator(displacedGeneration);
+    mocks.addIndexForReplication(displacedGeneration);
+
+    var userGeneration2 =
+        new MaterializedViewGenerationId(
+            userGeneration1.indexId, userGeneration1.generation.incrementUser());
+    var definition2 = mockMatViewDefinitionGeneration(userGeneration2);
+    var survivingGeneration =
+        new MaterializedViewIndexGeneration(matViewIndexFactory.getIndex(definition2), definition2);
+    mocks.mockMaterializedViewGenerator(survivingGeneration);
+    mocks.addIndexForReplication(survivingGeneration);
+
+    // No materialized view schema change, so the replacement resumes from the existing commit.
+    verify(mocks.leaseManager).add(survivingGeneration, true);
+
+    // MaterializedViewStatusUpdater writes only to the index of the installed generator.
+    survivingGeneration.getIndex().setStatus(IndexStatus.steady());
+
+    assertEquals(
+        "Displaced generation must report the surviving generator's status",
+        IndexStatus.StatusCode.STEADY,
+        displacedGeneration.getIndex().getStatus().getStatusCode());
+  }
+
+  /**
+   * Journal attempt replay stages a second attempt of the same user generation. Both attempts carry
+   * one materialized view generation id, so the replacement takes the same-genId branch, which
+   * keeps the lease and never closes the displaced index. Status must still track the survivor.
+   */
+  @Test
+  public void add_secondAttemptOfSameGeneration_displacedAttemptTracksSurvivor() throws Exception {
+    Mocks mocks = Mocks.create();
+    UUID matViewCollectionUuid = UUID.randomUUID();
+    var matViewIndexFactory = realMatViewIndexFactory(ignored -> matViewCollectionUuid);
+
+    var definition = mockMatViewDefinitionGeneration(MOCK_MAT_VIEW_GENERATION_ID);
+    var attempt0 =
+        new MaterializedViewIndexGeneration(matViewIndexFactory.getIndex(definition), definition);
+    mocks.mockMaterializedViewGenerator(attempt0);
+    mocks.addIndexForReplicationWithAttempt(attempt0, 0);
+
+    var attempt1 =
+        new MaterializedViewIndexGeneration(matViewIndexFactory.getIndex(definition), definition);
+    mocks.mockMaterializedViewGenerator(attempt1);
+    mocks.addIndexForReplicationWithAttempt(attempt1, 1);
+
+    // Same materialized view generation id: the lease is retained rather than swapped.
+    verify(mocks.leaseManager, never()).drop(any(MaterializedViewGenerationId.class));
+
+    attempt1.getIndex().setStatus(IndexStatus.steady());
+
+    assertEquals(IndexStatus.StatusCode.STEADY, attempt0.getIndex().getStatus().getStatusCode());
   }
 
   /**
@@ -659,7 +733,7 @@ public class MaterializedViewManagerTest {
         .thenReturn(materializedViewindexGeneration.getGenerationId());
     mocks.manager.add(autoEmbeddingIndexGeneration);
     mocks.runnableCaptor.orElseThrow().getValue().run();
-    verify(materializedViewindexGeneration.getIndex()).setStatus(any(IndexStatus.class));
+    verify(materializedViewindexGeneration.getIndex()).setStatus(any(IndexStatus.class), any());
     assertEquals(mocks.expectedStatus, materializedViewindexGeneration.getIndex().getStatus());
   }
 
@@ -696,7 +770,7 @@ public class MaterializedViewManagerTest {
 
     mocks.runnableCaptor.orElseThrow().getValue().run();
     // Only the new generation's status is updated (old generator was replaced)
-    verify(newMaterializedViewindexGeneration.getIndex()).setStatus(any(IndexStatus.class));
+    verify(newMaterializedViewindexGeneration.getIndex()).setStatus(any(IndexStatus.class), any());
     assertEquals(mocks.expectedStatus, newMaterializedViewindexGeneration.getIndex().getStatus());
   }
 
@@ -713,7 +787,7 @@ public class MaterializedViewManagerTest {
         .thenReturn(materializedViewindexGeneration.getGenerationId());
     mocks.manager.add(autoEmbeddingIndexGeneration);
     mocks.runnableCaptor.orElseThrow().getValue().run();
-    verify(materializedViewindexGeneration.getIndex()).setStatus(any(IndexStatus.class));
+    verify(materializedViewindexGeneration.getIndex()).setStatus(any(IndexStatus.class), any());
     assertEquals(mocks.expectedStatus, materializedViewindexGeneration.getIndex().getStatus());
 
     mocks.manager.dropIndex(autoEmbeddingIndexGeneration.getGenerationId());
@@ -753,7 +827,7 @@ public class MaterializedViewManagerTest {
 
     mocks.runnableCaptor.orElseThrow().getValue().run();
     // Only the new generation's status is updated (old generator was replaced)
-    verify(newMaterializedViewindexGeneration.getIndex()).setStatus(any(IndexStatus.class));
+    verify(newMaterializedViewindexGeneration.getIndex()).setStatus(any(IndexStatus.class), any());
     assertEquals(mocks.expectedStatus, newMaterializedViewindexGeneration.getIndex().getStatus());
 
     mocks.manager.dropIndex(autoEmbeddingIndexGeneration.getGenerationId());
@@ -786,7 +860,7 @@ public class MaterializedViewManagerTest {
     mocks.runnableCaptor.orElseThrow().getValue().run();
 
     // setStatus should NOT be called because the generator is a leader.
-    verify(matViewIndexGen.getIndex(), never()).setStatus(any(IndexStatus.class));
+    verify(matViewIndexGen.getIndex(), never()).setStatus(any(IndexStatus.class), any());
   }
 
   // ==================== Drop discriminator (supersession vs deletion) ====================
