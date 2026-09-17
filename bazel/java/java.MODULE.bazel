@@ -23,6 +23,11 @@ git_repository(
     name = "io_grpc_grpc_java",
     # v1.70.0,
     commit = "22a42c88d80fb96326b8c507591e4017c5e15ed3",
+    patch_strip = 1,
+    # netty 4.2.x split netty-codec into netty-codec + netty-codec-base; add the
+    # latter to the gRPC netty target's deps so Turbine can resolve the classes
+    # (ByteToMessageDecoder, MessageToByteEncoder, Headers, ...) that moved.
+    patches = ["//bazel/java/patches:grpc_netty_codec_base.patch"],
     remote = "https://github.com/grpc/grpc-java.git",
     shallow_since = "1737476933 +0000",
 )

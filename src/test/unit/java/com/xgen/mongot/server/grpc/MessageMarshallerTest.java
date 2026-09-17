@@ -1,5 +1,6 @@
 package com.xgen.mongot.server.grpc;
 
+import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 
@@ -9,6 +10,7 @@ import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
+import io.netty.buffer.PooledByteBufAllocator;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -31,6 +33,13 @@ public class MessageMarshallerTest {
     buf.readBytes(msgBytes);
     buf.release();
     return ByteBuffer.wrap(msgBytes).order(ByteOrder.LITTLE_ENDIAN);
+  }
+
+  // Netty 4.2 flipped the default ByteBufAllocator to adaptive; CLOUDP-439486 pins pooled
+  // allocation here to keep the CVE bump behavior-neutral for the gRPC encode path.
+  @Test
+  public void testUsesPooledAllocator() {
+    assertThat(MessageMarshaller.ALLOCATOR).isSameInstanceAs(PooledByteBufAllocator.DEFAULT);
   }
 
   @Test

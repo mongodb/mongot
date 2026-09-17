@@ -134,6 +134,7 @@ public class GrpcStreamingClient implements Closeable {
     try {
       var sslContextBuilder =
           SslContextBuilder.forClient()
+              .endpointIdentificationAlgorithm(null)
               // Configure ALPN for HTTP/2 and HTTP/1.1
               .applicationProtocolConfig(
                   new ApplicationProtocolConfig(

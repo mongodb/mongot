@@ -301,7 +301,10 @@ public class SslContextFactory {
     try {
       // try to dynamically link to system version of OpenSSL to provide better throughput to
       // mongod.
-      SslContextBuilder builder = SslContextBuilder.forClient().sslProvider(SslProvider.OPENSSL);
+      SslContextBuilder builder =
+          SslContextBuilder.forClient()
+              .sslProvider(SslProvider.OPENSSL)
+              .endpointIdentificationAlgorithm(null);
       this.trustManagerFactory.ifPresent(builder::trustManager);
       this.keyManagerFactory.ifPresent(builder::keyManager);
       return builder.build();
