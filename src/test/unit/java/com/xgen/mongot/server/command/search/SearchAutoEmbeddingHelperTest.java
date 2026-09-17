@@ -3,8 +3,10 @@ package com.xgen.mongot.server.command.search;
 import static com.google.common.truth.Truth.assertThat;
 import static com.xgen.mongot.util.bson.FloatVector.OriginalType.NATIVE;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.google.common.base.Supplier;
@@ -53,6 +55,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
 
@@ -101,6 +104,52 @@ public class SearchAutoEmbeddingHelperTest {
     assertThat(result.queryVector().get()).isEqualTo(QUERY_VECTOR);
     assertThat(result.query()).isEmpty();
     assertThat(result.path()).isEqualTo(FieldPath.parse("_autoEmbed.content"));
+  }
+
+  @Test
+  public void embedAndReplaceCriteria_mtmDatabasePropagatesToQueryContext() throws Exception {
+    setupRegistry();
+    String database = "0123456789abcdef01234567_catalog";
+    String indexName = "products-search";
+    String collectionName = "products";
+    SearchIndexDefinition searchDef =
+        autoEmbeddingSearchDefinition(database, indexName, collectionName);
+    EmbeddingServiceManager manager = mock(EmbeddingServiceManager.class);
+    doReturn(List.of(new VectorOrError(QUERY_VECTOR)))
+        .when(manager)
+        .embed(
+            Mockito.anyList(),
+            any(EmbeddingModelConfig.class),
+            eq(EmbeddingServiceConfig.ServiceTier.QUERY),
+            any(EmbeddingRequestContext.class));
+    VectorSearchCriteria criteria =
+        ApproximateVectorQueryCriteriaBuilder.builder()
+            .limit(10)
+            .numCandidates(100)
+            .query(new VectorSearchQueryInput.Text("test query"))
+            .path(EMBEDDING_PATH)
+            .build();
+
+    SearchAutoEmbeddingHelper.embedAndReplaceCriteria(
+        criteria,
+        "test query",
+        Optional.empty(),
+        searchDef,
+        AUTO_EMBED_FIELDS_MAPPING,
+        Suppliers.ofInstance(manager));
+
+    ArgumentCaptor<EmbeddingRequestContext> contextCaptor =
+        ArgumentCaptor.forClass(EmbeddingRequestContext.class);
+    verify(manager)
+        .embed(
+            Mockito.anyList(),
+            any(EmbeddingModelConfig.class),
+            eq(EmbeddingServiceConfig.ServiceTier.QUERY),
+            contextCaptor.capture());
+    EmbeddingRequestContext context = contextCaptor.getValue();
+    assertThat(context.database()).isEqualTo(database);
+    assertThat(context.indexName()).isEqualTo(indexName);
+    assertThat(context.collectionName()).isEqualTo(collectionName);
   }
 
   @Test
@@ -397,6 +446,27 @@ public class SearchAutoEmbeddingHelperTest {
         .name("mock")
         .database("mock")
         .lastObservedCollectionName("mock")
+        .collectionUuid(UUID.randomUUID())
+        .mappings(mappings)
+        .build();
+  }
+
+  private static SearchIndexDefinition autoEmbeddingSearchDefinition(
+      String database, String indexName, String collectionName) {
+    SearchAutoEmbedFieldDefinition autoEmbedField =
+        new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("content"));
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
+            .build();
+    return SearchIndexDefinitionBuilder.builder()
+        .indexId(new ObjectId())
+        .name(indexName)
+        .database(database)
+        .lastObservedCollectionName(collectionName)
         .collectionUuid(UUID.randomUUID())
         .mappings(mappings)
         .build();
