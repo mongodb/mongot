@@ -88,7 +88,6 @@ java_library(
         "//src/main/java/com/xgen/mongot/index",
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/status",
-        "//src/main/java/com/xgen/mongot/index/version",
         "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/mongodb",
         "//src/main/java/com/xgen/mongot/util/mongodb/serialization",

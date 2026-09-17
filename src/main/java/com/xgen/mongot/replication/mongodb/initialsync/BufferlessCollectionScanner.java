@@ -259,7 +259,7 @@ public class BufferlessCollectionScanner {
 
     // Use the _id from the last document in the batch and create resume info with that id.
     return IndexCommitUserData.createInitialSyncResume(
-        this.context.getIndexFormatVersion(),
+        this.context.getGenerationId().generation.formatVersion.versionNumber(),
         InitialSyncResumeInfo.create(
             this.context.useNaturalOrderScan(),
             this.context.getChangeStreamResumeOperationTime(),

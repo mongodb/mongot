@@ -101,7 +101,7 @@ public class LuceneIndexFactoryTest {
       var formatIncremented =
           new Generation(
               Generation.FIRST.userIndexVersion,
-              IndexFormatVersion.create(Generation.FIRST.indexFormatVersion.versionNumber + 1));
+              IndexFormatVersion.create(Generation.FIRST.formatVersion.versionNumber() + 1));
       assertGenerationStoredAtPath(
           factory, indexId, formatIncremented, path.resolve("111122223333444455556666_f6_u0_a0"));
     }

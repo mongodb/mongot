@@ -496,7 +496,7 @@ public class BufferlessChangeStreamApplierTest {
 
   private static ParallelCollectionScanResumeState parallelResumeState() {
     return new ParallelCollectionScanResumeState(
-        MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+        MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.versionNumber(),
         UUID.fromString("390a604a-4979-4d10-9f4f-3d2552224aee"),
         Optional.of("testHost"),
         INITIAL_HIGH_WATER_MARK,

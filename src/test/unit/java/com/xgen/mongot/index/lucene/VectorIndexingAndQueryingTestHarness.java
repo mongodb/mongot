@@ -263,7 +263,7 @@ public class VectorIndexingAndQueryingTestHarness implements AutoCloseable {
             this.concurrentSearchExecutor,
             Optional.empty(),
             vectorIndexDefinition,
-            vectorIndexDefinitionGeneration.generation().indexFormatVersion,
+            vectorIndexDefinitionGeneration.generation().formatVersion.asLucene(),
             new AtomicDirectoryRemover(TestUtils.getTempFolder().getRoot().toPath()),
             metricsFactory);
     FeatureFlags featureFlags =

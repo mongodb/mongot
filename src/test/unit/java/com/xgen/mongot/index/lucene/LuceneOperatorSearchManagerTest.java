@@ -70,7 +70,7 @@ public class LuceneOperatorSearchManagerTest {
 
     var fieldDefinitionResolver =
         SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
-            SearchIndex.MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion);
+            SearchIndex.MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene());
     this.queryFactoryContext =
         new SearchQueryFactoryContext(
             AnalyzerRegistryBuilder.empty(),

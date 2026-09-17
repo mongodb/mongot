@@ -20,7 +20,7 @@ public class GenerationIdTest {
     GenerationId value = GenerationIdBuilder.create(objectId, 1, 2, 1);
     assertEquals(objectId, value.indexId);
     assertEquals(1, value.generation.userIndexVersion.versionNumber);
-    assertEquals(2, value.generation.indexFormatVersion.versionNumber);
+    assertEquals(2, value.generation.formatVersion.versionNumber());
     assertEquals(1, value.generation.attemptNumber);
   }
 
@@ -55,6 +55,21 @@ public class GenerationIdTest {
   @Test
   public void testEquality() {
     TestUtils.assertEqualityGroups(distinctGenerationIdSuppliers());
+  }
+
+  /** The f segment is the engine's own format version. */
+  @Test
+  public void uniqueString_usesTheEnginesFormatVersion() {
+    ObjectId indexId = new ObjectId();
+    var lucene =
+        new GenerationId(
+            indexId, new Generation(new UserIndexVersion(1), IndexFormatVersion.SIX, 2));
+    assertEquals(indexId.toHexString() + "-f6-u1-a2", lucene.uniqueString());
+
+    var vectorlite =
+        new GenerationId(
+            indexId, new Generation(new UserIndexVersion(1), new VectorliteFormatVersion(3)));
+    assertEquals(indexId.toHexString() + "-f3-u1-a0", vectorlite.uniqueString());
   }
 
   /** Ensure that distinct GenerationIds have distinct uniqueStrings. */

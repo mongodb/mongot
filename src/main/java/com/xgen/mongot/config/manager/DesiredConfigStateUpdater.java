@@ -12,9 +12,7 @@ import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.IndexDefinitionGenerationProducer;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
-import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.index.version.GenerationId;
-import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.index.version.UserIndexVersion;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.util.bson.JsonCodec;
@@ -285,13 +283,7 @@ class DesiredConfigStateUpdater {
   private void stageSwapsForModifiedIndexes(List<ModifiedIndexInformation> modifications)
       throws IOException, InvalidAnalyzerDefinitionException, Invariants.InvariantException {
     for (ModifiedIndexInformation modifiedIndex : modifications) {
-      if (modifiedIndex
-          .getLiveIndex()
-          .getDefinitionGeneration()
-          .getGenerationId()
-          .generation
-          .indexFormatVersion
-          .isCurrent()) {
+      if (modifiedIndex.getLiveIndex().getDefinitionGeneration().hasCurrentFormatVersion()) {
         stageSwapForModifiedIndex(modifiedIndex);
       } else {
         stageSwapForModifiedOutdatedFormatLiveIndex(modifiedIndex);
@@ -425,7 +417,7 @@ class DesiredConfigStateUpdater {
         this.configState.getNewUserIndexVersion(
             generationProducer.getIndexDefinition().getIndexId());
     return generationProducer.createIndexDefinitionGeneration(
-        new Generation(userIndexVersion, IndexFormatVersion.CURRENT));
+        generationProducer.getIndexDefinition().newGeneration(userIndexVersion));
   }
 
   private void persistCurrentState() throws IOException, Invariants.InvariantException {

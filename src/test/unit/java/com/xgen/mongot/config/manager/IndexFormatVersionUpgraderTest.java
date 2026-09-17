@@ -6,18 +6,23 @@ import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.google.common.collect.Sets;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.VectorIndexDefinition;
+import com.xgen.mongot.index.definition.VectorIndexDefinitionGeneration;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.index.version.UserIndexVersion;
+import com.xgen.mongot.index.version.VectorliteFormatVersion;
 import com.xgen.testing.mongot.config.manager.ConfigStateMocks;
+import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -25,6 +30,7 @@ import java.util.stream.Stream;
 import org.apache.commons.lang3.tuple.Triple;
 import org.bson.types.ObjectId;
 import org.junit.Assert;
+import org.junit.Test;
 import org.junit.experimental.theories.DataPoints;
 import org.junit.experimental.theories.FromDataPoints;
 import org.junit.experimental.theories.Theories;
@@ -323,6 +329,125 @@ public class IndexFormatVersionUpgraderTest {
     }
   }
 
+  /** A vectorlite index whose generation predates the engine tag is rebuilt. */
+  @Test
+  public void testVectorliteLiveIndexOnLuceneGenerationIsReplaced() throws Exception {
+    assertVectorliteLiveIndexReplaced(
+        new Generation(UserIndexVersion.FIRST, IndexFormatVersion.CURRENT));
+  }
+
+  /** Rollback direction: a vectorlite version above current is rebuilt too. */
+  @Test
+  public void testVectorliteLiveIndexFromNewerReleaseIsReplaced() throws Exception {
+    assertVectorliteLiveIndexReplaced(
+        new Generation(
+            UserIndexVersion.FIRST,
+            new VectorliteFormatVersion(VectorliteFormatVersion.CURRENT.versionNumber() + 1)));
+  }
+
+  /** A non-current staged vectorlite generation is dropped; a current live one needs no staging. */
+  @Test
+  public void testNonCurrentStagedVectorliteIndexIsDropped() throws Exception {
+    var mocks = vectorliteReadyMocks();
+    var indexId = new ObjectId();
+    var liveIndex =
+        mocks.addIndex(
+            vectorliteDefinitionGeneration(
+                indexId, new Generation(UserIndexVersion.FIRST, VectorliteFormatVersion.CURRENT)),
+            ConfigStateMocks.State.LIVE);
+    var stagedIndex =
+        mocks.addIndex(
+            vectorliteDefinitionGeneration(
+                indexId, new Generation(UserIndexVersion.FIRST, IndexFormatVersion.CURRENT)),
+            ConfigStateMocks.State.STAGED);
+    mocks.clearInvocations();
+
+    IndexFormatVersionUpgrader.upgradeAndDrop(mocks.configState);
+
+    verify(stagedIndex.getIndex()).drop();
+    mocks.assertJournalPersistedAtLeastOnce();
+    mocks.assertStagedIndexesAre();
+    mocks.assertLiveIndexesAre(liveIndex);
+    mocks.assertNoIndexCreated();
+  }
+
+  private void assertVectorliteLiveIndexReplaced(Generation liveGeneration) throws Exception {
+    var mocks = vectorliteReadyMocks();
+    var indexId = new ObjectId();
+    var liveDefinitionGeneration = vectorliteDefinitionGeneration(indexId, liveGeneration);
+    var liveIndex = mocks.addIndex(liveDefinitionGeneration, ConfigStateMocks.State.LIVE);
+    InitializedIndex initializedIndex =
+        mocks
+            .initializedIndexCatalog
+            .getIndex(liveDefinitionGeneration.getGenerationId())
+            .orElseThrow();
+    mocks.clearInvocations();
+
+    IndexFormatVersionUpgrader.upgradeAndDrop(mocks.configState);
+
+    verify(liveIndex.getIndex()).drop();
+    verify(initializedIndex).close();
+    mocks.assertJournalPersistedAtLeastOnce();
+    mocks.assertStagedIndexesAre();
+    verify(mocks.indexCatalog, atLeastOnce()).addIndex(any());
+    mocks.assertIndexCreated(liveDefinitionGeneration.getIndexDefinition());
+    assertEquals(
+        new Generation(UserIndexVersion.FIRST, VectorliteFormatVersion.CURRENT),
+        mocks
+            .indexCatalog
+            .getIndexById(indexId)
+            .orElseThrow()
+            .getDefinitionGeneration()
+            .generation());
+  }
+
+  /** A vectorlite index at the vectorlite current version is left alone. */
+  @Test
+  public void testVectorliteLiveIndexOnVectorliteCurrentIsUntouched() throws Exception {
+    var mocks = vectorliteReadyMocks();
+    mocks.addIndex(
+        vectorliteDefinitionGeneration(
+            new ObjectId(),
+            new Generation(UserIndexVersion.FIRST, VectorliteFormatVersion.CURRENT)),
+        ConfigStateMocks.State.LIVE);
+    mocks.clearInvocations();
+
+    IndexFormatVersionUpgrader.upgradeAndDrop(mocks.configState);
+
+    mocks.assertNoIndexActivity();
+  }
+
+  /**
+   * A Lucene vector index stays on the Lucene line; the vectorlite version is not current for it.
+   */
+  @Test
+  public void testLuceneVectorIndexIsNotMovedToVectorliteLine() throws Exception {
+    var mocks = getEmptyMocks();
+    mocks.addVectorIndex(new ObjectId(), ConfigStateMocks.State.LIVE);
+    mocks.clearInvocations();
+
+    IndexFormatVersionUpgrader.upgradeAndDrop(mocks.configState);
+
+    mocks.assertNoIndexActivity();
+  }
+
+  /** The mock factory defers custom engine indexes until ready; report them ready. */
+  private ConfigStateMocks vectorliteReadyMocks() throws Exception {
+    var mocks = getEmptyMocks();
+    when(mocks.indexFactory.isReadyToInitialize(any())).thenReturn(true);
+    return mocks;
+  }
+
+  private static VectorIndexDefinitionGeneration vectorliteDefinitionGeneration(
+      ObjectId indexId, Generation generation) {
+    VectorIndexDefinition definition =
+        VectorIndexDefinitionBuilder.builder()
+            .indexId(indexId)
+            .withCustomEngineVectorField("vector", 3)
+            .build();
+    return new VectorIndexDefinitionGeneration(definition, generation);
+  }
+
   private void assertCurrentStagedIndexCreatedFrom(
       ConfigStateMocks mocks, ObjectId indexId, IndexDefinitionGeneration baseDefinitionGeneration)
       throws Exception {
@@ -336,7 +461,8 @@ public class IndexFormatVersionUpgraderTest {
             .orElseThrow()
             .getDefinitionGeneration()
             .generation()
-            .indexFormatVersion);
+            .formatVersion
+            .asLucene());
   }
 
   private void assertCurrentLiveIndexCreatedFrom(
@@ -352,7 +478,8 @@ public class IndexFormatVersionUpgraderTest {
             .orElseThrow()
             .getDefinitionGeneration()
             .generation()
-            .indexFormatVersion);
+            .formatVersion
+            .asLucene());
   }
 
   private Triple<ConfigStateMocks, IndexGeneration, IndexGeneration> setupUpgradeTest(

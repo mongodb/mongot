@@ -220,7 +220,7 @@ public class PeriodicLuceneIndexRefresherTest {
             Optional.empty(),
             LuceneAnalyzer.indexAnalyzer(MOCK_INDEX_DEFINITION, AnalyzerRegistryBuilder.empty()),
             MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
-                MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion),
+                MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene()),
             SearchIndex.mockIndexingMetricsUpdater(MOCK_INDEX_DEFINITION.getType()),
             Optional.empty(),
             FeatureFlags.getDefault(),

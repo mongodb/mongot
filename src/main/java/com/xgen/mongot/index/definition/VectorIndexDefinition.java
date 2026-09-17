@@ -4,6 +4,7 @@ import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.errorprone.annotations.Var;
+import com.xgen.mongot.index.version.IndexEngine;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
@@ -137,6 +138,9 @@ public final class VectorIndexDefinition implements IndexDefinition {
                 !storedSourceDefinition.isAllIncluded(),
                 "storedSource: true is not supported for vector indexes. "
                     + "Accepted values are include, exclude, or false."));
+    Check.checkArg(
+        validateVectorEngines(fields).isEmpty(),
+        "vector fields must all use the same engine, and a custom engine index has exactly one");
     this.indexIdAtCreationTime = indexIdAtCreationTime;
     this.autoEmbeddingDefinitionVersion = autoEmbeddingDefinitionVersion;
     this.materializedViewNameFormatVersion = materializedViewNameFormatVersion;
@@ -245,6 +249,11 @@ public final class VectorIndexDefinition implements IndexDefinition {
 
   public boolean isCustomVectorEngineIndex() {
     return this.isCustomVectorEngineIndex;
+  }
+
+  @Override
+  public IndexEngine engine() {
+    return this.isCustomVectorEngineIndex ? IndexEngine.VECTORLITE : IndexEngine.LUCENE;
   }
 
   @Override
@@ -372,6 +381,11 @@ public final class VectorIndexDefinition implements IndexDefinition {
       }
     }
 
+    Optional<String> engineError = validateVectorEngines(fields);
+    if (engineError.isPresent()) {
+      parser.getContext().handleSemanticError(engineError.get());
+    }
+
     return new VectorIndexDefinition(
         parser.getField(IndexDefinition.Fields.INDEX_ID).unwrap(),
         parser.getField(IndexDefinition.Fields.NAME).unwrap(),
@@ -392,6 +406,31 @@ public final class VectorIndexDefinition implements IndexDefinition {
         parser.getField(IndexDefinition.Fields.INDEX_ID_AT_CREATION_TIME).unwrap(),
         parser.getField(IndexDefinition.Fields.AUTO_EMBEDDING_DEFINITION_VERSION).unwrap(),
         parser.getField(IndexDefinition.Fields.MATERIALIZED_VIEW_NAME_FORMAT_VERSION).unwrap());
+  }
+
+  /**
+   * Vector fields must all use one engine, and a custom engine index has exactly one vector field:
+   * the whole index is routed by engine, and the custom engine indexes a single field.
+   */
+  public static Optional<String> validateVectorEngines(List<VectorIndexFieldDefinition> fields) {
+    List<VectorFieldSpecification> vectors =
+        fields.stream()
+            .filter(VectorIndexFieldDefinition::isVectorField)
+            .map(f -> f.asVectorField().specification())
+            .toList();
+    long custom = vectors.stream().filter(VectorFieldSpecification::isCustomVectorEngine).count();
+    if (custom == 0) {
+      return Optional.empty();
+    }
+    if (custom != vectors.size()) {
+      return Optional.of(
+          "vector fields must all use the same engine; cannot mix custom engine and Lucene vector"
+              + " fields in one index");
+    }
+    if (custom > 1) {
+      return Optional.of("a custom engine vector index supports exactly one vector field");
+    }
+    return Optional.empty();
   }
 
   /**

@@ -141,7 +141,7 @@ public class InitialSyncContext {
   }
 
   public IndexFormatVersion getIndexFormatVersion() {
-    return this.indexDefinitionGeneration.generation().indexFormatVersion;
+    return this.indexDefinitionGeneration.generation().capabilitiesFormatVersion();
   }
 
   public InitialSyncMetrics getInitialSyncMetricsUpdater() {

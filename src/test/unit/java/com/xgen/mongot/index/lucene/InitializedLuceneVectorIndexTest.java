@@ -86,7 +86,7 @@ public class InitializedLuceneVectorIndexTest {
             Optional.empty(),
             Optional.empty(),
             VectorIndex.MOCK_INDEX_DEFINITION_GENERATION.getIndexDefinition(),
-            MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+            MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
             new AtomicDirectoryRemover(TestUtils.getTempFolder().getRoot().toPath()),
             VectorIndex.mockMetricsFactory());
     InitializedLuceneVectorIndex initializedIndex =
@@ -129,7 +129,7 @@ public class InitializedLuceneVectorIndexTest {
                 Optional.empty(),
                 Optional.empty(),
                 VectorIndex.MOCK_INDEX_DEFINITION_GENERATION.getIndexDefinition(),
-                MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+                MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
                 indexDirectoryHelper.getIndexRemover(),
                 new PerIndexMetricsFactory(
                     "test",
@@ -189,7 +189,7 @@ public class InitializedLuceneVectorIndexTest {
                 Optional.empty(),
                 Optional.empty(),
                 VectorIndex.MOCK_INDEX_DEFINITION_GENERATION.getIndexDefinition(),
-                MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+                MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
                 indexDirectoryHelper.getIndexRemover(),
                 new PerIndexMetricsFactory(
                     "test",
@@ -251,7 +251,7 @@ public class InitializedLuceneVectorIndexTest {
                 Optional.empty(),
                 Optional.empty(),
                 VectorIndex.MOCK_INDEX_DEFINITION_GENERATION.getIndexDefinition(),
-                MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+                MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
                 indexDirectoryHelper.getIndexRemover(),
                 new PerIndexMetricsFactory(
                     "test",
@@ -307,7 +307,7 @@ public class InitializedLuceneVectorIndexTest {
                 Optional.empty(),
                 Optional.empty(),
                 VectorIndex.MOCK_INDEX_DEFINITION_GENERATION.getIndexDefinition(),
-                MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+                MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
                 indexDirectoryHelper.getIndexRemover(),
                 new PerIndexMetricsFactory(
                     "test",
@@ -531,7 +531,7 @@ public class InitializedLuceneVectorIndexTest {
             Optional.empty(),
             Optional.empty(),
             VectorIndex.MOCK_INDEX_DEFINITION_GENERATION.getIndexDefinition(),
-            MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+            MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
             indexDirectoryHelper.getIndexRemover(),
             VectorIndex.mockMetricsFactory());
     InitializedLuceneVectorIndex initializedIndex =
@@ -617,7 +617,7 @@ public class InitializedLuceneVectorIndexTest {
             Optional.empty(),
             Optional.empty(),
             VectorIndex.MOCK_INDEX_DEFINITION_GENERATION.getIndexDefinition(),
-            MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+            MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
             new AtomicDirectoryRemover(TestUtils.getTempFolder().getRoot().toPath()),
             VectorIndex.mockMetricsFactory());
     InitializedLuceneVectorIndex initializedLuceneVectorIndex =
@@ -660,7 +660,7 @@ public class InitializedLuceneVectorIndexTest {
         Optional.of(Mockito.mock(NamedExecutorService.class)),
         Optional.of(Mockito.mock(NamedExecutorService.class)),
         VectorIndex.MOCK_INDEX_DEFINITION_GENERATION.getIndexDefinition(),
-        VectorIndex.MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+        VectorIndex.MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
         new AtomicDirectoryRemover(TestUtils.getTempFolder().getRoot().toPath()),
         metricsFactory);
   }

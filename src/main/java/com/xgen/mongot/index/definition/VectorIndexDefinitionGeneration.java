@@ -4,6 +4,7 @@ import static com.xgen.mongot.util.Check.checkArg;
 
 import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.index.version.MaterializedViewGeneration;
+import com.xgen.mongot.index.version.UserIndexVersion;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
@@ -30,9 +31,10 @@ public record VectorIndexDefinitionGeneration(
   @Override
   public IndexDefinitionGeneration upgradeToCurrentFormatVersion() {
     checkArg(
-        !this.generation.indexFormatVersion.isCurrent(),
+        !hasCurrentFormatVersion(),
         "Attempting to upgrade index but this Generation is already current.");
-    return new VectorIndexDefinitionGeneration(this.definition, Generation.CURRENT);
+    return new VectorIndexDefinitionGeneration(
+        this.definition, this.definition.newGeneration(UserIndexVersion.FIRST));
   }
 
   public VectorIndexDefinitionGeneration incrementUser(VectorIndexDefinition newDefinition) {

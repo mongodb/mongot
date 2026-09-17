@@ -66,7 +66,7 @@ public class JournalEntryIdentityTest {
 
     JournalEntryIdentity identity = thinParseSearch(entry);
 
-    assertThat(identity.generation().indexFormatVersion.versionNumber).isEqualTo(99);
+    assertThat(identity.generation().formatVersion.versionNumber()).isEqualTo(99);
   }
 
   @Test

@@ -543,7 +543,7 @@ public class AutoEmbeddingCompositeIndexTest {
     var indexCommitUserData =
         IndexCommitUserData.createChangeStreamResume(
             ChangeStreamResumeInfo.create(new MongoNamespace("test", "collection"), resumeToken),
-            IndexFormatVersion.CURRENT);
+            IndexFormatVersion.CURRENT.versionNumber);
     return indexCommitUserData.toEncodedData();
   }
 }

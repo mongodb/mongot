@@ -3,7 +3,6 @@ package com.xgen.mongot.replication.mongodb.common;
 import com.google.common.annotations.VisibleForTesting;
 import com.xgen.mongot.index.EncodedUserData;
 import com.xgen.mongot.index.version.GenerationId;
-import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.util.bson.JsonCodec;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
@@ -34,7 +33,7 @@ public class IndexCommitUserData implements DocumentEncodable {
           Optional.empty());
 
   private final Optional<ChangeStreamResumeInfo> resumeInfo;
-  private final Optional<IndexFormatVersion> backendIndexVersion;
+  private final Optional<Integer> backendIndexVersion;
   private final Optional<String> exceededLimitsReason;
   private final Optional<InitialSyncResumeInfo> initialSyncResumeInfo;
   private final Optional<StaleStateInfo> staleStateInfo;
@@ -109,7 +108,7 @@ public class IndexCommitUserData implements DocumentEncodable {
   @VisibleForTesting
   public IndexCommitUserData(
       Optional<ChangeStreamResumeInfo> resumeInfo,
-      Optional<IndexFormatVersion> backendIndexVersion,
+      Optional<Integer> backendIndexVersion,
       Optional<String> exceededLimitsReason,
       Optional<InitialSyncResumeInfo> initialSyncResumeInfo,
       Optional<StaleStateInfo> staleStateInfo,
@@ -151,10 +150,10 @@ public class IndexCommitUserData implements DocumentEncodable {
   }
 
   public static IndexCommitUserData createInitialSyncResume(
-      IndexFormatVersion indexVersion, InitialSyncResumeInfo resumeInfo) {
+      int formatVersion, InitialSyncResumeInfo resumeInfo) {
     return new IndexCommitUserData(
         Optional.empty(),
-        Optional.of(indexVersion),
+        Optional.of(formatVersion),
         Optional.empty(),
         Optional.of(resumeInfo),
         Optional.empty(),
@@ -164,10 +163,10 @@ public class IndexCommitUserData implements DocumentEncodable {
   }
 
   public static IndexCommitUserData createChangeStreamResume(
-      ChangeStreamResumeInfo resumeInfo, IndexFormatVersion indexFormatVersion) {
+      ChangeStreamResumeInfo resumeInfo, int formatVersion) {
     return new IndexCommitUserData(
         Optional.of(resumeInfo),
-        Optional.of(indexFormatVersion),
+        Optional.of(formatVersion),
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
@@ -207,7 +206,7 @@ public class IndexCommitUserData implements DocumentEncodable {
   public static IndexCommitUserData fromBson(DocumentParser parser) throws BsonParseException {
     return new IndexCommitUserData(
         parser.getField(Fields.CHANGE_STREAM_RESUME_INFO).unwrap(),
-        parser.getField(Fields.BACKEND_INDEX_VERSION).unwrap().map(IndexFormatVersion::create),
+        parser.getField(Fields.BACKEND_INDEX_VERSION).unwrap(),
         parser.getField(Fields.EXCEEDED_LIMITS_REASON).unwrap(),
         parser.getField(Fields.INITIAL_SYNC_RESUME_INFO).unwrap(),
         parser.getField(Fields.STALE_STATE_INFO).unwrap(),
@@ -242,7 +241,7 @@ public class IndexCommitUserData implements DocumentEncodable {
     return this.resumeInfo;
   }
 
-  public Optional<IndexFormatVersion> getBackendIndexVersion() {
+  public Optional<Integer> getBackendIndexVersion() {
     return this.backendIndexVersion;
   }
 
@@ -314,9 +313,7 @@ public class IndexCommitUserData implements DocumentEncodable {
   public BsonDocument toBson() {
     return BsonDocumentBuilder.builder()
         .field(Fields.CHANGE_STREAM_RESUME_INFO, this.resumeInfo)
-        .field(
-            Fields.BACKEND_INDEX_VERSION,
-            this.backendIndexVersion.map(indexFormatVersion -> indexFormatVersion.versionNumber))
+        .field(Fields.BACKEND_INDEX_VERSION, this.backendIndexVersion)
         .field(Fields.EXCEEDED_LIMITS_REASON, this.exceededLimitsReason)
         .field(Fields.INITIAL_SYNC_RESUME_INFO, this.initialSyncResumeInfo)
         .field(Fields.STALE_STATE_INFO, this.staleStateInfo)

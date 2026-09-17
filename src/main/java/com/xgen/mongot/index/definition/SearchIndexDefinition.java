@@ -9,6 +9,7 @@ import com.xgen.mongot.index.analyzer.definition.CustomAnalyzerDefinition;
 import com.xgen.mongot.index.analyzer.definition.StockAnalyzerNames;
 import com.xgen.mongot.index.analyzer.definition.StockNormalizerName;
 import com.xgen.mongot.index.query.sort.Sort;
+import com.xgen.mongot.index.version.IndexEngine;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.util.CheckedStream;
 import com.xgen.mongot.util.CollectionUtils;
@@ -603,6 +604,11 @@ public final class SearchIndexDefinition implements IndexDefinition {
   }
 
   @Override
+  public IndexEngine engine() {
+    return IndexEngine.LUCENE;
+  }
+
+  @Override
   public boolean isAutoEmbeddingIndex() {
     return this.isAutoEmbeddingIndex;
   }
@@ -611,10 +617,12 @@ public final class SearchIndexDefinition implements IndexDefinition {
    * Returns the auto-embedding feature version for this search index. Returns 2 (materialized view
    * based) if auto-embed fields are present, 0 otherwise.
    */
+  @Override
   public int getParsedAutoEmbeddingFeatureVersion() {
     return this.isAutoEmbeddingIndex ? 2 : 0;
   }
 
+  @Override
   public ImmutableMap<FieldPath, String> getModelNamePerPath() {
     return this.modelNamePerPath;
   }

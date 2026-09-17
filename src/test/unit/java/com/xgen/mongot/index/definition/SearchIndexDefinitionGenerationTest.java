@@ -134,7 +134,7 @@ public class SearchIndexDefinitionGenerationTest {
       var expected =
           new SearchIndexDefinitionGeneration(
               secondIndex,
-              new Generation(new UserIndexVersion(1), first.generation().indexFormatVersion));
+              new Generation(new UserIndexVersion(1), first.generation().formatVersion.asLucene()));
       Assert.assertEquals(expected, second);
     }
   }

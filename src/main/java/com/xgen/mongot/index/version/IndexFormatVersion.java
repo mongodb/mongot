@@ -11,7 +11,7 @@ import org.slf4j.LoggerFactory;
  * IndexCapabilities.java
  */
 @DoNotMock(value = "Prefer using a real object, such as IndexFormatVersion.CURRENT")
-public final class IndexFormatVersion {
+public final class IndexFormatVersion implements FormatVersion {
 
   private static class Builder {
     private int versionNumber;
@@ -62,6 +62,9 @@ public final class IndexFormatVersion {
 
   /**
    * The version number that indexes are supposed to be on, or should be resynced if not.
+   *
+   * <p>Lucene-backed indexes only. Vectorlite indexes are versioned by {@link
+   * VectorliteFormatVersion} instead.
    *
    * <p>This version number should be incremented when a change has been made that should require
    * indexes be rebuilt. Examples of this could include:
@@ -159,10 +162,22 @@ public final class IndexFormatVersion {
     this.minVectorIndexFeatureVersion = minVectorIndexFeatureVersion;
   }
 
+  @Override
+  public IndexEngine engine() {
+    return IndexEngine.LUCENE;
+  }
+
+  @Override
+  public int versionNumber() {
+    return this.versionNumber;
+  }
+
+  @Override
   public boolean isCurrent() {
     return this.equals(CURRENT);
   }
 
+  @Override
   public boolean isSupported() {
     return this.versionNumber >= MIN_SUPPORTED_VERSION.versionNumber
         && this.versionNumber <= MAX_SUPPORTED_VERSION.versionNumber;

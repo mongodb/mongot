@@ -131,7 +131,7 @@ public class SingleLuceneIndexWriterTest {
     return getWriter(
         directory,
         MOCK_INDEX_DEFINITION,
-        MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+        MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
         analyzerRegistry,
         SearchIndex.mockIndexingMetricsUpdater(MOCK_INDEX_DEFINITION.getType()));
   }
@@ -144,7 +144,7 @@ public class SingleLuceneIndexWriterTest {
     return getWriter(
         directory,
         MOCK_INDEX_DEFINITION,
-        MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+        MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
         analyzerRegistry,
         SearchIndex.mockIndexingMetricsUpdater(MOCK_INDEX_DEFINITION.getType()),
         Optional.of(indexDeletionPolicy));
@@ -169,7 +169,7 @@ public class SingleLuceneIndexWriterTest {
         Optional.of(docsLimit),
         LuceneAnalyzer.indexAnalyzer(MOCK_INDEX_DEFINITION, analyzerRegistry),
         MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
-            MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion),
+            MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene()),
         SearchIndex.mockIndexingMetricsUpdater(MOCK_INDEX_DEFINITION.getType()),
         Optional.empty(),
         FeatureFlags.getDefault(),
@@ -1508,7 +1508,7 @@ public class SingleLuceneIndexWriterTest {
                 Optional.empty(),
                 LuceneAnalyzer.indexAnalyzer(MOCK_INDEX_DEFINITION, analyzerRegistry),
                 MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
-                    MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion),
+                    MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene()),
                 SearchIndex.mockIndexingMetricsUpdater(MOCK_INDEX_DEFINITION.getType()),
                 Optional.empty(),
                 FeatureFlags.withDefaults().build(),
@@ -1524,7 +1524,7 @@ public class SingleLuceneIndexWriterTest {
                 Optional.empty(),
                 LuceneAnalyzer.indexAnalyzer(MOCK_INDEX_DEFINITION, analyzerRegistry),
                 MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
-                    MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion),
+                    MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene()),
                 SearchIndex.mockIndexingMetricsUpdater(MOCK_INDEX_DEFINITION.getType()),
                 Optional.empty(),
                 FeatureFlags.withDefaults().build(),
@@ -1649,7 +1649,7 @@ public class SingleLuceneIndexWriterTest {
                 Optional.empty(),
                 LuceneAnalyzer.indexAnalyzer(MOCK_INDEX_DEFINITION, analyzerRegistry),
                 MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
-                    MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion),
+                    MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene()),
                 SearchIndex.mockIndexingMetricsUpdater(MOCK_INDEX_DEFINITION.getType()),
                 Optional.empty(),
                 FeatureFlags.withDefaults().build(),
@@ -1665,7 +1665,7 @@ public class SingleLuceneIndexWriterTest {
                 Optional.empty(),
                 LuceneAnalyzer.indexAnalyzer(MOCK_INDEX_DEFINITION, analyzerRegistry),
                 MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
-                    MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion),
+                    MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene()),
                 SearchIndex.mockIndexingMetricsUpdater(MOCK_INDEX_DEFINITION.getType()),
                 Optional.empty(),
                 FeatureFlags.withDefaults().build(),
@@ -1681,7 +1681,7 @@ public class SingleLuceneIndexWriterTest {
                 Optional.empty(),
                 LuceneAnalyzer.indexAnalyzer(MOCK_INDEX_DEFINITION, analyzerRegistry),
                 MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
-                    MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion),
+                    MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene()),
                 SearchIndex.mockIndexingMetricsUpdater(MOCK_INDEX_DEFINITION.getType()),
                 Optional.empty(),
                 FeatureFlags.withDefaults().build(),

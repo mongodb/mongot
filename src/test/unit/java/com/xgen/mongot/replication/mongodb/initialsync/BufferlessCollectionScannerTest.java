@@ -738,7 +738,8 @@ public class BufferlessCollectionScannerTest {
     verify(mocks.documentIndexer)
         .updateCommitUserData(
             IndexCommitUserData.createInitialSyncResume(
-                mocks.context.getIndexFormatVersion(), resumeInfo));
+                mocks.context.getGenerationId().generation.formatVersion.versionNumber(),
+                resumeInfo));
     BsonValue expected = enableNaturalOrderScan ? POST_BATCH_RESUME_TOKEN : new BsonInt32(3);
     verify(mocks.indexingWorkScheduler).schedule(any(), any(), any(), any(), any(), any(), any());
     Assert.assertEquals(expected, result.getLastScannedToken());

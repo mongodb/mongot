@@ -217,7 +217,7 @@ public class LeaseTest {
       var indexCommitUserData =
           IndexCommitUserData.createChangeStreamResume(
               ChangeStreamResumeInfo.create(new MongoNamespace("test", "collection"), resumeToken),
-              IndexFormatVersion.CURRENT);
+              IndexFormatVersion.CURRENT.versionNumber);
 
       var lease = createLeaseWithCommitInfo(indexCommitUserData.toEncodedData().asString());
 
@@ -269,7 +269,7 @@ public class LeaseTest {
       var indexCommitUserData =
           IndexCommitUserData.createChangeStreamResume(
               ChangeStreamResumeInfo.create(new MongoNamespace("test", "collection"), resumeToken),
-              IndexFormatVersion.CURRENT);
+              IndexFormatVersion.CURRENT.versionNumber);
 
       var lease = createLeaseWithCommitInfo(indexCommitUserData.toEncodedData().asString());
 
@@ -288,7 +288,7 @@ public class LeaseTest {
       var indexCommitUserData =
           IndexCommitUserData.createChangeStreamResume(
               ChangeStreamResumeInfo.create(new MongoNamespace("test", "collection"), resumeToken),
-              IndexFormatVersion.CURRENT);
+              IndexFormatVersion.CURRENT.versionNumber);
 
       var lease = createLeaseWithCommitInfo(indexCommitUserData.toEncodedData().asString());
 

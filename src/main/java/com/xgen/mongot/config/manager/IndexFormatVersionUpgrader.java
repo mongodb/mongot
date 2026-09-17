@@ -279,10 +279,10 @@ public class IndexFormatVersionUpgrader {
   }
 
   private static boolean isCurrentFormatVersion(IndexGeneration indexGeneration) {
-    return indexGeneration.getDefinitionGeneration().generation().indexFormatVersion.isCurrent();
+    return indexGeneration.getDefinitionGeneration().hasCurrentFormatVersion();
   }
 
   private static boolean isSupportedFormatVersion(IndexGeneration indexGeneration) {
-    return indexGeneration.getDefinitionGeneration().generation().indexFormatVersion.isSupported();
+    return indexGeneration.getDefinitionGeneration().hasSupportedFormatVersion();
   }
 }

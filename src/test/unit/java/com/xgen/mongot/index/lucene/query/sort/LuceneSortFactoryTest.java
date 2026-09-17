@@ -1068,7 +1068,7 @@ public class LuceneSortFactoryTest {
   private SearchQueryFactoryContext newQueryFactoryContext() {
     var fieldDefinitionResolver =
         SearchIndex.MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
-            SearchIndex.MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion);
+            SearchIndex.MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene());
     return new SearchQueryFactoryContext(
         AnalyzerRegistryBuilder.empty(),
         LuceneAnalyzer.queryAnalyzer(

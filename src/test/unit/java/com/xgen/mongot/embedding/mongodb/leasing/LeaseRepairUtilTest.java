@@ -277,7 +277,8 @@ public class LeaseRepairUtilTest {
             new MongoNamespace(dbName, COLLECTION_NAME),
             ChangeStreamUtils.resumeToken(new BsonTimestamp(1L)));
     var commitInfo =
-        IndexCommitUserData.createChangeStreamResume(resumeInfo, IndexFormatVersion.CURRENT)
+        IndexCommitUserData.createChangeStreamResume(
+                resumeInfo, IndexFormatVersion.CURRENT.versionNumber)
             .toEncodedData()
             .asString();
     return leaseWithRawCommitInfo(commitInfo, steadyPosition);
@@ -316,7 +317,8 @@ public class LeaseRepairUtilTest {
             new MongoNamespace(prefixedDb, baseCollection),
             ChangeStreamUtils.resumeToken(new BsonTimestamp(1L)));
     var commitInfo =
-        IndexCommitUserData.createChangeStreamResume(resumeInfo, IndexFormatVersion.CURRENT)
+        IndexCommitUserData.createChangeStreamResume(
+                resumeInfo, IndexFormatVersion.CURRENT.versionNumber)
             .toEncodedData()
             .asString();
     return new Lease(

@@ -65,7 +65,7 @@ public record IndexGenerationMetrics(
       return new IndexMetricsGenerationId(
           generationId.indexId,
           generationId.generation.userIndexVersion.versionNumber,
-          generationId.generation.indexFormatVersion.versionNumber,
+          generationId.generation.formatVersion.versionNumber(),
           generationId.generation.attemptNumber);
     }
 

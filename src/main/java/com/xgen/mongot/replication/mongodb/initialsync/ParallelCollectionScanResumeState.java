@@ -1,6 +1,5 @@
 package com.xgen.mongot.replication.mongodb.initialsync;
 
-import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.replication.mongodb.common.BufferlessParallelNaturalOrderInitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
 import java.util.ArrayList;
@@ -23,19 +22,19 @@ import org.bson.BsonTimestamp;
  */
 public class ParallelCollectionScanResumeState {
 
-  private final IndexFormatVersion indexFormatVersion;
+  private final int formatVersion;
   private final UUID initialSyncId;
   private final Optional<String> syncSourceHost;
   private final List<ParallelCollectionScanPartitionState> partitions;
   private volatile BsonTimestamp highWaterMark;
 
   public ParallelCollectionScanResumeState(
-      IndexFormatVersion indexFormatVersion,
+      int formatVersion,
       UUID initialSyncId,
       Optional<String> syncSourceHost,
       BsonTimestamp highWaterMark,
       List<ParallelCollectionScanPartitionState> partitions) {
-    this.indexFormatVersion = indexFormatVersion;
+    this.formatVersion = formatVersion;
     this.initialSyncId = initialSyncId;
     this.syncSourceHost = syncSourceHost;
     this.highWaterMark = highWaterMark;
@@ -47,7 +46,7 @@ public class ParallelCollectionScanResumeState {
    * position in the plan, which lists them in scan order, and each starts with nothing scanned.
    */
   public static ParallelCollectionScanResumeState fromPlan(
-      IndexFormatVersion indexFormatVersion,
+      int formatVersion,
       InitialSyncPartitionPlan.PartitionedResult plan,
       BsonTimestamp highWaterMark,
       Optional<String> syncSourceHost) {
@@ -60,7 +59,7 @@ public class ParallelCollectionScanResumeState {
     }
 
     return new ParallelCollectionScanResumeState(
-        indexFormatVersion, plan.initialSyncId(), syncSourceHost, highWaterMark, partitions);
+        formatVersion, plan.initialSyncId(), syncSourceHost, highWaterMark, partitions);
   }
 
   /**
@@ -68,10 +67,9 @@ public class ParallelCollectionScanResumeState {
    * not in the blob; it comes from the index generation being resumed.
    */
   public static ParallelCollectionScanResumeState fromPersisted(
-      IndexFormatVersion indexFormatVersion,
-      BufferlessParallelNaturalOrderInitialSyncResumeInfo persisted) {
+      int formatVersion, BufferlessParallelNaturalOrderInitialSyncResumeInfo persisted) {
     return new ParallelCollectionScanResumeState(
-        indexFormatVersion,
+        formatVersion,
         persisted.getInitialSyncId(),
         persisted.getSyncSourceHost(),
         persisted.getResumeOperationTime(),
@@ -118,7 +116,7 @@ public class ParallelCollectionScanResumeState {
                 .map(ParallelCollectionScanPartitionState::toPersisted)
                 .toList(),
             this.syncSourceHost);
-    return IndexCommitUserData.createInitialSyncResume(this.indexFormatVersion, resumeInfo);
+    return IndexCommitUserData.createInitialSyncResume(this.formatVersion, resumeInfo);
   }
 
   @Override

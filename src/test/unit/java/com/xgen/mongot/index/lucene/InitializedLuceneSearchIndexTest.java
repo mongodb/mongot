@@ -104,7 +104,7 @@ public class InitializedLuceneSearchIndexTest {
                 Executors.namedExecutor(
                     "rescoring", TestingExecutors.noOpScheduledExecutor(), meterRegistry)),
             MOCK_INDEX_DEFINITION_GENERATION.getIndexDefinition(),
-            MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+            MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
             AnalyzerRegistryBuilder.empty(),
             new AtomicDirectoryRemover(TestUtils.getTempFolder().getRoot().toPath()),
             SearchIndex.mockMetricsFactory(),
@@ -284,7 +284,7 @@ public class InitializedLuceneSearchIndexTest {
                 Executors.namedExecutor(
                     "rescoring", TestingExecutors.noOpScheduledExecutor(), meterRegistry)),
             MOCK_INDEX_DEFINITION_GENERATION.getIndexDefinition(),
-            MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+            MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
             AnalyzerRegistryBuilder.empty(),
             indexDirectoryHelper.getIndexRemover(),
             SearchIndex.mockMetricsFactory(),
@@ -350,7 +350,7 @@ public class InitializedLuceneSearchIndexTest {
                     Executors.namedExecutor(
                         "rescoring", TestingExecutors.noOpScheduledExecutor(), meterRegistry)),
                 MOCK_INDEX_DEFINITION_GENERATION.getIndexDefinition(),
-                MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+                MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
                 AnalyzerRegistryBuilder.empty(),
                 directoryRemover,
                 SearchIndex.mockMetricsFactory(),
@@ -415,7 +415,7 @@ public class InitializedLuceneSearchIndexTest {
                     Executors.namedExecutor(
                         "rescoring", TestingExecutors.noOpScheduledExecutor(), meterRegistry)),
                 MOCK_INDEX_DEFINITION_GENERATION.getIndexDefinition(),
-                MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+                MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
                 AnalyzerRegistryBuilder.empty(),
                 new AtomicDirectoryRemover(TestUtils.getTempFolder().getRoot().toPath()),
                 SearchIndex.mockMetricsFactory(),
@@ -476,7 +476,7 @@ public class InitializedLuceneSearchIndexTest {
                     Executors.namedExecutor(
                         "rescoring", TestingExecutors.noOpScheduledExecutor(), meterRegistry)),
                 MOCK_INDEX_DEFINITION_GENERATION.getIndexDefinition(),
-                MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+                MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
                 AnalyzerRegistryBuilder.empty(),
                 new AtomicDirectoryRemover(TestUtils.getTempFolder().getRoot().toPath()),
                 SearchIndex.mockMetricsFactory(),
@@ -546,7 +546,7 @@ public class InitializedLuceneSearchIndexTest {
                     Executors.namedExecutor(
                         "rescoring", TestingExecutors.noOpScheduledExecutor(), meterRegistry)),
                 MOCK_INDEX_DEFINITION_GENERATION.getIndexDefinition(),
-                MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+                MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
                 AnalyzerRegistryBuilder.empty(),
                 indexDirectoryHelper.getIndexRemover(),
                 SearchIndex.mockMetricsFactory(),
@@ -599,7 +599,7 @@ public class InitializedLuceneSearchIndexTest {
             Optional.of(Mockito.mock(NamedExecutorService.class)),
             Optional.of(Mockito.mock(NamedExecutorService.class)),
             MOCK_INDEX_DEFINITION_GENERATION.getIndexDefinition(),
-            MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+            MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
             AnalyzerRegistryBuilder.empty(),
             indexDirectoryHelper.getIndexRemover(),
             SearchIndex.mockMetricsFactory(),
@@ -692,7 +692,7 @@ public class InitializedLuceneSearchIndexTest {
                     Executors.namedExecutor(
                         "rescoring", TestingExecutors.noOpScheduledExecutor(), meterRegistry)),
                 MOCK_INDEX_DEFINITION_GENERATION.getIndexDefinition(),
-                MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+                MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
                 AnalyzerRegistryBuilder.empty(),
                 new AtomicDirectoryRemover(TestUtils.getTempFolder().getRoot().toPath()),
                 SearchIndex.mockMetricsFactory(),
@@ -782,7 +782,7 @@ public class InitializedLuceneSearchIndexTest {
         Optional.of(Mockito.mock(NamedExecutorService.class)),
         Optional.of(Mockito.mock(NamedExecutorService.class)),
         MOCK_INDEX_DEFINITION_GENERATION.getIndexDefinition(),
-        MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+        MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
         AnalyzerRegistryBuilder.empty(),
         new AtomicDirectoryRemover(TestUtils.getTempFolder().getRoot().toPath()),
         metricsFactory,

@@ -39,7 +39,7 @@ public class GenerationTest {
     /** Test data. */
     @Parameterized.Parameters(name = "{0}")
     public static Iterable<BsonDeserializationTestSuite.TestSpecWrapper<Generation>> data() {
-      return TEST_SUITE.withExamples(simple(), noAttemptNum());
+      return TEST_SUITE.withExamples(simple(), noAttemptNum(), explicitLucene(), vectorlite());
     }
 
     @Test
@@ -53,6 +53,15 @@ public class GenerationTest {
 
     private static BsonDeserializationTestSuite.ValidSpec<Generation> noAttemptNum() {
       return BsonDeserializationTestSuite.TestSpec.valid("no attempt number", generation(1, 2, 0));
+    }
+
+    private static BsonDeserializationTestSuite.ValidSpec<Generation> explicitLucene() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "explicit lucene engine", generation(1, 2, 0));
+    }
+
+    private static BsonDeserializationTestSuite.ValidSpec<Generation> vectorlite() {
+      return BsonDeserializationTestSuite.TestSpec.valid("vectorlite", vectorliteGeneration());
     }
   }
 
@@ -73,7 +82,7 @@ public class GenerationTest {
     @Parameterized.Parameters(name = "{0}")
     public static Iterable<BsonSerializationTestSuite.TestSpec<Generation>> data() {
 
-      return Arrays.asList(simple(), noAttemptNum());
+      return Arrays.asList(simple(), noAttemptNum(), vectorlite());
     }
 
     @Test
@@ -87,6 +96,10 @@ public class GenerationTest {
 
     private static BsonSerializationTestSuite.TestSpec<Generation> noAttemptNum() {
       return BsonSerializationTestSuite.TestSpec.create("no attempt number", generation(1, 2, 0));
+    }
+
+    private static BsonSerializationTestSuite.TestSpec<Generation> vectorlite() {
+      return BsonSerializationTestSuite.TestSpec.create("vectorlite", vectorliteGeneration());
     }
   }
 
@@ -115,6 +128,54 @@ public class GenerationTest {
     }
 
     @Test
+    public void vectorlite_keepsItsEngineThroughAttemptsAndUserVersions() {
+      var vectorlite = new Generation(new UserIndexVersion(1), VectorliteFormatVersion.CURRENT);
+      Assert.assertEquals(IndexEngine.VECTORLITE, vectorlite.formatVersion.engine());
+      Assert.assertEquals(VectorliteFormatVersion.CURRENT, vectorlite.formatVersion.asVectorlite());
+      Assert.assertEquals(IndexEngine.VECTORLITE, vectorlite.nextAttempt().formatVersion.engine());
+      Assert.assertEquals(
+          IndexEngine.VECTORLITE, vectorlite.incrementUser().formatVersion.engine());
+      Assert.assertEquals(IndexEngine.LUCENE, Generation.CURRENT.formatVersion.engine());
+    }
+
+    @Test
+    public void current_startsAtTheEnginesCurrentFormatVersion() {
+      Assert.assertEquals(
+          Generation.CURRENT, Generation.current(IndexEngine.LUCENE, UserIndexVersion.FIRST));
+      Assert.assertEquals(
+          new Generation(UserIndexVersion.FIRST, VectorliteFormatVersion.CURRENT),
+          Generation.current(IndexEngine.VECTORLITE, UserIndexVersion.FIRST));
+    }
+
+    @Test
+    public void formatVersion_isReadInTheEnginesLine() {
+      var lucene = new Generation(UserIndexVersion.FIRST, IndexFormatVersion.MIN_SUPPORTED_VERSION);
+      Assert.assertEquals(
+          IndexFormatVersion.MIN_SUPPORTED_VERSION, lucene.formatVersion.asLucene());
+      Assert.assertEquals(
+          IndexFormatVersion.MIN_SUPPORTED_VERSION, lucene.capabilitiesFormatVersion());
+      Assert.assertFalse(lucene.formatVersion.isCurrent());
+      Assert.assertTrue(lucene.formatVersion.isSupported());
+      Assert.assertThrows(UnsupportedOperationException.class, lucene.formatVersion::asVectorlite);
+
+      var next = new VectorliteFormatVersion(VectorliteFormatVersion.CURRENT.versionNumber() + 1);
+      var vectorlite = new Generation(UserIndexVersion.FIRST, next);
+      Assert.assertEquals(next, vectorlite.formatVersion.asVectorlite());
+      Assert.assertEquals(IndexFormatVersion.CURRENT, vectorlite.capabilitiesFormatVersion());
+      Assert.assertFalse(vectorlite.formatVersion.isCurrent());
+      Assert.assertFalse(vectorlite.formatVersion.isSupported());
+      Assert.assertThrows(UnsupportedOperationException.class, vectorlite.formatVersion::asLucene);
+    }
+
+    @Test
+    public void engine_isSerializedOnlyForVectorlite() {
+      Assert.assertFalse(Generation.CURRENT.toBson().containsKey("engine"));
+      var vectorlite = new Generation(UserIndexVersion.FIRST, new VectorliteFormatVersion(7));
+      Assert.assertEquals("vectorlite", vectorlite.toBson().getString("engine").getValue());
+      Assert.assertEquals(7, vectorlite.toBson().getInt32("formatVersion").getValue());
+    }
+
+    @Test
     public void testIndexGenerationEquals() {
       var u1 = new UserIndexVersion(1);
       var u2 = new UserIndexVersion(2);
@@ -127,11 +188,19 @@ public class GenerationTest {
           () -> new Generation(u1, b2, 1),
           () -> new Generation(u2, b1, 0),
           () -> new Generation(u2, b2, 0),
-          () -> new Generation(u2, b2, 1));
+          () -> new Generation(u2, b2, 1),
+          () -> new Generation(u1, new VectorliteFormatVersion(1)),
+          () -> new Generation(u1, new VectorliteFormatVersion(2)),
+          () -> new Generation(u1, new VectorliteFormatVersion(2)).nextAttempt());
     }
   }
 
   public static Generation generation(int user, int backend, int attempt) {
     return new Generation(new UserIndexVersion(user), IndexFormatVersion.create(backend), attempt);
+  }
+
+  /** A vectorlite generation independent of CURRENT. */
+  static Generation vectorliteGeneration() {
+    return new Generation(new UserIndexVersion(1), new VectorliteFormatVersion(3));
   }
 }

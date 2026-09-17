@@ -30,6 +30,18 @@ public record MaterializedViewIndexDefinitionGeneration(
     throw new UnsupportedOperationException("upgradeToCurrentFormatVersion is not supported");
   }
 
+  // Materialized views are Lucene generations at the current version whatever the parent's engine.
+
+  @Override
+  public boolean hasCurrentFormatVersion() {
+    return this.generation.formatVersion.isCurrent();
+  }
+
+  @Override
+  public boolean hasSupportedFormatVersion() {
+    return this.generation.formatVersion.isSupported();
+  }
+
   @Override
   public MaterializedViewIndexDefinitionGeneration incrementAttempt() {
     MaterializedViewGeneration generation = this.generation.nextAttempt();

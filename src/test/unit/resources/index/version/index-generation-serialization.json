@@ -14,6 +14,14 @@
         "userVersion": 1,
         "formatVersion": 2
       }
+    },
+    {
+      "description": "vectorlite",
+      "value": {
+        "userVersion": 1,
+        "formatVersion": 3,
+        "engine": "vectorlite"
+      }
     }
   ]
 }

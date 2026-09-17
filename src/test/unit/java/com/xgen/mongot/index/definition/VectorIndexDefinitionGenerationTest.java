@@ -4,7 +4,10 @@ import static com.xgen.testing.BsonDeserializationTestSuite.fromDocument;
 import static com.xgen.testing.BsonSerializationTestSuite.fromEncodable;
 
 import com.xgen.mongot.index.version.Generation;
+import com.xgen.mongot.index.version.IndexEngine;
+import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.index.version.UserIndexVersion;
+import com.xgen.mongot.index.version.VectorliteFormatVersion;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.BsonDeserializationTestSuite;
 import com.xgen.testing.BsonSerializationTestSuite;
@@ -115,6 +118,66 @@ public class VectorIndexDefinitionGenerationTest {
 
   public static class ClassTest {
     @Test
+    public void vectorliteIndex_isVersionedInTheVectorliteLine() {
+      var definition =
+          VectorIndexDefinitionBuilder.builder().withCustomEngineVectorField("vector", 3).build();
+      Assert.assertEquals(IndexEngine.VECTORLITE, definition.engine());
+      Assert.assertEquals(
+          new Generation(UserIndexVersion.FIRST, VectorliteFormatVersion.CURRENT),
+          definition.newGeneration(UserIndexVersion.FIRST));
+
+      // A Lucene generation on a vectorlite definition predates the engine tag: rebuild it.
+      var preSplit =
+          new VectorIndexDefinitionGeneration(
+              definition, new Generation(new UserIndexVersion(2), IndexFormatVersion.CURRENT));
+      Assert.assertFalse(preSplit.hasCurrentFormatVersion());
+      Assert.assertFalse(preSplit.hasSupportedFormatVersion());
+
+      var upgraded = preSplit.upgradeToCurrentFormatVersion();
+      Assert.assertEquals(
+          new Generation(UserIndexVersion.FIRST, VectorliteFormatVersion.CURRENT),
+          upgraded.generation());
+      Assert.assertTrue(upgraded.hasCurrentFormatVersion());
+      Assert.assertTrue(upgraded.hasSupportedFormatVersion());
+      Assert.assertThrows(IllegalArgumentException.class, upgraded::upgradeToCurrentFormatVersion);
+
+      // A newer vectorlite version (rollback) is unsupported.
+      var fromNewerRelease =
+          new VectorIndexDefinitionGeneration(
+              definition,
+              new Generation(
+                  UserIndexVersion.FIRST,
+                  new VectorliteFormatVersion(
+                      VectorliteFormatVersion.CURRENT.versionNumber() + 1)));
+      Assert.assertFalse(fromNewerRelease.hasCurrentFormatVersion());
+      Assert.assertFalse(fromNewerRelease.hasSupportedFormatVersion());
+    }
+
+    @Test
+    public void luceneVectorIndex_isVersionedInTheLuceneLine() {
+      var definition =
+          VectorIndexDefinitionBuilder.builder().withDotProductVectorField("vector", 3).build();
+      Assert.assertEquals(IndexEngine.LUCENE, definition.engine());
+      Assert.assertEquals(Generation.CURRENT, definition.newGeneration(UserIndexVersion.FIRST));
+
+      var outdated =
+          new VectorIndexDefinitionGeneration(
+              definition,
+              new Generation(UserIndexVersion.FIRST, IndexFormatVersion.MIN_SUPPORTED_VERSION));
+      Assert.assertFalse(outdated.hasCurrentFormatVersion());
+      Assert.assertTrue(outdated.hasSupportedFormatVersion());
+      Assert.assertEquals(
+          Generation.CURRENT, outdated.upgradeToCurrentFormatVersion().generation());
+
+      // A vectorlite generation on a Lucene definition is the wrong engine: rebuild it.
+      var wrongEngine =
+          new VectorIndexDefinitionGeneration(
+              definition, new Generation(UserIndexVersion.FIRST, VectorliteFormatVersion.CURRENT));
+      Assert.assertFalse(wrongEngine.hasCurrentFormatVersion());
+      Assert.assertFalse(wrongEngine.hasSupportedFormatVersion());
+    }
+
+    @Test
     public void testIncrementsUser() {
       var firstIndex =
           AnalyzerBoundSearchIndexDefinitionBuilder.builder()
@@ -136,7 +199,7 @@ public class VectorIndexDefinitionGenerationTest {
       var expected =
           new SearchIndexDefinitionGeneration(
               secondIndex,
-              new Generation(new UserIndexVersion(1), first.generation().indexFormatVersion));
+              new Generation(new UserIndexVersion(1), first.generation().formatVersion.asLucene()));
       Assert.assertEquals(expected, second);
     }
   }

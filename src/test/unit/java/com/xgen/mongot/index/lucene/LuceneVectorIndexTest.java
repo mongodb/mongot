@@ -62,7 +62,7 @@ public class LuceneVectorIndexTest {
             Optional.empty(),
             Optional.empty(),
             VectorIndex.MOCK_INDEX_DEFINITION_GENERATION.getIndexDefinition(),
-            MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+            MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
             new AtomicDirectoryRemover(TestUtils.getTempFolder().getRoot().toPath()),
             VectorIndex.mockMetricsFactory());
 
@@ -155,7 +155,7 @@ public class LuceneVectorIndexTest {
             Optional.empty(),
             Optional.empty(),
             VectorIndex.MOCK_INDEX_DEFINITION_GENERATION.getIndexDefinition(),
-            MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+            MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
             new AtomicDirectoryRemover(TestUtils.getTempFolder().getRoot().toPath()),
             VectorIndex.mockMetricsFactory());
 
@@ -233,7 +233,7 @@ public class LuceneVectorIndexTest {
         Optional.of(Mockito.mock(NamedExecutorService.class)),
         Optional.of(Mockito.mock(NamedExecutorService.class)),
         VectorIndex.MOCK_INDEX_DEFINITION_GENERATION.getIndexDefinition(),
-        VectorIndex.MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+        VectorIndex.MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
         new AtomicDirectoryRemover(TestUtils.getTempFolder().getRoot().toPath()),
         metricsFactory);
   }

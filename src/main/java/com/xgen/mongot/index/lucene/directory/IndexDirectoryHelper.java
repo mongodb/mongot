@@ -4,6 +4,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.index.version.GenerationId;
+import com.xgen.mongot.index.version.IndexEngine;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.util.AtomicDirectoryRemover;
 import com.xgen.mongot.util.FileUtils;
@@ -213,7 +214,8 @@ public class IndexDirectoryHelper {
    * without a parseable index definition.
    */
   public Path getIndexDirectoryPath(GenerationId generationId) {
-    if (generationId.generation.indexFormatVersion.versionNumber <= 4) {
+    if (generationId.generation.formatVersion.engine() == IndexEngine.LUCENE
+        && generationId.generation.formatVersion.versionNumber() <= 4) {
       throw new IllegalStateException("Index format version is not supported");
     }
     // Each index's data will live in a directory with the index's generation ID as the name, as
@@ -285,7 +287,7 @@ public class IndexDirectoryHelper {
     return String.format(
         "%s_f%s_u%s_a%s",
         generationId.indexId.toHexString(),
-        generationId.generation.indexFormatVersion.versionNumber,
+        generationId.generation.formatVersion.versionNumber(),
         generationId.generation.userIndexVersion.versionNumber,
         generationId.generation.attemptNumber);
   }

@@ -2084,8 +2084,7 @@ public class ReplicationIndexManagerTest {
       return create(
           Optional.of(
               IndexCommitUserData.createChangeStreamResume(
-                  RESUME_INFO,
-                  IndexFormatVersion.create(IndexFormatVersion.CURRENT.versionNumber - 1))),
+                  RESUME_INFO, IndexFormatVersion.CURRENT.versionNumber - 1)),
           HANGING_INITIAL_SYNC_QUEUE,
           HANGING_STEADY_STATE_MANAGER,
           HANGING_SYNONYM_MANAGER,
@@ -2100,9 +2099,7 @@ public class ReplicationIndexManagerTest {
                   new ObjectId(),
                   new Generation(UserIndexVersion.FIRST, IndexFormatVersion.create(1))));
       return create(
-          Optional.of(
-              IndexCommitUserData.createChangeStreamResume(
-                  RESUME_INFO, IndexFormatVersion.create(1))),
+          Optional.of(IndexCommitUserData.createChangeStreamResume(RESUME_INFO, 1)),
           HANGING_INITIAL_SYNC_QUEUE,
           HANGING_STEADY_STATE_MANAGER,
           HANGING_SYNONYM_MANAGER,
@@ -2116,7 +2113,7 @@ public class ReplicationIndexManagerTest {
       return create(
           Optional.of(
               IndexCommitUserData.createChangeStreamResume(
-                  RESUME_INFO, IndexFormatVersion.CURRENT)),
+                  RESUME_INFO, IndexFormatVersion.CURRENT.versionNumber)),
           HANGING_INITIAL_SYNC_QUEUE,
           HANGING_STEADY_STATE_MANAGER,
           HANGING_SYNONYM_MANAGER,
@@ -2128,7 +2125,7 @@ public class ReplicationIndexManagerTest {
       return create(
           Optional.of(
               IndexCommitUserData.createChangeStreamResume(
-                  RESUME_INFO, IndexFormatVersion.CURRENT)),
+                  RESUME_INFO, IndexFormatVersion.CURRENT.versionNumber)),
           HANGING_INITIAL_SYNC_QUEUE,
           HANGING_STEADY_STATE_MANAGER,
           HANGING_SYNONYM_MANAGER,
@@ -2169,7 +2166,7 @@ public class ReplicationIndexManagerTest {
       return create(
           Optional.of(
               IndexCommitUserData.createChangeStreamResume(
-                  committedResume, IndexFormatVersion.CURRENT)),
+                  committedResume, IndexFormatVersion.CURRENT.versionNumber)),
           HANGING_INITIAL_SYNC_QUEUE,
           HANGING_STEADY_STATE_MANAGER,
           HANGING_SYNONYM_MANAGER,
@@ -2184,7 +2181,7 @@ public class ReplicationIndexManagerTest {
       return create(
           Optional.of(
               IndexCommitUserData.createInitialSyncResume(
-                  IndexFormatVersion.CURRENT, initialSyncResumeInfo)),
+                  IndexFormatVersion.CURRENT.versionNumber, initialSyncResumeInfo)),
           HANGING_INITIAL_SYNC_QUEUE,
           HANGING_STEADY_STATE_MANAGER,
           HANGING_SYNONYM_MANAGER,
@@ -2196,7 +2193,7 @@ public class ReplicationIndexManagerTest {
       return create(
           Optional.of(
               IndexCommitUserData.createInitialSyncResume(
-                  IndexFormatVersion.create(IndexFormatVersion.CURRENT.versionNumber - 1),
+                  IndexFormatVersion.CURRENT.versionNumber - 1,
                   BUFFERLESS_INITIAL_SYNC_RESUME_INFO)),
           HANGING_INITIAL_SYNC_QUEUE,
           HANGING_STEADY_STATE_MANAGER,
@@ -2273,7 +2270,7 @@ public class ReplicationIndexManagerTest {
       return create(
           Optional.of(
               IndexCommitUserData.createInitialSyncResume(
-                  IndexFormatVersion.CURRENT, BUFFERLESS_INITIAL_SYNC_RESUME_INFO)),
+                  IndexFormatVersion.CURRENT.versionNumber, BUFFERLESS_INITIAL_SYNC_RESUME_INFO)),
           exceptionalInitialSyncQueue(t),
           HANGING_STEADY_STATE_MANAGER,
           HANGING_SYNONYM_MANAGER,
@@ -2301,7 +2298,7 @@ public class ReplicationIndexManagerTest {
       return create(
           Optional.of(
               IndexCommitUserData.createChangeStreamResume(
-                  RESUME_INFO, IndexFormatVersion.CURRENT)),
+                  RESUME_INFO, IndexFormatVersion.CURRENT.versionNumber)),
           HANGING_INITIAL_SYNC_QUEUE,
           exceptionalSteadyStateManager(t),
           HANGING_SYNONYM_MANAGER,
@@ -2314,7 +2311,7 @@ public class ReplicationIndexManagerTest {
       return create(
           Optional.of(
               IndexCommitUserData.createChangeStreamResume(
-                  RESUME_INFO, IndexFormatVersion.CURRENT)),
+                  RESUME_INFO, IndexFormatVersion.CURRENT.versionNumber)),
           HANGING_INITIAL_SYNC_QUEUE,
           exceptionalSteadyStateManager(t),
           HANGING_SYNONYM_MANAGER,
@@ -2328,7 +2325,7 @@ public class ReplicationIndexManagerTest {
       return create(
           Optional.of(
               IndexCommitUserData.createChangeStreamResume(
-                  RESUME_INFO, IndexFormatVersion.CURRENT)),
+                  RESUME_INFO, IndexFormatVersion.CURRENT.versionNumber)),
           HANGING_INITIAL_SYNC_QUEUE,
           hangingExceptionalSteadyStateManager(t, steadyStateManagerLatch),
           HANGING_SYNONYM_MANAGER,

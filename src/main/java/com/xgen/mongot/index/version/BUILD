@@ -3,14 +3,17 @@ load("//bazel/java:package.bzl", "java_library")
 java_library(
     name = "version",
     srcs = [
+        "FormatVersion.java",
         "Generation.java",
         "GenerationId.java",
         "IndexCapabilities.java",
+        "IndexEngine.java",
         "IndexFormatVersion.java",
         "MaterializedViewGeneration.java",
         "MaterializedViewGenerationId.java",
         "SynonymMappingId.java",
         "UserIndexVersion.java",
+        "VectorliteFormatVersion.java",
     ],
     visibility = ["//visibility:public"],
     exports = ["@maven//:org_mongodb_bson"],

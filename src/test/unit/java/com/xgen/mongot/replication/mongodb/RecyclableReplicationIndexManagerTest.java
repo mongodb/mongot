@@ -540,7 +540,7 @@ public class RecyclableReplicationIndexManagerTest {
             StaleStatusReason.DOCS_EXCEEDED,
             StaleStatusReason.DOCS_EXCEEDED.formatMessage(),
             IndexCommitUserData.createChangeStreamResume(
-                staleResumeInfo, IndexFormatVersion.CURRENT));
+                staleResumeInfo, IndexFormatVersion.CURRENT.versionNumber));
     FollowerIndex index = followerIndex(IndexCommitUserData.createStale(staleStateInfo));
 
     createFollowerManager(index, FeatureFlags.getDefault());
@@ -573,7 +573,7 @@ public class RecyclableReplicationIndexManagerTest {
     FollowerIndex index =
         followerIndex(
             IndexCommitUserData.createInitialSyncResume(
-                IndexFormatVersion.CURRENT,
+                IndexFormatVersion.CURRENT.versionNumber,
                 new BufferlessIdOrderInitialSyncResumeInfo(
                     new BsonTimestamp(1234567890L), new BsonString("a"))));
 
@@ -590,7 +590,7 @@ public class RecyclableReplicationIndexManagerTest {
                 ChangeStreamResumeInfo.create(
                     new MongoNamespace("database", "collection"),
                     new BsonDocument("_data", new BsonString("820000000000000000"))),
-                IndexFormatVersion.CURRENT));
+                IndexFormatVersion.CURRENT.versionNumber));
 
     createFollowerManager(index, FeatureFlags.getDefault());
 

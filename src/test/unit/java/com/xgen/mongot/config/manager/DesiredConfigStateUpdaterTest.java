@@ -19,6 +19,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
 
 import com.xgen.mongot.config.backup.ConfigJournalV1;
 import com.xgen.mongot.config.backup.JournalEntryIdentity;
@@ -36,6 +37,7 @@ import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.index.version.UserIndexVersion;
+import com.xgen.mongot.index.version.VectorliteFormatVersion;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.testing.mongot.config.backup.ConfigJournalV1Builder;
 import com.xgen.testing.mongot.config.manager.ConfigStateMocks;
@@ -68,6 +70,21 @@ public class DesiredConfigStateUpdaterTest {
       SearchIndexDefinitionBuilder.from(MOCK_INDEX_DEFINITION).analyzerName("lucene.cjk").build();
   private static final VectorIndexDefinition MOCK_VECTOR_DEFINITION_CHANGED =
       VectorIndexDefinitionBuilder.from(MOCK_VECTOR_DEFINITION).withFilterPath("new.path").build();
+
+  private static final ObjectId VECTORLITE_INDEX_ID = new ObjectId("0123456789012345678901ab");
+  private static final VectorIndexDefinition MOCK_VECTORLITE_DEFINITION =
+      VectorIndexDefinitionBuilder.builder()
+          .indexId(VECTORLITE_INDEX_ID)
+          .withCustomEngineVectorField("vector", 3)
+          .build();
+  // Built directly rather than via from(): the builder's from() re-adds vector fields with default
+  // options and drops the custom engine, which would turn this into a Lucene vector index.
+  private static final VectorIndexDefinition MOCK_VECTORLITE_DEFINITION_CHANGED =
+      VectorIndexDefinitionBuilder.builder()
+          .indexId(VECTORLITE_INDEX_ID)
+          .withCustomEngineVectorField("vector", 3)
+          .withFilterPath("new.path")
+          .build();
 
   @Test
   public void testEmptyUpdatedToEmptyDoesNothing() throws Exception {
@@ -306,6 +323,61 @@ public class DesiredConfigStateUpdaterTest {
                             == MOCK_VECTOR_DEFINITION_CHANGED));
     inOrder.verify(mocks.indexFactory).getIndex(any());
     inOrder.verify(mocks.staged).addIndex(newIndex);
+  }
+
+  /** The conf-call path that mints every production vectorlite generation. */
+  @Test
+  public void testEmptyUpdatedToVectorliteIndexStartsAtTheVectorliteVersion() throws Exception {
+    ConfigStateMocks mocks = vectorliteReadyMocks();
+    swapUpdate(mocks, List.of(MOCK_VECTORLITE_DEFINITION), List.of());
+
+    mocks.assertOneIndexCreated();
+    mocks.assertOneIndexCatalogedAndReplicated();
+
+    var expectedGeneration =
+        new VectorIndexDefinitionGeneration(
+            MOCK_VECTORLITE_DEFINITION,
+            new Generation(UserIndexVersion.FIRST, VectorliteFormatVersion.CURRENT));
+    mocks.assertPersistedJournalEquals(
+        ConfigJournalV1Builder.builder().liveIndex(expectedGeneration).build());
+    Assert.assertEquals(
+        expectedGeneration,
+        mocks
+            .indexCatalog
+            .getIndexById(VECTORLITE_INDEX_ID)
+            .orElseThrow()
+            .getDefinitionGeneration());
+  }
+
+  /** A vectorlite index on a Lucene generation is not current; a modification restages it. */
+  @Test
+  public void testVectorliteIndexOnLuceneGenerationModifiedRestagesAsVectorlite() throws Exception {
+    ConfigStateMocks mocks = vectorliteReadyMocks();
+    var preSplit =
+        new VectorIndexDefinitionGeneration(
+            MOCK_VECTORLITE_DEFINITION,
+            new Generation(UserIndexVersion.FIRST, IndexFormatVersion.CURRENT));
+    var oldIndex = mocks.addIndex(preSplit, ConfigStateMocks.State.LIVE);
+    mocks.clearInvocations();
+
+    swapUpdate(mocks, List.of(MOCK_VECTORLITE_DEFINITION_CHANGED), List.of());
+
+    mocks.assertOneIndexCreated();
+    mocks.assertAtLeastOneIndexStagedAndReplicated();
+    mocks.assertLiveIndexesAre(oldIndex);
+    var newIndex = mocks.staged.getIndex(VECTORLITE_INDEX_ID).orElseThrow();
+    mocks.assertStagedIndexesAre(newIndex);
+    Assert.assertEquals(MOCK_VECTORLITE_DEFINITION_CHANGED, newIndex.getDefinition());
+    Assert.assertEquals(
+        VectorliteFormatVersion.CURRENT,
+        newIndex.getDefinitionGeneration().generation().formatVersion.asVectorlite());
+  }
+
+  /** The mock factory defers custom engine indexes until ready; report them ready. */
+  private ConfigStateMocks vectorliteReadyMocks() throws Exception {
+    var mocks = getEmptyMocks();
+    when(mocks.indexFactory.isReadyToInitialize(any())).thenReturn(true);
+    return mocks;
   }
 
   @Test

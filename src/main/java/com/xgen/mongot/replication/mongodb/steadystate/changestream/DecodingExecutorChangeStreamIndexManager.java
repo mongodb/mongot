@@ -225,7 +225,7 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
                         indexableChangeStreamEvents,
                         this.indexDefinition,
                         this.indexDefinition.createFieldDefinitionResolver(
-                            this.generationId.generation.indexFormatVersion),
+                            this.generationId.generation.capabilitiesFormatVersion()),
                         false /* areUpdateEventsPrefiltered */,
                         this.viewFieldDependencies.get(),
                         this.autoEmbeddingMaterializedViewConfig,
@@ -347,7 +347,7 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
           resumeInfo.map(
               info ->
                   IndexCommitUserData.createChangeStreamResume(
-                      info, this.generationId.generation.indexFormatVersion)),
+                      info, this.generationId.generation.formatVersion.versionNumber())),
           this.indexMetricsUpdater.getIndexingMetricsUpdater());
     }
   }

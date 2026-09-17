@@ -24,7 +24,6 @@ import com.xgen.mongot.index.status.IndexStatus.Reason;
 import com.xgen.mongot.index.status.IndexStatus.StatusCode;
 import com.xgen.mongot.index.status.StaleStatusReason;
 import com.xgen.mongot.index.version.GenerationId;
-import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.logging.DefaultKeyValueLogger;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
@@ -416,11 +415,7 @@ public class ReplicationIndexManager implements IndexManager {
     checkState(
         this.state.equals(State.INITIALIZING), "cannot call init() when not in INITIALIZING");
     checkState(
-        this.indexGeneration
-            .getDefinitionGeneration()
-            .generation()
-            .indexFormatVersion
-            .isSupported(),
+        this.indexGeneration.getDefinitionGeneration().hasSupportedFormatVersion(),
         "index format version is not supported for replication");
 
     IndexCommitUserData userData = getIndexCommitUserData();
@@ -482,17 +477,15 @@ public class ReplicationIndexManager implements IndexManager {
       return InitAction.RUN_INITIAL_SYNC;
     }
 
-    IndexFormatVersion indexFormatVersion = userData.getBackendIndexVersion().get();
-    IndexFormatVersion indexGenerationFormatVersion =
-        this.indexGeneration.getDefinitionGeneration().generation().indexFormatVersion;
-    if (!indexFormatVersion.equals(indexGenerationFormatVersion)) {
+    int committedFormatVersion = userData.getBackendIndexVersion().get();
+    int formatVersion =
+        this.indexGeneration.getDefinitionGeneration().generation().formatVersion.versionNumber();
+    if (committedFormatVersion != formatVersion) {
       Crash.because(
               String.format(
                   "index [%s] commit metadata index format version mismatch "
                       + "(expecting %s, found on disk %s)",
-                  this.indexGeneration.getGenerationId(),
-                  indexGenerationFormatVersion.versionNumber,
-                  indexFormatVersion.versionNumber))
+                  this.indexGeneration.getGenerationId(), formatVersion, committedFormatVersion))
           .now();
     }
 

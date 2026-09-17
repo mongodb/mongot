@@ -1,7 +1,6 @@
 package com.xgen.mongot.replication.mongodb.common;
 
 import com.xgen.mongot.index.status.StaleStatusReason;
-import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
@@ -59,14 +58,14 @@ public class StaleStateInfo implements DocumentEncodable {
    * The backend index format version that was active when the index went stale. Optional for
    * backward compatibility with existing persisted data.
    */
-  private final Optional<IndexFormatVersion> backendIndexVersion;
+  private final Optional<Integer> backendIndexVersion;
 
   private StaleStateInfo(
       BsonTimestamp lastOptime,
       StaleStatusReason reason,
       String message,
       Optional<ChangeStreamResumeInfo> changeStreamResumeInfo,
-      Optional<IndexFormatVersion> backendIndexVersion) {
+      Optional<Integer> backendIndexVersion) {
     this.lastOptime = lastOptime;
     this.reason = reason;
     this.message = message;
@@ -130,7 +129,7 @@ public class StaleStateInfo implements DocumentEncodable {
         parser.getField(Fields.REASON).unwrap(),
         parser.getField(Fields.MESSAGE).unwrap(),
         parser.getField(Fields.CHANGE_STREAM_RESUME_INFO).unwrap(),
-        parser.getField(Fields.BACKEND_INDEX_VERSION).unwrap().map(IndexFormatVersion::create));
+        parser.getField(Fields.BACKEND_INDEX_VERSION).unwrap());
   }
 
   public static StaleStateInfo fromBson(BsonDocument document) throws BsonParseException {
@@ -146,7 +145,7 @@ public class StaleStateInfo implements DocumentEncodable {
         .field(Fields.REASON, this.reason)
         .field(Fields.MESSAGE, this.message)
         .field(Fields.CHANGE_STREAM_RESUME_INFO, this.changeStreamResumeInfo)
-        .field(Fields.BACKEND_INDEX_VERSION, this.backendIndexVersion.map(v -> v.versionNumber))
+        .field(Fields.BACKEND_INDEX_VERSION, this.backendIndexVersion)
         .build();
   }
 
@@ -170,7 +169,7 @@ public class StaleStateInfo implements DocumentEncodable {
     return this.changeStreamResumeInfo;
   }
 
-  public Optional<IndexFormatVersion> getBackendIndexVersion() {
+  public Optional<Integer> getBackendIndexVersion() {
     return this.backendIndexVersion;
   }
 

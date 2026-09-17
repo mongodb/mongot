@@ -567,7 +567,7 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
 
   private IndexCommitUserData getCommitUserData(BsonValue lastScannedToken) {
     return IndexCommitUserData.createInitialSyncResume(
-        this.context.getIndexFormatVersion(),
+        this.context.getGenerationId().generation.formatVersion.versionNumber(),
         InitialSyncResumeInfo.create(
             this.context.useNaturalOrderScan(),
             this.highWaterMark,

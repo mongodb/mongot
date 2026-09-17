@@ -258,7 +258,7 @@ public class MultiLuceneSearchIndexReaderTest {
             Optional.of(concurrentSearchExecutor),
             Optional.of(concurrentRescoringExecutor),
             defGeneration.getIndexDefinition(),
-            defGeneration.generation().indexFormatVersion,
+            defGeneration.generation().formatVersion.asLucene(),
             AnalyzerRegistryBuilder.empty(),
             new AtomicDirectoryRemover(TestUtils.getTempFolder().getRoot().toPath()),
             metricsFactory,

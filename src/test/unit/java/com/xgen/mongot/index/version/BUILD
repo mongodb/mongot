@@ -3,10 +3,12 @@ load("//bazel/java:test.bzl", "java_test_suite")
 java_test_suite(
     name = "version",
     srcs = [
+        "FormatVersionTest.java",
         "GenerationIdTest.java",
         "GenerationTest.java",
         "IndexFormatVersionTest.java",
         "UserIndexVersionTest.java",
+        "VectorliteFormatVersionTest.java",
     ],
     data = ["//src/test/unit/resources/index/version:srcs"],
     tags = ["unit"],

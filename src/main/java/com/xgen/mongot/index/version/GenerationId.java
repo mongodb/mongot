@@ -38,7 +38,7 @@ public class GenerationId {
     return String.format(
         "%s-f%s-u%s-a%s",
         this.indexId.toHexString(),
-        this.generation.indexFormatVersion.versionNumber,
+        this.generation.formatVersion.versionNumber(),
         this.generation.userIndexVersion.versionNumber,
         this.generation.attemptNumber);
   }

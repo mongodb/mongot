@@ -23,6 +23,7 @@ import com.xgen.mongot.index.autoembedding.MaterializedViewIndexFactory;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.GenerationId;
+import com.xgen.mongot.index.version.IndexEngine;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.index.version.UserIndexVersion;
 import com.xgen.mongot.lifecycle.LifecycleManager;
@@ -435,11 +436,14 @@ public class ConfigState {
           this.getGenerations.get().stream()
               .filter(
                   indexGeneration ->
-                      indexGeneration
-                          .getDefinitionGeneration()
-                          .generation()
-                          .indexFormatVersion
-                          .equals(this.indexFormatVersion))
+                      indexGeneration.getDefinitionGeneration().generation().formatVersion.engine()
+                              == IndexEngine.LUCENE
+                          && indexGeneration
+                                  .getDefinitionGeneration()
+                                  .generation()
+                                  .formatVersion
+                                  .versionNumber()
+                              == this.indexFormatVersion.versionNumber)
               .count();
     }
   }

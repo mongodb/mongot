@@ -90,7 +90,7 @@ public class ParallelCollectionScanResumeStateTest {
 
     ParallelCollectionScanResumeState resumeState =
         new ParallelCollectionScanResumeState(
-            IndexFormatVersion.CURRENT,
+            IndexFormatVersion.CURRENT.versionNumber,
             INITIAL_SYNC_ID,
             SYNC_SOURCE_HOST,
             new BsonTimestamp(1_000, 1),
@@ -98,7 +98,8 @@ public class ParallelCollectionScanResumeStateTest {
 
     IndexCommitUserData userData = resumeState.snapshot();
 
-    assertThat(userData.getBackendIndexVersion()).hasValue(IndexFormatVersion.CURRENT);
+    assertThat(userData.getBackendIndexVersion())
+        .hasValue(IndexFormatVersion.CURRENT.versionNumber);
     assertThat(userData.getInitialSyncResumeInfo())
         .hasValue(
             new BufferlessParallelNaturalOrderInitialSyncResumeInfo(
@@ -120,7 +121,10 @@ public class ParallelCollectionScanResumeStateTest {
 
     ParallelCollectionScanResumeState resumeState =
         ParallelCollectionScanResumeState.fromPlan(
-            IndexFormatVersion.CURRENT, plan, new BsonTimestamp(1_000, 1), SYNC_SOURCE_HOST);
+            IndexFormatVersion.CURRENT.versionNumber,
+            plan,
+            new BsonTimestamp(1_000, 1),
+            SYNC_SOURCE_HOST);
 
     assertThat(resumeState.getInitialSyncId()).isEqualTo(INITIAL_SYNC_ID);
     assertThat(resumeState.getHighWaterMark()).isEqualTo(new BsonTimestamp(1_000, 1));
@@ -150,7 +154,8 @@ public class ParallelCollectionScanResumeStateTest {
             SYNC_SOURCE_HOST);
 
     ParallelCollectionScanResumeState resumeState =
-        ParallelCollectionScanResumeState.fromPersisted(IndexFormatVersion.CURRENT, persisted);
+        ParallelCollectionScanResumeState.fromPersisted(
+            IndexFormatVersion.CURRENT.versionNumber, persisted);
 
     assertThat(resumeState.snapshot().getInitialSyncResumeInfo()).hasValue(persisted);
     assertThat(resumeState.getPartitions().get(1).isDone()).isTrue();
@@ -164,7 +169,7 @@ public class ParallelCollectionScanResumeStateTest {
 
     ParallelCollectionScanResumeState resumeState =
         new ParallelCollectionScanResumeState(
-            IndexFormatVersion.CURRENT,
+            IndexFormatVersion.CURRENT.versionNumber,
             INITIAL_SYNC_ID,
             SYNC_SOURCE_HOST,
             new BsonTimestamp(1_000, 1),
@@ -189,7 +194,7 @@ public class ParallelCollectionScanResumeStateTest {
             0, Optional.empty(), Optional.empty(), Optional.empty(), false);
     ParallelCollectionScanResumeState resumeState =
         new ParallelCollectionScanResumeState(
-            IndexFormatVersion.CURRENT,
+            IndexFormatVersion.CURRENT.versionNumber,
             INITIAL_SYNC_ID,
             SYNC_SOURCE_HOST,
             new BsonTimestamp(1_000, 1),

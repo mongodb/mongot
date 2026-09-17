@@ -584,7 +584,7 @@ public class LuceneIndexFactory implements IndexFactory {
           this.concurrentSearchExecutor,
           this.concurrentVectorRescoringExecutor,
           vectorDef,
-          definitionGeneration.generation().indexFormatVersion,
+          definitionGeneration.generation().formatVersion.asLucene(),
           this.indexRemover,
           metricsFactory);
     }
@@ -616,7 +616,7 @@ public class LuceneIndexFactory implements IndexFactory {
         this.concurrentSearchExecutor,
         this.concurrentVectorRescoringExecutor,
         searchDefinition,
-        definitionGeneration.generation().indexFormatVersion,
+        definitionGeneration.generation().formatVersion.asLucene(),
         analyzerRegistry,
         this.indexRemover,
         metricsFactory,

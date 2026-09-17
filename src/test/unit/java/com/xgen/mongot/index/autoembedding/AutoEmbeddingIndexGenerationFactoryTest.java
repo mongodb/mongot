@@ -453,7 +453,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
                         ChangeStreamResumeInfo.create(
                             new MongoNamespace("db", "coll"),
                             new BsonDocument("_data", new BsonString("00"))),
-                        IndexFormatVersion.CURRENT)
+                        IndexFormatVersion.CURRENT.versionNumber)
                     .withAutoEmbeddingMetadata(reconstructableMetadata(TENANT_MV_DATABASE_NAME))
                     .toEncodedData()));
     InitializedIndexCatalog catalog = mock(InitializedIndexCatalog.class);

@@ -180,7 +180,7 @@ public class ParallelCollectionScanSessionTest {
 
   private static ParallelCollectionScanResumeState resumeState(BsonTimestamp highWaterMark) {
     return new ParallelCollectionScanResumeState(
-        IndexFormatVersion.CURRENT,
+        IndexFormatVersion.CURRENT.versionNumber,
         INITIAL_SYNC_ID,
         Optional.of("shard0-0:27017"),
         highWaterMark,

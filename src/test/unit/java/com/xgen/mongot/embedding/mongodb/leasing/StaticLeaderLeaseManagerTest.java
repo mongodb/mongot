@@ -348,7 +348,7 @@ public class StaticLeaderLeaseManagerTest {
                 ChangeStreamResumeInfo.create(
                     new MongoNamespace("test", "collection"),
                     ChangeStreamUtils.resumeToken(replicationOpTime)),
-                IndexFormatVersion.CURRENT)
+                IndexFormatVersion.CURRENT.versionNumber)
             .toEncodedData();
     String leaseKey = getLeaseKeyFromCatalog(generationId);
     Lease lease =
@@ -388,7 +388,7 @@ public class StaticLeaderLeaseManagerTest {
                 ChangeStreamResumeInfo.create(
                     new MongoNamespace("test", "collection"),
                     ChangeStreamUtils.resumeToken(new BsonTimestamp(123, 1))),
-                IndexFormatVersion.CURRENT)
+                IndexFormatVersion.CURRENT.versionNumber)
             .toEncodedData();
     Lease leaseWithoutVersionOne =
         new Lease(

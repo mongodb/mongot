@@ -834,7 +834,7 @@ public class DefaultIndexingWorkSchedulerTest {
   private static IndexCommitUserData getCommitUserData(MongoNamespace namespace, int token) {
     return IndexCommitUserData.createChangeStreamResume(
         ChangeStreamResumeInfo.create(namespace, new BsonDocument("token", new BsonInt32(token))),
-        IndexFormatVersion.CURRENT);
+        IndexFormatVersion.CURRENT.versionNumber);
   }
 
   private static class MutableLatch {

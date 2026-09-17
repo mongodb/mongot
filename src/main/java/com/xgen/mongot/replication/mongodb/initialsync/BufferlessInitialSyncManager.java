@@ -374,7 +374,8 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
 
     IndexCommitUserData commitUserData =
         IndexCommitUserData.createChangeStreamResume(
-            changeStreamResumeInfo.get(), this.context.getIndexFormatVersion());
+            changeStreamResumeInfo.get(),
+            this.context.getGenerationId().generation.formatVersion.versionNumber());
     doFirstCommit(commitUserData);
     this.logger
         .atInfo()

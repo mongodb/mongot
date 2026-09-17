@@ -43,7 +43,7 @@ public class IndexCommitUserDataTest {
   private static final IndexCommitUserData USER_DATA_WITH_INDEX_FORMAT_VERSION_ONLY =
       new IndexCommitUserData(
           Optional.empty(),
-          Optional.of(IndexFormatVersion.CURRENT),
+          Optional.of(IndexFormatVersion.CURRENT.versionNumber),
           Optional.empty(),
           Optional.empty(),
           Optional.empty(),
@@ -56,16 +56,16 @@ public class IndexCommitUserDataTest {
           ChangeStreamResumeInfo.create(
               new MongoNamespace("database", "collection"),
               new BsonDocument("_data", new BsonString("resume token"))),
-          IndexFormatVersion.CURRENT);
+          IndexFormatVersion.CURRENT.versionNumber);
 
   private static final IndexCommitUserData USER_DATA_WITH_INITIAL_SYNC_RESUME =
       IndexCommitUserData.createInitialSyncResume(
-          IndexFormatVersion.CURRENT,
+          IndexFormatVersion.CURRENT.versionNumber,
           new BufferlessIdOrderInitialSyncResumeInfo(
               new BsonTimestamp(1234567890L), new BsonString("a")));
   private static final IndexCommitUserData USER_DATA_WITH_NATURAL_ORDER_INITIAL_SYNC_RESUME =
       IndexCommitUserData.createInitialSyncResume(
-          IndexFormatVersion.CURRENT,
+          IndexFormatVersion.CURRENT.versionNumber,
           new BufferlessNaturalOrderInitialSyncResumeInfo(
               new BsonTimestamp(1234567890L),
               new BsonDocument()
@@ -88,7 +88,7 @@ public class IndexCommitUserDataTest {
                   ChangeStreamResumeInfo.create(
                       new MongoNamespace("database", "collection"),
                       ChangeStreamUtils.resumeToken(new BsonTimestamp(1234567890L))),
-                  IndexFormatVersion.SIX)));
+                  IndexFormatVersion.SIX.versionNumber)));
 
   private static final IndexCommitUserData USER_DATA_WITH_INDEX_STATE_INFO =
       IndexCommitUserData.createFromIndexStateInfo(

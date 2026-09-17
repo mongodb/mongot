@@ -118,7 +118,8 @@ public class IndexGeneration {
 
   public static VectorIndexDefinitionGeneration mockDefinitionGeneration(
       VectorIndexDefinition definition) {
-    return new VectorIndexDefinitionGeneration(definition, Generation.CURRENT);
+    return new VectorIndexDefinitionGeneration(
+        definition, definition.newGeneration(UserIndexVersion.FIRST));
   }
 
   /** Create SearchIndexDefinitionGeneration for id. */

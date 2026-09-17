@@ -28,6 +28,7 @@ import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonString;
 import org.bson.types.ObjectId;
+import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -39,9 +40,53 @@ import org.junit.runners.Suite;
       VectorIndexDefinitionTest.DeserializationTest.class,
       VectorIndexDefinitionTest.SerializationTest.class,
       VectorIndexDefinitionTest.NestedRootTest.class,
-      VectorIndexDefinitionTest.IndexNamespaceTest.class
+      VectorIndexDefinitionTest.IndexNamespaceTest.class,
+      VectorIndexDefinitionTest.VectorEngineTest.class
     })
 public class VectorIndexDefinitionTest {
+
+  /** One engine per index, and one vector field for the custom engine. */
+  @RunWith(org.junit.runners.JUnit4.class)
+  public static class VectorEngineTest {
+
+    @Test
+    public void mixedEnginesAreRejected() {
+      var builder =
+          VectorIndexDefinitionBuilder.builder()
+              .withCustomEngineVectorField("custom.field", 3)
+              .withDotProductVectorField("lucene.field", 3);
+      Assert.assertThrows(IllegalArgumentException.class, builder::build);
+    }
+
+    @Test
+    public void multipleCustomEngineVectorFieldsAreRejected() {
+      var builder =
+          VectorIndexDefinitionBuilder.builder()
+              .withCustomEngineVectorField("first.field", 3)
+              .withCustomEngineVectorField("second.field", 3);
+      Assert.assertThrows(IllegalArgumentException.class, builder::build);
+    }
+
+    @Test
+    public void oneCustomEngineVectorFieldWithFiltersIsAccepted() {
+      var definition =
+          VectorIndexDefinitionBuilder.builder()
+              .withCustomEngineVectorField("custom.field", 3)
+              .withFilterPath("filter.field")
+              .build();
+      Assert.assertTrue(definition.isCustomVectorEngineIndex());
+    }
+
+    @Test
+    public void multipleLuceneVectorFieldsAreAccepted() {
+      var definition =
+          VectorIndexDefinitionBuilder.builder()
+              .withDotProductVectorField("first.field", 3)
+              .withDotProductVectorField("second.field", 3)
+              .build();
+      Assert.assertFalse(definition.isCustomVectorEngineIndex());
+    }
+  }
 
   /** Tests for VectorIndexDefinition with the indexNamespace option. */
   @RunWith(org.junit.runners.JUnit4.class)

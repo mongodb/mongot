@@ -449,7 +449,7 @@ public record Lease(
                         new BufferlessIdOrderInitialSyncResumeInfo(
                             highWaterMark, BsonUtils.MIN_KEY);
                     return IndexCommitUserData.createInitialSyncResume(
-                            IndexFormatVersion.CURRENT, resumeInfo)
+                            IndexFormatVersion.CURRENT.versionNumber, resumeInfo)
                         .toEncodedData()
                         .asString();
                   })

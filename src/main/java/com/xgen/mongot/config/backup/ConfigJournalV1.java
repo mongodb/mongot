@@ -102,7 +102,7 @@ public final class ConfigJournalV1 implements DocumentEncodable {
   /* First we compare indexIds, then break ties by format and user versions.*/
   private static final Comparator<GenerationId> GENERATION_ID_SORTER =
       Comparator.<GenerationId, ObjectId>comparing(genId -> genId.indexId)
-          .thenComparingInt(genId -> genId.generation.indexFormatVersion.versionNumber)
+          .thenComparingInt(genId -> genId.generation.formatVersion.versionNumber())
           .thenComparingInt(genId -> genId.generation.userIndexVersion.versionNumber);
 
   /** Compares journal entries by their generation id. */

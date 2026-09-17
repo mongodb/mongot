@@ -1085,6 +1085,73 @@
           }
         ]
       }
+    },
+    {
+      "description": "mixed vector engines",
+      "value": {
+        "indexID": "507f191e810c19729de860ea",
+        "database": "myDatabase",
+        "lastObservedCollectionName": "myCollection",
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
+        "name": "myVectorIndex",
+        "type": "vectorSearch",
+        "fields": [
+          {
+            "type": "vector",
+            "path": "custom.field",
+            "numDimensions": 3,
+            "similarity": "cosine",
+            "quantization": "none",
+            "engine": "custom"
+          },
+          {
+            "type": "vector",
+            "path": "lucene.field",
+            "numDimensions": 3,
+            "similarity": "cosine",
+            "quantization": "none"
+          }
+        ]
+      }
+    },
+    {
+      "description": "multiple custom engine vector fields",
+      "value": {
+        "indexID": "507f191e810c19729de860ea",
+        "database": "myDatabase",
+        "lastObservedCollectionName": "myCollection",
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
+        "name": "myVectorIndex",
+        "type": "vectorSearch",
+        "fields": [
+          {
+            "type": "vector",
+            "path": "first.field",
+            "numDimensions": 3,
+            "similarity": "cosine",
+            "quantization": "none",
+            "engine": "custom"
+          },
+          {
+            "type": "vector",
+            "path": "second.field",
+            "numDimensions": 3,
+            "similarity": "cosine",
+            "quantization": "none",
+            "engine": "custom"
+          }
+        ]
+      }
     }
   ]
 }

@@ -179,7 +179,7 @@ public class LuceneSearchIndexReaderTest {
             Optional.of(this.concurrentSearchExecutor),
             Optional.of(this.concurrentRescoringExecutor),
             MOCK_INDEX_DEFINITION_GENERATION.getIndexDefinition(),
-            MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+            MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
             AnalyzerRegistryBuilder.empty(),
             new AtomicDirectoryRemover(TestUtils.getTempFolder().getRoot().toPath()),
             metricsFactory,
@@ -188,7 +188,7 @@ public class LuceneSearchIndexReaderTest {
         spy(
             LuceneSearchQueryFactoryDistributor.create(
                 MOCK_INDEX_DEFINITION,
-                MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+                MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
                 AnalyzerRegistryBuilder.empty(),
                 SynonymRegistryBuilder.empty(),
                 indexMetricsUpdater.getQueryingMetricsUpdater(),
@@ -212,7 +212,7 @@ public class LuceneSearchIndexReaderTest {
 
     var fieldDefinitionResolver =
         MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(
-            MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion);
+            MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene());
 
     this.searcherFactory =
         spy(
@@ -906,17 +906,18 @@ public class LuceneSearchIndexReaderTest {
             indexDefinitionGeneration
                 .getIndexDefinition()
                 .createFieldDefinitionResolver(
-                    indexDefinitionGeneration.generation().indexFormatVersion),
+                    indexDefinitionGeneration.generation().formatVersion.asLucene()),
             analyzer);
     LuceneFacetContext facetContext =
         new LuceneFacetContext(
             indexDefinitionGeneration
                 .getIndexDefinition()
                 .createFieldDefinitionResolver(
-                    indexDefinitionGeneration.generation().indexFormatVersion),
+                    indexDefinitionGeneration.generation().formatVersion.asLucene()),
             indexDefinitionGeneration
                 .getIndexDefinition()
-                .getIndexCapabilities(indexDefinitionGeneration.generation().indexFormatVersion));
+                .getIndexCapabilities(
+                    indexDefinitionGeneration.generation().formatVersion.asLucene()));
 
     return LuceneSearchIndexReader.create(
         this.queryFactory,
@@ -929,7 +930,7 @@ public class LuceneSearchIndexReaderTest {
             indexDefinitionGeneration
                 .getIndexDefinition()
                 .createFieldDefinitionResolver(
-                    indexDefinitionGeneration.generation().indexFormatVersion),
+                    indexDefinitionGeneration.generation().formatVersion.asLucene()),
             new BinaryQuantizedVectorRescorer(Optional.of(this.concurrentRescoringExecutor)),
             indexMetricsUpdater.getQueryingMetricsUpdater()),
         Optional.of(this.concurrentSearchExecutor),

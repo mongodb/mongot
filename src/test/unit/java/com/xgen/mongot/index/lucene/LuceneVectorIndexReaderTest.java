@@ -140,7 +140,7 @@ public class LuceneVectorIndexReaderTest {
               Optional.of(this.concurrentSearchExecutor),
               Optional.of(this.concurrentSearchExecutor),
               VectorIndex.MOCK_INDEX_DEFINITION_GENERATION_ALL_QUANTIZATION.getIndexDefinition(),
-              MOCK_INDEX_DEFINITION_GENERATION.generation().indexFormatVersion,
+              MOCK_INDEX_DEFINITION_GENERATION.generation().formatVersion.asLucene(),
               new AtomicDirectoryRemover(TestUtils.getTempFolder().getRoot().toPath()),
               metricsFactory);
       InitializedLuceneVectorIndex initializedIndex =

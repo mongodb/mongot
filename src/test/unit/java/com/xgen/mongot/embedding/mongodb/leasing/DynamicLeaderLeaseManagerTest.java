@@ -648,7 +648,7 @@ public class DynamicLeaderLeaseManagerTest {
                 ChangeStreamResumeInfo.create(
                     new MongoNamespace("sample_mflix", SOURCE_COLLECTION),
                     ChangeStreamUtils.resumeToken(new BsonTimestamp(1L))),
-                IndexFormatVersion.CURRENT)
+                IndexFormatVersion.CURRENT.versionNumber)
             .toEncodedData()
             .asString();
     setupSuccessfulLeaseUpdate();
@@ -695,7 +695,7 @@ public class DynamicLeaderLeaseManagerTest {
             ChangeStreamResumeInfo.create(
                 new MongoNamespace(tenantId + "_" + db, coll),
                 ChangeStreamUtils.resumeToken(new BsonTimestamp(1L))),
-            IndexFormatVersion.CURRENT)
+            IndexFormatVersion.CURRENT.versionNumber)
         .toEncodedData()
         .asString();
   }
@@ -1586,7 +1586,7 @@ public class DynamicLeaderLeaseManagerTest {
                 ChangeStreamResumeInfo.create(
                     new MongoNamespace("test", "collection"),
                     ChangeStreamUtils.resumeToken(replicationOpTime)),
-                IndexFormatVersion.CURRENT)
+                IndexFormatVersion.CURRENT.versionNumber)
             .toEncodedData();
     Lease lease =
         createLeaseWithStatus(
@@ -1618,7 +1618,7 @@ public class DynamicLeaderLeaseManagerTest {
         IndexCommitUserData.createChangeStreamResume(
                 ChangeStreamResumeInfo.create(
                     new MongoNamespace("test", "collection"), new BsonDocument()),
-                IndexFormatVersion.CURRENT)
+                IndexFormatVersion.CURRENT.versionNumber)
             .toEncodedData();
     Lease malformedLease =
         createLeaseWithStatus(
@@ -1638,7 +1638,7 @@ public class DynamicLeaderLeaseManagerTest {
                 ChangeStreamResumeInfo.create(
                     new MongoNamespace("test", "collection"),
                     ChangeStreamUtils.resumeToken(validReplicationOpTime)),
-                IndexFormatVersion.CURRENT)
+                IndexFormatVersion.CURRENT.versionNumber)
             .toEncodedData();
     Lease validLease =
         createLeaseWithStatus(
@@ -3355,7 +3355,7 @@ public class DynamicLeaderLeaseManagerTest {
     return IndexCommitUserData.createChangeStreamResume(
             ChangeStreamResumeInfo.create(
                 new MongoNamespace("test", "collection"), ChangeStreamUtils.resumeToken(opTime)),
-            IndexFormatVersion.CURRENT)
+            IndexFormatVersion.CURRENT.versionNumber)
         .toEncodedData()
         .asString();
   }

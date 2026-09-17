@@ -3,8 +3,11 @@ package com.xgen.mongot.index.definition;
 import com.google.common.collect.ImmutableMap;
 import com.google.errorprone.annotations.DoNotMock;
 import com.mongodb.MongoNamespace;
+import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.index.version.IndexCapabilities;
+import com.xgen.mongot.index.version.IndexEngine;
 import com.xgen.mongot.index.version.IndexFormatVersion;
+import com.xgen.mongot.index.version.UserIndexVersion;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
@@ -134,6 +137,14 @@ public sealed interface IndexDefinition extends DocumentEncodable
   IndexCapabilities getIndexCapabilities(IndexFormatVersion version);
 
   FieldDefinitionResolver createFieldDefinitionResolver(IndexFormatVersion indexFormatVersion);
+
+  /** Engine that stores indexes built from this definition. */
+  IndexEngine engine();
+
+  /** The generation a new index built from this definition starts at. */
+  default Generation newGeneration(UserIndexVersion userIndexVersion) {
+    return Generation.current(engine(), userIndexVersion);
+  }
 
   Optional<Long> getDefinitionVersion();
 

@@ -243,7 +243,7 @@ public class MongoDbNoOpReplicationManagerTest {
               ChangeStreamResumeInfo.create(new MongoNamespace("db", "coll"), staleResumeToken);
           var staleIndexCommitData =
               IndexCommitUserData.createChangeStreamResume(
-                  staleResumeInfo, IndexFormatVersion.CURRENT);
+                  staleResumeInfo, IndexFormatVersion.CURRENT.versionNumber);
           StaleStateInfo staleStateInfo =
               StaleStateInfo.create(
                   StaleStatusReason.DOCS_EXCEEDED,
@@ -260,7 +260,7 @@ public class MongoDbNoOpReplicationManagerTest {
         case INITIAL_SYNC:
           indexCommitUserData =
               IndexCommitUserData.createInitialSyncResume(
-                  IndexFormatVersion.CURRENT,
+                  IndexFormatVersion.CURRENT.versionNumber,
                   new BufferlessIdOrderInitialSyncResumeInfo(
                       new BsonTimestamp(1234567890L), new BsonString("a")));
           break;
@@ -270,7 +270,7 @@ public class MongoDbNoOpReplicationManagerTest {
                   ChangeStreamResumeInfo.create(
                       new MongoNamespace("database", "collection"),
                       new BsonDocument("_data", new BsonString("820000000000000000"))),
-                  IndexFormatVersion.CURRENT);
+                  IndexFormatVersion.CURRENT.versionNumber);
           break;
         case EMPTY:
           break;

@@ -24,7 +24,7 @@ public record SearchIndexDefinitionGeneration(
   @Override
   public IndexDefinitionGeneration upgradeToCurrentFormatVersion() {
     checkArg(
-        !this.generation.indexFormatVersion.isCurrent(),
+        !hasCurrentFormatVersion(),
         "Attempting to upgrade index but this Generation is already current.");
     return new SearchIndexDefinitionGeneration(this.definition, Generation.CURRENT);
   }
