@@ -188,6 +188,7 @@ public class AicCreateSearchIndexesCommand implements Command {
       AnalyzerInvariants.validate(searchList, List.of());
       for (SearchIndexDefinition searchIndex : searchList) {
         AnalyzerInvariants.validateFieldAnalyzerReferences(searchIndex, Set.of(), Set.of());
+        AnalyzerInvariants.validateSynonymAnalyzersAreReferenceable(searchIndex);
       }
       Invariants.validateVectorNestedRootReferences(vectorList);
 

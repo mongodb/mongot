@@ -189,6 +189,7 @@ public class AicUpdateSearchIndexCommand implements Command {
         }
         AnalyzerInvariants.validate(searchList, List.of());
         AnalyzerInvariants.validateFieldAnalyzerReferences(searchIndex, Set.of(), Set.of());
+        AnalyzerInvariants.validateSynonymAnalyzersAreReferenceable(searchIndex);
       }
       if (newIndex instanceof VectorIndexDefinition vectorIndex) {
         Invariants.validateVectorNestedRootReferences(List.of(vectorIndex));

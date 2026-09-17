@@ -69,7 +69,18 @@ public enum StockAnalyzerNames {
           .map(StockAnalyzerNames::getName)
           .collect(Collectors.toUnmodifiableSet());
 
+  /**
+   * Stock analyzers that only exist as the base of an overridden analyzer definition. They are
+   * never instantiated into the analyzer registry, so an index definition that references one
+   * directly cannot be resolved at index construction time.
+   */
+  private static final Set<String> BASE_ONLY_ANALYZER_NAMES = Set.of(LUCENE_STOP.getName());
+
   public static boolean isStockAnalyzer(String analyzerName) {
     return STOCK_ANALYZER_NAMES.contains(analyzerName);
+  }
+
+  public static boolean isBaseOnlyStockAnalyzer(String analyzerName) {
+    return BASE_ONLY_ANALYZER_NAMES.contains(analyzerName);
   }
 }

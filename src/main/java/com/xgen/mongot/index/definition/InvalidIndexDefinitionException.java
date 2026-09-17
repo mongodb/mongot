@@ -48,6 +48,18 @@ public class InvalidIndexDefinitionException extends LoggableException {
   }
 
   /**
+   * Throw if a SynonymMappingDefinition names a stock analyzer that only exists as the base of an
+   * overridden analyzer definition, and so is never instantiated into the analyzer registry.
+   */
+  public static InvalidIndexDefinitionException usesBaseOnlyAnalyzerWithSynonyms(
+      SynonymMappingDefinition definition) {
+    return new InvalidIndexDefinitionException(
+        String.format(
+            "synonym mapping %s references analyzer %s, which cannot be used on its own",
+            definition.name(), definition.analyzer()));
+  }
+
+  /**
    * Throw if an AutocompleteFieldDefinition uses an analyzer that produces a graph token stream.
    */
   public static InvalidIndexDefinitionException usesGraphTokenProducingAnalyzerWithAutocomplete(

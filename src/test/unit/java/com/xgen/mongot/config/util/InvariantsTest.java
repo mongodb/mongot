@@ -22,6 +22,9 @@ import com.xgen.testing.mongot.config.backup.ConfigJournalV1Builder;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionGenerationBuilder;
+import com.xgen.testing.mongot.index.definition.StringFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.SynonymMappingDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.TypeSetDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionGenerationBuilder;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
@@ -29,6 +32,7 @@ import com.xgen.testing.mongot.mock.index.VectorIndex;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.bson.types.ObjectId;
 import org.junit.Assert;
@@ -339,6 +343,98 @@ public class InvariantsTest {
     @Test
     public void emptyIsValid() throws Exception {
       assertValid(Collections.emptyList(), Collections.emptyList());
+    }
+
+    /**
+     * A synonym mapping that names a base-only stock analyzer cannot be resolved when the synonym
+     * registry is built, and that registry is built eagerly enough that the failure kills the
+     * process. Reject the definition instead.
+     */
+    @Test
+    public void baseOnlySynonymAnalyzerIsInvalid() {
+      SearchIndexDefinition definition =
+          SearchIndexDefinitionBuilder.builder()
+              .defaultMetadata()
+              .dynamicMapping()
+              .synonyms(
+                  SynonymMappingDefinitionBuilder.builder()
+                      .name("mapping")
+                      .synonymSourceDefinition("synonyms")
+                      .analyzer("lucene.stop")
+                      .buildAsList())
+              .build();
+
+      var thrown =
+          Assert.assertThrows(
+              InvalidIndexDefinitionException.class,
+              () ->
+                  Invariants.AnalyzerInvariants.validateSynonymAnalyzersAreReferenceable(
+                      definition));
+      Assert.assertTrue(thrown.getMessage().contains("mapping"));
+      Assert.assertTrue(thrown.getMessage().contains("lucene.stop"));
+    }
+
+    /** An ordinary stock analyzer is still a valid synonym mapping analyzer. */
+    @Test
+    public void standaloneSynonymAnalyzerIsValid() throws Exception {
+      SearchIndexDefinition definition =
+          SearchIndexDefinitionBuilder.builder()
+              .defaultMetadata()
+              .dynamicMapping()
+              .synonyms(
+                  SynonymMappingDefinitionBuilder.builder()
+                      .name("mapping")
+                      .synonymSourceDefinition("synonyms")
+                      .analyzer("lucene.english")
+                      .buildAsList())
+              .build();
+
+      // should not throw
+      Invariants.AnalyzerInvariants.validateSynonymAnalyzersAreReferenceable(definition);
+    }
+
+    /**
+     * Regression pin, not a fix test: this passes both before and after the synonym change. A
+     * base-only analyzer named anywhere other than a synonym mapping keeps behaving exactly as it
+     * does on master - absent from getNonStockAnalyzerNames, accepted by field validation - so the
+     * journal round trip and the analyzer binding are untouched. Widening enforcement to these
+     * positions is deliberately left to a followup.
+     */
+    @Test
+    public void baseOnlyAnalyzerInOtherPositionsIsUnchanged() throws Exception {
+      SearchIndexDefinition indexAnalyzer =
+          SearchIndexDefinitionBuilder.builder()
+              .defaultMetadata()
+              .dynamicMapping()
+              .analyzerName("lucene.stop")
+              .build();
+      SearchIndexDefinition searchAnalyzer =
+          SearchIndexDefinitionBuilder.builder()
+              .defaultMetadata()
+              .dynamicMapping()
+              .searchAnalyzerName("lucene.stop")
+              .build();
+      SearchIndexDefinition typeSet =
+          SearchIndexDefinitionBuilder.builder()
+              .defaultMetadata()
+              .mappings(DocumentFieldDefinitionBuilder.builder().dynamic("test").build())
+              .typeSets(
+                  TypeSetDefinitionBuilder.builder()
+                      .name("test")
+                      .addType(
+                          StringFieldDefinitionBuilder.builder()
+                              .analyzerName("lucene.stop")
+                              .build())
+                      .build())
+              .build();
+
+      for (SearchIndexDefinition definition : List.of(indexAnalyzer, searchAnalyzer, typeSet)) {
+        Assert.assertTrue(definition.getNonStockAnalyzerNames().isEmpty());
+        // should not throw
+        Invariants.AnalyzerInvariants.validateFieldAnalyzerReferences(
+            definition, Set.of(), Set.of());
+        Invariants.AnalyzerInvariants.validateSynonymAnalyzersAreReferenceable(definition);
+      }
     }
 
     @Test

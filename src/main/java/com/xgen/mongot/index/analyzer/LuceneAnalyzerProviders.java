@@ -1,7 +1,6 @@
 package com.xgen.mongot.index.analyzer;
 
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.xgen.mongot.index.analyzer.definition.AnalyzerDefinition;
 import com.xgen.mongot.index.analyzer.definition.OverriddenBaseAnalyzerDefinition;
 import com.xgen.mongot.index.analyzer.definition.StockAnalyzerNames;
@@ -180,10 +179,6 @@ class LuceneAnalyzerProviders {
                   new UkrainianMorfologikAnalyzerProvider())
               .build();
 
-  /* Stock analyzers that can only appear as base analyzers. And not standalone. */
-  private static final ImmutableSet<String> AS_BASE_ONLY =
-      ImmutableSet.of(StockAnalyzerNames.LUCENE_STOP.getName());
-
   static boolean hasStockAnalyzerNamed(String name) {
     return BASE_ANALYZER_PROVIDERS.containsKey(name);
   }
@@ -197,7 +192,7 @@ class LuceneAnalyzerProviders {
   static List<AnalyzerDefinition> allStockAnalyzers() {
     return BASE_ANALYZER_PROVIDERS.keySet().stream()
         /* Don't try to instantiate non stand alone analyzers. */
-        .filter(Predicate.not(AS_BASE_ONLY::contains))
+        .filter(Predicate.not(StockAnalyzerNames::isBaseOnlyStockAnalyzer))
         .map(OverriddenBaseAnalyzerDefinition::stockAnalyzerWithName)
         .collect(Collectors.toList());
   }

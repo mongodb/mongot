@@ -8,6 +8,7 @@ import com.xgen.mongot.index.analyzer.TokenStreamTypeProvider;
 import com.xgen.mongot.index.analyzer.definition.AnalyzerDefinition;
 import com.xgen.mongot.index.analyzer.definition.CustomAnalyzerDefinition;
 import com.xgen.mongot.index.analyzer.definition.OverriddenBaseAnalyzerDefinition;
+import com.xgen.mongot.index.analyzer.definition.StockAnalyzerNames;
 import com.xgen.mongot.index.definition.AutocompleteFieldDefinition;
 import com.xgen.mongot.index.definition.FieldDefinition;
 import com.xgen.mongot.index.definition.IndexDefinition;
@@ -322,6 +323,8 @@ public class Invariants {
         return;
       }
 
+      validateSynonymAnalyzersAreReferenceable(indexDefinition);
+
       int numSynonymMappings = indexDefinition.getSynonyms().get().size();
       if (maxSynonymMappingsPerIndex.isPresent()
           && numSynonymMappings > maxSynonymMappingsPerIndex.get()) {
@@ -342,6 +345,25 @@ public class Invariants {
       if (invalidSynonymDefinition.isPresent()) {
         throw InvalidIndexDefinitionException.usesGraphTokenProducingAnalyzerWithSynonyms(
             invalidSynonymDefinition.get());
+      }
+    }
+
+    /**
+     * Reject a synonym mapping that names a base-only stock analyzer. These names are never
+     * instantiated into the analyzer registry, so {@code LuceneSynonymRegistry} cannot resolve them
+     * when the index is built - and because synonym registries are built eagerly in {@code
+     * LuceneSearchIndex.create}, that failure is uncatchable and takes the process down. Reject the
+     * definition here instead.
+     */
+    public static void validateSynonymAnalyzersAreReferenceable(
+        SearchIndexDefinition indexDefinition) throws InvalidIndexDefinitionException {
+      if (indexDefinition.getSynonyms().isEmpty()) {
+        return;
+      }
+      for (SynonymMappingDefinition synonymMapping : indexDefinition.getSynonyms().get()) {
+        if (StockAnalyzerNames.isBaseOnlyStockAnalyzer(synonymMapping.analyzer())) {
+          throw InvalidIndexDefinitionException.usesBaseOnlyAnalyzerWithSynonyms(synonymMapping);
+        }
       }
     }
 
