@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "vectorSearch/components/indexNamespace.json",
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "markdownDescription": "Document field whose value assigns each document to an index namespace.",
+      "description": "Document field whose value assigns each document to an index namespace."
+    }
+  },
+  "required": ["path"],
+  "additionalProperties": false
+}

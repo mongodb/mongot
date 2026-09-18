@@ -5,6 +5,18 @@
   ],
   "vectorSearch": [
     {
+      "flags": ["vectorXPrivatePreview", "autoEmbeddingPublicPreview"],
+      "schema": "vectorSearch/index_vectorX_autoEmbeddingPublicPreview.json"
+    },
+    {
+      "flags": ["vectorXPrivatePreview", "autoEmbeddingPrivatePreview"],
+      "schema": "vectorSearch/index_vectorX_autoEmbeddingPrivatePreview.json"
+    },
+    {
+      "flags": ["vectorXPrivatePreview"],
+      "schema": "vectorSearch/index_vectorX.json"
+    },
+    {
       "flags": ["autoEmbeddingPublicPreview"],
       "schema": "vectorSearch/index_autoEmbeddingPublicPreview.json"
     },

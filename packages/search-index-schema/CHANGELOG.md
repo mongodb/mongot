@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-09-17
+
+### Added
+
+- `vectorXPrivatePreview` feature flag and matching `vectorSearch/index_vectorX.json` schema
+  variant: the base Atlas Vector Search schema plus an optional top-level
+  `indexNamespace: { path: "<field>" }` property, which partitions the index into independent
+  index namespaces keyed on a document field. `indexNamespace` remains rejected by the base and
+  auto-embedding variants.
+- Combined `vectorXPrivatePreview` + auto-embedding variants
+  (`vectorSearch/index_vectorX_autoEmbeddingPublicPreview.json`,
+  `vectorSearch/index_vectorX_autoEmbeddingPrivatePreview.json`) selected when both flags are
+  enabled: these accept `indexNamespace` and auto-embedding fields, but reject combining them in
+  one index definition, since auto-embedding a VectorX index is not supported in private preview.
+
 ## [2.1.2] - 2026-09-03
 
 ### Fixed
