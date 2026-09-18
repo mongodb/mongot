@@ -165,8 +165,11 @@ maven.install(
         "com.squareup.okhttp:okhttp",
         # reactor-netty-http 1.3.x added netty-codec-http3 as a compile dependency, which
         # pulls in per-platform netty-codec-native-quic native jars. mongot does not use
-        # HTTP/3, so exclude it to avoid pulling unnecessary native binaries.
-        "io.netty:netty-codec-http3",
+        # HTTP/3, so exclude the native binaries. The pure-Java netty-codec-http3 /
+        # netty-codec-classes-quic jars must stay: reactor-netty references
+        # io.netty.handler.codec.quic.Quic unconditionally, and without the natives
+        # Quic.isAvailable() simply returns false.
+        "io.netty:netty-codec-native-quic",
     ],
     fetch_sources = True,
     generate_compat_repositories = True,
