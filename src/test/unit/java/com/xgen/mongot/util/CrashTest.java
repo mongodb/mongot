@@ -4,12 +4,27 @@ import static com.xgen.mongot.util.Crash.buildCrashLogs;
 import static org.junit.Assert.assertEquals;
 
 import com.xgen.mongot.util.Crash.CrashCategory;
+import java.nio.file.Path;
 import java.util.Arrays;
 import org.bson.BsonDocument;
 import org.bson.json.JsonObject;
 import org.junit.Test;
 
 public class CrashTest {
+
+  /**
+   * Bootstrap reads the crash log path twice: leniently before the config is parsed, and again from
+   * the parsed config. A second set of the same path must not crash mongot. A second set of a
+   * different path still halts, which would fail this test by taking down the test JVM.
+   */
+  @Test
+  public void setCrashLogPath_samePathTwice_doesNotHalt() {
+    Path crashLogPath = Path.of("/test/crash.log");
+
+    Crash.setCrashLogPath(crashLogPath);
+    Crash.setCrashLogPath(crashLogPath);
+  }
+
   @Test
   public void createStructuredLogs_containsAllFields() {
     var exception = new RuntimeException();

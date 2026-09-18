@@ -81,12 +81,15 @@ public class Crash {
   /**
    * Sets the path to write a crash log to in the event of failure.
    *
-   * <p>Can only be invoked once.
+   * <p>Setting the same path again is a no-op: bootstrap reads the crash log path out of the config
+   * file twice, once leniently before the config is parsed and once from the parsed config. Setting
+   * a different path is a bug, and crashes.
    */
   public static void setCrashLogPath(Path crashLogPath) {
-    var wasEmpty = Crash.crashLogPath.compareAndSet(Optional.empty(), Optional.of(crashLogPath));
-    if (!wasEmpty) {
-      Crash.because("CRASH_LOG_PATH already set").now();
+    var newPath = Optional.of(crashLogPath);
+    var wasEmpty = Crash.crashLogPath.compareAndSet(Optional.empty(), newPath);
+    if (!wasEmpty && !newPath.equals(Crash.crashLogPath.get())) {
+      Crash.because("CRASH_LOG_PATH already set to a different path").now();
     }
   }
 
