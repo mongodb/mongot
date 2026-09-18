@@ -53,13 +53,14 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
   public static final int DEFAULT_STEADY_STATE_PRIORITY_RATIO = 1;
 
   /**
-   * Default priority strategy variant: OPTIME_LAG. Used when {@code steadyStateSchedulingMethod} is
-   * not configured at all. A separate fallback to {@code OPTIME_LAG} for an invalid value lives in
-   * {@code MmsConfig}'s {@code STEADY_STATE_SCHEDULING_METHOD} field definition. If this default
-   * has to be changed, both sites need to be updated.
+   * Default priority strategy variant: TOP_K_WORST_LAG. Used when {@code
+   * steadyStateSchedulingMethod} is not configured at all. A separate fallback to {@code
+   * TOP_K_WORST_LAG} for an invalid value lives in {@code MmsConfig}'s {@code
+   * STEADY_STATE_SCHEDULING_METHOD} field definition. If this default has to be changed, both sites
+   * need to be updated.
    */
   public static final SteadyStateSchedulingMethod DEFAULT_STEADY_STATE_SCHEDULING_METHOD =
-      SteadyStateSchedulingMethod.OPTIME_LAG;
+      SteadyStateSchedulingMethod.TOP_K_WORST_LAG;
 
   /** The number of initial syncs that are allowed to be run concurrently. */
   public final int numConcurrentInitialSyncs;
