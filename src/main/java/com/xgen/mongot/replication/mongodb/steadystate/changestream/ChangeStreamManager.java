@@ -431,7 +431,7 @@ public class ChangeStreamManager {
         return new TopKWorstLagPriorityStrategy(
             replicationConfig.getSteadyStatePriorityRatio(),
             TopKWorstLagPriorityStrategy.DEFAULT_RECOMPUTE_INTERVAL_SECONDS,
-            TopKWorstLagPriorityStrategy.DEFAULT_HEALTHY_LAG_FLOOR_SECONDS,
+            replicationConfig.getSteadyStatePriorityOptimeThresholdSeconds(),
             meterRegistry);
       case FIFO:
         throw new IllegalStateException(

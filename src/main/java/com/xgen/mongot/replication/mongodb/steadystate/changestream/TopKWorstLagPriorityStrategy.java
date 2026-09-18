@@ -19,7 +19,6 @@ import org.bson.types.ObjectId;
 final class TopKWorstLagPriorityStrategy extends RecomputingLagPriorityStrategy {
 
   static final int DEFAULT_RECOMPUTE_INTERVAL_SECONDS = 15;
-  static final int DEFAULT_HEALTHY_LAG_FLOOR_SECONDS = 1;
 
   private final double targetPreferredFraction;
 
