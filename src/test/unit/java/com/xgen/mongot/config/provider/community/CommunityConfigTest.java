@@ -118,7 +118,8 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.empty(),
-                      Optional.of(FtdcCommunityConfig.getDefault())))));
+                      Optional.of(FtdcCommunityConfig.getDefault()))),
+              Optional.empty()));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig> replicaSetX509() {
@@ -205,7 +206,8 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.empty(),
-                      Optional.of(new FtdcCommunityConfig(false, 200, 20, 3000))))));
+                      Optional.of(new FtdcCommunityConfig(false, 200, 20, 3000)))),
+              Optional.empty()));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig>
@@ -243,7 +245,8 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.empty(),
-                      Optional.of(FtdcCommunityConfig.getDefault())))));
+                      Optional.of(FtdcCommunityConfig.getDefault()))),
+              Optional.empty()));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig> grpcDisabledTls() {
@@ -288,7 +291,8 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.empty(),
-                      Optional.of(FtdcCommunityConfig.getDefault())))));
+                      Optional.of(FtdcCommunityConfig.getDefault()))),
+              Optional.empty()));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig> grpcTls() {
@@ -333,7 +337,8 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.empty(),
-                      Optional.of(FtdcCommunityConfig.getDefault())))));
+                      Optional.of(FtdcCommunityConfig.getDefault()))),
+              Optional.empty()));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig> grpcTlsWithPassword() {
@@ -378,7 +383,8 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.empty(),
-                      Optional.of(FtdcCommunityConfig.getDefault())))));
+                      Optional.of(FtdcCommunityConfig.getDefault()))),
+              Optional.empty()));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig> grpcMtls() {
@@ -423,7 +429,8 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.empty(),
-                      Optional.of(FtdcCommunityConfig.getDefault())))));
+                      Optional.of(FtdcCommunityConfig.getDefault()))),
+              Optional.empty()));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig>
@@ -464,7 +471,8 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.empty(),
-                      Optional.of(FtdcCommunityConfig.getDefault())))));
+                      Optional.of(FtdcCommunityConfig.getDefault()))),
+              Optional.empty()));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig>
@@ -507,7 +515,8 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.empty(),
-                      Optional.of(FtdcCommunityConfig.getDefault())))));
+                      Optional.of(FtdcCommunityConfig.getDefault()))),
+              Optional.empty()));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig>
@@ -564,7 +573,8 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.empty(),
-                      Optional.of(FtdcCommunityConfig.getDefault())))));
+                      Optional.of(FtdcCommunityConfig.getDefault()))),
+              Optional.empty()));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig> ftdcOverrides() {
@@ -601,7 +611,8 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.empty(),
-                      Optional.of(new FtdcCommunityConfig(false, 200, 20, 3000))))));
+                      Optional.of(new FtdcCommunityConfig(false, 200, 20, 3000)))),
+              Optional.empty()));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig> withReplicationReader() {
@@ -639,7 +650,8 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.empty(),
-                      Optional.of(FtdcCommunityConfig.getDefault())))));
+                      Optional.of(FtdcCommunityConfig.getDefault()))),
+              Optional.empty()));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig> withDiskMonitor() {
@@ -781,7 +793,8 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.of(DiskMonitorConfig.getDefault()),
-                      Optional.of(FtdcCommunityConfig.getDefault())))));
+                      Optional.of(FtdcCommunityConfig.getDefault()))),
+              Optional.empty()));
     }
   }
 
@@ -849,7 +862,8 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.empty(),
-                      Optional.of(new FtdcCommunityConfig(false, 200, 20, 3000)))));
+                      Optional.of(new FtdcCommunityConfig(false, 200, 20, 3000)))),
+              Optional.empty());
 
       assertEquals(expected, result);
     }
@@ -1081,6 +1095,34 @@ public class CommunityConfigTest {
       assertEquals("user", replicaSet.scram().get().username());
       assertEquals(
           Path.of("/etc/mongot/replicaSet.passwd"), replicaSet.scram().get().passwordFile());
+    }
+
+    @Test
+    public void readFromFile_withTracing_parsesTracingBlock()
+        throws IOException, BsonParseException {
+      Path configPath =
+          Path.of("src/test/unit/resources/config/provider/community/communityConfigTracing.yaml");
+      CommunityConfig result = CommunityConfig.readFromFile(configPath).config();
+
+      TracingConfig tracing = result.tracingConfig().orElseThrow();
+      assertTrue(tracing.enabled());
+      assertEquals(TracingConfig.SamplingStrategy.HEAD, tracing.searchSamplingStrategy());
+      assertEquals(1.0, tracing.searchTracingSamplerRate(), 0.0);
+    }
+
+    @Test
+    public void readFromFile_withUnknownTracingField_reportsUnknownField()
+        throws IOException, BsonParseException {
+      Path configPath =
+          Path.of(
+              "src/test/unit/resources/config/provider/community/"
+                  + "communityConfigTracingUnknownField.yaml");
+      CommunityConfig.ParsedCommunityConfig parsed = CommunityConfig.readFromFile(configPath);
+
+      assertFalse(parsed.unknownFieldExceptions().isEmpty());
+      assertEquals(
+          TracingConfig.SamplingStrategy.HEAD,
+          parsed.config().tracingConfig().orElseThrow().searchSamplingStrategy());
     }
   }
 }

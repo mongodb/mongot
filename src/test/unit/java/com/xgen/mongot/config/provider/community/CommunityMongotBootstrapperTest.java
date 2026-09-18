@@ -9,6 +9,8 @@ import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.google.common.base.Supplier;
 import com.mongodb.MongoException;
 import com.xgen.mongot.catalogservice.CatalogAccessGuard;
@@ -18,12 +20,16 @@ import com.xgen.mongot.config.provider.community.embedding.EmbeddingConfig;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelCatalog;
 import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
+import com.xgen.mongot.trace.Slf4jExporter;
+import com.xgen.mongot.trace.SpanGuard;
+import com.xgen.mongot.trace.Tracing;
 import com.xgen.mongot.util.Crash;
 import com.xgen.mongot.util.mongodb.CheckedMongoException;
 import com.xgen.mongot.util.mongodb.Databases;
 import com.xgen.testing.TestUtils;
 import io.micrometer.core.instrument.composite.CompositeMeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.opentelemetry.sdk.trace.SpanProcessor;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -87,6 +93,10 @@ public class CommunityMongotBootstrapperTest {
     if (this.indexingKeyFile != null) {
       Files.deleteIfExists(this.indexingKeyFile);
     }
+
+    // Reset sampling strategies so tracing tests are order-independent.
+    Tracing.updateStrategyConfig(
+        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
   }
 
   @Test
@@ -350,6 +360,7 @@ public class CommunityMongotBootstrapperTest {
         Optional.empty(),
         Optional.empty(),
         embeddingConfig,
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -372,7 +383,8 @@ public class CommunityMongotBootstrapperTest {
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
-                ftdcConfig)));
+                ftdcConfig)),
+        Optional.empty());
   }
 
   private SyncSourceConfig createMinimalSyncSourceConfig() {
@@ -394,6 +406,135 @@ public class CommunityMongotBootstrapperTest {
   private ServerConfig createMinimalServerConfig() {
     return new ServerConfig(
         new ServerConfig.GrpcServerConfig("127.0.0.1:27028", Optional.empty()), Optional.empty());
+  }
+
+  @Test
+  public void configureTracing_enabled_wiresAndEmitsOtlpJson() throws Exception {
+    Logger exporterLogger = TestUtils.getClassLogger(Slf4jExporter.class);
+    List<ILoggingEvent> events = TestUtils.getLogEvents(exporterLogger);
+
+    // Drive the path from the actual tracing-enabled YAML file, not a hand-built config.
+    Path configPath =
+        Path.of("src/test/unit/resources/config/provider/community/communityConfigTracing.yaml");
+    TracingConfig config =
+        CommunityConfig.readFromFile(configPath).config().tracingConfig().orElseThrow();
+
+    Optional<SpanProcessor> processor =
+        CommunityMongotBootstrapper.configureTracing(Optional.of(config), this.meterRegistry);
+    assertTrue(processor.isPresent());
+    assertEquals(1.0, this.meterRegistry.get("tracing.enabled").gauge().value(), 0.0);
+
+    SpanProcessor installed = processor.get();
+    try {
+      // The configured head strategy at rate 1.0 must apply to both search and vector spans.
+      try (SpanGuard searchGuard = Tracing.searchSpanGuard("test.search")) {
+        assertTrue(searchGuard.getSpan().isRecording());
+      }
+      try (SpanGuard vectorGuard = Tracing.vectorSearchSpanGuard("test.vectorSearch")) {
+        assertTrue(vectorGuard.getSpan().isRecording());
+      }
+    } finally {
+      // The shutdown helper must flush the buffered traces before stopping the processor; if the
+      // order were reversed, shutdown would clear the buffer and no log would be emitted.
+      CommunityMongotBootstrapper.flushAndShutdownTracing(installed);
+    }
+
+    assertTrue(
+        "expected an OTLP-JSON span log",
+        events.stream()
+            .map(ILoggingEvent::getFormattedMessage)
+            .anyMatch(msg -> msg.contains("scopeSpans")));
+    assertTrue(
+        "expected the search span in the emitted traces",
+        events.stream()
+            .map(ILoggingEvent::getFormattedMessage)
+            .anyMatch(msg -> msg.contains("test.search")));
+    assertTrue(
+        "expected the vector span in the emitted traces",
+        events.stream()
+            .map(ILoggingEvent::getFormattedMessage)
+            .anyMatch(msg -> msg.contains("test.vectorSearch")));
+  }
+
+  @Test
+  public void configureTracing_enabled_appliesStrategiesAndRatesIndependently() {
+    // Rates are per-signal: head sampling at 1.0 records; at 0.0 it does not.
+    Optional<SpanProcessor> byRate =
+        CommunityMongotBootstrapper.configureTracing(
+            Optional.of(
+                new TracingConfig(
+                    true,
+                    TracingConfig.SamplingStrategy.HEAD,
+                    TracingConfig.SamplingStrategy.HEAD,
+                    1.0,
+                    0.0)),
+            this.meterRegistry);
+    assertTrue(byRate.isPresent());
+    try {
+      try (SpanGuard searchGuard = Tracing.searchSpanGuard("rate.search")) {
+        assertTrue(searchGuard.getSpan().isRecording());
+      }
+      try (SpanGuard vectorGuard = Tracing.vectorSearchSpanGuard("rate.vectorSearch")) {
+        assertFalse(vectorGuard.getSpan().isRecording());
+      }
+    } finally {
+      byRate.get().shutdown();
+    }
+
+    // Strategies are per-signal: tail records regardless of rate; head at 0.0 does not.
+    Optional<SpanProcessor> byStrategy =
+        CommunityMongotBootstrapper.configureTracing(
+            Optional.of(
+                new TracingConfig(
+                    true,
+                    TracingConfig.SamplingStrategy.TAIL,
+                    TracingConfig.SamplingStrategy.HEAD,
+                    0.0,
+                    0.0)),
+            this.meterRegistry);
+    assertTrue(byStrategy.isPresent());
+    try {
+      try (SpanGuard searchGuard = Tracing.searchSpanGuard("strategy.search")) {
+        assertTrue(searchGuard.getSpan().isRecording());
+      }
+      try (SpanGuard vectorGuard = Tracing.vectorSearchSpanGuard("strategy.vectorSearch")) {
+        assertFalse(vectorGuard.getSpan().isRecording());
+      }
+    } finally {
+      byStrategy.get().shutdown();
+    }
+  }
+
+  @Test
+  public void configureTracing_absentOrDisabled_recordsNoSpansAndReportsGaugeZero() {
+    // `searchSamplingStrategy: tail` in the disabled config guards against a bug where
+    // updateStrategyConfig runs before the !enabled check and disabled tracing records every
+    // $search query.
+    for (Optional<TracingConfig> config :
+        List.of(Optional.<TracingConfig>empty(), Optional.of(disabledTracingConfig()))) {
+      SimpleMeterRegistry registry = new SimpleMeterRegistry();
+
+      Optional<SpanProcessor> processor =
+          CommunityMongotBootstrapper.configureTracing(config, registry);
+
+      assertTrue(processor.isEmpty());
+      assertEquals(0.0, registry.get("tracing.enabled").gauge().value(), 0.0);
+      try (SpanGuard searchGuard = Tracing.searchSpanGuard("test.search")) {
+        assertFalse(searchGuard.getSpan().isRecording());
+      }
+      try (SpanGuard vectorGuard = Tracing.vectorSearchSpanGuard("test.vectorSearch")) {
+        assertFalse(vectorGuard.getSpan().isRecording());
+      }
+    }
+  }
+
+  private static TracingConfig disabledTracingConfig() {
+    return new TracingConfig(
+        false,
+        TracingConfig.SamplingStrategy.TAIL,
+        TracingConfig.SamplingStrategy.HEAD,
+        0.01,
+        0.01);
   }
 
   private static final class HaltError extends Error {

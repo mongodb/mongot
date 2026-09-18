@@ -75,6 +75,9 @@ import com.xgen.mongot.server.grpc.GrpcStreamingServer;
 import com.xgen.mongot.server.grpc.HealthManager;
 import com.xgen.mongot.server.http.HealthCheckServer;
 import com.xgen.mongot.server.http.ReadinessChecker;
+import com.xgen.mongot.trace.LatencySamplingSpanProcessor;
+import com.xgen.mongot.trace.Slf4jExporter;
+import com.xgen.mongot.trace.Tracing;
 import com.xgen.mongot.util.Bytes;
 import com.xgen.mongot.util.Crash;
 import com.xgen.mongot.util.GlobalMetricFactory;
@@ -88,8 +91,10 @@ import com.xgen.mongot.util.concurrent.Executors;
 import com.xgen.mongot.util.mongodb.CheckedMongoException;
 import com.xgen.mongot.util.mongodb.MongoDbMetadataClient;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.composite.CompositeMeterRegistry;
+import io.opentelemetry.sdk.trace.SpanProcessor;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
@@ -205,6 +210,7 @@ public class CommunityMongotBootstrapper {
         mongotConfigs.featureFlags.isEnabled(Feature.INDEX_FEATURE_VERSION_FOUR),
         meterRegistry);
     var systemMetricsInstrumentation = maybeStartSystemMetrics(config, meterRegistry);
+    var tracingProcessor = configureTracing(config.tracingConfig(), meterRegistry);
 
     var cursorManager =
         MongotCursorManagerImpl.fromConfig(
@@ -358,6 +364,8 @@ public class CommunityMongotBootstrapper {
         metadataService::close,
         initialSyncHostProvider::close,
         mongodTopologyMonitor::close,
+        // Flush and stop tracing before the logger is closed so buffered traces are not lost.
+        () -> tracingProcessor.ifPresent(CommunityMongotBootstrapper::flushAndShutdownTracing),
         Logging::shutdown);
 
     // Start our background processes.
@@ -442,6 +450,62 @@ public class CommunityMongotBootstrapper {
     Instrumentation.instrumentJvmMetrics(meterRegistry);
     return Optional.of(
         SystemMetricsInstrumentation.create(meterRegistry, config.storageConfig().dataPath()));
+  }
+
+  /**
+   * Configures mongot-local OpenTelemetry query tracing when the self-managed {@code tracing} block
+   * is enabled. Spans are exported as OTLP-JSON through mongot's structured logs; tracing never
+   * opens a listener or an outbound connection.
+   *
+   * <p>Tracing is disabled when the block is absent or {@code enabled: false}. When enabled, the
+   * existing processor and exporter are used with their internal latency-sampling defaults.
+   *
+   * @return the installed processor when tracing is enabled, or empty when it is disabled
+   */
+  @VisibleForTesting
+  static Optional<SpanProcessor> configureTracing(
+      Optional<TracingConfig> tracingConfig, MeterRegistry meterRegistry) {
+    boolean enabled = tracingConfig.map(TracingConfig::enabled).orElse(false);
+    Gauge.builder("tracing.enabled", () -> enabled ? 1.0 : 0.0)
+        .strongReference(true)
+        .register(meterRegistry);
+
+    if (!enabled) {
+      // Install an explicit no-op provider so a later getTracer() cannot lazily create the default
+      // processor (and its scheduler/exporter) on a disabled deployment. Tracing is startup-only.
+      Tracing.initializeTracer(Optional.empty(), SpanProcessor.composite(List.of()));
+      LOG.atDebug().log("OTEL tracing is disabled.");
+      return Optional.empty();
+    }
+
+    TracingConfig config = tracingConfig.get();
+    Tracing.updateStrategyConfig(
+        Optional.of(config.searchSamplingStrategy().name()),
+        Optional.of(config.vectorSamplingStrategy().name()),
+        Optional.of(config.searchTracingSamplerRate()),
+        Optional.of(config.vectorTracingSamplerRate()));
+
+    SpanProcessor processor = LatencySamplingSpanProcessor.builder(Slf4jExporter.create()).build();
+    Tracing.initializeTracer(Optional.empty(), processor);
+
+    LOG.atInfo()
+        .addKeyValue("searchSamplingStrategy", config.searchSamplingStrategy())
+        .addKeyValue("vectorSamplingStrategy", config.vectorSamplingStrategy())
+        .addKeyValue("searchTracingSamplerRate", config.searchTracingSamplerRate())
+        .addKeyValue("vectorTracingSamplerRate", config.vectorTracingSamplerRate())
+        .log("OTEL tracing enabled; traces export as OTLP-JSON through mongot logs.");
+    return Optional.of(processor);
+  }
+
+  /**
+   * Synchronously flushes buffered traces and then stops the tracing processor during shutdown, so
+   * traces retained since the last sampling window are exported before the logging pipeline closes.
+   * The flush is bounded; if it does not complete in time the processor is still shut down.
+   */
+  @VisibleForTesting
+  static void flushAndShutdownTracing(SpanProcessor processor) {
+    processor.forceFlush().join(5, TimeUnit.SECONDS);
+    processor.shutdown();
   }
 
   static Optional<MetricsLifecycles> maybeCreateFtdcReporter(

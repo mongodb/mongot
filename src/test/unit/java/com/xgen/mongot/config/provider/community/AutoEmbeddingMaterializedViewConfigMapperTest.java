@@ -160,7 +160,8 @@ public class AutoEmbeddingMaterializedViewConfigMapperTest {
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
-                Optional.empty())));
+                Optional.empty())),
+        Optional.empty());
   }
 
   private static CommunityConfig withAutoEmbeddingConfig(
@@ -182,6 +183,7 @@ public class AutoEmbeddingMaterializedViewConfigMapperTest {
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
-                Optional.empty())));
+                Optional.empty())),
+        Optional.empty());
   }
 }

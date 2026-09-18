@@ -26,7 +26,8 @@ public record CommunityConfig(
     Optional<HealthCheckConfig> healthCheckConfig,
     Optional<LoggingConfig> loggingConfig,
     Optional<EmbeddingConfig> embeddingConfig,
-    Optional<AdvancedConfigs> advancedConfigs)
+    Optional<AdvancedConfigs> advancedConfigs,
+    Optional<TracingConfig> tracingConfig)
     implements DocumentEncodable {
 
   private static final Logger LOG = LoggerFactory.getLogger(CommunityConfig.class);
@@ -84,6 +85,13 @@ public record CommunityConfig(
             .disallowUnknownFields()
             .optional()
             .noDefault();
+
+    public static final Field.Optional<TracingConfig> TRACING =
+        Field.builder("tracing")
+            .classField(TracingConfig::fromBson)
+            .disallowUnknownFields()
+            .optional()
+            .noDefault();
   }
 
   public record ParsedCommunityConfig(
@@ -116,7 +124,8 @@ public record CommunityConfig(
         parser.getField(Fields.HEALTH_CHECK).unwrap(),
         parser.getField(Fields.LOGGING).unwrap(),
         parser.getField(Fields.EMBEDDING).unwrap(),
-        parser.getField(Fields.ADVANCED_CONFIGS).unwrap());
+        parser.getField(Fields.ADVANCED_CONFIGS).unwrap(),
+        parser.getField(Fields.TRACING).unwrap());
   }
 
   @Override
@@ -130,6 +139,7 @@ public record CommunityConfig(
         .field(Fields.LOGGING, this.loggingConfig)
         .field(Fields.EMBEDDING, this.embeddingConfig)
         .field(Fields.ADVANCED_CONFIGS, this.advancedConfigs)
+        .field(Fields.TRACING, this.tracingConfig)
         .build();
   }
 

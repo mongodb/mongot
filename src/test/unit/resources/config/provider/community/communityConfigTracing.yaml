@@ -1,0 +1,17 @@
+syncSource:
+  replicaSet:
+    hostAndPort: "mongod:27017"
+    scramAuth:
+      username: user
+      passwordFile: "replicaSet.passwd"
+storage:
+  dataPath: "data/mongot"
+server:
+  grpc:
+    address: "localhost:27028"
+tracing:
+  enabled: true
+  searchSamplingStrategy: head
+  vectorSamplingStrategy: head
+  searchTracingSamplerRate: 1.0
+  vectorTracingSamplerRate: 1.0

@@ -101,6 +101,58 @@ mongosh --tls --tlsCAFile ./tls/ca.pem --tlsCertificateKeyFile ./tls/client-comb
 curl http://localhost:9946/metrics
 ```
 
+## Query tracing (opt-in)
+
+Self-managed mongot can export OpenTelemetry spans for `$search` and `$vectorSearch`
+as OTLP-JSON through its structured logs. Tracing is **disabled by default**; it is
+only intended to be enabled while diagnosing slow or failing queries.
+
+To enable it, set `tracing.enabled: true` in `mongot.conf` and start (or restart) the
+stack:
+
+```shell
+make docker.up MODE=local
+```
+
+Then run a query and look for `com.xgen.mongot.trace.Slf4jExporter` records in the
+mongot logs:
+
+```shell
+make docker.logs | grep Slf4jExporter
+```
+
+Each record contains a `traceId`, the root span (`SearchCommand.run` or
+`VectorSearchCommand.getSearchResults`), child stage timings, and result counts.
+Traces are local to mongot — they are not stitched to mongod/mongos — and are emitted
+once the processor's sampling window drains (internally a 300s window exporting the
+10 slowest traces). The Community config exposes only enablement and sampling:
+
+```yaml
+tracing:
+   enabled: true
+   searchSamplingStrategy: tail
+   vectorSamplingStrategy: head
+   searchTracingSamplerRate: 0.01
+   vectorTracingSamplerRate: 0.01
+```
+
+`searchSamplingStrategy` and `vectorSamplingStrategy` default to `tail` and `head`
+respectively. The `*TracingSamplerRate` values apply **only when the corresponding
+strategy is `head`**; tail sampling keeps a trace regardless of rate and selects the
+slowest traces for export after the query runs. With the defaults, every `$search`
+query is recorded (`tail`), but only about 1% of `$vectorSearch` queries are (`head` at
+`0.01`); when diagnosing vector queries, raise `vectorTracingSamplerRate` (for example to
+`1.0`) or set `vectorSamplingStrategy: tail`.
+
+Cost is bounded in a few ways. Export is capped at the 10 slowest traces per 300s window
+regardless of sampling rate, so log volume is bounded. In-flight trace state is capped at
+10,000 traces with a 30-minute expiry. The remaining cost is per-query span recording:
+every query under `tail`, and `rate` × queries under `head`. Traces appear when the 300s
+window drains; traces still buffered are flushed on graceful shutdown.
+
+`enabled` is read once at startup and there is no runtime kill switch: to stop tracing,
+set `tracing.enabled: false` and restart mongot.
+
 ## Create a MongoDB Search index
 
 1. Connect to MongoDB with mongosh
