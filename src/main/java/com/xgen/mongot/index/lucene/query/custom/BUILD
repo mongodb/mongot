@@ -7,6 +7,7 @@ java_library(
         "ExactVectorSearchQuery.java",
         "MongotKnnByteQuery.java",
         "MongotKnnFloatQuery.java",
+        "NullnessAwareIndexSortRangeQuery.java",
         "WrappedKnnQuery.java",
         "WrappedQuery.java",
     ],
@@ -19,6 +20,7 @@ java_library(
     deps = [
         "//src/main/java/com/xgen/mongot/featureflag",
         "//src/main/java/com/xgen/mongot/index",
+        "//src/main/java/com/xgen/mongot/index/lucene/field",
         "//src/main/java/com/xgen/mongot/index/lucene/util",
         "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/bson",
