@@ -16,6 +16,7 @@ import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
@@ -39,6 +40,7 @@ import com.mongodb.ServerAddress;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.index.Index;
 import com.xgen.mongot.index.IndexMetricValuesSupplier;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.IndexWriter;
@@ -72,6 +74,7 @@ import com.xgen.mongot.replication.mongodb.synonyms.SynonymMappingManager;
 import com.xgen.mongot.replication.mongodb.synonyms.SynonymMappingManagerFactory;
 import com.xgen.testing.mongot.index.IndexMetricsUpdaterBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import com.xgen.testing.mongot.mock.index.IndexMetricsSupplier;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils;
@@ -88,6 +91,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.bson.BsonDocument;
@@ -1971,6 +1976,46 @@ public class ReplicationIndexManagerTest {
     public String toString() {
       return String.format("StatusCode.%s", this.expected.name());
     }
+  }
+
+  @Test
+  public void createPeriodicCommitter_customVectorEngineIndex_startsNoPeriodicCommits() {
+    Index index = mock(Index.class);
+    when(index.getDefinition())
+        .thenReturn(
+            VectorIndexDefinitionBuilder.builder()
+                .withCustomEngineVectorField("vector", 3)
+                .build());
+    ScheduledExecutorService commitExecutor = mock(ScheduledExecutorService.class);
+
+    ReplicationIndexManager.createPeriodicCommitter(
+        index,
+        com.xgen.testing.mongot.mock.replication.mongodb.common.DocumentIndexer
+            .mockDocumentIndexer(),
+        commitExecutor,
+        Duration.ofMillis(10));
+
+    verifyNoInteractions(commitExecutor);
+  }
+
+  @Test
+  public void createPeriodicCommitter_searchIndex_startsPeriodicCommits() {
+    Index index = mock(Index.class);
+    when(index.getDefinition()).thenReturn(MOCK_INDEX_DEFINITION_GENERATION.getIndexDefinition());
+    ScheduledExecutorService commitExecutor = mock(ScheduledExecutorService.class);
+    doReturn(mock(ScheduledFuture.class))
+        .when(commitExecutor)
+        .scheduleWithFixedDelay(any(), anyLong(), anyLong(), any());
+
+    ReplicationIndexManager.createPeriodicCommitter(
+        index,
+        com.xgen.testing.mongot.mock.replication.mongodb.common.DocumentIndexer
+            .mockDocumentIndexer(),
+        commitExecutor,
+        Duration.ofMillis(10));
+
+    verify(commitExecutor)
+        .scheduleWithFixedDelay(any(), eq(0L), eq(10L), eq(TimeUnit.MILLISECONDS));
   }
 
   private static class Mocks implements Closeable {

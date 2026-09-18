@@ -73,6 +73,11 @@ public final class IdTypeObservingDocumentIndexer implements DocumentIndexer {
   }
 
   @Override
+  public void stageCommitUserData() throws IOException {
+    this.delegate.stageCommitUserData();
+  }
+
+  @Override
   public void commit() throws IOException {
     this.delegate.commit();
   }

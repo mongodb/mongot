@@ -5,6 +5,7 @@ java_library(
     srcs = [
         "AggregatedIndexMetrics.java",
         "BatchProducer.java",
+        "CommitDataStagingWriter.java",
         "CountMergingBatchProducer.java",
         "CountMetaBatchProducer.java",
         "CountResult.java",

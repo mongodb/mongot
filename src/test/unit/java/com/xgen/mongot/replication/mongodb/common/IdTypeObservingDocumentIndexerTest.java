@@ -74,4 +74,15 @@ public class IdTypeObservingDocumentIndexerTest {
 
     verify(delegate).updateCommitUserDataSupplier(supplier);
   }
+
+  @Test
+  public void testStageCommitUserDataIsDelegated() throws Exception {
+    DocumentIndexer delegate = mock(DocumentIndexer.class);
+    IdTypeObservingDocumentIndexer indexer =
+        IdTypeObservingDocumentIndexer.wrap(delegate, ignored -> {});
+
+    indexer.stageCommitUserData();
+
+    verify(delegate).stageCommitUserData();
+  }
 }

@@ -31,15 +31,6 @@ final class CustomVectorEngineIndexingWorkScheduler extends IndexingWorkSchedule
     return scheduler;
   }
 
-  /**
-   * This setting enables publishing resume userdata to Vectorlite when each replication batch
-   * completes.
-   */
-  @Override
-  protected boolean shouldCommitOnFinalize() {
-    return true;
-  }
-
   @Override
   CompletableFuture<Void> getBatchTasksFuture(IndexingSchedulerBatch batch) {
     return CompletableFuture.supplyAsync(

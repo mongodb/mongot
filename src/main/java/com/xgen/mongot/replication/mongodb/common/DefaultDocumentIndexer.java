@@ -1,5 +1,6 @@
 package com.xgen.mongot.replication.mongodb.common;
 
+import com.xgen.mongot.index.CommitDataStagingWriter;
 import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.ExceededLimitsException;
 import com.xgen.mongot.index.FieldExceededLimitsException;
@@ -101,13 +102,25 @@ public class DefaultDocumentIndexer implements DocumentIndexer {
   }
 
   @Override
+  public synchronized void stageCommitUserData() throws IOException {
+    if (this.index.getWriter() instanceof CommitDataStagingWriter stagingWriter) {
+      stagingWriter.stageUserData(currentUserData().toEncodedData());
+    }
+  }
+
+  @Override
   public synchronized void commit() throws IOException {
+    // Stage first so a writer whose commit is a no-op (its engine schedules its own commits) still
+    // receives the envelope — commit call sites carry status transitions, not just batch positions.
+    stageCommitUserData();
+    this.index.getWriter().commit(currentUserData().toEncodedData());
+  }
+
+  private IndexCommitUserData currentUserData() {
     IndexCommitUserData base = this.commitUserDataSupplier.get().get();
-    IndexCommitUserData userData =
-        this.autoEmbeddingMetadataSupplier
-            .map(supplier -> base.withAutoEmbeddingMetadata(supplier.get()))
-            .orElse(base);
-    this.index.getWriter().commit(userData.toEncodedData());
+    return this.autoEmbeddingMetadataSupplier
+        .map(supplier -> base.withAutoEmbeddingMetadata(supplier.get()))
+        .orElse(base);
   }
 
   @Override

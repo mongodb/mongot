@@ -2,10 +2,12 @@ package com.xgen.mongot.replication.mongodb.autoembedding;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.xgen.mongot.embedding.exceptions.MaterializedViewNonTransientException;
@@ -62,6 +64,30 @@ public class TenureFencedMaterializedViewDocumentIndexerTest {
     verify(this.materializedViewWriter).updateIndex(org.mockito.ArgumentMatchers.any());
     verify(this.materializedViewWriter).commit(EncodedUserData.EMPTY, 7L);
     verify(this.leaseManager, times(1)).getOwnedLeaseVersion(this.generationId);
+  }
+
+  @Test
+  public void stageCommitUserData_anyTenureState_isANoOp() throws Exception {
+    when(this.leaseManager.getOwnedLeaseVersion(this.generationId)).thenReturn(7L);
+    TenureFencedMaterializedViewDocumentIndexer indexer = createIndexer();
+
+    // Batch finalize calls this unconditionally on every indexer, so the materialized-view
+    // indexer must tolerate it in any state — including outside a tenure — without touching
+    // the writer at all. Surrounding steps interact with the writer (createIndexer reads
+    // getCommitUserData, endTenure discards buffered writes), so clear before each call.
+    clearInvocations(this.materializedViewWriter);
+    indexer.stageCommitUserData();
+    verifyNoInteractions(this.materializedViewWriter);
+
+    indexer.beginTenure();
+    clearInvocations(this.materializedViewWriter);
+    indexer.stageCommitUserData();
+    verifyNoInteractions(this.materializedViewWriter);
+
+    indexer.endTenure();
+    clearInvocations(this.materializedViewWriter);
+    indexer.stageCommitUserData();
+    verifyNoInteractions(this.materializedViewWriter);
   }
 
   @Test

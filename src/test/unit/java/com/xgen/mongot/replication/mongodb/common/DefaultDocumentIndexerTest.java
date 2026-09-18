@@ -1,15 +1,19 @@
 package com.xgen.mongot.replication.mongodb.common;
 
 import static com.xgen.mongot.index.DocumentEvent.EventType.DELETE;
+import static com.xgen.testing.mongot.mock.index.IndexWriter.mockStagingIndexWriter;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_DEFINITION_GENERATION;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_ID;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.mockInitializedIndex;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.xgen.mongot.index.CommitDataStagingWriter;
 import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.DocumentMetadata;
 import com.xgen.mongot.index.EncodedUserData;
@@ -24,6 +28,7 @@ import org.bson.BsonInt32;
 import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
 import org.junit.Test;
+import org.mockito.InOrder;
 
 public class DefaultDocumentIndexerTest {
 
@@ -57,6 +62,75 @@ public class DefaultDocumentIndexerTest {
         IndexCommitUserData.fromEncodedData(userData, Optional.of(index.getGenerationId())));
     indexer.commit();
     verify(index.getWriter()).commit(userData);
+  }
+
+  @Test
+  public void testCommitStagesUserDataOnAStagingWriterBeforeCommitting() throws Exception {
+    InitializedIndex index = mockInitializedIndex(MOCK_INDEX_DEFINITION_GENERATION);
+    var stagingWriter = mockStagingIndexWriter();
+    when(index.getWriter()).thenReturn(stagingWriter);
+    DefaultDocumentIndexer indexer = DefaultDocumentIndexer.create(index);
+    EncodedUserData userData =
+        EncodedUserData.fromString("{\"backendIndexVersion\": {\"$numberInt\": \"123\"}}");
+    indexer.updateCommitUserData(
+        IndexCommitUserData.fromEncodedData(userData, Optional.of(index.getGenerationId())));
+
+    indexer.commit();
+
+    InOrder inOrder = inOrder(stagingWriter);
+    inOrder.verify((CommitDataStagingWriter) stagingWriter).stageUserData(userData);
+    inOrder.verify(stagingWriter).commit(userData);
+  }
+
+  @Test
+  public void testStageCommitUserDataStagesWithoutCommitting() throws Exception {
+    InitializedIndex index = mockInitializedIndex(MOCK_INDEX_DEFINITION_GENERATION);
+    var stagingWriter = mockStagingIndexWriter();
+    when(index.getWriter()).thenReturn(stagingWriter);
+    DefaultDocumentIndexer indexer = DefaultDocumentIndexer.create(index);
+    EncodedUserData userData =
+        EncodedUserData.fromString("{\"backendIndexVersion\": {\"$numberInt\": \"123\"}}");
+    indexer.updateCommitUserData(
+        IndexCommitUserData.fromEncodedData(userData, Optional.of(index.getGenerationId())));
+
+    indexer.stageCommitUserData();
+
+    verify((CommitDataStagingWriter) stagingWriter).stageUserData(userData);
+    verify(stagingWriter, never()).commit(any());
+  }
+
+  @Test
+  public void testStageCommitUserDataIsANoOpForNonStagingWriters() throws Exception {
+    InitializedIndex index = mockInitializedIndex(MOCK_INDEX_DEFINITION_GENERATION);
+    DefaultDocumentIndexer indexer = DefaultDocumentIndexer.create(index);
+    indexer.updateCommitUserData(commitUserData(index, 1));
+
+    indexer.stageCommitUserData();
+
+    verify(index.getWriter(), never()).commit(any());
+  }
+
+  @Test
+  public void testStageCommitUserDataIncludesAutoEmbeddingMetadata() throws Exception {
+    InitializedIndex index = mockInitializedIndex(MOCK_INDEX_DEFINITION_GENERATION);
+    var stagingWriter = mockStagingIndexWriter();
+    when(index.getWriter()).thenReturn(stagingWriter);
+    DefaultDocumentIndexer indexer =
+        DefaultDocumentIndexer.create(index, () -> new AutoEmbeddingCommitMetadata(true));
+    EncodedUserData base =
+        EncodedUserData.fromString("{\"backendIndexVersion\": {\"$numberInt\": \"123\"}}");
+    indexer.updateCommitUserData(
+        IndexCommitUserData.fromEncodedData(base, Optional.of(index.getGenerationId())));
+
+    indexer.stageCommitUserData();
+
+    verify((CommitDataStagingWriter) stagingWriter)
+        .stageUserData(
+            argThat(
+                encoded ->
+                    IndexCommitUserData.fromEncodedData(encoded, Optional.empty())
+                        .getAutoEmbeddingMetadata()
+                        .equals(Optional.of(new AutoEmbeddingCommitMetadata(true)))));
   }
 
   @Test

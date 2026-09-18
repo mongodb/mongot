@@ -48,7 +48,21 @@ public interface DocumentIndexer {
    */
   void updateCommitUserDataSupplier(Supplier<IndexCommitUserData> commitUserDataSupplier);
 
-  /** Commits all pending changes to the index. */
+  /**
+   * Publishes the current commit user data to the writer as its resume position, without requiring
+   * a commit. Called unconditionally as each replication batch completes, so implementations whose
+   * writer is not a {@link com.xgen.mongot.index.CommitDataStagingWriter} must treat this as a
+   * no-op rather than throw; for a staging writer, the engine persists the staged position on its
+   * own commit cadence.
+   */
+  void stageCommitUserData() throws IOException;
+
+  /**
+   * Commits all pending changes to the index. Whether everything is durable when this returns is up
+   * to the concrete {@link com.xgen.mongot.index.IndexWriter}: a writer whose engine schedules its
+   * own commits receives the commit user data here (staged, like {@link #stageCommitUserData}) and
+   * persists it with the engine's next scheduled commit.
+   */
   void commit() throws IOException;
 
   /** Clear the index and update the commit user data atomically. */

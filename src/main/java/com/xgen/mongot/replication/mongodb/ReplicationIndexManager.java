@@ -19,6 +19,7 @@ import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.ReplicationOpTimeInfo;
 import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.status.IndexStatus.Reason;
 import com.xgen.mongot.index.status.IndexStatus.StatusCode;
@@ -251,7 +252,7 @@ public class ReplicationIndexManager implements IndexManager {
       boolean enableNaturalOrderScan) {
     Index index = indexGeneration.getIndex();
     PeriodicIndexCommitter periodicCommitter =
-        PeriodicIndexCommitter.create(index, documentIndexer, commitExecutor, commitInterval);
+        createPeriodicCommitter(index, documentIndexer, commitExecutor, commitInterval);
     return create(
         lifecycleExecutor,
         cursorManager,
@@ -339,6 +340,25 @@ public class ReplicationIndexManager implements IndexManager {
     }
 
     return manager;
+  }
+
+  /**
+   * A custom vector engine index needs no Java commit cycle: each completed replication batch
+   * stages its resume position with the writer and the engine schedules its own commits. It gets an
+   * inactive committer so the shutdown path stays uniform; every other index gets periodic commits.
+   */
+  @VisibleForTesting
+  static PeriodicIndexCommitter createPeriodicCommitter(
+      Index index,
+      DocumentIndexer documentIndexer,
+      ScheduledExecutorService commitExecutor,
+      Duration commitInterval) {
+    boolean engineSchedulesCommits =
+        index.getDefinition() instanceof VectorIndexDefinition vectorDef
+            && vectorDef.isCustomVectorEngineIndex();
+    return engineSchedulesCommits
+        ? PeriodicIndexCommitter.createInactive(index, documentIndexer)
+        : PeriodicIndexCommitter.create(index, documentIndexer, commitExecutor, commitInterval);
   }
 
   /**

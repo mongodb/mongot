@@ -119,6 +119,11 @@ final class TenureFencedMaterializedViewDocumentIndexer implements DocumentIndex
     this.commitUserDataSupplier.set(commitUserDataSupplier);
   }
 
+  @Override
+  public void stageCommitUserData() {
+    // The materialized-view writer has no staging path; durability comes from the per-batch commit.
+  }
+
   /**
    * Commits with the lease version pinned by {@link #beginTenure()} rather than the version the
    * lease holds now, so writes from an ended tenure cannot be stamped with a successor's token.

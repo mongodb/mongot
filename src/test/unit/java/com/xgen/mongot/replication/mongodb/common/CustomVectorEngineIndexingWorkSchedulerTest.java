@@ -1,8 +1,12 @@
 package com.xgen.mongot.replication.mongodb.common;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.DocumentMetadata;
@@ -15,12 +19,15 @@ import com.xgen.mongot.util.concurrent.Executors;
 import com.xgen.mongot.util.concurrent.NamedExecutorService;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Phaser;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -48,8 +55,35 @@ public class CustomVectorEngineIndexingWorkSchedulerTest {
   private static final DocumentEvent DELETE = DocumentEvent.createDelete(new BsonInt32(1));
 
   @Test
-  public void shouldCommitOnFinalize_always_returnsTrue() {
-    assertThat(makeScheduler(2).shouldCommitOnFinalize()).isTrue();
+  public void finalize_batchWithCommitUserData_stagesWithoutCommitting() throws Exception {
+    CustomVectorEngineIndexingWorkScheduler scheduler = makeScheduler(1);
+    DocumentIndexer indexer = indexer();
+    IndexCommitUserData commitUserData = IndexCommitUserData.createExceeded("marker");
+
+    schedule(scheduler, indexer, List.of(INSERT), Optional.of(commitUserData))
+        .get(5, TimeUnit.SECONDS);
+
+    verify(indexer).updateCommitUserData(commitUserData);
+    verify(indexer).stageCommitUserData();
+    verify(indexer, never()).commit();
+  }
+
+  @Test
+  public void finalize_stagingFails_failsTheBatchFuture() throws Exception {
+    CustomVectorEngineIndexingWorkScheduler scheduler = makeScheduler(1);
+    DocumentIndexer indexer = indexer();
+    doThrow(new IOException("engine unavailable")).when(indexer).stageCommitUserData();
+
+    CompletableFuture<Void> future =
+        schedule(
+            scheduler,
+            indexer,
+            List.of(INSERT),
+            Optional.of(IndexCommitUserData.createExceeded("marker")));
+
+    ExecutionException e =
+        assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));
+    assertThat(e).hasCauseThat().isInstanceOf(UncheckedIOException.class);
   }
 
   @Test

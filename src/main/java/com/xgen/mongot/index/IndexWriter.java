@@ -36,6 +36,10 @@ public interface IndexWriter extends Closeable {
   /**
    * Commits the index, along with the supplied user data that can later be retrieved via
    * getCommitUserData.
+   *
+   * <p>Whether the commit is durable when this returns is up to the concrete implementation: for a
+   * writer whose engine schedules its own commits this is a no-op, and the user data reaches the
+   * engine via {@link CommitDataStagingWriter#stageUserData} instead.
    */
   void commit(EncodedUserData userData) throws IOException;
 

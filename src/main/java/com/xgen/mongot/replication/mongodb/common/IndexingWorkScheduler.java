@@ -23,6 +23,8 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -214,6 +216,15 @@ public abstract class IndexingWorkScheduler extends Thread {
       this.schedulerQueue.finalizeBatch(batch);
       if (batch.commitUserData.isPresent()) {
         batch.indexer.updateCommitUserData(batch.commitUserData.get());
+        try {
+          // Publishes the batch's resume position to writers whose engine schedules its own
+          // commits; a no-op for commit-driven writers.
+          batch.indexer.stageCommitUserData();
+        } catch (IOException e) {
+          // Fails the batch's future via handleBatchException, like a finalize-time commit
+          // failure.
+          throw new UncheckedIOException("Failed to stage commit user data", e);
+        }
         if (shouldCommitOnFinalize()) {
           try {
             batch.indexer.commit();
