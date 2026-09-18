@@ -89,6 +89,24 @@ class ConfigInitializer {
       addIncompatibleIndexes(configState, configJournal);
     }
 
+    // Counted from what is still quarantined after moveSupersededQuarantinedIndexesToDropped ran,
+    // not from configJournal.getQuarantinedEntries(): a quarantined live entry that a parseable
+    // staged successor auto-resolved at boot is not a degraded index, and counting it would fire an
+    // alert for a condition that healed itself.
+    MetricsFactory metricsFactory = new MetricsFactory("ConfigInitializer", meterRegistry);
+    int numQuarantinedLiveIndexes = configState.incompatibleIndexes.getLiveIndexes().size();
+    int numQuarantinedStagedIndexes = configState.incompatibleIndexes.getStagedIndexes().size();
+    if (numQuarantinedLiveIndexes > 0) {
+      metricsFactory
+          .counter("quarantinedIndexesAtStartup", Tags.of("type", "live"))
+          .increment(numQuarantinedLiveIndexes);
+    }
+    if (numQuarantinedStagedIndexes > 0) {
+      metricsFactory
+          .counter("quarantinedIndexesAtStartup", Tags.of("type", "staged"))
+          .increment(numQuarantinedStagedIndexes);
+    }
+
     // Rewrite the config journal for our current state, without the deleted
     // indexes so we don't have to drop them again if we restart.
     configState.persist(configState.currentJournal());
@@ -257,15 +275,22 @@ class ConfigInitializer {
   /**
    * Tracks the staged and live entries that could not be parsed. Deleted entries are not tracked:
    * everything in the journal's deleted arrays is dropped at startup.
+   *
+   * <p>The per-entry log is at ERROR because a quarantined index is a silently degraded one: a node
+   * that used to crash-loop loudly now starts quietly, so this log is the per-index record an
+   * operator needs.
    */
   private static void addIncompatibleIndexes(
       ConfigState configState, ConfigJournalV1 configJournal) {
     quarantined(configJournal.getLiveEntries())
         .forEach(
             quarantinedIndex -> {
-              LOG.atInfo()
+              LOG.atError()
                   .addKeyValue("indexId", quarantinedIndex.indexId())
+                  .addKeyValue("name", quarantinedIndex.name())
+                  .addKeyValue("database", quarantinedIndex.database())
                   .addKeyValue("generationId", quarantinedIndex.generationId())
+                  .addKeyValue("journalState", "live")
                   .addKeyValue("parseError", quarantinedIndex.parseError())
                   .log("adding incompatible live index");
               configState.incompatibleIndexes.addLiveIndex(quarantinedIndex);
@@ -274,9 +299,12 @@ class ConfigInitializer {
     quarantined(configJournal.getStagedEntries())
         .forEach(
             quarantinedIndex -> {
-              LOG.atInfo()
+              LOG.atError()
                   .addKeyValue("indexId", quarantinedIndex.indexId())
+                  .addKeyValue("name", quarantinedIndex.name())
+                  .addKeyValue("database", quarantinedIndex.database())
                   .addKeyValue("generationId", quarantinedIndex.generationId())
+                  .addKeyValue("journalState", "staged")
                   .addKeyValue("parseError", quarantinedIndex.parseError())
                   .log("adding incompatible staged index");
               configState.incompatibleIndexes.addStagedIndex(quarantinedIndex);

@@ -72,6 +72,7 @@ import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.mongodb.ConnectionStringUtil;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import com.xgen.testing.mongot.config.backup.ConfigJournalV1Builder;
+import com.xgen.testing.mongot.config.backup.QuarantinedIndexBuilder;
 import com.xgen.testing.mongot.config.manager.ConfigStateMocks;
 import com.xgen.testing.mongot.config.manager.DefaultConfigManagerMocks;
 import com.xgen.testing.mongot.config.manager.metrics.IndexGenerationStateMetricsBuilder;
@@ -229,6 +230,119 @@ public class DefaultConfigManagerTest {
         FeatureFlags.withDefaults().enable(Feature.QUARANTINE_UNPARSEABLE_INDEX).build();
 
     assertEquals(QuarantinePolicy.QUARANTINE, DefaultConfigManager.quarantinePolicy(featureFlags));
+  }
+
+  /**
+   * A quarantined live index is the per-index unit the startup counter exists for: the node boots
+   * quietly with a degraded index, and the live counter is what an alert can fire on.
+   */
+  @Test
+  public void initialize_quarantinedLiveIndex_incrementsLiveCounter() throws Exception {
+    Path configJournalPath = DefaultConfigManagerMocks.getConfigJournalPath();
+    writeJournalWithUnparseableLiveIndex(configJournalPath);
+    FeatureFlags featureFlags =
+        FeatureFlags.withDefaults().enable(Feature.QUARANTINE_UNPARSEABLE_INDEX).build();
+
+    DefaultConfigManagerMocks mocks =
+        DefaultConfigManagerMocks.create(configJournalPath, featureFlags);
+
+    var metrics = new MetricsFactory("ConfigInitializer", mocks.meterRegistry);
+    Assert.assertEquals(
+        1.0, metrics.counter("quarantinedIndexesAtStartup", Tags.of("type", "live")).count(), 0.01);
+    Assert.assertEquals(
+        0.0,
+        metrics.counter("quarantinedIndexesAtStartup", Tags.of("type", "staged")).count(),
+        0.01);
+  }
+
+  /**
+   * A staged successor that cannot be parsed quarantines without touching the live index, so only
+   * the staged counter records it.
+   */
+  @Test
+  public void initialize_quarantinedStagedIndex_incrementsStagedCounter() throws Exception {
+    QuarantinedIndex quarantinedStaged =
+        QuarantinedIndexBuilder.quarantine(
+            MOCK_INDEX_DEFINITION_GENERATION.incrementUser(
+                MOCK_INDEX_DEFINITION_GENERATION.definition()));
+    ConfigJournalV1 config =
+        ConfigJournalV1Builder.builder()
+            .liveIndex(MOCK_INDEX_DEFINITION_GENERATION)
+            .quarantinedStagedIndex(quarantinedStaged)
+            .build();
+    Path configJournalPath = DefaultConfigManagerMocks.getConfigJournalPath();
+    FileUtils.atomicallyReplace(configJournalPath, JsonCodec.toJson(config.toBson()));
+    FeatureFlags featureFlags =
+        FeatureFlags.withDefaults().enable(Feature.QUARANTINE_UNPARSEABLE_INDEX).build();
+
+    DefaultConfigManagerMocks mocks =
+        DefaultConfigManagerMocks.create(configJournalPath, featureFlags);
+
+    var metrics = new MetricsFactory("ConfigInitializer", mocks.meterRegistry);
+    Assert.assertEquals(
+        0.0, metrics.counter("quarantinedIndexesAtStartup", Tags.of("type", "live")).count(), 0.01);
+    Assert.assertEquals(
+        1.0,
+        metrics.counter("quarantinedIndexesAtStartup", Tags.of("type", "staged")).count(),
+        0.01);
+  }
+
+  /**
+   * A quarantined live entry whose parseable staged successor auto-resolves it at boot is not a
+   * degraded index, so it must not be counted: an alert for a self-healed condition is noise. This
+   * is why the counter reads IncompatibleIndexes after moveSupersededQuarantinedIndexesToDropped
+   * rather than the journal's quarantined entries.
+   */
+  @Test
+  public void initialize_liveQuarantineSupersededByParseableStaged_leavesCountersAtZero()
+      throws Exception {
+    QuarantinedIndex quarantinedLive =
+        QuarantinedIndexBuilder.quarantine(MOCK_INDEX_DEFINITION_GENERATION);
+    IndexDefinitionGeneration stagedSuccessor =
+        MOCK_INDEX_DEFINITION_GENERATION.incrementUser(
+            MOCK_INDEX_DEFINITION_GENERATION.definition());
+    ConfigJournalV1 config =
+        ConfigJournalV1Builder.builder()
+            .quarantinedLiveIndex(quarantinedLive)
+            .stagedIndex(stagedSuccessor)
+            .build();
+    Path configJournalPath = DefaultConfigManagerMocks.getConfigJournalPath();
+    FileUtils.atomicallyReplace(configJournalPath, JsonCodec.toJson(config.toBson()));
+    FeatureFlags featureFlags =
+        FeatureFlags.withDefaults().enable(Feature.QUARANTINE_UNPARSEABLE_INDEX).build();
+
+    DefaultConfigManagerMocks mocks =
+        DefaultConfigManagerMocks.create(configJournalPath, featureFlags);
+
+    var metrics = new MetricsFactory("ConfigInitializer", mocks.meterRegistry);
+    Assert.assertEquals(
+        0.0, metrics.counter("quarantinedIndexesAtStartup", Tags.of("type", "live")).count(), 0.01);
+    Assert.assertEquals(
+        0.0,
+        metrics.counter("quarantinedIndexesAtStartup", Tags.of("type", "staged")).count(),
+        0.01);
+  }
+
+  /** A clean journal never reaches the quarantine path, so neither counter is touched. */
+  @Test
+  public void initialize_cleanJournal_leavesCountersAtZero() throws Exception {
+    ConfigJournalV1 config =
+        ConfigJournalV1Builder.builder().liveIndex(MOCK_INDEX_DEFINITION_GENERATION).build();
+    Path configJournalPath = DefaultConfigManagerMocks.getConfigJournalPath();
+    FileUtils.atomicallyReplace(configJournalPath, JsonCodec.toJson(config.toBson()));
+    FeatureFlags featureFlags =
+        FeatureFlags.withDefaults().enable(Feature.QUARANTINE_UNPARSEABLE_INDEX).build();
+
+    DefaultConfigManagerMocks mocks =
+        DefaultConfigManagerMocks.create(configJournalPath, featureFlags);
+
+    var metrics = new MetricsFactory("ConfigInitializer", mocks.meterRegistry);
+    Assert.assertEquals(
+        0.0, metrics.counter("quarantinedIndexesAtStartup", Tags.of("type", "live")).count(), 0.01);
+    Assert.assertEquals(
+        0.0,
+        metrics.counter("quarantinedIndexesAtStartup", Tags.of("type", "staged")).count(),
+        0.01);
   }
 
   /**
