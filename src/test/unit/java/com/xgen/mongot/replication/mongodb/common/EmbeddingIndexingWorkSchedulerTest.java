@@ -24,7 +24,9 @@ import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
 import com.xgen.mongot.embedding.AutoEmbeddingMemoryBudget;
 import com.xgen.mongot.embedding.EmbeddingRequestContext;
 import com.xgen.mongot.embedding.VectorOrError;
+import com.xgen.mongot.embedding.cache.EmbeddingCacheKey;
 import com.xgen.mongot.embedding.cache.EmbeddingRetryCache;
+import com.xgen.mongot.embedding.cache.EmbeddingRetryCache.ReleaseTrigger;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
@@ -76,16 +78,21 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
@@ -937,11 +944,63 @@ public class EmbeddingIndexingWorkSchedulerTest {
                 Executors.singleThreadScheduledExecutor("indexing", meterRegistry),
                 meterRegistry,
                 Optional.empty()));
+    // The commit's claim release runs as a dependent of the batch future, so it can still be
+    // pending when schedule().get() returns. Wait for this generation's release before scheduling
+    // the second batch. DefaultEmbeddingRetryCache evicts synchronously once releaseClaims returns
+    // because the first batch's cache entries are already loaded.
+    String expectedGenerationKey =
+        MaterializedViewCollectionMetadataCatalog.canonicalKey(generationId);
+    long awaitTimeoutSeconds = 5;
+    CountDownLatch claimsReleased = new CountDownLatch(1);
+    AtomicReference<Throwable> releaseFailure = new AtomicReference<>();
+    EmbeddingRetryCache realRetryCache = EmbeddingRetryCache.create(meterRegistry);
+    EmbeddingRetryCache retryCache =
+        new EmbeddingRetryCache() {
+          @Override
+          public CompletableFuture<Map<EmbeddingCacheKey, Vector>> getAll(
+              Collection<EmbeddingCacheKey> keys,
+              Function<Set<EmbeddingCacheKey>, CompletableFuture<Map<EmbeddingCacheKey, Vector>>>
+                  loader) {
+            return realRetryCache.getAll(keys, loader);
+          }
+
+          @Override
+          public void claim(String generationKey, Collection<EmbeddingCacheKey> keys) {
+            realRetryCache.claim(generationKey, keys);
+          }
+
+          @Override
+          public void releaseClaims(
+              String generationKey, Collection<EmbeddingCacheKey> keys, ReleaseTrigger trigger) {
+            releaseAndSignal(
+                generationKey,
+                trigger,
+                () -> realRetryCache.releaseClaims(generationKey, keys, trigger));
+          }
+
+          @Override
+          public void releaseClaims(String generationKey, ReleaseTrigger trigger) {
+            releaseAndSignal(
+                generationKey, trigger, () -> realRetryCache.releaseClaims(generationKey, trigger));
+          }
+
+          private void releaseAndSignal(
+              String generationKey, ReleaseTrigger trigger, Runnable release) {
+            try {
+              release.run();
+            } catch (RuntimeException | Error e) {
+              releaseFailure.compareAndSet(null, e);
+              throw e;
+            } finally {
+              if (expectedGenerationKey.equals(generationKey) && trigger == ReleaseTrigger.COMMIT) {
+                claimsReleased.countDown();
+              }
+            }
+          }
+        };
     EmbeddingIndexingWorkScheduler scheduler =
         schedulerForMaterializedViewIndex(
-            Suppliers.ofInstance(serviceManager),
-            generationId,
-            EmbeddingRetryCache.create(meterRegistry));
+            Suppliers.ofInstance(serviceManager), generationId, retryCache);
 
     VectorIndexDefinition vectorIndexDefinition =
         VectorIndexDefinitionBuilder.builder()
@@ -957,8 +1016,15 @@ public class EmbeddingIndexingWorkSchedulerTest {
 
     // A successful commit releases the generation's claims, evicting the cached embeddings, so the
     // same events embed again on the next batch.
-    schedule(scheduler, event, indexer, generationId).get(5, TimeUnit.SECONDS);
-    schedule(scheduler, event, indexer, generationId).get(5, TimeUnit.SECONDS);
+    schedule(scheduler, event, indexer, generationId).get(awaitTimeoutSeconds, TimeUnit.SECONDS);
+    assertTrue(
+        "commit did not release retry-cache claims within " + awaitTimeoutSeconds + " seconds",
+        claimsReleased.await(awaitTimeoutSeconds, TimeUnit.SECONDS));
+    Throwable releaseError = releaseFailure.get();
+    if (releaseError != null) {
+      throw new AssertionError("releaseClaims failed for the committed batch", releaseError);
+    }
+    schedule(scheduler, event, indexer, generationId).get(awaitTimeoutSeconds, TimeUnit.SECONDS);
 
     verify(serviceManager, times(2)).embedAsync(any(), any(), any(), any());
   }
