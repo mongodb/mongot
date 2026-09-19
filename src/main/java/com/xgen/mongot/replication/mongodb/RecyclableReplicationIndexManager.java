@@ -56,6 +56,15 @@ import org.slf4j.LoggerFactory;
  * {@link #LEADERSHIP_TRANSITION_FAILURE_COUNTER_NAME} and are retried by a low-frequency periodic
  * reconcile tick (mirroring the auto-embedding {@code MaterializedViewManager} self-heal).
  *
+ * <p>While a follower, the index status is recovered once at creation (this one-time init gates
+ * readiness via {@link #getInitFuture()}) and then kept fresh by the same periodic tick: each pass
+ * re-reads the committed user data and republishes the index status when it changed. This manager
+ * only reads -- it never advances the read pin. The pin is kept current by the log-tailing in the
+ * storage layer (the follower tracks the latest materialized checkpoint), so a promotion also
+ * resumes from that latest token without any refresh here. Poll failures only increment {@link
+ * #FOLLOWER_REFRESH_FAILURE_COUNTER_NAME} and are retried on the next tick; they never affect the
+ * init future or node readiness.
+ *
  * <p>TODO(CLOUDP-439803): Add more detailed documentation
  */
 public final class RecyclableReplicationIndexManager implements IndexManager {
@@ -75,6 +84,10 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   @VisibleForTesting
   static final String FOLLOWER_INIT_FAILURE_COUNTER_NAME = "recyclableFollowerInitFailures";
 
+  /** Counts periodic follower status-refresh (poll) failures. */
+  @VisibleForTesting
+  static final String FOLLOWER_REFRESH_FAILURE_COUNTER_NAME = "recyclableFollowerRefreshFailures";
+
   /**
    * How often the safety-net reconcile tick re-drives actual state toward {@link #desiredStatus}.
    */
@@ -85,6 +98,14 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
     LEADER,
     FOLLOWER
   }
+
+  /**
+   * What follower status recovery/refresh needs. Present only when this manager was created against
+   * an index (production and the index-taking test factories); the wrapped-factory-only test
+   * factories leave it empty, making the periodic refresh a no-op there.
+   */
+  private record FollowerContext(
+      InitializedIndex index, FeatureFlags featureFlags, IndexGeneration indexGeneration) {}
 
   private final Supplier<ReplicationIndexManager> wrappedFactory;
 
@@ -111,10 +132,26 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
 
   /**
    * Future for the one-time follower status recovery. Surfaced by {@link #getInitFuture()} while
-   * this node is a follower (before any {@link LeaderStatus#LEADER} promotion).
+   * this node is a follower (before any {@link LeaderStatus#LEADER} promotion). Never reassigned or
+   * failed by the periodic refresh, so node readiness can never be blocked by refresh failures.
    */
   @GuardedBy("this")
   private CompletableFuture<Void> followerInitFuture;
+
+  @GuardedBy("this")
+  private Optional<FollowerContext> followerContext;
+
+  /**
+   * Raw committed user data last published as follower, for change detection. Cleared on demotion
+   * so a re-follower republishes even if the committed data equals its last publish (the inner
+   * manager owned the status in between).
+   */
+  @GuardedBy("this")
+  private Optional<EncodedUserData> lastPublishedUserData;
+
+  /** Non-overlap guard: at most one periodic follower refresh in flight at a time. */
+  @GuardedBy("this")
+  private boolean followerRefreshInFlight;
 
   /** Handle to the periodic reconcile tick, cancelled on shutdown/drop. */
   @GuardedBy("this")
@@ -135,6 +172,9 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
     this.transitionChain = CompletableFuture.completedFuture(null);
     this.shutdownFuture = Optional.empty();
     this.followerInitFuture = CompletableFuture.completedFuture(null);
+    this.followerContext = Optional.empty();
+    this.lastPublishedUserData = Optional.empty();
+    this.followerRefreshInFlight = false;
     this.reconcileTickFuture = Optional.empty();
     this.state = State.INITIALIZING;
   }
@@ -251,6 +291,15 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
         }
         // Promote. create() only schedules async init (VectorLite indexes have no synonym
         // managers), so it does not block while this monitor is held.
+        //
+        // No pin refresh here. The storage layer's leadership takeover is materialization-frontier
+        // gated: it publishes LEADER only once this node's read pin already covers the latest
+        // durable checkpoint root, so the inner manager's getCommitUserData() init read is already
+        // the latest durable token and resumes replication from it. This manager must NEVER
+        // force-advance the pin -- jumping it past the materialized frontier could read
+        // unmaterialized pages. TODO(CLOUDP-446295): the promoted node's native worker write base
+        // is still frozen at index-open, so its first commit can orphan docs the old leader indexed
+        // during this process's uptime (leadership-scoped worker reseed).
         try {
           this.wrapped = Optional.of(this.wrappedFactory.get());
         } catch (Throwable t) {
@@ -272,6 +321,10 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
       // infrequent.
       toShutdown = this.wrapped.get();
       this.wrapped = Optional.empty();
+      // Force the first post-demotion poll to republish even if the committed data equals what this
+      // node last published as a follower: the inner manager owned (and may have overwritten) the
+      // index status in between.
+      this.lastPublishedUserData = Optional.empty();
     }
     // The transition chain awaits this future, so a subsequent LEADER only starts once the prior
     // shutdown has fully completed.
@@ -332,15 +385,67 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
 
   /**
    * Body of the periodic tick. Runs on the scheduled executor and must never throw, or {@code
-   * scheduleWithFixedDelay} would cancel the repeating task.
+   * scheduleWithFixedDelay} would cancel the repeating task. Dispatch-only: the leadership
+   * reconcile body and the follower status refresh both run elsewhere ({@link
+   * #transitionExecutor}), never on the scheduler thread.
    */
   private synchronized void runReconcileTick() {
     try {
       if (needsReconcile()) {
         enqueueReconcile();
       }
+      maybeScheduleFollowerRefresh();
     } catch (Throwable t) {
       LOG.atWarn().setCause(t).log("leadership reconcile tick failed");
+    }
+  }
+
+  /**
+   * Schedules one follower status refresh (poll) on {@link #transitionExecutor} unless this node is
+   * leader or a promotion is already pending ({@link #desiredStatus} is LEADER), shut down, the
+   * one-time init has not finished publishing yet, a previous poll is still in flight, or no index
+   * context exists (wrapped-factory-only tests). Failures only increment {@link
+   * #FOLLOWER_REFRESH_FAILURE_COUNTER_NAME} and log -- they never touch {@link #followerInitFuture}
+   * (so node readiness is unaffected) and the next tick retries, which also retries a failed
+   * one-time init publish.
+   *
+   * <p>Kept outside {@link #transitionChain} so a slow SLS read is never serialized into the
+   * chain's ordering. It still shares {@link #transitionExecutor} with reconcile, though, so on a
+   * single-thread pool an in-flight blocking read can delay a promotion queued behind it -- bounded
+   * by one committed-state read, and avoided in the common case by skipping the poll once a
+   * promotion is pending (the {@code desiredStatus == LEADER} guard below). Races with a concurrent
+   * promotion are otherwise benign -- {@link #setFollowerStatus} re-checks under the monitor and
+   * lets the leader win.
+   */
+  @GuardedBy("this")
+  private void maybeScheduleFollowerRefresh() {
+    if (this.state == State.SHUT_DOWN
+        || this.wrapped.isPresent()
+        || this.desiredStatus == LeaderStatus.LEADER
+        || !this.followerInitFuture.isDone()
+        || this.followerRefreshInFlight
+        || this.followerContext.isEmpty()) {
+      return;
+    }
+    FollowerContext ctx = this.followerContext.get();
+    this.followerRefreshInFlight = true;
+    try {
+      CompletableFuture.runAsync(
+              () -> refreshAndPublishFollowerStatus(ctx), this.transitionExecutor)
+          .whenComplete(
+              (ignored, throwable) -> {
+                synchronized (this) {
+                  this.followerRefreshInFlight = false;
+                }
+                if (throwable != null) {
+                  this.meterRegistry.counter(FOLLOWER_REFRESH_FAILURE_COUNTER_NAME).increment();
+                  LOG.atWarn().setCause(throwable).log("periodic follower status refresh failed");
+                }
+              });
+    } catch (RuntimeException e) {
+      // runAsync delivers an executor rejection synchronously; never leave the guard stuck.
+      this.followerRefreshInFlight = false;
+      throw e;
     }
   }
 
@@ -373,10 +478,11 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   @GuardedBy("this")
   private void scheduleFollowerInit(
       InitializedIndex index, FeatureFlags featureFlags, IndexGeneration indexGeneration) {
+    FollowerContext ctx = new FollowerContext(index, featureFlags, indexGeneration);
+    this.followerContext = Optional.of(ctx);
     this.followerInitFuture =
         CompletableFuture.runAsync(
-                () -> resetFollowerStatus(index, featureFlags, indexGeneration),
-                this.transitionExecutor)
+                () -> refreshAndPublishFollowerStatus(ctx), this.transitionExecutor)
             .handle(
                 (ignored, throwable) -> {
                   if (throwable != null) {
@@ -388,26 +494,63 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   }
 
   /**
-   * Reads the committed index user data (for VectorLite, from SLS) and publishes the corresponding
-   * index status without starting replication -- this node is a follower. The index is opened
-   * before this manager is created, so its writer is readable here. Mirrors {@link
-   * MongoDbNoOpReplicationManager}'s {@code resetStatus} and the status half of {@link
-   * ReplicationIndexManager#init}: indexes are set as failed(exceededLimit), stale,
-   * doesNotExist(collectionNotFound), initialSync, steady, or notStarted.
+   * One follower status refresh: reads the committed index user data (for VectorLite, from SLS --
+   * kept fresh by the storage layer's log tailing) and republishes the index status from it when it
+   * changed since this node last published. Blocking (native SLS read); runs on {@link
+   * #transitionExecutor} only. Used by both the one-time init ({@link #scheduleFollowerInit}) and
+   * the periodic tick ({@link #maybeScheduleFollowerRefresh}).
    *
-   * <p>On promotion the inner {@link ReplicationIndexManager} re-derives status from the same
-   * committed data via {@code index.getWriter().getCommitUserData()} and resumes replication, so
-   * the leader path stays consistent with this one.
+   * <p>Reads only -- it never advances the read pin (the storage layer keeps it within the latest
+   * materialized frontier; force-advancing past that could read unmaterialized pages).
+   */
+  private void refreshAndPublishFollowerStatus(FollowerContext ctx) {
+    synchronized (this) {
+      // Skip the blocking native read when the result could not be published anyway.
+      if (this.wrapped.isPresent() || this.state == State.SHUT_DOWN) {
+        return;
+      }
+    }
+    EncodedUserData encodedUserData = ctx.index().getWriter().getCommitUserData();
+    synchronized (this) {
+      if (this.wrapped.isPresent() || this.state == State.SHUT_DOWN) {
+        return;
+      }
+      if (this.lastPublishedUserData.map(encodedUserData::equals).orElse(false)) {
+        return; // unchanged since last publish; avoid status/metrics churn
+      }
+    }
+    publishFollowerStatus(ctx, encodedUserData);
+    synchronized (this) {
+      // Only record when still publishing as follower: if a promotion or shutdown raced the publish
+      // (setFollowerStatus dropped it), a later refresh must retry.
+      if (this.wrapped.isEmpty() && this.state != State.SHUT_DOWN) {
+        this.lastPublishedUserData = Optional.of(encodedUserData);
+      }
+    }
+  }
+
+  /**
+   * Publishes the index status corresponding to {@code encodedUserData} without starting
+   * replication -- this node is a follower. The index is opened before this manager is created, so
+   * its writer is readable here. Mirrors {@link MongoDbNoOpReplicationManager}'s {@code
+   * resetStatus} and the status half of {@link ReplicationIndexManager#init}: indexes are set as
+   * failed(exceededLimit), stale, doesNotExist(collectionNotFound), initialSync, steady, or
+   * notStarted.
+   *
+   * <p>On promotion the inner {@link ReplicationIndexManager} re-derives status via {@code
+   * index.getWriter().getCommitUserData()} and resumes replication from the latest durable token
+   * (kept current by the storage layer's takeover gate), so the leader path stays consistent with
+   * this one.
    *
    * <p>TODO(CLOUDP-280897): Make the status recovery logic in a single place; any change here must
    * be reflected in the two callers above.
    */
-  private void resetFollowerStatus(
-      InitializedIndex index, FeatureFlags featureFlags, IndexGeneration indexGeneration) {
-    EncodedUserData encodedUserData = index.getWriter().getCommitUserData();
+  private void publishFollowerStatus(FollowerContext ctx, EncodedUserData encodedUserData) {
+    InitializedIndex index = ctx.index();
+    FeatureFlags featureFlags = ctx.featureFlags();
     IndexCommitUserData userData =
         IndexCommitUserData.fromEncodedData(
-            encodedUserData, Optional.of(indexGeneration.getGenerationId()));
+            encodedUserData, Optional.of(ctx.indexGeneration().getGenerationId()));
 
     Optional<String> exceededReason = userData.getExceededLimitsReason();
     if (exceededReason.isPresent()) {
@@ -426,11 +569,20 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
           index.getMetricsUpdater().getIndexingMetricsUpdater().getReplicationOpTimeInfo();
       BsonTimestamp lastOptime = staleStateInfo.get().getLastOptime();
       synchronized (opTimeInfo.getUnsetLock()) {
-        opTimeInfo.update(lastOptime.getValue(), lastOptime.getValue());
-        setFollowerStatus(
-            index,
-            IndexStatus.stale(
-                staleStateInfo.get().getMessage(), staleStateInfo.get().getLastOptime()));
+        // Hold this monitor across BOTH the optime update and the status write, re-checking
+        // leadership/shutdown first. A promotion that raced the reads above must suppress the
+        // optime update too, not just the status write -- otherwise this (older) follower poll
+        // could regress the newly promoted leader's reported optime even while its status write is
+        // dropped. Preserves the unsetLock -> this ordering setFollowerStatus already established.
+        synchronized (this) {
+          if (this.wrapped.isPresent() || this.state == State.SHUT_DOWN) {
+            return;
+          }
+          opTimeInfo.update(lastOptime.getValue(), lastOptime.getValue());
+          index.setStatus(
+              IndexStatus.stale(
+                  staleStateInfo.get().getMessage(), staleStateInfo.get().getLastOptime()));
+        }
       }
       return;
     }
@@ -467,8 +619,16 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
       // Update optime info metric before setting index to STEADY to ensure metrics consistency.
       // Acquire unset lock to ensure another thread does not unset the metric while we update it.
       synchronized (opTimeInfo.getUnsetLock()) {
-        opTimeInfo.update(lastIndexedOpTime.getValue(), lastIndexedOpTime.getValue());
-        setFollowerStatus(index, IndexStatus.steady());
+        // See the STALE branch above: guard the optime update and status write together under this
+        // monitor so a racing promotion cannot leave the leader's optime metric regressed to this
+        // follower poll's older checkpoint.
+        synchronized (this) {
+          if (this.wrapped.isPresent() || this.state == State.SHUT_DOWN) {
+            return;
+          }
+          opTimeInfo.update(lastIndexedOpTime.getValue(), lastIndexedOpTime.getValue());
+          index.setStatus(IndexStatus.steady());
+        }
       }
       return;
     }
@@ -615,6 +775,14 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   @VisibleForTesting
   double followerInitFailureCount() {
     return this.meterRegistry.find(FOLLOWER_INIT_FAILURE_COUNTER_NAME).counters().stream()
+        .mapToDouble(Counter::count)
+        .sum();
+  }
+
+  /** Total count recorded on {@link #FOLLOWER_REFRESH_FAILURE_COUNTER_NAME}. */
+  @VisibleForTesting
+  double followerRefreshFailureCount() {
+    return this.meterRegistry.find(FOLLOWER_REFRESH_FAILURE_COUNTER_NAME).counters().stream()
         .mapToDouble(Counter::count)
         .sum();
   }

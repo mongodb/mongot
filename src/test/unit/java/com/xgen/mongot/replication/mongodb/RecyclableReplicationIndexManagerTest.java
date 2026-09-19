@@ -18,6 +18,7 @@ import static org.mockito.Mockito.when;
 import com.mongodb.MongoNamespace;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.index.EncodedUserData;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.IndexWriter;
 import com.xgen.mongot.index.InitializedIndex;
@@ -36,6 +37,7 @@ import com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayDeque;
+import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
@@ -715,6 +717,244 @@ public class RecyclableReplicationIndexManagerTest {
     assertTrue(rrim.isLeader());
   }
 
+  // ── periodic follower status refresh (poll) ─────────────────────────────────
+
+  @Test
+  public void periodicRefresh_whenCommittedDataChanged_republishesStatus() {
+    FollowerIndex index = followerIndex(IndexCommitUserData.EMPTY, steadyCommitData());
+    var rrim = createFollowerManager(index, FeatureFlags.getDefault());
+    assertThat(index.status().getStatusCode()).isEqualTo(IndexStatus.StatusCode.NOT_STARTED);
+
+    rrim.triggerReconcileTick();
+
+    assertThat(index.status().getStatusCode()).isEqualTo(IndexStatus.StatusCode.STEADY);
+    verify(index.opTimeInfo).update(anyLong(), anyLong());
+  }
+
+  @Test
+  public void periodicRefresh_whenCommittedDataUnchanged_doesNotRepublish() {
+    FollowerIndex index = followerIndex(steadyCommitData());
+    var rrim = createFollowerManager(index, FeatureFlags.getDefault());
+
+    rrim.triggerReconcileTick();
+
+    // The one-time init publishes once; an unchanged poll must not republish.
+    verify(index.index, times(1)).setStatus(any());
+  }
+
+  @Test
+  public void periodicRefresh_whenLeader_doesNotRead() {
+    var factory = mockWrappedFactory();
+    when(factory.get()).thenReturn(mock(ReplicationIndexManager.class));
+    FollowerIndex index = followerIndex(IndexCommitUserData.EMPTY);
+    var rrim =
+        RecyclableReplicationIndexManager.createForTesting(
+            factory,
+            index.index,
+            FeatureFlags.getDefault(),
+            mockIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION));
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+
+    rrim.triggerReconcileTick();
+
+    // Only the one-time init read; once leader, the inner manager owns status.
+    verify(index.writer, times(1)).getCommitUserData();
+  }
+
+  @Test
+  public void periodicRefresh_afterDemotion_republishesEvenWhenDataUnchanged() {
+    var factory = mockWrappedFactory();
+    var inner = stubShutdown(mock(ReplicationIndexManager.class));
+    when(factory.get()).thenReturn(inner);
+    FollowerIndex index = followerIndex(steadyCommitData());
+    var rrim =
+        RecyclableReplicationIndexManager.createForTesting(
+            factory,
+            index.index,
+            FeatureFlags.getDefault(),
+            mockIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION));
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+    rrim.onLeaderStatusChange(LeaderStatus.FOLLOWER);
+
+    rrim.triggerReconcileTick();
+
+    // init publish + post-demotion republish, even though the committed data never changed.
+    verify(index.index, times(2)).setStatus(any());
+  }
+
+  @Test
+  public void periodicRefresh_whenReadThrows_incrementsCounterAndKeepsInitFutureCompleted() {
+    FollowerIndex index = followerIndex(IndexCommitUserData.EMPTY);
+    when(index.writer.getCommitUserData())
+        .thenReturn(IndexCommitUserData.EMPTY.toEncodedData())
+        .thenThrow(new UncheckedIOException("SLS unavailable", new IOException("boom")));
+    var rrim = createFollowerManager(index, FeatureFlags.getDefault());
+
+    rrim.triggerReconcileTick();
+
+    assertTrue(rrim.getInitFuture().isDone());
+    assertFalse(rrim.getInitFuture().isCompletedExceptionally());
+    assertThat(rrim.followerRefreshFailureCount()).isEqualTo(1.0);
+  }
+
+  @Test
+  public void periodicRefresh_whenReadThrows_retriesOnNextTick() {
+    FollowerIndex index = followerIndex(IndexCommitUserData.EMPTY);
+    when(index.writer.getCommitUserData())
+        .thenReturn(IndexCommitUserData.EMPTY.toEncodedData())
+        .thenThrow(new UncheckedIOException("SLS unavailable", new IOException("boom")))
+        .thenReturn(IndexCommitUserData.createExceeded("too big").toEncodedData());
+    var rrim = createFollowerManager(index, FeatureFlags.getDefault());
+
+    rrim.triggerReconcileTick(); // read throws: counted, no publish
+    rrim.triggerReconcileTick(); // read succeeds: republishes
+
+    assertThat(index.status().getStatusCode()).isEqualTo(IndexStatus.StatusCode.FAILED);
+    assertThat(rrim.followerRefreshFailureCount()).isEqualTo(1.0);
+  }
+
+  @Test
+  public void periodicRefresh_whilePreviousRefreshInFlight_skips() {
+    ManualExecutor executor = new ManualExecutor();
+    FollowerIndex index = followerIndex(IndexCommitUserData.EMPTY, steadyCommitData());
+    var rrim =
+        RecyclableReplicationIndexManager.createForTesting(
+            mockWrappedFactory(),
+            executor,
+            index.index,
+            FeatureFlags.getDefault(),
+            mockIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION));
+    executor.runAll(); // one-time init read
+
+    rrim.triggerReconcileTick(); // dispatches a poll (now in flight, still queued)
+    rrim.triggerReconcileTick(); // skipped: a poll is already in flight
+    executor.runAll(); // runs the single queued poll
+
+    verify(index.writer, times(2)).getCommitUserData(); // init + one poll, not three
+  }
+
+  @Test
+  public void periodicRefresh_beforeFollowerInitCompletes_skips() {
+    ManualExecutor executor = new ManualExecutor();
+    FollowerIndex index = followerIndex(IndexCommitUserData.EMPTY);
+    var rrim =
+        RecyclableReplicationIndexManager.createForTesting(
+            mockWrappedFactory(),
+            executor,
+            index.index,
+            FeatureFlags.getDefault(),
+            mockIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION));
+
+    rrim.triggerReconcileTick(); // init not done yet: skip
+
+    executor.runAll(); // only the one-time init runs
+    verify(index.writer, times(1)).getCommitUserData();
+  }
+
+  @Test
+  public void shutdown_whilePeriodicRefreshDeferred_doesNotSetStatus() {
+    ManualExecutor executor = new ManualExecutor();
+    FollowerIndex index = followerIndex(IndexCommitUserData.EMPTY, steadyCommitData());
+    var rrim =
+        RecyclableReplicationIndexManager.createForTesting(
+            mockWrappedFactory(),
+            executor,
+            index.index,
+            FeatureFlags.getDefault(),
+            mockIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION));
+    executor.runAll(); // init publishes NOT_STARTED
+    rrim.triggerReconcileTick(); // dispatches a poll, deferred on the manual executor
+
+    rrim.shutdown(); // SHUT_DOWN before the deferred poll runs
+    executor.runAll(); // the poll runs but must skip publishing
+
+    assertThat(index.status().getStatusCode()).isEqualTo(IndexStatus.StatusCode.NOT_STARTED);
+    verify(index.index, times(1)).setStatus(any());
+  }
+
+  @Test
+  public void promotionDuringDeferredRefresh_leaderStatusWins() {
+    var factory = mockWrappedFactory();
+    when(factory.get()).thenReturn(mock(ReplicationIndexManager.class));
+    FollowerIndex index = followerIndex(IndexCommitUserData.EMPTY);
+    var rrim =
+        RecyclableReplicationIndexManager.createForTesting(
+            factory,
+            index.index,
+            FeatureFlags.getDefault(),
+            mockIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION));
+    // The next read promotes this node mid-read; the post-read leader-wins guard must suppress the
+    // follower publish so the inner manager owns status.
+    when(index.writer.getCommitUserData())
+        .thenAnswer(
+            invocation -> {
+              rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+              return steadyCommitData().toEncodedData();
+            });
+
+    rrim.triggerReconcileTick();
+
+    assertTrue(rrim.isLeader());
+    assertThat(index.status().getStatusCode()).isEqualTo(IndexStatus.StatusCode.NOT_STARTED);
+  }
+
+  @Test
+  public void periodicRefresh_promotionBeforeOptimeUpdate_doesNotRegressLeaderOptime() {
+    var factory = mockWrappedFactory();
+    when(factory.get()).thenReturn(mock(ReplicationIndexManager.class));
+    // Init reads EMPTY (NOT_STARTED, no optime update); the poll reads steady data, which would
+    // otherwise take the optime-updating branch.
+    FollowerIndex index = followerIndex(IndexCommitUserData.EMPTY, steadyCommitData());
+    var rrim =
+        RecyclableReplicationIndexManager.createForTesting(
+            factory,
+            index.index,
+            FeatureFlags.getDefault(),
+            mockIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION));
+
+    // Land a promotion in the narrow window after the poll's follower re-check but before its
+    // optime update: fetching the unset lock is the step immediately preceding update(). The guard
+    // around the update must suppress it, so a stale follower poll cannot regress the newly
+    // promoted leader's optime metric even though its status write is dropped.
+    when(index.opTimeInfo.getUnsetLock())
+        .thenAnswer(
+            invocation -> {
+              rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+              return new Object();
+            });
+
+    rrim.triggerReconcileTick();
+
+    assertTrue(rrim.isLeader());
+    verify(index.opTimeInfo, never()).update(anyLong(), anyLong());
+  }
+
+  @Test
+  public void periodicRefresh_whenPromotionPending_skips() {
+    ManualExecutor executor = new ManualExecutor();
+    var factory = mockWrappedFactory();
+    when(factory.get()).thenReturn(mock(ReplicationIndexManager.class));
+    FollowerIndex index = followerIndex(IndexCommitUserData.EMPTY, steadyCommitData());
+    var rrim =
+        RecyclableReplicationIndexManager.createForTesting(
+            factory,
+            executor,
+            index.index,
+            FeatureFlags.getDefault(),
+            mockIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION));
+    executor.runAll(); // one-time init completes (reads EMPTY)
+
+    // A promotion is signaled but its reconcile is still queued on the manual executor. The tick
+    // must not dispatch a blocking poll while a promotion is pending, so a slow read cannot occupy
+    // the shared transition executor ahead of that promotion.
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+    rrim.triggerReconcileTick();
+    executor.runAll(); // runs the queued reconcile -> promotes
+
+    assertTrue(rrim.isLeader());
+    verify(index.writer, times(1)).getCommitUserData(); // only the init read; the poll was skipped
+  }
+
   // ── helpers ─────────────────────────────────────────────────────────────────
 
   @SuppressWarnings("unchecked")
@@ -731,12 +971,27 @@ public class RecyclableReplicationIndexManagerTest {
         mockIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION));
   }
 
-  private static FollowerIndex followerIndex(IndexCommitUserData commitData) {
+  private static IndexCommitUserData steadyCommitData() {
+    return IndexCommitUserData.createChangeStreamResume(
+        ChangeStreamResumeInfo.create(
+            new MongoNamespace("database", "collection"),
+            new BsonDocument("_data", new BsonString("820000000000000000"))),
+        IndexFormatVersion.CURRENT.versionNumber);
+  }
+
+  private static FollowerIndex followerIndex(IndexCommitUserData... commitData) {
     // InitializedIndex is a sealed interface; mock the concrete permitted type instead.
     InitializedSearchIndex index = mock(InitializedSearchIndex.class);
 
+    // Stub getCommitUserData to return each commit datum in order (the last repeats), so a test can
+    // drive the one-time init read followed by successive periodic-poll reads.
     IndexWriter writer = mock(IndexWriter.class);
-    when(writer.getCommitUserData()).thenReturn(commitData.toEncodedData());
+    EncodedUserData first = commitData[0].toEncodedData();
+    EncodedUserData[] rest =
+        Arrays.stream(commitData, 1, commitData.length)
+            .map(IndexCommitUserData::toEncodedData)
+            .toArray(EncodedUserData[]::new);
+    when(writer.getCommitUserData()).thenReturn(first, rest);
     when(index.getWriter()).thenReturn(writer);
 
     ReplicationOpTimeInfo opTimeInfo = mock(ReplicationOpTimeInfo.class);
@@ -758,20 +1013,23 @@ public class RecyclableReplicationIndexManagerTest {
         .setStatus(any());
     when(index.getStatus()).thenAnswer(invocation -> statusRef.get());
 
-    return new FollowerIndex(index, opTimeInfo, statusRef);
+    return new FollowerIndex(index, writer, opTimeInfo, statusRef);
   }
 
   /** Bundles a mock follower index with the captured status and optime metric for assertions. */
   private static final class FollowerIndex {
     final InitializedIndex index;
+    final IndexWriter writer;
     final ReplicationOpTimeInfo opTimeInfo;
     private final AtomicReference<IndexStatus> statusRef;
 
     FollowerIndex(
         InitializedIndex index,
+        IndexWriter writer,
         ReplicationOpTimeInfo opTimeInfo,
         AtomicReference<IndexStatus> statusRef) {
       this.index = index;
+      this.writer = writer;
       this.opTimeInfo = opTimeInfo;
       this.statusRef = statusRef;
     }
