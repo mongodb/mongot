@@ -14,7 +14,7 @@ function help() {
       "  compare(runnables, n=1, names=[]): compares average runtime of each runnable over n runs")
   print("  insert(size, collection='fts'): indexes `size` random documents")
   print("  randomVec(dim=768, normalize=true) create random array of doubles")
-  print("  Indexes.* - index management commands, works only with local dev)")
+  print("  Indexes.* - index management commands")
 }
 
 function count(collection = 'fts') {
