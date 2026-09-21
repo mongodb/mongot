@@ -52,7 +52,8 @@ final class AutoEmbeddingExecutor implements ChangeStreamTaskExecutor {
     try {
       if (this.concurrentEmbeddingGetMores.isPresent()
           && context.indexDefinition().isAutoEmbeddingIndex()) {
-        this.delegate.submit(() -> runWithSemaphore(task, context));
+        Runnable onDropped = context.onDropped();
+        this.delegate.submit(() -> runWithSemaphore(task, onDropped));
       } else {
         this.delegate.submit(task);
       }
@@ -70,7 +71,7 @@ final class AutoEmbeddingExecutor implements ChangeStreamTaskExecutor {
     Executors.shutdownOrFail(this.delegate);
   }
 
-  private void runWithSemaphore(Runnable task, EnqueueContext context) {
+  private void runWithSemaphore(Runnable task, Runnable onDropped) {
     Semaphore semaphore = this.concurrentEmbeddingGetMores.get();
     if (!semaphore.tryAcquire()) {
       LOG.atDebug().log(
@@ -80,7 +81,7 @@ final class AutoEmbeddingExecutor implements ChangeStreamTaskExecutor {
           RESCHEDULE_DELAY_SECONDS);
       try {
         this.delegate.schedule(
-            () -> runWithSemaphore(task, context), RESCHEDULE_DELAY_SECONDS, TimeUnit.SECONDS);
+            () -> runWithSemaphore(task, onDropped), RESCHEDULE_DELAY_SECONDS, TimeUnit.SECONDS);
         this.rescheduledEmbeddingGetMores.increment();
       } catch (RejectedExecutionException ex) {
         // The executor uses an unbounded queue, so this can only happen during shutdown.
@@ -93,7 +94,7 @@ final class AutoEmbeddingExecutor implements ChangeStreamTaskExecutor {
                   "Failed to reschedule auto-embedding batch despite executor being active. "
                       + "This should never happen.");
         }
-        context.onDropped().run();
+        onDropped.run();
       }
       return;
     }
