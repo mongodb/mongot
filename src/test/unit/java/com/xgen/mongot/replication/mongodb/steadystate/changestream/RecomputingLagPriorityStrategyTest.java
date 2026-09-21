@@ -1,6 +1,7 @@
 package com.xgen.mongot.replication.mongodb.steadystate.changestream;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.Assert.assertThrows;
 
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -30,6 +31,8 @@ import org.junit.Test;
 public class RecomputingLagPriorityStrategyTest {
 
   private static final int RECOMPUTE_INTERVAL_SECONDS_UNUSED_IN_TESTS = 1000;
+  private static final String LAST_SUCCESSFUL_RECOMPUTE_METRIC =
+      "replication.steadyState.priorityStrategy.lastSuccessfulRecomputeEpochSeconds";
 
   // The background scheduler backing each strategy uses non-daemon threads; without this, an
   // un-shut-down strategy would leak a live thread past the end of its test.
@@ -233,6 +236,42 @@ public class RecomputingLagPriorityStrategyTest {
   }
 
   @Test
+  public void recomputeNowForTesting_success_advancesLastSuccessfulRecomputeGauge() {
+    var registry = new SimpleMeterRegistry();
+    var strategy = newStrategy(1, registry);
+    double initial = registry.get(LAST_SUCCESSFUL_RECOMPUTE_METRIC).gauge().value();
+
+    strategy.recomputeNowForTesting();
+
+    double afterRecompute = registry.get(LAST_SUCCESSFUL_RECOMPUTE_METRIC).gauge().value();
+    assertThat(afterRecompute).isAtLeast(initial);
+  }
+
+  @Test
+  public void recomputeNowForTesting_computePreferredSetThrows_doesNotAdvanceGauge() {
+    var registry = new SimpleMeterRegistry();
+    var strategy =
+        new ThrowingComputePreferredSetStrategy(
+            RECOMPUTE_INTERVAL_SECONDS_UNUSED_IN_TESTS, /* healthyLagFloorSeconds= */ 1, registry);
+    try {
+      // Clear the floor so recompute() actually reaches computePreferredSet instead of
+      // short-circuiting on an empty/all-healthy registry.
+      ObjectId registered = new ObjectId();
+      strategy.addIndex(registered);
+      strategy.isHighPriority(registered, batchWithLag(100));
+      double initial = registry.get(LAST_SUCCESSFUL_RECOMPUTE_METRIC).gauge().value();
+
+      assertThrows(RuntimeException.class, strategy::recomputeNowForTesting);
+
+      // A subclass bug that makes computePreferredSet fail every cycle must not be masked as a
+      // "successful" recompute -- the liveness alert needs to still be able to catch it.
+      assertThat(registry.get(LAST_SUCCESSFUL_RECOMPUTE_METRIC).gauge().value()).isEqualTo(initial);
+    } finally {
+      strategy.shutdown();
+    }
+  }
+
+  @Test
   public void isHighPriority_undecodableResumeTokenHex_treatedAsWorstCaseLag() {
     var strategy = newStrategy(1);
     ObjectId malformed = new ObjectId();
@@ -339,6 +378,27 @@ public class RecomputingLagPriorityStrategyTest {
         }
       }
       return preferred;
+    }
+  }
+
+  /** A minimal concrete subclass whose {@code computePreferredSet} always throws. */
+  private static final class ThrowingComputePreferredSetStrategy
+      extends RecomputingLagPriorityStrategy {
+    ThrowingComputePreferredSetStrategy(
+        int recomputeIntervalSeconds, int healthyLagFloorSeconds, MeterRegistry meterRegistry) {
+      super(
+          "test-strategy-throwing",
+          recomputeIntervalSeconds,
+          healthyLagFloorSeconds,
+          meterRegistry);
+    }
+
+    @Override
+    Set<ObjectId> computePreferredSet(
+        Map<ObjectId, Integer> lagSecondsSnapshot,
+        Set<ObjectId> previousPreferredSet,
+        int healthyLagFloorSeconds) {
+      throw new IllegalStateException("always fails, for testing recompute-liveness tracking");
     }
   }
 

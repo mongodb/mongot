@@ -47,6 +47,7 @@ abstract class RecomputingLagPriorityStrategy implements ChangeStreamPriorityStr
   private final AtomicLong preferredSetSize;
   private final Counter promotedCount;
   private final Counter demotedCount;
+  private final AtomicLong lastSuccessfulRecomputeEpochSeconds;
 
   /**
    * Constructs the strategy and starts its background recompute loop.
@@ -78,6 +79,9 @@ abstract class RecomputingLagPriorityStrategy implements ChangeStreamPriorityStr
     this.preferredSetSize = this.metrics.numGauge("preferredSetSize");
     this.promotedCount = this.metrics.counter("promotedCount");
     this.demotedCount = this.metrics.counter("demotedCount");
+    this.lastSuccessfulRecomputeEpochSeconds =
+        this.metrics.numGauge("lastSuccessfulRecomputeEpochSeconds");
+    this.lastSuccessfulRecomputeEpochSeconds.set(System.currentTimeMillis() / 1000);
     this.scheduler = Executors.singleThreadScheduledExecutor(executorName, meterRegistry);
     this.scheduler.scheduleAtFixedRate(
         this::recomputeSafely,
@@ -148,16 +152,27 @@ abstract class RecomputingLagPriorityStrategy implements ChangeStreamPriorityStr
     Map<ObjectId, Integer> snapshot = Map.copyOf(this.lagSecondsByIndex);
     if (snapshot.isEmpty()) {
       setPreferredIndexIds(Set.of());
+      markRecomputeSucceeded();
       return;
     }
     int worstLagSeconds = Collections.max(snapshot.values());
     if (worstLagSeconds < this.healthyLagFloorSeconds) {
       setPreferredIndexIds(Set.of());
+      markRecomputeSucceeded();
       return;
     }
     Set<ObjectId> previous = this.currentPreferredIndexIds.get();
     setPreferredIndexIds(
         Set.copyOf(computePreferredSet(snapshot, previous, this.healthyLagFloorSeconds)));
+    markRecomputeSucceeded();
+  }
+
+  /**
+   * Marks a recompute cycle as having genuinely completed, as opposed to {@link #recomputeSafely}
+   * catching an exception thrown from this method.
+   */
+  private void markRecomputeSucceeded() {
+    this.lastSuccessfulRecomputeEpochSeconds.set(System.currentTimeMillis() / 1000);
   }
 
   private void setPreferredIndexIds(Set<ObjectId> updated) {
