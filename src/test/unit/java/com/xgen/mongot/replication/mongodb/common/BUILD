@@ -40,6 +40,7 @@ java_test_suite(
         "PeriodicIndexCommitterTest.java",
         "ProjectionTest.java",
         "QueryRejectedBySettingsExceptionUtilsTest.java",
+        "ReplicationOptimeUpdaterTest.java",
         "SchedulerQueueTest.java",
         "SplitEventChangeStreamClientTest.java",
         "SteadyStateExceptionTest.java",
@@ -48,6 +49,7 @@ java_test_suite(
     data = ["//src/test/unit/resources/replication/mongodb/common:srcs"],
     tags = ["unit"],
     deps = [
+        "//src/main/java/com/xgen/mongot/catalog",
         "//src/main/java/com/xgen/mongot/config/util",
         "//src/main/java/com/xgen/mongot/embedding",
         "//src/main/java/com/xgen/mongot/embedding/cache",

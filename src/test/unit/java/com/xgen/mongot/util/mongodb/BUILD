@@ -14,6 +14,7 @@ java_test_suite(
         "MongoClientBuilderTest.java",
         "MongoCredentialsTest.java",
         "MongoDbMetadataClientTest.java",
+        "MongoDbOplogTest.java",
         "SslContextFactoryTest.java",
         "SyncSourceConfigTest.java",
     ],

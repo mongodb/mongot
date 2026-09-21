@@ -28,6 +28,7 @@ java_library(
         "MongoDbDatabase.java",
         "MongoDbFsync.java",
         "MongoDbMetadataClient.java",
+        "MongoDbOplog.java",
         "MongoDbReplSetStatus.java",
         "MongoDbServerInfo.java",
         "MongoDbServerInfoProvider.java",
