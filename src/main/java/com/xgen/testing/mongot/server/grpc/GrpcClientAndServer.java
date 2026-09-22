@@ -50,6 +50,7 @@ public class GrpcClientAndServer implements ClientAndServer {
   private GrpcStreamingServer server;
   private GrpcStreamingClient client;
   private ExecutorManager executorManager;
+  private Optional<String> overrideAuthority = Optional.empty();
 
   public enum ServiceMethod {
     AUTHENTICATED_COMMAND,
@@ -79,6 +80,15 @@ public class GrpcClientAndServer implements ClientAndServer {
   public void start(Mocks mocks) {
     startWithoutHealthCheck(mocks, Optional.empty());
     waitUntilServerHealthy();
+  }
+
+  /**
+   * Sets the {@code :authority} pseudo-header the client sends on every call, so the server-side
+   * {@code ServerCall.getAuthority()} sees it (e.g. a warm-up "-shadow" host). Must be called
+   * before {@link #start}. The authority cannot be carried in {@link SearchEnvoyMetadata}/headers.
+   */
+  public void setOverrideAuthority(String authority) {
+    this.overrideAuthority = Optional.of(authority);
   }
 
   @Override
@@ -166,7 +176,11 @@ public class GrpcClientAndServer implements ClientAndServer {
     this.server.start();
     this.client =
         GrpcStreamingClient.create(
-            getServerAddress(), searchEnvoyMetadata, this.tlsMode, Optional.empty());
+            getServerAddress(),
+            searchEnvoyMetadata,
+            this.tlsMode,
+            Optional.empty(),
+            this.overrideAuthority);
   }
 
   // NB: when using TCP sockets this will use port 0 to auto-assign the bind port; callers will

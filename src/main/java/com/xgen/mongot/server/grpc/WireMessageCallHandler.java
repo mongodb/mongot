@@ -22,6 +22,7 @@ public class WireMessageCallHandler extends ServerCallHandler<MessageMessage> {
       SearchEnvoyMetadata searchEnvoyMetadata,
       int envoyAttemptCount,
       int envoyMaxAttemptCount,
+      boolean isShadow,
       StreamObserver<MessageMessage> responseObserver) {
     super(
         commandRegistry,
@@ -30,6 +31,7 @@ public class WireMessageCallHandler extends ServerCallHandler<MessageMessage> {
         searchEnvoyMetadata,
         envoyAttemptCount,
         envoyMaxAttemptCount,
+        isShadow,
         responseObserver);
   }
 

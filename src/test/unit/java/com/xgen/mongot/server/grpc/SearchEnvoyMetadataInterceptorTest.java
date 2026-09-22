@@ -1,8 +1,10 @@
 package com.xgen.mongot.server.grpc;
 
+import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.xgen.mongot.searchenvoy.grpc.SearchEnvoyMetadata;
 import io.grpc.Metadata;
@@ -88,6 +90,70 @@ public class SearchEnvoyMetadataInterceptorTest {
     metadata.put(GrpcMetadata.ENVOY_MAX_ATTEMPT_COUNT_KEY, "0");
     triggerInterceptorAndCheckMaxAttemptCount(
         metadata, SearchEnvoyMetadataInterceptor.DEFAULT_MAX_ATTEMPT_COUNT);
+  }
+
+  @Test
+  public void isShadowAuthority_nullAuthority_returnsFalse() {
+    assertThat(SearchEnvoyMetadataInterceptor.isShadowAuthority(null)).isFalse();
+  }
+
+  @Test
+  public void isShadowAuthority_plainHost_returnsFalse() {
+    assertThat(SearchEnvoyMetadataInterceptor.isShadowAuthority("myhost")).isFalse();
+  }
+
+  @Test
+  public void isShadowAuthority_shadowHost_returnsTrue() {
+    assertThat(SearchEnvoyMetadataInterceptor.isShadowAuthority("myhost-shadow")).isTrue();
+  }
+
+  @Test
+  public void isShadowAuthority_shadowHostWithPort_returnsTrue() {
+    assertThat(SearchEnvoyMetadataInterceptor.isShadowAuthority("myhost-shadow:8080")).isTrue();
+  }
+
+  @Test
+  public void isShadowAuthority_plainHostWithPort_returnsFalse() {
+    assertThat(SearchEnvoyMetadataInterceptor.isShadowAuthority("myhost:8080")).isFalse();
+  }
+
+  @Test
+  public void isShadowAuthority_shadowSubstringNotSuffix_returnsFalse() {
+    assertThat(SearchEnvoyMetadataInterceptor.isShadowAuthority("shadow-myhost")).isFalse();
+  }
+
+  @Test
+  public void testIsShadow_trueWhenAuthorityHasShadowSuffix() {
+    triggerInterceptorAndCheckShadow("myhost-shadow:8080", true);
+  }
+
+  @Test
+  public void testIsShadow_falseForPlainAuthority() {
+    triggerInterceptorAndCheckShadow("myhost:8080", false);
+  }
+
+  @Test
+  public void testIsShadow_falseWhenAuthorityMissing() {
+    triggerInterceptorAndCheckShadow(null, false);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void triggerInterceptorAndCheckShadow(String authority, boolean expectedShadow) {
+    Metadata metadata = new Metadata();
+    ServerCall<Object, Object> serverCall = mock(ServerCall.class);
+    when(serverCall.getAuthority()).thenReturn(authority);
+    ServerCall.Listener<Object> listener = mock(ServerCall.Listener.class);
+    doAnswer(
+            invocation -> {
+              assertEquals(expectedShadow, GrpcContext.IS_SHADOW_KEY.get());
+              return null;
+            })
+        .when(listener)
+        .onReady();
+    var interceptor = new SearchEnvoyMetadataInterceptor();
+    var interceptedCall =
+        interceptor.interceptCall(serverCall, metadata, (call, headers) -> listener);
+    interceptedCall.onReady();
   }
 
   @SuppressWarnings("unchecked")

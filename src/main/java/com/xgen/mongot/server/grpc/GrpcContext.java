@@ -10,4 +10,5 @@ public class GrpcContext {
       Context.key("envoy-attempt-count");
   public static final Context.Key<Integer> ENVOY_MAX_ATTEMPT_COUNT_KEY =
       Context.key("envoy-max-attempt-count");
+  public static final Context.Key<Boolean> IS_SHADOW_KEY = Context.key("is-shadow");
 }

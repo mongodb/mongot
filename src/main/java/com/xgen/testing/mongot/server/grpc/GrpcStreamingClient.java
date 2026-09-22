@@ -69,11 +69,27 @@ public class GrpcStreamingClient implements Closeable {
       Optional<SearchEnvoyMetadata> searchEnvoyMetadata,
       TlsMode tlsMode,
       Optional<Path> certificatePath) {
+    return create(address, searchEnvoyMetadata, tlsMode, certificatePath, Optional.empty());
+  }
+
+  /**
+   * Create a gRPC streaming client according to the {@link SearchEnvoyMetadata}, optionally
+   * overriding the {@code :authority} pseudo-header. The authority cannot be set via {@link
+   * Metadata} (gRPC rejects HTTP/2 pseudo-headers there), so {@code overrideAuthority} is the only
+   * way for a test to make the server-side {@code ServerCall.getAuthority()} return a custom value
+   * (e.g. a warm-up "-shadow" host).
+   */
+  public static GrpcStreamingClient create(
+      SocketAddress address,
+      Optional<SearchEnvoyMetadata> searchEnvoyMetadata,
+      TlsMode tlsMode,
+      Optional<Path> certificatePath,
+      Optional<String> overrideAuthority) {
     Metadata requestHeaders = new Metadata();
     requestHeaders.put(GrpcMetadata.MONGODB_WIRE_VERSION_METADATA_KEY, MONGODB_WIRE_VERSION);
     searchEnvoyMetadata.ifPresent(
         envoyMetadata -> requestHeaders.put(GrpcMetadata.SEARCH_ENVOY_METADATA_KEY, envoyMetadata));
-    return create(address, requestHeaders, tlsMode, certificatePath);
+    return create(address, requestHeaders, tlsMode, certificatePath, overrideAuthority);
   }
 
   /** Create a gRPC streaming client according to the {@link Metadata}. */
@@ -82,6 +98,16 @@ public class GrpcStreamingClient implements Closeable {
       Metadata requestHeaders,
       TlsMode tlsMode,
       Optional<Path> certificatePath) {
+    return create(address, requestHeaders, tlsMode, certificatePath, Optional.empty());
+  }
+
+  /** Create a gRPC streaming client, optionally overriding the {@code :authority} pseudo-header. */
+  public static GrpcStreamingClient create(
+      SocketAddress address,
+      Metadata requestHeaders,
+      TlsMode tlsMode,
+      Optional<Path> certificatePath,
+      Optional<String> overrideAuthority) {
     NettyUtil.SocketType socketType = NettyUtil.getSocketType(address);
     EventLoopGroup eventLoopGroup = NettyUtil.createEventLoopGroup(socketType);
     NettyChannelBuilder channelBuilder =
@@ -93,6 +119,7 @@ public class GrpcStreamingClient implements Closeable {
     if (tlsMode != TlsMode.DISABLED) {
       channelBuilder.sslContext(createSslContext(certificatePath));
     }
+    overrideAuthority.ifPresent(channelBuilder::overrideAuthority);
 
     channelBuilder.intercept(
         new ClientInterceptor() {

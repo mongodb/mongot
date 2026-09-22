@@ -28,6 +28,7 @@ public class BsonMessageCallHandlerTest {
         SearchEnvoyMetadata.getDefaultInstance(),
         /* envoyAttemptCount */ 1,
         /* envoyMaxAttemptCount */ 3,
+        /* isShadow */ false,
         mock(StreamObserver.class));
   }
 

@@ -1,6 +1,7 @@
 package com.xgen.mongot.server.grpc;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.after;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
@@ -77,6 +78,7 @@ public class StreamingMessageHandlerTest {
           SearchEnvoyMetadata.getDefaultInstance(),
           /* envoyAttemptCount */ 1,
           /* envoyMaxAttemptCount */ 3,
+          /* isShadow */ false,
           this.responseObserver);
 
   final InOrder inOrder = Mockito.inOrder(this.responseObserver, this.cursorManager);
@@ -447,6 +449,7 @@ public class StreamingMessageHandlerTest {
             SearchEnvoyMetadata.getDefaultInstance(),
             /* envoyAttemptCount */ 2,
             /* envoyMaxAttemptCount */ 3,
+            /* isShadow */ false,
             this.responseObserver);
 
     BsonDocument document = new BsonDocument().append(IdentityCommand.Name, new BsonString("foo"));
@@ -632,6 +635,43 @@ public class StreamingMessageHandlerTest {
   }
 
   @Test
+  public void onNext_shadowStream_killsCreatedCursorsAfterResponse() {
+    this.commandRegistry.registerCommand(
+        CreateCursorsCommand.Name, (CommandFactory) args -> new CreateCursorsCommand(), true);
+    WireMessageCallHandler shadowHandler =
+        new WireMessageCallHandler(
+            this.commandRegistry,
+            this.executorManager.commandExecutor,
+            this.cursorManager,
+            SearchEnvoyMetadata.getDefaultInstance(),
+            /* envoyAttemptCount */ 1,
+            /* envoyMaxAttemptCount */ 3,
+            /* isShadow */ true,
+            this.responseObserver);
+    BsonDocument document = new BsonDocument().append(CreateCursorsCommand.Name, BsonBoolean.TRUE);
+
+    shadowHandler.onNext(createOpMsgFromBsonDocument(document));
+
+    // Envoy discards the shadow response and never sends a getMore/killCursors here, so the cursors
+    // are killed as soon as the response is built rather than waiting for stream cancellation.
+    verifyServerResponse(new BsonDocument());
+    verifyKilledCursors(CreateCursorsCommand.SEARCH_CURSOR_ID, CreateCursorsCommand.META_CURSOR_ID);
+  }
+
+  @Test
+  public void onNext_normalStream_keepsCursorsAliveUntilStreamCloses() {
+    this.commandRegistry.registerCommand(
+        CreateCursorsCommand.Name, (CommandFactory) args -> new CreateCursorsCommand(), true);
+    BsonDocument document = new BsonDocument().append(CreateCursorsCommand.Name, BsonBoolean.TRUE);
+
+    this.messageHandler.onNext(createOpMsgFromBsonDocument(document));
+
+    // A non-shadow stream expects a follow-up getMore, so nothing is killed until cancellation.
+    verifyServerResponse(new BsonDocument());
+    verify(this.cursorManager, after(1000).never()).killCursor(anyLong());
+  }
+
+  @Test
   public void streamTerminationBeforeSendingCommands() {
     this.streamTerminated = true;
     this.messageHandler.onError(Status.CANCELLED.asRuntimeException());
@@ -736,6 +776,7 @@ public class StreamingMessageHandlerTest {
             SearchEnvoyMetadata.getDefaultInstance(),
             /* envoyAttemptCount */ 1,
             /* envoyMaxAttemptCount */ 3,
+            /* isShadow */ false,
             boundedResponseObserver);
 
     CountDownLatch blockingLatch = new CountDownLatch(1);
@@ -887,6 +928,7 @@ public class StreamingMessageHandlerTest {
             SearchEnvoyMetadata.getDefaultInstance(),
             /* envoyAttemptCount */ 1,
             /* envoyMaxAttemptCount */ 3,
+            /* isShadow */ false,
             boundedResponseObserver);
 
     CountDownLatch blockingLatch = new CountDownLatch(1);
@@ -1014,6 +1056,7 @@ public class StreamingMessageHandlerTest {
             SearchEnvoyMetadata.getDefaultInstance(),
             /* envoyAttemptCount */ 1,
             /* envoyMaxAttemptCount */ 3,
+            /* isShadow */ false,
             boundedResponseObserver);
 
     CountDownLatch blockingLatch = new CountDownLatch(1);
@@ -1134,6 +1177,7 @@ public class StreamingMessageHandlerTest {
             SearchEnvoyMetadata.getDefaultInstance(),
             /* envoyAttemptCount */ 3,
             /* envoyMaxAttemptCount */ 3,
+            /* isShadow */ false,
             boundedResponseObserver);
 
     CountDownLatch blockingLatch = new CountDownLatch(1);
@@ -1260,6 +1304,7 @@ public class StreamingMessageHandlerTest {
             SearchEnvoyMetadata.getDefaultInstance(),
             /* envoyAttemptCount */ 3,
             /* envoyMaxAttemptCount */ 5,
+            /* isShadow */ false,
             boundedResponseObserver);
 
     CountDownLatch blockingLatch = new CountDownLatch(1);

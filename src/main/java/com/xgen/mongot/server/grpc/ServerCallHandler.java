@@ -56,6 +56,11 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
   // so that a change to the retry budget reaches both sides in the same xds update; the
   // interceptor substitutes a default when search envoy is not in the request path.
   private final int envoyMaxAttemptCount;
+  // True when this stream is a warm-up traffic shadow (envoy mirrors live traffic here to warm the
+  // node). Envoy discards the responses and its mirrored getMore/killCursors carry the primary's
+  // cursor ids, which never match this node, so cursors created here are killed as soon as the
+  // command response is built rather than lingering until the idle-cursor reaper runs.
+  private final boolean isShadow;
   private final EnvoyRetryMetrics envoyRetryMetrics;
   // Counts every incoming command regardless of outcome (success, rejection, error). Serves as
   // the denominator for load-shedding / envoy-retry rates. Tagged retry=true when this stream's
@@ -75,6 +80,7 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
       SearchEnvoyMetadata searchEnvoyMetadata,
       int envoyAttemptCount,
       int envoyMaxAttemptCount,
+      boolean isShadow,
       StreamObserver<T> responseObserver) {
     this.commandRegistry = commandRegistry;
     this.commandExecutor = commandExecutor;
@@ -82,6 +88,7 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
     this.searchEnvoyMetadata = searchEnvoyMetadata;
     this.envoyAttemptCount = envoyAttemptCount;
     this.envoyMaxAttemptCount = envoyMaxAttemptCount;
+    this.isShadow = isShadow;
     this.commandManager = new CommandManager<T>(responseObserver);
     this.createdCursorIds = Collections.emptyList();
     this.envoyRetryMetrics =
@@ -137,6 +144,10 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
                             commandRegistration.totalTimer.record(totalTime.elapsed());
                           });
                     });
+                // A warm-up shadow stream envoy discards this response, so kill it here.
+                if (this.isShadow) {
+                  killCreatedCursors();
+                }
               }
             });
   }
@@ -183,17 +194,15 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
 
   @Override
   public void onError(Throwable t) {
-    this.commandManager.onStreamCancellation(
-        () -> {
-          // After sending half-close to the client, we will try to kill all the cursors that are
-          // created in the gRPC stream.
-          // Cursors may already be killed/exhausted. If a cursor is killed/exhausted,
-          // `MongotCursorManager::killCursor` will be a no-op.
-          this.createdCursorIds.forEach(
-              cursorId -> {
-                this.cursorManager.killCursor(cursorId);
-              });
-        });
+    // After sending half-close to the client, we will try to kill all the cursors that are
+    // created in the gRPC stream.
+    this.commandManager.onStreamCancellation(this::killCreatedCursors);
+  }
+
+  // Kills every cursor this stream created. Cursors may already be killed/exhausted; if so,
+  // `MongotCursorManager::killCursor` is a no-op, so this is safe to call more than once.
+  private void killCreatedCursors() {
+    this.createdCursorIds.forEach(cursorId -> this.cursorManager.killCursor(cursorId));
   }
 
   @Override
