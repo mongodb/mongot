@@ -9,7 +9,6 @@ java_library(
         "AggregationValidator.java",
         "Collector.java",
         "DrillSidewaysInfoBuilder.java",
-        "EmbeddedDocumentScope.java",
         "FacetCollector.java",
         "FacetDefinition.java",
         "GenericDrillSidewaysFacetOperatorBuilder.java",

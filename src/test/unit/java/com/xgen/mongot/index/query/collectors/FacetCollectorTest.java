@@ -4,6 +4,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static com.xgen.testing.BsonDeserializationTestSuite.fromDocument;
 
 import com.xgen.mongot.index.query.operators.AllDocumentsOperator;
+import com.xgen.mongot.index.query.operators.EmbeddedDocumentScope;
 import com.xgen.mongot.index.query.operators.Operator;
 import com.xgen.mongot.index.query.points.LongPoint;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;

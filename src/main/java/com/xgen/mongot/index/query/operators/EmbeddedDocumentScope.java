@@ -1,7 +1,5 @@
-package com.xgen.mongot.index.query.collectors;
+package com.xgen.mongot.index.query.operators;
 
-import com.xgen.mongot.index.query.operators.EmbeddedDocumentOperator;
-import com.xgen.mongot.index.query.operators.Operator;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;

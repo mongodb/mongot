@@ -9,6 +9,7 @@ java_library(
         "CompoundClause.java",
         "CompoundOperator.java",
         "EmbeddedDocumentOperator.java",
+        "EmbeddedDocumentScope.java",
         "EqualsOperator.java",
         "ExactVectorSearchCriteria.java",
         "ExistsOperator.java",

@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.query.collectors;
 
+import com.xgen.mongot.index.query.operators.EmbeddedDocumentScope;
 import com.xgen.mongot.util.bson.BsonNumberUtils;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
