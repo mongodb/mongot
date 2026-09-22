@@ -66,9 +66,9 @@ TASK_SYNC_POLICY = {
     "CREATE_PATCH_TAG": set(),
     "UPDATE_BACKPORTED_TICKETS_FIXVERSION": set(),
     # Present in both workflows, but the collected inputs differ: PatchRelease
-    # also gathers release_major_minor and gives release_sha branch-specific
-    # guidance, so Data/Description/Notes are intentionally workflow-specific.
-    # Structure and execution semantics must still stay aligned.
+    # also gives release_sha branch-specific guidance, so Data/Description/Notes
+    # are intentionally workflow-specific. Structure and execution semantics must
+    # still stay aligned.
     "SET_RELEASE_INPUTS": _SYNC_EXCEPT_DESCRIPTIVE_AND_DATA,
     # Partial sync: same task in both workflows with per-workflow Notes/
     # Description instructions, but structure and execution must stay
