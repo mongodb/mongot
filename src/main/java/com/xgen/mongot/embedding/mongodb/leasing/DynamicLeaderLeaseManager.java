@@ -812,6 +812,11 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     becomeFollower(generationId);
   }
 
+  @Override
+  public boolean supportsFencingRecovery() {
+    return true;
+  }
+
   /**
    * The cache can hold a lease owned by another host or an expired lease that still names this host
    * before the next heartbeat demotes it. Ownership and expiration are therefore checked against

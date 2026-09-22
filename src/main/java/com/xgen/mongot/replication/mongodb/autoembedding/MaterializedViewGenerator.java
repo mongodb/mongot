@@ -2,6 +2,7 @@ package com.xgen.mongot.replication.mongodb.autoembedding;
 
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.xgen.mongot.cursor.MongotCursorManager;
+import com.xgen.mongot.embedding.exceptions.MaterializedViewNonTransientException;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.autoembedding.InitializedMaterializedViewIndex;
 import com.xgen.mongot.index.autoembedding.MaterializedViewIndexGeneration;
@@ -9,13 +10,17 @@ import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.replication.mongodb.ReplicationIndexManager;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
+import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
 import com.xgen.mongot.replication.mongodb.common.PeriodicIndexCommitter;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
 import com.xgen.mongot.replication.mongodb.initialsync.InitialSyncQueue;
 import com.xgen.mongot.replication.mongodb.steadystate.SteadyStateManager;
+import com.xgen.mongot.util.functionalinterfaces.CheckedRunnable;
 import com.xgen.mongot.util.mongodb.Errors;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tags;
+import java.io.IOException;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.Optional;
@@ -89,6 +94,22 @@ public class MaterializedViewGenerator extends ReplicationIndexManager {
 
   private final Counter oplogFalloffResyncCounter;
 
+  /** Retained so {@link #runIndexerOperation} can tag its skipped-rejection counter by reason. */
+  private final MetricsFactory metricsFactory;
+
+  /**
+   * Manager-owned recovery for a writer that was fenced by a newer leader. Written once by the
+   * manager thread in {@link #setFencingRejectionHandler}, before this generator's replication
+   * threads are ever started, and read from those threads thereafter -- {@code volatile} so that
+   * ordering holds even if a future change starts them earlier than today's code does.
+   */
+  private volatile Optional<FencingRejectionHandler> fencingRejectionHandler;
+
+  @FunctionalInterface
+  interface FencingRejectionHandler {
+    void handle(MaterializedViewGenerator generator);
+  }
+
   /**
    * Invoked when the source collection this generator tails is dropped, before the generator
    * transitions to a terminal state. See {@link #handleCollectionDropped()}.
@@ -135,7 +156,13 @@ public class MaterializedViewGenerator extends ReplicationIndexManager {
             ? Optional.of(fencedIndexer)
             : Optional.empty();
     this.oplogFalloffResyncCounter = metricsFactory.counter("oplogFalloffResyncEvents");
+    this.metricsFactory = metricsFactory;
+    this.fencingRejectionHandler = Optional.empty();
     this.onSourceCollectionDropped = onSourceCollectionDropped;
+  }
+
+  void setFencingRejectionHandler(FencingRejectionHandler fencingRejectionHandler) {
+    this.fencingRejectionHandler = Optional.of(fencingRejectionHandler);
   }
 
   /**
@@ -318,6 +345,10 @@ public class MaterializedViewGenerator extends ReplicationIndexManager {
   // For auto-embedding index, we always resync instead of leaving the index in
   // RECOVERING_NON_TRANSIENT state.
   protected void handleSteadyStateNonInvalidatingResync(SteadyStateException steadyStateException) {
+    if (handleFencingRejectionOrResyncInPlace(
+        steadyStateException.getCause(), steadyStateException)) {
+      return;
+    }
     this.logger
         .atInfo()
         .setCause(steadyStateException)
@@ -328,6 +359,96 @@ public class MaterializedViewGenerator extends ReplicationIndexManager {
     enqueueInitialSync(IndexStatus.initialSync());
   }
 
+  @Override
+  // A fencing rejection during initial sync would otherwise fall into the generic FAILED path
+  // (failAndDropIndex/failAndCloseIndex with INITIAL_SYNC_REPLICATION_FAILED), a reason
+  // IndexStatus.canBeRecovered() does not cover, so IndexRecoveryStager never restages it and this
+  // generator's generation is stuck until another host or an external config change intervenes.
+  // Route it through the same handling as the steady-state case instead.
+  protected void handleInitialSyncFailed(InitialSyncException initialSyncException) {
+    if (handleFencingRejectionOrResyncInPlace(
+        initialSyncException.getCause(), initialSyncException)) {
+      return;
+    }
+    super.handleInitialSyncFailed(initialSyncException);
+  }
+
+  /**
+   * Handles a fencing rejection the same way regardless of which path (steady-state resync or
+   * initial-sync failure) detected it: retires and replaces the generator via the manager-owned
+   * handler when one is installed (dynamic leader election), or resyncs in place when it isn't.
+   *
+   * <p>Static leader election has no retire-and-replace path -- its {@code LeaseManager}'s {@code
+   * releaseLeadership()}/{@code tryAcquireLeadership()} are no-ops -- so on initial sync
+   * specifically, falling through to the generic {@code FAILED} path would strand the generation on
+   * a reason {@code IndexStatus.canBeRecovered()} doesn't cover, with nothing left to ever restage
+   * it. Resyncing in place instead matches what the steady-state path already does for a static
+   * leader.
+   *
+   * @return true if {@code cause} was a fencing rejection and has been fully handled
+   */
+  private boolean handleFencingRejectionOrResyncInPlace(
+      @Nullable Throwable cause, Exception fullException) {
+    if (!isFencingRejection(cause)) {
+      return false;
+    }
+    if (this.fencingRejectionHandler.isPresent()) {
+      this.logger.atWarn().setCause(fullException).log("Fenced by a newer leader");
+      this.fencingRejectionHandler.get().handle(this);
+    } else {
+      this.logger
+          .atInfo()
+          .setCause(fullException)
+          .log("Fenced by a newer leader; resyncing in place (static leader election)");
+      enqueueInitialSync(IndexStatus.initialSync());
+    }
+    return true;
+  }
+
+  @Override
+  // Reached from shutdownReplicationAndCommitStatus()/staleIndex()/clearIndex()'s commitIndexer()/
+  // clearIndexer() call, whose write can be rejected for an ended tenure (INVALID_LEASE) or a
+  // fencing rejection (FENCING_REJECTION). All three already guard against writing once this
+  // generator is SHUT_DOWN (see ReplicationIndexManager), so a rejection reaching here despite
+  // that guard means either a narrow window between the guard and the write (this generator's own
+  // shutdown() raced in) or, if not yet SHUT_DOWN, a genuine unexpected failure -- rethrow for that
+  // case so it still halts. maybeForceMergeAfterInitialSync() is overridden below to never call
+  // commit() for this generator, and handleSteadyStateNonInvalidatingResync()/
+  // handleInitialSyncFailed() detect FENCING_REJECTION themselves rather than letting it reach the
+  // indexer, so those aren't sources of this either.
+  protected void runIndexerOperation(CheckedRunnable<IOException> operation) throws IOException {
+    try {
+      operation.run();
+    } catch (MaterializedViewNonTransientException e) {
+      boolean isTerminalWriteRejection =
+          switch (e.getReason()) {
+            case INVALID_LEASE, FENCING_REJECTION -> true;
+            default -> false;
+          };
+      if (!isTerminalWriteRejection || getState() != State.SHUT_DOWN) {
+        throw e;
+      }
+      this.logger
+          .atWarn()
+          .setCause(e)
+          .log(
+              "Commit rejected ({}) while already shutting down for another reason; skipping",
+              e.getReason());
+      this.metricsFactory
+          .counter("skippedTerminalCommitRejections", Tags.of("reason", e.getReason().name()))
+          .increment();
+    }
+  }
+
+  @Override
+  // Force-merge exists to pin Lucene segment count for query-latency perf testing
+  // (FORCE_MERGE_MAX_NUM_SEGMENTS_PROPERTY). The auto-embed index that benchmark targets is built
+  // by a separate, non-MV ReplicationIndexManager reading from this generator's MV collection via
+  // change streams -- not this generator. This generator's own Lucene index is not that query
+  // path (VectorSearchCommand's explicit-queryVector bypass is its only direct reader, and nothing
+  // perf-tests that), so force-merge has nothing to do here.
+  protected void maybeForceMergeAfterInitialSync() {}
+
   private static boolean isOplogFalloff(SteadyStateException steadyStateException) {
     Throwable cause = steadyStateException.getCause();
     if (cause instanceof com.mongodb.MongoException mongoException) {
@@ -336,5 +457,10 @@ public class MaterializedViewGenerator extends ReplicationIndexManager {
           || errorCode == Errors.CAPPED_POSITION_LOST.code;
     }
     return false;
+  }
+
+  private static boolean isFencingRejection(@Nullable Throwable cause) {
+    return cause instanceof MaterializedViewNonTransientException exception
+        && exception.getReason() == MaterializedViewNonTransientException.Reason.FENCING_REJECTION;
   }
 }

@@ -71,6 +71,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
@@ -800,7 +801,7 @@ public class MaterializedViewManager implements ReplicationManager {
     this.leaseManager.add(matViewIndexGeneration, false);
     MaterializedViewGenerator generator;
     try {
-      generator = this.matViewGeneratorFactory.create(matViewIndexGeneration);
+      generator = createManagedGenerator(matViewIndexGeneration);
     } catch (RuntimeException e) {
       // Transient failures are retried by refreshStatus's periodic reconciliation.
       recordGeneratorCreationFailure(
@@ -921,7 +922,7 @@ public class MaterializedViewManager implements ReplicationManager {
     try {
       MaterializedViewGenerator newGenerator;
       try {
-        newGenerator = this.matViewGeneratorFactory.create(matViewIndexGeneration);
+        newGenerator = createManagedGenerator(matViewIndexGeneration);
       } catch (RuntimeException e) {
         // Existing generator is left in place (still replicating the prior definition).
         recordGeneratorCreationFailure(
@@ -1060,8 +1061,7 @@ public class MaterializedViewManager implements ReplicationManager {
           .log("Old generator shutdown completed exceptionally");
     }
     try {
-      MaterializedViewGenerator newGenerator =
-          this.matViewGeneratorFactory.create(matViewIndexGeneration);
+      MaterializedViewGenerator newGenerator = createManagedGenerator(matViewIndexGeneration);
       // Replace in the map immediately so subsequent operations use the new follower generator.
       this.managedMaterializedViewGenerators.put(uuid, newGenerator);
     } catch (Throwable e) {
@@ -1069,6 +1069,68 @@ public class MaterializedViewManager implements ReplicationManager {
       // old generator is left shut down in the map; refreshStatus recreates the follower.
       recordGeneratorCreationFailure(generationId, e, "FACTORY_CREATE_AFTER_LEADERSHIP_LOSS");
     }
+  }
+
+  /**
+   * Retires a fenced generator instead of allowing it to resync with its obsolete lease version.
+   * This releases dynamic leadership before the replacement can be activated.
+   *
+   * <p>Runs on {@link #lifecycleExecutor}, asynchronously with respect to whatever reported the
+   * fencing rejection, so both the manager and the generation's metadata may have moved on by the
+   * time this runs: bail out instead of assuming either is still around.
+   */
+  synchronized void handleFencingRejection(MaterializedViewGenerator fencedGenerator) {
+    if (isShutdown()) {
+      return;
+    }
+    MaterializedViewGenerationId generationId =
+        fencedGenerator.getIndexGeneration().getGenerationId();
+    Optional<UUID> uuid =
+        this.matViewMetadataCatalog
+            .getMetadataIfPresent(generationId)
+            .map(MaterializedViewCollectionMetadata::collectionUuid);
+    if (uuid.isEmpty()
+        || this.managedMaterializedViewGenerators.get(uuid.get()) != fencedGenerator) {
+      return;
+    }
+
+    LOG.atWarn()
+        .addKeyValue("generationId", generationId)
+        .log("Retiring fenced materialized view generator");
+    try {
+      this.leaseManager.releaseLeadership(generationId);
+    } catch (Throwable e) {
+      LOG.atWarn()
+          .addKeyValue("generationId", generationId)
+          .setCause(e)
+          .log("Failed to release fenced materialized view leadership");
+    }
+    transitionToFollower(uuid.get(), fencedGenerator);
+  }
+
+  void scheduleFencingRejection(MaterializedViewGenerator fencedGenerator) {
+    // The generator reports this while holding its monitor. Defer acquiring the manager monitor to
+    // preserve the manager-before-generator lock order used by transitionToFollower().
+    try {
+      this.lifecycleExecutor.execute(() -> handleFencingRejection(fencedGenerator));
+    } catch (RejectedExecutionException e) {
+      // The manager is already shutting down (shutdown() stops lifecycleExecutor before it gets to
+      // this generator's own shutdown() call): shutdown() shuts down every managed generator
+      // regardless, so there is nothing left here to retire.
+      LOG.atInfo()
+          .addKeyValue("generationId", fencedGenerator.getIndexGeneration().getGenerationId())
+          .log("Manager is shutting down; skipping fencing-rejection retirement");
+    }
+  }
+
+  private MaterializedViewGenerator createManagedGenerator(
+      MaterializedViewIndexGeneration matViewIndexGeneration) {
+    MaterializedViewGenerator generator =
+        this.matViewGeneratorFactory.create(matViewIndexGeneration);
+    if (this.leaseManager.supportsFencingRecovery()) {
+      generator.setFencingRejectionHandler(this::scheduleFencingRejection);
+    }
+    return generator;
   }
 
   private void recordGeneratorCreationFailure(

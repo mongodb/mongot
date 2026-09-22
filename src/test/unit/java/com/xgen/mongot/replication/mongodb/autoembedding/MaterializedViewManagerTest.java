@@ -104,6 +104,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -3570,6 +3571,105 @@ public class MaterializedViewManagerTest {
     heartbeatCaptor.getValue().run();
 
     verify(mocks.leaseManager).releaseLeadership(matViewGenId);
+  }
+
+  @Test
+  public void dynamicLeader_fencingRejection_retiresAndReplacesStaleGenerator() {
+    Mocks mocks = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+    MaterializedViewIndexGeneration matViewIndexGen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator staleGenerator = mocks.mockMaterializedViewGenerator(matViewIndexGen);
+    mocks.addIndexForReplication(matViewIndexGen);
+    MaterializedViewGenerator replacementGenerator =
+        mocks.mockMaterializedViewGenerator(matViewIndexGen);
+    Mockito.clearInvocations(mocks.leaseManager, mocks.materializedViewGeneratorFactory);
+
+    mocks.manager.handleFencingRejection(staleGenerator);
+
+    verify(mocks.leaseManager).releaseLeadership(matViewIndexGen.getGenerationId());
+    verify(staleGenerator).shutdown();
+    verify(mocks.materializedViewGeneratorFactory).create(matViewIndexGen);
+    // shutdown() ends the tenure atomically with the SHUT_DOWN transition (see
+    // MaterializedViewGenerator#shutdown()), so it must happen before the slower factory.create()
+    // call, not after: that's what stops the fenced generator from committing under its obsolete
+    // token instead of only once the async drain eventually catches up.
+    InOrder inOrder = Mockito.inOrder(staleGenerator, mocks.materializedViewGeneratorFactory);
+    inOrder.verify(staleGenerator).shutdown();
+    inOrder.verify(mocks.materializedViewGeneratorFactory).create(matViewIndexGen);
+    assertSame(
+        replacementGenerator,
+        mocks.manager.getMatViewGenerator(matViewIndexGen.getGenerationId()).orElseThrow());
+  }
+
+  @Test
+  public void dynamicLeader_fencingRejection_metadataAlreadyRemoved_doesNotThrow() {
+    // handleFencingRejection() runs asynchronously on lifecycleExecutor, so a concurrent
+    // dropIndex() can remove this generation's metadata before it runs. getCollectionUuid()
+    // checkState-throws when metadata is absent, which would otherwise escape uncaught from the
+    // executor and halt the process; must bail out via a null-safe lookup instead.
+    Mocks mocks = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+    MaterializedViewIndexGeneration matViewIndexGen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator staleGenerator = mocks.mockMaterializedViewGenerator(matViewIndexGen);
+    mocks.addIndexForReplication(matViewIndexGen);
+    when(mocks.metadataCatalog.getMetadataIfPresent(matViewIndexGen.getGenerationId()))
+        .thenReturn(Optional.empty());
+    Mockito.clearInvocations(mocks.leaseManager, mocks.materializedViewGeneratorFactory);
+
+    mocks.manager.handleFencingRejection(staleGenerator);
+
+    verify(mocks.leaseManager, never()).releaseLeadership(any());
+    verify(mocks.materializedViewGeneratorFactory, never()).create(any());
+  }
+
+  @Test
+  public void dynamicLeader_fencingRejection_afterManagerShutdown_doesNotInstallGenerator() {
+    // A fencing rejection queued before shutdown() but executed after it must not install a new
+    // generator: shutdown() snapshots the generator map without clearing it (or setting any other
+    // flag this previously checked), so a generator installed afterward would never be shut down.
+    Mocks mocks = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+    MaterializedViewIndexGeneration matViewIndexGen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator staleGenerator = mocks.mockMaterializedViewGenerator(matViewIndexGen);
+    mocks.addIndexForReplication(matViewIndexGen);
+    Mockito.clearInvocations(mocks.leaseManager, mocks.materializedViewGeneratorFactory);
+
+    mocks.manager.shutdown();
+    mocks.manager.handleFencingRejection(staleGenerator);
+
+    verify(mocks.leaseManager, never()).releaseLeadership(any());
+    verify(mocks.materializedViewGeneratorFactory, never()).create(any());
+  }
+
+  @Test
+  public void scheduleFencingRejection_lifecycleExecutorAlreadyShutDown_doesNotThrow() {
+    // The manager's own shutdown() stops lifecycleExecutor before it gets to shutting down this
+    // generator; a fencing rejection reported concurrently must not let the resulting
+    // RejectedExecutionException escape uncaught (crash risk) -- shutdown() shuts down every
+    // managed generator regardless, so there is nothing left here to retire.
+    Mocks mocks = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+    MaterializedViewIndexGeneration matViewIndexGen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator staleGenerator = mocks.mockMaterializedViewGenerator(matViewIndexGen);
+    mocks.addIndexForReplication(matViewIndexGen);
+    doThrow(new RejectedExecutionException()).when(mocks.executorService).execute(any());
+
+    mocks.manager.scheduleFencingRejection(staleGenerator);
+  }
+
+  @Test
+  public void staticLeader_fencingRejection_generatorHasNoRetireHandler() {
+    // StaticLeaderLeaseManager's releaseLeadership()/tryAcquireLeadership() are no-ops, so a
+    // static-leader generator retired as a follower would never be reactivated. Static-leader
+    // generators must therefore keep resyncing in place instead of being wired up for retirement.
+    Mocks mocks = Mocks.create();
+    MaterializedViewIndexGeneration matViewIndexGen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator generator = mocks.mockMaterializedViewGenerator(matViewIndexGen);
+
+    mocks.addIndexForReplication(matViewIndexGen);
+
+    verify(generator, never()).setFencingRejectionHandler(any());
   }
 
   // ==================== Zombie lease detection — state-based =====================================

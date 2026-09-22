@@ -48,9 +48,11 @@ import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.Crash;
 import com.xgen.mongot.util.DurationUtils;
 import com.xgen.mongot.util.FutureUtils;
+import com.xgen.mongot.util.functionalinterfaces.CheckedRunnable;
 import com.xgen.mongot.util.mongodb.Errors;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
+import java.io.IOException;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.Collections;
@@ -718,14 +720,7 @@ public class ReplicationIndexManager implements IndexManager {
         return;
       }
       case FAILED -> {
-        if (InitialSyncException.isNotablescanError(throwable.getCause())) {
-          this.metricsFactory.counter("failedInitialSyncDueToNotablescan").increment();
-        }
-        if (this.featureFlags.isEnabled(Feature.RETAIN_FAILED_INITIAL_SYNC_DATA_ON_DISK)) {
-          failAndCloseIndex(throwable, Reason.INITIAL_SYNC_REPLICATION_FAILED);
-        } else {
-          failAndDropIndex(throwable, Reason.INITIAL_SYNC_REPLICATION_FAILED);
-        }
+        handleInitialSyncFailed(initialSyncException);
         return;
       }
       case FIELD_EXCEEDED, DOCS_EXCEEDED ->
@@ -914,7 +909,7 @@ public class ReplicationIndexManager implements IndexManager {
     }
   }
 
-  private void maybeForceMergeAfterInitialSync() {
+  protected void maybeForceMergeAfterInitialSync() {
     String maxNumSegmentsProperty = System.getProperty(FORCE_MERGE_MAX_NUM_SEGMENTS_PROPERTY);
     if (isShutDown() || maxNumSegmentsProperty == null) {
       return;
@@ -1144,6 +1139,17 @@ public class ReplicationIndexManager implements IndexManager {
     this.index.setStatus(IndexStatus.recoveringNonTransient(getLastOptime()));
   }
 
+  protected void handleInitialSyncFailed(InitialSyncException initialSyncException) {
+    if (InitialSyncException.isNotablescanError(initialSyncException.getCause())) {
+      this.metricsFactory.counter("failedInitialSyncDueToNotablescan").increment();
+    }
+    if (this.featureFlags.isEnabled(Feature.RETAIN_FAILED_INITIAL_SYNC_DATA_ON_DISK)) {
+      failAndCloseIndex(initialSyncException, Reason.INITIAL_SYNC_REPLICATION_FAILED);
+    } else {
+      failAndDropIndex(initialSyncException, Reason.INITIAL_SYNC_REPLICATION_FAILED);
+    }
+  }
+
   private synchronized boolean isShutDown() {
     return this.state.equals(State.SHUT_DOWN);
   }
@@ -1295,6 +1301,11 @@ public class ReplicationIndexManager implements IndexManager {
   }
 
   private synchronized void shutdownReplicationAndCommitStatus(IndexStateInfo indexStateInfo) {
+    // Already shut down (e.g. this generator's own shutdown() already ran for an unrelated
+    // reason): skip the redundant write.
+    if (isShutDown()) {
+      return;
+    }
     transitionState(State.SHUT_DOWN);
     this.index.setStatus(indexStateInfo.toIndexStatus());
 
@@ -1303,7 +1314,7 @@ public class ReplicationIndexManager implements IndexManager {
     IndexCommitUserData userData = IndexCommitUserData.createFromIndexStateInfo(indexStateInfo);
     this.documentIndexer.updateCommitUserData(userData);
     Crash.because("failed to commit index status: " + indexStateInfo.getStatus())
-        .ifThrows(this.documentIndexer::commit);
+        .ifThrows(this::commitIndexer);
   }
 
   private void shutDownReplicationOnStaleIndex(StaleStateInfo staleStateInfo) {
@@ -1326,6 +1337,12 @@ public class ReplicationIndexManager implements IndexManager {
   }
 
   private void staleIndex(StaleStatusReason staleStatusReason, Optional<String> errorMessage) {
+    // Already shut down: skip the redundant write. Every current caller already holds the
+    // generator monitor and checks isShutDown() before reaching here, but this guard makes the
+    // method correct on its own rather than relying on that caller discipline.
+    if (isShutDown()) {
+      return;
+    }
     IndexCommitUserData userData = getIndexCommitUserData();
 
     String message = staleStatusReason.formatMessage(errorMessage.orElse(""));
@@ -1341,7 +1358,7 @@ public class ReplicationIndexManager implements IndexManager {
 
     // commit user data to set STALE status for this index again on restart
     this.documentIndexer.updateCommitUserData(IndexCommitUserData.createStale(staleStateInfo));
-    Crash.because("failed to commit stale status").ifThrows(this.documentIndexer::commit);
+    Crash.because("failed to commit stale status").ifThrows(this::commitIndexer);
   }
 
   private BsonTimestamp getLastOptime() {
@@ -1363,6 +1380,12 @@ public class ReplicationIndexManager implements IndexManager {
   }
 
   private void clearIndex(IndexStatus status, IndexCommitUserData indexCommitUserData) {
+    // Already shut down: skip the redundant write. Every current caller already holds the
+    // generator monitor and checks isShutDown() before reaching here, but this guard makes the
+    // method correct on its own rather than relying on that caller discipline.
+    if (isShutDown()) {
+      return;
+    }
     // In order to fully clear the index, we need to:
     //   1. kill all cursors so no more IndexReaders are open against it
     //   2. delete all the documents from the index (commits the map)
@@ -1370,8 +1393,26 @@ public class ReplicationIndexManager implements IndexManager {
     //      the index are removed and data files can be cleaned up
     this.logger.info("Clearing index.");
     killCursors(status);
-    Crash.because("failed to clear index")
-        .ifThrows(() -> this.documentIndexer.clearIndex(indexCommitUserData));
+    Crash.because("failed to clear index").ifThrows(() -> clearIndexer(indexCommitUserData));
+  }
+
+  private void commitIndexer() throws IOException {
+    runIndexerOperation(this.documentIndexer::commit);
+  }
+
+  private void clearIndexer(IndexCommitUserData indexCommitUserData) throws IOException {
+    runIndexerOperation(() -> this.documentIndexer.clearIndex(indexCommitUserData));
+  }
+
+  /**
+   * Runs a commit/clearIndex operation against the document indexer, called from {@link
+   * #shutdownReplicationAndCommitStatus}, {@link #staleIndex}, and {@link #clearIndex}. Base
+   * implementation just runs it; a subclass whose {@link DocumentIndexer} can reject a write for a
+   * reason specific to it may override this to intercept that rejection instead of letting it reach
+   * the {@code Crash.ifThrows()} caller and halt the JVM.
+   */
+  protected void runIndexerOperation(CheckedRunnable<IOException> operation) throws IOException {
+    operation.run();
   }
 
   protected void failAndDropIndex(Throwable throwable, IndexStatus.Reason reason) {

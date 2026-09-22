@@ -22,6 +22,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -38,6 +39,7 @@ import com.mongodb.MongoNamespace;
 import com.mongodb.MongoQueryException;
 import com.mongodb.ServerAddress;
 import com.xgen.mongot.cursor.MongotCursorManager;
+import com.xgen.mongot.embedding.exceptions.MaterializedViewNonTransientException;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.Index;
@@ -72,6 +74,7 @@ import com.xgen.mongot.replication.mongodb.synonyms.SynonymManager;
 import com.xgen.mongot.replication.mongodb.synonyms.SynonymMappingHighWaterMark;
 import com.xgen.mongot.replication.mongodb.synonyms.SynonymMappingManager;
 import com.xgen.mongot.replication.mongodb.synonyms.SynonymMappingManagerFactory;
+import com.xgen.mongot.util.Crash;
 import com.xgen.testing.mongot.index.IndexMetricsUpdaterBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
@@ -95,6 +98,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonString;
@@ -1349,6 +1353,89 @@ public class ReplicationIndexManagerTest {
                   .getReplicationOpTimeInfo()
                   .snapshot())
           .isPresent();
+    }
+  }
+
+  @Test
+  public void staleIndexCommit_runsAfterStateAlreadyTransitionedToShutDown() throws Exception {
+    // Reviewer question: does staleIndex()'s final commit (which MaterializedViewGenerator's
+    // runIndexerOperation() override only treats as an ordinary demotion once getState() ==
+    // SHUT_DOWN) actually run while the state is still STEADY_STATE_SHUT_DOWN, the state
+    // handleSteadyStateException() left it in before the async hop into
+    // handleSteadyStateExceptionAfterManagerShutdown()? Empirically: no. staleIndex() calls
+    // shutDownReplicationOnStaleIndex() -- which transitions to SHUT_DOWN -- before its own commit,
+    // synchronously, still holding the monitor handleSteadyStateExceptionAfterManagerShutdown()
+    // acquired; nothing releases it in between.
+    var featureFlags =
+        FeatureFlags.withDefaults()
+            .enable(Feature.STALE_STATE_TRANSITION)
+            .enable(Feature.RETAIN_FAILED_INDEX_DATA_ON_DISK)
+            .enable(Feature.REMOVE_ABSENT_INDEXES_BEFORE_INITIALIZATION)
+            .build();
+    try (Mocks mocks =
+        Mocks.exceptionalSteadyState(
+            new IllegalArgumentException("invalid field name"), featureFlags)) {
+      AtomicReference<State> stateAtCommit = new AtomicReference<>();
+      doAnswer(
+              invocation -> {
+                stateAtCommit.set(mocks.manager.getState());
+                return null;
+              })
+          .when(mocks.documentIndexer)
+          .commit();
+
+      await().atMost(Duration.ofSeconds(5)).until(() -> stateAtCommit.get() != null);
+
+      assertEquals(State.SHUT_DOWN, stateAtCommit.get());
+    }
+  }
+
+  @Test
+  @Crash.TestOnlyHaltHandler
+  public void testStaleIndexCommitRejectedWithInvalidLease_defaultPolicyStillCrashes()
+      throws Exception {
+    // A MaterializedViewNonTransientException(INVALID_LEASE) from the commit inside staleIndex()
+    // runs through runIndexerOperation(), whose base implementation just runs the operation with
+    // no interception. This generic ReplicationIndexManager doesn't override it, so the rejection
+    // must still propagate and halt -- proving the seam a subclass can install there doesn't
+    // accidentally swallow a genuinely unexpected commit failure for a non-MV caller.
+    assertStaleIndexCommitRejectionStillCrashes(
+        MaterializedViewNonTransientException.Reason.INVALID_LEASE);
+  }
+
+  @Test
+  @Crash.TestOnlyHaltHandler
+  public void testStaleIndexCommitRejectedWithFencingRejection_defaultPolicyStillCrashes()
+      throws Exception {
+    // Same as testStaleIndexCommitRejectedWithInvalidLease_defaultPolicyStillCrashes, but for
+    // MaterializedViewNonTransientException(FENCING_REJECTION), through the same
+    // runIndexerOperation() seam. This generic ReplicationIndexManager does not override it
+    // either, so the rejection must still propagate and halt.
+    assertStaleIndexCommitRejectionStillCrashes(
+        MaterializedViewNonTransientException.Reason.FENCING_REJECTION);
+  }
+
+  @Crash.TestOnlyHaltHandler
+  private void assertStaleIndexCommitRejectionStillCrashes(
+      MaterializedViewNonTransientException.Reason reason) throws Exception {
+    var featureFlags =
+        FeatureFlags.withDefaults()
+            .enable(Feature.STALE_STATE_TRANSITION)
+            .enable(Feature.RETAIN_FAILED_INDEX_DATA_ON_DISK)
+            .enable(Feature.REMOVE_ABSENT_INDEXES_BEFORE_INITIALIZATION)
+            .build();
+    AtomicBoolean haltCalled = new AtomicBoolean(false);
+    Crash.setHaltHandlerForTesting(exitCode -> haltCalled.set(true));
+    try (Mocks mocks =
+        Mocks.exceptionalSteadyState(
+            new IllegalArgumentException("invalid field name"), featureFlags)) {
+      doThrow(new MaterializedViewNonTransientException("fenced", reason))
+          .when(mocks.documentIndexer)
+          .commit();
+
+      await().atMost(Duration.ofSeconds(5)).until(haltCalled::get);
+    } finally {
+      Crash.clearHaltHandlerForTesting();
     }
   }
 

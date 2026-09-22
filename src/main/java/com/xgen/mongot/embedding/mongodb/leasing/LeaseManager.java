@@ -418,6 +418,20 @@ public interface LeaseManager {
   default void releaseLeadership(MaterializedViewGenerationId generationId) {}
 
   /**
+   * Returns true if retiring a fenced generator (releasing leadership and installing a follower)
+   * makes sense for this lease manager, i.e. {@link #releaseLeadership} and {@link
+   * #tryAcquireLeadership} actually do something.
+   *
+   * <p>Default implementation returns {@code false}: static leader election's {@code
+   * releaseLeadership()}/{@code tryAcquireLeadership()} are no-ops, since leadership is
+   * pre-assigned and never changes, so a static leader must keep resyncing in place instead of
+   * being retired to a follower it can never be reactivated from.
+   */
+  default boolean supportsFencingRecovery() {
+    return false;
+  }
+
+  /**
    * Initializes an unowned Lease by trying to insert the proposed lease document into the database.
    * This operation should be synchronized across all mongots in the same replicaSet, so only one
    * Mongot wins in insertOne and the winner Lease with MaterializedViewCollectionMetadata should be

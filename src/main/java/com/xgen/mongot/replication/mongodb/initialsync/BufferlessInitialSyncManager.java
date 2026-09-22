@@ -12,6 +12,7 @@ import com.google.errorprone.annotations.Var;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoNamespace;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
+import com.xgen.mongot.embedding.exceptions.MaterializedViewNonTransientException;
 import com.xgen.mongot.logging.DefaultKeyValueLogger;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
@@ -458,15 +459,17 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
         this.logger);
   }
 
-  private void doFirstCommit(IndexCommitUserData commitUserData) throws InitialSyncException {
-    this.context.indexer.updateCommitUserData(commitUserData);
+  void doFirstCommit(IndexCommitUserData commitUserData) throws InitialSyncException {
+    try {
+      this.context.indexer.updateCommitUserData(commitUserData);
+    } catch (MaterializedViewNonTransientException e) {
+      throw translateMaterializedViewRejection(e);
+    }
+    // This needs to be run in a separate thread to avoid being interrupted. Interrupting the
+    // commit operation will cause the index writer closed.
     CompletableFuture<Void> commitFuture =
         InitialSyncManager.runAsync(
-            () ->
-                // This needs to be run in a separate thread to avoid being interrupted.
-                // Interrupting the commit operation will cause the index writer closed.
-                Crash.because("failed to do first commit after initial sync")
-                    .ifThrowsExceptionOrError(this.context.indexer::commit),
+            this::doFirstCommitAfterInitialSync,
             String.format("%s %s", this.context.uniqueString(), "FirstCommit"));
     Duration shutdownTimeout = getShutdownTimeout();
 
@@ -474,5 +477,27 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
     Runnable firstCommitShutdown = () -> awaitShutdown(shutdownTimeout, commitFuture);
 
     getResultOrThrow(commitFuture, "waiting for first commit", firstCommitShutdown, this.logger);
+  }
+
+  // Mirrors EmbeddingIndexingWorkScheduler#handleBatchException's routing of a materialized-view
+  // commit rejection, so an MV first-commit rejection is handled as an ordinary demotion instead
+  // of halting the JVM (CLOUDP-434414).
+  void doFirstCommitAfterInitialSync() throws InitialSyncException {
+    try {
+      this.context.indexer.commit();
+    } catch (MaterializedViewNonTransientException e) {
+      throw translateMaterializedViewRejection(e);
+    } catch (Exception | Error e) {
+      // Any other first-commit failure is genuinely fatal -- preserve the original halt.
+      Crash.because("failed to do first commit after initial sync").withThrowable(e).now();
+      throw Check.unreachableError();
+    }
+  }
+
+  static InitialSyncException translateMaterializedViewRejection(
+      MaterializedViewNonTransientException e) {
+    return e.getReason() == MaterializedViewNonTransientException.Reason.INVALID_LEASE
+        ? InitialSyncException.createShutDown()
+        : InitialSyncException.createFailed(e);
   }
 }

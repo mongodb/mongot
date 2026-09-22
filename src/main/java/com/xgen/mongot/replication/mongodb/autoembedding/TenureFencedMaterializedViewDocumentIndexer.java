@@ -152,15 +152,6 @@ final class TenureFencedMaterializedViewDocumentIndexer implements DocumentIndex
     return this.delegate.getIndexDefinition();
   }
 
-  // TODO(CLOUDP-434414): commit() and clearIndex() throw INVALID_LEASE once the tenure has ended,
-  // and every call site for them in ReplicationIndexManager is wrapped in
-  // Crash.because(...).ifThrows(...), which halts the JVM instead of propagating. No current path
-  // reaches them with an ended tenure: the tenure ends only inside MaterializedViewGenerator's
-  // shutdown(), atomically with the SHUT_DOWN transition, and each of those call sites either
-  // re-checks isShutDown() under the generator monitor or runs as part of that same transition.
-  // That argument spans several call sites and nothing enforces it, so route INVALID_LEASE to a
-  // graceful replication shutdown at those call sites instead, and an ordinary demotion can then
-  // never become a process kill.
   private void verifyActiveTenure() {
     if (!this.activeTenure) {
       throw invalidTenure();

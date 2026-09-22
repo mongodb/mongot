@@ -1,7 +1,9 @@
 package com.xgen.mongot.replication.mongodb.initialsync;
 
+import static com.xgen.testing.mongot.mock.index.IndexGeneration.uniqueMockGenerationDefinition;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -9,9 +11,16 @@ import static org.mockito.Mockito.when;
 
 import com.mongodb.MongoCommandException;
 import com.mongodb.ServerAddress;
+import com.xgen.mongot.embedding.exceptions.MaterializedViewNonTransientException;
+import com.xgen.mongot.index.IndexMetricsUpdater;
+import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.metrics.MetricsFactory;
+import com.xgen.mongot.monitor.ToggleGate;
 import com.xgen.mongot.replication.mongodb.common.BufferlessNaturalOrderInitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.BufferlessParallelNaturalOrderInitialSyncResumeInfo;
+import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
+import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
+import com.xgen.mongot.replication.mongodb.common.IndexingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.PartitionResumeInfo;
@@ -288,6 +297,109 @@ public class BufferlessInitialSyncManagerTest {
             .tag("outcome", "failure")
             .timer()
             .count());
+  }
+
+  @Test
+  public void translateMaterializedViewRejection_invalidLease_mapsToShutDown() {
+    InitialSyncException translated =
+        BufferlessInitialSyncManager.translateMaterializedViewRejection(
+            new MaterializedViewNonTransientException(
+                "ended", MaterializedViewNonTransientException.Reason.INVALID_LEASE));
+
+    Assert.assertEquals(InitialSyncException.Type.SHUT_DOWN, translated.getType());
+  }
+
+  @Test
+  public void translateMaterializedViewRejection_fencingRejection_mapsToFailed() {
+    InitialSyncException translated =
+        BufferlessInitialSyncManager.translateMaterializedViewRejection(
+            new MaterializedViewNonTransientException(
+                "fenced", MaterializedViewNonTransientException.Reason.FENCING_REJECTION));
+
+    Assert.assertEquals(InitialSyncException.Type.FAILED, translated.getType());
+  }
+
+  @Test
+  public void doFirstCommit_updateCommitUserDataRejectedWithInvalidLease_throwsShutDown()
+      throws Exception {
+    // An ended tenure discovered while staging the first commit's user data (before the async
+    // commit task even starts) must be an ordinary demotion, not a JVM halt (CLOUDP-434414).
+    DocumentIndexer indexer = mock(DocumentIndexer.class);
+    doThrow(
+            new MaterializedViewNonTransientException(
+                "ended", MaterializedViewNonTransientException.Reason.INVALID_LEASE))
+        .when(indexer)
+        .updateCommitUserData(any());
+    BufferlessInitialSyncManager manager = managerWithIndexer(indexer);
+
+    InitialSyncException thrown =
+        Assert.assertThrows(
+            InitialSyncException.class, () -> manager.doFirstCommit(IndexCommitUserData.EMPTY));
+
+    Assert.assertEquals(InitialSyncException.Type.SHUT_DOWN, thrown.getType());
+  }
+
+  @Test
+  public void doFirstCommit_commitRejectedWithInvalidLease_throwsShutDown() throws Exception {
+    // Same as above, but the tenure ends between staging the commit data and the commit itself
+    // running (on its own thread) actually reaching the writer.
+    DocumentIndexer indexer = mock(DocumentIndexer.class);
+    doThrow(
+            new MaterializedViewNonTransientException(
+                "ended", MaterializedViewNonTransientException.Reason.INVALID_LEASE))
+        .when(indexer)
+        .commit();
+    BufferlessInitialSyncManager manager = managerWithIndexer(indexer);
+
+    InitialSyncException thrown =
+        Assert.assertThrows(
+            InitialSyncException.class, () -> manager.doFirstCommit(IndexCommitUserData.EMPTY));
+
+    Assert.assertEquals(InitialSyncException.Type.SHUT_DOWN, thrown.getType());
+  }
+
+  @Test
+  public void doFirstCommit_commitRejectedWithFencingRejection_throwsFailed() throws Exception {
+    // A zombie leader discovering it's been fenced at the first commit after initial sync must be
+    // routed to the manager-owned retire-and-replace handler, not halt the JVM (CLOUDP-434414).
+    DocumentIndexer indexer = mock(DocumentIndexer.class);
+    doThrow(
+            new MaterializedViewNonTransientException(
+                "fenced", MaterializedViewNonTransientException.Reason.FENCING_REJECTION))
+        .when(indexer)
+        .commit();
+    BufferlessInitialSyncManager manager = managerWithIndexer(indexer);
+
+    InitialSyncException thrown =
+        Assert.assertThrows(
+            InitialSyncException.class, () -> manager.doFirstCommit(IndexCommitUserData.EMPTY));
+
+    Assert.assertEquals(InitialSyncException.Type.FAILED, thrown.getType());
+  }
+
+  private static BufferlessInitialSyncManager managerWithIndexer(DocumentIndexer indexer) {
+    IndexDefinitionGeneration indexDefinitionGeneration = uniqueMockGenerationDefinition();
+    InitialSyncContext context =
+        InitialSyncContext.create(
+            indexDefinitionGeneration,
+            mock(IndexingWorkScheduler.class),
+            indexer,
+            mock(IndexMetricsUpdater.class),
+            Optional.empty(),
+            false,
+            false,
+            false,
+            1,
+            ToggleGate.opened());
+    return new BufferlessInitialSyncManager(
+        context,
+        mock(BufferlessCollectionScannerFactory.class),
+        mock(BufferlessChangeStreamApplierFactory.class),
+        mock(ServerClusterTimeProvider.class),
+        Duration.ofMinutes(5),
+        Optional.empty(),
+        new MetricsFactory("initialSyncManager", new SimpleMeterRegistry()),
+        mock(InitialSyncMongoClient.class));
   }
 
   private static BufferlessInitialSyncManager managerResumingFrom(
