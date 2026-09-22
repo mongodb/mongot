@@ -1,9 +1,11 @@
 package com.xgen.mongot.metrics;
 
+import static com.google.common.collect.Maps.toImmutableEnumMap;
 import static com.xgen.mongot.util.Check.checkArg;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CaseFormat;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.Enums;
@@ -18,6 +20,7 @@ import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.TimeGauge;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.search.RequiredSearch;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumMap;
@@ -44,6 +47,21 @@ public class MetricsFactory {
 
   private static final double[] DEFAULT_TIMER_PERCENTILES = {0.5, 0.75, 0.9, 0.99};
   private static final Logger LOG = LoggerFactory.getLogger(MetricsFactory.class);
+
+  private static final String TIME_UNIT_TAG_KEY = "timeUnit";
+
+  /**
+   * An exhaustive mapping from all TimeUnit values to an immutable tag with the key {@link
+   * #TIME_UNIT_TAG_KEY}. This cache prevents the need to allocate new strings for each metric.
+   */
+  private static final ImmutableMap<TimeUnit, Tags> TIME_UNIT_TO_TAG =
+      Arrays.stream(TimeUnit.values())
+          .collect(
+              toImmutableEnumMap(
+                  unit -> unit,
+                  unit ->
+                      Tags.of(
+                          TIME_UNIT_TAG_KEY, Enums.convertNameTo(CaseFormat.LOWER_CAMEL, unit))));
 
   private final String namespace;
   private final MeterRegistry registry;
@@ -77,6 +95,16 @@ public class MetricsFactory {
     this.factoryTags = factoryTags;
     this.registeredMeters = ConcurrentHashMap.newKeySet();
     this.identitySafeClose = identitySafeClose;
+  }
+
+  /**
+   * Returns Tags containing a single {@link Tag} to specify the units of a {@link Timer}.
+   *
+   * <p>Timers must have a tag that specifies their unit, or one will be added by default. As best
+   * practice, all new Timers should use {@link TimeUnit#SECONDS}.
+   */
+  public static Tags getTimeUnitTag(TimeUnit unit) {
+    return TIME_UNIT_TO_TAG.get(unit);
   }
 
   /**
@@ -389,10 +417,7 @@ public class MetricsFactory {
    * @return a {@link Timer} that can record task durations
    */
   public Timer timer(String name, TimeUnit timeUnit) {
-    return timer(
-        name,
-        Tags.of("timeUnit", Enums.convertNameTo(CaseFormat.LOWER_CAMEL, timeUnit)),
-        DEFAULT_TIMER_PERCENTILES);
+    return timer(name, getTimeUnitTag(timeUnit), DEFAULT_TIMER_PERCENTILES);
   }
 
   /**
@@ -413,10 +438,7 @@ public class MetricsFactory {
    * @return a {@link Timer} that can record task durations
    */
   public Timer timer(String name, Tags meterTags, TimeUnit timeUnit) {
-    return timer(
-        name,
-        meterTags.and(Tags.of("timeUnit", Enums.convertNameTo(CaseFormat.LOWER_CAMEL, timeUnit))),
-        DEFAULT_TIMER_PERCENTILES);
+    return timer(name, meterTags.and(getTimeUnitTag(timeUnit)), DEFAULT_TIMER_PERCENTILES);
   }
 
   /**
@@ -424,17 +446,16 @@ public class MetricsFactory {
    * assumption is that it should be under a minute.
    */
   public Timer timer(String name, Tags meterTags, double... percentiles) {
-    boolean hasTimeUnitTag = meterTags.stream().anyMatch(tag -> tag.getKey().equals("timeUnit"));
+    boolean hasTimeUnitTag =
+        meterTags.stream().anyMatch(tag -> tag.getKey().equals(TIME_UNIT_TAG_KEY));
     // Prometheus recommends seconds as the base unit. Unit conversions should be handled on
     // display-side (see https://prometheus.io/docs/practices/naming/#base-units).
-    var defaultTimeUnitTag =
-        Tags.of("timeUnit", Enums.convertNameTo(CaseFormat.LOWER_CAMEL, TimeUnit.SECONDS));
     Timer timer =
         Timer.builder(metricName(name))
             .tags(
                 hasTimeUnitTag
                     ? this.factoryTags.and(meterTags)
-                    : this.factoryTags.and(meterTags.and(defaultTimeUnitTag)))
+                    : this.factoryTags.and(meterTags.and(getTimeUnitTag(TimeUnit.SECONDS))))
             .publishPercentiles(percentiles)
             .register(this.registry);
     this.registeredMeters.add(timer);

@@ -450,29 +450,26 @@ public class InstrumentedConcurrentMergeScheduler extends ConcurrentMergeSchedul
     this.cancelAllMergesPerThreadTimeoutMs = cancelAllMergesPerThreadTimeoutMs;
 
     this.metricsFactory = new MetricsFactory("mergeScheduler", meterRegistry);
-    var luceneTag = ServerStatusDataExtractor.Scope.LUCENE.getTag();
-    this.numMerges =
-        this.metricsFactory.counter(LuceneMeterData.NUM_MERGES_KEY, Tags.of(luceneTag));
-    this.runningMerges = this.metricsFactory.numGauge("currentlyRunningMerges", Tags.of(luceneTag));
-    this.mergingDocs = this.metricsFactory.numGauge("currentlyMergingDocs", Tags.of(luceneTag));
+    Tags luceneTag = Tags.of(ServerStatusDataExtractor.Scope.LUCENE.getTag());
+    this.numMerges = this.metricsFactory.counter(LuceneMeterData.NUM_MERGES_KEY, luceneTag);
+    this.runningMerges = this.metricsFactory.numGauge("currentlyRunningMerges", luceneTag);
+    this.mergingDocs = this.metricsFactory.numGauge("currentlyMergingDocs", luceneTag);
     this.numSegmentsMerged =
-        this.metricsFactory.counter(LuceneMeterData.NUM_SEGMENTS_MERGED_KEY, Tags.of(luceneTag));
-    this.mergedDocs =
-        this.metricsFactory.summary(LuceneMeterData.MERGED_DOCS_KEY, Tags.of(luceneTag));
-    this.mergeTime =
-        this.metricsFactory.timer(LuceneMeterData.SEGMENT_MERGE_TIME_KEY, Tags.of(luceneTag));
+        this.metricsFactory.counter(LuceneMeterData.NUM_SEGMENTS_MERGED_KEY, luceneTag);
+    this.mergedDocs = this.metricsFactory.summary(LuceneMeterData.MERGED_DOCS_KEY, luceneTag);
+    this.mergeTime = this.metricsFactory.timer(LuceneMeterData.SEGMENT_MERGE_TIME_KEY, luceneTag);
     this.mergeSize =
         this.metricsFactory.summary(
-            LuceneMeterData.MERGE_SIZE_KEY, Tags.of(luceneTag), 0.5, 0.75, 0.9, 0.99);
+            LuceneMeterData.MERGE_SIZE_KEY, luceneTag, 0.5, 0.75, 0.9, 0.99);
     this.mergeResultSize =
         this.metricsFactory.summary(
-            LuceneMeterData.MERGE_RESULT_SIZE_KEY, Tags.of(luceneTag), 0.5, 0.75, 0.9, 0.99);
+            LuceneMeterData.MERGE_RESULT_SIZE_KEY, luceneTag, 0.5, 0.75, 0.9, 0.99);
     this.mergeCancellationTime =
-        this.metricsFactory.timer(LuceneMeterData.MERGE_CANCELLATION_TIME_KEY, Tags.of(luceneTag));
+        this.metricsFactory.timer(LuceneMeterData.MERGE_CANCELLATION_TIME_KEY, luceneTag);
     this.numMergesAborted =
-        this.metricsFactory.counter(LuceneMeterData.NUM_MERGES_ABORTED_KEY, Tags.of(luceneTag));
+        this.metricsFactory.counter(LuceneMeterData.NUM_MERGES_ABORTED_KEY, luceneTag);
     this.numMergePauseEvents =
-        this.metricsFactory.counter(LuceneMeterData.MERGE_PAUSE_EVENTS_KEY, Tags.of(luceneTag));
+        this.metricsFactory.counter(LuceneMeterData.MERGE_PAUSE_EVENTS_KEY, luceneTag);
     this.mergeElapsedStopwatches = new WeakHashMap<>();
 
     this.mergeAttribution =

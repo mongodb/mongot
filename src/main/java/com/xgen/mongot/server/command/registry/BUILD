@@ -9,7 +9,6 @@ java_library(
         "//src/main/java/com/xgen/mongot/server/command",
         "//src/main/java/com/xgen/mongot/server/command/builtin",
         "//src/main/java/com/xgen/mongot/util",
-        "@maven//:com_google_guava_guava",
         "@maven//:io_micrometer_micrometer_core",
     ],
 )

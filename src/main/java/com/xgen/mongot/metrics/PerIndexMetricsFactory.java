@@ -79,18 +79,20 @@ public class PerIndexMetricsFactory {
       String indexGenerationId,
       String indexId,
       boolean identitySafeClose) {
+    // Compute Tags once to ensure internal Tag[] is shared across metrics for both factories
+    this(namespace, meterAndFtdcRegistry, tagsFor(indexGenerationId, indexId), identitySafeClose);
+  }
+
+  private PerIndexMetricsFactory(
+      String namespace,
+      MeterAndFtdcRegistry meterAndFtdcRegistry,
+      Tags tags,
+      boolean identitySafeClose) {
     this(
         meterAndFtdcRegistry,
         new MetricsFactory(
-            namespace,
-            meterAndFtdcRegistry.meterRegistry(),
-            tagsFor(indexGenerationId, indexId),
-            identitySafeClose),
-        new MetricsFactory(
-            namespace,
-            meterAndFtdcRegistry.ftdcRegistry(),
-            tagsFor(indexGenerationId, indexId),
-            identitySafeClose),
+            namespace, meterAndFtdcRegistry.meterRegistry(), tags, identitySafeClose),
+        new MetricsFactory(namespace, meterAndFtdcRegistry.ftdcRegistry(), tags, identitySafeClose),
         new MetricsFactory(namespace, meterAndFtdcRegistry.meterRegistry()));
   }
 
@@ -116,7 +118,7 @@ public class PerIndexMetricsFactory {
   }
 
   public static Tags tagsFor(String indexGenerationId, String indexId) {
-    return Tags.of(GENERATION_ID_TAG, indexGenerationId).and(INDEX_ID_TAG, indexId);
+    return Tags.of(GENERATION_ID_TAG, indexGenerationId, INDEX_ID_TAG, indexId);
   }
 
   /**
@@ -500,9 +502,7 @@ public class PerIndexMetricsFactory {
   public Timer perIndexTimer(String name, Tags meterTags) {
     return this.perIndexAllFactory.timer(
         name,
-        meterTags.and(
-            Tags.of(
-                "timeUnit", Enums.convertNameTo(CaseFormat.LOWER_CAMEL, TimeUnit.MILLISECONDS))),
+        meterTags.and(MetricsFactory.getTimeUnitTag(TimeUnit.MILLISECONDS)),
         0.5,
         0.75,
         0.9,
@@ -525,13 +525,7 @@ public class PerIndexMetricsFactory {
    * distribution summaries, but only the latter will be exported.
    */
   public Timer timer(String name) {
-    return timer(
-        name,
-        Tags.of("timeUnit", Enums.convertNameTo(CaseFormat.LOWER_CAMEL, TimeUnit.MILLISECONDS)),
-        0.5,
-        0.75,
-        0.9,
-        0.99);
+    return timer(name, MetricsFactory.getTimeUnitTag(TimeUnit.MILLISECONDS), 0.5, 0.75, 0.9, 0.99);
   }
 
   /**

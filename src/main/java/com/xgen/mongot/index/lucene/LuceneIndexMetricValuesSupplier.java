@@ -13,6 +13,7 @@ import com.xgen.mongot.index.status.IndexStatus.StatusCode;
 import com.xgen.mongot.metrics.CachedGauge;
 import com.xgen.mongot.metrics.PerIndexMetricsFactory;
 import com.xgen.mongot.util.FunctionalUtils;
+import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.Tags;
 import java.io.IOException;
 import java.time.Duration;
@@ -70,6 +71,7 @@ public abstract class LuceneIndexMetricValuesSupplier implements IndexMetricValu
             ? Tags.of("indexFeatureVersion", String.valueOf(indexFeatureVersion))
             : Tags.empty();
     Tags indexTypeTags = Tags.of(IndexTypeData.INDEX_TYPE_TAG_NAME, indexTypeTag.tagValue);
+    Tags ifvAndNumPartition = indexFeatureVersionTag.and(getNumPartitionTag());
 
     // Note these gauges are probed asynchronously and not atomically.
     // As we don't create our own metric namespace, it's not our responsibility to de-register them.
@@ -84,38 +86,38 @@ public abstract class LuceneIndexMetricValuesSupplier implements IndexMetricValu
           this.cachedIndexSize.set(size);
           return size;
         },
-        getNumPartitionTag().and(indexFeatureVersionTag));
+        ifvAndNumPartition);
     metricsFactory.perIndexObjectValueGauge(
         MetricNames.REQUIRED_MEMORY,
         this,
         CachedGauge.of(
             LuceneIndexMetricValuesSupplier::getRequiredMemoryForVectorData, Duration.ofMinutes(1)),
-        getNumPartitionTag().and(indexFeatureVersionTag));
+        ifvAndNumPartition);
     metricsFactory.perIndexObjectValueGauge(
         MetricNames.LARGEST_INDEX_FILE_SIZE_BYTES,
         this.indexBackingStrategy,
         strategy -> strategy.getDiskStats().largestFileByteSize(),
-        getNumPartitionTag().and(indexFeatureVersionTag));
+        ifvAndNumPartition);
     metricsFactory.perIndexObjectValueGauge(
         MetricNames.NUMBER_OF_FILES_IN_INDEX,
         this.indexBackingStrategy,
         strategy -> strategy.getDiskStats().numFiles(),
-        getNumPartitionTag().and(indexFeatureVersionTag));
+        ifvAndNumPartition);
     metricsFactory.perIndexObjectValueGauge(
         MetricNames.NUM_LUCENE_FIELDS,
         this,
         CachedGauge.of(LuceneIndexMetricValuesSupplier::getNumFields, Duration.ofMinutes(1)),
-        getNumPartitionTag().and(indexFeatureVersionTag));
+        ifvAndNumPartition);
     metricsFactory.perIndexObjectValueGauge(
         MetricNames.NUM_LUCENE_DOCS,
         this,
         LuceneIndexMetricValuesSupplier::getNumDocs,
-        getNumPartitionTag().and(indexFeatureVersionTag));
+        ifvAndNumPartition);
     metricsFactory.perIndexObjectValueGauge(
         MetricNames.NUM_LUCENE_MAX_DOCS,
         this,
         LuceneIndexMetricValuesSupplier::getNumLuceneMaxDocs,
-        getNumPartitionTag().and(indexFeatureVersionTag));
+        ifvAndNumPartition);
     Stream.of(IndexStatus.StatusCode.values())
         .forEach(
             statusCode ->
@@ -137,32 +139,35 @@ public abstract class LuceneIndexMetricValuesSupplier implements IndexMetricValu
       for (int i = 0; i < indexPartitionWriters.size(); ++i) {
         int indexPartitionId = i;
         LuceneIndexWriter indexPartitionWriter = indexPartitionWriters.get(indexPartitionId);
+        Tag partitionId = getIndexPartitionTags(indexPartitionId);
+        Tags ifvAndPartitionIdTags = indexFeatureVersionTag.and(partitionId);
+
         indexPartitionMetricsFactory.perIndexObjectValueGauge(
             MetricNames.INDEX_SIZE_BYTES,
             this.indexBackingStrategy,
             strategy -> strategy.getIndexSizeForIndexPartition(indexPartitionId),
-            getIndexPartitionTags(indexPartitionId).and(indexFeatureVersionTag));
+            ifvAndPartitionIdTags);
         indexPartitionMetricsFactory.perIndexObjectValueGauge(
             MetricNames.NUM_LUCENE_FIELDS,
             indexPartitionWriter,
             indexWriter ->
                 FunctionalUtils.getOrDefaultIfThrows(
                     indexWriter::getNumFields, WriterClosedException.class, 0),
-            getIndexPartitionTags(indexPartitionId).and(indexFeatureVersionTag));
+            ifvAndPartitionIdTags);
         indexPartitionMetricsFactory.perIndexObjectValueGauge(
             MetricNames.NUM_LUCENE_DOCS,
             indexPartitionWriter,
             indexWriter ->
                 FunctionalUtils.getOrDefaultIfThrows(
                     indexWriter::getNumDocs, WriterClosedException.class, 0L),
-            getIndexPartitionTags(indexPartitionId).and(indexFeatureVersionTag));
+            ifvAndPartitionIdTags);
         indexPartitionMetricsFactory.perIndexObjectValueGauge(
             MetricNames.NUM_LUCENE_MAX_DOCS,
             indexPartitionWriter,
             indexWriter ->
                 FunctionalUtils.getOrDefaultIfThrows(
                     indexWriter::getNumLuceneMaxDocs, WriterClosedException.class, 0L),
-            getIndexPartitionTags(indexPartitionId).and(indexFeatureVersionTag));
+            ifvAndPartitionIdTags);
         Stream.of(IndexStatus.StatusCode.values())
             .forEach(
                 statusCode ->
@@ -170,11 +175,7 @@ public abstract class LuceneIndexMetricValuesSupplier implements IndexMetricValu
                         MetricNames.INDEX_STATUS_CODE,
                         this,
                         (supplier) -> supplier.getIndexCountInState(statusCode),
-                        getIndexPartitionTags(indexPartitionId)
-                            .and(
-                                Tags.of("status", statusCode.name())
-                                    .and(indexFeatureVersionTag)
-                                    .and(indexTypeTags))));
+                        ifvAndPartitionIdTags.and(indexTypeTags).and("status", statusCode.name())));
       }
     }
   }
@@ -231,12 +232,12 @@ public abstract class LuceneIndexMetricValuesSupplier implements IndexMetricValu
         this.indexWriter::getMaxLuceneMaxDocs, WriterClosedException.class, 0);
   }
 
-  private Tags getNumPartitionTag() {
-    return Tags.of("numPartitions", String.valueOf(this.indexWriter.getNumWriters()));
+  private Tag getNumPartitionTag() {
+    return Tag.of("numPartitions", String.valueOf(this.indexWriter.getNumWriters()));
   }
 
   @VisibleForTesting
-  static Tags getIndexPartitionTags(int indexPartitionId) {
-    return Tags.of("indexPartition", Integer.toHexString(indexPartitionId));
+  static Tag getIndexPartitionTags(int indexPartitionId) {
+    return Tag.of("indexPartition", Integer.toHexString(indexPartitionId));
   }
 }

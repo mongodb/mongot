@@ -1,16 +1,15 @@
 package com.xgen.mongot.metrics;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.CaseFormat;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.metrics.micrometer.SerializableDistributionSummary;
 import com.xgen.mongot.metrics.micrometer.SerializableTimer;
 import com.xgen.mongot.util.Check;
-import com.xgen.mongot.util.Enums;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.FunctionTimer;
 import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.ImmutableTag;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tag;
@@ -28,14 +27,21 @@ import org.slf4j.LoggerFactory;
 public class ServerStatusDataExtractor {
   private static final Logger logger = LoggerFactory.getLogger(ServerStatusDataExtractor.class);
 
+  @SuppressWarnings("ImmutableEnumChecker")
   public enum Scope {
-    JVM,
-    LUCENE,
-    REPLICATION,
-    MMS;
+    JVM("jvm"),
+    LUCENE("lucene"),
+    REPLICATION("replication"),
+    MMS("mms");
+
+    private final ImmutableTag tag;
+
+    Scope(String tagValue) {
+      this.tag = new ImmutableTag("Scope", tagValue);
+    }
 
     public Tag getTag() {
-      return Tag.of("Scope", Enums.convertNameTo(CaseFormat.LOWER_CAMEL, this));
+      return this.tag;
     }
   }
 

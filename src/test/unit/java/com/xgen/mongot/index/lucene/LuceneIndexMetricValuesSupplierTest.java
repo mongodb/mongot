@@ -1012,7 +1012,8 @@ public class LuceneIndexMetricValuesSupplierTest {
         new MetricsFactory(LuceneIndexMetricsSupplierBuilder.METRICS_NAMESPACE, meterRegistry)
             .childMetricsFactory(LuceneIndexMetricValuesSupplier.INDEX_PARTITIONS_NAMESPACE);
     var tags =
-        LuceneIndexMetricValuesSupplier.getIndexPartitionTags(indexPartitionId).and(additionalTags);
+        Tags.of(additionalTags)
+            .and(LuceneIndexMetricValuesSupplier.getIndexPartitionTags(indexPartitionId));
     return (long) metricsFactory.get(metricName, tags).gauge().value();
   }
 

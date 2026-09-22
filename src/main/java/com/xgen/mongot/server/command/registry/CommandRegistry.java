@@ -1,13 +1,11 @@
 package com.xgen.mongot.server.command.registry;
 
-import com.google.common.base.CaseFormat;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.server.command.CommandFactoryMarker;
 import com.xgen.mongot.server.command.builtin.BuildInfoCommand;
 import com.xgen.mongot.server.command.builtin.HelloCommand;
 import com.xgen.mongot.server.command.builtin.IsMasterCommand;
 import com.xgen.mongot.server.command.builtin.PingCommand;
-import com.xgen.mongot.util.Enums;
 import com.xgen.mongot.util.ErrorType;
 import com.xgen.mongot.util.UserFacingException;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -97,9 +95,7 @@ public class CommandRegistry {
             Optional.of(
                 commandMetricsFactory.timer(
                     String.format("%sCommandSerializationLatency", commandName),
-                    Tags.of(
-                        "timeUnit",
-                        Enums.convertNameTo(CaseFormat.LOWER_CAMEL, TimeUnit.MICROSECONDS)),
+                    MetricsFactory.getTimeUnitTag(TimeUnit.MICROSECONDS),
                     0.5,
                     0.75,
                     0.9,
