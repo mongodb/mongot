@@ -77,7 +77,7 @@ public class ChangeStreamsTest {
     }
 
     @Test
-    public void searchAutoEmbedSourceField_staticExactUpdate_applies() {
+    public void searchAutoEmbedPath_staticExactUpdate_applies() {
       SearchIndexDefinition definition =
           createSearchAutoEmbedDefinition(false, FieldPath.parse("content.body"));
       var description =
@@ -88,7 +88,7 @@ public class ChangeStreamsTest {
     }
 
     @Test
-    public void searchAutoEmbedSourceField_dynamicExactUpdate_applies() {
+    public void searchAutoEmbedPath_dynamicExactUpdate_applies() {
       SearchIndexDefinition definition =
           createSearchAutoEmbedDefinition(true, FieldPath.parse("content.body"));
       var description =
@@ -99,7 +99,7 @@ public class ChangeStreamsTest {
     }
 
     @Test
-    public void searchAutoEmbedSourceField_nestedDeclaration_applies() {
+    public void searchAutoEmbedPath_nestedDeclaration_applies() {
       SearchIndexDefinition definition =
           createNestedSearchAutoEmbedDefinition(FieldPath.parse("content.body"));
       var description =
@@ -110,7 +110,7 @@ public class ChangeStreamsTest {
     }
 
     @Test
-    public void searchAutoEmbedSourceField_ancestorUpdate_applies() {
+    public void searchAutoEmbedPath_ancestorUpdate_applies() {
       SearchIndexDefinition definition =
           createSearchAutoEmbedDefinition(false, FieldPath.parse("content.body"));
       var description =
@@ -121,7 +121,7 @@ public class ChangeStreamsTest {
     }
 
     @Test
-    public void searchAutoEmbedSourceField_descendantUpdate_applies() {
+    public void searchAutoEmbedPath_descendantUpdate_applies() {
       SearchIndexDefinition definition =
           createSearchAutoEmbedDefinition(false, FieldPath.parse("content"));
       var description =
@@ -132,7 +132,7 @@ public class ChangeStreamsTest {
     }
 
     @Test
-    public void searchAutoEmbedSourceField_numericArrayUpdate_applies() {
+    public void searchAutoEmbedPath_numericArrayUpdate_applies() {
       SearchIndexDefinition definition =
           createSearchAutoEmbedDefinition(false, FieldPath.parse("items.content"));
       var description =
@@ -144,7 +144,7 @@ public class ChangeStreamsTest {
     }
 
     @Test
-    public void searchAutoEmbedSourceField_removed_applies() {
+    public void searchAutoEmbedPath_removed_applies() {
       SearchIndexDefinition definition =
           createSearchAutoEmbedDefinition(false, FieldPath.parse("content.body"));
       var description = new UpdateDescription(List.of("content.body"), new BsonDocument());
@@ -153,7 +153,7 @@ public class ChangeStreamsTest {
     }
 
     @Test
-    public void searchAutoEmbedSourceField_truncatedArray_applies() {
+    public void searchAutoEmbedPath_truncatedArray_applies() {
       SearchIndexDefinition definition =
           createSearchAutoEmbedDefinition(false, FieldPath.parse("content.body"));
       var description =
@@ -166,7 +166,7 @@ public class ChangeStreamsTest {
     }
 
     @Test
-    public void searchAutoEmbedSourceField_prefixCollision_doesNotApply() {
+    public void searchAutoEmbedPath_prefixCollision_doesNotApply() {
       SearchIndexDefinition definition =
           createSearchAutoEmbedDefinition(false, FieldPath.parse("content.body"));
       var description =
@@ -636,9 +636,9 @@ public class ChangeStreamsTest {
     }
 
     private static SearchIndexDefinition createSearchAutoEmbedDefinition(
-        boolean dynamic, FieldPath sourceField) {
+        boolean dynamic, FieldPath path) {
       SearchAutoEmbedFieldDefinition autoEmbed =
-          new SearchAutoEmbedFieldDefinition("voyage-3-large", sourceField);
+          new SearchAutoEmbedFieldDefinition("voyage-3-large", path);
       return SearchIndexDefinitionBuilder.builder()
           .defaultMetadata()
           .mappings(
@@ -651,10 +651,9 @@ public class ChangeStreamsTest {
           .build();
     }
 
-    private static SearchIndexDefinition createNestedSearchAutoEmbedDefinition(
-        FieldPath sourceField) {
+    private static SearchIndexDefinition createNestedSearchAutoEmbedDefinition(FieldPath path) {
       SearchAutoEmbedFieldDefinition autoEmbed =
-          new SearchAutoEmbedFieldDefinition("voyage-3-large", sourceField);
+          new SearchAutoEmbedFieldDefinition("voyage-3-large", path);
       var nestedMappings =
           DocumentFieldDefinitionBuilder.builder()
               .dynamic(false)

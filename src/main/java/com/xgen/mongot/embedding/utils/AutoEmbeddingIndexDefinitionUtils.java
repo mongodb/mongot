@@ -226,8 +226,7 @@ public class AutoEmbeddingIndexDefinitionUtils {
         // carries only the vector definition: the field's other type alternatives describe the
         // declaration path, not the mat-view path holding the vector.
         FieldPath matViewPath =
-            getMatViewFieldPath(
-                autoEmbedDef.sourceField(), schemaMetadata.autoEmbeddingFieldsMapping());
+            getMatViewFieldPath(autoEmbedDef.path(), schemaMetadata.autoEmbeddingFieldsMapping());
         hoistedVectorFields.put(
             matViewPath,
             new SearchIndexVectorFieldDefinition(

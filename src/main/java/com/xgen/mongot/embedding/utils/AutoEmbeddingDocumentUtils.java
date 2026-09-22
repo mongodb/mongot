@@ -432,11 +432,11 @@ public class AutoEmbeddingDocumentUtils {
       }
 
       for (Map.Entry<FieldPath, AutoEmbedField> entry : mappings.fieldMap().entrySet()) {
-        FieldPath sourceFieldPath = entry.getKey();
+        FieldPath autoEmbedPath = entry.getKey();
         FieldPath matViewFieldPath =
-            getMatViewFieldPath(sourceFieldPath, schemaMetadata.autoEmbeddingFieldsMapping());
+            getMatViewFieldPath(autoEmbedPath, schemaMetadata.autoEmbeddingFieldsMapping());
         FieldPath matViewFieldHashPath =
-            getHashFieldPath(sourceFieldPath, schemaMetadata.materializedViewSchemaVersion());
+            getHashFieldPath(autoEmbedPath, schemaMetadata.materializedViewSchemaVersion());
         AutoEmbedField field = entry.getValue();
 
         // Filter values: full ordered-list equality. Top-level filters compare source-vs-source;
@@ -446,7 +446,7 @@ public class AutoEmbeddingDocumentUtils {
         // projection equality above.
         if (field instanceof AutoEmbedField.PassthroughField && !passthroughComparedByProjection) {
           if (!Objects.equals(
-              sourceDocValues.get(sourceFieldPath), matViewValues.get(matViewFieldPath))) {
+              sourceDocValues.get(autoEmbedPath), matViewValues.get(matViewFieldPath))) {
             needsReIndexing = true;
           }
         }
@@ -458,13 +458,13 @@ public class AutoEmbeddingDocumentUtils {
         // check embeddings against their hashes. Collect ones that match for re-use.
         if (field instanceof AutoEmbedField.EmbedField) {
           boolean isNestedEmbed =
-              sourceNestedRoot.isPresent() && sourceFieldPath.isChildOf(sourceNestedRoot.get());
+              sourceNestedRoot.isPresent() && autoEmbedPath.isChildOf(sourceNestedRoot.get());
           if (isNestedEmbed) {
             // Element-wise comparison for nested auto-embed: dropping the "" per-element hashes
             // yields the non-empty hashes in child order, aligned 1:1 with collected MV vectors.
             // Re-index only when the ordered source hashes diverge; otherwise reuse every vector.
             var sourceTexts =
-                sourceDocValues.getOrDefault(sourceFieldPath, List.of()).stream()
+                sourceDocValues.getOrDefault(autoEmbedPath, List.of()).stream()
                     .filter(
                         bsonVal -> bsonVal.isString() && !bsonVal.asString().getValue().isEmpty())
                     .map(bsonVal -> bsonVal.asString().getValue())
@@ -494,9 +494,9 @@ public class AutoEmbeddingDocumentUtils {
                 }
               }
             }
-          } else if (sourceDocValues.containsKey(sourceFieldPath)) {
+          } else if (sourceDocValues.containsKey(autoEmbedPath)) {
             var stringValuesWithHashes =
-                sourceDocValues.get(sourceFieldPath).stream()
+                sourceDocValues.get(autoEmbedPath).stream()
                     .filter(
                         bsonVal -> bsonVal.isString() && !bsonVal.asString().getValue().isEmpty())
                     .collect(
@@ -544,7 +544,7 @@ public class AutoEmbeddingDocumentUtils {
           }
           var reusableEmbeddingsForField = reusableEmbeddingsForFieldBuilder.build();
           if (!reusableEmbeddingsForField.isEmpty()) {
-            reusableEmbeddingsBuilder.put(sourceFieldPath, reusableEmbeddingsForField);
+            reusableEmbeddingsBuilder.put(autoEmbedPath, reusableEmbeddingsForField);
           }
         }
       }

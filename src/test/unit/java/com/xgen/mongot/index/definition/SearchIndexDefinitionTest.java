@@ -986,7 +986,7 @@ public class SearchIndexDefinitionTest {
     }
 
     @Test
-    public void getModelNamePerPath_mixedTopLevelAndNestedAutoEmbed_containsBothSourceFields() {
+    public void getModelNamePerPath_mixedTopLevelAndNestedAutoEmbed_containsBothPaths() {
       // EmbeddingIndexingWorkScheduler builds per-path embed configs from this map; a nested
       // declaration's source field must appear or its values are never embedded.
       DocumentFieldDefinition mappings =
@@ -1046,8 +1046,8 @@ public class SearchIndexDefinitionTest {
     }
 
     @Test
-    public void construction_duplicateAutoEmbedSourceFields_keepsLastWithoutThrowing() {
-      // Duplicate sourceFields are rejected at the definition boundaries (fromBson and the
+    public void construction_duplicateAutoEmbedPaths_keepsLastWithoutThrowing() {
+      // Duplicate paths are rejected at the definition boundaries (fromBson and the
       // community validator); construction itself must not throw a raw duplicate-key error.
       DocumentFieldDefinition mappings =
           DocumentFieldDefinitionBuilder.builder()
@@ -1067,8 +1067,8 @@ public class SearchIndexDefinitionTest {
     }
 
     @Test
-    public void fromBson_duplicateAutoEmbedSourceFields_throwsParseError() {
-      // A nested and a top-level declaration sharing a sourceField must fail as a clean parse
+    public void fromBson_duplicateAutoEmbedPaths_throwsParseError() {
+      // A nested and a top-level declaration sharing a path must fail as a clean parse
       // error rather than an IllegalArgumentException from map construction.
       var def = definitionBuilderWithMappings(nestedAutoEmbedMappings()).build();
       BsonDocument bson = def.toBson();
@@ -1078,20 +1078,20 @@ public class SearchIndexDefinitionTest {
               "duplicate_embed",
               BsonDocument.parse(
                   "{'type': 'autoEmbed', 'model': 'voyage-3-large',"
-                      + " 'modality': 'text', 'sourceField': 'content'}"));
+                      + " 'modality': 'text', 'path': 'content'}"));
       try {
         SearchIndexDefinition.fromBson(bson);
         Assert.fail("expected BsonParseException");
       } catch (BsonParseException e) {
         Assert.assertTrue(
-            "message should name the duplicate sourceField: " + e.getMessage(),
-            e.getMessage().contains("sourceField") && e.getMessage().contains("content"));
+            "message should name the duplicate path: " + e.getMessage(),
+            e.getMessage().contains("path") && e.getMessage().contains("content"));
       }
     }
 
     @Test
-    public void fromBson_sourceFieldOverlapsDeclaredField_throwsParseError() {
-      // An embed sourceField coinciding with an explicitly declared non-embed path: the source is
+    public void fromBson_pathOverlapsDeclaredField_throwsParseError() {
+      // An embed path coinciding with an explicitly declared non-embed path: the source is
       // consumed by the embedding pipeline and never copied to the MV, so the declaration would
       // silently index nothing.
       DocumentFieldDefinition mappings =
@@ -1114,15 +1114,15 @@ public class SearchIndexDefinitionTest {
         Assert.fail("expected BsonParseException");
       } catch (BsonParseException e) {
         Assert.assertTrue(
-            "message should name the conflicting sourceField: " + e.getMessage(),
+            "message should name the conflicting path: " + e.getMessage(),
             e.getMessage().contains("consumed by the embedding pipeline")
                 && e.getMessage().contains("content"));
       }
     }
 
     @Test
-    public void fromBson_sourceFieldOverlapsOwnScalarAlternative_throwsParseError() {
-      // Same-field spelling: autoEmbed + scalar on one declaration whose sourceField is its own
+    public void fromBson_pathOverlapsOwnScalarAlternative_throwsParseError() {
+      // Same-field spelling: autoEmbed + scalar on one declaration whose path is its own
       // path.
       DocumentFieldDefinition mappings =
           DocumentFieldDefinitionBuilder.builder()

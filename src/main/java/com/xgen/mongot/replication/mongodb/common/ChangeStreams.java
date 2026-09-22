@@ -76,10 +76,10 @@ public class ChangeStreams {
         .anyMatch(
             fieldPath ->
                 fieldDefinitionResolver.isUsed(fieldPath)
-                    || isSearchAutoEmbedSourceField(indexDefinition, fieldPath));
+                    || isSearchAutoEmbedPath(indexDefinition, fieldPath));
   }
 
-  private static boolean isSearchAutoEmbedSourceField(
+  private static boolean isSearchAutoEmbedPath(
       IndexDefinition indexDefinition, FieldPath updatedFieldPath) {
     if (!(indexDefinition instanceof SearchIndexDefinition searchIndexDefinition)) {
       return false;

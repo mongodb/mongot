@@ -40,7 +40,7 @@ public class ChangeStreamDocumentUtilsSearchPartialUpdateTest {
   private static final FieldPath SUMMARY = FieldPath.parse("summary");
 
   @Test
-  public void staticSearch_sourceFieldUpdate_selectivelyReembedsChangedField() {
+  public void staticSearch_pathUpdate_selectivelyReembedsChangedField() {
     SearchIndexDefinition indexDefinition = staticSearchIndex();
     ChangeStreamDocument<RawBsonDocument> event =
         updateEvent(
@@ -211,7 +211,7 @@ public class ChangeStreamDocumentUtilsSearchPartialUpdateTest {
   }
 
   @Test
-  public void staticSearch_removedSourceField_fallsBackToFullReplace() {
+  public void staticSearch_removedPath_fallsBackToFullReplace() {
     SearchIndexDefinition indexDefinition = staticSearchIndex();
     BsonDocument fullDocument = standardDocument("old title");
     fullDocument.remove(TITLE.toString());

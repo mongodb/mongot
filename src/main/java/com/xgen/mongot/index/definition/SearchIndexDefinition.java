@@ -327,8 +327,8 @@ public final class SearchIndexDefinition implements IndexDefinition {
     validateTypeSetReferences(typeSets, mappings);
     Optional<Sort> sort = parser.getField(Fields.SORT).unwrap();
     IndexSortValidator.validateSort(sort, mappings);
-    validateUniqueAutoEmbedSourceFields(mappings);
-    validateAutoEmbedSourceFieldsDoNotOverlapMappings(mappings);
+    validateUniqueAutoEmbedPaths(mappings);
+    validateAutoEmbedPathsDoNotOverlapMappings(mappings);
 
     return create(
         indexId,
@@ -635,23 +635,23 @@ public final class SearchIndexDefinition implements IndexDefinition {
       DocumentFieldDefinition mappings) {
     ImmutableMap.Builder<FieldPath, String> builder = ImmutableMap.builder();
     collectModelNamePerPath(mappings, builder);
-    // Duplicate sourceFields are rejected at the definition boundaries (fromBson validation and
+    // Duplicate paths are rejected at the definition boundaries (fromBson validation and
     // AutoEmbeddingIndexValidator); keep-last here so construction itself never throws a raw
     // duplicate-key error on paths that build definitions directly.
     return builder.buildKeepingLast();
   }
 
   /**
-   * Collects {@code sourceField -> model} entries for auto-embed fields declared anywhere in the
-   * {@code document} hierarchy. A field's auto-embed and {@code document} type alternatives are
-   * processed independently, mirroring the auto-embed mapping walk.
+   * Collects {@code path -> model} entries for auto-embed fields declared anywhere in the {@code
+   * document} hierarchy. A field's auto-embed and {@code document} type alternatives are processed
+   * independently, mirroring the auto-embed mapping walk.
    */
   private static void collectModelNamePerPath(
       DocumentFieldDefinition document, ImmutableMap.Builder<FieldPath, String> builder) {
     for (FieldDefinition fieldDefinition : document.fields().values()) {
       fieldDefinition
           .searchAutoEmbedFieldDefinition()
-          .ifPresent(autoEmbed -> builder.put(autoEmbed.sourceField(), autoEmbed.modelName()));
+          .ifPresent(autoEmbed -> builder.put(autoEmbed.path(), autoEmbed.modelName()));
       fieldDefinition
           .documentFieldDefinition()
           .ifPresent(nested -> collectModelNamePerPath(nested, builder));
@@ -770,45 +770,45 @@ public final class SearchIndexDefinition implements IndexDefinition {
   }
 
   /**
-   * Rejects duplicate auto-embed {@code sourceField} declarations at any nesting depth. Each source
-   * field produces one embedding in the materialized view, keyed by that path, so two declarations
+   * Rejects duplicate auto-embed {@code path} declarations at any nesting depth. Each source field
+   * produces one embedding in the materialized view, keyed by that path, so two declarations
    * sharing a source field cannot coexist; without this check the duplicate surfaces as an {@link
    * IllegalArgumentException} from map construction instead of a parse error.
    */
-  private static void validateUniqueAutoEmbedSourceFields(DocumentFieldDefinition mappings)
+  private static void validateUniqueAutoEmbedPaths(DocumentFieldDefinition mappings)
       throws BsonParseException {
     Set<FieldPath> seen = new HashSet<>();
     Set<FieldPath> duplicates = new LinkedHashSet<>();
-    collectDuplicateAutoEmbedSourceFields(mappings, seen, duplicates);
+    collectDuplicateAutoEmbedPaths(mappings, seen, duplicates);
     if (!duplicates.isEmpty()) {
       throw new BsonParseException(
-          String.format("Multiple autoEmbed fields declare the same sourceField: %s", duplicates),
+          String.format("Multiple autoEmbed fields declare the same path: %s", duplicates),
           Optional.empty());
     }
   }
 
   /**
-   * Returns auto-embed {@code sourceField}s that coincide with an explicitly declared non-embed
-   * mapping path (scalar, {@code document}, or {@code embeddedDocuments}, at any nesting depth). A
-   * source field is consumed by the embedding pipeline and never copied to the materialized view,
-   * so such a declaration would silently index nothing.
+   * Returns auto-embed {@code path}s that coincide with an explicitly declared non-embed mapping
+   * path (scalar, {@code document}, or {@code embeddedDocuments}, at any nesting depth). A source
+   * field is consumed by the embedding pipeline and never copied to the materialized view, so such
+   * a declaration would silently index nothing.
    */
-  public static ImmutableSet<FieldPath> autoEmbedSourceFieldMappingConflicts(
+  public static ImmutableSet<FieldPath> autoEmbedPathMappingConflicts(
       DocumentFieldDefinition mappings) {
     Set<FieldPath> declaredNonEmbedPaths = new HashSet<>();
-    Set<FieldPath> sourceFields = new LinkedHashSet<>();
-    collectDeclaredPathsAndSourceFields(
-        mappings.fields(), Optional.empty(), declaredNonEmbedPaths, sourceFields);
-    return sourceFields.stream()
+    Set<FieldPath> paths = new LinkedHashSet<>();
+    collectDeclaredPathsAndAutoEmbedPaths(
+        mappings.fields(), Optional.empty(), declaredNonEmbedPaths, paths);
+    return paths.stream()
         .filter(declaredNonEmbedPaths::contains)
         .collect(ImmutableSet.toImmutableSet());
   }
 
-  private static void collectDeclaredPathsAndSourceFields(
+  private static void collectDeclaredPathsAndAutoEmbedPaths(
       Map<String, FieldDefinition> fields,
       Optional<FieldPath> prefix,
       Set<FieldPath> declaredNonEmbedPaths,
-      Set<FieldPath> sourceFields) {
+      Set<FieldPath> paths) {
     for (Map.Entry<String, FieldDefinition> entry : fields.entrySet()) {
       FieldPath path =
           prefix
@@ -817,7 +817,7 @@ public final class SearchIndexDefinition implements IndexDefinition {
       FieldDefinition fieldDefinition = entry.getValue();
       fieldDefinition
           .searchAutoEmbedFieldDefinition()
-          .ifPresent(autoEmbed -> sourceFields.add(autoEmbed.sourceField()));
+          .ifPresent(autoEmbed -> paths.add(autoEmbed.path()));
       if (fieldDefinition.hasFieldDefinitionsOtherThan(FieldTypeDefinition.Type.AUTO_EMBED)) {
         declaredNonEmbedPaths.add(path);
       }
@@ -825,44 +825,44 @@ public final class SearchIndexDefinition implements IndexDefinition {
           .documentFieldDefinition()
           .ifPresent(
               document ->
-                  collectDeclaredPathsAndSourceFields(
-                      document.fields(), Optional.of(path), declaredNonEmbedPaths, sourceFields));
+                  collectDeclaredPathsAndAutoEmbedPaths(
+                      document.fields(), Optional.of(path), declaredNonEmbedPaths, paths));
       fieldDefinition
           .embeddedDocumentsFieldDefinition()
           .ifPresent(
               embedded ->
-                  collectDeclaredPathsAndSourceFields(
-                      embedded.fields(), Optional.of(path), declaredNonEmbedPaths, sourceFields));
+                  collectDeclaredPathsAndAutoEmbedPaths(
+                      embedded.fields(), Optional.of(path), declaredNonEmbedPaths, paths));
     }
   }
 
-  private static void validateAutoEmbedSourceFieldsDoNotOverlapMappings(
-      DocumentFieldDefinition mappings) throws BsonParseException {
-    ImmutableSet<FieldPath> conflicts = autoEmbedSourceFieldMappingConflicts(mappings);
+  private static void validateAutoEmbedPathsDoNotOverlapMappings(DocumentFieldDefinition mappings)
+      throws BsonParseException {
+    ImmutableSet<FieldPath> conflicts = autoEmbedPathMappingConflicts(mappings);
     if (!conflicts.isEmpty()) {
       throw new BsonParseException(
           String.format(
-              "autoEmbed sourceField(s) %s are consumed by the embedding pipeline and"
+              "autoEmbed path(s) %s are consumed by the embedding pipeline and"
                   + " cannot also be mapped as another type",
               conflicts),
           Optional.empty());
     }
   }
 
-  private static void collectDuplicateAutoEmbedSourceFields(
+  private static void collectDuplicateAutoEmbedPaths(
       DocumentFieldDefinition document, Set<FieldPath> seen, Set<FieldPath> duplicates) {
     for (FieldDefinition fieldDefinition : document.fields().values()) {
       fieldDefinition
           .searchAutoEmbedFieldDefinition()
           .ifPresent(
               autoEmbed -> {
-                if (!seen.add(autoEmbed.sourceField())) {
-                  duplicates.add(autoEmbed.sourceField());
+                if (!seen.add(autoEmbed.path())) {
+                  duplicates.add(autoEmbed.path());
                 }
               });
       fieldDefinition
           .documentFieldDefinition()
-          .ifPresent(nested -> collectDuplicateAutoEmbedSourceFields(nested, seen, duplicates));
+          .ifPresent(nested -> collectDuplicateAutoEmbedPaths(nested, seen, duplicates));
     }
   }
 

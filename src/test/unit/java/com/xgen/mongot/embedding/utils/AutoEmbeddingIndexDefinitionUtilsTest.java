@@ -907,7 +907,7 @@ public class AutoEmbeddingIndexDefinitionUtilsTest {
         SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
 
     UUID collectionUuid = UUID.randomUUID();
-    // sourceField is "content", so schema maps content → _autoEmbed.content
+    // path is "content", so schema maps content → _autoEmbed.content
     var schemaMetadata =
         new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(
             1L, Map.of(FieldPath.parse("content"), FieldPath.parse("_autoEmbed.content")));

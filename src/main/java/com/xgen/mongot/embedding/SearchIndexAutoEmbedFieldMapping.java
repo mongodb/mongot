@@ -27,8 +27,8 @@ import java.util.function.Predicate;
  * </ul>
  *
  * <p>Embed-field keys are the auto-embed source fields (as declared by {@code
- * SearchAutoEmbedFieldDefinition.sourceField()}), so they align with the paths seen in a source
- * document during ingestion.
+ * SearchAutoEmbedFieldDefinition.path()}), so they align with the paths seen in a source document
+ * during ingestion.
  */
 public record SearchIndexAutoEmbedFieldMapping(
     DynamicDefinition dynamic,
@@ -126,8 +126,8 @@ public record SearchIndexAutoEmbedFieldMapping(
    * both embed and passthrough declarations.
    *
    * <p>When an explicit passthrough path overlaps an embed source field (e.g. a regular text field
-   * named "content" alongside an auto-embed field whose {@code sourceField} is also "content"), the
-   * embed entry wins — the path is owned by the embed pipeline.
+   * named "content" alongside an auto-embed field whose {@code path} is also "content"), the embed
+   * entry wins — the path is owned by the embed pipeline.
    *
    * <p>Dynamic-mode passthroughs are open-ended (anything not embed is passthrough) and cannot be
    * enumerated here, so dynamic mode returns embed-only. See TODO(CLOUDP-384026).

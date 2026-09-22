@@ -224,7 +224,7 @@ public class BufferlessChangeStreamApplierTest {
   }
 
   @Test
-  public void applyEvents_searchAutoEmbedSourceFieldUpdate_schedulesOnlyApplicableUpdate()
+  public void applyEvents_searchAutoEmbedPathUpdate_schedulesOnlyApplicableUpdate()
       throws Exception {
     var indexDefinition = SearchIndex.MOCK_SEARCH_AUTO_EMBEDDING_INDEX_DEFINITION;
     var definitionGeneration = IndexGeneration.mockDefinitionGeneration(indexDefinition);

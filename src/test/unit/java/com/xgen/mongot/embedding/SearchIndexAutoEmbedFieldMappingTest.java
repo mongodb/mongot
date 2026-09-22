@@ -174,7 +174,7 @@ public class SearchIndexAutoEmbedFieldMappingTest {
   }
 
   @Test
-  public void static_nestedEmbedSourceField_ancestorIsReachable() {
+  public void static_nestedEmbedPath_ancestorIsReachable() {
     FieldPath nestedEmbed = FieldPath.parse("body.text");
     AutoEmbedField.EmbedField nestedEmbedField = new AutoEmbedField.EmbedField(nestedEmbed, SPEC);
     var mapping =

@@ -196,8 +196,7 @@ final class SearchAutoEmbeddingHelper {
 
     // Retarget the query at the materialized-view field path that holds the embedded vector; the
     // derived search index keys the auto-embed field by that path, not the user-facing path.
-    FieldPath matViewPath =
-        getMatViewFieldPath(autoEmbed.sourceField(), autoEmbeddingFieldsMapping);
+    FieldPath matViewPath = getMatViewFieldPath(autoEmbed.path(), autoEmbeddingFieldsMapping);
     return criteria.withQueryVector(result.vector.get()).withPath(matViewPath);
   }
 }

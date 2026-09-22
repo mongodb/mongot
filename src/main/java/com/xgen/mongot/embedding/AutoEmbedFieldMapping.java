@@ -75,7 +75,7 @@ public sealed interface AutoEmbedFieldMapping
    *       "embedding": {
    *         "type": "autoEmbed",
    *         "model": "voyage-4-lite",
-   *         "sourceField": "body"
+   *         "path": "body"
    *       }
    *     }
    *   }

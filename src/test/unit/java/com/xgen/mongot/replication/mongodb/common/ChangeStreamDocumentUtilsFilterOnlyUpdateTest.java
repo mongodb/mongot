@@ -182,7 +182,7 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
   }
 
   @Test
-  public void searchAutoEmbed_sourceFieldUpdate_featureFlagEnabled_forcesFullUpdate() {
+  public void searchAutoEmbed_pathUpdate_featureFlagEnabled_forcesFullUpdate() {
     SearchIndexDefinition indexDef = searchAutoEmbedIndex();
     ChangeStreamDocument<RawBsonDocument> changeEvent = createSearchUpdateEvent(indexDef, "body");
     AutoEmbeddingMaterializedViewConfig materializedViewConfig =
@@ -210,7 +210,7 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
   }
 
   @Test
-  public void searchAutoEmbed_derivesMappingFromSourceField() {
+  public void searchAutoEmbed_derivesMappingFromPath() {
     SearchIndexDefinition indexDef = searchAutoEmbedIndex();
 
     var mapping = ChangeStreamDocumentUtils.deriveAutoEmbedFieldMapping(indexDef).orElseThrow();

@@ -16,7 +16,7 @@ import org.bson.BsonDocument;
 /**
  * Represents an auto-embed field definition within a search index.
  *
- * <p>This field type specifies that text from a source field should be automatically embedded using
+ * <p>This field type specifies that text from a field path should be automatically embedded using
  * the configured embedding model, then indexed for vector search.
  */
 public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition {
@@ -36,17 +36,15 @@ public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition
                         ? java.util.Optional.empty()
                         : java.util.Optional.of("must be '" + DEFAULT_MODALITY + "'"))
             .required();
-    static final Field.Required<FieldPath> SOURCE_FIELD =
-        Field.builder("sourceField")
-            .classField(FieldPathField::parse, FieldPathField::encode)
-            .required();
+    static final Field.Required<FieldPath> PATH =
+        Field.builder("path").classField(FieldPathField::parse, FieldPathField::encode).required();
   }
 
-  private final FieldPath sourceField;
+  private final FieldPath path;
   private final VectorAutoEmbedFieldSpecification specification;
 
-  public SearchAutoEmbedFieldDefinition(String modelName, String modality, FieldPath sourceField) {
-    this.sourceField = sourceField;
+  public SearchAutoEmbedFieldDefinition(String modelName, String modality, FieldPath path) {
+    this.path = path;
     this.specification =
         new VectorAutoEmbedFieldSpecification(
             resolveModelDimensions(modelName),
@@ -57,8 +55,8 @@ public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition
             modality);
   }
 
-  public SearchAutoEmbedFieldDefinition(String modelName, FieldPath sourceField) {
-    this(modelName, DEFAULT_MODALITY, sourceField);
+  public SearchAutoEmbedFieldDefinition(String modelName, FieldPath path) {
+    this(modelName, DEFAULT_MODALITY, path);
   }
 
   public String modelName() {
@@ -69,8 +67,8 @@ public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition
     return this.specification.modality();
   }
 
-  public FieldPath sourceField() {
-    return this.sourceField;
+  public FieldPath path() {
+    return this.path;
   }
 
   public VectorAutoEmbedFieldSpecification specification() {
@@ -87,15 +85,15 @@ public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition
     return BsonDocumentBuilder.builder()
         .field(Fields.MODEL, this.specification.modelName())
         .field(Fields.MODALITY, this.specification.modality())
-        .field(Fields.SOURCE_FIELD, this.sourceField)
+        .field(Fields.PATH, this.path)
         .build();
   }
 
   static SearchAutoEmbedFieldDefinition fromBson(DocumentParser parser) throws BsonParseException {
     String modelName = parser.getField(Fields.MODEL).unwrap();
     String modality = parser.getField(Fields.MODALITY).unwrap();
-    FieldPath sourceField = parser.getField(Fields.SOURCE_FIELD).unwrap();
-    return new SearchAutoEmbedFieldDefinition(modelName, modality, sourceField);
+    FieldPath path = parser.getField(Fields.PATH).unwrap();
+    return new SearchAutoEmbedFieldDefinition(modelName, modality, path);
   }
 
   private static int resolveModelDimensions(String modelName) {
@@ -118,12 +116,11 @@ public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition
     // .equals() behavior.
     return Objects.equals(this.specification.modelName(), that.specification.modelName())
         && Objects.equals(this.specification.modality(), that.specification.modality())
-        && Objects.equals(this.sourceField, that.sourceField);
+        && Objects.equals(this.path, that.path);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(
-        this.specification.modelName(), this.specification.modality(), this.sourceField);
+    return Objects.hash(this.specification.modelName(), this.specification.modality(), this.path);
   }
 }

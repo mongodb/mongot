@@ -696,8 +696,8 @@ public class AutoEmbeddingIndexValidatorTest {
   }
 
   @Test
-  public void validateSearchIndexWithDuplicateSourceFields_throwsException() {
-    // A nested and a top-level declaration sharing a sourceField: construction keeps the last
+  public void validateSearchIndexWithDuplicatePaths_throwsException() {
+    // A nested and a top-level declaration sharing a path: construction keeps the last
     // model, and this community-path validation is the clean user-facing rejection.
     var nested =
         DocumentFieldDefinitionBuilder.builder()
@@ -730,13 +730,13 @@ public class AutoEmbeddingIndexValidatorTest {
             InvalidIndexDefinitionException.class,
             () -> AutoEmbeddingIndexValidator.validate(searchIndex));
 
-    assertThat(exception.getMessage()).contains("same sourceField");
+    assertThat(exception.getMessage()).contains("same path");
     assertThat(exception.getMessage()).contains("content");
   }
 
   @Test
-  public void validateSearchIndexWithSourceFieldOverlappingDeclaredField_throwsException() {
-    // An embed sourceField coinciding with a declared non-embed path: the source is consumed by
+  public void validateSearchIndexWithPathOverlappingDeclaredField_throwsException() {
+    // An embed path coinciding with a declared non-embed path: the source is consumed by
     // the embedding pipeline, so the overlapping declaration would silently index nothing.
     var mappings =
         DocumentFieldDefinitionBuilder.builder()

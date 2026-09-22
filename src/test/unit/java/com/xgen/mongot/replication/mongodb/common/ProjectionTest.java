@@ -234,9 +234,9 @@ public class ProjectionTest {
   }
 
   @Test
-  public void testSearchAutoEmbedProjectsSourceFieldNotDeclaredName() {
-    // CLOUDP-353553 (A2 shape): the autoEmbed field name ("embedding") differs from its sourceField
-    // ("body"). Embedding reads the text from the sourceField, so the projection must include
+  public void testSearchAutoEmbedProjectsPathNotDeclaredName() {
+    // CLOUDP-353553 (A2 shape): the autoEmbed field name ("embedding") differs from its path
+    // ("body"). Embedding reads the text from the path, so the projection must include
     // "body"; otherwise the source text is stripped from the scanned document and no vector is
     // generated.
     var mappings =
@@ -262,8 +262,8 @@ public class ProjectionTest {
   }
 
   @Test
-  public void testNestedSearchAutoEmbedProjectsSourceField() {
-    // B1 shape: nested-only autoEmbed. The sourceField "product.description" must be projected.
+  public void testNestedSearchAutoEmbedProjectsPath() {
+    // B1 shape: nested-only autoEmbed. The path "product.description" must be projected.
     var mappings =
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
@@ -298,8 +298,8 @@ public class ProjectionTest {
 
   @Test
   public void testSearchAutoEmbedWithScalarAlternativeProjectsBothPaths() {
-    // D2 shape: one field carries both an autoEmbed (sourceField "body") and a scalar string
-    // alternative. The declared field name ("title", scalar data) AND the sourceField ("body",
+    // D2 shape: one field carries both an autoEmbed (path "body") and a scalar string
+    // alternative. The declared field name ("title", scalar data) AND the path ("body",
     // embed text) must both be projected.
     var mappings =
         DocumentFieldDefinitionBuilder.builder()

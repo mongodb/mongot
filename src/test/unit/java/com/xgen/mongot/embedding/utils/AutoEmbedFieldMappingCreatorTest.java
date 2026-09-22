@@ -304,7 +304,7 @@ public class AutoEmbedFieldMappingCreatorTest {
         "Search factory must not return VectorAutoEmbedFieldMapping",
         mapping instanceof VectorAutoEmbedFieldMapping);
 
-    // Embed field keyed on sourceField()
+    // Embed field keyed on path()
     Assert.assertTrue(mapping.isEmbed(FieldPath.parse("content")));
     Assert.assertFalse(mapping.isPassthrough(FieldPath.parse("content")));
     // Dynamic mode → any non-embed path is passthrough
@@ -345,7 +345,7 @@ public class AutoEmbedFieldMappingCreatorTest {
   @Test
   public void createAutoEmbedMapping_search_nestedAutoEmbedUnderDocument() {
     // Auto-embed field nested under a `document` field must be found and embedded (keyed by
-    // sourceField), the sibling non-auto-embed field must be passthrough at its dotted path, and
+    // path), the sibling non-auto-embed field must be passthrough at its dotted path, and
     // the containing document must be descended into rather than passed through wholesale.
     var autoEmbedField =
         new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("content"));
@@ -369,7 +369,7 @@ public class AutoEmbedFieldMappingCreatorTest {
 
     AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
 
-    // Embedded and keyed by sourceField, not the "parent.embedding" declaration path.
+    // Embedded and keyed by path, not the "parent.embedding" declaration path.
     Assert.assertTrue(mapping.isEmbed(FieldPath.parse("content")));
     Assert.assertFalse(mapping.isEmbed(FieldPath.parse("parent.embedding")));
     // The sibling non-auto-embed field is passthrough at its full dotted path, and the containing
@@ -595,8 +595,8 @@ public class AutoEmbedFieldMappingCreatorTest {
   }
 
   @Test
-  public void createAutoEmbedMapping_search_embedKeyedBySourceFieldNotMappingKey() {
-    // Declaration key differs from sourceField: sourceField must win.
+  public void createAutoEmbedMapping_search_embedKeyedByPathNotMappingKey() {
+    // Declaration key differs from path: path must win.
     var autoEmbedField =
         new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("source_text"));
     DocumentFieldDefinition mappings =

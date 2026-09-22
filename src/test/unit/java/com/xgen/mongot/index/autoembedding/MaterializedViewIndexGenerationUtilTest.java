@@ -955,7 +955,7 @@ public class MaterializedViewIndexGenerationUtilTest {
 
   @Test
   public void skipInitialSync_search_autoEmbedDestinationKeyRenamed_returnsTrue() {
-    // The embed mapping is keyed by sourceField, not the destination field name, so renaming the
+    // The embed mapping is keyed by path, not the destination field name, so renaming the
     // destination field (same source and model) leaves the materialized embeddings valid.
     SearchIndexDefinition def1 =
         searchDefWithAutoEmbedField(1L, "content_embed", SEARCH_AUTO_EMBED_FIELD);
@@ -965,7 +965,7 @@ public class MaterializedViewIndexGenerationUtilTest {
   }
 
   @Test
-  public void skipInitialSync_search_autoEmbedSourceFieldChanged_returnsFalse() {
+  public void skipInitialSync_search_autoEmbedPathChanged_returnsFalse() {
     // Embedding a different source field changes the materialized embeddings.
     SearchIndexDefinition def1 =
         searchDefWithAutoEmbedField(1L, "content_embed", SEARCH_AUTO_EMBED_FIELD);

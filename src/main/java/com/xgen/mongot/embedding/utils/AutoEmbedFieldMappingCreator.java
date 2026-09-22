@@ -81,7 +81,7 @@ public class AutoEmbedFieldMappingCreator {
   /**
    * Creates an {@code AutoEmbedFieldMapping} from a source {@link SearchIndexDefinition}.
    *
-   * <p>Auto-embed fields (keyed on {@code sourceField()}) become {@link AutoEmbedField.EmbedField}.
+   * <p>Auto-embed fields (keyed on {@code path()}) become {@link AutoEmbedField.EmbedField}.
    * Explicitly declared non-auto-embed fields become passthroughs at their full dotted path; a
    * nested {@code document} with dynamic mapping enabled becomes a single wholesale passthrough at
    * its path with its auto-embed declarations still collected. When the source index has dynamic
@@ -97,7 +97,7 @@ public class AutoEmbedFieldMappingCreator {
         searchDef.getMappings().fields(),
         Optional.empty(),
         autoEmbedDef -> {
-          FieldPath source = autoEmbedDef.sourceField();
+          FieldPath source = autoEmbedDef.path();
           embedBuilder.put(
               source, new AutoEmbedField.EmbedField(source, autoEmbedDef.specification()));
         },
@@ -274,7 +274,7 @@ public class AutoEmbedFieldMappingCreator {
         searchDef.getMappings().fields(),
         Optional.empty(),
         autoEmbedDef -> {
-          FieldPath sourcePath = autoEmbedDef.sourceField();
+          FieldPath sourcePath = autoEmbedDef.path();
           FieldPath matViewPath =
               getMatViewFieldPath(sourcePath, schemaMetadata.autoEmbeddingFieldsMapping());
           embedBuilder.put(
@@ -337,11 +337,11 @@ public class AutoEmbedFieldMappingCreator {
    * schema fields mapping. Returns the original path if no mapping exists.
    */
   public static FieldPath getMatViewFieldPath(
-      FieldPath sourceFieldPath, Map<FieldPath, FieldPath> schemaFieldsMapping) {
-    if (schemaFieldsMapping.containsKey(sourceFieldPath)) {
-      return schemaFieldsMapping.get(sourceFieldPath);
+      FieldPath autoEmbedPath, Map<FieldPath, FieldPath> schemaFieldsMapping) {
+    if (schemaFieldsMapping.containsKey(autoEmbedPath)) {
+      return schemaFieldsMapping.get(autoEmbedPath);
     }
-    return sourceFieldPath;
+    return autoEmbedPath;
   }
 
   /**

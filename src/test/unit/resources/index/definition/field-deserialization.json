@@ -231,7 +231,7 @@
           "type": "autoEmbed",
           "model": "voyage-3-large",
           "modality": "text",
-          "sourceField": "content"
+          "path": "content"
         },
         {
           "type": "vector",

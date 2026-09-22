@@ -50,8 +50,8 @@ public class AutoEmbeddingIndexValidator {
       case SearchIndexDefinition searchIndex -> {
         validateSearchReservedAutoEmbedNamespace(searchIndex);
         validateSearchNoMixedVectorTypes(searchIndex);
-        validateSearchUniqueAutoEmbedSourceFields(searchIndex);
-        validateSearchSourceFieldsDoNotOverlapMappings(searchIndex);
+        validateSearchUniqueAutoEmbedPaths(searchIndex);
+        validateSearchPathsDoNotOverlapMappings(searchIndex);
       }
     }
   }
@@ -228,39 +228,39 @@ public class AutoEmbeddingIndexValidator {
   }
 
   /**
-   * Rejects duplicate auto-embed {@code sourceField} declarations with a clean validation error.
-   * The definition itself constructs fine (model resolution keeps the last declaration), so this
+   * Rejects duplicate auto-embed {@code path} declarations with a clean validation error. The
+   * definition itself constructs fine (model resolution keeps the last declaration), so this
    * community-path check is the user-facing rejection for definitions built directly rather than
    * parsed from BSON.
    */
-  private static void validateSearchUniqueAutoEmbedSourceFields(SearchIndexDefinition searchIndex)
+  private static void validateSearchUniqueAutoEmbedPaths(SearchIndexDefinition searchIndex)
       throws InvalidIndexDefinitionException {
     Set<FieldPath> seen = new HashSet<>();
     Set<FieldPath> duplicates = new LinkedHashSet<>();
     for (SearchAutoEmbedFieldDefinition autoEmbed : getAutoEmbeddingFieldDefinitions(searchIndex)) {
-      if (!seen.add(autoEmbed.sourceField())) {
-        duplicates.add(autoEmbed.sourceField());
+      if (!seen.add(autoEmbed.path())) {
+        duplicates.add(autoEmbed.path());
       }
     }
     if (!duplicates.isEmpty()) {
       throw new InvalidIndexDefinitionException(
-          String.format("Multiple autoEmbed fields declare the same sourceField: %s", duplicates));
+          String.format("Multiple autoEmbed fields declare the same path: %s", duplicates));
     }
   }
 
   /**
-   * Rejects auto-embed {@code sourceField}s that coincide with an explicitly declared non-embed
-   * mapping path: the source value is consumed by the embedding pipeline and never reaches the
-   * materialized view, so the overlapping declaration would silently index nothing.
+   * Rejects auto-embed {@code path}s that coincide with an explicitly declared non-embed mapping
+   * path: the source value is consumed by the embedding pipeline and never reaches the materialized
+   * view, so the overlapping declaration would silently index nothing.
    */
-  private static void validateSearchSourceFieldsDoNotOverlapMappings(
-      SearchIndexDefinition searchIndex) throws InvalidIndexDefinitionException {
+  private static void validateSearchPathsDoNotOverlapMappings(SearchIndexDefinition searchIndex)
+      throws InvalidIndexDefinitionException {
     ImmutableSet<FieldPath> conflicts =
-        SearchIndexDefinition.autoEmbedSourceFieldMappingConflicts(searchIndex.getMappings());
+        SearchIndexDefinition.autoEmbedPathMappingConflicts(searchIndex.getMappings());
     if (!conflicts.isEmpty()) {
       throw new InvalidIndexDefinitionException(
           String.format(
-              "autoEmbed sourceField(s) %s are consumed by the embedding pipeline and"
+              "autoEmbed path(s) %s are consumed by the embedding pipeline and"
                   + " cannot also be mapped as another type",
               conflicts));
     }
