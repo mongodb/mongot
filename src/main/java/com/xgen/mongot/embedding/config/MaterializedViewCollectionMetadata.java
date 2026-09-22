@@ -10,25 +10,51 @@ import com.xgen.mongot.util.bson.parser.DocumentParser;
 import com.xgen.mongot.util.bson.parser.Field;
 import com.xgen.mongot.util.bson.parser.Value;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.bson.BsonDocument;
 
 /**
  * Runtime data model for MaterializedView Collection Metadata, represents immutable properties of a
  * MaterializedView collection used for indexing and query.
+ *
+ * <p>{@code collation} is the materialized view's default collation, captured at index-resolution
+ * time from the mat view's {@code listCollections} info. It is <em>not</em> serialized into the
+ * lease ({@link #toBson()} omits it) — it is an in-memory refinement applied by {@link
+ * com.xgen.mongot.embedding.mongodb.MaterializedViewCollectionResolver} on every resolution, so it
+ * survives restarts without a lease-schema change. Persisting it is a longer-term follow-up.
  */
 public record MaterializedViewCollectionMetadata(
-    MaterializedViewSchemaMetadata schemaMetadata, UUID collectionUuid, String collectionName)
+    MaterializedViewSchemaMetadata schemaMetadata,
+    UUID collectionUuid,
+    String collectionName,
+    Optional<BsonDocument> collation)
     implements DocumentEncodable {
 
   public static final int CURRENT_MAT_VIEW_SCHEMA_VERSION = 1;
+
+  /** Convenience for the common case where collation is not yet known (simple collation). */
+  public MaterializedViewCollectionMetadata(
+      MaterializedViewSchemaMetadata schemaMetadata, UUID collectionUuid, String collectionName) {
+    this(schemaMetadata, collectionUuid, collectionName, Optional.empty());
+  }
+
+  /**
+   * Returns a copy carrying the given collation, leaving {@link #toBson()} unchanged (not
+   * persisted).
+   */
+  public MaterializedViewCollectionMetadata withCollation(Optional<BsonDocument> collation) {
+    return new MaterializedViewCollectionMetadata(
+        this.schemaMetadata, this.collectionUuid, this.collectionName, collation);
+  }
 
   public static MaterializedViewCollectionMetadata fromBson(DocumentParser parser)
       throws BsonParseException {
     return new MaterializedViewCollectionMetadata(
         parser.getField(Fields.MV_SCHEMA_METADATA).unwrap(),
         parser.getField(Fields.COLLECTION_UUID).unwrap(),
-        parser.getField(Fields.COLLECTION_NAME).unwrap());
+        parser.getField(Fields.COLLECTION_NAME).unwrap(),
+        Optional.empty());
   }
 
   @Override

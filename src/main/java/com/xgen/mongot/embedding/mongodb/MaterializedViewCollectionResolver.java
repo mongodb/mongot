@@ -10,6 +10,11 @@ import com.google.common.hash.Hashing;
 import com.google.common.io.BaseEncoding;
 import com.mongodb.MongoCommandException;
 import com.mongodb.client.MongoClient;
+import com.mongodb.client.model.Collation;
+import com.mongodb.client.model.CollationAlternate;
+import com.mongodb.client.model.CollationCaseFirst;
+import com.mongodb.client.model.CollationStrength;
+import com.mongodb.client.model.CreateCollectionOptions;
 import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
@@ -39,9 +44,15 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.bson.BsonBoolean;
+import org.bson.BsonDocument;
+import org.bson.BsonNumber;
+import org.bson.BsonString;
+import org.bson.BsonValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -177,16 +188,27 @@ public class MaterializedViewCollectionResolver {
               () -> getCollectionInfo(requireResolverClient(), matViewDb, collectionName));
 
       MaterializedViewCollectionMetadata materializedViewCollectionMetadata =
-          this.leaseManager.initializeLease(
-              indexDefinitionGeneration,
-              createProposedMetadata(
-                  collectionName,
+          this.leaseManager
+              .initializeLease(
+                  indexDefinitionGeneration,
+                  createProposedMetadata(
+                      collectionName,
+                      Check.instanceOf(collectionInfo, MongoDbCollectionInfo.Collection.class)
+                          .info()
+                          .uuid(),
+                      indexDefinitionGeneration.getIndexDefinition(),
+                      this.materializedViewConfig.materializedViewSchemaVersion.orElse(
+                          CURRENT_MAT_VIEW_SCHEMA_VERSION)))
+              // initializeLease returns the persisted lease metadata when it already exists (normal
+              // restart), discarding the freshly-proposed one. Re-attach the mat view's collation
+              // from the same getCollectionInfo read above, so the resync scanner can decide the
+              // comparator without a best-effort network read. The collation is immutable, so this
+              // is
+              // always the source collation for a collated mat view.
+              .withCollation(
                   Check.instanceOf(collectionInfo, MongoDbCollectionInfo.Collection.class)
-                      .info()
-                      .uuid(),
-                  indexDefinitionGeneration.getIndexDefinition(),
-                  this.materializedViewConfig.materializedViewSchemaVersion.orElse(
-                      CURRENT_MAT_VIEW_SCHEMA_VERSION)));
+                      .options()
+                      .collation());
       try {
         this.leaseManager.executeOpsCommandsAfterInitializeLease(
             materializedViewCollectionMetadata.collectionName());
@@ -289,8 +311,11 @@ public class MaterializedViewCollectionResolver {
                         .getCollectionInfo(matViewDb, resolvedName))
             .isPresent();
     if (!collectionExists) {
-      // Create new mat view collection when it's not found.
-      createCollection(matViewDb, collectionName);
+      // Create new mat view collection when it's not found. Seed it with the source collection's
+      // collation so its _id index orders string _ids the same way the source cursor does: the
+      // resync sort-merge takes its mat-view window bounds from the source cursor order, so the two
+      // server-side orders have to agree for each window to be visited exactly once.
+      createCollection(matViewDb, collectionName, readSourceCollation(indexDefinitionGeneration));
       LOG.atInfo()
           .addKeyValue("collectionName", collectionName)
           .addKeyValue("database", matViewDb)
@@ -368,12 +393,25 @@ public class MaterializedViewCollectionResolver {
    * Creates a new materialized view collection with the given name while gracefully handling the
    * case where the collection already exists.
    */
-  private void createCollection(String matViewDb, String collectionName) throws Exception {
+  private void createCollection(
+      String matViewDb, String collectionName, Optional<BsonDocument> sourceCollation)
+      throws Exception {
     this.operationExecutor.execute(
         "createCollection",
         () -> {
           try {
-            requireResolverClient().getDatabase(matViewDb).createCollection(collectionName);
+            // Only pass collation options when the source has a non-simple collation; the plain
+            // name-only createCollection keeps the common simple-collation case on the existing
+            // path.
+            if (sourceCollation.isEmpty()) {
+              requireResolverClient().getDatabase(matViewDb).createCollection(collectionName);
+            } else {
+              var createOptions = new CreateCollectionOptions();
+              createOptions.collation(toDriverCollation(sourceCollation.get()));
+              requireResolverClient()
+                  .getDatabase(matViewDb)
+                  .createCollection(collectionName, createOptions);
+            }
           } catch (MongoCommandException e) {
             if (e.getErrorCode() != NAMESPACE_EXISTS_ERROR_CODE) {
               throw e;
@@ -388,6 +426,77 @@ public class MaterializedViewCollectionResolver {
           }
           return null;
         });
+  }
+
+  // Reads the source collection's default collation, so a newly created mat view can be created
+  // with
+  // the same collation. Empty for a simple collation or an absent source (in which case the mat
+  // view
+  // keeps the default simple collation). Read through the operation executor so a transient error
+  // is
+  // retried and propagates rather than silently creating a simple mat view for a collated source (a
+  // simple mat view that got created this way would be reused and never corrected).
+  private Optional<BsonDocument> readSourceCollation(IndexDefinitionGeneration g) throws Exception {
+    var def = g.getIndexDefinition();
+    return this.operationExecutor.execute(
+        "getCollectionInfo",
+        () ->
+            getCollectionInfos(requireResolverClient(), def.getDatabase())
+                .getCollectionInfo(def.getDatabase(), def.getLastObservedCollectionName())
+                .filter(MongoDbCollectionInfo.Collection.class::isInstance)
+                .map(MongoDbCollectionInfo.Collection.class::cast)
+                .map(MongoDbCollectionInfo.Collection::options)
+                .flatMap(MongoDbCollectionInfo.Collection.Options::collation));
+  }
+
+  // Builds a driver Collation from a MongoDB collation spec (as reported by listCollections),
+  // mapping
+  // the documented option values. Mirrors mongot's collation-parity harness mappings.
+  private static Collation toDriverCollation(BsonDocument spec) {
+    int strength = Math.max(1, Math.min(5, intOr(spec, "strength", 3)));
+    boolean caseLevel = boolOr(spec, "caseLevel", false);
+    String caseFirst = strOr(spec, "caseFirst", "off");
+    var builder =
+        Collation.builder()
+            .locale(strOr(spec, "locale", "simple"))
+            .collationStrength(CollationStrength.valueOf(STRENGTH_NAMES[strength - 1]))
+            .caseLevel(caseLevel)
+            .numericOrdering(boolOr(spec, "numericOrdering", false))
+            .backwards(boolOr(spec, "backwards", false))
+            .normalization(boolOr(spec, "normalization", false))
+            .collationAlternate(
+                "shifted".equals(strOr(spec, "alternate", "non-ignorable"))
+                    ? CollationAlternate.SHIFTED
+                    : CollationAlternate.NON_IGNORABLE);
+    // caseFirst applies when caseLevel is on OR strength >= 3 (MongoDB compares case at tertiary+
+    // regardless of caseLevel); a strength-1/2 + caseLevel:false source has no case to order.
+    // TODO(CLOUDP-448794): maxVariable is deliberately not mapped — see CollationUtils for why. It
+    // must be mapped in BOTH the mat-view collation and the ICU comparator; doing it here alone
+    // (CollationMaxVariable) without the comparator would make them disagree.
+    if (!"off".equals(caseFirst) && (caseLevel || strength >= 3)) {
+      builder.collationCaseFirst(CollationCaseFirst.valueOf(caseFirst.toUpperCase(Locale.ROOT)));
+    }
+    return builder.build();
+  }
+
+  private static final String[] STRENGTH_NAMES = {
+    "PRIMARY", "SECONDARY", "TERTIARY", "QUATERNARY", "IDENTICAL"
+  };
+
+  private static String strOr(BsonDocument doc, String key, String def) {
+    BsonValue v = doc.get(key);
+    return v instanceof BsonString ? v.asString().getValue() : def;
+  }
+
+  private static int intOr(BsonDocument doc, String key, int def) {
+    // Accept any BSON numeric type for a numeric option (e.g. strength) — see CollationUtils.intOr.
+    BsonValue v = doc.get(key);
+    return v instanceof BsonNumber ? ((BsonNumber) v).intValue() : def;
+  }
+
+  private static boolean boolOr(BsonDocument doc, String key, boolean def) {
+    BsonValue v = doc.get(key);
+    return v instanceof BsonBoolean ? v.asBoolean().getValue() : def;
   }
 
   /**

@@ -9,6 +9,7 @@ java_library(
         "BufferlessCollectionScanner.java",
         "BufferlessCollectionScannerFactory.java",
         "BufferlessInitialSyncManager.java",
+        "CollationUtils.java",
         "CollectionScanBatchMetrics.java",
         "CollectionScanBatchPreprocessor.java",
         "CollectionScanCursorFactory.java",
@@ -41,6 +42,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/version",
         "//src/main/java/com/xgen/mongot/replication/mongodb/common",
         "//src/main/java/com/xgen/mongot/util/mongodb/serialization",
+        "@maven//:com_ibm_icu_icu4j",
         "@maven//:org_mongodb_bson",
     ],
     deps = [
@@ -68,6 +70,7 @@ java_library(
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_flogger_flogger",
         "@maven//:com_google_guava_guava",
+        "@maven//:com_ibm_icu_icu4j",
         "@maven//:io_micrometer_micrometer_core",
         "@maven//:org_jetbrains_annotations",
         "@maven//:org_mongodb_bson",

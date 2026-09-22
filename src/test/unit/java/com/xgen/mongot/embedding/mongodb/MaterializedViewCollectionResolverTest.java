@@ -81,6 +81,12 @@ public class MaterializedViewCollectionResolverTest {
             mongoClient,
             new SimpleMeterRegistry());
     when(mongoClient.getDatabase(eq(MV_DATABASE_NAME))).thenReturn(this.mongoDatabase);
+    // The resolver also reads the SOURCE collection (via readSourceCollation) to create a collated
+    // mat view. Surface the same (initially empty) listCollections snapshot for any database so
+    // that
+    // read returns empty -> the mat view is created with the simple collation, as these fixtures
+    // expect.
+    when(mongoClient.getDatabase(anyString())).thenReturn(this.mongoDatabase);
 
     doAnswer(
             (Answer<Void>)

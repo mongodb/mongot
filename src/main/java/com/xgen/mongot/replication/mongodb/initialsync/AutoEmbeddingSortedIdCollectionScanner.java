@@ -4,6 +4,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 import com.google.common.flogger.FluentLogger;
 import com.google.errorprone.annotations.Var;
+import com.ibm.icu.text.RuleBasedCollator;
 import com.mongodb.MongoNamespace;
 import com.mongodb.ReadConcern;
 import com.mongodb.client.model.Filters;
@@ -35,7 +36,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import org.bson.BsonArray;
 import org.bson.BsonDocument;
+import org.bson.BsonString;
+import org.bson.BsonType;
 import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
 import org.bson.conversions.Bson;
@@ -62,6 +66,7 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
   private final Counter resyncMissingDocuments;
   private final Counter resyncSurplusDocuments;
   private final Counter resyncStaleDocuments;
+  private final Optional<RuleBasedCollator> stringCollator;
   private boolean firstPage = true;
 
   /** Builds an AutoEmbeddingSortedIdCollectionScanner. */
@@ -113,6 +118,74 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
         indexDef instanceof VectorIndexDefinition vectorIndexDefinition
             ? vectorIndexDefinition.getNestedRoot()
             : Optional.empty();
+    // The mat view's collation is carried on the metadata (set deterministically by the resolver
+    // from the mat view's collection info), so there is no network read or best-effort fallback
+    // here. A simple/absent collation yields empty: the binary (UTF-8) comparator already matches.
+    this.stringCollator =
+        this.matViewCollectionMetadata.collation().flatMap(CollationUtils::toIcuCollator);
+  }
+
+  // Compares two _id values for the sort-merge. With a non-simple source collation both the source
+  // cursor and the mat-view window are served in collation order, so string _ids must be compared
+  // with the ICU collator to interleave them correctly. Every other case (simple/absent collation,
+  // or
+  // non-string values) uses the binary comparator, which matches a simple-collation _id index.
+  private int compareIds(BsonValue sourceDocId, BsonValue matViewDocId) {
+    if (this.stringCollator.isPresent()
+        && isStringLike(sourceDocId)
+        && isStringLike(matViewDocId)) {
+      String sourceValue = stringValue(sourceDocId);
+      String matViewValue = stringValue(matViewDocId);
+      // Fast path for the common in-sync resync: identical strings are equal without the ICU
+      // collator, so we skip the tie-break below (which runs on every 0 comparison).
+      if (sourceValue.equals(matViewValue)) {
+        return 0;
+      }
+      int cmp = this.stringCollator.get().compare(sourceValue, matViewValue);
+      if (cmp != 0) {
+        return cmp;
+      }
+      // Safety net rather than a real case: MongoDB enforces collation-unique _id, so two
+      // byte-distinct but collation-equal string _ids cannot coexist in one collection (the
+      // duplicate-key error rejects the second insert). If a collator still rates two distinct
+      // _ids equal, do not collapse them into "the same doc" — tie-break by code point byte order
+      // (the order a simple collation uses), so the merge always treats distinct _ids as distinct.
+      return compareByCodePoint(sourceValue, matViewValue);
+    }
+    return MqlComparator.compareValues(sourceDocId, matViewDocId, ArrayComparator.MIN);
+  }
+
+  // A collection collator orders both STRING and SYMBOL (legacy) _ids; falling back to byte order
+  // for
+  // a SYMBOL _id would diverge from the collated mat-view index.
+  private static boolean isStringLike(BsonValue value) {
+    BsonType type = value.getBsonType();
+    return type == BsonType.STRING || type == BsonType.SYMBOL;
+  }
+
+  private static String stringValue(BsonValue value) {
+    return value.getBsonType() == BsonType.SYMBOL
+        ? value.asSymbol().getSymbol()
+        : value.asString().getValue();
+  }
+
+  // Compares strings by Unicode code point, which is byte-identical to UTF-8 byte order (UTF-8
+  // preserves code-point order) without materializing a byte[] per comparison. Used only as the
+  // tie-break when the ICU collator rates two distinct _ids equal (impossible in a valid collated
+  // collection, since MongoDB enforces collation-unique _id).
+  private static int compareByCodePoint(String left, String right) {
+    @Var int leftIndex = 0;
+    @Var int rightIndex = 0;
+    while (leftIndex < left.length() && rightIndex < right.length()) {
+      int leftCodePoint = left.codePointAt(leftIndex);
+      int rightCodePoint = right.codePointAt(rightIndex);
+      if (leftCodePoint != rightCodePoint) {
+        return Integer.compare(leftCodePoint, rightCodePoint);
+      }
+      leftIndex += Character.charCount(leftCodePoint);
+      rightIndex += Character.charCount(rightCodePoint);
+    }
+    return Integer.compare(left.length() - leftIndex, right.length() - rightIndex);
   }
 
   @Override
@@ -198,9 +271,9 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
 
       BsonValue matViewDocId = matViewDocMetadata.getId().get();
 
-      // the below util method allows us to compare BsonValues without being aware of the underlying
-      // type.
-      int comparison = MqlComparator.compareValues(sourceDocId, matViewDocId, ArrayComparator.MIN);
+      // compare BsonValues without being aware of the underlying type, but order string _ids by the
+      // source collection's collation when it has a non-simple collation (see compareIds).
+      int comparison = compareIds(sourceDocId, matViewDocId);
 
       if (comparison < 0) {
         // Doc is in the source collection but not mat view.
@@ -344,9 +417,9 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
     // cursor, but we need to manage it explicitly as our find commands are stateless and do not
     // rely on the cursor.
     if (this.firstPage) {
-      lowerBoundFilter = Filters.gte(ID_KEY, this.lastScannedToken);
+      lowerBoundFilter = typeUnbracketedRangeFilter("$gte", this.lastScannedToken);
     } else {
-      lowerBoundFilter = Filters.gt(ID_KEY, this.lastScannedToken);
+      lowerBoundFilter = typeUnbracketedRangeFilter("$gt", this.lastScannedToken);
     }
     Bson filter;
     if (upperBound.isEmpty()) {
@@ -355,7 +428,7 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
       filter = lowerBoundFilter;
     } else {
       // Otherwise, read up to the upper bound of the base collection batch
-      Bson upperBoundFilter = Filters.lte(ID_KEY, upperBound.get());
+      Bson upperBoundFilter = typeUnbracketedRangeFilter("$lte", upperBound.get());
       filter = Filters.and(lowerBoundFilter, upperBoundFilter);
     }
 
@@ -366,6 +439,17 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
         this.context.getIndexDefinition(),
         this.matViewNamespace,
         this.context.getInitialSyncMetricsUpdater());
+  }
+
+  private static Bson typeUnbracketedRangeFilter(String operator, BsonValue bound) {
+    // Mirrors the source scan's $match/$expr range (see CollectionScanAggregateCommand): plain $gt,
+    // $gte and $lte are type-bracketed, so a window that straddles a mixed-type _id boundary
+    // returns
+    // no MV docs (every source doc re-inserted, other-type surplus docs never deleted). $expr
+    // avoids
+    // type bracketing. The _id hint below forces the index to bound the query.
+    return new BsonDocument(
+        "$expr", new BsonDocument(operator, new BsonArray(List.of(new BsonString("$_id"), bound))));
   }
 
   // Resolves the id of the last scanned doc, used to bound the next scan iteration (the mat-view
