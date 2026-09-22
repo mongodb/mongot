@@ -4,6 +4,7 @@ java_test_suite(
     name = "security",
     srcs = [
         "AesGcmCipherTest.java",
+        "PemCertificateBundleTest.java",
         "SecurityTest.java",
     ],
     tags = ["unit"],

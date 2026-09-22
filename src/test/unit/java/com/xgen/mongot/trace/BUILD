@@ -3,6 +3,7 @@ load("//bazel/java:test.bzl", "java_test_suite")
 java_test_suite(
     name = "trace",
     srcs = [
+        "AllowlistSpanExporterTest.java",
         "ExporterTest.java",
         "GatedSpanExporterTest.java",
         "LatencySamplingSpanProcessorTest.java",

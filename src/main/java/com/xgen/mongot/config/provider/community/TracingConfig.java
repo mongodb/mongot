@@ -1,33 +1,39 @@
 package com.xgen.mongot.config.provider.community;
 
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
+import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
 import com.xgen.mongot.util.bson.parser.DocumentParser;
 import com.xgen.mongot.util.bson.parser.Field;
+import java.util.Optional;
 import org.apache.commons.lang3.Range;
 import org.bson.BsonDocument;
+import org.bson.BsonValue;
 
 /**
  * The self-managed {@code tracing} block of the Community mongot config file. Controls enablement
  * and sampling for mongot-local OpenTelemetry query tracing; traces are written through the
- * existing structured JSON log pipeline.
+ * existing structured JSON log pipeline, and an optional {@code otlp} sub-block adds an OTLP/gRPC
+ * collector as an additional sink.
  *
- * <p>The block is optional and disabled by default. Only enablement and sampling are configurable:
- * latency-sampling parameters such as the export window and top-N count use the processor's
- * internal defaults. The field names match the existing mongot tracing configuration vocabulary.
+ * <p>The block is optional and disabled by default. Enablement, sampling, and the optional OTLP
+ * destination are configurable: latency-sampling parameters such as the export window and top-N
+ * count use the processor's internal defaults. The field names match the existing mongot tracing
+ * configuration vocabulary.
  *
  * <p>{@code enabled} is read once at startup and there is no runtime kill switch: to stop tracing,
  * set it to {@code false} and restart mongot. Runtime enable/disable is deliberately out of scope
- * for this Community opt-in; tracing is off by default and only writes to the existing log
- * pipeline.
+ * for this Community opt-in; tracing is off by default and only writes to the existing log pipeline
+ * unless an {@code otlp} destination is configured.
  */
 public record TracingConfig(
     boolean enabled,
     SamplingStrategy searchSamplingStrategy,
     SamplingStrategy vectorSamplingStrategy,
     double searchTracingSamplerRate,
-    double vectorTracingSamplerRate)
+    double vectorTracingSamplerRate,
+    Optional<OtlpTracingConfig> otlp)
     implements DocumentEncodable {
 
   /** Sampling mode for query traces. */
@@ -73,6 +79,13 @@ public record TracingConfig(
             .mustBeWithinBounds(Range.of(0.0, 1.0))
             .optional()
             .withDefault(DEFAULT_VECTOR_TRACING_SAMPLER_RATE);
+
+    public static final Field.Optional<OtlpTracingConfig> OTLP =
+        Field.builder("otlp")
+            .classField(OtlpTracingConfig::fromBson)
+            .disallowUnknownFields()
+            .optional()
+            .noDefault();
   }
 
   public static TracingConfig fromBson(DocumentParser parser) throws BsonParseException {
@@ -81,7 +94,35 @@ public record TracingConfig(
         parser.getField(Fields.SEARCH_SAMPLING_STRATEGY).unwrap(),
         parser.getField(Fields.VECTOR_SAMPLING_STRATEGY).unwrap(),
         parser.getField(Fields.SEARCH_TRACING_SAMPLER_RATE).unwrap(),
-        parser.getField(Fields.VECTOR_TRACING_SAMPLER_RATE).unwrap());
+        parser.getField(Fields.VECTOR_TRACING_SAMPLER_RATE).unwrap(),
+        parser.getField(Fields.OTLP).unwrap());
+  }
+
+  /**
+   * Fails startup when the optional {@code tracing.otlp} block contains an unknown field. This
+   * block is parsed strictly, unlike the local-only blocks: it's an outbound sink whose optional
+   * {@code caCertificateFile} is security-relevant, so a misspelled key would silently fall back to
+   * the JVM trust store.
+   *
+   * <p>This only detects unknown fields: the two known field names are read as raw values so that
+   * closing the strict parser throws on any other key. Endpoint and CA validation already ran once
+   * during the permissive parse (their validators throw regardless of the permissive context), so
+   * they are deliberately not re-run here.
+   */
+  public static void validateStrictOtlp(BsonDocument root) throws BsonParseException {
+    BsonValue tracing = root.get("tracing");
+    if (tracing == null || !tracing.isDocument()) {
+      return;
+    }
+    BsonValue otlp = tracing.asDocument().get("otlp");
+    if (otlp == null || !otlp.isDocument()) {
+      return;
+    }
+    try (BsonDocumentParser strict = BsonDocumentParser.fromRoot(otlp.asDocument()).build()) {
+      strict.getField(Field.builder("endpoint").unparsedValueField().required());
+      strict.getField(
+          Field.builder("caCertificateFile").unparsedValueField().optional().noDefault());
+    }
   }
 
   @Override
@@ -92,6 +133,7 @@ public record TracingConfig(
         .field(Fields.VECTOR_SAMPLING_STRATEGY, this.vectorSamplingStrategy)
         .field(Fields.SEARCH_TRACING_SAMPLER_RATE, this.searchTracingSamplerRate)
         .field(Fields.VECTOR_TRACING_SAMPLER_RATE, this.vectorTracingSamplerRate)
+        .field(Fields.OTLP, this.otlp)
         .build();
   }
 }

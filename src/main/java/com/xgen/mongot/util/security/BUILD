@@ -4,6 +4,7 @@ java_library(
     name = "security",
     srcs = [
         "AesGcmCipher.java",
+        "PemCertificateBundle.java",
         "Security.java",
     ],
     visibility = ["//visibility:public"],

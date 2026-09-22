@@ -75,6 +75,7 @@ import com.xgen.mongot.server.grpc.GrpcStreamingServer;
 import com.xgen.mongot.server.grpc.HealthManager;
 import com.xgen.mongot.server.http.HealthCheckServer;
 import com.xgen.mongot.server.http.ReadinessChecker;
+import com.xgen.mongot.trace.AllowlistSpanExporter;
 import com.xgen.mongot.trace.LatencySamplingSpanProcessor;
 import com.xgen.mongot.trace.Slf4jExporter;
 import com.xgen.mongot.trace.Tracing;
@@ -95,6 +96,7 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.composite.CompositeMeterRegistry;
 import io.opentelemetry.sdk.trace.SpanProcessor;
+import io.opentelemetry.sdk.trace.export.SpanExporter;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
@@ -454,11 +456,12 @@ public class CommunityMongotBootstrapper {
 
   /**
    * Configures mongot-local OpenTelemetry query tracing when the self-managed {@code tracing} block
-   * is enabled. Spans are exported as OTLP-JSON through mongot's structured logs; tracing never
-   * opens a listener or an outbound connection.
+   * is enabled. Spans are always exported as OTLP-JSON through mongot's structured logs; an
+   * optional {@code tracing.otlp} block adds an OTLP/gRPC collector as an additional sink.
    *
-   * <p>Tracing is disabled when the block is absent or {@code enabled: false}. When enabled, the
-   * existing processor and exporter are used with their internal latency-sampling defaults.
+   * <p>Tracing is disabled when the block is absent or {@code enabled: false}, and a disabled
+   * deployment neither constructs an OTLP exporter nor opens an outbound connection. The {@code
+   * otlp} block and its CA file are still validated while the config is read.
    *
    * @return the installed processor when tracing is enabled, or empty when it is disabled
    */
@@ -485,7 +488,8 @@ public class CommunityMongotBootstrapper {
         Optional.of(config.searchTracingSamplerRate()),
         Optional.of(config.vectorTracingSamplerRate()));
 
-    SpanProcessor processor = LatencySamplingSpanProcessor.builder(Slf4jExporter.create()).build();
+    SpanProcessor processor =
+        LatencySamplingSpanProcessor.builder(tracingExporter(config.otlp())).build();
     Tracing.initializeTracer(Optional.empty(), processor);
 
     LOG.atInfo()
@@ -493,8 +497,32 @@ public class CommunityMongotBootstrapper {
         .addKeyValue("vectorSamplingStrategy", config.vectorSamplingStrategy())
         .addKeyValue("searchTracingSamplerRate", config.searchTracingSamplerRate())
         .addKeyValue("vectorTracingSamplerRate", config.vectorTracingSamplerRate())
-        .log("OTEL tracing enabled; traces export as OTLP-JSON through mongot logs.");
+        .addKeyValue("otlpSink", config.otlp().isPresent())
+        .log(
+            config.otlp().isPresent()
+                ? "OTEL tracing enabled; traces export as OTLP-JSON through mongot logs and to the "
+                    + "configured OTLP collector."
+                : "OTEL tracing enabled; traces export as OTLP-JSON through mongot logs.");
     return Optional.of(processor);
+  }
+
+  /**
+   * Builds the exporter for enabled tracing: the log sink, plus the allowlist, plus any OTLP sink.
+   */
+  @VisibleForTesting
+  static SpanExporter tracingExporter(Optional<OtlpTracingConfig> otlpConfig) {
+    return otlpConfig
+        .map(config -> composeWithOtlp(Slf4jExporter.create(), OtlpExporterFactory.create(config)))
+        .orElseGet(() -> new AllowlistSpanExporter(Slf4jExporter.create()));
+  }
+
+  /**
+   * Composes the log sink first with an OTLP sink behind the attribute allowlist, so a blocked
+   * collector cannot starve local log delivery.
+   */
+  @VisibleForTesting
+  static SpanExporter composeWithOtlp(SpanExporter logExporter, SpanExporter otlpExporter) {
+    return new AllowlistSpanExporter(SpanExporter.composite(logExporter, otlpExporter));
   }
 
   /**

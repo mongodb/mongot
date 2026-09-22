@@ -106,6 +106,12 @@ public record CommunityConfig(
   }
 
   private static ParsedCommunityConfig fromBson(BsonDocument document) throws BsonParseException {
+    // tracing.otlp is the one block parsed strictly: unlike the local-only blocks, it's an outbound
+    // sink and its optional caCertificateFile is security-relevant, so a misspelled key would
+    // silently fall back to the JVM trust store instead of the operator's CA. Unknown keys
+    // elsewhere only warn (forward compatibility). This pass only detects unknown keys; endpoint/CA
+    // value validation runs once during the parse below.
+    TracingConfig.validateStrictOtlp(document);
     // Use a permissive parse context so we can collect any unknown fields.
     PermissiveBsonParseContext context = PermissiveBsonParseContext.root();
     CommunityConfig config;

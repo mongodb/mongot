@@ -5,9 +5,11 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -29,7 +31,9 @@ import com.xgen.mongot.util.mongodb.Databases;
 import com.xgen.testing.TestUtils;
 import io.micrometer.core.instrument.composite.CompositeMeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.opentelemetry.sdk.common.CompletableResultCode;
 import io.opentelemetry.sdk.trace.SpanProcessor;
+import io.opentelemetry.sdk.trace.export.SpanExporter;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -38,6 +42,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.junit.After;
@@ -467,7 +472,8 @@ public class CommunityMongotBootstrapperTest {
                     TracingConfig.SamplingStrategy.HEAD,
                     TracingConfig.SamplingStrategy.HEAD,
                     1.0,
-                    0.0)),
+                    0.0,
+                    Optional.empty())),
             this.meterRegistry);
     assertTrue(byRate.isPresent());
     try {
@@ -490,7 +496,8 @@ public class CommunityMongotBootstrapperTest {
                     TracingConfig.SamplingStrategy.TAIL,
                     TracingConfig.SamplingStrategy.HEAD,
                     0.0,
-                    0.0)),
+                    0.0,
+                    Optional.empty())),
             this.meterRegistry);
     assertTrue(byStrategy.isPresent());
     try {
@@ -528,13 +535,37 @@ public class CommunityMongotBootstrapperTest {
     }
   }
 
+  @Test
+  public void composeWithOtlp_invokesLogSinkBeforeOtlp() {
+    AtomicBoolean logCalled = new AtomicBoolean(false);
+    SpanExporter logSink = mock(SpanExporter.class);
+    when(logSink.export(any()))
+        .thenAnswer(
+            invocation -> {
+              logCalled.set(true);
+              return CompletableResultCode.ofSuccess();
+            });
+    SpanExporter otlp = mock(SpanExporter.class);
+    when(otlp.export(any()))
+        .thenAnswer(
+            invocation -> {
+              assertTrue("log sink must be invoked before OTLP", logCalled.get());
+              return CompletableResultCode.ofSuccess();
+            });
+
+    CommunityMongotBootstrapper.composeWithOtlp(logSink, otlp).export(List.of());
+
+    assertTrue(logCalled.get());
+  }
+
   private static TracingConfig disabledTracingConfig() {
     return new TracingConfig(
         false,
         TracingConfig.SamplingStrategy.TAIL,
         TracingConfig.SamplingStrategy.HEAD,
         0.01,
-        0.01);
+        0.01,
+        Optional.empty());
   }
 
   private static final class HaltError extends Error {
