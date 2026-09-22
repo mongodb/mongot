@@ -366,7 +366,8 @@ public class StaticLeaderLeaseManagerTest {
                 "0", new Lease.IndexDefinitionVersionStatus(true, IndexStatus.StatusCode.STEADY)),
             this.mvMetadataCatalog.getMetadata(generationId),
             null,
-            Lease.CleanupState.NOT_ELIGIBLE);
+            Lease.CleanupState.NOT_ELIGIBLE,
+            Lease.FIRST_EPOCH);
     when(this.mockFindIterable.first()).thenReturn(lease.toBson());
 
     LeaseManager.FollowerPollResult result = leaseManager.pollFollowerStatuses();
@@ -405,7 +406,8 @@ public class StaticLeaderLeaseManagerTest {
                 "0", new Lease.IndexDefinitionVersionStatus(true, IndexStatus.StatusCode.STEADY)),
             this.mvMetadataCatalog.getMetadata(generationId),
             null,
-            Lease.CleanupState.NOT_ELIGIBLE);
+            Lease.CleanupState.NOT_ELIGIBLE,
+            Lease.FIRST_EPOCH);
     when(this.mockFindIterable.first()).thenReturn(leaseWithoutVersionOne.toBson());
 
     LeaseManager.FollowerPollResult result = leaseManager.pollFollowerStatuses();
@@ -657,7 +659,8 @@ public class StaticLeaderLeaseManagerTest {
         Map.of("0", new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.UNKNOWN)),
         new MaterializedViewCollectionMetadata(VERSION_ZERO, UUID.randomUUID(), collectionName),
         null,
-        Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+        Lease.CleanupState.ELIGIBLE_FOR_CLEANUP,
+        Lease.FIRST_EPOCH);
   }
 
   /** Seeds the lease→database mapping (as the GC scan would) for the given lease. */
@@ -974,6 +977,7 @@ public class StaticLeaderLeaseManagerTest {
         Map.of("0", new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.UNKNOWN)),
         metadata,
         null,
-        Lease.CleanupState.NOT_ELIGIBLE);
+        Lease.CleanupState.NOT_ELIGIBLE,
+        Lease.FIRST_EPOCH);
   }
 }

@@ -173,7 +173,8 @@ public final class LeaseRepairUtil {
         new MaterializedViewCollectionMetadata(
             mvMeta.schemaMetadata(), newMvUuid, mvMeta.collectionName()),
         null,
-        Lease.CleanupState.NOT_ELIGIBLE);
+        Lease.CleanupState.NOT_ELIGIBLE,
+        lease.epoch());
   }
 
   /**
@@ -199,7 +200,8 @@ public final class LeaseRepairUtil {
         new MaterializedViewCollectionMetadata(
             mvMeta.schemaMetadata(), freshMvUuid, mvMeta.collectionName()),
         lease.steadyAsOfOplogPosition(),
-        Lease.CleanupState.NOT_ELIGIBLE);
+        Lease.CleanupState.NOT_ELIGIBLE,
+        lease.epoch());
   }
 
   private static String stripTenantPrefix(String prefixedDb) throws LeaseRepairException {

@@ -64,6 +64,7 @@ import org.bson.BsonArray;
 import org.bson.BsonBinary;
 import org.bson.BsonDateTime;
 import org.bson.BsonDocument;
+import org.bson.BsonInt64;
 import org.bson.BsonString;
 import org.bson.BsonTimestamp;
 import org.bson.Document;
@@ -360,7 +361,7 @@ public class DynamicLeaderLeaseManagerTest {
 
     Lease expiredCachedLease = createLease(generationId, HOSTNAME, Instant.now().minusSeconds(60));
     this.leaseManager.putLease(leaseKey, expiredCachedLease);
-    Lease newRemoteLease = expiredCachedLease.withRenewedOwnership(OTHER_HOSTNAME);
+    Lease newRemoteLease = expiredCachedLease.withNewTenure(OTHER_HOSTNAME);
     setupFindLeaseFromDatabase(newRemoteLease);
 
     this.leaseManager.add(indexGeneration);
@@ -403,6 +404,43 @@ public class DynamicLeaderLeaseManagerTest {
     assertThat(this.leaseManager.getFollowerGenerationIds()).doesNotContain(generationId);
     LeaseManager.FollowerPollResult result = this.leaseManager.pollFollowerStatuses();
     assertThat(result.acquirableLeases()).doesNotContain(generationId);
+  }
+
+  @Test
+  public void add_missingEpochUnexpiredOwnedLease_resumesLeadershipWithHealedEpoch()
+      throws Exception {
+    // A rolled-back (pre-epoch) binary can drop the epoch field from a lease this host still owns
+    // while continuing to renew it under old code, advancing leaseVersion. On roll-forward, add()'s
+    // "we own an unexpired lease" fast path resumes leadership straight from whatever is already in
+    // memory -- it never calls withNewTenure(). The epoch healed by Lease#fromBson (defaulted to
+    // leaseVersion when absent) must already be safe by the time that fast path runs, and must
+    // survive the next ordinary write (heartbeat) unchanged.
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    String leaseKey = getLeaseKeyFromCatalog(generationId);
+
+    Lease ownedLease = createLease(generationId, HOSTNAME, Instant.now().plusSeconds(3600));
+    BsonDocument writtenByOlderBinary = ownedLease.toBson();
+    writtenByOlderBinary.remove("epoch");
+    writtenByOlderBinary.put("leaseVersion", new BsonInt64(45L));
+    Lease healedLease = Lease.fromBson(writtenByOlderBinary);
+    assertThat(healedLease.epoch()).isEqualTo(45L);
+    this.leaseManager.putLease(leaseKey, healedLease);
+
+    // Act: add() takes the fast path (weOwnLease && !leaseExpired) -- no DB write, no acquisition.
+    this.leaseManager.add(indexGeneration);
+
+    assertThat(this.leaseManager.isLeader(generationId)).isTrue();
+    verify(this.mockCollection, never()).replaceOne(any(), any(BsonDocument.class));
+    assertThat(this.leaseManager.getLeases().get(leaseKey).epoch()).isEqualTo(45L);
+
+    // The next ordinary write (a heartbeat renewal) must preserve the healed epoch exactly --
+    // withRenewedOwnership(), not withNewTenure(), is on this path.
+    putLeaseInRenewalWindow(generationId);
+    setupSuccessfulLeaseUpdate();
+    this.leaseManager.heartbeat();
+
+    assertThat(this.leaseManager.getLeases().get(leaseKey).epoch()).isEqualTo(45L);
   }
 
   @Test
@@ -481,6 +519,10 @@ public class DynamicLeaderLeaseManagerTest {
     assertThat(this.leaseManager.isLeader(generationId)).isTrue();
     assertThat(this.leaseManager.getLeaderGenerationIds()).contains(generationId);
     assertThat(this.leaseManager.getFollowerGenerationIds()).doesNotContain(generationId);
+    // Acquiring leadership from another host's expired lease is a new tenure: epoch bumps (rebased
+    // above leaseVersion, per Lease#withNewTenure).
+    assertThat(this.leaseManager.getLeases().get(getLeaseKeyFromCatalog(generationId)).epoch())
+        .isEqualTo(Math.max(expiredLease.epoch() + 1, expiredLease.leaseVersion() + 1));
   }
 
   @Test
@@ -505,6 +547,10 @@ public class DynamicLeaderLeaseManagerTest {
     assertThat(acquired).isTrue();
     assertThat(this.leaseManager.isLeader(generationId)).isTrue();
     assertThat(this.leaseManager.getLeaderGenerationIds()).contains(generationId);
+    // Same-host reacquisition is still a new tenure: epoch bumps (rebased above leaseVersion, per
+    // Lease#withNewTenure) even though the owner is unchanged.
+    assertThat(this.leaseManager.getLeases().get(getLeaseKeyFromCatalog(generationId)).epoch())
+        .isEqualTo(Math.max(ourLease.epoch() + 1, ourLease.leaseVersion() + 1));
   }
 
   @Test
@@ -787,6 +833,8 @@ public class DynamicLeaderLeaseManagerTest {
     // Put the lease into the renewal window (< 50% TTL remaining) so heartbeat
     // actually attempts renewal instead of skipping it.
     putLeaseInRenewalWindow(generationId);
+    long epochAfterAcquisition =
+        this.leaseManager.getLeases().get(getLeaseKeyFromCatalog(generationId)).epoch();
 
     // Act - heartbeat to renew
     setupSuccessfulLeaseUpdate();
@@ -794,6 +842,9 @@ public class DynamicLeaderLeaseManagerTest {
 
     // Assert - still leader
     assertThat(this.leaseManager.isLeader(generationId)).isTrue();
+    // Heartbeat renewal is not a new tenure: epoch must not bump.
+    assertThat(this.leaseManager.getLeases().get(getLeaseKeyFromCatalog(generationId)).epoch())
+        .isEqualTo(epochAfterAcquisition);
   }
 
   @Test
@@ -2205,7 +2256,7 @@ public class DynamicLeaderLeaseManagerTest {
                 "0",
                 IndexStatus.unknown(),
                 proposedMetadata)
-            .withRenewedOwnership(HOSTNAME);
+            .withNewTenure(HOSTNAME);
 
     FindIterable<BsonDocument> findIterable = mock(FindIterable.class);
     when(this.mockCollection.find(any(Document.class))).thenReturn(findIterable);
@@ -2257,7 +2308,7 @@ public class DynamicLeaderLeaseManagerTest {
                 "0",
                 IndexStatus.unknown(),
                 proposedMetadata)
-            .withRenewedOwnership(HOSTNAME);
+            .withNewTenure(HOSTNAME);
 
     FindIterable<BsonDocument> findIterable = mock(FindIterable.class);
     when(this.mockCollection.find(any(Document.class))).thenReturn(findIterable);
@@ -2834,7 +2885,8 @@ public class DynamicLeaderLeaseManagerTest {
             UUID.randomUUID(),
             collectionName),
         null,
-        Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+        Lease.CleanupState.ELIGIBLE_FOR_CLEANUP,
+        Lease.FIRST_EPOCH);
   }
 
   private static Lease unmarkedLease(String collectionName, Instant leaseExpiration) {
@@ -2854,7 +2906,8 @@ public class DynamicLeaderLeaseManagerTest {
             UUID.randomUUID(),
             collectionName),
         null,
-        Lease.CleanupState.NOT_ELIGIBLE);
+        Lease.CleanupState.NOT_ELIGIBLE,
+        Lease.FIRST_EPOCH);
   }
 
   /** Seeds the lease→database mapping (as the GC scan would) for the given lease. */
@@ -2918,7 +2971,8 @@ public class DynamicLeaderLeaseManagerTest {
                 UUID.randomUUID(),
                 ""),
             null,
-            Lease.CleanupState.ELIGIBLE_FOR_CLEANUP);
+            Lease.CleanupState.ELIGIBLE_FOR_CLEANUP,
+            Lease.FIRST_EPOCH);
     registerViaGcScan(lease);
     when(this.mockFindIterable.first()).thenReturn(lease.toBson());
 
@@ -3230,7 +3284,8 @@ public class DynamicLeaderLeaseManagerTest {
         map,
         new MaterializedViewCollectionMetadata(VERSION_ZERO, UUID.randomUUID(), leaseKey),
         null,
-        Lease.CleanupState.NOT_ELIGIBLE);
+        Lease.CleanupState.NOT_ELIGIBLE,
+        Lease.FIRST_EPOCH);
   }
 
   private MaterializedViewIndexGeneration createTestIndexGeneration() {
@@ -3283,7 +3338,8 @@ public class DynamicLeaderLeaseManagerTest {
             current.indexDefinitionVersionStatusMap(),
             current.materializedViewCollectionMetadata(),
             current.steadyAsOfOplogPosition(),
-            current.cleanupState());
+            current.cleanupState(),
+            current.epoch());
     this.leaseManager.putLease(leaseKey, nearExpiry);
   }
 
@@ -3302,7 +3358,8 @@ public class DynamicLeaderLeaseManagerTest {
         Map.of("0", new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.UNKNOWN)),
         new MaterializedViewCollectionMetadata(VERSION_ZERO, UUID.randomUUID(), "collection-name"),
         null,
-        Lease.CleanupState.NOT_ELIGIBLE);
+        Lease.CleanupState.NOT_ELIGIBLE,
+        Lease.FIRST_EPOCH);
   }
 
   private Lease createLeaseWithStatus(
@@ -3324,7 +3381,8 @@ public class DynamicLeaderLeaseManagerTest {
         Map.of("0", new Lease.IndexDefinitionVersionStatus(isQueryable, statusCode)),
         new MaterializedViewCollectionMetadata(VERSION_ZERO, UUID.randomUUID(), "collection-name"),
         null,
-        Lease.CleanupState.NOT_ELIGIBLE);
+        Lease.CleanupState.NOT_ELIGIBLE,
+        Lease.FIRST_EPOCH);
   }
 
   /** A lease with an explicit latest version and version-status map. */
@@ -3347,7 +3405,8 @@ public class DynamicLeaderLeaseManagerTest {
         versionStatusMap,
         new MaterializedViewCollectionMetadata(VERSION_ZERO, UUID.randomUUID(), "collection-name"),
         null,
-        Lease.CleanupState.NOT_ELIGIBLE);
+        Lease.CleanupState.NOT_ELIGIBLE,
+        Lease.FIRST_EPOCH);
   }
 
   /** Commit info carrying a change-stream checkpoint at {@code opTime}. */
@@ -3375,7 +3434,8 @@ public class DynamicLeaderLeaseManagerTest {
         Map.of("0", new Lease.IndexDefinitionVersionStatus(false, IndexStatus.StatusCode.UNKNOWN)),
         new MaterializedViewCollectionMetadata(VERSION_ZERO, UUID.randomUUID(), "collection-name"),
         null,
-        Lease.CleanupState.NOT_ELIGIBLE);
+        Lease.CleanupState.NOT_ELIGIBLE,
+        Lease.FIRST_EPOCH);
   }
 
   @SuppressWarnings("unchecked")
@@ -3432,7 +3492,8 @@ public class DynamicLeaderLeaseManagerTest {
             uuid,
             collectionName),
         null,
-        Lease.CleanupState.NOT_ELIGIBLE);
+        Lease.CleanupState.NOT_ELIGIBLE,
+        Lease.FIRST_EPOCH);
   }
 
   @Test

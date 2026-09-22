@@ -1584,9 +1584,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
         return false;
       }
       Lease newLease =
-          inMemoryLease
-              .withRenewedOwnership(this.hostname)
-              .withRecordedIndexDefinitionVersion(versionKey);
+          inMemoryLease.withNewTenure(this.hostname).withRecordedIndexDefinitionVersion(versionKey);
       if (weOwnLease || leaseExpired) {
         boolean acquired = acquireExistingLease(generationId, inMemoryLease, newLease);
         // replaceOne completed (committed or OCC loss), so the store is reachable.
@@ -1816,8 +1814,8 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
       this.leases.put(getLeaseKey(generationId), newLease);
       this.localRoles.setLeader(generationId);
       if (isReclaimingOwnLease) {
-        // Taking the lease back does not clear checkpoint risk: withRenewedOwnership() copies
-        // commitInfo over unchanged. The next commit clears it, even an empty one.
+        // Taking the lease back does not clear checkpoint risk: withNewTenure() copies commitInfo
+        // over unchanged. The next commit clears it, even an empty one.
         LOG.atInfo()
             .addKeyValue("generationId", generationId)
             .addKeyValue("hostname", this.hostname)
@@ -2012,7 +2010,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
         return true;
       }
 
-      Lease renewedLease = currentLease.withRenewedOwnership(this.hostname);
+      Lease renewedLease = currentLease.withRenewedOwnership();
       var filter =
           createUpdateFilterForOwnedLease(
               leaseKey, currentLease.leaseVersion(), renewedLease.leaseVersion());

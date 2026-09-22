@@ -30,7 +30,8 @@
           "collectionUuid": "550e8400-e29b-41d4-a716-446655440000",
           "collectionName": "test-collection"
         },
-        "cleanupState": "NOT_ELIGIBLE"
+        "cleanupState": "NOT_ELIGIBLE",
+        "epoch": 0
       },
       "bson": {
         "_id": "test-lease-id",
@@ -66,7 +67,10 @@
           "collectionUuid": "550e8400-e29b-41d4-a716-446655440000",
           "collectionName": "test-collection"
         },
-        "cleanupState": "NOT_ELIGIBLE"
+        "cleanupState": "NOT_ELIGIBLE",
+        "epoch": {
+          "$numberLong": "0"
+        }
       }
     },
     {
@@ -97,7 +101,8 @@
           "collectionUuid": "550e8400-e29b-41d4-a716-446655440000",
           "collectionName": "test-collection"
         },
-        "cleanupState": "NOT_ELIGIBLE"
+        "cleanupState": "NOT_ELIGIBLE",
+        "epoch": 0
       },
       "bson": {
         "_id": "test-lease-id",
@@ -131,9 +136,11 @@
           "collectionUuid": "550e8400-e29b-41d4-a716-446655440000",
           "collectionName": "test-collection"
         },
-        "cleanupState": "NOT_ELIGIBLE"
+        "cleanupState": "NOT_ELIGIBLE",
+        "epoch": {
+          "$numberLong": "0"
+        }
       }
     }
   ]
 }
-

@@ -4587,7 +4587,8 @@ public class MaterializedViewManagerTest {
             matViewUuid,
             leaseKey),
         null,
-        cleanupState);
+        cleanupState,
+        0L);
   }
 
   /**

@@ -101,7 +101,7 @@ public class LeaseRepairUtilTest {
     assertEquals(freshSourceUuid.toString(), repaired.collectionUuid());
     assertEquals(freshMvUuid, repaired.materializedViewCollectionMetadata().collectionUuid());
 
-    // preserved: identity + MV schema + ownership (these came from withRenewedOwnership upstream)
+    // preserved: identity + MV schema + ownership (these came from withNewTenure upstream)
     assertEquals(stale.id(), repaired.id());
     assertEquals(stale.collectionName(), repaired.collectionName());
     assertEquals(
@@ -111,6 +111,8 @@ public class LeaseRepairUtilTest {
         repaired.materializedViewCollectionMetadata().schemaMetadata());
     assertEquals(stale.leaseOwner(), repaired.leaseOwner());
     assertEquals(stale.leaseVersion(), repaired.leaseVersion());
+    // Metadata repair is not an ownership transfer, so epoch must be preserved.
+    assertEquals(stale.epoch(), repaired.epoch());
   }
 
   @Test
@@ -265,6 +267,8 @@ public class LeaseRepairUtilTest {
     assertEquals(
         stale.materializedViewCollectionMetadata().schemaMetadata(),
         repaired.materializedViewCollectionMetadata().schemaMetadata());
+    // Metadata repair is not an ownership transfer, so epoch must be preserved.
+    assertEquals(stale.epoch(), repaired.epoch());
   }
 
   private static Lease leaseWithNamespaceDb(String dbName) {
@@ -305,7 +309,8 @@ public class LeaseRepairUtilTest {
         new MaterializedViewCollectionMetadata(
             VERSION_ZERO, UUID.fromString(COLLECTION_UUID), MV_COLLECTION_NAME),
         steadyPosition,
-        Lease.CleanupState.NOT_ELIGIBLE);
+        Lease.CleanupState.NOT_ELIGIBLE,
+        5L);
   }
 
   // Lease whose commitInfo namespace is the base collection while collectionName holds the view
@@ -335,6 +340,7 @@ public class LeaseRepairUtilTest {
         new MaterializedViewCollectionMetadata(
             VERSION_ZERO, UUID.fromString(COLLECTION_UUID), MV_COLLECTION_NAME),
         new BsonTimestamp(1000, 1),
-        Lease.CleanupState.NOT_ELIGIBLE);
+        Lease.CleanupState.NOT_ELIGIBLE,
+        5L);
   }
 }

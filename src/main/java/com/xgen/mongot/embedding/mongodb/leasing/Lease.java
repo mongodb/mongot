@@ -66,7 +66,8 @@ import org.bson.codecs.pojo.annotations.BsonId;
  *      }
  *     },
  *     "steadyAsOfOplogPosition": {"$timestamp": {"t": 1702857600, "i": 1}},
- *     "cleanupState": "NOT_ELIGIBLE"
+ *     "cleanupState": "NOT_ELIGIBLE",
+ *     "epoch": 42
  *   }
  * </pre>
  */
@@ -83,7 +84,8 @@ public record Lease(
     Map<String, IndexDefinitionVersionStatus> indexDefinitionVersionStatusMap,
     @NonNull MaterializedViewCollectionMetadata materializedViewCollectionMetadata,
     @Nullable BsonTimestamp steadyAsOfOplogPosition,
-    @NonNull CleanupState cleanupState)
+    @NonNull CleanupState cleanupState,
+    long epoch)
     implements DocumentEncodable {
 
   /**
@@ -104,6 +106,8 @@ public record Lease(
   public static final long SCHEMA_VERSION = 1L;
 
   @VisibleForTesting static final long FIRST_LEASE_VERSION = 1L;
+
+  @VisibleForTesting static final long FIRST_EPOCH = 0L;
 
   /** Lease expiration time in milliseconds (5 minutes). */
   public static final long LEASE_EXPIRATION_MS = 300000L;
@@ -250,9 +254,30 @@ public record Lease(
             .asUpperUnderscore()
             .optional()
             .withDefault(CleanupState.NOT_ELIGIBLE);
+
+    /**
+     * Monotonically increasing counter bumped only when lease ownership transfers to a new tenure
+     * (including same-host reacquisition of an expired lease); preserved across renewal,
+     * checkpoint, and status updates. See {@link #withNewTenure} for how the increment can jump
+     * forward to stay compatible with pre-existing {@code leaseVersion}-derived tokens.
+     *
+     * <p>No static default: a document with this field absent — a legacy lease predating it, or one
+     * written by an older binary during a rollback/rolling-upgrade window that drops it — reads
+     * with {@code epoch} defaulted to that same document's {@code leaseVersion} (see {@link
+     * #fromBson(DocumentParser)}), never to a fixed constant. {@code leaseVersion} is an upper
+     * bound on any {@code epoch} that could have existed before it went missing (the two always
+     * advance together on a real tenure change, and {@code leaseVersion} alone only ever
+     * increases), so it is a safe replacement — a fencing floor, not a guess. Applied only when the
+     * field is absent: an explicitly present {@code epoch} below {@code leaseVersion} is legitimate
+     * (renewals advance {@code leaseVersion} between tenure changes) and must be read back exactly
+     * as stored.
+     */
+    public static final Field.Optional<Long> EPOCH =
+        Field.builder("epoch").longField().optional().noDefault();
   }
 
   public static Lease fromBson(DocumentParser parser) throws BsonParseException {
+    long leaseVersion = parser.getField(Fields.LEASE_VERSION).unwrap();
     return new Lease(
         parser.getField(Fields._ID).unwrap(),
         parser.getField(Fields.SCHEMA_VERSION).unwrap(),
@@ -260,7 +285,7 @@ public record Lease(
         parser.getField(Fields.COLLECTION_NAME).unwrap(),
         parser.getField(Fields.LEASE_OWNER).unwrap(),
         Instant.ofEpochMilli(parser.getField(Fields.LEASE_EXPIRATION).unwrap().getValue()),
-        parser.getField(Fields.LEASE_VERSION).unwrap(),
+        leaseVersion,
         parser.getField(Fields.COMMIT_INFO).unwrap(),
         parser.getField(Fields.LATEST_INDEX_DEFINITION_VERSION).unwrap(),
         parser.getField(Fields.INDEX_DEFINITION_VERSION_STATUS_MAP).unwrap(),
@@ -279,7 +304,11 @@ public record Lease(
         // Backwards-compat: leases predating the cleanupState field read as NOT_ELIGIBLE via the
         // field's withDefault. Applied on read (not via normalize-on-startup) so every in-memory
         // Lease is complete; durable upgrade happens the next time the document is written.
-        parser.getField(Fields.CLEANUP_STATE).unwrap());
+        parser.getField(Fields.CLEANUP_STATE).unwrap(),
+        // Backwards-compat / rollback-safety: an absent epoch (legacy lease, or one written by an
+        // older binary that drops the field) reads as leaseVersion — a safe fencing floor, never a
+        // fixed constant. See Fields.EPOCH for why leaseVersion is a valid stand-in.
+        parser.getField(Fields.EPOCH).unwrap().orElse(leaseVersion));
   }
 
   public static Lease fromBson(BsonDocument bsonDocument) throws BsonParseException {
@@ -360,7 +389,8 @@ public record Lease(
             new IndexDefinitionVersionStatus(false, initialIndexStatus.getStatusCode())),
         materializedViewCollectionMetadata,
         null,
-        CleanupState.NOT_ELIGIBLE);
+        CleanupState.NOT_ELIGIBLE,
+        FIRST_EPOCH);
   }
 
   public static Lease newLease(
@@ -386,7 +416,8 @@ public record Lease(
             new IndexDefinitionVersionStatus(false, initialIndexStatus.getStatusCode())),
         materializedViewCollectionMetadata,
         null,
-        CleanupState.NOT_ELIGIBLE);
+        CleanupState.NOT_ELIGIBLE,
+        FIRST_EPOCH);
   }
 
   public Lease withUpdatedCheckpoint(EncodedUserData commitInfo) {
@@ -403,7 +434,8 @@ public record Lease(
         this.indexDefinitionVersionStatusMap,
         this.materializedViewCollectionMetadata,
         this.steadyAsOfOplogPosition,
-        CleanupState.NOT_ELIGIBLE);
+        CleanupState.NOT_ELIGIBLE,
+        this.epoch);
   }
 
   /**
@@ -468,7 +500,8 @@ public record Lease(
         newVersionStatus,
         this.materializedViewCollectionMetadata,
         skipInitialSync ? this.steadyAsOfOplogPosition : null,
-        CleanupState.NOT_ELIGIBLE);
+        CleanupState.NOT_ELIGIBLE,
+        this.epoch);
   }
 
   /**
@@ -510,7 +543,8 @@ public record Lease(
         newVersionStatus,
         this.materializedViewCollectionMetadata,
         this.steadyAsOfOplogPosition,
-        this.cleanupState);
+        this.cleanupState,
+        this.epoch);
   }
 
   /**
@@ -552,23 +586,25 @@ public record Lease(
         newVersionStatus,
         this.materializedViewCollectionMetadata,
         newSteadyPosition,
-        CleanupState.NOT_ELIGIBLE);
+        CleanupState.NOT_ELIGIBLE,
+        this.epoch);
   }
 
   /**
-   * Creates a renewed lease with a new owner, updated expiration, and incremented version. Used for
-   * lease acquisition and renewal (heartbeat).
+   * Creates a renewed lease for the same tenure: new expiration and incremented version, owner
+   * unchanged. Used for lease renewal (heartbeat), which must not bump {@link #epoch}. Takes no
+   * owner argument — renewal by definition cannot change ownership; an actual ownership change must
+   * go through {@link #withNewTenure} so {@link #epoch} bumps with it.
    *
-   * @param newOwner the hostname of the new lease owner
-   * @return a new Lease with updated ownership, expiration, and version
+   * @return a new Lease with updated expiration and version
    */
-  public Lease withRenewedOwnership(String newOwner) {
+  public Lease withRenewedOwnership() {
     return new Lease(
         this.id,
         SCHEMA_VERSION,
         this.collectionUuid,
         this.collectionName,
-        newOwner,
+        this.leaseOwner,
         Instant.now().plusMillis(LEASE_EXPIRATION_MS),
         this.leaseVersion + 1,
         this.commitInfo,
@@ -576,9 +612,54 @@ public record Lease(
         this.indexDefinitionVersionStatusMap,
         this.materializedViewCollectionMetadata,
         this.steadyAsOfOplogPosition,
-        CleanupState.NOT_ELIGIBLE);
+        CleanupState.NOT_ELIGIBLE,
+        this.epoch);
   }
 
+  /**
+   * Creates a lease for a new tenure: new owner, updated expiration, and incremented version, like
+   * {@link #withRenewedOwnership}, but also bumps {@link #epoch}. Used whenever ownership transfers
+   * to {@code newOwner} — including same-host reacquisition of an expired lease, which is a new
+   * tenure even though the owner string does not change.
+   *
+   * <p>{@code epoch} normally just increments by one alongside {@code leaseVersion}, but is rebased
+   * to {@code leaseVersion + 1} whenever that would otherwise pull it ahead — i.e. {@code newEpoch
+   * = max(epoch + 1, leaseVersion + 1)}. {@code leaseVersion} bumps on every write while {@code
+   * epoch} bumps only here, so {@code epoch} converges to equal {@code leaseVersion} immediately
+   * after each new tenure and then drifts behind it until the next one; the rebased branch, not the
+   * plain increment, is what actually fires on essentially every real acquisition. This keeps
+   * {@code epoch} from ever falling behind {@code leaseVersion}, which callers have historically
+   * embedded in MV documents as {@code _autoEmbed._leaseVersion}.
+   *
+   * <p>This method is not what heals a missing {@code epoch} (a legacy lease, or one dropped by an
+   * older binary during a rollback/rolling-upgrade window): {@link #fromBson(DocumentParser)}
+   * already defaults an absent {@code epoch} to that document's {@code leaseVersion} at read time,
+   * before this method ever sees it — so the value it rebases from is already a safe one.
+   *
+   * @param newOwner the hostname of the new lease owner
+   * @return a new Lease with updated ownership, expiration, version, and epoch
+   */
+  public Lease withNewTenure(String newOwner) {
+    long nextLeaseVersion = this.leaseVersion + 1;
+    long nextEpoch = Math.max(this.epoch + 1, nextLeaseVersion);
+    return new Lease(
+        this.id,
+        SCHEMA_VERSION,
+        this.collectionUuid,
+        this.collectionName,
+        newOwner,
+        Instant.now().plusMillis(LEASE_EXPIRATION_MS),
+        nextLeaseVersion,
+        this.commitInfo,
+        this.latestIndexDefinitionVersion,
+        this.indexDefinitionVersionStatusMap,
+        this.materializedViewCollectionMetadata,
+        this.steadyAsOfOplogPosition,
+        CleanupState.NOT_ELIGIBLE,
+        nextEpoch);
+  }
+
+  /** Returns a copy of this lease with the materialized view collection UUID updated. */
   public Lease withResolvedMatViewUuid(UUID matViewCollectionUuid) {
     var newMetadata =
         new MaterializedViewCollectionMetadata(
@@ -599,7 +680,8 @@ public record Lease(
         this.indexDefinitionVersionStatusMap(),
         newMetadata,
         this.steadyAsOfOplogPosition,
-        this.cleanupState);
+        this.cleanupState,
+        this.epoch);
   }
 
   /**
@@ -620,7 +702,8 @@ public record Lease(
         this.indexDefinitionVersionStatusMap,
         this.materializedViewCollectionMetadata,
         this.steadyAsOfOplogPosition,
-        this.cleanupState);
+        this.cleanupState,
+        this.epoch);
   }
 
   /**
@@ -651,7 +734,8 @@ public record Lease(
         this.indexDefinitionVersionStatusMap,
         this.materializedViewCollectionMetadata,
         this.steadyAsOfOplogPosition,
-        newCleanupState);
+        newCleanupState,
+        this.epoch);
   }
 
   /**
@@ -709,6 +793,7 @@ public record Lease(
         .field(
             Fields.STEADY_AS_OF_OPLOG_POSITION, Optional.ofNullable(this.steadyAsOfOplogPosition))
         .field(Fields.CLEANUP_STATE, this.cleanupState)
+        .field(Fields.EPOCH, Optional.of(this.epoch))
         .build();
   }
 }

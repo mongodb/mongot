@@ -39,7 +39,8 @@ public class LeaseManagerTest {
             UUID.randomUUID(),
             id),
         null,
-        Lease.CleanupState.NOT_ELIGIBLE);
+        Lease.CleanupState.NOT_ELIGIBLE,
+        Lease.FIRST_EPOCH);
   }
 
   @Test

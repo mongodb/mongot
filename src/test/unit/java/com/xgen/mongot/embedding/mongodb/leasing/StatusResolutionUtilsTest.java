@@ -176,7 +176,8 @@ public class StatusResolutionUtilsTest {
             UUID.randomUUID(),
             COLLECTION_NAME),
         null,
-        Lease.CleanupState.NOT_ELIGIBLE);
+        Lease.CleanupState.NOT_ELIGIBLE,
+        Lease.FIRST_EPOCH);
   }
 
   private void assertEffectiveStatus(
