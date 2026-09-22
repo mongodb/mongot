@@ -9,7 +9,15 @@ import org.bson.BsonValue;
  */
 public class Field {
 
-  public static class Required<T> {
+  /**
+   * Implemented by {@link Field} specifications that know the YAML name of the field they
+   * deserialize.
+   */
+  public interface Nameable {
+    String getName();
+  }
+
+  public static class Required<T> implements Nameable {
 
     private final String name;
     private final ValueEncoder<T> encoder;
@@ -34,7 +42,7 @@ public class Field {
     }
   }
 
-  public static class Optional<T> {
+  public static class Optional<T> implements Nameable {
 
     private final String name;
     private final ValueEncoder<java.util.Optional<T>> encoder;
@@ -62,7 +70,7 @@ public class Field {
     }
   }
 
-  public static class WithDefault<T> {
+  public static class WithDefault<T> implements Nameable {
 
     private final String name;
     private final ValueEncoder<java.util.Optional<T>> encoder;
