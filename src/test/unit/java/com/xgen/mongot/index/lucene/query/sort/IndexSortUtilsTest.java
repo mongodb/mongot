@@ -4,17 +4,22 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.xgen.mongot.index.definition.SearchIndexCapabilities;
 import com.xgen.mongot.index.lucene.field.FieldName;
+import com.xgen.mongot.index.lucene.query.custom.NullnessAwareIndexSortRangeQuery;
 import com.xgen.mongot.index.lucene.query.sort.mixed.MqlMixedSort;
 import com.xgen.mongot.index.query.sort.MongotSortField;
 import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
 import com.xgen.mongot.util.FieldPath;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.LongPoint;
 import org.apache.lucene.document.NumericDocValuesField;
@@ -22,6 +27,9 @@ import org.apache.lucene.document.SortedNumericDocValuesField;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.search.IndexOrDocValuesQuery;
+import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.Query;
 import org.apache.lucene.search.Sort;
 import org.apache.lucene.search.SortField;
 import org.apache.lucene.search.SortedNumericSelector;
@@ -644,6 +652,166 @@ public class IndexSortUtilsTest {
 
         assertThat(IndexSortUtils.usesIndexSort(freshQuerySort, deserializedSort.get())).isTrue();
       }
+    }
+  }
+
+  // --- rangeQuery tests ---
+  //
+  // All of these reuse NullnessPrefixedIndexTestUtils' nullness-prefixed index shape (a
+  // $meta/nullness prefix field ahead of the value field in the real index sort - the exact shape
+  // LuceneIndexSortFactory produces for NUMBER_INT64_V2/DATE_V2 fields) rather than a plain sort,
+  // since that's the production shape this optimization actually has to handle.
+
+  private static Optional<com.xgen.mongot.index.query.sort.Sort> mongotSortSpec(String fieldName) {
+    return Optional.of(
+        new com.xgen.mongot.index.query.sort.Sort(
+            ImmutableList.of(
+                new MongotSortField(
+                    FieldPath.newRoot(fieldName), UserFieldSortOptions.DEFAULT_ASC))));
+  }
+
+  /** Mirrors the fallback query DateRangeQueryFactory/NumericRangeQueryFactory build in prod. */
+  private static Query fallbackQuery(String field, long lower, long upper) {
+    return new IndexOrDocValuesQuery(
+        LongPoint.newRangeQuery(field, lower, upper),
+        SortedNumericDocValuesField.newSlowRangeQuery(field, lower, upper));
+  }
+
+  @Test
+  public void rangeQuery_optimizationEnabledAndFieldMatchesIndexSort_appliesOptimization()
+      throws IOException {
+    try (Directory directory = NullnessPrefixedIndexTestUtils.buildNullnessPrefixedIndex();
+        DirectoryReader reader = DirectoryReader.open(directory)) {
+      IndexSearcher searcher = new IndexSearcher(reader);
+      Counter counter = new SimpleMeterRegistry().counter("testCounter");
+
+      Query query =
+          IndexSortUtils.rangeQuery(
+              FieldPath.newRoot(NullnessPrefixedIndexTestUtils.VALUE_FIELD),
+              Optional.empty(),
+              NullnessPrefixedIndexTestUtils.VALUE_FIELD,
+              NullnessPrefixedIndexTestUtils.QUERY_LOWER,
+              NullnessPrefixedIndexTestUtils.QUERY_UPPER,
+              mongotSortSpec(NullnessPrefixedIndexTestUtils.VALUE_FIELD),
+              true,
+              counter,
+              () ->
+                  fallbackQuery(
+                      NullnessPrefixedIndexTestUtils.VALUE_FIELD,
+                      NullnessPrefixedIndexTestUtils.QUERY_LOWER,
+                      NullnessPrefixedIndexTestUtils.QUERY_UPPER));
+
+      assertThat(query).isInstanceOf(NullnessAwareIndexSortRangeQuery.class);
+      assertThat(counter.count()).isEqualTo(1.0);
+
+      Set<String> ids = NullnessPrefixedIndexTestUtils.idsOf(searcher, query);
+      assertThat(ids).isEqualTo(NullnessPrefixedIndexTestUtils.expectedMatchingIds());
+    }
+  }
+
+  @Test
+  public void rangeQuery_optimizationDisabled_fallsBackButResultsMatchOptimizedPath()
+      throws IOException {
+    try (Directory directory = NullnessPrefixedIndexTestUtils.buildNullnessPrefixedIndex();
+        DirectoryReader reader = DirectoryReader.open(directory)) {
+      IndexSearcher searcher = new IndexSearcher(reader);
+      Counter counter = new SimpleMeterRegistry().counter("testCounter");
+
+      Query query =
+          IndexSortUtils.rangeQuery(
+              FieldPath.newRoot(NullnessPrefixedIndexTestUtils.VALUE_FIELD),
+              Optional.empty(),
+              NullnessPrefixedIndexTestUtils.VALUE_FIELD,
+              NullnessPrefixedIndexTestUtils.QUERY_LOWER,
+              NullnessPrefixedIndexTestUtils.QUERY_UPPER,
+              mongotSortSpec(NullnessPrefixedIndexTestUtils.VALUE_FIELD),
+              /* optimizationEnabled= */ false,
+              counter,
+              () ->
+                  fallbackQuery(
+                      NullnessPrefixedIndexTestUtils.VALUE_FIELD,
+                      NullnessPrefixedIndexTestUtils.QUERY_LOWER,
+                      NullnessPrefixedIndexTestUtils.QUERY_UPPER));
+
+      assertThat(query).isInstanceOf(IndexOrDocValuesQuery.class);
+      assertThat(counter.count()).isEqualTo(0.0);
+
+      Set<String> ids = NullnessPrefixedIndexTestUtils.idsOf(searcher, query);
+      assertThat(ids).isEqualTo(NullnessPrefixedIndexTestUtils.expectedMatchingIds());
+    }
+  }
+
+  @Test
+  public void rangeQuery_unsortedIndex_fallsBackButResultsMatchOptimizedPath() throws IOException {
+    try (Directory directory = NullnessPrefixedIndexTestUtils.buildNullnessPrefixedIndex();
+        DirectoryReader reader = DirectoryReader.open(directory)) {
+      IndexSearcher searcher = new IndexSearcher(reader);
+      Counter counter = new SimpleMeterRegistry().counter("testCounter");
+
+      Query query =
+          IndexSortUtils.rangeQuery(
+              FieldPath.newRoot(NullnessPrefixedIndexTestUtils.VALUE_FIELD),
+              Optional.empty(),
+              NullnessPrefixedIndexTestUtils.VALUE_FIELD,
+              NullnessPrefixedIndexTestUtils.QUERY_LOWER,
+              NullnessPrefixedIndexTestUtils.QUERY_UPPER,
+              // An unsorted index is represented at the QueryFactoryContext level by
+              // Optional.empty() - see SearchQueryFactoryContext#getIndexSort /
+              // VectorQueryFactoryContext#getIndexSort.
+              Optional.empty(),
+              true,
+              counter,
+              () ->
+                  fallbackQuery(
+                      NullnessPrefixedIndexTestUtils.VALUE_FIELD,
+                      NullnessPrefixedIndexTestUtils.QUERY_LOWER,
+                      NullnessPrefixedIndexTestUtils.QUERY_UPPER));
+
+      assertThat(query).isInstanceOf(IndexOrDocValuesQuery.class);
+      assertThat(counter.count()).isEqualTo(0.0);
+
+      Set<String> ids = NullnessPrefixedIndexTestUtils.idsOf(searcher, query);
+      assertThat(ids).isEqualTo(NullnessPrefixedIndexTestUtils.expectedMatchingIds());
+    }
+  }
+
+  @Test
+  public void rangeQuery_indexSortDoesNotMatchQueriedField_doesNotCountAsApplied()
+      throws IOException {
+    try (Directory directory = NullnessPrefixedIndexTestUtils.buildNullnessPrefixedIndex();
+        DirectoryReader reader = DirectoryReader.open(directory)) {
+      IndexSearcher searcher = new IndexSearcher(reader);
+      Counter counter = new SimpleMeterRegistry().counter("testCounter");
+
+      // The index's real physical sort is on VALUE_FIELD (see buildNullnessPrefixedIndex), but the
+      // mongot-level sort spec passed here claims the index is sorted on an unrelated field. This
+      // mirrors a real production mismatch: the range query's field isn't the field the index is
+      // actually sorted by. LongField.newRangeQuery still unconditionally returns an
+      // IndexSortSortedNumericDocValuesRangeQuery (see IndexSortUtils#rangeQuery's javadoc for why
+      // that per-field eligibility can only be checked by Lucene privately, per-segment), so the
+      // query shape is still wrapped - but IndexSortUtils' own static field-match check must not
+      // count this as "applied".
+      Query query =
+          IndexSortUtils.rangeQuery(
+              FieldPath.newRoot(NullnessPrefixedIndexTestUtils.VALUE_FIELD),
+              Optional.empty(),
+              NullnessPrefixedIndexTestUtils.VALUE_FIELD,
+              NullnessPrefixedIndexTestUtils.QUERY_LOWER,
+              NullnessPrefixedIndexTestUtils.QUERY_UPPER,
+              mongotSortSpec("unrelatedField"),
+              true,
+              counter,
+              () ->
+                  fallbackQuery(
+                      NullnessPrefixedIndexTestUtils.VALUE_FIELD,
+                      NullnessPrefixedIndexTestUtils.QUERY_LOWER,
+                      NullnessPrefixedIndexTestUtils.QUERY_UPPER));
+
+      assertThat(query).isInstanceOf(NullnessAwareIndexSortRangeQuery.class);
+      assertThat(counter.count()).isEqualTo(0.0);
+
+      Set<String> ids = NullnessPrefixedIndexTestUtils.idsOf(searcher, query);
+      assertThat(ids).isEqualTo(NullnessPrefixedIndexTestUtils.expectedMatchingIds());
     }
   }
 }

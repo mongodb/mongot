@@ -12,6 +12,7 @@ import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization
 import com.xgen.mongot.index.definition.quantization.VectorQuantization;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.VectorQueryTimeMappingChecks;
+import com.xgen.mongot.index.query.sort.Sort;
 import com.xgen.mongot.index.version.IndexCapabilities;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.util.FieldPath;
@@ -85,6 +86,12 @@ public class VectorQueryFactoryContext implements QueryFactoryContext {
   @Override
   public IndexCapabilities getIndexCapabilities() {
     return this.resolver.getIndexCapabilities();
+  }
+
+  @Override
+  public Optional<Sort> getIndexSort() {
+    // Vector indexes never support index sort.
+    return Optional.empty();
   }
 
   @Override

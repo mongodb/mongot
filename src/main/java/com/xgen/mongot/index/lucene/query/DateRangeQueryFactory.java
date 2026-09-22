@@ -3,9 +3,11 @@ package com.xgen.mongot.index.lucene.query;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.lucene.field.FieldName;
+import com.xgen.mongot.index.lucene.query.context.QueryFactoryContext;
 import com.xgen.mongot.index.lucene.query.range.InclusiveRangeFactory;
 import com.xgen.mongot.index.lucene.query.range.RangeBoundToDateTransformer;
 import com.xgen.mongot.index.lucene.query.range.RangeQueryUtils;
+import com.xgen.mongot.index.lucene.query.sort.IndexSortUtils;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.operators.bound.RangeBound;
 import com.xgen.mongot.index.query.points.DatePoint;
@@ -30,12 +32,15 @@ public class DateRangeQueryFactory {
           RangeBoundToDateTransformer::getLower,
           RangeBoundToDateTransformer::getUpper);
 
+  private final QueryFactoryContext queryFactoryContext;
   private final IndexCapabilities indexCapabilities;
   private final DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry;
 
   public DateRangeQueryFactory(
-      IndexCapabilities indexCapabilities, DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
-    this.indexCapabilities = indexCapabilities;
+      QueryFactoryContext queryFactoryContext,
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
+    this.queryFactoryContext = queryFactoryContext;
+    this.indexCapabilities = queryFactoryContext.getIndexCapabilities();
     this.dynamicFeatureFlagRegistry = dynamicFeatureFlagRegistry;
   }
 
@@ -62,9 +67,25 @@ public class DateRangeQueryFactory {
                       && numericV2Enabled) {
                     var v2Field =
                         FieldName.TypeField.DATE_V2.getLuceneFieldName(path, embeddedRoot);
-                    return new IndexOrDocValuesQuery(
-                        LongPoint.newRangeQuery(v2Field, lower, upper),
-                        SortedNumericDocValuesField.newSlowRangeQuery(v2Field, lower, upper));
+                    boolean rangeOptimizationEnabled =
+                        this.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+                            DynamicFeatureFlags.INDEX_SORT_RANGE_QUERY_OPTIMIZATION_ENABLED);
+                    return IndexSortUtils.rangeQuery(
+                        path,
+                        embeddedRoot,
+                        v2Field,
+                        lower,
+                        upper,
+                        this.queryFactoryContext.getIndexSort(),
+                        rangeOptimizationEnabled,
+                        this.queryFactoryContext
+                            .getMetrics()
+                            .getIndexSortRangeQueryOptimizationAppliedCounter(),
+                        () ->
+                            new IndexOrDocValuesQuery(
+                                LongPoint.newRangeQuery(v2Field, lower, upper),
+                                SortedNumericDocValuesField.newSlowRangeQuery(
+                                    v2Field, lower, upper)));
                   }
                   return RangeQueryUtils.createLuceneRangeQuery(
                       FieldName.TypeField.DATE.getLuceneFieldName(path, embeddedRoot),

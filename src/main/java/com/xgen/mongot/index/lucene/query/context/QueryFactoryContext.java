@@ -10,6 +10,7 @@ import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization
 import com.xgen.mongot.index.definition.quantization.VectorQuantization;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.QueryTimeMappingChecks;
+import com.xgen.mongot.index.query.sort.Sort;
 import com.xgen.mongot.index.version.IndexCapabilities;
 import com.xgen.mongot.util.FieldPath;
 import java.util.Optional;
@@ -69,6 +70,9 @@ public interface QueryFactoryContext {
 
   /** Returns the {@link IndexCapabilities} associated with the targeted index. */
   IndexCapabilities getIndexCapabilities();
+
+  /** Returns the index sort spec configured for the index this query targets, if any. */
+  Optional<Sort> getIndexSort();
 
   /**
    * Returns the {@link FieldDefinitionResolver} associated with the {@link IndexDefinition} that

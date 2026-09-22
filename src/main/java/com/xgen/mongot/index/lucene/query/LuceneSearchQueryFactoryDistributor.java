@@ -218,13 +218,19 @@ public class LuceneSearchQueryFactoryDistributor {
             featureFlags);
     TermQueryFactory termQueryFactory = new TermQueryFactory(queryFactoryContext);
     DateRangeQueryFactory dateRangeQueryFactory =
-        new DateRangeQueryFactory(
-            queryFactoryContext.getIndexCapabilities(), dynamicFeatureFlagRegistry);
+        new DateRangeQueryFactory(queryFactoryContext, dynamicFeatureFlagRegistry);
+    NumericRangeQueryFactory numericRangeQueryFactory =
+        new NumericRangeQueryFactory(queryFactoryContext, dynamicFeatureFlagRegistry);
     EqualsQueryFactory equalsQueryFactory =
-        new EqualsQueryFactory(queryFactoryContext, dateRangeQueryFactory);
+        new EqualsQueryFactory(
+            queryFactoryContext, dateRangeQueryFactory, numericRangeQueryFactory);
     ExistsQueryFactory existsQueryFactory = new ExistsQueryFactory(queryFactoryContext);
     RangeQueryFactory rangeQueryFactory =
-        new RangeQueryFactory(queryFactoryContext, equalsQueryFactory, dateRangeQueryFactory);
+        new RangeQueryFactory(
+            queryFactoryContext,
+            equalsQueryFactory,
+            dateRangeQueryFactory,
+            numericRangeQueryFactory);
     InQueryFactory inQueryFactory =
         new InQueryFactory(queryFactoryContext, dynamicFeatureFlagRegistry);
 

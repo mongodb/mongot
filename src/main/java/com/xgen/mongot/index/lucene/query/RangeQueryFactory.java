@@ -35,24 +35,27 @@ class RangeQueryFactory {
   private final EqualsQueryFactory equalsQueryFactory;
   private final IndexCapabilities indexCapabilities;
   private final DateRangeQueryFactory dateRangeQueryFactory;
+  private final NumericRangeQueryFactory numericRangeQueryFactory;
 
   public RangeQueryFactory(
       QueryFactoryContext queryFactoryContext, EqualsQueryFactory equalsQueryFactory) {
     this(
         queryFactoryContext,
         equalsQueryFactory,
-        new DateRangeQueryFactory(
-            queryFactoryContext.getIndexCapabilities(), DynamicFeatureFlagRegistry.empty()));
+        new DateRangeQueryFactory(queryFactoryContext, DynamicFeatureFlagRegistry.empty()),
+        new NumericRangeQueryFactory(queryFactoryContext, DynamicFeatureFlagRegistry.empty()));
   }
 
   public RangeQueryFactory(
       QueryFactoryContext queryFactoryContext,
       EqualsQueryFactory equalsQueryFactory,
-      DateRangeQueryFactory dateRangeQueryFactory) {
+      DateRangeQueryFactory dateRangeQueryFactory,
+      NumericRangeQueryFactory numericRangeQueryFactory) {
     this.queryFactoryContext = queryFactoryContext;
     this.equalsQueryFactory = equalsQueryFactory;
     this.indexCapabilities = queryFactoryContext.getIndexCapabilities();
     this.dateRangeQueryFactory = dateRangeQueryFactory;
+    this.numericRangeQueryFactory = numericRangeQueryFactory;
   }
 
   Query fromOperator(RangeOperator operator, SingleQueryContext singleQueryContext)
@@ -150,7 +153,7 @@ class RangeQueryFactory {
       case NumericRangeBound numericRangeBound ->
           paths.mapWithBoundSecondArgument(
               singleQueryContext.getEmbeddedRoot(),
-              NumericRangeQueryFactory.fromBounds(numericRangeBound),
+              this.numericRangeQueryFactory.fromBounds(numericRangeBound),
               BooleanClause.Occur.SHOULD);
       case ObjectIdRangeBound objectIdRangeBound ->
           paths.mapWithBoundSecondArgument(

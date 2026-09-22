@@ -51,12 +51,15 @@ public class VectorSearchFilterQueryFactory {
       VectorQueryFactoryContext factoryContext,
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
     var dateRangeQueryFactory =
-        new DateRangeQueryFactory(
-            factoryContext.getIndexCapabilities(), dynamicFeatureFlagRegistry);
-    var equalsQueryFactory = new EqualsQueryFactory(factoryContext, dateRangeQueryFactory);
+        new DateRangeQueryFactory(factoryContext, dynamicFeatureFlagRegistry);
+    var numericRangeQueryFactory =
+        new NumericRangeQueryFactory(factoryContext, dynamicFeatureFlagRegistry);
+    var equalsQueryFactory =
+        new EqualsQueryFactory(factoryContext, dateRangeQueryFactory, numericRangeQueryFactory);
     var existsQueryFactory = new ExistsQueryFactory(factoryContext);
     var rangeQueryFactory =
-        new RangeQueryFactory(factoryContext, equalsQueryFactory, dateRangeQueryFactory);
+        new RangeQueryFactory(
+            factoryContext, equalsQueryFactory, dateRangeQueryFactory, numericRangeQueryFactory);
     var inQueryFactory = new InQueryFactory(factoryContext, dynamicFeatureFlagRegistry);
     var queryOptimizer =
         new QueryOptimizer(DefaultRuleRegistry.get(), factoryContext, dynamicFeatureFlagRegistry);

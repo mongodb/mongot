@@ -30,18 +30,22 @@ class EqualsQueryFactory {
 
   private final QueryFactoryContext queryFactoryContext;
   private final DateRangeQueryFactory dateRangeQueryFactory;
+  private final NumericRangeQueryFactory numericRangeQueryFactory;
 
   EqualsQueryFactory(QueryFactoryContext queryFactoryContext) {
     this(
         queryFactoryContext,
-        new DateRangeQueryFactory(
-            queryFactoryContext.getIndexCapabilities(), DynamicFeatureFlagRegistry.empty()));
+        new DateRangeQueryFactory(queryFactoryContext, DynamicFeatureFlagRegistry.empty()),
+        new NumericRangeQueryFactory(queryFactoryContext, DynamicFeatureFlagRegistry.empty()));
   }
 
   EqualsQueryFactory(
-      QueryFactoryContext queryFactoryContext, DateRangeQueryFactory dateRangeQueryFactory) {
+      QueryFactoryContext queryFactoryContext,
+      DateRangeQueryFactory dateRangeQueryFactory,
+      NumericRangeQueryFactory numericRangeQueryFactory) {
     this.queryFactoryContext = queryFactoryContext;
     this.dateRangeQueryFactory = dateRangeQueryFactory;
+    this.numericRangeQueryFactory = numericRangeQueryFactory;
   }
 
   Query fromValue(Value value, FieldPath path, Optional<FieldPath> embeddedRoot)
@@ -91,7 +95,8 @@ class EqualsQueryFactory {
   private Query numericQuery(
       NumericValue numericValue, FieldPath path, Optional<FieldPath> embeddedRoot)
       throws InvalidQueryException {
-    return NumericRangeQueryFactory.fromBounds(numericValue.getNumericRangeBound())
+    return this.numericRangeQueryFactory
+        .fromBounds(numericValue.getNumericRangeBound())
         .apply(path, embeddedRoot);
   }
 

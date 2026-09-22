@@ -609,6 +609,9 @@ public class IndexMetricsUpdater implements Closeable {
     /** Number of queries where the query sort can benefit from index sort optimization. */
     private final Counter benefitFromIndexSortCounter;
 
+    /** Number of range queries where the index-sort range query optimization was applied. */
+    private final Counter indexSortRangeQueryOptimizationAppliedCounter;
+
     /**
      * Tracks dynamic HNSW search method selected per segment. Exported as
      * mongot_index_stats_query_knnSearchMode_total
@@ -775,6 +778,8 @@ public class IndexMetricsUpdater implements Closeable {
       this.phantomSearcherCleanupCounter =
           processMetricsFactory.counter("phantomSearcherCleanupCount");
       this.benefitFromIndexSortCounter = processMetricsFactory.counter("benefitFromIndexSortCount");
+      this.indexSortRangeQueryOptimizationAppliedCounter =
+          processMetricsFactory.counter("indexSortRangeQueryOptimizationAppliedCount");
       this.vectorSearchVisitedNodesUnfilteredApproximateCounter =
           processMetricsFactory.counter(
               "vectorSearchVisitedNodes", Tags.of("filter", "false", "mode", "approximate"));
@@ -1075,6 +1080,10 @@ public class IndexMetricsUpdater implements Closeable {
 
     public Counter getBenefitFromIndexSortCounter() {
       return this.benefitFromIndexSortCounter;
+    }
+
+    public Counter getIndexSortRangeQueryOptimizationAppliedCounter() {
+      return this.indexSortRangeQueryOptimizationAppliedCounter;
     }
 
     public Counter getOptimizerInvocations() {

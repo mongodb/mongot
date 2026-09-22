@@ -32,6 +32,7 @@ import com.xgen.mongot.index.path.string.StringMultiFieldPath;
 import com.xgen.mongot.index.path.string.StringPath;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.SearchQueryTimeMappingChecks;
+import com.xgen.mongot.index.query.sort.Sort;
 import com.xgen.mongot.index.synonym.SynonymMapping;
 import com.xgen.mongot.index.synonym.SynonymMappingException;
 import com.xgen.mongot.index.synonym.SynonymRegistry;
@@ -296,6 +297,11 @@ public class SearchQueryFactoryContext implements QueryFactoryContext {
 
   public IndexCapabilities getIndexCapabilities() {
     return this.fieldDefinitionResolver.getIndexCapabilities();
+  }
+
+  @Override
+  public Optional<Sort> getIndexSort() {
+    return this.fieldDefinitionResolver.indexDefinition.getSort();
   }
 
   @Override
