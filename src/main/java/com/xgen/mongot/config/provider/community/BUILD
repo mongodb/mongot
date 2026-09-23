@@ -17,6 +17,7 @@ java_library(
         "CommunityReplicationConfig.java",
         "CommunityServerIdProvider.java",
         "CommunityServerInfo.java",
+        "ConfigSpliceUtil.java",
         "ConnectionInfoFactory.java",
         "CursorConfigMapper.java",
         "DiskMonitorConfig.java",

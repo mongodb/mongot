@@ -13,8 +13,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.bson.BsonDocument;
+import org.bson.BsonValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -99,9 +101,26 @@ public record CommunityConfig(
 
   public static ParsedCommunityConfig readFromFile(Path configPath)
       throws IOException, BsonParseException {
+    return readFromFile(configPath, Map.of());
+  }
+
+  /**
+   * Reads the config from {@code configPath} and merges CLI-supplied values into it.
+   *
+   * <p>See {@link ConfigSpliceUtil#splice} for the merge and conflict semantics.
+   *
+   * @param configPath the path of the YAML config file.
+   * @param cliValues the CLI-supplied values keyed by dot-delimited YAML path.
+   * @throws IOException if the config file cannot be read.
+   * @throws BsonParseException if a config value is set both in the config file and on the command
+   *     line, or the config cannot be parsed.
+   */
+  public static ParsedCommunityConfig readFromFile(
+      Path configPath, Map<String, BsonValue> cliValues) throws IOException, BsonParseException {
     LOG.atInfo().addKeyValue("configPath", configPath).log("Reading config from file");
     String yaml = Files.readString(configPath);
     BsonDocument bson = YamlCodec.fromYaml(yaml);
+    ConfigSpliceUtil.splice(bson, cliValues);
     return CommunityConfig.fromBson(bson);
   }
 

@@ -16,6 +16,7 @@ java_test_suite(
         "CommunityReplicationConfigTest.java",
         "CommunityServerIdProviderTest.java",
         "CommunityServerInfoTest.java",
+        "ConfigSpliceUtilTest.java",
         "ConnectionInfoFactoryTest.java",
         "CursorConfigMapperTest.java",
         "DiskMonitorConfigTest.java",
