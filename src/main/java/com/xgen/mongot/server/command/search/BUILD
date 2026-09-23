@@ -13,6 +13,7 @@ java_library(
         "SearchCommandsRegister.java",
         "ShardedSearchPlanner.java",
         "ShardedSearchPlannerException.java",
+        "VectorQueryEmbedder.java",
         "VectorSearchCommand.java",
     ],
     visibility = ["//visibility:public"],
