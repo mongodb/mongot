@@ -83,6 +83,7 @@ import com.xgen.mongot.util.Bytes;
 import com.xgen.mongot.util.Crash;
 import com.xgen.mongot.util.GlobalMetricFactory;
 import com.xgen.mongot.util.LoggableIdUtils;
+import com.xgen.mongot.util.MongotOnPremEdition;
 import com.xgen.mongot.util.MongotVersionResolver;
 import com.xgen.mongot.util.Runtime;
 import com.xgen.mongot.util.SecretsParser;
@@ -116,21 +117,45 @@ import org.bson.BsonValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class CommunityMongotBootstrapper {
+public class OnPremMongotBootstrapper {
 
-  public static final Logger LOG = LoggerFactory.getLogger(CommunityMongotBootstrapper.class);
+  public static final Logger LOG = LoggerFactory.getLogger(OnPremMongotBootstrapper.class);
 
   private static final Duration DEFAULT_CONFIG_UPDATE_PERIOD = Duration.ofSeconds(1);
 
   // Fixed cadence for refreshing system metrics (disk/memory/netstat/process) gauges.
   private static final Duration SYSTEM_METRICS_UPDATE_INTERVAL = Duration.ofSeconds(5);
 
+  private final DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry;
+
+  private final FeatureFlags featureFlags;
+
+  private final MongotOnPremEdition edition;
+
+  /**
+   * Creates a bootstrapper for an on-prem mongot edition.
+   *
+   * @param dynamicFeatureFlagRegistry the registry wired into all subsystems and installed as the
+   *     process-wide instance; create it only once per process
+   * @param featureFlags the edition's feature-flag defaults, e.g. {@link
+   *     FeatureFlags#communityDefaults()} or {@link FeatureFlags#enterpriseDefaults()}
+   * @param edition the on-prem edition being bootstrapped
+   */
+  public OnPremMongotBootstrapper(
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
+      FeatureFlags featureFlags,
+      MongotOnPremEdition edition) {
+    this.dynamicFeatureFlagRegistry = dynamicFeatureFlagRegistry;
+    this.featureFlags = featureFlags;
+    this.edition = edition;
+  }
+
   /**
    * Bootstraps the mongot using the config file from the supplied configPath.
    *
    * <p>This method does not return until all mongot subsystems have been configured and started.
    */
-  public static void bootstrap(Path configPath, boolean internalListAllIndexesForTesting) {
+  public void bootstrap(Path configPath, boolean internalListAllIndexesForTesting) {
 
     CommunityConfig.ParsedCommunityConfig parsedConfig =
         Crash.because("failed to parse config file")
@@ -178,7 +203,7 @@ public class CommunityMongotBootstrapper {
     var initializedIndexCatalog = new InitializedIndexCatalog();
 
     var mongotVersion = MongotVersionResolver.create().getVersion();
-    var mongotConfigs = getMongotConfigs(config);
+    var mongotConfigs = this.getMongotConfigs(config);
 
     // Initialize static global feature flags for quantization or codec objects
     FeatureFlags.initializeProcessInstance(mongotConfigs.featureFlags);
@@ -250,20 +275,16 @@ public class CommunityMongotBootstrapper {
     // If mongod is unreachable, continue.
     failFastOnTopologyMismatch(clusterTopologyGuard);
 
-    // Community Edition doesn't use DFF; seed bloom-for-id on so it activates whenever
-    // enableNaturalOrderScan=true (default false).
-    // This instance should be created only once during bootstrap.
-    var dynamicFeatureFlagRegistry = DynamicFeatureFlagRegistry.communityDefault();
     // Initialize global DynamicFeatureFlagRegistry for non-DI paths
-    DynamicFeatureFlagRegistry.initializeProcessInstance(dynamicFeatureFlagRegistry);
+    DynamicFeatureFlagRegistry.initializeProcessInstance(this.dynamicFeatureFlagRegistry);
 
     var commandRegisterMetadata =
         new SearchCommandsRegister.BootstrapperMetadata(
             mongotVersion,
-            "mongot-community",
+            this.edition.mongotHostName(),
             mongoDbMetadataClient,
             mongotConfigs.featureFlags,
-            dynamicFeatureFlagRegistry);
+            this.dynamicFeatureFlagRegistry);
 
     // Initialize the community metadata service
     var metadataService = initializeMetadataService(syncSourceConfig, meterRegistry);
@@ -290,7 +311,7 @@ public class CommunityMongotBootstrapper {
             diskMonitor,
             replicationStateMonitor,
             mongotConfigs.featureFlags,
-            dynamicFeatureFlagRegistry,
+            this.dynamicFeatureFlagRegistry,
             embeddingServiceManagerSupplier,
             isAutoEmbeddingViewWriter);
 
@@ -323,7 +344,7 @@ public class CommunityMongotBootstrapper {
             mongotConfigs.indexDefinitionConfig,
             embeddingServiceManagerSupplier,
             mongotConfigs.featureFlags,
-            dynamicFeatureFlagRegistry,
+            this.dynamicFeatureFlagRegistry,
             meterAndFtdcRegistry.threadPoolResourceBindings());
 
     var readinessChecker =
@@ -367,7 +388,7 @@ public class CommunityMongotBootstrapper {
         initialSyncHostProvider::close,
         mongodTopologyMonitor::close,
         // Flush and stop tracing before the logger is closed so buffered traces are not lost.
-        () -> tracingProcessor.ifPresent(CommunityMongotBootstrapper::flushAndShutdownTracing),
+        () -> tracingProcessor.ifPresent(OnPremMongotBootstrapper::flushAndShutdownTracing),
         Logging::shutdown);
 
     // Start our background processes.
@@ -433,7 +454,7 @@ public class CommunityMongotBootstrapper {
       return Optional.empty();
     }
 
-    var address = CommunityMongotBootstrapper.parseInetSocketAddress(metricsConfig.address());
+    var address = OnPremMongotBootstrapper.parseInetSocketAddress(metricsConfig.address());
     return Optional.of(
         PrometheusServer.start(
             address,
@@ -1080,7 +1101,7 @@ public class CommunityMongotBootstrapper {
     LOG.atWarn().log("Ignoring unrecognized field(s) in mongot config file: {}", unknownFields);
   }
 
-  private static MongotConfigs getMongotConfigs(CommunityConfig config) {
+  private MongotConfigs getMongotConfigs(CommunityConfig config) {
     var luceneConfig =
         LuceneConfigMapper.toLuceneConfig(
             config,
@@ -1118,7 +1139,6 @@ public class CommunityMongotBootstrapper {
                 .flatMap(CommunityIndexingConfig::definitionConfig)
                 .flatMap(d -> d.maxEmbeddedDocumentsNestingLevel()));
     var lifecycleConfig = LifecycleConfig.getDefault();
-    var featureFlags = FeatureFlags.communityDefaults();
     var environmentVariantPerfConfig = EnvironmentVariantPerfConfig.getDefault();
     var regularBlockingRequestSettings =
         SearchQueryAdmissionControlConfigMapper.createRegularBlockingRequestSettings(
@@ -1135,7 +1155,7 @@ public class CommunityMongotBootstrapper {
         cursorConfig,
         indexDefinitionConfig,
         lifecycleConfig,
-        featureFlags,
+        this.featureFlags,
         environmentVariantPerfConfig,
         regularBlockingRequestSettings,
         autoEmbeddingMaterializedViewConfig);

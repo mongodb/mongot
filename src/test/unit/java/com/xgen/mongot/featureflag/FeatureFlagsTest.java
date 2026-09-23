@@ -250,6 +250,35 @@ public class FeatureFlagsTest {
     }
 
     @Test
+    public void enterpriseDefaults_enablesAtlasRolledOutFeatures() {
+      FeatureFlags flags = FeatureFlags.enterpriseDefaults();
+      assertTrue(flags.isEnabled(Feature.FACETING_OVER_TOKEN_FIELDS));
+      assertTrue(flags.isEnabled(Feature.NEW_EMBEDDED_SEARCH_CAPABILITIES));
+      assertTrue(flags.isEnabled(Feature.ACCURATE_NUM_EMBEDDED_ROOT_DOCS_METRIC));
+      assertTrue(flags.isEnabled(Feature.INDEX_FEATURE_VERSION_FOUR));
+      assertTrue(flags.isEnabled(Feature.SORTED_INDEX));
+      assertTrue(flags.isEnabled(Feature.STALE_STATE_TRANSITION));
+      assertTrue(flags.isEnabled(Feature.RETAIN_FAILED_INDEX_DATA_ON_DISK));
+      assertTrue(flags.isEnabled(Feature.REMOVE_ABSENT_INDEXES_BEFORE_INITIALIZATION));
+      assertTrue(flags.isEnabled(Feature.SHUT_DOWN_REPLICATION_WHEN_COLLECTION_NOT_FOUND));
+      assertTrue(flags.isEnabled(Feature.FLOOR_SEGMENT_MB));
+      assertTrue(flags.isEnabled(Feature.TRUNCATE_AUTOCOMPLETE_TOKENS));
+      assertTrue(flags.isEnabled(Feature.FTDC_EXECUTOR_METRICS_TO_PROMETHEUS));
+      assertTrue(flags.isEnabled(Feature.INDEX_SIZE_QUANTIZATION_METRICS));
+      assertTrue(flags.isEnabled(Feature.CACHE_WARMER));
+      assertTrue(flags.isEnabled(Feature.CONCURRENT_INDEX_PARTITION_SEARCH));
+      assertTrue(flags.isEnabled(Feature.CANCEL_MERGE));
+
+      // Other disabled-by-default features remain disabled
+      assertFalse(flags.isEnabled(Feature.OVERLOAD_RETRY_SIGNAL));
+      // Enabled-by-default features remain enabled
+      assertTrue(flags.isEnabled(Feature.INITIAL_INDEX_STATUS_UNKNOWN));
+      assertTrue(flags.isEnabled(Feature.ENABLE_VALIDATION_OF_RETURN_STORED_SOURCE));
+      assertTrue(flags.isEnabled(Feature.VECTOR_STORED_SOURCE));
+      assertTrue(flags.isEnabled(Feature.NESTED_VECTOR));
+    }
+
+    @Test
     public void equals_sameStates_areEqual() {
       FeatureFlags flags1 =
           FeatureFlags.withDefaults().enable(Feature.STALE_STATE_TRANSITION).build();

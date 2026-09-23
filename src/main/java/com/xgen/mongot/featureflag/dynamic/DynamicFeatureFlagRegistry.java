@@ -128,7 +128,7 @@ public class DynamicFeatureFlagRegistry {
    * result and ensure the evaluation returns true. The synthetic value are irrelevant (ENABLED
    * short-circuits the rollout hash); all-zero is a deterministic synthetic value.
    */
-  static final ObjectId COMMUNITY_SENTINEL_CLUSTER_ID = new ObjectId(new byte[12]);
+  static final ObjectId ONPREM_SENTINEL_CLUSTER_ID = new ObjectId(new byte[12]);
 
   /**
    * Registry with no flags configured; {@link #evaluateClusterInvariant(DynamicFeatureFlags)}
@@ -146,7 +146,7 @@ public class DynamicFeatureFlagRegistry {
    * {@code ENABLED}, while leaving every other flag unregistered (falling through to its declared
    * fallback, identical to {@link #empty()}).
    *
-   * <p>A synthetic cluster id ({@link #COMMUNITY_SENTINEL_CLUSTER_ID}) is supplied so these flags'
+   * <p>A synthetic cluster id ({@link #ONPREM_SENTINEL_CLUSTER_ID}) is supplied so these flags'
    * evaluations are eagerly cached by {@code buildInternalConfig}. Without a cluster id a {@code
    * MONGOT_CLUSTER}-scoped flag would not be cached and {@code evaluateClusterInvariant} would fall
    * back to its declared {@code false} default. The scope here is only the synthetic caching key;
@@ -162,7 +162,22 @@ public class DynamicFeatureFlagRegistry {
                 communityEnabled(DynamicFeatureFlags.MV_GC_DELETION_ENABLED))),
         Optional.empty(),
         Optional.empty(),
-        Optional.of(COMMUNITY_SENTINEL_CLUSTER_ID));
+        Optional.of(ONPREM_SENTINEL_CLUSTER_ID));
+  }
+
+  /**
+   * Enterprise counterpart of {@link #communityDefault()}; seeds the same on-prem default flags.
+   */
+  public static DynamicFeatureFlagRegistry enterpriseDefault() {
+    return new DynamicFeatureFlagRegistry(
+        Optional.of(
+            List.of(
+                communityEnabled(DynamicFeatureFlags.BLOOM_FILTER_FOR_ID_FIELD),
+                communityEnabled(DynamicFeatureFlags.MV_GC_ENABLED),
+                communityEnabled(DynamicFeatureFlags.MV_GC_DELETION_ENABLED))),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.of(ONPREM_SENTINEL_CLUSTER_ID));
   }
 
   private static DynamicFeatureFlagConfig communityEnabled(DynamicFeatureFlags flag) {

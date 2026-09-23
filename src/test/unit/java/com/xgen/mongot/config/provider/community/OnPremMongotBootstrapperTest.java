@@ -51,11 +51,11 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 /**
- * Unit tests for CommunityMongotBootstrapper embedding initialization logic.
+ * Unit tests for OnPremMongotBootstrapper embedding initialization logic.
  *
  * <p>Tests the initializeEmbeddingService() and applyEndpointOverride() methods.
  */
-public class CommunityMongotBootstrapperTest {
+public class OnPremMongotBootstrapperTest {
 
   private static final String CUSTOM_ENDPOINT = "https://custom-api.example.com/v1/embeddings";
   private static final String TEST_QUERY_KEY = "test-query-key";
@@ -113,7 +113,7 @@ public class CommunityMongotBootstrapperTest {
     CommunityConfig config = this.createMinimalConfigWithEmbedding(Optional.empty());
 
     Supplier<EmbeddingServiceManager> supplier =
-        CommunityMongotBootstrapper.initializeEmbeddingService(
+        OnPremMongotBootstrapper.initializeEmbeddingService(
             config, this.mongotConfigs, this.meterRegistry, null);
 
     assertNotNull("Supplier should not be null", supplier);
@@ -138,7 +138,7 @@ public class CommunityMongotBootstrapperTest {
     CommunityConfig config = this.createMinimalConfigWithEmbedding(Optional.of(embeddingConfig));
 
     Supplier<EmbeddingServiceManager> supplier =
-        CommunityMongotBootstrapper.initializeEmbeddingService(
+        OnPremMongotBootstrapper.initializeEmbeddingService(
             config, this.mongotConfigs, this.meterRegistry, null);
 
     assertNotNull("Supplier should not be null", supplier);
@@ -187,7 +187,7 @@ public class CommunityMongotBootstrapperTest {
     CommunityConfig config = this.createMinimalConfigWithEmbedding(Optional.of(embeddingConfig));
 
     Supplier<EmbeddingServiceManager> supplier =
-        CommunityMongotBootstrapper.initializeEmbeddingService(
+        OnPremMongotBootstrapper.initializeEmbeddingService(
             config, this.mongotConfigs, this.meterRegistry, null);
 
     assertNotNull("Supplier should not be null", supplier);
@@ -241,7 +241,7 @@ public class CommunityMongotBootstrapperTest {
     var guard = mock(CatalogAccessGuard.class);
     doNothing().when(guard).requireTopologyMatch();
 
-    CommunityMongotBootstrapper.failFastOnTopologyMismatch(guard);
+    OnPremMongotBootstrapper.failFastOnTopologyMismatch(guard);
   }
 
   @Test
@@ -259,7 +259,7 @@ public class CommunityMongotBootstrapperTest {
 
     try {
       assertThrows(
-          HaltError.class, () -> CommunityMongotBootstrapper.failFastOnTopologyMismatch(guard));
+          HaltError.class, () -> OnPremMongotBootstrapper.failFastOnTopologyMismatch(guard));
       assertEquals("expected fail-exit code 1", 1, exitCode.get());
     } finally {
       Crash.clearHaltHandlerForTesting();
@@ -273,15 +273,15 @@ public class CommunityMongotBootstrapperTest {
         .when(guard)
         .requireTopologyMatch();
 
-    CommunityMongotBootstrapper.failFastOnTopologyMismatch(guard);
+    OnPremMongotBootstrapper.failFastOnTopologyMismatch(guard);
   }
 
   @Test
   public void maybeCreateFtdcReporter_FtdcDisabled_DoesNotCreateFtdcReporter() throws IOException {
     CompositeMeterRegistry compositeRegistry = new CompositeMeterRegistry();
     SimpleMeterRegistry simpleRegistry = new SimpleMeterRegistry();
-    Optional<CommunityMongotBootstrapper.MetricsLifecycles> metricsLifecycles =
-        CommunityMongotBootstrapper.maybeCreateFtdcReporter(
+    Optional<OnPremMongotBootstrapper.MetricsLifecycles> metricsLifecycles =
+        OnPremMongotBootstrapper.maybeCreateFtdcReporter(
             compositeRegistry,
             simpleRegistry,
             this.createMinimalConfigWithFtdc(
@@ -308,7 +308,7 @@ public class CommunityMongotBootstrapperTest {
           "Test code should never call System.exit()",
           SecurityException.class,
           () ->
-              CommunityMongotBootstrapper.maybeCreateFtdcReporter(
+              OnPremMongotBootstrapper.maybeCreateFtdcReporter(
                   compositeRegistry,
                   simpleRegistry,
                   this.createMinimalConfigWithFtdc(
@@ -328,8 +328,8 @@ public class CommunityMongotBootstrapperTest {
     try {
       CompositeMeterRegistry compositeRegistry = new CompositeMeterRegistry();
       SimpleMeterRegistry simpleRegistry = new SimpleMeterRegistry();
-      Optional<CommunityMongotBootstrapper.MetricsLifecycles> metricsLifecycles =
-          CommunityMongotBootstrapper.maybeCreateFtdcReporter(
+      Optional<OnPremMongotBootstrapper.MetricsLifecycles> metricsLifecycles =
+          OnPremMongotBootstrapper.maybeCreateFtdcReporter(
               compositeRegistry,
               simpleRegistry,
               this.createMinimalConfigWithFtdc(
@@ -425,7 +425,7 @@ public class CommunityMongotBootstrapperTest {
         CommunityConfig.readFromFile(configPath).config().tracingConfig().orElseThrow();
 
     Optional<SpanProcessor> processor =
-        CommunityMongotBootstrapper.configureTracing(Optional.of(config), this.meterRegistry);
+        OnPremMongotBootstrapper.configureTracing(Optional.of(config), this.meterRegistry);
     assertTrue(processor.isPresent());
     assertEquals(1.0, this.meterRegistry.get("tracing.enabled").gauge().value(), 0.0);
 
@@ -441,7 +441,7 @@ public class CommunityMongotBootstrapperTest {
     } finally {
       // The shutdown helper must flush the buffered traces before stopping the processor; if the
       // order were reversed, shutdown would clear the buffer and no log would be emitted.
-      CommunityMongotBootstrapper.flushAndShutdownTracing(installed);
+      OnPremMongotBootstrapper.flushAndShutdownTracing(installed);
     }
 
     assertTrue(
@@ -465,7 +465,7 @@ public class CommunityMongotBootstrapperTest {
   public void configureTracing_enabled_appliesStrategiesAndRatesIndependently() {
     // Rates are per-signal: head sampling at 1.0 records; at 0.0 it does not.
     Optional<SpanProcessor> byRate =
-        CommunityMongotBootstrapper.configureTracing(
+        OnPremMongotBootstrapper.configureTracing(
             Optional.of(
                 new TracingConfig(
                     true,
@@ -489,7 +489,7 @@ public class CommunityMongotBootstrapperTest {
 
     // Strategies are per-signal: tail records regardless of rate; head at 0.0 does not.
     Optional<SpanProcessor> byStrategy =
-        CommunityMongotBootstrapper.configureTracing(
+        OnPremMongotBootstrapper.configureTracing(
             Optional.of(
                 new TracingConfig(
                     true,
@@ -522,7 +522,7 @@ public class CommunityMongotBootstrapperTest {
       SimpleMeterRegistry registry = new SimpleMeterRegistry();
 
       Optional<SpanProcessor> processor =
-          CommunityMongotBootstrapper.configureTracing(config, registry);
+          OnPremMongotBootstrapper.configureTracing(config, registry);
 
       assertTrue(processor.isEmpty());
       assertEquals(0.0, registry.get("tracing.enabled").gauge().value(), 0.0);
@@ -553,7 +553,7 @@ public class CommunityMongotBootstrapperTest {
               return CompletableResultCode.ofSuccess();
             });
 
-    CommunityMongotBootstrapper.composeWithOtlp(logSink, otlp).export(List.of());
+    OnPremMongotBootstrapper.composeWithOtlp(logSink, otlp).export(List.of());
 
     assertTrue(logCalled.get());
   }

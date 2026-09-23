@@ -30,6 +30,7 @@ java_library(
         "LoggableException.java",
         "LoggableIdUtils.java",
         "LoggableRuntimeException.java",
+        "MongotOnPremEdition.java",
         "MongotVersionResolver.java",
         "NamingUtils.java",
         "NotImplementedException.java",

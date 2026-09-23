@@ -1,10 +1,13 @@
 package com.xgen.mongot.community;
 
 import com.google.common.net.HostAndPort;
-import com.xgen.mongot.config.provider.community.CommunityMongotBootstrapper;
+import com.xgen.mongot.config.provider.community.OnPremMongotBootstrapper;
+import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.index.lucene.vector.Similarity;
 import com.xgen.mongot.logging.Logging;
 import com.xgen.mongot.util.Crash;
+import com.xgen.mongot.util.MongotOnPremEdition;
 import com.xgen.mongot.util.MongotVersionResolver;
 import com.xgen.mongot.util.security.Security;
 import java.nio.file.Path;
@@ -64,11 +67,17 @@ public class MongotCommunity implements Runnable, IVersionProvider {
       Crash.because("should be running Java 21").now();
     }
 
+    // On-prem editions don't use DFF; communityDefault() seeds the flags that should default on
+    // for on-prem. This instance is created only once per process.
+    var dynamicFeatureFlagRegistry = DynamicFeatureFlagRegistry.communityDefault();
+    var featureFlags = FeatureFlags.communityDefaults();
+
     Crash.because("failed to bootstrap")
         .ifThrows(
             () ->
-                CommunityMongotBootstrapper.bootstrap(
-                    this.configPath, this.internalListAllIndexesForTesting));
+                new OnPremMongotBootstrapper(
+                        dynamicFeatureFlagRegistry, featureFlags, MongotOnPremEdition.COMMUNITY)
+                    .bootstrap(this.configPath, this.internalListAllIndexesForTesting));
   }
 
   public static void main(String[] args) {

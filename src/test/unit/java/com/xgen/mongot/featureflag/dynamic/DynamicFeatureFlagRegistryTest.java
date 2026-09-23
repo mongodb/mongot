@@ -789,6 +789,33 @@ public class DynamicFeatureFlagRegistryTest {
     }
 
     @Test
+    public void enterpriseDefault_bloomAndMvGcEnabled_otherFlagsAtFallback() {
+      var registry = DynamicFeatureFlagRegistry.enterpriseDefault();
+
+      assertTrue(
+          "enterpriseDefault should enable BLOOM_FILTER_FOR_ID_FIELD",
+          registry.evaluateClusterInvariant(BLOOM_FILTER_FOR_ID_FIELD));
+
+      assertTrue(
+          "enterpriseDefault should enable MV_GC_ENABLED so GC runs on enterprise / on-prem",
+          registry.evaluateClusterInvariant(MV_GC_ENABLED));
+
+      assertTrue(
+          "enterpriseDefault should enable MV_GC_DELETION_ENABLED so GC actually cleans up"
+              + " superseded MVs on enterprise / on-prem",
+          registry.evaluateClusterInvariant(MV_GC_DELETION_ENABLED));
+
+      assertFalse(
+          "enterpriseDefault should leave BLOOM_FILTER_IN_STEADY_STATE at its false fallback",
+          registry.evaluateClusterInvariant(BLOOM_FILTER_IN_STEADY_STATE));
+
+      assertTrue(
+          "enterpriseDefault should preserve the true fallback of"
+              + " DISABLE_BULK_SCORER_QUERY_FOR_EMBEDDED_DOCUMENT_CHILD",
+          registry.evaluateClusterInvariant(DISABLE_BULK_SCORER_QUERY_FOR_EMBEDDED_DOCUMENT_CHILD));
+    }
+
+    @Test
     public void gaugeEmission_removedFlag_zeroedOut() {
       MeterRegistry meterRegistry = new SimpleMeterRegistry();
       MetricsFactory metricsFactory = new MetricsFactory("dynamicFeature", meterRegistry);
