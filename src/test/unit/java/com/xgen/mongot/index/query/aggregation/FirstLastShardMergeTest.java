@@ -284,6 +284,7 @@ public class FirstLastShardMergeTest {
               }},
               {"$project": {
                 "_id": "$_id",
+                "count": {"total": "$count_value"},
                 "by_color": {"buckets": {"$map": {
                   "input": "$_rows",
                   "as": "row",

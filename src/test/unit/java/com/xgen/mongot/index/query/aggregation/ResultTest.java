@@ -1,6 +1,7 @@
 package com.xgen.mongot.index.query.aggregation;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 
 import com.xgen.mongot.util.Check;
@@ -20,6 +21,7 @@ import org.junit.Test;
 public class ResultTest {
 
   private static final FieldPath CITY = FieldPath.parse("city");
+  private static final FieldPath COLOR = FieldPath.parse("color");
 
   @Test
   public void aggregationResultsByName() {
@@ -85,6 +87,114 @@ public class ResultTest {
   }
 
   @Test
+  public void toStandaloneBson_nestedGroups_emitsCountOnIntermediateBucketsOnly() {
+    TermsResult inner =
+        new TermsResult(
+            "by_color",
+            COLOR,
+            List.of(
+                new TermsResult.TermsBucket(
+                    "red", AggregationResults.from(List.of(new SumResult("sum", 10.0))), 3L)));
+    TermsResult outer =
+        new TermsResult(
+            "by_city",
+            CITY,
+            List.of(
+                new TermsResult.TermsBucket("NYC", AggregationResults.from(List.of(inner)), 3L)));
+
+    BsonDocument bson = (BsonDocument) outer.toStandaloneBson();
+
+    BsonDocument nyc = bson.getArray("buckets").get(0).asDocument();
+    assertEquals(new BsonDocument("total", new org.bson.BsonInt64(3)), nyc.getDocument("count"));
+    BsonDocument red = nyc.getDocument("by_color").getArray("buckets").get(0).asDocument();
+    assertFalse(red.containsKey("count"));
+    assertEquals(new org.bson.BsonDouble(10.0), red.get("sum"));
+  }
+
+  @Test
+  public void toStandaloneBson_mergedNestedGroups_sumsIntermediateCount() {
+    TermsResult left =
+        new TermsResult(
+            "by_city",
+            CITY,
+            List.of(
+                new TermsResult.TermsBucket(
+                    "NYC",
+                    AggregationResults.from(
+                        List.of(
+                            new TermsResult(
+                                "by_color",
+                                COLOR,
+                                List.of(
+                                    new TermsResult.TermsBucket(
+                                        "red",
+                                        AggregationResults.from(
+                                            List.of(new SumResult("sum", 10.0)))))))),
+                    3L)));
+    TermsResult right =
+        new TermsResult(
+            "by_city",
+            CITY,
+            List.of(
+                new TermsResult.TermsBucket(
+                    "NYC",
+                    AggregationResults.from(
+                        List.of(
+                            new TermsResult(
+                                "by_color",
+                                COLOR,
+                                List.of(
+                                    new TermsResult.TermsBucket(
+                                        "red",
+                                        AggregationResults.from(
+                                            List.of(new SumResult("sum", 20.0)))))))),
+                    2L)));
+
+    AggregationResult merged = merge(left, right);
+    BsonDocument bson = (BsonDocument) merged.toStandaloneBson();
+
+    BsonDocument nyc = bson.getArray("buckets").get(0).asDocument();
+    assertEquals(new BsonDocument("total", new org.bson.BsonInt64(5)), nyc.getDocument("count"));
+    BsonDocument red = nyc.getDocument("by_color").getArray("buckets").get(0).asDocument();
+    assertEquals(new org.bson.BsonDouble(30.0), red.get("sum"));
+  }
+
+  @Test
+  public void toStandaloneBson_flatGroup_doesNotEmitAutomaticCount() {
+    TermsResult flat =
+        new TermsResult(
+            "by_city",
+            CITY,
+            List.of(
+                new TermsResult.TermsBucket(
+                    "NYC", AggregationResults.from(List.of(new SumResult("sum", 10.0))), 3L)));
+
+    BsonDocument bson = (BsonDocument) flat.toStandaloneBson();
+
+    BsonDocument nyc = bson.getArray("buckets").get(0).asDocument();
+    assertFalse(nyc.containsKey("count"));
+    assertEquals(new org.bson.BsonDouble(10.0), nyc.get("sum"));
+  }
+
+  @Test
+  public void toStandaloneBson_groupChildNamedCount_throwsIllegalState() {
+    TermsResult inner =
+        new TermsResult(
+            "count",
+            COLOR,
+            List.of(
+                new TermsResult.TermsBucket(
+                    "red", AggregationResults.from(List.of(new SumResult("sum", 10.0))))));
+    TermsResult outer =
+        new TermsResult(
+            "by_city",
+            CITY,
+            List.of(new TermsResult.TermsBucket("NYC", AggregationResults.from(List.of(inner)))));
+
+    assertThrows(IllegalStateException.class, outer::toStandaloneBson);
+  }
+
+  @Test
   public void topLevelResultMergesChildrenByName() {
     TopLevelAggregationResult left =
         new TopLevelAggregationResult(List.of(new SumResult("a", 1.0), new SumResult("b", 2.0)));
@@ -141,7 +251,7 @@ public class ResultTest {
 
     @Override
     public BsonValue toStandaloneBson() {
-      return null;
+      return new org.bson.BsonDouble(this.value);
     }
 
     @Override
@@ -204,7 +314,8 @@ public class ResultTest {
       // child results are finalized, matching the container contract.
       List<TermsBucket> finalized = new ArrayList<>(this.buckets.size());
       for (TermsBucket b : this.buckets) {
-        finalized.add(new TermsBucket(b.key, b.getChildResults().applyLimit()));
+        finalized.add(
+            new TermsResult.TermsBucket(b.key, b.getChildResults().applyLimit(), b.docCount));
       }
       return new TermsResult(this.name, this.path, finalized);
     }
@@ -212,10 +323,16 @@ public class ResultTest {
     static final class TermsBucket implements Bucket {
       private final String key;
       private final AggregationResults childResults;
+      private final long docCount;
 
       TermsBucket(String key, AggregationResults childResults) {
+        this(key, childResults, 1L);
+      }
+
+      TermsBucket(String key, AggregationResults childResults, long docCount) {
         this.key = key;
         this.childResults = childResults;
+        this.docCount = docCount;
       }
 
       @Override
@@ -230,7 +347,7 @@ public class ResultTest {
 
       @Override
       public long getDocCount() {
-        return 1L;
+        return this.docCount;
       }
 
       static TermsBucket merge(TermsBucket a, TermsBucket b) {
@@ -238,7 +355,9 @@ public class ResultTest {
         for (AggregationResult lhs : a.childResults) {
           merged.add(ResultTest.merge(lhs, b.childResults.get(lhs.getName())));
         }
-        return new TermsBucket(a.key, AggregationResults.from(merged));
+        // Sum doc counts, matching production TermsAggregationResult's merge builder.
+        return new TermsResult.TermsBucket(
+            a.key, AggregationResults.from(merged), a.docCount + b.docCount);
       }
     }
   }

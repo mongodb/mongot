@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.bson.BsonArray;
 import org.bson.BsonDocument;
+import org.bson.BsonInt64;
 import org.bson.BsonValue;
 
 /**
@@ -73,9 +74,25 @@ public abstract class MultiBucketAggregationResult implements AggregationResult 
       BsonDocument bucketDoc = new BsonDocument();
       bucketDoc.append("_id", bucket.getKey());
 
+      // Only add bucket count for intermediate level and the leaf level requires explicit user
+      // count field.
+      if (hasGroupChild(bucket)) {
+        bucketDoc.append(
+            IntermediateAggregationMetaField.BUCKET_DOC_COUNT,
+            new BsonDocument(
+                IntermediateAggregationMetaField.BUCKET_DOC_COUNT_TYPE,
+                new BsonInt64(bucket.getDocCount())));
+      }
+
       // DFS into next levels
       AggregationResults childResults = bucket.getChildResults();
       for (AggregationResult child : childResults) {
+        // Only group names can collide with the automatic count; BsonDocument.append silently
+        // overwrites on duplicate keys, so fail loudly instead.
+        if (child instanceof MultiBucketAggregationResult
+            && IntermediateAggregationMetaField.RESERVED_BUCKET_FIELDS.contains(child.getName())) {
+          throw new IllegalStateException("Facet name '" + child.getName() + "' is reserved");
+        }
         bucketDoc.append(child.getName(), child.toStandaloneBson());
       }
       bucketsBson.add(bucketDoc);
@@ -175,7 +192,7 @@ public abstract class MultiBucketAggregationResult implements AggregationResult 
       BsonDocument keys, BsonDocument metricFields, long docCount) {
     BsonDocument doc = new BsonDocument();
     doc.append(IntermediateAggregationMetaField.KEYS, keys);
-    doc.append(IntermediateAggregationMetaField.BUCKET_DOC_COUNT, new org.bson.BsonInt64(docCount));
+    doc.append(IntermediateAggregationMetaField.BUCKET_DOC_COUNT, new BsonInt64(docCount));
     doc.putAll(metricFields);
     return doc;
   }

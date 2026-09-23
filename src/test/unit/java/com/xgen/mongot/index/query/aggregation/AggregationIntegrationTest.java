@@ -228,6 +228,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
               }},
               {"$project": {
                 "_id": "$_id",
+                "count": {"total": "$count_value"},
                 "by_color": {"buckets": {"$map": {
                   "input": "$_rows",
                   "as": "row",
@@ -377,16 +378,19 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
               }},
               {"$project": {
                 "_id": "$_id",
+                "count": {"total": "$count_value"},
                 "by_region": {"buckets": {"$map": {
                   "input": "$_rows",
                   "as": "row",
                   "in": {
                     "_id": "$$row.k1",
+                    "count": {"total": "$$row.count_value"},
                     "by_city": {"buckets": {"$map": {
                       "input": "$$row._leaf_rows",
                       "as": "leaf",
                       "in": {
                         "_id": "$$leaf.k2",
+                        "count": {"total": "$$leaf.count_value"},
                         "by_color": {"buckets": {"$map": {
                           "input": "$$leaf._leaf_rows",
                           "as": "leaf",
@@ -540,6 +544,7 @@ public class AggregationIntegrationTest extends AggregationTestSupport {
                 }},
                 {"$project": {
                   "_id": "$_id",
+                  "count": {"total": "$count_value"},
                   "by_color": {"buckets": {"$map": {
                     "input": "$_rows",
                     "as": "row",

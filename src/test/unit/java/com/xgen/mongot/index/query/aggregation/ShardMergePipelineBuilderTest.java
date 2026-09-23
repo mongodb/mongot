@@ -2,6 +2,7 @@ package com.xgen.mongot.index.query.aggregation;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
@@ -168,6 +169,19 @@ public class ShardMergePipelineBuilderTest {
   }
 
   @Test
+  public void nestedGroupNamedCount_rejectedAtRegistration() {
+    AggregationSpec leaf = new SumAggregationSpec("sum_price", PRICE);
+    AggregationSpec innerGroup = new TermsSpec("count", COLOR, List.of(leaf));
+    AggregationSpec outerGroup = new TermsSpec("by_city", CITY, List.of(innerGroup));
+    TopAggregationSpec top = new TopAggregationSpec(List.of(outerGroup));
+
+    IllegalArgumentException error =
+        assertThrows(IllegalArgumentException.class, () -> buildPipeline(top));
+
+    assertTrue(error.getMessage().contains("'count'"));
+  }
+
+  @Test
   public void nestedGroupsReconstructChildBranchInFacetArm() {
     AggregationSpec leaf = new SumAggregationSpec("sum_price", PRICE);
     AggregationSpec innerGroup = new TermsSpec("by_color", COLOR, List.of(leaf));
@@ -205,6 +219,7 @@ public class ShardMergePipelineBuilderTest {
               }},
               {"$project": {
                 "_id": "$_id",
+                "count": {"total": "$count_value"},
                 "by_color": {"buckets": {"$map": {
                   "input": "$_rows",
                   "as": "row",
@@ -297,6 +312,7 @@ public class ShardMergePipelineBuilderTest {
               }},
               {"$project": {
                 "_id": "$_id",
+                "count": {"total": "$count_value"},
                 "by_color": {"buckets": {"$map": {
                   "input": "$_rows",
                   "as": "row",
@@ -395,16 +411,19 @@ public class ShardMergePipelineBuilderTest {
               }},
               {"$project": {
                 "_id": "$_id",
+                "count": {"total": "$count_value"},
                 "by_region": {"buckets": {"$map": {
                   "input": "$_rows",
                   "as": "row",
                   "in": {
                     "_id": "$$row.k1",
+                    "count": {"total": "$$row.count_value"},
                     "by_city": {"buckets": {"$map": {
                       "input": "$$row._leaf_rows",
                       "as": "leaf",
                       "in": {
                         "_id": "$$leaf.k2",
+                        "count": {"total": "$$leaf.count_value"},
                         "by_color": {"buckets": {"$map": {
                           "input": "$$leaf._leaf_rows",
                           "as": "leaf",
@@ -494,6 +513,7 @@ public class ShardMergePipelineBuilderTest {
               {"$limit": 2},
               {"$project": {
                 "_id": "$_id",
+                "count": {"total": "$count_value"},
                 "by_color": {"buckets": {"$map": {
                   "input": {"$slice": [
                     {"$sortArray": {
@@ -599,6 +619,7 @@ public class ShardMergePipelineBuilderTest {
               {"$limit": 5},
               {"$project": {
                 "_id": "$_id",
+                "count": {"total": "$count_value"},
                 "by_region": {"buckets": {"$map": {
                   "input": {"$slice": [
                     {"$sortArray": {
@@ -610,6 +631,7 @@ public class ShardMergePipelineBuilderTest {
                   "as": "row",
                   "in": {
                     "_id": "$$row.k1",
+                    "count": {"total": "$$row.count_value"},
                     "by_city": {"buckets": {"$map": {
                       "input": {"$slice": [
                         {"$sortArray": {
@@ -621,6 +643,7 @@ public class ShardMergePipelineBuilderTest {
                       "as": "leaf",
                       "in": {
                         "_id": "$$leaf.k2",
+                        "count": {"total": "$$leaf.count_value"},
                         "by_color": {"buckets": {"$map": {
                           "input": {"$slice": [
                             {"$sortArray": {
@@ -662,6 +685,7 @@ public class ShardMergePipelineBuilderTest {
             """
             {"$project": {
               "_id": "$_id",
+              "count": {"total": "$count_value"},
               "by_price": {"buckets": {"$map": {
                 "input": {"$sortArray": {"input": "$_rows", "sortBy": {"k1": 1}}},
                 "as": "row",
@@ -689,6 +713,7 @@ public class ShardMergePipelineBuilderTest {
             """
             {"$project": {
               "_id": "$_id",
+              "count": {"total": "$count_value"},
               "by_color": {"buckets": {"$map": {
                 "input": {"$slice": [
                   {"$sortArray": {
@@ -726,11 +751,13 @@ public class ShardMergePipelineBuilderTest {
             """
             {"$project": {
               "_id": "$_id",
+              "count": {"total": "$count_value"},
               "by_price": {"buckets": {"$map": {
                 "input": {"$sortArray": {"input": "$_rows", "sortBy": {"k1": 1}}},
                 "as": "row",
                 "in": {
                   "_id": "$$row.k1",
+                  "count": {"total": "$$row.count_value"},
                   "by_color": {"buckets": {"$map": {
                     "input": {"$slice": [
                       {"$sortArray": {
@@ -780,6 +807,7 @@ public class ShardMergePipelineBuilderTest {
             """
             {"$project": {
               "_id": "$_id",
+              "count": {"total": "$count_value"},
               "by_price": {"buckets": {"$map": {
                 "input": {"$map": {
                   "input": {"$sortArray": {
@@ -807,6 +835,7 @@ public class ShardMergePipelineBuilderTest {
                 "as": "row",
                 "in": {
                   "_id": "$$row.k1",
+                  "count": {"total": "$$row.count_value"},
                   "by_color": {"buckets": {"$map": {
                     "input": {"$slice": [
                       {"$sortArray": {

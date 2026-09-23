@@ -30,6 +30,9 @@ public final class IntermediateAggregationMetaField {
    */
   public static final String BUCKET_DOC_COUNT = "count";
 
+  /** Since Search aggregation scans through all documents the count is always the total count. */
+  public static final String BUCKET_DOC_COUNT_TYPE = "total";
+
   /**
    * Field names within merged {@code $group} {@code _id} documents.
    *
@@ -40,6 +43,12 @@ public final class IntermediateAggregationMetaField {
   public static final String ID_GROUP_NAME = "group_name";
 
   public static final String ID_KEYS = "keys";
+
+  /**
+   * Field name intermediate bucket documents fields reserved by the query engine. User-supplied
+   * aggregation names must not collide with these.
+   */
+  public static final List<String> RESERVED_BUCKET_FIELDS = List.of(BUCKET_DOC_COUNT);
 
   private IntermediateAggregationMetaField() {}
 

@@ -264,28 +264,6 @@ public final class ShardMergePipelineBuilder {
   /**
    * Records one grouping level along a nested group chain.
    *
-   * @param keyPath document field path for this level (e.g. {@code city})
-   * @param nestedBranchName child branch name in the output (e.g. {@code by_color}), or {@link
-   *     Optional#empty()} at the leaf grouping level
-   */
-  public void addGroupLevel(String keyPath, Optional<String> nestedBranchName) {
-    addGroupLevel(keyPath, nestedBranchName, false, Optional.empty());
-  }
-
-  /**
-   * Records one grouping level along a nested group chain.
-   *
-   * @param boundaryGrouping when true, bucket order is fixed by the request's boundary list (key
-   *     ascending), not by doc count
-   */
-  public void addGroupLevel(
-      String keyPath, Optional<String> nestedBranchName, boolean boundaryGrouping) {
-    addGroupLevel(keyPath, nestedBranchName, boundaryGrouping, Optional.empty());
-  }
-
-  /**
-   * Records one grouping level along a nested group chain.
-   *
    * @param boundaryDefaultKey when present on a boundary level, the default bucket's label used to
    *     sort the default bucket after range keys in the merge pipeline
    */
@@ -294,6 +272,13 @@ public final class ShardMergePipelineBuilder {
       Optional<String> nestedBranchName,
       boolean boundaryGrouping,
       Optional<BsonValue> boundaryDefaultKey) {
+    nestedBranchName.ifPresent(
+        name -> {
+          if (IntermediateAggregationMetaField.RESERVED_BUCKET_FIELDS.contains(name)) {
+            throw new IllegalArgumentException(
+                "Nested group name '" + name + "' is reserved for internal use");
+          }
+        });
     PathMergeConfig config = this.pathConfigs.get(requireCurrentFacetAlias());
     int levelIndex = config.groupLevels.size();
     config.groupLevels.add(new GroupMergeLevel(keyPath, nestedBranchName));
@@ -496,6 +481,11 @@ public final class ShardMergePipelineBuilder {
         new BsonDocument()
             .append("_id", new BsonString("$_id"))
             .append(
+                IntermediateAggregationMetaField.BUCKET_DOC_COUNT,
+                new BsonDocument(
+                    IntermediateAggregationMetaField.BUCKET_DOC_COUNT_TYPE,
+                    new BsonString("$" + COUNT_VALUE_FIELD)))
+            .append(
                 config.groupLevels.get(0).nestedBranchName().orElseThrow(),
                 new BsonDocument("buckets", bucketsExpr)));
   }
@@ -526,6 +516,11 @@ public final class ShardMergePipelineBuilder {
     BsonDocument rowBody =
         new BsonDocument()
             .append("_id", new BsonString("$$" + rowVar + "." + rowAlias))
+            .append(
+                IntermediateAggregationMetaField.BUCKET_DOC_COUNT,
+                new BsonDocument(
+                    IntermediateAggregationMetaField.BUCKET_DOC_COUNT_TYPE,
+                    new BsonString("$$" + rowVar + "." + COUNT_VALUE_FIELD)))
             .append(childBranch, new BsonDocument("buckets", innerBuckets));
     return mapExpr(mapInput, rowVar, rowBody);
   }
