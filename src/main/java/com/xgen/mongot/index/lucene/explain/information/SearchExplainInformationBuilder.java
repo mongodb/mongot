@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.bson.BsonDocument;
 
 public class SearchExplainInformationBuilder {
   private Optional<List<QueryExplainInformation>> queryInfos = Optional.empty();
@@ -12,6 +13,7 @@ public class SearchExplainInformationBuilder {
   private Optional<ResourceUsageOutput> resourceUsage = Optional.empty();
   private Optional<List<VectorSearchTracingSpec>> vectorTracingInfos = Optional.empty();
   private Optional<List<VectorSearchSegmentStatsSpec>> vectorSearchSegmentStats = Optional.empty();
+  private Optional<BsonDocument> vectorliteStats = Optional.empty();
   private Optional<SortStats> sortStats = Optional.empty();
   private final List<SearchExplainInformation> indexPartitionExplainInformations =
       new ArrayList<>();
@@ -102,6 +104,11 @@ public class SearchExplainInformationBuilder {
     return this;
   }
 
+  public SearchExplainInformationBuilder vectorliteStats(BsonDocument vectorliteStats) {
+    this.vectorliteStats = Optional.of(vectorliteStats);
+    return this;
+  }
+
   public SearchExplainInformationBuilder dynamicFeatureFlags(
       List<FeatureFlagEvaluationSpec> dynamicFeatureFlags) {
     this.dynamicFeatureFlags = Optional.of(dynamicFeatureFlags);
@@ -151,6 +158,7 @@ public class SearchExplainInformationBuilder {
           this.resourceUsage,
           this.vectorTracingInfos,
           this.vectorSearchSegmentStats,
+          this.vectorliteStats,
           Optional.empty(),
           this.dynamicFeatureFlags,
           this.optimizerRulesFired);
@@ -158,6 +166,7 @@ public class SearchExplainInformationBuilder {
 
     // Query/collect/highlight land in indexPartitionExplain. aggregation stays top-level because
     // partitionMerge is a cross-partition phase recorded after the per-partition fan-out joins.
+    // vectorliteStats also stays top-level: vectorlite indexes are single-partition.
     return new SearchExplainInformation(
         Optional.empty(),
         Optional.empty(),
@@ -168,6 +177,7 @@ public class SearchExplainInformationBuilder {
         this.resourceUsage,
         Optional.empty(),
         Optional.empty(),
+        this.vectorliteStats,
         Optional.of(this.indexPartitionExplainInformations),
         this.dynamicFeatureFlags,
         this.optimizerRulesFired);

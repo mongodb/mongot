@@ -22,6 +22,7 @@ public record SearchExplainInformation(
     Optional<ResourceUsageOutput> resourceUsage,
     Optional<List<VectorSearchTracingSpec>> vectorSearchTracingInfo,
     Optional<List<VectorSearchSegmentStatsSpec>> vectorSearchSegmentStats,
+    Optional<BsonDocument> vectorliteStats,
     Optional<List<SearchExplainInformation>> indexPartitionExplainInformation,
     Optional<List<FeatureFlagEvaluationSpec>> dynamicFeatureFlags,
     Optional<List<String>> optimizerRulesFired)
@@ -98,6 +99,9 @@ public record SearchExplainInformation(
             .optional()
             .noDefault();
 
+    static final Field.Optional<BsonDocument> VECTORLITE_STATS =
+        Field.builder("vectorliteStats").documentField().optional().noDefault();
+
     static final Field.Optional<List<SearchExplainInformation>>
         INDEX_PARTITION_EXPLAIN_INFORMATION =
             Field.builder("indexPartitionExplain")
@@ -131,6 +135,7 @@ public record SearchExplainInformation(
         parser.getField(Fields.RESOURCE_USAGE).unwrap(),
         parser.getField(Fields.VECTOR_TRACING).unwrap(),
         parser.getField(Fields.VECTOR_SEARCH_LUCENE_SEGMENT_STATS).unwrap(),
+        parser.getField(Fields.VECTORLITE_STATS).unwrap(),
         parser.getField(Fields.INDEX_PARTITION_EXPLAIN_INFORMATION).unwrap(),
         parser.getField(Fields.DYNAMIC_FEATURE_FLAGS).unwrap(),
         parser.getField(Fields.OPTIMIZER_RULES_FIRED).unwrap());
@@ -153,6 +158,7 @@ public record SearchExplainInformation(
         .field(Fields.RESOURCE_USAGE, this.resourceUsage)
         .field(Fields.VECTOR_TRACING, this.vectorSearchTracingInfo)
         .field(Fields.VECTOR_SEARCH_LUCENE_SEGMENT_STATS, this.vectorSearchSegmentStats)
+        .field(Fields.VECTORLITE_STATS, this.vectorliteStats)
         .field(Fields.INDEX_PARTITION_EXPLAIN_INFORMATION, this.indexPartitionExplainInformation)
         .field(Fields.DYNAMIC_FEATURE_FLAGS, this.dynamicFeatureFlags)
         .field(Fields.OPTIMIZER_RULES_FIRED, this.optimizerRulesFired)
