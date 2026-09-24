@@ -162,7 +162,8 @@ public class LuceneSearchQueryFactoryDistributor {
             queryOptimizer,
             this::createQuery);
     this.vectorSearchQueryFactory =
-        new VectorSearchQueryFactory(queryFactoryContext, this.vectorSearchFilterQueryFactory);
+        new VectorSearchQueryFactory(
+            queryFactoryContext, this.vectorSearchFilterQueryFactory, dynamicFeatureFlagRegistry);
     this.luceneQueryScorer = luceneQueryScorer;
     this.luceneSortFactory = luceneSortFactory;
     this.queryFactoryContext = queryFactoryContext;

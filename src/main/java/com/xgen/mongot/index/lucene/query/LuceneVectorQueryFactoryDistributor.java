@@ -33,7 +33,8 @@ public class LuceneVectorQueryFactoryDistributor {
     return new LuceneVectorQueryFactoryDistributor(
         new VectorSearchQueryFactory(
             factoryContext,
-            VectorSearchFilterQueryFactory.create(factoryContext, dynamicFeatureFlagRegistry)),
+            VectorSearchFilterQueryFactory.create(factoryContext, dynamicFeatureFlagRegistry),
+            dynamicFeatureFlagRegistry),
         factoryContext);
   }
 

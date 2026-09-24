@@ -3,6 +3,7 @@ package com.xgen.mongot.index.lucene.query;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
@@ -59,11 +60,18 @@ class VectorSearchQueryFactory {
   private final QueryFactoryContext factoryContext;
   private final VectorSearchFilterQueryFactory vectorSearchFilterQueryFactory;
 
+  // Not read yet -- threaded in ahead of the dynamic feature flag gate for exact-search off-heap
+  // bulk scoring added in CLOUDP-316058, so that follow-up PR doesn't also need this DI plumbing.
+  @SuppressWarnings("unused")
+  private final DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry;
+
   VectorSearchQueryFactory(
       QueryFactoryContext factoryContext,
-      VectorSearchFilterQueryFactory vectorSearchFilterQueryFactory) {
+      VectorSearchFilterQueryFactory vectorSearchFilterQueryFactory,
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry) {
     this.factoryContext = factoryContext;
     this.vectorSearchFilterQueryFactory = vectorSearchFilterQueryFactory;
+    this.dynamicFeatureFlagRegistry = dynamicFeatureFlagRegistry;
   }
 
   Query fromQuery(VectorSearchCriteria criteria, SingleQueryContext queryContext)
