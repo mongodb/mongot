@@ -18,6 +18,7 @@ import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexVectorFieldDefinition;
 import com.xgen.mongot.index.definition.VectorAutoEmbedFieldDefinition;
+import com.xgen.mongot.index.definition.VectorAutoEmbedFieldSpecification;
 import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
@@ -951,6 +952,49 @@ public class AutoEmbeddingIndexDefinitionUtilsTest {
     Assert.assertTrue(
         "Non-auto-embed fields should be preserved",
         activeField.booleanFieldDefinition().isPresent());
+  }
+
+  @Test
+  public void testGetDerivedSearchIndexDefinition_preservesAutoEmbedVectorConfig() {
+    SearchAutoEmbedFieldDefinition autoEmbedField =
+        new SearchAutoEmbedFieldDefinition(
+            FieldPath.parse("content"),
+            new VectorAutoEmbedFieldSpecification(
+                256,
+                VectorSimilarity.COSINE,
+                VectorAutoEmbedQuantization.SCALAR,
+                new VectorIndexingAlgorithm.HnswIndexingAlgorithm(
+                    new VectorFieldSpecification.HnswOptions(32, 200)),
+                "voyage-3-large",
+                "text"));
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
+            .build();
+    SearchIndexDefinition rawDefinition =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+    var schemaMetadata =
+        new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(
+            1L, Map.of(FieldPath.parse("content"), FieldPath.parse("_autoEmbed.content")));
+
+    SearchIndexDefinition derivedDefinition =
+        AutoEmbeddingIndexDefinitionUtils.getDerivedSearchIndexDefinition(
+            rawDefinition, MV_DATABASE_NAME, UUID.randomUUID(), schemaMetadata);
+
+    FieldDefinition remappedField =
+        getStructurallyNestedField(derivedDefinition.getMappings(), "_autoEmbed.content");
+    SearchIndexVectorFieldDefinition vectorField =
+        remappedField.searchIndexVectorFieldDefinition().orElseThrow();
+    Assert.assertEquals(256, vectorField.specification().numDimensions());
+    Assert.assertEquals(VectorSimilarity.COSINE, vectorField.specification().similarity());
+    Assert.assertEquals(VectorQuantization.NONE, vectorField.specification().quantization());
+    Assert.assertEquals(
+        new VectorIndexingAlgorithm.HnswIndexingAlgorithm(
+            new VectorFieldSpecification.HnswOptions(32, 200)),
+        vectorField.specification().indexingAlgorithm());
   }
 
   @Test

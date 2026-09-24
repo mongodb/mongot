@@ -38,6 +38,7 @@ import com.xgen.mongot.util.bson.BsonVectorParser;
 import com.xgen.mongot.util.bson.FloatVector;
 import com.xgen.mongot.util.bson.Vector;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.EmbeddingModelCatalogTestUtils;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
@@ -56,12 +57,18 @@ import org.bson.BsonInt32;
 import org.bson.BsonInt64;
 import org.bson.BsonString;
 import org.bson.RawBsonDocument;
+import org.junit.Before;
 import org.junit.Test;
 
 public class AutoEmbeddingDocumentUtilsTest {
 
   private static final MaterializedViewSchemaMetadata MAT_VIEW_SCHEMA_METADATA =
       new MaterializedViewSchemaMetadata(0, Map.of());
+
+  @Before
+  public void registerEmbeddingModels() {
+    EmbeddingModelCatalogTestUtils.resetCatalogAndRegisterAutoEmbedModel("voyage-3-large");
+  }
 
   @Test
   public void testGetTextValues() throws IOException {

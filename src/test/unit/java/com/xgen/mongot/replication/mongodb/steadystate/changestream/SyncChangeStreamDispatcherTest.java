@@ -46,6 +46,7 @@ import com.xgen.mongot.util.concurrent.Sleeper;
 import com.xgen.mongot.util.mongodb.Errors;
 import com.xgen.testing.mongot.index.IndexMetricsUpdaterBuilder;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.EmbeddingModelCatalogTestUtils;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.mock.index.IndexMetricsSupplier;
@@ -69,6 +70,7 @@ import org.bson.BsonString;
 import org.bson.BsonTimestamp;
 import org.bson.types.ObjectId;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
 public class SyncChangeStreamDispatcherTest {
@@ -78,6 +80,11 @@ public class SyncChangeStreamDispatcherTest {
           .metricsFactory(SearchIndex.mockMetricsFactory())
           .indexMetricsSupplier(IndexMetricsSupplier.mockEmptyIndexMetricsSupplier())
           .build();
+
+  @Before
+  public void registerEmbeddingModels() {
+    EmbeddingModelCatalogTestUtils.resetCatalogAndRegisterAutoEmbedModel("voyage-3-large");
+  }
 
   @Test
   public void partialEmbedMetrics_onlyIncludeAutoEmbeddingIndexTypeTags() {

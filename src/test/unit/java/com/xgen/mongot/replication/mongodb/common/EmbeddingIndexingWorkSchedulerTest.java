@@ -118,7 +118,10 @@ public class EmbeddingIndexingWorkSchedulerTest {
               Optional.of(1024),
               Optional.of(EmbeddingServiceConfig.TruncationOption.NONE),
               Optional.of(100),
-              Optional.of(120_000)),
+              Optional.of(120_000),
+              Optional.of("text"),
+              Optional.of(VectorAutoEmbedQuantization.FLOAT),
+              Optional.empty()),
           new EmbeddingServiceConfig.ErrorHandlingConfig(3, 100L, 200L, 0.1),
           new EmbeddingServiceConfig.VoyageEmbeddingCredentials(
               "token123", "2024-10-15T22:32:20.925Z"),

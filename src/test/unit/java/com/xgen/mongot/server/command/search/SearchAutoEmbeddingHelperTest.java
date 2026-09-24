@@ -26,6 +26,10 @@ import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.VectorAutoEmbedFieldSpecification;
+import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
+import com.xgen.mongot.index.definition.VectorSimilarity;
+import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.OperatorQuery;
 import com.xgen.mongot.index.query.counts.Count;
@@ -39,6 +43,7 @@ import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.Vector;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.EmbeddingModelCatalogTestUtils;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.query.ApproximateVectorQueryCriteriaBuilder;
@@ -70,6 +75,7 @@ public class SearchAutoEmbeddingHelperTest {
   @Before
   public void clearCatalogBeforeTest() {
     EmbeddingModelCatalog.clear();
+    EmbeddingModelCatalogTestUtils.registerAutoEmbedModel("voyage-3-large");
   }
 
   @After
@@ -150,6 +156,72 @@ public class SearchAutoEmbeddingHelperTest {
     assertThat(context.database()).isEqualTo(database);
     assertThat(context.indexName()).isEqualTo(indexName);
     assertThat(context.collectionName()).isEqualTo(collectionName);
+  }
+
+  @Test
+  public void embedAndReplaceCriteria_usesResolvedSearchAutoEmbedSpecification() throws Exception {
+    setupRegistry();
+    SearchAutoEmbedFieldDefinition autoEmbedField =
+        new SearchAutoEmbedFieldDefinition(
+            FieldPath.parse("content"),
+            new VectorAutoEmbedFieldSpecification(
+                256,
+                VectorSimilarity.COSINE,
+                VectorAutoEmbedQuantization.SCALAR,
+                new VectorIndexingAlgorithm.HnswIndexingAlgorithm(),
+                "voyage-3-large",
+                "text"));
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
+            .build();
+    SearchIndexDefinition searchDef =
+        SearchIndexDefinitionBuilder.builder()
+            .indexId(new ObjectId())
+            .name("mock")
+            .database("mock")
+            .lastObservedCollectionName("mock")
+            .collectionUuid(UUID.randomUUID())
+            .mappings(mappings)
+            .build();
+    EmbeddingServiceManager manager = mock(EmbeddingServiceManager.class);
+    doReturn(List.of(new VectorOrError(QUERY_VECTOR)))
+        .when(manager)
+        .embed(
+            Mockito.anyList(),
+            any(EmbeddingModelConfig.class),
+            eq(EmbeddingServiceConfig.ServiceTier.QUERY),
+            any(EmbeddingRequestContext.class));
+    VectorSearchCriteria criteria =
+        ApproximateVectorQueryCriteriaBuilder.builder()
+            .limit(10)
+            .numCandidates(100)
+            .query(new VectorSearchQueryInput.Text("test query"))
+            .path(EMBEDDING_PATH)
+            .build();
+
+    SearchAutoEmbeddingHelper.embedAndReplaceCriteria(
+        criteria,
+        "test query",
+        Optional.empty(),
+        searchDef,
+        AUTO_EMBED_FIELDS_MAPPING,
+        Suppliers.ofInstance(manager));
+
+    ArgumentCaptor<EmbeddingRequestContext> contextCaptor =
+        ArgumentCaptor.forClass(EmbeddingRequestContext.class);
+    verify(manager)
+        .embed(
+            Mockito.anyList(),
+            any(EmbeddingModelConfig.class),
+            eq(EmbeddingServiceConfig.ServiceTier.QUERY),
+            contextCaptor.capture());
+    EmbeddingRequestContext context = contextCaptor.getValue();
+    assertThat(context.outputDimension()).isEqualTo(256);
+    assertThat(context.autoEmbedQuantization()).isEqualTo(VectorAutoEmbedQuantization.SCALAR);
   }
 
   @Test
@@ -484,7 +556,10 @@ public class SearchAutoEmbeddingHelperTest {
                     Optional.of(512),
                     Optional.of(EmbeddingServiceConfig.TruncationOption.START),
                     Optional.of(100),
-                    Optional.of(1000)),
+                    Optional.of(1000),
+                    Optional.of("text"),
+                    Optional.of(VectorAutoEmbedQuantization.FLOAT),
+                    Optional.empty()),
                 new EmbeddingServiceConfig.ErrorHandlingConfig(50, 50L, 10L, 0.1),
                 new EmbeddingServiceConfig.VoyageEmbeddingCredentials(
                     "token123", "2024-10-15T22:32:20.925Z"),

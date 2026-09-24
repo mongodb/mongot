@@ -7,6 +7,7 @@ import com.google.common.collect.ImmutableSet;
 import com.xgen.mongot.embedding.AutoEmbedFieldMapping.AutoEmbedField;
 import com.xgen.mongot.index.definition.DynamicDefinition;
 import com.xgen.mongot.index.definition.VectorAutoEmbedFieldSpecification;
+import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
 import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
@@ -302,5 +303,107 @@ public class SearchIndexAutoEmbedFieldMappingTest {
 
     assertThat(mapping.isPassthrough(UNDECLARED_PATH)).isFalse();
     assertThat(mapping.passthroughAncestorPaths()).isEmpty();
+  }
+
+  @Test
+  public void producesSameMatViewContent_luceneOnlyChanges_returnsTrue() {
+    SearchIndexAutoEmbedFieldMapping baseline = mappingWith(SPEC);
+    VectorAutoEmbedFieldSpecification similarityChanged =
+        copySpec(SPEC, VectorSimilarity.DOT_PRODUCT);
+    VectorAutoEmbedFieldSpecification indexingChanged =
+        new VectorAutoEmbedFieldSpecification(
+            SPEC.numDimensions(),
+            SPEC.similarity(),
+            SPEC.autoEmbedQuantization(),
+            new VectorIndexingAlgorithm.FlatIndexingAlgorithm(),
+            SPEC.modelName(),
+            SPEC.modality());
+    VectorAutoEmbedFieldSpecification hnswChanged =
+        new VectorAutoEmbedFieldSpecification(
+            SPEC.numDimensions(),
+            SPEC.similarity(),
+            SPEC.autoEmbedQuantization(),
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm(
+                new VectorFieldSpecification.HnswOptions(32, 200)),
+            SPEC.modelName(),
+            SPEC.modality());
+
+    assertThat(baseline.producesSameMatViewContent(mappingWith(similarityChanged))).isTrue();
+    assertThat(baseline.producesSameMatViewContent(mappingWith(indexingChanged))).isTrue();
+    assertThat(baseline.producesSameMatViewContent(mappingWith(hnswChanged))).isTrue();
+  }
+
+  @Test
+  public void producesSameMatViewContent_embeddingChanges_returnsFalse() {
+    SearchIndexAutoEmbedFieldMapping baseline = mappingWith(SPEC);
+    VectorAutoEmbedFieldSpecification modelChanged =
+        new VectorAutoEmbedFieldSpecification(
+            SPEC.numDimensions(),
+            SPEC.similarity(),
+            SPEC.autoEmbedQuantization(),
+            SPEC.indexingAlgorithm(),
+            "voyage-3-small",
+            SPEC.modality());
+    VectorAutoEmbedFieldSpecification modalityChanged =
+        new VectorAutoEmbedFieldSpecification(
+            SPEC.numDimensions(),
+            SPEC.similarity(),
+            SPEC.autoEmbedQuantization(),
+            SPEC.indexingAlgorithm(),
+            SPEC.modelName(),
+            "image");
+    VectorAutoEmbedFieldSpecification dimensionsChanged =
+        new VectorAutoEmbedFieldSpecification(
+            SPEC.numDimensions() / 2,
+            SPEC.similarity(),
+            SPEC.autoEmbedQuantization(),
+            SPEC.indexingAlgorithm(),
+            SPEC.modelName(),
+            SPEC.modality());
+    VectorAutoEmbedFieldSpecification quantizationChanged =
+        new VectorAutoEmbedFieldSpecification(
+            SPEC.numDimensions(),
+            SPEC.similarity(),
+            VectorAutoEmbedQuantization.BINARY,
+            SPEC.indexingAlgorithm(),
+            SPEC.modelName(),
+            SPEC.modality());
+
+    assertThat(baseline.producesSameMatViewContent(mappingWith(modelChanged))).isFalse();
+    assertThat(baseline.producesSameMatViewContent(mappingWith(modalityChanged))).isFalse();
+    assertThat(baseline.producesSameMatViewContent(mappingWith(dimensionsChanged))).isFalse();
+    assertThat(baseline.producesSameMatViewContent(mappingWith(quantizationChanged))).isFalse();
+  }
+
+  @Test
+  public void producesSameMatViewContent_embedPathChanged_returnsFalse() {
+    FieldPath otherPath = FieldPath.parse("summary");
+    SearchIndexAutoEmbedFieldMapping baseline = mappingWith(SPEC);
+    SearchIndexAutoEmbedFieldMapping moved =
+        new SearchIndexAutoEmbedFieldMapping(
+            DYNAMIC_DISABLED,
+            ImmutableMap.of(otherPath, new AutoEmbedField.EmbedField(otherPath, SPEC)),
+            ImmutableSet.of());
+
+    assertThat(baseline.producesSameMatViewContent(moved)).isFalse();
+  }
+
+  private static SearchIndexAutoEmbedFieldMapping mappingWith(
+      VectorAutoEmbedFieldSpecification specification) {
+    return new SearchIndexAutoEmbedFieldMapping(
+        DYNAMIC_DISABLED,
+        ImmutableMap.of(EMBED_PATH, new AutoEmbedField.EmbedField(EMBED_PATH, specification)),
+        ImmutableSet.of());
+  }
+
+  private static VectorAutoEmbedFieldSpecification copySpec(
+      VectorAutoEmbedFieldSpecification specification, VectorSimilarity similarity) {
+    return new VectorAutoEmbedFieldSpecification(
+        specification.numDimensions(),
+        similarity,
+        specification.autoEmbedQuantization(),
+        specification.indexingAlgorithm(),
+        specification.modelName(),
+        specification.modality());
   }
 }

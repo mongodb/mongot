@@ -18,6 +18,7 @@ import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.EmbeddedDocumentsFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.EmbeddingModelCatalogTestUtils;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.StringFieldDefinitionBuilder;
@@ -31,6 +32,7 @@ import org.bson.BsonInt32;
 import org.bson.BsonNull;
 import org.bson.BsonString;
 import org.bson.RawBsonDocument;
+import org.junit.Before;
 import org.junit.Test;
 
 /** Tests non-view Search autoEmbed partial-update routing and safety. */
@@ -38,6 +40,11 @@ public class ChangeStreamDocumentUtilsSearchPartialUpdateTest {
 
   private static final FieldPath TITLE = FieldPath.parse("title");
   private static final FieldPath SUMMARY = FieldPath.parse("summary");
+
+  @Before
+  public void registerEmbeddingModels() {
+    EmbeddingModelCatalogTestUtils.resetCatalogAndRegisterAutoEmbedModel("voyage-3-large");
+  }
 
   @Test
   public void staticSearch_pathUpdate_selectivelyReembedsChangedField() {

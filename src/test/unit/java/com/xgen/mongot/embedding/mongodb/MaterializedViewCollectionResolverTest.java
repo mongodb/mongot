@@ -25,7 +25,14 @@ import com.xgen.mongot.embedding.mongodb.common.DefaultInternalDatabaseResolver;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
 import com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator;
 import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
+import com.xgen.mongot.index.definition.SearchIndexDefinition;
+import com.xgen.mongot.index.definition.VectorAutoEmbedFieldSpecification;
+import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
+import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
+import com.xgen.mongot.index.definition.VectorSimilarity;
+import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.index.version.MaterializedViewGeneration;
 import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
@@ -33,6 +40,9 @@ import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
+import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.ArrayList;
@@ -1148,5 +1158,122 @@ public class MaterializedViewCollectionResolverTest {
         () -> resolver.getOrCreateMaterializedViewForIndex(indexDefGen));
     // Retries were attempted (more than 1 invocation).
     verify(this.mongoDatabase, atLeast(2)).listCollections(BsonDocument.class);
+  }
+
+  @Test
+  public void computeHash_usesSharedMaterializedViewIdentity() {
+    VectorAutoEmbedFieldSpecification baseline = hashTestSpec();
+    VectorAutoEmbedFieldSpecification similarityChanged =
+        hashTestSpecWith(
+            baseline.modelName(),
+            baseline.modality(),
+            baseline.numDimensions(),
+            VectorSimilarity.DOT_PRODUCT,
+            VectorAutoEmbedQuantization.FLOAT,
+            baseline.indexingAlgorithm());
+    VectorAutoEmbedFieldSpecification indexingChanged =
+        hashTestSpecWith(
+            baseline.modelName(),
+            baseline.modality(),
+            baseline.numDimensions(),
+            baseline.similarity(),
+            baseline.autoEmbedQuantization(),
+            new VectorIndexingAlgorithm.FlatIndexingAlgorithm());
+    VectorAutoEmbedFieldSpecification hnswChanged =
+        hashTestSpecWith(
+            baseline.modelName(),
+            baseline.modality(),
+            baseline.numDimensions(),
+            baseline.similarity(),
+            baseline.autoEmbedQuantization(),
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm(
+                new VectorFieldSpecification.HnswOptions(32, 200)));
+    VectorAutoEmbedFieldSpecification modelChanged =
+        hashTestSpecWith(
+            "voyage-3-small",
+            baseline.modality(),
+            baseline.numDimensions(),
+            baseline.similarity(),
+            baseline.autoEmbedQuantization(),
+            baseline.indexingAlgorithm());
+    VectorAutoEmbedFieldSpecification modalityChanged =
+        hashTestSpecWith(
+            baseline.modelName(),
+            "image",
+            baseline.numDimensions(),
+            baseline.similarity(),
+            baseline.autoEmbedQuantization(),
+            baseline.indexingAlgorithm());
+    VectorAutoEmbedFieldSpecification dimensionsChanged =
+        hashTestSpecWith(
+            baseline.modelName(),
+            baseline.modality(),
+            baseline.numDimensions() / 2,
+            baseline.similarity(),
+            baseline.autoEmbedQuantization(),
+            baseline.indexingAlgorithm());
+    VectorAutoEmbedFieldSpecification quantizationChanged =
+        hashTestSpecWith(
+            baseline.modelName(),
+            baseline.modality(),
+            baseline.numDimensions(),
+            baseline.similarity(),
+            VectorAutoEmbedQuantization.BINARY,
+            baseline.indexingAlgorithm());
+
+    String baselineHash = hashFor(baseline);
+    assertThat(hashFor(similarityChanged)).isEqualTo(baselineHash);
+    assertThat(hashFor(indexingChanged)).isEqualTo(baselineHash);
+    assertThat(hashFor(hnswChanged)).isEqualTo(baselineHash);
+    assertThat(hashFor(modelChanged)).isNotEqualTo(baselineHash);
+    assertThat(hashFor(modalityChanged)).isNotEqualTo(baselineHash);
+    assertThat(hashFor(dimensionsChanged)).isNotEqualTo(baselineHash);
+    assertThat(hashFor(quantizationChanged)).isNotEqualTo(baselineHash);
+  }
+
+  private static String hashFor(VectorAutoEmbedFieldSpecification specification) {
+    FieldPath path = FieldPath.parse("content");
+    SearchIndexDefinition definition =
+        SearchIndexDefinitionBuilder.builder()
+            .defaultMetadata()
+            .indexId(new ObjectId())
+            .name("mock")
+            .database("mock")
+            .lastObservedCollectionName("mock")
+            .collectionUuid(UUID.randomUUID())
+            .mappings(
+                DocumentFieldDefinitionBuilder.builder()
+                    .dynamic(false)
+                    .field(
+                        "content_embed",
+                        FieldDefinitionBuilder.builder()
+                            .searchAutoEmbed(
+                                new SearchAutoEmbedFieldDefinition(path, specification))
+                            .build())
+                    .build())
+            .build();
+    return MaterializedViewCollectionResolver.computeHash(
+        AutoEmbedFieldMappingCreator.createAutoEmbedMapping(definition));
+  }
+
+  private static VectorAutoEmbedFieldSpecification hashTestSpec() {
+    return hashTestSpecWith(
+        "voyage-3-large",
+        "text",
+        1024,
+        VectorSimilarity.COSINE,
+        VectorAutoEmbedQuantization.FLOAT,
+        new VectorIndexingAlgorithm.HnswIndexingAlgorithm());
+  }
+
+  private static VectorAutoEmbedFieldSpecification hashTestSpecWith(
+      String modelName,
+      String modality,
+      int numDimensions,
+      VectorSimilarity similarity,
+      VectorAutoEmbedQuantization autoEmbedQuantization,
+      VectorIndexingAlgorithm indexingAlgorithm) {
+    return new VectorAutoEmbedFieldSpecification(
+        numDimensions, similarity, autoEmbedQuantization, indexingAlgorithm, modelName, modality);
   }
 }

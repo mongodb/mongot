@@ -202,6 +202,21 @@ public class VectorAutoEmbedFieldSpecificationTest {
    * skipped later when the field is indexed.
    */
   @Test
+  public void resolveAutoEmbedVectorParams_binaryDimensionsNotMultipleOfEight_throwsBsonParse() {
+    BsonParseException e =
+        assertThrows(
+            BsonParseException.class,
+            () ->
+                VectorAutoEmbedFieldSpecification.resolveAutoEmbedVectorParams(
+                    MODEL,
+                    Optional.of(255),
+                    Optional.of(VectorSimilarity.EUCLIDEAN),
+                    Optional.of(VectorAutoEmbedQuantization.BINARY)));
+
+    assertThat(e.getMessage()).contains("multiple of 8");
+  }
+
+  @Test
   public void resolveAutoEmbedVectorParams_binaryNoRescoreWithExplicitCosine_throwsBsonParse() {
     BsonParseException e =
         assertThrows(

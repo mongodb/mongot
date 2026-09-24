@@ -11,6 +11,7 @@ java_library(
         "DateFieldDefinitionBuilder.java",
         "DocumentFieldDefinitionBuilder.java",
         "EmbeddedDocumentsFieldDefinitionBuilder.java",
+        "EmbeddingModelCatalogTestUtils.java",
         "FieldDefinitionBuilder.java",
         "GeoFieldDefinitionBuilder.java",
         "KnnVectorFieldDefinitionBuilder.java",
@@ -35,6 +36,7 @@ java_library(
     visibility = ["//visibility:public"],
     exports = ["//src/main/java/com/xgen/mongot/index/definition"],
     deps = [
+        "//src/main/java/com/xgen/mongot/embedding/providers/configs",
         "//src/main/java/com/xgen/mongot/index/analyzer/definition",
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/definition/quantization",

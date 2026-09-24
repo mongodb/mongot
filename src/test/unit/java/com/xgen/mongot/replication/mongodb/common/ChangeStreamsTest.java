@@ -12,6 +12,7 @@ import com.xgen.mongot.index.definition.ViewDefinition;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.EmbeddingModelCatalogTestUtils;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.StringFieldDefinitionBuilder;
@@ -23,6 +24,7 @@ import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonString;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.theories.DataPoints;
 import org.junit.experimental.theories.Theories;
@@ -36,6 +38,11 @@ public class ChangeStreamsTest {
 
   @RunWith(Theories.class)
   public static class UpdateDescriptionAppliesToIndexTest {
+
+    @Before
+    public void registerEmbeddingModels() {
+      EmbeddingModelCatalogTestUtils.resetCatalogAndRegisterAutoEmbedModel("voyage-3-large");
+    }
 
     @DataPoints
     public static IndexDefinition.Type[] type() {

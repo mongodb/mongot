@@ -21,6 +21,7 @@ import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.replication.mongodb.common.ViewFieldDependencies.ViewFullProcessingReason;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.EmbeddingModelCatalogTestUtils;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils;
@@ -35,6 +36,7 @@ import org.bson.BsonInt32;
 import org.bson.BsonNull;
 import org.bson.BsonString;
 import org.bson.RawBsonDocument;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -43,6 +45,11 @@ import org.junit.runners.JUnit4;
 public class ChangeStreamDocumentUtilsSearchViewPartialUpdateTest {
 
   private static final String MODEL = "voyage-3-large";
+
+  @Before
+  public void registerEmbeddingModels() {
+    EmbeddingModelCatalogTestUtils.resetCatalogAndRegisterAutoEmbedModel(MODEL);
+  }
 
   @Test
   public void staticView_singleEmbedFeederChange_reEmbedsOnlyAffectedField() {

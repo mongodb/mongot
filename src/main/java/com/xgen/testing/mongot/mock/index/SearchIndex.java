@@ -25,8 +25,12 @@ import com.xgen.mongot.index.definition.SearchIndexCapabilities;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.SynonymMappingDefinition;
+import com.xgen.mongot.index.definition.VectorAutoEmbedFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexCapabilities;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
+import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
+import com.xgen.mongot.index.definition.VectorSimilarity;
+import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.status.SynonymStatus;
 import com.xgen.mongot.index.synonym.SynonymDetailedStatus;
@@ -404,7 +408,15 @@ public class SearchIndex {
   /** Creates a mock auto embedding search index definition. */
   public static SearchIndexDefinition mockAutoEmbeddingSearchDefinition(ObjectId indexId) {
     SearchAutoEmbedFieldDefinition autoEmbedField =
-        new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("content"));
+        new SearchAutoEmbedFieldDefinition(
+            FieldPath.parse("content"),
+            new VectorAutoEmbedFieldSpecification(
+                1024,
+                VectorSimilarity.DOT_PRODUCT,
+                VectorAutoEmbedQuantization.FLOAT,
+                new VectorIndexingAlgorithm.HnswIndexingAlgorithm(),
+                "voyage-3-large",
+                "text"));
     DocumentFieldDefinition autoEmbedMappings =
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)

@@ -26,6 +26,7 @@ import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.Vector;
 import com.xgen.testing.mongot.index.analyzer.AnalyzerRegistryBuilder;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.EmbeddingModelCatalogTestUtils;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.StringFieldDefinitionBuilder;
@@ -39,6 +40,7 @@ import java.util.UUID;
 import org.apache.lucene.analysis.Analyzer;
 import org.bson.types.ObjectId;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.theories.DataPoints;
 import org.junit.experimental.theories.Theories;
@@ -47,6 +49,11 @@ import org.junit.runner.RunWith;
 
 @RunWith(Theories.class)
 public class SearchQueryFactoryContextTest {
+  @Before
+  public void registerEmbeddingModels() {
+    EmbeddingModelCatalogTestUtils.resetCatalogAndRegisterAutoEmbedModel("voyage-3-large");
+  }
+
   @DataPoints
   public static IndexFormatVersion[] indexFormatVersions =
       new IndexFormatVersion[] {

@@ -61,7 +61,10 @@ public class AutoEmbeddingIndexValidatorTest {
                     Optional.of(1024),
                     Optional.of(EmbeddingServiceConfig.TruncationOption.START),
                     Optional.of(512),
-                    Optional.of(100)),
+                    Optional.of(100),
+                    Optional.of("text"),
+                    Optional.of(VectorAutoEmbedQuantization.FLOAT),
+                    Optional.empty()),
                 new EmbeddingServiceConfig.ErrorHandlingConfig(50, 50L, 10L, 0.1),
                 new EmbeddingServiceConfig.VoyageEmbeddingCredentials(
                     "test-key", "2024-10-15T22:32:20.925Z"),
@@ -491,7 +494,18 @@ public class AutoEmbeddingIndexValidatorTest {
 
   @Test
   public void validateSearchIndexWithUnregisteredModel_throwsException() {
-    SearchIndexDefinition searchIndex = createSearchIndexWithAutoEmbed(UNREGISTERED_MODEL);
+    VectorAutoEmbedFieldSpecification unregisteredSpecification =
+        new VectorAutoEmbedFieldSpecification(
+            1024,
+            VectorSimilarity.DOT_PRODUCT,
+            VectorAutoEmbedQuantization.FLOAT,
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm(),
+            UNREGISTERED_MODEL,
+            VectorAutoEmbedFieldSpecification.DEFAULT_MODALITY);
+    SearchIndexDefinition searchIndex =
+        createSearchIndexWithAutoEmbedFields(
+            new SearchAutoEmbedFieldDefinition(
+                FieldPath.parse("content"), unregisteredSpecification));
 
     InvalidIndexDefinitionException exception =
         assertThrows(

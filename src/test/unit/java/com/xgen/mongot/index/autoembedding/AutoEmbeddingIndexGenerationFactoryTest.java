@@ -13,6 +13,7 @@ import static org.mockito.Mockito.same;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.google.errorprone.annotations.Var;
 import com.mongodb.MongoNamespace;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
@@ -26,12 +27,19 @@ import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.InitializedSearchIndex;
 import com.xgen.mongot.index.InitializedVectorIndex;
 import com.xgen.mongot.index.definition.AnalyzerBoundSearchIndexDefinition;
+import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.SearchIndexVectorFieldDefinition;
+import com.xgen.mongot.index.definition.VectorAutoEmbedFieldSpecification;
+import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
+import com.xgen.mongot.index.definition.VectorSimilarity;
+import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.status.StaleStatusReason;
 import com.xgen.mongot.index.version.Generation;
@@ -42,11 +50,14 @@ import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
 import com.xgen.mongot.replication.mongodb.common.StaleStateInfo;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.EmbeddingModelCatalogTestUtils;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -54,6 +65,7 @@ import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.bson.BsonTimestamp;
 import org.bson.types.ObjectId;
+import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -64,6 +76,11 @@ import org.mockito.ArgumentCaptor;
  * auto-embed source definitions).
  */
 public class AutoEmbeddingIndexGenerationFactoryTest {
+
+  @Before
+  public void registerTestModels() {
+    EmbeddingModelCatalogTestUtils.resetCatalogAndRegisterAutoEmbedModel("voyage-3-large");
+  }
 
   private static final String MV_DATABASE_NAME = "__mdb_internal_search";
   // Multi-tenant internal-search database: NOT the plain "__mdb_internal_search". On a
@@ -135,6 +152,98 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
         derived instanceof SearchIndexDefinitionGeneration);
     assertEquals(MV_DATABASE_NAME, derived.getIndexDefinition().getDatabase());
     assertEquals(MV_COLLECTION_UUID, derived.getIndexDefinition().getCollectionUuid());
+  }
+
+  @Test
+  public void searchAutoEmbedLuceneOnlyUpdate_reusesMatViewAndRebuildsDerivedIndex() {
+    ObjectId indexId = new ObjectId();
+    UUID collectionUuid = UUID.randomUUID();
+    SearchAutoEmbedFieldDefinition oldField =
+        new SearchAutoEmbedFieldDefinition(
+            FieldPath.parse("title"),
+            new VectorAutoEmbedFieldSpecification(
+                512,
+                VectorSimilarity.DOT_PRODUCT,
+                VectorAutoEmbedQuantization.FLOAT,
+                new VectorIndexingAlgorithm.HnswIndexingAlgorithm(),
+                "voyage-3-large",
+                "text"));
+    SearchAutoEmbedFieldDefinition newField =
+        new SearchAutoEmbedFieldDefinition(
+            FieldPath.parse("title"),
+            new VectorAutoEmbedFieldSpecification(
+                512,
+                VectorSimilarity.COSINE,
+                VectorAutoEmbedQuantization.FLOAT,
+                new VectorIndexingAlgorithm.HnswIndexingAlgorithm(
+                    new VectorFieldSpecification.HnswOptions(32, 200)),
+                "voyage-3-large",
+                "text"));
+    SearchIndexDefinition oldDefinition =
+        searchAutoEmbedDefinition(indexId, collectionUuid, 1L, oldField);
+    SearchIndexDefinition newDefinition =
+        searchAutoEmbedDefinition(indexId, collectionUuid, 2L, newField);
+
+    assertTrue(
+        "Lucene-only update must reuse the existing materialized view",
+        MaterializedViewIndexGenerationUtil.skipInitialSync(oldDefinition, newDefinition));
+    SearchIndexDefinitionGeneration rawGeneration =
+        new SearchIndexDefinitionGeneration(
+            AnalyzerBoundSearchIndexDefinition.create(newDefinition, Collections.emptyList()),
+            Generation.CURRENT);
+    InitializedMaterializedViewIndex matViewIndex = matViewIndexMock();
+    when(matViewIndex.getSchemaMetadata()).thenReturn(collectionMetadata().schemaMetadata());
+    IndexDefinitionGeneration derivedGeneration =
+        AutoEmbeddingIndexGenerationFactory.derivedIndexDefinitionGeneration(
+            rawGeneration, matViewIndex);
+    SearchIndexVectorFieldDefinition derivedVectorField =
+        getDerivedVectorField(
+            (SearchIndexDefinition) derivedGeneration.getIndexDefinition(), "_autoEmbed.title");
+
+    assertEquals(512, derivedVectorField.specification().numDimensions());
+    assertEquals(VectorSimilarity.COSINE, derivedVectorField.specification().similarity());
+    assertEquals(
+        new VectorIndexingAlgorithm.HnswIndexingAlgorithm(
+            new VectorFieldSpecification.HnswOptions(32, 200)),
+        derivedVectorField.specification().indexingAlgorithm());
+  }
+
+  private static SearchIndexDefinition searchAutoEmbedDefinition(
+      ObjectId indexId,
+      UUID collectionUuid,
+      long definitionVersion,
+      SearchAutoEmbedFieldDefinition autoEmbedField) {
+    return SearchIndexDefinitionBuilder.builder()
+        .defaultMetadata()
+        .indexId(indexId)
+        .name("mock")
+        .database("mock")
+        .lastObservedCollectionName("mock")
+        .collectionUuid(collectionUuid)
+        .definitionVersion(definitionVersion)
+        .mappings(
+            DocumentFieldDefinitionBuilder.builder()
+                .dynamic(false)
+                .field(
+                    "content_embed",
+                    FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
+                .build())
+        .build();
+  }
+
+  private static SearchIndexVectorFieldDefinition getDerivedVectorField(
+      SearchIndexDefinition definition, String dottedPath) {
+    List<String> segments = new ArrayList<>();
+    FieldPath.parse(dottedPath).getSegments().forEach(segments::add);
+    @Var DocumentFieldDefinition current = definition.getMappings();
+    for (int i = 0; i < segments.size() - 1; i++) {
+      current = current.fields().get(segments.get(i)).documentFieldDefinition().orElseThrow();
+    }
+    return current
+        .fields()
+        .get(segments.get(segments.size() - 1))
+        .searchIndexVectorFieldDefinition()
+        .orElseThrow();
   }
 
   @Test

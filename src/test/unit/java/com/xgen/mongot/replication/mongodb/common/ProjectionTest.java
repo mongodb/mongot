@@ -11,6 +11,7 @@ import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.index.definition.BooleanFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.DateFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.EmbeddingModelCatalogTestUtils;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.StringFieldDefinitionBuilder;
@@ -22,9 +23,15 @@ import java.util.Set;
 import org.bson.BsonDocument;
 import org.bson.conversions.Bson;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
 public class ProjectionTest {
+
+  @Before
+  public void registerEmbeddingModels() {
+    EmbeddingModelCatalogTestUtils.resetCatalogAndRegisterAutoEmbedModel("voyage-3-large");
+  }
 
   private enum ProjectionType {
     INCLUDE(1),

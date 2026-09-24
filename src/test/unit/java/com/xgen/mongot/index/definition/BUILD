@@ -22,6 +22,7 @@ java_test_suite(
         "NumberFacetFieldDefinitionTest.java",
         "NumberFieldDefinitionTest.java",
         "ObjectIdFieldDefinitionTest.java",
+        "SearchAutoEmbedFieldDefinitionTest.java",
         "SearchFieldDefinitionResolverTest.java",
         "SearchIndexDefinitionGenerationTest.java",
         "SearchIndexDefinitionTest.java",

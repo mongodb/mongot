@@ -52,6 +52,7 @@ java_test_suite(
         "//src/main/java/com/xgen/testing/mongot/index/version",
         "//src/main/java/com/xgen/testing/mongot/mock/index",
         "//src/main/java/com/xgen/testing/mongot/replication/mongodb",
+        "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_truth_truth",
         "@maven//:io_micrometer_micrometer_core",

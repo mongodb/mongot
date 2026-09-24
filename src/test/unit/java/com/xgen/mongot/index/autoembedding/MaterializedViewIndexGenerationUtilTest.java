@@ -9,6 +9,7 @@ import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.StoredSourceDefinition;
 import com.xgen.mongot.index.definition.StringFieldDefinition;
 import com.xgen.mongot.index.definition.VectorAutoEmbedFieldDefinition;
+import com.xgen.mongot.index.definition.VectorAutoEmbedFieldSpecification;
 import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
@@ -21,6 +22,7 @@ import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.EmbeddedDocumentsFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.EmbeddingModelCatalogTestUtils;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.StringFieldDefinitionBuilder;
@@ -39,6 +41,11 @@ import org.junit.Test;
 
 /** Unit tests for {@link MaterializedViewIndexGenerationUtil#skipInitialSync}. */
 public class MaterializedViewIndexGenerationUtilTest {
+
+  static {
+    EmbeddingModelCatalogTestUtils.registerAutoEmbedModel("voyage-3-large");
+    EmbeddingModelCatalogTestUtils.registerAutoEmbedModel("voyage-3-small");
+  }
 
   private static final ObjectId INDEX_ID = new ObjectId();
 
@@ -540,6 +547,27 @@ public class MaterializedViewIndexGenerationUtilTest {
         .build();
   }
 
+  private static SearchAutoEmbedFieldDefinition searchAutoEmbedField(
+      int numDimensions,
+      VectorSimilarity similarity,
+      VectorAutoEmbedQuantization quantization,
+      VectorIndexingAlgorithm indexingAlgorithm) {
+    return searchAutoEmbedField(
+        "voyage-3-large", numDimensions, similarity, quantization, indexingAlgorithm);
+  }
+
+  private static SearchAutoEmbedFieldDefinition searchAutoEmbedField(
+      String modelName,
+      int numDimensions,
+      VectorSimilarity similarity,
+      VectorAutoEmbedQuantization quantization,
+      VectorIndexingAlgorithm indexingAlgorithm) {
+    return new SearchAutoEmbedFieldDefinition(
+        FieldPath.parse("content"),
+        new VectorAutoEmbedFieldSpecification(
+            numDimensions, similarity, quantization, indexingAlgorithm, modelName, "text"));
+  }
+
   private static SearchIndexDefinition searchDefWithNestedPassthroughFields(boolean includeWeight) {
     var specs =
         DocumentFieldDefinitionBuilder.builder()
@@ -697,6 +725,159 @@ public class MaterializedViewIndexGenerationUtilTest {
                     .build())
             .build();
     assertFalse(MaterializedViewIndexGenerationUtil.skipInitialSync(def1, def2));
+  }
+
+  @Test
+  public void skipInitialSync_search_onlySimilarityDiffer_returnsTrue() {
+    SearchIndexDefinition def1 =
+        searchDefWithAutoEmbedField(
+            1L,
+            "content_embed",
+            searchAutoEmbedField(
+                512,
+                VectorSimilarity.DOT_PRODUCT,
+                VectorAutoEmbedQuantization.FLOAT,
+                new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+    SearchIndexDefinition def2 =
+        searchDefWithAutoEmbedField(
+            2L,
+            "content_embed",
+            searchAutoEmbedField(
+                512,
+                VectorSimilarity.COSINE,
+                VectorAutoEmbedQuantization.FLOAT,
+                new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+
+    assertTrue(MaterializedViewIndexGenerationUtil.skipInitialSync(def1, def2));
+    assertTrue(MaterializedViewIndexGenerationUtil.skipInitialSync(def2, def1));
+  }
+
+  @Test
+  public void skipInitialSync_search_onlyHnswOptionsDiffer_returnsTrue() {
+    SearchIndexDefinition def1 =
+        searchDefWithAutoEmbedField(
+            1L,
+            "content_embed",
+            searchAutoEmbedField(
+                512,
+                VectorSimilarity.DOT_PRODUCT,
+                VectorAutoEmbedQuantization.FLOAT,
+                new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+    SearchIndexDefinition def2 =
+        searchDefWithAutoEmbedField(
+            2L,
+            "content_embed",
+            searchAutoEmbedField(
+                512,
+                VectorSimilarity.DOT_PRODUCT,
+                VectorAutoEmbedQuantization.FLOAT,
+                new VectorIndexingAlgorithm.HnswIndexingAlgorithm(
+                    new VectorFieldSpecification.HnswOptions(32, 200))));
+
+    assertTrue(MaterializedViewIndexGenerationUtil.skipInitialSync(def1, def2));
+    assertTrue(MaterializedViewIndexGenerationUtil.skipInitialSync(def2, def1));
+  }
+
+  @Test
+  public void skipInitialSync_search_onlyIndexingMethodDiffer_returnsTrue() {
+    SearchIndexDefinition def1 =
+        searchDefWithAutoEmbedField(
+            1L,
+            "content_embed",
+            searchAutoEmbedField(
+                512,
+                VectorSimilarity.DOT_PRODUCT,
+                VectorAutoEmbedQuantization.FLOAT,
+                new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+    SearchIndexDefinition def2 =
+        searchDefWithAutoEmbedField(
+            2L,
+            "content_embed",
+            searchAutoEmbedField(
+                512,
+                VectorSimilarity.DOT_PRODUCT,
+                VectorAutoEmbedQuantization.FLOAT,
+                new VectorIndexingAlgorithm.FlatIndexingAlgorithm()));
+
+    assertTrue(MaterializedViewIndexGenerationUtil.skipInitialSync(def1, def2));
+    assertTrue(MaterializedViewIndexGenerationUtil.skipInitialSync(def2, def1));
+  }
+
+  @Test
+  public void skipInitialSync_search_quantizationChanged_returnsFalse() {
+    SearchIndexDefinition def1 =
+        searchDefWithAutoEmbedField(
+            1L,
+            "content_embed",
+            searchAutoEmbedField(
+                512,
+                VectorSimilarity.DOT_PRODUCT,
+                VectorAutoEmbedQuantization.FLOAT,
+                new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+    SearchIndexDefinition def2 =
+        searchDefWithAutoEmbedField(
+            2L,
+            "content_embed",
+            searchAutoEmbedField(
+                512,
+                VectorSimilarity.DOT_PRODUCT,
+                VectorAutoEmbedQuantization.SCALAR,
+                new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+
+    assertFalse(MaterializedViewIndexGenerationUtil.skipInitialSync(def1, def2));
+    assertFalse(MaterializedViewIndexGenerationUtil.skipInitialSync(def2, def1));
+  }
+
+  @Test
+  public void skipInitialSync_search_numDimensionsChanged_returnsFalse() {
+    SearchIndexDefinition def1 =
+        searchDefWithAutoEmbedField(
+            1L,
+            "content_embed",
+            searchAutoEmbedField(
+                512,
+                VectorSimilarity.DOT_PRODUCT,
+                VectorAutoEmbedQuantization.FLOAT,
+                new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+    SearchIndexDefinition def2 =
+        searchDefWithAutoEmbedField(
+            2L,
+            "content_embed",
+            searchAutoEmbedField(
+                256,
+                VectorSimilarity.DOT_PRODUCT,
+                VectorAutoEmbedQuantization.FLOAT,
+                new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+
+    assertFalse(MaterializedViewIndexGenerationUtil.skipInitialSync(def1, def2));
+    assertFalse(MaterializedViewIndexGenerationUtil.skipInitialSync(def2, def1));
+  }
+
+  @Test
+  public void skipInitialSync_search_modelChangedWithSameDimensions_returnsFalse() {
+    SearchIndexDefinition def1 =
+        searchDefWithAutoEmbedField(
+            1L,
+            "content_embed",
+            searchAutoEmbedField(
+                "voyage-3-large",
+                512,
+                VectorSimilarity.DOT_PRODUCT,
+                VectorAutoEmbedQuantization.FLOAT,
+                new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+    SearchIndexDefinition def2 =
+        searchDefWithAutoEmbedField(
+            2L,
+            "content_embed",
+            searchAutoEmbedField(
+                "voyage-3-small",
+                512,
+                VectorSimilarity.DOT_PRODUCT,
+                VectorAutoEmbedQuantization.FLOAT,
+                new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+
+    assertFalse(MaterializedViewIndexGenerationUtil.skipInitialSync(def1, def2));
+    assertFalse(MaterializedViewIndexGenerationUtil.skipInitialSync(def2, def1));
   }
 
   @Test

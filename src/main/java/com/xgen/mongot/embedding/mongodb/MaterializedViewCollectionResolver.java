@@ -538,17 +538,19 @@ public class MaterializedViewCollectionResolver {
       FieldPath path = entry.getKey();
       VectorAutoEmbedFieldSpecification spec =
           (VectorAutoEmbedFieldSpecification) entry.getValue().specification();
+      VectorAutoEmbedFieldSpecification.MaterializedViewIdentity identity =
+          spec.materializedViewIdentity();
       // Include path, model name, modality, num dimensions, and quantization in hash as those
       // fields impact the embeddings generated or how they are stored.
       sb.append(path.toString())
           .append(HASH_STRING_DELIM)
-          .append(spec.modelName())
+          .append(identity.modelName())
           .append(HASH_STRING_DELIM)
-          .append(spec.modality())
+          .append(identity.modality())
           .append(HASH_STRING_DELIM)
-          .append(spec.numDimensions())
+          .append(identity.numDimensions())
           .append(HASH_STRING_DELIM)
-          .append(spec.autoEmbedQuantization());
+          .append(identity.autoEmbedQuantization());
       // For future reference: Include additional field params conditionally for newer hash versions
       // as needed. Note that default values need careful handling to ensure that simply bumping the
       // hash version doesn't change the hash value for all indexes.

@@ -44,6 +44,7 @@ import com.xgen.mongot.index.analyzer.definition.OverriddenBaseAnalyzerDefinitio
 import com.xgen.mongot.index.autoembedding.MaterializedViewIndexFactory;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.lifecycle.DefaultLifecycleManager;
@@ -111,7 +112,10 @@ public class ConfigStateMocks {
               Optional.of(1024),
               Optional.of(EmbeddingServiceConfig.TruncationOption.NONE),
               Optional.of(100),
-              Optional.of(120_000)),
+              Optional.of(120_000),
+              Optional.of("text"),
+              Optional.of(VectorAutoEmbedQuantization.FLOAT),
+              Optional.empty()),
           new EmbeddingServiceConfig.ErrorHandlingConfig(3, 100L, 200L, 0.1),
           new EmbeddingServiceConfig.VoyageEmbeddingCredentials(
               "token123", "2024-10-15T22:32:20.925Z"),

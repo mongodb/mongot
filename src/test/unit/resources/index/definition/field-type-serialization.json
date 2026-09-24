@@ -17,6 +17,9 @@
         "type": "autoEmbed",
         "model": "voyage-3-large",
         "modality": "text",
+        "numDimensions": 1024,
+        "similarity": "dotProduct",
+        "quantization": "float",
         "path": "description"
       }
     },

@@ -20,6 +20,7 @@ import com.xgen.mongot.replication.mongodb.common.ViewFieldDependencies.ViewFull
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.EmbeddedDocumentsFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.EmbeddingModelCatalogTestUtils;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
@@ -31,9 +32,14 @@ import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.bson.RawBsonDocument;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
 public class ChangeStreamDocumentUtilsTest {
+  @Before
+  public void registerEmbeddingModels() {
+    EmbeddingModelCatalogTestUtils.resetCatalogAndRegisterAutoEmbedModel("voyage-3-large");
+  }
 
   @Test
   public void testInsertEvent() {

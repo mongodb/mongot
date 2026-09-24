@@ -19,7 +19,11 @@ import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
+import com.xgen.mongot.index.definition.VectorAutoEmbedFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
+import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
+import com.xgen.mongot.index.definition.VectorSimilarity;
+import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.index.mongodb.MaterializedViewWriter;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.Generation;
@@ -166,7 +170,15 @@ public class MaterializedViewIndex {
   public static SearchIndexDefinition mockAutoEmbeddingSearchDefinition(
       ObjectId indexId, long indexDefinitionVersion) {
     SearchAutoEmbedFieldDefinition autoEmbedField =
-        new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("field"));
+        new SearchAutoEmbedFieldDefinition(
+            FieldPath.parse("field"),
+            new VectorAutoEmbedFieldSpecification(
+                1024,
+                VectorSimilarity.DOT_PRODUCT,
+                VectorAutoEmbedQuantization.FLOAT,
+                new VectorIndexingAlgorithm.HnswIndexingAlgorithm(),
+                "voyage-3-large",
+                "text"));
     return SearchIndexDefinitionBuilder.builder()
         .defaultMetadata()
         .indexId(indexId)
