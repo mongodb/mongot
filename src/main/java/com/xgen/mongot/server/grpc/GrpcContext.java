@@ -11,4 +11,12 @@ public class GrpcContext {
   public static final Context.Key<Integer> ENVOY_MAX_ATTEMPT_COUNT_KEY =
       Context.key("envoy-max-attempt-count");
   public static final Context.Key<Boolean> IS_SHADOW_KEY = Context.key("is-shadow");
+
+  /**
+   * Whether search envoy appears to be in front of this request, from the presence of the {@code
+   * x-envoy-attempt-count} header. Distinct from {@link #ENVOY_ATTEMPT_COUNT_KEY}, which defaults
+   * to 1 when the header is absent and so cannot tell a direct caller from a first envoy attempt.
+   */
+  public static final Context.Key<Boolean> ENVOY_IN_REQUEST_PATH_KEY =
+      Context.key("envoy-in-request-path");
 }

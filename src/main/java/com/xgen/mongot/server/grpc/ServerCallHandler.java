@@ -5,6 +5,7 @@ import static com.xgen.mongot.util.Check.checkArg;
 
 import com.google.common.base.Stopwatch;
 import com.xgen.mongot.cursor.MongotCursorManager;
+import com.xgen.mongot.index.QuarantinedIndexException;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.metrics.ServerStatusDataExtractor.LoadSheddingMeterData;
 import com.xgen.mongot.searchenvoy.grpc.SearchEnvoyMetadata;
@@ -61,6 +62,11 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
   // cursor ids, which never match this node, so cursors created here are killed as soon as the
   // command response is built rather than lingering until the idle-cursor reaper runs.
   private final boolean isShadow;
+  // Whether search envoy looks to be in front of this stream, from the presence of the
+  // `x-envoy-attempt-count` header. A retryable status is only worth sending to a caller that can
+  // fail over; direct callers get the error body instead. Not spoof-proof, but a forged header
+  // only costs that caller a bare status on its own query.
+  private final boolean envoyInRequestPath;
   private final EnvoyRetryMetrics envoyRetryMetrics;
   // Counts every incoming command regardless of outcome (success, rejection, error). Serves as
   // the denominator for load-shedding / envoy-retry rates. Tagged retry=true when this stream's
@@ -81,6 +87,7 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
       int envoyAttemptCount,
       int envoyMaxAttemptCount,
       boolean isShadow,
+      boolean envoyInRequestPath,
       StreamObserver<T> responseObserver) {
     this.commandRegistry = commandRegistry;
     this.commandExecutor = commandExecutor;
@@ -89,6 +96,7 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
     this.envoyAttemptCount = envoyAttemptCount;
     this.envoyMaxAttemptCount = envoyMaxAttemptCount;
     this.isShadow = isShadow;
+    this.envoyInRequestPath = envoyInRequestPath;
     this.commandManager = new CommandManager<T>(responseObserver);
     this.createdCursorIds = Collections.emptyList();
     this.envoyRetryMetrics =
@@ -117,8 +125,7 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
                 Throwable unwrapped = FutureUtils.unwrapCause(cause);
                 boolean retryViaEnvoy = shouldRetryViaEnvoy(unwrapped);
                 if (retryViaEnvoy) {
-                  this.commandManager.onCommandFailure(
-                      Status.RESOURCE_EXHAUSTED.withDescription("Search server at capacity"));
+                  this.commandManager.onCommandFailure(retryStatusFor(unwrapped));
                 } else {
                   this.commandManager.onCommandComplete(
                       getErrorMessage(requestMsg, cause),
@@ -240,14 +247,37 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
 
   abstract T serializeError(T request, BsonDocument error);
 
+  /**
+   * Whether to answer this failure with a retryable gRPC status rather than an in-band error body.
+   *
+   * <p>Load shedding stays behind {@code OVERLOAD_RETRY_SIGNAL} because its {@code
+   * RESOURCE_EXHAUSTED} needs a matching envoy {@code retry_on} that mms rolls out with it.
+   * Quarantine needs no such coordination, so it turns only on envoy being there to retry.
+   */
   private boolean shouldRetryViaEnvoy(Throwable cause) {
-    if (!(cause instanceof LoadSheddingRejectedException)) {
+    if (this.envoyAttemptCount >= this.envoyMaxAttemptCount) {
       return false;
     }
-    if (!this.commandExecutor.shouldRetryViaEnvoy()) {
-      return false;
+    if (cause instanceof QuarantinedIndexException) {
+      return this.envoyInRequestPath;
     }
-    return this.envoyAttemptCount < this.envoyMaxAttemptCount;
+    if (cause instanceof LoadSheddingRejectedException) {
+      return this.commandExecutor.shouldRetryViaEnvoy();
+    }
+    return false;
+  }
+
+  /**
+   * The status that makes envoy retry against a peer: {@code UNAVAILABLE} for quarantine, which is
+   * node-local and already envoy's default {@code retry_on}, {@code RESOURCE_EXHAUSTED} for load
+   * shedding. Only reached while the retry budget has room; the final attempt falls back to {@link
+   * #getErrorMessage} so the parse error, not a bare status, is what mongod ends up surfacing.
+   */
+  private Status retryStatusFor(Throwable cause) {
+    if (cause instanceof QuarantinedIndexException) {
+      return Status.UNAVAILABLE.withDescription("Index is quarantined on this node");
+    }
+    return Status.RESOURCE_EXHAUSTED.withDescription("Search server at capacity");
   }
 
   /**

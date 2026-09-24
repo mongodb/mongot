@@ -1,7 +1,7 @@
 package com.xgen.mongot.config.manager;
 
 import com.xgen.mongot.catalog.IndexProperties;
-import com.xgen.mongot.index.IndexUnavailableException;
+import com.xgen.mongot.index.QuarantinedIndexException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -83,7 +83,7 @@ public class IncompatibleIndexes implements QuarantinedIndexLookup {
    */
   @Override
   public void throwIfQuarantined(String database, UUID collectionUuid, String indexName)
-      throws IndexUnavailableException {
+      throws QuarantinedIndexException {
     String parseError =
         this.liveParseErrorsByProperties.get(
             new IndexProperties(indexName, database, collectionUuid));
@@ -91,7 +91,7 @@ public class IncompatibleIndexes implements QuarantinedIndexLookup {
       return;
     }
 
-    throw new IndexUnavailableException(
+    throw new QuarantinedIndexException(
         String.format(
             "Index '%s' is unavailable: its definition cannot be parsed (%s).",
             indexName, parseError));

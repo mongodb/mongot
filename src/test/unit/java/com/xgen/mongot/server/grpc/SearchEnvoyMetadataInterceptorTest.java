@@ -156,6 +156,38 @@ public class SearchEnvoyMetadataInterceptorTest {
     interceptedCall.onReady();
   }
 
+  @Test
+  public void testEnvoyInRequestPath_trueWhenAttemptCountHeaderPresent() {
+    Metadata metadata = new Metadata();
+    metadata.put(GrpcMetadata.ENVOY_ATTEMPT_COUNT_KEY, "1");
+    triggerInterceptorAndCheckEnvoyInRequestPath(metadata, true);
+  }
+
+  @Test
+  public void testEnvoyInRequestPath_falseWhenAttemptCountHeaderMissing() {
+    Metadata metadata = new Metadata();
+    triggerInterceptorAndCheckEnvoyInRequestPath(metadata, false);
+  }
+
+  /**
+   * A malformed header still came from something that sets it, so the request is treated as
+   * envoy-fronted even though the count itself falls back to 1.
+   */
+  @Test
+  public void testEnvoyInRequestPath_trueWhenAttemptCountHeaderMalformed() {
+    Metadata metadata = new Metadata();
+    metadata.put(GrpcMetadata.ENVOY_ATTEMPT_COUNT_KEY, "not-a-number");
+    triggerInterceptorAndCheckEnvoyInRequestPath(metadata, true);
+  }
+
+  /** The max-attempt-count header alone is not evidence of envoy; only the attempt count is. */
+  @Test
+  public void testEnvoyInRequestPath_falseWhenOnlyMaxAttemptCountPresent() {
+    Metadata metadata = new Metadata();
+    metadata.put(GrpcMetadata.ENVOY_MAX_ATTEMPT_COUNT_KEY, "4");
+    triggerInterceptorAndCheckEnvoyInRequestPath(metadata, false);
+  }
+
   @SuppressWarnings("unchecked")
   private void triggerInterceptor(
       Metadata metadata, SearchEnvoyMetadata expectedSearchEnvoyMetadata) {
@@ -203,6 +235,26 @@ public class SearchEnvoyMetadataInterceptorTest {
               assertEquals(
                   Integer.valueOf(expectedMaxAttemptCount),
                   GrpcContext.ENVOY_MAX_ATTEMPT_COUNT_KEY.get());
+              return null;
+            })
+        .when(listener)
+        .onReady();
+    var interceptor = new SearchEnvoyMetadataInterceptor();
+    var interceptedCall =
+        interceptor.interceptCall(serverCall, metadata, (call, headers) -> listener);
+    interceptedCall.onReady();
+  }
+
+  @SuppressWarnings("unchecked")
+  private void triggerInterceptorAndCheckEnvoyInRequestPath(
+      Metadata metadata, boolean expectedEnvoyInRequestPath) {
+    ServerCall<Object, Object> serverCall = mock(ServerCall.class);
+    ServerCall.Listener<Object> listener = mock(ServerCall.Listener.class);
+    doAnswer(
+            invocation -> {
+              assertEquals(
+                  Boolean.valueOf(expectedEnvoyInRequestPath),
+                  GrpcContext.ENVOY_IN_REQUEST_PATH_KEY.get());
               return null;
             })
         .when(listener)

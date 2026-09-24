@@ -29,6 +29,7 @@ public class SearchEnvoyMetadataInterceptor implements ServerInterceptor {
     int attemptCount = parseAttemptCount(headers);
     int maxAttemptCount = parseMaxAttemptCount(headers);
     boolean isShadow = isShadowAuthority(call.getAuthority());
+    boolean envoyInRequestPath = headers.containsKey(GrpcMetadata.ENVOY_ATTEMPT_COUNT_KEY);
 
     Context context =
         Context.current()
@@ -37,7 +38,8 @@ public class SearchEnvoyMetadataInterceptor implements ServerInterceptor {
                 searchEnvoyMetadata.orElse(SearchEnvoyMetadata.getDefaultInstance()))
             .withValue(GrpcContext.ENVOY_ATTEMPT_COUNT_KEY, attemptCount)
             .withValue(GrpcContext.ENVOY_MAX_ATTEMPT_COUNT_KEY, maxAttemptCount)
-            .withValue(GrpcContext.IS_SHADOW_KEY, isShadow);
+            .withValue(GrpcContext.IS_SHADOW_KEY, isShadow)
+            .withValue(GrpcContext.ENVOY_IN_REQUEST_PATH_KEY, envoyInRequestPath);
 
     return Contexts.interceptCall(context, call, headers, next);
   }
@@ -70,7 +72,8 @@ public class SearchEnvoyMetadataInterceptor implements ServerInterceptor {
     // conservative default: it matches envoy's own first-attempt value, and downstream retry
     // logic in `ServerCallHandler#shouldRetryViaEnvoy` will still permit signalling a retry
     // (1 < the attempt budget), so we don't silently disable retries for clients that omit the
-    // header.
+    // header. Callers that need to tell "absent" from "first attempt" read
+    // `GrpcContext.ENVOY_IN_REQUEST_PATH_KEY` instead, which keys off header presence.
     String value = headers.get(GrpcMetadata.ENVOY_ATTEMPT_COUNT_KEY);
     if (value == null) {
       return 1;

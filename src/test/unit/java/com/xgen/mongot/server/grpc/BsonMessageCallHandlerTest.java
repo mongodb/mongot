@@ -29,6 +29,7 @@ public class BsonMessageCallHandlerTest {
         /* envoyAttemptCount */ 1,
         /* envoyMaxAttemptCount */ 3,
         /* isShadow */ false,
+        /* envoyInRequestPath */ false,
         mock(StreamObserver.class));
   }
 

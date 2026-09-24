@@ -23,6 +23,7 @@ public class BsonMessageCallHandler extends ServerCallHandler<RawBsonDocument> {
       int envoyAttemptCount,
       int envoyMaxAttemptCount,
       boolean isShadow,
+      boolean envoyInRequestPath,
       StreamObserver<RawBsonDocument> responseObserver) {
     super(
         commandRegistry,
@@ -32,6 +33,7 @@ public class BsonMessageCallHandler extends ServerCallHandler<RawBsonDocument> {
         envoyAttemptCount,
         envoyMaxAttemptCount,
         isShadow,
+        envoyInRequestPath,
         responseObserver);
   }
 

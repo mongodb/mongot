@@ -48,6 +48,7 @@ java_library(
         "MeteredSearchIndexReader.java",
         "MeteredVectorIndexReader.java",
         "MicrometerSearchAggregationMetricsReporter.java",
+        "QuarantinedIndexException.java",
         "QueryMetricsRecorder.java",
         "QueryShape.java",
         "ReaderClosedException.java",

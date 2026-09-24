@@ -1,6 +1,6 @@
 package com.xgen.mongot.config.manager;
 
-import com.xgen.mongot.index.IndexUnavailableException;
+import com.xgen.mongot.index.QuarantinedIndexException;
 import java.util.UUID;
 
 /**
@@ -19,5 +19,5 @@ public interface QuarantinedIndexLookup {
    * a quarantined index apart from one that never existed - the latter yields an empty cursor.
    */
   void throwIfQuarantined(String database, UUID collectionUuid, String indexName)
-      throws IndexUnavailableException;
+      throws QuarantinedIndexException;
 }

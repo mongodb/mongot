@@ -79,6 +79,7 @@ public class StreamingMessageHandlerTest {
           /* envoyAttemptCount */ 1,
           /* envoyMaxAttemptCount */ 3,
           /* isShadow */ false,
+          /* envoyInRequestPath */ false,
           this.responseObserver);
 
   final InOrder inOrder = Mockito.inOrder(this.responseObserver, this.cursorManager);
@@ -450,6 +451,7 @@ public class StreamingMessageHandlerTest {
             /* envoyAttemptCount */ 2,
             /* envoyMaxAttemptCount */ 3,
             /* isShadow */ false,
+            /* envoyInRequestPath */ false,
             this.responseObserver);
 
     BsonDocument document = new BsonDocument().append(IdentityCommand.Name, new BsonString("foo"));
@@ -647,6 +649,7 @@ public class StreamingMessageHandlerTest {
             /* envoyAttemptCount */ 1,
             /* envoyMaxAttemptCount */ 3,
             /* isShadow */ true,
+            /* envoyInRequestPath */ false,
             this.responseObserver);
     BsonDocument document = new BsonDocument().append(CreateCursorsCommand.Name, BsonBoolean.TRUE);
 
@@ -777,6 +780,7 @@ public class StreamingMessageHandlerTest {
             /* envoyAttemptCount */ 1,
             /* envoyMaxAttemptCount */ 3,
             /* isShadow */ false,
+            /* envoyInRequestPath */ false,
             boundedResponseObserver);
 
     CountDownLatch blockingLatch = new CountDownLatch(1);
@@ -929,6 +933,7 @@ public class StreamingMessageHandlerTest {
             /* envoyAttemptCount */ 1,
             /* envoyMaxAttemptCount */ 3,
             /* isShadow */ false,
+            /* envoyInRequestPath */ false,
             boundedResponseObserver);
 
     CountDownLatch blockingLatch = new CountDownLatch(1);
@@ -1057,6 +1062,7 @@ public class StreamingMessageHandlerTest {
             /* envoyAttemptCount */ 1,
             /* envoyMaxAttemptCount */ 3,
             /* isShadow */ false,
+            /* envoyInRequestPath */ false,
             boundedResponseObserver);
 
     CountDownLatch blockingLatch = new CountDownLatch(1);
@@ -1178,6 +1184,7 @@ public class StreamingMessageHandlerTest {
             /* envoyAttemptCount */ 3,
             /* envoyMaxAttemptCount */ 3,
             /* isShadow */ false,
+            /* envoyInRequestPath */ false,
             boundedResponseObserver);
 
     CountDownLatch blockingLatch = new CountDownLatch(1);
@@ -1305,6 +1312,7 @@ public class StreamingMessageHandlerTest {
             /* envoyAttemptCount */ 3,
             /* envoyMaxAttemptCount */ 5,
             /* isShadow */ false,
+            /* envoyInRequestPath */ false,
             boundedResponseObserver);
 
     CountDownLatch blockingLatch = new CountDownLatch(1);

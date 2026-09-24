@@ -233,9 +233,9 @@ public class GrpcStreamingServer implements CommandServer {
               }
               // Fetch per-stream gRPC context values once here so that the handler does not
               // re-resolve them for each command in the stream. SearchEnvoyMetadataInterceptor
-              // always populates ENVOY_ATTEMPT_COUNT_KEY and ENVOY_MAX_ATTEMPT_COUNT_KEY (with
-              // fallbacks on missing/malformed headers), so .get() returns a non-null Integer on
-              // the gRPC ingress path.
+              // always populates ENVOY_ATTEMPT_COUNT_KEY, ENVOY_MAX_ATTEMPT_COUNT_KEY and
+              // ENVOY_IN_REQUEST_PATH_KEY (with fallbacks on missing/malformed headers), so
+              // .get() returns a non-null value on the gRPC ingress path.
               Context context = Context.current();
               return new WireMessageCallHandler(
                   commandRegistry,
@@ -245,6 +245,7 @@ public class GrpcStreamingServer implements CommandServer {
                   GrpcContext.ENVOY_ATTEMPT_COUNT_KEY.get(context),
                   GrpcContext.ENVOY_MAX_ATTEMPT_COUNT_KEY.get(context),
                   Boolean.TRUE.equals(GrpcContext.IS_SHADOW_KEY.get(context)),
+                  GrpcContext.ENVOY_IN_REQUEST_PATH_KEY.get(context),
                   responseStream);
             });
 
@@ -263,6 +264,7 @@ public class GrpcStreamingServer implements CommandServer {
                   GrpcContext.ENVOY_ATTEMPT_COUNT_KEY.get(context),
                   GrpcContext.ENVOY_MAX_ATTEMPT_COUNT_KEY.get(context),
                   Boolean.TRUE.equals(GrpcContext.IS_SHADOW_KEY.get(context)),
+                  GrpcContext.ENVOY_IN_REQUEST_PATH_KEY.get(context),
                   responseStream);
             });
 
