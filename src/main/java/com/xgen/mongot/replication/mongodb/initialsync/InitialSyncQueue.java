@@ -13,6 +13,7 @@ import com.google.errorprone.annotations.Var;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.mongodb.MongoNamespace;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.IndexTypeData;
 import com.xgen.mongot.index.definition.IndexDefinition;
@@ -135,6 +136,7 @@ public class InitialSyncQueue {
 
   private final InitialSyncConfig initialSyncConfig;
   private final Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig;
+  private final FeatureFlags featureFlags;
 
   @VisibleForTesting
   InitialSyncQueue(
@@ -150,7 +152,8 @@ public class InitialSyncQueue {
       InitialSyncConfig initialSyncConfig,
       InitialSyncManagerFactory managerFactory,
       Path dataPath,
-      Gate initialSyncGate) {
+      Gate initialSyncGate,
+      FeatureFlags featureFlags) {
     this.mongoClients = mongoClients;
     this.syncSourceHost = syncSourceHost;
     this.indexingWorkSchedulerFactory = indexingWorkSchedulerFactory;
@@ -158,6 +161,7 @@ public class InitialSyncQueue {
     this.queued = queued;
     this.cancelled = cancelled;
     this.inProgress = inProgress;
+    this.featureFlags = featureFlags;
 
     this.queueLock = new ReentrantLock();
     this.shutdown = false;
@@ -195,6 +199,36 @@ public class InitialSyncQueue {
     this.dispatcher.start();
   }
 
+  /**
+   * Creates a new InitialSyncQueue, deferring to {@link #create(MeterRegistry, Map, String,
+   * IndexingWorkSchedulerFactory, CommonReplicationConfig, InitialSyncConfig, Path, Gate,
+   * FeatureFlags, Optional)} with default feature flags. Existing callers that do not care about
+   * {@link FeatureFlags} keep compiling; the real flags flow through the overload below.
+   */
+  public static InitialSyncQueue create(
+      MeterRegistry meterRegistry,
+      Map<String, ClientSessionRecord> mongoClientSessions,
+      String syncSourceHost,
+      IndexingWorkSchedulerFactory indexingWorkSchedulerFactory,
+      CommonReplicationConfig replicationConfig,
+      InitialSyncConfig initialSyncConfig,
+      Path dataPath,
+      Gate initialSyncGate,
+      Optional<MaterializedViewCollectionMetadataCatalog>
+          materializedViewCollectionMetadataCatalog) {
+    return create(
+        meterRegistry,
+        mongoClientSessions,
+        syncSourceHost,
+        indexingWorkSchedulerFactory,
+        replicationConfig,
+        initialSyncConfig,
+        dataPath,
+        initialSyncGate,
+        FeatureFlags.getDefault(),
+        materializedViewCollectionMetadataCatalog);
+  }
+
   /** Creates a new InitialSyncQueue, while also spawning a corresponding InitialSyncDispatcher. */
   public static InitialSyncQueue create(
       MeterRegistry meterRegistry,
@@ -205,6 +239,7 @@ public class InitialSyncQueue {
       InitialSyncConfig initialSyncConfig,
       Path dataPath,
       Gate initialSyncGate,
+      FeatureFlags featureFlags,
       Optional<MaterializedViewCollectionMetadataCatalog>
           materializedViewCollectionMetadataCatalog) {
     Check.argIsPositive(
@@ -238,7 +273,8 @@ public class InitialSyncQueue {
         initialSyncConfig,
         factory,
         dataPath,
-        initialSyncGate);
+        initialSyncGate,
+        featureFlags);
   }
 
   @VisibleForTesting
@@ -251,7 +287,8 @@ public class InitialSyncQueue {
       InitialSyncConfig initialSyncConfig,
       InitialSyncManagerFactory managerFactory,
       Path dataPath,
-      Gate initialSyncGate) {
+      Gate initialSyncGate,
+      FeatureFlags featureFlags) {
     Check.argIsPositive(
         replicationConfig.getNumConcurrentInitialSyncs(), "numConcurrentInitialSyncs");
 
@@ -273,7 +310,8 @@ public class InitialSyncQueue {
         initialSyncConfig,
         managerFactory,
         dataPath,
-        initialSyncGate);
+        initialSyncGate,
+        featureFlags);
   }
 
   /**
@@ -945,7 +983,8 @@ public class InitialSyncQueue {
                 InitialSyncQueue.this.initialSyncConfig.enableParallelNaturalOrderScan(),
                 InitialSyncQueue.this.initialSyncConfig.parallelPartitionCount(),
                 InitialSyncQueue.this.initialSyncGate,
-                InitialSyncQueue.this.autoEmbeddingMaterializedViewConfig);
+                InitialSyncQueue.this.autoEmbeddingMaterializedViewConfig,
+                InitialSyncQueue.this.featureFlags);
 
         InitialSyncManager syncManager =
             this.initialSyncManagerFactory.create(

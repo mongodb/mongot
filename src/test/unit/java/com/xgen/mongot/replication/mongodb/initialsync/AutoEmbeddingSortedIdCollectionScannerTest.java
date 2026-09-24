@@ -5,23 +5,34 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.google.errorprone.annotations.Var;
+import com.ibm.icu.text.RuleBasedCollator;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
+import com.xgen.mongot.featureflag.Feature;
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.ViewDefinition;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
+import com.xgen.mongot.replication.mongodb.common.CollectionScanMongoClient;
+import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
+import org.bson.BsonString;
+import org.bson.BsonTimestamp;
+import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
 import org.bson.types.ObjectId;
 import org.junit.Test;
@@ -61,11 +72,24 @@ public class AutoEmbeddingSortedIdCollectionScannerTest {
   }
 
   private static AutoEmbeddingSortedIdCollectionScanner newScanner(boolean onView) {
-    return newScanner(onView, new MetricsFactory("test", new SimpleMeterRegistry()));
+    return newScanner(
+        onView,
+        FeatureFlags.getDefault(),
+        new MetricsFactory("test", new SimpleMeterRegistry()),
+        mock(InitialSyncMongoClient.class));
   }
 
   private static AutoEmbeddingSortedIdCollectionScanner newScanner(
       boolean onView, MetricsFactory metricsFactory) {
+    return newScanner(
+        onView, FeatureFlags.getDefault(), metricsFactory, mock(InitialSyncMongoClient.class));
+  }
+
+  private static AutoEmbeddingSortedIdCollectionScanner newScanner(
+      boolean onView,
+      FeatureFlags featureFlags,
+      MetricsFactory metricsFactory,
+      InitialSyncMongoClient mongoClient) {
     VectorIndexDefinitionBuilder builder =
         VectorIndexDefinitionBuilder.builder()
             .indexId(INDEX_ID)
@@ -86,6 +110,8 @@ public class AutoEmbeddingSortedIdCollectionScannerTest {
     when(context.getIndexId()).thenReturn(INDEX_ID);
     when(context.getGenerationId()).thenReturn(mock(GenerationId.class));
     when(context.getIndexDefinition()).thenReturn(indexDefinition);
+    when(context.getFeatureFlags()).thenReturn(featureFlags);
+    when(context.getChangeStreamResumeOperationTime()).thenReturn(new BsonTimestamp(0));
 
     MaterializedViewCollectionMetadata metadata =
         new MaterializedViewCollectionMetadata(
@@ -96,12 +122,7 @@ public class AutoEmbeddingSortedIdCollectionScannerTest {
     when(catalog.getDatabaseName(any())).thenReturn("db");
 
     return new AutoEmbeddingSortedIdCollectionScanner(
-        Clock.systemUTC(),
-        context,
-        mock(InitialSyncMongoClient.class),
-        new BsonInt32(0),
-        catalog,
-        metricsFactory);
+        Clock.systemUTC(), context, mongoClient, new BsonInt32(0), catalog, metricsFactory);
   }
 
   /**
@@ -283,5 +304,164 @@ public class AutoEmbeddingSortedIdCollectionScannerTest {
     RawBsonDocument doc = raw(new BsonDocument("_id", new BsonInt32(5)));
 
     assertThat(scanner.lastScannedIdOf(doc)).hasValue(new BsonInt32(5));
+  }
+
+  /**
+   * A binary-monotonic id sequence (the common ObjectId/number/simple-collation case) is not a
+   * tripwire trigger: {@code findFirstInversion} returns empty.
+   */
+  @Test
+  public void findFirstInversion_binaryMonotonicIds_returnsEmpty() {
+    List<BsonValue> ids = List.of(new BsonInt32(1), new BsonInt32(2), new BsonInt32(10));
+
+    assertThat(AutoEmbeddingSortedIdCollectionScanner.findFirstInversion(ids, Optional.empty()))
+        .isEmpty();
+  }
+
+  /**
+   * With no collator in scope ({@code Optional.empty()} = pre-7908 behavior) a collation-ordered
+   * batch like {@code a, B} is not binary-monotonic, so the tripwire fires — the original bug
+   * signal (CLOUDP-444644). Contrast with the collator-present test below, which is the case that
+   * must NOT fire once the merge and tripwire share the same comparator.
+   */
+  @Test
+  public void findFirstInversion_binaryComparatorOrder_detectsInversion() {
+    List<BsonValue> ids = List.of(new BsonString("a"), new BsonString("B"));
+
+    Optional<AutoEmbeddingSortedIdCollectionScanner.IdOrderInversion> inversion =
+        AutoEmbeddingSortedIdCollectionScanner.findFirstInversion(ids, Optional.empty());
+
+    assertThat(inversion).isPresent();
+    assertThat(inversion.get().index()).isEqualTo(1);
+    assertThat(inversion.get().previous()).isEqualTo(new BsonString("a"));
+    assertThat(inversion.get().current()).isEqualTo(new BsonString("B"));
+  }
+
+  /**
+   * Under a real ICU collator that matches the server, a collation-ordered batch is monotonic, so
+   * the tripwire must NOT fire. This pins the joint property this PR guarantees with the merge
+   * (which now shares {@code compareIds(..., stringCollator)}): the tripwire uses the same
+   * comparator as the merge, so it no longer false-positives on legitimate collated resyncs (the QA
+   * repro). It should only fire on an ICU-parity gap or an unresolvable collation that fell back to
+   * binary.
+   */
+  @Test
+  public void findFirstInversion_collationOrderedIdsUnderMatchingCollator_returnsEmpty() {
+    Optional<RuleBasedCollator> collator =
+        CollationUtils.toIcuCollator(
+            new BsonDocument("locale", new BsonString("en")).append("strength", new BsonInt32(2)));
+    List<BsonValue> ids =
+        List.of(
+            new BsonString("a00000"),
+            new BsonString("B00001"),
+            new BsonString("c00002"),
+            new BsonString("D00003"));
+
+    assertThat(AutoEmbeddingSortedIdCollectionScanner.findFirstInversion(ids, collator)).isEmpty();
+  }
+
+  /** Empty and single-id batches are trivially monotonic and never trigger. */
+  @Test
+  public void findFirstInversion_emptyOrSingleId_returnsEmpty() {
+    assertThat(
+            AutoEmbeddingSortedIdCollectionScanner.findFirstInversion(List.of(), Optional.empty()))
+        .isEmpty();
+    assertThat(
+            AutoEmbeddingSortedIdCollectionScanner.findFirstInversion(
+                List.of(new BsonString("x")), Optional.empty()))
+        .isEmpty();
+  }
+
+  /**
+   * The previous batch's last id is prepended so the boundary pair straddling a getMore is checked.
+   */
+  @Test
+  public void withPreviousBatchLastId_prependsBoundaryId() {
+    List<BsonValue> current = List.of(new BsonString("b"), new BsonString("c"));
+
+    assertThat(
+            AutoEmbeddingSortedIdCollectionScanner.withPreviousBatchLastId(
+                Optional.of(new BsonString("a")), current))
+        .containsExactly(new BsonString("a"), new BsonString("b"), new BsonString("c"))
+        .inOrder();
+  }
+
+  /** No previous id (first batch) or an empty batch just returns the batch as-is. */
+  @Test
+  public void withPreviousBatchLastId_noPreviousOrEmptyBatch_returnsBatch() {
+    List<BsonValue> current = List.of(new BsonString("b"));
+
+    assertThat(
+            AutoEmbeddingSortedIdCollectionScanner.withPreviousBatchLastId(
+                Optional.empty(), current))
+        .containsExactly(new BsonString("b"));
+    assertThat(
+            AutoEmbeddingSortedIdCollectionScanner.withPreviousBatchLastId(
+                Optional.of(new BsonString("a")), List.of()))
+        .isEmpty();
+  }
+
+  // Drives bufferNextBatch through a mocked source cursor + empty MV read, so the wiring from
+  // "detected inversion -> runIdOrderTripwire" is pinned. The helper tests above don't cover it,
+  // and
+  // removing the bufferNextBatch wiring would keep them green. The default simple-collation
+  // metadata
+  // leaves stringCollator empty (binary), so [a, B] is an inversion.
+  private static AutoEmbeddingSortedIdCollectionScanner scannerForBufferNextBatch(
+      FeatureFlags featureFlags, MetricsFactory metricsFactory) throws InitialSyncException {
+    InitialSyncMongoClient mongoClient = mock(InitialSyncMongoClient.class);
+    CollectionScanMongoClient<InitialSyncException> emptyMvCursor =
+        mock(CollectionScanMongoClient.class);
+    when(emptyMvCursor.hasNext()).thenReturn(false);
+    when(mongoClient.getAutoEmbeddingResyncMongoClient(any(), any(), any(), any()))
+        .thenReturn(emptyMvCursor);
+    return newScanner(false, featureFlags, metricsFactory, mongoClient);
+  }
+
+  private static CollectionScanMongoClient<InitialSyncException> sourceBatchCursor(String... ids)
+      throws InitialSyncException {
+    CollectionScanMongoClient<InitialSyncException> cursor = mock(CollectionScanMongoClient.class);
+    when(cursor.hasNext()).thenReturn(false);
+    when(cursor.getNext())
+        .thenReturn(
+            Arrays.stream(ids)
+                .map(id -> raw(new BsonDocument("_id", new BsonString(id))))
+                .collect(Collectors.toList()));
+    return cursor;
+  }
+
+  @Test
+  public void bufferNextBatch_reportMode_recordsMetricAndContinues() throws InitialSyncException {
+    MetricsFactory metricsFactory = new MetricsFactory("test", new SimpleMeterRegistry());
+    AutoEmbeddingSortedIdCollectionScanner scanner =
+        scannerForBufferNextBatch(FeatureFlags.withDefaults().build(), metricsFactory);
+
+    List<DocumentEvent> events = scanner.bufferNextBatch(sourceBatchCursor("a", "B"));
+
+    // a > B under binary: detected inversion -> REPORT -> metric recorded, no abort. Empty MV ->
+    // both
+    // source docs are inserts.
+    assertThat(events).hasSize(2);
+    assertThat(metricsFactory.get("resyncIdOrderInversions").counter().count()).isEqualTo(1.0);
+  }
+
+  @Test
+  public void bufferNextBatch_failMode_abortsResyncOnInversion() throws InitialSyncException {
+    MetricsFactory metricsFactory = new MetricsFactory("test", new SimpleMeterRegistry());
+    FeatureFlags flags =
+        FeatureFlags.withDefaults().enable(Feature.AE_RESYNC_ID_ORDER_TRIPWIRE_FAIL_FAST).build();
+    AutoEmbeddingSortedIdCollectionScanner scanner =
+        scannerForBufferNextBatch(flags, metricsFactory);
+
+    @Var InitialSyncException thrown = null;
+    try {
+      scanner.bufferNextBatch(sourceBatchCursor("a", "B"));
+    } catch (InitialSyncException e) {
+      thrown = e;
+    }
+
+    assertThat(thrown).isNotNull();
+    assertThat(thrown.getMessage()).contains("id-order tripwire");
+    assertThat(metricsFactory.get("resyncIdOrderInversions").counter().count()).isEqualTo(1.0);
   }
 }

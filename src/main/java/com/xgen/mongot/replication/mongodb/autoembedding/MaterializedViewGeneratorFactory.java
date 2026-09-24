@@ -224,6 +224,7 @@ class MaterializedViewGeneratorFactory {
                 /* This path should be different from the dataPath used in Lucene */
                 this.resolvedPath,
                 ToggleGate.opened(),
+                this.featureFlags,
                 Optional.of(this.matViewMetadataCatalog)));
     this.initialized = true;
   }

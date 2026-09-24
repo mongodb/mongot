@@ -31,6 +31,7 @@ import static org.mockito.Mockito.when;
 import com.google.common.base.Supplier;
 import com.google.errorprone.annotations.Keep;
 import com.mongodb.MongoNamespace;
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexTypeData;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.SearchIndexDefinitionGeneration;
@@ -1537,7 +1538,8 @@ public class InitialSyncQueueTest {
               initialSyncConfig,
               mockInitialSyncManagerFactory,
               rootPath,
-              initialSyncGate);
+              initialSyncGate,
+              FeatureFlags.getDefault());
     }
 
     static Mocks create(

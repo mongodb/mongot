@@ -15,6 +15,7 @@ import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
 import com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator;
 import com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils;
+import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.DocumentMetadata;
 import com.xgen.mongot.index.definition.IndexDefinition;
@@ -27,6 +28,7 @@ import com.xgen.mongot.replication.mongodb.common.CollectionScanMongoClient;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
+import com.xgen.mongot.util.LoggableIdUtils;
 import com.xgen.mongot.util.mongodb.CollectionScanFindCommand;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Timer;
@@ -67,6 +69,11 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
   private final Counter resyncSurplusDocuments;
   private final Counter resyncStaleDocuments;
   private final Optional<RuleBasedCollator> stringCollator;
+  private final Counter resyncIdOrderInversions;
+  private TripwireMode tripwireMode = TripwireMode.REPORT;
+  private boolean tripwireModeResolved;
+  private final List<BsonValue> sourceBatchIds = new ArrayList<>();
+  private Optional<BsonValue> previousBatchLastId = Optional.empty();
   private boolean firstPage = true;
 
   /** Builds an AutoEmbeddingSortedIdCollectionScanner. */
@@ -87,6 +94,7 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
     this.resyncMissingDocuments = metricsFactory.counter("resyncMissingDocuments");
     this.resyncSurplusDocuments = metricsFactory.counter("resyncSurplusDocuments");
     this.resyncStaleDocuments = metricsFactory.counter("resyncStaleDocuments");
+    this.resyncIdOrderInversions = metricsFactory.counter("resyncIdOrderInversions");
     Check.checkState(
         !context.useNaturalOrderScan(),
         "AutoEmbeddingSortedIdCollectionScanner should not be used with natural order scan");
@@ -131,9 +139,18 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
   // or
   // non-string values) uses the binary comparator, which matches a simple-collation _id index.
   private int compareIds(BsonValue sourceDocId, BsonValue matViewDocId) {
-    if (this.stringCollator.isPresent()
-        && isStringLike(sourceDocId)
-        && isStringLike(matViewDocId)) {
+    return compareIds(sourceDocId, matViewDocId, this.stringCollator);
+  }
+
+  // Shared by the sort-merge and the id-order tripwire: order string-like _ids by the ICU collator
+  // when a non-simple source collation is in scope, else the binary comparator. The tripwire
+  // compares
+  // source batch ids under this same comparator, so it flags when the server's order diverges from
+  // the merge's — an ICU parity gap (e.g. th) or an unresolvable collation that fell back to
+  // binary.
+  private static int compareIds(
+      BsonValue sourceDocId, BsonValue matViewDocId, Optional<RuleBasedCollator> stringCollator) {
+    if (stringCollator.isPresent() && isStringLike(sourceDocId) && isStringLike(matViewDocId)) {
       String sourceValue = stringValue(sourceDocId);
       String matViewValue = stringValue(matViewDocId);
       // Fast path for the common in-sync resync: identical strings are equal without the ICU
@@ -141,7 +158,7 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
       if (sourceValue.equals(matViewValue)) {
         return 0;
       }
-      int cmp = this.stringCollator.get().compare(sourceValue, matViewValue);
+      int cmp = stringCollator.get().compare(sourceValue, matViewValue);
       if (cmp != 0) {
         return cmp;
       }
@@ -192,6 +209,7 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
   protected List<DocumentEvent> bufferNextBatch(
       CollectionScanMongoClient<InitialSyncException> mongoClient) throws InitialSyncException {
     List<RawBsonDocument> batch = mongoClient.getNext();
+    this.sourceBatchIds.clear();
 
     // The last scanned doc's id bounds both the mat-view query and the resume token; see
     // lastScannedIdOf for which id (metadata namespace vs root) is used and why.
@@ -204,6 +222,16 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
     var preprocessingTimer = Stopwatch.createStarted();
     List<RawBsonDocument> matViewBatch = getMatViewDocsInRange(upperBound);
     List<DocumentEvent> documentEvents = new ArrayList<>(sortMergeEvents(batch, matViewBatch));
+    // Include the previous batch's last id so the boundary pair that straddles a getMore boundary
+    // (batch sizes are arbitrary) is checked too, not just pairs within one batch.
+    runIdOrderTripwire(
+        findFirstInversion(
+            withPreviousBatchLastId(this.previousBatchLastId, this.sourceBatchIds),
+            this.stringCollator));
+    this.previousBatchLastId =
+        this.sourceBatchIds.isEmpty()
+            ? this.previousBatchLastId
+            : Optional.of(this.sourceBatchIds.get(this.sourceBatchIds.size() - 1));
     this.preprocessingBatchTimer.record(preprocessingTimer.stop().elapsed());
     this.logger.debug(
         "Detected "
@@ -220,6 +248,108 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
     this.firstPage = false;
 
     return documentEvents;
+  }
+
+  // CLOUDP-447390 / CLOUDP-444644: detect when a source batch's _id order is not monotonic under
+  // the comparator the merge uses (compareIds -> the ICU collator when a non-simple source
+  // collation
+  // is in scope, else binary). A non-monotonic batch means the server's order disagrees with the
+  // merge's — an ICU parity gap (e.g. th) or an unresolvable collation that fell back to binary —
+  // which can make overlapping windows silently drop documents. Runs for any string-like or mixed
+  // _id (compareIds handles STRING, SYMBOL and mixed types); the previous batch's last id is
+  // carried
+  // across getMore boundaries via withPreviousBatchLastId. Always runs in REPORT mode (record a
+  // metric + warn and continue); the FAIL_FAST feature flag escalates to aborting the resync.
+  //
+  // Source ids are collected during sortMergeEvents (which already extracts each source id), so the
+  // check reuses the merge's iteration instead of a second pass.
+  private void runIdOrderTripwire(Optional<IdOrderInversion> inversion)
+      throws InitialSyncException {
+    if (inversion.isEmpty()) {
+      return;
+    }
+    TripwireMode mode = tripwireMode();
+    IdOrderInversion found = inversion.get();
+    this.resyncIdOrderInversions.increment();
+    LOG.atWarning().atMostEvery(1, TimeUnit.MINUTES).log(
+        "AE resync source batch _id order is not monotonic under the MV-window comparator "
+            + "(id-order mismatch, CLOUDP-444644): previous=%s, current=%s at index %d, mode=%s.",
+        LoggableIdUtils.getLoggableId(found.previous()),
+        LoggableIdUtils.getLoggableId(found.current()),
+        found.index(),
+        mode);
+    if (mode == TripwireMode.FAIL) {
+      // Message is intentionally generic (no raw _id): with retain-on-failure it surfaces as the
+      // index status message to customers, so only the index + cause hint are safe to expose.
+      throw InitialSyncException.createRequiresResync(
+          "AE resync aborted by the id-order tripwire: source _id order is not monotonic "
+              + "under the MV-window comparator at index "
+              + found.index()
+              + ". The source collection likely has a non-simple collation; see CLOUDP-444644.");
+    }
+  }
+
+  // Resolved lazily so the existing scanner unit tests (which build a scanner with a mocked context
+  // that does not stub getFeatureFlags()) do not surface a null on the path they never exercise.
+  // The
+  // context's FeatureFlags are fixed for the process, so the mode cannot change mid-scan.
+  private TripwireMode tripwireMode() {
+    if (!this.tripwireModeResolved) {
+      this.tripwireMode =
+          this.context.getFeatureFlags().isEnabled(Feature.AE_RESYNC_ID_ORDER_TRIPWIRE_FAIL_FAST)
+              ? TripwireMode.FAIL
+              : TripwireMode.REPORT;
+      this.tripwireModeResolved = true;
+    }
+    return this.tripwireMode;
+  }
+
+  /**
+   * First source batch position where the previous id sorts after next id under the comparator the
+   * merge uses (the ICU collator when a non-simple source collation is in scope, else binary). A
+   * non-monotonic source batch means the server's order disagrees with the merge's comparator — an
+   * ICU parity gap (e.g. th) or an unresolvable collation that fell back to binary.
+   */
+  @VisibleForTesting
+  static Optional<IdOrderInversion> findFirstInversion(
+      List<BsonValue> ids, Optional<RuleBasedCollator> stringCollator) {
+    for (int i = 1; i < ids.size(); i++) {
+      BsonValue previous = ids.get(i - 1);
+      BsonValue current = ids.get(i);
+      if (compareIds(previous, current, stringCollator) > 0) {
+        return Optional.of(new IdOrderInversion(previous, current, i));
+      }
+    }
+    return Optional.empty();
+  }
+
+  // Collects a source id for the id-order tripwire. Every source id is collected (compareIds
+  // handles STRING, SYMBOL and mixed types), so findFirstInversion can check the full ordered run.
+  private void recordSourceId(Optional<BsonValue> id) {
+    id.ifPresent(this.sourceBatchIds::add);
+  }
+
+  // Prepends the previous batch's last id so findFirstInversion also checks the adjacent pair that
+  // straddles a getMore boundary (batch sizes are arbitrary, so the mismatch could land there).
+  @VisibleForTesting
+  static List<BsonValue> withPreviousBatchLastId(
+      Optional<BsonValue> previousBatchLastId, List<BsonValue> currentBatchIds) {
+    if (previousBatchLastId.isEmpty() || currentBatchIds.isEmpty()) {
+      return currentBatchIds;
+    }
+    List<BsonValue> result = new ArrayList<>(currentBatchIds.size() + 1);
+    result.add(previousBatchLastId.get());
+    result.addAll(currentBatchIds);
+    return result;
+  }
+
+  @VisibleForTesting
+  record IdOrderInversion(BsonValue previous, BsonValue current, int index) {}
+
+  /** How the id-order tripwire acts on a detected inversion: REPORT (default) or FAIL. */
+  enum TripwireMode {
+    REPORT,
+    FAIL
   }
 
   @Override
@@ -268,6 +398,7 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
         continue;
       }
       BsonValue sourceDocId = sourceDocMetadata.getId().get();
+      recordSourceId(Optional.of(sourceDocId));
 
       BsonValue matViewDocId = matViewDocMetadata.getId().get();
 
@@ -322,6 +453,7 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
         baseIdx++;
         continue;
       }
+      recordSourceId(metadata.getId());
       operations.add(DocumentEvent.createInsert(metadata, sourceDoc));
       baseIdx++;
     }

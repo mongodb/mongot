@@ -392,6 +392,7 @@ public class MongoDbReplicationManager implements ReplicationManager {
             initialSyncConfig,
             dataPath,
             initialSyncGate,
+            featureFlags,
             Optional.empty());
 
     SteadyStateReplicationConfig steadyStateReplicationConfig =

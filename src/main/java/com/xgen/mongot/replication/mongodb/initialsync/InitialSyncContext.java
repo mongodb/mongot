@@ -1,5 +1,6 @@
 package com.xgen.mongot.replication.mongodb.initialsync;
 
+import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.IndexMetricsUpdater.ReplicationMetricsUpdater.InitialSyncMetrics;
@@ -40,6 +41,7 @@ public class InitialSyncContext {
   private final boolean removeMatchCollectionUuid;
   private final Gate initialSyncGate;
   private final Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig;
+  private final FeatureFlags featureFlags;
 
   private InitialSyncContext(
       IndexDefinitionGeneration indexDefinitionGeneration,
@@ -54,7 +56,8 @@ public class InitialSyncContext {
       boolean enableParallelNaturalOrderScan,
       int parallelPartitionCount,
       Gate initialSyncGate,
-      Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig) {
+      Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig,
+      FeatureFlags featureFlags) {
 
     this.indexDefinitionGeneration = indexDefinitionGeneration;
     this.indexingWorkScheduler = indexingWorkScheduler;
@@ -72,6 +75,7 @@ public class InitialSyncContext {
     this.removeMatchCollectionUuid = removeMatchCollectionUuid;
     this.initialSyncGate = initialSyncGate;
     this.autoEmbeddingMaterializedViewConfig = autoEmbeddingMaterializedViewConfig;
+    this.featureFlags = featureFlags;
   }
 
   static InitialSyncContext create(
@@ -96,7 +100,8 @@ public class InitialSyncContext {
         enableParallelNaturalOrderScan,
         parallelPartitionCount,
         initialSyncGate,
-        Optional.empty());
+        Optional.empty(),
+        FeatureFlags.getDefault());
   }
 
   static InitialSyncContext create(
@@ -110,7 +115,8 @@ public class InitialSyncContext {
       boolean enableParallelNaturalOrderScan,
       int parallelPartitionCount,
       Gate initialSyncGate,
-      Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig) {
+      Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig,
+      FeatureFlags featureFlags) {
 
     return new InitialSyncContext(
         indexDefinitionGeneration,
@@ -125,7 +131,12 @@ public class InitialSyncContext {
         enableParallelNaturalOrderScan,
         parallelPartitionCount,
         initialSyncGate,
-        autoEmbeddingMaterializedViewConfig);
+        autoEmbeddingMaterializedViewConfig,
+        featureFlags);
+  }
+
+  public FeatureFlags getFeatureFlags() {
+    return this.featureFlags;
   }
 
   public GenerationId getGenerationId() {
@@ -308,6 +319,7 @@ public class InitialSyncContext {
         this.enableParallelNaturalOrderScan,
         this.parallelPartitionCount,
         this.initialSyncGate,
-        this.autoEmbeddingMaterializedViewConfig);
+        this.autoEmbeddingMaterializedViewConfig,
+        this.featureFlags);
   }
 }

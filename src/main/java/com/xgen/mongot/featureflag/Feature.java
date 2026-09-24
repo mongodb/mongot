@@ -114,7 +114,10 @@ public enum Feature {
   QUARANTINE_UNPARSEABLE_INDEX("quarantineUnparseableIndex", State.DISABLED),
   // Constructs blobstore snapshotter resources at startup even when blobstore uploads and downloads
   // are disabled, so a later runtime request can flip them on without restarting mongot.
-  ALWAYS_BOOTSTRAP_SNAPSHOTTER_RESOURCES("alwaysBootstrapSnapshotterResources", State.DISABLED);
+  ALWAYS_BOOTSTRAP_SNAPSHOTTER_RESOURCES("alwaysBootstrapSnapshotterResources", State.DISABLED),
+  // CLOUDP-447390: escalates the AE resync id-order tripwire from REPORT (metric + warning,
+  // default) to FAIL — aborting the resync on the first source _id ordering inversion.
+  AE_RESYNC_ID_ORDER_TRIPWIRE_FAIL_FAST("aeResyncIdOrderTripwireFailFast", State.DISABLED);
 
   private final String name;
   private final State defaultState;

@@ -53,7 +53,8 @@
         "bloomFilterOnHeap": false,
         "lucene104Codec": false,
         "quarantineUnparseableIndex": false,
-        "alwaysBootstrapSnapshotterResources": false
+        "alwaysBootstrapSnapshotterResources": false,
+        "aeResyncIdOrderTripwireFailFast": false
       }
     },
     {
@@ -109,7 +110,8 @@
         "bloomFilterOnHeap": false,
         "lucene104Codec": false,
         "quarantineUnparseableIndex": false,
-        "alwaysBootstrapSnapshotterResources": false
+        "alwaysBootstrapSnapshotterResources": false,
+        "aeResyncIdOrderTripwireFailFast": false
       }
     },
     {
@@ -165,7 +167,8 @@
         "bloomFilterOnHeap": true,
         "lucene104Codec": true,
         "quarantineUnparseableIndex": true,
-        "alwaysBootstrapSnapshotterResources": true
+        "alwaysBootstrapSnapshotterResources": true,
+        "aeResyncIdOrderTripwireFailFast": true
       }
     },
     {
@@ -221,7 +224,8 @@
         "bloomFilterOnHeap": false,
         "lucene104Codec": false,
         "quarantineUnparseableIndex": false,
-        "alwaysBootstrapSnapshotterResources": false
+        "alwaysBootstrapSnapshotterResources": false,
+        "aeResyncIdOrderTripwireFailFast": false
       }
     }
   ]
