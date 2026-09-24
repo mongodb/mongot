@@ -715,6 +715,61 @@ public class SyncChangeStreamDispatcherTest {
   }
 
   @Test
+  public void getNext_admissionQueueOverflow_retriesSameCursor() throws Exception {
+    var definition = SearchIndex.mockSearchDefinition(new ObjectId());
+    IndexDefinitionGeneration generation =
+        mockIndexGeneration(definition).getDefinitionGeneration();
+
+    ChangeStreamMongoClient<SteadyStateException> mongoClient = mock(ChangeStreamMongoClient.class);
+    when(mongoClient.getNext())
+        .thenThrow(throttled(Errors.ADMISSION_QUEUE_OVERFLOW.code))
+        .thenThrow(throttled(Errors.ADMISSION_QUEUE_OVERFLOW.code))
+        .thenThrow(
+            SteadyStateException.createTransient(
+                new RuntimeException("not throttling"), "test-terminate"));
+
+    ChangeStreamMongoClientFactory mongoClientFactory = mock(ChangeStreamMongoClientFactory.class);
+    when(mongoClientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+        .thenReturn(mongoClient);
+
+    ChangeStreamIndexManager indexManager =
+        spy(indexManager(definition, generation, new CompletableFuture<>()));
+
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    SyncChangeStreamDispatcher syncDispatcher =
+        new SyncChangeStreamDispatcher(
+            meterRegistry,
+            mongoClientFactory,
+            new FifoExecutor(
+                Executors.fixedSizeThreadScheduledExecutor(
+                    "executor", 1, new SimpleMeterRegistry())),
+            CommonReplicationConfig.Type.DEFAULT,
+            /* retryThrottledGetMoreOnSameCursor= */ true,
+            Sleeper.NO_OP);
+
+    try {
+      syncDispatcher.add(
+          definition,
+          generation.getGenerationId(),
+          mock(ChangeStreamResumeInfo.class),
+          indexManager,
+          false);
+
+      // 433 is rejected at ticket acquisition, before the operation runs, so the cursor survives
+      // and the same-cursor retry applies (CLOUDP-450070).
+      verify(indexManager, timeout(5000)).failLifecycle(any());
+      verify(mongoClient, timeout(5000).times(3)).getNext();
+      assertThat(throttlingRetries(meterRegistry)).isEqualTo(2.0);
+      assertThat(
+              overloadRejections(
+                  meterRegistry, Errors.ADMISSION_QUEUE_OVERFLOW.code, "steadyState"))
+          .isEqualTo(2.0);
+    } finally {
+      syncDispatcher.shutdown();
+    }
+  }
+
+  @Test
   public void getNext_throttledWithFeatureDisabled_failsLifecycleImmediately() throws Exception {
     var definition = SearchIndex.mockSearchDefinition(new ObjectId());
     IndexDefinitionGeneration generation =

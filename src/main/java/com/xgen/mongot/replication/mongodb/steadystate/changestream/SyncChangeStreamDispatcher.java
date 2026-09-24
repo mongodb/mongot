@@ -72,9 +72,9 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
   };
 
   /**
-   * A getMore rejected at admission by Mongotune ingress rate limiting (462) never runs, so the
-   * change stream cursor is still valid and we retry the same cursor on a short backoff instead of
-   * failing the index's lifecycle.
+   * A getMore rejected because mongod is shedding load (462 ingress rate limiting, or 433
+   * execution-control queue overflow) never starts executing, so the change stream cursor is still
+   * valid and we retry the same cursor on a short backoff instead of failing the index's lifecycle.
    */
   @VisibleForTesting static final int MAX_THROTTLING_RETRIES = 5;
 

@@ -97,16 +97,23 @@ public class Errors {
           6, 7, 63, 89, 91, 133, 150, 189, 234, 262, 433, 462, 473, 489, 9001, 10107, 11600, 11602,
           13388, 13435, 13436);
 
-  // Codes returned when Mongotune sheds load.
+  // Codes returned when Mongotune sheds load, and eligible for the same-cursor retry: the request
+  // never started executing, so the cursor is untouched.
+  //
+  // 462 is the ingress rate limiter refusing the request outright. 433 is Execution Control
+  // rejecting the operation at ticket acquisition -- also before it runs, so the cursor survives
+  // (CLOUDP-450070). It can only occur when the low-priority queue is bounded, which is
+  // non-default. 473 is deliberately excluded: it interrupts a *running* operation, and mongod
+  // proactively deletes the cursor afterwards (cursor_manager.cpp removes it on
+  // InterruptedDueToOverload), so the retry would just fail with CursorNotFound.
   public static final Set<Integer> THROTTLING_ERROR_CODES =
-      Set.of(Errors.INGRESS_REQUEST_RATE_LIMIT_EXCEEDED.code);
+      Set.of(Errors.INGRESS_REQUEST_RATE_LIMIT_EXCEEDED.code, Errors.ADMISSION_QUEUE_OVERFLOW.code);
 
   // Codes that mean mongod refused the request because it is overloaded, counted per replication
   // phase by OverloadRejectionMetrics (CLOUDP-441246). Broader than THROTTLING_ERROR_CODES, which
-  // covers only the ingress rate limiter's 462 and gates the same-cursor retry: 473 and 433 also
-  // indicate shed load, but arrive by paths that kill the cursor, so they are worth counting even
-  // though they cannot be retried in place. Including 433 keeps execution control observable while
-  // it is monitor-only.
+  // gates the same-cursor retry: 473 also indicates shed load, but arrives by a path that kills the
+  // cursor, so it is worth counting even though it cannot be retried in place. Including 433 keeps
+  // execution control observable even where the retry covers it.
   public static final Set<Integer> OVERLOAD_REJECTION_ERROR_CODES =
       Set.of(
           Errors.INGRESS_REQUEST_RATE_LIMIT_EXCEEDED.code,

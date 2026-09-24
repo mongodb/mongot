@@ -36,13 +36,14 @@ public class MongoExceptionUtilsTest {
   }
 
   @Test
-  public void isThrottling_admissionQueueOverflow_returnsFalse() {
-    // 433 is thrown while waiting for an execution-control ticket, after the getMore has been let
-    // through admission: the operation is interrupted, so the cursor cannot be reused in place.
+  public void isThrottling_admissionQueueOverflow_returnsTrue() {
+    // 433 is thrown at ticket acquisition, before the operation runs: the cursor is untouched, so
+    // it is eligible for the same-cursor retry like 462 (CLOUDP-450070). Contrast 473, which
+    // interrupts a running operation and gets the cursor deleted server-side.
     assertThat(
             MongoExceptionUtils.isThrottling(
                 commandException(Errors.ADMISSION_QUEUE_OVERFLOW.code)))
-        .isFalse();
+        .isTrue();
   }
 
   @Test
