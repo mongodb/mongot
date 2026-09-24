@@ -1,5 +1,6 @@
 package com.xgen.mongot.config.provider.community.embedding;
 
+import com.xgen.mongot.config.provider.cli.CliOptionRegistry;
 import com.xgen.mongot.config.provider.community.parser.PathField;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
@@ -9,6 +10,7 @@ import com.xgen.mongot.util.bson.parser.Field;
 import java.nio.file.Path;
 import java.util.Optional;
 import org.bson.BsonDocument;
+import picocli.CommandLine;
 
 /**
  * Basic embedding configuration for community edition. Supports: - Overriding the provider endpoint
@@ -41,6 +43,37 @@ public record EmbeddingConfig(
 
     public static final Field.WithDefault<Boolean> IS_AUTO_EMBEDDING_VIEW_WRITER =
         Field.builder("isAutoEmbeddingViewWriter").booleanField().optional().withDefault(false);
+  }
+
+  public static final class EmbeddingConfigCliOptionRegistry extends CliOptionRegistry {
+
+    @CommandLine.Option(
+        names = "--embeddingProviderEndpoint",
+        description = "Overrides the embedding provider endpoint URL")
+    public Optional<String> providerEndpoint = Optional.empty();
+
+    @CommandLine.Option(
+        names = "--embeddingQueryKeyFile",
+        description = "Path to the file containing the query API key")
+    public Optional<Path> queryKeyFile = Optional.empty();
+
+    @CommandLine.Option(
+        names = "--embeddingIndexingKeyFile",
+        description = "Path to the file containing the indexing API key")
+    public Optional<Path> indexingKeyFile = Optional.empty();
+
+    @CommandLine.Option(
+        names = "--isAutoEmbeddingViewWriter",
+        description = "Configures this instance as the auto-embedding view writer (leader)")
+    public Optional<Boolean> isAutoEmbeddingViewWriter = Optional.empty();
+
+    public EmbeddingConfigCliOptionRegistry() {
+      addStringLeafValue(Fields.PROVIDER_ENDPOINT, () -> this.providerEndpoint);
+      addPathLeafValue(Fields.QUERY_KEY_FILE, () -> this.queryKeyFile);
+      addPathLeafValue(Fields.INDEXING_KEY_FILE, () -> this.indexingKeyFile);
+      addBooleanLeafValue(
+          Fields.IS_AUTO_EMBEDDING_VIEW_WRITER, () -> this.isAutoEmbeddingViewWriter);
+    }
   }
 
   public static EmbeddingConfig fromBson(DocumentParser parser) throws BsonParseException {
